@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import PageTransition from "../components/PageTransition";
 import TopBar from "../components/TopBar";
+import ThemeInit from "../components/ThemeInit";
 
 export const dynamic = "force-dynamic";
 
@@ -31,6 +32,7 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased bg-background text-foreground`}
       >
+        <ThemeInit />
         <TopBar />
         <PageTransition>{children}</PageTransition>
       </body>
