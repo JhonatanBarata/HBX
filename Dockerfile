@@ -5,4 +5,4 @@ RUN cd backend && npm install
 COPY backend backend
 RUN cd backend && npm run build
 EXPOSE 3000
-CMD ["sh","-c","cd /app/backend && npx prisma migrate deploy && node dist/main.js"]
+CMD ["sh","-c","cd /app/backend && node -r ./scripts/fix-direct-url dist/main.js"]
