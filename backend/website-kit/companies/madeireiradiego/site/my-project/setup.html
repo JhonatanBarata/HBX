@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <title>Setup Inicial - Firebase</title>
+  <style>
+    body {
+      font-family: -apple-system, sans-serif;
+      max-width: 800px;
+      margin: 50px auto;
+      padding: 20px;
+      background: #0b0b0b;
+      color: #e5e7eb;
+    }
+    h1 { color: #d4af37; }
+    .btn {
+      background: #d4af37;
+      color: #000;
+      padding: 12px 24px;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      font-weight: bold;
+      margin: 10px 5px;
+    }
+    .btn:hover { background: #c4a030; }
+    .btn:disabled {
+      background: #666;
+      cursor: not-allowed;
+    }
+    .success { color: #52c41a; }
+    .error { color: #ff4d4f; }
+    .info { background: #1a1a1a; padding: 15px; border-radius: 8px; margin: 15px 0; border-left: 3px solid #d4af37; }
+    #log {
+      background: #000;
+      padding: 15px;
+      border-radius: 8px;
+      font-family: monospace;
+      font-size: 12px;
+      max-height: 400px;
+      overflow-y: auto;
+      margin-top: 20px;
+    }
+    .log-item { margin: 5px 0; }
+  </style>
+  <link rel="stylesheet" href="page-transitions.css">
+</head>
+<body>
+  <div id="page-loader" class="page-loader">
+    <div class="loader-ring"></div>
+    <div class="loader-text">Carregando...</div>
+  </div>
+  <h1>🔧 Setup Inicial - Madeireira Monteiro</h1>
+  
+  <div class="info">
+    <strong>⚠️ Importante:</strong><br>
+    1. Configure o Firebase primeiro (firebase-config.js)<br>
+    2. Crie usuário no Firebase Authentication<br>
+    3. Faça login abaixo<br>
+    4. Execute este script para popular dados iniciais<br>
+    5. Depois você pode deletar este arquivo
+  </div>
+
+  <!-- Login Section -->
+  <div id="loginSection" style="background: #1a1a1a; padding: 20px; border-radius: 8px; border-left: 3px solid #d4af37; margin: 20px 0;">
+    <h3>🔑 Fazer Login</h3>
+    <input type="email" id="email" placeholder="Email" style="width: 100%; padding: 10px; margin: 10px 0; background: #0b0b0b; color: #e5e7eb; border: 1px solid #333; border-radius: 4px;">
+    <input type="password" id="senha" placeholder="Senha" style="width: 100%; padding: 10px; margin: 10px 0; background: #0b0b0b; color: #e5e7eb; border: 1px solid #333; border-radius: 4px;">
+    <button class="btn" onclick="fazerLogin()" id="btnLogin">Fazer Login</button>
+    <span id="statusLogin" style="margin-left: 10px;"></span>
+  </div>
+
+  <!-- Setup Section (hidden until login) -->
+  <div id="setupSection" style="display: none;">
+    <h3>Etapas:</h3>
+    <button class="btn" onclick="criarTipos()" id="btnTipos">1. Criar Tipos de Mesa</button>
+    <button class="btn" onclick="criarMesasExemplo()" id="btnMesas" disabled>2. Criar Mesas Exemplo</button>
+    <button class="btn" onclick="configurarCarrossel()" id="btnCarrossel" disabled>3. Configurar Carrossel</button>
+    <button class="btn" onclick="fazerLogout()" style="background: #666; margin-top: 20px;">Fazer Logout</button>
+  </div>
+
+  <div id="log"></div>
+
+  <!-- Firebase SDK -->
+  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-storage-compat.js"></script>
+  <script src="firebase-config.js"></script>
+
+  <script>
+    // Firebase já foi carregado e inicializado em firebase-config.js
+    // firebaseDB está disponível globalmente
+    
+    function verificarFirebase() {
+      if (typeof firebaseDB !== 'undefined') {
+        log('✓ Firebase conectado', 'success');
+        return true;
+      } else {
+        log('❌ Firebase não carregou! Verifique firebase-config.js', 'error');
+        return false;
+      }
+    }
+    
+    function log(message, type = 'info') {
+      const logDiv = document.getElementById('log');
+      const color = type === 'success' ? '#52c41a' : type === 'error' ? '#ff4d4f' : '#9ca3af';
+      logDiv.innerHTML += `<div class="log-item" style="color: ${color};">
+        ${new Date().toLocaleTimeString()} - ${message}
+      </div>`;
+      logDiv.scrollTop = logDiv.scrollHeight;
+    }
+
+    async function fazerLogin() {
+      const email = document.getElementById('email').value;
+      const senha = document.getElementById('senha').value;
+      const status = document.getElementById('statusLogin');
+      
+      if (!email || !senha) {
+        status.innerHTML = '<span style="color: #ff4d4f;">Preencha email e senha!</span>';
+        return;
+      }
+      
+      try {
+        status.innerHTML = '<span style="color: #9ca3af;">Fazendo login...</span>';
+        await firebaseAuth.signInWithEmailAndPassword(email, senha);
+        status.innerHTML = '<span style="color: #52c41a;">✓ Logado com sucesso!</span>';
+        
+        // Mostrar seção de setup
+        document.getElementById('loginSection').style.display = 'none';
+        document.getElementById('setupSection').style.display = 'block';
+        log('✓ Usuário autenticado com sucesso!', 'success');
+      } catch (error) {
+        status.innerHTML = `<span style="color: #ff4d4f;">Erro: ${error.message}</span>`;
+        log(`❌ Erro ao fazer login: ${error.message}`, 'error');
+      }
+    }
+
+    function fazerLogout() {
+      firebaseAuth.signOut();
+      document.getElementById('loginSection').style.display = 'block';
+      document.getElementById('setupSection').style.display = 'none';
+      document.getElementById('email').value = '';
+      document.getElementById('senha').value = '';
+      document.getElementById('statusLogin').innerHTML = '';
+      log('✓ Deslogado com sucesso!', 'success');
+    }
+
+    // Verificar se já está logado
+    window.addEventListener('load', () => {
+      firebaseAuth.onAuthStateChanged((user) => {
+        if (user) {
+          document.getElementById('loginSection').style.display = 'none';
+          document.getElementById('setupSection').style.display = 'block';
+          log(`✓ Você já está logado como: ${user.email}`, 'success');
+        }
+      });
+    });
+
+    async function criarTipos() {
+      const btn = document.getElementById('btnTipos');
+      btn.disabled = true;
+      
+      if (!verificarFirebase()) {
+        btn.disabled = false;
+        return;
+      }
+      
+      log('Criando tipos de mesa...');
+      
+      const tipos = [
+        { nome: 'Garapeira' },
+        { nome: 'Pequiá' },
+        { nome: 'Angelim de Pedra' },
+        { nome: 'Madeira Nobre' }
+      ];
+      
+      try {
+        log('📝 Iniciando inserção de tipos...');
+        console.log('Firebase DB:', firebaseDB);
+        console.log('Collection tipos:', firebaseDB.collection('tipos'));
+        
+        for (const tipo of tipos) {
+          log(`Adicionando tipo: ${tipo.nome}...`);
+          const docRef = await firebaseDB.collection('tipos').add({
+            ...tipo,
+            createdAt: firebase.firestore.FieldValue.serverTimestamp()
+          });
+          log(`✓ Tipo "${tipo.nome}" criado (ID: ${docRef.id})`, 'success');
+        }
+        
+        log('✅ Todos os tipos criados com sucesso!', 'success');
+        document.getElementById('btnMesas').disabled = false;
+      } catch (error) {
+        log(`❌ Erro ao criar tipos: ${error.message}`, 'error');
+        console.error('Erro completo:', error);
+        btn.disabled = false;
+      }
+    }
+
+    async function criarMesasExemplo() {
+      const btn = document.getElementById('btnMesas');
+      btn.disabled = true;
+      
+      if (!verificarFirebase()) {
+        btn.disabled = false;
+        return;
+      }
+      
+      log('Criando mesas exemplo...');
+      
+      const mesas = [
+        {
+          tipo: 'Garapeira',
+          nome: 'Mesa de Garapeira',
+          descricao: 'Escultura em madeira maciça, acabamento premium, peça exclusiva para ambientes sofisticados.',
+          especificacoes: [
+            'Madeira: Garapeira nobre',
+            'Acabamento: Verniz acetinado',
+            'Design: Peça única'
+          ],
+          fotos: ['public/img/MESA 1 (1).jpeg'],
+          paginaDetalhes: 'garapeira.html'
+        },
+        {
+          tipo: 'Pequiá',
+          nome: 'Mesa de Pequiá',
+          descricao: 'Design orgânico em pequiá maciço, resistência excepcional e beleza natural incomparável.',
+          especificacoes: [
+            'Madeira: Pequiá maciço',
+            'Acabamento: Verniz premium',
+            'Estrutura: Reforçada'
+          ],
+          fotos: ['public/img/MESA 2.jpeg'],
+          paginaDetalhes: 'pequia.html'
+        },
+        {
+          tipo: 'Angelim de Pedra',
+          nome: 'Mesa de Angelim de Pedra',
+          descricao: 'Angelim de Pedra raro, formato único, peça de destaque para escritórios executivos.',
+          especificacoes: [
+            'Madeira: Angelim de Pedra',
+            'Acabamento: Impermeabilização especial',
+            'Certificação: Manejo sustentável'
+          ],
+          fotos: ['public/img/MESA 3.jpeg'],
+          paginaDetalhes: 'pedra.html'
+        }
+      ];
+      
+      try {
+        for (const mesa of mesas) {
+          await firebaseDB.collection('mesas').add({
+            ...mesa,
+            createdAt: firebase.firestore.FieldValue.serverTimestamp()
+          });
+          log(`✓ Mesa "${mesa.nome}" criada`, 'success');
+        }
+        
+        log('✅ Todas as mesas criadas com sucesso!', 'success');
+        document.getElementById('btnCarrossel').disabled = false;
+      } catch (error) {
+        log(`❌ Erro: ${error.message}`, 'error');
+        btn.disabled = false;
+      }
+    }
+
+    async function configurarCarrossel() {
+      const btn = document.getElementById('btnCarrossel');
+      btn.disabled = true;
+      
+      if (!verificarFirebase()) {
+        btn.disabled = false;
+        return;
+      }
+      
+      log('Configurando carrossel inicial...');
+      
+      const fotos = [
+        '/public/img/MESA 1 (10).jpeg',
+        '/public/img/MESA 1 (1).jpeg',
+        '/public/img/MESA 1 (2).jpeg',
+        '/public/img/MESA 1 (3).jpeg',
+        '/public/img/MESA 1 (4).jpeg',
+        '/public/img/MESA 1 (5).jpeg',
+        '/public/img/MESA 1 (6).jpeg',
+        '/public/img/MESA 1 (7).jpeg'
+      ];
+      
+      try {
+        await firebaseDB.collection('config').doc('carrossel').set({
+          fotos,
+          updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
+        
+        log('✅ Carrossel configurado com sucesso!', 'success');
+        log('', 'info');
+        log('🎉 SETUP COMPLETO! Você pode:', 'success');
+        log('   • Acessar /admin.html para gerenciar', 'success');
+        log('   • Ver o site funcionando normalmente', 'success');
+        log('   • Deletar este arquivo (setup.html)', 'success');
+      } catch (error) {
+        log(`❌ Erro: ${error.message}`, 'error');
+        btn.disabled = false;
+      }
+    }
+
+    // Verificar conexão Firebase
+    window.addEventListener('load', () => {
+      if (typeof firebase === 'undefined') {
+        log('❌ Firebase não carregado! Verifique firebase-config.js', 'error');
+      } else {
+        log('✓ Firebase carregado', 'success');
+        log('Pronto para começar!', 'info');
+      }
+    });
+  </script>
+  <script src="page-transitions.js"></script>
+</body>
+</html>

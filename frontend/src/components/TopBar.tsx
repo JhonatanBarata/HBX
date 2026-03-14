@@ -1,163 +1,404 @@
 "use client";
 
-import React, { useEffect, useState, useRef } from "react";
-import { useRouter } from "next/navigation";
+import Link from "next/link";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { usePathname, useRouter } from "next/navigation";
 import { apiFetch, clearToken, getToken } from "../app/dashboard/_lib/api";
-import ThemeSwitcher from './ThemeSwitcher';
+import { setActiveThemeUser } from "@/lib/theme-preferences";
+import ThemeSwitcher from "./ThemeSwitcher";
 
 type User = {
   id: number;
   username: string;
-  company?: { id: number; name?: string } | null;
+  role?: string | null;
+  isSystemMaster?: boolean;
+  company?: { id: number; name?: string | null } | null;
 };
 
+type NavItem = {
+  href: string;
+  label: string;
+  matcher: (pathname: string) => boolean;
+  adminOnly?: boolean;
+  moduleKey?: string;
+};
+
+type UserModule = { key: string; accessible: boolean };
+type WhatsAppStatusPayload = {
+  connected: boolean;
+  status: string;
+  displayNumber?: string | null;
+};
+type WhatsAppHealth = "green" | "yellow" | "red";
+
+const hiddenRoutes = new Set(["/login", "/register", "/reset-password"]);
+
 export default function TopBar() {
+  const router = useRouter();
+  const pathname = usePathname();
+  const userMenuRef = useRef<HTMLDivElement | null>(null);
+
+  const [authenticated, setAuthenticated] = useState(false);
   const [user, setUser] = useState<User | null>(null);
   const [open, setOpen] = useState(false);
+  const [modules, setModules] = useState<UserModule[]>([]);
   const [curPass, setCurPass] = useState("");
   const [newPass, setNewPass] = useState("");
   const [changing, setChanging] = useState(false);
   const [changeMsg, setChangeMsg] = useState<string | null>(null);
-  const router = useRouter();
+  const [whatsAppHealth, setWhatsAppHealth] = useState<WhatsAppHealth>("yellow");
+  const [whatsAppHealthLabel, setWhatsAppHealthLabel] = useState("WhatsApp status: sem validacao");
+
+  const showWorkspaceNav =
+    pathname.startsWith("/dashboard") ||
+    pathname.startsWith("/hbx-recovery") ||
+    pathname.startsWith("/hbx-music");
+  const isAdmin = String(user?.role ?? "").toUpperCase() === "ADMIN";
+  const isSystemMaster = Boolean(user?.isSystemMaster);
+
+  const accessibleModules = useMemo(() => {
+    return new Set((modules || []).filter((m) => m.accessible).map((m) => m.key));
+  }, [modules]);
+
+  const navItems = useMemo<NavItem[]>(() => {
+    const items: NavItem[] = [
+      {
+        href: "/dashboard",
+        label: "Menu",
+        matcher: (route) => route === "/dashboard",
+      },
+      {
+        href: "/dashboard/inbox",
+        label: "Atendimento",
+        matcher: (route) =>
+          route.startsWith("/dashboard/inbox") ||
+          route.startsWith("/dashboard/auto-replies") ||
+          route.startsWith("/dashboard/messages"),
+        moduleKey: 'atendimento',
+      },
+      {
+        href: "/dashboard/gerencial",
+        label: "Gerencial",
+        matcher: (route) => route.startsWith("/dashboard/gerencial"),
+        adminOnly: true,
+        moduleKey: 'gerencial',
+      },
+      {
+        href: "/hbx-recovery",
+        label: "HBX Recovery",
+        matcher: (route) => route.startsWith("/hbx-recovery"),
+        moduleKey: "hbx_recovery",
+      },
+      {
+        href: "/hbx-music",
+        label: "HBX Music",
+        matcher: (route) => route.startsWith("/hbx-music"),
+        moduleKey: "hbx_music",
+      },
+      {
+        href: "/dashboard/webscraping",
+        label: "Webscraping",
+        matcher: (route) => route.startsWith("/dashboard/webscraping"),
+        moduleKey: 'webscraping',
+      },
+      {
+        href: "/dashboard/website",
+        label: "Website",
+        matcher: (route) => route.startsWith("/dashboard/website"),
+        moduleKey: "website",
+      },
+      {
+        href: "/dashboard/importacoes/followup-global",
+        label: "Follow Up",
+        matcher: (route) =>
+          route.startsWith("/dashboard/importacoes/followup-global") ||
+          route.startsWith("/dashboard/importacoes/historico") ||
+          route.startsWith("/dashboard/importacoes/novo"),
+        moduleKey: "follow_up_internacional",
+      },
+      {
+        href: "/dashboard/importacoes/cadastros",
+        label: "Cadastros",
+        matcher: (route) => route.startsWith("/dashboard/importacoes/cadastros"),
+        moduleKey: "cadastros",
+      },
+      {
+        href: "/dashboard/master",
+        label: "Master",
+        matcher: (route) => route.startsWith("/dashboard/master"),
+        adminOnly: true,
+        moduleKey: 'master',
+      },
+    ];
+
+    return items.filter((item) => {
+      if (item.moduleKey && !accessibleModules.has(item.moduleKey)) return false;
+      if (!item.adminOnly) return true;
+      if (item.href === '/dashboard/master') return isSystemMaster;
+      return isAdmin;
+    });
+  }, [accessibleModules, isAdmin, isSystemMaster]);
 
   useEffect(() => {
+    function refreshAuthState() {
+      setAuthenticated(Boolean(getToken()));
+    }
+
+    refreshAuthState();
+    window.addEventListener("auth-change", refreshAuthState);
+    window.addEventListener("storage", refreshAuthState);
+    return () => {
+      window.removeEventListener("auth-change", refreshAuthState);
+      window.removeEventListener("storage", refreshAuthState);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!authenticated) {
+      setUser(null);
+      setWhatsAppHealth("yellow");
+      setWhatsAppHealthLabel("WhatsApp status: sem validacao");
+      setActiveThemeUser(null);
+      return;
+    }
+
     let mounted = true;
-    async function load() {
-      if (!getToken()) return setUser(null);
+
+    async function loadUser() {
       try {
-        const u = await apiFetch<User>("/profile/current-user");
-        if (mounted) setUser(u);
-      } catch (e) {
-        setUser(null);
+        const [profile, myModules] = await Promise.all([
+          apiFetch<User>("/profile/current-user"),
+          apiFetch<UserModule[]>("/modules/me"),
+        ]);
+        if (mounted) {
+          setUser(profile);
+          setModules(myModules || []);
+        }
+      } catch {
+        if (mounted) {
+          setUser(null);
+          setModules([]);
+        }
       }
     }
-    load();
-    function onAuthChange() {
-      load();
-    }
-    window.addEventListener("auth-change", onAuthChange);
+
+    loadUser();
     return () => {
       mounted = false;
-      window.removeEventListener("auth-change", onAuthChange);
+    };
+  }, [authenticated]);
+
+  useEffect(() => {
+    setActiveThemeUser(user?.id ?? null);
+  }, [user?.id]);
+
+  useEffect(() => {
+    if (!authenticated || !user) return;
+    if (user.isSystemMaster || !user.company?.id) return;
+
+    let mounted = true;
+
+    const applyStatus = (payload: WhatsAppStatusPayload | null, failed = false) => {
+      if (!mounted) return;
+      if (failed || !payload) {
+        setWhatsAppHealth("red");
+        setWhatsAppHealthLabel("WhatsApp status: erro");
+        return;
+      }
+
+      const normalized = String(payload.status || "").trim().toUpperCase();
+      if (normalized === "CONNECTED" && payload.connected) {
+        setWhatsAppHealth("green");
+        setWhatsAppHealthLabel("WhatsApp status: conectado");
+        return;
+      }
+      if (normalized === "ERROR") {
+        setWhatsAppHealth("red");
+        setWhatsAppHealthLabel("WhatsApp status: erro");
+        return;
+      }
+      setWhatsAppHealth("yellow");
+      setWhatsAppHealthLabel("WhatsApp status: desconectado");
+    };
+
+    const loadStatus = async () => {
+      try {
+        const payload = await apiFetch<WhatsAppStatusPayload>("/companies/me/whatsapp-status");
+        applyStatus(payload, false);
+      } catch {
+        applyStatus(null, true);
+      }
+    };
+
+    loadStatus();
+    const timer = window.setInterval(loadStatus, 30000);
+
+    return () => {
+      mounted = false;
+      window.clearInterval(timer);
+    };
+  }, [authenticated, user?.id, user?.company?.id, user?.isSystemMaster]);
+
+  useEffect(() => {
+    setOpen(false);
+  }, [pathname]);
+
+  useEffect(() => {
+    function handleOutsideClick(event: MouseEvent) {
+      if (!userMenuRef.current) return;
+      if (!(event.target instanceof Node)) return;
+      if (!userMenuRef.current.contains(event.target)) {
+        setOpen(false);
+      }
+    }
+
+    document.addEventListener("mousedown", handleOutsideClick);
+    return () => {
+      document.removeEventListener("mousedown", handleOutsideClick);
     };
   }, []);
 
   function handleLogout() {
     clearToken();
+    setAuthenticated(false);
     setUser(null);
-    try {
-      router.push('/login');
-    } catch {}
+    router.push("/login");
   }
 
-  const containerRef = useRef<HTMLDivElement | null>(null);
+  async function handlePasswordSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setChanging(true);
+    setChangeMsg(null);
 
-  useEffect(() => {
-    function onDocClick(e: MouseEvent) {
-      if (!containerRef.current) return;
-      if (!(e.target instanceof Node)) return;
-      if (!containerRef.current.contains(e.target)) {
-        setOpen(false);
-      }
+    try {
+      await apiFetch("/profile/password", {
+        method: "PATCH",
+        body: JSON.stringify({
+          currentPassword: curPass,
+          newPassword: newPass,
+        }),
+      });
+      setChangeMsg("Senha atualizada com sucesso.");
+      setCurPass("");
+      setNewPass("");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Falha ao atualizar senha.";
+      setChangeMsg(message);
+    } finally {
+      setChanging(false);
     }
-    document.addEventListener('mousedown', onDocClick);
-    return () => document.removeEventListener('mousedown', onDocClick);
-  }, []);
+  }
+
+  if (hiddenRoutes.has(pathname)) {
+    return null;
+  }
 
   return (
-    <header style={{ padding: '8px 16px', borderBottom: '1px solid rgba(0,0,0,0.06)', background: 'var(--header-bg, white)' }}>
-      <div style={{ maxWidth: 1100, margin: '0 auto', display: 'flex', alignItems: 'center', gap: 12 }}>
-          <div ref={containerRef} style={{ display: 'flex', alignItems: 'center', gap: 12, position: 'relative' }}>
-          <div style={{ fontWeight: 700, fontSize: 18, color: 'var(--brand)' }}>HBX solutions</div>
-          <div style={{ marginLeft: 8 }}>
-            <ThemeSwitcher />
-          </div>
-          {user ? (
-            <>
-              <button
-                onClick={() => setOpen((v) => !v)}
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 8,
-                  padding: '8px 12px',
-                  borderRadius: 9999,
-                  border: '1px solid rgba(0,0,0,0.08)',
-                  background: 'var(--button-bg, #fff)',
-                  cursor: 'pointer',
-                }}
-                aria-label={`Usuário ${user.username}`}
+    <header className="app-topbar">
+      <div className="app-topbar__inner">
+        <div className="app-topbar__left">
+          <Link href={authenticated ? "/dashboard" : "/login"} className="app-brand">
+            <span className="app-brand__mark">HB</span>
+            <span className="app-brand__text">HBX Solutions</span>
+            {authenticated && user && !user.isSystemMaster && user.company?.id ? (
+              <span
+                className={`wa-health wa-health--${whatsAppHealth}`}
+                title={whatsAppHealthLabel}
+                aria-label={whatsAppHealthLabel}
               >
-                <span style={{ width: 34, height: 34, borderRadius: 8, background: '#eef2ff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 700 }}>
-                  {user.username.charAt(0).toUpperCase()}
-                </span>
-                <div style={{ textAlign: 'left' }}>
-                  <div style={{ fontSize: 13, fontWeight: 600 }}>{user.username}</div>
-                  <div style={{ fontSize: 12, color: 'var(--muted, #666)' }}>{user.company?.name ?? 'Sem empresa'}</div>
-                </div>
-              </button>
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M19.1 4.9A9.9 9.9 0 0 0 12 2a10 10 0 0 0-8.7 14.9L2 22l5.3-1.4A10 10 0 1 0 19.1 4.9Zm-7.1 15.4a8.2 8.2 0 0 1-4.2-1.2l-.3-.2-3.1.8.8-3-.2-.3a8.2 8.2 0 1 1 7 3.9Zm4.5-6.2c-.2-.1-1.2-.6-1.4-.7-.2-.1-.3-.1-.5.1-.1.2-.5.7-.6.8-.1.1-.2.1-.4 0s-.9-.3-1.7-1a6.4 6.4 0 0 1-1.2-1.5c-.1-.2 0-.3.1-.4l.3-.3.2-.3c.1-.1.1-.3 0-.4L10.4 8c-.1-.2-.3-.2-.4-.2h-.4c-.1 0-.4.1-.5.3-.2.2-.7.7-.7 1.6 0 1 .7 1.9.8 2 .1.1 1.3 2 3.2 2.8.5.2.9.4 1.2.5.5.1 1 .1 1.4.1.4-.1 1.2-.5 1.4-1 .2-.6.2-1 .1-1.1 0-.1-.2-.1-.4-.2Z" />
+                </svg>
+              </span>
+            ) : null}
+          </Link>
 
-              <div style={{ marginTop: 6 }}>
-                <button onClick={() => setOpen(true)} style={{ background: 'transparent', border: 'none', color: '#2563eb', fontSize: 13, cursor: 'pointer' }}>Editar senha</button>
-              </div>
-
-              <div style={{ position: 'absolute', top: 'calc(100% + 10px)', left: 0, zIndex: 40, width: 280 }} aria-hidden={!open}>
-                <div style={{
-                  width: '100%',
-                  padding: 12,
-                  borderRadius: 12,
-                  background: 'white',
-                  boxShadow: '0 10px 30px rgba(2,6,23,0.16)',
-                  border: '1px solid rgba(0,0,0,0.04)',
-                  transform: open ? 'translateY(0)' : 'translateY(-8px)',
-                  opacity: open ? 1 : 0,
-                  transition: 'transform 180ms cubic-bezier(.2,.9,.2,1), opacity 180ms ease',
-                  pointerEvents: open ? 'auto' : 'none'
-                }}>
-                    <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>Conta</div>
-                    <div style={{ fontSize: 13, marginBottom: 4 }}>{user.username}</div>
-                    <div style={{ fontSize: 12, color: '#666', marginBottom: 8 }}>{user.company?.name ?? 'Sem empresa'}</div>
-                    <hr style={{ border: 'none', borderTop: '1px solid #eee', margin: '8px 0' }} />
-                    <form onSubmit={async (e) => {
-                      e.preventDefault();
-                      setChanging(true);
-                      setChangeMsg(null);
-                      try {
-                        await apiFetch('/profile/password', { method: 'PATCH', body: JSON.stringify({ currentPassword: curPass, newPassword: newPass }) });
-                        setChangeMsg('Senha atualizada');
-                        setCurPass(''); setNewPass('');
-                      setOpen(false);
-                      } catch (err: any) {
-                        setChangeMsg(err?.message ?? 'Erro');
-                      } finally { setChanging(false); }
-                    }}>
-                      <div style={{ marginBottom: 8 }}>
-                        <input placeholder="Senha atual" type="password" value={curPass} onChange={(e) => setCurPass(e.target.value)} className="w-full p-2 border rounded" />
-                      </div>
-                      <div style={{ marginBottom: 8 }}>
-                        <input placeholder="Nova senha" type="password" value={newPass} onChange={(e) => setNewPass(e.target.value)} className="w-full p-2 border rounded" />
-                      </div>
-                      {changeMsg ? <div style={{ fontSize: 12, marginBottom: 8 }}>{changeMsg}</div> : null}
-                      <div style={{ display: 'flex', gap: 8 }}>
-                        <button type="submit" style={{ padding: '8px 14px', borderRadius: 12, background: '#0f172a', color: '#fff', border: 'none' }} disabled={changing || newPass.length < 8}>Salvar</button>
-                        <button type="button" onClick={() => setOpen(false)} style={{ padding: '8px 14px', borderRadius: 12, background: 'transparent', border: '1px solid rgba(0,0,0,0.12)' }}>Fechar</button>
-                      </div>
-                    </form>
-                  </div>
-                </div>
-            </>
+          {authenticated && showWorkspaceNav ? (
+            <nav className="app-nav" aria-label="Navegacao principal">
+              {navItems.map((item) => (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  className="app-nav__link"
+                  data-active={item.matcher(pathname) ? "true" : "false"}
+                >
+                  {item.label}
+                </Link>
+              ))}
+            </nav>
           ) : null}
         </div>
 
-        <div style={{ marginLeft: 'auto' }}>
+        <div className="app-topbar__right">
+          {authenticated && showWorkspaceNav ? <ThemeSwitcher storageUserId={user?.id ?? null} /> : null}
           {user ? (
-            <button onClick={handleLogout} className="px-3 py-2 rounded-xl border" style={{ background: 'transparent' }}>
+            <div ref={userMenuRef} className="app-user">
+              <button
+                type="button"
+                className="app-user__trigger"
+                onClick={() => setOpen((value) => !value)}
+                aria-expanded={open}
+              >
+                <span className="app-user__avatar">
+                  {user.username ? user.username.charAt(0).toUpperCase() : "U"}
+                </span>
+                <span className="app-user__meta">
+                  <span className="app-user__name">{user.username}</span>
+                  <span className="app-user__company">{user.isSystemMaster ? "MASTER" : (user.company?.name ?? "Sem empresa")}</span>
+                </span>
+              </button>
+
+              {open ? (
+                <div className="app-user__menu">
+                  <p className="app-user__menu-title">Editar senha</p>
+                  <form onSubmit={handlePasswordSubmit} className="app-user__form">
+                    <input
+                      type="password"
+                      placeholder="Senha atual"
+                      value={curPass}
+                      onChange={(event) => setCurPass(event.target.value)}
+                      className="field"
+                    />
+                    <input
+                      type="password"
+                      placeholder="Nova senha (min. 4)"
+                      value={newPass}
+                      onChange={(event) => setNewPass(event.target.value)}
+                      className="field"
+                    />
+                    {changeMsg ? (
+                      <p className="text-xs text-[var(--muted)] leading-5">{changeMsg}</p>
+                    ) : null}
+                    <div className="app-user__menu-actions">
+                      <button
+                        type="submit"
+                        className="btn btn-primary btn-sm"
+                        disabled={changing || newPass.length < 4}
+                      >
+                        {changing ? "Salvando..." : "Salvar senha"}
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-secondary btn-sm"
+                        onClick={() => setOpen(false)}
+                      >
+                        Fechar
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+
+          {authenticated ? (
+            <button type="button" onClick={handleLogout} className="btn btn-secondary btn-sm">
               Sair
             </button>
           ) : (
-            <button onClick={() => router.push('/login')} className="px-3 py-2 rounded-xl border" style={{ background: 'transparent' }}>
+            <Link href="/login" className="btn btn-secondary btn-sm">
               Entrar
-            </button>
+            </Link>
           )}
         </div>
       </div>

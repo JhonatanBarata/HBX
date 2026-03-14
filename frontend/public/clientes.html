@@ -1,0 +1,328 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Clientes HBX</title>
+  <style>
+    body{font-family:Inter,system-ui,Arial,sans-serif;background:linear-gradient(180deg,#fff9f0 0%,#fff 60%);-webkit-font-smoothing:antialiased;color:#111}
+    .wrap{max-width:1000px;margin:24px auto;padding:24px;background:rgba(255,255,255,0.95);border-radius:12px}
+    h1{display:flex;align-items:center;justify-content:space-between}
+    .grid{display:grid;grid-template-columns:1fr 360px;gap:18px}
+    .card{padding:18px;border-radius:10px;background:#fff;box-shadow:0 8px 30px rgba(15,23,42,0.06)}
+    label{display:block;margin-top:8px}
+    input,select{width:100%;padding:8px;margin-top:6px;border:1px solid #e6e6e6;border-radius:8px}
+    .btn{display:inline-block;padding:10px 14px;border-radius:8px;background:#3b82f6;color:#fff;border:0;cursor:pointer}
+    table{width:100%;border-collapse:collapse;margin-top:12px} th,td{border:1px solid #eee;padding:8px}
+    .small{font-size:13px;color:#6b7280}
+  </style>
+</head>
+<body>
+  <script src="/app.js"></script>
+  <div class="wrap">
+    <h1>Clientes HBX <button onclick="navigateWithTransition('/dashboard.html')" class="btn">Voltar</button></h1>
+    <div class="grid page-grid">
+      <div class="form-col">
+        <div class="card">
+          <h3>Criar novo cliente</h3>
+          <label>Nome</label>
+          <input id="c_name" />
+          <label>Email</label>
+          <input id="c_email" />
+          <label>Plano</label>
+          <select id="c_plan"><option value="">-- selecione --</option></select>
+          <label>Telas permitidas</label>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <label><input class="screen" type="checkbox" value="catalog" checked/> Catálogo</label>
+            <label><input class="screen" type="checkbox" value="orders" checked/> Pedidos</label>
+            <label><input class="screen" type="checkbox" value="delivery" checked/> Delivery</label>
+            <label><input class="screen" type="checkbox" value="billing" checked/> Financeiro</label>
+            <label><input class="screen" type="checkbox" value="reports" checked/> Relatórios</label>
+            <label><input class="screen" type="checkbox" value="admin"/> Admin</label>
+          </div>
+          <label>Senha inicial</label>
+          <input id="c_password" placeholder="senha123" />
+          <div class="mt-3" style="margin-top:12px">
+            <button id="createBtn" class="btn">Criar Cliente + Usuário</button>
+          </div>
+          <div id="msg" class="small"></div>
+        </div>
+
+        <div class="card" style="margin-top:12px">
+          <h3>Clientes existentes</h3>
+          <table id="clientsTable"><thead><tr><th>ID</th><th>Nome</th><th>Email</th><th>Ações</th></tr></thead><tbody></tbody></table>
+        </div>
+      </div>
+
+      <div>
+        <div class="card">
+          <h3>Planos</h3>
+          <div id="plansList"></div>
+          <!-- Plan edit modal -->
+          <div id="planModal" style="display:none;position:fixed;left:0;top:0;right:0;bottom:0;background:rgba(0,0,0,0.35);align-items:center;justify-content:center;padding:20px">
+            <div style="background:#fff;border-radius:10px;max-width:640px;width:100%;padding:18px" class="card">
+              <h3>Editar Plano <span id="planEditName" class="small"></span></h3>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+                <label><input type="checkbox" id="f_catalog_view" /> Ver Catálogo</label>
+                <label><input type="checkbox" id="f_catalog_edit" /> Editar Catálogo</label>
+                <label><input type="checkbox" id="f_whatsapp_integration" /> WhatsApp</label>
+                <label><input type="checkbox" id="f_realtime_tracking" /> Rastreamento</label>
+                <label><input type="checkbox" id="f_billing" /> Financeiro</label>
+                <label><input type="checkbox" id="f_reports" /> Relatórios</label>
+                <label><input type="checkbox" id="f_priority_support" /> Suporte Prioritário</label>
+              </div>
+              <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px">
+                <button id="savePlanBtn" class="btn">Salvar</button>
+                <button id="cancelPlanBtn" class="btn" style="background:#ef4444">Cancelar</button>
+              </div>
+              <div id="planMsg" class="small" style="margin-top:8px"></div>
+            </div>
+          </div>
+          <div style="margin-top:12px"><button id="seedPlans" class="btn">Criar Planos Padrão</button></div>
+        </div>
+
+        <div class="card" style="margin-top:12px">
+          <h3>Ajuda rápida</h3>
+          <p class="small">Use esta tela para criar clientes e um usuário inicial (senha temporária). O usuário poderá trocar sua senha depois.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Edit modal -->
+  <div id="editModal" style="display:none;position:fixed;left:0;top:0;right:0;bottom:0;background:rgba(0,0,0,0.35);align-items:center;justify-content:center;padding:20px">
+    <div style="background:#fff;border-radius:10px;max-width:600px;width:100%;padding:18px" class="card">
+      <h3>Editar Cliente <span id="editClientId" style="font-size:12px;color:#6b7280"></span></h3>
+      <label>Nome</label>
+      <input id="edit_name" />
+      <label>Email</label>
+      <input id="edit_email" />
+      <label>Plano</label>
+      <select id="edit_plan"><option value="">-- selecione --</option></select>
+      <label>Senha (deixe em branco para manter)</label>
+      <input id="edit_password" placeholder="nova senha" />
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px">
+        <button id="saveEdit" class="btn">Salvar</button>
+        <button id="cancelEdit" class="btn" style="background:#ef4444">Cancelar</button>
+      </div>
+      <div id="editMsg" class="small" style="margin-top:8px"></div>
+    </div>
+  </div>
+
+  <script>
+    const token = localStorage.getItem('token');
+    if (!token) { window.location.href = '/login'; }
+
+    // Ensure only Master can access this page: call /auth/navigation and require 'admin' menu
+    (async function(){
+      try{
+        const nav = await fetch('http://localhost:3000/auth/navigation', { headers: { Authorization: 'Bearer '+token }});
+        if (!nav.ok) { window.location.href = '/dashboard.html'; return; }
+        const body = await nav.json();
+        const menu = body && body.menu ? body.menu : [];
+        if (!Array.isArray(menu) || !menu.includes('admin')) {
+          // not allowed
+          window.location.href = '/dashboard.html';
+        }
+      }catch(e){ console.error('auth/navigation failed', e); window.location.href = '/dashboard.html'; }
+    })();
+
+    async function loadPlans(){
+      const res = await fetch('http://localhost:3000/admin/plans', { headers: { Authorization: 'Bearer '+token }});
+      const container = document.getElementById('plansList');
+      const select = document.getElementById('c_plan');
+      if (!res.ok) { const t = await res.text().catch(()=>null); console.error('plans load failed', res.status, t); container.textContent = 'Erro ao buscar planos'; return; }
+      const plans = await res.json();
+      // render as table with edit buttons
+      container.innerHTML = `<table style="width:100%;border-collapse:collapse"><thead><tr><th>Nome</th><th>Recursos</th><th style='text-align:right'>Ações</th></tr></thead><tbody>${plans.map(p=>{
+        const feats = Object.keys(p.features||{}).filter(k=>p.features[k]);
+        return `<tr><td>${p.name}</td><td>${feats.join(', ')}</td><td style='text-align:right'><button class='edit-plan btn-secondary' data-id='${p.id}'>Editar</button></td></tr>`;
+      }).join('')}</tbody></table>`;
+      select.innerHTML = '<option value="">-- selecione --</option>' + plans.map(p=>`<option value="${p.name}">${p.name}</option>`).join('');
+      // attach handlers
+      document.querySelectorAll('.edit-plan').forEach(b=>b.addEventListener('click', async (e)=>{ const id = Number(e.target.dataset.id); openPlanModal(id); }));
+    }
+
+    let _currentPlan = null;
+    async function openPlanModal(id){
+      document.getElementById('planMsg').textContent = '';
+      try{
+        const res = await fetch(`http://localhost:3000/admin/plans`, { headers: { Authorization: 'Bearer '+token }});
+        if (!res.ok) throw new Error('Falha ao carregar planos');
+        const plans = await res.json();
+        const plan = plans.find(p=>p.id===Number(id));
+        if (!plan) throw new Error('Plano não encontrado');
+        _currentPlan = plan;
+        document.getElementById('planEditName').textContent = `#${plan.id} ${plan.name}`;
+        const f = plan.features || {};
+        document.getElementById('f_catalog_view').checked = !!f.catalog_view;
+        document.getElementById('f_catalog_edit').checked = !!f.catalog_edit;
+        document.getElementById('f_whatsapp_integration').checked = !!f.whatsapp_integration;
+        document.getElementById('f_realtime_tracking').checked = !!f.realtime_tracking;
+        document.getElementById('f_billing').checked = !!f.billing;
+        document.getElementById('f_reports').checked = !!f.reports;
+        document.getElementById('f_priority_support').checked = !!f.priority_support;
+        document.getElementById('planModal').style.display = 'flex';
+      }catch(e){ console.error('openPlanModal', e); alert('Erro ao abrir editor de plano'); }
+    }
+
+    document.getElementById('cancelPlanBtn').addEventListener('click', ()=>{ document.getElementById('planModal').style.display='none'; });
+    document.getElementById('savePlanBtn').addEventListener('click', async ()=>{
+      const msg = document.getElementById('planMsg'); msg.textContent = '';
+      if (!_currentPlan) { msg.textContent = 'Plano inválido'; return; }
+      const features = {
+        catalog_view: !!document.getElementById('f_catalog_view').checked,
+        catalog_edit: !!document.getElementById('f_catalog_edit').checked,
+        whatsapp_integration: !!document.getElementById('f_whatsapp_integration').checked,
+        realtime_tracking: !!document.getElementById('f_realtime_tracking').checked,
+        billing: !!document.getElementById('f_billing').checked,
+        reports: !!document.getElementById('f_reports').checked,
+        priority_support: !!document.getElementById('f_priority_support').checked,
+      };
+      try{
+        const res = await fetch(`http://localhost:3000/admin/plans/${_currentPlan.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer '+token }, body: JSON.stringify({ features }) });
+        if (!res.ok){ const t = await res.text().catch(()=>null); console.error('save plan failed', res.status, t); msg.textContent = 'Erro ao salvar: '+(t||res.status); return; }
+        msg.textContent = 'Salvo';
+        await loadPlans();
+        setTimeout(()=>{ document.getElementById('planModal').style.display='none'; }, 400);
+      }catch(e){ console.error('savePlan exception', e); msg.textContent = 'Erro de comunicação'; }
+    });
+
+    async function loadClients(){
+      const res = await fetch('http://localhost:3000/clients', { headers: { Authorization: 'Bearer '+token }});
+      if (!res.ok) { const t = await res.text().catch(()=>null); console.error('clients load failed', res.status, t); document.querySelector('#clientsTable tbody').innerHTML = '<tr><td colspan="4">Erro ao carregar clientes</td></tr>'; return; }
+      const clients = await res.json();
+      const tbody = document.querySelector('#clientsTable tbody'); tbody.innerHTML='';
+      for (const c of clients){
+        const tr = document.createElement('tr');
+        tr.innerHTML = `<td>${c.id}</td><td>${c.name}</td><td>${c.email||''}</td><td style="text-align:right"><button class='view btn-secondary' data-id='${c.id}'>Ver</button> <button class='edit btn-secondary' data-id='${c.id}'>Editar</button> <button class='delete btn-secondary' data-id='${c.id}' style='background:#ef4444;color:#fff'>Excluir</button></td>`;
+        tbody.appendChild(tr);
+      }
+      document.querySelectorAll('.view').forEach(b=>b.addEventListener('click', (e)=>{ navigateWithTransition('/client.html?clientId='+e.target.dataset.id); }));
+      document.querySelectorAll('.edit').forEach(b=>b.addEventListener('click', (e)=>{ openEditModal(Number(e.target.dataset.id)); }));
+      document.querySelectorAll('.delete').forEach(b=>b.addEventListener('click', (e)=>{ onDeleteClient(Number(e.target.dataset.id)); }));
+    }
+
+    document.getElementById('seedPlans').addEventListener('click', async ()=>{
+      const defaultPlans = [
+        { name: 'Prata', features: { catalog_view:true, catalog_edit:false, whatsapp_integration:true, realtime_tracking:false, billing:false, reports:false }, defaultPlan: false },
+        { name: 'Ouro', features: { catalog_view:true, catalog_edit:true, whatsapp_integration:true, realtime_tracking:true, billing:false, reports:false }, defaultPlan: false },
+        { name: 'Diamante', features: { catalog_view:true, catalog_edit:true, whatsapp_integration:true, realtime_tracking:true, billing:true, reports:true }, defaultPlan: false },
+        { name: 'Diamante Plus', features: { catalog_view:true, catalog_edit:true, whatsapp_integration:true, realtime_tracking:true, billing:true, reports:true, priority_support:true }, defaultPlan: false }
+      ];
+      for (const p of defaultPlans){
+        try{
+          const r = await fetch('http://localhost:3000/admin/plans', { method:'POST', headers:{ 'Content-Type':'application/json', Authorization: 'Bearer '+token }, body: JSON.stringify(p) });
+          if (!r.ok) { const t = await r.text().catch(()=>null); console.error('seed plan failed', r.status, t); }
+        }catch(e){ console.error('seed plan exception', e); }
+      }
+      await loadPlans();
+      alert('Planos criados');
+    });
+
+    // Edit modal handlers
+    function openEditModal(id){
+      document.getElementById('editMsg').textContent = '';
+      document.getElementById('editClientId').textContent = `#${id}`;
+      document.getElementById('edit_password').value = '';
+      // fetch client data
+      fetch('http://localhost:3000/clients/'+id, { headers: { Authorization: 'Bearer '+token } })
+        .then(r=>{ if(!r.ok) throw r; return r.json(); })
+        .then(c=>{
+          document.getElementById('edit_name').value = c.name||'';
+          document.getElementById('edit_email').value = c.email||'';
+            // populate plan selector and choose current plan
+            (async function(){
+              try{
+                const pr = await fetch('http://localhost:3000/admin/plans', { headers: { Authorization: 'Bearer '+token }});
+                if (!pr.ok) return;
+                const plans = await pr.json();
+                const sel = document.getElementById('edit_plan');
+                sel.innerHTML = '<option value="">-- selecione --</option>' + plans.map(p=>`<option value="${p.name}">${p.name}</option>`).join('');
+                if (c.plan && c.plan.name) sel.value = c.plan.name;
+              }catch(e){ /* ignore */ }
+            })();
+          document.getElementById('editModal').style.display = 'flex';
+        })
+        .catch(async err=>{ const t = err.text ? await err.text().catch(()=>null) : err.message; console.error('fetch client failed', err, t); alert('Erro ao buscar cliente'); });
+    }
+
+    document.getElementById('cancelEdit').addEventListener('click', ()=>{ document.getElementById('editModal').style.display='none'; });
+
+    document.getElementById('saveEdit').addEventListener('click', async ()=>{
+      const idText = document.getElementById('editClientId').textContent || '';
+      const id = Number(idText.replace('#',''));
+      const name = document.getElementById('edit_name').value.trim();
+      const email = document.getElementById('edit_email').value.trim();
+      const password = document.getElementById('edit_password').value.trim();
+      const payload = { name, email };
+      if (password) payload.password = password;
+      const msg = document.getElementById('editMsg'); msg.textContent = '';
+      try{
+        const res = await fetch('http://localhost:3000/clients/'+id, { method:'PUT', headers:{ 'Content-Type':'application/json', Authorization: 'Bearer '+token }, body: JSON.stringify(payload) });
+        if (!res.ok){ const b = await res.text().catch(()=>null); console.error('update client failed', res.status, b); msg.textContent = 'Erro ao atualizar: '+(b||res.status); return; }
+        msg.textContent = 'Atualizado';
+        // if plan changed, call admin endpoint to update client's plan
+        try{
+          const sel = document.getElementById('edit_plan');
+          if (sel && sel.value) {
+            const rplan = await fetch(`http://localhost:3000/admin/clients/${id}/plan`, { method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer '+token }, body: JSON.stringify({ plan: sel.value }) });
+            if (!rplan.ok) { const t = await rplan.text().catch(()=>null); console.error('change plan failed', rplan.status, t); }
+          }
+        }catch(e){ console.error('change plan exception', e); }
+        await loadClients();
+        setTimeout(()=>{ document.getElementById('editModal').style.display='none'; }, 600);
+      }catch(e){ console.error('update exception', e); msg.textContent = 'Erro de comunicação'; }
+    });
+
+    async function onDeleteClient(id){
+      if (!confirm('Tem certeza que deseja excluir (bloquear) este cliente?')) return;
+      try{
+        const res = await fetch('http://localhost:3000/clients/'+id, { method: 'DELETE', headers: { Authorization: 'Bearer '+token } });
+        if (!res.ok){ const t = await res.text().catch(()=>null); console.error('delete client failed', res.status, t); alert('Erro ao excluir: '+(t||res.status)); return; }
+        const body = await res.json().catch(()=>null);
+        alert('Cliente marcado como bloqueado');
+        await loadClients();
+      }catch(e){ console.error('delete exception', e); alert('Erro de comunicação ao excluir cliente'); }
+    }
+
+    document.getElementById('createBtn').addEventListener('click', async ()=>{
+      const name = document.getElementById('c_name').value.trim();
+      const email = document.getElementById('c_email').value.trim();
+      const plan = document.getElementById('c_plan').value || undefined;
+      const password = document.getElementById('c_password').value || 'senha123';
+      const screens = {};
+      document.querySelectorAll('.screen').forEach(cb=>{ screens[cb.value]=cb.checked; });
+      const msg = document.getElementById('msg'); msg.textContent = '';
+      if (!name || !email) { msg.textContent = 'Preencha nome e email'; return; }
+      // create client
+      let client;
+      try{
+        const res = await fetch('http://localhost:3000/admin/clients', { method:'POST', headers:{ 'Content-Type':'application/json', Authorization: 'Bearer '+token }, body: JSON.stringify({ name, email, password, planName: plan }) });
+        if (!res.ok) {
+          const body = await res.text().catch(()=>null);
+          console.error('create client failed', res.status, body);
+          msg.textContent = 'Erro ao criar cliente: ' + (body || res.status);
+          return;
+        }
+        client = await res.json();
+      }catch(e){ console.error('create client exception', e); msg.textContent = 'Erro ao criar cliente (exceção)'; return; }
+      // create user — use client's name as login (email field stores the login identifier)
+      const slug = name.replace(/\s+/g, '_').toLowerCase();
+      const userPayload = { username: slug, email: email || null, password, role: 'CLIENT', clientId: client.id, permissions: screens };
+      try{
+        const r2 = await fetch('http://localhost:3000/admin/users', { method:'POST', headers:{ 'Content-Type':'application/json', Authorization: 'Bearer '+token }, body: JSON.stringify(userPayload) });
+        if (!r2.ok){ const b = await r2.text().catch(()=>null); console.error('create user failed', r2.status, b); msg.textContent = 'Cliente criado, porém erro ao criar usuário: '+(b||r2.status); return; }
+        // show created login and password to Master
+        msg.textContent = `Cliente e usuário criados com sucesso — Login: ${slug} | Senha: ${password}`;
+      }catch(e){ console.error('create user exception', e); msg.textContent = 'Erro ao criar usuário (exceção)'; return; }
+      await loadClients();
+      await loadPlans();
+    });
+
+    // init
+    loadPlans();
+    loadClients();
+  </script>
+</body>
+</html>

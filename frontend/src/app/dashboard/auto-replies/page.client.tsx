@@ -1,9 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { apiFetch, clearToken, getToken } from "../_lib/api";
+import DashboardScaffold from "@/components/DashboardScaffold";
+import { apiFetch } from "../_lib/api";
+import { startSmartPolling } from "../_lib/polling";
+import { useRequireAuth } from "../_lib/useRequireAuth";
 
 type AutoReplyResponse = {
   id: number;
@@ -23,167 +25,161 @@ type AutoReplyRule = {
 };
 
 export default function AutoRepliesListClientPage() {
-  const router = useRouter();
+  const hasToken = useRequireAuth();
   const [rules, setRules] = useState<AutoReplyRule[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<number | null>(null);
 
-  const hasToken = useMemo(() => Boolean(getToken()), []);
-
-  async function load() {
+  const load = useCallback(async () => {
     setError(null);
     try {
       const data = await apiFetch<AutoReplyRule[]>("/auto-replies/rules");
       setRules(data);
-    } catch (e: any) {
-      setError(e?.message ?? "Falha ao carregar regras");
+    } catch (loadError) {
+      const message =
+        loadError instanceof Error ? loadError.message : "Falha ao carregar regras.";
+      setError(message);
     } finally {
       setLoading(false);
     }
-  }
+  }, []);
 
   useEffect(() => {
-    if (!getToken()) {
-      router.push("/login");
-      return;
-    }
-    load();
-    const t = setInterval(load, 5000);
-    return () => clearInterval(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    if (hasToken !== true) return;
+    setLoading(true);
+    return startSmartPolling(load, { intervalMs: 10000, immediate: true });
+  }, [hasToken, load]);
 
   async function removeRule(id: number) {
     if (!confirm("Excluir esta regra?")) return;
     setBusyId(id);
     setError(null);
+
     try {
       await apiFetch(`/auto-replies/rules/${id}`, { method: "DELETE" });
       await load();
-    } catch (e: any) {
-      setError(e?.message ?? "Falha ao excluir");
+    } catch (removeError) {
+      const message =
+        removeError instanceof Error ? removeError.message : "Falha ao excluir regra.";
+      setError(message);
     } finally {
       setBusyId(null);
     }
   }
 
-  function logout() {
-    clearToken();
-    router.push("/login");
-  }
+  const activeCount = useMemo(() => rules.filter((rule) => rule.enabled).length, [rules]);
+  const pausedCount = rules.length - activeCount;
 
-  if (!hasToken) {
-    return null;
+  if (hasToken === null) {
+    return (
+      <main className="app-shell">
+        <div className="app-container">
+          <div className="panel p-4 text-sm text-muted">Carregando...</div>
+        </div>
+      </main>
+    );
   }
+  if (!hasToken) return null;
 
   return (
-    <main className="min-h-screen p-6">
-      <div className="max-w-5xl mx-auto">
-        <div className="flex items-center justify-between gap-4 mb-6">
-          <div>
-            <h1 className="text-2xl font-bold">Respostas Automáticas</h1>
-            <p className="text-sm text-foreground/70">
-              Placeholders: <span className="font-mono">{"{{greeting}}"}</span>,{" "}
-              <span className="font-mono">{"{{companyName}}"}</span>,{" "}
-              <span className="font-mono">{"{{from}}"}</span>
-            </p>
-          </div>
-          <div className="flex gap-2">
-            <Link
-              href="/dashboard/messages"
-              className="px-3 py-2 rounded-xl border border-foreground/10 hover:bg-foreground/5 text-sm"
-            >
-              Teste & Logs
-            </Link>
-            <Link
-              href="/dashboard/auto-replies/new"
-              className="px-3 py-2 rounded-xl bg-secondary text-foreground text-sm hover:opacity-90"
-            >
-              Nova regra
-            </Link>
-            <button
-              onClick={logout}
-              className="px-3 py-2 rounded-xl border border-foreground/10 hover:bg-foreground/5 text-sm"
-            >
-              Sair
-            </button>
-          </div>
-        </div>
+    <DashboardScaffold
+      title="Respostas automaticas"
+      description="Padrao de respostas com prioridade, delay e regras condicionais."
+      actions={
+        <>
+          <Link href="/dashboard/messages" className="btn btn-secondary btn-sm">
+            Mensagens e logs
+          </Link>
+          <Link href="/dashboard/auto-replies/new" className="btn btn-primary btn-sm">
+            Nova regra
+          </Link>
+        </>
+      }
+    >
+      {error ? <div className="alert alert-error">{error}</div> : null}
 
-        {error && (
-          <div className="mb-4 p-3 rounded-xl border border-primary/30 bg-primary/5 text-sm">
-            {error}
-          </div>
-        )}
+      <section className="metrics-grid">
+        <article className="stat-card">
+          <p className="stat-card__label">Total de regras</p>
+          <p className="stat-card__value">{rules.length}</p>
+        </article>
+        <article className="stat-card">
+          <p className="stat-card__label">Ativas</p>
+          <p className="stat-card__value">{activeCount}</p>
+        </article>
+        <article className="stat-card">
+          <p className="stat-card__label">Pausadas</p>
+          <p className="stat-card__value">{pausedCount}</p>
+        </article>
+      </section>
 
-        {loading ? (
-          <p className="text-sm text-foreground/70">Carregando...</p>
-        ) : rules.length === 0 ? (
-          <div className="p-6 border border-foreground/10 rounded-2xl bg-background">
-            <p className="text-sm text-foreground/70">Nenhuma regra cadastrada.</p>
-          </div>
-        ) : (
-          <div className="space-y-3">
-            {rules.map((r) => (
-              <div key={r.id} className="border border-foreground/10 rounded-2xl p-4 bg-background">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="font-semibold">#{r.id}</span>
-                      <span className="text-xs px-2 py-1 rounded-full border border-foreground/10 bg-foreground/5">
-                        {r.enabled ? "ATIVA" : "PAUSADA"}
-                      </span>
-                      <span className="text-xs px-2 py-1 rounded-full border border-foreground/10 bg-foreground/5">
-                        {r.matchType}
-                      </span>
-                      <span className="text-xs px-2 py-1 rounded-full border border-foreground/10 bg-foreground/5">
-                        prioridade {r.priority}
-                      </span>
-                    </div>
-                    <p className="mt-2 text-sm">
-                      <span className="text-foreground/70">Padrão: </span>
-                      <span className="font-mono">{r.pattern}</span>
-                      {r.caseInsensitive ? (
-                        <span className="text-foreground/60"> (ignore case)</span>
-                      ) : null}
-                    </p>
-                    <div className="mt-3">
-                      <p className="text-xs text-foreground/70 mb-1">Respostas</p>
-                      <ol className="space-y-1">
-                        {[...r.responses]
-                          .sort((a, b) => a.order - b.order)
-                          .map((resp) => (
-                            <li key={resp.id} className="text-sm">
-                              <span className="text-foreground/60">[{resp.order}]</span>{" "}
-                              <span className="text-foreground/60">(+{resp.delaySeconds}s)</span>{" "}
-                              <span className="font-mono wrap-break-word">{resp.template}</span>
-                            </li>
-                          ))}
-                      </ol>
-                    </div>
+      {loading ? (
+        <div className="panel p-4 text-sm text-muted">Carregando regras...</div>
+      ) : rules.length === 0 ? (
+        <section className="panel p-5">
+          <p className="text-sm text-muted">Nenhuma regra cadastrada.</p>
+        </section>
+      ) : (
+        <section className="space-y-3">
+          {rules.map((rule) => (
+            <article key={rule.id} className="panel panel-interactive p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="badge badge-brand">#{rule.id}</span>
+                    <span className={`badge ${rule.enabled ? "badge-success" : "badge-danger"}`}>
+                      {rule.enabled ? "ATIVA" : "PAUSADA"}
+                    </span>
+                    <span className="badge">{rule.matchType}</span>
+                    <span className="badge">prioridade {rule.priority}</span>
                   </div>
-                  <div className="flex flex-col gap-2 shrink-0">
-                    <Link
-                      href={`/dashboard/auto-replies/${r.id}`}
-                      className="px-3 py-2 rounded-xl border border-foreground/10 hover:bg-foreground/5 text-sm text-center"
-                    >
-                      Editar
-                    </Link>
-                    <button
-                      disabled={busyId === r.id}
-                      onClick={() => removeRule(r.id)}
-                      className="px-3 py-2 rounded-xl border border-foreground/10 text-sm hover:bg-foreground/5 disabled:opacity-50"
-                    >
-                      {busyId === r.id ? "Excluindo..." : "Excluir"}
-                    </button>
+
+                  <p className="mt-2 text-sm">
+                    <span className="text-muted">Padrao: </span>
+                    <span className="mono break-all">{rule.pattern}</span>
+                    {rule.caseInsensitive ? (
+                      <span className="text-muted"> (ignorar maiusculas/minusculas)</span>
+                    ) : null}
+                  </p>
+
+                  <div className="mt-3">
+                    <p className="text-xs text-muted mb-1">Sequencia de respostas</p>
+                    <ol className="space-y-1">
+                      {[...rule.responses]
+                        .sort((a, b) => a.order - b.order)
+                        .map((response) => (
+                          <li key={response.id} className="text-sm leading-relaxed">
+                            <span className="text-muted">[{response.order}]</span>{" "}
+                            <span className="text-muted">(+{response.delaySeconds}s)</span>{" "}
+                            <span className="mono break-words">{response.template}</span>
+                          </li>
+                        ))}
+                    </ol>
                   </div>
                 </div>
+
+                <div className="flex flex-col gap-2 shrink-0">
+                  <Link
+                    href={`/dashboard/auto-replies/${rule.id}`}
+                    className="btn btn-secondary btn-sm"
+                  >
+                    Editar
+                  </Link>
+                  <button
+                    type="button"
+                    disabled={busyId === rule.id}
+                    onClick={() => removeRule(rule.id)}
+                    className="btn btn-danger btn-sm"
+                  >
+                    {busyId === rule.id ? "Excluindo..." : "Excluir"}
+                  </button>
+                </div>
               </div>
-            ))}
-          </div>
-        )}
-      </div>
-    </main>
+            </article>
+          ))}
+        </section>
+      )}
+    </DashboardScaffold>
   );
 }

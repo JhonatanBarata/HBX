@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Admin Dashboard</title>
+  <style>body{font-family:sans-serif;padding:20px} .wrap{max-width:1000px;margin:0 auto} header{display:flex;justify-content:space-between;align-items:center} table{width:100%;border-collapse:collapse;margin-top:16px} th,td{padding:10px;border:1px solid #eee} .btn{padding:8px 12px;border-radius:6px;border:0;background:#3b82f6;color:#fff;cursor:pointer} </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <h1>Dashboard Master</h1>
+      <div>
+        <button id="refresh" class="btn">Atualizar</button>
+        <button id="logout" class="btn" style="background:#ef4444">Sair</button>
+      </div>
+    </header>
+
+    <section>
+      <h2>Clientes</h2>
+      <table id="clientsTable">
+        <thead><tr><th>ID</th><th>Nome</th><th>Email</th><th>Bloqueado</th><th>Pagou</th><th>Ações</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </section>
+  </div>
+
+  <script>
+    const token = localStorage.getItem('token');
+    if (!token) location.href = '/login';
+
+    async function loadClients(){
+      const res = await fetch('http://localhost:3000/clients', { headers: { Authorization: 'Bearer '+token } });
+      if (!res.ok) { alert('Erro ao buscar clientes'); return; }
+      const clients = await res.json();
+      const tbody = document.querySelector('#clientsTable tbody');
+      tbody.innerHTML = '';
+      for (const c of clients){
+        const tr = document.createElement('tr');
+        tr.innerHTML = `<td>${c.id}</td><td>${c.name}</td><td>${c.email||''}</td><td>${c.blocked}</td><td>${c.paid}</td><td><button data-id="${c.id}" class="view">Ver</button></td>`;
+        tbody.appendChild(tr);
+      }
+      document.querySelectorAll('.view').forEach(b=>b.addEventListener('click', (e)=>{ const id=e.target.dataset.id; location.href=`/client.html?clientId=${id}` }));
+    }
+
+    document.getElementById('refresh').addEventListener('click', loadClients);
+    document.getElementById('logout').addEventListener('click', ()=>{ localStorage.removeItem('token'); location.href='/login' });
+
+    loadClients();
+  </script>
+</body>
+</html>

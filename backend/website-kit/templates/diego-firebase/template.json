@@ -1,0 +1,8 @@
+﻿{
+    "key":  "diego-firebase",
+    "name":  "Template Diego (Firebase Hosting)",
+    "type":  "firebase_hosting",
+    "hasFunctions":  false,
+    "sourcePath":  "Diego projeto",
+    "copiedAt":  "2026-03-05T12:59:26.3788780-03:00"
+}

@@ -1,0 +1,68 @@
+{
+  "instrucoes": "Após configurar o Firebase, você pode importar estes dados iniciais manualmente ou via script",
+  
+  "tipos": [
+    { "nome": "Garapeira", "slug": "garapeira" },
+    { "nome": "Pequiá", "slug": "pequiá" },
+    { "nome": "Angelim de Pedra", "slug": "angelim-pedra" },
+    { "nome": "Madeira Nobre", "slug": "madeira-nobre" }
+  ],
+  
+  "mesas_exemplo": [
+    {
+      "tipo": "Garapeira",
+      "nome": "Mesa de Garapeira",
+      "descricao": "Escultura em madeira maciça, acabamento premium, peça exclusiva para ambientes sofisticados.",
+      "especificacoes": [
+        "Madeira: Garapeira nobre",
+        "Acabamento: Verniz acetinado",
+        "Design: Peça única"
+      ],
+      "fotos": [
+        "public/img/MESA 1 (1).jpeg"
+      ],
+      "paginaDetalhes": "garapeira.html"
+    },
+    {
+      "tipo": "Pequiá",
+      "nome": "Mesa de Pequiá",
+      "descricao": "Design orgânico em pequiá maciço, resistência excepcional e beleza natural incomparável.",
+      "especificacoes": [
+        "Madeira: Pequiá maciço",
+        "Acabamento: Verniz premium",
+        "Estrutura: Reforçada"
+      ],
+      "fotos": [
+        "public/img/MESA 2.jpeg"
+      ],
+      "paginaDetalhes": "pequia.html"
+    },
+    {
+      "tipo": "Angelim de Pedra",
+      "nome": "Mesa de Angelim de Pedra",
+      "descricao": "Angelim de Pedra raro, formato único, peça de destaque para escritórios executivos.",
+      "especificacoes": [
+        "Madeira: Angelim de Pedra",
+        "Acabamento: Impermeabilização especial",
+        "Certificação: Manejo sustentável"
+      ],
+      "fotos": [
+        "public/img/MESA 3.jpeg"
+      ],
+      "paginaDetalhes": "pedra.html"
+    }
+  ],
+  
+  "carrossel_inicial": {
+    "fotos": [
+      "/public/img/MESA 1 (10).jpeg",
+      "/public/img/MESA 1 (1).jpeg",
+      "/public/img/MESA 1 (2).jpeg",
+      "/public/img/MESA 1 (3).jpeg",
+      "/public/img/MESA 1 (4).jpeg",
+      "/public/img/MESA 1 (5).jpeg",
+      "/public/img/MESA 1 (6).jpeg",
+      "/public/img/MESA 1 (7).jpeg"
+    ]
+  }
+}

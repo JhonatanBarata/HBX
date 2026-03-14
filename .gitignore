@@ -1,0 +1,20 @@
+node_modules/
+**/node_modules/
+**/.next/
+**/dist/
+dist_electron/
+**/coverage/
+postgres-data/
+.orchestrator/
+.vscode/
+**/logs/
+*.log
+.env
+**/.env.local
+temp_*.json
+index 26-01 com auth.txt
+
+systeminfo.txt
+msinfo-completo.txt
+processos-top.txt
+windus.txt

@@ -1,0 +1,398 @@
+﻿<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Guia Segura de Pagamento</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600&family=Public+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #eef5ef;
+      --surface: rgba(255, 255, 255, 0.94);
+      --surface-strong: #ffffff;
+      --line: rgba(20, 53, 28, 0.08);
+      --text: #102217;
+      --muted: #4f6656;
+      --accent: #19a34a;
+      --accent-soft: rgba(25, 163, 74, 0.12);
+      --shadow: 0 20px 38px rgba(16, 34, 23, 0.08);
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: "Public Sans", sans-serif;
+      color: var(--text);
+      background:
+        radial-gradient(circle at top right, rgba(25, 163, 74, 0.12), transparent 34%),
+        linear-gradient(180deg, #f8faf8, var(--bg));
+    }
+
+    .shell {
+      width: min(980px, calc(100% - 32px));
+      margin: 0 auto;
+      padding: 32px 0 48px;
+    }
+
+    .hero,
+    .card {
+      border: 1px solid var(--line);
+      border-radius: 28px;
+      background: var(--surface);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(12px);
+    }
+
+    .hero {
+      padding: 24px;
+      background:
+        linear-gradient(140deg, rgba(255, 255, 255, 0.98), rgba(25, 163, 74, 0.07));
+    }
+
+    .trust-head {
+      display: grid;
+      grid-template-columns: minmax(120px, 150px) minmax(0, 1fr);
+      gap: 18px;
+      align-items: center;
+      margin-bottom: 18px;
+    }
+
+    .trust-medal {
+      position: relative;
+      display: grid;
+      place-items: center;
+      width: 132px;
+      aspect-ratio: 1;
+      margin-inline: auto;
+      border-radius: 50%;
+      background:
+        radial-gradient(circle at 30% 30%, rgba(255,255,255,0.98), rgba(25, 163, 74, 0.12));
+      border: 1px solid rgba(0, 0, 0, 0.08);
+      box-shadow: 0 18px 30px rgba(16, 34, 23, 0.1);
+      overflow: hidden;
+    }
+
+    .trust-medal::before,
+    .trust-medal::after {
+      content: "";
+      position: absolute;
+      inset: 10px;
+      border-radius: 50%;
+      border: 1px solid rgba(25, 163, 74, 0.22);
+      animation: trust-spin 10s linear infinite;
+    }
+
+    .trust-medal::after {
+      inset: 22px;
+      border-style: dashed;
+      border-color: rgba(37, 99, 235, 0.18);
+      animation-direction: reverse;
+      animation-duration: 7s;
+    }
+
+    .trust-medal__core {
+      position: relative;
+      z-index: 1;
+      display: grid;
+      justify-items: center;
+      gap: 8px;
+      text-align: center;
+      font-family: "Oswald", sans-serif;
+      font-size: 0.95rem;
+      text-transform: uppercase;
+      line-height: 1;
+      letter-spacing: 0.04em;
+    }
+
+    .trust-medal__core svg {
+      width: 28px;
+      height: 28px;
+      color: var(--accent);
+    }
+
+    .trust-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 14px;
+    }
+
+    .trust-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 34px;
+      padding: 0 12px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.88);
+      color: var(--text);
+      font-size: 0.78rem;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+
+    .trust-chip svg {
+      width: 14px;
+      height: 14px;
+      flex: 0 0 auto;
+    }
+
+    .kicker {
+      display: inline-block;
+      margin-bottom: 10px;
+      font-size: 0.76rem;
+      font-weight: 700;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+
+    h1, h2 {
+      margin: 0;
+      font-family: "Oswald", sans-serif;
+      letter-spacing: 0.02em;
+      font-weight: 500;
+    }
+
+    p { margin: 0; line-height: 1.7; color: var(--muted); }
+    .grid { display: grid; gap: 18px; margin-top: 20px; grid-template-columns: 1.15fr 0.85fr; }
+    .card { padding: 24px; }
+    .security, .options { display: grid; gap: 12px; margin-top: 18px; }
+    .security-pill, .option {
+      padding: 14px 16px;
+      border-radius: 18px;
+      border: 1px solid var(--line);
+      background: var(--surface-strong);
+      transition: transform 0.22s ease, box-shadow 0.22s ease, border-color 0.22s ease;
+    }
+    .option { cursor: default; }
+    .option:hover, .option.active, .security-pill:hover {
+      transform: translateY(-2px);
+      border-color: rgba(25, 163, 74, 0.24);
+      box-shadow: 0 16px 28px rgba(25, 163, 74, 0.08);
+    }
+    .option.active {
+      background: linear-gradient(140deg, rgba(25, 163, 74, 0.08), rgba(255, 255, 255, 0.98));
+    }
+    .value-grid { display: grid; gap: 12px; grid-template-columns: repeat(2, minmax(0, 1fr)); margin-top: 18px; }
+    .value-box {
+      padding: 14px 16px;
+      border-radius: 18px;
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.84);
+    }
+    .label {
+      display: block;
+      font-size: 0.74rem;
+      font-weight: 700;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+    .value { display: block; margin-top: 8px; font-weight: 600; color: var(--text); }
+    .cta {
+      width: 100%;
+      min-height: 56px;
+      margin-top: 18px;
+      border: 0;
+      border-radius: 999px;
+      background: linear-gradient(135deg, #25d366, #16a34a);
+      color: #ffffff;
+      font: inherit;
+      font-weight: 700;
+      cursor: pointer;
+      transition: transform 0.22s ease, box-shadow 0.22s ease, opacity 0.22s ease;
+      box-shadow: 0 16px 26px rgba(25, 163, 74, 0.22);
+    }
+    .cta:hover:not(:disabled) { transform: translateY(-2px); }
+    .cta:disabled { opacity: 0.55; cursor: not-allowed; box-shadow: none; }
+    .state { margin-top: 16px; padding: 14px 16px; border-radius: 18px; border: 1px solid var(--line); background: rgba(255,255,255,.84); }
+    .loading { padding: 22px; text-align: center; color: var(--muted); }
+    .hidden { display: none; }
+
+    @keyframes trust-spin {
+      to { transform: rotate(360deg); }
+    }
+
+    @media (max-width: 820px) {
+      .trust-head,
+      .grid, .value-grid { grid-template-columns: 1fr; }
+      .shell { width: min(980px, calc(100% - 20px)); padding-top: 20px; }
+    }
+  </style>
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-ZRS8VTKTMK">
+</script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+
+  gtag('config', 'G-ZRS8VTKTMK');
+</script>
+</head>
+<body>
+  <main class="shell">
+    <section class="hero">
+      <div class="trust-head">
+        <div class="trust-medal" aria-hidden="true">
+          <div class="trust-medal__core">
+            <svg viewBox="0 0 24 24" fill="currentColor" role="presentation">
+              <path d="M4 5.5A2.5 2.5 0 0 1 6.5 3h11A2.5 2.5 0 0 1 20 5.5v13a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 4 18.5Zm2.5-.7a.7.7 0 0 0-.7.7v1.2h12.4V5.5a.7.7 0 0 0-.7-.7Zm11.7 4H5.8v9.7c0 .38.32.7.7.7h11c.38 0 .7-.32.7-.7ZM7.1 14.1h3.4v1.6H7.1Zm5 0h4.8v1.6h-4.8Z"></path>
+            </svg>
+            <span>Aceitamos</span>
+            <span>CartÃ£o Online</span>
+          </div>
+        </div>
+        <div>
+          <span class="kicker">Guia protegida</span>
+          <div class="trust-row">
+            <span class="trust-chip">Site confiavel</span>
+            <span class="trust-chip">
+              <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                <path d="M12 2 4 5v6c0 5.25 3.4 10.08 8 11 4.6-.92 8-5.75 8-11V5l-8-3Zm3.3 8.1-4.02 4.28a1 1 0 0 1-1.46.02L7.7 12.3l1.4-1.42 1.39 1.38 3.36-3.58 1.45 1.42Z"></path>
+              </svg>
+              Mercado Pago
+            </span>
+            <span class="trust-chip">Parceria operacional</span>
+          </div>
+        </div>
+      </div>
+      <h1>Pagamento com checkout oficial do Mercado Pago</h1>
+      <p id="statusLead" style="margin-top: 12px;">Carregando sua cobranÃ§a segura...</p>
+    </section>
+
+    <section class="grid">
+      <div class="card">
+        <span class="kicker">Seu atendimento</span>
+        <h2 id="quoteTitle">Aguardando dados</h2>
+        <div id="quoteValues" class="value-grid"></div>
+        <div class="security">
+          <div class="security-pill">O site nÃ£o armazena os dados do seu cartÃ£o.</div>
+          <div class="security-pill">O pagamento e concluÃ­do em ambiente oficial do Mercado Pago.</div>
+          <div class="security-pill">A saÃ­da do guincho sÃ³ Ã© liberada apÃ³s a confirmaÃ§Ã£o do pagamento.</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <span class="kicker">Pagamento online</span>
+        <h2>Finalizar no checkout oficial</h2>
+        <p style="margin-top: 12px;">O Mercado Pago mostra as formas de pagamento e parcelas disponiveis direto no checkout oficial.</p>
+        <div id="quoteOptions" class="options">
+          <div class="option active">
+            <strong>Checkout oficial Mercado Pago</strong>
+            <p>Toque em continuar para abrir o ambiente seguro e concluir o pagamento.</p>
+          </div>
+        </div>
+        <button id="checkoutBtn" class="cta" type="button" disabled>Continuar para o checkout oficial</button>
+        <div id="stateBox" class="state hidden"></div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const params = new URLSearchParams(window.location.search);
+    const token = params.get('token') || '';
+    const state = params.get('state') || '';
+    let quoteData = null;
+
+    const formatCurrency = (value) => Number(value || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+    const formatPercent = (value) => `${Number(value || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%`;
+
+    function setState(message, tone) {
+      const box = document.getElementById('stateBox');
+      box.classList.remove('hidden');
+      box.textContent = message;
+      if (tone === 'ok') {
+        box.style.borderColor = 'rgba(25, 163, 74, 0.2)';
+        box.style.background = 'rgba(221, 255, 232, 0.84)';
+        box.style.color = '#126d36';
+        return;
+      }
+
+      if (tone === 'pending') {
+        box.style.borderColor = 'rgba(217, 119, 6, 0.16)';
+        box.style.background = 'rgba(255, 247, 237, 0.95)';
+        box.style.color = '#9a3412';
+        return;
+      }
+
+      box.style.borderColor = 'rgba(220, 38, 38, 0.16)';
+      box.style.background = 'rgba(255, 240, 240, 0.9)';
+      box.style.color = '#9f1d1d';
+    }
+
+    function renderQuote(data) {
+      quoteData = data;
+      document.getElementById('statusLead').textContent = data.statusLabel;
+      document.getElementById('quoteTitle').textContent = `${data.customerName} | ${data.serviceType}`;
+      document.getElementById('quoteValues').innerHTML = `
+        <div class="value-box"><span class="label">Valor base</span><span class="value">${formatCurrency(data.amount)}</span></div>
+        <div class="value-box"><span class="label">Valor cartÃ£o</span><span class="value">${formatCurrency(data.cardTotalAmount)}</span></div>
+        <div class="value-box"><span class="label">Taxas aplicadas</span><span class="value">${formatPercent(data.appliedFeePercent)}</span></div>
+        <div class="value-box"><span class="label">Retirada</span><span class="value">${data.pickupAddress}</span></div>
+        <div class="value-box"><span class="label">Destino</span><span class="value">${data.dropoffAddress || 'Confirmar no atendimento'}</span></div>
+      `;
+
+      document.getElementById('checkoutBtn').disabled = data.isLocked;
+
+      if (data.isLocked) {
+        document.getElementById('checkoutBtn').disabled = true;
+        setState('Este pagamento jÃ¡ foi confirmado. NÃ£o Ã© necessÃ¡rio gerar um novo checkout.', 'ok');
+      } else if (data.status === 'failed') {
+        setState('Pagamento nÃ£o aprovado. Gere uma nova tentativa para seguir com o atendimento.', 'error');
+      } else if (state === 'approved' || state === 'processing' || state === 'pending') {
+        setState('Pagamento retornou do checkout. Agora aguardamos a confirmaÃ§Ã£o oficial do webhook antes de liberar o atendimento.', 'pending');
+      } else if (state === 'failure') {
+        setState('O checkout nÃ£o foi concluÃ­do. Tente novamente quando quiser.', 'error');
+      }
+    }
+
+    async function loadQuote() {
+      if (!token) {
+        setState('Link invÃ¡lido. Solicite uma nova guia para o atendimento.', 'error');
+        return;
+      }
+
+      try {
+        const response = await fetch(`/api/mercadopago/quote?token=${encodeURIComponent(token)}`);
+        const data = await response.json();
+        if (!response.ok || !data.ok) throw new Error(data.error || 'NÃ£o foi possÃ­vel carregar a cobranÃ§a.');
+        renderQuote(data.quote);
+      } catch (error) {
+        setState(error.message, 'error');
+      }
+    }
+
+    document.getElementById('checkoutBtn').addEventListener('click', async () => {
+      if (!token || !quoteData) return;
+      const button = document.getElementById('checkoutBtn');
+      button.disabled = true;
+      button.textContent = 'Gerando checkout...';
+
+      try {
+        const response = await fetch('/api/mercadopago/create-checkout', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token })
+        });
+        const data = await response.json();
+        if (!response.ok || !data.ok) throw new Error(data.error || 'NÃ£o foi possÃ­vel gerar o checkout.');
+        window.location.href = data.paymentUrl;
+      } catch (error) {
+        button.disabled = false;
+        button.textContent = 'Continuar para o checkout oficial';
+        setState(error.message, 'error');
+      }
+    });
+
+    loadQuote();
+  </script>
+</body>
+</html>
+

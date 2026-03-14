@@ -3,7 +3,9 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
-import { apiFetch, getToken } from "../../_lib/api";
+import DashboardScaffold from "@/components/DashboardScaffold";
+import { apiFetch } from "../../_lib/api";
+import { useRequireAuth } from "../../_lib/useRequireAuth";
 import { RuleForm, RuleFormValue } from "../_components/RuleForm";
 
 type AutoReplyResponse = {
@@ -25,42 +27,47 @@ type AutoReplyRule = {
 
 export default function EditRuleClientPage({ params }: { params: { id: string } }) {
   const router = useRouter();
+  const hasToken = useRequireAuth();
   const id = Number(params.id);
   const [rule, setRule] = useState<AutoReplyRule | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!getToken()) {
-      router.push("/login");
-      return;
-    }
+    if (hasToken !== true) return;
     (async () => {
       setError(null);
+      setLoading(true);
       try {
         const list = await apiFetch<AutoReplyRule[]>("/auto-replies/rules");
-        const found = list.find((r) => r.id === id) ?? null;
-        if (!found) throw new Error("Regra não encontrada");
+        const found = list.find((item) => item.id === id) ?? null;
+        if (!found) throw new Error("Regra nao encontrada.");
         setRule(found);
-      } catch (e: any) {
-        setError(e?.message ?? "Falha ao carregar");
+      } catch (loadError) {
+        const message =
+          loadError instanceof Error ? loadError.message : "Falha ao carregar regra.";
+        setError(message);
       } finally {
         setLoading(false);
       }
     })();
-  }, [id, router]);
+  }, [hasToken, id]);
 
   const initial: RuleFormValue | null = useMemo(() => {
     if (!rule) return null;
     return {
       enabled: rule.enabled,
       priority: rule.priority,
-      matchType: (rule.matchType === "CONTAINS" ? "CONTAINS" : "EXACT") as any,
+      matchType: (rule.matchType === "CONTAINS" ? "CONTAINS" : "EXACT") as RuleFormValue["matchType"],
       pattern: rule.pattern,
       caseInsensitive: rule.caseInsensitive,
       responses: [...(rule.responses ?? [])]
         .sort((a, b) => a.order - b.order)
-        .map((r) => ({ order: r.order, delaySeconds: r.delaySeconds ?? 0, template: r.template })),
+        .map((response) => ({
+          order: response.order,
+          delaySeconds: response.delaySeconds ?? 0,
+          template: response.template,
+        })),
     };
   }, [rule]);
 
@@ -79,36 +86,36 @@ export default function EditRuleClientPage({ params }: { params: { id: string } 
     router.push("/dashboard/auto-replies");
   }
 
-  return (
-    <main className="min-h-screen p-6">
-      <div className="max-w-3xl mx-auto">
-        <div className="flex items-center justify-between gap-4 mb-6">
-          <div>
-            <h1 className="text-2xl font-bold">Editar regra #{id}</h1>
-            <p className="text-sm text-foreground/70">Atualize padrão e respostas.</p>
-          </div>
-          <Link
-            href="/dashboard/auto-replies"
-            className="px-3 py-2 rounded-xl border border-foreground/10 hover:bg-foreground/5 text-sm"
-          >
-            Voltar
-          </Link>
+  if (hasToken === null) {
+    return (
+      <main className="app-shell">
+        <div className="app-container">
+          <div className="panel p-4 text-sm text-muted">Carregando...</div>
         </div>
+      </main>
+    );
+  }
+  if (!hasToken) return null;
 
-        {error && (
-          <div className="mb-4 p-3 rounded-xl border border-primary/30 bg-primary/5 text-sm">
-            {error}
-          </div>
-        )}
+  return (
+    <DashboardScaffold
+      title={`Editar regra #${id}`}
+      description="Atualize condicoes de disparo, prioridade e respostas da automacao."
+      actions={
+        <Link href="/dashboard/auto-replies" className="btn btn-secondary btn-sm">
+          Voltar para lista
+        </Link>
+      }
+    >
+      {error ? <div className="alert alert-error">{error}</div> : null}
 
-        {loading || !initial ? (
-          <p className="text-sm text-foreground/70">Carregando...</p>
-        ) : (
-          <div className="border border-foreground/10 rounded-2xl p-4 bg-background">
-            <RuleForm initial={initial} submitLabel="Salvar" onSubmit={onSubmit} />
-          </div>
-        )}
-      </div>
-    </main>
+      {loading || !initial ? (
+        <section className="panel p-4 text-sm text-muted">Carregando regra...</section>
+      ) : (
+        <section className="panel p-4">
+          <RuleForm initial={initial} submitLabel="Salvar alteracoes" onSubmit={onSubmit} />
+        </section>
+      )}
+    </DashboardScaffold>
   );
 }

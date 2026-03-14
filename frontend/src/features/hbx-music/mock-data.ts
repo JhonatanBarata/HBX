@@ -1,0 +1,281 @@
+import type {
+  HbxMusicPlayHistory,
+  HbxMusicPlaylist,
+  HbxMusicSubscription,
+  HbxMusicTrack,
+  HbxMusicUser,
+} from "./types";
+
+function toIsoWithOffset(daysOffset: number, hoursOffset = 0) {
+  const date = new Date();
+  date.setDate(date.getDate() + daysOffset);
+  date.setHours(date.getHours() + hoursOffset);
+  return date.toISOString();
+}
+
+export const HBX_MUSIC_PLAN_PRICE_CENTS = 590;
+
+export const HBX_MUSIC_TRACKS: HbxMusicTrack[] = [
+  {
+    id: "track-aurora-cafe",
+    title: "Aurora Cafe",
+    artist: "Luna Mar",
+    genre: "indie pop",
+    country: "BR",
+    coverGradient: ["#f59e0b", "#7c3aed"],
+    audioUrl: "/mock/hbx-music/aurora-cafe.mp3",
+    duration: 212,
+    tags: ["trend", "warm", "night"],
+    sourceType: "mock",
+  },
+  {
+    id: "track-rua-neon",
+    title: "Rua Neon",
+    artist: "Atlas Rua",
+    genre: "synthwave",
+    country: "BR",
+    coverGradient: ["#0ea5e9", "#2563eb"],
+    audioUrl: "/mock/hbx-music/rua-neon.mp3",
+    duration: 185,
+    tags: ["night", "drive", "trend"],
+    sourceType: "mock",
+  },
+  {
+    id: "track-blue-harbor",
+    title: "Blue Harbor",
+    artist: "Eden Coast",
+    genre: "dream pop",
+    country: "US",
+    coverGradient: ["#22c55e", "#0f766e"],
+    audioUrl: "/mock/hbx-music/blue-harbor.mp3",
+    duration: 231,
+    tags: ["ocean", "calm", "discovery"],
+    sourceType: "mock",
+  },
+  {
+    id: "track-cidade-lenta",
+    title: "Cidade Lenta",
+    artist: "Nina Norte",
+    genre: "lo-fi brazil",
+    country: "BR",
+    coverGradient: ["#f97316", "#ef4444"],
+    audioUrl: "/mock/hbx-music/cidade-lenta.mp3",
+    duration: 206,
+    tags: ["focus", "work", "favorite"],
+    sourceType: "mock",
+  },
+  {
+    id: "track-midnight-letter",
+    title: "Midnight Letter",
+    artist: "Velvet Arcade",
+    genre: "indie pop",
+    country: "UK",
+    coverGradient: ["#e11d48", "#8b5cf6"],
+    audioUrl: "/mock/hbx-music/midnight-letter.mp3",
+    duration: 244,
+    tags: ["trend", "chorus", "global"],
+    sourceType: "mock",
+  },
+  {
+    id: "track-vento-claro",
+    title: "Vento Claro",
+    artist: "Caio Solar",
+    genre: "mpb eletrica",
+    country: "BR",
+    coverGradient: ["#38bdf8", "#14b8a6"],
+    audioUrl: "/mock/hbx-music/vento-claro.mp3",
+    duration: 219,
+    tags: ["national", "sunset", "warm"],
+    sourceType: "mock",
+  },
+  {
+    id: "track-glass-hearts",
+    title: "Glass Hearts",
+    artist: "Mira Vale",
+    genre: "alt rnb",
+    country: "US",
+    coverGradient: ["#fb7185", "#f43f5e"],
+    audioUrl: "/mock/hbx-music/glass-hearts.mp3",
+    duration: 238,
+    tags: ["late", "silk", "discovery"],
+    sourceType: "mock",
+  },
+  {
+    id: "track-mapa-do-mar",
+    title: "Mapa do Mar",
+    artist: "Luna Mar",
+    genre: "indie pop",
+    country: "BR",
+    coverGradient: ["#60a5fa", "#1d4ed8"],
+    audioUrl: "/mock/hbx-music/mapa-do-mar.mp3",
+    duration: 201,
+    tags: ["favorite", "national", "bright"],
+    sourceType: "mock",
+  },
+  {
+    id: "track-afterglow-circuit",
+    title: "Afterglow Circuit",
+    artist: "Nova District",
+    genre: "synthwave",
+    country: "CA",
+    coverGradient: ["#8b5cf6", "#312e81"],
+    audioUrl: "/mock/hbx-music/afterglow-circuit.mp3",
+    duration: 250,
+    tags: ["drive", "global", "trend"],
+    sourceType: "mock",
+  },
+  {
+    id: "track-rosa-sutil",
+    title: "Rosa Sutil",
+    artist: "Amora Club",
+    genre: "dream pop",
+    country: "BR",
+    coverGradient: ["#f472b6", "#ec4899"],
+    audioUrl: "/mock/hbx-music/rosa-sutil.mp3",
+    duration: 194,
+    tags: ["discovery", "soft", "night"],
+    sourceType: "mock",
+  },
+  {
+    id: "track-city-lights-02",
+    title: "City Lights 02",
+    artist: "Velvet Arcade",
+    genre: "indie dance",
+    country: "US",
+    coverGradient: ["#a855f7", "#ec4899"],
+    audioUrl: "/mock/hbx-music/city-lights-02.mp3",
+    duration: 228,
+    tags: ["global", "club", "trend"],
+    sourceType: "mock",
+  },
+  {
+    id: "track-jardim-echo",
+    title: "Jardim Echo",
+    artist: "Brisa Alta",
+    genre: "lo-fi brazil",
+    country: "BR",
+    coverGradient: ["#84cc16", "#16a34a"],
+    audioUrl: "/mock/hbx-music/jardim-echo.mp3",
+    duration: 176,
+    tags: ["focus", "calm", "daily"],
+    sourceType: "mock",
+  },
+];
+
+export const HBX_MUSIC_PLAYLISTS: HbxMusicPlaylist[] = [
+  {
+    id: "playlist-dawn",
+    userId: "user-demo",
+    name: "Manha Premium",
+    description: "Abertura leve para dias de foco alto e cafe forte.",
+    coverGradient: ["#0ea5e9", "#22c55e"],
+    trackIds: ["track-cidade-lenta", "track-jardim-echo", "track-blue-harbor"],
+  },
+  {
+    id: "playlist-night",
+    userId: "user-demo",
+    name: "Noite HBX",
+    description: "Synth, brilho e camadas para trabalhar tarde sem cair.",
+    coverGradient: ["#a855f7", "#0f172a"],
+    trackIds: ["track-rua-neon", "track-afterglow-circuit", "track-midnight-letter"],
+  },
+  {
+    id: "playlist-discovery",
+    userId: "user-demo",
+    name: "Descobertas finas",
+    description: "15% de novidade boa para furar a bolha sem estragar o gosto.",
+    coverGradient: ["#fb7185", "#f59e0b"],
+    trackIds: ["track-glass-hearts", "track-rosa-sutil", "track-vento-claro"],
+  },
+];
+
+export const HBX_MUSIC_HISTORY: HbxMusicPlayHistory[] = [
+  {
+    id: "history-1",
+    userId: "user-demo",
+    trackId: "track-cidade-lenta",
+    playCount: 16,
+    lastPlayedAt: toIsoWithOffset(-1, -2),
+    liked: true,
+    skipped: false,
+    totalListenSeconds: 2600,
+  },
+  {
+    id: "history-2",
+    userId: "user-demo",
+    trackId: "track-rua-neon",
+    playCount: 11,
+    lastPlayedAt: toIsoWithOffset(-1, -6),
+    liked: true,
+    skipped: false,
+    totalListenSeconds: 1810,
+  },
+  {
+    id: "history-3",
+    userId: "user-demo",
+    trackId: "track-mapa-do-mar",
+    playCount: 8,
+    lastPlayedAt: toIsoWithOffset(-2, -1),
+    liked: true,
+    skipped: false,
+    totalListenSeconds: 1410,
+  },
+  {
+    id: "history-4",
+    userId: "user-demo",
+    trackId: "track-midnight-letter",
+    playCount: 5,
+    lastPlayedAt: toIsoWithOffset(-3, -3),
+    liked: false,
+    skipped: false,
+    totalListenSeconds: 920,
+  },
+  {
+    id: "history-5",
+    userId: "user-demo",
+    trackId: "track-glass-hearts",
+    playCount: 2,
+    lastPlayedAt: toIsoWithOffset(-4, -4),
+    liked: false,
+    skipped: true,
+    totalListenSeconds: 210,
+  },
+];
+
+export function buildMockMusicUser(input?: {
+  id?: number | string;
+  username?: string | null;
+  email?: string | null;
+  createdAt?: string | null;
+}): HbxMusicUser {
+  return {
+    id: String(input?.id || "user-demo"),
+    name: String(input?.username || "Jhonatan"),
+    email: String(input?.email || "jhonatan@hbx.local"),
+    createdAt: String(input?.createdAt || toIsoWithOffset(-60)),
+    trialStartAt: toIsoWithOffset(-18),
+    trialEndAt: toIsoWithOffset(12),
+    subscriptionStatus: "trialing",
+    billingProvider: "mock",
+    premiumAccess: true,
+    preferredGenres: ["indie pop", "lo-fi brazil", "synthwave"],
+    preferredArtists: ["Luna Mar", "Atlas Rua", "Nina Norte"],
+    discoveryLevel: "balanced",
+  };
+}
+
+export function buildMockSubscription(userId: string): HbxMusicSubscription {
+  return {
+    id: "subscription-demo",
+    userId,
+    planId: "hbx-music-monthly",
+    provider: "mock",
+    status: "trialing",
+    trialStartAt: toIsoWithOffset(-18),
+    trialEndAt: toIsoWithOffset(12),
+    currentPeriodStart: null,
+    currentPeriodEnd: null,
+    planLabel: "HBX Music Premium",
+    planPriceCents: HBX_MUSIC_PLAN_PRICE_CENTS,
+  };
+}

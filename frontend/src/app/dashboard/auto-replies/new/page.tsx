@@ -2,16 +2,14 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect } from "react";
-import { apiFetch, getToken } from "../../_lib/api";
+import DashboardScaffold from "@/components/DashboardScaffold";
+import { apiFetch } from "../../_lib/api";
+import { useRequireAuth } from "../../_lib/useRequireAuth";
 import { RuleForm, RuleFormValue } from "../_components/RuleForm";
 
 export default function NewRulePage() {
   const router = useRouter();
-
-  useEffect(() => {
-    if (!getToken()) router.push("/login");
-  }, [router]);
+  const hasToken = useRequireAuth();
 
   const initial: RuleFormValue = {
     enabled: true,
@@ -37,28 +35,30 @@ export default function NewRulePage() {
     router.push("/dashboard/auto-replies");
   }
 
-  return (
-    <main className="min-h-screen p-6">
-      <div className="max-w-3xl mx-auto">
-        <div className="flex items-center justify-between gap-4 mb-6">
-          <div>
-            <h1 className="text-2xl font-bold">Nova regra</h1>
-            <p className="text-sm text-foreground/70">
-              Defina o padrão e a sequência de respostas.
-            </p>
-          </div>
-          <Link
-            href="/dashboard/auto-replies"
-            className="px-3 py-2 rounded-xl border border-foreground/10 hover:bg-foreground/5 text-sm"
-          >
-            Voltar
-          </Link>
+  if (hasToken === null) {
+    return (
+      <main className="app-shell">
+        <div className="app-container">
+          <div className="panel p-4 text-sm text-muted">Carregando...</div>
         </div>
+      </main>
+    );
+  }
+  if (!hasToken) return null;
 
-        <div className="border border-foreground/10 rounded-2xl p-4 bg-background">
-          <RuleForm initial={initial} submitLabel="Criar regra" onSubmit={onSubmit} />
-        </div>
-      </div>
-    </main>
+  return (
+    <DashboardScaffold
+      title="Nova regra"
+      description="Defina o padrao de acionamento e a sequencia das mensagens."
+      actions={
+        <Link href="/dashboard/auto-replies" className="btn btn-secondary btn-sm">
+          Voltar para lista
+        </Link>
+      }
+    >
+      <section className="panel p-4">
+        <RuleForm initial={initial} submitLabel="Criar regra" onSubmit={onSubmit} />
+      </section>
+    </DashboardScaffold>
   );
 }

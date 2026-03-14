@@ -1,0 +1,72 @@
+{
+  "functions": {
+    "source": "my-project/functions"
+  },
+  "hosting": {
+    "public": "my-project",
+    "ignore": [
+      "firebase.json",
+      "**/.*",
+      "**/node_modules/**",
+      "functions/**"
+    ],
+    "redirects": [
+      {
+        "source": "/favicon.ico",
+        "destination": "/favicon.svg",
+        "type": 302
+      }
+    ],
+    "rewrites": [
+      {
+        "source": "/api/mercadopago/create-preference",
+        "function": {
+          "functionId": "createMercadoPagoPreference",
+          "region": "southamerica-east1"
+        }
+      },
+      {
+        "source": "/api/mercadopago/token",
+        "function": {
+          "functionId": "manageMercadoPagoToken",
+          "region": "southamerica-east1"
+        }
+      },
+      {
+        "source": "/api/mercadopago/quote",
+        "function": {
+          "functionId": "getMercadoPagoQuote",
+          "region": "southamerica-east1"
+        }
+      },
+      {
+        "source": "/api/mercadopago/create-checkout",
+        "function": {
+          "functionId": "createMercadoPagoCheckout",
+          "region": "southamerica-east1"
+        }
+      },
+      {
+        "source": "/api/mercadopago/verify-return",
+        "function": {
+          "functionId": "verifyMercadoPagoReturn",
+          "region": "southamerica-east1"
+        }
+      },
+      {
+        "source": "/api/mercadopago/refund",
+        "function": {
+          "functionId": "refundMercadoPagoPayment",
+          "region": "southamerica-east1"
+        }
+      },
+      {
+        "source": "/api/mercadopago/webhook",
+        "function": {
+          "functionId": "mercadoPagoWebhook",
+          "region": "southamerica-east1"
+        }
+      }
+    ]
+  }
+}

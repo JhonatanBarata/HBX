@@ -1,0 +1,533 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Admin - Madeireira Monteiro</title>
+  
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=Playfair+Display:wght@400;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="page-transitions.css">
+  
+  <!-- Tailwind -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    // Silenciar aviso de produção do Tailwind CDN
+    window.process = { env: { NODE_ENV: 'production' } };
+    
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            title: ['Cinzel', 'serif'],
+            body: ['Playfair Display', 'serif'],
+          },
+          colors: {
+            madeira: '#7a4a2e',
+            ouro: '#d4af37',
+            pretinho: '#0b0b0b'
+          }
+        }
+      }
+    }
+  </script>
+  
+  <style>
+    body { font-family: 'Playfair Display', serif; }
+    .admin-card {
+      background: linear-gradient(145deg, #1a1a1a, #0a0a0a);
+      border: 1px solid rgba(212,175,55,0.2);
+      transition: all 0.3s ease;
+    }
+    .admin-card:hover {
+      border-color: rgba(212,175,55,0.5);
+      box-shadow: 0 8px 24px rgba(212,175,55,0.15);
+      transform: translateY(-2px);
+    }
+    .btn-primary {
+      background: linear-gradient(90deg, #d4af37, #c4a030);
+      transition: all 0.3s ease;
+    }
+    .btn-primary:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 4px 12px rgba(212,175,55,0.4);
+    }
+    #loginScreen { display: flex; }
+    #adminPanel { display: none; }
+    
+    /* TOAST NOTIFICATIONS */
+    #toastContainer {
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      z-index: 10000;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .toast {
+      min-width: 300px;
+      padding: 16px 20px;
+      border-radius: 12px;
+      color: white;
+      font-size: 14px;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.3);
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      animation: slideIn 0.3s ease-out;
+      backdrop-filter: blur(10px);
+    }
+    .toast.success {
+      background: linear-gradient(135deg, rgba(34,197,94,0.95), rgba(22,163,74,0.95));
+      border: 1px solid rgba(34,197,94,0.3);
+    }
+    .toast.error {
+      background: linear-gradient(135deg, rgba(239,68,68,0.95), rgba(220,38,38,0.95));
+      border: 1px solid rgba(239,68,68,0.3);
+    }
+    .toast.info {
+      background: linear-gradient(135deg, rgba(59,130,246,0.95), rgba(37,99,235,0.95));
+      border: 1px solid rgba(59,130,246,0.3);
+    }
+    .toast.warning {
+      background: linear-gradient(135deg, rgba(234,179,8,0.95), rgba(202,138,4,0.95));
+      border: 1px solid rgba(234,179,8,0.3);
+    }
+    .toast-icon {
+      font-size: 20px;
+      flex-shrink: 0;
+    }
+    @keyframes slideIn {
+      from {
+        transform: translateX(400px);
+        opacity: 0;
+      }
+      to {
+        transform: translateX(0);
+        opacity: 1;
+      }
+    }
+    @keyframes slideOut {
+      to {
+        transform: translateX(400px);
+        opacity: 0;
+      }
+    }
+    
+    /* LOADING SPINNER */
+    .loading-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.7);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 9999;
+      backdrop-filter: blur(5px);
+    }
+    .loading-overlay.active {
+      display: flex;
+    }
+    .spinner {
+      width: 60px;
+      height: 60px;
+      border: 4px solid rgba(212,175,55,0.2);
+      border-top-color: #d4af37;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+  </style>
+</head>
+
+<body class="bg-pretinho text-gray-200">
+  <div id="page-loader" class="page-loader">
+    <div class="loader-ring"></div>
+    <div class="loader-text">Carregando...</div>
+  </div>
+
+  <header class="fixed top-0 w-full z-50 transition-all duration-500 backdrop-blur-md" style="background-image: linear-gradient(180deg, rgba(0,0,0,0.5) 0%, rgba(0,0,0,0.8) 100%), url('public/img/fundo2.jpg'); background-size: cover; background-position: center; background-attachment: fixed; box-shadow: 0 8px 32px rgba(0,0,0,0.5);">
+    <nav class="max-w-7xl mx-auto px-6 py-5 flex justify-between items-center">
+      <a href="index.html" class="font-title text-3xl md:text-4xl text-ouro tracking-widest drop-shadow-lg logo-glow" style="letter-spacing:0.18em; background: linear-gradient(90deg, #d4af37 60%, #fffbe6 100%); background-clip: text; -webkit-background-clip: text; -webkit-text-fill-color: transparent; filter: drop-shadow(0 2px 12px #d4af3780); text-decoration: none;">
+        <span style="font-variant: small-caps; letter-spacing:0.22em;">Madeireira Monteiro</span>
+        <span style="font-size:1.2rem; color:#e7cfa4; margin-left:0.5em; vertical-align:middle; filter: drop-shadow(0 0 6px #d4af37cc);">&#x1F332;</span>
+      </a>
+
+      <div class="flex items-center gap-4">
+        <div class="space-x-10 hidden md:flex text-sm uppercase tracking-wider items-center gap-8 menu-fancy">
+          <a href="index.html" class="menu-link">Início</a>
+          <a href="colecao.html" class="menu-link">Coleção</a>
+          <a href="sobre.html" class="menu-link">Sobre</a>
+          <a href="contato.html" class="menu-link">Contato</a>
+          <a href="admin.html" class="menu-link active" style="color: #d4af37; font-weight: 700;">Admin</a>
+        </div>
+
+        <!-- AUTENTICADO (EMAIL + SAIR) -->
+        <div id="adminNavAuth" data-auth="0" class="hidden md:flex items-center gap-4 pl-2 border-l border-ouro/20">
+          <span id="userEmail" class="text-sm text-gray-400"></span>
+          <button id="logoutBtn" class="px-4 py-2 bg-red-900/30 hover:bg-red-900/50 border border-red-500/30 rounded-lg text-red-400 text-sm transition">
+            Sair
+          </button>
+        </div>
+
+        <!-- BOTÃO HAMBURGUER MOBILE -->
+        <button class="mobile-menu-btn" aria-label="Menu" style="display: none; flex-direction: column; justify-content: space-around; width: 32px; height: 32px; background: transparent; border: none; cursor: pointer; padding: 0; z-index: 10000; position: relative;">
+          <span style="width: 32px; height: 3px; background: #d4af37; border-radius: 3px; transition: all 0.3s;"></span>
+          <span style="width: 32px; height: 3px; background: #d4af37; border-radius: 3px; transition: all 0.3s;"></span>
+          <span style="width: 32px; height: 3px; background: #d4af37; border-radius: 3px; transition: all 0.3s;"></span>
+        </button>
+
+        <style>
+          @media (max-width: 768px) {
+            .mobile-menu-btn { display: flex !important; }
+          }
+        </style>
+      </div>
+    </nav>
+    <style>
+      .logo-glow {
+        text-shadow: 0 2px 12px #d4af37cc, 0 0 2px #fffbe6;
+        letter-spacing: 0.18em;
+      }
+      .menu-fancy .menu-link {
+        position: relative;
+        padding: 0.5em 1.2em;
+        border-radius: 8px;
+        color: #e7cfa4;
+        font-weight: 600;
+        background: linear-gradient(90deg, rgba(212,175,55,0.08) 0%, rgba(255,255,255,0.02) 100%);
+        box-shadow: 0 2px 12px 0 rgba(212,175,55,0.08);
+        transition: color 0.25s, background 0.25s, box-shadow 0.25s, transform 0.18s;
+        overflow: hidden;
+        text-decoration: none;
+      }
+      .menu-fancy .menu-link.active, .menu-fancy .menu-link:hover {
+        color: #fffbe6;
+        background: linear-gradient(90deg, #d4af37 0%, #fffbe6 100%);
+        box-shadow: 0 2px 16px 0 #d4af37cc;
+        transform: translateY(-2px) scale(1.04);
+        text-shadow: 0 2px 12px #d4af37cc, 0 0 2px #fffbe6;
+      }
+      .mobile-menu-btn.active span:nth-child(1) {
+        transform: rotate(45deg) translate(8px, 8px);
+      }
+      .mobile-menu-btn.active span:nth-child(2) {
+        opacity: 0;
+      }
+      .mobile-menu-btn.active span:nth-child(3) {
+        transform: rotate(-45deg) translate(7px, -7px);
+      }
+    </style>
+  </header>
+
+  <!-- MENU MOBILE OVERLAY -->
+  <div id="mobileMenu" class="mobile-menu" style="position: fixed; top: 70px; left: 0; right: 0; bottom: 0; background: rgba(10, 10, 10, 0.98); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2rem; transform: translateX(100%); transition: transform 0.4s cubic-bezier(0.77, 0, 0.18, 1); z-index: 9999; pointer-events: none;">
+    <a href="index.html" style="font-size: 1.5rem; font-weight: 700; color: #e7cfa4; text-transform: uppercase; letter-spacing: 0.15em; padding: 1rem 2rem; border-radius: 12px; background: linear-gradient(90deg, rgba(212,175,55,0.1) 0%, transparent 100%); transition: all 0.3s; width: 80%; text-align: center; border: 2px solid transparent; text-decoration: none; pointer-events: all;">Início</a>
+    <a href="colecao.html" style="font-size: 1.5rem; font-weight: 700; color: #e7cfa4; text-transform: uppercase; letter-spacing: 0.15em; padding: 1rem 2rem; border-radius: 12px; background: linear-gradient(90deg, rgba(212,175,55,0.1) 0%, transparent 100%); transition: all 0.3s; width: 80%; text-align: center; border: 2px solid transparent; text-decoration: none; pointer-events: all;">Coleção</a>
+    <a href="sobre.html" style="font-size: 1.5rem; font-weight: 700; color: #e7cfa4; text-transform: uppercase; letter-spacing: 0.15em; padding: 1rem 2rem; border-radius: 12px; background: linear-gradient(90deg, rgba(212,175,55,0.1) 0%, transparent 100%); transition: all 0.3s; width: 80%; text-align: center; border: 2px solid transparent; text-decoration: none; pointer-events: all;">Sobre</a>
+    <a href="contato.html" style="font-size: 1.5rem; font-weight: 700; color: #e7cfa4; text-transform: uppercase; letter-spacing: 0.15em; padding: 1rem 2rem; border-radius: 12px; background: linear-gradient(90deg, rgba(212,175,55,0.1) 0%, transparent 100%); transition: all 0.3s; width: 80%; text-align: center; border: 2px solid transparent; text-decoration: none; pointer-events: all;">Contato</a>
+    <a href="admin.html" style="font-size: 1.5rem; font-weight: 700; color: #d4af37; text-transform: uppercase; letter-spacing: 0.15em; padding: 1rem 2rem; border-radius: 12px; background: linear-gradient(90deg, rgba(212,175,55,0.2) 0%, transparent 100%); transition: all 0.3s; width: 80%; text-align: center; border: 2px solid #d4af37; text-decoration: none; pointer-events: all;">🔒 Admin</a>
+
+    <button id="logoutBtnMobile" data-auth="0" type="button" class="hidden" style="font-size: 1.5rem; font-weight: 700; color: #fca5a5; text-transform: uppercase; letter-spacing: 0.15em; padding: 1rem 2rem; border-radius: 12px; background: linear-gradient(90deg, rgba(239,68,68,0.18) 0%, transparent 100%); transition: all 0.3s; width: 80%; text-align: center; border: 2px solid rgba(239,68,68,0.55); text-decoration: none; pointer-events: all;">
+      Sair
+    </button>
+  </div>
+
+  <style>
+    #adminNavAuth[data-auth="0"],
+    #logoutBtnMobile[data-auth="0"] {
+      display: none !important;
+    }
+
+    .mobile-menu.active {
+      transform: translateX(0) !important;
+      pointer-events: all !important;
+    }
+    .mobile-menu a:hover,
+    .mobile-menu a.active,
+    .mobile-menu button:hover {
+      background: linear-gradient(90deg, #d4af37 0%, #7a4a2e 100%) !important;
+      color: #fffbe6 !important;
+      border-color: #d4af37 !important;
+      box-shadow: 0 8px 24px rgba(212, 175, 55, 0.4);
+      transform: scale(1.05);
+    }
+  </style>
+
+  <!-- TELA DE LOGIN -->
+  <div id="loginScreen" class="min-h-screen flex items-center justify-center px-4 pt-28">
+    <div class="admin-card rounded-xl p-8 max-w-md w-full">
+      <div class="text-center mb-8">
+        <h1 class="font-title text-3xl text-ouro mb-2">Painel Admin</h1>
+        <p class="text-gray-400 text-sm">Madeireira Monteiro</p>
+      </div>
+      
+      <form id="loginForm" class="space-y-4">
+        <div>
+          <label class="block text-sm text-gray-300 mb-2">Email</label>
+          <input type="email" id="loginEmail" required autocomplete="email"
+            class="w-full px-4 py-3 bg-black/50 border border-ouro/30 rounded-lg text-gray-200 focus:border-ouro focus:outline-none transition">
+        </div>
+        
+        <div>
+          <label class="block text-sm text-gray-300 mb-2">Senha</label>
+          <input type="password" id="loginPassword" required autocomplete="current-password"
+            class="w-full px-4 py-3 bg-black/50 border border-ouro/30 rounded-lg text-gray-200 focus:border-ouro focus:outline-none transition">
+        </div>
+        
+        <button type="submit" class="btn-primary w-full py-3 rounded-lg text-black font-bold">
+          Entrar
+        </button>
+        
+        <div id="loginError" class="hidden text-red-400 text-sm text-center mt-2"></div>
+      </form>
+      
+      <div class="mt-6 pt-6 border-t border-ouro/20">
+        <p class="text-xs text-gray-500 text-center">
+          Primeiro acesso? Entre com email cadastrado ou contate o administrador.
+        </p>
+      </div>
+    </div>
+  </div>
+
+  <!-- PAINEL ADMIN -->
+  <div id="adminPanel" class="min-h-screen pt-28">
+    <!-- Header -->
+    <header class="bg-gradient-to-r from-pretinho to-black border-b border-ouro/20 sticky z-40 backdrop-blur-md" style="top: 90px;">
+      <div class="max-w-7xl mx-auto px-6 py-4 flex justify-between items-center">
+        <h1 class="font-title text-2xl text-ouro">Painel Admin</h1>
+      </div>
+    </header>
+
+    <!-- Navigation Tabs -->
+    <div class="max-w-7xl mx-auto px-6 mt-8">
+      <div class="flex gap-4 border-b border-ouro/20 pb-2">
+        <button onclick="showTab('tipos')" class="tab-btn active px-6 py-2 rounded-t-lg transition font-title">
+          🌳 Tipos de Mesa
+        </button>
+        <button onclick="showTab('mesas')" class="tab-btn px-6 py-2 rounded-t-lg transition font-title">
+          📋 Mesas
+        </button>
+      </div>
+    </div>
+
+    <!-- Conteúdo das Tabs -->
+    <div class="max-w-7xl mx-auto px-6 py-8">
+      
+      <!-- TAB: TIPOS -->
+      <div id="tabTipos" class="tab-content">
+        <div class="flex justify-between items-center mb-6">
+          <h2 class="text-2xl font-title text-ouro">Tipos de Mesa</h2>
+          <button onclick="openModalTipo()" class="btn-primary px-6 py-3 rounded-lg text-black font-bold">
+            + Adicionar Tipo
+          </button>
+        </div>
+        
+        <div id="listaTipos" class="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <!-- Tipos serão carregados aqui -->
+        </div>
+      </div>
+      
+      <!-- TAB: MESAS -->
+      <div id="tabMesas" class="tab-content hidden">
+        <div class="flex justify-between items-center mb-6">
+          <h2 class="text-2xl font-title text-ouro">Gerenciar Mesas</h2>
+          <button onclick="openModalMesa()" class="btn-primary px-6 py-3 rounded-lg text-black font-bold">
+            + Adicionar Mesa
+          </button>
+        </div>
+        
+        <div id="listaMesas" class="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <!-- Mesas serão carregadas aqui -->
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: ADICIONAR/EDITAR MESA -->
+  <div id="modalMesa" class="hidden fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50">
+    <div class="bg-pretinho border border-ouro/30 rounded-xl p-8 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+      <div class="flex justify-between items-center mb-6">
+        <h3 class="text-2xl font-title text-ouro" id="modalMesaTitle">Adicionar Mesa</h3>
+        <button onclick="closeModalMesa()" class="text-gray-400 hover:text-ouro text-2xl">&times;</button>
+      </div>
+      
+      <form id="formMesa" class="space-y-4">
+        <input type="hidden" id="mesaId">
+        
+        <div class="grid md:grid-cols-2 gap-4">
+          <div>
+            <label class="block text-sm text-gray-300 mb-2">Tipo de Mesa *</label>
+            <select id="mesaTipo" required class="w-full px-4 py-3 bg-black/50 border border-ouro/30 rounded-lg text-gray-200 focus:border-ouro focus:outline-none">
+              <option value="" disabled selected>Selecione um tipo...</option>
+            </select>
+            <p class="text-xs text-gray-400 mt-1">Selecione um tipo já cadastrado</p>
+          </div>
+          
+          <div>
+            <label class="block text-sm text-gray-300 mb-2">Disponibilidade *</label>
+            <select id="mesaDisponivel" required class="w-full px-4 py-3 bg-black/50 border border-ouro/30 rounded-lg text-gray-200 focus:border-ouro focus:outline-none">
+              <option value="disponivel">✅ Disponível (Pronta Entrega)</option>
+              <option value="encomenda">📦 Por Encomenda</option>
+              <option value="vendida">💰 Vendida</option>
+            </select>
+            <p class="text-xs text-gray-400 mt-1">Status atual da mesa</p>
+          </div>
+        </div>
+        
+        <div class="grid md:grid-cols-2 gap-4">
+          <div>
+            <label class="block text-sm text-gray-300 mb-2">Nome da Mesa *</label>
+            <input type="text" id="mesaNome" required class="w-full px-4 py-3 bg-black/50 border border-ouro/30 rounded-lg text-gray-200">
+          </div>
+          
+          <div>
+            <label class="block text-sm text-gray-300 mb-2">Preço (R$) *</label>
+            <input type="number" id="mesaPreco" required step="0.01" min="0" placeholder="0.00" class="w-full px-4 py-3 bg-black/50 border border-ouro/30 rounded-lg text-gray-200 focus:border-ouro focus:outline-none">
+          </div>
+        </div>
+        
+        <div>
+          <label class="block text-sm text-gray-300 mb-3">Dimensões da Mesa *</label>
+          <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div>
+              <label class="block text-xs text-gray-400 mb-2 flex items-center gap-1">
+                <img src="public/img/comprimento.png" class="w-4 h-4" alt="→" onerror="this.style.display='none'">
+                Comprimento (cm)
+              </label>
+              <input type="number" id="mesaComprimento" required step="0.01" min="0" placeholder="200" class="w-full px-3 py-2 bg-black/50 border border-ouro/30 rounded-lg text-gray-200 text-sm focus:border-ouro focus:outline-none">
+            </div>
+            <div>
+              <label class="block text-xs text-gray-400 mb-2 flex items-center gap-1">
+                <img src="public/img/largura.png" class="w-4 h-4" alt="↔" onerror="this.style.display='none'">
+                Largura (cm)
+              </label>
+              <input type="number" id="mesaLargura" required step="0.01" min="0" placeholder="100" class="w-full px-3 py-2 bg-black/50 border border-ouro/30 rounded-lg text-gray-200 text-sm focus:border-ouro focus:outline-none">
+            </div>
+            <div>
+              <label class="block text-xs text-gray-400 mb-2 flex items-center gap-1">
+                <img src="public/img/altura.png" class="w-4 h-4" alt="↑" onerror="this.style.display='none'">
+                Altura (cm)
+              </label>
+              <input type="number" id="mesaAltura" required step="0.01" min="0" placeholder="75" class="w-full px-3 py-2 bg-black/50 border border-ouro/30 rounded-lg text-gray-200 text-sm focus:border-ouro focus:outline-none">
+            </div>
+            <div>
+              <label class="block text-xs text-gray-400 mb-2 flex items-center gap-1">
+                <img src="public/img/espessura.png" class="w-4 h-4" alt="⟷" onerror="this.style.display='none'">
+                Espessura (cm)
+              </label>
+              <input type="number" id="mesaEspessura" required step="0.01" min="0" placeholder="8" class="w-full px-3 py-2 bg-black/50 border border-ouro/30 rounded-lg text-gray-200 text-sm focus:border-ouro focus:outline-none">
+            </div>
+          </div>
+        </div>
+        
+        <div>
+          <label class="block text-sm text-gray-300 mb-2">Descrição</label>
+          <textarea id="mesaDescricao" rows="3" class="w-full px-4 py-3 bg-black/50 border border-ouro/30 rounded-lg text-gray-200"></textarea>
+        </div>
+        
+        <div>
+          <label class="block text-sm text-gray-300 mb-2">Especificações (uma por linha)</label>
+          <textarea id="mesaEspecs" rows="4" placeholder="Madeira: Garapeira nobre&#10;Acabamento: Verniz acetinado" class="w-full px-4 py-3 bg-black/50 border border-ouro/30 rounded-lg text-gray-200"></textarea>
+        </div>
+        
+        <div>
+          <label class="block text-sm text-gray-300 mb-2">Foto Principal *</label>
+          <input type="file" id="mesaFotos" multiple accept="image/*" class="w-full px-4 py-3 bg-black/50 border border-ouro/30 rounded-lg text-gray-200">
+          <p class="text-xs text-gray-400 mt-1">Clique em uma foto para marcá-la como principal (capa da mesa)</p>
+          <div id="previewFotos" class="grid grid-cols-5 gap-2 mt-3"></div>
+          <input type="hidden" id="fotoPrincipalIndex" value="-1">
+        </div>
+        
+        <div>
+          <label class="block text-sm text-gray-300 mb-2">Fotos para Carrossel do Index</label>
+          <p class="text-xs text-gray-400 mb-3">Selecione quais fotos dessa mesa aparecem no carrossel da página inicial:</p>
+          <div id="fotosCarrosselContainer" class="space-y-2 max-h-64 overflow-y-auto bg-black/30 rounded-lg p-3">
+            <p class="text-gray-400 text-sm">Carregue fotos primeiro para selecionar</p>
+          </div>
+          <input type="hidden" id="fotosCarrosselArray" value="[]">
+        </div>
+        
+        <div class="flex gap-4 mt-6">
+          <button type="submit" class="btn-primary flex-1 py-3 rounded-lg text-black font-bold">
+            Salvar Mesa
+          </button>
+          <button type="button" onclick="closeModalMesa()" class="flex-1 py-3 bg-gray-700 hover:bg-gray-600 rounded-lg transition">
+            Cancelar
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL: ADICIONAR/EDITAR TIPO -->
+  <div id="modalTipo" class="hidden fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50">
+    <div class="bg-pretinho border border-ouro/30 rounded-xl p-8 max-w-md w-full">
+      <div class="flex justify-between items-center mb-6">
+        <h3 class="text-2xl font-title text-ouro" id="modalTipoTitle">Adicionar Tipo de Mesa</h3>
+        <button onclick="closeModalTipo()" class="text-gray-400 hover:text-ouro text-2xl">&times;</button>
+      </div>
+      
+      <form id="formTipo" class="space-y-4">
+        <input type="hidden" id="tipoId">
+        
+        <div>
+          <label class="block text-sm text-gray-300 mb-2">Nome do Tipo *</label>
+          <input type="text" id="tipoNome" required placeholder="Ex: Garapeira, Pequiá..." class="w-full px-4 py-3 bg-black/50 border border-ouro/30 rounded-lg text-gray-200">
+        </div>
+        
+        <div>
+          <label class="block text-sm text-gray-300 mb-2">Descrição</label>
+          <textarea id="tipoDescricao" rows="3" placeholder="Descrição do tipo de madeira..." class="w-full px-4 py-3 bg-black/50 border border-ouro/30 rounded-lg text-gray-200"></textarea>
+        </div>
+        
+        <div>
+          <label class="block text-sm text-gray-300 mb-2">Mesas no Carrossel</label>
+          <p class="text-xs text-gray-400 mb-3">Selecione quais mesas deste tipo aparecem no carrossel da coleção:</p>
+          <div id="mesasCarrosselContainer" class="space-y-2 max-h-64 overflow-y-auto bg-black/30 rounded-lg p-3">
+            <p class="text-gray-400 text-sm">Carregando mesas...</p>
+          </div>
+        </div>
+        
+        
+        <div class="flex gap-4 mt-6">
+          <button type="submit" class="btn-primary flex-1 py-3 rounded-lg text-black font-bold">
+            Salvar Tipo
+          </button>
+          <button type="button" onclick="closeModalTipo()" class="flex-1 py-3 bg-gray-700 hover:bg-gray-600 rounded-lg transition">
+            Cancelar
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Firebase SDK -->
+  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-storage-compat.js"></script>
+  
+  <!-- Config -->
+  <script src="firebase-config.js"></script>
+  
+  <!-- Toast Container -->
+  <div id="toastContainer"></div>
+  
+  <!-- Loading Overlay -->
+  <div class="loading-overlay" id="loadingOverlay">
+    <div class="spinner"></div>
+  </div>
+  
+  <!-- Admin Scripts -->
+  <script src="admin-scripts.js"></script>
+  <script src="mobile-menu.js"></script>
+  <script src="page-transitions.js"></script>
+
+</body>
+</html>

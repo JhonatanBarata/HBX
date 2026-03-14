@@ -1,67 +1,170 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import Link from "next/link";
+import { useEffect, useMemo, useState } from "react";
+import DashboardScaffold from "@/components/DashboardScaffold";
+import { apiFetch } from "./_lib/api";
+import { useRequireAuth } from "./_lib/useRequireAuth";
+
+type CurrentUser = {
+  id: number;
+  username?: string | null;
+  role?: string | null;
+  isSystemMaster?: boolean;
+  company?: { id: number; name?: string | null } | null;
+};
+
+type ModuleCard = {
+  title: string;
+  description: string;
+  href: string;
+  badge?: string;
+};
+
+type UserModule = {
+  key: string;
+  name: string;
+  description?: string | null;
+  serviceUrl?: string | null;
+  accessible: boolean;
+};
 
 export default function DashboardClientPage() {
-  const router = useRouter();
-  const [token, setToken] = useState<string | null>(null);
+  const hasToken = useRequireAuth();
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [user, setUser] = useState<CurrentUser | null>(null);
+  const [modules, setModules] = useState<UserModule[]>([]);
 
   useEffect(() => {
-    const t = localStorage.getItem("token");
-    if (!t) {
-      router.push("/login");
-      return;
+    if (hasToken !== true) return;
+    setError(null);
+    setLoading(true);
+
+    (async () => {
+      try {
+        const [me, userModules] = await Promise.all([
+          apiFetch<CurrentUser>("/profile/current-user"),
+          apiFetch<UserModule[]>("/modules/me"),
+        ]);
+        setUser(me);
+        setModules(userModules || []);
+      } catch (loadError) {
+        const message =
+          loadError instanceof Error ? loadError.message : "Falha ao carregar usuario.";
+        setError(message);
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, [hasToken]);
+
+  const isAdmin = String(user?.role ?? "").toUpperCase() === "ADMIN";
+  const roleLabel = String(user?.role ?? "").toUpperCase() || "USUARIO";
+  const isSystemMaster = Boolean(user?.isSystemMaster);
+
+  const moduleCards = useMemo<ModuleCard[]>(() => {
+    const moduleRoutes: Record<string, string> = {
+      atendimento: "/dashboard/inbox",
+      gerencial: "/dashboard/gerencial",
+      hbx_music: "/hbx-music",
+      webscraping: "/dashboard/webscraping",
+      website: "/dashboard/website",
+      follow_up_internacional: "/dashboard/importacoes/followup-global",
+      cadastros: "/dashboard/importacoes/cadastros",
+      master: "/dashboard/master",
+    };
+
+    const base: ModuleCard[] = modules
+      .filter((item) => item.accessible)
+      .filter((item) => (item.key === 'gerencial' ? isAdmin : true))
+      .map((item) => ({
+        title: item.name,
+        description: item.description || "Modulo disponivel para seu usuario.",
+        href: moduleRoutes[item.key] || "/dashboard",
+        badge: item.key === "gerencial" || item.key === "master" ? "ADMIN" : undefined,
+      }));
+
+    if (isSystemMaster && !base.some((item) => item.href === "/dashboard/master")) {
+      base.push({
+        title: "Master",
+        description: "Gestao global de empresas, modulos, usuarios e billing.",
+        href: "/dashboard/master",
+        badge: "ADMIN",
+      });
     }
-    setToken(t);
-  }, [router]);
 
-  function logout() {
-    localStorage.removeItem("token");
-    router.push("/login");
-  }
+    return base;
+  }, [isAdmin, isSystemMaster, modules]);
 
-  if (!token) {
+  if (hasToken === null) {
     return (
-      <main className="min-h-screen flex items-center justify-center">
-        <p className="text-sm text-foreground/70">Carregando...</p>
+      <main className="app-shell">
+        <div className="app-container">
+          <div className="panel p-4 text-sm text-muted">Carregando...</div>
+        </div>
       </main>
     );
   }
 
+  if (!hasToken) return null;
+
   return (
-    <main className="min-h-screen flex items-center justify-center p-6">
-      <div className="max-w-xl w-full p-6 border border-foreground/10 rounded-2xl bg-background shadow-sm">
-        <h1 className="text-2xl font-bold mb-2">Dashboard</h1>
-        <p className="text-sm text-foreground/70 mb-4">Acesse o módulo de mensagens automáticas.</p>
+    <DashboardScaffold
+      title="Menu principal"
+      description="Central de navegacao com acesso rapido aos modulos operacionais."
+      actions={
+        <Link href="/dashboard/inbox" className="btn btn-primary btn-sm">
+          Abrir operacao
+        </Link>
+      }
+    >
+      {error ? <div className="alert alert-error">{error}</div> : null}
 
-        <div className="grid grid-cols-1 gap-2">
-          <a
-            className="px-3 py-2 rounded-xl border border-foreground/10 hover:bg-foreground/5 text-sm"
-            href="/dashboard/auto-replies"
-          >
-            Regras de respostas automáticas
-          </a>
-          <a
-            className="px-3 py-2 rounded-xl border border-foreground/10 hover:bg-foreground/5 text-sm"
-            href="/dashboard/messages"
-          >
-            Teste de envio + logs
-          </a>
-        </div>
+      <section className="metrics-grid">
+        <article className="stat-card">
+          <p className="stat-card__label">Empresa</p>
+          <p className="stat-card__value text-[1.1rem] leading-tight">
+            {isSystemMaster ? "Sistema Global" : user?.company?.name ?? "Nao vinculada"}
+          </p>
+        </article>
+        <article className="stat-card">
+          <p className="stat-card__label">Usuario</p>
+          <p className="stat-card__value text-[1.1rem] leading-tight">{user?.username ?? "-"}</p>
+        </article>
+        <article className="stat-card">
+          <p className="stat-card__label">Perfil</p>
+          <p className="stat-card__value text-[1.1rem] leading-tight">{roleLabel}</p>
+        </article>
+        <article className="stat-card">
+          <p className="stat-card__label">Modulos ativos</p>
+          <p className="stat-card__value">{moduleCards.length}</p>
+        </article>
+      </section>
 
-        <div className="text-xs bg-foreground/5 border border-foreground/10 rounded-xl p-3 overflow-auto">
-          <p className="font-semibold mb-1">Token (preview)</p>
-          <pre className="whitespace-pre-wrap break-all">{token}</pre>
-        </div>
+      <section className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+        {loading ? (
+          <div className="panel p-4 text-sm text-muted lg:col-span-2">Carregando modulos...</div>
+        ) : (
+          moduleCards.map((item) => (
+            <Link key={item.href} href={item.href} className="panel panel-interactive p-5">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h2 className="text-xl md:text-2xl font-extrabold tracking-tight">{item.title}</h2>
+                  <p className="text-sm text-muted mt-2 leading-relaxed">{item.description}</p>
+                </div>
+                {item.badge ? <span className="badge badge-brand">{item.badge}</span> : null}
+              </div>
+              <div className="mt-5 inline-flex items-center gap-2 text-sm font-semibold text-[var(--brand)]">
+                Acessar modulo
+                <span aria-hidden="true">{"->"}</span>
+              </div>
+            </Link>
+          ))
+        )}
+      </section>
 
-        <button
-          onClick={logout}
-          className="mt-6 w-full py-2 rounded-xl border border-foreground/10 hover:bg-foreground/5"
-        >
-          Sair
-        </button>
-      </div>
-    </main>
+      {/* Navegacao global removida: já existe o menu superior */}
+    </DashboardScaffold>
   );
 }

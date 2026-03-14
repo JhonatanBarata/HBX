@@ -1,11 +1,25 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { setToken } from "../dashboard/_lib/api";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { setToken } from "../dashboard/_lib/api";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3000";
 
+type ApiErrorPayload = {
+  message?: string | string[];
+  error?: string;
+  needsRegistration?: boolean;
+};
+
+function getErrorMessage(data: unknown) {
+  if (!data || typeof data !== "object") return null;
+  const payload = data as ApiErrorPayload;
+  if (Array.isArray(payload.message)) return payload.message.join(", ");
+  if (typeof payload.message === "string") return payload.message;
+  if (typeof payload.error === "string") return payload.error;
+  return null;
+}
 
 export default function LoginPage() {
   const router = useRouter();
@@ -16,22 +30,11 @@ export default function LoginPage() {
   const [info, setInfo] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [mounted, setMounted] = useState(false);
-
   const [mode, setMode] = useState<"login" | "forgot">("login");
   const [preRegistered, setPreRegistered] = useState(false);
-  const [checkingUser, setCheckingUser] = useState(false);
 
-  function getErrorMessage(data: any) {
-    if (!data) return null;
-    // Prefer `message` (more specific) over `error` (generic)
-      if (Array.isArray(data.message)) return data.message.join(", ");
-      if (typeof data.error === "string") return data.error;
-      if (typeof data.message === "string") return data.message;
-    return null;
-  }
-
-  async function handleLogin(e: React.FormEvent) {
-    e.preventDefault();
+  async function handleLogin(event: React.FormEvent) {
+    event.preventDefault();
     setError(null);
     setInfo(null);
     setLoading(true);
@@ -43,39 +46,54 @@ export default function LoginPage() {
         body: JSON.stringify({ username, password }),
       });
 
-      const data = await res.json();
+      const data: unknown = await res.json().catch(() => null);
 
       if (!res.ok) {
-        // If backend indicates the account needs registration, redirect to register
-        if (data?.needsRegistration) {
+        if (
+          data &&
+          typeof data === "object" &&
+          Boolean((data as ApiErrorPayload).needsRegistration)
+        ) {
           try {
-            localStorage.setItem('firstAccess', JSON.stringify({ username, message: data?.message ?? 'Preencha seu e‑mail e senha para ativar a conta.' }));
-          } catch (e) {}
-          router.push('/register');
+            localStorage.setItem(
+              "firstAccess",
+              JSON.stringify({
+                username,
+                message: getErrorMessage(data) ?? "Complete seu cadastro.",
+              })
+            );
+          } catch {
+            // ignore localStorage errors
+          }
+          router.push("/register");
           return;
         }
 
         if (res.status === 404) {
-          setError('Usuário inexistente');
+          setError("Usuario inexistente");
           return;
         }
 
         if (res.status === 401) {
-          setError('Senha incorreta');
+          setError(getErrorMessage(data) ?? "Senha incorreta");
           return;
         }
 
-        const msg = getErrorMessage(data) ?? (data?.error as string) ?? "Não foi possível autenticar. Verifique suas credenciais e tente novamente.";
-        setError(msg);
+        setError(
+          getErrorMessage(data) ??
+            "Nao foi possivel autenticar. Verifique suas credenciais e tente novamente."
+        );
         return;
       }
 
+      const payload = (data as Record<string, unknown> | null) ?? null;
       const token =
-        (typeof data?.access_token === "string" && data.access_token) ||
-        (typeof data?.accessToken === "string" && data.accessToken) ||
-        (typeof data?.token === "string" && data.token);
+        (typeof payload?.access_token === "string" && payload.access_token) ||
+        (typeof payload?.accessToken === "string" && payload.accessToken) ||
+        (typeof payload?.token === "string" && payload.token);
+
       if (!token) {
-        setError(getErrorMessage(data) ?? "Login não retornou token");
+        setError(getErrorMessage(data) ?? "Login nao retornou token.");
         return;
       }
 
@@ -88,43 +106,47 @@ export default function LoginPage() {
     }
   }
 
-  // Check username existence (debounced)
   useEffect(() => {
     let cancelled = false;
-    if (!username || username.trim().length === 0) {
+    const normalized = username.trim();
+
+    if (!normalized) {
       setPreRegistered(false);
       return;
     }
-    setCheckingUser(true);
-    const t = setTimeout(async () => {
+
+    const timeout = setTimeout(async () => {
       try {
-        const res = await fetch(`${API_URL}/users/check-username?username=${encodeURIComponent(username)}`);
+        const res = await fetch(
+          `${API_URL}/users/check-username?username=${encodeURIComponent(normalized)}`
+        );
         if (!res.ok) {
-          setPreRegistered(false);
-        } else {
-          const data = await res.json().catch(() => null);
-          if (!cancelled) setPreRegistered(Boolean(data?.preRegistered));
+          if (!cancelled) setPreRegistered(false);
+          return;
         }
-      } catch (e) {
+
+        const data: unknown = await res.json().catch(() => null);
+        if (!cancelled && data && typeof data === "object") {
+          setPreRegistered(Boolean((data as { preRegistered?: boolean }).preRegistered));
+        }
+      } catch {
         if (!cancelled) setPreRegistered(false);
-      } finally {
-        if (!cancelled) setCheckingUser(false);
       }
     }, 300);
+
     return () => {
       cancelled = true;
-      clearTimeout(t);
+      clearTimeout(timeout);
     };
   }, [username]);
 
   useEffect(() => {
-    // small mount animation
     setMounted(true);
     return () => setMounted(false);
   }, []);
 
-  async function handleRecoverByEmail(e: React.FormEvent) {
-    e.preventDefault();
+  async function handleRecoverByEmail(event: React.FormEvent) {
+    event.preventDefault();
     setError(null);
     setInfo(null);
     setLoading(true);
@@ -135,13 +157,14 @@ export default function LoginPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email: recoveryEmail }),
       });
-      const data = await res.json().catch(() => null);
+
+      const data: unknown = await res.json().catch(() => null);
       if (!res.ok) {
-        setError(getErrorMessage(data) ?? "Erro na recuperação");
+        setError(getErrorMessage(data) ?? "Erro na recuperacao.");
         return;
       }
 
-      setInfo("Se o e-mail existir, enviamos um link de redefinição.");
+      setInfo("Se o e-mail existir, enviamos um link de redefinicao.");
       setMode("login");
     } catch {
       setError("Falha ao conectar no backend");
@@ -152,107 +175,129 @@ export default function LoginPage() {
 
   return (
     <main className="min-h-screen flex items-center justify-center p-6">
-      <div className={`container-sm w-full p-6 card transition-all duration-200 ${mounted ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-3'}`}>
+      <div
+        className={`container-sm w-full p-6 card transition-all duration-200 ${
+          mounted ? "opacity-100 translate-y-0" : "opacity-0 translate-y-3"
+        }`}
+      >
         <h1 className="text-2xl font-bold mb-6">Login</h1>
 
         {mode === "login" && (
           <form onSubmit={handleLogin} className="space-y-4">
-              <div>
-                <label className="text-sm font-medium">Usuário</label>
-                <input
-                  className="input mt-1"
-                  value={username}
-                  onChange={(e) => setUsername(e.target.value)}
-                  placeholder="meuusuario"
-                  required
-                  autoComplete="username"
-                />
-              </div>
+            <div>
+              <label className="text-sm font-medium">Usuario</label>
+              <input
+                className="input mt-1"
+                value={username}
+                onChange={(event) => setUsername(event.target.value)}
+                placeholder="meuusuario"
+                required
+                autoComplete="username"
+              />
+            </div>
 
-              <div>
-                <label className="text-sm font-medium">Senha</label>
-                <input
-                  type="password"
-                  className="input mt-1"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="1234"
-                  required
-                  autoComplete="current-password"
-                />
-              </div>
+            <div>
+              <label className="text-sm font-medium">Senha</label>
+              <input
+                type="password"
+                className="input mt-1"
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                placeholder="1234"
+                required
+                autoComplete="current-password"
+              />
+            </div>
 
-              <div className="flex items-center justify-between">
-                <button
-                  type="button"
-                  className="text-sm underline text-foreground/70"
-                  onClick={() => setMode("forgot")}
-                >
-                  Esqueci minha senha
-                </button>
-                {/* 'Criar conta' removido conforme solicitado */}
-              </div>
+            <div className="flex items-center justify-between">
+              <button
+                type="button"
+                className="text-sm underline text-foreground/70"
+                onClick={() => setMode("forgot")}
+              >
+                Esqueci minha senha
+              </button>
+            </div>
 
-            {info && (
+            {info ? (
               <div className="msg-info">
                 <div className="text-sm">{info}</div>
               </div>
-            )}
+            ) : null}
 
-            {error && (
+            {error ? (
               <div className="msg-error">
                 <div className="text-sm">{error}</div>
               </div>
-            )}
+            ) : null}
 
             <button
               disabled={loading}
-              type={preRegistered ? 'button' : 'submit'}
-              onClick={preRegistered ? (() => {
-                try { localStorage.setItem('firstAccess', JSON.stringify({ username, message: 'Complete seu registro' })); } catch {}
-                router.push('/register');
-              }) : undefined}
-              className={`btn ${preRegistered ? 'btn-secondary w-full mt-2' : 'btn btn-primary w-full mt-2'}`}
+              type={preRegistered ? "button" : "submit"}
+              onClick={
+                preRegistered
+                  ? () => {
+                      try {
+                        localStorage.setItem(
+                          "firstAccess",
+                          JSON.stringify({
+                            username,
+                            message: "Complete seu registro",
+                          })
+                        );
+                      } catch {
+                        // ignore localStorage errors
+                      }
+                      router.push("/register");
+                    }
+                  : undefined
+              }
+              className={`btn ${preRegistered ? "btn-secondary w-full mt-2" : "btn btn-primary w-full mt-2"}`}
             >
-              {loading ? (preRegistered ? 'Aguarde...' : 'Entrando...') : (preRegistered ? 'Registrar' : 'Entrar')}
+              {loading
+                ? preRegistered
+                  ? "Aguarde..."
+                  : "Entrando..."
+                : preRegistered
+                  ? "Registrar"
+                  : "Entrar"}
             </button>
           </form>
         )}
 
         {mode === "forgot" && (
           <form onSubmit={handleRecoverByEmail} className="space-y-4">
-            <p className="text-sm text-foreground/80">Digite seu e-mail para receber o link de redefinição.</p>
+            <p className="text-sm text-foreground/80">
+              Digite seu e-mail para receber o link de redefinicao.
+            </p>
             <div>
               <label className="text-sm font-medium">E-mail</label>
               <input
                 className="input mt-1"
                 value={recoveryEmail}
-                onChange={(e) => setRecoveryEmail(e.target.value)}
+                onChange={(event) => setRecoveryEmail(event.target.value)}
                 placeholder="email@exemplo.com"
                 required
                 autoComplete="email"
               />
             </div>
 
-            {info && (
-              <div className="msg-info"><div className="text-sm">{info}</div></div>
-            )}
+            {info ? (
+              <div className="msg-info">
+                <div className="text-sm">{info}</div>
+              </div>
+            ) : null}
 
-            {error && (
-              <div className="msg-error"><div className="text-sm">{error}</div></div>
-            )}
+            {error ? (
+              <div className="msg-error">
+                <div className="text-sm">{error}</div>
+              </div>
+            ) : null}
 
-            <button
-              disabled={loading}
-              className="btn btn-primary w-full mt-2"
-            >
-              {loading ? "Enviando..." : "Enviar recuperação"}
+            <button disabled={loading} className="btn btn-primary w-full mt-2">
+              {loading ? "Enviando..." : "Enviar recuperacao"}
             </button>
-            <button
-              type="button"
-              className="btn w-full mt-2"
-              onClick={() => setMode("login")}
-            >
+            <button type="button" className="btn w-full mt-2" onClick={() => setMode("login")}>
               Voltar
             </button>
           </form>

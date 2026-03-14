@@ -1,9 +1,24 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { setToken } from "../dashboard/_lib/api";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3000";
+
+type ApiErrorPayload = {
+  message?: string | string[];
+  error?: string;
+};
+
+function getErrorMessage(data: unknown) {
+  if (!data || typeof data !== "object") return null;
+  const payload = data as ApiErrorPayload;
+  if (Array.isArray(payload.message)) return payload.message.join(", ");
+  if (typeof payload.message === "string") return payload.message;
+  if (typeof payload.error === "string") return payload.error;
+  return null;
+}
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -15,18 +30,17 @@ export default function RegisterPage() {
   const [firstAccessInfo, setFirstAccessInfo] = useState<string | null>(null);
   const [mounted, setMounted] = useState(false);
 
-  // Read first-access prefill info from localStorage when arriving from login
   useEffect(() => {
     try {
-      const raw = localStorage.getItem('firstAccess');
-      if (raw) {
-        const obj = JSON.parse(raw);
-        if (obj?.username) setUsername(String(obj.username));
-        if (obj?.message) setFirstAccessInfo(String(obj.message));
-        localStorage.removeItem('firstAccess');
-      }
-    } catch (e) {
-      // ignore
+      const raw = localStorage.getItem("firstAccess");
+      if (!raw) return;
+
+      const payload = JSON.parse(raw) as { username?: string; message?: string };
+      if (payload?.username) setUsername(String(payload.username));
+      if (payload?.message) setFirstAccessInfo(String(payload.message));
+      localStorage.removeItem("firstAccess");
+    } catch {
+      // ignore localStorage parsing errors
     }
   }, []);
 
@@ -35,17 +49,8 @@ export default function RegisterPage() {
     return () => setMounted(false);
   }, []);
 
-  function getErrorMessage(data: any) {
-    if (!data) return null;
-    // Prefer specific `message` returned by backend (may be localized)
-    if (Array.isArray(data.message)) return data.message.join(", ");
-    if (typeof data.message === "string") return data.message;
-    if (typeof data.error === "string") return data.error;
-    return null;
-  }
-
-  async function handleRegister(e: React.FormEvent) {
-    e.preventDefault();
+  async function handleRegister(event: React.FormEvent) {
+    event.preventDefault();
     setError(null);
     setLoading(true);
 
@@ -53,28 +58,27 @@ export default function RegisterPage() {
       const signupRes = await fetch(`${API_URL}/auth/signup`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          username,
-          email,
-          password,
-        }),
+        body: JSON.stringify({ username, email, password }),
       });
-      const signupData = await signupRes.json();
+      const signupData: unknown = await signupRes.json().catch(() => null);
+
       if (!signupRes.ok) {
-        setError(getErrorMessage(signupData) ?? "Erro no registro");
+        setError(getErrorMessage(signupData) ?? "Erro no registro.");
         return;
       }
 
+      const payload = (signupData as Record<string, unknown> | null) ?? null;
       const token =
-        (typeof signupData?.access_token === "string" && signupData.access_token) ||
-        (typeof signupData?.accessToken === "string" && signupData.accessToken) ||
-        (typeof signupData?.token === "string" && signupData.token);
+        (typeof payload?.access_token === "string" && payload.access_token) ||
+        (typeof payload?.accessToken === "string" && payload.accessToken) ||
+        (typeof payload?.token === "string" && payload.token);
+
       if (!token) {
-        setError(getErrorMessage(signupData) ?? "Registro não retornou token");
+        setError(getErrorMessage(signupData) ?? "Registro nao retornou token.");
         return;
       }
-      localStorage.setItem("token", token);
 
+      setToken(token);
       router.push("/dashboard");
     } catch {
       setError("Falha ao conectar no backend");
@@ -85,16 +89,20 @@ export default function RegisterPage() {
 
   return (
     <main className="min-h-screen flex items-center justify-center p-6">
-      <div className={`max-w-md w-full p-6 border border-foreground/10 rounded-2xl bg-background shadow-sm transition-all duration-300 ${mounted ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-3'}`}>
+      <div
+        className={`max-w-md w-full p-6 border border-foreground/10 rounded-2xl bg-background shadow-sm transition-all duration-300 ${
+          mounted ? "opacity-100 translate-y-0" : "opacity-0 translate-y-3"
+        }`}
+      >
         <h1 className="text-2xl font-bold mb-6">Registro</h1>
 
         <form onSubmit={handleRegister} className="space-y-4">
           <div>
-            <label className="text-sm font-medium">Usuário</label>
+            <label className="text-sm font-medium">Usuario</label>
             <input
               className="w-full mt-1 p-2 border border-foreground/10 rounded-xl bg-background"
               value={username}
-              onChange={(e) => { setUsername(e.target.value); }}
+              onChange={(event) => setUsername(event.target.value)}
               placeholder="meuusuario"
               required
               autoComplete="username"
@@ -106,7 +114,7 @@ export default function RegisterPage() {
             <input
               className="w-full mt-1 p-2 border border-foreground/10 rounded-xl bg-background"
               value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              onChange={(event) => setEmail(event.target.value)}
               placeholder="email@exemplo.com"
               required
               autoComplete="email"
@@ -119,27 +127,27 @@ export default function RegisterPage() {
               type="password"
               className="w-full mt-1 p-2 border border-foreground/10 rounded-xl bg-background"
               value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="mín. 10 caracteres"
+              onChange={(event) => setPassword(event.target.value)}
+              placeholder="min. 4 caracteres"
               required
               autoComplete="new-password"
             />
-            <p className="text-xs text-foreground/60 mt-1">Mínimo 10 caracteres, com letra e número.</p>
+            <p className="text-xs text-foreground/60 mt-1">Minimo de 4 caracteres.</p>
           </div>
 
-          {error && (
-            <p className="text-sm border border-foreground/10 bg-background p-2 rounded-xl">
-              {error}
-            </p>
-          )}
+          {error ? (
+            <p className="text-sm border border-foreground/10 bg-background p-2 rounded-xl">{error}</p>
+          ) : null}
 
-          {firstAccessInfo && (
+          {firstAccessInfo ? (
             <div className="border-l-4 border-primary/80 bg-primary/5 p-3 rounded-md">
               <p className="text-sm font-semibold">Primeiro acesso</p>
               <p className="text-sm text-foreground/80 mt-1">{firstAccessInfo}</p>
-              <p className="text-xs text-foreground/60 mt-2">Preencha seu e‑mail e senha abaixo para ativar a conta e prosseguir para o login.</p>
+              <p className="text-xs text-foreground/60 mt-2">
+                Preencha seu e-mail e senha para ativar a conta e continuar.
+              </p>
             </div>
-          )}
+          ) : null}
 
           <button
             disabled={loading}
@@ -150,7 +158,7 @@ export default function RegisterPage() {
         </form>
 
         <p className="text-sm text-foreground/70 mt-4">
-          Já tem conta? {" "}
+          Ja tem conta?{" "}
           <a className="underline" href="/login">
             Login
           </a>

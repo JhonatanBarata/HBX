@@ -1,0 +1,8 @@
+{
+  "key": "hbx-master-saas",
+  "name": "HBX Master SaaS",
+  "type": "firebase_hosting",
+  "hasFunctions": false,
+  "sourcePath": "HBX website",
+  "copiedAt": "2026-03-14T23:59:00.000-03:00"
+}

@@ -1,0 +1,91 @@
+/* Global page transitions + wood themed loader */
+:root {
+  --loader-bg: rgba(8, 8, 8, 0.92);
+  --wood-1: #8c5a2b;
+  --wood-2: #b07a3a;
+  --wood-3: #6d3d1c;
+  --wood-4: #d3a36a;
+}
+
+html, body {
+  height: 100%;
+}
+
+body {
+  opacity: 0;
+  transition: opacity 0.6s ease;
+}
+
+body.page-visible {
+  opacity: 1;
+}
+
+body.page-fadeout {
+  opacity: 0;
+}
+
+.page-loader {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 14px;
+  background:
+    radial-gradient(120% 120% at 50% 50%, rgba(0,0,0,0.85) 0%, rgba(0,0,0,0.95) 60%, rgba(0,0,0,1) 100%),
+    repeating-linear-gradient(45deg, rgba(140,90,43,0.08) 0 6px, rgba(176,122,58,0.08) 6px 12px);
+  transition: opacity 0.3s ease, visibility 0.3s ease;
+  opacity: 1;
+  visibility: visible;
+}
+
+.page-loader.is-hidden {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.loader-ring {
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 30% 30%, rgba(255,255,255,0.1), transparent 40%),
+    conic-gradient(
+      var(--wood-1),
+      var(--wood-2),
+      var(--wood-3),
+      var(--wood-4),
+      var(--wood-1)
+    );
+  -webkit-mask: radial-gradient(circle, transparent 55%, #000 56%);
+  mask: radial-gradient(circle, transparent 55%, #000 56%);
+  animation: wood-spin 1.2s linear infinite;
+  box-shadow: 0 0 18px rgba(212, 175, 55, 0.25);
+}
+
+.loader-text {
+  font-family: 'Playfair Display', serif;
+  color: #d4af37;
+  letter-spacing: 0.1em;
+  font-size: 0.85rem;
+  text-transform: uppercase;
+}
+
+@keyframes wood-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body {
+    transition: none;
+  }
+  .loader-ring {
+    animation: none;
+  }
+  .page-loader {
+    transition: none;
+  }
+}

@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Client Products</title>
+  <style>body{font-family:sans-serif;padding:20px}.wrap{max-width:900px;margin:0 auto} table{width:100%;border-collapse:collapse;margin-top:16px} th,td{padding:10px;border:1px solid #eee} .btn{padding:8px 12px;border-radius:6px;border:0;background:#3b82f6;color:#fff;cursor:pointer}</style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Produtos do Cliente</h1>
+    <div><a href="/dashboard" class="btn">Voltar</a></div>
+    <table id="productsTable"><thead><tr><th>ID</th><th>Nome</th><th>Preço</th><th>Imagem</th></tr></thead><tbody></tbody></table>
+  </div>
+
+  <script>
+    const params = new URLSearchParams(location.search);
+    const clientId = params.get('clientId');
+    const token = localStorage.getItem('token');
+    if (!token) location.href = '/login';
+    if (!clientId) { alert('clientId não informado'); location.href='/dashboard'; }
+
+    async function loadProducts(){
+      const res = await fetch('http://localhost:3000/products?clientId='+clientId, { headers: { Authorization: 'Bearer '+token } });
+      if (!res.ok) { alert('Erro ao buscar produtos'); return; }
+      const products = await res.json();
+      const tbody = document.querySelector('#productsTable tbody'); tbody.innerHTML='';
+      for (const p of products){
+        const tr = document.createElement('tr');
+        tr.innerHTML = `<td>${p.id}</td><td>${p.name}</td><td>${p.price}</td><td>${p.imageUrl ? `<img src='${p.imageUrl}' style='max-width:120px'/>` : ''}</td>`;
+        tbody.appendChild(tr);
+      }
+    }
+
+    loadProducts();
+  </script>
+</body>
+</html>

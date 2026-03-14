@@ -1,0 +1,1931 @@
+import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import { PrismaService } from '../prisma/prisma.service';
+import axios from 'axios';
+import crypto from 'crypto';
+import { AutoReplyMatchTypeDto, CreateAutoReplyRuleDto, UpdateAutoReplyRuleDto } from './dto/auto-reply.dto';
+import { ConversationSessionsService } from './conversation-sessions.service';
+import { MessageOrchestratorService } from './message-orchestrator.service';
+import { OrderDraftsService } from './order-drafts.service';
+import { ConversationsService, type ConversationStatePatch } from './conversations.service';
+import { resolveWhatsAppCredentials } from './whatsapp-credentials.util';
+import { WhatsAppAuditService } from './whatsapp-audit.service';
+import { MercadoPagoClientService } from '../payments/mercado-pago-client.service';
+import {
+  DEFAULT_RECOVERY_BOT_CONFIG,
+  RECOVERY_BOT_CONFIG_CHANNEL,
+  RECOVERY_BOT_CONFIG_TITLE,
+  RECOVERY_BOT_ACTION_IDS,
+  type RecoveryBotButton,
+  type RecoveryBotButtonActionId,
+  type RecoveryBotConfig,
+  normalizeRecoveryBotConfig,
+} from '../hbx-recovery/recovery-bot-config';
+
+function clamp(n: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, n));
+}
+
+function jitterMs(maxJitterMs: number): number {
+  return Math.floor(Math.random() * Math.max(0, maxJitterMs));
+}
+
+function exponentialBackoffMs(attemptNo: number, opts?: { baseMs?: number; capMs?: number }): number {
+  // attemptNo is 1-based
+  const baseMs = opts?.baseMs ?? 5000;
+  const capMs = opts?.capMs ?? 10 * 60 * 1000;
+  const exp = Math.pow(2, clamp(attemptNo - 1, 0, 30));
+  return clamp(baseMs * exp, baseMs, capMs);
+}
+
+function normalizeText(text: string, caseInsensitive: boolean): string {
+  const trimmed = (text ?? '').trim();
+  return caseInsensitive ? trimmed.toLowerCase() : trimmed;
+}
+
+function computeGreeting(timezone: string | null | undefined): string {
+  const tz = timezone || 'America/Sao_Paulo';
+  const parts = new Intl.DateTimeFormat('en-US', { hour: '2-digit', hour12: false, timeZone: tz }).formatToParts(new Date());
+  const hourPart = parts.find((p) => p.type === 'hour')?.value;
+  const hour = Number(hourPart ?? '0');
+  if (hour >= 5 && hour < 12) return 'Bom dia';
+  if (hour >= 12 && hour < 18) return 'Boa tarde';
+  return 'Boa noite';
+}
+
+function renderTemplate(template: string, vars: Record<string, string>): string {
+  return template.replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (_m, key) => vars[key] ?? '');
+}
+
+const RECOVERY_FLOW_ID = 'cobranca_recovery_whatsapp_hibrido';
+const RECOVERY_STEP = {
+  TEMPLATE_SENT: 'aguardando_resposta_template',
+  MAIN_MENU: 'cobranca_menu_principal',
+  DECLINE_MENU: 'cobranca_menu_recusa',
+  FOLLOWUP_PICK: 'escolhendo_periodo_followup',
+  VIEWING_AMOUNT: 'exibindo_valor',
+  CHOOSING_INSTALLMENTS: 'escolhendo_parcelamento',
+  CONFIRMING_INSTALLMENTS: 'confirmando_parcelamento',
+  LINK_GENERATED_CASH: 'link_gerado_avista',
+  LINK_GENERATED_INSTALLMENTS: 'link_gerado_parcelado',
+  WAITING_PAYMENT: 'aguardando_pagamento',
+  HUMAN: 'atendimento_humano',
+  REFUSED: 'recusado',
+  FOLLOWUP_SCHEDULED: 'followup_agendado',
+  CLOSED: 'encerrado',
+} as const;
+
+const RECOVERY_BUTTON_ID_PREFIX = 'hbx_recovery_';
+
+@Injectable()
+export class MessagingService implements OnModuleInit, OnModuleDestroy {
+  private readonly logger = new Logger(MessagingService.name);
+  private pollHandle: NodeJS.Timeout | null = null;
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly sessions: ConversationSessionsService,
+    private readonly orchestrator: MessageOrchestratorService,
+    private readonly drafts: OrderDraftsService,
+    private readonly conversations: ConversationsService,
+    private readonly whatsappAudit: WhatsAppAuditService,
+    private readonly mercadoPagoClient: MercadoPagoClientService,
+  ) {}
+
+  onModuleInit() {
+    // lightweight worker; avoids extra infra
+    this.pollHandle = setInterval(() => {
+      this.processDueMessages().catch((e) => this.logger.error(e?.message || e));
+    }, 5000);
+  }
+
+  onModuleDestroy() {
+    if (this.pollHandle) clearInterval(this.pollHandle);
+    this.pollHandle = null;
+  }
+
+  private get cloudApiBaseUrl(): string {
+    return (process.env.WHATSAPP_CLOUD_API_BASE_URL || 'https://graph.facebook.com/v20.0').replace(/\/$/, '');
+  }
+
+  private get verifyToken(): string {
+    return process.env.WHATSAPP_VERIFY_TOKEN || '';
+  }
+
+  private get appSecret(): string {
+    return process.env.WHATSAPP_APP_SECRET || '';
+  }
+
+  private get enabled(): boolean {
+    return (process.env.WHATSAPP_ENABLED || 'true').toLowerCase() === 'true';
+  }
+
+  private computeWebhookSignature(rawBody: Buffer): string {
+    const hmac = crypto.createHmac('sha256', this.appSecret);
+    hmac.update(rawBody);
+    return `sha256=${hmac.digest('hex')}`;
+  }
+
+  verifyWebhookSignature(rawBody: Buffer | undefined, signatureHeader: string | undefined): boolean {
+    if (!this.appSecret) return true; // verification optional
+    if (!rawBody || !rawBody.length) return false;
+    const expected = this.computeWebhookSignature(rawBody);
+    const got = String(signatureHeader || '');
+    try {
+      return crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(got));
+    } catch {
+      return false;
+    }
+  }
+
+  getWebhookVerifyToken(): string {
+    return this.verifyToken;
+  }
+
+  private requireCompanyIdFromUser(user: any): number {
+    const companyId = Number(user?.companyId);
+    if (!companyId) throw new ForbiddenException('Company context required');
+    return companyId;
+  }
+
+  private normalizeDigits(value: string): string {
+    return String(value || '').replace(/\D/g, '');
+  }
+
+  private getPublicApiBaseUrl(): string {
+    const explicit = process.env.PUBLIC_API_BASE_URL || process.env.API_PUBLIC_URL || process.env.BACKEND_PUBLIC_URL || '';
+    if (String(explicit).trim()) return String(explicit).trim().replace(/\/+$/, '');
+    return `http://localhost:${Number(process.env.APP_PORT || 3000)}`;
+  }
+
+  private async getRecoveryBotConfig(companyId: number): Promise<RecoveryBotConfig> {
+    const row = await this.prisma.hbxRecoveryFlowStage.findFirst({
+      where: {
+        companyId,
+        channel: RECOVERY_BOT_CONFIG_CHANNEL,
+        title: RECOVERY_BOT_CONFIG_TITLE,
+      },
+      orderBy: { updatedAt: 'desc' },
+    });
+    if (!row?.template) return DEFAULT_RECOVERY_BOT_CONFIG;
+    try {
+      return normalizeRecoveryBotConfig(JSON.parse(row.template));
+    } catch {
+      return DEFAULT_RECOVERY_BOT_CONFIG;
+    }
+  }
+
+  private formatCurrencyBRL(value: number) {
+    return Number(value || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+  }
+
+  private formatDatePtBR(date: Date) {
+    return date.toLocaleDateString('pt-BR');
+  }
+
+  private isRecoveryInitialTemplateMessage(message: {
+    sourceModule?: string | null;
+    messageType?: string | null;
+    contactId?: string | null;
+  }) {
+    return (
+      String(message?.sourceModule || '').trim() === 'hbx_recovery_bot' &&
+      String(message?.messageType || '').trim().toLowerCase() === 'template' &&
+      String(message?.contactId || '').trim().length > 0
+    );
+  }
+
+  private recoveryTemplateLastContactLabel(
+    status: 'sent' | 'delivered' | 'read' | 'failed',
+    at: Date,
+  ) {
+    const dateLabel = this.formatDatePtBR(at);
+    if (status === 'failed') return `Falha no template inicial em ${dateLabel}`;
+    if (status === 'read') return `Template inicial lido em ${dateLabel}`;
+    if (status === 'delivered') return `Template inicial entregue em ${dateLabel}`;
+    return `Template inicial aceito pela Meta em ${dateLabel}`;
+  }
+
+  private async updateRecoveryTemplateLastContact(
+    message: {
+      companyId: number;
+      contactId?: string | null;
+      sourceModule?: string | null;
+      messageType?: string | null;
+    },
+    status: 'sent' | 'delivered' | 'read' | 'failed',
+    at: Date,
+  ) {
+    if (!this.isRecoveryInitialTemplateMessage(message)) return;
+    const customerId = String(message.contactId || '').trim();
+    if (!customerId) return;
+    await this.prisma.hbxRecoveryCustomer.updateMany({
+      where: {
+        companyId: Number(message.companyId || 0),
+        id: customerId,
+      },
+      data: {
+        lastContact: this.recoveryTemplateLastContactLabel(status, at),
+      },
+    });
+  }
+
+  private async updateRecoveryTemplateLastContactByProviderMessage(
+    providerMessageId: string,
+    status: 'delivered' | 'read' | 'failed',
+    at: Date,
+  ) {
+    const outbound = await this.prisma.outboundMessage.findUnique({
+      where: { providerMessageId },
+      select: {
+        companyId: true,
+        contactId: true,
+        sourceModule: true,
+        messageType: true,
+      },
+    });
+    if (!outbound) return;
+    await this.updateRecoveryTemplateLastContact(outbound, status, at);
+  }
+
+  private async buildRecoveryTemplateVars(companyId: number, customer: any) {
+    const company = await this.prisma.company.findUnique({
+      where: { id: companyId },
+      select: { name: true },
+    });
+    const createdAt = customer?.createdAt ? new Date(customer.createdAt) : new Date();
+    return {
+      operador_nome: 'Equipe HBX',
+      empresa_cobradora: String(company?.name || 'HBX Solutions'),
+      cliente_nome: String(customer?.clientName || '').trim() || 'contato responsavel',
+      empresa_nome: String(customer?.name || ''),
+      valor_em_aberto: this.formatCurrencyBRL(Number(customer?.openAmount || 0)),
+      dia_registro: this.formatDatePtBR(createdAt),
+    };
+  }
+
+  private getRecoveryRootInteractive(config: RecoveryBotConfig, prompt: string) {
+    return {
+      type: 'button',
+      body: { text: prompt },
+      footer: { text: config.rootFooter },
+      action: {
+        buttons: [
+          { type: 'reply', reply: { id: 'hbx_recovery_option_pix', title: config.optionPixLabel } },
+          { type: 'reply', reply: { id: 'hbx_recovery_option_card', title: config.optionCardLabel } },
+          { type: 'reply', reply: { id: 'hbx_recovery_option_agent', title: config.optionAgentLabel } },
+        ],
+      },
+    };
+  }
+
+  private getRecoveryPaymentOptionsInteractive(config: RecoveryBotConfig) {
+    return {
+      type: 'button',
+      body: { text: 'Perfeito. Escolha como deseja seguir o pagamento:' },
+      footer: { text: config.rootFooter },
+      action: {
+        buttons: [
+          { type: 'reply', reply: { id: 'hbx_recovery_payment_pix', title: 'Gerar Pix' } },
+          { type: 'reply', reply: { id: 'hbx_recovery_payment_card', title: 'Pagamento cartao' } },
+          { type: 'reply', reply: { id: 'hbx_recovery_payment_agent', title: 'Falar atendente' } },
+        ],
+      },
+    };
+  }
+
+  private getRecoveryHumanTopicsInteractive(config: RecoveryBotConfig) {
+    return {
+      type: 'list',
+      body: { text: config.topicsPrompt },
+      footer: { text: config.rootFooter },
+      action: {
+        button: config.topicsButtonLabel,
+        sections: [
+          {
+            title: 'Assuntos',
+            rows: config.topics.map((topic) => ({
+              id: topic.id,
+              title: topic.title,
+              description: topic.description,
+            })),
+          },
+        ],
+      },
+    };
+  }
+
+  private normalizeActionLabel(value: string) {
+    return String(value || '')
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[!?.,;:]/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  private toRecoveryButtonId(actionId: string) {
+    return `${RECOVERY_BUTTON_ID_PREFIX}${String(actionId || '').trim()}`;
+  }
+
+  private fromRecoveryButtonId(rawId: string): string {
+    const normalized = String(rawId || '').trim().toLowerCase();
+    if (!normalized) return '';
+    if (normalized.startsWith(RECOVERY_BUTTON_ID_PREFIX)) {
+      return normalized.slice(RECOVERY_BUTTON_ID_PREFIX.length);
+    }
+    return normalized;
+  }
+
+  private mapLegacyRecoveryActionId(rawActionId: string): string {
+    const normalized = String(rawActionId || '').trim().toLowerCase();
+    if (!normalized) return '';
+    const legacyMap: Record<string, string> = {
+      template_yes: 'template_yes',
+      template_no: 'template_no',
+      hbx_recovery_template_yes: 'template_yes',
+      hbx_recovery_template_no: 'template_no',
+      hbx_recovery_option_pix: 'view_amount',
+      hbx_recovery_option_card: 'choose_installments',
+      hbx_recovery_option_agent: 'talk_human',
+      hbx_recovery_view_amount: 'view_amount',
+      hbx_recovery_installments: 'choose_installments',
+      hbx_recovery_pay_full: 'pay_full',
+      hbx_recovery_talk_later: 'talk_later',
+      hbx_recovery_close_topic: 'close_topic',
+      hbx_recovery_followup_today: 'followup_today',
+      hbx_recovery_followup_tomorrow: 'followup_tomorrow',
+      hbx_recovery_followup_week: 'followup_week',
+      hbx_recovery_installment_2: 'installment_2',
+      hbx_recovery_installment_3: 'installment_3',
+      hbx_recovery_installment_4: 'installment_4',
+      hbx_recovery_installment_5: 'installment_5',
+      hbx_recovery_generate_installment_link: 'generate_installment_link',
+      hbx_recovery_paid_claim: 'paid_claim',
+      hbx_recovery_payment_pix: 'pay_full',
+      hbx_recovery_payment_card: 'choose_installments',
+      hbx_recovery_payment_agent: 'talk_human',
+    };
+    if (legacyMap[normalized]) return legacyMap[normalized];
+    const stripped = this.fromRecoveryButtonId(normalized);
+    if (RECOVERY_BOT_ACTION_IDS.includes(stripped as RecoveryBotButtonActionId)) {
+      return stripped;
+    }
+    return stripped;
+  }
+
+  private buildRecoveryActionAliasMap(config: RecoveryBotConfig) {
+    const aliasMap: Record<string, string> = {
+      sim: 'template_yes',
+      'nao obrigado': 'template_no',
+      'nao, obrigado': 'template_no',
+      nao: 'template_no',
+    };
+
+    const mergeButtons = (buttons: RecoveryBotButton[]) => {
+      for (const button of buttons) {
+        const label = this.normalizeActionLabel(button.title);
+        if (!label) continue;
+        aliasMap[label] = button.actionId;
+      }
+    };
+
+    mergeButtons(config.mainMenuButtons || []);
+    mergeButtons(config.declineMenuButtons || []);
+    mergeButtons(config.followupButtons || []);
+    mergeButtons(config.valueButtons || []);
+    mergeButtons(config.installmentButtons || []);
+    mergeButtons(config.installmentConfirmButtons || []);
+    mergeButtons(config.postLinkButtons || []);
+
+    // Fallback aliases for common template labels and older wording.
+    aliasMap['pagar agora'] = aliasMap['pagar agora'] || 'pay_full';
+    aliasMap['parcelar'] = aliasMap['parcelar'] || 'choose_installments';
+    aliasMap['falar com atendente'] = aliasMap['falar com atendente'] || 'talk_human';
+    aliasMap['fale conosco'] = aliasMap['fale conosco'] || 'talk_human';
+    aliasMap['preciso de ajuda'] = aliasMap['preciso de ajuda'] || 'talk_human';
+    aliasMap['ja paguei'] = aliasMap['ja paguei'] || 'paid_claim';
+    aliasMap['gerar link'] = aliasMap['gerar link'] || 'generate_installment_link';
+    aliasMap['alterar parcelas'] = aliasMap['alterar parcelas'] || 'choose_installments';
+    aliasMap['hoje mais tarde'] = aliasMap['hoje mais tarde'] || 'followup_today';
+    aliasMap['amanha'] = aliasMap['amanha'] || 'followup_tomorrow';
+    aliasMap['esta semana'] = aliasMap['esta semana'] || 'followup_week';
+    aliasMap['revisar e pagar'] = aliasMap['revisar e pagar'] || 'pay_full';
+    aliasMap['review and pay'] = aliasMap['review and pay'] || 'pay_full';
+
+    return aliasMap;
+  }
+
+  private parseConversationMetadata(raw: string | null | undefined): Record<string, any> {
+    if (!raw) return {};
+    try {
+      const parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+      return parsed as Record<string, any>;
+    } catch {
+      return {};
+    }
+  }
+
+  private async updateRecoveryConversationState(
+    companyId: number,
+    conversationId: number,
+    patch: ConversationStatePatch,
+    metadataPatch?: Record<string, unknown> | null,
+  ) {
+    const current = await this.prisma.companyConversation.findFirst({
+      where: { id: Number(conversationId), companyId, channel: 'whatsapp' },
+      select: { id: true, metadata: true },
+    });
+    if (!current?.id) return null;
+    const mergedMetadata =
+      metadataPatch === undefined
+        ? undefined
+        : metadataPatch === null
+          ? null
+          : { ...this.parseConversationMetadata(current.metadata), ...metadataPatch };
+    return this.conversations.updateConversationState(companyId, conversationId, {
+      ...patch,
+      currentFlow: patch.currentFlow || RECOVERY_FLOW_ID,
+      lastInteractionAt: patch.lastInteractionAt || new Date(),
+      metadata: mergedMetadata,
+    });
+  }
+
+  private async appendRecoverySystemEvent(input: {
+    companyId: number;
+    conversationId: number;
+    contactId: string;
+    text: string;
+    eventType: string;
+    sourceModule?: string;
+    variables?: Record<string, unknown>;
+  }) {
+    const now = new Date();
+    await this.prisma.companyMessage.create({
+      data: {
+        companyId: input.companyId,
+        conversationId: input.conversationId,
+        contactId: input.contactId,
+        direction: 'OUTBOUND',
+        messageType: 'system_event',
+        body: input.text,
+        senderType: 'system',
+        status: 'SENT',
+        timestamp: now,
+        sourceModule: input.sourceModule || 'hbx_recovery_system',
+        variablesJson: JSON.stringify({
+          ...(input.variables || {}),
+          eventType: input.eventType,
+        }),
+        provider: 'INTERNAL',
+      },
+    });
+    await this.prisma.companyConversation.update({
+      where: { id: input.conversationId },
+      data: { lastInteractionAt: now, lastMessageAt: now },
+    });
+  }
+
+  private getRecoveryButtonsInteractive(
+    body: string,
+    buttons: RecoveryBotButton[],
+    footer?: string,
+  ) {
+    const normalizedButtons = (buttons || [])
+      .filter((button) => button?.actionId && button?.title)
+      .slice(0, 10);
+    if (normalizedButtons.length <= 3) {
+      return {
+        type: 'button',
+        body: { text: body },
+        footer: { text: String(footer || 'HBX Recovery') },
+        action: {
+          buttons: normalizedButtons.map((button) => ({
+            type: 'reply',
+            reply: { id: this.toRecoveryButtonId(button.actionId), title: button.title },
+          })),
+        },
+      };
+    }
+    return {
+      type: 'list',
+      body: { text: body },
+      footer: { text: String(footer || 'HBX Recovery') },
+      action: {
+        button: 'Escolher opcao',
+        sections: [
+          {
+            title: 'Opcoes',
+            rows: normalizedButtons.map((button) => ({
+              id: this.toRecoveryButtonId(button.actionId),
+              title: button.title,
+              description: '',
+            })),
+          },
+        ],
+      },
+    };
+  }
+
+  private async queueRecoveryButtonPrompt(input: {
+    companyId: number;
+    to: string;
+    contactId: string;
+    conversationId: number;
+    body: string;
+    step: string;
+    buttons: RecoveryBotButton[];
+    variables?: Record<string, unknown>;
+  }) {
+    await this.conversations.queueOutboundForCompany(input.companyId, {
+      to: input.to,
+      contactId: input.contactId,
+      body: input.body,
+      messageType: 'interactive',
+      interactivePayload: this.getRecoveryButtonsInteractive(input.body, input.buttons),
+      sourceModule: 'hbx_recovery_bot',
+      senderType: 'bot',
+      variables: input.variables || {},
+      flowState: {
+        currentFlow: RECOVERY_FLOW_ID,
+        currentStep: input.step,
+        botActive: true,
+      },
+    });
+    await this.updateRecoveryConversationState(
+      input.companyId,
+      input.conversationId,
+      {
+        currentFlow: RECOVERY_FLOW_ID,
+        currentStep: input.step,
+        botActive: true,
+      },
+      input.variables || {},
+    );
+  }
+
+  private parseInstallmentCount(actionId: string, normalizedText: string): number {
+    const directMap: Record<string, number> = {
+      installment_2: 2,
+      installment_3: 3,
+      installment_4: 4,
+      installment_5: 5,
+    };
+    if (directMap[actionId]) return directMap[actionId];
+    const match = normalizedText.match(/^([2-5])\s*x$/i);
+    if (match) return Number(match[1]);
+    return 0;
+  }
+
+  private calculateInstallment(customerOpenAmount: number, installmentCount: number) {
+    const base = Math.max(0, Number(customerOpenAmount || 0));
+    const count = Math.max(1, Math.min(12, Math.round(Number(installmentCount || 1))));
+    const interestPct = Math.max(0, Number(process.env.HBX_RECOVERY_INSTALLMENT_INTEREST_PCT || 0));
+    const factor = 1 + interestPct / 100;
+    const total = Number((base * factor).toFixed(2));
+    const installmentValue = Number((total / count).toFixed(2));
+    return { installmentCount: count, totalAmount: total, installmentValue, interestPct };
+  }
+
+  private async findRecoveryCustomerByPhone(companyId: number, phoneRaw: string) {
+    const digits = this.normalizeDigits(phoneRaw);
+    if (!digits) return null;
+    return this.prisma.hbxRecoveryCustomer.findFirst({
+      where: {
+        companyId,
+        openAmount: { gt: 0 },
+        whatsappNumber: { endsWith: digits },
+      },
+    });
+  }
+
+  private async queueRecoveryInteractiveMenu(companyId: number, to: string, contactId: string, customer?: any) {
+    const config = await this.getRecoveryBotConfig(companyId);
+    const targetCustomer =
+      customer ||
+      (await this.prisma.hbxRecoveryCustomer.findFirst({
+        where: { id: String(contactId), companyId },
+      }));
+    const vars = await this.buildRecoveryTemplateVars(companyId, targetCustomer || {});
+    return this.conversations.queueOutboundForCompany(companyId, {
+      to,
+      contactId,
+      body: 'Menu HBX Recovery',
+      messageType: 'interactive',
+      interactivePayload: this.getRecoveryRootInteractive(
+        config,
+        renderTemplate(config.rootPrompt, vars),
+      ),
+      sourceModule: 'hbx_recovery_bot',
+      senderType: 'bot',
+      flowState: { currentFlow: RECOVERY_FLOW_ID, currentStep: RECOVERY_STEP.MAIN_MENU, botActive: true },
+    });
+  }
+
+  private async queueRecoveryHumanTopics(companyId: number, to: string, contactId: string) {
+    const config = await this.getRecoveryBotConfig(companyId);
+    return this.conversations.queueOutboundForCompany(companyId, {
+      to,
+      contactId,
+      body: 'Assuntos HBX Recovery',
+      messageType: 'interactive',
+      interactivePayload: this.getRecoveryHumanTopicsInteractive(config),
+      sourceModule: 'hbx_recovery_bot',
+      senderType: 'bot',
+      flowState: { currentFlow: RECOVERY_FLOW_ID, currentStep: RECOVERY_STEP.HUMAN, botActive: false, humanAssigned: true },
+    });
+  }
+
+  private async queueRecoveryPaymentOptions(companyId: number, to: string, contactId: string) {
+    const config = await this.getRecoveryBotConfig(companyId);
+    return this.conversations.queueOutboundForCompany(companyId, {
+      to,
+      contactId,
+      body: 'Opcoes de pagamento HBX Recovery',
+      messageType: 'interactive',
+      interactivePayload: this.getRecoveryPaymentOptionsInteractive(config),
+      sourceModule: 'hbx_recovery_bot',
+      senderType: 'bot',
+      flowState: { currentFlow: RECOVERY_FLOW_ID, currentStep: RECOVERY_STEP.MAIN_MENU, botActive: true },
+    });
+  }
+
+  private async createAndSendRecoveryPaymentLink(
+    companyId: number,
+    customer: any,
+    mode: 'pix' | 'card',
+    opts?: {
+      conversationId?: number;
+      chargeType?: 'avista' | 'parcelado';
+      installmentCount?: number;
+      totalAmount?: number;
+    },
+  ) {
+    const company = await this.prisma.company.findUnique({ where: { id: companyId } });
+    const accessToken = String(company?.mercadoPagoAccessToken || '').trim();
+    if (!company || !accessToken) {
+      await this.conversations.queueOutboundForCompany(companyId, {
+        to: customer.whatsappNumber,
+        contactId: customer.id,
+        body: 'Nao foi possivel gerar o link agora. Vou encaminhar para atendimento humano.',
+        messageType: 'text',
+        sourceModule: 'hbx_recovery_human',
+      });
+      return { ok: false };
+    }
+
+    const openAmount = Math.max(0, Number(customer.openAmount || 0));
+    if (openAmount <= 0) {
+      await this.conversations.queueOutboundForCompany(companyId, {
+        to: customer.whatsappNumber,
+        contactId: customer.id,
+        body: 'Nao ha saldo em aberto para esse cadastro.',
+        messageType: 'text',
+        sourceModule: 'hbx_recovery_bot',
+      });
+      return { ok: false };
+    }
+
+    const selectedInstallments = Math.max(1, Math.min(12, Number(opts?.installmentCount || 1)));
+    const computed = this.calculateInstallment(openAmount, selectedInstallments);
+    const chargeType = opts?.chargeType || (selectedInstallments > 1 ? 'parcelado' : 'avista');
+    const totalAmount =
+      typeof opts?.totalAmount === 'number' && Number.isFinite(opts.totalAmount) && opts.totalAmount > 0
+        ? Number(opts.totalAmount.toFixed(2))
+        : chargeType === 'parcelado'
+          ? computed.totalAmount
+          : openAmount;
+    const installmentValue =
+      selectedInstallments > 1
+        ? Number((totalAmount / selectedInstallments).toFixed(2))
+        : Number(totalAmount.toFixed(2));
+    const linkExpiresAt = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000);
+
+    const notificationUrl = `${this.getPublicApiBaseUrl()}/webhooks/mercadopago?company_id=${companyId}`;
+    const externalReference = `hbx-recovery-auto-${companyId}-${customer.id}-${Date.now()}`;
+
+    const payment = await this.prisma.hbxRecoveryPayment.create({
+      data: {
+        companyId,
+        customerId: customer.id,
+        conversationId: opts?.conversationId ? Number(opts.conversationId) : null,
+        amount: totalAmount,
+        currency: 'BRL',
+        description: `HBX Recovery - ${customer.name}`,
+        chargeType,
+        installmentCount: selectedInstallments,
+        installmentValue,
+        linkExpiresAt,
+        serviceDate: customer?.createdAt ? new Date(customer.createdAt) : null,
+        serviceDescription: 'Regularizacao de pendencia financeira',
+        status: 'preparing',
+        lifecycle: 'in_progress',
+        externalReference,
+        notificationUrl,
+      },
+    });
+
+    try {
+      const config = await this.getRecoveryBotConfig(companyId);
+      const preferencePayload: any = {
+        external_reference: externalReference,
+        notification_url: notificationUrl,
+        metadata: {
+          company_id: companyId,
+          recovery_customer_id: customer.id,
+          payment_request_id: payment.id,
+          requested_mode: mode,
+          charge_type: chargeType,
+          installment_count: selectedInstallments,
+          conversation_id: opts?.conversationId ? Number(opts.conversationId) : null,
+        },
+        payer: {
+          name: customer.name,
+          phone: { number: this.normalizeDigits(customer.whatsappNumber) },
+        },
+        items: [
+          {
+            id: customer.id,
+            title: `Cobranca HBX Recovery - ${customer.name}`,
+            description: 'Regularizacao de pendencia',
+            quantity: 1,
+            unit_price: totalAmount,
+            currency_id: 'BRL',
+          },
+        ],
+        expires: true,
+        date_of_expiration: linkExpiresAt.toISOString(),
+      };
+      if (selectedInstallments > 1) {
+        preferencePayload.payment_methods = {
+          installments: selectedInstallments,
+          default_installments: selectedInstallments,
+        };
+      }
+
+      const preference = await this.mercadoPagoClient.createPreference(
+        accessToken,
+        preferencePayload,
+        crypto.randomUUID(),
+      );
+
+      const paymentUrl = String(preference?.init_point || preference?.sandbox_init_point || '').trim();
+      if (!paymentUrl) throw new Error('URL de pagamento nao retornada pelo Mercado Pago');
+
+      await this.prisma.hbxRecoveryPayment.update({
+        where: { id: payment.id },
+        data: {
+          status: 'pending',
+          lifecycle: 'in_progress',
+          paymentUrl,
+          mpPreferenceId: preference?.id ? String(preference.id) : null,
+          providerPayload: JSON.stringify({ preference }),
+        },
+      });
+
+      const msgTemplate =
+        chargeType === 'parcelado'
+          ? config.installmentLinkMessageTemplate
+          : config.cashLinkMessageTemplate;
+      const msg = renderTemplate(msgTemplate, {
+        cliente: customer.clientName || customer.name,
+        link_pagamento: paymentUrl,
+        quantidade_parcelas: String(selectedInstallments),
+        valor_parcela_formatado: this.formatCurrencyBRL(installmentValue),
+        valor_formatado: this.formatCurrencyBRL(totalAmount),
+      });
+      await this.conversations.queueOutboundForCompany(companyId, {
+        to: customer.whatsappNumber,
+        contactId: customer.id,
+        body: msg,
+        messageType: 'text',
+        sourceModule: 'hbx_recovery_bot',
+        senderType: 'bot',
+        variables: {
+          cliente: customer.clientName || customer.name,
+          link_pagamento: paymentUrl,
+          quantidade_parcelas: selectedInstallments,
+          valor_parcela_formatado: this.formatCurrencyBRL(installmentValue),
+          valor_formatado: this.formatCurrencyBRL(totalAmount),
+        },
+        flowState: opts?.conversationId
+          ? {
+              currentFlow: RECOVERY_FLOW_ID,
+              currentStep:
+                chargeType === 'parcelado'
+                  ? RECOVERY_STEP.LINK_GENERATED_INSTALLMENTS
+                  : RECOVERY_STEP.LINK_GENERATED_CASH,
+              botActive: true,
+            }
+          : undefined,
+      });
+
+      if (opts?.conversationId) {
+        await this.queueRecoveryButtonPrompt({
+          companyId,
+          to: customer.whatsappNumber,
+          contactId: customer.id,
+          conversationId: Number(opts.conversationId),
+          body: config.postLinkPrompt,
+          step: RECOVERY_STEP.WAITING_PAYMENT,
+          buttons: config.postLinkButtons,
+          variables: {
+            link_pagamento: paymentUrl,
+            status_pagamento: 'aguardando_pagamento',
+          },
+        });
+      }
+      return { ok: true, paymentUrl };
+    } catch (error: any) {
+      await this.prisma.hbxRecoveryPayment.update({
+        where: { id: payment.id },
+        data: {
+          status: 'failed',
+          lifecycle: 'cancelled',
+          providerPayload: JSON.stringify({ error: String(error?.message || 'falha') }),
+        },
+      });
+      await this.conversations.queueOutboundForCompany(companyId, {
+        to: customer.whatsappNumber,
+        contactId: customer.id,
+        body: 'Nao consegui gerar o link automaticamente. Encaminhei para tratativa humana.',
+        messageType: 'text',
+        sourceModule: 'hbx_recovery_human',
+        senderType: 'system',
+      });
+      if (opts?.conversationId) {
+        await this.updateRecoveryConversationState(companyId, Number(opts.conversationId), {
+          currentStep: RECOVERY_STEP.HUMAN,
+          botActive: false,
+          humanAssigned: true,
+        });
+      }
+      return { ok: false };
+    }
+  }
+
+  private extractInteractiveReplyId(rawPayload: any): string {
+    return String(
+      rawPayload?.interactive?.button_reply?.id ||
+        rawPayload?.interactive?.list_reply?.id ||
+        rawPayload?.button?.payload ||
+        '',
+    )
+      .trim()
+      .toLowerCase();
+  }
+
+  private normalizeRecoveryActionId(
+    rawActionId: string,
+    config: RecoveryBotConfig,
+    rawPayload?: any,
+    normalizedText?: string,
+  ): string {
+    const direct = this.mapLegacyRecoveryActionId(rawActionId);
+    if (RECOVERY_BOT_ACTION_IDS.includes(direct as RecoveryBotButtonActionId)) {
+      return direct;
+    }
+
+    const aliasMap = this.buildRecoveryActionAliasMap(config);
+    const directByLabel = aliasMap[this.normalizeActionLabel(rawActionId)];
+    if (directByLabel) return directByLabel;
+
+    if (String(rawPayload?.type || '').trim().toLowerCase() !== 'button') {
+      const freeTextAction = aliasMap[this.normalizeActionLabel(normalizedText || '')];
+      return freeTextAction || '';
+    }
+
+    const fromButtonText = this.normalizeActionLabel(String(normalizedText || ''));
+    return aliasMap[fromButtonText] || '';
+  }
+
+  private async routeRecoveryToHumanQueue(input: {
+    companyId: number;
+    from: string;
+    customerId: string;
+    inboundMessageId: number;
+    conversationId?: number;
+    reason: string;
+  }) {
+    const config = await this.getRecoveryBotConfig(input.companyId);
+    await this.prisma.companyMessage.update({
+      where: { id: input.inboundMessageId },
+      data: { isComplaint: true, sourceModule: 'hbx_recovery_human' },
+    });
+    await this.prisma.hbxRecoveryCustomer.update({
+      where: { id: input.customerId },
+      data: { lastContact: `Tratativa humana (${input.reason}) em ${new Date().toLocaleString('pt-BR')}` },
+    });
+    await this.conversations.queueOutboundForCompany(input.companyId, {
+      to: input.from,
+      contactId: input.customerId,
+      body: config.humanAckMessage,
+      messageType: 'text',
+      sourceModule: 'hbx_recovery_human',
+      senderType: 'system',
+      flowState: {
+        currentFlow: RECOVERY_FLOW_ID,
+        currentStep: RECOVERY_STEP.HUMAN,
+        botActive: false,
+        humanAssigned: true,
+      },
+      variables: { motivo_fila_humana: input.reason },
+    });
+    if (input.conversationId) {
+      await this.updateRecoveryConversationState(
+        input.companyId,
+        Number(input.conversationId),
+        {
+          currentStep: RECOVERY_STEP.HUMAN,
+          botActive: false,
+          humanAssigned: true,
+        },
+        { escalation_reason: input.reason },
+      );
+      await this.appendRecoverySystemEvent({
+        companyId: input.companyId,
+        conversationId: Number(input.conversationId),
+        contactId: input.customerId,
+        text: `Conversa encaminhada para atendimento humano (${input.reason}).`,
+        eventType: 'recovery_human_handoff',
+        sourceModule: 'hbx_recovery_human',
+        variables: { reason: input.reason },
+      });
+    }
+  }
+
+  private async handleRecoveryInbound(input: {
+    companyId: number;
+    from: string;
+    text: string;
+    conversationId: number;
+    inboundMessageId: number;
+    customer: any;
+    rawPayload?: any;
+  }) {
+    const { companyId, from, text, conversationId, inboundMessageId, customer, rawPayload } = input;
+    const config = await this.getRecoveryBotConfig(companyId);
+    const normalizedText = String(text || '').trim().toLowerCase();
+    const rawActionId = this.extractInteractiveReplyId(rawPayload);
+    const interactiveId = this.normalizeRecoveryActionId(rawActionId, config, rawPayload, normalizedText);
+    const safeConversationId = Number(conversationId || 0);
+    const conversation = safeConversationId
+      ? await this.prisma.companyConversation.findFirst({
+          where: { id: safeConversationId, companyId, channel: 'whatsapp' },
+          select: { id: true, metadata: true },
+        })
+      : null;
+    const flowMeta = this.parseConversationMetadata(conversation?.metadata);
+
+    const setInboundMeta = async (sourceModule: string, isComplaint: boolean) => {
+      await this.prisma.companyMessage.update({
+        where: { id: inboundMessageId },
+        data: { sourceModule, isComplaint },
+      });
+    };
+
+    const customerName = customer.clientName || customer.name;
+
+    const queueMainMenu = async () => {
+      const prompt = renderTemplate(config.mainMenuPrompt, {
+        cliente: customerName,
+      });
+      await this.queueRecoveryButtonPrompt({
+        companyId,
+        to: from,
+        contactId: customer.id,
+        conversationId: safeConversationId,
+        body: prompt,
+        step: RECOVERY_STEP.MAIN_MENU,
+        buttons: config.mainMenuButtons,
+        variables: {
+          cliente: customerName,
+        },
+      });
+    };
+
+    if (interactiveId === 'template_yes') {
+      await setInboundMeta('hbx_recovery_bot', false);
+      await queueMainMenu();
+      await this.appendRecoverySystemEvent({
+        companyId,
+        conversationId: safeConversationId,
+        contactId: customer.id,
+        text: 'Cliente confirmou interesse no fluxo de cobranca.',
+        eventType: 'template_yes',
+        sourceModule: 'hbx_recovery_bot',
+      });
+      return { handled: true };
+    }
+
+    if (interactiveId === 'template_no') {
+      await setInboundMeta('hbx_recovery_bot', false);
+      await this.queueRecoveryButtonPrompt({
+        companyId,
+        to: from,
+        contactId: customer.id,
+        conversationId: safeConversationId,
+        body: config.declineMenuPrompt,
+        step: RECOVERY_STEP.DECLINE_MENU,
+        buttons: config.declineMenuButtons,
+      });
+      await this.appendRecoverySystemEvent({
+        companyId,
+        conversationId: safeConversationId,
+        contactId: customer.id,
+        text: 'Cliente selecionou nao no template inicial.',
+        eventType: 'template_no',
+        sourceModule: 'hbx_recovery_bot',
+      });
+      return { handled: true };
+    }
+
+    if (interactiveId === 'talk_later') {
+      await setInboundMeta('hbx_recovery_bot', false);
+      await this.queueRecoveryButtonPrompt({
+        companyId,
+        to: from,
+        contactId: customer.id,
+        conversationId: safeConversationId,
+        body: config.followupPrompt,
+        step: RECOVERY_STEP.FOLLOWUP_PICK,
+        buttons: config.followupButtons,
+      });
+      return { handled: true };
+    }
+
+    if (
+      interactiveId === 'followup_today' ||
+      interactiveId === 'followup_tomorrow' ||
+      interactiveId === 'followup_week'
+    ) {
+      await setInboundMeta('hbx_recovery_bot', false);
+      const followupLabel =
+        interactiveId === 'followup_today'
+          ? 'hoje_mais_tarde'
+          : interactiveId === 'followup_tomorrow'
+            ? 'amanha'
+            : 'esta_semana';
+      await this.conversations.queueOutboundForCompany(companyId, {
+        to: from,
+        contactId: customer.id,
+        body: `Perfeito. Vou registrar sua preferencia (${followupLabel.replace(/_/g, ' ')}) e retornaremos nesse periodo.`,
+        messageType: 'text',
+        sourceModule: 'hbx_recovery_bot',
+        senderType: 'bot',
+        flowState: {
+          currentFlow: RECOVERY_FLOW_ID,
+          currentStep: RECOVERY_STEP.FOLLOWUP_SCHEDULED,
+          botActive: true,
+          humanAssigned: false,
+          flowResult: 'followup_agendado',
+        },
+        variables: { followup_preferencia: followupLabel },
+      });
+      await this.updateRecoveryConversationState(
+        companyId,
+        safeConversationId,
+        {
+          currentStep: RECOVERY_STEP.FOLLOWUP_SCHEDULED,
+          botActive: true,
+          humanAssigned: false,
+          flowResult: 'followup_agendado',
+        },
+        { followup_preferencia: followupLabel },
+      );
+      return { handled: true };
+    }
+
+    if (interactiveId === 'close_topic') {
+      await setInboundMeta('hbx_recovery_bot', false);
+      await this.conversations.queueOutboundForCompany(companyId, {
+        to: from,
+        contactId: customer.id,
+        body: config.closeTopicMessage,
+        messageType: 'text',
+        sourceModule: 'hbx_recovery_bot',
+        senderType: 'bot',
+        flowState: {
+          currentFlow: RECOVERY_FLOW_ID,
+          currentStep: RECOVERY_STEP.REFUSED,
+          flowResult: 'refused_contact',
+          botActive: false,
+          humanAssigned: false,
+        },
+      });
+      return { handled: true };
+    }
+
+    if (interactiveId === 'view_amount') {
+      await setInboundMeta('hbx_recovery_bot', false);
+      const serviceDate = customer?.createdAt
+        ? this.formatDatePtBR(new Date(customer.createdAt))
+        : this.formatDatePtBR(new Date());
+      const serviceDescription = String(customer?.lastContact || 'servico realizado').trim();
+      const valueMessage = renderTemplate(config.valueMessageTemplate, {
+        cliente: customerName,
+        valor_formatado: this.formatCurrencyBRL(Number(customer.openAmount || 0)),
+        descricao_servico: serviceDescription || 'servico realizado',
+        data_servico: serviceDate,
+      });
+      await this.conversations.queueOutboundForCompany(companyId, {
+        to: from,
+        contactId: customer.id,
+        body: valueMessage,
+        messageType: 'text',
+        sourceModule: 'hbx_recovery_bot',
+        senderType: 'bot',
+        flowState: {
+          currentFlow: RECOVERY_FLOW_ID,
+          currentStep: RECOVERY_STEP.VIEWING_AMOUNT,
+          botActive: true,
+        },
+      });
+      await this.queueRecoveryButtonPrompt({
+        companyId,
+        to: from,
+        contactId: customer.id,
+        conversationId: safeConversationId,
+        body: 'Como deseja seguir?',
+        step: RECOVERY_STEP.VIEWING_AMOUNT,
+        buttons: config.valueButtons,
+      });
+      return { handled: true };
+    }
+
+    if (interactiveId === 'choose_installments') {
+      await setInboundMeta('hbx_recovery_bot', false);
+      await this.queueRecoveryButtonPrompt({
+        companyId,
+        to: from,
+        contactId: customer.id,
+        conversationId: safeConversationId,
+        body: config.installmentsPrompt,
+        step: RECOVERY_STEP.CHOOSING_INSTALLMENTS,
+        buttons: config.installmentButtons,
+      });
+      return { handled: true };
+    }
+
+    const selectedInstallments = this.parseInstallmentCount(interactiveId, normalizedText);
+    if (selectedInstallments >= 2) {
+      await setInboundMeta('hbx_recovery_bot', false);
+      const plan = this.calculateInstallment(Number(customer.openAmount || 0), selectedInstallments);
+      await this.queueRecoveryButtonPrompt({
+        companyId,
+        to: from,
+        contactId: customer.id,
+        conversationId: safeConversationId,
+        body: renderTemplate(config.installmentConfirmTemplate, {
+          cliente: customerName,
+          quantidade_parcelas: String(plan.installmentCount),
+          valor_parcela_formatado: this.formatCurrencyBRL(plan.installmentValue),
+          valor_formatado: this.formatCurrencyBRL(plan.totalAmount),
+        }),
+        step: RECOVERY_STEP.CONFIRMING_INSTALLMENTS,
+        buttons: config.installmentConfirmButtons,
+        variables: {
+          quantidade_parcelas: plan.installmentCount,
+          valor_parcela_formatado: this.formatCurrencyBRL(plan.installmentValue),
+          valor_formatado: this.formatCurrencyBRL(plan.totalAmount),
+        },
+      });
+      await this.updateRecoveryConversationState(
+        companyId,
+        safeConversationId,
+        {
+          currentStep: RECOVERY_STEP.CONFIRMING_INSTALLMENTS,
+          botActive: true,
+        },
+        {
+          installmentCount: plan.installmentCount,
+          installmentValue: plan.installmentValue,
+          totalAmount: plan.totalAmount,
+        },
+      );
+      return { handled: true };
+    }
+
+    if (interactiveId === 'generate_installment_link') {
+      await setInboundMeta('hbx_recovery_bot', false);
+      const installmentCount = Math.max(2, Math.min(12, Number(flowMeta?.installmentCount || 2)));
+      const plan = this.calculateInstallment(Number(customer.openAmount || 0), installmentCount);
+      await this.createAndSendRecoveryPaymentLink(companyId, customer, 'card', {
+        conversationId: safeConversationId,
+        chargeType: 'parcelado',
+        installmentCount,
+        totalAmount: Number(flowMeta?.totalAmount || plan.totalAmount),
+      });
+      return { handled: true };
+    }
+
+    if (interactiveId === 'pay_full') {
+      await setInboundMeta('hbx_recovery_bot', false);
+      await this.createAndSendRecoveryPaymentLink(companyId, customer, 'pix', {
+        conversationId: safeConversationId,
+        chargeType: 'avista',
+        installmentCount: 1,
+        totalAmount: Number(customer.openAmount || 0),
+      });
+      return { handled: true };
+    }
+
+    if (interactiveId === 'paid_claim') {
+      await setInboundMeta('hbx_recovery_human', true);
+      await this.conversations.queueOutboundForCompany(companyId, {
+        to: from,
+        contactId: customer.id,
+        body: config.paidClaimMessage,
+        messageType: 'text',
+        sourceModule: 'hbx_recovery_human',
+        senderType: 'system',
+        flowState: {
+          currentFlow: RECOVERY_FLOW_ID,
+          currentStep: RECOVERY_STEP.HUMAN,
+          botActive: false,
+          humanAssigned: true,
+        },
+      });
+      await this.appendRecoverySystemEvent({
+        companyId,
+        conversationId: safeConversationId,
+        contactId: customer.id,
+        text: 'Cliente informou pagamento manualmente e foi encaminhado para validacao humana.',
+        eventType: 'paid_claimed',
+      });
+      return { handled: true };
+    }
+
+    if (interactiveId === 'talk_human') {
+      await setInboundMeta('hbx_recovery_human', true);
+      await this.routeRecoveryToHumanQueue({
+        companyId,
+        from,
+        customerId: customer.id,
+        inboundMessageId,
+        conversationId: safeConversationId,
+        reason: interactiveId || 'pedido_atendente',
+      });
+      return { handled: true };
+    }
+
+    // Texto livre ou resposta fora do menu -> fila humana (tratativas/reclamacoes)
+    if (normalizedText) {
+      await this.routeRecoveryToHumanQueue({
+        companyId,
+        from,
+        customerId: customer.id,
+        inboundMessageId,
+        conversationId: safeConversationId,
+        reason: 'texto_livre',
+      });
+      return { handled: true };
+    }
+
+    await queueMainMenu();
+    return { handled: true };
+  }
+
+  async enqueueMessage(user: any, payload: { to: string; body?: string; messageType?: string; templateName?: string; templateLanguage?: string; templateComponents?: unknown[] }) {
+    const companyId = this.requireCompanyIdFromUser(user);
+    const company = await this.prisma.company.findUnique({ where: { id: companyId } });
+    if (!company) throw new NotFoundException(`Company with id ${companyId} not found`);
+
+    const queued = await this.conversations.queueOutboundForCompany(companyId, {
+      to: payload.to,
+      body: payload.body,
+      messageType: payload.messageType,
+      templateName: payload.templateName,
+      templateLanguage: payload.templateLanguage,
+      templateComponents: payload.templateComponents,
+      sourceModule: 'atendimento',
+    });
+    return this.prisma.outboundMessage.findUnique({ where: { id: queued.outboundMessageId } });
+  }
+
+  async listOutboundMessages(user: any, opts?: { take?: number }) {
+    const companyId = this.requireCompanyIdFromUser(user);
+    const take = Math.min(Math.max(opts?.take ?? 50, 1), 200);
+    return this.prisma.outboundMessage.findMany({
+      where: { companyId },
+      orderBy: { id: 'desc' },
+      take,
+      include: { attempts: { orderBy: { id: 'desc' }, take: 10 } },
+    });
+  }
+
+  async getOutboundMessage(user: any, id: number) {
+    const companyId = this.requireCompanyIdFromUser(user);
+    const msg = await this.prisma.outboundMessage.findUnique({
+      where: { id },
+      include: { attempts: { orderBy: { id: 'desc' } } },
+    });
+    if (!msg || msg.companyId !== companyId) throw new NotFoundException('Message not found');
+    return msg;
+  }
+
+  async processDueMessages() {
+    const now = new Date();
+    const due = await this.prisma.outboundMessage.findMany({
+      where: { status: 'PENDING', nextAttemptAt: { lte: now } },
+      orderBy: { id: 'asc' },
+      take: 10,
+    });
+    for (const msg of due) {
+      await this.sendOne(msg.id);
+    }
+  }
+
+  private parseJsonPayload<T>(raw: string | null | undefined, fallback: T): T {
+    if (!raw) return fallback;
+    try {
+      const parsed = JSON.parse(raw);
+      return (parsed ?? fallback) as T;
+    } catch {
+      return fallback;
+    }
+  }
+
+  private async sendOne(messageId: number) {
+    // lock: flip to SENDING only if still PENDING
+    const locked = await this.prisma.outboundMessage.updateMany({
+      where: { id: messageId, status: 'PENDING' },
+      data: { status: 'SENDING' },
+    });
+    if (locked.count === 0) return;
+
+    await this.prisma.companyMessage.updateMany({ where: { outboundMessageId: messageId }, data: { status: 'SENDING' } });
+
+    const msg = await this.prisma.outboundMessage.findUnique({ where: { id: messageId }, include: { company: true } });
+    if (!msg) return;
+
+    const attemptNo = msg.attemptCount + 1;
+    const attempt = await this.prisma.outboundAttempt.create({
+      data: { messageId: msg.id, attemptNo, startedAt: new Date(), success: false },
+    });
+
+    const startedAtMs = Date.now();
+
+    try {
+      if (!this.enabled) {
+        await this.prisma.outboundAttempt.update({
+          where: { id: attempt.id },
+          data: {
+            finishedAt: new Date(),
+            success: true,
+            httpStatus: 200,
+            requestBody: JSON.stringify({ dryRun: true, to: msg.to, body: msg.body, messageType: msg.messageType }),
+            responseBody: 'WHATSAPP_ENABLED=false (dry-run)',
+          },
+        });
+        await this.prisma.outboundMessage.update({
+          where: { id: msg.id },
+          data: { status: 'SENT', sentAt: new Date(), attemptCount: attemptNo, lastError: null, deliveryStatus: 'sent' },
+        });
+        await this.prisma.companyMessage.updateMany({ where: { outboundMessageId: msg.id }, data: { status: 'SENT', error: null } });
+        await this.updateRecoveryTemplateLastContact(msg, 'sent', new Date());
+        return;
+      }
+
+      const creds = resolveWhatsAppCredentials(msg.company);
+      if (!creds.phoneNumberId || !creds.accessToken) {
+        throw new Error('WHATSAPP_COMPANY_CREDENTIALS_MISSING');
+      }
+
+      const endpoint = `${this.cloudApiBaseUrl}/${encodeURIComponent(creds.phoneNumberId)}/messages`;
+      const requestBody: any = {
+        messaging_product: 'whatsapp',
+        to: msg.to,
+      };
+      const messageType = String(msg.messageType || 'text').toLowerCase();
+      if (messageType === 'template') {
+        requestBody.type = 'template';
+        requestBody.template = {
+          name: String(msg.templateName || '').trim(),
+          language: { code: String(msg.templateLanguage || 'pt_BR').trim() || 'pt_BR' },
+        };
+        const components = this.parseJsonPayload<any[]>(msg.templateComponents, []);
+        if (components.length) requestBody.template.components = components;
+      } else if (messageType === 'interactive') {
+        requestBody.type = 'interactive';
+        const interactivePayload = this.parseJsonPayload<Record<string, any>>(msg.templateComponents, {});
+        requestBody.interactive = interactivePayload;
+      } else {
+        requestBody.type = 'text';
+        requestBody.text = { body: msg.body };
+      }
+
+      this.logger.log(`WhatsApp send attempt ${attemptNo} -> messageId=${msg.id} to=${msg.to}`);
+
+      const res = await axios.post(endpoint, requestBody, {
+        timeout: 20000,
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${creds.accessToken}`,
+        },
+        validateStatus: () => true,
+      });
+
+      const ok = res.status >= 200 && res.status < 300;
+      const responseText = JSON.stringify(res.data ?? null);
+      await this.prisma.outboundAttempt.update({
+        where: { id: attempt.id },
+        data: {
+          finishedAt: new Date(),
+          success: ok,
+          httpStatus: res.status,
+          requestBody: JSON.stringify(requestBody),
+          responseBody: responseText,
+        },
+      });
+
+      if (ok) {
+        const providerMessageId = String(res.data?.messages?.[0]?.id ?? '');
+        await this.prisma.outboundMessage.update({
+          where: { id: msg.id },
+          data: {
+            status: 'SENT',
+            sentAt: new Date(),
+            attemptCount: attemptNo,
+            lastError: null,
+            provider: 'WHATSAPP_CLOUD',
+            providerMessageId: providerMessageId || undefined,
+            deliveryStatus: 'sent',
+          },
+        });
+        await this.prisma.companyMessage.updateMany({
+          where: { outboundMessageId: msg.id },
+          data: { status: 'SENT', providerMessageId: providerMessageId || undefined, error: null },
+        });
+        await this.updateRecoveryTemplateLastContact(msg, 'sent', new Date());
+        await this.whatsappAudit.log({
+          companyId: msg.companyId,
+          scope: 'dispatch',
+          event: 'outbound_sent',
+          message: `Mensagem enviada para ${msg.to}`,
+          metadata: {
+            outboundMessageId: msg.id,
+            providerMessageId: providerMessageId || null,
+            attemptNo,
+            sourceModule: msg.sourceModule || null,
+            messageType: msg.messageType || 'text',
+          },
+        });
+        this.logger.log(
+          `WhatsApp sent messageId=${msg.id} providerMessageId=${providerMessageId || '(missing)'} in ${Date.now() - startedAtMs}ms`,
+        );
+        return;
+      }
+
+      const errorMessage = `WhatsApp provider HTTP ${res.status}`;
+      const retryAfterHeader = (res.headers?.['retry-after'] ?? res.headers?.['Retry-After']) as any;
+      const retryAfterSeconds = retryAfterHeader ? Number(retryAfterHeader) : NaN;
+
+      const retryable = res.status >= 500 || res.status === 429;
+      if (!retryable) {
+        const providerError = `${errorMessage} body=${responseText}`;
+        await this.prisma.outboundMessage.update({
+          where: { id: msg.id },
+          data: { status: 'FAILED', failedAt: new Date(), attemptCount: attemptNo, lastError: providerError },
+        });
+        await this.prisma.companyMessage.updateMany({ where: { outboundMessageId: msg.id }, data: { status: 'FAILED', error: providerError } });
+        await this.updateRecoveryTemplateLastContact(msg, 'failed', new Date());
+        await this.whatsappAudit.log({
+          companyId: msg.companyId,
+          scope: 'dispatch',
+          event: 'outbound_failed',
+          level: 'ERROR',
+          message: `Falha sem retry para ${msg.to}`,
+          metadata: {
+            outboundMessageId: msg.id,
+            attemptNo,
+            httpStatus: res.status,
+            providerBody: res.data ?? null,
+            sourceModule: msg.sourceModule || null,
+            messageType: msg.messageType || 'text',
+          },
+        });
+        return;
+      }
+
+      // retryable path
+      const delayMs = Number.isFinite(retryAfterSeconds)
+        ? clamp(retryAfterSeconds * 1000, 1000, 60 * 60 * 1000)
+        : exponentialBackoffMs(attemptNo) + jitterMs(750);
+      throw Object.assign(new Error(errorMessage), { retryDelayMs: delayMs, providerBody: responseText });
+    } catch (e: any) {
+      const errorMessage = e?.message || 'Send failed';
+
+      await this.prisma.outboundAttempt.update({
+        where: { id: attempt.id },
+        data: {
+          finishedAt: new Date(),
+          success: false,
+          error: errorMessage,
+          responseBody: e?.providerBody ?? undefined,
+        },
+      });
+
+      const updated = await this.prisma.outboundMessage.update({
+        where: { id: msg.id },
+        data: { attemptCount: attemptNo, lastError: errorMessage },
+      });
+
+      if (attemptNo >= updated.maxAttempts) {
+        await this.prisma.outboundMessage.update({ where: { id: msg.id }, data: { status: 'FAILED', failedAt: new Date() } });
+        await this.prisma.companyMessage.updateMany({ where: { outboundMessageId: msg.id }, data: { status: 'FAILED', error: errorMessage } });
+        await this.updateRecoveryTemplateLastContact(msg, 'failed', new Date());
+        await this.whatsappAudit.log({
+          companyId: msg.companyId,
+          scope: 'dispatch',
+          event: 'outbound_failed',
+          level: 'ERROR',
+          message: `Falha apos retries para ${msg.to}`,
+          metadata: {
+            outboundMessageId: msg.id,
+            attemptNo,
+            error: errorMessage,
+            sourceModule: msg.sourceModule || null,
+            messageType: msg.messageType || 'text',
+          },
+        });
+        this.logger.warn(`WhatsApp FAILED messageId=${msg.id} after ${attemptNo} attempts: ${errorMessage}`);
+        return;
+      }
+
+      const delayMs = Number(e?.retryDelayMs) > 0 ? Number(e.retryDelayMs) : exponentialBackoffMs(attemptNo) + jitterMs(750);
+      const next = new Date(Date.now() + delayMs);
+      await this.prisma.outboundMessage.update({ where: { id: msg.id }, data: { status: 'PENDING', nextAttemptAt: next } });
+      await this.prisma.companyMessage.updateMany({ where: { outboundMessageId: msg.id }, data: { status: 'QUEUED', error: errorMessage } });
+      this.logger.warn(`WhatsApp retry scheduled messageId=${msg.id} in ${Math.round(delayMs / 1000)}s: ${errorMessage}`);
+    }
+  }
+
+  async handleWhatsAppWebhook(payload: any, opts: { rawBody?: Buffer; signature?: string } = {}) {
+    const rawBody = opts.rawBody;
+    const signature = opts.signature;
+
+    const signatureOk = this.verifyWebhookSignature(rawBody, signature);
+    if (!signatureOk) {
+      this.logger.warn('WhatsApp webhook signature invalid');
+      // Do not persist orphan events; just discard with log
+      return { ok: false };
+    }
+
+    const entry = Array.isArray(payload?.entry) ? payload.entry : [];
+    let statusesHandled = 0;
+    let messagesHandled = 0;
+
+    for (const ent of entry) {
+      const changes = Array.isArray(ent?.changes) ? ent.changes : [];
+      for (const ch of changes) {
+        const value = ch?.value;
+        const metadata = value?.metadata;
+        const phoneNumberId = metadata?.phone_number_id ? String(metadata.phone_number_id) : '';
+        const displayPhone = metadata?.display_phone_number ? String(metadata.display_phone_number) : '';
+
+        const company = phoneNumberId
+          ? await this.prisma.company.findFirst({ where: { whatsappPhoneNumberId: phoneNumberId } })
+          : displayPhone
+            ? await this.prisma.company.findFirst({ where: { whatsappNumber: displayPhone } })
+            : null;
+
+        // Delivery statuses
+        const statuses = Array.isArray(value?.statuses) ? value.statuses : [];
+        for (const st of statuses) {
+          const providerMessageId = st?.id ? String(st.id) : '';
+          const status = st?.status ? String(st.status) : '';
+          const ts = st?.timestamp ? Number(st.timestamp) * 1000 : Date.now();
+          const at = new Date(ts);
+
+          if (!company) {
+            this.logger.warn(`WhatsApp status ignored (unmapped company). phone_number_id=${phoneNumberId} display=${displayPhone}`);
+          } else {
+            await this.prisma.whatsAppWebhookEvent.create({
+              data: {
+                kind: 'statuses',
+                companyId: company.id,
+                providerMessageId: providerMessageId || undefined,
+                payload: JSON.stringify(st ?? null),
+              },
+            });
+          }
+
+          if (providerMessageId) {
+            const update: any = {
+              deliveryStatus: status || undefined,
+              lastWebhookAt: new Date(),
+              lastWebhookPayload: JSON.stringify(st ?? null),
+            };
+            if (status === 'delivered') update.deliveredAt = at;
+            if (status === 'read') update.readAt = at;
+            if (status === 'failed') {
+              update.failedAt = at;
+              update.status = 'FAILED';
+              const errorTitle = st?.errors?.[0]?.title ? String(st.errors[0].title) : 'WhatsApp delivery failed';
+              update.lastError = errorTitle;
+            }
+            if (status === 'delivered' || status === 'read') {
+              // keep queue status as SENT; optionally surface final states
+              update.status = status === 'read' ? 'READ' : 'DELIVERED';
+            }
+            await this.prisma.outboundMessage.updateMany({ where: { providerMessageId }, data: update });
+
+            const msgUpdate: any = {};
+            if (status === 'delivered') msgUpdate.status = 'DELIVERED';
+            if (status === 'read') msgUpdate.status = 'READ';
+            if (status === 'failed') {
+              msgUpdate.status = 'FAILED';
+              msgUpdate.error = st?.errors?.[0]?.title ? String(st.errors[0].title) : 'WhatsApp delivery failed';
+            }
+            if (status === 'sent') msgUpdate.status = 'SENT';
+            if (status === 'sent' || status === 'delivered' || status === 'read') msgUpdate.error = null;
+            if (Object.keys(msgUpdate).length) {
+              await this.prisma.companyMessage.updateMany({ where: { providerMessageId }, data: msgUpdate });
+            }
+            if (status === 'failed' || status === 'delivered' || status === 'read') {
+              await this.updateRecoveryTemplateLastContactByProviderMessage(
+                providerMessageId,
+                status as 'failed' | 'delivered' | 'read',
+                at,
+              );
+            }
+          }
+
+          statusesHandled++;
+        }
+
+        // Inbound messages
+        const messages = Array.isArray(value?.messages) ? value.messages : [];
+        for (const m of messages) {
+          if (!company) {
+            this.logger.warn(`WhatsApp inbound ignored (unmapped company). phone_number_id=${phoneNumberId} display=${displayPhone}`);
+            continue;
+          }
+
+          await this.prisma.whatsAppWebhookEvent.create({
+            data: {
+              kind: 'messages',
+              companyId: company.id,
+              providerMessageId: m?.id ? String(m.id) : undefined,
+              payload: JSON.stringify(m ?? null),
+            },
+          });
+
+          const from = m?.from ? String(m.from) : '';
+          const type = m?.type ? String(m.type) : '';
+          let text = '';
+          if (type === 'text') text = String(m?.text?.body ?? '');
+          if (type === 'button') {
+            text = String(m?.button?.payload || m?.button?.text || '');
+          }
+          if (type === 'interactive') {
+            text = String(
+              m?.interactive?.button_reply?.title ||
+                m?.interactive?.button_reply?.id ||
+                m?.interactive?.list_reply?.title ||
+                m?.interactive?.list_reply?.id ||
+                '',
+            );
+          }
+          if (!from || !text) continue;
+
+          const tsMs = m?.timestamp ? Number(String(m.timestamp)) * 1000 : NaN;
+          const receivedAt = Number.isFinite(tsMs) ? new Date(tsMs) : new Date();
+          const providerMessageId = m?.id ? String(m.id) : undefined;
+          await this.handleInboundMessage(company.id, from, text, {
+            receivedAt,
+            providerMessageId,
+            rawPayload: m,
+            inboundType: type,
+          });
+          messagesHandled++;
+        }
+      }
+    }
+
+    return { ok: true, statusesHandled, messagesHandled };
+  }
+
+  async createRule(user: any, dto: CreateAutoReplyRuleDto) {
+    const companyId = this.requireCompanyIdFromUser(user);
+    const company = await this.prisma.company.findUnique({ where: { id: companyId } });
+    if (!company) throw new NotFoundException(`Company with id ${companyId} not found`);
+    if (!dto.responses?.length) throw new BadRequestException('responses required');
+
+    return this.prisma.autoReplyRule.create({
+      data: {
+        companyId,
+        enabled: dto.enabled ?? true,
+        priority: dto.priority ?? 0,
+        matchType: dto.matchType as any,
+        pattern: dto.pattern,
+        caseInsensitive: dto.caseInsensitive ?? true,
+        responses: {
+          create: dto.responses.map((r) => ({ order: r.order, delaySeconds: r.delaySeconds ?? 0, template: r.template })),
+        },
+      },
+      include: { responses: true },
+    });
+  }
+
+  async listRules(user: any) {
+    const companyId = this.requireCompanyIdFromUser(user);
+    return this.prisma.autoReplyRule.findMany({ where: { companyId }, include: { responses: true }, orderBy: [{ priority: 'desc' }, { id: 'asc' }] });
+  }
+
+  async updateRule(user: any, id: number, dto: UpdateAutoReplyRuleDto) {
+    const companyId = this.requireCompanyIdFromUser(user);
+    const rule = await this.prisma.autoReplyRule.findUnique({ where: { id } });
+    if (!rule || rule.companyId !== companyId) throw new NotFoundException('Rule not found');
+
+    return this.prisma.$transaction(async (tx) => {
+      if (dto.responses) {
+        await tx.autoReplyResponse.deleteMany({ where: { ruleId: id } });
+        await tx.autoReplyResponse.createMany({
+          data: dto.responses.map((r) => ({ ruleId: id, order: r.order, delaySeconds: r.delaySeconds ?? 0, template: r.template })),
+        });
+      }
+      await tx.autoReplyRule.update({
+        where: { id },
+        data: {
+          enabled: dto.enabled,
+          priority: dto.priority,
+          matchType: (dto.matchType as any) ?? undefined,
+          pattern: dto.pattern,
+          caseInsensitive: dto.caseInsensitive,
+        },
+      });
+      return tx.autoReplyRule.findUnique({ where: { id }, include: { responses: true } });
+    });
+  }
+
+  async deleteRule(user: any, id: number) {
+    const companyId = this.requireCompanyIdFromUser(user);
+    const rule = await this.prisma.autoReplyRule.findUnique({ where: { id } });
+    if (!rule || rule.companyId !== companyId) throw new NotFoundException('Rule not found');
+    await this.prisma.autoReplyResponse.deleteMany({ where: { ruleId: id } });
+    await this.prisma.autoReplyRule.delete({ where: { id } });
+    return { success: true };
+  }
+
+  async handleInboundProxyMessage(dto: { whatsappPhoneNumberId: string; from: string; text: string; receivedAt?: string }) {
+    const phoneNumberId = String(dto.whatsappPhoneNumberId || '').trim();
+    if (!phoneNumberId) {
+      this.logger.warn('Inbound proxy ignored (missing whatsappPhoneNumberId)');
+      return { ok: false };
+    }
+
+    const company = await this.prisma.company.findFirst({ where: { whatsappPhoneNumberId: phoneNumberId } });
+    if (!company) {
+      this.logger.warn(`Inbound proxy ignored (unmapped company). phone_number_id=${phoneNumberId}`);
+      return { ok: true, discarded: true };
+    }
+
+    const receivedAt = dto.receivedAt ? new Date(String(dto.receivedAt)) : undefined;
+    await this.handleInboundMessage(company.id, dto.from, dto.text, { receivedAt });
+    return { ok: true };
+  }
+
+  private async syncLegacyInboxInbound(companyId: number, from: string, text: string, receivedAt?: Date) {
+    const normalizedPhone = String(from || '').trim();
+    if (!normalizedPhone) return;
+
+    const customer = await this.prisma.customer.upsert({
+      where: { phone: normalizedPhone },
+      create: { phone: normalizedPhone },
+      update: {},
+    });
+
+    let conversation = await this.prisma.conversation.findFirst({
+      where: { companyId, customerId: customer.id, status: { in: ['new', 'open'] } },
+      orderBy: { updatedAt: 'desc' },
+    });
+
+    if (!conversation) {
+      conversation = await this.prisma.conversation.create({
+        data: {
+          companyId,
+          customerId: customer.id,
+          status: 'new',
+        },
+      });
+    }
+
+    await this.prisma.message.create({
+      data: {
+        conversationId: conversation.id,
+        direction: 'inbound',
+        content: String(text || ''),
+        createdAt: receivedAt || new Date(),
+      },
+    });
+
+    await this.prisma.conversation.update({
+      where: { id: conversation.id },
+      data: { status: conversation.status === 'closed' ? 'open' : conversation.status },
+    });
+  }
+
+  private async handleInboundMessage(
+    companyId: number,
+    from: string,
+    text: string,
+    meta?: { receivedAt?: Date; providerMessageId?: string; rawPayload?: any; inboundType?: string },
+  ) {
+    const company = await this.prisma.company.findUnique({ where: { id: companyId } });
+    if (!company) throw new NotFoundException(`Company with id ${companyId} not found`);
+
+    const inboundType = String(meta?.inboundType || 'text').trim().toLowerCase() || 'text';
+    const inboundRow = await this.conversations.recordInboundMessage({
+      companyId,
+      from,
+      body: text,
+      receivedAt: meta?.receivedAt,
+      providerMessageId: meta?.providerMessageId,
+      rawPayload: meta?.rawPayload,
+      messageType: inboundType,
+      senderType: 'client',
+      sourceModule: 'whatsapp_webhook',
+    });
+
+    const recoveryCustomer = await this.findRecoveryCustomerByPhone(companyId, from);
+    if (recoveryCustomer) {
+      await this.handleRecoveryInbound({
+        companyId,
+        from,
+        text,
+        conversationId: Number(inboundRow?.conversationId || 0),
+        inboundMessageId: Number(inboundRow?.id || 0),
+        customer: recoveryCustomer,
+        rawPayload: meta?.rawPayload,
+      });
+      return { matched: true, source: 'hbx_recovery', customerId: recoveryCustomer.id };
+    }
+
+    // Resolve / create an active session (companyId + from) and run the minimal orchestrator.
+    const session = await this.sessions.getOrCreateActiveSession({ companyId, channel: 'whatsapp', from });
+    const decision = this.orchestrator.decide({ state: session.state, text });
+    const nextState = decision.nextState ?? session.state;
+
+    if (nextState !== session.state) {
+      await this.sessions.updateSession(session.id, { state: nextState });
+    }
+
+    if (decision.draftItems) {
+      await this.drafts.upsertForSession({ companyId, sessionId: session.id, items: decision.draftItems });
+    }
+
+    await this.prisma.inboundMessage.create({ data: { companyId, from, body: text } });
+    await this.syncLegacyInboxInbound(companyId, from, text, meta?.receivedAt);
+
+    // If orchestrator decided a reply, enqueue it and stop here (avoid double-automation).
+    if (decision.reply) {
+      await this.conversations.queueOutboundForCompany(companyId, {
+        to: from,
+        body: decision.reply,
+        sourceModule: 'atendimento',
+        messageType: 'text',
+      });
+      return { matched: true, sessionId: session.id, state: nextState, enqueued: 1 };
+    }
+
+    const rules = await this.prisma.autoReplyRule.findMany({
+      where: { companyId, enabled: true },
+      include: { responses: true },
+      orderBy: [{ priority: 'desc' }, { id: 'asc' }],
+    });
+
+    const incoming = text ?? '';
+    const matched = rules.find((r) => {
+      const pattern = normalizeText(r.pattern, r.caseInsensitive);
+      const msg = normalizeText(incoming, r.caseInsensitive);
+      if (r.matchType === 'EXACT') return msg === pattern;
+      if (r.matchType === 'CONTAINS') return msg.includes(pattern);
+      return false;
+    });
+
+    if (!matched) return { matched: false, sessionId: session.id, state: nextState };
+
+    const greeting = computeGreeting(company.timezone);
+    const vars = { greeting, companyName: company.name, from };
+    const responses = [...matched.responses].sort((a, b) => a.order - b.order);
+
+    for (const r of responses) {
+      const body = renderTemplate(r.template, vars);
+      const when = new Date(Date.now() + (r.delaySeconds ?? 0) * 1000);
+      const queued = await this.conversations.queueOutboundForCompany(companyId, {
+        to: from,
+        body,
+        at: when,
+        sourceModule: 'atendimento',
+        messageType: 'text',
+      });
+      // ensure the queue scheduling matches the intended delay
+      await this.prisma.outboundMessage.update({ where: { id: queued.outboundMessageId }, data: { nextAttemptAt: when } });
+    }
+
+    return { matched: true, ruleId: matched.id, sessionId: session.id, state: nextState, enqueued: responses.length };
+  }
+}

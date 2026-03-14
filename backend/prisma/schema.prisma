@@ -1,0 +1,712 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// Role enum removed for broader connector compatibility; store role as string
+
+model Company {
+  id                      Int       @id @default(autoincrement())
+  name                    String
+  slug                    String?   @unique
+  primaryContactName      String?
+  contactEmail            String?
+  contactPhone            String?
+  taxDocument             String?
+  whatsappNumber          String?
+  whatsappPhoneNumberId   String?   @unique
+  whatsappWabaId          String?
+  whatsappAccessToken     String?
+  whatsappDisplayNumber   String?
+  whatsappStatus          String? // CONNECTED | DISCONNECTED | ERROR
+  whatsappStatusError     String?
+  whatsappStatusUpdatedAt DateTime?
+  mercadoPagoAccessToken    String?
+  mercadoPagoStatus         String? // CONNECTED | DISCONNECTED | ERROR
+  mercadoPagoStatusError    String?
+  mercadoPagoStatusUpdatedAt DateTime?
+  mercadoPagoAccountEmail   String?
+  mercadoPagoUserId         String?
+  timezone                String?   @default("America/Sao_Paulo")
+  isActive                Boolean   @default(true)
+  paymentStatus           String    @default("PENDING") // PENDING | TRIAL | PAID | OVERDUE | EXPIRED | DISABLED
+  paymentMethod           String    @default("NONE") // NONE | CARD | PIX | BOLETO | MANUAL
+  subscriptionStatus      String    @default("trialing") // trialing | active | past_due | canceled | expired
+  billingProvider         String    @default("manual") // manual | mercadopago | stripe | apple | google
+  premiumAccess           Boolean   @default(false)
+  trialStartsAt           DateTime?
+  trialEndsAt             DateTime?
+  subscriptionCurrentPeriodStart DateTime?
+  subscriptionCurrentPeriodEnd   DateTime?
+  deactivatedAt           DateTime?
+  createdAt               DateTime  @default(now())
+  products                Product[]
+  users                   User[]
+  plan                    Plan?     @relation(fields: [planId], references: [id])
+  planId                  Int?
+
+  conversations CompanyConversation[]
+  messages      CompanyMessage[]
+  inboxConversations Conversation[]
+
+  autoReplyRules       AutoReplyRule[]
+  inboundMessages      InboundMessage[]
+  outboundMessages     OutboundMessage[]
+  conversationSessions ConversationSession[]
+  orderDrafts          OrderDraft[]
+  companyModules       CompanyModule[]
+  importacoes          Importacao[]
+  importacaoPermissoes ImportacaoPermissao[]
+  alertasImportacao    AlertaImportacao[]
+  cadastroFornecedores CadastroFornecedor[]
+  cadastroPaises       CadastroPais[]
+  cadastroPortos       CadastroPorto[]
+  cadastroTransitTimes CadastroTransitTime[]
+  deletionRecords      DeletionRecord[]
+  whatsappAuditLogs    WhatsAppAuditLog[]
+  hbxRecoveryCustomers HbxRecoveryCustomer[]
+  hbxRecoveryFlowStages HbxRecoveryFlowStage[]
+  hbxRecoveryPayments  HbxRecoveryPayment[]
+}
+
+model HbxRecoveryCustomer {
+  id                  String   @id @default(cuid())
+  company             Company  @relation(fields: [companyId], references: [id])
+  companyId           Int
+  name                String
+  clientName          String?
+  whatsappNumber      String
+  openAmount          Float    @default(0)
+  workdaySaleDay      Int
+  recurringDelays     Int      @default(0)
+  paymentHistoryScore Int      @default(5)
+  totalPaid           Float    @default(0)
+  averageDelay        Float    @default(0)
+  automationEnabled   Boolean  @default(true)
+  lastContact         String?
+  status              String   @default("OVERDUE") // OVERDUE | PAID
+  paymentHistory      String? // JSON serialized
+  delayHistory        String? // JSON serialized
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+  payments            HbxRecoveryPayment[]
+
+  @@index([companyId, status])
+  @@index([companyId, openAmount])
+}
+
+model HbxRecoveryPayment {
+  id                     String   @id @default(cuid())
+  company                Company  @relation(fields: [companyId], references: [id])
+  companyId              Int
+  customer               HbxRecoveryCustomer @relation(fields: [customerId], references: [id])
+  customerId             String
+  conversationId         Int?
+  amount                 Float
+  currency               String   @default("BRL")
+  description            String
+  chargeType             String   @default("avista") // avista | parcelado
+  installmentCount       Int      @default(1)
+  installmentValue       Float?
+  serviceDate            DateTime?
+  serviceDescription     String?
+  status                 String   @default("pending") // pending | approved | released | cancelled | failed | refunded | partially_refunded
+  lifecycle              String   @default("in_progress") // paid | in_progress | finalized | cancelled
+  paymentUrl             String?
+  linkExpiresAt          DateTime?
+  externalReference      String?
+  mpPreferenceId         String?
+  mpPaymentId            String?  @unique
+  mpMerchantOrderId      String?
+  notificationUrl        String?
+  paidAt                 DateTime?
+  refundedAt             DateTime?
+  refundAmount           Float    @default(0)
+  appliedToCustomerAmount Float   @default(0)
+  reversedAmount         Float    @default(0)
+  providerPayload        String?
+  createdByUserId        Int?
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+
+  @@index([companyId, createdAt])
+  @@index([companyId, lifecycle, createdAt])
+  @@index([companyId, customerId, createdAt])
+  @@index([companyId, conversationId, createdAt])
+  @@index([externalReference])
+}
+
+model HbxRecoveryFlowStage {
+  id        String   @id @default(cuid())
+  company   Company  @relation(fields: [companyId], references: [id])
+  companyId Int
+  title     String
+  channel   String   @default("WhatsApp API")
+  template  String
+  daysAfter Int      @default(0)
+  enabled   Boolean  @default(true)
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([companyId, sortOrder])
+  @@index([companyId, enabled])
+}
+
+model CompanyConversation {
+  id            Int      @id @default(autoincrement())
+  company       Company  @relation(fields: [companyId], references: [id])
+  companyId     Int
+  channel       String   @default("whatsapp")
+  contact       String
+  currentFlow   String   @default("cobranca_recovery")
+  currentStep   String   @default("novo")
+  flowResult    String?
+  botActive     Boolean  @default(true)
+  humanAssigned Boolean  @default(false)
+  assignedUserId Int?
+  metadata      String?
+  lastInteractionAt DateTime @default(now())
+  lastMessageAt DateTime @default(now())
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  messages CompanyMessage[]
+
+  @@unique([companyId, channel, contact])
+  @@index([companyId, lastMessageAt])
+  @@index([companyId, botActive, humanAssigned, lastInteractionAt])
+  @@map("Conversation")
+}
+
+model CompanyMessage {
+  id             Int                 @id @default(autoincrement())
+  company        Company             @relation(fields: [companyId], references: [id])
+  companyId      Int
+  conversation   CompanyConversation @relation(fields: [conversationId], references: [id])
+  conversationId Int
+
+  contactId   String?
+  direction String // INBOUND | OUTBOUND
+  messageType String   @default("text") // text | template
+  body      String
+  senderType String @default("system") // bot | human | client | system
+  isComplaint Boolean @default(false)
+  variablesJson String?
+  status    String   @default("RECEIVED") // RECEIVED | QUEUED | SENDING | SENT | DELIVERED | READ | FAILED
+  error     String?
+  timestamp DateTime @default(now())
+  sourceModule String?
+
+  provider          String? @default("WHATSAPP_CLOUD")
+  providerMessageId String? @unique
+  rawPayload        String?
+
+  outboundMessageId Int?             @unique
+  outboundMessage   OutboundMessage? @relation("OutboundMessageMessage", fields: [outboundMessageId], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@index([companyId, conversationId, timestamp])
+  @@index([conversationId, senderType, timestamp])
+  @@map("Message")
+}
+
+model Customer {
+  id            String         @id @default(uuid())
+  phone         String         @unique
+  name          String?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  conversations Conversation[]
+}
+
+model Conversation {
+  id         String   @id @default(uuid())
+  companyId  Int?
+  customerId String
+  status     String   @default("new") // new | open | closed
+  assignedTo String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  company  Company?             @relation(fields: [companyId], references: [id])
+  customer Customer             @relation(fields: [customerId], references: [id])
+  messages Message[]
+  surveys  SatisfactionSurvey[]
+
+  @@index([companyId, status, updatedAt])
+  @@index([customerId, status, updatedAt])
+  @@map("InboxConversation")
+}
+
+model Message {
+  id             String   @id @default(uuid())
+  conversationId String
+  direction      String // inbound | outbound
+  content        String
+  createdAt      DateTime @default(now())
+
+  conversation Conversation @relation(fields: [conversationId], references: [id])
+
+  @@index([conversationId, createdAt])
+  @@map("InboxMessage")
+}
+
+model ConversationSession {
+  id            Int      @id @default(autoincrement())
+  company       Company  @relation(fields: [companyId], references: [id])
+  companyId     Int
+  channel       String   @default("whatsapp")
+  from          String
+  state         String   @default("NEW")
+  context       String? // simple JSON context (serialized)
+  lastMessageAt DateTime @default(now())
+  expiresAt     DateTime
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  orderDraft OrderDraft?
+
+  @@index([companyId, from, channel])
+  @@index([expiresAt])
+}
+
+model OrderDraft {
+  id        Int     @id @default(autoincrement())
+  company   Company @relation(fields: [companyId], references: [id])
+  companyId Int
+
+  session   ConversationSession @relation(fields: [sessionId], references: [id])
+  sessionId Int                 @unique
+
+  status String  @default("DRAFT") // DRAFT | ABANDONED
+  items  String? // JSON serialized (ex: { rawText: "..." })
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([companyId])
+}
+
+model User {
+  id              Int              @id @default(autoincrement())
+  username        String?          @unique
+  email           String?          @unique
+  password        String
+  name            String?
+  company         Company?         @relation(fields: [companyId], references: [id])
+  companyId       Int?
+  role            String           @default("USER")
+  isSystemMaster  Boolean          @default(false)
+  isActive        Boolean          @default(true)
+  deactivatedAt   DateTime?
+  retentionUntil  DateTime?
+  createdAt       DateTime         @default(now())
+  productVersions ProductVersion[]
+  passwordResets  PasswordReset[]
+  moduleAccesses  UserModuleAccess[]
+  importacoesCriadas     Importacao[]    @relation("ImportacaoCriadaPor")
+  importacoesFinalizadas Importacao[]    @relation("ImportacaoFinalizadaPor")
+  importacoesReabertas   Importacao[]    @relation("ImportacaoReabertaPor")
+  deletionRecords        DeletionRecord[]
+}
+
+model SystemModule {
+  id             Int                @id @default(autoincrement())
+  key            String             @unique
+  name           String
+  description    String?
+  serviceUrl     String?
+  defaultEnabled Boolean            @default(false)
+  companyAssignable Boolean         @default(true)
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+  companyModules CompanyModule[]
+  userAccesses   UserModuleAccess[]
+}
+
+model CompanyModule {
+  id             Int          @id @default(autoincrement())
+  company        Company      @relation(fields: [companyId], references: [id])
+  companyId      Int
+  systemModule   SystemModule @relation(fields: [moduleId], references: [id])
+  moduleId       Int
+  enabled        Boolean      @default(true)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@unique([companyId, moduleId])
+  @@index([companyId, enabled])
+}
+
+model UserModuleAccess {
+  id           Int          @id @default(autoincrement())
+  user         User         @relation(fields: [userId], references: [id])
+  userId       Int
+  systemModule SystemModule @relation(fields: [moduleId], references: [id])
+  moduleId     Int
+  allowed      Boolean      @default(true)
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  @@unique([userId, moduleId])
+  @@index([userId, allowed])
+}
+
+model DeletionRecord {
+  id                     Int      @id @default(autoincrement())
+  moduleKey              String
+  entityType             String
+  entityId               String
+  company                Company? @relation(fields: [companyId], references: [id])
+  companyId              Int?
+  motivo                 String?
+  snapshot               String?
+  deletedBy              User?    @relation(fields: [deletedByUserId], references: [id])
+  deletedByUserId        Int?
+  deletedAt              DateTime @default(now())
+  permanentlyDeletedById Int?
+  permanentlyDeletedAt   DateTime?
+
+  @@index([moduleKey, deletedAt])
+  @@index([companyId, deletedAt])
+  @@index([entityType, entityId])
+}
+
+model PasswordReset {
+  id        Int      @id @default(autoincrement())
+  token     String   @unique
+  user      User     @relation(fields: [userId], references: [id])
+  userId    Int
+  used      Boolean  @default(false)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model Product {
+  id          Int              @id @default(autoincrement())
+  name        String
+  description String?
+  price       Float
+  stock       Int              @default(0)
+  company     Company?         @relation(fields: [companyId], references: [id])
+  companyId   Int?
+  category    Category?        @relation(fields: [categoryId], references: [id])
+  categoryId  Int?
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  versions    ProductVersion[]
+}
+
+model AutoReplyRule {
+  id              Int                 @id @default(autoincrement())
+  company         Company             @relation(fields: [companyId], references: [id])
+  companyId       Int
+  enabled         Boolean             @default(true)
+  priority        Int                 @default(0)
+  // SQLite doesn't support Prisma enums; store match type as string: EXACT | CONTAINS
+  matchType       String              @default("EXACT")
+  pattern         String
+  caseInsensitive Boolean             @default(true)
+  responses       AutoReplyResponse[]
+  createdAt       DateTime            @default(now())
+}
+
+model AutoReplyResponse {
+  id           Int           @id @default(autoincrement())
+  rule         AutoReplyRule @relation(fields: [ruleId], references: [id])
+  ruleId       Int
+  order        Int
+  delaySeconds Int           @default(0)
+  template     String
+}
+
+model InboundMessage {
+  id         Int      @id @default(autoincrement())
+  company    Company  @relation(fields: [companyId], references: [id])
+  companyId  Int
+  from       String
+  body       String
+  receivedAt DateTime @default(now())
+}
+
+model OutboundMessage {
+  id        Int     @id @default(autoincrement())
+  company   Company @relation(fields: [companyId], references: [id])
+  companyId Int
+  contactId String?
+  to        String
+  messageType String @default("text") // text | template
+  templateName String?
+  templateLanguage String?
+  templateComponents String?
+  sourceModule String?
+  body      String
+  // SQLite doesn't support Prisma enums; store status as string: PENDING | SENDING | SENT | FAILED
+  status    String  @default("PENDING")
+
+  // WhatsApp Cloud API correlation
+  provider           String?   @default("WHATSAPP_CLOUD")
+  providerMessageId  String?   @unique
+  deliveryStatus     String? // sent | delivered | read | failed
+  deliveredAt        DateTime?
+  readAt             DateTime?
+  failedAt           DateTime?
+  lastWebhookAt      DateTime?
+  lastWebhookPayload String?
+
+  attemptCount  Int               @default(0)
+  maxAttempts   Int               @default(3)
+  nextAttemptAt DateTime          @default(now())
+  lastError     String?
+  sentAt        DateTime?
+  createdAt     DateTime          @default(now())
+  attempts      OutboundAttempt[]
+
+  message CompanyMessage? @relation("OutboundMessageMessage")
+}
+
+model OutboundAttempt {
+  id           Int             @id @default(autoincrement())
+  message      OutboundMessage @relation(fields: [messageId], references: [id])
+  messageId    Int
+  attemptNo    Int
+  startedAt    DateTime        @default(now())
+  finishedAt   DateTime?
+  success      Boolean         @default(false)
+  httpStatus   Int?
+  requestBody  String?
+  responseBody String?
+  error        String?
+}
+
+model WhatsAppWebhookEvent {
+  id                Int      @id @default(autoincrement())
+  receivedAt        DateTime @default(now())
+  kind              String // verify | messages | statuses | unknown
+  companyId         Int?
+  providerMessageId String?
+  payload           String
+}
+
+model WhatsAppAuditLog {
+  id        Int      @id @default(autoincrement())
+  company   Company  @relation(fields: [companyId], references: [id])
+  companyId Int
+  scope     String
+  event     String
+  level     String   @default("INFO")
+  message   String
+  metadata  String?
+  createdAt DateTime @default(now())
+
+  @@index([companyId, createdAt])
+  @@index([companyId, scope, event])
+}
+
+model Category {
+  id          Int       @id @default(autoincrement())
+  name        String    @unique
+  description String?
+  products    Product[]
+  createdAt   DateTime  @default(now())
+}
+
+model Plan {
+  id        Int       @id @default(autoincrement())
+  name      String
+  price     Float     @default(0)
+  features  Feature[] @relation("PlanFeatures")
+  companies Company[]
+  createdAt DateTime  @default(now())
+}
+
+model Feature {
+  id          Int     @id @default(autoincrement())
+  key         String  @unique
+  description String?
+  plans       Plan[]  @relation("PlanFeatures")
+}
+
+model ProductVersion {
+  id        Int      @id @default(autoincrement())
+  product   Product  @relation(fields: [productId], references: [id])
+  productId Int
+  data      String
+  author    User?    @relation(fields: [authorId], references: [id])
+  authorId  Int?
+  version   Int
+  createdAt DateTime @default(now())
+}
+
+model SatisfactionSurvey {
+  id             String   @id @default(uuid())
+  conversationId String
+  rating         Int?
+  feedback       String?
+  createdAt      DateTime @default(now())
+
+  conversation Conversation @relation(fields: [conversationId], references: [id])
+}
+
+model Importacao {
+  id             Int      @id @default(autoincrement())
+  company        Company  @relation(fields: [empresaId], references: [id])
+  empresaId      Int
+  numeroPedido   String
+  fornecedorId   String?
+  pais           String?
+  portoOrigem    String?
+  portoDestino   String?
+  dataEmbarque   DateTime?
+  dataAtracacao  DateTime?
+  valorUsd       Float?
+  valorDolar     Float?
+  pesoKg         Float?
+  valorTotalReal Float?
+  status         String   @default("EM_CADASTRO")
+  pdfPath        String?
+  createdAt      DateTime @default(now())
+  createdBy      Int?
+  finalizedAt    DateTime?
+  finalizedBy    Int?
+  reabertoPor    Int?
+  updatedAt      DateTime @updatedAt
+  versao         Int      @default(1)
+
+  criador    User? @relation("ImportacaoCriadaPor", fields: [createdBy], references: [id])
+  finalizador User? @relation("ImportacaoFinalizadaPor", fields: [finalizedBy], references: [id])
+  reabertura  User? @relation("ImportacaoReabertaPor", fields: [reabertoPor], references: [id])
+
+  logs    ImportacaoLog[]
+  alertas AlertaImportacao[]
+
+  @@index([empresaId, status])
+  @@index([empresaId, numeroPedido])
+}
+
+model ImportacaoLog {
+  id          Int       @id @default(autoincrement())
+  importacao  Importacao @relation(fields: [importacaoId], references: [id])
+  importacaoId Int
+  alteracao   String
+  usuario     String
+  data        DateTime  @default(now())
+  versao      Int?
+  dadosAntes  String?
+  dadosDepois String?
+
+  @@index([importacaoId, data])
+}
+
+model AlertaImportacao {
+  id             Int       @id @default(autoincrement())
+  importacao     Importacao @relation(fields: [importacaoId], references: [id])
+  importacaoId   Int
+  company        Company   @relation(fields: [empresaId], references: [id])
+  empresaId      Int
+  diasAntes      Int
+  enviarEmail    Boolean   @default(false)
+  enviarWhatsapp Boolean   @default(false)
+  listaEmails    String?
+  listaWhatsapp  String?
+  disparado      Boolean   @default(false)
+  disparadoEm    DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([empresaId, disparado])
+  @@index([importacaoId, diasAntes])
+}
+
+model ImportacaoPermissao {
+  id        Int      @id @default(autoincrement())
+  company   Company  @relation(fields: [empresaId], references: [id])
+  empresaId Int
+  role      String
+  acao      String
+  allowed   Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([empresaId, role, acao])
+  @@index([empresaId, role])
+}
+
+model CadastroFornecedor {
+  id        Int      @id @default(autoincrement())
+  company   Company  @relation(fields: [empresaId], references: [id])
+  empresaId Int
+  nome      String
+  paisId    Int?
+  portoOrigemId Int?
+  portoDestinoId Int?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  pais         CadastroPais?  @relation("FornecedorPais", fields: [paisId], references: [id])
+  portoOrigem  CadastroPorto? @relation("FornecedorPortoOrigem", fields: [portoOrigemId], references: [id])
+  portoDestino CadastroPorto? @relation("FornecedorPortoDestino", fields: [portoDestinoId], references: [id])
+
+  @@unique([empresaId, nome])
+  @@index([empresaId, paisId])
+}
+
+model CadastroPais {
+  id        Int      @id @default(autoincrement())
+  company   Company  @relation(fields: [empresaId], references: [id])
+  empresaId Int
+  nome      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  portos CadastroPorto[]
+  fornecedores CadastroFornecedor[] @relation("FornecedorPais")
+
+  @@unique([empresaId, nome])
+  @@index([empresaId])
+}
+
+model CadastroPorto {
+  id        Int      @id @default(autoincrement())
+  company   Company  @relation(fields: [empresaId], references: [id])
+  empresaId Int
+  nome      String
+  paisId    Int?
+  pais      CadastroPais? @relation(fields: [paisId], references: [id])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  transitTimesOrigem  CadastroTransitTime[] @relation("TransitTimeOrigem")
+  transitTimesDestino CadastroTransitTime[] @relation("TransitTimeDestino")
+  fornecedoresOrigem  CadastroFornecedor[] @relation("FornecedorPortoOrigem")
+  fornecedoresDestino CadastroFornecedor[] @relation("FornecedorPortoDestino")
+
+  @@unique([empresaId, nome])
+  @@index([empresaId, paisId])
+}
+
+model CadastroTransitTime {
+  id             Int      @id @default(autoincrement())
+  company        Company  @relation(fields: [empresaId], references: [id])
+  empresaId      Int
+  portoOrigemId  Int
+  portoDestinoId Int
+  dias           Int
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  portoOrigem  CadastroPorto @relation("TransitTimeOrigem", fields: [portoOrigemId], references: [id])
+  portoDestino CadastroPorto @relation("TransitTimeDestino", fields: [portoDestinoId], references: [id])
+
+  @@unique([empresaId, portoOrigemId, portoDestinoId])
+  @@index([empresaId])
+}

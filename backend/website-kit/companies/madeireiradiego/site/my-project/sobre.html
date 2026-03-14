@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  
+  <!-- Favicon -->
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="alternate icon" href="/favicon.ico">
+  
+  <title>Sobre Nós - Tradição e Qualidade | Madeireira Monteiro</title>
+  
+  <!-- SEO Meta Tags -->
+  <meta name="description" content="Conheça a história da Madeireira Monteiro em Rio Claro - SP. Tradição em fabricação artesanal de móveis em madeira nobre, design exclusivo e compromisso com a qualidade premium.">
+  <meta name="keywords" content="sobre madeireira monteiro, história, tradição, artesanato, rio claro, madeira nobre, qualidade premium">
+  <meta name="robots" content="index, follow">
+  
+  <!-- Open Graph / Facebook -->
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://madeireira-78732.web.app/sobre.html">
+  <meta property="og:title" content="Sobre Nós - Tradição e Qualidade Premium">
+  <meta property="og:description" content="Conheça a Madeireira Monteiro: tradição em fabricação artesanal de móveis em madeira nobre com design exclusivo.">
+  <meta property="og:image" content="https://madeireira-78732.web.app/img/sobre-og.jpg">
+  
+  <!-- Twitter -->
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Sobre Nós - Madeireira Monteiro">
+  <meta name="twitter:description" content="Tradição em fabricação artesanal de móveis premium em madeira nobre. Conheça nossa história.">
+  <meta name="twitter:image" content="https://madeireira-78732.web.app/img/sobre-og.jpg">
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=Playfair+Display:wght@400;600;700&display=swap" rel="stylesheet">
+  
+  <!-- Mobile Responsive CSS -->
+  <link rel="stylesheet" href="mobile-responsive.css">
+  <link rel="stylesheet" href="page-transitions.css">
+  
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            title: ['Cinzel', 'serif'],
+            body: ['Playfair Display', 'serif'],
+          },
+          colors: {
+            madeira: '#7a4a2e',
+            ouro: '#d4af37',
+            pretinho: '#0b0b0b'
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    html { scroll-behavior: smooth; }
+    .fade-up { opacity: 0; transform: translateY(40px); transition: all 1.2s cubic-bezier(.77,0,.18,1); }
+    .fade-up.show { opacity: 1; transform: translateY(0); }
+  </style>
+</head>
+<body class="bg-pretinho text-gray-200 font-body">
+  <div id="page-loader" class="page-loader">
+    <div class="loader-ring"></div>
+    <div class="loader-text">Carregando...</div>
+  </div>
+  <header class="fixed top-0 w-full z-50 transition-all duration-500 backdrop-blur-md" style="background-image: linear-gradient(180deg, rgba(0,0,0,0.5) 0%, rgba(0,0,0,0.8) 100%), url('public/img/fundo2.jpg'); background-size: cover; background-position: center; background-attachment: fixed; box-shadow: 0 8px 32px rgba(0,0,0,0.5);">
+    <nav class="max-w-7xl mx-auto px-6 py-5 flex justify-between items-center">
+      <a href="index.html" class="font-title text-3xl md:text-4xl text-ouro tracking-widest drop-shadow-lg logo-glow" style="letter-spacing:0.18em; background: linear-gradient(90deg, #d4af37 60%, #fffbe6 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; filter: drop-shadow(0 2px 12px #d4af3780); text-decoration: none;">
+        <span style="font-variant: small-caps; letter-spacing:0.22em;">Madeireira Monteiro</span>
+        <span style="font-size:1.2rem; color:#e7cfa4; margin-left:0.5em; vertical-align:middle; filter: drop-shadow(0 0 6px #d4af37cc);">&#x1F332;</span>
+      </a>
+      
+      <!-- BOTÃO HAMBURGUER MOBILE -->
+      <button class="mobile-menu-btn" aria-label="Menu" style="display: none; flex-direction: column; justify-content: space-around; width: 32px; height: 32px; background: transparent; border: none; cursor: pointer; padding: 0; z-index: 10000;">
+        <span style="width: 32px; height: 3px; background: #d4af37; border-radius: 3px; transition: all 0.3s;"></span>
+        <span style="width: 32px; height: 3px; background: #d4af37; border-radius: 3px; transition: all 0.3s;"></span>
+        <span style="width: 32px; height: 3px; background: #d4af37; border-radius: 3px; transition: all 0.3s;"></span>
+      </button>
+      
+      <style>
+        @media (max-width: 768px) {
+          .mobile-menu-btn { display: flex !important; }
+        }
+      </style>
+      
+      <div class="space-x-10 hidden md:block text-sm uppercase tracking-wider flex items-center gap-8 menu-fancy">
+        <a href="index.html" class="menu-link">Início</a>
+        <a href="colecao.html" class="menu-link">Coleção</a>
+        <a href="sobre.html" class="menu-link active">Sobre</a>
+        <a href="contato.html" class="menu-link">Contato</a>
+        <a href="admin.html" class="menu-link" style="color: #d4af37; font-weight: 700;">Admin</a>
+      </div>
+    </nav>
+    <style>
+      .logo-glow {
+        text-shadow: 0 2px 12px #d4af37cc, 0 0 2px #fffbe6;
+        letter-spacing: 0.18em;
+      }
+      .menu-fancy .menu-link {
+        position: relative;
+        padding: 0.5em 1.2em;
+        border-radius: 8px;
+        color: #e7cfa4;
+        font-weight: 600;
+        background: linear-gradient(90deg, rgba(212,175,55,0.08) 0%, rgba(255,255,255,0.02) 100%);
+        box-shadow: 0 2px 12px 0 rgba(212,175,55,0.08);
+        transition: color 0.25s, background 0.25s, box-shadow 0.25s, transform 0.18s;
+        overflow: hidden;
+      }
+      .menu-fancy .menu-link.active, .menu-fancy .menu-link:hover {
+        color: #fffbe6;
+        background: linear-gradient(90deg, #d4af37 0%, #fffbe6 100%);
+        box-shadow: 0 2px 16px 0 #d4af37cc;
+        transform: translateY(-2px) scale(1.04);
+        text-shadow: 0 2px 12px #d4af37cc, 0 0 2px #fffbe6;
+      }
+      .mobile-menu-btn.active span:nth-child(1) {
+        transform: rotate(45deg) translate(8px, 8px);
+      }
+      .mobile-menu-btn.active span:nth-child(2) {
+        opacity: 0;
+      }
+      .mobile-menu-btn.active span:nth-child(3) {
+        transform: rotate(-45deg) translate(7px, -7px);
+      }
+    </style>
+  </header>
+
+  <!-- MENU MOBILE OVERLAY -->
+  <div id="mobileMenu" class="mobile-menu" style="position: fixed; top: 70px; left: 0; right: 0; bottom: 0; background: rgba(10, 10, 10, 0.98); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2rem; transform: translateX(100%); transition: transform 0.4s cubic-bezier(0.77, 0, 0.18, 1); z-index: 9999; pointer-events: none;">
+    <a href="index.html" style="font-size: 1.5rem; font-weight: 700; color: #e7cfa4; text-transform: uppercase; letter-spacing: 0.15em; padding: 1rem 2rem; border-radius: 12px; background: linear-gradient(90deg, rgba(212,175,55,0.1) 0%, transparent 100%); transition: all 0.3s; width: 80%; text-align: center; border: 2px solid transparent; text-decoration: none; pointer-events: all;">Início</a>
+    <a href="colecao.html" style="font-size: 1.5rem; font-weight: 700; color: #e7cfa4; text-transform: uppercase; letter-spacing: 0.15em; padding: 1rem 2rem; border-radius: 12px; background: linear-gradient(90deg, rgba(212,175,55,0.1) 0%, transparent 100%); transition: all 0.3s; width: 80%; text-align: center; border: 2px solid transparent; text-decoration: none; pointer-events: all;">Coleção</a>
+    <a href="sobre.html" style="font-size: 1.5rem; font-weight: 700; color: #e7cfa4; text-transform: uppercase; letter-spacing: 0.15em; padding: 1rem 2rem; border-radius: 12px; background: linear-gradient(90deg, rgba(212,175,55,0.1) 0%, transparent 100%); transition: all 0.3s; width: 80%; text-align: center; border: 2px solid transparent; text-decoration: none; pointer-events: all;">Sobre</a>
+    <a href="contato.html" style="font-size: 1.5rem; font-weight: 700; color: #e7cfa4; text-transform: uppercase; letter-spacing: 0.15em; padding: 1rem 2rem; border-radius: 12px; background: linear-gradient(90deg, rgba(212,175,55,0.1) 0%, transparent 100%); transition: all 0.3s; width: 80%; text-align: center; border: 2px solid transparent; text-decoration: none; pointer-events: all;">Contato</a>
+    <a href="admin.html" style="font-size: 1.5rem; font-weight: 700; color: #d4af37; text-transform: uppercase; letter-spacing: 0.15em; padding: 1rem 2rem; border-radius: 12px; background: linear-gradient(90deg, rgba(212,175,55,0.2) 0%, transparent 100%); transition: all 0.3s; width: 80%; text-align: center; border: 2px solid #d4af37; text-decoration: none; pointer-events: all;">🔒 Admin</a>
+  </div>
+
+  <style>
+    .mobile-menu.active {
+      transform: translateX(0) !important;
+      pointer-events: all !important;
+    }
+    .mobile-menu a:hover,
+    .mobile-menu a.active {
+      background: linear-gradient(90deg, #d4af37 0%, #7a4a2e 100%) !important;
+      color: #fffbe6 !important;
+      border-color: #d4af37 !important;
+      box-shadow: 0 8px 24px rgba(212, 175, 55, 0.4);
+      transform: scale(1.05);
+    }
+  </style>
+          
+        </style>
+      <style>
+        .logo-glow {
+          text-shadow: 0 2px 12px #d4af37cc, 0 0 2px #fffbe6;
+          letter-spacing: 0.18em;
+        }
+        .menu-fancy .menu-link {
+          position: relative;
+          padding: 0.5em 1.2em;
+          border-radius: 8px;
+          color: #e7cfa4;
+          font-weight: 600;
+          background: linear-gradient(90deg, rgba(212,175,55,0.08) 0%, rgba(255,255,255,0.02) 100%);
+          box-shadow: 0 2px 12px 0 rgba(212,175,55,0.08);
+          transition: color 0.25s, background 0.25s, box-shadow 0.25s, transform 0.18s;
+          overflow: hidden;
+        }
+        .menu-fancy .menu-link:hover, .menu-fancy .menu-link:focus {
+          color: #fffbe6;
+          background: linear-gradient(90deg, #d4af37 0%, #7a4a2e 100%);
+          box-shadow: 0 4px 24px 0 #d4af37cc, 0 0 8px #fffbe6;
+          transform: translateY(-2px) scale(1.06) skewX(-2deg);
+          text-shadow: 0 2px 12px #fffbe6, 0 0 2px #d4af37;
+        }
+        .menu-fancy .menu-link::after {
+          content: '';
+          display: block;
+          position: absolute;
+          left: 50%;
+          bottom: 0.18em;
+          width: 0;
+          height: 3px;
+          background: linear-gradient(90deg, #d4af37 0%, #fffbe6 100%);
+          border-radius: 2px;
+          transition: width 0.3s cubic-bezier(.77,0,.18,1), left 0.3s cubic-bezier(.77,0,.18,1);
+        }
+        .menu-fancy .menu-link:hover::after, .menu-fancy .menu-link:focus::after {
+          width: 80%;
+          left: 10%;
+        }
+      </style>
+  </header>
+  <div style="height:80px;"></div>
+  <section class="max-w-4xl mx-auto px-6 py-16 fade-up">
+    <h1 class="font-title text-4xl md:text-5xl text-ouro mb-8">Sobre a Madeireira Monteiro</h1>
+    <p class="mb-6 text-lg text-gray-300">Somos especialistas em madeiras nobres e tacos de alta qualidade, com tradição em transformar matéria-prima em peças únicas e duráveis. Trabalhamos com madeiras como Garapeira, Pequiá, Angelim Pedra e outras, sempre priorizando sustentabilidade e acabamento premium.</p>
+    <p class="mb-6 text-lg text-gray-300">Nossos tacos e mesas são produzidos sob medida, com atenção a cada detalhe, garantindo beleza, resistência e exclusividade para seu ambiente.</p>
+    
+    <!-- Vídeo de Apresentação -->
+    <div class="fade-up mb-12">
+      <h2 class="font-title text-3xl text-ouro mb-6 text-center">Conheça Nosso Trabalho</h2>
+      <div style="position: relative; max-width: 600px; margin: 0 auto; border-radius: 20px; overflow: hidden; padding: 12px; background: linear-gradient(145deg, #7a4a2e 0%, #5a3620 50%, #3a2210 100%); box-shadow: 0 20px 60px rgba(122,74,46,0.4), inset 0 2px 8px rgba(255,255,255,0.1), inset 0 -2px 8px rgba(0,0,0,0.5);">
+        <div style="position: relative; border-radius: 12px; overflow: hidden; box-shadow: inset 0 0 20px rgba(0,0,0,0.6), 0 8px 24px rgba(0,0,0,0.4);">
+          <iframe width="100%" height="500" src="https://www.youtube.com/embed/s_VXhT8f91Y" title="Madeireira Monteiro" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen style="display: block; border-radius: 8px;"></iframe>
+        </div>
+        <!-- Detalhes de textura amadeirada -->
+        <div style="position: absolute; top: 6px; left: 6px; right: 6px; height: 6px; background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.15) 50%, transparent 100%); border-radius: 20px 20px 0 0;"></div>
+        <div style="position: absolute; bottom: 6px; left: 6px; right: 6px; height: 6px; background: linear-gradient(90deg, transparent 0%, rgba(0,0,0,0.3) 50%, transparent 100%); border-radius: 0 0 20px 20px;"></div>
+      </div>
+    </div>
+    
+    <div class="bg-black/60 rounded-2xl p-6 border border-ouro/30 shadow-xl mb-8">
+      <h2 class="font-title text-2xl text-ouro mb-2">Endereço</h2>
+      <p class="text-gray-400">Avenida 16A número 172<br>Vila Indaiá - Rio Claro<br>São Paulo, Brasil</p>
+    </div>
+    <div class="grid md:grid-cols-3 gap-6">
+      <div class="bg-black/60 rounded-2xl p-4 border border-ouro/30 shadow-xl">
+        <h3 class="font-title text-xl text-ouro mb-2">Madeiras Nobres</h3>
+        <p class="text-gray-400 text-sm">Garapeira, Pequiá, Angelim Pedra e outras madeiras selecionadas, de origem sustentável.</p>
+      </div>
+      <div class="bg-black/60 rounded-2xl p-4 border border-ouro/30 shadow-xl">
+        <h3 class="font-title text-xl text-ouro mb-2">Tacos & Pisos</h3>
+        <p class="text-gray-400 text-sm">Tacos de madeira maciça, acabamento refinado, instalação profissional e garantia de durabilidade.</p>
+      </div>
+      <div class="bg-black/60 rounded-2xl p-4 border border-ouro/30 shadow-xl">
+        <h3 class="font-title text-xl text-ouro mb-2">Sustentabilidade</h3>
+        <p class="text-gray-400 text-sm">Compromisso com o meio ambiente, utilizando apenas madeira de manejo responsável.</p>
+      </div>
+    </div>
+  </section>
+  <footer class="bg-black py-10 text-center text-gray-500 text-sm mt-16 border-t border-ouro/20">
+    <div class="flex flex-col md:flex-row justify-center items-center gap-4">
+      <span>© 2025 Madeireira Monteiro — Mesas Artesanais Premium</span>
+      <span class="hidden md:inline">|</span>
+      <a href="contato.html" class="text-ouro hover:underline">Fale conosco</a>
+    </div>
+  </footer>
+  <script>
+    document.querySelectorAll('.fade-up').forEach(el => setTimeout(() => el.classList.add('show'), 200));
+  </script>
+  <script src="mobile-menu.js"></script>
+  <script src="page-transitions.js"></script>
+</body>
+</html>

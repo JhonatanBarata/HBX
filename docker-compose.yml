@@ -1,0 +1,63 @@
+version: '3.9'
+services:
+  db:
+    image: postgres:15-alpine
+    restart: always
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: admin123
+      POSTGRES_DB: jhonatan_dev
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./postgres-data:/var/lib/postgresql/data
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: backend
+    restart: unless-stopped
+    depends_on:
+      - db
+    environment:
+      APP_PORT: "3000"
+      # Prisma schema uses PostgreSQL. Inside Docker, the Postgres host is the service name `db`.
+      DATABASE_URL: postgresql://admin:admin123@db:5432/jhonatan_dev
+      NODE_ENV: development
+      WEBSCRAPING_INTERNAL_URL: http://webscraping:8501
+      WEBSCRAPING_URL: /hbx/webscraping
+      WHATSAPP_HBX_RECOVERY_TEMPLATE_NAME: ${WHATSAPP_HBX_RECOVERY_TEMPLATE_NAME:-}
+      WHATSAPP_HBX_RECOVERY_TEMPLATE_LANGUAGE: ${WHATSAPP_HBX_RECOVERY_TEMPLATE_LANGUAGE:-pt_BR}
+      WHATSAPP_SUPPORT_TEMPLATE_NAME: ${WHATSAPP_SUPPORT_TEMPLATE_NAME:-}
+      WHATSAPP_SUPPORT_TEMPLATE_LANGUAGE: ${WHATSAPP_SUPPORT_TEMPLATE_LANGUAGE:-pt_BR}
+      WHATSAPP_FOLLOWUP_TEMPLATE_NAME: ${WHATSAPP_FOLLOWUP_TEMPLATE_NAME:-}
+      WHATSAPP_FOLLOWUP_TEMPLATE_LANGUAGE: ${WHATSAPP_FOLLOWUP_TEMPLATE_LANGUAGE:-pt_BR}
+      WHATSAPP_WEBSCRAPING_TEMPLATE_NAME: ${WHATSAPP_WEBSCRAPING_TEMPLATE_NAME:-}
+      WHATSAPP_WEBSCRAPING_TEMPLATE_LANGUAGE: ${WHATSAPP_WEBSCRAPING_TEMPLATE_LANGUAGE:-pt_BR}
+    ports:
+      - "3000:3000"
+    volumes:
+      # Mount the backend source for hot-reload during development
+      - ./backend:/app:cached
+      # Mount prisma folder for schema/migrations
+      - ./backend/prisma:/app/prisma:cached
+      # Preserve node_modules installed inside the container (avoid host overwrite)
+      - backend_node_modules:/app/node_modules
+    # Command is defined in Dockerfile (start:dev)
+
+  webscraping:
+    build:
+      context: ./webscraping
+      dockerfile: Dockerfile
+    container_name: webscraping
+    restart: unless-stopped
+    environment:
+      GOOGLE_PLACES_API_KEY: ${GOOGLE_PLACES_API_KEY:-}
+      MOCK_MODE: ${WEBSCRAPING_MOCK_MODE:-0}
+    volumes:
+      - ./webscraping:/app:cached
+
+volumes:
+  backend_node_modules:
+    driver: local

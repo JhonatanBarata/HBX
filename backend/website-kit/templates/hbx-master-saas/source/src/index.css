@@ -1,0 +1,92 @@
+@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Sora:wght@500;600;700&display=swap');
+
+:root {
+  font-family: 'Manrope', sans-serif;
+  line-height: 1.5;
+  font-weight: 500;
+  color: #0d2330;
+  background: #f3f6fa;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  --display-font: 'Sora', sans-serif;
+  --ink: #0d2330;
+  --ink-soft: #58707d;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  min-width: 320px;
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+  color: var(--ink);
+  background: #f3f6fa;
+}
+
+body,
+button,
+input,
+textarea {
+  font: inherit;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+img {
+  max-width: 100%;
+  display: block;
+}
+
+button,
+input {
+  border-radius: 16px;
+}
+
+button {
+  cursor: pointer;
+}
+
+input {
+  width: 100%;
+  padding: 0.95rem 1rem;
+  border: 1px solid rgba(4, 63, 86, 0.14);
+  background: rgba(255, 255, 255, 0.94);
+}
+
+label {
+  display: grid;
+  gap: 0.4rem;
+  color: var(--ink-soft);
+}
+
+h1,
+h2,
+h3,
+strong {
+  font-family: var(--display-font);
+  letter-spacing: -0.03em;
+}
+
+h1,
+h2,
+h3,
+p,
+ul {
+  margin: 0;
+}
+
+#root {
+  min-height: 100vh;
+}

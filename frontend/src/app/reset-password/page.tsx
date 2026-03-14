@@ -5,25 +5,31 @@ import { useRouter, useSearchParams } from "next/navigation";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3000";
 
-function getErrorMessage(data: any) {
-  if (!data) return null;
-  if (typeof data.message === "string") return data.message;
-  if (Array.isArray(data.message)) return data.message.join(", ");
-  if (typeof data.error === "string") return data.error;
+type ApiErrorPayload = {
+  message?: string | string[];
+  error?: string;
+};
+
+function getErrorMessage(data: unknown) {
+  if (!data || typeof data !== "object") return null;
+  const payload = data as ApiErrorPayload;
+  if (typeof payload.message === "string") return payload.message;
+  if (Array.isArray(payload.message)) return payload.message.join(", ");
+  if (typeof payload.error === "string") return payload.error;
   return null;
 }
 
 function ResetPasswordInner() {
   const router = useRouter();
-  const sp = useSearchParams();
+  const searchParams = useSearchParams();
 
   const token = useMemo(() => {
-    const t = sp?.get("token");
-    return typeof t === "string" ? t : "";
-  }, [sp]);
+    const value = searchParams?.get("token");
+    return typeof value === "string" ? value : "";
+  }, [searchParams]);
 
   const [password, setPassword] = useState("");
-  const [password2, setPassword2] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
@@ -33,29 +39,21 @@ function ResetPasswordInner() {
     setInfo(null);
   }, [token]);
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
+  async function handleSubmit(event: React.FormEvent) {
+    event.preventDefault();
     setError(null);
     setInfo(null);
 
     if (!token) {
-      setError("Link inválido. Solicite uma nova recuperação.");
+      setError("Link invalido. Solicite uma nova recuperacao.");
       return;
     }
-    if (password.length < 10) {
-      setError("Senha inválida — use pelo menos 10 caracteres.");
+    if (password.length < 4) {
+      setError("Senha invalida - use pelo menos 4 caracteres.");
       return;
     }
-    if (/\s/.test(password)) {
-      setError("Senha inválida — não use espaços.");
-      return;
-    }
-    if (!/[A-Za-z]/.test(password) || !/\d/.test(password)) {
-      setError("Senha inválida — inclua letra e número.");
-      return;
-    }
-    if (password !== password2) {
-      setError("As senhas não conferem.");
+    if (password !== confirmPassword) {
+      setError("As senhas nao conferem.");
       return;
     }
 
@@ -67,13 +65,13 @@ function ResetPasswordInner() {
         body: JSON.stringify({ token, password }),
       });
 
-      const data = await res.json().catch(() => null);
+      const data: unknown = await res.json().catch(() => null);
       if (!res.ok) {
-        setError(getErrorMessage(data) ?? "Não foi possível redefinir a senha.");
+        setError(getErrorMessage(data) ?? "Nao foi possivel redefinir a senha.");
         return;
       }
 
-      setInfo("Senha redefinida com sucesso. Você já pode fazer login.");
+      setInfo("Senha redefinida com sucesso. Voce ja pode fazer login.");
       setTimeout(() => router.push("/login"), 800);
     } catch {
       setError("Falha ao conectar no backend");
@@ -86,9 +84,7 @@ function ResetPasswordInner() {
     <main className="min-h-screen flex items-center justify-center p-6">
       <div className="max-w-md w-full p-6 border border-foreground/10 rounded-2xl bg-background shadow-sm">
         <h1 className="text-2xl font-bold mb-2">Redefinir senha</h1>
-        <p className="text-sm text-foreground/70 mb-6">
-          Crie uma nova senha para sua conta.
-        </p>
+        <p className="text-sm text-foreground/70 mb-6">Crie uma nova senha para sua conta.</p>
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
@@ -97,12 +93,12 @@ function ResetPasswordInner() {
               type="password"
               className="w-full mt-1 p-2 border border-foreground/10 rounded-xl bg-background"
               value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="********"
+              onChange={(event) => setPassword(event.target.value)}
+              placeholder="****"
               required
               autoComplete="new-password"
             />
-            <p className="text-xs text-foreground/60 mt-1">Mínimo de 10 caracteres, com letra e número (sem espaços).</p>
+            <p className="text-xs text-foreground/60 mt-1">Minimo de 4 caracteres.</p>
           </div>
 
           <div>
@@ -110,20 +106,20 @@ function ResetPasswordInner() {
             <input
               type="password"
               className="w-full mt-1 p-2 border border-foreground/10 rounded-xl bg-background"
-              value={password2}
-              onChange={(e) => setPassword2(e.target.value)}
-              placeholder="********"
+              value={confirmPassword}
+              onChange={(event) => setConfirmPassword(event.target.value)}
+              placeholder="****"
               required
               autoComplete="new-password"
             />
           </div>
 
-          {info && (
+          {info ? (
             <p className="text-sm border border-foreground/10 bg-background p-2 rounded-xl">{info}</p>
-          )}
-          {error && (
+          ) : null}
+          {error ? (
             <p className="text-sm border border-foreground/10 bg-background p-2 rounded-xl">{error}</p>
-          )}
+          ) : null}
 
           <button
             disabled={loading}
