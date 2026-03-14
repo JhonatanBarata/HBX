@@ -3,7 +3,7 @@
 	"version": "1.0.0",
 	"private": true,
 	"scripts": {
-		"start": "node server.js",
+		"start": "node index.js",
 		"start:all": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/start-all.ps1",
 		"stop:all": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/stop-all.ps1"
 	}
