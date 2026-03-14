@@ -7,5 +7,11 @@ services:
     startCommand: npm run start
     plan: free
     envVars:
+      - key: DATABASE_URL
+        value: ""
+      - key: JWT_SECRET
+        value: ""
+      - key: FRONTEND_URL
+        value: ""
       - key: NODE_VERSION
         value: 22
