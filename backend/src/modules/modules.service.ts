@@ -107,10 +107,9 @@ export class ModulesService implements OnModuleInit {
   }
 
   async onModuleInit() {
-    await this.ensureDatabaseAutomation();
-    await this.ensureDefaultSystemModules();
-    await this.syncCompanyModulesForAllCompanies();
-  }
+  await this.ensureDefaultSystemModules();
+  await this.syncCompanyModulesForAllCompanies();
+}
 
   private normalizeKey(key: string) {
     return String(key || '').trim().toLowerCase();

@@ -147,6 +147,11 @@ if (!$env:DATABASE_URL) {
 	throw "Missing DATABASE_URL in backend/.env"
 }
 $env:DATABASE_URL = Normalize-DatabaseUrlForHost $env:DATABASE_URL
+if (!$env:DIRECT_URL) {
+	$env:DIRECT_URL = $env:DATABASE_URL
+} else {
+	$env:DIRECT_URL = Normalize-DatabaseUrlForHost $env:DIRECT_URL
+}
 
 $studioArgs = @(
 	"node_modules/prisma/build/index.js",

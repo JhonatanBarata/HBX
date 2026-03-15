@@ -5,12 +5,10 @@
   "scripts": {
     "dev": "npm run start:dev",
     "start": "node -r ./scripts/fix-direct-url dist/main.js",
+    "start:prod": "node -r ./scripts/fix-direct-url dist/main.js",
     "start:dev": "ts-node-dev --respawn --transpile-only --require dotenv/config src/main.ts",
     "prisma:generate": "prisma generate --schema=./prisma/schema.prisma",
     "build": "npm run prisma:generate && tsc -p tsconfig.json",
-    "render:build": "npm install && npm run prisma:generate && npm run build",
-    "smoke:whatsapp": "node -r dotenv/config scripts/whatsapp-smoke.js",
-    "whatsapp:smoke": "npm run smoke:whatsapp",
     "prisma:migrate": "prisma migrate dev --name init --schema=./prisma/schema.prisma",
     "prisma:migrate:deploy": "prisma migrate deploy --schema=./prisma/schema.prisma"
   },
@@ -22,7 +20,7 @@
     "@nestjs/platform-express": "^10.0.0",
     "@nestjs/serve-static": "^4.0.0",
     "@nestjs/throttler": "^6.5.0",
-    "@prisma/client": "^5.11.0",
+    "@prisma/client": "5.22.0",
     "axios": "^1.13.4",
     "bcryptjs": "^2.4.3",
     "class-transformer": "^0.5.1",
@@ -37,7 +35,7 @@
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
-    "prisma": "^5.11.0",
+    "prisma": "5.22.0",
     "ts-node-dev": "^2.0.0",
     "typescript": "^5.9.3"
   }

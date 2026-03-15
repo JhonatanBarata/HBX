@@ -1,17 +1,19 @@
 services:
   - type: web
     name: hbx-backend
-    runtime: node
+    runtime: docker
     rootDir: backend
-    buildCommand: npm run render:build
-    startCommand: npm run start
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
     plan: free
     envVars:
       - key: DATABASE_URL
-        value: ""
+        sync: false
+      - key: DIRECT_URL
+        sync: false
       - key: JWT_SECRET
-        value: ""
+        generateValue: true
       - key: FRONTEND_URL
-        value: ""
-      - key: NODE_VERSION
-        value: 22
+        sync: false
+      - key: NODE_ENV
+        value: production

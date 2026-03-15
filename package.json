@@ -4,8 +4,9 @@
 	"private": true,
 	"scripts": {
 		"start": "node index.js",
-		"start:all": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/start-all.ps1",
-		"stop:all": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/stop-all.ps1"
+		"up": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/start-all.ps1",
+		"down": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/stop-all.ps1",
+		"publish": "node ./scripts/publish.js"
 	}
 }
 

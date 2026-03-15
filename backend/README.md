@@ -1,6 +1,6 @@
 # backend (WhatsApp Cloud API)
 
-Este backend NestJS usa Prisma + SQLite para testes locais e implementa envio de mensagens via WhatsApp Cloud API com:
+Este backend NestJS usa Prisma + PostgreSQL e implementa envio de mensagens via WhatsApp Cloud API com:
 
 - Outbox (`OutboundMessage`) + tentativas (`OutboundAttempt`)
 - Retry com backoff exponencial + jitter
@@ -11,6 +11,9 @@ Este backend NestJS usa Prisma + SQLite para testes locais e implementa envio de
 1) Variáveis de ambiente
 
 - Use [.env.example](.env.example) como base.
+- Defina `DATABASE_URL` e `DIRECT_URL`.
+- Em ambiente local com um único Postgres, as duas podem apontar para a mesma URL.
+- No Render com Supabase, use a URL do Session pooler na porta `5432` para as duas variáveis.
 - Para dry-run, mantenha `WHATSAPP_ENABLED=false` (o sistema marca como enviado sem chamar a Meta).
 
 2) Instalar + migrar (sem seeds)
@@ -19,7 +22,8 @@ Este backend NestJS usa Prisma + SQLite para testes locais e implementa envio de
 cd c:\Users\Jhonatan\Desktop\App\backend
 npm install
 npx prisma generate
-$env:DATABASE_URL='file:./prisma/dev.db'
+$env:DATABASE_URL='postgresql://postgres:postgres@localhost:5432/hbx_dev?schema=public'
+$env:DIRECT_URL=$env:DATABASE_URL
 npx prisma migrate reset --force --skip-seed
 ```
 
@@ -35,6 +39,32 @@ npm run start:dev
 ```powershell
 cd c:\Users\Jhonatan\Desktop\App\backend
 npm run whatsapp:smoke
+```
+
+## Deploy manual Docker no Render
+
+- Serviço: `Web Service`
+- Runtime: `Docker`
+- Dockerfile: `backend/Dockerfile`
+- Docker build context: `backend`
+
+Variáveis mínimas esperadas no Render:
+
+- `DATABASE_URL`
+- `DIRECT_URL`
+- `JWT_SECRET`
+- `FRONTEND_URL`
+- `NODE_ENV=production`
+
+Para Supabase no Render:
+
+- Use o Session pooler na porta `5432` em `DATABASE_URL`.
+- Use a mesma URL também em `DIRECT_URL` para o fluxo de `prisma migrate deploy` e runtime.
+
+O container sobe com o `CMD` do Dockerfile:
+
+```sh
+npx prisma migrate deploy --schema=./prisma/schema.prisma && npm run start:prod
 ```
 
 ## Webhook WhatsApp Cloud API

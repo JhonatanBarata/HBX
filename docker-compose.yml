@@ -24,6 +24,7 @@ services:
       APP_PORT: "3000"
       # Prisma schema uses PostgreSQL. Inside Docker, the Postgres host is the service name `db`.
       DATABASE_URL: postgresql://admin:admin123@db:5432/jhonatan_dev
+      DIRECT_URL: postgresql://admin:admin123@db:5432/jhonatan_dev
       NODE_ENV: development
       WEBSCRAPING_INTERNAL_URL: http://webscraping:8501
       WEBSCRAPING_URL: /hbx/webscraping
@@ -44,7 +45,7 @@ services:
       - ./backend/prisma:/app/prisma:cached
       # Preserve node_modules installed inside the container (avoid host overwrite)
       - backend_node_modules:/app/node_modules
-    # Command is defined in Dockerfile (start:dev)
+    command: sh -lc "npm run prisma:generate && npx prisma db push --schema=./prisma/schema.prisma && npm run start:dev"
 
   webscraping:
     build:
