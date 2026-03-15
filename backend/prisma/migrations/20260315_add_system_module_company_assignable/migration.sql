@@ -1,2 +1,1 @@
-ALTER TABLE "SystemModule"
-ADD COLUMN IF NOT EXISTS "companyAssignable" BOOLEAN NOT NULL DEFAULT true;
+-- No-op on PostgreSQL: covered by baseline migration 20260206_add_plans.

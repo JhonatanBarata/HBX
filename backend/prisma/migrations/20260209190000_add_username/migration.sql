@@ -1,5 +1,1 @@
--- Add username for user login (nullable for existing rows)
-ALTER TABLE "User" ADD COLUMN "username" TEXT;
-
--- Unique index (SQLite allows multiple NULLs in UNIQUE index)
-CREATE UNIQUE INDEX "User_username_key" ON "User"("username");
+-- No-op on PostgreSQL: covered by baseline migration 20260206_add_plans.
