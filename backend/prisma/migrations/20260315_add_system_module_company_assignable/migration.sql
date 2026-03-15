@@ -1,0 +1,2 @@
+ALTER TABLE "SystemModule"
+ADD COLUMN IF NOT EXISTS "companyAssignable" BOOLEAN NOT NULL DEFAULT true;
