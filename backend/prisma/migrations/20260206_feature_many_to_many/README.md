@@ -7,5 +7,6 @@ Steps performed by this SQL migration:
 - Recreate the `Feature` table without the `planId` column
 
 Notes:
-- This migration is written for SQLite. If you use a different provider, adapt accordingly.
+- Historical note: this migration originated in the SQLite era.
+- On the current PostgreSQL flow it is intentionally superseded by baseline migration `20260206_add_plans`.
 - Backup your database before running migrations.

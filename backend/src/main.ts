@@ -5,6 +5,19 @@ import { AppModule } from './app.module';
 import { ValidationPipe, BadRequestException } from '@nestjs/common';
 import { createProxyMiddleware } from 'http-proxy-middleware';
 
+function buildAllowedOrigins() {
+  const configured = String(process.env.CORS_ALLOWED_ORIGINS || '')
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean);
+
+  const frontendUrl = String(process.env.FRONTEND_URL || '').trim();
+  if (frontendUrl) configured.push(frontendUrl);
+
+  configured.push('http://localhost:3001', 'http://127.0.0.1:3001');
+  return Array.from(new Set(configured));
+}
+
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, { rawBody: true });
   const webscrapingTarget = process.env.WEBSCRAPING_INTERNAL_URL || 'http://localhost:8501';
@@ -17,8 +30,17 @@ async function bootstrap() {
       pathRewrite: { '^/webscraping': '' },
     }),
   );
-  // Allow frontend (localhost:3001) and other origins during local development
-  app.enableCors({ origin: true });
+  const allowedOrigins = buildAllowedOrigins();
+  app.enableCors({
+    origin: (origin, callback) => {
+      if (!origin) return callback(null, true);
+      if (!allowedOrigins.length || allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+      return callback(new Error(`Origin ${origin} is not allowed by CORS`), false);
+    },
+    credentials: true,
+  });
   function translateConstraintMessage(msg: string) {
     if (!msg) return msg;
     // common patterns from class-validator messages

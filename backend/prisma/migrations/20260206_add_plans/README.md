@@ -1,11 +1,13 @@
 This migration adds Plan and Feature tables and links Company to Plan.
 
-Run: `prisma migrate dev --name add_plans`
+Current role: canonical PostgreSQL baseline for the active schema.
+
+Run: `prisma migrate deploy --schema=./prisma/schema.prisma`
 
 ## Prisma Studio
 
 Studio must be started via:
 scripts/start-prisma-studio.ps1
 
-Do not run `npx prisma studio` directly,
-as DATABASE_URL must be forced to SQLite file path.
+Do not run `npx prisma studio` directly when your host environment is not loaded.
+Use the wrapper so DATABASE_URL and DIRECT_URL point to the active PostgreSQL environment.

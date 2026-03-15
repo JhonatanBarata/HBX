@@ -107,9 +107,10 @@ export class ModulesService implements OnModuleInit {
   }
 
   async onModuleInit() {
-  await this.ensureDefaultSystemModules();
-  await this.syncCompanyModulesForAllCompanies();
-}
+    await this.ensureDefaultSystemModules();
+    await this.ensureDatabaseAutomation();
+    await this.syncCompanyModulesForAllCompanies();
+  }
 
   private normalizeKey(key: string) {
     return String(key || '').trim().toLowerCase();
@@ -133,7 +134,7 @@ export class ModulesService implements OnModuleInit {
       RETURNS trigger AS $$
       BEGIN
         INSERT INTO "CompanyModule" ("companyId", "moduleId", "enabled", "createdAt", "updatedAt")
-        SELECT NEW.id, sm.id, true, NOW(), NOW()
+        SELECT NEW.id, sm.id, sm."defaultEnabled", NOW(), NOW()
         FROM "SystemModule" sm
         WHERE sm."companyAssignable" = true
         ON CONFLICT ("companyId", "moduleId") DO NOTHING;
@@ -156,7 +157,7 @@ export class ModulesService implements OnModuleInit {
       BEGIN
         IF NEW."companyAssignable" = true THEN
           INSERT INTO "CompanyModule" ("companyId", "moduleId", "enabled", "createdAt", "updatedAt")
-          SELECT c.id, NEW.id, true, NOW(), NOW()
+          SELECT c.id, NEW.id, NEW."defaultEnabled", NOW(), NOW()
           FROM "Company" c
           ON CONFLICT ("companyId", "moduleId") DO NOTHING;
         END IF;
@@ -208,7 +209,7 @@ export class ModulesService implements OnModuleInit {
   private async syncCompanyModulesForAllCompanies() {
     await this.prisma.$executeRawUnsafe(`
       INSERT INTO "CompanyModule" ("companyId", "moduleId", "enabled", "createdAt", "updatedAt")
-      SELECT c.id, sm.id, true, NOW(), NOW()
+      SELECT c.id, sm.id, sm."defaultEnabled", NOW(), NOW()
       FROM "Company" c
       CROSS JOIN "SystemModule" sm
       WHERE sm."companyAssignable" = true

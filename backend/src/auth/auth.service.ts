@@ -28,7 +28,16 @@ export class AuthService implements OnModuleInit {
     return 'master4961';
   }
 
+  private shouldBootstrapSystemMaster() {
+    const raw = String(process.env.BOOTSTRAP_SYSTEM_MASTER ?? 'true').trim().toLowerCase();
+    return raw !== 'false' && raw !== '0' && raw !== 'no';
+  }
+
   private async ensureSystemMasterUser() {
+    if (!this.shouldBootstrapSystemMaster()) {
+      return;
+    }
+
     const username = this.masterUsername();
     const passwordHash = await bcrypt.hash(this.masterPassword(), 12);
 
@@ -37,15 +46,14 @@ export class AuthService implements OnModuleInit {
       await this.prisma.user.update({
         where: { id: existing.id },
         data: {
-          password: passwordHash,
           isSystemMaster: true,
           isActive: true,
           deactivatedAt: null,
           retentionUntil: null,
           role: 'ADMIN',
-          companyId: null,
           name: existing.name || 'System Master',
           email: existing.email || 'master@hbx.local',
+          password: existing.password || passwordHash,
         },
       });
       return;

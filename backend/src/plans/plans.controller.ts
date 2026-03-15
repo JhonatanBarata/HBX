@@ -5,6 +5,7 @@ import { CreateFeatureDto } from './dto/create-feature.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { Admin } from '../auth/admin.decorator';
 import { RolesGuard } from '../auth/roles.guard';
+import { MasterGuard } from '../auth/guards/master.guard';
 
 @Controller('plans')
 export class PlansController {
@@ -17,12 +18,13 @@ export class PlansController {
   }
 
   @Post('seed')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, MasterGuard)
   seed() {
     return this.plansService.createDefaultPlans();
   }
 
   @Post('seed-full')
+  @UseGuards(JwtAuthGuard, MasterGuard)
   async seedFull(@Body() dto: import('./dto/seed-full.dto').SeedFullDto) {
     return this.plansService.createFullSeed(dto as any);
   }

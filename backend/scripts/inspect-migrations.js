@@ -1,6 +1,20 @@
 const { PrismaClient } = require('@prisma/client');
 
+function normalizeDatabaseUrlForHost(databaseUrl) {
+  if (!databaseUrl || typeof databaseUrl !== 'string') return databaseUrl;
+  return databaseUrl
+    .replace(/(@)db(?=[:/])/g, '$1localhost')
+    .replace(/:\/\/db(?=[:/])/g, '://localhost');
+}
+
 async function main() {
+  if (process.env.DATABASE_URL) {
+    process.env.DATABASE_URL = normalizeDatabaseUrlForHost(process.env.DATABASE_URL);
+  }
+  if (process.env.DIRECT_URL) {
+    process.env.DIRECT_URL = normalizeDatabaseUrlForHost(process.env.DIRECT_URL);
+  }
+
   const prisma = new PrismaClient();
   try {
     const migrations = await prisma.$queryRawUnsafe(
@@ -18,13 +32,22 @@ async function main() {
       });
     }
 
-    const tables = await prisma.$queryRawUnsafe(
-      "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('PasswordReset','PlanFeatures','_PlanFeatures') ORDER BY name",
-    );
-    console.log('Tables present among PasswordReset/PlanFeatures/_PlanFeatures:', tables);
+    const tables = await prisma.$queryRawUnsafe(`
+      SELECT table_name
+      FROM information_schema.tables
+      WHERE table_schema = 'public'
+        AND table_name IN ('PasswordReset', 'Plan', 'Feature', '_FeatureToPlan', 'User', 'Company', 'SystemModule', 'CompanyModule', 'UserModuleAccess')
+      ORDER BY table_name
+    `);
+    console.log('Critical tables present:', tables);
 
-    const userCols = await prisma.$queryRawUnsafe("PRAGMA table_info('User')");
-    console.log('User columns:', userCols.map((c) => c.name));
+    const userCols = await prisma.$queryRawUnsafe(`
+      SELECT column_name
+      FROM information_schema.columns
+      WHERE table_schema = 'public' AND table_name = 'User'
+      ORDER BY ordinal_position
+    `);
+    console.log('User columns:', userCols.map((c) => c.column_name));
   } finally {
     await prisma.$disconnect();
   }

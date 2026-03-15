@@ -14,6 +14,8 @@ postgres-data/
 temp_*.json
 index 26-01 com auth.txt
 
+backups/
+
 systeminfo.txt
 msinfo-completo.txt
 processos-top.txt

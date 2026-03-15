@@ -15,5 +15,9 @@ services:
         generateValue: true
       - key: FRONTEND_URL
         sync: false
+      - key: CORS_ALLOWED_ORIGINS
+        sync: false
+      - key: BOOTSTRAP_SYSTEM_MASTER
+        value: "false"
       - key: NODE_ENV
         value: production
