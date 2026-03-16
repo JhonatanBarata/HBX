@@ -1,201 +1,43 @@
-# Sistema de Pedidos Online
+# HBX SaaS
 
-Um sistema completo para restaurantes e lanchonetes gerenciarem seus produtos e receberem pedidos online com temas personalizados baseados no domínio do email.
+Aplicação SaaS multi-tenant com backend NestJS, frontend Next.js, Prisma e PostgreSQL.
 
-## 🚀 Funcionalidades
+## Fluxo oficial
 
-- **Temas Personalizados**: Cada negócio tem seu próprio visual baseado no domínio do email
-- **Cardápio Digital**: Apresentação atrativa dos produtos com imagens e descrições
-- **Pedidos Online**: Sistema completo de carrinho de compras
-- **Dashboard Administrativo**: Gerenciamento de produtos, pedidos e personalização
-- **Autenticação JWT**: Sistema seguro de login e registro
-- **API REST**: Backend profissional com validação e tratamento de erros
+- Desenvolvimento local: `npm run up`
+- Encerramento local: `npm run down`
+- Seed local controlado: `npm run seed:dev`
+- Publicação de código: `npm run publish`
+- Backup do banco de produção: `npm run backup:prod`
+- Verificação pós-deploy: `npm run verify:prod`
 
-## 🛠️ Tecnologias
+`npm run publish` valida o projeto, cria backup do banco remoto, publica o código, verifica o deploy e mantém apenas o backup remoto mais recente quando tudo termina bem. Ele não sincroniza automaticamente o banco local para produção.
 
-### Frontend
-- **Next.js 16** + **React 19** + **TypeScript**
-- **Tailwind CSS** para estilização
-- **Framer Motion** para animações
-- **Axios** para requisições HTTP
+## Ambientes
 
-### Backend
-- **Node.js** + **Express** + **TypeScript**
-- **Prisma** + **PostgreSQL** para banco de dados
-- **JWT** para autenticação
-- **Zod** para validação
-- **Winston** para logging
+- Local é ambiente de desenvolvimento e pode conter testes, lixo temporário e dados descartáveis.
+- Produção é ambiente real e só deve receber código, migrations e bootstrap estrutural idempotente.
+- Dados operacionais reais não devem nascer no banco local esperando subir com publish.
 
-### Infraestrutura
-- **Docker Compose** para desenvolvimento
-- **PostgreSQL** como banco de dados
+## Seeds estruturais
 
-## 📦 Instalação e Execução
+As definições estruturais do sistema ficam centralizadas em [backend/src/bootstrap/structural-defaults.json](backend/src/bootstrap/structural-defaults.json).
 
-### Pré-requisitos
-- Docker e Docker Compose
-- Node.js 20+
-- npm ou yarn
+Isso inclui:
+- módulos globais padrão;
+- planos e features padrão;
+- permissões padrão de importação por role;
+- seed local controlado para desenvolvimento.
 
-### Passos para executar
+## Documentação operacional
 
-1. **Clone o repositório**
-   ```bash
-   git clone <url-do-repositorio>
-   cd sistema-pedidos
-   ```
+O fluxo oficial completo está em [docs/SAAS_OPERATIONS.md](docs/SAAS_OPERATIONS.md).
 
-2. **Inicie os containers**
-   ```bash
-   docker-compose up -d
-   ```
+## Observações
 
-3. **Instale as dependências do frontend**
-   ```bash
-   cd frontend
-   npm install
-   ```
-
-4. **Execute as migrações do banco**
-   ```bash
-   cd ../backend
-   npx prisma migrate dev
-   npx prisma generate
-   ```
-
-5. **Inicie o frontend**
-   ```bash
-   cd ../frontend
-   npm run dev
-   ```
-
-6. **Acesse a aplicação**
-   - Frontend: http://localhost:3001
-   - Backend: http://localhost:3000
-
-## 🎨 Temas Personalizados
-
-O sistema suporta temas automáticos baseados no domínio do email:
-
-- **@pizzaria.com**: Tema vermelho para pizzarias
-- **@burger.com**: Tema verde para hamburguerias
-- **@sushi.com**: Tema roxo para restaurantes de sushi
-
-Os donos de negócio podem personalizar completamente as cores, nome e slogan através do dashboard.
-
-## 📱 Como Usar
-
-### Para Clientes
-1. Acesse http://localhost:3001/pedir
-2. Navegue pelos produtos disponíveis
-3. Adicione itens ao carrinho
-4. Informe seu nome e faça o pedido
-5. Receba confirmação imediata
-
-### Para Donos de Negócio
-1. Acesse http://localhost:3001/register para criar conta
-2. Faça login em http://localhost:3001/login
-3. No dashboard, personalize o tema do seu negócio
-4. Adicione e gerencie seus produtos
-5. Acompanhe os pedidos recebidos
-6. Compartilhe o link http://localhost:3001/pedir com seus clientes
-
-## 🔧 Estrutura do Projeto
-
-```
-├── backend/
-│   ├── src/
-│   │   ├── index.ts              # Servidor principal
-│   │   ├── modules/
-│   │   │   ├── auth/            # Autenticação JWT
-│   │   │   ├── products/        # CRUD de produtos
-│   │   │   ├── pedidos/         # Sistema de pedidos
-│   │   │   └── theme/           # Gerenciamento de temas
-│   │   └── prisma/
-│   │       └── schema.prisma    # Schema do banco
-│   └── Dockerfile
-├── frontend/
-│   ├── src/
-│   │   ├── app/                 # Páginas Next.js
-│   │   │   ├── dashboard/       # Dashboard admin
-│   │   │   ├── login/           # Página de login
-│   │   │   ├── register/        # Página de registro
-│   │   │   ├── produtos/        # Gerenciamento de produtos
-│   │   │   ├── pedidos/         # Lista de pedidos
-│   │   │   └── pedir/           # Página pública de pedidos
-│   │   ├── contexts/            # Contextos React
-│   │   │   ├── ThemeContext.tsx # Gerenciamento de temas
-│   │   │   └── CartContext.tsx  # Carrinho de compras
-│   │   └── services/
-│   │       └── api.ts           # Cliente HTTP
-│   └── Dockerfile
-└── docker-compose.yml
-```
-
-## 🔒 Segurança
-
-- Autenticação JWT com tokens seguros
-- Validação de entrada com Zod
-- Sanitização de dados
-- Logs estruturados com Winston
-- CORS configurado adequadamente
-
-## 🚀 Próximos Passos
-
-- [ ] Integração com WhatsApp para notificações
-- [ ] Sistema de pagamentos online
-- [ ] Relatórios e analytics
-- [ ] App mobile para clientes
-- [ ] Integração com delivery services
-- [ ] Sistema de avaliações e comentários
-
-## 📄 Licença
-
-Este projeto está sob a licença MIT. Veja o arquivo LICENSE para mais detalhes.
-
-## 🤝 Contribuição
-
-Contribuições são bem-vindas! Por favor, leia o guia de contribuição antes de enviar pull requests.
-
-## 📞 Suporte
-
-Para suporte, entre em contato através das issues do GitHub ou envie um email para suporte@sistema-pedidos.com.
-
-## Development Orchestration
-
-- Start everything: `scripts/start-all.ps1`
-- Stop everything: `scripts/stop-all.ps1`
-- Prisma Studio: `http://localhost:5555`
-- Webscraping module no HBX: `http://localhost:3001/hbx/webscraping`
-
-### Ativar módulos por empresa no Prisma Studio
-
-1. Abra o Prisma Studio em `http://localhost:5555`.
-2. Tabela `SystemModule`: confirme os módulos cadastrados (ex.: `webscraping`).
-3. Tabela `Company`: ao criar uma empresa, o sistema já gera automaticamente todos os módulos em `CompanyModule` como ativos.
-4. Tabela `CompanyModule`: use `enabled=true/false` para ligar/desligar módulos por empresa.
-
-Regras aplicadas no sistema:
-- Controle de módulos é somente por empresa (não por usuário).
-- Usuários herdam os módulos ativos da empresa.
-- Módulo `Master` é global e não pertence a empresas.
-
-### Usuário MASTER fixo
-
-- Usuário: `jhonatan.barata`
-- Senha: `master4961`
-- Acesso ao módulo: `Master` (painel global)
-
-No módulo `Master` você pode:
-- listar todas as empresas,
-- ver módulos ativos por empresa,
-- ver funcionários da empresa,
-- ver status de pagamento,
-- liberar trial de 30 dias,
-- desativar empresa automaticamente após expiração (quando não estiver `PAID`).
-
-### Controle operacional (depois da criação)
-
-Depois da empresa ser criada via Prisma, o controle diário de módulos/pagamento deve ser feito no sistema pelo usuário MASTER.
-
-Do not run `npx prisma studio` manually; use the orchestration scripts to ensure the correct `DATABASE_URL` is applied.
+- `npm run up` recusa `backend/.env` apontando para banco remoto no host, para evitar abrir Prisma Studio ou ferramentas locais contra produção por engano.
+- `npm run publish` roda preflight de Prisma, build e coerência estrutural antes de qualquer commit/push.
+- `npm run publish` também faz backup remoto antes do push e só rota backups antigos quando a verificação pós-deploy passa.
+- `npm run backup:prod` e `npm run verify:prod` recusam targets locais e só aceitam URLs remotas de produção.
+- O bootstrap do usuário master é controlado por ambiente; em produção o padrão oficial continua sendo `BOOTSTRAP_SYSTEM_MASTER=false`.
+- Os comandos operacionais de produção usam variáveis documentadas em [.env.production.example](.env.production.example).

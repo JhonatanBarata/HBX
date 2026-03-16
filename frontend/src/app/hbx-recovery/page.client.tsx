@@ -22,6 +22,7 @@ import {
   type RecoveryBotConfig,
   type RecoveryCustomer,
   type RecoveryInteractionDetail,
+  type RecoveryInteractionMessage,
   type RecoveryInteractionSummary,
   type RecoveryLayoutConfig,
   type RecoveryMetaHeaderUploadPayload,
@@ -141,6 +142,24 @@ function mapPaymentStatusLabel(statusRaw: string | null | undefined) {
     preparing: "Preparando",
   };
   return labels[status] || (status ? status : "-");
+}
+
+function getInteractionEventType(message: RecoveryInteractionMessage) {
+  const eventType = message.variables?.eventType;
+  return String(eventType || "").trim().toLowerCase();
+}
+
+function isLowSignalInteractionMessage(message: RecoveryInteractionMessage) {
+  const eventType = getInteractionEventType(message);
+  return (
+    String(message.messageType || "").trim().toLowerCase() === "system_event" &&
+    eventType === "template_start"
+  );
+}
+
+function shouldShowInteractionVariables(message: RecoveryInteractionMessage) {
+  const messageType = String(message.messageType || "").trim().toLowerCase();
+  return messageType !== "template" && messageType !== "system_event";
 }
 
 function isoDateToMaskedDigits(isoDate: string) {
@@ -1059,6 +1078,8 @@ export default function HbxRecoveryClientPage() {
   const [interactionDetail, setInteractionDetail] = useState<RecoveryInteractionDetail | null>(null);
   const [interactionActionBusy, setInteractionActionBusy] = useState<string | null>(null);
   const [interactionNoteDraft, setInteractionNoteDraft] = useState("");
+  const [interactionReplyDraft, setInteractionReplyDraft] = useState("");
+  const [showSystemMessages, setShowSystemMessages] = useState(false);
   const [notice, setNotice] = useState<string | null>(
     "Carteira carregada com empresas cadastradas no Recovery. O envio de WhatsApp usa o motor oficial por empresa.",
   );
@@ -1066,6 +1087,7 @@ export default function HbxRecoveryClientPage() {
   const [noticeTransitionStage, setNoticeTransitionStage] = useState<"idle" | "enter" | "exit">(
     notice ? "enter" : "idle",
   );
+  const [noticeCloseReady, setNoticeCloseReady] = useState(true);
   const [debtorFormError, setDebtorFormError] = useState<string | null>(null);
   const [debtorFormBusy, setDebtorFormBusy] = useState(false);
   const [importMessage, setImportMessage] = useState<string | null>(null);
@@ -1096,6 +1118,7 @@ export default function HbxRecoveryClientPage() {
   const templatePreviewTransitionTimerRef = useRef<number | null>(null);
   const noticeTransitionTimerRef = useRef<number | null>(null);
   const noticeAutoDismissTimerRef = useRef<number | null>(null);
+  const noticeCloseLockTimerRef = useRef<number | null>(null);
   const workspaceCanvasRef = useRef<HTMLDivElement | null>(null);
   const composerCanvasRef = useRef<HTMLDivElement | null>(null);
   const templatesWorkspaceRef = useRef<HTMLDivElement | null>(null);
@@ -1829,20 +1852,29 @@ export default function HbxRecoveryClientPage() {
       window.clearTimeout(noticeAutoDismissTimerRef.current);
       noticeAutoDismissTimerRef.current = null;
     }
+    if (noticeCloseLockTimerRef.current !== null) {
+      window.clearTimeout(noticeCloseLockTimerRef.current);
+      noticeCloseLockTimerRef.current = null;
+    }
 
     if (notice) {
       if (!noticeRendered) {
         setNoticeRendered(true);
       }
+      setNoticeCloseReady(false);
       setNoticeTransitionStage("enter");
       noticeTransitionTimerRef.current = window.setTimeout(() => {
         setNoticeTransitionStage("idle");
         noticeTransitionTimerRef.current = null;
       }, 240);
+      noticeCloseLockTimerRef.current = window.setTimeout(() => {
+        setNoticeCloseReady(true);
+        noticeCloseLockTimerRef.current = null;
+      }, 1800);
       noticeAutoDismissTimerRef.current = window.setTimeout(() => {
         setNotice(null);
         noticeAutoDismissTimerRef.current = null;
-      }, 10000);
+      }, 7000);
       return;
     }
 
@@ -1864,8 +1896,22 @@ export default function HbxRecoveryClientPage() {
       if (noticeAutoDismissTimerRef.current !== null) {
         window.clearTimeout(noticeAutoDismissTimerRef.current);
       }
+      if (noticeCloseLockTimerRef.current !== null) {
+        window.clearTimeout(noticeCloseLockTimerRef.current);
+      }
     };
   }, []);
+
+  useEffect(() => {
+    if (!hasToken || activeTab !== "messages" || !interactionDetail?.conversationId) return;
+    const timer = window.setInterval(() => {
+      void Promise.all([
+        loadInteractions(interactionsQueue),
+        loadInteractionDetail(interactionDetail.conversationId),
+      ]);
+    }, 15000);
+    return () => window.clearInterval(timer);
+  }, [activeTab, hasToken, interactionDetail?.conversationId, interactionsQueue]);
 
   useEffect(() => {
     if (!hasToken) return;
@@ -2653,6 +2699,7 @@ export default function HbxRecoveryClientPage() {
       );
       setInteractionDetail(payload);
       setInteractionNoteDraft("");
+      setInteractionReplyDraft("");
     } catch (error) {
       const reason = error instanceof Error ? error.message : "Erro ao abrir conversa";
       setNotice(`Falha ao abrir conversa: ${reason}`);
@@ -2774,6 +2821,29 @@ export default function HbxRecoveryClientPage() {
     } catch (error) {
       const reason = error instanceof Error ? error.message : "Erro ao salvar nota interna";
       setNotice(`Falha ao salvar nota interna: ${reason}`);
+    } finally {
+      setInteractionActionBusy(null);
+    }
+  }
+
+  async function sendInteractionReply(conversationId: number) {
+    const body = interactionReplyDraft.trim();
+    if (!body) {
+      setNotice("Digite uma mensagem para enviar ao cliente.");
+      return;
+    }
+    setInteractionActionBusy(`${conversationId}:send_message`);
+    try {
+      await apiFetch(`/hbx-recovery/interactions/${conversationId}/send-message`, {
+        method: "POST",
+        body: JSON.stringify({ body }),
+      });
+      setInteractionReplyDraft("");
+      await refreshInteractionContext(conversationId);
+      setNotice("Mensagem enviada ao cliente com sucesso.");
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : "Erro ao enviar mensagem";
+      setNotice(`Falha ao enviar mensagem ao cliente: ${reason}`);
     } finally {
       setInteractionActionBusy(null);
     }
@@ -4356,6 +4426,11 @@ export default function HbxRecoveryClientPage() {
           String(message.body || "").toLowerCase().includes("link de pagamento"),
       ).length
     : 0;
+  const visibleInteractionMessages = useMemo(() => {
+    const base = interactionDetail?.messages || [];
+    if (showSystemMessages) return base;
+    return base.filter((message) => !isLowSignalInteractionMessage(message));
+  }, [interactionDetail?.messages, showSystemMessages]);
   const isInteractionBusy = (conversationId: number, action: string) =>
     interactionActionBusy === `${conversationId}:${action}`;
   const getMetaStatusBadgeClass = (statusRaw: string) => {
@@ -4451,9 +4526,10 @@ export default function HbxRecoveryClientPage() {
               type="button"
               className={styles.noticeClose}
               onClick={() => setNotice(null)}
+              disabled={!noticeCloseReady}
               aria-label="Fechar aviso"
             >
-              Fechar
+              {noticeCloseReady ? "Fechar" : "Aguarde..."}
             </button>
           </div>
         </div>
@@ -7132,13 +7208,31 @@ export default function HbxRecoveryClientPage() {
                     </div>
 
                     <div className={styles.interactionDetailGrid}>
-                      <div className={styles.interactionMessageList}>
-                        {interactionDetail.messages.length === 0 ? (
+                      <div className={styles.interactionChatPanel}>
+                        <div className={styles.interactionListToolbar}>
+                          <div>
+                            <strong>Conversa</strong>
+                            <p className={styles.historyMeta}>
+                              Visualização mais próxima do WhatsApp. Eventos internos podem ser ocultados.
+                            </p>
+                          </div>
+                          <label className={styles.interactionInlineToggle}>
+                            <input
+                              type="checkbox"
+                              checked={showSystemMessages}
+                              onChange={(event) => setShowSystemMessages(event.target.checked)}
+                            />
+                            <span>Mostrar eventos do sistema</span>
+                          </label>
+                        </div>
+
+                        <div className={styles.interactionMessageList}>
+                        {visibleInteractionMessages.length === 0 ? (
                           <div className={styles.paymentEmpty}>
-                            Ainda sem mensagens registradas nesta conversa.
+                            Nenhuma mensagem visível com o filtro atual.
                           </div>
                         ) : (
-                          interactionDetail.messages.map((message) => {
+                          visibleInteractionMessages.map((message) => {
                             const senderLabel = mapSenderLabel(
                               message.senderType,
                               message.direction,
@@ -7177,7 +7271,7 @@ export default function HbxRecoveryClientPage() {
                                   </span>
                                 </div>
                                 <p>{message.body}</p>
-                                {variableEntries.length > 0 ? (
+                                {shouldShowInteractionVariables(message) && variableEntries.length > 0 ? (
                                   <div className={styles.messageVariables}>
                                     {variableEntries.slice(0, 4).map(([key, value]) => (
                                       <span key={`${message.id}-${key}`}>
@@ -7194,6 +7288,38 @@ export default function HbxRecoveryClientPage() {
                             );
                           })
                         )}
+                        </div>
+
+                        <div className={styles.interactionComposer}>
+                          <div className={styles.interactionComposerHeader}>
+                            <strong>Responder ao cliente</strong>
+                            <span className={styles.historyMeta}>
+                              Envia uma mensagem humana para este WhatsApp.
+                            </span>
+                          </div>
+                          <textarea
+                            className="field"
+                            rows={4}
+                            value={interactionReplyDraft}
+                            placeholder="Digite a mensagem que deve ser enviada ao cliente..."
+                            onChange={(event) => setInteractionReplyDraft(event.target.value)}
+                          />
+                          <div className={styles.interactionComposerActions}>
+                            <button
+                              type="button"
+                              className="btn btn-primary btn-sm"
+                              onClick={() => sendInteractionReply(interactionDetail.conversationId)}
+                              disabled={isInteractionBusy(
+                                interactionDetail.conversationId,
+                                "send_message",
+                              )}
+                            >
+                              {isInteractionBusy(interactionDetail.conversationId, "send_message")
+                                ? "Enviando..."
+                                : "Enviar mensagem"}
+                            </button>
+                          </div>
+                        </div>
                       </div>
 
                       <aside className={styles.interactionSidePanel}>

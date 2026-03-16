@@ -189,55 +189,46 @@ type ThemeSwitcherProps = {
 
 export default function ThemeSwitcher({ storageUserId }: ThemeSwitcherProps) {
   const [current, setCurrent] = React.useState<string>(DEFAULT_THEME_ID);
-  const [strength, setStrength] = React.useState<number>(DEFAULT_THEME_STRENGTH);
+  const [mode, setMode] = React.useState<'light' | 'dark'>('light');
 
-  function applyTheme(id: string, nextStrength: number) {
+  function applyTheme(id: string, nextMode: 'light' | 'dark') {
     if (typeof window === "undefined") return;
     document.documentElement.setAttribute("data-theme", id);
-    applyThemePalette(id, nextStrength);
-    document.documentElement.style.setProperty(
-      "--theme-strength-pct",
-      `${Math.max(0, Math.min(100, nextStrength))}%`,
-    );
+    const value = nextMode === 'dark' ? 100 : 0;
+    applyThemePalette(id, value);
+    document.documentElement.style.setProperty("--theme-strength-pct", `${value}%`);
+    document.documentElement.setAttribute('data-theme-mode', nextMode);
+    try { localStorage.setItem('theme-mode', nextMode); } catch {}
   }
 
   function setTheme(id: string) {
-    applyTheme(id, strength);
+    // if selecting a new theme, default to dark mode; if clicking same, toggle
+    const nextMode = current === id ? (mode === 'dark' ? 'light' : 'dark') : 'dark';
+    applyTheme(id, nextMode);
     setCurrent(id);
+    setMode(nextMode);
     try {
       localStorage.setItem("theme", id);
-    } catch {
-      // ignore storage errors
-    }
-  }
-
-  function updateStrength(nextStrength: number) {
-    const safeStrength = clampThemeStrength(nextStrength);
-    setStrength(safeStrength);
-    applyTheme(current, safeStrength);
-    persistThemeStrength(safeStrength, storageUserId);
+    } catch {}
   }
 
   React.useEffect(() => {
     try {
-      const stored =
-        localStorage.getItem("theme") ??
-        document.documentElement.getAttribute("data-theme") ??
-        DEFAULT_THEME_ID;
-      const storedStrength = readStoredThemeStrength();
-      applyTheme(stored, storedStrength);
+      const stored = localStorage.getItem("theme") ?? document.documentElement.getAttribute("data-theme") ?? DEFAULT_THEME_ID;
+      const storedMode = (localStorage.getItem('theme-mode') as 'light' | 'dark') || (document.documentElement.getAttribute('data-theme-mode') as 'light' | 'dark') || 'light';
+      applyTheme(stored, storedMode);
       setCurrent(stored);
-      setStrength(storedStrength);
+      setMode(storedMode);
     } catch {
       // ignore
     }
   }, [storageUserId]);
-
   return (
     <div className="theme-switcher-wrap">
       <div className="theme-switcher" role="group" aria-label="Tema visual">
         {options.map((option) => {
           const active = current === option.id;
+          const displayLabel = active ? (mode === 'dark' ? 'Dark' : 'Light') : option.label;
           return (
             <button
               key={option.id}
@@ -246,26 +237,11 @@ export default function ThemeSwitcher({ storageUserId }: ThemeSwitcherProps) {
               className={`theme-chip ${active ? "is-active" : ""}`}
               aria-pressed={active}
             >
-              {option.label}
+              {displayLabel}
             </button>
           );
         })}
       </div>
-
-      <label className="theme-strength" aria-label="Intensidade da cor ativa">
-        <div className="theme-strength__meta">
-          <span>Intensidade</span>
-          <strong>{strength}%</strong>
-        </div>
-        <input
-          type="range"
-          min="0"
-          max="100"
-          step="1"
-          value={strength}
-          onChange={(event) => updateStrength(Number(event.target.value))}
-        />
-      </label>
     </div>
   );
 }

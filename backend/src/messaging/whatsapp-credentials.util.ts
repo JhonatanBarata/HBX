@@ -10,7 +10,11 @@ function normalize(value: NullableString): string {
 }
 
 export function allowGlobalCredentialFallback(): boolean {
-  return false;
+  const env = String(process.env.WHATSAPP_ALLOW_GLOBAL_CREDENTIAL_FALLBACK || '').trim().toLowerCase();
+  if (env === 'true') return true;
+  if (env === 'false') return false;
+  // Default behaviour: allow fallback when explicit global credentials are configured in env
+  return Boolean(process.env.WHATSAPP_PHONE_NUMBER_ID && process.env.WHATSAPP_ACCESS_TOKEN);
 }
 
 export function resolveWhatsAppCredentials(company: CompanyConfig | null | undefined) {

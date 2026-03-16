@@ -1,4 +1,4 @@
-import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateCompanyDto } from './dto/create-company.dto';
 import { UpdateCompanyDto } from './dto/update-company.dto';
@@ -6,6 +6,17 @@ import { UpdateCompanyDto } from './dto/update-company.dto';
 @Injectable()
 export class CompaniesService {
   constructor(private readonly prisma: PrismaService) {}
+
+  private async assertMasterUser(masterUserId: number) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: Number(masterUserId) },
+      select: { id: true, isSystemMaster: true },
+    });
+
+    if (!user?.isSystemMaster) {
+      throw new ForbiddenException('Acesso exclusivo do usuario MASTER');
+    }
+  }
 
   private slugify(input: string): string {
     const raw = String(input || '').trim().toLowerCase();
@@ -156,6 +167,131 @@ export class CompaniesService {
     data.mercadoPagoStatusUpdatedAt = new Date();
     const updated = await this.prisma.company.update({ where: { id }, data });
     return this.sanitizeCompany(updated);
+  }
+
+  async removeByMaster(masterUserId: number, companyId: number) {
+    await this.assertMasterUser(masterUserId);
+
+    const id = Number(companyId);
+    if (!id) throw new BadRequestException('Empresa invalida');
+
+    const company = await this.prisma.company.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        name: true,
+        slug: true,
+        users: { select: { id: true, isSystemMaster: true } },
+        conversationSessions: { select: { id: true } },
+        autoReplyRules: { select: { id: true } },
+        outboundMessages: { select: { id: true } },
+        importacoes: { select: { id: true } },
+        products: { select: { id: true } },
+      },
+    });
+    if (!company) throw new NotFoundException('Company not found');
+
+    if (company.users.some((user) => user.isSystemMaster)) {
+      throw new BadRequestException('Nao e permitido excluir uma empresa vinculada ao usuario MASTER do sistema');
+    }
+
+    const userIds = company.users.map((user) => user.id);
+    const sessionIds = company.conversationSessions.map((session) => session.id);
+    const autoReplyRuleIds = company.autoReplyRules.map((rule) => rule.id);
+    const outboundMessageIds = company.outboundMessages.map((message) => message.id);
+    const importacaoIds = company.importacoes.map((item) => item.id);
+    const productIds = company.products.map((product) => product.id);
+
+    await this.prisma.$transaction(async (tx) => {
+      if (outboundMessageIds.length > 0) {
+        await tx.companyMessage.updateMany({
+          where: { outboundMessageId: { in: outboundMessageIds } },
+          data: { outboundMessageId: null },
+        });
+        await tx.outboundAttempt.deleteMany({ where: { messageId: { in: outboundMessageIds } } });
+      }
+
+      if (importacaoIds.length > 0) {
+        await tx.alertaImportacao.deleteMany({ where: { importacaoId: { in: importacaoIds } } });
+        await tx.importacaoLog.deleteMany({ where: { importacaoId: { in: importacaoIds } } });
+      }
+
+      if (autoReplyRuleIds.length > 0) {
+        await tx.autoReplyResponse.deleteMany({ where: { ruleId: { in: autoReplyRuleIds } } });
+      }
+
+      if (sessionIds.length > 0) {
+        await tx.orderDraft.deleteMany({ where: { sessionId: { in: sessionIds } } });
+      }
+
+      if (productIds.length > 0) {
+        await tx.productVersion.deleteMany({ where: { productId: { in: productIds } } });
+      }
+
+      await tx.satisfactionSurvey.deleteMany({ where: { conversation: { companyId: id } } });
+      await tx.message.deleteMany({ where: { conversation: { companyId: id } } });
+      await tx.conversation.deleteMany({ where: { companyId: id } });
+
+      await tx.hbxRecoveryPayment.deleteMany({ where: { companyId: id } });
+      await tx.hbxRecoveryCustomer.deleteMany({ where: { companyId: id } });
+      await tx.hbxRecoveryFlowStage.deleteMany({ where: { companyId: id } });
+      await tx.whatsAppAuditLog.deleteMany({ where: { companyId: id } });
+      await tx.whatsAppWebhookEvent.deleteMany({ where: { companyId: id } });
+      await tx.companyMessage.deleteMany({ where: { companyId: id } });
+      await tx.companyConversation.deleteMany({ where: { companyId: id } });
+      await tx.outboundMessage.deleteMany({ where: { companyId: id } });
+      await tx.inboundMessage.deleteMany({ where: { companyId: id } });
+      await tx.autoReplyRule.deleteMany({ where: { companyId: id } });
+      await tx.orderDraft.deleteMany({ where: { companyId: id } });
+      await tx.conversationSession.deleteMany({ where: { companyId: id } });
+      await tx.alertaImportacao.deleteMany({ where: { empresaId: id } });
+      await tx.importacao.deleteMany({ where: { empresaId: id } });
+      await tx.importacaoPermissao.deleteMany({ where: { empresaId: id } });
+      await tx.cadastroTransitTime.deleteMany({ where: { empresaId: id } });
+      await tx.cadastroFornecedor.deleteMany({ where: { empresaId: id } });
+      await tx.cadastroPorto.deleteMany({ where: { empresaId: id } });
+      await tx.cadastroPais.deleteMany({ where: { empresaId: id } });
+      await tx.companyModule.deleteMany({ where: { companyId: id } });
+      await tx.deletionRecord.deleteMany({ where: { companyId: id } });
+      await tx.productVersion.deleteMany({ where: { product: { companyId: id } } });
+      await tx.product.deleteMany({ where: { companyId: id } });
+
+      if (userIds.length > 0) {
+        await tx.importacao.updateMany({
+          where: {
+            OR: [
+              { createdBy: { in: userIds } },
+              { finalizedBy: { in: userIds } },
+              { reabertoPor: { in: userIds } },
+            ],
+          },
+          data: {
+            createdBy: null,
+            finalizedBy: null,
+            reabertoPor: null,
+          },
+        });
+        await tx.productVersion.updateMany({
+          where: { authorId: { in: userIds } },
+          data: { authorId: null },
+        });
+        await tx.passwordReset.deleteMany({ where: { userId: { in: userIds } } });
+        await tx.userModuleAccess.deleteMany({ where: { userId: { in: userIds } } });
+        await tx.deletionRecord.deleteMany({ where: { deletedByUserId: { in: userIds } } });
+        await tx.user.deleteMany({ where: { id: { in: userIds } } });
+      }
+
+      await tx.company.delete({ where: { id } });
+    });
+
+    return {
+      success: true,
+      deletedCompany: {
+        id: company.id,
+        name: company.name,
+        slug: company.slug || null,
+      },
+    };
   }
 
   async findAllForCompany(companyId: number | null | undefined) {

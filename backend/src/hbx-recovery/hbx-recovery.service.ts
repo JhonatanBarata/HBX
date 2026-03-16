@@ -479,7 +479,8 @@ export class HbxRecoveryService {
       'https://pagamentos.hbx.app/exemplo',
     ];
     const components: Array<Record<string, any>> = [];
-    if (template && this.isMetaMediaHeaderFormat(template.headerFormat) && template.headerMediaUrl) {
+    const resolvedHeaderMediaUrl = this.resolveTemplateHeaderMediaUrl(template);
+    if (template && this.isMetaMediaHeaderFormat(template.headerFormat) && resolvedHeaderMediaUrl) {
       const mediaType = String(template.headerFormat || '').trim().toLowerCase();
       components.push({
         type: 'header',
@@ -487,7 +488,7 @@ export class HbxRecoveryService {
           {
             type: mediaType,
             [mediaType]: {
-              link: template.headerMediaUrl,
+              link: resolvedHeaderMediaUrl,
             },
           },
         ],
@@ -663,6 +664,57 @@ export class HbxRecoveryService {
       throw new BadRequestException(`${field} invalido. Use uma URL publica iniciando com http:// ou https://.`);
     }
     return parsed.toString();
+  }
+
+  private isLocalOnlyUrl(valueRaw: string | null | undefined) {
+    const normalized = String(valueRaw || '').trim();
+    if (!normalized) return false;
+    try {
+      const parsed = new URL(normalized);
+      const host = String(parsed.hostname || '').trim().toLowerCase();
+      return host === 'localhost' || host === '127.0.0.1' || host === '::1' || host === '0.0.0.0';
+    } catch {
+      return false;
+    }
+  }
+
+  private rebuildTemplateMediaUrlWithCurrentPublicBase(valueRaw: string | null | undefined) {
+    const normalized = String(valueRaw || '').trim();
+    if (!normalized) return null;
+    let parsed: URL;
+    try {
+      parsed = new URL(normalized);
+    } catch {
+      return normalized;
+    }
+    if (!parsed.pathname.startsWith('/uploads/hbx-recovery/meta-templates/')) {
+      return parsed.toString();
+    }
+    const publicBase = this.publicApiBaseUrl();
+    if (!publicBase || this.isLocalOnlyUrl(publicBase)) {
+      return parsed.toString();
+    }
+    return `${publicBase}${parsed.pathname}`;
+  }
+
+  private resolveTemplateHeaderMediaUrl(template?: RecoveryMetaTemplate | null) {
+    if (!template || !this.isMetaMediaHeaderFormat(template.headerFormat)) return null;
+    const storedUrl = String(template.headerMediaUrl || '').trim();
+    if (!storedUrl) return null;
+    return this.rebuildTemplateMediaUrlWithCurrentPublicBase(storedUrl);
+  }
+
+  private assertTemplateHeaderMediaUrlIsPublic(templateName: string, headerMediaUrl: string | null) {
+    if (!headerMediaUrl) {
+      throw new BadRequestException(
+        `Template '${templateName}' exige URL publica da midia de cabecalho. Configure em Templates Meta antes do envio automatico.`,
+      );
+    }
+    if (this.isLocalOnlyUrl(headerMediaUrl)) {
+      throw new BadRequestException(
+        `Template '${templateName}' usa midia em URL local (${headerMediaUrl}). Configure PUBLIC_API_BASE_URL com uma URL publica do backend antes de enviar templates com imagem.`,
+      );
+    }
   }
 
   private parseMetaTemplateRegistry(raw: string | null | undefined): RecoveryMetaTemplateRegistry {
@@ -1476,11 +1528,12 @@ export class HbxRecoveryService {
     if (String(template.language || '').trim().toLowerCase() !== 'pt_br') {
       issues.push('use a variante pt_BR');
     }
-    if (
-      this.isMetaMediaHeaderFormat(template.headerFormat) &&
-      !String(template.headerMediaUrl || '').trim()
-    ) {
+    const resolvedHeaderMediaUrl = this.resolveTemplateHeaderMediaUrl(template);
+    if (this.isMetaMediaHeaderFormat(template.headerFormat) && !String(resolvedHeaderMediaUrl || '').trim()) {
       issues.push('salve a URL publica da midia de cabecalho');
+    }
+    if (this.isMetaMediaHeaderFormat(template.headerFormat) && this.isLocalOnlyUrl(resolvedHeaderMediaUrl)) {
+      issues.push('use PUBLIC_API_BASE_URL com uma URL publica para a imagem de cabecalho');
     }
     if (!this.recoveryStartTemplateHasQuickReplies(template)) {
       issues.push('mantenha de 1 a 3 botoes do tipo resposta rapida');
@@ -2544,12 +2597,10 @@ export class HbxRecoveryService {
     this.assertRecoveryStartTemplateCompatible(selectedTemplate);
     const templateName = String(selectedTemplate.name || '').trim();
     const templateLanguage = String(selectedTemplate.language || 'pt_BR').trim() || 'pt_BR';
-    if (
-      this.isMetaMediaHeaderFormat(selectedTemplate.headerFormat) &&
-      !selectedTemplate.headerMediaUrl
-    ) {
-      throw new BadRequestException(
-        `Template '${templateName}' exige URL publica da midia de cabecalho. Configure em Templates Meta antes do envio automatico.`,
+    if (this.isMetaMediaHeaderFormat(selectedTemplate.headerFormat)) {
+      this.assertTemplateHeaderMediaUrlIsPublic(
+        templateName,
+        this.resolveTemplateHeaderMediaUrl(selectedTemplate),
       );
     }
     const company = await this.prisma.company.findUnique({
@@ -2699,9 +2750,20 @@ export class HbxRecoveryService {
     return { ok: true, conversation: updated };
   }
 
+  private async hasRecentInboundInConversation(companyId: number, conversationId: number) {
+    const lastInbound = await this.prisma.companyMessage.findFirst({
+      where: { companyId, conversationId, direction: 'INBOUND' },
+      orderBy: { timestamp: 'desc' },
+      select: { timestamp: true },
+    });
+    if (!lastInbound?.timestamp) return false;
+    return Date.now() - new Date(lastInbound.timestamp).getTime() <= 24 * 60 * 60 * 1000;
+  }
+
   async resumeBotFlow(user: any, conversationId: number) {
     const companyId = this.requireCompanyIdFromUser(user);
     const { conversation, customer } = await this.getInteractionContext(companyId, conversationId);
+    const hasRecentInbound = await this.hasRecentInboundInConversation(companyId, conversation.id);
     const updated = await this.conversations.updateConversationState(companyId, conversation.id, {
       currentFlow: 'cobranca_recovery_whatsapp_hibrido',
       currentStep: 'cobranca_menu_principal',
@@ -2710,42 +2772,43 @@ export class HbxRecoveryService {
       assignedUserId: null,
       flowResult: null,
     });
-    await this.conversations.queueOutboundForCompany(companyId, {
-      to: customer.whatsappNumber,
-      contactId: customer.id,
-      body: 'BOT reativado. Escolha abaixo como deseja continuar:',
-      messageType: 'interactive',
-      interactivePayload: {
-        type: 'button',
-        body: { text: 'Escolha abaixo como deseja continuar:' },
-        footer: { text: 'HBX Recovery' },
-        action: {
-          buttons: [
-            { type: 'reply', reply: { id: 'hbx_recovery_view_amount', title: 'Ver valor pendente' } },
-            { type: 'reply', reply: { id: 'hbx_recovery_installments', title: 'Parcelar' } },
-            { type: 'reply', reply: { id: 'hbx_recovery_pay_full', title: 'Pagar a vista' } },
-            { type: 'reply', reply: { id: 'hbx_recovery_option_agent', title: 'Falar com atendente' } },
-          ],
-        },
-      },
-      sourceModule: 'hbx_recovery_bot',
-      senderType: 'bot',
-      flowState: {
-        currentFlow: 'cobranca_recovery_whatsapp_hibrido',
-        currentStep: 'cobranca_menu_principal',
-        botActive: true,
-        humanAssigned: false,
-      },
-    });
     await this.appendInteractionEvent({
       companyId,
       conversationId: conversation.id,
       contactId: customer.id,
-      text: 'BOT reativado manualmente pelo operador.',
+      text: hasRecentInbound
+        ? 'BOT reativado manualmente pelo operador.'
+        : 'BOT reativado manualmente pelo operador. Nenhuma mensagem foi enviada porque a conversa esta fora da janela de 24h; a proxima resposta do cliente retomara o fluxo automaticamente.',
       eventType: 'bot_resumed',
       sourceModule: 'hbx_recovery_bot',
+      variables: { hasRecentInbound },
     });
-    return { ok: true, conversation: updated };
+    return { ok: true, conversation: updated, resumedWithoutOutbound: !hasRecentInbound };
+  }
+
+  async sendInteractionHumanMessage(user: any, conversationId: number, bodyRaw: string) {
+    const companyId = this.requireCompanyIdFromUser(user);
+    const { conversation, customer } = await this.getInteractionContext(companyId, conversationId);
+    const body = String(bodyRaw || '').trim();
+    if (!body) {
+      throw new BadRequestException('Digite uma mensagem para enviar ao cliente.');
+    }
+    const queued = await this.conversations.queueOutboundForCompany(companyId, {
+      to: customer.whatsappNumber,
+      contactId: customer.id,
+      body,
+      messageType: 'text',
+      sourceModule: 'hbx_recovery_human',
+      senderType: 'human',
+      flowState: {
+        currentFlow: 'cobranca_recovery_whatsapp_hibrido',
+        currentStep: 'atendimento_humano',
+        botActive: false,
+        humanAssigned: true,
+        assignedUserId: Number(user?.id || 0) || null,
+      },
+    });
+    return { ok: true, queued };
   }
 
   async generateInteractionLink(

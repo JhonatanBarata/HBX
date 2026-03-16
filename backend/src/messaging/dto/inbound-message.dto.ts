@@ -17,4 +17,11 @@ export class InboundMessageDto {
   @IsOptional()
   @IsString()
   receivedAt?: string;
+
+  @IsOptional()
+  @IsString()
+  inboundType?: string;
+
+  @IsOptional()
+  rawPayload?: unknown;
 }

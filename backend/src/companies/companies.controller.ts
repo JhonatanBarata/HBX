@@ -109,6 +109,12 @@ export class CompaniesController {
     return this.companiesService.createByMaster(dto);
   }
 
+  @Delete('master/:id')
+  @UseGuards(JwtAuthGuard, MasterGuard)
+  async removeByMaster(@Req() req: any, @Param('id', ParseIntPipe) id: number) {
+    return this.companiesService.removeByMaster(Number(req.user?.id), id);
+  }
+
   @Get('master/:id/whatsapp')
   @UseGuards(JwtAuthGuard, MasterGuard)
   async getWhatsAppForMaster(

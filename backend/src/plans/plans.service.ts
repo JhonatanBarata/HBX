@@ -2,6 +2,21 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreatePlanDto } from './dto/create-plan.dto';
 import { CreateFeatureDto } from './dto/create-feature.dto';
+import structuralDefaults from '../bootstrap/structural-defaults.json';
+
+type StructuralPlanDef = {
+  name: string;
+  price: number;
+  features: string[];
+};
+
+type StructuralFeatureDef = {
+  key: string;
+  description?: string | null;
+};
+
+const STRUCTURAL_PLANS = structuralDefaults.plans as StructuralPlanDef[];
+const STRUCTURAL_FEATURES = structuralDefaults.featureDefinitions as StructuralFeatureDef[];
 
 @Injectable()
 export class PlansService {
@@ -59,22 +74,23 @@ export class PlansService {
   }
 
   async createDefaultPlans() {
-    const plans = [
-      { name: 'prata', price: 0, features: ['product_create'] },
-      { name: 'ouro', price: 29.9, features: ['product_create', 'advanced_reports', 'product_edit'] },
-      { name: 'diamante', price: 69.9, features: ['product_create', 'advanced_reports', 'priority_support', 'company_update'] },
-      { name: 'diamante_plus', price: 199.9, features: ['product_create', 'advanced_reports', 'priority_support', 'beta_features', 'company_update', 'company_delete'] },
-      // admin plan used for administrative/testing purposes; has product_edit by default
-      { name: 'admin', price: 0, features: ['product_edit', 'product_create', 'company_update', 'company_delete'] },
-    ];
+    const featureDescriptions = new Map(STRUCTURAL_FEATURES.map((feature) => [feature.key, feature.description || feature.key]));
 
-    for (const p of plans) {
+    for (const p of STRUCTURAL_PLANS) {
       let plan = await this.prisma.plan.findFirst({ where: { name: p.name } });
       if (!plan) plan = await this.prisma.plan.create({ data: { name: p.name, price: p.price } });
+      if (plan.price !== p.price) {
+        plan = await this.prisma.plan.update({ where: { id: plan.id }, data: { price: p.price } });
+      }
       for (const key of p.features) {
         let existing = await this.prisma.feature.findUnique({ where: { key } });
         if (!existing) {
-          existing = await this.prisma.feature.create({ data: { key, description: key } });
+          existing = await this.prisma.feature.create({ data: { key, description: featureDescriptions.get(key) || key } });
+        } else if ((existing.description || key) !== (featureDescriptions.get(key) || key)) {
+          existing = await this.prisma.feature.update({
+            where: { key },
+            data: { description: featureDescriptions.get(key) || key },
+          });
         }
         // connect feature to plan (if not already connected)
         await this.prisma.plan.update({ where: { id: plan.id }, data: { features: { connect: { id: existing.id } } } });

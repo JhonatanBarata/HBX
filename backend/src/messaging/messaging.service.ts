@@ -1770,7 +1770,14 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     return { success: true };
   }
 
-  async handleInboundProxyMessage(dto: { whatsappPhoneNumberId: string; from: string; text: string; receivedAt?: string }) {
+  async handleInboundProxyMessage(dto: {
+    whatsappPhoneNumberId: string;
+    from: string;
+    text: string;
+    receivedAt?: string;
+    inboundType?: string;
+    rawPayload?: any;
+  }) {
     const phoneNumberId = String(dto.whatsappPhoneNumberId || '').trim();
     if (!phoneNumberId) {
       this.logger.warn('Inbound proxy ignored (missing whatsappPhoneNumberId)');
@@ -1784,7 +1791,11 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     }
 
     const receivedAt = dto.receivedAt ? new Date(String(dto.receivedAt)) : undefined;
-    await this.handleInboundMessage(company.id, dto.from, dto.text, { receivedAt });
+    await this.handleInboundMessage(company.id, dto.from, dto.text, {
+      receivedAt,
+      rawPayload: dto.rawPayload,
+      inboundType: dto.inboundType,
+    });
     return { ok: true };
   }
 

@@ -8,9 +8,13 @@
     "start:prod": "node -r ./scripts/fix-direct-url dist/main.js",
     "start:dev": "ts-node-dev --respawn --transpile-only --require dotenv/config src/main.ts",
     "prisma:generate": "prisma generate --schema=./prisma/schema.prisma",
+    "prisma:validate": "prisma validate --schema=./prisma/schema.prisma",
     "build": "npm run prisma:generate && tsc -p tsconfig.json",
     "prisma:migrate": "prisma migrate dev --name init --schema=./prisma/schema.prisma",
-    "prisma:migrate:deploy": "prisma migrate deploy --schema=./prisma/schema.prisma"
+    "prisma:migrate:deploy": "prisma migrate deploy --schema=./prisma/schema.prisma",
+    "prisma:migrate:status": "prisma migrate status --schema=./prisma/schema.prisma",
+    "seed:structural": "node ./scripts/structural-seed.js",
+    "seed:dev": "node ./scripts/seed-dev.js"
   },
   "dependencies": {
     "@nestjs/common": "^10.0.0",

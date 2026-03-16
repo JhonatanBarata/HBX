@@ -37,17 +37,48 @@ app.post('/webhooks/whatsapp', async (req, res) => {
         for (const m of messages) {
           const from = m?.from ? String(m.from) : '';
           const type = m?.type ? String(m.type) : '';
-          const text = type === 'text' ? String(m?.text?.body ?? '') : '';
+          let text = '';
+          if (type === 'text') {
+            text = String(m?.text?.body ?? '');
+          }
+          if (type === 'button') {
+            text = String(m?.button?.payload || m?.button?.text || '');
+          }
+          if (type === 'interactive') {
+            text = String(
+              m?.interactive?.button_reply?.title ||
+                m?.interactive?.button_reply?.id ||
+                m?.interactive?.list_reply?.title ||
+                m?.interactive?.list_reply?.id ||
+                ''
+            );
+          }
           if (!from || !text) continue;
 
           const backendBase = (process.env.BACKEND_URL || 'http://localhost:3000').replace(/\/$/, '');
           const resp = await fetch(`${backendBase}/webhooks/whatsapp/inbound`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ whatsappPhoneNumberId, from, text }),
+            body: JSON.stringify({
+              whatsappPhoneNumberId,
+              from,
+              text,
+              inboundType: type,
+              receivedAt: m?.timestamp ? new Date(Number(String(m.timestamp)) * 1000).toISOString() : undefined,
+              rawPayload: m,
+            }),
           });
-          if (resp.ok) forwarded++;
-          else failed++;
+          if (resp.ok) {
+            forwarded++;
+          } else {
+            failed++;
+            console.error('WhatsApp proxy forward failed:', {
+              status: resp.status,
+              type,
+              from,
+              whatsappPhoneNumberId,
+            });
+          }
         }
       }
     }

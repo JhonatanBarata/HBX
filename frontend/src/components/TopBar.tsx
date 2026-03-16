@@ -6,6 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { apiFetch, clearToken, getToken } from "../app/dashboard/_lib/api";
 import { setActiveThemeUser } from "@/lib/theme-preferences";
 import ThemeSwitcher from "./ThemeSwitcher";
+import ModuleNav from "./ModuleNav";
 
 type User = {
   id: number;
@@ -48,6 +49,16 @@ export default function TopBar() {
   const [changeMsg, setChangeMsg] = useState<string | null>(null);
   const [whatsAppHealth, setWhatsAppHealth] = useState<WhatsAppHealth>("yellow");
   const [whatsAppHealthLabel, setWhatsAppHealthLabel] = useState("WhatsApp status: sem validacao");
+  const navScrollRef = useRef<HTMLDivElement | null>(null);
+  const [canScrollLeft, setCanScrollLeft] = useState(false);
+  const [canScrollRight, setCanScrollRight] = useState(false);
+
+  function updateScrollButtons() {
+    const el = navScrollRef.current;
+    if (!el) return;
+    setCanScrollLeft(el.scrollLeft > 4);
+    setCanScrollRight(el.scrollWidth - el.clientWidth - el.scrollLeft > 4);
+  }
 
   const showWorkspaceNav =
     pathname.startsWith("/dashboard") ||
@@ -244,6 +255,20 @@ export default function TopBar() {
   }, [pathname]);
 
   useEffect(() => {
+    // initialize scroll button visibility after items load
+    const el = navScrollRef.current;
+    if (!el) return;
+    const onResize = () => updateScrollButtons();
+    updateScrollButtons();
+    window.addEventListener('resize', onResize);
+    el.addEventListener('transitionend', updateScrollButtons);
+    return () => {
+      window.removeEventListener('resize', onResize);
+      el.removeEventListener('transitionend', updateScrollButtons);
+    };
+  }, [navItems.length]);
+
+  useEffect(() => {
     function handleOutsideClick(event: MouseEvent) {
       if (!userMenuRef.current) return;
       if (!(event.target instanceof Node)) return;
@@ -312,25 +337,16 @@ export default function TopBar() {
               </span>
             ) : null}
           </Link>
-
-          {authenticated && showWorkspaceNav ? (
-            <nav className="app-nav" aria-label="Navegacao principal">
-              {navItems.map((item) => (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  className="app-nav__link"
-                  data-active={item.matcher(pathname) ? "true" : "false"}
-                >
-                  {item.label}
-                </Link>
-              ))}
-            </nav>
-          ) : null}
         </div>
 
+          {authenticated ? (
+            <div style={{ display: 'flex', alignItems: 'center', marginLeft: '6px' }}>
+              <ModuleNav inHeader={true} />
+            </div>
+          ) : null}
+
         <div className="app-topbar__right">
-          {authenticated && showWorkspaceNav ? <ThemeSwitcher storageUserId={user?.id ?? null} /> : null}
+          {authenticated ? <ThemeSwitcher storageUserId={user?.id ?? null} /> : null}
           {user ? (
             <div ref={userMenuRef} className="app-user">
               <button

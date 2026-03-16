@@ -39,6 +39,7 @@ import {
   CloseInteractionDto,
   GenerateInteractionLinkDto,
   MarkInteractionPaidDto,
+  SendInteractionMessageDto,
 } from './dto/interaction-actions.dto';
 import {
   CreateMetaTemplateDto,
@@ -251,6 +252,19 @@ export class HbxRecoveryController {
     @Body() dto: AddInteractionNoteDto,
   ) {
     return this.recoveryService.addInternalNote(req.user, Number(conversationId), dto?.note);
+  }
+
+  @Post('interactions/:conversationId/send-message')
+  sendInteractionMessage(
+    @Req() req: any,
+    @Param('conversationId') conversationId: string,
+    @Body() dto: SendInteractionMessageDto,
+  ) {
+    return this.recoveryService.sendInteractionHumanMessage(
+      req.user,
+      Number(conversationId),
+      dto?.body,
+    );
   }
 
   @Patch('interactions/:conversationId/mark-paid')

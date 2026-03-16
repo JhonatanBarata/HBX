@@ -53,6 +53,23 @@ function Normalize-DatabaseUrlForHost([string]$databaseUrl) {
 	return $databaseUrl
 }
 
+function Assert-LocalDatabaseUrl([string]$databaseUrl, [string]$sourceLabel) {
+	if ([string]::IsNullOrWhiteSpace($databaseUrl)) {
+		throw "Missing DATABASE_URL from $sourceLabel"
+	}
+
+	try {
+		$uri = [Uri]$databaseUrl
+	} catch {
+		throw "Invalid DATABASE_URL in $sourceLabel"
+	}
+
+	$dbHost = ($uri.Host | ForEach-Object { $_.ToLowerInvariant() })
+	if ($dbHost -notin @('localhost', '127.0.0.1')) {
+		throw "Refusing to use non-local DATABASE_URL from $sourceLabel. Expected localhost/127.0.0.1, got '$dbHost'."
+	}
+}
+
 function Get-ListenerPid([int]$port) {
 	try {
 		$conn = Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction Stop | Select-Object -First 1
@@ -147,10 +164,12 @@ if (!$env:DATABASE_URL) {
 	throw "Missing DATABASE_URL in backend/.env"
 }
 $env:DATABASE_URL = Normalize-DatabaseUrlForHost $env:DATABASE_URL
+Assert-LocalDatabaseUrl -databaseUrl $env:DATABASE_URL -sourceLabel 'backend/.env'
 if (!$env:DIRECT_URL) {
 	$env:DIRECT_URL = $env:DATABASE_URL
 } else {
 	$env:DIRECT_URL = Normalize-DatabaseUrlForHost $env:DIRECT_URL
+	Assert-LocalDatabaseUrl -databaseUrl $env:DIRECT_URL -sourceLabel 'backend/.env'
 }
 
 $studioArgs = @(

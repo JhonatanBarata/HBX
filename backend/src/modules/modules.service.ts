@@ -1,6 +1,7 @@
 import { BadRequestException, ForbiddenException, Injectable, OnModuleInit } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { UsersService } from '../users/users.service';
+import structuralDefaults from '../bootstrap/structural-defaults.json';
 
 type DefaultModuleDef = {
   key: string;
@@ -11,82 +12,14 @@ type DefaultModuleDef = {
   serviceUrl?: string;
 };
 
-const DEFAULT_MODULES: DefaultModuleDef[] = [
-  {
-    key: 'atendimento',
-    name: 'Atendimento',
-    description: 'Inclui Operacao de atendimento, Respostas automaticas e Mensagens e logs.',
-    defaultEnabled: true,
-    companyAssignable: true,
-  },
-  { key: 'gerencial', name: 'Gerencial', description: 'Indicadores e administracao da empresa.', defaultEnabled: true, companyAssignable: true },
-  {
-    key: 'webscraping',
-    name: 'Webscraping',
-    description: 'Prospeccao local com busca de contatos.',
-    defaultEnabled: true,
-    companyAssignable: true,
-    serviceUrl: process.env.WEBSCRAPING_URL || '/hbx/webscraping',
-  },
-  {
-    key: 'hbx_recovery',
-    name: 'HBX Recovery',
-    description: 'Recuperacao de inadimplencia com score, historico e automacao de cobranca.',
-    defaultEnabled: true,
-    companyAssignable: true,
-    serviceUrl: '/hbx-recovery',
-  },
-  {
-    key: 'hbx_music',
-    name: 'HBX Music',
-    description: 'Modulo premium de musica com biblioteca, descoberta diaria e trilha de assinatura.',
-    defaultEnabled: true,
-    companyAssignable: true,
-    serviceUrl: '/hbx-music',
-  },
-  {
-    key: 'website',
-    name: 'Website',
-    description: 'Criacao e gestao de websites por empresa com templates prontos.',
-    defaultEnabled: false,
-    companyAssignable: false,
-    serviceUrl: '/dashboard/website',
-  },
-  {
-    key: 'follow_up_internacional',
-    name: 'Follow Up Internacional',
-    description: 'Acompanhamento visual de importacoes, historico e alertas.',
-    defaultEnabled: false,
-    companyAssignable: true,
-    serviceUrl: '/dashboard/importacoes/followup-global',
-  },
-  {
-    key: 'cadastros',
-    name: 'Cadastros',
-    description: 'Cadastros de fornecedor, pais, portos e transit time.',
-    defaultEnabled: true,
-    companyAssignable: true,
-    serviceUrl: '/dashboard/importacoes/cadastros',
-  },
-  {
-    key: 'master',
-    name: 'Master',
-    description: 'Gestao global do sistema (empresas, modulos, usuarios e billing).',
-    defaultEnabled: false,
-    companyAssignable: false,
-    serviceUrl: '/dashboard/master',
-  },
-  {
-    key: 'exclusoes',
-    name: 'Exclusoes',
-    description: 'Painel master para auditoria e limpeza permanente de registros excluidos.',
-    defaultEnabled: false,
-    companyAssignable: false,
-    serviceUrl: '/dashboard/master/exclusoes',
-  },
-];
+const DEFAULT_MODULES: DefaultModuleDef[] = (structuralDefaults.systemModules as DefaultModuleDef[]).map((moduleDef) => ({
+  ...moduleDef,
+  serviceUrl: moduleDef.key === 'webscraping'
+    ? process.env.WEBSCRAPING_URL || moduleDef.serviceUrl || '/hbx/webscraping'
+    : moduleDef.serviceUrl,
+}));
 
-const LEGACY_MODULE_KEYS = ['inbox', 'auto_replies', 'messages'];
+const LEGACY_MODULE_KEYS = structuralDefaults.legacyModuleKeys as string[];
 
 @Injectable()
 export class ModulesService implements OnModuleInit {

@@ -6,7 +6,11 @@
 		"start": "node index.js",
 		"up": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/start-all.ps1",
 		"down": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/stop-all.ps1",
-		"publish": "node ./scripts/publish.js"
+		"publish": "node ./scripts/publish.js",
+		"publish:dry-run": "node ./scripts/publish.js --dry-run",
+		"seed:dev": "node ./backend/scripts/seed-dev.js",
+		"backup:prod": "node ./scripts/backup-prod.js",
+		"verify:prod": "node ./scripts/verify-prod.js"
 	}
 }
 

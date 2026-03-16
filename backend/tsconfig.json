@@ -4,6 +4,7 @@
     "target": "es2022",
     "moduleResolution": "node",
     "outDir": "dist",
+    "resolveJsonModule": true,
     "emitDecoratorMetadata": true,
     "experimentalDecorators": true,
     "sourceMap": true,

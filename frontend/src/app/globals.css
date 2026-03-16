@@ -2,6 +2,11 @@
 
 :root {
   --topbar-height: 76px;
+  /* topbar inner has vertical padding 0.8rem + 0.8rem => 1.6rem total; topbar total height = min-height + padding */
+  --topbar-total-height: calc(var(--topbar-height) + 1.6rem);
+  --module-nav-height: 56px;
+  --app-content-gap: 28px;
+  --footer-height: 72px;
   --theme-strength-pct: 0%;
 
   --color-primary-base: #0b4f8a;
@@ -501,12 +506,19 @@ a {
 
 .app-shell {
   min-height: 100vh;
-  padding-top: calc(var(--topbar-height) + 1.2rem);
+  /* Ensure content begins below the fixed header (header height updated at runtime)
+     Use a small extra gap so content doesn't touch the menu */
+  padding-top: calc(var(--topbar-total-height) + var(--app-content-gap));
   padding-right: 1rem;
-  padding-bottom: 2rem;
+  padding-bottom: calc(var(--footer-height) + 1.2rem);
   padding-left: 1rem;
   position: relative;
   z-index: 1;
+}
+
+/* Hide the intensity control on small screens to prevent header growth/overlap */
+@media (max-width: 720px) {
+  .theme-strength { display: none !important; }
 }
 
 .app-container {
@@ -557,10 +569,18 @@ a {
 }
 
 .panel {
-  background: var(--surface);
-  border: 1px solid var(--line);
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--surface) 94%, var(--background-alt)),
+      color-mix(in srgb, var(--surface-soft) 88%, var(--surface))
+    );
+  border: 1px solid color-mix(in srgb, var(--line) 86%, white);
   border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-xs);
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, white 70%, transparent),
+    var(--shadow-xs);
+  backdrop-filter: blur(14px);
 }
 
 .panel-soft {
@@ -752,11 +772,43 @@ textarea.field {
 }
 
 .stat-card {
-  border: 1px solid var(--line);
+  border: 1px solid color-mix(in srgb, var(--line) 82%, white);
   border-radius: 14px;
-  background: var(--surface);
+  background:
+    radial-gradient(circle at top right, color-mix(in srgb, var(--brand-solid) 10%, transparent), transparent 48%),
+    linear-gradient(
+      145deg,
+      color-mix(in srgb, var(--surface) 96%, var(--background-alt)),
+      color-mix(in srgb, var(--surface-soft) 92%, var(--surface))
+    );
   padding: 0.85rem;
   box-shadow: var(--shadow-xs);
+  position: relative;
+  overflow: hidden;
+}
+
+.dashboard-home {
+  display: grid;
+  gap: 1rem;
+}
+
+.dashboard-home .panel-interactive {
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--surface) 94%, var(--background-alt)),
+      color-mix(in srgb, var(--surface-soft) 88%, var(--surface))
+    );
+  border-color: color-mix(in srgb, var(--line) 82%, white);
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, white 72%, transparent),
+    var(--shadow-xs);
+}
+
+.dashboard-home .panel-interactive:hover {
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, white 78%, transparent),
+    var(--shadow-sm);
 }
 
 .stat-card__label {
@@ -823,7 +875,7 @@ textarea.field {
   }
 
   .app-shell {
-    padding-top: calc(var(--topbar-height) + 3.2rem);
+    padding-top: 0;
   }
 
   .app-user__meta {
@@ -834,6 +886,7 @@ textarea.field {
 @media (max-width: 640px) {
   :root {
     --topbar-height: 70px;
+    --app-content-gap: 24px;
   }
 
   .app-topbar__right {

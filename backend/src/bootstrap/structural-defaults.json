@@ -1,0 +1,222 @@
+{
+  "systemModules": [
+    {
+      "key": "atendimento",
+      "name": "Atendimento",
+      "description": "Inclui Operacao de atendimento, Respostas automaticas e Mensagens e logs.",
+      "defaultEnabled": true,
+      "companyAssignable": true,
+      "serviceUrl": null
+    },
+    {
+      "key": "gerencial",
+      "name": "Gerencial",
+      "description": "Indicadores e administracao da empresa.",
+      "defaultEnabled": true,
+      "companyAssignable": true,
+      "serviceUrl": null
+    },
+    {
+      "key": "webscraping",
+      "name": "Webscraping",
+      "description": "Prospeccao local com busca de contatos.",
+      "defaultEnabled": true,
+      "companyAssignable": true,
+      "serviceUrl": "/hbx/webscraping"
+    },
+    {
+      "key": "hbx_recovery",
+      "name": "HBX Recovery",
+      "description": "Recuperacao de inadimplencia com score, historico e automacao de cobranca.",
+      "defaultEnabled": true,
+      "companyAssignable": true,
+      "serviceUrl": "/hbx-recovery"
+    },
+    {
+      "key": "hbx_music",
+      "name": "HBX Music",
+      "description": "Modulo premium de musica com biblioteca, descoberta diaria e trilha de assinatura.",
+      "defaultEnabled": true,
+      "companyAssignable": true,
+      "serviceUrl": "/hbx-music"
+    },
+    {
+      "key": "website",
+      "name": "Website",
+      "description": "Criacao e gestao de websites por empresa com templates prontos.",
+      "defaultEnabled": false,
+      "companyAssignable": false,
+      "serviceUrl": "/dashboard/website"
+    },
+    {
+      "key": "follow_up_internacional",
+      "name": "Follow Up Internacional",
+      "description": "Acompanhamento visual de importacoes, historico e alertas.",
+      "defaultEnabled": false,
+      "companyAssignable": true,
+      "serviceUrl": "/dashboard/importacoes/followup-global"
+    },
+    {
+      "key": "cadastros",
+      "name": "Cadastros",
+      "description": "Cadastros de fornecedor, pais, portos e transit time.",
+      "defaultEnabled": true,
+      "companyAssignable": true,
+      "serviceUrl": "/dashboard/importacoes/cadastros"
+    },
+    {
+      "key": "master",
+      "name": "Master",
+      "description": "Gestao global do sistema (empresas, modulos, usuarios e billing).",
+      "defaultEnabled": false,
+      "companyAssignable": false,
+      "serviceUrl": "/dashboard/master"
+    },
+    {
+      "key": "exclusoes",
+      "name": "Exclusoes",
+      "description": "Painel master para auditoria e limpeza permanente de registros excluidos.",
+      "defaultEnabled": false,
+      "companyAssignable": false,
+      "serviceUrl": "/dashboard/master/exclusoes"
+    }
+  ],
+  "legacyModuleKeys": [
+    "inbox",
+    "auto_replies",
+    "messages"
+  ],
+  "featureDefinitions": [
+    {
+      "key": "product_create",
+      "description": "Criacao de produtos e catalogo base."
+    },
+    {
+      "key": "advanced_reports",
+      "description": "Relatorios avancados e analises operacionais."
+    },
+    {
+      "key": "product_edit",
+      "description": "Edicao e manutencao de produtos existentes."
+    },
+    {
+      "key": "priority_support",
+      "description": "Atendimento prioritario para contas premium."
+    },
+    {
+      "key": "company_update",
+      "description": "Atualizacao de dados e configuracoes da empresa."
+    },
+    {
+      "key": "beta_features",
+      "description": "Acesso a funcionalidades beta controladas."
+    },
+    {
+      "key": "company_delete",
+      "description": "Permissao administrativa de exclusao de empresa."
+    }
+  ],
+  "plans": [
+    {
+      "name": "prata",
+      "price": 0,
+      "features": [
+        "product_create"
+      ]
+    },
+    {
+      "name": "ouro",
+      "price": 29.9,
+      "features": [
+        "product_create",
+        "advanced_reports",
+        "product_edit"
+      ]
+    },
+    {
+      "name": "diamante",
+      "price": 69.9,
+      "features": [
+        "product_create",
+        "advanced_reports",
+        "priority_support",
+        "company_update"
+      ]
+    },
+    {
+      "name": "diamante_plus",
+      "price": 199.9,
+      "features": [
+        "product_create",
+        "advanced_reports",
+        "priority_support",
+        "beta_features",
+        "company_update",
+        "company_delete"
+      ]
+    },
+    {
+      "name": "admin",
+      "price": 0,
+      "features": [
+        "product_edit",
+        "product_create",
+        "company_update",
+        "company_delete"
+      ]
+    }
+  ],
+  "companyRolePermissions": {
+    "ADMIN": {
+      "CRIAR_IMPORTACAO": true,
+      "EDITAR_IMPORTACAO": true,
+      "FINALIZAR_IMPORTACAO": true,
+      "REABRIR_IMPORTACAO": true,
+      "CRIAR_ALERTA": true,
+      "VER_HISTORICO_FINANCEIRO": true
+    },
+    "GERENTE": {
+      "CRIAR_IMPORTACAO": true,
+      "EDITAR_IMPORTACAO": true,
+      "FINALIZAR_IMPORTACAO": true,
+      "REABRIR_IMPORTACAO": false,
+      "CRIAR_ALERTA": true,
+      "VER_HISTORICO_FINANCEIRO": true
+    },
+    "USUARIO": {
+      "CRIAR_IMPORTACAO": true,
+      "EDITAR_IMPORTACAO": true,
+      "FINALIZAR_IMPORTACAO": false,
+      "REABRIR_IMPORTACAO": false,
+      "CRIAR_ALERTA": false,
+      "VER_HISTORICO_FINANCEIRO": false
+    }
+  },
+  "developmentSeed": {
+    "company": {
+      "name": "HBX Dev Sandbox",
+      "slug": "dev-sandbox",
+      "planName": "diamante_plus"
+    },
+    "users": [
+      {
+        "username": "dev.admin",
+        "email": "dev.admin@local.hbx",
+        "name": "Dev Admin",
+        "role": "ADMIN"
+      },
+      {
+        "username": "dev.manager",
+        "email": "dev.manager@local.hbx",
+        "name": "Dev Manager",
+        "role": "GERENTE"
+      },
+      {
+        "username": "dev.user",
+        "email": "dev.user@local.hbx",
+        "name": "Dev User",
+        "role": "USER"
+      }
+    ]
+  }
+}

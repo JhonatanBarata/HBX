@@ -21,10 +21,24 @@ export class AuthService implements OnModuleInit {
   }
 
   private masterUsername() {
-    return 'jhonatan.barata';
+    return String(process.env.SYSTEM_MASTER_USERNAME || 'jhonatan.barata').trim();
+  }
+
+  private masterEmail() {
+    return String(process.env.SYSTEM_MASTER_EMAIL || 'master@hbx.local').trim();
   }
 
   private masterPassword() {
+    const configured = String(process.env.SYSTEM_MASTER_PASSWORD || '').trim();
+    if (configured) {
+      return configured;
+    }
+
+    const nodeEnv = String(process.env.NODE_ENV || 'development').trim().toLowerCase();
+    if (nodeEnv === 'production') {
+      throw new Error('SYSTEM_MASTER_PASSWORD is required when BOOTSTRAP_SYSTEM_MASTER=true in production');
+    }
+
     return 'master4961';
   }
 
@@ -39,6 +53,7 @@ export class AuthService implements OnModuleInit {
     }
 
     const username = this.masterUsername();
+    const email = this.masterEmail();
     const passwordHash = await bcrypt.hash(this.masterPassword(), 12);
 
     const existing = await this.prisma.user.findUnique({ where: { username } });
@@ -52,7 +67,7 @@ export class AuthService implements OnModuleInit {
           retentionUntil: null,
           role: 'ADMIN',
           name: existing.name || 'System Master',
-          email: existing.email || 'master@hbx.local',
+          email: existing.email || email,
           password: existing.password || passwordHash,
         },
       });
@@ -62,7 +77,7 @@ export class AuthService implements OnModuleInit {
     await this.prisma.user.create({
       data: {
         username,
-        email: 'master@hbx.local',
+        email,
         password: passwordHash,
         name: 'System Master',
         role: 'ADMIN',

@@ -11,6 +11,9 @@ postgres-data/
 *.log
 .env
 **/.env.local
+**/.env.production.local
+**/.env.ops.local
+**/.env.operations.local
 temp_*.json
 index 26-01 com auth.txt
 

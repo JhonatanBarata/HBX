@@ -14,35 +14,11 @@ import {
   UpdateImportacaoDto,
   UpdatePermissaoRoleDto,
 } from './dto/importacoes.dto';
+import structuralDefaults from '../bootstrap/structural-defaults.json';
 
 type ImportacaoAcao = (typeof IMPORTACAO_ACOES)[number];
 
-const ROLE_DEFAULTS: Record<string, Record<ImportacaoAcao, boolean>> = {
-  ADMIN: {
-    CRIAR_IMPORTACAO: true,
-    EDITAR_IMPORTACAO: true,
-    FINALIZAR_IMPORTACAO: true,
-    REABRIR_IMPORTACAO: true,
-    CRIAR_ALERTA: true,
-    VER_HISTORICO_FINANCEIRO: true,
-  },
-  GERENTE: {
-    CRIAR_IMPORTACAO: true,
-    EDITAR_IMPORTACAO: true,
-    FINALIZAR_IMPORTACAO: true,
-    REABRIR_IMPORTACAO: false,
-    CRIAR_ALERTA: true,
-    VER_HISTORICO_FINANCEIRO: true,
-  },
-  USUARIO: {
-    CRIAR_IMPORTACAO: true,
-    EDITAR_IMPORTACAO: true,
-    FINALIZAR_IMPORTACAO: false,
-    REABRIR_IMPORTACAO: false,
-    CRIAR_ALERTA: false,
-    VER_HISTORICO_FINANCEIRO: false,
-  },
-};
+const ROLE_DEFAULTS = structuralDefaults.companyRolePermissions as Record<string, Record<ImportacaoAcao, boolean>>;
 
 const FINALIZACAO_OBRIGATORIOS = [
   'fornecedorId',

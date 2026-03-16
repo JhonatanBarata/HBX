@@ -50,6 +50,8 @@ export class MessagingController {
       from: dto.from,
       text: dto.text,
       receivedAt: dto.receivedAt,
+      inboundType: dto.inboundType,
+      rawPayload: dto.rawPayload,
     });
   }
 

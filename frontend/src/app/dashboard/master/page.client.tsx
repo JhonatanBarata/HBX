@@ -141,6 +141,12 @@ type DeleteUserModalState = {
   userLabel: string;
 };
 
+type DeleteCompanyModalState = {
+  companyId: number;
+  companyName: string;
+  confirmationText: string;
+};
+
 function buildWhatsAppDraftFromCompany(company: MasterCompany): CompanyWhatsAppDraft {
   return {
     whatsappNumber: String(company.whatsappNumber || ""),
@@ -272,6 +278,8 @@ export default function MasterClientPage() {
   const [userModalError, setUserModalError] = useState<string | null>(null);
   const [deleteUserModal, setDeleteUserModal] = useState<DeleteUserModalState | null>(null);
   const [deleteUserModalError, setDeleteUserModalError] = useState<string | null>(null);
+  const [deleteCompanyModal, setDeleteCompanyModal] = useState<DeleteCompanyModalState | null>(null);
+  const [deleteCompanyModalError, setDeleteCompanyModalError] = useState<string | null>(null);
 
   async function load(options?: { background?: boolean }) {
     const background = Boolean(options?.background);
@@ -324,9 +332,13 @@ export default function MasterClientPage() {
   }, [hasToken]);
 
   useEffect(() => {
-    if (!createCompanyModalOpen && !userModal && !deleteUserModal) return;
+    if (!createCompanyModalOpen && !userModal && !deleteUserModal && !deleteCompanyModal) return;
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
+      if (deleteCompanyModal) {
+        closeDeleteCompanyModal();
+        return;
+      }
       if (deleteUserModal) {
         closeDeleteUserModal();
         return;
@@ -339,7 +351,7 @@ export default function MasterClientPage() {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [createCompanyModalOpen, userModal, deleteUserModal, busyKey]);
+  }, [createCompanyModalOpen, userModal, deleteUserModal, deleteCompanyModal, busyKey]);
 
   const companySummary = useMemo(() => {
     const total = companies.length;
@@ -688,6 +700,56 @@ export default function MasterClientPage() {
     }
   }
 
+  function openDeleteCompanyModal(company: MasterCompany) {
+    setDeleteCompanyModalError(null);
+    setDeleteCompanyModal({
+      companyId: company.id,
+      companyName: company.name,
+      confirmationText: "",
+    });
+  }
+
+  function closeDeleteCompanyModal() {
+    if (busyKey && busyKey.startsWith("delete-company-")) return;
+    setDeleteCompanyModalError(null);
+    setDeleteCompanyModal(null);
+  }
+
+  async function confirmDeleteCompanyModal() {
+    if (!deleteCompanyModal) return;
+
+    const expected = deleteCompanyModal.companyName.trim();
+    const received = deleteCompanyModal.confirmationText.trim();
+    if (!received) {
+      setDeleteCompanyModalError("Digite o nome da empresa para confirmar.");
+      return;
+    }
+    if (received !== expected) {
+      setDeleteCompanyModalError("O nome digitado não confere com a empresa selecionada.");
+      return;
+    }
+
+    const key = `delete-company-${deleteCompanyModal.companyId}`;
+    setBusyKey(key);
+    setDeleteCompanyModalError(null);
+    setError(null);
+    try {
+      const payload = await apiFetch<{ deletedCompany?: { id: number; name: string } }>(
+        `/companies/master/${deleteCompanyModal.companyId}`,
+        { method: "DELETE" },
+      );
+      const deletedLabel = payload?.deletedCompany?.name || expected;
+      setActionInfo(`Empresa excluída permanentemente: ${deletedLabel}.`);
+      setDeleteCompanyModal(null);
+      await load({ background: true });
+    } catch (actionError) {
+      const message = actionError instanceof Error ? actionError.message : "Falha ao excluir empresa.";
+      setDeleteCompanyModalError(message);
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
   function openCreateUserModal(companyId: number) {
     setUserModalError(null);
     setUserModal({
@@ -899,6 +961,10 @@ export default function MasterClientPage() {
     ? `del-user-${deleteUserModal.companyId}-${deleteUserModal.userId}`
     : null;
   const isDeleteModalBusy = Boolean(deleteModalBusyKey && busyKey === deleteModalBusyKey);
+  const deleteCompanyBusyKey = deleteCompanyModal
+    ? `delete-company-${deleteCompanyModal.companyId}`
+    : null;
+  const isDeleteCompanyBusy = Boolean(deleteCompanyBusyKey && busyKey === deleteCompanyBusyKey);
 
   return (
     <DashboardScaffold
@@ -1197,6 +1263,64 @@ export default function MasterClientPage() {
         </div>
       ) : null}
 
+      {deleteCompanyModal ? (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center p-4">
+          <button
+            type="button"
+            className="absolute inset-0 bg-black/35"
+            aria-label="Fechar confirmação de exclusão da empresa"
+            onClick={closeDeleteCompanyModal}
+          />
+          <article className="panel w-full max-w-[560px] p-4 relative z-[1]">
+            <h2 className="text-lg font-semibold">Excluir empresa</h2>
+            <p className="text-sm text-muted mt-1">
+              Esta ação remove a empresa e todos os dados vinculados a ela no banco. Para confirmar,
+              digite exatamente <strong>{deleteCompanyModal.companyName}</strong>.
+            </p>
+
+            <div className="mt-3 space-y-2">
+              <label className="text-xs uppercase tracking-[0.08em] font-semibold text-muted">
+                Confirmação
+              </label>
+              <input
+                className="field"
+                placeholder={deleteCompanyModal.companyName}
+                value={deleteCompanyModal.confirmationText}
+                onChange={(event) => {
+                  setDeleteCompanyModalError(null);
+                  setDeleteCompanyModal((current) =>
+                    current ? { ...current, confirmationText: event.target.value } : current,
+                  );
+                }}
+              />
+            </div>
+
+            {deleteCompanyModalError ? (
+              <div className="alert alert-error mt-3">{deleteCompanyModalError}</div>
+            ) : null}
+
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                onClick={closeDeleteCompanyModal}
+                disabled={isDeleteCompanyBusy}
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                className="btn btn-danger btn-sm"
+                onClick={confirmDeleteCompanyModal}
+                disabled={isDeleteCompanyBusy || !deleteCompanyModal.confirmationText.trim()}
+              >
+                {isDeleteCompanyBusy ? "Excluindo..." : "Excluir empresa"}
+              </button>
+            </div>
+          </article>
+        </div>
+      ) : null}
+
       {initialLoading ? (
         <div className="panel p-4 text-sm text-muted">Carregando empresas...</div>
       ) : (
@@ -1249,6 +1373,14 @@ export default function MasterClientPage() {
                     onClick={() => setPaymentStatus(company.id, "DISABLED")}
                   >
                     Desativar empresa
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-danger btn-sm"
+                    disabled={busyKey === `delete-company-${company.id}`}
+                    onClick={() => openDeleteCompanyModal(company)}
+                  >
+                    Excluir empresa
                   </button>
                 </div>
               </div>

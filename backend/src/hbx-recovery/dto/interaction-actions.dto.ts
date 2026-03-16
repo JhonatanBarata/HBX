@@ -54,3 +54,10 @@ export class AddInteractionNoteDto {
   @MaxLength(1200)
   note!: string;
 }
+
+export class SendInteractionMessageDto {
+  @IsString()
+  @MinLength(1)
+  @MaxLength(2000)
+  body!: string;
+}
