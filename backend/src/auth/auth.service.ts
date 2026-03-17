@@ -35,7 +35,7 @@ export class AuthService implements OnModuleInit {
     }
 
     const nodeEnv = String(process.env.NODE_ENV || 'development').trim().toLowerCase();
-    if (nodeEnv === 'production') {
+    if (nodeEnv === 'production' && this.shouldBootstrapSystemMaster()) {
       throw new Error('SYSTEM_MASTER_PASSWORD is required when BOOTSTRAP_SYSTEM_MASTER=true in production');
     }
 
@@ -43,8 +43,12 @@ export class AuthService implements OnModuleInit {
   }
 
   private shouldBootstrapSystemMaster() {
-    const raw = String(process.env.BOOTSTRAP_SYSTEM_MASTER ?? 'true').trim().toLowerCase();
-    return raw !== 'false' && raw !== '0' && raw !== 'no';
+    const raw = process.env.BOOTSTRAP_SYSTEM_MASTER;
+    if (raw == null) {
+      return false;
+    }
+
+    return String(raw).trim().toLowerCase() === 'true';
   }
 
   private async ensureSystemMasterUser() {
