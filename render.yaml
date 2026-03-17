@@ -17,6 +17,8 @@ services:
         sync: false
       - key: CORS_ALLOWED_ORIGINS
         sync: false
+      - key: WHATSAPP_VERIFY_TOKEN
+        sync: false
       - key: BOOTSTRAP_SYSTEM_MASTER
         value: "false"
       - key: NODE_ENV

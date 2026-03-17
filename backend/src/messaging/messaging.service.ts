@@ -108,7 +108,12 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
   }
 
   private get verifyToken(): string {
-    return process.env.WHATSAPP_VERIFY_TOKEN || '';
+    return (
+      process.env.WHATSAPP_VERIFY_TOKEN ||
+      process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN ||
+      process.env.META_VERIFY_TOKEN ||
+      ''
+    );
   }
 
   private get appSecret(): string {

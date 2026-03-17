@@ -58,15 +58,20 @@ export class MessagingController {
   // WhatsApp Cloud API webhook verification (Meta subscription)
   @Get('webhooks/whatsapp')
   webhookVerify(
+    @Req() req: any,
     @Query('hub.mode') mode?: string,
     @Query('hub.verify_token') token?: string,
     @Query('hub.challenge') challenge?: string,
     @Res() res?: Response,
   ) {
+    const query = req?.query || {};
+    const resolvedMode = String(mode ?? query['hub.mode'] ?? query.hub_mode ?? '').trim();
+    const resolvedToken = String(token ?? query['hub.verify_token'] ?? query.hub_verify_token ?? '').trim();
+    const resolvedChallenge = String(challenge ?? query['hub.challenge'] ?? query.hub_challenge ?? '').trim();
     const expected = this.messaging.getWebhookVerifyToken();
     if (!expected) throw new BadRequestException('WHATSAPP_VERIFY_TOKEN not set');
-    if (mode === 'subscribe' && token === expected) {
-      return res?.status(200).send(challenge ?? '') ?? challenge;
+    if (resolvedMode === 'subscribe' && resolvedToken === expected) {
+      return res?.status(200).send(resolvedChallenge) ?? resolvedChallenge;
     }
     return res?.status(403).send('Forbidden') ?? 'Forbidden';
   }
