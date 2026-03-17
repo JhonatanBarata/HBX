@@ -10,6 +10,14 @@ function requireCompanyIdFromUser(user: any): number {
 
 const TWENTY_FOUR_HOURS_MS = 24 * 60 * 60 * 1000;
 
+function normalizeWhatsAppContact(raw: string): string {
+  const normalized = String(raw || '').trim();
+  if (!normalized) return '';
+  const digits = normalized.replace(/\D/g, '');
+  if (!digits) return normalized;
+  return `+${digits}`;
+}
+
 export type QueueOutboundPayload = {
   to: string;
   body?: string;
@@ -47,11 +55,36 @@ export class ConversationsService {
   private async getOrCreateConversation(input: { companyId: number; contact: string; channel?: string; at?: Date }) {
     const companyId = Number(input.companyId);
     const channel = String(input.channel || 'whatsapp');
-    const contact = String(input.contact || '').trim();
+    const contact =
+      channel === 'whatsapp'
+        ? normalizeWhatsAppContact(input.contact)
+        : String(input.contact || '').trim();
     if (!companyId) throw new ForbiddenException('Company context required');
     if (!contact) throw new BadRequestException('Contact is required');
 
     const at = input.at ?? new Date();
+    if (channel === 'whatsapp') {
+      const digits = contact.replace(/\D/g, '');
+      if (digits) {
+        const existing = await this.prisma.companyConversation.findFirst({
+          where: {
+            companyId,
+            channel,
+            OR: [
+              { contact: contact },
+              { contact: { endsWith: digits } },
+            ],
+          },
+          orderBy: { lastMessageAt: 'desc' },
+        });
+        if (existing) {
+          return this.prisma.companyConversation.update({
+            where: { id: existing.id },
+            data: { contact, lastMessageAt: at, lastInteractionAt: at },
+          });
+        }
+      }
+    }
     return this.prisma.companyConversation.upsert({
       where: { companyId_channel_contact: { companyId, channel, contact } },
       create: { companyId, channel, contact, lastMessageAt: at, lastInteractionAt: at },
@@ -153,7 +186,7 @@ export class ConversationsService {
     sourceModule?: string;
   }) {
     const companyId = Number(input.companyId);
-    const from = String(input.from || '').trim();
+    const from = normalizeWhatsAppContact(input.from);
     const body = String(input.body || '');
     const at = input.receivedAt ?? new Date();
 
@@ -221,7 +254,7 @@ export class ConversationsService {
 
   async queueOutboundForCompany(companyIdInput: number, payload: QueueOutboundPayload) {
     const companyId = Number(companyIdInput);
-    const to = String(payload?.to || '').trim();
+    const to = normalizeWhatsAppContact(payload?.to || '');
     const at = payload?.at ?? new Date();
     const messageType = this.normalizeMessageType(payload?.messageType);
     const templateName = String(payload?.templateName || '').trim();
