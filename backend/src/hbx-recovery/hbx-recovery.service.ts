@@ -1,7 +1,7 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { extname, join } from 'path';
-import { copyFileSync, existsSync, mkdirSync, readdirSync, writeFileSync } from 'fs';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'fs';
 import axios from 'axios';
 import { ConversationsService } from '../messaging/conversations.service';
 import { resolveWhatsAppCredentials } from '../messaging/whatsapp-credentials.util';
@@ -42,6 +42,9 @@ type RecoveryMetaTemplate = {
   headerText: string | null;
   headerHandle: string | null;
   headerMediaUrl: string | null;
+  headerMediaFileName: string | null;
+  headerMediaContentType: string | null;
+  headerMediaBase64: string | null;
   bodyText: string;
   footerText: string | null;
   buttonLabels: string[];
@@ -678,6 +681,35 @@ export class HbxRecoveryService {
     }
   }
 
+  private templateHeaderMediaPublicPath(
+    companyId: number,
+    templateNameRaw: string,
+    languageRaw: string | null | undefined,
+  ) {
+    const templateName = this.normalizeTemplateNameForMeta(templateNameRaw || '');
+    const language = String(languageRaw || 'pt_BR').trim() || 'pt_BR';
+    if (!templateName || !companyId) return null;
+    const params = new URLSearchParams({ language });
+    return `/hbx-recovery/public/meta-template-media/${companyId}/${encodeURIComponent(templateName)}?${params.toString()}`;
+  }
+
+  private buildTemplateHeaderMediaPublicUrl(
+    companyId: number,
+    templateNameRaw: string,
+    languageRaw: string | null | undefined,
+  ) {
+    const relativePath = this.templateHeaderMediaPublicPath(companyId, templateNameRaw, languageRaw);
+    if (!relativePath) return null;
+    return `${this.publicApiBaseUrl()}${relativePath}`;
+  }
+
+  private fileContentTypeFromExtension(fileNameRaw: string | null | undefined) {
+    const extension = extname(String(fileNameRaw || '').trim()).toLowerCase();
+    if (extension === '.png') return 'image/png';
+    if (extension === '.webp') return 'image/webp';
+    return 'image/jpeg';
+  }
+
   private rebuildTemplateMediaUrlWithCurrentPublicBase(valueRaw: string | null | undefined) {
     const normalized = String(valueRaw || '').trim();
     if (!normalized) return null;
@@ -687,7 +719,10 @@ export class HbxRecoveryService {
     } catch {
       return normalized;
     }
-    if (!parsed.pathname.startsWith('/uploads/hbx-recovery/meta-templates/')) {
+    if (
+      !parsed.pathname.startsWith('/uploads/hbx-recovery/meta-templates/') &&
+      !parsed.pathname.startsWith('/hbx-recovery/public/meta-template-media/')
+    ) {
       return parsed.toString();
     }
     const publicBase = this.publicApiBaseUrl();
@@ -697,9 +732,15 @@ export class HbxRecoveryService {
     return `${publicBase}${parsed.pathname}`;
   }
 
-  private resolveTemplateHeaderMediaUrl(template?: RecoveryMetaTemplate | null) {
+  private resolveTemplateHeaderMediaUrl(template?: RecoveryMetaTemplate | null, companyId?: number) {
     if (!template || !this.isMetaMediaHeaderFormat(template.headerFormat)) return null;
     const storedUrl = String(template.headerMediaUrl || '').trim();
+    if (storedUrl && !this.isLocalOnlyUrl(storedUrl)) {
+      return this.rebuildTemplateMediaUrlWithCurrentPublicBase(storedUrl);
+    }
+    if (companyId && String(template.headerMediaBase64 || '').trim()) {
+      return this.buildTemplateHeaderMediaPublicUrl(companyId, template.name, template.language);
+    }
     if (!storedUrl) return null;
     return this.rebuildTemplateMediaUrlWithCurrentPublicBase(storedUrl);
   }
@@ -761,6 +802,18 @@ export class HbxRecoveryService {
             headerMediaUrl:
               item?.headerMediaUrl !== undefined && item?.headerMediaUrl !== null
                 ? String(item.headerMediaUrl).trim() || null
+                : null,
+            headerMediaFileName:
+              item?.headerMediaFileName !== undefined && item?.headerMediaFileName !== null
+                ? String(item.headerMediaFileName).trim() || null
+                : null,
+            headerMediaContentType:
+              item?.headerMediaContentType !== undefined && item?.headerMediaContentType !== null
+                ? String(item.headerMediaContentType).trim() || null
+                : null,
+            headerMediaBase64:
+              item?.headerMediaBase64 !== undefined && item?.headerMediaBase64 !== null
+                ? String(item.headerMediaBase64).trim() || null
                 : null,
             bodyText: String(item?.bodyText || '').trim(),
             footerText:
@@ -1342,7 +1395,7 @@ export class HbxRecoveryService {
     });
   }
 
-  private buildMetaTemplatesResponse(registry: RecoveryMetaTemplateRegistry) {
+  private buildMetaTemplatesResponse(companyId: number, registry: RecoveryMetaTemplateRegistry) {
     const templates = [...(registry?.templates || [])].sort((a, b) => {
       const byName = a.name.localeCompare(b.name);
       if (byName !== 0) return byName;
@@ -1370,6 +1423,7 @@ export class HbxRecoveryService {
       counters,
       templates: templates.map((item) => ({
         ...item,
+        headerMediaUrl: this.resolveTemplateHeaderMediaUrl(item, companyId),
         metaApproved: this.normalizeMetaStatus(item.status) === 'APPROVED',
         eligibleForRecovery: this.getRecoveryStartTemplateCompatibilityIssues(item).length === 0,
       })),
@@ -1438,6 +1492,9 @@ export class HbxRecoveryService {
         headerText: parts.headerText,
         headerHandle: parts.headerHandle || previousTemplate?.headerHandle || null,
         headerMediaUrl: previousTemplate?.headerMediaUrl || null,
+        headerMediaFileName: previousTemplate?.headerMediaFileName || null,
+        headerMediaContentType: previousTemplate?.headerMediaContentType || null,
+        headerMediaBase64: previousTemplate?.headerMediaBase64 || null,
         bodyText: parts.bodyText,
         footerText: parts.footerText,
         buttonLabels: parts.buttonLabels,
@@ -1639,7 +1696,7 @@ export class HbxRecoveryService {
       }
     }
     return {
-      ...this.buildMetaTemplatesResponse(registry),
+      ...this.buildMetaTemplatesResponse(companyId, registry),
       syncError,
     };
   }
@@ -1649,13 +1706,13 @@ export class HbxRecoveryService {
     try {
       const registry = await this.syncMetaTemplatesByCompanyId(companyId);
       return {
-        ...this.buildMetaTemplatesResponse(registry),
+        ...this.buildMetaTemplatesResponse(companyId, registry),
         syncError: null,
       };
     } catch (error: any) {
       const registry = await this.getMetaTemplateRegistry(companyId);
       return {
-        ...this.buildMetaTemplatesResponse(registry),
+        ...this.buildMetaTemplatesResponse(companyId, registry),
         syncError: String(error?.message || 'Falha ao sincronizar templates da Meta.'),
       };
     }
@@ -1684,6 +1741,9 @@ export class HbxRecoveryService {
         ...item,
         hbxActive: Boolean(dto?.active),
         headerMediaUrl: hasHeaderMediaUrl ? headerMediaUrl : item.headerMediaUrl,
+        headerMediaFileName: hasHeaderMediaUrl ? null : item.headerMediaFileName,
+        headerMediaContentType: hasHeaderMediaUrl ? null : item.headerMediaContentType,
+        headerMediaBase64: hasHeaderMediaUrl ? null : item.headerMediaBase64,
       };
     });
     if (!changed) {
@@ -1692,7 +1752,7 @@ export class HbxRecoveryService {
       );
     }
     const saved = await this.saveMetaTemplateRegistry(companyId, registry);
-    return this.buildMetaTemplatesResponse(saved);
+    return this.buildMetaTemplatesResponse(companyId, saved);
   }
 
   async createMetaTemplate(user: any, dto: CreateMetaTemplateDto) {
@@ -1860,7 +1920,7 @@ export class HbxRecoveryService {
         language,
         category,
       },
-      ...this.buildMetaTemplatesResponse(registry),
+      ...this.buildMetaTemplatesResponse(companyId, registry),
     };
   }
 
@@ -1896,7 +1956,7 @@ export class HbxRecoveryService {
     try {
       registry = await this.syncMetaTemplatesByCompanyId(companyId);
       return {
-        ...this.buildMetaTemplatesResponse(registry),
+        ...this.buildMetaTemplatesResponse(companyId, registry),
         syncError: null,
       };
     } catch (error: any) {
@@ -1923,7 +1983,7 @@ export class HbxRecoveryService {
         history,
       });
       return {
-        ...this.buildMetaTemplatesResponse(registry),
+        ...this.buildMetaTemplatesResponse(companyId, registry),
         syncError: String(error?.message || 'Template removido, mas a sincronizacao posterior falhou.'),
       };
     }
@@ -1955,7 +2015,11 @@ export class HbxRecoveryService {
       templateName,
       language: templateLanguage,
     });
-    const headerMediaUrl = `${this.publicApiBaseUrl()}${stored.relativePath}`;
+    const headerMediaUrl =
+      (templateName
+        ? this.buildTemplateHeaderMediaPublicUrl(companyId, templateName, templateLanguage)
+        : null) || `${this.publicApiBaseUrl()}${stored.relativePath}`;
+    const headerMediaBase64 = Buffer.from(file.buffer).toString('base64');
 
     if (templateName) {
       const registry = await this.getMetaTemplateRegistry(companyId);
@@ -1972,6 +2036,9 @@ export class HbxRecoveryService {
                   ...item,
                   headerHandle,
                   headerMediaUrl,
+                  headerMediaFileName: stored.fileName,
+                  headerMediaContentType: contentType,
+                  headerMediaBase64,
                 }
               : item,
           ),
@@ -1982,7 +2049,7 @@ export class HbxRecoveryService {
           headerMediaUrl,
           fileName: stored.fileName,
           contentType,
-          registry: this.buildMetaTemplatesResponse(saved),
+          registry: this.buildMetaTemplatesResponse(companyId, saved),
         };
       }
     }
@@ -1997,9 +2064,59 @@ export class HbxRecoveryService {
   }
 
   private publicApiBaseUrl() {
-    const explicit = process.env.PUBLIC_API_BASE_URL || process.env.API_PUBLIC_URL || process.env.BACKEND_PUBLIC_URL || '';
+    const explicit =
+      process.env.PUBLIC_API_BASE_URL ||
+      process.env.API_PUBLIC_URL ||
+      process.env.BACKEND_PUBLIC_URL ||
+      process.env.RENDER_EXTERNAL_URL ||
+      (process.env.RENDER_EXTERNAL_HOSTNAME
+        ? `https://${String(process.env.RENDER_EXTERNAL_HOSTNAME).trim()}`
+        : '') ||
+      '';
     if (String(explicit).trim()) return String(explicit).trim().replace(/\/+$/, '');
     return `http://localhost:${Number(process.env.APP_PORT || 3000)}`;
+  }
+
+  async getPublicMetaTemplateHeaderMedia(companyIdRaw: number, templateNameRaw: string, languageRaw?: string) {
+    const companyId = Number(companyIdRaw || 0);
+    if (!companyId) throw new NotFoundException('Midia nao encontrada.');
+    const registry = await this.getMetaTemplateRegistry(companyId);
+    const templateName = this.normalizeTemplateNameForMeta(templateNameRaw || '');
+    const language = String(languageRaw || 'pt_BR').trim() || 'pt_BR';
+    const key = this.metaTemplateKey(templateName, language);
+    const selected = (registry.templates || []).find(
+      (item) => this.metaTemplateKey(item.name, item.language) === key,
+    );
+    if (!selected || !this.isMetaMediaHeaderFormat(selected.headerFormat)) {
+      throw new NotFoundException('Midia nao encontrada.');
+    }
+
+    const headerMediaBase64 = String(selected.headerMediaBase64 || '').trim();
+    if (headerMediaBase64) {
+      return {
+        contentType:
+          String(selected.headerMediaContentType || '').trim() ||
+          this.fileContentTypeFromExtension(selected.headerMediaFileName),
+        fileName:
+          String(selected.headerMediaFileName || '').trim() ||
+          `${templateName}${this.fileExtensionFromMime(String(selected.headerMediaContentType || '').trim()) || '.jpg'}`,
+        buffer: Buffer.from(headerMediaBase64, 'base64'),
+      };
+    }
+
+    const stored = this.resolveStoredTemplateMediaLink(selected.name, selected.language);
+    if (!stored) {
+      throw new NotFoundException('Midia nao encontrada.');
+    }
+    const absolutePath = join(this.metaTemplateUploadDir(), stored.fileName);
+    if (!existsSync(absolutePath)) {
+      throw new NotFoundException('Midia nao encontrada.');
+    }
+    return {
+      contentType: this.fileContentTypeFromExtension(stored.fileName),
+      fileName: stored.fileName,
+      buffer: readFileSync(absolutePath),
+    };
   }
 
   private async mercadoPagoCredentials(companyId: number) {
