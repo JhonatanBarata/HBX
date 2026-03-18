@@ -303,6 +303,7 @@ export type RecoveryInteractionConversation = {
   customerId: string;
   customerName: string;
   customerWhatsapp: string;
+  conversationWhatsapp: string;
   customerStatus: string;
   openAmount: number;
   lastContact: string;
@@ -360,6 +361,7 @@ export type RecoveryInteractionDetail = {
     id: string;
     name: string;
     whatsappNumber: string;
+    conversationWhatsapp: string;
     openAmount: number;
     status: string;
   };

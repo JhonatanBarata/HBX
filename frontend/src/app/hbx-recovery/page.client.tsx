@@ -63,6 +63,13 @@ function normalizeWhatsAppNumber(value: string) {
   return `+${digits}`;
 }
 
+function getLiveInteractionPhone(input: {
+  conversationWhatsapp?: string | null;
+  customerWhatsapp?: string | null;
+}) {
+  return String(input.conversationWhatsapp || input.customerWhatsapp || "").trim();
+}
+
 function todayIsoDate() {
   const now = new Date();
   const year = now.getFullYear();
@@ -1138,6 +1145,9 @@ export default function HbxRecoveryClientPage() {
   const noticeTransitionTimerRef = useRef<number | null>(null);
   const noticeAutoDismissTimerRef = useRef<number | null>(null);
   const noticeCloseLockTimerRef = useRef<number | null>(null);
+  const interactionLastSeenRef = useRef<Map<number, string>>(new Map());
+  const interactionInitialLoadDoneRef = useRef(false);
+  const interactionDetailLastInboundRef = useRef<Map<number, string>>(new Map());
   const workspaceCanvasRef = useRef<HTMLDivElement | null>(null);
   const composerCanvasRef = useRef<HTMLDivElement | null>(null);
   const templatesWorkspaceRef = useRef<HTMLDivElement | null>(null);
@@ -1922,12 +1932,12 @@ export default function HbxRecoveryClientPage() {
   }, []);
 
   useEffect(() => {
-    if (!hasToken || activeTab !== "messages" || !interactionDetail?.conversationId) return;
+    if (!hasToken || activeTab !== "messages") return;
     const timer = window.setInterval(() => {
-      void Promise.all([
-        loadInteractions(interactionsQueue),
-        loadInteractionDetail(interactionDetail.conversationId),
-      ]);
+      void loadInteractions(interactionsQueue);
+      if (interactionDetail?.conversationId) {
+        void loadInteractionDetail(interactionDetail.conversationId);
+      }
     }, 15000);
     return () => window.clearInterval(timer);
   }, [activeTab, hasToken, interactionDetail?.conversationId, interactionsQueue]);
@@ -2712,7 +2722,32 @@ export default function HbxRecoveryClientPage() {
       const payload = await apiFetch<RecoveryInteractionSummary>(
         `/hbx-recovery/interactions?${query.toString()}`,
       );
+      const previousLastSeen = interactionLastSeenRef.current;
+      const nextLastSeen = new Map<number, string>();
+      let inboundNotice: string | null = null;
+
+      for (const item of payload.conversations) {
+        nextLastSeen.set(item.conversationId, item.lastAt);
+        const previousTimestamp = previousLastSeen.get(item.conversationId);
+        const isInbound = String(item.lastDirection || "").trim().toUpperCase() === "INBOUND";
+        if (
+          interactionInitialLoadDoneRef.current &&
+          isInbound &&
+          previousTimestamp &&
+          new Date(item.lastAt).getTime() > new Date(previousTimestamp).getTime()
+        ) {
+          inboundNotice = `Nova mensagem de ${item.customerName} em ${getLiveInteractionPhone({
+            conversationWhatsapp: item.conversationWhatsapp,
+            customerWhatsapp: item.customerWhatsapp,
+          })}.`;
+          break;
+        }
+      }
+
+      interactionLastSeenRef.current = nextLastSeen;
+      interactionInitialLoadDoneRef.current = true;
       setInteractionSummary(payload);
+      if (inboundNotice) setNotice(inboundNotice);
     } catch (error) {
       const reason = error instanceof Error ? error.message : "Erro ao carregar mensagens do Recovery";
       setNotice(`Falha ao carregar mensagens do Recovery: ${reason}`);
@@ -2727,6 +2762,25 @@ export default function HbxRecoveryClientPage() {
       const payload = await apiFetch<RecoveryInteractionDetail>(
         `/hbx-recovery/interactions/${conversationId}/messages`,
       );
+      const lastInbound = [...payload.messages]
+        .reverse()
+        .find((message) => String(message.direction || "").trim().toUpperCase() === "INBOUND");
+      const previousInboundAt = interactionDetailLastInboundRef.current.get(conversationId);
+      if (
+        previousInboundAt &&
+        lastInbound?.timestamp &&
+        new Date(lastInbound.timestamp).getTime() > new Date(previousInboundAt).getTime()
+      ) {
+        setNotice(
+          `Nova mensagem recebida de ${payload.customer.name} em ${getLiveInteractionPhone({
+            conversationWhatsapp: payload.customer.conversationWhatsapp,
+            customerWhatsapp: payload.customer.whatsappNumber,
+          })}.`,
+        );
+      }
+      if (lastInbound?.timestamp) {
+        interactionDetailLastInboundRef.current.set(conversationId, lastInbound.timestamp);
+      }
       setInteractionDetail(payload);
       setInteractionNoteDraft("");
       setInteractionReplyDraft("");
@@ -7005,7 +7059,12 @@ export default function HbxRecoveryClientPage() {
                               {formatDateTime(item.lastAt)}
                             </span>
                           </div>
-                          <p className={styles.historyMeta}>{item.customerWhatsapp}</p>
+                          <p className={styles.historyMeta}>
+                            {getLiveInteractionPhone({
+                              conversationWhatsapp: item.conversationWhatsapp,
+                              customerWhatsapp: item.customerWhatsapp,
+                            })}
+                          </p>
                           <p className={styles.historyMeta}>
                             {mapSenderLabel(lastSenderType, item.lastDirection)}:{" "}
                             {item.lastMessage || "-"}
@@ -7057,7 +7116,12 @@ export default function HbxRecoveryClientPage() {
                     <div className={styles.interactionDetailHeader}>
                       <div className={styles.interactionDetailIdentity}>
                         <strong>{interactionDetail.customer.name}</strong>
-                        <span>{interactionDetail.customer.whatsappNumber}</span>
+                        <span>
+                          {getLiveInteractionPhone({
+                            conversationWhatsapp: interactionDetail.customer.conversationWhatsapp,
+                            customerWhatsapp: interactionDetail.customer.whatsappNumber,
+                          })}
+                        </span>
                         <span>
                           Fluxo: {interactionDetail.currentFlow || "cobranca_recovery_whatsapp_hibrido"} |{" "}
                           Etapa: {mapFlowStepLabel(interactionDetail.currentStep)}

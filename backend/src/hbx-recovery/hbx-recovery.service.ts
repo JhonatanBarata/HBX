@@ -534,6 +534,12 @@ export class HbxRecoveryService {
     return { conversation, customer };
   }
 
+  private getInteractionContactTarget(conversation: { contact?: string | null }, customer: { whatsappNumber?: string | null }) {
+    const liveContact = String(conversation?.contact || '').trim();
+    if (liveContact) return liveContact;
+    return String(customer?.whatsappNumber || '').trim();
+  }
+
   private async appendInteractionEvent(input: {
     companyId: number;
     conversationId: number;
@@ -2675,9 +2681,16 @@ export class HbxRecoveryService {
     return { changed: Boolean(result.changed), paidAmount: Number(result.amount || 0), customer: this.toCustomerResponse(result.customer) };
   }
 
-  async sendPaymentLink(user: any, customerId: string, amountRaw?: number) {
+  async sendPaymentLink(
+    user: any,
+    customerId: string,
+    amountRaw?: number,
+    options?: { targetPhone?: string | null; conversationId?: number | null },
+  ) {
     const companyId = this.requireCompanyIdFromUser(user);
     const customer = await this.findCustomer(companyId, customerId);
+    const targetPhone = String(options?.targetPhone || customer.whatsappNumber || '').trim();
+    const interactionConversationId = Number(options?.conversationId || 0) || null;
     const openAmount = Number(customer.openAmount || 0);
     if (openAmount <= 0) throw new BadRequestException('Cliente sem valor em aberto no HBX Recovery.');
     const amount = Number(Math.max(0.5, Math.min(openAmount, typeof amountRaw === 'number' && Number.isFinite(amountRaw) ? amountRaw : openAmount)).toFixed(2));
@@ -2739,12 +2752,13 @@ export class HbxRecoveryService {
       });
 
       const body = `Oi ${customer.clientName || customer.name}, segue seu link de pagamento para regularizacao no HBX Recovery: ${paymentUrl}`;
-      const queued = await this.queueRecoveryWithFallback(companyId, customer.whatsappNumber, body, customer.id);
+      const queued = await this.queueRecoveryWithFallback(companyId, targetPhone, body, customer.id);
       const botConfig = await this.getRecoveryBotConfig(companyId);
       const vars = this.buildRecoveryTemplateVars(String(company?.name || ''), customer);
       await this.conversations
         .queueOutboundForCompany(companyId, {
-          to: customer.whatsappNumber,
+          conversationId: interactionConversationId || undefined,
+          to: targetPhone,
           contactId: customer.id,
           body: 'Menu HBX Recovery',
           messageType: 'interactive',
@@ -2972,12 +2986,14 @@ export class HbxRecoveryService {
   async sendInteractionHumanMessage(user: any, conversationId: number, bodyRaw: string) {
     const companyId = this.requireCompanyIdFromUser(user);
     const { conversation, customer } = await this.getInteractionContext(companyId, conversationId);
+    const targetPhone = this.getInteractionContactTarget(conversation, customer);
     const body = String(bodyRaw || '').trim();
     if (!body) {
       throw new BadRequestException('Digite uma mensagem para enviar ao cliente.');
     }
     const queued = await this.conversations.queueOutboundForCompany(companyId, {
-      to: customer.whatsappNumber,
+      conversationId: conversation.id,
+      to: targetPhone,
       contactId: customer.id,
       body,
       messageType: 'text',
@@ -3001,6 +3017,7 @@ export class HbxRecoveryService {
   ) {
     const companyId = this.requireCompanyIdFromUser(user);
     const { conversation, customer } = await this.getInteractionContext(companyId, conversationId);
+    const targetPhone = this.getInteractionContactTarget(conversation, customer);
     const mode = String(dto?.mode || 'avista').trim().toLowerCase() === 'parcelado' ? 'parcelado' : 'avista';
     const installments = Math.max(1, Math.min(12, Number(dto?.installments || 1)));
     const openAmount = Number(customer.openAmount || 0);
@@ -3009,7 +3026,10 @@ export class HbxRecoveryService {
       mode === 'parcelado'
         ? Number((openAmount * (1 + interestPct / 100)).toFixed(2))
         : Number((typeof dto?.amount === 'number' ? dto.amount : openAmount).toFixed(2));
-    const result = await this.sendPaymentLink(user, customer.id, totalAmount);
+    const result = await this.sendPaymentLink(user, customer.id, totalAmount, {
+      targetPhone,
+      conversationId: conversation.id,
+    });
     if (result?.payment?.id) {
       await this.prisma.hbxRecoveryPayment.update({
         where: { id: String(result.payment.id) },
@@ -3048,6 +3068,7 @@ export class HbxRecoveryService {
   async resendLastInteractionLink(user: any, conversationId: number) {
     const companyId = this.requireCompanyIdFromUser(user);
     const { conversation, customer } = await this.getInteractionContext(companyId, conversationId);
+    const targetPhone = this.getInteractionContactTarget(conversation, customer);
     const payment = await this.prisma.hbxRecoveryPayment.findFirst({
       where: { companyId, customerId: customer.id, paymentUrl: { not: null } },
       orderBy: { createdAt: 'desc' },
@@ -3055,7 +3076,8 @@ export class HbxRecoveryService {
     if (!payment?.paymentUrl) throw new BadRequestException('Nenhum link de pagamento encontrado para reenviar.');
     const body = `Reenvio do seu link de pagamento:\n${payment.paymentUrl}`;
     const queued = await this.conversations.queueOutboundForCompany(companyId, {
-      to: customer.whatsappNumber,
+      conversationId: conversation.id,
+      to: targetPhone,
       contactId: customer.id,
       body,
       messageType: 'text',
@@ -3084,8 +3106,10 @@ export class HbxRecoveryService {
   async requestPaymentProof(user: any, conversationId: number) {
     const companyId = this.requireCompanyIdFromUser(user);
     const { conversation, customer } = await this.getInteractionContext(companyId, conversationId);
+    const targetPhone = this.getInteractionContactTarget(conversation, customer);
     const queued = await this.conversations.queueOutboundForCompany(companyId, {
-      to: customer.whatsappNumber,
+      conversationId: conversation.id,
+      to: targetPhone,
       contactId: customer.id,
       body: 'Pode enviar o comprovante de pagamento por aqui para validarmos?',
       messageType: 'text',
@@ -3334,6 +3358,7 @@ export class HbxRecoveryService {
           customerId: customer.id,
           customerName: customer.name,
           customerWhatsapp: customer.whatsappNumber,
+          conversationWhatsapp: String(conversation.contact || ''),
           customerStatus: String(customer.status || '').toUpperCase(),
           openAmount: Number(customer.openAmount || 0),
           lastContact: customer.lastContact || 'Nunca',
@@ -3412,6 +3437,7 @@ export class HbxRecoveryService {
         id: recoveryCustomer.id,
         name: recoveryCustomer.name,
         whatsappNumber: recoveryCustomer.whatsappNumber,
+        conversationWhatsapp: String(conversation.contact || ''),
         openAmount: Number(recoveryCustomer.openAmount || 0),
         status: String(recoveryCustomer.status || ''),
       },

@@ -191,3 +191,43 @@ test('start-template fails with clear error when template requires unsupported v
     /exige 10 variaveis no BODY/i,
   );
 });
+
+test('human interaction reply uses live conversation contact instead of stale customer phone', async () => {
+  const service = createService();
+  let queuedPayload: Record<string, unknown> | null = null;
+
+  service.getInteractionContext = async () => ({
+    conversation: { id: 3, contact: '+5516993903340' },
+    customer: { id: 'cust-1', whatsappNumber: '+5519997024884' },
+  });
+  service.conversations = {
+    queueOutboundForCompany: async (_companyId: number, payload: Record<string, unknown>) => {
+      queuedPayload = payload;
+      return { ok: true };
+    },
+  };
+
+  const result = await service.sendInteractionHumanMessage(
+    { companyId: 7, id: 99 },
+    3,
+    'Olá, recebi sua mensagem agora.',
+  );
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(queuedPayload, {
+    conversationId: 3,
+    to: '+5516993903340',
+    contactId: 'cust-1',
+    body: 'Olá, recebi sua mensagem agora.',
+    messageType: 'text',
+    sourceModule: 'hbx_recovery_human',
+    senderType: 'human',
+    flowState: {
+      currentFlow: 'cobranca_recovery_whatsapp_hibrido',
+      currentStep: 'atendimento_humano',
+      botActive: false,
+      humanAssigned: true,
+      assignedUserId: 99,
+    },
+  });
+});
