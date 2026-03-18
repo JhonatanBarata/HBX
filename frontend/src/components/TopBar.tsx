@@ -32,6 +32,8 @@ type WhatsAppStatusPayload = {
 };
 type WhatsAppHealth = "green" | "yellow" | "red";
 
+const RECOVERY_HUMAN_QUEUE_EVENT = "hbx-recovery-human-queue";
+
 const hiddenRoutes = new Set(["/login", "/register", "/reset-password"]);
 
 export default function TopBar() {
@@ -49,6 +51,7 @@ export default function TopBar() {
   const [changeMsg, setChangeMsg] = useState<string | null>(null);
   const [whatsAppHealth, setWhatsAppHealth] = useState<WhatsAppHealth>("yellow");
   const [whatsAppHealthLabel, setWhatsAppHealthLabel] = useState("WhatsApp status: sem validacao");
+  const [pendingHumanCount, setPendingHumanCount] = useState(0);
   const navScrollRef = useRef<HTMLDivElement | null>(null);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
@@ -162,6 +165,7 @@ export default function TopBar() {
       setUser(null);
       setWhatsAppHealth("yellow");
       setWhatsAppHealthLabel("WhatsApp status: sem validacao");
+      setPendingHumanCount(0);
       setActiveThemeUser(null);
       return;
     }
@@ -244,6 +248,39 @@ export default function TopBar() {
   }, [authenticated, user?.id, user?.company?.id, user?.isSystemMaster]);
 
   useEffect(() => {
+    if (!authenticated) {
+      setPendingHumanCount(0);
+      return;
+    }
+
+    const applyCount = (value: unknown) => {
+      const next = Number(value);
+      setPendingHumanCount(Number.isFinite(next) ? Math.max(0, Math.trunc(next)) : 0);
+    };
+
+    const readStoredCount = () => {
+      try {
+        applyCount(window.localStorage.getItem("hbxRecoveryPendingHumanCount") || 0);
+      } catch {
+        applyCount(0);
+      }
+    };
+
+    const handleQueueEvent = (event: Event) => {
+      applyCount((event as CustomEvent<{ count?: number }>).detail?.count ?? 0);
+    };
+
+    readStoredCount();
+    window.addEventListener(RECOVERY_HUMAN_QUEUE_EVENT, handleQueueEvent as EventListener);
+    window.addEventListener("storage", readStoredCount);
+
+    return () => {
+      window.removeEventListener(RECOVERY_HUMAN_QUEUE_EVENT, handleQueueEvent as EventListener);
+      window.removeEventListener("storage", readStoredCount);
+    };
+  }, [authenticated]);
+
+  useEffect(() => {
     setOpen(false);
   }, [pathname]);
 
@@ -319,14 +356,29 @@ export default function TopBar() {
             <span className="app-brand__mark">HB</span>
             <span className="app-brand__text">HBX Solutions</span>
             {authenticated && user && !user.isSystemMaster && user.company?.id ? (
-              <span
-                className={`wa-health wa-health--${whatsAppHealth}`}
-                title={whatsAppHealthLabel}
-                aria-label={whatsAppHealthLabel}
-              >
-                <svg viewBox="0 0 24 24" aria-hidden="true">
-                  <path d="M19.1 4.9A9.9 9.9 0 0 0 12 2a10 10 0 0 0-8.7 14.9L2 22l5.3-1.4A10 10 0 1 0 19.1 4.9Zm-7.1 15.4a8.2 8.2 0 0 1-4.2-1.2l-.3-.2-3.1.8.8-3-.2-.3a8.2 8.2 0 1 1 7 3.9Zm4.5-6.2c-.2-.1-1.2-.6-1.4-.7-.2-.1-.3-.1-.5.1-.1.2-.5.7-.6.8-.1.1-.2.1-.4 0s-.9-.3-1.7-1a6.4 6.4 0 0 1-1.2-1.5c-.1-.2 0-.3.1-.4l.3-.3.2-.3c.1-.1.1-.3 0-.4L10.4 8c-.1-.2-.3-.2-.4-.2h-.4c-.1 0-.4.1-.5.3-.2.2-.7.7-.7 1.6 0 1 .7 1.9.8 2 .1.1 1.3 2 3.2 2.8.5.2.9.4 1.2.5.5.1 1 .1 1.4.1.4-.1 1.2-.5 1.4-1 .2-.6.2-1 .1-1.1 0-.1-.2-.1-.4-.2Z" />
-                </svg>
+              <span className={`wa-health-wrap ${pendingHumanCount > 0 ? "wa-health-wrap--alert" : ""}`}>
+                <span
+                  className={`wa-health wa-health--${whatsAppHealth}`}
+                  title={
+                    pendingHumanCount > 0
+                      ? `${whatsAppHealthLabel} | ${pendingHumanCount} conversa(s) aguardando atendimento humano`
+                      : whatsAppHealthLabel
+                  }
+                  aria-label={
+                    pendingHumanCount > 0
+                      ? `${whatsAppHealthLabel}. ${pendingHumanCount} conversa(s) aguardando atendimento humano`
+                      : whatsAppHealthLabel
+                  }
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M19.1 4.9A9.9 9.9 0 0 0 12 2a10 10 0 0 0-8.7 14.9L2 22l5.3-1.4A10 10 0 1 0 19.1 4.9Zm-7.1 15.4a8.2 8.2 0 0 1-4.2-1.2l-.3-.2-3.1.8.8-3-.2-.3a8.2 8.2 0 1 1 7 3.9Zm4.5-6.2c-.2-.1-1.2-.6-1.4-.7-.2-.1-.3-.1-.5.1-.1.2-.5.7-.6.8-.1.1-.2.1-.4 0s-.9-.3-1.7-1a6.4 6.4 0 0 1-1.2-1.5c-.1-.2 0-.3.1-.4l.3-.3.2-.3c.1-.1.1-.3 0-.4L10.4 8c-.1-.2-.3-.2-.4-.2h-.4c-.1 0-.4.1-.5.3-.2.2-.7.7-.7 1.6 0 1 .7 1.9.8 2 .1.1 1.3 2 3.2 2.8.5.2.9.4 1.2.5.5.1 1 .1 1.4.1.4-.1 1.2-.5 1.4-1 .2-.6.2-1 .1-1.1 0-.1-.2-.1-.4-.2Z" />
+                  </svg>
+                </span>
+                {pendingHumanCount > 0 ? (
+                  <span className="wa-health__queue-badge" aria-hidden="true">
+                    {pendingHumanCount}
+                  </span>
+                ) : null}
               </span>
             ) : null}
           </Link>
@@ -376,7 +428,7 @@ export default function TopBar() {
                       className="field"
                     />
                     {changeMsg ? (
-                      <p className="text-xs text-[var(--muted)] leading-5">{changeMsg}</p>
+                      <p className="text-xs text-(--muted) leading-5">{changeMsg}</p>
                     ) : null}
                     <div className="app-user__menu-actions">
                       <button

@@ -2859,12 +2859,14 @@ export class HbxRecoveryService {
 
   async startTemplateFlow(user: any, customerId: string) {
     const companyId = this.requireCompanyIdFromUser(user);
-    const customer = await this.findCustomer(companyId, customerId);
-    if (customer.automationEnabled === false) {
-      throw new BadRequestException(
-        'A cobranca automatica deste cliente esta pausada. Reative na tabela de inadimplentes antes de enviar o template inicial.',
-      );
-    }
+    const currentCustomer = await this.findCustomer(companyId, customerId);
+    const customer =
+      currentCustomer.automationEnabled === false
+        ? await this.prisma.hbxRecoveryCustomer.update({
+            where: { id: currentCustomer.id },
+            data: { automationEnabled: true },
+          })
+        : currentCustomer;
     const botConfig = await this.getRecoveryBotConfig(companyId);
     const selectedTemplate = await this.resolveRecoveryStartTemplate(companyId, botConfig);
     this.assertRecoveryStartTemplateCompatible(selectedTemplate);

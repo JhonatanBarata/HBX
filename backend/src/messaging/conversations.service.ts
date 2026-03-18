@@ -55,6 +55,25 @@ export class ConversationsService {
     private readonly whatsappStatus: WhatsAppStatusService,
   ) {}
 
+  private pickPreferredConversation(candidates: any[], normalizedContact: string) {
+    if (!Array.isArray(candidates) || candidates.length === 0) return null;
+
+    const normalizedDigits = String(normalizedContact || '').replace(/\D/g, '');
+    const humanAssigned = candidates.find((row) => row?.humanAssigned);
+    if (humanAssigned) return humanAssigned;
+
+    const exact = candidates.find((row) => String(row?.contact || '').trim() === normalizedContact);
+    if (exact) return exact;
+
+    const digitMatch = candidates.find((row) => {
+      const candidateDigits = String(row?.contact || '').replace(/\D/g, '');
+      return candidateDigits && normalizedDigits && candidateDigits === normalizedDigits;
+    });
+    if (digitMatch) return digitMatch;
+
+    return candidates[0];
+  }
+
   private async getOrCreateConversation(input: { companyId: number; contact: string; channel?: string; at?: Date }) {
     const companyId = Number(input.companyId);
     const channel = String(input.channel || 'whatsapp');
@@ -70,7 +89,7 @@ export class ConversationsService {
       const candidates = buildWhatsAppPhoneCandidates(contact);
       const digits = contact.replace(/\D/g, '');
       if (digits || candidates.length) {
-        const existing = await this.prisma.companyConversation.findFirst({
+        const existingRows = await this.prisma.companyConversation.findMany({
           where: {
             companyId,
             channel,
@@ -82,10 +101,18 @@ export class ConversationsService {
           },
           orderBy: { lastMessageAt: 'desc' },
         });
+        const existing = this.pickPreferredConversation(existingRows, contact);
         if (existing) {
+          const conflictingTarget = existingRows.find(
+            (row) => row.id !== existing.id && String(row.contact || '').trim() === contact,
+          );
           return this.prisma.companyConversation.update({
             where: { id: existing.id },
-            data: { contact, lastMessageAt: at, lastInteractionAt: at },
+            data: {
+              contact: conflictingTarget ? String(existing.contact || '').trim() : contact,
+              lastMessageAt: at,
+              lastInteractionAt: at,
+            },
           });
         }
       }

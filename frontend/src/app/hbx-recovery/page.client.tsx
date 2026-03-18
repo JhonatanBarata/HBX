@@ -70,6 +70,27 @@ function getLiveInteractionPhone(input: {
   return String(input.conversationWhatsapp || input.customerWhatsapp || "").trim();
 }
 
+const RECOVERY_HUMAN_QUEUE_EVENT = "hbx-recovery-human-queue";
+
+type RecoveryHumanAttentionKind = "human_queue" | "new_message";
+
+type RecoveryHumanAttentionPopup = {
+  conversationId: number;
+  customerName: string;
+  phone: string;
+  preview: string;
+  pendingHumanCount: number;
+  kind: RecoveryHumanAttentionKind;
+  lastAt: string;
+};
+
+function getLatestInboundPreview(messages: RecoveryInteractionMessage[]) {
+  const lastInbound = [...messages]
+    .reverse()
+    .find((message) => String(message.direction || "").trim().toUpperCase() === "INBOUND");
+  return String(lastInbound?.body || "").trim();
+}
+
 type RecoveryInboxFallbackConversation = {
   id: string;
   status: string;
@@ -1176,6 +1197,8 @@ export default function HbxRecoveryClientPage() {
   const [interactionNoteDraft, setInteractionNoteDraft] = useState("");
   const [interactionReplyDraft, setInteractionReplyDraft] = useState("");
   const [showSystemMessages, setShowSystemMessages] = useState(false);
+  const [humanAttentionPopup, setHumanAttentionPopup] =
+    useState<RecoveryHumanAttentionPopup | null>(null);
   const [notice, setNotice] = useState<string | null>(
     "Carteira carregada com empresas cadastradas no Recovery. O envio de WhatsApp usa o motor oficial por empresa.",
   );
@@ -1216,8 +1239,10 @@ export default function HbxRecoveryClientPage() {
   const noticeAutoDismissTimerRef = useRef<number | null>(null);
   const noticeCloseLockTimerRef = useRef<number | null>(null);
   const interactionLastSeenRef = useRef<Map<number, string>>(new Map());
+  const interactionHumanQueueRef = useRef<Map<number, boolean>>(new Map());
   const interactionInitialLoadDoneRef = useRef(false);
   const interactionDetailLastInboundRef = useRef<Map<number, string>>(new Map());
+  const humanAttentionRequestRef = useRef(0);
   const workspaceCanvasRef = useRef<HTMLDivElement | null>(null);
   const composerCanvasRef = useRef<HTMLDivElement | null>(null);
   const templatesWorkspaceRef = useRef<HTMLDivElement | null>(null);
@@ -2002,15 +2027,28 @@ export default function HbxRecoveryClientPage() {
   }, []);
 
   useEffect(() => {
-    if (!hasToken || activeTab !== "messages") return;
+    if (!hasToken) return;
     const timer = window.setInterval(() => {
       void loadInteractions(interactionsQueue);
-      if (interactionDetail?.conversationId) {
+      if (activeTab === "messages" && interactionDetail?.conversationId) {
         void loadInteractionDetail(interactionDetail.conversationId);
       }
-    }, 15000);
+    }, 5000);
     return () => window.clearInterval(timer);
   }, [activeTab, hasToken, interactionDetail?.conversationId, interactionsQueue]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const count = hasToken ? Number(interactionSummary.pendingHumanCount || 0) : 0;
+    try {
+      window.localStorage.setItem("hbxRecoveryPendingHumanCount", String(Math.max(0, count)));
+    } catch {}
+    window.dispatchEvent(
+      new CustomEvent(RECOVERY_HUMAN_QUEUE_EVENT, {
+        detail: { count: Math.max(0, count) },
+      }),
+    );
+  }, [hasToken, interactionSummary.pendingHumanCount]);
 
   useEffect(() => {
     if (!hasToken) return;
@@ -2799,31 +2837,53 @@ export default function HbxRecoveryClientPage() {
         payload = mapInboxConversationsToRecoverySummary(inboxRows, queue);
       }
       const previousLastSeen = interactionLastSeenRef.current;
+      const previousHumanQueue = interactionHumanQueueRef.current;
       const nextLastSeen = new Map<number, string>();
-      let inboundNotice: string | null = null;
+      const nextHumanQueue = new Map<number, boolean>();
+      const isInitialLoad = !interactionInitialLoadDoneRef.current;
+      let popupCandidate:
+        | {
+            item: RecoveryInteractionSummary["conversations"][number];
+            kind: RecoveryHumanAttentionKind;
+          }
+        | null = null;
 
       for (const item of payload.conversations) {
         nextLastSeen.set(item.conversationId, item.lastAt);
+        nextHumanQueue.set(item.conversationId, Boolean(item.humanQueue));
         const previousTimestamp = previousLastSeen.get(item.conversationId);
+        const previousQueued = previousHumanQueue.get(item.conversationId);
         const isInbound = String(item.lastDirection || "").trim().toUpperCase() === "INBOUND";
-        if (
-          interactionInitialLoadDoneRef.current &&
-          isInbound &&
+        const requiresHumanAttention = Boolean(item.humanQueue || item.humanAssigned);
+        const becameHumanQueue = Boolean(item.humanQueue) && previousQueued !== true;
+        const hasNewInbound = Boolean(
           previousTimestamp &&
-          new Date(item.lastAt).getTime() > new Date(previousTimestamp).getTime()
+            isInbound &&
+            new Date(item.lastAt).getTime() > new Date(previousTimestamp).getTime(),
+        );
+        if (
+          !popupCandidate &&
+          ((isInitialLoad && item.humanQueue) ||
+            (!isInitialLoad && (becameHumanQueue || (requiresHumanAttention && hasNewInbound))))
         ) {
-          inboundNotice = `Nova mensagem de ${item.customerName} em ${getLiveInteractionPhone({
-            conversationWhatsapp: item.conversationWhatsapp,
-            customerWhatsapp: item.customerWhatsapp,
-          })}.`;
-          break;
+          popupCandidate = {
+            item,
+            kind: becameHumanQueue || isInitialLoad ? "human_queue" : "new_message",
+          };
         }
       }
 
       interactionLastSeenRef.current = nextLastSeen;
+      interactionHumanQueueRef.current = nextHumanQueue;
       interactionInitialLoadDoneRef.current = true;
       setInteractionSummary(payload);
-      if (inboundNotice) setNotice(inboundNotice);
+      if (popupCandidate) {
+        void presentHumanAttentionPopup(
+          popupCandidate.item,
+          payload.pendingHumanCount,
+          popupCandidate.kind,
+        );
+      }
     } catch (error) {
       const reason = error instanceof Error ? error.message : "Erro ao carregar mensagens do Recovery";
       setNotice(`Falha ao carregar mensagens do Recovery: ${reason}`);
@@ -2847,12 +2907,19 @@ export default function HbxRecoveryClientPage() {
         lastInbound?.timestamp &&
         new Date(lastInbound.timestamp).getTime() > new Date(previousInboundAt).getTime()
       ) {
-        setNotice(
-          `Nova mensagem recebida de ${payload.customer.name} em ${getLiveInteractionPhone({
+        setHumanAttentionPopup({
+          conversationId: payload.conversationId,
+          customerName: payload.customer.name,
+          phone: getLiveInteractionPhone({
             conversationWhatsapp: payload.customer.conversationWhatsapp,
             customerWhatsapp: payload.customer.whatsappNumber,
-          })}.`,
-        );
+          }),
+          preview:
+            String(lastInbound.body || "").trim() || "Nova mensagem aguardando resposta humana.",
+          pendingHumanCount: interactionSummary.pendingHumanCount,
+          kind: "new_message",
+          lastAt: lastInbound.timestamp,
+        });
       }
       if (lastInbound?.timestamp) {
         interactionDetailLastInboundRef.current.set(conversationId, lastInbound.timestamp);
@@ -2866,6 +2933,59 @@ export default function HbxRecoveryClientPage() {
     } finally {
       setLoadingInteractionDetailId(null);
     }
+  }
+
+  async function presentHumanAttentionPopup(
+    item: RecoveryInteractionSummary["conversations"][number],
+    pendingHumanCount: number,
+    kind: RecoveryHumanAttentionKind,
+  ) {
+    const phone = getLiveInteractionPhone({
+      conversationWhatsapp: item.conversationWhatsapp,
+      customerWhatsapp: item.customerWhatsapp,
+    });
+    const fallbackPreview =
+      String(item.lastDirection || "").trim().toUpperCase() === "INBOUND" && item.lastMessage
+        ? String(item.lastMessage).trim()
+        : kind === "human_queue"
+          ? "Cliente solicitou atendimento humano."
+          : "Nova mensagem aguardando resposta humana.";
+
+    let preview = fallbackPreview;
+    const requestId = ++humanAttentionRequestRef.current;
+
+    try {
+      if (interactionDetail?.conversationId === item.conversationId) {
+        preview = getLatestInboundPreview(interactionDetail.messages) || fallbackPreview;
+      } else {
+        const detail = await apiFetch<RecoveryInteractionDetail>(
+          `/hbx-recovery/interactions/${item.conversationId}/messages`,
+        );
+        preview = getLatestInboundPreview(detail.messages) || fallbackPreview;
+      }
+    } catch {
+      preview = fallbackPreview;
+    }
+
+    if (humanAttentionRequestRef.current !== requestId) {
+      return;
+    }
+
+    setHumanAttentionPopup({
+      conversationId: item.conversationId,
+      customerName: item.customerName,
+      phone,
+      preview,
+      pendingHumanCount,
+      kind,
+      lastAt: item.lastAt,
+    });
+  }
+
+  function openHumanAttentionConversation(conversationId: number) {
+    setHumanAttentionPopup(null);
+    handleTabChange("messages");
+    void loadInteractionDetail(conversationId);
   }
 
   async function refreshInteractionContext(conversationId: number) {
@@ -3028,7 +3148,6 @@ export default function HbxRecoveryClientPage() {
       });
       setInteractionReplyDraft("");
       await refreshInteractionContext(conversationId);
-      setNotice("Mensagem enviada ao cliente com sucesso.");
     } catch (error) {
       const reason = error instanceof Error ? error.message : "Erro ao enviar mensagem";
       setNotice(`Falha ao enviar mensagem ao cliente: ${reason}`);
@@ -3881,6 +4000,12 @@ export default function HbxRecoveryClientPage() {
     }
   }
 
+  const visibleInteractionMessages = useMemo(() => {
+    const base = interactionDetail?.messages || [];
+    if (showSystemMessages) return base;
+    return base.filter((message) => !isLowSignalInteractionMessage(message));
+  }, [interactionDetail?.messages, showSystemMessages]);
+
   if (hasToken === null) {
     return (
       <main className="app-shell">
@@ -4634,11 +4759,6 @@ export default function HbxRecoveryClientPage() {
           String(message.body || "").toLowerCase().includes("link de pagamento"),
       ).length
     : 0;
-  const visibleInteractionMessages = useMemo(() => {
-    const base = interactionDetail?.messages || [];
-    if (showSystemMessages) return base;
-    return base.filter((message) => !isLowSignalInteractionMessage(message));
-  }, [interactionDetail?.messages, showSystemMessages]);
   const isInteractionBusy = (conversationId: number, action: string) =>
     interactionActionBusy === `${conversationId}:${action}`;
   const getMetaStatusBadgeClass = (statusRaw: string) => {
@@ -4739,6 +4859,46 @@ export default function HbxRecoveryClientPage() {
             >
               {noticeCloseReady ? "Fechar" : "Aguarde..."}
             </button>
+          </div>
+        </div>
+      ) : null}
+
+      {humanAttentionPopup ? (
+        <div className={styles.humanAttentionViewport} role="status" aria-live="polite">
+          <div className={`${styles.humanAttentionCard} ${styles.tabTransitionStage} ${styles.tabTransitionEnter}`}>
+            <div className={styles.humanAttentionHeader}>
+              <div>
+                <p className={styles.humanAttentionEyebrow}>
+                  {humanAttentionPopup.kind === "human_queue"
+                    ? "Atendimento humano solicitado"
+                    : "Nova mensagem aguardando resposta"}
+                </p>
+                <strong className={styles.humanAttentionTitle}>
+                  {humanAttentionPopup.customerName}
+                </strong>
+                <p className={styles.humanAttentionPhone}>{humanAttentionPopup.phone}</p>
+              </div>
+              <span className={styles.humanAttentionCount}>
+                {humanAttentionPopup.pendingHumanCount} pendente(s)
+              </span>
+            </div>
+            <p className={styles.humanAttentionPreview}>{humanAttentionPopup.preview}</p>
+            <div className={styles.humanAttentionActions}>
+              <button
+                type="button"
+                className="btn btn-primary btn-sm"
+                onClick={() => openHumanAttentionConversation(humanAttentionPopup.conversationId)}
+              >
+                Abrir conversa
+              </button>
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                onClick={() => setHumanAttentionPopup(null)}
+              >
+                Dispensar
+              </button>
+            </div>
           </div>
         </div>
       ) : null}
@@ -7086,7 +7246,11 @@ export default function HbxRecoveryClientPage() {
                 </p>
               </div>
               <div className={styles.interactionsHeaderStats}>
-                <span className="badge badge-brand">
+                <span
+                  className={`${styles.humanQueueStat} ${
+                    interactionSummary.pendingHumanCount > 0 ? styles.humanQueueStatActive : ""
+                  }`}
+                >
                   Pendencias humanas: {interactionSummary.pendingHumanCount}
                 </span>
                 {interactionDetail ? (
