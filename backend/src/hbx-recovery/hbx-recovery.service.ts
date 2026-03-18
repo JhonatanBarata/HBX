@@ -277,16 +277,92 @@ export class HbxRecoveryService {
     return row;
   }
 
-  private async findCustomerByConversationContact(companyId: number, contactRaw: string) {
-    const digits = this.normalizeDigits(contactRaw);
-    if (!digits) return null;
-    return this.prisma.hbxRecoveryCustomer.findFirst({
+  private async resolveRecoveryCustomerForConversation(conversation: any, companyId: number) {
+    const contactDigits = this.normalizeDigits(conversation?.contact);
+    const metadata = this.parseConversationMetadata(conversation?.metadata);
+    const metadataCustomerId = String(
+      metadata?.recoveryCustomerId || metadata?.customerId || metadata?.customer_id || '',
+    ).trim();
+    const metadataCustomerName = String(
+      metadata?.cliente || metadata?.customerName || metadata?.name || '',
+    ).trim();
+
+    if (contactDigits) {
+      const byPhone = await this.prisma.hbxRecoveryCustomer.findFirst({
+        where: {
+          companyId,
+          openAmount: { gt: 0 },
+          whatsappNumber: { endsWith: contactDigits },
+        },
+      });
+      if (byPhone) return byPhone;
+    }
+
+    if (metadataCustomerId) {
+      const byMetadataId = await this.prisma.hbxRecoveryCustomer.findFirst({
+        where: {
+          companyId,
+          id: metadataCustomerId,
+          openAmount: { gt: 0 },
+        },
+      });
+      if (byMetadataId) return byMetadataId;
+    }
+
+    const payment = await this.prisma.hbxRecoveryPayment.findFirst({
       where: {
         companyId,
-        openAmount: { gt: 0 },
-        whatsappNumber: { endsWith: digits },
+        conversationId: Number(conversation?.id || 0),
       },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      select: { customerId: true },
     });
+    if (payment?.customerId) {
+      const byPayment = await this.prisma.hbxRecoveryCustomer.findFirst({
+        where: {
+          companyId,
+          id: String(payment.customerId),
+          openAmount: { gt: 0 },
+        },
+      });
+      if (byPayment) return byPayment;
+    }
+
+    const recoveryMessage = await this.prisma.companyMessage.findFirst({
+      where: {
+        companyId,
+        conversationId: Number(conversation?.id || 0),
+        sourceModule: { startsWith: 'hbx_recovery' },
+      },
+      orderBy: [{ timestamp: 'desc' }, { id: 'desc' }],
+      select: { contactId: true },
+    });
+    const recoveryMessageContactId = String(recoveryMessage?.contactId || '').trim();
+    if (recoveryMessageContactId) {
+      const byRecoveryMessage = await this.prisma.hbxRecoveryCustomer.findFirst({
+        where: {
+          companyId,
+          id: recoveryMessageContactId,
+          openAmount: { gt: 0 },
+        },
+      });
+      if (byRecoveryMessage) return byRecoveryMessage;
+    }
+
+    if (metadataCustomerName) {
+      return this.prisma.hbxRecoveryCustomer.findFirst({
+        where: {
+          companyId,
+          openAmount: { gt: 0 },
+          OR: [
+            { name: { equals: metadataCustomerName, mode: 'insensitive' } },
+            { clientName: { equals: metadataCustomerName, mode: 'insensitive' } },
+          ],
+        },
+      });
+    }
+
+    return null;
   }
 
   private parseConversationMetadata(raw: string | null | undefined): Record<string, any> {
@@ -529,7 +605,7 @@ export class HbxRecoveryService {
       where: { id: Number(conversationId), companyId, channel: 'whatsapp' },
     });
     if (!conversation) throw new NotFoundException('Conversa nao encontrada no HBX Recovery.');
-    const customer = await this.findCustomerByConversationContact(companyId, conversation.contact);
+    const customer = await this.resolveRecoveryCustomerForConversation(conversation, companyId);
     if (!customer) throw new NotFoundException('Conversa fora da carteira de inadimplentes do HBX Recovery.');
     return { conversation, customer };
   }
@@ -3256,40 +3332,18 @@ export class HbxRecoveryService {
     const companyId = this.requireCompanyIdFromUser(user);
     const queue = String(queueRaw || 'all').trim().toLowerCase() === 'human' ? 'human' : 'all';
 
-    const customers = await this.prisma.hbxRecoveryCustomer.findMany({
-      where: { companyId, openAmount: { gt: 0 } },
-      select: {
-        id: true,
-        name: true,
-        whatsappNumber: true,
-        openAmount: true,
-        status: true,
-        lastContact: true,
-      },
-      orderBy: [{ openAmount: 'desc' }, { updatedAt: 'desc' }],
-    });
-
-    if (!customers.length) {
-      return { queue, pendingHumanCount: 0, conversations: [] };
-    }
-
-    const phoneFilters = customers
-      .map((item) => this.normalizeDigits(item.whatsappNumber))
-      .filter((item) => item.length >= 8)
-      .map((digits) => ({ contact: { endsWith: digits } }));
-
-    if (!phoneFilters.length) {
-      return { queue, pendingHumanCount: 0, conversations: [] };
-    }
-
     const conversations = await this.prisma.companyConversation.findMany({
       where: {
         companyId,
         channel: 'whatsapp',
-        OR: phoneFilters,
+        OR: [
+          { currentFlow: 'cobranca_recovery_whatsapp_hibrido' },
+          { currentStep: { not: null } },
+          { messages: { some: { sourceModule: { startsWith: 'hbx_recovery' } } } },
+        ],
       },
       orderBy: { lastMessageAt: 'desc' },
-      take: 200,
+      take: 300,
     });
 
     if (!conversations.length) {
@@ -3302,7 +3356,18 @@ export class HbxRecoveryService {
       orderBy: [{ timestamp: 'desc' }, { id: 'desc' }],
       take: 2000,
     });
-    const customerIds = customers.map((item) => item.id);
+    const resolvedCustomers = await Promise.all(
+      conversations.map(async (conversation) => ({
+        conversationId: conversation.id,
+        customer: await this.resolveRecoveryCustomerForConversation(conversation, companyId),
+      })),
+    );
+    const customerByConversationId = new Map(
+      resolvedCustomers
+        .filter((entry) => Boolean(entry.customer))
+        .map((entry) => [entry.conversationId, entry.customer]),
+    );
+    const customerIds = [...new Set(resolvedCustomers.map((entry) => entry.customer?.id).filter(Boolean))] as string[];
     const payments = await this.prisma.hbxRecoveryPayment.findMany({
       where: { companyId, customerId: { in: customerIds } },
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
@@ -3330,22 +3395,9 @@ export class HbxRecoveryService {
         );
       }
     }
-
-    const customerByDigits = new Map<string, any>();
-    for (const customer of customers) {
-      customerByDigits.set(this.normalizeDigits(customer.whatsappNumber), customer);
-    }
-
     const items = conversations
       .map((conversation) => {
-        const digits = this.normalizeDigits(conversation.contact);
-        let customer: any = null;
-        for (const [customerDigits, candidate] of customerByDigits.entries()) {
-          if (digits.endsWith(customerDigits) || customerDigits.endsWith(digits)) {
-            customer = candidate;
-            break;
-          }
-        }
+        const customer = customerByConversationId.get(conversation.id) || null;
         if (!customer) return null;
         const latest = latestByConversation.get(conversation.id);
         const complaintCount = Number(complaintCountByConversation.get(conversation.id) || 0);
@@ -3406,7 +3458,7 @@ export class HbxRecoveryService {
     });
     if (!conversation) throw new NotFoundException('Conversa nao encontrada no HBX Recovery.');
 
-    const recoveryCustomer = await this.findCustomerByConversationContact(companyId, conversation.contact);
+    const recoveryCustomer = await this.resolveRecoveryCustomerForConversation(conversation, companyId);
     if (!recoveryCustomer) {
       throw new NotFoundException('Conversa fora da carteira de inadimplentes do HBX Recovery.');
     }

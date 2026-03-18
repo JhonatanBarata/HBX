@@ -231,3 +231,37 @@ test('human interaction reply uses live conversation contact instead of stale cu
     },
   });
 });
+
+test('recovery customer resolution falls back to recovery message contactId when phone changed', async () => {
+  const service = createService();
+  service.prisma = {
+    hbxRecoveryCustomer: {
+      findFirst: async ({ where }: { where: Record<string, any> }) => {
+        if (where?.id === 'cust-77') {
+          return {
+            id: 'cust-77',
+            name: 'Jhonatan',
+            clientName: 'Jhonatan',
+            whatsappNumber: '+5519997024884',
+            openAmount: 120,
+            status: 'OVERDUE',
+          };
+        }
+        return null;
+      },
+    },
+    hbxRecoveryPayment: {
+      findFirst: async () => null,
+    },
+    companyMessage: {
+      findFirst: async () => ({ contactId: 'cust-77' }),
+    },
+  };
+
+  const resolved = await service.resolveRecoveryCustomerForConversation(
+    { id: 3, contact: '+5516993903340', metadata: '{}' },
+    7,
+  );
+
+  assert.equal(resolved?.id, 'cust-77');
+});
