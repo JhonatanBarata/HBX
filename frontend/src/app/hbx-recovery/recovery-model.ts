@@ -148,6 +148,38 @@ export type RecoveryMetaTemplateItem = {
   buttonLabels: string[];
   variableKeys: string[];
   components: unknown[];
+  normalized: {
+    name: string;
+    language: string;
+    category: string;
+    status: string;
+    qualityScore: string | null;
+    rejectedReason: string | null;
+    header: {
+      format: "NONE" | "TEXT" | "IMAGE" | "DOCUMENT" | "VIDEO";
+      text: string | null;
+      exampleHandle: string | null;
+      mediaUrl: string | null;
+      mediaFileName: string | null;
+      mediaContentType: string | null;
+      mediaBase64: string | null;
+    };
+    body: {
+      text: string;
+      variableOrder: string[];
+      variableExamples: Record<string, string>;
+    };
+    footer: {
+      text: string | null;
+    };
+    buttons: Array<{
+      type: string;
+      text: string | null;
+      url: string | null;
+      phoneNumber: string | null;
+    }>;
+    components: unknown[];
+  };
   hbxActive: boolean;
   lastMetaSyncAt: string | null;
   metaApproved: boolean;

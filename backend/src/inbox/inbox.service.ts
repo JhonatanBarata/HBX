@@ -2,13 +2,46 @@ import { BadRequestException, ForbiddenException, Injectable, NotFoundException 
 import { PrismaService } from '../prisma/prisma.service';
 import { MockMessageDto } from './dto/mock-message.dto';
 import { ConversationsService } from '../messaging/conversations.service';
+import { WhatsAppAuditService } from '../messaging/whatsapp-audit.service';
+import {
+  buildStructuredWhatsAppLog,
+  buildWhatsAppPhoneCandidates,
+  normalizeWhatsAppPhone,
+} from '../messaging/whatsapp-channel';
 
 @Injectable()
 export class InboxService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly conversations: ConversationsService,
+    private readonly whatsappAudit: WhatsAppAuditService,
   ) {}
+
+  private async logInboxEvent(input: {
+    companyId: number;
+    event: string;
+    message: string;
+    conversationId?: number | null;
+    phone?: string | null;
+    messageType?: string | null;
+    result?: string | null;
+    extra?: Record<string, unknown> | null;
+  }) {
+    await this.whatsappAudit.log({
+      companyId: input.companyId,
+      scope: 'inbox',
+      event: input.event,
+      message: input.message,
+      metadata: buildStructuredWhatsAppLog({
+        companyId: input.companyId,
+        conversationId: input.conversationId,
+        phone: input.phone,
+        messageType: input.messageType,
+        result: input.result,
+        extra: input.extra || null,
+      }),
+    });
+  }
 
   private requireCompanyIdFromUser(user: any): number {
     const companyId = Number(user?.companyId);
@@ -22,87 +55,163 @@ export class InboxService {
     return normalized;
   }
 
-  private async ensureConversation(companyId: number, id: string) {
-    const conversation = await this.prisma.conversation.findFirst({ where: { id, companyId } });
+  private parseConversationMetadata(raw: string | null | undefined): Record<string, any> {
+    if (!raw) return {};
+    try {
+      const parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+      return parsed as Record<string, any>;
+    } catch {
+      return {};
+    }
+  }
+
+  private toInboxStatus(conversation: {
+    humanAssigned?: boolean | null;
+    botActive?: boolean | null;
+    flowResult?: string | null;
+  }) {
+    if (String(conversation?.flowResult || '').trim().toLowerCase() === 'manual_closed') return 'closed';
+    if (conversation?.humanAssigned) return 'open';
+    if (conversation?.botActive === false) return 'closed';
+    return 'new';
+  }
+
+  private async resolveConversationDisplayName(companyId: number, contact: string, metadataRaw?: string | null) {
+    const metadata = this.parseConversationMetadata(metadataRaw);
+    const metadataName = String(metadata?.cliente || metadata?.customerName || metadata?.name || '').trim();
+    if (metadataName) return metadataName;
+    const digits = String(contact || '').replace(/\D/g, '');
+    if (!digits) return null;
+    const customer = await this.prisma.hbxRecoveryCustomer.findFirst({
+      where: { companyId, whatsappNumber: { endsWith: digits } },
+      select: { clientName: true, name: true },
+    });
+    return String(customer?.clientName || customer?.name || '').trim() || null;
+  }
+
+  private async mapConversation(companyId: number, conversation: any) {
+    const displayName = await this.resolveConversationDisplayName(
+      companyId,
+      String(conversation.contact || ''),
+      conversation.metadata,
+    );
+    return {
+      id: String(conversation.id),
+      status: this.toInboxStatus(conversation),
+      assignedTo: conversation.humanAssigned ? 'humano' : null,
+      createdAt: conversation.createdAt,
+      updatedAt: conversation.updatedAt,
+      customer: {
+        id: String(conversation.id),
+        phone: String(conversation.contact || ''),
+        name: displayName,
+      },
+      messages: (conversation.messages || []).map((message: any) => ({
+        id: String(message.id),
+        direction: String(message.direction || '').trim().toLowerCase(),
+        content: String(message.body || ''),
+        createdAt: message.timestamp,
+        messageType: String(message.messageType || 'text').trim().toLowerCase(),
+        senderType: String(message.senderType || 'system').trim().toLowerCase(),
+        status: String(message.status || 'RECEIVED').trim().toUpperCase(),
+        error: message.error ? String(message.error) : null,
+      })),
+    };
+  }
+
+  private async ensureConversation(companyId: number, id: number) {
+    const conversation = await this.prisma.companyConversation.findFirst({ where: { id, companyId, channel: 'whatsapp' } });
     if (!conversation) throw new NotFoundException('Conversation not found');
     return conversation;
   }
 
   async listConversations(user: any) {
     const companyId = this.requireCompanyIdFromUser(user);
-    return this.prisma.conversation.findMany({
-      where: { companyId },
+    const rows = await this.prisma.companyConversation.findMany({
+      where: { companyId, channel: 'whatsapp' },
       orderBy: { updatedAt: 'desc' },
       include: {
-        customer: true,
         messages: {
-          orderBy: { createdAt: 'desc' },
+          orderBy: { timestamp: 'desc' },
           take: 1,
         },
       },
     });
+    return Promise.all(rows.map((row) => this.mapConversation(companyId, row)));
   }
 
-  private async getConversationByIdForCompany(companyId: number, id: string) {
-    const conversation = await this.prisma.conversation.findFirst({
-      where: { id, companyId },
+  private async getConversationByIdForCompany(companyId: number, id: number) {
+    const conversation = await this.prisma.companyConversation.findFirst({
+      where: { id, companyId, channel: 'whatsapp' },
       include: {
-        customer: true,
-        messages: { orderBy: { createdAt: 'asc' } },
+        messages: { orderBy: { timestamp: 'asc' } },
       },
     });
     if (!conversation) throw new NotFoundException('Conversation not found');
-    return conversation;
+    return this.mapConversation(companyId, conversation);
   }
 
-  async getConversationById(user: any, id: string) {
+  async getConversationById(user: any, id: number) {
     const companyId = this.requireCompanyIdFromUser(user);
     return this.getConversationByIdForCompany(companyId, id);
   }
 
-  async updateConversationStatus(user: any, id: string, status: string) {
+  async updateConversationStatus(user: any, id: number, status: string) {
     const companyId = this.requireCompanyIdFromUser(user);
     await this.ensureConversation(companyId, id);
-    return this.prisma.conversation.update({
+    const normalized = String(status || '').trim().toLowerCase();
+    await this.prisma.companyConversation.update({
       where: { id },
-      data: { status },
-      include: {
-        customer: true,
-        messages: { orderBy: { createdAt: 'asc' } },
+      data: {
+        botActive: normalized === 'new',
+        humanAssigned: normalized === 'open',
+        flowResult: normalized === 'closed' ? 'manual_closed' : null,
       },
     });
+    await this.logInboxEvent({
+      companyId,
+      event: 'conversation_status_updated',
+      message: `Status manual atualizado para ${normalized}`,
+      conversationId: id,
+      result: normalized,
+    });
+    return this.getConversationByIdForCompany(companyId, id);
   }
 
-  async sendMessage(user: any, conversationId: string, content: string) {
+  async sendMessage(user: any, conversationId: number, content: string) {
     const companyId = this.requireCompanyIdFromUser(user);
-    const conversation = await this.prisma.conversation.findFirst({
+    const conversation = await this.prisma.companyConversation.findFirst({
       where: { id: conversationId, companyId },
-      include: { customer: true },
     });
     if (!conversation) throw new NotFoundException('Conversation not found');
 
     const normalizedContent = this.requireTrimmed(content, 'content');
-    const toPhone = this.requireTrimmed(conversation.customer?.phone || '', 'customer phone');
+    const toPhone = this.requireTrimmed(String(conversation.contact || ''), 'customer phone');
 
     await this.conversations.queueOutboundForCompany(companyId, {
+      conversationId,
       to: toPhone,
       body: normalizedContent,
       messageType: 'text',
-      sourceModule: 'atendimento',
-      contactId: conversation.customerId,
-    });
-
-    await this.prisma.message.create({
-      data: {
-        conversationId,
-        direction: 'outbound',
-        content: normalizedContent,
+      sourceModule: 'atendimento_human',
+      senderType: 'human',
+      contactId: toPhone,
+      flowState: {
+        humanAssigned: true,
+        botActive: false,
       },
     });
 
-    await this.prisma.conversation.update({
-      where: { id: conversation.id },
-      data: { status: conversation.status === 'closed' ? 'open' : conversation.status },
+    await this.logInboxEvent({
+      companyId,
+      event: 'manual_outbound_queued',
+      message: `Mensagem manual enfileirada para ${toPhone}`,
+      conversationId,
+      phone: toPhone,
+      messageType: 'text',
+      result: 'queued',
+      extra: { sourceModule: 'atendimento_human' },
     });
 
     return this.getConversationByIdForCompany(companyId, conversationId);
@@ -112,48 +221,30 @@ export class InboxService {
     const companyId = this.requireCompanyIdFromUser(user);
     const phone = this.requireTrimmed(dto.phone, 'phone');
     const content = this.requireTrimmed(dto.message, 'message');
-
-    const customer = await this.prisma.customer.upsert({
-      where: { phone },
-      create: { phone },
-      update: {},
-    });
-
-    let conversation = await this.prisma.conversation.findFirst({
-      where: { companyId, customerId: customer.id, status: { in: ['new', 'open'] } },
-      orderBy: { updatedAt: 'desc' },
-    });
-
-    if (!conversation) {
-      conversation = await this.prisma.conversation.create({
-        data: {
-          companyId,
-          customerId: customer.id,
-          status: 'new',
-        },
-      });
-    }
-
-    await this.prisma.message.create({
-      data: {
-        conversationId: conversation.id,
-        direction: 'inbound',
-        content,
-      },
-    });
-
     await this.conversations.recordInboundMessage({
       companyId,
       from: phone,
       body: content,
     });
-
-    // Touch conversation so listing reflects latest inbound activity.
-    await this.prisma.conversation.update({
-      where: { id: conversation.id },
-      data: { status: conversation.status },
+    const candidates = buildWhatsAppPhoneCandidates(phone);
+    const conversation = await this.prisma.companyConversation.findFirst({
+      where: {
+        companyId,
+        channel: 'whatsapp',
+        OR: [{ contact: normalizeWhatsAppPhone(phone) }, ...candidates.map((candidate) => ({ contact: candidate }))],
+      },
+      orderBy: { updatedAt: 'desc' },
     });
-
+    if (!conversation) throw new NotFoundException('Conversation not found after mock inbound');
+    await this.logInboxEvent({
+      companyId,
+      event: 'mock_inbound_recorded',
+      message: `Mensagem mock persistida para ${phone}`,
+      conversationId: conversation.id,
+      phone,
+      messageType: 'text',
+      result: 'received',
+    });
     return this.getConversationByIdForCompany(companyId, conversation.id);
   }
 }

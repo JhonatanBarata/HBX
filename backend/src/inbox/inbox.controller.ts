@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, ParseUUIDPipe, Patch, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, ParseIntPipe, Patch, Post, Req, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { InboxService } from './inbox.service';
 import { MockMessageDto } from './dto/mock-message.dto';
@@ -24,14 +24,14 @@ export class InboxController {
   }
 
   @Get('conversations/:id')
-  getConversation(@Req() req: any, @Param('id', new ParseUUIDPipe({ version: '4' })) id: string) {
+  getConversation(@Req() req: any, @Param('id', ParseIntPipe) id: number) {
     return this.inboxService.getConversationById(req.user, id);
   }
 
   @Patch('conversations/:id/status')
   updateStatus(
     @Req() req: any,
-    @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
+    @Param('id', ParseIntPipe) id: number,
     @Body() dto: UpdateConversationStatusDto,
   ) {
     return this.inboxService.updateConversationStatus(req.user, id, dto.status);
@@ -40,7 +40,7 @@ export class InboxController {
   @Post('conversations/:id/message')
   sendMessage(
     @Req() req: any,
-    @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
+    @Param('id', ParseIntPipe) id: number,
     @Body() dto: SendConversationMessageDto,
   ) {
     return this.inboxService.sendMessage(req.user, id, dto.content);

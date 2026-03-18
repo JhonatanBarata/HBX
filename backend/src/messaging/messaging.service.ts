@@ -20,6 +20,14 @@ import {
   type RecoveryBotConfig,
   normalizeRecoveryBotConfig,
 } from '../hbx-recovery/recovery-bot-config';
+import {
+  buildStructuredWhatsAppLog,
+  extractInboundTextFromPayload,
+  normalizeMetaProviderError,
+  normalizeWhatsAppMessageType,
+  normalizeWhatsAppPhone,
+  type WhatsAppInboundNormalized,
+} from './whatsapp-channel';
 
 function clamp(n: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, n));
@@ -144,6 +152,48 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
 
   getWebhookVerifyToken(): string {
     return this.verifyToken;
+  }
+
+  private async logWhatsAppEvent(input: {
+    companyId?: number | null;
+    scope: string;
+    event: string;
+    level?: 'INFO' | 'WARN' | 'ERROR';
+    message: string;
+    customerId?: string | null;
+    conversationId?: number | null;
+    phone?: string | null;
+    templateName?: string | null;
+    messageType?: string | null;
+    flowStep?: string | null;
+    result?: string | null;
+    reason?: string | null;
+    extra?: Record<string, unknown> | null;
+  }) {
+    const metadata = buildStructuredWhatsAppLog({
+      companyId: input.companyId,
+      customerId: input.customerId,
+      conversationId: input.conversationId,
+      phone: input.phone,
+      templateName: input.templateName,
+      messageType: input.messageType,
+      flowStep: input.flowStep,
+      result: input.result,
+      reason: input.reason,
+      extra: input.extra || null,
+    });
+    await this.whatsappAudit.log({
+      companyId: Number(input.companyId || 0),
+      scope: input.scope,
+      event: input.event,
+      level: input.level,
+      message: input.message,
+      metadata,
+    });
+  }
+
+  private normalizeProviderDispatchError(error: any, fallback: string) {
+    return normalizeMetaProviderError(error, fallback);
   }
 
   private requireCompanyIdFromUser(user: any): number {
@@ -978,7 +1028,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     const conversation = safeConversationId
       ? await this.prisma.companyConversation.findFirst({
           where: { id: safeConversationId, companyId, channel: 'whatsapp' },
-          select: { id: true, metadata: true },
+          select: { id: true, metadata: true, currentStep: true, botActive: true, humanAssigned: true },
         })
       : null;
     const flowMeta = this.parseConversationMetadata(conversation?.metadata);
@@ -991,6 +1041,24 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     };
 
     const customerName = customer.clientName || customer.name;
+    const inboundMessageType = normalizeWhatsAppMessageType(rawPayload?.type);
+
+    if (conversation?.humanAssigned || conversation?.botActive === false) {
+      await setInboundMeta('hbx_recovery_human', Boolean(normalizedText));
+      await this.logWhatsAppEvent({
+        companyId,
+        scope: 'recovery',
+        event: 'human_mode_inbound',
+        message: 'Mensagem inbound persistida com atendimento humano ativo, sem automacao do bot',
+        customerId: customer.id,
+        conversationId: safeConversationId,
+        phone: from,
+        messageType: inboundMessageType,
+        flowStep: conversation?.currentStep || RECOVERY_STEP.HUMAN,
+        result: 'received',
+      });
+      return { handled: true, humanMode: true };
+    }
 
     const queueMainMenu = async () => {
       const prompt = renderTemplate(config.mainMenuPrompt, {
@@ -1464,17 +1532,22 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
           data: { status: 'SENT', providerMessageId: providerMessageId || undefined, error: null },
         });
         await this.updateRecoveryTemplateLastContact(msg, 'sent', new Date());
-        await this.whatsappAudit.log({
+        await this.logWhatsAppEvent({
           companyId: msg.companyId,
           scope: 'dispatch',
           event: 'outbound_sent',
           message: `Mensagem enviada para ${msg.to}`,
-          metadata: {
+          conversationId: null,
+          phone: msg.to,
+          messageType: msg.messageType || 'text',
+          result: 'sent',
+          extra: {
             outboundMessageId: msg.id,
             providerMessageId: providerMessageId || null,
             attemptNo,
             sourceModule: msg.sourceModule || null,
-            messageType: msg.messageType || 'text',
+            requestBody,
+            providerResponse: res.data ?? null,
           },
         });
         this.logger.log(
@@ -1483,7 +1556,10 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
         return;
       }
 
-      const errorMessage = `WhatsApp provider HTTP ${res.status}`;
+      const errorMessage = this.normalizeProviderDispatchError(
+        { response: { status: res.status, data: res.data } },
+        'Falha ao enviar mensagem para o WhatsApp',
+      );
       const retryAfterHeader = (res.headers?.['retry-after'] ?? res.headers?.['Retry-After']) as any;
       const retryAfterSeconds = retryAfterHeader ? Number(retryAfterHeader) : NaN;
 
@@ -1492,23 +1568,33 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
         const providerError = `${errorMessage} body=${responseText}`;
         await this.prisma.outboundMessage.update({
           where: { id: msg.id },
-          data: { status: 'FAILED', failedAt: new Date(), attemptCount: attemptNo, lastError: providerError },
+          data: {
+            status: 'FAILED',
+            failedAt: new Date(),
+            attemptCount: attemptNo,
+            lastError: providerError,
+            deliveryStatus: 'failed',
+          },
         });
         await this.prisma.companyMessage.updateMany({ where: { outboundMessageId: msg.id }, data: { status: 'FAILED', error: providerError } });
         await this.updateRecoveryTemplateLastContact(msg, 'failed', new Date());
-        await this.whatsappAudit.log({
+        await this.logWhatsAppEvent({
           companyId: msg.companyId,
           scope: 'dispatch',
           event: 'outbound_failed',
           level: 'ERROR',
           message: `Falha sem retry para ${msg.to}`,
-          metadata: {
+          phone: msg.to,
+          messageType: msg.messageType || 'text',
+          result: 'failed',
+          reason: errorMessage,
+          extra: {
             outboundMessageId: msg.id,
             attemptNo,
             httpStatus: res.status,
             providerBody: res.data ?? null,
             sourceModule: msg.sourceModule || null,
-            messageType: msg.messageType || 'text',
+            requestBody,
           },
         });
         return;
@@ -1520,7 +1606,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
         : exponentialBackoffMs(attemptNo) + jitterMs(750);
       throw Object.assign(new Error(errorMessage), { retryDelayMs: delayMs, providerBody: responseText });
     } catch (e: any) {
-      const errorMessage = e?.message || 'Send failed';
+      const errorMessage = this.normalizeProviderDispatchError(e, 'Falha ao enviar mensagem para o WhatsApp');
 
       await this.prisma.outboundAttempt.update({
         where: { id: attempt.id },
@@ -1538,21 +1624,23 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
       });
 
       if (attemptNo >= updated.maxAttempts) {
-        await this.prisma.outboundMessage.update({ where: { id: msg.id }, data: { status: 'FAILED', failedAt: new Date() } });
+        await this.prisma.outboundMessage.update({ where: { id: msg.id }, data: { status: 'FAILED', failedAt: new Date(), deliveryStatus: 'failed' } });
         await this.prisma.companyMessage.updateMany({ where: { outboundMessageId: msg.id }, data: { status: 'FAILED', error: errorMessage } });
         await this.updateRecoveryTemplateLastContact(msg, 'failed', new Date());
-        await this.whatsappAudit.log({
+        await this.logWhatsAppEvent({
           companyId: msg.companyId,
           scope: 'dispatch',
           event: 'outbound_failed',
           level: 'ERROR',
           message: `Falha apos retries para ${msg.to}`,
-          metadata: {
+          phone: msg.to,
+          messageType: msg.messageType || 'text',
+          result: 'failed',
+          reason: errorMessage,
+          extra: {
             outboundMessageId: msg.id,
             attemptNo,
-            error: errorMessage,
             sourceModule: msg.sourceModule || null,
-            messageType: msg.messageType || 'text',
           },
         });
         this.logger.warn(`WhatsApp FAILED messageId=${msg.id} after ${attemptNo} attempts: ${errorMessage}`);
@@ -1563,6 +1651,23 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
       const next = new Date(Date.now() + delayMs);
       await this.prisma.outboundMessage.update({ where: { id: msg.id }, data: { status: 'PENDING', nextAttemptAt: next } });
       await this.prisma.companyMessage.updateMany({ where: { outboundMessageId: msg.id }, data: { status: 'QUEUED', error: errorMessage } });
+      await this.logWhatsAppEvent({
+        companyId: msg.companyId,
+        scope: 'dispatch',
+        event: 'outbound_retry_scheduled',
+        level: 'WARN',
+        message: `Retry agendado para ${msg.to}`,
+        phone: msg.to,
+        messageType: msg.messageType || 'text',
+        result: 'pending',
+        reason: errorMessage,
+        extra: {
+          outboundMessageId: msg.id,
+          attemptNo,
+          retryInSeconds: Math.round(delayMs / 1000),
+          nextAttemptAt: next.toISOString(),
+        },
+      });
       this.logger.warn(`WhatsApp retry scheduled messageId=${msg.id} in ${Math.round(delayMs / 1000)}s: ${errorMessage}`);
     }
   }
@@ -1574,6 +1679,13 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     const signatureOk = this.verifyWebhookSignature(rawBody, signature);
     if (!signatureOk) {
       this.logger.warn('WhatsApp webhook signature invalid');
+      await this.logWhatsAppEvent({
+        scope: 'webhook',
+        event: 'signature_invalid',
+        level: 'WARN',
+        message: 'Webhook do WhatsApp descartado por assinatura invalida',
+        result: 'discarded',
+      });
       // Do not persist orphan events; just discard with log
       return { ok: false };
     }
@@ -1606,6 +1718,16 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
 
           if (!company) {
             this.logger.warn(`WhatsApp status ignored (unmapped company). phone_number_id=${phoneNumberId} display=${displayPhone}`);
+            await this.logWhatsAppEvent({
+              scope: 'webhook',
+              event: 'status_unmapped_company',
+              level: 'WARN',
+              message: 'Status do WhatsApp recebido sem empresa mapeada',
+              phone: displayPhone || phoneNumberId,
+              messageType: 'status',
+              result: 'discarded',
+              extra: { phoneNumberId, displayPhone, providerMessageId },
+            });
           } else {
             await this.prisma.whatsAppWebhookEvent.create({
               data: {
@@ -1656,6 +1778,16 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
                 at,
               );
             }
+            await this.logWhatsAppEvent({
+              companyId: company?.id,
+              scope: 'webhook',
+              event: 'status_received',
+              message: `Status ${status || 'unknown'} recebido da Meta`,
+              phone: displayPhone,
+              messageType: 'status',
+              result: status || 'received',
+              extra: { providerMessageId, phoneNumberId, displayPhone },
+            });
           }
 
           statusesHandled++;
@@ -1666,6 +1798,16 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
         for (const m of messages) {
           if (!company) {
             this.logger.warn(`WhatsApp inbound ignored (unmapped company). phone_number_id=${phoneNumberId} display=${displayPhone}`);
+            await this.logWhatsAppEvent({
+              scope: 'webhook',
+              event: 'inbound_unmapped_company',
+              level: 'WARN',
+              message: 'Mensagem inbound do WhatsApp recebida sem empresa mapeada',
+              phone: m?.from ? String(m.from) : displayPhone,
+              messageType: normalizeWhatsAppMessageType(m?.type),
+              result: 'discarded',
+              extra: { phoneNumberId, displayPhone, providerMessageId: m?.id ? String(m.id) : null },
+            });
             continue;
           }
 
@@ -1679,31 +1821,24 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
           });
 
           const from = m?.from ? String(m.from) : '';
-          const type = m?.type ? String(m.type) : '';
-          let text = '';
-          if (type === 'text') text = String(m?.text?.body ?? '');
-          if (type === 'button') {
-            text = String(m?.button?.payload || m?.button?.text || '');
-          }
-          if (type === 'interactive') {
-            text = String(
-              m?.interactive?.button_reply?.title ||
-                m?.interactive?.button_reply?.id ||
-                m?.interactive?.list_reply?.title ||
-                m?.interactive?.list_reply?.id ||
-                '',
-            );
-          }
-          if (!from || !text) continue;
+          const type = normalizeWhatsAppMessageType(m?.type);
+          const text = extractInboundTextFromPayload(m);
+          if (!from) continue;
 
           const tsMs = m?.timestamp ? Number(String(m.timestamp)) * 1000 : NaN;
           const receivedAt = Number.isFinite(tsMs) ? new Date(tsMs) : new Date();
           const providerMessageId = m?.id ? String(m.id) : undefined;
-          await this.handleInboundMessage(company.id, from, text, {
-            receivedAt,
-            providerMessageId,
+          await this.handleInboundMessage({
+            companyId: company.id,
+            customerPhone: from,
+            conversationId: null,
+            direction: 'inbound',
+            senderType: 'customer',
+            messageType: type === 'template' ? 'text' : type,
+            text,
             rawPayload: m,
-            inboundType: type,
+            externalMessageId: providerMessageId || null,
+            timestamp: receivedAt,
           });
           messagesHandled++;
         }
@@ -1796,78 +1931,58 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     }
 
     const receivedAt = dto.receivedAt ? new Date(String(dto.receivedAt)) : undefined;
-    await this.handleInboundMessage(company.id, dto.from, dto.text, {
-      receivedAt,
+    const inboundType = normalizeWhatsAppMessageType(dto.inboundType);
+    await this.handleInboundMessage({
+      companyId: company.id,
+      customerPhone: dto.from,
+      conversationId: null,
+      direction: 'inbound',
+      senderType: 'customer',
+      messageType: inboundType === 'template' ? 'text' : inboundType,
+      text: String(dto.text || '').trim(),
       rawPayload: dto.rawPayload,
-      inboundType: dto.inboundType,
+      externalMessageId: null,
+      timestamp: receivedAt || new Date(),
     });
     return { ok: true };
   }
 
-  private async syncLegacyInboxInbound(companyId: number, from: string, text: string, receivedAt?: Date) {
-    const normalizedPhone = String(from || '').trim();
-    if (!normalizedPhone) return;
-
-    const customer = await this.prisma.customer.upsert({
-      where: { phone: normalizedPhone },
-      create: { phone: normalizedPhone },
-      update: {},
-    });
-
-    let conversation = await this.prisma.conversation.findFirst({
-      where: { companyId, customerId: customer.id, status: { in: ['new', 'open'] } },
-      orderBy: { updatedAt: 'desc' },
-    });
-
-    if (!conversation) {
-      conversation = await this.prisma.conversation.create({
-        data: {
-          companyId,
-          customerId: customer.id,
-          status: 'new',
-        },
-      });
-    }
-
-    await this.prisma.message.create({
-      data: {
-        conversationId: conversation.id,
-        direction: 'inbound',
-        content: String(text || ''),
-        createdAt: receivedAt || new Date(),
-      },
-    });
-
-    await this.prisma.conversation.update({
-      where: { id: conversation.id },
-      data: { status: conversation.status === 'closed' ? 'open' : conversation.status },
-    });
-  }
-
-  private async handleInboundMessage(
-    companyId: number,
-    from: string,
-    text: string,
-    meta?: { receivedAt?: Date; providerMessageId?: string; rawPayload?: any; inboundType?: string },
-  ) {
+  private async handleInboundMessage(input: WhatsAppInboundNormalized) {
+    const companyId = Number(input.companyId || 0);
+    const from = normalizeWhatsAppPhone(input.customerPhone);
+    const text = String(input.text || '').trim();
     const company = await this.prisma.company.findUnique({ where: { id: companyId } });
     if (!company) throw new NotFoundException(`Company with id ${companyId} not found`);
 
-    const inboundType = String(meta?.inboundType || 'text').trim().toLowerCase() || 'text';
+    const inboundType = normalizeWhatsAppMessageType(input.messageType);
     const inboundRow = await this.conversations.recordInboundMessage({
       companyId,
       from,
       body: text,
-      receivedAt: meta?.receivedAt,
-      providerMessageId: meta?.providerMessageId,
-      rawPayload: meta?.rawPayload,
+      receivedAt: input.timestamp,
+      providerMessageId: input.externalMessageId || undefined,
+      rawPayload: input.rawPayload,
       messageType: inboundType,
       senderType: 'client',
       sourceModule: 'whatsapp_webhook',
     });
+    await this.logWhatsAppEvent({
+      companyId,
+      scope: 'webhook',
+      event: 'inbound_persisted',
+      message: `Mensagem inbound ${inboundType} persistida`,
+      conversationId: Number(inboundRow?.conversationId || 0) || null,
+      phone: from,
+      messageType: inboundType,
+      result: 'received',
+      extra: {
+        providerMessageId: input.externalMessageId,
+        companyMessageId: inboundRow?.id || null,
+      },
+    });
 
     const recoveryCustomer = await this.findRecoveryCustomerByPhone(companyId, from);
-    if (recoveryCustomer) {
+    if (recoveryCustomer && ['text', 'button', 'interactive', 'image', 'document', 'audio'].includes(inboundType)) {
       await this.handleRecoveryInbound({
         companyId,
         from,
@@ -1875,7 +1990,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
         conversationId: Number(inboundRow?.conversationId || 0),
         inboundMessageId: Number(inboundRow?.id || 0),
         customer: recoveryCustomer,
-        rawPayload: meta?.rawPayload,
+        rawPayload: input.rawPayload,
       });
       return { matched: true, source: 'hbx_recovery', customerId: recoveryCustomer.id };
     }
@@ -1894,7 +2009,6 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     }
 
     await this.prisma.inboundMessage.create({ data: { companyId, from, body: text } });
-    await this.syncLegacyInboxInbound(companyId, from, text, meta?.receivedAt);
 
     // If orchestrator decided a reply, enqueue it and stop here (avoid double-automation).
     if (decision.reply) {

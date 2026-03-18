@@ -25,6 +25,16 @@ import {
   type RecoveryBotConfig,
   normalizeRecoveryBotConfig,
 } from './recovery-bot-config';
+import {
+  buildNormalizedMetaTemplate,
+  extractNumericTemplateVariablesInOrder,
+  isMetaMediaHeaderFormat as isNormalizedMetaMediaHeaderFormat,
+  normalizeMetaTemplateCategory,
+  normalizeMetaTemplateHeaderFormat,
+  normalizeMetaTemplateRejectionReason,
+  normalizeMetaTemplateStatus,
+  type RecoveryNormalizedMetaTemplate,
+} from './meta-template-normalization';
 
 type RecoveryPaymentRecord = { id: string; label: string; date: string; amount: number; status: string };
 type RecoveryDelayRecord = { id: string; period: string; daysLate: number; outcome: string };
@@ -50,6 +60,7 @@ type RecoveryMetaTemplate = {
   buttonLabels: string[];
   variableKeys: string[];
   components: unknown[];
+  normalized: RecoveryNormalizedMetaTemplate;
   hbxActive: boolean;
   lastMetaSyncAt: string | null;
 };
@@ -445,46 +456,42 @@ export class HbxRecoveryService {
     template?: RecoveryMetaTemplate | null,
     operatorName?: string | null,
   ) {
+    const normalized = this.getNormalizedMetaTemplate(template);
     const serviceDate = customer?.createdAt
       ? new Date(customer.createdAt).toLocaleDateString('pt-BR')
       : new Date().toLocaleDateString('pt-BR');
     const contactName = String(customer?.clientName || customer?.name || '').trim() || 'cliente';
     const operatorLabel = String(operatorName || '').trim() || 'Atendente';
-    const templateVariableKeys = Array.isArray(template?.variableKeys)
-      ? template!.variableKeys
-          .map((item) => this.normalizeTemplateVariableKey(item))
-          .filter((item) => item.length > 0)
-      : [];
-    const orderedBodyVariables =
-      templateVariableKeys.length > 0
-        ? templateVariableKeys
-        : template?.bodyText
-          ? this.extractTemplateVariablesInOrder(template.bodyText)
-          : [];
-    const bodyVariableMap: Record<string, string> = {
-      empresa: String(companyName || 'HBX Recovery'),
-      cliente: contactName,
-      data_servico: serviceDate,
-      funcionario: operatorLabel,
-      cliente_nome: contactName,
-      empresa_nome: String(companyName || 'HBX Recovery'),
-      operador_nome: operatorLabel,
-    };
+    const orderedBodyVariables = normalized.body.variableOrder;
+    const formattedAmount = Number(customer?.openAmount || 0).toLocaleString('pt-BR', {
+      style: 'currency',
+      currency: 'BRL',
+    });
+    const installmentCount = '3';
+    const installmentValue = (Number(customer?.openAmount || 0) / 3 || 0).toLocaleString('pt-BR', {
+      style: 'currency',
+      currency: 'BRL',
+    });
     const orderedFallbackValues = [
       String(companyName || 'HBX Recovery'),
       operatorLabel,
       contactName,
       serviceDate,
       'manutencao preventiva',
-      'R$ 480,00',
-      '3',
-      'R$ 160,00',
+      formattedAmount,
+      installmentCount,
+      installmentValue,
       'https://pagamentos.hbx.app/exemplo',
     ];
+    if (orderedBodyVariables.length > orderedFallbackValues.length) {
+      throw new BadRequestException(
+        `Template '${normalized.name}' exige ${orderedBodyVariables.length} variaveis no BODY, mas o fluxo inicial do Recovery suporta ${orderedFallbackValues.length}.`,
+      );
+    }
     const components: Array<Record<string, any>> = [];
     const resolvedHeaderMediaUrl = this.resolveTemplateHeaderMediaUrl(template);
-    if (template && this.isMetaMediaHeaderFormat(template.headerFormat) && resolvedHeaderMediaUrl) {
-      const mediaType = String(template.headerFormat || '').trim().toLowerCase();
+    if (template && this.isMetaMediaHeaderFormat(normalized.header.format) && resolvedHeaderMediaUrl) {
+      const mediaType = String(normalized.header.format || '').trim().toLowerCase();
       components.push({
         type: 'header',
         parameters: [
@@ -501,15 +508,15 @@ export class HbxRecoveryService {
       components.push({
         type: 'body',
         parameters: orderedBodyVariables.map((key, index) => {
-          if (this.isNumericTemplateVariableKey(key)) {
-            return {
-              type: 'text',
-              text: orderedFallbackValues[index] || '-',
-            };
+          const value = String(orderedFallbackValues[index] || '').trim();
+          if (!value) {
+            throw new BadRequestException(
+              `Template '${normalized.name}' exige a variavel {{${key}}} no BODY, mas o HBX Recovery nao conseguiu preenche-la automaticamente.`,
+            );
           }
           return {
             type: 'text',
-            text: bodyVariableMap[key] || this.metaTemplateExampleValue(key, { companyName, operatorName }) || '-',
+            text: value,
           };
         }),
       });
@@ -635,23 +642,21 @@ export class HbxRecoveryService {
   }
 
   private normalizeMetaStatus(statusRaw: string | null | undefined) {
-    return String(statusRaw || 'UNKNOWN').trim().toUpperCase() || 'UNKNOWN';
+    return normalizeMetaTemplateStatus(statusRaw);
   }
 
   private normalizeMetaCategory(categoryRaw: string | null | undefined) {
-    return String(categoryRaw || 'UTILITY').trim().toUpperCase() || 'UTILITY';
+    return normalizeMetaTemplateCategory(categoryRaw);
   }
 
   private normalizeMetaHeaderFormat(formatRaw: string | null | undefined) {
-    const normalized = String(formatRaw || '').trim().toUpperCase();
-    if (['TEXT', 'IMAGE', 'DOCUMENT', 'VIDEO'].includes(normalized)) return normalized;
-    return null;
+    const normalized = normalizeMetaTemplateHeaderFormat(formatRaw);
+    if (normalized === 'NONE') return null;
+    return normalized;
   }
 
   private isMetaMediaHeaderFormat(formatRaw: string | null | undefined) {
-    return ['IMAGE', 'DOCUMENT', 'VIDEO'].includes(
-      this.normalizeMetaHeaderFormat(formatRaw) || '',
-    );
+    return isNormalizedMetaMediaHeaderFormat(formatRaw);
   }
 
   private normalizeOptionalHttpUrl(valueRaw: string | null | undefined, field: string) {
@@ -733,16 +738,141 @@ export class HbxRecoveryService {
   }
 
   private resolveTemplateHeaderMediaUrl(template?: RecoveryMetaTemplate | null, companyId?: number) {
-    if (!template || !this.isMetaMediaHeaderFormat(template.headerFormat)) return null;
-    const storedUrl = String(template.headerMediaUrl || '').trim();
+    if (!template) return null;
+    const normalized = this.getNormalizedMetaTemplate(template);
+    if (!this.isMetaMediaHeaderFormat(normalized.header.format)) return null;
+    const storedUrl = String(normalized.header.mediaUrl || '').trim();
     if (storedUrl && !this.isLocalOnlyUrl(storedUrl)) {
       return this.rebuildTemplateMediaUrlWithCurrentPublicBase(storedUrl);
     }
-    if (companyId && String(template.headerMediaBase64 || '').trim()) {
+    if (companyId && String(normalized.header.mediaBase64 || '').trim()) {
       return this.buildTemplateHeaderMediaPublicUrl(companyId, template.name, template.language);
     }
     if (!storedUrl) return null;
     return this.rebuildTemplateMediaUrlWithCurrentPublicBase(storedUrl);
+  }
+
+  private getNormalizedMetaTemplate(template?: Partial<RecoveryMetaTemplate> | null) {
+    if (template?.normalized) return template.normalized;
+    return buildNormalizedMetaTemplate({
+      name: String(template?.name || '').trim(),
+      language: String(template?.language || 'pt_BR').trim() || 'pt_BR',
+      category: this.normalizeMetaCategory(template?.category),
+      status: this.normalizeMetaStatus(template?.status),
+      qualityScore:
+        template?.qualityScore !== undefined && template?.qualityScore !== null
+          ? String(template.qualityScore)
+          : null,
+      rejectedReason:
+        template?.rejectedReason !== undefined && template?.rejectedReason !== null
+          ? String(template.rejectedReason)
+          : null,
+      components: Array.isArray(template?.components) ? template?.components : [],
+      fallback: {
+        headerFormat: template?.headerFormat,
+        headerText: template?.headerText,
+        headerHandle: template?.headerHandle,
+        headerMediaUrl: template?.headerMediaUrl,
+        headerMediaFileName: template?.headerMediaFileName,
+        headerMediaContentType: template?.headerMediaContentType,
+        headerMediaBase64: template?.headerMediaBase64,
+        bodyText: template?.bodyText,
+        footerText: template?.footerText,
+        buttonLabels: Array.isArray(template?.buttonLabels) ? template.buttonLabels : [],
+        variableKeys: Array.isArray(template?.variableKeys) ? template.variableKeys : [],
+      },
+    });
+  }
+
+  private createMetaTemplateRecord(input: {
+    id: string | null;
+    name: string;
+    language: string;
+    category: string;
+    status: string;
+    qualityScore: string | null;
+    rejectedReason: string | null;
+    components: unknown[];
+    hbxActive: boolean;
+    lastMetaSyncAt: string | null;
+    localMedia?: {
+      headerMediaUrl: string | null;
+      headerMediaFileName: string | null;
+      headerMediaContentType: string | null;
+      headerMediaBase64: string | null;
+    };
+  }): RecoveryMetaTemplate {
+    const normalized = buildNormalizedMetaTemplate({
+      name: input.name,
+      language: input.language,
+      category: input.category,
+      status: input.status,
+      qualityScore: input.qualityScore,
+      rejectedReason: input.rejectedReason,
+      components: input.components,
+      fallback: {
+        headerMediaUrl: input.localMedia?.headerMediaUrl || null,
+        headerMediaFileName: input.localMedia?.headerMediaFileName || null,
+        headerMediaContentType: input.localMedia?.headerMediaContentType || null,
+        headerMediaBase64: input.localMedia?.headerMediaBase64 || null,
+      },
+    });
+    return {
+      id: input.id,
+      name: normalized.name,
+      language: normalized.language,
+      category: normalized.category,
+      status: normalized.status,
+      qualityScore: normalized.qualityScore,
+      rejectedReason: normalized.rejectedReason,
+      headerFormat: normalized.header.format,
+      headerText: normalized.header.text,
+      headerHandle: normalized.header.exampleHandle,
+      headerMediaUrl: normalized.header.mediaUrl,
+      headerMediaFileName: normalized.header.mediaFileName,
+      headerMediaContentType: normalized.header.mediaContentType,
+      headerMediaBase64: normalized.header.mediaBase64,
+      bodyText: normalized.body.text,
+      footerText: normalized.footer.text,
+      buttonLabels: normalized.buttons
+        .map((button) => String(button.text || ''))
+        .filter((button) => button.length > 0),
+      variableKeys: normalized.body.variableOrder,
+      components: normalized.components,
+      normalized,
+      hbxActive: Boolean(input.hbxActive),
+      lastMetaSyncAt: input.lastMetaSyncAt,
+    };
+  }
+
+  private rebuildMetaTemplateRecord(
+    template: Partial<RecoveryMetaTemplate> & { name: string; language: string },
+  ) {
+    const normalized = this.getNormalizedMetaTemplate(template);
+    return this.createMetaTemplateRecord({
+      id:
+        template?.id !== undefined && template?.id !== null
+          ? String(template.id)
+          : null,
+      name: normalized.name,
+      language: normalized.language,
+      category: normalized.category,
+      status: normalized.status,
+      qualityScore: normalized.qualityScore,
+      rejectedReason: normalized.rejectedReason,
+      components: normalized.components,
+      hbxActive: Boolean(template?.hbxActive),
+      lastMetaSyncAt:
+        template?.lastMetaSyncAt !== undefined && template?.lastMetaSyncAt !== null
+          ? String(template.lastMetaSyncAt)
+          : null,
+      localMedia: {
+        headerMediaUrl: normalized.header.mediaUrl,
+        headerMediaFileName: normalized.header.mediaFileName,
+        headerMediaContentType: normalized.header.mediaContentType,
+        headerMediaBase64: normalized.header.mediaBase64,
+      },
+    });
   }
 
   private assertTemplateHeaderMediaUrlIsPublic(templateName: string, headerMediaUrl: string | null) {
@@ -776,67 +906,7 @@ export class HbxRecoveryService {
         wabaId: parsed?.wabaId ? String(parsed.wabaId) : null,
         lastSyncAt: parsed?.lastSyncAt ? String(parsed.lastSyncAt) : null,
         templates: templates
-          .map((item) => ({
-            id: item?.id ? String(item.id) : null,
-            name: String(item?.name || '').trim(),
-            language: String(item?.language || 'pt_BR').trim() || 'pt_BR',
-            category: this.normalizeMetaCategory(item?.category),
-            status: this.normalizeMetaStatus(item?.status),
-            qualityScore:
-              item?.qualityScore !== undefined && item?.qualityScore !== null
-                ? String(item.qualityScore)
-                : null,
-            rejectedReason:
-              item?.rejectedReason !== undefined && item?.rejectedReason !== null
-                ? String(item.rejectedReason)
-                : null,
-            headerFormat: this.normalizeMetaHeaderFormat(item?.headerFormat),
-            headerText:
-              item?.headerText !== undefined && item?.headerText !== null
-                ? String(item.headerText).trim() || null
-                : null,
-            headerHandle:
-              item?.headerHandle !== undefined && item?.headerHandle !== null
-                ? String(item.headerHandle).trim() || null
-                : null,
-            headerMediaUrl:
-              item?.headerMediaUrl !== undefined && item?.headerMediaUrl !== null
-                ? String(item.headerMediaUrl).trim() || null
-                : null,
-            headerMediaFileName:
-              item?.headerMediaFileName !== undefined && item?.headerMediaFileName !== null
-                ? String(item.headerMediaFileName).trim() || null
-                : null,
-            headerMediaContentType:
-              item?.headerMediaContentType !== undefined && item?.headerMediaContentType !== null
-                ? String(item.headerMediaContentType).trim() || null
-                : null,
-            headerMediaBase64:
-              item?.headerMediaBase64 !== undefined && item?.headerMediaBase64 !== null
-                ? String(item.headerMediaBase64).trim() || null
-                : null,
-            bodyText: String(item?.bodyText || '').trim(),
-            footerText:
-              item?.footerText !== undefined && item?.footerText !== null
-                ? String(item.footerText)
-                : null,
-            buttonLabels: Array.isArray(item?.buttonLabels)
-              ? item.buttonLabels
-                  .map((value) => String(value || '').trim())
-                  .filter((value) => value.length > 0)
-              : [],
-            variableKeys: Array.isArray(item?.variableKeys)
-              ? item.variableKeys
-                  .map((value) => String(value || '').trim())
-                  .filter((value) => value.length > 0)
-              : [],
-            components: Array.isArray(item?.components) ? item.components : [],
-            hbxActive: Boolean(item?.hbxActive),
-            lastMetaSyncAt:
-              item?.lastMetaSyncAt !== undefined && item?.lastMetaSyncAt !== null
-                ? String(item.lastMetaSyncAt)
-                : null,
-          }))
+          .map((item) => this.rebuildMetaTemplateRecord(item as any))
           .filter((item) => item.name),
         history: history
           .map((item) => ({
@@ -849,7 +919,7 @@ export class HbxRecoveryService {
                 ? String(item.previousStatus)
                 : null,
             nextStatus: this.normalizeMetaStatus(item?.nextStatus),
-            reason: item?.reason !== undefined && item?.reason !== null ? String(item.reason) : null,
+            reason: normalizeMetaTemplateRejectionReason(item?.reason),
             changedAt: String(item?.changedAt || '').trim(),
           }))
           .filter((item) => item.id && item.templateKey && item.changedAt),
@@ -1382,10 +1452,10 @@ export class HbxRecoveryService {
         this.tryAliasLatestLegacyTemplateMedia(template, missingMediaTemplates);
       if (!stored) return template;
       changed = true;
-      return {
+      return this.rebuildMetaTemplateRecord({
         ...template,
         headerMediaUrl: stored.publicUrl,
-      };
+      });
     });
 
     if (!changed) return registry;
@@ -1421,12 +1491,27 @@ export class HbxRecoveryService {
       wabaId: registry?.wabaId || null,
       lastSyncAt: registry?.lastSyncAt || null,
       counters,
-      templates: templates.map((item) => ({
-        ...item,
-        headerMediaUrl: this.resolveTemplateHeaderMediaUrl(item, companyId),
-        metaApproved: this.normalizeMetaStatus(item.status) === 'APPROVED',
-        eligibleForRecovery: this.getRecoveryStartTemplateCompatibilityIssues(item).length === 0,
-      })),
+      templates: templates.map((item) => {
+        const normalized = this.getNormalizedMetaTemplate(item);
+        const resolvedHeaderMediaUrl = this.resolveTemplateHeaderMediaUrl(item, companyId);
+        const projected = this.rebuildMetaTemplateRecord({
+          ...item,
+          headerMediaUrl: resolvedHeaderMediaUrl,
+        });
+        return {
+          ...projected,
+          normalized: {
+            ...normalized,
+            header: {
+              ...normalized.header,
+              mediaUrl: resolvedHeaderMediaUrl,
+            },
+          },
+          headerMediaUrl: resolvedHeaderMediaUrl,
+          metaApproved: this.normalizeMetaStatus(item.status) === 'APPROVED',
+          eligibleForRecovery: this.getRecoveryStartTemplateCompatibilityIssues(projected).length === 0,
+        };
+      }),
       history: (registry?.history || [])
         .slice(0, RECOVERY_META_TEMPLATES_HISTORY_LIMIT)
         .sort((a, b) => String(b.changedAt).localeCompare(String(a.changedAt))),
@@ -1455,17 +1540,10 @@ export class HbxRecoveryService {
       const previousTemplate = prevMap.get(key);
       const status = this.normalizeMetaStatus(row?.status);
       const category = this.normalizeMetaCategory(row?.category);
-      const parts = this.hydrateFriendlyTemplateParts(
-        this.extractMetaTemplateBodyAndButtons(row?.components),
-        previousTemplate,
-      );
       const qualityRaw = row?.quality_score?.score ?? row?.quality_score;
       const qualityScore =
         qualityRaw !== undefined && qualityRaw !== null ? String(qualityRaw).trim() : null;
-      const rejectedReason =
-        row?.rejected_reason !== undefined && row?.rejected_reason !== null
-          ? String(row.rejected_reason).trim() || null
-          : null;
+      const rejectedReason = normalizeMetaTemplateRejectionReason(row?.rejected_reason);
 
       if (previousTemplate && this.normalizeMetaStatus(previousTemplate.status) !== status) {
         history.unshift({
@@ -1480,29 +1558,32 @@ export class HbxRecoveryService {
         });
       }
 
-      templates.push({
-        id: row?.id !== undefined && row?.id !== null ? String(row.id) : null,
-        name,
-        language,
-        category,
-        status,
-        qualityScore,
-        rejectedReason,
-        headerFormat: parts.headerFormat,
-        headerText: parts.headerText,
-        headerHandle: parts.headerHandle || previousTemplate?.headerHandle || null,
-        headerMediaUrl: previousTemplate?.headerMediaUrl || null,
-        headerMediaFileName: previousTemplate?.headerMediaFileName || null,
-        headerMediaContentType: previousTemplate?.headerMediaContentType || null,
-        headerMediaBase64: previousTemplate?.headerMediaBase64 || null,
-        bodyText: parts.bodyText,
-        footerText: parts.footerText,
-        buttonLabels: parts.buttonLabels,
-        variableKeys: parts.variableKeys,
-        components: parts.components,
-        hbxActive: Boolean(previousTemplate?.hbxActive),
-        lastMetaSyncAt: nowIso,
-      });
+      templates.push(
+        this.createMetaTemplateRecord({
+          id: row?.id !== undefined && row?.id !== null ? String(row.id) : null,
+          name,
+          language,
+          category,
+          status,
+          qualityScore,
+          rejectedReason,
+          components: Array.isArray(row?.components) ? row.components : [],
+          hbxActive: Boolean(previousTemplate?.hbxActive),
+          lastMetaSyncAt: nowIso,
+          localMedia: this.isMetaMediaHeaderFormat(
+            normalizeMetaTemplateHeaderFormat((row?.components || []).find?.(
+              (component: any) => String(component?.type || '').trim().toUpperCase() === 'HEADER',
+            )?.format),
+          )
+            ? {
+                headerMediaUrl: previousTemplate?.headerMediaUrl || null,
+                headerMediaFileName: previousTemplate?.headerMediaFileName || null,
+                headerMediaContentType: previousTemplate?.headerMediaContentType || null,
+                headerMediaBase64: previousTemplate?.headerMediaBase64 || null,
+              }
+            : undefined,
+        }),
+      );
     }
 
     const registry: RecoveryMetaTemplateRegistry = {
@@ -1558,39 +1639,34 @@ export class HbxRecoveryService {
   }
 
   private recoveryStartTemplateHasQuickReplies(template: RecoveryMetaTemplate) {
-    const components = Array.isArray(template.components) ? template.components : [];
-    const buttonComponents = components.filter(
-      (item) => String((item as any)?.type || '').trim().toUpperCase() === 'BUTTONS',
-    );
-    if (!buttonComponents.length) {
-      return template.buttonLabels.length > 0 && template.buttonLabels.length <= 3;
-    }
-
+    const normalized = this.getNormalizedMetaTemplate(template);
+    if (!normalized.buttons.length) return false;
     let totalButtons = 0;
-    for (const component of buttonComponents) {
-      const buttons = Array.isArray((component as any)?.buttons) ? (component as any).buttons : [];
-      if (!buttons.length) continue;
-      for (const button of buttons) {
-        if (String((button as any)?.type || '').trim().toUpperCase() !== 'QUICK_REPLY') {
-          return false;
-        }
-        totalButtons += 1;
-      }
+    for (const button of normalized.buttons) {
+      if (String(button.type || '').trim().toUpperCase() !== 'QUICK_REPLY') return false;
+      totalButtons += 1;
     }
     return totalButtons > 0 && totalButtons <= 3;
   }
 
   private getRecoveryStartTemplateCompatibilityIssues(template: RecoveryMetaTemplate) {
+    const normalized = this.getNormalizedMetaTemplate(template);
     const issues: string[] = [];
     if (String(template.language || '').trim().toLowerCase() !== 'pt_br') {
       issues.push('use a variante pt_BR');
     }
     const resolvedHeaderMediaUrl = this.resolveTemplateHeaderMediaUrl(template);
-    if (this.isMetaMediaHeaderFormat(template.headerFormat) && !String(resolvedHeaderMediaUrl || '').trim()) {
+    if (this.isMetaMediaHeaderFormat(normalized.header.format) && !String(resolvedHeaderMediaUrl || '').trim()) {
       issues.push('salve a URL publica da midia de cabecalho');
     }
-    if (this.isMetaMediaHeaderFormat(template.headerFormat) && this.isLocalOnlyUrl(resolvedHeaderMediaUrl)) {
+    if (this.isMetaMediaHeaderFormat(normalized.header.format) && this.isLocalOnlyUrl(resolvedHeaderMediaUrl)) {
       issues.push('use PUBLIC_API_BASE_URL com uma URL publica para a imagem de cabecalho');
+    }
+    if (normalized.header.format === 'TEXT' && extractNumericTemplateVariablesInOrder(normalized.header.text).length > 0) {
+      issues.push('remova variaveis do cabecalho de texto');
+    }
+    if (extractNumericTemplateVariablesInOrder(normalized.footer.text).length > 0) {
+      issues.push('remova variaveis do rodape');
     }
     if (!this.recoveryStartTemplateHasQuickReplies(template)) {
       issues.push('mantenha de 1 a 3 botoes do tipo resposta rapida');
@@ -1737,14 +1813,19 @@ export class HbxRecoveryService {
     registry.templates = (registry.templates || []).map((item) => {
       if (this.metaTemplateKey(item.name, item.language) !== key) return item;
       changed = true;
-      return {
+      const normalized = this.getNormalizedMetaTemplate(item);
+      const nextHeaderMediaUrl =
+        hasHeaderMediaUrl && this.isMetaMediaHeaderFormat(normalized.header.format)
+          ? headerMediaUrl
+          : item.headerMediaUrl;
+      return this.rebuildMetaTemplateRecord({
         ...item,
         hbxActive: Boolean(dto?.active),
-        headerMediaUrl: hasHeaderMediaUrl ? headerMediaUrl : item.headerMediaUrl,
+        headerMediaUrl: nextHeaderMediaUrl,
         headerMediaFileName: hasHeaderMediaUrl ? null : item.headerMediaFileName,
         headerMediaContentType: hasHeaderMediaUrl ? null : item.headerMediaContentType,
         headerMediaBase64: hasHeaderMediaUrl ? null : item.headerMediaBase64,
-      };
+      });
     });
     if (!changed) {
       throw new NotFoundException(
@@ -1885,29 +1966,14 @@ export class HbxRecoveryService {
     const createdKey = this.metaTemplateKey(nameRaw, language);
     registry.templates = (registry.templates || []).map((item) =>
       this.metaTemplateKey(item.name, item.language) === createdKey
-        ? {
+        ? this.rebuildMetaTemplateRecord({
             ...item,
             hbxActive: Boolean(dto?.activateInHbx),
-            headerFormat: headerFormat || item.headerFormat,
-            headerText:
-              headerFormat === 'TEXT'
-                ? headerText || item.headerText
-                : item.headerText,
             headerHandle:
-              this.isMetaMediaHeaderFormat(headerFormat)
-                ? headerHandle || item.headerHandle
-                : item.headerHandle,
+              this.isMetaMediaHeaderFormat(headerFormat) ? headerHandle || item.headerHandle : item.headerHandle,
             headerMediaUrl:
-              this.isMetaMediaHeaderFormat(headerFormat)
-                ? headerMediaUrl || item.headerMediaUrl
-                : item.headerMediaUrl,
-            bodyText: bodyTemplate.friendlyText,
-            footerText: footerText || item.footerText,
-            variableKeys:
-              bodyTemplate.variableKeys.length > 0
-                ? bodyTemplate.variableKeys
-                : item.variableKeys,
-          }
+              this.isMetaMediaHeaderFormat(headerFormat) ? headerMediaUrl || item.headerMediaUrl : item.headerMediaUrl,
+          })
         : item,
     );
     registry = await this.saveMetaTemplateRegistry(companyId, registry);
@@ -2032,14 +2098,14 @@ export class HbxRecoveryService {
           ...registry,
           templates: (registry.templates || []).map((item) =>
             this.metaTemplateKey(item.name, item.language) === templateKey
-              ? {
+              ? this.rebuildMetaTemplateRecord({
                   ...item,
                   headerHandle,
                   headerMediaUrl,
                   headerMediaFileName: stored.fileName,
                   headerMediaContentType: contentType,
                   headerMediaBase64,
-                }
+                })
               : item,
           ),
         });

@@ -1,6 +1,10 @@
 ﻿import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { WhatsAppStatusService } from './whatsapp-status.service';
+import {
+  buildWhatsAppPhoneCandidates,
+  normalizeWhatsAppPhone,
+} from './whatsapp-channel';
 
 function requireCompanyIdFromUser(user: any): number {
   const companyId = Number(user?.companyId);
@@ -11,14 +15,13 @@ function requireCompanyIdFromUser(user: any): number {
 const TWENTY_FOUR_HOURS_MS = 24 * 60 * 60 * 1000;
 
 function normalizeWhatsAppContact(raw: string): string {
-  const normalized = String(raw || '').trim();
-  if (!normalized) return '';
-  const digits = normalized.replace(/\D/g, '');
-  if (!digits) return normalized;
-  return `+${digits}`;
+  const normalized = normalizeWhatsAppPhone(raw);
+  if (normalized) return normalized;
+  return String(raw || '').trim();
 }
 
 export type QueueOutboundPayload = {
+  conversationId?: number;
   to: string;
   body?: string;
   at?: Date;
@@ -64,15 +67,17 @@ export class ConversationsService {
 
     const at = input.at ?? new Date();
     if (channel === 'whatsapp') {
+      const candidates = buildWhatsAppPhoneCandidates(contact);
       const digits = contact.replace(/\D/g, '');
-      if (digits) {
+      if (digits || candidates.length) {
         const existing = await this.prisma.companyConversation.findFirst({
           where: {
             companyId,
             channel,
             OR: [
               { contact: contact },
-              { contact: { endsWith: digits } },
+              ...candidates.map((candidate) => ({ contact: candidate })),
+              ...(digits ? [{ contact: { endsWith: digits } }] : []),
             ],
           },
           orderBy: { lastMessageAt: 'desc' },
@@ -284,7 +289,15 @@ export class ConversationsService {
 
     await this.whatsappStatus.ensureConnected(companyId);
 
-    const conversation = await this.getOrCreateConversation({ companyId, contact: to, channel: 'whatsapp', at });
+    let conversation = null as any;
+    if (Number(payload?.conversationId || 0) > 0) {
+      conversation = await this.prisma.companyConversation.findFirst({
+        where: { id: Number(payload.conversationId), companyId, channel: 'whatsapp' },
+      });
+    }
+    if (!conversation) {
+      conversation = await this.getOrCreateConversation({ companyId, contact: to, channel: 'whatsapp', at });
+    }
     const openWindow = await this.hasOpenCustomerServiceWindow(companyId, conversation.id);
 
     if (!openWindow && messageType !== 'template') {

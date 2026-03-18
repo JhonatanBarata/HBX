@@ -389,8 +389,9 @@ function metaStatusLabel(statusRaw: string) {
 
 function normalizeHeaderFormat(
   formatRaw: string | null | undefined,
-): "TEXT" | "IMAGE" | "DOCUMENT" | "VIDEO" | null {
+): "NONE" | "TEXT" | "IMAGE" | "DOCUMENT" | "VIDEO" | null {
   const normalized = String(formatRaw || "").trim().toUpperCase();
+  if (normalized === "NONE") return "NONE";
   if (
     normalized === "TEXT" ||
     normalized === "IMAGE" ||
@@ -800,6 +801,35 @@ function normalizeMetaTemplatesPayload(
   };
 }
 
+function getTemplateViewModel(template: RecoveryMetaTemplateItem) {
+  const normalized = template.normalized;
+  return {
+    headerFormat: normalizeHeaderFormat(normalized?.header?.format || template.headerFormat) || "NONE",
+    headerText: normalized?.header?.text ?? template.headerText ?? "",
+    headerHandle: normalized?.header?.exampleHandle ?? template.headerHandle ?? "",
+    headerMediaUrl: normalized?.header?.mediaUrl ?? template.headerMediaUrl ?? "",
+    bodyText: normalized?.body?.text ?? template.bodyText ?? "",
+    footerText: normalized?.footer?.text ?? template.footerText ?? "",
+    variableOrder: Array.isArray(normalized?.body?.variableOrder)
+      ? normalized.body.variableOrder
+      : Array.isArray(template.variableKeys)
+        ? template.variableKeys
+        : [],
+    variableExamples:
+      normalized?.body?.variableExamples && typeof normalized.body.variableExamples === "object"
+        ? normalized.body.variableExamples
+        : {},
+    buttons: Array.isArray(normalized?.buttons) && normalized.buttons.length
+      ? normalized.buttons
+      : (template.buttonLabels || []).map((text) => ({
+          type: "QUICK_REPLY",
+          text,
+          url: null,
+          phoneNumber: null,
+        })),
+  };
+}
+
 type BotButtonSectionKey =
   | "mainMenuButtons"
   | "declineMenuButtons"
@@ -888,25 +918,13 @@ function buildBotEditorStartTemplates(metaPayload: RecoveryMetaTemplatesPayload)
 }
 
 function metaTemplateUsesOnlyQuickReplies(template: RecoveryMetaTemplateItem) {
-  const components = Array.isArray(template.components) ? template.components : [];
-  const buttonComponents = components.filter(
-    (item) => String((item as { type?: string })?.type || "").trim().toUpperCase() === "BUTTONS",
-  );
-  if (!buttonComponents.length) {
-    return template.buttonLabels.length > 0 && template.buttonLabels.length <= 3;
-  }
-
+  const view = getTemplateViewModel(template);
+  if (!view.buttons.length) return false;
   let buttonCount = 0;
-  for (const component of buttonComponents) {
-    const buttons = Array.isArray((component as { buttons?: unknown[] })?.buttons)
-      ? ((component as { buttons?: unknown[] }).buttons as unknown[])
-      : [];
-    if (!buttons.length) continue;
-    for (const button of buttons) {
-      const type = String((button as { type?: string })?.type || "").trim().toUpperCase();
-      if (type !== "QUICK_REPLY") return false;
-      buttonCount += 1;
-    }
+  for (const button of view.buttons) {
+    const type = String(button.type || "").trim().toUpperCase();
+    if (type !== "QUICK_REPLY") return false;
+    buttonCount += 1;
   }
 
   return buttonCount > 0 && buttonCount <= 3;
@@ -915,6 +933,7 @@ function metaTemplateUsesOnlyQuickReplies(template: RecoveryMetaTemplateItem) {
 function getRecoveryStartTemplateIssues(template: RecoveryMetaTemplateItem | null | undefined) {
   if (!template) return ["Template inicial nao encontrado no catalogo Meta."];
 
+  const view = getTemplateViewModel(template);
   const issues: string[] = [];
   if (!template.hbxActive) issues.push("ative o template no HBX");
   if (!template.metaApproved) issues.push("aguarde o status APPROVED na Meta");
@@ -922,8 +941,8 @@ function getRecoveryStartTemplateIssues(template: RecoveryMetaTemplateItem | nul
     issues.push("use a variante pt_BR");
   }
   if (
-    isMediaHeaderFormat(template.headerFormat) &&
-    !String(template.headerMediaUrl || "").trim()
+    isMediaHeaderFormat(view.headerFormat) &&
+    !String(view.headerMediaUrl || "").trim()
   ) {
     issues.push("salve a URL publica do cabecalho de midia");
   }
@@ -2426,7 +2445,17 @@ export default function HbxRecoveryClientPage() {
       ...current,
       templates: current.templates.map((item) =>
         item.name === name && item.language === language
-          ? { ...item, headerMediaUrl: value }
+          ? {
+              ...item,
+              headerMediaUrl: value,
+              normalized: {
+                ...item.normalized,
+                header: {
+                  ...item.normalized.header,
+                  mediaUrl: value,
+                },
+              },
+            }
           : item,
       ),
     }));
@@ -2437,6 +2466,7 @@ export default function HbxRecoveryClientPage() {
       (item) => item.name === name && item.language === language,
     );
     if (!template) return;
+    const view = getTemplateViewModel(template);
 
     setMetaTemplateBusy(`config:${name}:${language}`);
     try {
@@ -2448,7 +2478,7 @@ export default function HbxRecoveryClientPage() {
             name,
             language,
             active: template.hbxActive,
-            headerMediaUrl: template.headerMediaUrl || "",
+            headerMediaUrl: view.headerMediaUrl || "",
           }),
         },
       );
@@ -3333,7 +3363,9 @@ export default function HbxRecoveryClientPage() {
         ) : (
           <>
             <div ref={templateCatalogListRef} className={styles.templateCatalogList}>
-              {metaTemplates.templates.map((template) => (
+              {metaTemplates.templates.map((template) => {
+                const view = getTemplateViewModel(template);
+                return (
                 <article key={`${template.name}-${template.language}`} className={styles.templateCatalogItem}>
                   <div className={styles.templateCatalogHeader}>
                     <div>
@@ -3354,21 +3386,21 @@ export default function HbxRecoveryClientPage() {
                         HBX: {template.hbxActive ? "Ativo" : "Inativo"}
                       </span>
                       <span className={`${styles.stateBadge} ${styles.stateWaiting}`}>
-                        {headerFormatLabel(template.headerFormat)}
+                        {headerFormatLabel(view.headerFormat)}
                       </span>
                     </div>
                   </div>
-                  {template.headerText ? (
-                    <p className={styles.templateCatalogMeta}>Cabecalho: {template.headerText}</p>
+                  {view.headerText ? (
+                    <p className={styles.templateCatalogMeta}>Cabecalho: {view.headerText}</p>
                   ) : null}
-                  {isMediaHeaderFormat(template.headerFormat) ? (
+                  {isMediaHeaderFormat(view.headerFormat) ? (
                     <div className={styles.templateCatalogInlineField}>
                       <label className={styles.fieldBlock}>
                         <span>URL da imagem</span>
                         <input
                           className="field"
                           placeholder="https://..."
-                          value={template.headerMediaUrl || ""}
+                          value={view.headerMediaUrl || ""}
                           onChange={(event) =>
                             updateTemplateHeaderMediaUrl(
                               template.name,
@@ -3390,7 +3422,7 @@ export default function HbxRecoveryClientPage() {
                             : "Salvar URL"}
                         </button>
                       </div>
-                      {!String(template.headerMediaUrl || "").trim() ? (
+                      {!String(view.headerMediaUrl || "").trim() ? (
                         <div className="alert alert-error">
                           Informe a URL publica da imagem para o HBX conseguir enviar.
                         </div>
@@ -3398,22 +3430,25 @@ export default function HbxRecoveryClientPage() {
                     </div>
                   ) : null}
                   <p className={styles.templateCatalogText}>
-                    {template.bodyText || "Sem body retornado pela Meta."}
+                    {view.bodyText || "Sem body retornado pela Meta."}
                   </p>
-                  {template.buttonLabels.length > 0 ? (
+                  {view.footerText ? (
+                    <p className={styles.templateCatalogMeta}>Rodape: {view.footerText}</p>
+                  ) : null}
+                  {view.buttons.length > 0 ? (
                     <div className={styles.interactionBadgeRow}>
-                      {template.buttonLabels.map((button) => (
+                      {view.buttons.map((button, index) => (
                         <span
-                          key={`${template.name}-${template.language}-${button}`}
+                          key={`${template.name}-${template.language}-${button.type}-${index}`}
                           className={`${styles.stateBadge} ${styles.stateBot}`}
                         >
-                          {button}
+                          {button.text || button.type}
                         </span>
                       ))}
                     </div>
                   ) : null}
                   <div className={styles.interactionBadgeRow}>
-                    {(template.variableKeys || []).map((variable) => (
+                    {view.variableOrder.map((variable) => (
                       <span
                         key={`${template.name}-${template.language}-var-${variable}`}
                         className={`${styles.stateBadge} ${styles.stateWaiting}`}
@@ -3422,6 +3457,18 @@ export default function HbxRecoveryClientPage() {
                       </span>
                     ))}
                   </div>
+                  {Object.keys(view.variableExamples).length > 0 ? (
+                    <div className={styles.interactionBadgeRow}>
+                      {Object.entries(view.variableExamples).map(([variable, example]) => (
+                        <span
+                          key={`${template.name}-${template.language}-example-${variable}`}
+                          className={`${styles.stateBadge} ${styles.stateWaiting}`}
+                        >
+                          {`{{${variable}}}: ${example}`}
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
                   {template.rejectedReason ? (
                     <div className="alert alert-error">Motivo Meta: {template.rejectedReason}</div>
                   ) : null}
@@ -3445,9 +3492,9 @@ export default function HbxRecoveryClientPage() {
                       className="btn btn-ghost btn-sm"
                       onClick={() => {
                         const variableMode = inferTemplateVariableMode(
-                          (template.variableKeys || []).length > 0
-                            ? template.variableKeys || []
-                            : extractTemplateVariablesInOrder(template.bodyText || ""),
+                          view.variableOrder.length > 0
+                            ? view.variableOrder
+                            : extractTemplateVariablesInOrder(view.bodyText || ""),
                         );
                         setTemplateComposer({
                           ...DEFAULT_TEMPLATE_COMPOSER,
@@ -3459,13 +3506,16 @@ export default function HbxRecoveryClientPage() {
                               : "UTILITY",
                           language: template.language || "pt_BR",
                           variableMode,
-                          headerFormat: normalizeHeaderFormat(template.headerFormat) || "NONE",
-                          headerText: template.headerText || "",
-                          headerHandle: template.headerHandle || "",
-                          headerMediaUrl: template.headerMediaUrl || "",
-                          bodyText: template.bodyText || DEFAULT_TEMPLATE_COMPOSER.bodyText,
-                          footerText: template.footerText || "",
-                          buttonsText: template.buttonLabels.join("\n"),
+                          headerFormat: view.headerFormat,
+                          headerText: view.headerText || "",
+                          headerHandle: view.headerHandle || "",
+                          headerMediaUrl: view.headerMediaUrl || "",
+                          bodyText: view.bodyText || DEFAULT_TEMPLATE_COMPOSER.bodyText,
+                          footerText: view.footerText || "",
+                          buttonsText: view.buttons
+                            .map((button) => String(button.text || "").trim())
+                            .filter((button) => button.length > 0)
+                            .join("\n"),
                           variableExamples: {},
                           activateInHbx: true,
                           enforceRecoveryVars: false,
@@ -3487,7 +3537,7 @@ export default function HbxRecoveryClientPage() {
                     </button>
                   </div>
                 </article>
-              ))}
+              );})}
             </div>
             <div
               role="separator"
@@ -5835,7 +5885,9 @@ export default function HbxRecoveryClientPage() {
                 ) : (
                   <>
                     <div ref={templateCatalogListRef} className={styles.templateCatalogList}>
-                      {metaTemplates.templates.map((template) => (
+                      {metaTemplates.templates.map((template) => {
+                        const view = getTemplateViewModel(template);
+                        return (
                         <article
                           key={`${template.name}-${template.language}`}
                           className={`${styles.templateCatalogItem} ${styles.templateWindowResizable}`}
@@ -5861,21 +5913,21 @@ export default function HbxRecoveryClientPage() {
                               HBX: {template.hbxActive ? "Ativo" : "Inativo"}
                             </span>
                             <span className={`${styles.stateBadge} ${styles.stateWaiting}`}>
-                              {headerFormatLabel(template.headerFormat)}
+                              {headerFormatLabel(view.headerFormat)}
                             </span>
                           </div>
                         </div>
-                        {template.headerText ? (
-                          <p className={styles.templateCatalogMeta}>Cabecalho: {template.headerText}</p>
+                        {view.headerText ? (
+                          <p className={styles.templateCatalogMeta}>Cabecalho: {view.headerText}</p>
                         ) : null}
-                        {isMediaHeaderFormat(template.headerFormat) ? (
+                        {isMediaHeaderFormat(view.headerFormat) ? (
                           <div className={styles.templateCatalogInlineField}>
                             <label className={styles.fieldBlock}>
                               <span>URL da imagem</span>
                               <input
                                 className="field"
                                 placeholder="https://..."
-                                value={template.headerMediaUrl || ""}
+                                value={view.headerMediaUrl || ""}
                                 onChange={(event) =>
                                   updateTemplateHeaderMediaUrl(
                                     template.name,
@@ -5901,7 +5953,7 @@ export default function HbxRecoveryClientPage() {
                                   : "Salvar URL"}
                               </button>
                             </div>
-                            {!String(template.headerMediaUrl || "").trim() ? (
+                            {!String(view.headerMediaUrl || "").trim() ? (
                               <div className="alert alert-error">
                                 Informe a URL publica da imagem para o HBX conseguir enviar.
                               </div>
@@ -5909,22 +5961,25 @@ export default function HbxRecoveryClientPage() {
                           </div>
                         ) : null}
                         <p className={styles.templateCatalogText}>
-                          {template.bodyText || "Sem body retornado pela Meta."}
+                          {view.bodyText || "Sem body retornado pela Meta."}
                         </p>
-                        {template.buttonLabels.length > 0 ? (
+                        {view.footerText ? (
+                          <p className={styles.templateCatalogMeta}>Rodape: {view.footerText}</p>
+                        ) : null}
+                        {view.buttons.length > 0 ? (
                           <div className={styles.interactionBadgeRow}>
-                            {template.buttonLabels.map((button) => (
+                            {view.buttons.map((button, index) => (
                               <span
-                                key={`${template.name}-${template.language}-${button}`}
+                                key={`${template.name}-${template.language}-${button.type}-${index}`}
                                 className={`${styles.stateBadge} ${styles.stateBot}`}
                               >
-                                {button}
+                                {button.text || button.type}
                               </span>
                             ))}
                           </div>
                         ) : null}
                         <div className={styles.interactionBadgeRow}>
-                          {(template.variableKeys || []).map((variable) => (
+                          {view.variableOrder.map((variable) => (
                             <span
                               key={`${template.name}-${template.language}-var-${variable}`}
                               className={`${styles.stateBadge} ${styles.stateWaiting}`}
@@ -5933,6 +5988,18 @@ export default function HbxRecoveryClientPage() {
                             </span>
                           ))}
                         </div>
+                        {Object.keys(view.variableExamples).length > 0 ? (
+                          <div className={styles.interactionBadgeRow}>
+                            {Object.entries(view.variableExamples).map(([variable, example]) => (
+                              <span
+                                key={`${template.name}-${template.language}-example-${variable}`}
+                                className={`${styles.stateBadge} ${styles.stateWaiting}`}
+                              >
+                                {`{{${variable}}}: ${example}`}
+                              </span>
+                            ))}
+                          </div>
+                        ) : null}
                         {template.rejectedReason ? (
                           <div className="alert alert-error">Motivo Meta: {template.rejectedReason}</div>
                         ) : null}
@@ -5961,9 +6028,9 @@ export default function HbxRecoveryClientPage() {
                             onClick={() =>
                               {
                                 const variableMode = inferTemplateVariableMode(
-                                  (template.variableKeys || []).length > 0
-                                    ? template.variableKeys || []
-                                    : extractTemplateVariablesInOrder(template.bodyText || ""),
+                                  view.variableOrder.length > 0
+                                    ? view.variableOrder
+                                    : extractTemplateVariablesInOrder(view.bodyText || ""),
                                 );
                                 setTemplateComposer({
                                   ...DEFAULT_TEMPLATE_COMPOSER,
@@ -5975,14 +6042,16 @@ export default function HbxRecoveryClientPage() {
                                       : "UTILITY",
                                   language: template.language || "pt_BR",
                                   variableMode,
-                                  headerFormat:
-                                    normalizeHeaderFormat(template.headerFormat) || "NONE",
-                                  headerText: template.headerText || "",
-                                  headerHandle: template.headerHandle || "",
-                                  headerMediaUrl: template.headerMediaUrl || "",
-                                  bodyText: template.bodyText || DEFAULT_TEMPLATE_COMPOSER.bodyText,
-                                  footerText: template.footerText || "",
-                                  buttonsText: template.buttonLabels.join("\n"),
+                                  headerFormat: view.headerFormat,
+                                  headerText: view.headerText || "",
+                                  headerHandle: view.headerHandle || "",
+                                  headerMediaUrl: view.headerMediaUrl || "",
+                                  bodyText: view.bodyText || DEFAULT_TEMPLATE_COMPOSER.bodyText,
+                                  footerText: view.footerText || "",
+                                  buttonsText: view.buttons
+                                    .map((button) => String(button.text || "").trim())
+                                    .filter((button) => button.length > 0)
+                                    .join("\n"),
                                   activateInHbx: true,
                                   enforceRecoveryVars: variableMode === "NAME",
                                 });
@@ -6006,7 +6075,7 @@ export default function HbxRecoveryClientPage() {
                           </button>
                         </div>
                         </article>
-                      ))}
+                      );})}
                     </div>
                     <div
                       role="separator"
@@ -6421,17 +6490,21 @@ export default function HbxRecoveryClientPage() {
 
                 {selectedStartTemplate ? (
                   <div className={styles.templatePreviewPanel}>
+                    {(() => {
+                      const selectedStartTemplateView = getTemplateViewModel(selectedStartTemplate);
+                      return (
+                      <>
                     <strong>Preview do template selecionado</strong>
                     <p>
-                      {selectedStartTemplate.bodyText
+                      {selectedStartTemplateView.bodyText
                         ? renderTemplatePreviewText(
-                            selectedStartTemplate.bodyText,
+                            selectedStartTemplateView.bodyText,
                             previewTemplateSamples,
                           )
                         : "Sem body retornado pela Meta."}
                     </p>
                     <div className={styles.interactionBadgeRow}>
-                      {(selectedStartTemplate.variableKeys || []).map((variable) => (
+                      {selectedStartTemplateView.variableOrder.map((variable) => (
                         <span
                           key={`preview-var-${variable}`}
                           className={`${styles.stateBadge} ${styles.stateWaiting}`}
@@ -6445,6 +6518,8 @@ export default function HbxRecoveryClientPage() {
                         Template inicial incompativel com o bot: {selectedStartTemplateIssues.join("; ")}.
                       </div>
                     ) : null}
+                      </>
+                      );})()}
                   </div>
                 ) : null}
               </article>

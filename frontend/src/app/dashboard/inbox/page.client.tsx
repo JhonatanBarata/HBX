@@ -18,6 +18,10 @@ type InboxMessage = {
   direction: "inbound" | "outbound" | string;
   content: string;
   createdAt: string;
+  messageType: string;
+  senderType: string;
+  status: string;
+  error: string | null;
 };
 
 type InboxConversation = {
@@ -46,6 +50,42 @@ export default function InboxClientPage() {
   const [simulating, setSimulating] = useState(false);
 
   useEffect(() => setMounted(true), []);
+
+  function getMessagePreview(message?: InboxMessage | null) {
+    if (!message) return "Sem mensagens";
+    const content = String(message.content || "").trim();
+    if (content) return content;
+    const type = String(message.messageType || "text").trim().toLowerCase();
+    if (type === "image") return "[Imagem recebida]";
+    if (type === "audio") return "[Audio recebido]";
+    if (type === "document") return "[Documento recebido]";
+    if (type === "interactive") return "[Interacao recebida]";
+    if (type === "button") return "[Botao recebido]";
+    if (type === "system") return "[Evento do sistema]";
+    return `[${type || "mensagem"}]`;
+  }
+
+  function getMessageBubbleClass(message: InboxMessage) {
+    const direction = String(message.direction || "").trim().toLowerCase();
+    const senderType = String(message.senderType || "").trim().toLowerCase();
+    if (senderType === "system") {
+      return "mx-auto bg-[var(--surface)] border border-dashed border-[var(--line)]";
+    }
+    if (direction === "outbound") {
+      return "ml-auto bg-[color-mix(in_srgb,var(--brand)_12%,white)] border border-[color-mix(in_srgb,var(--brand)_26%,white)]";
+    }
+    return "bg-white border border-[var(--line)]";
+  }
+
+  function getMessageMeta(message: InboxMessage) {
+    const parts = [
+      String(message.senderType || "").trim().toLowerCase() || "system",
+      String(message.messageType || "").trim().toLowerCase() || "text",
+      String(message.status || "").trim().toUpperCase() || "RECEIVED",
+    ];
+    if (message.error) parts.push(`erro: ${message.error}`);
+    return parts.join(" • ");
+  }
 
   function formatDate(dateStr?: string | null) {
     if (!dateStr) return "";
@@ -221,7 +261,7 @@ export default function InboxClientPage() {
           ) : conversations.length === 0 ? (
             <p className="text-sm text-muted">Nenhuma conversa encontrada.</p>
           ) : (
-            <div className="space-y-2 max-h-[620px] overflow-auto pr-1">
+            <div className="max-h-155 space-y-2 overflow-auto pr-1">
               {conversations.map((conversation) => {
                 const last = conversation.messages?.[0];
                 const active = conversation.id === selectedId;
@@ -230,10 +270,10 @@ export default function InboxClientPage() {
                     key={conversation.id}
                     type="button"
                     onClick={() => loadConversation(conversation.id)}
-                    className={`w-full text-left rounded-[12px] border p-2.5 transition ${
+                    className={`w-full rounded-xl border p-2.5 text-left transition ${
                       active
-                        ? "border-[color:var(--brand)] bg-[color-mix(in_srgb,var(--brand)_10%,white)]"
-                        : "border-[var(--line)] hover:bg-[var(--surface-soft)]"
+                        ? "border-(--brand) bg-[color-mix(in_srgb,var(--brand)_10%,white)]"
+                        : "border-(--line) hover:bg-(--surface-soft)"
                     }`}
                   >
                     <div className="flex items-center justify-between gap-2">
@@ -244,7 +284,7 @@ export default function InboxClientPage() {
                     </div>
                     <p className="text-xs text-muted truncate mt-1">{conversation.customer.phone}</p>
                     <p className="text-xs text-muted truncate mt-1">
-                      {last?.content || "Sem mensagens"}
+                      {getMessagePreview(last)}
                     </p>
                   </button>
                 );
@@ -287,20 +327,17 @@ export default function InboxClientPage() {
                 </div>
               </div>
 
-              <div className="h-[450px] overflow-auto border border-[var(--line)] rounded-[14px] p-3 bg-[var(--surface-soft)] space-y-2">
+              <div className="h-112.5 space-y-2 overflow-auto rounded-[14px] border border-(--line) bg-(--surface-soft) p-3">
                 {selectedConversation.messages.length === 0 ? (
                   <p className="text-sm text-muted">Sem mensagens nesta conversa.</p>
                 ) : (
                   selectedConversation.messages.map((message) => (
                     <div
                       key={message.id}
-                      className={`max-w-[82%] rounded-[12px] p-2.5 text-sm ${
-                        message.direction === "outbound"
-                          ? "ml-auto bg-[color-mix(in_srgb,var(--brand)_12%,white)] border border-[color-mix(in_srgb,var(--brand)_26%,white)]"
-                          : "bg-white border border-[var(--line)]"
-                      }`}
+                      className={`max-w-[82%] rounded-xl p-2.5 text-sm ${getMessageBubbleClass(message)}`}
                     >
-                      <p className="break-words leading-relaxed">{message.content}</p>
+                      <p className="wrap-break-word leading-relaxed">{getMessagePreview(message)}</p>
+                      <p className="text-[10px] text-muted mt-1">{getMessageMeta(message)}</p>
                       <p className="text-[10px] text-muted mt-1">{formatDate(message.createdAt)}</p>
                     </div>
                   ))
