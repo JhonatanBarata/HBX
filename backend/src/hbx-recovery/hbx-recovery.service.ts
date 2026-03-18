@@ -3338,7 +3338,8 @@ export class HbxRecoveryService {
         channel: 'whatsapp',
         OR: [
           { currentFlow: 'cobranca_recovery_whatsapp_hibrido' },
-          { currentStep: { not: null } },
+          { currentFlow: 'cobranca_recovery' },
+          { currentStep: { notIn: ['', 'novo'] } },
           { messages: { some: { sourceModule: { startsWith: 'hbx_recovery' } } } },
         ],
       },

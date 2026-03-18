@@ -265,3 +265,29 @@ test('recovery customer resolution falls back to recovery message contactId when
 
   assert.equal(resolved?.id, 'cust-77');
 });
+
+test('listInteractions uses a Prisma-safe Recovery conversation filter', async () => {
+  const service = createService();
+  let conversationFindManyArgs = null;
+
+  service.prisma = {
+    companyConversation: {
+      findMany: async (args: any) => {
+        conversationFindManyArgs = args;
+        return [];
+      },
+    },
+  };
+
+  const result = await service.listInteractions({ companyId: 7 }, 'all');
+
+  assert.equal(result.queue, 'all');
+  assert.equal(result.pendingHumanCount, 0);
+  assert.deepEqual(result.conversations, []);
+  assert.deepEqual(conversationFindManyArgs?.where?.OR, [
+    { currentFlow: 'cobranca_recovery_whatsapp_hibrido' },
+    { currentFlow: 'cobranca_recovery' },
+    { currentStep: { notIn: ['', 'novo'] } },
+    { messages: { some: { sourceModule: { startsWith: 'hbx_recovery' } } } },
+  ]);
+});
