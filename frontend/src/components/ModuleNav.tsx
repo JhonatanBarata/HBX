@@ -137,7 +137,6 @@ export default function ModuleNav({ inHeader = false }: { inHeader?: boolean }) 
       { href: "/dashboard/inbox", label: "Atendimento", matcher: (r)=> r.startsWith('/dashboard/inbox') || r.startsWith('/dashboard/auto-replies') || r.startsWith('/dashboard/messages'), moduleKey: 'atendimento' },
       { href: "/dashboard/gerencial", label: "Gerencial", matcher: (r)=> r.startsWith('/dashboard/gerencial'), adminOnly: true, moduleKey: 'gerencial' },
       { href: "/hbx-recovery", label: "HBX Recovery", matcher: (r)=> r.startsWith('/hbx-recovery'), moduleKey: 'hbx_recovery' },
-      { href: "/hbx-music", label: "HBX Music", matcher: (r)=> r.startsWith('/hbx-music'), moduleKey: 'hbx_music' },
       { href: "/dashboard/webscraping", label: "Webscraping", matcher: (r)=> r.startsWith('/dashboard/webscraping'), moduleKey: 'webscraping' },
       { href: "/dashboard/website", label: "Website", matcher: (r)=> r.startsWith('/dashboard/website'), moduleKey: 'website' },
       { href: "/dashboard/importacoes/followup-global", label: "Follow Up", matcher: (r)=> r.startsWith('/dashboard/importacoes/followup-global') || r.startsWith('/dashboard/importacoes/historico') || r.startsWith('/dashboard/importacoes/novo'), moduleKey: 'follow_up_internacional' },

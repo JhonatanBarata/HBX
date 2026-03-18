@@ -33,14 +33,6 @@
       "serviceUrl": "/hbx-recovery"
     },
     {
-      "key": "hbx_music",
-      "name": "HBX Music",
-      "description": "Modulo premium de musica com biblioteca, descoberta diaria e trilha de assinatura.",
-      "defaultEnabled": true,
-      "companyAssignable": true,
-      "serviceUrl": "/hbx-music"
-    },
-    {
       "key": "website",
       "name": "Website",
       "description": "Criacao e gestao de websites por empresa com templates prontos.",

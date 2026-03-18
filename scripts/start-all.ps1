@@ -123,11 +123,11 @@ try {
 	throw "Dependency sync failed in backend container"
 }
 
-Write-Host "1.1️⃣ Waiting backend health on http://localhost:3000 ..."
-if (-not (Wait-HttpOk -url 'http://localhost:3000')) {
-	Write-Host "Backend did not become reachable on port 3000. Showing recent logs:"
+Write-Host "1.1️⃣ Waiting backend health on http://localhost:3000/health ..."
+if (-not (Wait-HttpOk -url 'http://localhost:3000/health' -retries 180 -delayMs 500)) {
+    Write-Host "Backend did not become reachable on /health. Showing recent logs:"
 	docker compose -f $composeFile logs backend --tail 120
-	throw "Backend not reachable at http://localhost:3000"
+	throw "Backend not reachable at http://localhost:3000/health"
 }
 
 Write-Host "2️⃣ Ensuring frontend deps (npm install) ..."
@@ -136,7 +136,12 @@ if (!(Test-Path node_modules)) { npm install }
 Pop-Location
 
 Write-Host "3️⃣ Starting frontend (Next) on port 3001 ..."
-$frontendCmd = "`$ErrorActionPreference='Stop'; Set-Location -LiteralPath '${frontendDir}'; `$env:PORT='3001'; npm run dev"
+$nextCli = Join-Path $frontendDir 'node_modules\next\dist\bin\next'
+if (!(Test-Path -LiteralPath $nextCli)) {
+	throw "Frontend CLI not found at $nextCli. Run npm install in frontend first."
+}
+
+$frontendCmd = "`$ErrorActionPreference='Stop'; Set-Location -LiteralPath '${frontendDir}'; & node '${nextCli}' dev -p 3001"
 $frontendProc = Start-Process -FilePath "powershell.exe" -ArgumentList @(
 	"-NoProfile",
 	"-ExecutionPolicy", "Bypass",
@@ -150,6 +155,12 @@ for ($i = 0; $i -lt 40; $i++) {
     $listenerPid = Get-ListenerPid -port 3001
     if ($listenerPid -gt 0) { break }
     Start-Sleep -Milliseconds 250
+}
+
+if ($listenerPid -le 0) {
+	Write-Host "Frontend did not open port 3001 in time."
+	Stop-IfRunning -processId ([int]$frontendProc.Id) -name 'frontend-wrapper'
+	throw "Frontend not reachable at http://localhost:3001"
 }
 
 $frontendPidToTrack = $frontendProc.Id

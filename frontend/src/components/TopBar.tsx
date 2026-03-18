@@ -62,8 +62,7 @@ export default function TopBar() {
 
   const showWorkspaceNav =
     pathname.startsWith("/dashboard") ||
-    pathname.startsWith("/hbx-recovery") ||
-    pathname.startsWith("/hbx-music");
+  pathname.startsWith("/hbx-recovery");
   const isAdmin = String(user?.role ?? "").toUpperCase() === "ADMIN";
   const isSystemMaster = Boolean(user?.isSystemMaster);
 
@@ -99,12 +98,6 @@ export default function TopBar() {
         label: "HBX Recovery",
         matcher: (route) => route.startsWith("/hbx-recovery"),
         moduleKey: "hbx_recovery",
-      },
-      {
-        href: "/hbx-music",
-        label: "HBX Music",
-        matcher: (route) => route.startsWith("/hbx-music"),
-        moduleKey: "hbx_music",
       },
       {
         href: "/dashboard/webscraping",

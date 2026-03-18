@@ -68,7 +68,6 @@ export default function DashboardClientPage() {
       atendimento: "/dashboard/inbox",
       gerencial: "/dashboard/gerencial",
       hbx_recovery: "/hbx-recovery",
-      hbx_music: "/hbx-music",
       webscraping: "/dashboard/webscraping",
       website: "/dashboard/website",
       follow_up_internacional: "/dashboard/importacoes/followup-global",

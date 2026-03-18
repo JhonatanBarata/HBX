@@ -20,6 +20,7 @@ const DEFAULT_MODULES: DefaultModuleDef[] = (structuralDefaults.systemModules as
 }));
 
 const LEGACY_MODULE_KEYS = structuralDefaults.legacyModuleKeys as string[];
+const RETIRED_MODULE_KEYS = ['hbx_music'];
 
 @Injectable()
 export class ModulesService implements OnModuleInit {
@@ -41,6 +42,7 @@ export class ModulesService implements OnModuleInit {
 
   async onModuleInit() {
     await this.ensureDefaultSystemModules();
+    await this.removeRetiredSystemModules();
     await this.ensureDatabaseAutomation();
     await this.syncCompanyModulesForAllCompanies();
   }
@@ -137,6 +139,24 @@ export class ModulesService implements OnModuleInit {
         defaultEnabled: false,
       },
     });
+  }
+
+  private async removeRetiredSystemModules() {
+    if (!RETIRED_MODULE_KEYS.length) return;
+
+    const retiredModules = await this.prisma.systemModule.findMany({
+      where: { key: { in: RETIRED_MODULE_KEYS } },
+      select: { id: true },
+    });
+    if (!retiredModules.length) return;
+
+    const retiredModuleIds = retiredModules.map((moduleItem) => moduleItem.id);
+
+    await this.prisma.$transaction([
+      this.prisma.userModuleAccess.deleteMany({ where: { moduleId: { in: retiredModuleIds } } }),
+      this.prisma.companyModule.deleteMany({ where: { moduleId: { in: retiredModuleIds } } }),
+      this.prisma.systemModule.deleteMany({ where: { id: { in: retiredModuleIds } } }),
+    ]);
   }
 
   private async syncCompanyModulesForAllCompanies() {
