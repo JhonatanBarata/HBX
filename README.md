@@ -41,3 +41,5 @@ O fluxo oficial completo está em [docs/SAAS_OPERATIONS.md](docs/SAAS_OPERATIONS
 - `npm run backup:prod` e `npm run verify:prod` recusam targets locais e só aceitam URLs remotas de produção.
 - O bootstrap do usuário master é controlado por ambiente; em produção o padrão oficial continua sendo `BOOTSTRAP_SYSTEM_MASTER=false`.
 - Os comandos operacionais de produção usam variáveis documentadas em [.env.production.example](.env.production.example).
+
+<!-- automated publish trigger: noop change to allow publish script to run -->
