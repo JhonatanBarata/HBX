@@ -1069,8 +1069,8 @@ export default function HbxRecoveryClientPage() {
   const [recoveryLayoutStorageKey, setRecoveryLayoutStorageKey] = useState("hbx-recovery:layout");
   const [savingRecoveryLayout, setSavingRecoveryLayout] = useState(false);
   const [drawerBusyAction, setDrawerBusyAction] = useState<DrawerActionId | null>(null);
-  const [activeTab, setActiveTab] = useState<RecoveryTab>("recovery");
-  const [renderedTab, setRenderedTab] = useState<RecoveryTab>("recovery");
+  const [activeTab, setActiveTab] = useState<RecoveryTab>("messages");
+  const [renderedTab, setRenderedTab] = useState<RecoveryTab>("messages");
   const [tabTransitionStage, setTabTransitionStage] = useState<"idle" | "exit" | "enter">("idle");
   const [currentUserProfile, setCurrentUserProfile] = useState<RecoveryCurrentUserPayload | null>(
     null,
@@ -2795,6 +2795,34 @@ export default function HbxRecoveryClientPage() {
   async function refreshInteractionContext(conversationId: number) {
     await Promise.all([loadInteractions(interactionsQueue), loadInteractionDetail(conversationId), reloadCustomers()]);
   }
+
+  useEffect(() => {
+    if (renderedTab !== "messages") return;
+    const availableConversationIds = new Set(
+      interactionSummary.conversations.map((conversation) => conversation.conversationId),
+    );
+    const currentConversationId = interactionDetail?.conversationId ?? null;
+
+    if (currentConversationId && availableConversationIds.has(currentConversationId)) {
+      return;
+    }
+
+    const nextConversationId = interactionSummary.conversations[0]?.conversationId;
+    if (!nextConversationId) {
+      if (currentConversationId) {
+        setInteractionDetail(null);
+      }
+      return;
+    }
+
+    if (loadingInteractionDetailId === nextConversationId) return;
+    void loadInteractionDetail(nextConversationId);
+  }, [
+    renderedTab,
+    interactionSummary.conversations,
+    interactionDetail?.conversationId,
+    loadingInteractionDetailId,
+  ]);
 
   async function runInteractionAction(
     conversationId: number,
