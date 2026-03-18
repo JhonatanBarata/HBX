@@ -70,6 +70,76 @@ function getLiveInteractionPhone(input: {
   return String(input.conversationWhatsapp || input.customerWhatsapp || "").trim();
 }
 
+type RecoveryInboxFallbackConversation = {
+  id: string;
+  status: string;
+  updatedAt: string;
+  customer?: {
+    id?: string;
+    phone?: string;
+    name?: string | null;
+  };
+  messages?: Array<{
+    direction?: string;
+    content?: string;
+    createdAt?: string;
+    messageType?: string;
+    senderType?: string;
+    status?: string;
+  }>;
+};
+
+function mapInboxConversationsToRecoverySummary(
+  rows: RecoveryInboxFallbackConversation[],
+  queue: "all" | "human",
+): RecoveryInteractionSummary {
+  const conversations = rows.map((row) => {
+    const latestMessage = Array.isArray(row.messages) ? row.messages[0] : null;
+    const status = String(row.status || "").trim().toLowerCase();
+    const phone = String(row.customer?.phone || "").trim();
+    const customerName = String(row.customer?.name || phone || "Cliente").trim();
+    const updatedAt = String(latestMessage?.createdAt || row.updatedAt || new Date().toISOString()).trim();
+
+    return {
+      conversationId: Number(row.id),
+      customerId: String(row.customer?.id || row.id || "").trim(),
+      customerName,
+      customerWhatsapp: phone,
+      conversationWhatsapp: phone,
+      customerStatus: status === "open" ? "OVERDUE" : "UNKNOWN",
+      openAmount: 0,
+      lastContact: "",
+      humanQueue: status === "open",
+      botActive: status === "new",
+      humanAssigned: status === "open",
+      assignedUserId: null,
+      currentFlow: "",
+      currentStep: "",
+      flowResult: status === "closed" ? "manual_closed" : null,
+      metadata: {},
+      complaintCount: 0,
+      lastMessage: String(latestMessage?.content || "").trim(),
+      lastDirection: String(latestMessage?.direction || "").trim().toUpperCase(),
+      lastSourceModule: String(latestMessage?.senderType || latestMessage?.messageType || "").trim(),
+      lastAt: updatedAt,
+      lastInteractionAt: updatedAt,
+      paymentGenerated: false,
+      paymentLifecycle: null,
+      paymentStatus: null,
+      paymentLink: null,
+      paymentLinkExpiresAt: null,
+    };
+  });
+
+  const filtered = queue === "human" ? conversations.filter((item) => item.humanQueue) : conversations;
+
+  return {
+    queue,
+    pendingHumanCount: conversations.filter((item) => item.humanQueue).length,
+    conversations: filtered,
+  };
+}
+
 function todayIsoDate() {
   const now = new Date();
   const year = now.getFullYear();
@@ -2719,9 +2789,15 @@ export default function HbxRecoveryClientPage() {
     try {
       const query = new URLSearchParams();
       query.set("queue", queue);
-      const payload = await apiFetch<RecoveryInteractionSummary>(
-        `/hbx-recovery/interactions?${query.toString()}`,
-      );
+      let payload: RecoveryInteractionSummary;
+      try {
+        payload = await apiFetch<RecoveryInteractionSummary>(
+          `/hbx-recovery/interactions?${query.toString()}`,
+        );
+      } catch {
+        const inboxRows = await apiFetch<RecoveryInboxFallbackConversation[]>("/inbox/conversations");
+        payload = mapInboxConversationsToRecoverySummary(inboxRows, queue);
+      }
       const previousLastSeen = interactionLastSeenRef.current;
       const nextLastSeen = new Map<number, string>();
       let inboundNotice: string | null = null;
