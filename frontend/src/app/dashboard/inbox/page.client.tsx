@@ -3,7 +3,6 @@
 import Link from "next/link";
 import {
   useCallback,
-  useDeferredValue,
   useEffect,
   useMemo,
   useRef,
@@ -45,7 +44,6 @@ import recoveryStyles from "@/app/hbx-recovery/page.module.css";
 
 type InboxTab = "customers" | "messages" | "templates" | "agenda" | "bot";
 type StatusFilter = "all" | "new" | "open" | "closed" | "blocked";
-type RouteFilter = "all" | InboxRouteTarget;
 type BotTextField =
   | "welcomeMessage"
   | "returningCustomerMessage"
@@ -59,6 +57,8 @@ type NoticeState = {
   tone: "success" | "error";
   text: string;
 };
+
+type InboxAlertKind = "human_queue" | "new_message";
 
 type ActionOption = {
   value: string;
@@ -193,7 +193,6 @@ export default function InboxClientPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedConversation, setSelectedConversation] = useState<InboxConversation | null>(null);
   const [loadingList, setLoadingList] = useState(true);
-  const [refreshingList, setRefreshingList] = useState(false);
   const [loadingConversation, setLoadingConversation] = useState(false);
   const [loadingTemplates, setLoadingTemplates] = useState(true);
   const [syncingTemplates, setSyncingTemplates] = useState(false);
@@ -207,11 +206,6 @@ export default function InboxClientPage() {
   const [notice, setNotice] = useState<NoticeState | null>(null);
   const [sendText, setSendText] = useState("");
   const [sending, setSending] = useState(false);
-  const [simulating, setSimulating] = useState(false);
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
-  const [routeFilter, setRouteFilter] = useState<RouteFilter>("all");
-  const [searchTerm, setSearchTerm] = useState("");
-  const [lastRefreshedAt, setLastRefreshedAt] = useState<string | null>(null);
   const [metaTemplates, setMetaTemplates] = useState<RecoveryMetaTemplatesPayload>(
     EMPTY_META_TEMPLATES_PAYLOAD,
   );
@@ -222,9 +216,22 @@ export default function InboxClientPage() {
   const [agendaConfig, setAgendaConfig] = useState<AtendimentoAgendaConfig>(
     DEFAULT_ATENDIMENTO_AGENDA_CONFIG,
   );
-  const [showAttentionCard, setShowAttentionCard] = useState(false);
-  const deferredSearch = useDeferredValue(searchTerm);
+  const [expandedAlerts, setExpandedAlerts] = useState<Record<InboxAlertKind | "system_notice", boolean>>({
+    human_queue: false,
+    new_message: false,
+    system_notice: false,
+  });
+  const [dismissedAlerts, setDismissedAlerts] = useState<Record<InboxAlertKind, boolean>>({
+    human_queue: false,
+    new_message: false,
+  });
   const previousPendingRef = useRef(0);
+  const previousHumanCountRef = useRef(0);
+  const previousNewCountRef = useRef(0);
+  const humanAlertTimerRef = useRef<number | null>(null);
+  const newAlertTimerRef = useRef<number | null>(null);
+  const noticeTimerRef = useRef<number | null>(null);
+  const chatTimelineRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     setMounted(true);
@@ -251,12 +258,10 @@ export default function InboxClientPage() {
     async (options?: { preferredId?: string | null; silent?: boolean }) => {
       const silent = options?.silent ?? false;
       if (!silent) setLoadingList(true);
-      if (silent) setRefreshingList(true);
       setError(null);
       try {
         const data = await apiFetch<InboxConversation[]>("/inbox/conversations");
         setConversations(data);
-        setLastRefreshedAt(new Date().toISOString());
 
         const preferredId = options?.preferredId ?? selectedId;
         const availableId =
@@ -276,7 +281,6 @@ export default function InboxClientPage() {
         setError(message);
       } finally {
         if (!silent) setLoadingList(false);
-        if (silent) setRefreshingList(false);
       }
     },
     [loadConversation, selectedId],
@@ -372,34 +376,10 @@ export default function InboxClientPage() {
     } catch {
       // ignore event dispatch errors
     }
-
-    if (pendingAtendimentoCount === 0) {
-      setShowAttentionCard(false);
-    } else if (pendingAtendimentoCount > previousPendingRef.current) {
-      setShowAttentionCard(true);
-    }
     previousPendingRef.current = pendingAtendimentoCount;
   }, [pendingAtendimentoCount]);
 
-  const filteredConversations = useMemo(() => {
-    const normalizedSearch = String(deferredSearch || "").trim().toLowerCase();
-    return conversations.filter((conversation) => {
-      if (statusFilter !== "all" && conversation.status !== statusFilter) return false;
-      if (routeFilter !== "all" && conversation.routeTarget !== routeFilter) return false;
-      if (!normalizedSearch) return true;
-      const haystack = [
-        conversation.customer.name || "",
-        conversation.customer.phone,
-        conversation.routeReason,
-        conversation.recoveryCustomerName || "",
-        conversation.blockedReason || "",
-        getMessagePreview(conversation.messages?.[0]),
-      ]
-        .join(" ")
-        .toLowerCase();
-      return haystack.includes(normalizedSearch);
-    });
-  }, [conversations, deferredSearch, routeFilter, statusFilter]);
+  const filteredConversations = conversations;
 
   const customerRows = useMemo(() => {
     const map = new Map<
@@ -466,45 +446,15 @@ export default function InboxClientPage() {
     );
   }, [filteredConversations]);
 
-  const priorityConversations = useMemo(() => {
-    const seen = new Set<string>();
-    const ordered: InboxConversation[] = [];
-    const intake = [
-      ...pendingAtendimentoConversations,
-      ...conversations.filter(
-        (conversation) =>
-          conversation.routeTarget === "recovery" && conversation.status !== "blocked",
-      ),
-    ];
+  const humanAttentionConversations = useMemo(
+    () =>
+      pendingAtendimentoConversations.filter((conversation) => conversation.status === "open"),
+    [pendingAtendimentoConversations],
+  );
 
-    for (const conversation of intake) {
-      if (seen.has(conversation.id)) continue;
-      seen.add(conversation.id);
-      ordered.push(conversation);
-      if (ordered.length >= 5) break;
-    }
-
-    return ordered;
-  }, [conversations, pendingAtendimentoConversations]);
-
-  const stats = useMemo(
-    () => ({
-      customers: new Set(
-        conversations.map((conversation) => conversation.customer.phone || conversation.id),
-      ).size,
-      pendingAtendimento: pendingAtendimentoCount,
-      recoveryRouted: conversations.filter((conversation) => conversation.routeTarget === "recovery")
-        .length,
-      blocked: conversations.filter((conversation) => conversation.status === "blocked").length,
-      agendas: agendaConfig.groups.length,
-      templates: metaTemplates.counters.approved,
-    }),
-    [
-      agendaConfig.groups.length,
-      conversations,
-      metaTemplates.counters.approved,
-      pendingAtendimentoCount,
-    ],
+  const newInboundConversations = useMemo(
+    () => pendingAtendimentoConversations.filter((conversation) => conversation.status === "new"),
+    [pendingAtendimentoConversations],
   );
 
   const actionOptions = useMemo(() => {
@@ -552,11 +502,11 @@ export default function InboxClientPage() {
     [agendaConfig.groups],
   );
 
-  const selectedTab = TAB_ITEMS.find((tab) => tab.id === activeTab) || TAB_ITEMS[0];
   const selectedStatus = selectedConversation?.status ?? "new";
   const selectedRouteIsRecovery = selectedConversation?.routeTarget === "recovery";
   const selectedBlocked = Boolean(selectedConversation?.isBlocked);
-  const selectedPendingPreview = pendingAtendimentoConversations[0] || null;
+  const humanAttentionPreview = humanAttentionConversations[0] || null;
+  const newInboundPreview = newInboundConversations[0] || null;
 
   const updateStatus = useCallback(
     async (status: Exclude<StatusFilter, "all" | "blocked">) => {
@@ -642,34 +592,6 @@ export default function InboxClientPage() {
     },
     [loadConversations, selectedBlocked, selectedId, selectedRouteIsRecovery, sendText],
   );
-
-  const simulateMessage = useCallback(async () => {
-    setSimulating(true);
-    setError(null);
-    try {
-      const fallback = `+5511${Math.floor(100000000 + Math.random() * 899999999)}`;
-      const phone = selectedConversation?.customer.phone || fallback;
-      const message = `Mensagem simulada em ${new Date().toLocaleTimeString("pt-BR")}`;
-      const data = await apiFetch<InboxConversation>("/inbox/mock-message", {
-        method: "POST",
-        body: JSON.stringify({ phone, message }),
-      });
-      setActiveTab("messages");
-      setNotice({ tone: "success", text: "Mensagem simulada e enviada para a fila." });
-      await loadConversations({ preferredId: data.id, silent: true });
-    } catch (simulateError) {
-      const message =
-        simulateError instanceof Error ? simulateError.message : "Falha ao simular mensagem.";
-      setError(message);
-    } finally {
-      setSimulating(false);
-    }
-  }, [loadConversations, selectedConversation?.customer.phone]);
-
-  const refreshWorkspace = useCallback(async () => {
-    setNotice(null);
-    await Promise.all([loadConversations(), loadTemplates(), loadBotConfig(), loadAgendaConfig()]);
-  }, [loadAgendaConfig, loadBotConfig, loadConversations, loadTemplates]);
 
   const syncTemplates = useCallback(async () => {
     setSyncingTemplates(true);
@@ -1132,6 +1054,90 @@ export default function InboxClientPage() {
     }
   }, [botConfig]);
 
+  function scheduleAlertCollapse(
+    key: InboxAlertKind | "system_notice",
+    timerRef: { current: number | null },
+  ) {
+    if (typeof window === "undefined") return;
+    if (timerRef.current !== null) {
+      window.clearTimeout(timerRef.current);
+    }
+    timerRef.current = window.setTimeout(() => {
+      setExpandedAlerts((current) => ({ ...current, [key]: false }));
+    }, 5000);
+  }
+
+  useEffect(() => {
+    if (!selectedConversation || !chatTimelineRef.current) return;
+    if (typeof window === "undefined") return;
+    const timeline = chatTimelineRef.current;
+    window.requestAnimationFrame(() => {
+      timeline.scrollTop = timeline.scrollHeight;
+    });
+  }, [selectedConversation?.id, selectedConversation?.messages.length]);
+
+  useEffect(() => {
+    if (humanAlertTimerRef.current !== null) {
+      window.clearTimeout(humanAlertTimerRef.current);
+      humanAlertTimerRef.current = null;
+    }
+    if (humanAttentionConversations.length === 0) {
+      setExpandedAlerts((current) => ({ ...current, human_queue: false }));
+      setDismissedAlerts((current) => ({ ...current, human_queue: false }));
+      previousHumanCountRef.current = 0;
+      return;
+    }
+    if (humanAttentionConversations.length > previousHumanCountRef.current) {
+      setDismissedAlerts((current) => ({ ...current, human_queue: false }));
+      setExpandedAlerts((current) => ({ ...current, human_queue: true }));
+      scheduleAlertCollapse("human_queue", humanAlertTimerRef);
+    }
+    previousHumanCountRef.current = humanAttentionConversations.length;
+  }, [humanAttentionConversations.length]);
+
+  useEffect(() => {
+    if (newAlertTimerRef.current !== null) {
+      window.clearTimeout(newAlertTimerRef.current);
+      newAlertTimerRef.current = null;
+    }
+    if (newInboundConversations.length === 0) {
+      setExpandedAlerts((current) => ({ ...current, new_message: false }));
+      setDismissedAlerts((current) => ({ ...current, new_message: false }));
+      previousNewCountRef.current = 0;
+      return;
+    }
+    if (newInboundConversations.length > previousNewCountRef.current) {
+      setDismissedAlerts((current) => ({ ...current, new_message: false }));
+      setExpandedAlerts((current) => ({ ...current, new_message: true }));
+      scheduleAlertCollapse("new_message", newAlertTimerRef);
+    }
+    previousNewCountRef.current = newInboundConversations.length;
+  }, [newInboundConversations.length]);
+
+  useEffect(() => {
+    if (noticeTimerRef.current !== null) {
+      window.clearTimeout(noticeTimerRef.current);
+      noticeTimerRef.current = null;
+    }
+    if (!notice) {
+      setExpandedAlerts((current) => ({ ...current, system_notice: false }));
+      return;
+    }
+    setExpandedAlerts((current) => ({ ...current, system_notice: true }));
+    scheduleAlertCollapse("system_notice", noticeTimerRef);
+  }, [notice]);
+
+  useEffect(
+    () => () => {
+      [humanAlertTimerRef, newAlertTimerRef, noticeTimerRef].forEach((timerRef) => {
+        if (timerRef.current !== null) {
+          window.clearTimeout(timerRef.current);
+        }
+      });
+    },
+    [],
+  );
+
   if (hasToken === null) {
     return (
       <main className="app-shell">
@@ -1149,149 +1155,23 @@ export default function InboxClientPage() {
       title="Atendimento"
       description="Parede real entre Atendimento, Agenda e Recovery, com editor do bot isolado e 100% controlavel."
       actions={
-        <>
-          <button type="button" className="btn btn-secondary btn-sm" onClick={refreshWorkspace}>
-            Atualizar tudo
-          </button>
-          <button
-            type="button"
-            onClick={simulateMessage}
-            disabled={simulating}
-            className="btn btn-primary btn-sm"
-          >
-            {simulating ? "Simulando..." : "Simular mensagem"}
-          </button>
-        </>
+        <div className={recoveryStyles.heroTabGroup} role="tablist" aria-label="Guias do Atendimento">
+          {TAB_ITEMS.map((tab) => (
+            <button
+              key={tab.id}
+              type="button"
+              role="tab"
+              aria-selected={tab.id === activeTab}
+              className={tab.id === activeTab ? recoveryStyles.heroTabActive : recoveryStyles.heroTab}
+              onClick={() => setActiveTab(tab.id)}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
       }
     >
       {error ? <div className="alert alert-error">{error}</div> : null}
-      {notice ? (
-        <div
-          className={`${styles.inlineNote} ${
-            notice.tone === "success" ? styles.inlineSuccess : styles.inlineError
-          }`}
-        >
-          {notice.text}
-        </div>
-      ) : null}
-
-      <section className={styles.dashboardGrid}>
-        <article className={`${styles.workspaceCard} ${styles.workspaceCardWide}`}>
-          <div className={recoveryStyles.heroTabGroup} role="tablist" aria-label="Guias do Atendimento">
-            {TAB_ITEMS.map((tab) => (
-              <button
-                key={tab.id}
-                type="button"
-                role="tab"
-                aria-selected={tab.id === activeTab}
-                className={tab.id === activeTab ? recoveryStyles.heroTabActive : recoveryStyles.heroTab}
-                onClick={() => setActiveTab(tab.id)}
-              >
-                {tab.label}
-              </button>
-            ))}
-          </div>
-          <p className={styles.tabDescription}>{selectedTab.description}</p>
-        </article>
-
-        <article className={styles.workspaceCard}>
-          <div className={styles.sectionHead}>
-            <div>
-              <p className={styles.sectionEyebrow}>Radar operacional</p>
-              <h3>Prioridades em tempo real</h3>
-              <small>
-                Conversas do Atendimento que pedem acao agora e clientes detectados com contexto de
-                Recovery.
-              </small>
-            </div>
-            <span className={styles.pulseBadge}>
-              {lastRefreshedAt ? formatDateLabel(lastRefreshedAt, mounted) : "Aguardando leitura"}
-            </span>
-          </div>
-
-          <div className={styles.priorityList}>
-            {priorityConversations.length === 0 ? (
-              <div className={styles.emptyState}>Nenhuma prioridade encontrada agora.</div>
-            ) : (
-              priorityConversations.map((conversation) => (
-                <button
-                  key={conversation.id}
-                  type="button"
-                  className={styles.priorityItem}
-                  onClick={() => {
-                    setActiveTab("messages");
-                    void loadConversation(conversation.id);
-                  }}
-                >
-                  <div>
-                    <strong>{conversation.customer.name || conversation.customer.phone}</strong>
-                    <p>{getMessagePreview(conversation.messages?.[0])}</p>
-                  </div>
-                  <div className={styles.priorityMeta}>
-                    <span
-                      className={
-                        conversation.routeTarget === "recovery"
-                          ? styles.routeRecovery
-                          : styles.routeAtendimento
-                      }
-                    >
-                      {conversation.routeTarget === "recovery" ? "Recovery" : "Atendimento"}
-                    </span>
-                    <span>{formatDateLabel(conversation.updatedAt, mounted)}</span>
-                  </div>
-                </button>
-              ))
-            )}
-          </div>
-        </article>
-      </section>
-
-      {activeTab === "messages" || activeTab === "customers" ? (
-        <section className={styles.workspaceCard}>
-          <div className={styles.tableFilters}>
-            <label className={styles.fieldBlock}>
-              <span>Buscar por nome, telefone ou contexto</span>
-              <input
-                className="field"
-                value={searchTerm}
-                onChange={(event) => setSearchTerm(event.target.value)}
-                placeholder="Digite cliente, telefone ou observacao"
-              />
-            </label>
-            <label className={styles.fieldBlock}>
-              <span>Status</span>
-              <select
-                className="field"
-                value={statusFilter}
-                onChange={(event) => setStatusFilter(event.target.value as StatusFilter)}
-              >
-                <option value="all">Todos</option>
-                <option value="new">Novas</option>
-                <option value="open">Em humano</option>
-                <option value="closed">Encerradas</option>
-                <option value="blocked">Bloqueadas</option>
-              </select>
-            </label>
-            <label className={styles.fieldBlock}>
-              <span>Destino</span>
-              <select
-                className="field"
-                value={routeFilter}
-                onChange={(event) => setRouteFilter(event.target.value as RouteFilter)}
-              >
-                <option value="all">Tudo</option>
-                <option value="atendimento">Atendimento</option>
-                <option value="recovery">Recovery</option>
-              </select>
-            </label>
-            <div className={styles.footerActions}>
-              <button type="button" className="btn btn-secondary" onClick={() => loadConversations()}>
-                Atualizar fila
-              </button>
-            </div>
-          </div>
-        </section>
-      ) : null}
 
       {activeTab === "messages" ? (
         <section className={styles.messageGrid}>
@@ -1300,14 +1180,7 @@ export default function InboxClientPage() {
               <div>
                 <p className={styles.sectionEyebrow}>Inbox do Atendimento</p>
                 <h3>Mensagens recebidas</h3>
-                <small>
-                  Tudo entra aqui primeiro. Se encontrar debito, o card mostra a parede e direciona
-                  para o HBX Recovery.
-                </small>
               </div>
-              <span className={styles.pulseBadge}>
-                {pendingAtendimentoCount} aguardando leitura humana
-              </span>
             </div>
 
             <div className={styles.conversationList}>
@@ -1398,25 +1271,6 @@ export default function InboxClientPage() {
                   </div>
                 </div>
 
-                <div className={styles.flowList}>
-                  <div>
-                    <strong>Parede atual</strong>
-                    <span>{selectedConversation.routeReason}</span>
-                  </div>
-                  <div>
-                    <strong>Status</strong>
-                    <span>{selectedStatus}</span>
-                  </div>
-                  <div>
-                    <strong>Ultima atualizacao</strong>
-                    <span>{formatDateLabel(selectedConversation.updatedAt, mounted)}</span>
-                  </div>
-                  <div>
-                    <strong>Etapa Recovery</strong>
-                    <span>{selectedConversation.recoveryCurrentStep || "Sem etapa ativa"}</span>
-                  </div>
-                </div>
-
                 <div className={styles.actionBar}>
                   {selectedConversation.routeTarget === "recovery" ? (
                     <Link href="/hbx-recovery" className="btn btn-primary btn-sm">
@@ -1467,13 +1321,6 @@ export default function InboxClientPage() {
                   )}
                 </div>
 
-                {selectedRouteIsRecovery ? (
-                  <div className={styles.inlineNote}>
-                    Este cliente foi reconhecido no Recovery. A conversa deve seguir no modulo de
-                    cobranca para nao misturar respostas, historico e acoes humanas.
-                  </div>
-                ) : null}
-
                 {selectedBlocked ? (
                   <div className={`${styles.inlineNote} ${styles.inlineError}`}>
                     Contato bloqueado em {formatDateLabel(selectedConversation.blockedAt, mounted)}.
@@ -1481,7 +1328,7 @@ export default function InboxClientPage() {
                   </div>
                 ) : null}
 
-                <div className={styles.chatTimeline}>
+                <div ref={chatTimelineRef} className={styles.chatTimeline}>
                   {selectedConversation.messages.length === 0 ? (
                     <div className={styles.emptyState}>Sem mensagens nesta conversa.</div>
                   ) : (
@@ -1694,41 +1541,132 @@ export default function InboxClientPage() {
         />
       ) : null}
 
-      {showAttentionCard && selectedPendingPreview ? (
-        <div className={styles.attentionPopup}>
-          <div className={styles.attentionCard}>
-            <div className={styles.attentionHeader}>
-              <div>
-                <p className={styles.attentionEyebrow}>Nova mensagem no Atendimento</p>
-                <strong>{selectedPendingPreview.customer.name || selectedPendingPreview.customer.phone}</strong>
+      <div className={styles.notificationDock}>
+        {notice ? (
+          expandedAlerts.system_notice ? (
+            <article className={`${styles.notificationCard} ${styles.notificationCardInfo}`}>
+              <div className={styles.notificationHeader}>
+                <div>
+                  <p className={styles.attentionEyebrow}>Atualizacao do sistema</p>
+                  <strong>{notice.tone === "success" ? "Acao concluida" : "Falha na acao"}</strong>
+                </div>
+                <button type="button" className={styles.closePopupButton} onClick={() => setNotice(null)}>
+                  Fechar
+                </button>
               </div>
-              <button
-                type="button"
-                className={styles.closePopupButton}
-                onClick={() => setShowAttentionCard(false)}
-              >
-                Fechar
-              </button>
-            </div>
-            <p className={styles.attentionPreview}>
-              {getMessagePreview(selectedPendingPreview.messages?.[0])}
-            </p>
-            <div className={styles.footerActions}>
-              <button
-                type="button"
-                className="btn btn-primary btn-sm"
-                onClick={() => {
-                  setActiveTab("messages");
-                  setShowAttentionCard(false);
-                  void loadConversation(selectedPendingPreview.id);
-                }}
-              >
-                Abrir fila agora
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
+              <p className={styles.attentionPreview}>{notice.text}</p>
+            </article>
+          ) : (
+            <button
+              type="button"
+              className={`${styles.notificationMinimized} ${styles.notificationMinimizedInfo}`}
+              onClick={() => {
+                setExpandedAlerts((current) => ({ ...current, system_notice: true }));
+                scheduleAlertCollapse("system_notice", noticeTimerRef);
+              }}
+            >
+              Atualizacao do sistema
+            </button>
+          )
+        ) : null}
+
+        {humanAttentionPreview && !dismissedAlerts.human_queue ? (
+          expandedAlerts.human_queue ? (
+            <article className={styles.notificationCard}>
+              <div className={styles.notificationHeader}>
+                <div>
+                  <p className={styles.attentionEyebrow}>Atendimento humano solicitado</p>
+                  <p className={styles.notificationModule}>
+                    {humanAttentionPreview.routeTarget === "recovery" ? "HBX Recovery" : "Atendimento"}
+                  </p>
+                  <strong>{humanAttentionPreview.customer.name || humanAttentionPreview.customer.phone}</strong>
+                  <p className={styles.notificationModule}>{humanAttentionPreview.customer.phone}</p>
+                </div>
+                <span className={styles.pulseBadge}>Fila humana</span>
+              </div>
+              <p className={styles.attentionPreview}>{getMessagePreview(humanAttentionPreview.messages?.[0])}</p>
+              <div className={styles.footerActions}>
+                <button
+                  type="button"
+                  className="btn btn-primary btn-sm"
+                  onClick={() => {
+                    setActiveTab("messages");
+                    setDismissedAlerts((current) => ({ ...current, human_queue: true }));
+                    void loadConversation(humanAttentionPreview.id);
+                  }}
+                >
+                  Abrir conversa
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => setDismissedAlerts((current) => ({ ...current, human_queue: true }))}
+                >
+                  Dispensar
+                </button>
+              </div>
+            </article>
+          ) : (
+            <button
+              type="button"
+              className={`${styles.notificationMinimized} ${styles.notificationUnread}`}
+              onClick={() => {
+                setExpandedAlerts((current) => ({ ...current, human_queue: true }));
+                scheduleAlertCollapse("human_queue", humanAlertTimerRef);
+              }}
+            >
+              Atendimento humano solicitado
+              <span className={styles.notificationCount}>{humanAttentionConversations.length}</span>
+            </button>
+          )
+        ) : null}
+
+        {newInboundPreview && !dismissedAlerts.new_message ? (
+          expandedAlerts.new_message ? (
+            <article className={styles.notificationCard}>
+              <div className={styles.notificationHeader}>
+                <div>
+                  <p className={styles.attentionEyebrow}>Nova mensagem no Atendimento</p>
+                  <strong>{newInboundPreview.customer.name || newInboundPreview.customer.phone}</strong>
+                </div>
+                <button
+                  type="button"
+                  className={styles.closePopupButton}
+                  onClick={() => setDismissedAlerts((current) => ({ ...current, new_message: true }))}
+                >
+                  Fechar
+                </button>
+              </div>
+              <p className={styles.attentionPreview}>{getMessagePreview(newInboundPreview.messages?.[0])}</p>
+              <div className={styles.footerActions}>
+                <button
+                  type="button"
+                  className="btn btn-primary btn-sm"
+                  onClick={() => {
+                    setActiveTab("messages");
+                    setDismissedAlerts((current) => ({ ...current, new_message: true }));
+                    void loadConversation(newInboundPreview.id);
+                  }}
+                >
+                  Abrir fila agora
+                </button>
+              </div>
+            </article>
+          ) : (
+            <button
+              type="button"
+              className={`${styles.notificationMinimized} ${styles.notificationUnread}`}
+              onClick={() => {
+                setExpandedAlerts((current) => ({ ...current, new_message: true }));
+                scheduleAlertCollapse("new_message", newAlertTimerRef);
+              }}
+            >
+              Nova mensagem no Atendimento
+              <span className={styles.notificationCount}>{newInboundConversations.length}</span>
+            </button>
+          )
+        ) : null}
+      </div>
     </DashboardScaffold>
   );
 }

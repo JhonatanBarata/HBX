@@ -411,19 +411,15 @@
 
 .noticeViewport {
   position: fixed;
-  inset: 0;
+  left: 24px;
+  bottom: 210px;
   z-index: 170;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 1.2rem;
-  pointer-events: auto;
-  background: rgba(8, 15, 28, 0.38);
-  backdrop-filter: blur(6px);
+  width: min(380px, calc(100vw - 32px));
+  pointer-events: none;
 }
 
 .noticeToast {
-  width: min(760px, calc(100vw - 2rem));
+  width: min(380px, calc(100vw - 32px));
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
@@ -434,12 +430,7 @@
   background:
     radial-gradient(circle at top left, rgba(255, 255, 255, 0.92), transparent 42%),
     linear-gradient(180deg, #ffffff, #f8fbff 72%, #f3f7fb);
-  box-shadow:
-    0 0 0 10px rgba(255, 255, 255, 1),
-    0 0 38px 14px rgba(255, 255, 255, 1),
-    0 34px 80px -36px rgba(15, 23, 42, 0.72),
-    0 22px 42px -28px rgba(15, 23, 42, 0.46),
-    inset 0 1px 0 rgba(255, 255, 255, 0.92);
+  box-shadow: 0 22px 50px rgba(15, 23, 42, 0.18);
   opacity: 1;
   pointer-events: auto;
 }
@@ -544,10 +535,10 @@
 
 .humanAttentionViewport {
   position: fixed;
-  top: 88px;
-  right: 18px;
+  left: 24px;
+  bottom: 24px;
   z-index: 165;
-  width: min(420px, calc(100vw - 1.5rem));
+  width: min(380px, calc(100vw - 32px));
   pointer-events: none;
 }
 
@@ -566,6 +557,24 @@
     inset 0 1px 0 rgba(255, 255, 255, 0.84);
   pointer-events: auto;
   animation: recovery-human-attention-pulse 1.8s ease-in-out infinite;
+}
+
+@media (max-width: 720px) {
+  .noticeViewport {
+    left: 12px;
+    bottom: 200px;
+    width: min(360px, calc(100vw - 24px));
+  }
+
+  .noticeToast {
+    width: min(360px, calc(100vw - 24px));
+  }
+
+  .humanAttentionViewport {
+    left: 12px;
+    bottom: 12px;
+    width: min(360px, calc(100vw - 24px));
+  }
 }
 
 .humanAttentionHeader {

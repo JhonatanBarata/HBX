@@ -17,7 +17,6 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { InboxService } from './inbox.service';
-import { MockMessageDto } from './dto/mock-message.dto';
 import { UpdateConversationStatusDto } from './dto/update-conversation-status.dto';
 import { SendConversationMessageDto } from './dto/send-conversation-message.dto';
 import { ModuleAccessGuard } from '../modules/module-access.guard';
@@ -41,11 +40,6 @@ export class InboxController {
     private readonly inboxService: InboxService,
     private readonly recoveryService: HbxRecoveryService,
   ) {}
-
-  @Post('mock-message')
-  mockMessage(@Req() req: any, @Body() dto: MockMessageDto) {
-    return this.inboxService.mockMessage(req.user, dto);
-  }
 
   @Get('bot-config')
   getBotConfig(@Req() req: any) {

@@ -5579,40 +5579,6 @@ export default function HbxRecoveryClientPage() {
         </div>
       ) : null}
 
-      {noticeHistory.length > 0 ? (
-        <div className={styles.noticeHistoryPanel}>
-          <div className={styles.noticeHistoryHeader}>
-            <strong>Historico operacional</strong>
-            <button
-              type="button"
-              className="btn btn-secondary btn-sm"
-              onClick={() => setNoticeHistory([])}
-            >
-              Limpar
-            </button>
-          </div>
-          <div className={styles.noticeHistoryList}>
-            {noticeHistory.map((entry) => (
-              <article key={entry.id} className={styles.noticeHistoryItem}>
-                <div className={styles.interactionBadgeRow}>
-                  <span
-                    className={`${styles.stateBadge} ${
-                      entry.tone === "error" ? styles.stateExpired : styles.stateGenerated
-                    }`}
-                  >
-                    {entry.tone === "error" ? "Falha" : "Info"}
-                  </span>
-                  <span className={`${styles.stateBadge} ${styles.stateWaiting}`}>
-                    {formatDateTime(entry.createdAt)}
-                  </span>
-                </div>
-                <p>{entry.message}</p>
-              </article>
-            ))}
-          </div>
-        </div>
-      ) : null}
-
       {humanAttentionPopup ? (
         <div className={styles.humanAttentionViewport} role="status" aria-live="polite">
           <div className={`${styles.humanAttentionCard} ${styles.tabTransitionStage} ${styles.tabTransitionEnter}`}>

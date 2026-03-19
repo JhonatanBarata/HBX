@@ -1,6 +1,5 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { MockMessageDto } from './dto/mock-message.dto';
 import { ConversationsService } from '../messaging/conversations.service';
 import { WhatsAppAuditService } from '../messaging/whatsapp-audit.service';
 import {
@@ -10,11 +9,7 @@ import {
   RECOVERY_BOT_CONFIG_TITLE,
   type RecoveryRoutingRules,
 } from '../hbx-recovery/recovery-bot-config';
-import {
-  buildStructuredWhatsAppLog,
-  buildWhatsAppPhoneCandidates,
-  normalizeWhatsAppPhone,
-} from '../messaging/whatsapp-channel';
+import { buildStructuredWhatsAppLog } from '../messaging/whatsapp-channel';
 import {
   ATENDIMENTO_AGENDA_CONFIG_CHANNEL,
   ATENDIMENTO_AGENDA_CONFIG_TITLE,
@@ -570,39 +565,5 @@ export class InboxService {
     });
 
     return this.getConversationByIdForCompany(companyId, conversationId);
-  }
-
-  async mockMessage(user: any, dto: MockMessageDto) {
-    const companyId = this.requireCompanyIdFromUser(user);
-    const phone = this.requireTrimmed(dto.phone, 'phone');
-    const content = this.requireTrimmed(dto.message, 'message');
-    await this.conversations.recordInboundMessage({
-      companyId,
-      from: phone,
-      body: content,
-    });
-    const candidates = buildWhatsAppPhoneCandidates(phone);
-    const conversation = await this.prisma.companyConversation.findFirst({
-      where: {
-        companyId,
-        channel: 'whatsapp',
-        OR: [
-          { contact: normalizeWhatsAppPhone(phone) },
-          ...candidates.map((candidate) => ({ contact: candidate })),
-        ],
-      },
-      orderBy: { updatedAt: 'desc' },
-    });
-    if (!conversation) throw new NotFoundException('Conversation not found after mock inbound');
-    await this.logInboxEvent({
-      companyId,
-      event: 'mock_inbound_recorded',
-      message: `Mensagem mock persistida para ${phone}`,
-      conversationId: conversation.id,
-      phone,
-      messageType: 'text',
-      result: 'received',
-    });
-    return this.getConversationByIdForCompany(companyId, conversation.id);
   }
 }
