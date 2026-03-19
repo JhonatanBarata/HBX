@@ -5586,7 +5586,7 @@ export default function HbxRecoveryClientPage() {
               <div>
                 <p className={styles.humanAttentionEyebrow}>
                   {humanAttentionPopup.kind === "human_queue"
-                    ? "Atendimento humano solicitado"
+                    ? `${humanAttentionFeed.length || 1} mensagem${(humanAttentionFeed.length || 1) === 1 ? "" : "s"}`
                     : "Nova mensagem aguardando resposta"}
                 </p>
                 <p className={styles.humanAttentionPhone}>{humanAttentionPopup.moduleLabel}</p>

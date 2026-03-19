@@ -507,6 +507,9 @@ export default function InboxClientPage() {
   const selectedBlocked = Boolean(selectedConversation?.isBlocked);
   const humanAttentionPreview = humanAttentionConversations[0] || null;
   const newInboundPreview = newInboundConversations[0] || null;
+  const humanQueueLabel = `${humanAttentionConversations.length} mensagem${
+    humanAttentionConversations.length === 1 ? "" : "s"
+  }`;
 
   const updateStatus = useCallback(
     async (status: Exclude<StatusFilter, "all" | "blocked">) => {
@@ -1575,7 +1578,7 @@ export default function InboxClientPage() {
             <article className={styles.notificationCard}>
               <div className={styles.notificationHeader}>
                 <div>
-                  <p className={styles.attentionEyebrow}>Atendimento humano solicitado</p>
+                  <p className={styles.attentionEyebrow}>{humanQueueLabel}</p>
                   <p className={styles.notificationModule}>
                     {humanAttentionPreview.routeTarget === "recovery" ? "HBX Recovery" : "Atendimento"}
                   </p>
@@ -1615,7 +1618,7 @@ export default function InboxClientPage() {
                 scheduleAlertCollapse("human_queue", humanAlertTimerRef);
               }}
             >
-              Atendimento humano solicitado
+              {humanQueueLabel}
               <span className={styles.notificationCount}>{humanAttentionConversations.length}</span>
             </button>
           )

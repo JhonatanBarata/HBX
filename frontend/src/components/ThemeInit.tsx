@@ -173,15 +173,12 @@ function applyThemePalette(id: string, nextStrength: number) {
 export default function ThemeInit() {
   useEffect(() => {
     try {
-      const stored = localStorage.getItem("theme");
-      const themeId = stored || "primary";
-      const safeStrength = clampThemeStrength(readStoredThemeStrength());
-      if (stored) {
-        document.documentElement.setAttribute("data-theme", stored);
-      } else {
-        document.documentElement.setAttribute("data-theme", "primary");
-      }
-      applyThemePalette(themeId, safeStrength);
+      const storedMode = (localStorage.getItem("theme-mode") as "light" | "dark") || "light";
+      const safeStrength = storedMode === "dark" ? 100 : 0;
+      document.documentElement.setAttribute("data-theme", "primary");
+      document.documentElement.setAttribute("data-theme-mode", storedMode);
+      localStorage.setItem("theme", "primary");
+      applyThemePalette("primary", safeStrength);
       document.documentElement.style.setProperty(
         "--theme-strength-pct",
         `${safeStrength}%`,

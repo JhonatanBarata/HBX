@@ -1,19 +1,6 @@
 "use client";
 
 import React from "react";
-import {
-  DEFAULT_THEME_STRENGTH,
-  clampThemeStrength,
-  persistThemeStrength,
-  readStoredThemeStrength,
-} from "@/lib/theme-preferences";
-
-const options = [
-  { id: "primary", label: "Corporate" },
-  { id: "secondary", label: "Ocean" },
-  { id: "neutral", label: "Slate" },
-  { id: "pink", label: "Pink" },
-];
 
 const DEFAULT_THEME_ID = "primary";
 const THEME_PALETTES: Record<
@@ -188,7 +175,6 @@ type ThemeSwitcherProps = {
 };
 
 export default function ThemeSwitcher({ storageUserId }: ThemeSwitcherProps) {
-  const [current, setCurrent] = React.useState<string>(DEFAULT_THEME_ID);
   const [mode, setMode] = React.useState<'light' | 'dark'>('light');
 
   function applyTheme(id: string, nextMode: 'light' | 'dark') {
@@ -201,24 +187,21 @@ export default function ThemeSwitcher({ storageUserId }: ThemeSwitcherProps) {
     try { localStorage.setItem('theme-mode', nextMode); } catch {}
   }
 
-  function setTheme(id: string) {
-    // if selecting a new theme, default to dark mode; if clicking same, toggle
-    const nextMode = current === id ? (mode === 'dark' ? 'light' : 'dark') : 'dark';
-    applyTheme(id, nextMode);
-    setCurrent(id);
+  function toggleThemeMode() {
+    const nextMode = mode === 'dark' ? 'light' : 'dark';
+    applyTheme(DEFAULT_THEME_ID, nextMode);
     setMode(nextMode);
     try {
-      localStorage.setItem("theme", id);
+      localStorage.setItem("theme", DEFAULT_THEME_ID);
     } catch {}
   }
 
   React.useEffect(() => {
     try {
-      const stored = localStorage.getItem("theme") ?? document.documentElement.getAttribute("data-theme") ?? DEFAULT_THEME_ID;
       const storedMode = (localStorage.getItem('theme-mode') as 'light' | 'dark') || (document.documentElement.getAttribute('data-theme-mode') as 'light' | 'dark') || 'light';
-      applyTheme(stored, storedMode);
-      setCurrent(stored);
+      applyTheme(DEFAULT_THEME_ID, storedMode);
       setMode(storedMode);
+      localStorage.setItem("theme", DEFAULT_THEME_ID);
     } catch {
       // ignore
     }
@@ -226,21 +209,14 @@ export default function ThemeSwitcher({ storageUserId }: ThemeSwitcherProps) {
   return (
     <div className="theme-switcher-wrap">
       <div className="theme-switcher" role="group" aria-label="Tema visual">
-        {options.map((option) => {
-          const active = current === option.id;
-          const displayLabel = active ? (mode === 'dark' ? 'Dark' : 'Light') : option.label;
-          return (
-            <button
-              key={option.id}
-              type="button"
-              onClick={() => setTheme(option.id)}
-              className={`theme-chip ${active ? "is-active" : ""}`}
-              aria-pressed={active}
-            >
-              {displayLabel}
-            </button>
-          );
-        })}
+        <button
+          type="button"
+          onClick={toggleThemeMode}
+          className="theme-chip is-active"
+          aria-pressed={mode === 'dark'}
+        >
+          {mode === 'dark' ? 'Light' : 'Dark'}
+        </button>
       </div>
     </div>
   );
