@@ -414,7 +414,7 @@
   left: 24px;
   bottom: 210px;
   z-index: 170;
-  width: min(380px, calc(100vw - 520px));
+  width: min(340px, calc(100vw - 520px));
   pointer-events: none;
 }
 
@@ -538,7 +538,7 @@
   left: 24px;
   bottom: 24px;
   z-index: 165;
-  width: min(380px, calc(100vw - 520px));
+  width: min(340px, calc(100vw - 520px));
   pointer-events: none;
 }
 
