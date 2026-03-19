@@ -129,6 +129,7 @@ function runStep(command, commandArgs, options = {}) {
       cwd: repoRoot,
       captureOutput: options.captureOutput,
       env: options.env,
+      allowFailure: options.allowFailure,
     });
   } catch (error) {
     console.error(error && error.message ? error.message : error);
@@ -271,7 +272,16 @@ async function main() {
 
   logStage('Git Publish');
   runStep('git', ['add', '-A']);
-  runStep('git', ['commit', '-m', commitMessage]);
+  const commitResult = runStep('git', ['commit', '-m', commitMessage], { captureOutput: true, allowFailure: true });
+  if (commitResult.status !== 0) {
+    const stdout = String(commitResult.stdout || '');
+    const stderr = String(commitResult.stderr || '');
+    if (/nothing to commit/i.test(stdout) || /nothing to commit/i.test(stderr) || /nothing added to commit/i.test(stdout)) {
+      console.log('No changes to commit; continuing publish.');
+    } else {
+      throw new Error(`git commit failed: ${stdout || stderr}`);
+    }
+  }
   runStep('git', ['push', publishRemote, `HEAD:${publishBranch}`]);
 
   logStage('Post-Deploy Verify');
