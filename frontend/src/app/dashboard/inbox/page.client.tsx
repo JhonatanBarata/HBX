@@ -41,6 +41,7 @@ import {
   type InboxRouteTarget,
 } from "./inbox-model";
 import styles from "./page.module.css";
+import recoveryStyles from "@/app/hbx-recovery/page.module.css";
 
 type InboxTab = "customers" | "messages" | "templates" | "agenda" | "bot";
 type StatusFilter = "all" | "new" | "open" | "closed" | "blocked";
@@ -1175,59 +1176,15 @@ export default function InboxClientPage() {
       ) : null}
 
       <section className={styles.dashboardGrid}>
-        <article className={`${styles.workspaceCard} ${styles.workspaceCardWide} ${styles.heroPanel}`}>
-          <div className={styles.heroIntro}>
-            <p className={styles.heroEyebrow}>Atendimento modular</p>
-            <h2 className={styles.heroTitle}>Atendimento, Agenda e Recovery separados do jeito certo</h2>
-            <p className={styles.heroDescription}>
-              Toda mensagem entra pelo Atendimento, mas o sistema valida o cadastro, detecta
-              inadimplencia e empurra o cliente para o fluxo correto sem misturar editor, agenda
-              ou historico operacional.
-            </p>
-          </div>
-
-          <div className={styles.heroMeta}>
-            <span className={styles.metaBadge}>Parede Recovery ativa</span>
-            <span className={styles.metaBadge}>Agenda dinamica</span>
-            <span className={styles.metaBadge}>Templates Meta compartilhados</span>
-            <span className={styles.metaBadge}>
-              {refreshingList ? "Atualizando fila agora" : "Atualizacao continua ativa"}
-            </span>
-          </div>
-
-          <div className={styles.metricStrip}>
-            <div className={styles.metricCard}>
-              <strong>{stats.customers}</strong>
-              <span>Clientes monitorados</span>
-            </div>
-            <div className={styles.metricCard}>
-              <strong>{stats.pendingAtendimento}</strong>
-              <span>Pendencias do Atendimento</span>
-            </div>
-            <div className={styles.metricCard}>
-              <strong>{stats.recoveryRouted}</strong>
-              <span>Roteados para Recovery</span>
-            </div>
-            <div className={styles.metricCard}>
-              <strong>{stats.blocked}</strong>
-              <span>Bloqueados</span>
-            </div>
-            <div className={styles.metricCard}>
-              <strong>{stats.agendas}</strong>
-              <span>Agendas ativas</span>
-            </div>
-            <div className={styles.metricCard}>
-              <strong>{stats.templates}</strong>
-              <span>Templates aprovados</span>
-            </div>
-          </div>
-
-          <div className={styles.tabRow}>
+        <article className={`${styles.workspaceCard} ${styles.workspaceCardWide}`}>
+          <div className={recoveryStyles.heroTabGroup} role="tablist" aria-label="Guias do Atendimento">
             {TAB_ITEMS.map((tab) => (
               <button
                 key={tab.id}
                 type="button"
-                className={`${styles.tabButton} ${tab.id === activeTab ? styles.tabActive : ""}`}
+                role="tab"
+                aria-selected={tab.id === activeTab}
+                className={tab.id === activeTab ? recoveryStyles.heroTabActive : recoveryStyles.heroTab}
                 onClick={() => setActiveTab(tab.id)}
               >
                 {tab.label}
@@ -1578,23 +1535,24 @@ export default function InboxClientPage() {
 
       {activeTab === "customers" ? (
         <section className={styles.stackSection}>
-          <article className={styles.workspaceCard}>
-            <div className={styles.sectionHead}>
+          <article className={`panel ${recoveryStyles.sectionCard} ${recoveryStyles.registerTableCard}`}>
+            <div className={recoveryStyles.sectionHeader}>
               <div>
-                <p className={styles.sectionEyebrow}>Tabela de clientes</p>
-                <h3>Base operacional do Atendimento</h3>
-                <small>
+                <p className={recoveryStyles.sectionEyebrow}>Tabela de clientes</p>
+                <h3 className={recoveryStyles.sectionTitle}>Base operacional do Atendimento</h3>
+                <p className={recoveryStyles.sectionDescription}>
                   Equivalente da tabela de inadimplentes, mas agora focada em clientes, rota e
                   prioridade de atendimento.
-                </small>
+                </p>
               </div>
+              <span className="badge badge-brand">{customerRows.length} clientes</span>
             </div>
 
             {customerRows.length === 0 ? (
               <div className={styles.emptyState}>Nenhum cliente encontrado neste recorte.</div>
             ) : (
-              <div className={styles.tableWrap}>
-                <table className={styles.dataTable}>
+              <div className={recoveryStyles.tableWrap}>
+                <table className={recoveryStyles.importPreviewTable}>
                   <thead>
                     <tr>
                       <th>Cliente</th>
