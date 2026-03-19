@@ -9,7 +9,9 @@
 
 .assistantShell {
   position: fixed;
-  right: 16px;
+  /* Keep assistant out of the central workspace by respecting the central max-width (1220px)
+     when viewport is wide. Fallback to 16px on small screens. */
+  right: max(16px, calc((100vw - 1220px) / 2 + 16px));
   bottom: max(74px, calc(env(safe-area-inset-bottom) + 66px));
   z-index: 141;
   width: min(440px, calc(100vw - 1rem));
