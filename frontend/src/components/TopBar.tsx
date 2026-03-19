@@ -928,31 +928,43 @@ export default function TopBar() {
           )}
         </div>
       </div>
+      {/* MASTER controls rendered in a fixed strip above the topbar to avoid increasing header height */}
       {authenticated && user?.isSystemMaster ? (
-        <div className="app-topbar__inner" style={{ paddingTop: 0, paddingBottom: 8 }}>
-          <div className="flex flex-wrap items-center gap-2">
-            <button type="button" className="btn btn-secondary btn-sm" onClick={openMasterContextModal}>
-              Entrar na empresa
-            </button>
-            {user.masterContext?.active ? (
-              <>
-                <span className="badge badge-danger">
-                  MASTER no contexto de {user.masterContext.companyName || `Empresa ${user.masterContext.companyId}`}
-                </span>
-                <button
-                  type="button"
-                  className="btn btn-secondary btn-sm"
-                  onClick={exitMasterContext}
-                  disabled={masterContextActionBusy}
-                >
-                  Sair do contexto
-                </button>
-              </>
-            ) : (
-              <span className="badge badge-success">MASTER puro</span>
-            )}
-            {masterContextMessage ? <span className="text-xs text-muted">{masterContextMessage}</span> : null}
-          </div>
+        <div
+          style={{
+            position: "fixed",
+            top: 8,
+            right: 16,
+            zIndex: 160,
+            display: "flex",
+            gap: 8,
+            alignItems: "center",
+            pointerEvents: "auto",
+          }}
+          aria-hidden={false}
+        >
+          <button type="button" className="btn btn-secondary btn-sm" onClick={openMasterContextModal}>
+            Entrar na empresa
+          </button>
+
+          {user.masterContext?.active ? (
+            <>
+              <span className="badge badge-danger">
+                MASTER no contexto de {user.masterContext.companyName || `Empresa ${user.masterContext.companyId}`}
+              </span>
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                onClick={exitMasterContext}
+                disabled={masterContextActionBusy}
+              >
+                Sair do contexto
+              </button>
+            </>
+          ) : (
+            <span className="badge badge-success">MASTER puro</span>
+          )}
+          {masterContextMessage ? <span className="text-xs text-muted">{masterContextMessage}</span> : null}
         </div>
       ) : null}
       {incomingPopup ? (
