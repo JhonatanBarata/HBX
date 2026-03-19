@@ -3318,9 +3318,15 @@ export default function HbxRecoveryClientPage() {
       if (lastInbound?.timestamp) {
         interactionDetailLastInboundRef.current.set(conversationId, lastInbound.timestamp);
       }
+      // Only clear drafts when selecting a different conversation —
+      // avoid wiping the operator's in-progress reply when the same
+      // conversation is reloaded due to incoming events.
+      const previousConversationId = interactionDetail?.conversationId;
       setInteractionDetail(payload);
-      setInteractionNoteDraft("");
-      setInteractionReplyDraft("");
+      if (!previousConversationId || previousConversationId !== payload.conversationId) {
+        setInteractionNoteDraft("");
+        setInteractionReplyDraft("");
+      }
     } catch (error) {
       const reason = error instanceof Error ? error.message : "Erro ao abrir conversa";
       setNotice(`Falha ao abrir conversa: ${reason}`);
