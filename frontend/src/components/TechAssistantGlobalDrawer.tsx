@@ -2,8 +2,10 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { apiFetch } from "../app/dashboard/_lib/api";
+import styles from "./TechAssistantGlobalDrawer.module.css";
 
 type MasterContextInfo = {
   active: boolean;
@@ -61,6 +63,7 @@ function deriveModuleFromPath(pathname: string) {
 
 export default function TechAssistantGlobalDrawer({ isSystemMaster, masterContext }: Props) {
   const pathname = usePathname();
+  const [mounted, setMounted] = useState(false);
   const [open, setOpen] = useState(false);
   const [minimized, setMinimized] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -83,7 +86,11 @@ export default function TechAssistantGlobalDrawer({ isSystemMaster, masterContex
   const operationMode = masterContext?.active ? "empresa_assumida" : "master_puro";
   const activeCompanyName = masterContext?.companyName || null;
 
-  if (!isSystemMaster) return null;
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  if (!isSystemMaster || !mounted) return null;
 
   async function runAnalysis() {
     setLoading(true);
@@ -181,19 +188,11 @@ export default function TechAssistantGlobalDrawer({ isSystemMaster, masterContex
     }
   }
 
-  return (
+  return createPortal(
     <>
       <button
         type="button"
-        className="btn btn-primary btn-sm"
-        style={{
-          position: "fixed",
-          right: "16px",
-          bottom: "20px",
-          zIndex: 120,
-          borderRadius: "999px",
-          boxShadow: "0 18px 45px rgba(15,23,42,0.24)",
-        }}
+        className={`btn btn-primary btn-sm ${styles.assistantLauncher}`}
         onClick={() => {
           setOpen(true);
           setMinimized(false);
@@ -202,25 +201,16 @@ export default function TechAssistantGlobalDrawer({ isSystemMaster, masterContex
         Assistente Tecnico
       </button>
 
-      {open ? (
-        <aside
-          className="panel"
-          style={{
-            position: "fixed",
-            right: "16px",
-            bottom: "74px",
-            zIndex: 131,
-            width: "min(440px, calc(100vw - 1rem))",
-            height: minimized ? "auto" : "min(72vh, 720px)",
-            borderRadius: "18px",
-            border: "1px solid var(--line)",
-            overflow: "hidden",
-            boxShadow: "0 24px 64px rgba(2, 12, 27, 0.32)",
-            display: "grid",
-            gridTemplateRows: minimized ? "auto" : "auto 1fr",
-          }}
+      <aside
+        className={`panel ${styles.assistantShell}`}
+        data-open={open}
+        data-minimized={minimized}
+        aria-hidden={!open}
+      >
+        <div
+          className={styles.assistantHeader}
+          style={{ borderBottom: minimized ? "none" : "1px solid var(--line)" }}
         >
-          <div style={{ padding: "14px 14px 10px 14px", borderBottom: minimized ? "none" : "1px solid var(--line)" }}>
             <div className="flex items-start justify-between gap-3">
               <div>
                 <p className="text-xs uppercase tracking-[0.12em] text-muted">Assistente global</p>
@@ -245,10 +235,10 @@ export default function TechAssistantGlobalDrawer({ isSystemMaster, masterContex
                 </button>
               </div>
             </div>
-          </div>
+        </div>
 
-          {!minimized ? (
-            <div style={{ overflowY: "auto", padding: "12px 14px 14px 14px" }}>
+        {!minimized ? (
+          <div className={styles.assistantBody}>
 
             <div className="mt-4 grid gap-3">
               {error ? <div className="alert alert-error">{error}</div> : null}
@@ -440,10 +430,10 @@ export default function TechAssistantGlobalDrawer({ isSystemMaster, masterContex
                 </div>
               </section>
             ) : null}
-            </div>
-          ) : null}
-        </aside>
-      ) : null}
-    </>
+          </div>
+        ) : null}
+      </aside>
+    </>,
+    document.body,
   );
 }
