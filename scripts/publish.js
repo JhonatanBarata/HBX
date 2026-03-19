@@ -115,6 +115,23 @@ async function verifyWithRetry(env) {
   throw lastError || new Error(`Production verify timed out after ${timeoutSeconds} seconds`);
 }
 
+function applyProductionMigrations(env) {
+  const databaseUrl = String(env.PROD_DATABASE_URL || '').trim();
+  if (!databaseUrl) {
+    console.log('PROD_DATABASE_URL not configured; skipping explicit production migration deploy.');
+    return;
+  }
+
+  const prismaEnv = {
+    ...process.env,
+    ...env,
+    DATABASE_URL: databaseUrl,
+    DIRECT_URL: String(env.PROD_DIRECT_URL || databaseUrl).trim(),
+  };
+
+  runStep('npm', ['--prefix', 'backend', 'run', 'prisma:migrate:deploy'], { env: prismaEnv });
+}
+
 function runStep(command, commandArgs, options = {}) {
   const printable = [command, ...commandArgs].join(' ');
   console.log(`\n> ${printable}`);
@@ -283,6 +300,9 @@ async function main() {
     }
   }
   runStep('git', ['push', publishRemote, `HEAD:${publishBranch}`]);
+
+  logStage('Production Database Migrate');
+  applyProductionMigrations(operationsEnv);
 
   logStage('Post-Deploy Verify');
   try {
