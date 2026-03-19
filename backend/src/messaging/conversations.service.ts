@@ -58,6 +58,14 @@ export class ConversationsService {
     private readonly whatsappStatus: WhatsAppStatusService,
   ) {}
 
+  private async supportsWhatsAppEndpointTable() {
+    return this.prisma.hasTable('CompanyWhatsAppEndpoint');
+  }
+
+  private async supportsOutboundEndpointColumn() {
+    return this.prisma.hasColumn('OutboundMessage', 'whatsappEndpointId');
+  }
+
   private pickPreferredConversation(candidates: any[], normalizedContact: string) {
     if (!Array.isArray(candidates) || candidates.length === 0) return null;
 
@@ -321,14 +329,18 @@ export class ConversationsService {
     if (!companyId) throw new ForbiddenException('Company context required');
     if (!to) throw new BadRequestException('to is required');
 
-    const company = await this.prisma.company.findUnique({
-      where: { id: companyId },
-      include: {
-        whatsappEndpoints: {
-          orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
-        },
-      },
-    });
+    const company = (await this.supportsWhatsAppEndpointTable())
+      ? await this.prisma.company.findUnique({
+          where: { id: companyId },
+          include: {
+            whatsappEndpoints: {
+              orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+            },
+          },
+        })
+      : await this.prisma.company.findUnique({
+          where: { id: companyId },
+        });
     if (!company) throw new NotFoundException(`Company with id ${companyId} not found`);
 
     let conversation = null as any;
@@ -378,28 +390,32 @@ export class ConversationsService {
     }
 
     return this.prisma.$transaction(async (tx) => {
+      const outboundData: any = {
+        companyId,
+        contactId: contactId || to,
+        to,
+        body,
+        messageType,
+        templateName: messageType === 'template' ? templateName : null,
+        templateLanguage: messageType === 'template' ? templateLanguage : null,
+        templateComponents:
+          messageType === 'template'
+            ? JSON.stringify(payload?.templateComponents || [])
+            : messageType === 'interactive'
+              ? JSON.stringify(payload?.interactivePayload || {})
+              : null,
+        sourceModule,
+        status: 'PENDING',
+        attemptCount: 0,
+        maxAttempts: 3,
+        nextAttemptAt: at,
+      };
+      if (await this.supportsOutboundEndpointColumn()) {
+        outboundData.whatsappEndpointId = resolvedCreds.endpointId || null;
+      }
+
       const outbound = await tx.outboundMessage.create({
-        data: {
-          companyId,
-          whatsappEndpointId: resolvedCreds.endpointId || null,
-          contactId: contactId || to,
-          to,
-          body,
-          messageType,
-          templateName: messageType === 'template' ? templateName : null,
-          templateLanguage: messageType === 'template' ? templateLanguage : null,
-          templateComponents:
-            messageType === 'template'
-              ? JSON.stringify(payload?.templateComponents || [])
-              : messageType === 'interactive'
-                ? JSON.stringify(payload?.interactivePayload || {})
-                : null,
-          sourceModule,
-          status: 'PENDING',
-          attemptCount: 0,
-          maxAttempts: 3,
-          nextAttemptAt: at,
-        },
+        data: outboundData,
       });
 
       const message = await tx.companyMessage.create({

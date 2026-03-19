@@ -20,6 +20,26 @@ export class WhatsAppStatusService {
     );
   }
 
+  private async supportsWhatsAppEndpointTable() {
+    return this.prisma.hasTable('CompanyWhatsAppEndpoint');
+  }
+
+  private async findCompanyForStatus(companyId: number) {
+    const supportsEndpointTable = await this.supportsWhatsAppEndpointTable();
+    if (!supportsEndpointTable) {
+      return this.prisma.company.findUnique({ where: { id: companyId } });
+    }
+
+    return this.prisma.company.findUnique({
+      where: { id: companyId },
+      include: {
+        whatsappEndpoints: {
+          orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+        },
+      },
+    });
+  }
+
   private async validateStatusWithCredentials(input: {
     phoneNumberId: string;
     accessToken: string;
@@ -71,14 +91,8 @@ export class WhatsAppStatusService {
   }
 
   private async syncCompanyStatusFromPrimaryEndpoint(companyId: number) {
-    const company = await this.prisma.company.findUnique({
-      where: { id: companyId },
-      include: {
-        whatsappEndpoints: {
-          orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
-        },
-      },
-    });
+    if (!(await this.supportsWhatsAppEndpointTable())) return;
+    const company = await this.findCompanyForStatus(companyId);
     if (!company) return;
     const primary = pickWhatsAppEndpoint(company);
     if (!primary) return;
@@ -102,6 +116,11 @@ export class WhatsAppStatusService {
   }
 
   async getStatusForCompanyEndpoint(endpointId: string, opts?: { refresh?: boolean }) {
+    if (!(await this.supportsWhatsAppEndpointTable())) {
+      throw new BadRequestException(
+        'A configuracao de multiplos numeros ainda nao esta disponivel neste banco. Publique a migration primeiro.',
+      );
+    }
     const normalizedEndpointId = String(endpointId || '').trim();
     if (!normalizedEndpointId) throw new BadRequestException('Numero WhatsApp nao encontrado');
 
@@ -181,14 +200,7 @@ export class WhatsAppStatusService {
   }
 
   async getStatusForCompany(companyId: number, opts?: { refresh?: boolean }) {
-    const company = await this.prisma.company.findUnique({
-      where: { id: companyId },
-      include: {
-        whatsappEndpoints: {
-          orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
-        },
-      },
-    });
+    const company = await this.findCompanyForStatus(companyId);
     if (!company) throw new BadRequestException('Empresa nao encontrada');
 
     const creds = resolveWhatsAppCredentials(company);
@@ -273,14 +285,7 @@ export class WhatsAppStatusService {
     companyId: number,
     opts?: { endpointId?: string; preferredModuleKey?: string; sourceModule?: string },
   ) {
-    const company = await this.prisma.company.findUnique({
-      where: { id: companyId },
-      include: {
-        whatsappEndpoints: {
-          orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
-        },
-      },
-    });
+    const company = await this.findCompanyForStatus(companyId);
     if (!company) throw new BadRequestException('Empresa nao encontrada');
 
     const creds = resolveWhatsAppCredentials(company, opts);

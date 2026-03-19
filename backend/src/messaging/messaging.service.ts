@@ -185,6 +185,31 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     return (process.env.WHATSAPP_ENABLED || 'true').toLowerCase() === 'true';
   }
 
+  private async supportsWhatsAppEndpointTable() {
+    return this.prisma.hasTable('CompanyWhatsAppEndpoint');
+  }
+
+  private async supportsOutboundEndpointColumn() {
+    return this.prisma.hasColumn('OutboundMessage', 'whatsappEndpointId');
+  }
+
+  private async findCompanyWithOptionalEndpoints(companyId: number) {
+    if (await this.supportsWhatsAppEndpointTable()) {
+      return this.prisma.company.findUnique({
+        where: { id: companyId },
+        include: {
+          whatsappEndpoints: {
+            orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+          },
+        },
+      });
+    }
+
+    return this.prisma.company.findUnique({
+      where: { id: companyId },
+    });
+  }
+
   private computeWebhookSignature(rawBody: Buffer): string {
     const hmac = crypto.createHmac('sha256', this.appSecret);
     hmac.update(rawBody);
@@ -1149,12 +1174,15 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     const phoneNumberId = String(phoneNumberIdRaw || '').trim();
     const displayPhone = normalizeWhatsAppPhone(displayPhoneRaw);
     const displayDigits = this.normalizeDigits(displayPhoneRaw || displayPhone);
-    const endpointDelegate = (this.prisma as any).companyWhatsAppEndpoint;
-    const companyInclude = {
-      whatsappEndpoints: {
-        orderBy: [{ sortOrder: 'asc' as const }, { createdAt: 'asc' as const }],
-      },
-    };
+    const supportsEndpointTable = await this.supportsWhatsAppEndpointTable();
+    const endpointDelegate = supportsEndpointTable ? (this.prisma as any).companyWhatsAppEndpoint : null;
+    const companyInclude = supportsEndpointTable
+      ? {
+          whatsappEndpoints: {
+            orderBy: [{ sortOrder: 'asc' as const }, { createdAt: 'asc' as const }],
+          },
+        }
+      : null;
     const displayWhere: any[] = [];
     if (displayPhone) {
       displayWhere.push({ whatsappDisplayNumber: displayPhone }, { whatsappNumber: displayPhone });
@@ -1170,13 +1198,13 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     if (phoneNumberId && endpointDelegate?.findFirst) {
       endpoint = await endpointDelegate.findFirst({
         where: { whatsappPhoneNumberId: phoneNumberId },
-        include: { company: { include: companyInclude } },
+        include: { company: companyInclude ? { include: companyInclude } : true },
       });
     }
     if (!endpoint && displayWhere.length > 0 && endpointDelegate?.findFirst) {
       endpoint = await endpointDelegate.findFirst({
         where: { OR: displayWhere },
-        include: { company: { include: companyInclude } },
+        include: { company: companyInclude ? { include: companyInclude } : true },
       });
     }
     if (endpoint?.company) {
@@ -1185,16 +1213,24 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
 
     let company = null as any;
     if (phoneNumberId) {
-      company = await this.prisma.company.findFirst({
-        where: { whatsappPhoneNumberId: phoneNumberId },
-        include: companyInclude,
-      });
+      company = companyInclude
+        ? await this.prisma.company.findFirst({
+            where: { whatsappPhoneNumberId: phoneNumberId },
+            include: companyInclude,
+          })
+        : await this.prisma.company.findFirst({
+            where: { whatsappPhoneNumberId: phoneNumberId },
+          });
     }
     if (!company && displayWhere.length > 0) {
-      company = await this.prisma.company.findFirst({
-        where: { OR: displayWhere },
-        include: companyInclude,
-      });
+      company = companyInclude
+        ? await this.prisma.company.findFirst({
+            where: { OR: displayWhere },
+            include: companyInclude,
+          })
+        : await this.prisma.company.findFirst({
+            where: { OR: displayWhere },
+          });
     }
 
     return { company, endpoint: null };
@@ -2465,7 +2501,34 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
       templateComponents: payload.templateComponents,
       sourceModule: 'atendimento',
     });
-    return this.prisma.outboundMessage.findUnique({ where: { id: queued.outboundMessageId } });
+    return this.prisma.outboundMessage.findUnique({
+      where: { id: queued.outboundMessageId },
+      select: {
+        id: true,
+        companyId: true,
+        contactId: true,
+        to: true,
+        body: true,
+        messageType: true,
+        templateName: true,
+        templateLanguage: true,
+        templateComponents: true,
+        sourceModule: true,
+        status: true,
+        attemptCount: true,
+        maxAttempts: true,
+        nextAttemptAt: true,
+        lastError: true,
+        provider: true,
+        providerMessageId: true,
+        sentAt: true,
+        deliveredAt: true,
+        readAt: true,
+        failedAt: true,
+        deliveryStatus: true,
+        createdAt: true,
+      },
+    });
   }
 
   async listOutboundMessages(user: any, opts?: { take?: number }) {
@@ -2475,7 +2538,32 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
       where: { companyId },
       orderBy: { id: 'desc' },
       take,
-      include: { attempts: { orderBy: { id: 'desc' }, take: 10 } },
+      select: {
+        id: true,
+        companyId: true,
+        contactId: true,
+        to: true,
+        body: true,
+        messageType: true,
+        templateName: true,
+        templateLanguage: true,
+        templateComponents: true,
+        sourceModule: true,
+        status: true,
+        attemptCount: true,
+        maxAttempts: true,
+        nextAttemptAt: true,
+        lastError: true,
+        provider: true,
+        providerMessageId: true,
+        sentAt: true,
+        deliveredAt: true,
+        readAt: true,
+        failedAt: true,
+        deliveryStatus: true,
+        createdAt: true,
+        attempts: { orderBy: { id: 'desc' }, take: 10 },
+      },
     });
   }
 
@@ -2483,7 +2571,32 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     const companyId = this.requireCompanyIdFromUser(user);
     const msg = await this.prisma.outboundMessage.findUnique({
       where: { id },
-      include: { attempts: { orderBy: { id: 'desc' } } },
+      select: {
+        id: true,
+        companyId: true,
+        contactId: true,
+        to: true,
+        body: true,
+        messageType: true,
+        templateName: true,
+        templateLanguage: true,
+        templateComponents: true,
+        sourceModule: true,
+        status: true,
+        attemptCount: true,
+        maxAttempts: true,
+        nextAttemptAt: true,
+        lastError: true,
+        provider: true,
+        providerMessageId: true,
+        sentAt: true,
+        deliveredAt: true,
+        readAt: true,
+        failedAt: true,
+        deliveryStatus: true,
+        createdAt: true,
+        attempts: { orderBy: { id: 'desc' } },
+      },
     });
     if (!msg || msg.companyId !== companyId) throw new NotFoundException('Message not found');
     return msg;
@@ -2495,6 +2608,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
       where: { status: 'PENDING', nextAttemptAt: { lte: now } },
       orderBy: { id: 'asc' },
       take: 10,
+      select: { id: true },
     });
     for (const msg of due) {
       await this.sendOne(msg.id);
@@ -2521,19 +2635,38 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
 
     await this.prisma.companyMessage.updateMany({ where: { outboundMessageId: messageId }, data: { status: 'SENDING' } });
 
+    const supportsOutboundEndpointColumn = await this.supportsOutboundEndpointColumn();
     const msg = await this.prisma.outboundMessage.findUnique({
       where: { id: messageId },
-      include: {
-        company: {
-          include: {
-            whatsappEndpoints: {
-              orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
-            },
-          },
-        },
+      select: {
+        id: true,
+        companyId: true,
+        contactId: true,
+        to: true,
+        body: true,
+        messageType: true,
+        templateName: true,
+        templateLanguage: true,
+        templateComponents: true,
+        sourceModule: true,
+        status: true,
+        attemptCount: true,
+        maxAttempts: true,
+        nextAttemptAt: true,
+        lastError: true,
+        provider: true,
+        providerMessageId: true,
+        sentAt: true,
+        deliveredAt: true,
+        readAt: true,
+        failedAt: true,
+        deliveryStatus: true,
+        createdAt: true,
       },
     });
     if (!msg) return;
+    const company = await this.findCompanyWithOptionalEndpoints(msg.companyId);
+    if (!company) return;
 
     const attemptNo = msg.attemptCount + 1;
     const attempt = await this.prisma.outboundAttempt.create({
@@ -2563,8 +2696,10 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
         return;
       }
 
-      const creds = resolveWhatsAppCredentials(msg.company, {
-        endpointId: String((msg as any).whatsappEndpointId || '').trim() || undefined,
+      const creds = resolveWhatsAppCredentials(company, {
+        endpointId: supportsOutboundEndpointColumn
+          ? String((msg as any).whatsappEndpointId || '').trim() || undefined
+          : undefined,
         sourceModule: String(msg.sourceModule || '').trim().toLowerCase() || undefined,
       });
       if (!creds.phoneNumberId || !creds.accessToken) {

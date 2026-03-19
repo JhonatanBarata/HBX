@@ -8,6 +8,36 @@ import { buildImportacaoPermissaoRows } from '../bootstrap/company-structural-de
 export class CompaniesService {
   constructor(private readonly prisma: PrismaService) {}
 
+  private async supportsWhatsAppEndpointTable() {
+    return this.prisma.hasTable('CompanyWhatsAppEndpoint');
+  }
+
+  private buildLegacyEndpointSnapshot(company: any) {
+    const phoneNumberId = String(company?.whatsappPhoneNumberId || '').trim();
+    const accessToken = String(company?.whatsappAccessToken || '').trim();
+    const whatsappNumber = String(company?.whatsappNumber || '').trim();
+    if (!phoneNumberId && !accessToken && !whatsappNumber) return [];
+
+    return [
+      {
+        id: 'legacy-primary',
+        label: 'Numero principal',
+        moduleKey: null,
+        whatsappNumber: company?.whatsappNumber || null,
+        whatsappPhoneNumberId: company?.whatsappPhoneNumberId || null,
+        whatsappWabaId: company?.whatsappWabaId || null,
+        whatsappDisplayNumber: company?.whatsappDisplayNumber || company?.whatsappNumber || null,
+        whatsappStatus: company?.whatsappStatus || null,
+        whatsappStatusError: company?.whatsappStatusError || null,
+        whatsappStatusUpdatedAt: company?.whatsappStatusUpdatedAt || null,
+        whatsappAccessToken: company?.whatsappAccessToken || null,
+        isActive: true,
+        isPrimary: true,
+        sortOrder: 0,
+      },
+    ];
+  }
+
   private async assertMasterUser(masterUserId: number) {
     const user = await this.prisma.user.findUnique({
       where: { id: Number(masterUserId) },
@@ -111,15 +141,23 @@ export class CompaniesService {
   async findByIdForMaster(companyId: number) {
     const id = Number(companyId);
     if (!id) throw new NotFoundException('Company not found');
-    const company = await this.prisma.company.findUnique({
-      where: { id },
-      include: {
-        whatsappEndpoints: {
-          orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
-        },
-      },
-    });
+    const supportsEndpointTable = await this.supportsWhatsAppEndpointTable();
+    const company = supportsEndpointTable
+      ? await this.prisma.company.findUnique({
+          where: { id },
+          include: {
+            whatsappEndpoints: {
+              orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+            },
+          },
+        })
+      : await this.prisma.company.findUnique({
+          where: { id },
+        });
     if (!company) throw new NotFoundException('Company not found');
+    if (!supportsEndpointTable) {
+      (company as any).whatsappEndpoints = this.buildLegacyEndpointSnapshot(company);
+    }
     return company;
   }
 
@@ -137,7 +175,7 @@ export class CompaniesService {
 
   async listWhatsAppEndpointsByMaster(companyId: number) {
     const company = await this.findByIdForMaster(companyId);
-    return this.sanitizeCompany(company)?.whatsappEndpoints || [];
+    return (this.sanitizeCompany(company) as any)?.whatsappEndpoints || [];
   }
 
   async replaceWhatsAppEndpointsByMaster(
@@ -154,6 +192,11 @@ export class CompaniesService {
       isPrimary?: boolean;
     }>,
   ) {
+    if (!(await this.supportsWhatsAppEndpointTable())) {
+      throw new BadRequestException(
+        'O banco desta publicacao ainda nao recebeu a migration de multiplos numeros. Rode a migration e publique novamente.',
+      );
+    }
     const id = Number(companyId);
     if (!id) throw new NotFoundException('Company not found');
     const existing = await this.prisma.company.findUnique({

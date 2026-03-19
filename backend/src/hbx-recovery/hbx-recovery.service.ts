@@ -1227,14 +1227,18 @@ export class HbxRecoveryService {
 
   private async resolveMetaTemplateContext(companyId: number, opts?: MetaTemplateScopeOptions) {
     const moduleKey = this.normalizeMetaTemplateModuleKey(opts?.moduleKey);
-    const company = await this.prisma.company.findUnique({
-      where: { id: companyId },
-      include: {
-        whatsappEndpoints: {
-          orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
-        },
-      },
-    });
+    const company = (await this.prisma.hasTable('CompanyWhatsAppEndpoint'))
+      ? await this.prisma.company.findUnique({
+          where: { id: companyId },
+          include: {
+            whatsappEndpoints: {
+              orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+            },
+          },
+        })
+      : await this.prisma.company.findUnique({
+          where: { id: companyId },
+        });
     if (!company) throw new BadRequestException('Empresa nao encontrada.');
 
     const creds = resolveWhatsAppCredentials(company, {

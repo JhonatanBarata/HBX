@@ -26,6 +26,36 @@ const RETIRED_MODULE_KEYS = ['hbx_music'];
 export class ModulesService implements OnModuleInit {
   constructor(private readonly prisma: PrismaService, private readonly usersService: UsersService) {}
 
+  private async supportsWhatsAppEndpointTable() {
+    return this.prisma.hasTable('CompanyWhatsAppEndpoint');
+  }
+
+  private buildLegacyEndpointSnapshot(company: any) {
+    const phoneNumberId = String(company?.whatsappPhoneNumberId || '').trim();
+    const accessToken = String(company?.whatsappAccessToken || '').trim();
+    const whatsappNumber = String(company?.whatsappNumber || '').trim();
+    if (!phoneNumberId && !accessToken && !whatsappNumber) return [];
+
+    return [
+      {
+        id: 'legacy-primary',
+        label: 'Numero principal',
+        moduleKey: null,
+        whatsappNumber: company?.whatsappNumber || null,
+        whatsappPhoneNumberId: company?.whatsappPhoneNumberId || null,
+        whatsappWabaId: company?.whatsappWabaId || null,
+        whatsappDisplayNumber: company?.whatsappDisplayNumber || company?.whatsappNumber || null,
+        whatsappStatus: company?.whatsappStatus || null,
+        whatsappStatusError: company?.whatsappStatusError || null,
+        whatsappStatusUpdatedAt: company?.whatsappStatusUpdatedAt || null,
+        whatsappAccessToken: company?.whatsappAccessToken || null,
+        isActive: true,
+        isPrimary: true,
+        sortOrder: 0,
+      },
+    ];
+  }
+
   private normalizeOptionalString(value: unknown) {
     const normalized = String(value || '').trim();
     return normalized || null;
@@ -382,31 +412,55 @@ export class ModulesService implements OnModuleInit {
     await this.ensureDefaultSystemModules();
     await this.syncCompanyModulesForAllCompanies();
 
-    const companies = await this.prisma.company.findMany({
-      include: {
-        users: {
-          select: {
-            id: true,
-            username: true,
-            email: true,
-            role: true,
-            isActive: true,
-            deactivatedAt: true,
-            retentionUntil: true,
-            createdAt: true,
+    const supportsEndpointTable = await this.supportsWhatsAppEndpointTable();
+    const companies = supportsEndpointTable
+      ? await this.prisma.company.findMany({
+          include: {
+            users: {
+              select: {
+                id: true,
+                username: true,
+                email: true,
+                role: true,
+                isActive: true,
+                deactivatedAt: true,
+                retentionUntil: true,
+                createdAt: true,
+              },
+              orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+            },
+            companyModules: {
+              include: { systemModule: true },
+              orderBy: { systemModule: { name: 'asc' } },
+            },
+            whatsappEndpoints: {
+              orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+            },
           },
-          orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-        },
-        companyModules: {
-          include: { systemModule: true },
-          orderBy: { systemModule: { name: 'asc' } },
-        },
-        whatsappEndpoints: {
-          orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
-        },
-      },
-      orderBy: { id: 'asc' },
-    });
+          orderBy: { id: 'asc' },
+        })
+      : await this.prisma.company.findMany({
+          include: {
+            users: {
+              select: {
+                id: true,
+                username: true,
+                email: true,
+                role: true,
+                isActive: true,
+                deactivatedAt: true,
+                retentionUntil: true,
+                createdAt: true,
+              },
+              orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+            },
+            companyModules: {
+              include: { systemModule: true },
+              orderBy: { systemModule: { name: 'asc' } },
+            },
+          },
+          orderBy: { id: 'asc' },
+        });
 
     const result: any[] = [];
     for (const company of companies) {
@@ -438,7 +492,7 @@ export class ModulesService implements OnModuleInit {
         whatsappStatusUpdatedAt: company.whatsappStatusUpdatedAt || null,
         accessTokenConfigured: Boolean(company.whatsappAccessToken),
         accessTokenPreview: company.whatsappAccessToken || null,
-        whatsappEndpoints: (company.whatsappEndpoints || []).map((endpoint) => ({
+        whatsappEndpoints: (((company as any).whatsappEndpoints || this.buildLegacyEndpointSnapshot(company)) as any[]).map((endpoint) => ({
           id: endpoint.id,
           label: endpoint.label || null,
           moduleKey: endpoint.moduleKey || null,
