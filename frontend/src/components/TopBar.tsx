@@ -31,10 +31,76 @@ type WhatsAppStatusPayload = {
   displayNumber?: string | null;
 };
 type WhatsAppHealth = "green" | "yellow" | "red";
+type RecoveryAlertConversation = {
+  conversationId: number;
+  customerName: string;
+  customerWhatsapp: string;
+  conversationWhatsapp: string;
+  humanQueue: boolean;
+  humanAssigned: boolean;
+  isClosed: boolean;
+  isBlocked: boolean;
+  lastMessage: string;
+  lastDirection: string;
+  lastAt: string;
+  metadata?: Record<string, unknown> | null;
+};
+type RecoveryAlertSummary = {
+  pendingHumanCount: number;
+  conversations: RecoveryAlertConversation[];
+};
+type InboxAlertMessage = {
+  direction: string;
+  content: string;
+  createdAt: string;
+};
+type InboxAlertConversation = {
+  id: string;
+  status: string;
+  routeTarget: string;
+  isBlocked: boolean;
+  updatedAt: string;
+  metadata?: Record<string, unknown> | null;
+  customer: {
+    name: string | null;
+    phone: string;
+  };
+  messages: InboxAlertMessage[];
+};
+type TopBarIncomingPopup = {
+  id: string;
+  moduleLabel: string;
+  attentionLabel: string;
+  customerLabel: string;
+  contactPhone: string;
+  entryNumberLabel: string | null;
+  preview: string;
+  href: string;
+  lastAt: string;
+};
 
 const RECOVERY_HUMAN_QUEUE_EVENT = "hbx-recovery-human-queue";
+const ATENDIMENTO_HUMAN_QUEUE_EVENT = "atendimento-human-queue";
+const RECOVERY_QUEUE_STORAGE_KEY = "hbxRecoveryPendingHumanCount";
+const ATENDIMENTO_QUEUE_STORAGE_KEY = "atendimentoPendingHumanCount";
 
 const hiddenRoutes = new Set(["/login", "/register", "/reset-password"]);
+
+function extractEntryNumberLabel(metadata?: Record<string, unknown> | null) {
+  const endpointLabel = String(metadata?.whatsappEntryEndpointLabel || "").trim();
+  const displayNumber = String(metadata?.whatsappEntryDisplayNumber || "").trim();
+  if (endpointLabel && displayNumber) return `${endpointLabel} (${displayNumber})`;
+  if (endpointLabel) return endpointLabel;
+  if (displayNumber) return displayNumber;
+  return null;
+}
+
+function formatInboxPreview(conversation: InboxAlertConversation) {
+  const latestMessage = conversation.messages?.[0];
+  const content = String(latestMessage?.content || "").trim();
+  if (content) return content;
+  return "Nova mensagem aguardando resposta.";
+}
 
 export default function TopBar() {
   const router = useRouter();
@@ -51,16 +117,66 @@ export default function TopBar() {
   const [changeMsg, setChangeMsg] = useState<string | null>(null);
   const [whatsAppHealth, setWhatsAppHealth] = useState<WhatsAppHealth>("yellow");
   const [whatsAppHealthLabel, setWhatsAppHealthLabel] = useState("WhatsApp status: sem validacao");
-  const [pendingHumanCount, setPendingHumanCount] = useState(0);
+  const [recoveryPendingHumanCount, setRecoveryPendingHumanCount] = useState(0);
+  const [atendimentoPendingHumanCount, setAtendimentoPendingHumanCount] = useState(0);
+  const [incomingPopup, setIncomingPopup] = useState<TopBarIncomingPopup | null>(null);
   const navScrollRef = useRef<HTMLDivElement | null>(null);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
+  const recoveryLastSeenRef = useRef<Map<number, string>>(new Map());
+  const recoveryHumanQueueRef = useRef<Map<number, boolean>>(new Map());
+  const recoveryAlertReadyRef = useRef(false);
+  const atendimentoLastSeenRef = useRef<Map<string, string>>(new Map());
+  const atendimentoAlertReadyRef = useRef(false);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const audioArmedRef = useRef(false);
 
   function updateScrollButtons() {
     const el = navScrollRef.current;
     if (!el) return;
     setCanScrollLeft(el.scrollLeft > 4);
     setCanScrollRight(el.scrollWidth - el.clientWidth - el.scrollLeft > 4);
+  }
+
+  function playIncomingAlertTone() {
+    if (typeof window === "undefined" || !audioArmedRef.current) return;
+    const AudioContextCtor = window.AudioContext;
+    if (!AudioContextCtor) return;
+
+    const audioContext =
+      audioContextRef.current || new AudioContextCtor();
+    audioContextRef.current = audioContext;
+    if (audioContext.state === "suspended") {
+      void audioContext.resume().catch(() => undefined);
+    }
+
+    const now = audioContext.currentTime;
+    const oscillator = audioContext.createOscillator();
+    const gain = audioContext.createGain();
+    oscillator.type = "sine";
+    oscillator.frequency.setValueAtTime(880, now);
+    oscillator.frequency.exponentialRampToValueAtTime(660, now + 0.18);
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.exponentialRampToValueAtTime(0.08, now + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.24);
+    oscillator.connect(gain);
+    gain.connect(audioContext.destination);
+    oscillator.start(now);
+    oscillator.stop(now + 0.26);
+  }
+
+  function presentIncomingPopup(nextPopup: TopBarIncomingPopup) {
+    setIncomingPopup((current) => {
+      if (
+        current &&
+        current.id === nextPopup.id &&
+        new Date(current.lastAt).getTime() >= new Date(nextPopup.lastAt).getTime()
+      ) {
+        return current;
+      }
+      return nextPopup;
+    });
+    playIncomingAlertTone();
   }
 
   const showWorkspaceNav =
@@ -161,11 +277,32 @@ export default function TopBar() {
   }, []);
 
   useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const armAudio = () => {
+      audioArmedRef.current = true;
+    };
+
+    window.addEventListener("pointerdown", armAudio, { once: true });
+    window.addEventListener("keydown", armAudio, { once: true });
+
+    return () => {
+      window.removeEventListener("pointerdown", armAudio);
+      window.removeEventListener("keydown", armAudio);
+      if (audioContextRef.current && audioContextRef.current.state !== "closed") {
+        void audioContextRef.current.close().catch(() => undefined);
+      }
+      audioContextRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
     if (!authenticated) {
       setUser(null);
       setWhatsAppHealth("yellow");
       setWhatsAppHealthLabel("WhatsApp status: sem validacao");
-      setPendingHumanCount(0);
+      setRecoveryPendingHumanCount(0);
+      setAtendimentoPendingHumanCount(0);
       setActiveThemeUser(null);
       return;
     }
@@ -249,36 +386,232 @@ export default function TopBar() {
 
   useEffect(() => {
     if (!authenticated) {
-      setPendingHumanCount(0);
+      setRecoveryPendingHumanCount(0);
+      setAtendimentoPendingHumanCount(0);
       return;
     }
 
-    const applyCount = (value: unknown) => {
+    const applyCount = (
+      setter: React.Dispatch<React.SetStateAction<number>>,
+      value: unknown,
+    ) => {
       const next = Number(value);
-      setPendingHumanCount(Number.isFinite(next) ? Math.max(0, Math.trunc(next)) : 0);
+      setter(Number.isFinite(next) ? Math.max(0, Math.trunc(next)) : 0);
     };
 
     const readStoredCount = () => {
       try {
-        applyCount(window.localStorage.getItem("hbxRecoveryPendingHumanCount") || 0);
+        applyCount(setRecoveryPendingHumanCount, window.localStorage.getItem(RECOVERY_QUEUE_STORAGE_KEY) || 0);
+        applyCount(
+          setAtendimentoPendingHumanCount,
+          window.localStorage.getItem(ATENDIMENTO_QUEUE_STORAGE_KEY) || 0,
+        );
       } catch {
-        applyCount(0);
+        applyCount(setRecoveryPendingHumanCount, 0);
+        applyCount(setAtendimentoPendingHumanCount, 0);
       }
     };
 
-    const handleQueueEvent = (event: Event) => {
-      applyCount((event as CustomEvent<{ count?: number }>).detail?.count ?? 0);
+    const handleRecoveryQueueEvent = (event: Event) => {
+      applyCount(
+        setRecoveryPendingHumanCount,
+        (event as CustomEvent<{ count?: number }>).detail?.count ?? 0,
+      );
+    };
+
+    const handleAtendimentoQueueEvent = (event: Event) => {
+      applyCount(
+        setAtendimentoPendingHumanCount,
+        (event as CustomEvent<{ count?: number }>).detail?.count ?? 0,
+      );
     };
 
     readStoredCount();
-    window.addEventListener(RECOVERY_HUMAN_QUEUE_EVENT, handleQueueEvent as EventListener);
+    window.addEventListener(RECOVERY_HUMAN_QUEUE_EVENT, handleRecoveryQueueEvent as EventListener);
+    window.addEventListener(
+      ATENDIMENTO_HUMAN_QUEUE_EVENT,
+      handleAtendimentoQueueEvent as EventListener,
+    );
     window.addEventListener("storage", readStoredCount);
 
     return () => {
-      window.removeEventListener(RECOVERY_HUMAN_QUEUE_EVENT, handleQueueEvent as EventListener);
+      window.removeEventListener(
+        RECOVERY_HUMAN_QUEUE_EVENT,
+        handleRecoveryQueueEvent as EventListener,
+      );
+      window.removeEventListener(
+        ATENDIMENTO_HUMAN_QUEUE_EVENT,
+        handleAtendimentoQueueEvent as EventListener,
+      );
       window.removeEventListener("storage", readStoredCount);
     };
   }, [authenticated]);
+
+  useEffect(() => {
+    if (!authenticated || !user || user.isSystemMaster || !user.company?.id) {
+      recoveryLastSeenRef.current = new Map();
+      recoveryHumanQueueRef.current = new Map();
+      recoveryAlertReadyRef.current = false;
+      atendimentoLastSeenRef.current = new Map();
+      atendimentoAlertReadyRef.current = false;
+      setIncomingPopup(null);
+      return;
+    }
+
+    let cancelled = false;
+
+    const pollIncomingAlerts = async () => {
+      const popupCandidates: TopBarIncomingPopup[] = [];
+
+      if (accessibleModules.has("hbx_recovery")) {
+        try {
+          const payload = await apiFetch<RecoveryAlertSummary>("/hbx-recovery/interactions?queue=all");
+          if (cancelled) return;
+
+          setRecoveryPendingHumanCount(
+            Number.isFinite(Number(payload?.pendingHumanCount))
+              ? Math.max(0, Math.trunc(Number(payload?.pendingHumanCount)))
+              : 0,
+          );
+
+          const previousLastSeen = recoveryLastSeenRef.current;
+          const previousHumanQueue = recoveryHumanQueueRef.current;
+          const nextLastSeen = new Map<number, string>();
+          const nextHumanQueue = new Map<number, boolean>();
+
+          for (const item of Array.isArray(payload?.conversations) ? payload.conversations : []) {
+            nextLastSeen.set(item.conversationId, item.lastAt);
+            nextHumanQueue.set(item.conversationId, Boolean(item.humanQueue));
+            const previousTimestamp = previousLastSeen.get(item.conversationId);
+            const previousQueued = previousHumanQueue.get(item.conversationId);
+            const isInbound = String(item.lastDirection || "").trim().toUpperCase() === "INBOUND";
+            const requiresHumanAttention = Boolean(item.humanQueue || item.humanAssigned);
+            const becameHumanQueue = Boolean(item.humanQueue) && previousQueued !== true;
+            const hasNewInbound = Boolean(
+              previousTimestamp &&
+                isInbound &&
+                new Date(item.lastAt).getTime() > new Date(previousTimestamp).getTime(),
+            );
+            const isNewConversation = !previousTimestamp && isInbound && requiresHumanAttention;
+            if (
+              recoveryAlertReadyRef.current &&
+              !item.isClosed &&
+              !item.isBlocked &&
+              (becameHumanQueue || hasNewInbound || isNewConversation)
+            ) {
+              popupCandidates.push({
+                id: `recovery:${item.conversationId}:${item.lastAt}:${becameHumanQueue ? "human_queue" : "new_message"}`,
+                moduleLabel: "HBX Recovery",
+                attentionLabel: becameHumanQueue ? "Fila humana" : "Nova mensagem",
+                customerLabel: item.customerName || item.customerWhatsapp || "Cliente Recovery",
+                contactPhone: item.customerWhatsapp || item.conversationWhatsapp || "-",
+                entryNumberLabel: extractEntryNumberLabel(item.metadata),
+                preview:
+                  String(item.lastMessage || "").trim() ||
+                  (becameHumanQueue
+                    ? "Cliente solicitou atendimento humano."
+                    : "Nova mensagem aguardando resposta no Recovery."),
+                href: "/hbx-recovery",
+                lastAt: item.lastAt,
+              });
+            }
+          }
+
+          recoveryLastSeenRef.current = nextLastSeen;
+          recoveryHumanQueueRef.current = nextHumanQueue;
+          recoveryAlertReadyRef.current = true;
+        } catch {
+          // keep local counters when polling fails
+        }
+      } else {
+        setRecoveryPendingHumanCount(0);
+        recoveryLastSeenRef.current = new Map();
+        recoveryHumanQueueRef.current = new Map();
+        recoveryAlertReadyRef.current = false;
+      }
+
+      if (accessibleModules.has("atendimento")) {
+        try {
+          const payload = await apiFetch<InboxAlertConversation[]>("/inbox/conversations");
+          if (cancelled) return;
+
+          const rows = Array.isArray(payload) ? payload : [];
+          const pendingRows = rows.filter(
+            (conversation) =>
+              conversation.routeTarget === "atendimento" &&
+              !conversation.isBlocked &&
+              (conversation.status === "new" || conversation.status === "open"),
+          );
+          setAtendimentoPendingHumanCount(pendingRows.length);
+
+          const previousLastSeen = atendimentoLastSeenRef.current;
+          const nextLastSeen = new Map<string, string>();
+
+          for (const conversation of pendingRows) {
+            const latestMessage = conversation.messages?.[0];
+            const lastAt = String(latestMessage?.createdAt || conversation.updatedAt || "");
+            if (!lastAt) continue;
+            nextLastSeen.set(conversation.id, lastAt);
+
+            const previousTimestamp = previousLastSeen.get(conversation.id);
+            const isInbound =
+              String(latestMessage?.direction || "").trim().toLowerCase() === "inbound";
+            const hasNewInbound = Boolean(
+              previousTimestamp &&
+                isInbound &&
+                new Date(lastAt).getTime() > new Date(previousTimestamp).getTime(),
+            );
+            const isNewConversation = !previousTimestamp && isInbound;
+
+            if (atendimentoAlertReadyRef.current && (hasNewInbound || isNewConversation)) {
+              popupCandidates.push({
+                id: `atendimento:${conversation.id}:${lastAt}`,
+                moduleLabel: "Atendimento",
+                attentionLabel: conversation.status === "open" ? "Fila humana" : "Nova mensagem",
+                customerLabel: conversation.customer.name || conversation.customer.phone || "Cliente",
+                contactPhone: conversation.customer.phone || "-",
+                entryNumberLabel: extractEntryNumberLabel(conversation.metadata),
+                preview: formatInboxPreview(conversation),
+                href: "/dashboard/inbox",
+                lastAt,
+              });
+            }
+          }
+
+          atendimentoLastSeenRef.current = nextLastSeen;
+          atendimentoAlertReadyRef.current = true;
+        } catch {
+          // keep local counters when polling fails
+        }
+      } else {
+        setAtendimentoPendingHumanCount(0);
+        atendimentoLastSeenRef.current = new Map();
+        atendimentoAlertReadyRef.current = false;
+      }
+
+      const newestPopup = [...popupCandidates].sort(
+        (left, right) =>
+          new Date(right.lastAt).getTime() - new Date(left.lastAt).getTime(),
+      )[0];
+      if (newestPopup) {
+        presentIncomingPopup(newestPopup);
+      }
+    };
+
+    void pollIncomingAlerts();
+    const timer = window.setInterval(() => {
+      void pollIncomingAlerts();
+    }, 15000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [
+    authenticated,
+    accessibleModules,
+    user,
+  ]);
 
   useEffect(() => {
     setOpen(false);
@@ -344,6 +677,12 @@ export default function TopBar() {
     }
   }
 
+  const pendingHumanCount = recoveryPendingHumanCount + atendimentoPendingHumanCount;
+  const queueLabel =
+    pendingHumanCount > 0
+      ? `Atendimento: ${atendimentoPendingHumanCount} | Recovery: ${recoveryPendingHumanCount}`
+      : null;
+
   if (hiddenRoutes.has(pathname)) {
     return null;
   }
@@ -361,12 +700,12 @@ export default function TopBar() {
                   className={`wa-health wa-health--${whatsAppHealth}`}
                   title={
                     pendingHumanCount > 0
-                      ? `${whatsAppHealthLabel} | ${pendingHumanCount} conversa(s) aguardando atendimento humano`
+                      ? `${whatsAppHealthLabel} | ${queueLabel}`
                       : whatsAppHealthLabel
                   }
                   aria-label={
                     pendingHumanCount > 0
-                      ? `${whatsAppHealthLabel}. ${pendingHumanCount} conversa(s) aguardando atendimento humano`
+                      ? `${whatsAppHealthLabel}. ${queueLabel}`
                       : whatsAppHealthLabel
                   }
                 >
@@ -463,6 +802,58 @@ export default function TopBar() {
           )}
         </div>
       </div>
+      {incomingPopup ? (
+        <div className="fixed right-4 top-[76px] z-[90] w-[min(360px,calc(100vw-2rem))] rounded-[18px] border border-[var(--line)] bg-white/95 p-4 shadow-[0_24px_60px_rgba(15,23,42,0.18)] backdrop-blur">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-[11px] uppercase tracking-[0.18em] text-[#0b4a7a]">
+                {incomingPopup.moduleLabel}
+              </p>
+              <p className="mt-1 text-sm font-semibold text-slate-900">
+                {incomingPopup.attentionLabel}
+              </p>
+              <p className="mt-1 text-sm text-slate-700">
+                {incomingPopup.customerLabel}
+              </p>
+            </div>
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              onClick={() => setIncomingPopup(null)}
+            >
+              Fechar
+            </button>
+          </div>
+
+          <div className="mt-3 space-y-1 text-xs text-slate-600">
+            <p>Contato: {incomingPopup.contactPhone}</p>
+            {incomingPopup.entryNumberLabel ? (
+              <p>Recebido em: {incomingPopup.entryNumberLabel}</p>
+            ) : null}
+          </div>
+
+          <p className="mt-3 rounded-[12px] bg-slate-50 px-3 py-2 text-sm text-slate-700">
+            {incomingPopup.preview}
+          </p>
+
+          <div className="mt-3 flex gap-2">
+            <Link
+              href={incomingPopup.href}
+              className="btn btn-primary btn-sm"
+              onClick={() => setIncomingPopup(null)}
+            >
+              Abrir modulo
+            </Link>
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              onClick={() => setIncomingPopup(null)}
+            >
+              Dispensar
+            </button>
+          </div>
+        </div>
+      ) : null}
     </header>
   );
 }

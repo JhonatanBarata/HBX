@@ -72,6 +72,32 @@ model Company {
   hbxRecoveryCustomers HbxRecoveryCustomer[]
   hbxRecoveryFlowStages HbxRecoveryFlowStage[]
   hbxRecoveryPayments  HbxRecoveryPayment[]
+  whatsappEndpoints    CompanyWhatsAppEndpoint[]
+}
+
+model CompanyWhatsAppEndpoint {
+  id                      String   @id @default(cuid())
+  company                 Company  @relation(fields: [companyId], references: [id])
+  companyId               Int
+  label                   String?
+  moduleKey               String?
+  whatsappNumber          String?
+  whatsappPhoneNumberId   String?  @unique
+  whatsappWabaId          String?
+  whatsappAccessToken     String?
+  whatsappDisplayNumber   String?
+  whatsappStatus          String? // CONNECTED | DISCONNECTED | ERROR
+  whatsappStatusError     String?
+  whatsappStatusUpdatedAt DateTime?
+  isActive                Boolean  @default(true)
+  isPrimary               Boolean  @default(false)
+  sortOrder               Int      @default(0)
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+  outboundMessages        OutboundMessage[]
+
+  @@index([companyId, moduleKey])
+  @@index([companyId, isActive, sortOrder])
 }
 
 model HbxRecoveryCustomer {
@@ -443,6 +469,8 @@ model OutboundMessage {
   id        Int     @id @default(autoincrement())
   company   Company @relation(fields: [companyId], references: [id])
   companyId Int
+  whatsappEndpoint   CompanyWhatsAppEndpoint? @relation(fields: [whatsappEndpointId], references: [id])
+  whatsappEndpointId String?
   contactId String?
   to        String
   messageType String @default("text") // text | template
@@ -473,6 +501,8 @@ model OutboundMessage {
   attempts      OutboundAttempt[]
 
   message CompanyMessage? @relation("OutboundMessageMessage")
+
+  @@index([companyId, whatsappEndpointId, nextAttemptAt])
 }
 
 model OutboundAttempt {

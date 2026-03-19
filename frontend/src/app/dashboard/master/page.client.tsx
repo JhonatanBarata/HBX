@@ -58,9 +58,31 @@ type MasterCompany = {
   mercadoPagoTokenPreview?: string | null;
   users: CompanyUser[];
   modules: CompanyModule[];
+  whatsappEndpoints?: MasterCompanyWhatsAppEndpoint[];
 };
 
-type CompanyWhatsAppDraft = {
+type MasterCompanyWhatsAppEndpoint = {
+  id: string;
+  label?: string | null;
+  moduleKey?: string | null;
+  whatsappNumber?: string | null;
+  whatsappPhoneNumberId?: string | null;
+  whatsappWabaId?: string | null;
+  whatsappDisplayNumber?: string | null;
+  whatsappStatus?: string | null;
+  whatsappStatusError?: string | null;
+  whatsappStatusUpdatedAt?: string | null;
+  accessTokenConfigured?: boolean;
+  accessTokenPreview?: string | null;
+  isActive?: boolean;
+  isPrimary?: boolean;
+};
+
+type CompanyWhatsAppEndpointDraft = {
+  clientKey: string;
+  id: string | null;
+  label: string;
+  moduleKey: string;
   whatsappNumber: string;
   whatsappPhoneNumberId: string;
   whatsappWabaId: string;
@@ -72,20 +94,17 @@ type CompanyWhatsAppDraft = {
   lastValidatedAt: string | null;
   accessTokenConfigured: boolean;
   accessTokenPreview: string | null;
+  isActive: boolean;
+  isPrimary: boolean;
 };
 
-type MasterCompanyWhatsAppPayload = {
+type CompanyWhatsAppDraft = {
+  endpoints: CompanyWhatsAppEndpointDraft[];
+};
+
+type MasterCompanyWhatsAppEndpointsPayload = {
   companyId: number;
-  whatsappNumber: string | null;
-  whatsappPhoneNumberId: string | null;
-  whatsappWabaId: string | null;
-  accessTokenConfigured: boolean;
-  accessTokenPreview: string | null;
-  status: string;
-  connected: boolean;
-  displayNumber: string | null;
-  statusError: string | null;
-  lastValidatedAt: string | null;
+  endpoints: MasterCompanyWhatsAppEndpoint[];
 };
 
 type CompanyMercadoPagoDraft = {
@@ -147,35 +166,92 @@ type DeleteCompanyModalState = {
   confirmationText: string;
 };
 
-function buildWhatsAppDraftFromCompany(company: MasterCompany): CompanyWhatsAppDraft {
+function createWhatsAppEndpointClientKey(prefix = "wa-endpoint") {
+  return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function createEmptyWhatsAppEndpointDraft(moduleKey = ""): CompanyWhatsAppEndpointDraft {
   return {
-    whatsappNumber: String(company.whatsappNumber || ""),
-    whatsappPhoneNumberId: String(company.whatsappPhoneNumberId || ""),
-    whatsappWabaId: String(company.whatsappWabaId || ""),
+    clientKey: createWhatsAppEndpointClientKey(),
+    id: null,
+    label: "",
+    moduleKey,
+    whatsappNumber: "",
+    whatsappPhoneNumberId: "",
+    whatsappWabaId: "",
     whatsappAccessToken: "",
-    status: String(company.whatsappStatus || "DISCONNECTED"),
-    connected: String(company.whatsappStatus || "").toUpperCase() === "CONNECTED",
-    displayNumber: company.whatsappDisplayNumber || null,
-    statusError: company.whatsappStatusError || null,
-    lastValidatedAt: company.whatsappStatusUpdatedAt || null,
-    accessTokenConfigured: Boolean(company.accessTokenConfigured),
-    accessTokenPreview: company.accessTokenPreview || null,
+    status: "DISCONNECTED",
+    connected: false,
+    displayNumber: null,
+    statusError: null,
+    lastValidatedAt: null,
+    accessTokenConfigured: false,
+    accessTokenPreview: null,
+    isActive: true,
+    isPrimary: false,
   };
 }
 
-function buildWhatsAppDraftFromPayload(payload: MasterCompanyWhatsAppPayload): CompanyWhatsAppDraft {
+function buildWhatsAppEndpointDraftFromCompanyEndpoint(
+  endpoint: MasterCompanyWhatsAppEndpoint,
+): CompanyWhatsAppEndpointDraft {
   return {
-    whatsappNumber: String(payload.whatsappNumber || ""),
-    whatsappPhoneNumberId: String(payload.whatsappPhoneNumberId || ""),
-    whatsappWabaId: String(payload.whatsappWabaId || ""),
+    clientKey: endpoint.id || createWhatsAppEndpointClientKey("wa-existing"),
+    id: endpoint.id || null,
+    label: String(endpoint.label || ""),
+    moduleKey: String(endpoint.moduleKey || ""),
+    whatsappNumber: String(endpoint.whatsappNumber || ""),
+    whatsappPhoneNumberId: String(endpoint.whatsappPhoneNumberId || ""),
+    whatsappWabaId: String(endpoint.whatsappWabaId || ""),
     whatsappAccessToken: "",
-    status: String(payload.status || "DISCONNECTED"),
-    connected: Boolean(payload.connected),
-    displayNumber: payload.displayNumber || null,
-    statusError: payload.statusError || null,
-    lastValidatedAt: payload.lastValidatedAt || null,
-    accessTokenConfigured: Boolean(payload.accessTokenConfigured),
-    accessTokenPreview: payload.accessTokenPreview || null,
+    status: String(endpoint.whatsappStatus || "DISCONNECTED"),
+    connected: String(endpoint.whatsappStatus || "").toUpperCase() === "CONNECTED",
+    displayNumber: endpoint.whatsappDisplayNumber || null,
+    statusError: endpoint.whatsappStatusError || null,
+    lastValidatedAt: endpoint.whatsappStatusUpdatedAt || null,
+    accessTokenConfigured: Boolean(endpoint.accessTokenConfigured),
+    accessTokenPreview: endpoint.accessTokenPreview || null,
+    isActive: endpoint.isActive !== false,
+    isPrimary: Boolean(endpoint.isPrimary),
+  };
+}
+
+function buildWhatsAppDraftFromCompany(company: MasterCompany): CompanyWhatsAppDraft {
+  const endpoints = Array.isArray(company.whatsappEndpoints) ? company.whatsappEndpoints : [];
+  const normalizedEndpoints = endpoints.length
+    ? endpoints.map(buildWhatsAppEndpointDraftFromCompanyEndpoint)
+    : company.whatsappPhoneNumberId || company.whatsappNumber || company.whatsappWabaId
+      ? [
+          {
+            ...createEmptyWhatsAppEndpointDraft(
+              company.modules.find((module) => module.enabled)?.key || "",
+            ),
+            label: "Numero principal legado",
+            moduleKey: company.modules.find((module) => module.enabled)?.key || "",
+            whatsappNumber: String(company.whatsappNumber || ""),
+            whatsappPhoneNumberId: String(company.whatsappPhoneNumberId || ""),
+            whatsappWabaId: String(company.whatsappWabaId || ""),
+            status: String(company.whatsappStatus || "DISCONNECTED"),
+            connected: String(company.whatsappStatus || "").toUpperCase() === "CONNECTED",
+            displayNumber: company.whatsappDisplayNumber || null,
+            statusError: company.whatsappStatusError || null,
+            lastValidatedAt: company.whatsappStatusUpdatedAt || null,
+            accessTokenConfigured: Boolean(company.accessTokenConfigured),
+            accessTokenPreview: company.accessTokenPreview || null,
+            isPrimary: true,
+          },
+        ]
+      : [];
+
+  if (normalizedEndpoints.length && !normalizedEndpoints.some((endpoint) => endpoint.isPrimary)) {
+    normalizedEndpoints[0] = {
+      ...normalizedEndpoints[0],
+      isPrimary: true,
+    };
+  }
+
+  return {
+    endpoints: normalizedEndpoints,
   };
 }
 
@@ -394,30 +470,104 @@ export default function MasterClientPage() {
     }));
   }
 
-  function updateWhatsAppDraftField(
+  function getDefaultWhatsAppModuleKey(companyId: number) {
+    const company = companies.find((item) => item.id === companyId);
+    return company?.modules.find((module) => module.enabled)?.key || "";
+  }
+
+  function ensureWhatsAppPrimary(endpoints: CompanyWhatsAppEndpointDraft[]) {
+    if (!endpoints.length) return endpoints;
+    if (endpoints.some((endpoint) => endpoint.isPrimary)) return endpoints;
+    return endpoints.map((endpoint, index) => ({
+      ...endpoint,
+      isPrimary: index === 0,
+    }));
+  }
+
+  function updateWhatsAppEndpointDraftField(
     companyId: number,
-    field: "whatsappNumber" | "whatsappPhoneNumberId" | "whatsappWabaId" | "whatsappAccessToken",
+    clientKey: string,
+    field:
+      | "label"
+      | "moduleKey"
+      | "whatsappNumber"
+      | "whatsappPhoneNumberId"
+      | "whatsappWabaId"
+      | "whatsappAccessToken",
     value: string,
   ) {
-    setWhatsAppDrafts((current) => ({
-      ...current,
-      [companyId]: {
-        ...(current[companyId] || {
-          whatsappNumber: "",
-          whatsappPhoneNumberId: "",
-          whatsappWabaId: "",
-          whatsappAccessToken: "",
-          status: "DISCONNECTED",
-          connected: false,
-          displayNumber: null,
-          statusError: null,
-          lastValidatedAt: null,
-          accessTokenConfigured: false,
-          accessTokenPreview: null,
-        }),
-        [field]: value,
-      },
-    }));
+    setWhatsAppDrafts((current) => {
+      const base = current[companyId] || {
+        endpoints: [createEmptyWhatsAppEndpointDraft(getDefaultWhatsAppModuleKey(companyId))],
+      };
+      return {
+        ...current,
+        [companyId]: {
+          endpoints: ensureWhatsAppPrimary(
+            base.endpoints.map((endpoint) =>
+              endpoint.clientKey === clientKey ? { ...endpoint, [field]: value } : endpoint,
+            ),
+          ),
+        },
+      };
+    });
+  }
+
+  function updateWhatsAppEndpointFlag(
+    companyId: number,
+    clientKey: string,
+    field: "isActive" | "isPrimary",
+    value: boolean,
+  ) {
+    setWhatsAppDrafts((current) => {
+      const base = current[companyId] || {
+        endpoints: [createEmptyWhatsAppEndpointDraft(getDefaultWhatsAppModuleKey(companyId))],
+      };
+      const updated =
+        field === "isPrimary" && value
+          ? base.endpoints.map((endpoint) => ({
+              ...endpoint,
+              isPrimary: endpoint.clientKey === clientKey,
+            }))
+          : base.endpoints.map((endpoint) =>
+              endpoint.clientKey === clientKey ? { ...endpoint, [field]: value } : endpoint,
+            );
+      return {
+        ...current,
+        [companyId]: {
+          endpoints: ensureWhatsAppPrimary(updated),
+        },
+      };
+    });
+  }
+
+  function addWhatsAppEndpointDraft(companyId: number) {
+    setWhatsAppDrafts((current) => {
+      const base = current[companyId] || { endpoints: [] };
+      const nextEndpoints = [
+        ...base.endpoints,
+        createEmptyWhatsAppEndpointDraft(getDefaultWhatsAppModuleKey(companyId)),
+      ];
+      return {
+        ...current,
+        [companyId]: {
+          endpoints: ensureWhatsAppPrimary(nextEndpoints),
+        },
+      };
+    });
+  }
+
+  function removeWhatsAppEndpointDraft(companyId: number, clientKey: string) {
+    setWhatsAppDrafts((current) => {
+      const base = current[companyId] || { endpoints: [] };
+      const nextEndpoints = base.endpoints.filter((endpoint) => endpoint.clientKey !== clientKey);
+      return {
+        ...current,
+        [companyId]: {
+          endpoints: ensureWhatsAppPrimary(nextEndpoints),
+        },
+      };
+    });
   }
 
   function updateMercadoPagoDraftField(
@@ -488,28 +638,87 @@ export default function MasterClientPage() {
   async function saveWhatsAppConfig(companyId: number) {
     const draft = whatsAppDrafts[companyId];
     if (!draft) return;
+    const endpoints = draft.endpoints
+      .map((endpoint, index) => ({
+        ...endpoint,
+        sortOrder: index,
+      }))
+      .filter(
+        (endpoint) =>
+          endpoint.id ||
+          endpoint.label.trim() ||
+          endpoint.moduleKey.trim() ||
+          endpoint.whatsappNumber.trim() ||
+          endpoint.whatsappPhoneNumberId.trim() ||
+          endpoint.whatsappWabaId.trim() ||
+          endpoint.whatsappAccessToken.trim(),
+      );
 
     const key = `save-wa-${companyId}`;
     setBusyKey(key);
     setError(null);
     try {
-      const payload = await apiFetch<MasterCompanyWhatsAppPayload>(`/companies/master/${companyId}/whatsapp`, {
-        method: "PATCH",
-        body: JSON.stringify({
-          whatsappNumber: draft.whatsappNumber.trim(),
-          whatsappPhoneNumberId: draft.whatsappPhoneNumberId.trim(),
-          whatsappWabaId: draft.whatsappWabaId.trim() || undefined,
-          whatsappAccessToken: draft.whatsappAccessToken.trim() || undefined,
-        }),
-      });
-      setWhatsAppDrafts((current) => ({
-        ...current,
-        [companyId]: buildWhatsAppDraftFromPayload(payload),
-      }));
-      setActionInfo(`Configuracao WhatsApp salva para empresa #${companyId}.`);
+      const missingModule = endpoints.find((endpoint) => !endpoint.moduleKey.trim());
+      if (missingModule) {
+        throw new Error("Selecione um modulo ativo para cada numero cadastrado.");
+      }
+      await apiFetch<MasterCompanyWhatsAppEndpointsPayload>(
+        `/companies/master/${companyId}/whatsapp-endpoints`,
+        {
+          method: "PUT",
+          body: JSON.stringify({
+            endpoints: endpoints.map((endpoint) => ({
+              id: endpoint.id || undefined,
+              label: endpoint.label.trim() || undefined,
+              moduleKey: endpoint.moduleKey.trim() || undefined,
+              whatsappNumber: endpoint.whatsappNumber.trim() || undefined,
+              whatsappPhoneNumberId: endpoint.whatsappPhoneNumberId.trim() || undefined,
+              whatsappWabaId: endpoint.whatsappWabaId.trim() || undefined,
+              whatsappAccessToken: endpoint.whatsappAccessToken.trim() || undefined,
+              isActive: endpoint.isActive,
+              isPrimary: endpoint.isPrimary,
+            })),
+          }),
+        },
+      );
+      setActionInfo(
+        endpoints.length
+          ? `Numeros WhatsApp salvos para empresa #${companyId}.`
+          : `Configuracao WhatsApp removida da empresa #${companyId}.`,
+      );
       await load({ background: true });
     } catch (actionError) {
       const message = actionError instanceof Error ? actionError.message : "Falha ao salvar configuracao WhatsApp.";
+      setError(message);
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
+  async function validateWhatsAppEndpoint(
+    companyId: number,
+    endpoint: CompanyWhatsAppEndpointDraft,
+  ) {
+    if (!endpoint.id) {
+      setError("Salve o numero antes de validar as credenciais.");
+      return;
+    }
+
+    const key = `validate-wa-${companyId}-${endpoint.clientKey}`;
+    setBusyKey(key);
+    setError(null);
+    try {
+      await apiFetch<MasterCompanyWhatsAppEndpointsPayload>(
+        `/companies/master/${companyId}/whatsapp-endpoints/${endpoint.id}/validate`,
+        {
+          method: "POST",
+        },
+      );
+      setActionInfo(`Validacao WhatsApp executada para empresa #${companyId}.`);
+      await load({ background: true });
+    } catch (actionError) {
+      const message =
+        actionError instanceof Error ? actionError.message : "Falha ao validar configuracao WhatsApp.";
       setError(message);
     } finally {
       setBusyKey(null);
@@ -542,28 +751,6 @@ export default function MasterClientPage() {
       await load({ background: true });
     } catch (actionError) {
       const message = actionError instanceof Error ? actionError.message : "Falha ao salvar perfil SaaS.";
-      setError(message);
-    } finally {
-      setBusyKey(null);
-    }
-  }
-
-  async function validateWhatsAppConfig(companyId: number) {
-    const key = `validate-wa-${companyId}`;
-    setBusyKey(key);
-    setError(null);
-    try {
-      const payload = await apiFetch<MasterCompanyWhatsAppPayload>(`/companies/master/${companyId}/whatsapp/validate`, {
-        method: "POST",
-      });
-      setWhatsAppDrafts((current) => ({
-        ...current,
-        [companyId]: buildWhatsAppDraftFromPayload(payload),
-      }));
-      setActionInfo(`Validacao WhatsApp executada para empresa #${companyId}.`);
-      await load({ background: true });
-    } catch (actionError) {
-      const message = actionError instanceof Error ? actionError.message : "Falha ao validar configuracao WhatsApp.";
       setError(message);
     } finally {
       setBusyKey(null);
@@ -1536,88 +1723,262 @@ export default function MasterClientPage() {
               </div>
 
               <div className="mt-3 border border-[var(--line)] rounded-[12px] p-3 bg-[var(--surface-soft)]">
-                <p className="text-sm font-medium">WhatsApp API da empresa</p>
-                <p className="text-xs text-muted mt-1">
-                  Numero WhatsApp = sender. Phone number ID = identificador do numero na Meta. WABA
-                  ID = conta do WhatsApp Business usada pelo guia Templates Meta.
-                </p>
-
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-2 mt-3">
-                  <input
-                    className="field"
-                    placeholder="Numero do WhatsApp (+55...)"
-                    value={whatsAppDrafts[company.id]?.whatsappNumber ?? ""}
-                    onChange={(event) =>
-                      updateWhatsAppDraftField(company.id, "whatsappNumber", event.target.value)
-                    }
-                  />
-                  <input
-                    className="field"
-                    placeholder="Phone number ID (Meta)"
-                    value={whatsAppDrafts[company.id]?.whatsappPhoneNumberId ?? ""}
-                    onChange={(event) =>
-                      updateWhatsAppDraftField(
-                        company.id,
-                        "whatsappPhoneNumberId",
-                        event.target.value,
-                      )
-                    }
-                  />
-                  <input
-                    className="field"
-                    placeholder="WABA ID (Meta)"
-                    value={whatsAppDrafts[company.id]?.whatsappWabaId ?? ""}
-                    onChange={(event) =>
-                      updateWhatsAppDraftField(company.id, "whatsappWabaId", event.target.value)
-                    }
-                  />
-                  <input
-                    className="field"
-                    placeholder="Access token da empresa"
-                    type="text"
-                    value={whatsAppDrafts[company.id]?.whatsappAccessToken ?? ""}
-                    onChange={(event) =>
-                      updateWhatsAppDraftField(company.id, "whatsappAccessToken", event.target.value)
-                    }
-                  />
+                <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                  <div>
+                    <p className="text-sm font-medium">WhatsApp API da empresa</p>
+                    <p className="text-xs text-muted mt-1">
+                      Cadastre quantos numeros quiser e vincule cada um a um modulo ativo. O numero
+                      principal continua como fallback e o roteamento respeita o numero por onde o
+                      cliente entrou.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    onClick={() => addWhatsAppEndpointDraft(company.id)}
+                  >
+                    Adicionar numero
+                  </button>
                 </div>
 
-                <div className="mt-2 text-xs text-muted">
-                  Status: {whatsAppDrafts[company.id]?.status || "DISCONNECTED"} | Conectado:{" "}
-                  {whatsAppDrafts[company.id]?.connected ? "SIM" : "NAO"} | Display:{" "}
-                  {whatsAppDrafts[company.id]?.displayNumber || "-"} | Token:{" "}
-                  {whatsAppDrafts[company.id]?.accessTokenConfigured
-                    ? whatsAppDrafts[company.id]?.accessTokenPreview || "(vazio)"
-                    : "nao configurado"}
-                </div>
-                {whatsAppDrafts[company.id]?.lastValidatedAt ? (
-                  <p className="text-xs text-muted mt-1">
-                    Ultima validacao:{" "}
-                    {new Date(whatsAppDrafts[company.id]?.lastValidatedAt || "").toLocaleString()}
-                  </p>
-                ) : null}
-                {whatsAppDrafts[company.id]?.statusError ? (
-                  <p className="text-xs text-red-600 mt-1">
-                    Erro: {whatsAppDrafts[company.id]?.statusError}
+                {company.modules.filter((module) => module.enabled).length === 0 ? (
+                  <p className="mt-3 text-xs text-amber-700">
+                    Ative pelo menos um modulo nesta empresa para vincular numeros do WhatsApp.
                   </p>
                 ) : null}
 
-                <div className="flex gap-2 mt-3">
+                {whatsAppDrafts[company.id]?.endpoints?.length ? (
+                  <div className="mt-3 space-y-3">
+                    {whatsAppDrafts[company.id].endpoints.map((endpoint, index) => {
+                      const activeModules = company.modules.filter((module) => module.enabled);
+                      const validateKey = `validate-wa-${company.id}-${endpoint.clientKey}`;
+                      return (
+                        <div
+                          key={endpoint.clientKey}
+                          className="rounded-[12px] border border-[var(--line)] bg-white p-3"
+                        >
+                          <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+                            <div>
+                              <p className="text-sm font-medium">
+                                Numero {index + 1}
+                                {endpoint.label.trim() ? ` - ${endpoint.label.trim()}` : ""}
+                              </p>
+                              <p className="text-xs text-muted mt-1">
+                                Modulo: {endpoint.moduleKey || "-"} | Status: {endpoint.status} |
+                                Conectado: {endpoint.connected ? "SIM" : "NAO"} | Display:{" "}
+                                {endpoint.displayNumber || "-"} | Token:{" "}
+                                {endpoint.accessTokenConfigured
+                                  ? endpoint.accessTokenPreview || "(configurado)"
+                                  : "nao configurado"}
+                              </p>
+                              {endpoint.lastValidatedAt ? (
+                                <p className="text-xs text-muted mt-1">
+                                  Ultima validacao:{" "}
+                                  {new Date(endpoint.lastValidatedAt).toLocaleString()}
+                                </p>
+                              ) : null}
+                              {endpoint.statusError ? (
+                                <p className="text-xs text-red-600 mt-1">
+                                  Erro: {endpoint.statusError}
+                                </p>
+                              ) : null}
+                            </div>
+
+                            <div className="flex flex-wrap gap-3 text-xs">
+                              <label className="inline-flex items-center gap-2">
+                                <input
+                                  type="checkbox"
+                                  checked={endpoint.isActive}
+                                  onChange={(event) =>
+                                    updateWhatsAppEndpointFlag(
+                                      company.id,
+                                      endpoint.clientKey,
+                                      "isActive",
+                                      event.target.checked,
+                                    )
+                                  }
+                                />
+                                Ativo
+                              </label>
+                              <label className="inline-flex items-center gap-2">
+                                <input
+                                  type="checkbox"
+                                  checked={endpoint.isPrimary}
+                                  onChange={(event) =>
+                                    updateWhatsAppEndpointFlag(
+                                      company.id,
+                                      endpoint.clientKey,
+                                      "isPrimary",
+                                      event.target.checked,
+                                    )
+                                  }
+                                />
+                                Principal
+                              </label>
+                              <button
+                                type="button"
+                                className="btn btn-secondary btn-sm"
+                                onClick={() => removeWhatsAppEndpointDraft(company.id, endpoint.clientKey)}
+                              >
+                                Remover
+                              </button>
+                            </div>
+                          </div>
+
+                          <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-5">
+                            <div className="flex flex-col gap-1">
+                              <span className="text-[11px] uppercase tracking-[0.18em] text-muted">
+                                Rotulo
+                              </span>
+                              <input
+                                className="field"
+                                placeholder="Ex.: Atendimento principal"
+                                value={endpoint.label}
+                                onChange={(event) =>
+                                  updateWhatsAppEndpointDraftField(
+                                    company.id,
+                                    endpoint.clientKey,
+                                    "label",
+                                    event.target.value,
+                                  )
+                                }
+                              />
+                            </div>
+
+                            <div className="flex flex-col gap-1">
+                              <span className="text-[11px] uppercase tracking-[0.18em] text-muted">
+                                Modulo
+                              </span>
+                              <select
+                                className="field"
+                                value={endpoint.moduleKey}
+                                onChange={(event) =>
+                                  updateWhatsAppEndpointDraftField(
+                                    company.id,
+                                    endpoint.clientKey,
+                                    "moduleKey",
+                                    event.target.value,
+                                  )
+                                }
+                              >
+                                <option value="">Selecione...</option>
+                                {activeModules.map((module) => (
+                                  <option key={module.key} value={module.key}>
+                                    {module.name}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+
+                            <div className="flex flex-col gap-1">
+                              <span className="text-[11px] uppercase tracking-[0.18em] text-muted">
+                                Numero WhatsApp
+                              </span>
+                              <input
+                                className="field"
+                                placeholder="+55..."
+                                value={endpoint.whatsappNumber}
+                                onChange={(event) =>
+                                  updateWhatsAppEndpointDraftField(
+                                    company.id,
+                                    endpoint.clientKey,
+                                    "whatsappNumber",
+                                    event.target.value,
+                                  )
+                                }
+                              />
+                            </div>
+
+                            <div className="flex flex-col gap-1">
+                              <span className="text-[11px] uppercase tracking-[0.18em] text-muted">
+                                Phone number ID
+                              </span>
+                              <input
+                                className="field"
+                                placeholder="ID da Meta"
+                                value={endpoint.whatsappPhoneNumberId}
+                                onChange={(event) =>
+                                  updateWhatsAppEndpointDraftField(
+                                    company.id,
+                                    endpoint.clientKey,
+                                    "whatsappPhoneNumberId",
+                                    event.target.value,
+                                  )
+                                }
+                              />
+                            </div>
+
+                            <div className="flex flex-col gap-1">
+                              <span className="text-[11px] uppercase tracking-[0.18em] text-muted">
+                                WABA ID
+                              </span>
+                              <input
+                                className="field"
+                                placeholder="Conta Business"
+                                value={endpoint.whatsappWabaId}
+                                onChange={(event) =>
+                                  updateWhatsAppEndpointDraftField(
+                                    company.id,
+                                    endpoint.clientKey,
+                                    "whatsappWabaId",
+                                    event.target.value,
+                                  )
+                                }
+                              />
+                            </div>
+                          </div>
+
+                          <div className="mt-2 grid grid-cols-1 gap-2">
+                            <div className="flex flex-col gap-1">
+                              <span className="text-[11px] uppercase tracking-[0.18em] text-muted">
+                                Access token
+                              </span>
+                              <input
+                                className="field"
+                                placeholder="Access token da Meta para este numero"
+                                type="text"
+                                value={endpoint.whatsappAccessToken}
+                                onChange={(event) =>
+                                  updateWhatsAppEndpointDraftField(
+                                    company.id,
+                                    endpoint.clientKey,
+                                    "whatsappAccessToken",
+                                    event.target.value,
+                                  )
+                                }
+                              />
+                            </div>
+                          </div>
+
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            <button
+                              type="button"
+                              className="btn btn-secondary btn-sm"
+                              onClick={() => validateWhatsAppEndpoint(company.id, endpoint)}
+                              disabled={!endpoint.id || busyKey === validateKey}
+                            >
+                              {busyKey === validateKey ? "Validando..." : "Validar este numero"}
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <p className="mt-3 text-xs text-muted">
+                    Nenhum numero cadastrado ainda. Use "Adicionar numero" para vincular
+                    Atendimento, Recovery ou outros modulos ativos.
+                  </p>
+                )}
+
+                <div className="mt-3 flex gap-2">
                   <button
                     type="button"
                     className="btn btn-primary btn-sm"
                     onClick={() => saveWhatsAppConfig(company.id)}
                     disabled={busyKey === `save-wa-${company.id}`}
                   >
-                    {busyKey === `save-wa-${company.id}` ? "Salvando..." : "Salvar WhatsApp"}
-                  </button>
-                  <button
-                    type="button"
-                    className="btn btn-secondary btn-sm"
-                    onClick={() => validateWhatsAppConfig(company.id)}
-                    disabled={busyKey === `validate-wa-${company.id}`}
-                  >
-                    {busyKey === `validate-wa-${company.id}` ? "Validando..." : "Validar credenciais"}
+                    {busyKey === `save-wa-${company.id}` ? "Salvando..." : "Salvar numeros WhatsApp"}
                   </button>
                 </div>
               </div>
@@ -1753,4 +2114,3 @@ export default function MasterClientPage() {
     </DashboardScaffold>
   );
 }
-

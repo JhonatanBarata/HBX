@@ -5,6 +5,7 @@ import {
   buildWhatsAppPhoneCandidates,
   normalizeWhatsAppPhone,
 } from './whatsapp-channel';
+import { resolveWhatsAppCredentials } from './whatsapp-credentials.util';
 
 function requireCompanyIdFromUser(user: any): number {
   const companyId = Number(user?.companyId);
@@ -35,6 +36,8 @@ export type QueueOutboundPayload = {
   senderType?: 'bot' | 'human' | 'client' | 'system' | string;
   variables?: Record<string, unknown>;
   flowState?: ConversationStatePatch;
+  whatsappEndpointId?: string;
+  preferredModuleKey?: string;
 };
 
 export type ConversationStatePatch = {
@@ -72,6 +75,17 @@ export class ConversationsService {
     if (digitMatch) return digitMatch;
 
     return candidates[0];
+  }
+
+  private parseConversationMetadata(raw: string | null | undefined) {
+    if (!raw) return {} as Record<string, any>;
+    try {
+      const parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+      return parsed as Record<string, any>;
+    } catch {
+      return {};
+    }
   }
 
   private async getOrCreateConversation(input: { companyId: number; contact: string; channel?: string; at?: Date }) {
@@ -307,14 +321,15 @@ export class ConversationsService {
     if (!companyId) throw new ForbiddenException('Company context required');
     if (!to) throw new BadRequestException('to is required');
 
-    const company = await this.prisma.company.findUnique({ where: { id: companyId } });
+    const company = await this.prisma.company.findUnique({
+      where: { id: companyId },
+      include: {
+        whatsappEndpoints: {
+          orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+        },
+      },
+    });
     if (!company) throw new NotFoundException(`Company with id ${companyId} not found`);
-
-    if (!company.whatsappPhoneNumberId) {
-      throw new BadRequestException('WhatsApp nao configurado para esta empresa (whatsappPhoneNumberId ausente).');
-    }
-
-    await this.whatsappStatus.ensureConnected(companyId);
 
     let conversation = null as any;
     if (Number(payload?.conversationId || 0) > 0) {
@@ -325,6 +340,28 @@ export class ConversationsService {
     if (!conversation) {
       conversation = await this.getOrCreateConversation({ companyId, contact: to, channel: 'whatsapp', at });
     }
+    const conversationMetadata = this.parseConversationMetadata(conversation?.metadata);
+    const resolvedCreds = resolveWhatsAppCredentials(company, {
+      endpointId:
+        String(payload?.whatsappEndpointId || '').trim() ||
+        String(conversationMetadata.whatsappEntryEndpointId || '').trim() ||
+        undefined,
+      preferredModuleKey:
+        String(payload?.preferredModuleKey || '').trim().toLowerCase() ||
+        String(conversationMetadata.whatsappEntryModuleKey || '').trim().toLowerCase() ||
+        undefined,
+      sourceModule,
+    });
+    if (!resolvedCreds.phoneNumberId) {
+      throw new BadRequestException('WhatsApp nao configurado para esta empresa.');
+    }
+
+    await this.whatsappStatus.ensureConnected(companyId, {
+      endpointId: resolvedCreds.endpointId || undefined,
+      preferredModuleKey:
+        String(payload?.preferredModuleKey || '').trim().toLowerCase() || undefined,
+      sourceModule,
+    });
     const openWindow = await this.hasOpenCustomerServiceWindow(companyId, conversation.id);
 
     if (!openWindow && messageType !== 'template') {
@@ -344,6 +381,7 @@ export class ConversationsService {
       const outbound = await tx.outboundMessage.create({
         data: {
           companyId,
+          whatsappEndpointId: resolvedCreds.endpointId || null,
           contactId: contactId || to,
           to,
           body,

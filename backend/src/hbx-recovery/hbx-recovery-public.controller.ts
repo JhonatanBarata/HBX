@@ -11,12 +11,14 @@ export class HbxRecoveryPublicController {
     @Param('companyId') companyIdRaw: string,
     @Param('templateName') templateName: string,
     @Query('language') language?: string,
+    @Query('module') moduleKey?: string,
     @Res() res?: Response,
   ) {
     const asset = await this.recoveryService.getPublicMetaTemplateHeaderMedia(
       Number(companyIdRaw || 0),
       templateName,
       language,
+      moduleKey,
     );
     return res
       ?.setHeader('Content-Type', asset.contentType)

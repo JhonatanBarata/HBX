@@ -36,6 +36,14 @@ export class CompaniesService {
       // eslint-disable-next-line @typescript-eslint/no-dynamic-delete
       delete (company as any).whatsappAccessToken;
     }
+    if (Array.isArray((company as any).whatsappEndpoints)) {
+      for (const endpoint of (company as any).whatsappEndpoints) {
+        if (endpoint && 'whatsappAccessToken' in endpoint) {
+          // eslint-disable-next-line @typescript-eslint/no-dynamic-delete
+          delete endpoint.whatsappAccessToken;
+        }
+      }
+    }
     if ('mercadoPagoAccessToken' in company) {
       // eslint-disable-next-line @typescript-eslint/no-dynamic-delete
       delete (company as any).mercadoPagoAccessToken;
@@ -103,9 +111,207 @@ export class CompaniesService {
   async findByIdForMaster(companyId: number) {
     const id = Number(companyId);
     if (!id) throw new NotFoundException('Company not found');
-    const company = await this.prisma.company.findUnique({ where: { id } });
+    const company = await this.prisma.company.findUnique({
+      where: { id },
+      include: {
+        whatsappEndpoints: {
+          orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+        },
+      },
+    });
     if (!company) throw new NotFoundException('Company not found');
     return company;
+  }
+
+  private async listEnabledModuleKeys(companyId: number) {
+    const rows = await this.prisma.companyModule.findMany({
+      where: { companyId, enabled: true, systemModule: { companyAssignable: true } },
+      include: { systemModule: true },
+    });
+    return new Set(
+      rows
+        .map((row) => String(row.systemModule?.key || '').trim().toLowerCase())
+        .filter(Boolean),
+    );
+  }
+
+  async listWhatsAppEndpointsByMaster(companyId: number) {
+    const company = await this.findByIdForMaster(companyId);
+    return this.sanitizeCompany(company)?.whatsappEndpoints || [];
+  }
+
+  async replaceWhatsAppEndpointsByMaster(
+    companyId: number,
+    endpointsInput: Array<{
+      id?: string;
+      label?: string;
+      moduleKey?: string;
+      whatsappNumber?: string;
+      whatsappPhoneNumberId?: string;
+      whatsappWabaId?: string;
+      whatsappAccessToken?: string;
+      isActive?: boolean;
+      isPrimary?: boolean;
+    }>,
+  ) {
+    const id = Number(companyId);
+    if (!id) throw new NotFoundException('Company not found');
+    const existing = await this.prisma.company.findUnique({
+      where: { id },
+      include: {
+        whatsappEndpoints: {
+          orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+        },
+      },
+    });
+    if (!existing) throw new NotFoundException('Company not found');
+
+    const enabledModuleKeys = await this.listEnabledModuleKeys(id);
+    const normalized = (Array.isArray(endpointsInput) ? endpointsInput : [])
+      .map((endpoint, index) => ({
+        id: String(endpoint?.id || '').trim(),
+        label: String(endpoint?.label || '').trim() || null,
+        moduleKey: String(endpoint?.moduleKey || '').trim().toLowerCase() || null,
+        whatsappNumber: String(endpoint?.whatsappNumber || '').trim() || null,
+        whatsappPhoneNumberId: String(endpoint?.whatsappPhoneNumberId || '').trim() || null,
+        whatsappWabaId: String(endpoint?.whatsappWabaId || '').trim() || null,
+        whatsappAccessToken: String(endpoint?.whatsappAccessToken || '').trim() || null,
+        isActive: endpoint?.isActive !== false,
+        isPrimary: Boolean(endpoint?.isPrimary),
+        sortOrder: index,
+      }))
+      .filter(
+        (endpoint) =>
+          endpoint.id ||
+          endpoint.label ||
+          endpoint.whatsappNumber ||
+          endpoint.whatsappPhoneNumberId ||
+          endpoint.whatsappAccessToken,
+      );
+
+    const seenPhoneIds = new Set<string>();
+    for (const endpoint of normalized) {
+      if (endpoint.moduleKey && !enabledModuleKeys.has(endpoint.moduleKey)) {
+        throw new BadRequestException(
+          `Modulo ${endpoint.moduleKey} nao esta ativo para esta empresa.`,
+        );
+      }
+      if (!endpoint.whatsappPhoneNumberId) {
+        throw new BadRequestException('Cada numero precisa ter phone number ID da Meta.');
+      }
+      if (!endpoint.whatsappAccessToken) {
+        throw new BadRequestException('Cada numero precisa ter access token da Meta.');
+      }
+      if (seenPhoneIds.has(endpoint.whatsappPhoneNumberId)) {
+        throw new BadRequestException(
+          `Phone number ID duplicado na lista: ${endpoint.whatsappPhoneNumberId}`,
+        );
+      }
+      seenPhoneIds.add(endpoint.whatsappPhoneNumberId);
+    }
+
+    if (normalized.length && !normalized.some((endpoint) => endpoint.isPrimary)) {
+      normalized[0].isPrimary = true;
+    }
+    let primaryAssigned = false;
+    for (const endpoint of normalized) {
+      if (endpoint.isPrimary && !primaryAssigned) {
+        primaryAssigned = true;
+        continue;
+      }
+      endpoint.isPrimary = false;
+    }
+
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const existingById = new Map(existing.whatsappEndpoints.map((endpoint) => [endpoint.id, endpoint]));
+      const keepIds = normalized.map((endpoint) => endpoint.id).filter(Boolean);
+
+      await tx.companyWhatsAppEndpoint.deleteMany({
+        where: {
+          companyId: id,
+          ...(keepIds.length ? { id: { notIn: keepIds } } : {}),
+        },
+      });
+
+      const saved: any[] = [];
+      for (const endpoint of normalized) {
+        const previous = endpoint.id ? existingById.get(endpoint.id) : null;
+        const credentialsChanged =
+          !previous ||
+          String(previous.whatsappPhoneNumberId || '').trim() !== endpoint.whatsappPhoneNumberId ||
+          String(previous.whatsappAccessToken || '').trim() !== endpoint.whatsappAccessToken ||
+          String(previous.whatsappNumber || '').trim() !== endpoint.whatsappNumber ||
+          String(previous.whatsappWabaId || '').trim() !== endpoint.whatsappWabaId;
+
+        const data: any = {
+          companyId: id,
+          label: endpoint.label,
+          moduleKey: endpoint.moduleKey,
+          whatsappNumber: endpoint.whatsappNumber,
+          whatsappPhoneNumberId: endpoint.whatsappPhoneNumberId,
+          whatsappWabaId: endpoint.whatsappWabaId,
+          whatsappAccessToken: endpoint.whatsappAccessToken,
+          isActive: endpoint.isActive,
+          isPrimary: endpoint.isPrimary,
+          sortOrder: endpoint.sortOrder,
+        };
+
+        if (credentialsChanged) {
+          data.whatsappStatus = 'DISCONNECTED';
+          data.whatsappStatusError = null;
+          data.whatsappStatusUpdatedAt = new Date();
+          data.whatsappDisplayNumber = endpoint.whatsappNumber || null;
+        }
+
+        const savedEndpoint = endpoint.id
+          ? await tx.companyWhatsAppEndpoint.update({
+              where: { id: endpoint.id },
+              data,
+            })
+          : await tx.companyWhatsAppEndpoint.create({ data });
+        saved.push(savedEndpoint);
+      }
+
+      const primaryEndpoint =
+        saved.find((endpoint) => endpoint.isPrimary) || saved[0] || null;
+
+      await tx.company.update({
+        where: { id },
+        data: primaryEndpoint
+          ? {
+              whatsappNumber: primaryEndpoint.whatsappNumber || null,
+              whatsappPhoneNumberId: primaryEndpoint.whatsappPhoneNumberId || null,
+              whatsappWabaId: primaryEndpoint.whatsappWabaId || null,
+              whatsappAccessToken: primaryEndpoint.whatsappAccessToken || null,
+              whatsappDisplayNumber:
+                primaryEndpoint.whatsappDisplayNumber || primaryEndpoint.whatsappNumber || null,
+              whatsappStatus: primaryEndpoint.whatsappStatus || 'DISCONNECTED',
+              whatsappStatusError: primaryEndpoint.whatsappStatusError || null,
+              whatsappStatusUpdatedAt: primaryEndpoint.whatsappStatusUpdatedAt || new Date(),
+            }
+          : {
+              whatsappNumber: null,
+              whatsappPhoneNumberId: null,
+              whatsappWabaId: null,
+              whatsappAccessToken: null,
+              whatsappDisplayNumber: null,
+              whatsappStatus: 'DISCONNECTED',
+              whatsappStatusError: null,
+              whatsappStatusUpdatedAt: new Date(),
+            },
+      });
+
+      return tx.company.findUnique({
+        where: { id },
+        include: {
+          whatsappEndpoints: {
+            orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+          },
+        },
+      });
+    });
+
+    return this.sanitizeCompany(updated);
   }
 
   async updateWhatsAppByMaster(

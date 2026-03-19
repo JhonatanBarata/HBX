@@ -341,6 +341,9 @@ export type RecoveryInteractionConversation = {
   lastContact: string;
   humanQueue: boolean;
   isClosed?: boolean;
+  isBlocked?: boolean;
+  blockedAt?: string | null;
+  blockedReason?: string | null;
   botActive: boolean;
   humanAssigned: boolean;
   assignedUserId: number | null;
@@ -362,7 +365,7 @@ export type RecoveryInteractionConversation = {
 };
 
 export type RecoveryInteractionSummary = {
-  queue: "all" | "closed";
+  queue: "all" | "closed" | "blocked";
   pendingHumanCount: number;
   conversations: RecoveryInteractionConversation[];
 };
@@ -384,6 +387,9 @@ export type RecoveryInteractionDetail = {
   conversationId: number;
   botActive: boolean;
   humanAssigned: boolean;
+  isBlocked?: boolean;
+  blockedAt?: string | null;
+  blockedReason?: string | null;
   assignedUserId: number | null;
   currentFlow: string;
   currentStep: string;

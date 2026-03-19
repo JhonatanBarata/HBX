@@ -15,6 +15,18 @@ import {
   buildWhatsAppPhoneCandidates,
   normalizeWhatsAppPhone,
 } from '../messaging/whatsapp-channel';
+import {
+  ATENDIMENTO_AGENDA_CONFIG_CHANNEL,
+  ATENDIMENTO_AGENDA_CONFIG_TITLE,
+  ATENDIMENTO_BOT_CONFIG_CHANNEL,
+  ATENDIMENTO_BOT_CONFIG_TITLE,
+  DEFAULT_ATENDIMENTO_AGENDA_CONFIG,
+  DEFAULT_ATENDIMENTO_BOT_CONFIG,
+  normalizeAtendimentoAgendaConfig,
+  normalizeAtendimentoBotConfig,
+  type AtendimentoAgendaConfig,
+  type AtendimentoBotConfig,
+} from './atendimento-config';
 
 @Injectable()
 export class InboxService {
@@ -73,11 +85,35 @@ export class InboxService {
     }
   }
 
+  private getAtendimentoBlockedState(metadataRaw: string | Record<string, any> | null | undefined) {
+    const metadata =
+      metadataRaw && typeof metadataRaw === 'object' && !Array.isArray(metadataRaw)
+        ? metadataRaw
+        : this.parseConversationMetadata(String(metadataRaw || ''));
+    const blockedAt = String(metadata?.atendimentoBlockedAt || '').trim() || null;
+    const blockedReason = String(metadata?.atendimentoBlockedReason || '').trim() || null;
+    return {
+      isBlocked: Boolean(blockedAt),
+      blockedAt,
+      blockedReason,
+    };
+  }
+
+  private clearAtendimentoBlockedMetadata(metadataRaw: Record<string, any> | null | undefined) {
+    const metadata = { ...(metadataRaw || {}) };
+    delete metadata.atendimentoBlockedAt;
+    delete metadata.atendimentoBlockedReason;
+    delete metadata.atendimentoBlockedByUserId;
+    return metadata;
+  }
+
   private toInboxStatus(conversation: {
     humanAssigned?: boolean | null;
     botActive?: boolean | null;
     flowResult?: string | null;
+    metadata?: string | null;
   }) {
+    if (this.getAtendimentoBlockedState(conversation?.metadata).isBlocked) return 'blocked';
     if (String(conversation?.flowResult || '').trim().toLowerCase() === 'manual_closed') return 'closed';
     if (conversation?.humanAssigned) return 'open';
     if (conversation?.botActive === false) return 'closed';
@@ -95,6 +131,63 @@ export class InboxService {
       select: { clientName: true, name: true },
     });
     return String(customer?.clientName || customer?.name || '').trim() || null;
+  }
+
+  private async getConfigRow(companyId: number, channel: string, title: string) {
+    return this.prisma.hbxRecoveryFlowStage.findFirst({
+      where: { companyId, channel, title },
+      orderBy: { updatedAt: 'desc' },
+      select: { id: true, template: true },
+    });
+  }
+
+  private async saveConfigRow(companyId: number, channel: string, title: string, payload: unknown) {
+    const row = await this.getConfigRow(companyId, channel, title);
+    const data = {
+      companyId,
+      title,
+      channel,
+      template: JSON.stringify(payload || {}),
+      daysAfter: 0,
+      enabled: false,
+      sortOrder: 0,
+    };
+    if (row?.id) {
+      await this.prisma.hbxRecoveryFlowStage.update({
+        where: { id: row.id },
+        data,
+      });
+      return;
+    }
+    await this.prisma.hbxRecoveryFlowStage.create({ data });
+  }
+
+  private async getBotConfigByCompanyId(companyId: number): Promise<AtendimentoBotConfig> {
+    const row = await this.getConfigRow(
+      companyId,
+      ATENDIMENTO_BOT_CONFIG_CHANNEL,
+      ATENDIMENTO_BOT_CONFIG_TITLE,
+    );
+    if (!row?.template) return DEFAULT_ATENDIMENTO_BOT_CONFIG;
+    try {
+      return normalizeAtendimentoBotConfig(JSON.parse(row.template));
+    } catch {
+      return DEFAULT_ATENDIMENTO_BOT_CONFIG;
+    }
+  }
+
+  private async getAgendaConfigByCompanyId(companyId: number): Promise<AtendimentoAgendaConfig> {
+    const row = await this.getConfigRow(
+      companyId,
+      ATENDIMENTO_AGENDA_CONFIG_CHANNEL,
+      ATENDIMENTO_AGENDA_CONFIG_TITLE,
+    );
+    if (!row?.template) return DEFAULT_ATENDIMENTO_AGENDA_CONFIG;
+    try {
+      return normalizeAtendimentoAgendaConfig(JSON.parse(row.template));
+    } catch {
+      return DEFAULT_ATENDIMENTO_AGENDA_CONFIG;
+    }
   }
 
   private async getRecoveryRoutingRules(companyId: number): Promise<RecoveryRoutingRules> {
@@ -185,6 +278,7 @@ export class InboxService {
       conversation.metadata,
     );
     const routeContext = await this.resolveRecoveryRoutingContext(companyId, conversation, routingRules);
+    const blockedState = this.getAtendimentoBlockedState(conversation.metadata);
     return {
       id: String(conversation.id),
       status: this.toInboxStatus(conversation),
@@ -199,6 +293,10 @@ export class InboxService {
       recoveryCurrentStep: routeContext.recoveryCurrentStep,
       recoverySuggestedPath: routeContext.recoverySuggestedPath,
       latestSourceModule: routeContext.latestSourceModule,
+      isBlocked: blockedState.isBlocked,
+      blockedAt: blockedState.blockedAt,
+      blockedReason: blockedState.blockedReason,
+      metadata: this.parseConversationMetadata(conversation.metadata),
       customer: {
         id: String(conversation.id),
         phone: String(conversation.contact || ''),
@@ -219,9 +317,46 @@ export class InboxService {
   }
 
   private async ensureConversation(companyId: number, id: number) {
-    const conversation = await this.prisma.companyConversation.findFirst({ where: { id, companyId, channel: 'whatsapp' } });
+    const conversation = await this.prisma.companyConversation.findFirst({
+      where: { id, companyId, channel: 'whatsapp' },
+    });
     if (!conversation) throw new NotFoundException('Conversation not found');
     return conversation;
+  }
+
+  private async appendInboxSystemEvent(input: {
+    companyId: number;
+    conversationId: number;
+    contactId: string;
+    text: string;
+    eventType: string;
+    sourceModule?: string;
+    variables?: Record<string, unknown>;
+  }) {
+    const now = new Date();
+    await this.prisma.companyMessage.create({
+      data: {
+        companyId: input.companyId,
+        conversationId: input.conversationId,
+        contactId: input.contactId,
+        direction: 'OUTBOUND',
+        messageType: 'system_event',
+        body: input.text,
+        senderType: 'system',
+        status: 'SENT',
+        timestamp: now,
+        sourceModule: input.sourceModule || 'atendimento_internal',
+        variablesJson: JSON.stringify({
+          ...(input.variables || {}),
+          eventType: input.eventType,
+        }),
+        provider: 'INTERNAL',
+      },
+    });
+    await this.prisma.companyConversation.update({
+      where: { id: input.conversationId },
+      data: { lastInteractionAt: now, lastMessageAt: now },
+    });
   }
 
   async listConversations(user: any) {
@@ -257,16 +392,67 @@ export class InboxService {
     return this.getConversationByIdForCompany(companyId, id);
   }
 
+  async getBotConfig(user: any) {
+    const companyId = this.requireCompanyIdFromUser(user);
+    return this.getBotConfigByCompanyId(companyId);
+  }
+
+  async updateBotConfig(user: any, payload: unknown) {
+    const companyId = this.requireCompanyIdFromUser(user);
+    const normalized = normalizeAtendimentoBotConfig(payload || {});
+    await this.saveConfigRow(
+      companyId,
+      ATENDIMENTO_BOT_CONFIG_CHANNEL,
+      ATENDIMENTO_BOT_CONFIG_TITLE,
+      normalized,
+    );
+    return normalized;
+  }
+
+  async getAgendaConfig(user: any) {
+    const companyId = this.requireCompanyIdFromUser(user);
+    return this.getAgendaConfigByCompanyId(companyId);
+  }
+
+  async updateAgendaConfig(user: any, payload: unknown) {
+    const companyId = this.requireCompanyIdFromUser(user);
+    const normalized = normalizeAtendimentoAgendaConfig(payload || {});
+    await this.saveConfigRow(
+      companyId,
+      ATENDIMENTO_AGENDA_CONFIG_CHANNEL,
+      ATENDIMENTO_AGENDA_CONFIG_TITLE,
+      normalized,
+    );
+    return normalized;
+  }
+
   async updateConversationStatus(user: any, id: number, status: string) {
     const companyId = this.requireCompanyIdFromUser(user);
-    await this.ensureConversation(companyId, id);
+    const conversation = await this.ensureConversation(companyId, id);
     const normalized = String(status || '').trim().toLowerCase();
+    const currentMetadata = this.parseConversationMetadata(conversation.metadata);
+    const clearedMetadata = this.clearAtendimentoBlockedMetadata(currentMetadata);
+
     await this.prisma.companyConversation.update({
       where: { id },
       data: {
         botActive: normalized === 'new',
         humanAssigned: normalized === 'open',
-        flowResult: normalized === 'closed' ? 'manual_closed' : null,
+        flowResult:
+          normalized === 'closed'
+            ? 'manual_closed'
+            : normalized === 'blocked'
+              ? 'blocked_manual'
+              : null,
+        metadata:
+          normalized === 'blocked'
+            ? JSON.stringify({
+                ...clearedMetadata,
+                atendimentoBlockedAt: new Date().toISOString(),
+                atendimentoBlockedReason: 'Bloqueado manualmente pelo operador.',
+                atendimentoBlockedByUserId: Number(user?.id || 0) || null,
+              })
+            : JSON.stringify(clearedMetadata),
       },
     });
     await this.logInboxEvent({
@@ -279,12 +465,80 @@ export class InboxService {
     return this.getConversationByIdForCompany(companyId, id);
   }
 
+  async blockConversation(user: any, conversationId: number, reasonRaw?: string) {
+    const companyId = this.requireCompanyIdFromUser(user);
+    const conversation = await this.ensureConversation(companyId, conversationId);
+    const metadata = this.parseConversationMetadata(conversation.metadata);
+    const reason = String(reasonRaw || '').trim() || 'Bloqueado manualmente pelo operador.';
+    await this.conversations.updateConversationState(companyId, conversation.id, {
+      botActive: false,
+      humanAssigned: false,
+      flowResult: 'blocked_manual',
+      metadata: {
+        ...metadata,
+        atendimentoBlockedAt: new Date().toISOString(),
+        atendimentoBlockedReason: reason,
+        atendimentoBlockedByUserId: Number(user?.id || 0) || null,
+      },
+    });
+    await this.appendInboxSystemEvent({
+      companyId,
+      conversationId: conversation.id,
+      contactId: String(conversation.contact || '').trim(),
+      text: `Cliente bloqueado no Atendimento (${reason}).`,
+      eventType: 'atendimento_blocked',
+      variables: { reason },
+    });
+    await this.logInboxEvent({
+      companyId,
+      event: 'conversation_blocked',
+      message: `Cliente bloqueado no Atendimento (${reason})`,
+      conversationId,
+      phone: String(conversation.contact || '').trim(),
+      result: 'blocked',
+    });
+    return this.getConversationByIdForCompany(companyId, conversation.id);
+  }
+
+  async unblockConversation(user: any, conversationId: number) {
+    const companyId = this.requireCompanyIdFromUser(user);
+    const conversation = await this.ensureConversation(companyId, conversationId);
+    const metadata = this.clearAtendimentoBlockedMetadata(
+      this.parseConversationMetadata(conversation.metadata),
+    );
+    await this.conversations.updateConversationState(companyId, conversation.id, {
+      botActive: true,
+      humanAssigned: false,
+      flowResult: null,
+      metadata,
+    });
+    await this.appendInboxSystemEvent({
+      companyId,
+      conversationId: conversation.id,
+      contactId: String(conversation.contact || '').trim(),
+      text: 'Cliente desbloqueado no Atendimento.',
+      eventType: 'atendimento_unblocked',
+    });
+    await this.logInboxEvent({
+      companyId,
+      event: 'conversation_unblocked',
+      message: 'Cliente desbloqueado no Atendimento.',
+      conversationId,
+      phone: String(conversation.contact || '').trim(),
+      result: 'unblocked',
+    });
+    return this.getConversationByIdForCompany(companyId, conversation.id);
+  }
+
   async sendMessage(user: any, conversationId: number, content: string) {
     const companyId = this.requireCompanyIdFromUser(user);
     const conversation = await this.prisma.companyConversation.findFirst({
       where: { id: conversationId, companyId },
     });
     if (!conversation) throw new NotFoundException('Conversation not found');
+    if (this.getAtendimentoBlockedState(conversation.metadata).isBlocked) {
+      throw new BadRequestException('Conversa bloqueada. Desbloqueie antes de responder.');
+    }
 
     const normalizedContent = this.requireTrimmed(content, 'content');
     const toPhone = this.requireTrimmed(String(conversation.contact || ''), 'customer phone');
@@ -300,6 +554,7 @@ export class InboxService {
       flowState: {
         humanAssigned: true,
         botActive: false,
+        flowResult: null,
       },
     });
 
@@ -331,7 +586,10 @@ export class InboxService {
       where: {
         companyId,
         channel: 'whatsapp',
-        OR: [{ contact: normalizeWhatsAppPhone(phone) }, ...candidates.map((candidate) => ({ contact: candidate }))],
+        OR: [
+          { contact: normalizeWhatsAppPhone(phone) },
+          ...candidates.map((candidate) => ({ contact: candidate })),
+        ],
       },
       orderBy: { updatedAt: 'desc' },
     });

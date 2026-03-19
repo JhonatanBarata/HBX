@@ -82,6 +82,9 @@ type RecoveryMetaTemplateRegistry = {
   history: RecoveryMetaTemplateHistory[];
 };
 type MetaUploadSessionResponse = { id?: string; h?: string; error?: any };
+type MetaTemplateScopeOptions = {
+  moduleKey?: string | null;
+};
 
 const COMMISSION_PERCENT = 3;
 const RECOVERY_APPROVED_PAYMENT_SIGNATURE =
@@ -374,6 +377,27 @@ export class HbxRecoveryService {
     } catch {
       return {};
     }
+  }
+
+  private getRecoveryBlockedState(metadataRaw: string | null | undefined) {
+    const metadata = this.parseConversationMetadata(metadataRaw);
+    const blockedAt = String(metadata.recoveryBlockedAt || '').trim() || null;
+    const blockedReason = String(metadata.recoveryBlockedReason || '').trim() || null;
+    return {
+      metadata,
+      isBlocked: Boolean(blockedAt),
+      blockedAt,
+      blockedReason,
+    };
+  }
+
+  private clearRecoveryBlockedMetadata(metadata: Record<string, any>) {
+    return {
+      ...metadata,
+      recoveryBlockedAt: null,
+      recoveryBlockedByUserId: null,
+      recoveryBlockedReason: null,
+    };
   }
 
   private getRecoveryInitialTemplateName() {
@@ -772,11 +796,16 @@ export class HbxRecoveryService {
     companyId: number,
     templateNameRaw: string,
     languageRaw: string | null | undefined,
+    moduleKeyRaw?: string | null,
   ) {
     const templateName = this.normalizeTemplateNameForMeta(templateNameRaw || '');
     const language = String(languageRaw || 'pt_BR').trim() || 'pt_BR';
     if (!templateName || !companyId) return null;
     const params = new URLSearchParams({ language });
+    const moduleKey = this.normalizeMetaTemplateModuleKey(moduleKeyRaw);
+    if (moduleKey && moduleKey !== 'hbx_recovery') {
+      params.set('module', moduleKey);
+    }
     return `/hbx-recovery/public/meta-template-media/${companyId}/${encodeURIComponent(templateName)}?${params.toString()}`;
   }
 
@@ -784,8 +813,14 @@ export class HbxRecoveryService {
     companyId: number,
     templateNameRaw: string,
     languageRaw: string | null | undefined,
+    moduleKeyRaw?: string | null,
   ) {
-    const relativePath = this.templateHeaderMediaPublicPath(companyId, templateNameRaw, languageRaw);
+    const relativePath = this.templateHeaderMediaPublicPath(
+      companyId,
+      templateNameRaw,
+      languageRaw,
+      moduleKeyRaw,
+    );
     if (!relativePath) return null;
     return `${this.publicApiBaseUrl()}${relativePath}`;
   }
@@ -819,7 +854,11 @@ export class HbxRecoveryService {
     return `${publicBase}${parsed.pathname}`;
   }
 
-  private resolveTemplateHeaderMediaUrl(template?: RecoveryMetaTemplate | null, companyId?: number) {
+  private resolveTemplateHeaderMediaUrl(
+    template?: RecoveryMetaTemplate | null,
+    companyId?: number,
+    moduleKeyRaw?: string | null,
+  ) {
     if (!template) return null;
     const normalized = this.getNormalizedMetaTemplate(template);
     if (!this.isMetaMediaHeaderFormat(normalized.header.format)) return null;
@@ -828,7 +867,12 @@ export class HbxRecoveryService {
       return this.rebuildTemplateMediaUrlWithCurrentPublicBase(storedUrl);
     }
     if (companyId && String(normalized.header.mediaBase64 || '').trim()) {
-      return this.buildTemplateHeaderMediaPublicUrl(companyId, template.name, template.language);
+      return this.buildTemplateHeaderMediaPublicUrl(
+        companyId,
+        template.name,
+        template.language,
+        moduleKeyRaw,
+      );
     }
     if (!storedUrl) return null;
     return this.rebuildTemplateMediaUrlWithCurrentPublicBase(storedUrl);
@@ -1012,24 +1056,52 @@ export class HbxRecoveryService {
   }
 
   private async getMetaTemplateRegistryRow(companyId: number) {
+    return this.getMetaTemplateRegistryRowForScope(companyId, {});
+  }
+
+  private normalizeMetaTemplateModuleKey(moduleKeyRaw?: string | null) {
+    const normalized = String(moduleKeyRaw || '').trim().toLowerCase();
+    if (normalized === 'atendimento') return 'atendimento';
+    return 'hbx_recovery';
+  }
+
+  private getMetaTemplateRegistryTitle(moduleKeyRaw?: string | null) {
+    const moduleKey = this.normalizeMetaTemplateModuleKey(moduleKeyRaw);
+    if (moduleKey === 'hbx_recovery') return RECOVERY_META_TEMPLATES_TITLE;
+    return `${RECOVERY_META_TEMPLATES_TITLE}_${moduleKey}`;
+  }
+
+  private async getMetaTemplateRegistryRowForScope(
+    companyId: number,
+    opts?: MetaTemplateScopeOptions,
+  ) {
+    const title = this.getMetaTemplateRegistryTitle(opts?.moduleKey);
     return this.prisma.hbxRecoveryFlowStage.findFirst({
       where: {
         companyId,
         channel: RECOVERY_META_TEMPLATES_CHANNEL,
-        title: RECOVERY_META_TEMPLATES_TITLE,
+        title,
       },
       orderBy: { updatedAt: 'desc' },
     });
   }
 
-  private async getMetaTemplateRegistry(companyId: number): Promise<RecoveryMetaTemplateRegistry> {
-    const row = await this.getMetaTemplateRegistryRow(companyId);
+  private async getMetaTemplateRegistry(
+    companyId: number,
+    opts?: MetaTemplateScopeOptions,
+  ): Promise<RecoveryMetaTemplateRegistry> {
+    const row = await this.getMetaTemplateRegistryRowForScope(companyId, opts);
     const parsed = this.parseMetaTemplateRegistry(row?.template || null);
-    return this.backfillStoredTemplateMediaLinks(companyId, parsed);
+    return this.backfillStoredTemplateMediaLinks(companyId, parsed, opts);
   }
 
-  private async saveMetaTemplateRegistry(companyId: number, registry: RecoveryMetaTemplateRegistry) {
-    const row = await this.getMetaTemplateRegistryRow(companyId);
+  private async saveMetaTemplateRegistry(
+    companyId: number,
+    registry: RecoveryMetaTemplateRegistry,
+    opts?: MetaTemplateScopeOptions,
+  ) {
+    const row = await this.getMetaTemplateRegistryRowForScope(companyId, opts);
+    const title = this.getMetaTemplateRegistryTitle(opts?.moduleKey);
     const normalized: RecoveryMetaTemplateRegistry = {
       phoneNumberId: registry?.phoneNumberId ? String(registry.phoneNumberId) : null,
       wabaId: registry?.wabaId ? String(registry.wabaId) : null,
@@ -1041,7 +1113,7 @@ export class HbxRecoveryService {
     };
     const payload = {
       companyId,
-      title: RECOVERY_META_TEMPLATES_TITLE,
+      title,
       channel: RECOVERY_META_TEMPLATES_CHANNEL,
       template: this.json(normalized),
       daysAfter: 0,
@@ -1153,16 +1225,27 @@ export class HbxRecoveryService {
       .replace(/^_+|_+$/g, '');
   }
 
-  private async resolveMetaTemplateContext(companyId: number) {
-    const company = await this.prisma.company.findUnique({ where: { id: companyId } });
+  private async resolveMetaTemplateContext(companyId: number, opts?: MetaTemplateScopeOptions) {
+    const moduleKey = this.normalizeMetaTemplateModuleKey(opts?.moduleKey);
+    const company = await this.prisma.company.findUnique({
+      where: { id: companyId },
+      include: {
+        whatsappEndpoints: {
+          orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+        },
+      },
+    });
     if (!company) throw new BadRequestException('Empresa nao encontrada.');
 
-    const creds = resolveWhatsAppCredentials(company);
+    const creds = resolveWhatsAppCredentials(company, {
+      preferredModuleKey: moduleKey,
+      sourceModule: moduleKey,
+    });
     const phoneNumberId = String(creds.phoneNumberId || '').trim();
     const accessToken = String(creds.accessToken || '').trim();
     if (!phoneNumberId || !accessToken) {
       throw new BadRequestException(
-        'WhatsApp nao configurado para esta empresa. Configure phone_number_id e token no MASTER.',
+        `WhatsApp nao configurado para este modulo. Configure um numero ativo no MASTER para ${moduleKey}.`,
       );
     }
 
@@ -1510,6 +1593,7 @@ export class HbxRecoveryService {
   private async backfillStoredTemplateMediaLinks(
     companyId: number,
     registry: RecoveryMetaTemplateRegistry,
+    opts?: MetaTemplateScopeOptions,
   ) {
     const templates = Array.isArray(registry?.templates) ? registry.templates : [];
     const missingMediaTemplates = templates.filter(
@@ -1544,10 +1628,15 @@ export class HbxRecoveryService {
     return this.saveMetaTemplateRegistry(companyId, {
       ...registry,
       templates: nextTemplates,
-    });
+    }, opts);
   }
 
-  private buildMetaTemplatesResponse(companyId: number, registry: RecoveryMetaTemplateRegistry) {
+  private buildMetaTemplatesResponse(
+    companyId: number,
+    registry: RecoveryMetaTemplateRegistry,
+    opts?: MetaTemplateScopeOptions,
+  ) {
+    const moduleKey = this.normalizeMetaTemplateModuleKey(opts?.moduleKey);
     const templates = [...(registry?.templates || [])].sort((a, b) => {
       const byName = a.name.localeCompare(b.name);
       if (byName !== 0) return byName;
@@ -1569,13 +1658,14 @@ export class HbxRecoveryService {
       ).length,
     };
     return {
+      moduleKey,
       phoneNumberId: registry?.phoneNumberId || null,
       wabaId: registry?.wabaId || null,
       lastSyncAt: registry?.lastSyncAt || null,
       counters,
       templates: templates.map((item) => {
         const normalized = this.getNormalizedMetaTemplate(item);
-        const resolvedHeaderMediaUrl = this.resolveTemplateHeaderMediaUrl(item, companyId);
+        const resolvedHeaderMediaUrl = this.resolveTemplateHeaderMediaUrl(item, companyId, moduleKey);
         const projected = this.rebuildMetaTemplateRecord({
           ...item,
           headerMediaUrl: resolvedHeaderMediaUrl,
@@ -1600,13 +1690,14 @@ export class HbxRecoveryService {
     };
   }
 
-  private async syncMetaTemplatesByCompanyId(companyId: number) {
-    const previous = await this.getMetaTemplateRegistry(companyId);
+  private async syncMetaTemplatesByCompanyId(companyId: number, opts?: MetaTemplateScopeOptions) {
+    const moduleKey = this.normalizeMetaTemplateModuleKey(opts?.moduleKey);
+    const previous = await this.getMetaTemplateRegistry(companyId, { moduleKey });
     const prevMap = new Map(
       (previous.templates || []).map((item) => [this.metaTemplateKey(item.name, item.language), item]),
     );
     const { accessToken, phoneNumberId, wabaId, templateNodeIds } =
-      await this.resolveMetaTemplateContext(companyId);
+      await this.resolveMetaTemplateContext(companyId, { moduleKey });
     const providerResult = await this.fetchMetaTemplatesFromProvider(templateNodeIds, accessToken);
     const providerRows = providerResult.rows;
     const nowIso = new Date().toISOString();
@@ -1675,8 +1766,8 @@ export class HbxRecoveryService {
       templates,
       history: history.slice(0, RECOVERY_META_TEMPLATES_HISTORY_LIMIT),
     };
-    const saved = await this.saveMetaTemplateRegistry(companyId, registry);
-    return this.backfillStoredTemplateMediaLinks(companyId, saved);
+    const saved = await this.saveMetaTemplateRegistry(companyId, registry, { moduleKey });
+    return this.backfillStoredTemplateMediaLinks(companyId, saved, { moduleKey });
   }
 
   private async ensureStartTemplateAllowed(
@@ -1684,14 +1775,16 @@ export class HbxRecoveryService {
     templateName: string,
     templateLanguage: string,
   ) {
-    let registry = await this.getMetaTemplateRegistry(companyId);
+    let registry = await this.getMetaTemplateRegistry(companyId, { moduleKey: 'hbx_recovery' });
     const key = this.metaTemplateKey(templateName, templateLanguage);
     let selected = (registry.templates || []).find(
       (item) => this.metaTemplateKey(item.name, item.language) === key,
     );
     if (!selected) {
       try {
-        registry = await this.syncMetaTemplatesByCompanyId(companyId);
+        registry = await this.syncMetaTemplatesByCompanyId(companyId, {
+          moduleKey: 'hbx_recovery',
+        });
         selected = (registry.templates || []).find(
           (item) => this.metaTemplateKey(item.name, item.language) === key,
         );
@@ -1795,9 +1888,9 @@ export class HbxRecoveryService {
   }
 
   private async resolveRecoveryStartTemplate(companyId: number, botConfig: RecoveryBotConfig) {
-    let registry = await this.getMetaTemplateRegistry(companyId);
+    let registry = await this.getMetaTemplateRegistry(companyId, { moduleKey: 'hbx_recovery' });
     try {
-      registry = await this.syncMetaTemplatesByCompanyId(companyId);
+      registry = await this.syncMetaTemplatesByCompanyId(companyId, { moduleKey: 'hbx_recovery' });
     } catch (error: any) {
       const reason = String(error?.message || 'Falha ao sincronizar templates na Meta');
       throw new BadRequestException(
@@ -1841,43 +1934,50 @@ export class HbxRecoveryService {
     return String(row?.name || row?.username || '').trim() || 'Atendente';
   }
 
-  async listMetaTemplates(user: any, refreshRaw?: string) {
+  async listMetaTemplates(user: any, refreshRaw?: string, opts?: MetaTemplateScopeOptions) {
     const companyId = this.requireCompanyIdFromUser(user);
+    const moduleKey = this.normalizeMetaTemplateModuleKey(opts?.moduleKey);
     const shouldRefresh = String(refreshRaw || '').trim().toLowerCase() === 'true';
-    let registry = await this.getMetaTemplateRegistry(companyId);
+    let registry = await this.getMetaTemplateRegistry(companyId, { moduleKey });
     let syncError: string | null = null;
     if (shouldRefresh) {
       try {
-        registry = await this.syncMetaTemplatesByCompanyId(companyId);
+        registry = await this.syncMetaTemplatesByCompanyId(companyId, { moduleKey });
       } catch (error: any) {
         syncError = String(error?.message || 'Falha ao sincronizar templates da Meta.');
       }
     }
     return {
-      ...this.buildMetaTemplatesResponse(companyId, registry),
+      ...this.buildMetaTemplatesResponse(companyId, registry, { moduleKey }),
       syncError,
     };
   }
 
-  async syncMetaTemplates(user: any) {
+  async syncMetaTemplates(user: any, opts?: MetaTemplateScopeOptions) {
     const companyId = this.requireCompanyIdFromUser(user);
+    const moduleKey = this.normalizeMetaTemplateModuleKey(opts?.moduleKey);
     try {
-      const registry = await this.syncMetaTemplatesByCompanyId(companyId);
+      const registry = await this.syncMetaTemplatesByCompanyId(companyId, { moduleKey });
       return {
-        ...this.buildMetaTemplatesResponse(companyId, registry),
+        ...this.buildMetaTemplatesResponse(companyId, registry, { moduleKey }),
         syncError: null,
       };
     } catch (error: any) {
-      const registry = await this.getMetaTemplateRegistry(companyId);
+      const registry = await this.getMetaTemplateRegistry(companyId, { moduleKey });
       return {
-        ...this.buildMetaTemplatesResponse(companyId, registry),
+        ...this.buildMetaTemplatesResponse(companyId, registry, { moduleKey }),
         syncError: String(error?.message || 'Falha ao sincronizar templates da Meta.'),
       };
     }
   }
 
-  async setMetaTemplateActivation(user: any, dto: SetMetaTemplateActivationDto) {
+  async setMetaTemplateActivation(
+    user: any,
+    dto: SetMetaTemplateActivationDto,
+    opts?: MetaTemplateScopeOptions,
+  ) {
     const companyId = this.requireCompanyIdFromUser(user);
+    const moduleKey = this.normalizeMetaTemplateModuleKey(opts?.moduleKey);
     const name = String(dto?.name || '').trim();
     const language = String(dto?.language || '').trim() || 'pt_BR';
     if (!name) throw new BadRequestException('Nome do template e obrigatorio.');
@@ -1886,9 +1986,9 @@ export class HbxRecoveryService {
       ? this.normalizeOptionalHttpUrl(dto?.headerMediaUrl, 'URL de midia do cabecalho')
       : null;
 
-    let registry = await this.getMetaTemplateRegistry(companyId);
+    let registry = await this.getMetaTemplateRegistry(companyId, { moduleKey });
     if (!(registry.templates || []).length) {
-      registry = await this.syncMetaTemplatesByCompanyId(companyId);
+      registry = await this.syncMetaTemplatesByCompanyId(companyId, { moduleKey });
     }
     const key = this.metaTemplateKey(name, language);
     let changed = false;
@@ -1914,12 +2014,13 @@ export class HbxRecoveryService {
         `Template '${name}' (${language}) nao encontrado no registro do HBX. Sincronize com a Meta.`,
       );
     }
-    const saved = await this.saveMetaTemplateRegistry(companyId, registry);
-    return this.buildMetaTemplatesResponse(companyId, saved);
+    const saved = await this.saveMetaTemplateRegistry(companyId, registry, { moduleKey });
+    return this.buildMetaTemplatesResponse(companyId, saved, { moduleKey });
   }
 
-  async createMetaTemplate(user: any, dto: CreateMetaTemplateDto) {
+  async createMetaTemplate(user: any, dto: CreateMetaTemplateDto, opts?: MetaTemplateScopeOptions) {
     const companyId = this.requireCompanyIdFromUser(user);
+    const moduleKey = this.normalizeMetaTemplateModuleKey(opts?.moduleKey);
     const nameRaw = this.normalizeTemplateNameForMeta(dto?.name || '');
     if (!nameRaw || !/^[a-z0-9_]+$/.test(nameRaw)) {
       throw new BadRequestException(
@@ -2034,7 +2135,9 @@ export class HbxRecoveryService {
       });
     }
 
-    const { accessToken, templateNodeIds } = await this.resolveMetaTemplateContext(companyId);
+    const { accessToken, templateNodeIds } = await this.resolveMetaTemplateContext(companyId, {
+      moduleKey,
+    });
     const providerCreate = await this.createMetaTemplateOnProvider(templateNodeIds, accessToken, {
       name: nameRaw,
       category,
@@ -2044,7 +2147,7 @@ export class HbxRecoveryService {
     });
     const providerResponse = providerCreate.response;
 
-    let registry = await this.syncMetaTemplatesByCompanyId(companyId);
+    let registry = await this.syncMetaTemplatesByCompanyId(companyId, { moduleKey });
     const createdKey = this.metaTemplateKey(nameRaw, language);
     registry.templates = (registry.templates || []).map((item) =>
       this.metaTemplateKey(item.name, item.language) === createdKey
@@ -2058,7 +2161,7 @@ export class HbxRecoveryService {
           })
         : item,
     );
-    registry = await this.saveMetaTemplateRegistry(companyId, registry);
+    registry = await this.saveMetaTemplateRegistry(companyId, registry, { moduleKey });
 
     return {
       ok: true,
@@ -2068,20 +2171,21 @@ export class HbxRecoveryService {
         language,
         category,
       },
-      ...this.buildMetaTemplatesResponse(companyId, registry),
+      ...this.buildMetaTemplatesResponse(companyId, registry, { moduleKey }),
     };
   }
 
-  async deleteMetaTemplate(user: any, dto: DeleteMetaTemplateDto) {
+  async deleteMetaTemplate(user: any, dto: DeleteMetaTemplateDto, opts?: MetaTemplateScopeOptions) {
     const companyId = this.requireCompanyIdFromUser(user);
+    const moduleKey = this.normalizeMetaTemplateModuleKey(opts?.moduleKey);
     const name = String(dto?.name || '').trim();
     const language = String(dto?.language || 'pt_BR').trim() || 'pt_BR';
     const requestedId = String(dto?.id || '').trim() || null;
     if (!name) throw new BadRequestException('Nome do template e obrigatorio.');
 
-    let registry = await this.getMetaTemplateRegistry(companyId);
+    let registry = await this.getMetaTemplateRegistry(companyId, { moduleKey });
     if (!(registry.templates || []).length) {
-      registry = await this.syncMetaTemplatesByCompanyId(companyId);
+      registry = await this.syncMetaTemplatesByCompanyId(companyId, { moduleKey });
     }
 
     const key = this.metaTemplateKey(name, language);
@@ -2095,16 +2199,18 @@ export class HbxRecoveryService {
       );
     }
 
-    const { accessToken, templateNodeIds } = await this.resolveMetaTemplateContext(companyId);
+    const { accessToken, templateNodeIds } = await this.resolveMetaTemplateContext(companyId, {
+      moduleKey,
+    });
     await this.deleteMetaTemplateOnProvider(templateNodeIds, accessToken, {
       name,
       id: templateId,
     });
 
     try {
-      registry = await this.syncMetaTemplatesByCompanyId(companyId);
+      registry = await this.syncMetaTemplatesByCompanyId(companyId, { moduleKey });
       return {
-        ...this.buildMetaTemplatesResponse(companyId, registry),
+        ...this.buildMetaTemplatesResponse(companyId, registry, { moduleKey }),
         syncError: null,
       };
     } catch (error: any) {
@@ -2129,9 +2235,9 @@ export class HbxRecoveryService {
           (item) => this.metaTemplateKey(item.name, item.language) !== key,
         ),
         history,
-      });
+      }, { moduleKey });
       return {
-        ...this.buildMetaTemplatesResponse(companyId, registry),
+        ...this.buildMetaTemplatesResponse(companyId, registry, { moduleKey }),
         syncError: String(error?.message || 'Template removido, mas a sincronizacao posterior falhou.'),
       };
     }
@@ -2141,8 +2247,10 @@ export class HbxRecoveryService {
     user: any,
     file?: any,
     options?: { templateName?: string; language?: string },
+    opts?: MetaTemplateScopeOptions,
   ) {
     const companyId = this.requireCompanyIdFromUser(user);
+    const moduleKey = this.normalizeMetaTemplateModuleKey(opts?.moduleKey);
     if (!file) {
       throw new BadRequestException('Selecione uma imagem para upload.');
     }
@@ -2155,7 +2263,7 @@ export class HbxRecoveryService {
       throw new BadRequestException('A imagem deve ter no maximo 5 MB.');
     }
 
-    const { accessToken } = await this.resolveMetaTemplateContext(companyId);
+    const { accessToken } = await this.resolveMetaTemplateContext(companyId, { moduleKey });
     const headerHandle = await this.uploadMediaHandleToMeta(accessToken, file);
     const templateName = this.normalizeTemplateNameForMeta(options?.templateName || '');
     const templateLanguage = String(options?.language || 'pt_BR').trim() || 'pt_BR';
@@ -2165,12 +2273,12 @@ export class HbxRecoveryService {
     });
     const headerMediaUrl =
       (templateName
-        ? this.buildTemplateHeaderMediaPublicUrl(companyId, templateName, templateLanguage)
+        ? this.buildTemplateHeaderMediaPublicUrl(companyId, templateName, templateLanguage, moduleKey)
         : null) || `${this.publicApiBaseUrl()}${stored.relativePath}`;
     const headerMediaBase64 = Buffer.from(file.buffer).toString('base64');
 
     if (templateName) {
-      const registry = await this.getMetaTemplateRegistry(companyId);
+      const registry = await this.getMetaTemplateRegistry(companyId, { moduleKey });
       const templateKey = this.metaTemplateKey(templateName, templateLanguage);
       const hasMatch = (registry.templates || []).some(
         (item) => this.metaTemplateKey(item.name, item.language) === templateKey,
@@ -2190,14 +2298,14 @@ export class HbxRecoveryService {
                 })
               : item,
           ),
-        });
+        }, { moduleKey });
         return {
           ok: true,
           headerHandle,
           headerMediaUrl,
           fileName: stored.fileName,
           contentType,
-          registry: this.buildMetaTemplatesResponse(companyId, saved),
+          registry: this.buildMetaTemplatesResponse(companyId, saved, { moduleKey }),
         };
       }
     }
@@ -2225,10 +2333,16 @@ export class HbxRecoveryService {
     return `http://localhost:${Number(process.env.APP_PORT || 3000)}`;
   }
 
-  async getPublicMetaTemplateHeaderMedia(companyIdRaw: number, templateNameRaw: string, languageRaw?: string) {
+  async getPublicMetaTemplateHeaderMedia(
+    companyIdRaw: number,
+    templateNameRaw: string,
+    languageRaw?: string,
+    moduleKeyRaw?: string,
+  ) {
     const companyId = Number(companyIdRaw || 0);
     if (!companyId) throw new NotFoundException('Midia nao encontrada.');
-    const registry = await this.getMetaTemplateRegistry(companyId);
+    const moduleKey = this.normalizeMetaTemplateModuleKey(moduleKeyRaw);
+    const registry = await this.getMetaTemplateRegistry(companyId, { moduleKey });
     const templateName = this.normalizeTemplateNameForMeta(templateNameRaw || '');
     const language = String(languageRaw || 'pt_BR').trim() || 'pt_BR';
     const key = this.metaTemplateKey(templateName, language);
@@ -3091,12 +3205,13 @@ export class HbxRecoveryService {
   async generateInteractionLink(
     user: any,
     conversationId: number,
-    dto: { mode?: 'avista' | 'parcelado'; installments?: number; amount?: number },
+    dto: { mode?: 'avista' | 'parcelado' | 'credito'; installments?: number; amount?: number },
   ) {
     const companyId = this.requireCompanyIdFromUser(user);
     const { conversation, customer } = await this.getInteractionContext(companyId, conversationId);
     const targetPhone = this.getInteractionContactTarget(conversation, customer);
-    const mode = String(dto?.mode || 'avista').trim().toLowerCase() === 'parcelado' ? 'parcelado' : 'avista';
+    const requestedMode = String(dto?.mode || 'avista').trim().toLowerCase();
+    const mode = requestedMode === 'parcelado' ? 'parcelado' : requestedMode === 'credito' ? 'credito' : 'avista';
     const installments = Math.max(1, Math.min(12, Number(dto?.installments || 1)));
     const openAmount = Number(customer.openAmount || 0);
     const interestPct = Math.max(0, Number(process.env.HBX_RECOVERY_INSTALLMENT_INTEREST_PCT || 0));
@@ -3113,7 +3228,7 @@ export class HbxRecoveryService {
         where: { id: String(result.payment.id) },
         data: {
           conversationId: conversation.id,
-          chargeType: mode,
+          chargeType: mode === 'credito' ? 'cartao' : mode,
           installmentCount: mode === 'parcelado' ? installments : 1,
           installmentValue:
             mode === 'parcelado' ? Number((totalAmount / Math.max(1, installments)).toFixed(2)) : totalAmount,
@@ -3135,6 +3250,8 @@ export class HbxRecoveryService {
       text:
         mode === 'parcelado'
           ? `Link parcelado gerado manualmente em ${installments}x.`
+          : mode === 'credito'
+            ? 'Link de pagamento no credito gerado manualmente.'
           : 'Link a vista gerado manualmente.',
       eventType: 'operator_link_generated',
       sourceModule: 'hbx_recovery_human',
@@ -3282,6 +3399,87 @@ export class HbxRecoveryService {
     return { ok: true, conversation: updated };
   }
 
+  async reopenInteraction(user: any, conversationId: number) {
+    const companyId = this.requireCompanyIdFromUser(user);
+    const { conversation, customer } = await this.getInteractionContext(companyId, conversationId);
+    const blockedState = this.getRecoveryBlockedState((conversation as any).metadata);
+    if (blockedState.isBlocked) {
+      throw new BadRequestException('Conversa bloqueada. Desbloqueie antes de reabrir.');
+    }
+    const updated = await this.conversations.updateConversationState(companyId, conversation.id, {
+      currentFlow: 'cobranca_recovery_whatsapp_hibrido',
+      currentStep: 'atendimento_humano',
+      flowResult: null,
+      botActive: false,
+      humanAssigned: true,
+      assignedUserId: Number(user?.id || 0) || null,
+      metadata: this.clearRecoveryBlockedMetadata(this.parseConversationMetadata((conversation as any).metadata)),
+    });
+    await this.appendInteractionEvent({
+      companyId,
+      conversationId: conversation.id,
+      contactId: customer.id,
+      text: 'Conversa reaberta manualmente pelo operador.',
+      eventType: 'interaction_reopened',
+      sourceModule: 'hbx_recovery_human',
+    });
+    return { ok: true, conversation: updated };
+  }
+
+  async blockInteraction(user: any, conversationId: number, reasonRaw?: string) {
+    const companyId = this.requireCompanyIdFromUser(user);
+    const { conversation, customer } = await this.getInteractionContext(companyId, conversationId);
+    const metadata = this.parseConversationMetadata((conversation as any).metadata);
+    const reason = String(reasonRaw || '').trim() || 'Bloqueado manualmente pelo operador.';
+    const updated = await this.conversations.updateConversationState(companyId, conversation.id, {
+      currentFlow: 'cobranca_recovery_whatsapp_hibrido',
+      currentStep: 'encerrado',
+      flowResult: 'blocked_manual',
+      botActive: false,
+      humanAssigned: false,
+      assignedUserId: Number(user?.id || 0) || null,
+      metadata: {
+        ...metadata,
+        recoveryBlockedAt: new Date().toISOString(),
+        recoveryBlockedByUserId: Number(user?.id || 0) || null,
+        recoveryBlockedReason: reason,
+      },
+    });
+    await this.appendInteractionEvent({
+      companyId,
+      conversationId: conversation.id,
+      contactId: customer.id,
+      text: `Cliente bloqueado no HBX Recovery (${reason}).`,
+      eventType: 'interaction_blocked',
+      sourceModule: 'hbx_recovery_internal',
+      variables: { reason },
+    });
+    return { ok: true, conversation: updated };
+  }
+
+  async unblockInteraction(user: any, conversationId: number) {
+    const companyId = this.requireCompanyIdFromUser(user);
+    const { conversation, customer } = await this.getInteractionContext(companyId, conversationId);
+    const updated = await this.conversations.updateConversationState(companyId, conversation.id, {
+      currentFlow: 'cobranca_recovery_whatsapp_hibrido',
+      currentStep: 'atendimento_humano',
+      flowResult: null,
+      botActive: false,
+      humanAssigned: true,
+      assignedUserId: Number(user?.id || 0) || null,
+      metadata: this.clearRecoveryBlockedMetadata(this.parseConversationMetadata((conversation as any).metadata)),
+    });
+    await this.appendInteractionEvent({
+      companyId,
+      conversationId: conversation.id,
+      contactId: customer.id,
+      text: 'Cliente desbloqueado no HBX Recovery.',
+      eventType: 'interaction_unblocked',
+      sourceModule: 'hbx_recovery_internal',
+    });
+    return { ok: true, conversation: updated };
+  }
+
   async listPayments(user: any, query: ListRecoveryPaymentsDto) {
     const companyId = this.requireCompanyIdFromUser(user);
     const now = new Date();
@@ -3333,7 +3531,7 @@ export class HbxRecoveryService {
   async listInteractions(user: any, queueRaw?: string) {
     const companyId = this.requireCompanyIdFromUser(user);
     const normalizedQueue = String(queueRaw || 'all').trim().toLowerCase();
-    const queue = normalizedQueue === 'closed' ? 'closed' : 'all';
+    const queue = normalizedQueue === 'closed' ? 'closed' : normalizedQueue === 'blocked' ? 'blocked' : 'all';
 
     const conversations = await this.prisma.companyConversation.findMany({
       where: {
@@ -3407,13 +3605,15 @@ export class HbxRecoveryService {
         const complaintCount = Number(complaintCountByConversation.get(conversation.id) || 0);
         const latestPayment = latestPaymentByCustomer.get(customer.id);
         const conversationMeta = this.parseConversationMetadata((conversation as any).metadata);
+        const blockedState = this.getRecoveryBlockedState((conversation as any).metadata);
         const humanAssigned = Boolean((conversation as any).humanAssigned);
         const botActive = Boolean((conversation as any).botActive);
         const flowResult = (conversation as any).flowResult ? String((conversation as any).flowResult) : null;
         const currentStep = String((conversation as any).currentStep || '');
         const isClosed =
-          ['encerrado', 'manual_closed'].includes(String(flowResult || '').trim().toLowerCase()) ||
-          String(currentStep || '').trim().toLowerCase() === 'encerrado';
+          !blockedState.isBlocked &&
+          (['encerrado', 'manual_closed'].includes(String(flowResult || '').trim().toLowerCase()) ||
+            String(currentStep || '').trim().toLowerCase() === 'encerrado');
         return {
           conversationId: conversation.id,
           customerId: customer.id,
@@ -3423,8 +3623,11 @@ export class HbxRecoveryService {
           customerStatus: String(customer.status || '').toUpperCase(),
           openAmount: Number(customer.openAmount || 0),
           lastContact: customer.lastContact || 'Nunca',
-          humanQueue: !isClosed && (humanAssigned || complaintCount > 0),
+          humanQueue: !isClosed && !blockedState.isBlocked && (humanAssigned || complaintCount > 0),
           isClosed,
+          isBlocked: blockedState.isBlocked,
+          blockedAt: blockedState.blockedAt,
+          blockedReason: blockedState.blockedReason,
           botActive,
           humanAssigned,
           assignedUserId: (conversation as any).assignedUserId || null,
@@ -3452,8 +3655,12 @@ export class HbxRecoveryService {
       .filter(Boolean) as any[];
 
     const filtered =
-      queue === 'closed' ? items.filter((item) => item.isClosed) : items.filter((item) => !item.isClosed);
-    const pendingHumanCount = items.filter((item) => item.humanQueue && !item.isClosed).length;
+      queue === 'closed'
+        ? items.filter((item) => item.isClosed && !item.isBlocked)
+        : queue === 'blocked'
+          ? items.filter((item) => item.isBlocked)
+          : items.filter((item) => !item.isClosed && !item.isBlocked);
+    const pendingHumanCount = items.filter((item) => item.humanQueue && !item.isClosed && !item.isBlocked).length;
 
     return {
       queue,
@@ -3571,11 +3778,15 @@ export class HbxRecoveryService {
       where: { companyId, customerId: recoveryCustomer.id },
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
     });
+    const blockedState = this.getRecoveryBlockedState((conversation as any).metadata);
 
     return {
       conversationId: conversation.id,
       botActive: Boolean((conversation as any).botActive),
       humanAssigned: Boolean((conversation as any).humanAssigned),
+      isBlocked: blockedState.isBlocked,
+      blockedAt: blockedState.blockedAt,
+      blockedReason: blockedState.blockedReason,
       assignedUserId: (conversation as any).assignedUserId || null,
       currentFlow: String((conversation as any).currentFlow || ''),
       currentStep: String((conversation as any).currentStep || ''),

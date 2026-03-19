@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, ParseIntPipe, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, ParseIntPipe, Patch, Post, Put, Query, Req, UseGuards } from '@nestjs/common';
 import { CompaniesService } from './companies.service';
 import { CreateCompanyDto } from './dto/create-company.dto';
 import { UpdateCompanyDto } from './dto/update-company.dto';
@@ -10,7 +10,8 @@ import { FeatureGuard } from '../plans/feature.guard';
 import { Feature } from '../plans/feature.decorator';
 import { WhatsAppStatusService } from '../messaging/whatsapp-status.service';
 import { MasterGuard } from '../auth/guards/master.guard';
-import { IsOptional, IsString, IsNotEmpty } from 'class-validator';
+import { IsArray, IsBoolean, IsNotEmpty, IsOptional, IsString, ValidateNested } from 'class-validator';
+import { Type } from 'class-transformer';
 import { MercadoPagoClientService } from '../payments/mercado-pago-client.service';
 
 class MasterCreateCompanyDto {
@@ -39,6 +40,53 @@ class MasterUpdateCompanyWhatsAppDto {
   @IsOptional()
   @IsString()
   whatsappAccessToken?: string;
+}
+
+class MasterCompanyWhatsAppEndpointDto {
+  @IsOptional()
+  @IsString()
+  id?: string;
+
+  @IsOptional()
+  @IsString()
+  label?: string;
+
+  @IsOptional()
+  @IsString()
+  moduleKey?: string;
+
+  @IsOptional()
+  @IsString()
+  whatsappNumber?: string;
+
+  @IsOptional()
+  @IsString()
+  whatsappPhoneNumberId?: string;
+
+  @IsOptional()
+  @IsString()
+  whatsappWabaId?: string;
+
+  @IsOptional()
+  @IsString()
+  whatsappAccessToken?: string;
+
+  @IsOptional()
+  @Type(() => Boolean)
+  @IsBoolean()
+  isActive?: boolean;
+
+  @IsOptional()
+  @Type(() => Boolean)
+  @IsBoolean()
+  isPrimary?: boolean;
+}
+
+class ReplaceMasterCompanyWhatsAppEndpointsDto {
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => MasterCompanyWhatsAppEndpointDto)
+  endpoints!: MasterCompanyWhatsAppEndpointDto[];
 }
 
 class MasterUpdateCompanyMercadoPagoDto {
@@ -140,6 +188,37 @@ export class CompaniesController {
   async validateWhatsAppForMaster(@Param('id', ParseIntPipe) id: number) {
     await this.whatsappStatus.getStatusForCompany(id, { refresh: true });
     return this.buildWhatsAppPayloadForMaster(id, { refresh: false });
+  }
+
+  @Get('master/:id/whatsapp-endpoints')
+  @UseGuards(JwtAuthGuard, MasterGuard)
+  async listWhatsAppEndpointsForMaster(@Param('id', ParseIntPipe) id: number) {
+    const endpoints = await this.companiesService.listWhatsAppEndpointsByMaster(id);
+    return { companyId: id, endpoints };
+  }
+
+  @Put('master/:id/whatsapp-endpoints')
+  @UseGuards(JwtAuthGuard, MasterGuard)
+  async replaceWhatsAppEndpointsForMaster(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: ReplaceMasterCompanyWhatsAppEndpointsDto,
+  ) {
+    const company = await this.companiesService.replaceWhatsAppEndpointsByMaster(
+      id,
+      dto?.endpoints || [],
+    );
+    return { companyId: id, endpoints: (company as any)?.whatsappEndpoints || [] };
+  }
+
+  @Post('master/:companyId/whatsapp-endpoints/:endpointId/validate')
+  @UseGuards(JwtAuthGuard, MasterGuard)
+  async validateWhatsAppEndpointForMaster(
+    @Param('companyId', ParseIntPipe) companyId: number,
+    @Param('endpointId') endpointId: string,
+  ) {
+    await this.whatsappStatus.getStatusForCompanyEndpoint(endpointId, { refresh: true });
+    const endpoints = await this.companiesService.listWhatsAppEndpointsByMaster(companyId);
+    return { companyId, endpoints };
   }
 
   @Get('master/:id/mercadopago')

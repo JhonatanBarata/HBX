@@ -84,7 +84,8 @@ type RecoveryHumanAttentionPopup = {
   customerName: string;
   phone: string;
   preview: string;
-  pendingHumanCount: number;
+  moduleLabel: string;
+  attentionLabel: string;
   kind: RecoveryHumanAttentionKind;
   lastAt: string;
 };
@@ -128,7 +129,7 @@ type RecoveryInboxFallbackConversation = {
 
 function mapInboxConversationsToRecoverySummary(
   rows: RecoveryInboxFallbackConversation[],
-  queue: "all" | "closed",
+  queue: "all" | "closed" | "blocked",
 ): RecoveryInteractionSummary {
   const conversations = rows.map((row) => {
     const latestMessage = Array.isArray(row.messages) ? row.messages[0] : null;
@@ -148,6 +149,9 @@ function mapInboxConversationsToRecoverySummary(
       lastContact: "",
       humanQueue: status === "open",
       isClosed: status === "closed",
+      isBlocked: false,
+      blockedAt: null,
+      blockedReason: null,
       botActive: status === "new",
       humanAssigned: status === "open",
       assignedUserId: null,
@@ -170,7 +174,9 @@ function mapInboxConversationsToRecoverySummary(
   });
 
   const filtered =
-    queue === "closed"
+    queue === "blocked"
+      ? []
+      : queue === "closed"
       ? conversations.filter((item) => item.isClosed)
       : conversations.filter((item) => !item.isClosed);
 
@@ -223,10 +229,10 @@ function mapFlowStepLabel(stepRaw: string) {
     aguardando_resposta_template: "Aguardando resposta",
     cobranca_menu_principal: "Menu principal",
     exibindo_valor: "Exibindo valor",
-    escolhendo_parcelamento: "Escolhendo parcelas",
-    confirmando_parcelamento: "Confirmando parcelas",
+    escolhendo_parcelamento: "Preparando link no credito",
+    confirmando_parcelamento: "Confirmando link no credito",
     link_gerado_avista: "Link avista gerado",
-    link_gerado_parcelado: "Link parcelado gerado",
+    link_gerado_parcelado: "Link no credito gerado",
     aguardando_pagamento: "Aguardando pagamento",
     atendimento_humano: "Atendimento humano",
     recusado: "Contato recusado",
@@ -1461,7 +1467,7 @@ export default function HbxRecoveryClientPage() {
     billing: { pendingAmount: 0, grossAmount: 0, commissionAmount: 0, netAmount: 0 },
     records: [],
   });
-  const [interactionsQueue, setInteractionsQueue] = useState<"all" | "closed">("all");
+  const [interactionsQueue, setInteractionsQueue] = useState<"all" | "closed" | "blocked">("all");
   const [loadingInteractions, setLoadingInteractions] = useState(false);
   const [refreshingInteractions, setRefreshingInteractions] = useState(false);
   const [loadingInteractionDetailId, setLoadingInteractionDetailId] = useState<number | null>(null);
@@ -3156,7 +3162,7 @@ export default function HbxRecoveryClientPage() {
   ) {
     if (!hasToken) return;
     const silent = options?.silent ?? false;
-    if (silent && interactionSummary.conversations.length > 0) {
+    if (silent || interactionSummary.conversations.length > 0 || interactionDetail) {
       setRefreshingInteractions(true);
     } else {
       setLoadingInteractions(true);
@@ -3214,12 +3220,21 @@ export default function HbxRecoveryClientPage() {
       interactionHumanQueueRef.current = nextHumanQueue;
       interactionInitialLoadDoneRef.current = true;
       setInteractionSummary(payload);
-      if (popupCandidate) {
-        void presentHumanAttentionPopup(
-          popupCandidate.item,
-          payload.pendingHumanCount,
-          popupCandidate.kind,
+      if (queue === "all") {
+        const activeHumanAttentionIds = new Set(
+          payload.conversations
+            .filter((item) => item.humanQueue && !item.isClosed && !item.isBlocked)
+            .map((item) => item.conversationId),
         );
+        setHumanAttentionFeed((current) =>
+          current.filter((entry) => activeHumanAttentionIds.has(entry.conversationId)),
+        );
+        setHumanAttentionPopup((current) =>
+          current && activeHumanAttentionIds.has(current.conversationId) ? current : null,
+        );
+      }
+      if (popupCandidate) {
+        void presentHumanAttentionPopup(popupCandidate.item, popupCandidate.kind);
       }
     } catch (error) {
       const reason = error instanceof Error ? error.message : "Erro ao carregar mensagens do Recovery";
@@ -3294,7 +3309,8 @@ export default function HbxRecoveryClientPage() {
           }),
           preview:
             String(lastInbound.body || "").trim() || "Nova mensagem aguardando resposta humana.",
-          pendingHumanCount: interactionSummary.pendingHumanCount,
+          moduleLabel: "HBX Recovery",
+          attentionLabel: "Nova mensagem",
           kind: "new_message",
           lastAt: lastInbound.timestamp,
         });
@@ -3315,7 +3331,6 @@ export default function HbxRecoveryClientPage() {
 
   async function presentHumanAttentionPopup(
     item: RecoveryInteractionSummary["conversations"][number],
-    pendingHumanCount: number,
     kind: RecoveryHumanAttentionKind,
   ) {
     const phone = getLiveInteractionPhone({
@@ -3354,7 +3369,8 @@ export default function HbxRecoveryClientPage() {
       customerName: item.customerName,
       phone,
       preview,
-      pendingHumanCount,
+      moduleLabel: "HBX Recovery",
+      attentionLabel: kind === "human_queue" ? "Fila humana" : "Nova mensagem",
       kind,
       lastAt: item.lastAt,
     };
@@ -3411,13 +3427,13 @@ export default function HbxRecoveryClientPage() {
       | "pause_bot"
       | "resume_bot"
       | "generate_cash_link"
-      | "generate_2x_link"
-      | "generate_3x_link"
-      | "generate_4x_link"
-      | "generate_5x_link"
+      | "generate_credit_link"
       | "resend_link"
       | "request_proof"
       | "mark_paid"
+      | "reopen_interaction"
+      | "block_interaction"
+      | "unblock_interaction"
       | "close_interaction",
   ) {
     setInteractionActionBusy(`${conversationId}:${action}`);
@@ -3442,26 +3458,10 @@ export default function HbxRecoveryClientPage() {
           method: "POST",
           body: JSON.stringify({ mode: "avista" }),
         });
-      } else if (
-        action === "generate_2x_link" ||
-        action === "generate_3x_link" ||
-        action === "generate_4x_link" ||
-        action === "generate_5x_link"
-      ) {
-        const installments =
-          action === "generate_2x_link"
-            ? 2
-            : action === "generate_3x_link"
-              ? 3
-              : action === "generate_4x_link"
-                ? 4
-                : 5;
+      } else if (action === "generate_credit_link") {
         await apiFetch(`/hbx-recovery/interactions/${conversationId}/generate-link`, {
           method: "POST",
-          body: JSON.stringify({
-            mode: "parcelado",
-            installments,
-          }),
+          body: JSON.stringify({ mode: "credito" }),
         });
       } else if (action === "resend_link") {
         await apiFetch(`/hbx-recovery/interactions/${conversationId}/resend-link`, {
@@ -3478,6 +3478,21 @@ export default function HbxRecoveryClientPage() {
           method: "PATCH",
           body: JSON.stringify({}),
         });
+      } else if (action === "reopen_interaction") {
+        await apiFetch(`/hbx-recovery/interactions/${conversationId}/reopen`, {
+          method: "PATCH",
+          body: JSON.stringify({}),
+        });
+      } else if (action === "block_interaction") {
+        await apiFetch(`/hbx-recovery/interactions/${conversationId}/block`, {
+          method: "PATCH",
+          body: JSON.stringify({}),
+        });
+      } else if (action === "unblock_interaction") {
+        await apiFetch(`/hbx-recovery/interactions/${conversationId}/unblock`, {
+          method: "PATCH",
+          body: JSON.stringify({}),
+        });
       } else if (action === "close_interaction") {
         await apiFetch(`/hbx-recovery/interactions/${conversationId}/close`, {
           method: "PATCH",
@@ -3486,6 +3501,14 @@ export default function HbxRecoveryClientPage() {
       }
 
       await refreshInteractionContext(conversationId);
+      if (
+        action === "close_interaction" ||
+        action === "block_interaction" ||
+        action === "unblock_interaction" ||
+        action === "reopen_interaction"
+      ) {
+        dismissHumanAttention(conversationId);
+      }
       setNotice("Acao executada com sucesso na conversa selecionada.");
     } catch (error) {
       const reason = error instanceof Error ? error.message : "Erro ao executar acao";
@@ -3531,6 +3554,7 @@ export default function HbxRecoveryClientPage() {
         body: JSON.stringify({ body }),
       });
       setInteractionReplyDraft("");
+      dismissHumanAttention(conversationId);
       await refreshInteractionContext(conversationId);
     } catch (error) {
       const reason = error instanceof Error ? error.message : "Erro ao enviar mensagem";
@@ -5572,13 +5596,14 @@ export default function HbxRecoveryClientPage() {
                     ? "Atendimento humano solicitado"
                     : "Nova mensagem aguardando resposta"}
                 </p>
+                <p className={styles.humanAttentionPhone}>{humanAttentionPopup.moduleLabel}</p>
                 <strong className={styles.humanAttentionTitle}>
                   {humanAttentionPopup.customerName}
                 </strong>
                 <p className={styles.humanAttentionPhone}>{humanAttentionPopup.phone}</p>
               </div>
               <span className={styles.humanAttentionCount}>
-                {humanAttentionPopup.pendingHumanCount} pendente(s)
+                {humanAttentionPopup.attentionLabel}
               </span>
             </div>
             <p className={styles.humanAttentionPreview}>{humanAttentionPopup.preview}</p>
@@ -8372,6 +8397,13 @@ export default function HbxRecoveryClientPage() {
               >
                 Conversas encerradas
               </button>
+              <button
+                type="button"
+                className={`btn btn-sm ${interactionsQueue === "blocked" ? "btn-primary" : "btn-secondary"}`}
+                onClick={() => setInteractionsQueue("blocked")}
+              >
+                Clientes bloqueados
+              </button>
               <div className={styles.interactionsRefreshStatus} aria-live="polite">
                 <span
                   className={`${styles.interactionsRefreshSpinner} ${
@@ -8401,11 +8433,12 @@ export default function HbxRecoveryClientPage() {
                       <p className={styles.humanAttentionFeedTitle}>
                         {item.kind === "human_queue" ? "Aguardando humano" : "Nova mensagem"}
                       </p>
+                      <p className={styles.humanAttentionFeedMeta}>{item.moduleLabel}</p>
                       <strong>{item.customerName}</strong>
                       <p className={styles.humanAttentionFeedMeta}>{item.phone}</p>
                       <p className={styles.humanAttentionFeedPreview}>{item.preview}</p>
                     </div>
-                    <span className={styles.humanAttentionFeedCount}>{item.pendingHumanCount}</span>
+                    <span className={styles.humanAttentionFeedCount}>{item.attentionLabel}</span>
                   </button>
                 ))}
               </div>
@@ -8437,8 +8470,6 @@ export default function HbxRecoveryClientPage() {
                     const rowAwaitingResponse = [
                       "aguardando_resposta_template",
                       "cobranca_menu_principal",
-                      "escolhendo_parcelamento",
-                      "confirmando_parcelamento",
                       "aguardando_pagamento",
                     ].includes(String(item.currentStep || "").toLowerCase());
                     return (
@@ -8479,6 +8510,16 @@ export default function HbxRecoveryClientPage() {
                             {item.humanAssigned || item.humanQueue ? (
                               <span className={`${styles.stateBadge} ${styles.stateHuman}`}>
                                 Atendimento humano
+                              </span>
+                            ) : null}
+                            {item.isClosed ? (
+                              <span className={`${styles.stateBadge} ${styles.stateWaiting}`}>
+                                Encerrada
+                              </span>
+                            ) : null}
+                            {item.isBlocked ? (
+                              <span className={`${styles.stateBadge} ${styles.stateExpired}`}>
+                                Bloqueado
                               </span>
                             ) : null}
                             {item.paymentGenerated ? (
@@ -8537,6 +8578,21 @@ export default function HbxRecoveryClientPage() {
                             Atendimento humano
                           </span>
                         ) : null}
+                        {!interactionDetail.isBlocked &&
+                        (String(interactionDetail.currentStep || "").trim().toLowerCase() ===
+                          "encerrado" ||
+                          ["manual_closed", "encerrado_operador"].includes(
+                            String(interactionDetail.flowResult || "").trim().toLowerCase(),
+                          )) ? (
+                          <span className={`${styles.stateBadge} ${styles.stateWaiting}`}>
+                            Conversa encerrada
+                          </span>
+                        ) : null}
+                        {interactionDetail.isBlocked ? (
+                          <span className={`${styles.stateBadge} ${styles.stateExpired}`}>
+                            Cliente bloqueado
+                          </span>
+                        ) : null}
                         {latestPayment?.paymentUrl ? (
                           <span className={`${styles.stateBadge} ${styles.stateGenerated}`}>
                             Pagamento gerado
@@ -8559,192 +8615,217 @@ export default function HbxRecoveryClientPage() {
                     </div>
 
                     <div className={styles.interactionActionBar}>
-                      <button
-                        type="button"
-                        className="btn btn-secondary btn-sm"
-                        onClick={() =>
-                          runInteractionAction(interactionDetail.conversationId, "assign_human")
-                        }
-                        disabled={isInteractionBusy(
-                          interactionDetail.conversationId,
-                          "assign_human",
-                        )}
-                      >
-                        {isInteractionBusy(interactionDetail.conversationId, "assign_human")
-                          ? "Aplicando..."
-                          : "Assumir atendimento"}
-                      </button>
-                      <button
-                        type="button"
-                        className="btn btn-secondary btn-sm"
-                        onClick={() =>
-                          runInteractionAction(interactionDetail.conversationId, "pause_bot")
-                        }
-                        disabled={isInteractionBusy(
-                          interactionDetail.conversationId,
-                          "pause_bot",
-                        )}
-                      >
-                        {isInteractionBusy(interactionDetail.conversationId, "pause_bot")
-                          ? "Pausando..."
-                          : "Pausar BOT"}
-                      </button>
-                      <button
-                        type="button"
-                        className="btn btn-secondary btn-sm"
-                        onClick={() =>
-                          runInteractionAction(interactionDetail.conversationId, "resume_bot")
-                        }
-                        disabled={isInteractionBusy(
-                          interactionDetail.conversationId,
-                          "resume_bot",
-                        )}
-                      >
-                        {isInteractionBusy(interactionDetail.conversationId, "resume_bot")
-                          ? "Reativando..."
-                          : "Reativar BOT"}
-                      </button>
-                      <button
-                        type="button"
-                        className="btn btn-primary btn-sm"
-                        onClick={() =>
-                          runInteractionAction(
+                      {interactionDetail.isBlocked ? (
+                        <button
+                          type="button"
+                          className="btn btn-secondary btn-sm"
+                          onClick={() =>
+                            runInteractionAction(interactionDetail.conversationId, "unblock_interaction")
+                          }
+                          disabled={isInteractionBusy(
                             interactionDetail.conversationId,
-                            "generate_cash_link",
-                          )
-                        }
-                        disabled={isInteractionBusy(
-                          interactionDetail.conversationId,
-                          "generate_cash_link",
-                        )}
-                      >
-                        {isInteractionBusy(interactionDetail.conversationId, "generate_cash_link")
-                          ? "Gerando..."
-                          : "Gerar link avista"}
-                      </button>
-                      <button
-                        type="button"
-                        className="btn btn-primary btn-sm"
-                        onClick={() =>
-                          runInteractionAction(
-                            interactionDetail.conversationId,
-                            "generate_2x_link",
-                          )
-                        }
-                        disabled={isInteractionBusy(
-                          interactionDetail.conversationId,
-                          "generate_2x_link",
-                        )}
-                      >
-                        2x
-                      </button>
-                      <button
-                        type="button"
-                        className="btn btn-primary btn-sm"
-                        onClick={() =>
-                          runInteractionAction(
-                            interactionDetail.conversationId,
-                            "generate_3x_link",
-                          )
-                        }
-                        disabled={isInteractionBusy(
-                          interactionDetail.conversationId,
-                          "generate_3x_link",
-                        )}
-                      >
-                        3x
-                      </button>
-                      <button
-                        type="button"
-                        className="btn btn-primary btn-sm"
-                        onClick={() =>
-                          runInteractionAction(
-                            interactionDetail.conversationId,
-                            "generate_4x_link",
-                          )
-                        }
-                        disabled={isInteractionBusy(
-                          interactionDetail.conversationId,
-                          "generate_4x_link",
-                        )}
-                      >
-                        4x
-                      </button>
-                      <button
-                        type="button"
-                        className="btn btn-primary btn-sm"
-                        onClick={() =>
-                          runInteractionAction(
-                            interactionDetail.conversationId,
-                            "generate_5x_link",
-                          )
-                        }
-                        disabled={isInteractionBusy(
-                          interactionDetail.conversationId,
-                          "generate_5x_link",
-                        )}
-                      >
-                        5x
-                      </button>
-                      <button
-                        type="button"
-                        className="btn btn-secondary btn-sm"
-                        onClick={() =>
-                          runInteractionAction(interactionDetail.conversationId, "resend_link")
-                        }
-                        disabled={isInteractionBusy(
-                          interactionDetail.conversationId,
-                          "resend_link",
-                        )}
-                      >
-                        {isInteractionBusy(interactionDetail.conversationId, "resend_link")
-                          ? "Enviando..."
-                          : "Reenviar link"}
-                      </button>
-                      <button
-                        type="button"
-                        className="btn btn-secondary btn-sm"
-                        onClick={() =>
-                          runInteractionAction(interactionDetail.conversationId, "request_proof")
-                        }
-                        disabled={isInteractionBusy(
-                          interactionDetail.conversationId,
-                          "request_proof",
-                        )}
-                      >
-                        Solicitar comprovante
-                      </button>
-                      <button
-                        type="button"
-                        className="btn btn-secondary btn-sm"
-                        onClick={() =>
-                          runInteractionAction(interactionDetail.conversationId, "mark_paid")
-                        }
-                        disabled={isInteractionBusy(
-                          interactionDetail.conversationId,
-                          "mark_paid",
-                        )}
-                      >
-                        {isInteractionBusy(interactionDetail.conversationId, "mark_paid")
-                          ? "Atualizando..."
-                          : "Marcar pago manualmente"}
-                      </button>
-                      <button
-                        type="button"
-                        className="btn btn-danger btn-sm"
-                        onClick={() =>
-                          runInteractionAction(
-                            interactionDetail.conversationId,
-                            "close_interaction",
-                          )
-                        }
-                        disabled={isInteractionBusy(
-                          interactionDetail.conversationId,
-                          "close_interaction",
-                        )}
-                      >
-                        Encerrar conversa
-                      </button>
+                            "unblock_interaction",
+                          )}
+                        >
+                          {isInteractionBusy(interactionDetail.conversationId, "unblock_interaction")
+                            ? "Desbloqueando..."
+                            : "Desbloquear cliente"}
+                        </button>
+                      ) : String(interactionDetail.currentStep || "").trim().toLowerCase() === "encerrado" ||
+                        ["manual_closed", "encerrado_operador"].includes(
+                          String(interactionDetail.flowResult || "").trim().toLowerCase(),
+                        ) ? (
+                        <>
+                          <button
+                            type="button"
+                            className="btn btn-secondary btn-sm"
+                            onClick={() =>
+                              runInteractionAction(interactionDetail.conversationId, "reopen_interaction")
+                            }
+                            disabled={isInteractionBusy(
+                              interactionDetail.conversationId,
+                              "reopen_interaction",
+                            )}
+                          >
+                            {isInteractionBusy(interactionDetail.conversationId, "reopen_interaction")
+                              ? "Reabrindo..."
+                              : "Reabrir conversa"}
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn-danger btn-sm"
+                            onClick={() =>
+                              runInteractionAction(interactionDetail.conversationId, "block_interaction")
+                            }
+                            disabled={isInteractionBusy(
+                              interactionDetail.conversationId,
+                              "block_interaction",
+                            )}
+                          >
+                            {isInteractionBusy(interactionDetail.conversationId, "block_interaction")
+                              ? "Bloqueando..."
+                              : "Bloquear cliente"}
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <button
+                            type="button"
+                            className="btn btn-secondary btn-sm"
+                            onClick={() =>
+                              runInteractionAction(interactionDetail.conversationId, "assign_human")
+                            }
+                            disabled={isInteractionBusy(
+                              interactionDetail.conversationId,
+                              "assign_human",
+                            )}
+                          >
+                            {isInteractionBusy(interactionDetail.conversationId, "assign_human")
+                              ? "Aplicando..."
+                              : "Assumir atendimento"}
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn-secondary btn-sm"
+                            onClick={() =>
+                              runInteractionAction(interactionDetail.conversationId, "pause_bot")
+                            }
+                            disabled={isInteractionBusy(
+                              interactionDetail.conversationId,
+                              "pause_bot",
+                            )}
+                          >
+                            {isInteractionBusy(interactionDetail.conversationId, "pause_bot")
+                              ? "Pausando..."
+                              : "Pausar BOT"}
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn-secondary btn-sm"
+                            onClick={() =>
+                              runInteractionAction(interactionDetail.conversationId, "resume_bot")
+                            }
+                            disabled={isInteractionBusy(
+                              interactionDetail.conversationId,
+                              "resume_bot",
+                            )}
+                          >
+                            {isInteractionBusy(interactionDetail.conversationId, "resume_bot")
+                              ? "Reativando..."
+                              : "Reativar BOT"}
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn-primary btn-sm"
+                            onClick={() =>
+                              runInteractionAction(
+                                interactionDetail.conversationId,
+                                "generate_cash_link",
+                              )
+                            }
+                            disabled={isInteractionBusy(
+                              interactionDetail.conversationId,
+                              "generate_cash_link",
+                            )}
+                          >
+                            {isInteractionBusy(interactionDetail.conversationId, "generate_cash_link")
+                              ? "Gerando..."
+                              : "Gerar link avista"}
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn-primary btn-sm"
+                            onClick={() =>
+                              runInteractionAction(
+                                interactionDetail.conversationId,
+                                "generate_credit_link",
+                              )
+                            }
+                            disabled={isInteractionBusy(
+                              interactionDetail.conversationId,
+                              "generate_credit_link",
+                            )}
+                          >
+                            {isInteractionBusy(interactionDetail.conversationId, "generate_credit_link")
+                              ? "Gerando..."
+                              : "Pagar no credito"}
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn-secondary btn-sm"
+                            onClick={() =>
+                              runInteractionAction(interactionDetail.conversationId, "resend_link")
+                            }
+                            disabled={isInteractionBusy(
+                              interactionDetail.conversationId,
+                              "resend_link",
+                            )}
+                          >
+                            {isInteractionBusy(interactionDetail.conversationId, "resend_link")
+                              ? "Enviando..."
+                              : "Reenviar link"}
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn-secondary btn-sm"
+                            onClick={() =>
+                              runInteractionAction(interactionDetail.conversationId, "request_proof")
+                            }
+                            disabled={isInteractionBusy(
+                              interactionDetail.conversationId,
+                              "request_proof",
+                            )}
+                          >
+                            Solicitar comprovante
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn-secondary btn-sm"
+                            onClick={() =>
+                              runInteractionAction(interactionDetail.conversationId, "mark_paid")
+                            }
+                            disabled={isInteractionBusy(
+                              interactionDetail.conversationId,
+                              "mark_paid",
+                            )}
+                          >
+                            {isInteractionBusy(interactionDetail.conversationId, "mark_paid")
+                              ? "Atualizando..."
+                              : "Marcar pago manualmente"}
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn-danger btn-sm"
+                            onClick={() =>
+                              runInteractionAction(interactionDetail.conversationId, "block_interaction")
+                            }
+                            disabled={isInteractionBusy(
+                              interactionDetail.conversationId,
+                              "block_interaction",
+                            )}
+                          >
+                            {isInteractionBusy(interactionDetail.conversationId, "block_interaction")
+                              ? "Bloqueando..."
+                              : "Bloquear cliente"}
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn-danger btn-sm"
+                            onClick={() =>
+                              runInteractionAction(
+                                interactionDetail.conversationId,
+                                "close_interaction",
+                              )
+                            }
+                            disabled={isInteractionBusy(
+                              interactionDetail.conversationId,
+                              "close_interaction",
+                            )}
+                          >
+                            Encerrar conversa
+                          </button>
+                        </>
+                      )}
                     </div>
 
                     <div className={styles.interactionDetailGrid}>
@@ -8843,6 +8924,7 @@ export default function HbxRecoveryClientPage() {
                             value={interactionReplyDraft}
                             placeholder="Digite a mensagem que deve ser enviada ao cliente..."
                             onChange={(event) => setInteractionReplyDraft(event.target.value)}
+                            disabled={Boolean(interactionDetail.isBlocked) || String(interactionDetail.currentStep || "").trim().toLowerCase() === "encerrado" || ["manual_closed", "encerrado_operador"].includes(String(interactionDetail.flowResult || "").trim().toLowerCase())}
                           />
                           <div className={styles.interactionComposerActions}>
                             <button
@@ -8852,7 +8934,7 @@ export default function HbxRecoveryClientPage() {
                               disabled={isInteractionBusy(
                                 interactionDetail.conversationId,
                                 "send_message",
-                              )}
+                                ) || Boolean(interactionDetail.isBlocked) || String(interactionDetail.currentStep || "").trim().toLowerCase() === "encerrado" || ["manual_closed", "encerrado_operador"].includes(String(interactionDetail.flowResult || "").trim().toLowerCase())}
                             >
                               {isInteractionBusy(interactionDetail.conversationId, "send_message")
                                 ? "Enviando..."
@@ -8921,7 +9003,7 @@ export default function HbxRecoveryClientPage() {
                               : formatCurrency(0)}
                           </p>
                           <p>
-                            <strong>Parcelas disponiveis:</strong> 2x, 3x, 4x, 5x
+                            <strong>Checkout em cartao:</strong> definido pelo Mercado Pago no link gerado
                           </p>
                           <p>
                             <strong>Status da cobranca:</strong>{" "}
@@ -8973,6 +9055,7 @@ export default function HbxRecoveryClientPage() {
                             value={interactionNoteDraft}
                             placeholder="Ex: Cliente pediu retorno sexta as 15h."
                             onChange={(event) => setInteractionNoteDraft(event.target.value)}
+                            disabled={Boolean(interactionDetail.isBlocked) || String(interactionDetail.currentStep || "").trim().toLowerCase() === "encerrado" || ["manual_closed", "encerrado_operador"].includes(String(interactionDetail.flowResult || "").trim().toLowerCase())}
                           />
                           <button
                             type="button"
@@ -8983,7 +9066,7 @@ export default function HbxRecoveryClientPage() {
                             disabled={isInteractionBusy(
                               interactionDetail.conversationId,
                               "internal_note",
-                            )}
+                            ) || Boolean(interactionDetail.isBlocked) || String(interactionDetail.currentStep || "").trim().toLowerCase() === "encerrado" || ["manual_closed", "encerrado_operador"].includes(String(interactionDetail.flowResult || "").trim().toLowerCase())}
                           >
                             {isInteractionBusy(interactionDetail.conversationId, "internal_note")
                               ? "Salvando..."

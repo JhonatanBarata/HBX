@@ -21,6 +21,24 @@ import {
   normalizeRecoveryBotConfig,
 } from '../hbx-recovery/recovery-bot-config';
 import {
+  ATENDIMENTO_AGENDA_CONFIG_CHANNEL,
+  ATENDIMENTO_AGENDA_CONFIG_TITLE,
+  ATENDIMENTO_BOT_CONFIG_CHANNEL,
+  ATENDIMENTO_BOT_CONFIG_TITLE,
+  ATENDIMENTO_BUTTON_ID_PREFIX,
+  DEFAULT_ATENDIMENTO_AGENDA_CONFIG,
+  DEFAULT_ATENDIMENTO_BOT_CONFIG,
+  buildAtendimentoAgendaActionId,
+  normalizeAtendimentoAgendaConfig,
+  normalizeAtendimentoBotConfig,
+  parseAtendimentoAgendaActionId,
+  type AtendimentoAgendaConfig,
+  type AtendimentoAgendaGroup,
+  type AtendimentoBotActionGuide,
+  type AtendimentoBotButton,
+  type AtendimentoBotConfig,
+} from '../inbox/atendimento-config';
+import {
   buildStructuredWhatsAppLog,
   extractInboundTextFromPayload,
   normalizeMetaProviderError,
@@ -60,6 +78,25 @@ function computeGreeting(timezone: string | null | undefined): string {
   return 'Boa noite';
 }
 
+function getLocalHour(timezone: string | null | undefined): number {
+  const tz = timezone || 'America/Sao_Paulo';
+  const parts = new Intl.DateTimeFormat('en-US', {
+    hour: '2-digit',
+    hour12: false,
+    timeZone: tz,
+  }).formatToParts(new Date());
+  const hourPart = parts.find((p) => p.type === 'hour')?.value;
+  return Number(hourPart ?? '0');
+}
+
+function isWithinHourWindow(hour: number, startHour: number, endHour: number): boolean {
+  if (startHour === endHour) return true;
+  if (startHour < endHour) {
+    return hour >= startHour && hour < endHour;
+  }
+  return hour >= startHour || hour < endHour;
+}
+
 function renderTemplate(template: string, vars: Record<string, string>): string {
   return template.replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (_m, key) => vars[key] ?? '');
 }
@@ -83,6 +120,15 @@ const RECOVERY_STEP = {
 } as const;
 
 const RECOVERY_BUTTON_ID_PREFIX = 'hbx_recovery_';
+const ATENDIMENTO_FLOW_ID = 'atendimento_whatsapp_hibrido';
+const ATENDIMENTO_STEP = {
+  WELCOME: 'welcome',
+  MAIN_MENU: 'menu_principal',
+  RECOVERY_GATE: 'recovery_detectado',
+  HUMAN: 'atendimento_humano',
+  AGENDA: 'agenda_compartilhada',
+  CLOSED: 'encerrado',
+} as const;
 
 @Injectable()
 export class MessagingService implements OnModuleInit, OnModuleDestroy {
@@ -113,6 +159,13 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
 
   private get cloudApiBaseUrl(): string {
     return (process.env.WHATSAPP_CLOUD_API_BASE_URL || 'https://graph.facebook.com/v20.0').replace(/\/$/, '');
+  }
+
+  private shouldSendRecoveryHumanAck(company: { timezone?: string | null } | null | undefined) {
+    const startHour = clamp(Number(process.env.WHATSAPP_HUMAN_ACK_START_HOUR || '8'), 0, 23);
+    const endHour = clamp(Number(process.env.WHATSAPP_HUMAN_ACK_END_HOUR || '21'), 0, 23);
+    const localHour = getLocalHour(company?.timezone);
+    return isWithinHourWindow(localHour, startHour, endHour);
   }
 
   private get verifyToken(): string {
@@ -498,6 +551,424 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  private getAtendimentoBlockedState(metadata: Record<string, any>) {
+    const blockedAt = String(metadata?.atendimentoBlockedAt || '').trim() || null;
+    const blockedReason = String(metadata?.atendimentoBlockedReason || '').trim() || null;
+    return {
+      isBlocked: Boolean(blockedAt),
+      blockedAt,
+      blockedReason,
+    };
+  }
+
+  private clearAtendimentoBlockedMetadata(metadata: Record<string, any>) {
+    const next = { ...(metadata || {}) };
+    delete next.atendimentoBlockedAt;
+    delete next.atendimentoBlockedReason;
+    delete next.atendimentoBlockedByUserId;
+    return next;
+  }
+
+  private async getAtendimentoBotConfig(companyId: number): Promise<AtendimentoBotConfig> {
+    const row = await this.prisma.hbxRecoveryFlowStage.findFirst({
+      where: {
+        companyId,
+        channel: ATENDIMENTO_BOT_CONFIG_CHANNEL,
+        title: ATENDIMENTO_BOT_CONFIG_TITLE,
+      },
+      orderBy: { updatedAt: 'desc' },
+    });
+    if (!row?.template) return DEFAULT_ATENDIMENTO_BOT_CONFIG;
+    try {
+      return normalizeAtendimentoBotConfig(JSON.parse(row.template));
+    } catch {
+      return DEFAULT_ATENDIMENTO_BOT_CONFIG;
+    }
+  }
+
+  private async getAtendimentoAgendaConfig(companyId: number): Promise<AtendimentoAgendaConfig> {
+    const row = await this.prisma.hbxRecoveryFlowStage.findFirst({
+      where: {
+        companyId,
+        channel: ATENDIMENTO_AGENDA_CONFIG_CHANNEL,
+        title: ATENDIMENTO_AGENDA_CONFIG_TITLE,
+      },
+      orderBy: { updatedAt: 'desc' },
+    });
+    if (!row?.template) return DEFAULT_ATENDIMENTO_AGENDA_CONFIG;
+    try {
+      return normalizeAtendimentoAgendaConfig(JSON.parse(row.template));
+    } catch {
+      return DEFAULT_ATENDIMENTO_AGENDA_CONFIG;
+    }
+  }
+
+  private async updateAtendimentoConversationState(
+    companyId: number,
+    conversationId: number,
+    patch: ConversationStatePatch,
+    metadataPatch?: Record<string, unknown> | null,
+  ) {
+    const current = await this.prisma.companyConversation.findFirst({
+      where: { id: Number(conversationId), companyId, channel: 'whatsapp' },
+      select: { id: true, metadata: true },
+    });
+    if (!current?.id) return null;
+    const mergedMetadata =
+      metadataPatch === undefined
+        ? undefined
+        : metadataPatch === null
+          ? null
+          : { ...this.parseConversationMetadata(current.metadata), ...metadataPatch };
+    return this.conversations.updateConversationState(companyId, conversationId, {
+      ...patch,
+      currentFlow: patch.currentFlow || ATENDIMENTO_FLOW_ID,
+      lastInteractionAt: patch.lastInteractionAt || new Date(),
+      metadata: mergedMetadata,
+    });
+  }
+
+  private async appendAtendimentoSystemEvent(input: {
+    companyId: number;
+    conversationId: number;
+    contactId: string;
+    text: string;
+    eventType: string;
+    sourceModule?: string;
+    variables?: Record<string, unknown>;
+  }) {
+    const now = new Date();
+    await this.prisma.companyMessage.create({
+      data: {
+        companyId: input.companyId,
+        conversationId: input.conversationId,
+        contactId: input.contactId,
+        direction: 'OUTBOUND',
+        messageType: 'system_event',
+        body: input.text,
+        senderType: 'system',
+        status: 'SENT',
+        timestamp: now,
+        sourceModule: input.sourceModule || 'atendimento_internal',
+        variablesJson: JSON.stringify({
+          ...(input.variables || {}),
+          eventType: input.eventType,
+        }),
+        provider: 'INTERNAL',
+      },
+    });
+    await this.prisma.companyConversation.update({
+      where: { id: input.conversationId },
+      data: { lastInteractionAt: now, lastMessageAt: now },
+    });
+  }
+
+  private toAtendimentoButtonId(actionId: string) {
+    return `${ATENDIMENTO_BUTTON_ID_PREFIX}${String(actionId || '').trim()}`;
+  }
+
+  private fromAtendimentoButtonId(rawId: string) {
+    const normalized = String(rawId || '').trim().toLowerCase();
+    if (!normalized) return '';
+    if (normalized.startsWith(ATENDIMENTO_BUTTON_ID_PREFIX)) {
+      return normalized.slice(ATENDIMENTO_BUTTON_ID_PREFIX.length);
+    }
+    return normalized;
+  }
+
+  private getAtendimentoActionGuide(config: AtendimentoBotConfig, actionId: string) {
+    const normalized = String(actionId || '').trim().toLowerCase();
+    return (config.actionCatalog || []).find(
+      (action) => String(action.actionId || '').trim().toLowerCase() === normalized,
+    );
+  }
+
+  private buildAtendimentoActionAliasMap(
+    config: AtendimentoBotConfig,
+    agendaConfig: AtendimentoAgendaConfig,
+  ) {
+    const aliasMap: Record<string, string> = {
+      atendente: 'talk_human',
+      humano: 'talk_human',
+      menu: 'show_main_menu',
+      voltar: 'show_main_menu',
+      encerrar: 'close_topic',
+      debito: 'enter_recovery',
+    };
+
+    const mergeButtons = (buttons: AtendimentoBotButton[]) => {
+      for (const button of buttons || []) {
+        const label = this.normalizeActionLabel(button.title);
+        if (!label) continue;
+        aliasMap[label] = String(button.actionId || '').trim().toLowerCase();
+      }
+    };
+
+    mergeButtons(config.mainMenuButtons || []);
+    mergeButtons(config.recoveryDetectedButtons || []);
+    mergeButtons(config.postActionButtons || []);
+
+    for (const group of agendaConfig.groups || []) {
+      const label = this.normalizeActionLabel(group.buttonLabel || group.title);
+      if (!label) continue;
+      aliasMap[label] = buildAtendimentoAgendaActionId(group.id);
+    }
+
+    for (const action of config.actionCatalog || []) {
+      const label = this.normalizeActionLabel(String(action.title || ''));
+      if (label) aliasMap[label] = String(action.actionId || '').trim().toLowerCase();
+    }
+
+    return aliasMap;
+  }
+
+  private normalizeAtendimentoActionId(
+    rawActionId: string,
+    config: AtendimentoBotConfig,
+    rawPayload: any,
+    normalizedText: string,
+    agendaConfig: AtendimentoAgendaConfig,
+  ) {
+    const direct = this.fromAtendimentoButtonId(rawActionId);
+    if (direct) return direct;
+    const aliasMap = this.buildAtendimentoActionAliasMap(config, agendaConfig);
+    const normalizedPayloadText = this.normalizeActionLabel(extractInboundTextFromPayload(rawPayload));
+    if (normalizedPayloadText && aliasMap[normalizedPayloadText]) return aliasMap[normalizedPayloadText];
+    if (normalizedText && aliasMap[this.normalizeActionLabel(normalizedText)]) {
+      return aliasMap[this.normalizeActionLabel(normalizedText)];
+    }
+    return '';
+  }
+
+  private getAtendimentoButtonsInteractive(
+    body: string,
+    buttons: AtendimentoBotButton[],
+    footer?: string,
+  ) {
+    const normalizedButtons = (buttons || [])
+      .filter((button) => button?.actionId && button?.title)
+      .slice(0, 10);
+    if (normalizedButtons.length <= 3) {
+      return {
+        type: 'button',
+        body: { text: body },
+        footer: { text: String(footer || 'Atendimento') },
+        action: {
+          buttons: normalizedButtons.map((button) => ({
+            type: 'reply',
+            reply: { id: this.toAtendimentoButtonId(button.actionId), title: button.title },
+          })),
+        },
+      };
+    }
+    return {
+      type: 'list',
+      body: { text: body },
+      footer: { text: String(footer || 'Atendimento') },
+      action: {
+        button: 'Escolher opcao',
+        sections: [
+          {
+            title: 'Opcoes',
+            rows: normalizedButtons.map((button) => ({
+              id: this.toAtendimentoButtonId(button.actionId),
+              title: button.title,
+              description: '',
+            })),
+          },
+        ],
+      },
+    };
+  }
+
+  private async queueAtendimentoButtonPrompt(input: {
+    companyId: number;
+    to: string;
+    contactId: string;
+    conversationId: number;
+    body: string;
+    step: string;
+    buttons: AtendimentoBotButton[];
+    variables?: Record<string, unknown>;
+  }) {
+    await this.conversations.queueOutboundForCompany(input.companyId, {
+      to: input.to,
+      contactId: input.contactId,
+      body: input.body,
+      messageType: 'interactive',
+      interactivePayload: this.getAtendimentoButtonsInteractive(input.body, input.buttons),
+      sourceModule: 'atendimento_bot',
+      senderType: 'bot',
+      variables: input.variables || {},
+      flowState: {
+        currentFlow: ATENDIMENTO_FLOW_ID,
+        currentStep: input.step,
+        botActive: true,
+        humanAssigned: false,
+        flowResult: null,
+      },
+    });
+    await this.updateAtendimentoConversationState(
+      input.companyId,
+      input.conversationId,
+      {
+        currentFlow: ATENDIMENTO_FLOW_ID,
+        currentStep: input.step,
+        botActive: true,
+        humanAssigned: false,
+        flowResult: null,
+      },
+      input.variables || {},
+    );
+  }
+
+  private buildAtendimentoTemplateVars(input: {
+    companyName: string;
+    phone: string;
+    metadata?: Record<string, any>;
+    recoveryCustomer?: any;
+    agendaGroup?: AtendimentoAgendaGroup | null;
+    agendaPreview?: string;
+  }) {
+    const metadata = input.metadata || {};
+    const customerName = String(
+      metadata.cliente ||
+        metadata.customerName ||
+        metadata.name ||
+        input.recoveryCustomer?.clientName ||
+        input.recoveryCustomer?.name ||
+        input.phone,
+    ).trim();
+    return {
+      cliente: customerName || 'cliente',
+      empresa: String(input.companyName || 'HBX Solutions').trim() || 'HBX Solutions',
+      funcionario: String(metadata.funcionario || '').trim(),
+      valor_formatado: this.formatCurrencyBRL(Number(input.recoveryCustomer?.openAmount || 0)),
+      agenda_nome: String(input.agendaGroup?.title || '').trim(),
+      agenda_slots: String(input.agendaPreview || '').trim(),
+    };
+  }
+
+  private weekdayLabel(dayOfWeek: number) {
+    return ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sab'][Math.max(0, Math.min(6, dayOfWeek))] || 'Dia';
+  }
+
+  private buildAgendaPreview(group: AtendimentoAgendaGroup | null | undefined) {
+    const slots = (group?.slots || [])
+      .filter((slot) => slot.enabled)
+      .sort((left, right) => {
+        if (left.dayOfWeek !== right.dayOfWeek) return left.dayOfWeek - right.dayOfWeek;
+        return String(left.startTime || '').localeCompare(String(right.startTime || ''));
+      })
+      .slice(0, 6);
+    if (!slots.length) return '';
+    return slots
+      .map((slot) => `${this.weekdayLabel(Number(slot.dayOfWeek || 0))} ${slot.startTime}-${slot.endTime}`)
+      .join(' | ');
+  }
+
+  private renderAtendimentoAgendaMessage(
+    config: AtendimentoBotConfig,
+    group: AtendimentoAgendaGroup | null | undefined,
+    vars: Record<string, string>,
+  ) {
+    if (!group) return '';
+    const preview = this.buildAgendaPreview(group);
+    if (!preview) {
+      return renderTemplate(group.emptyMessage || 'Nenhum horario disponivel no momento.', vars);
+    }
+    return renderTemplate(group.introMessage || config.postActionPrompt, {
+      ...vars,
+      agenda_nome: group.title,
+      agenda_slots: preview,
+    }).concat(`\n\n${preview}`);
+  }
+
+  private async routeAtendimentoToHumanQueue(input: {
+    companyId: number;
+    conversationId: number;
+    from: string;
+    config: AtendimentoBotConfig;
+    metadata?: Record<string, any>;
+    reason: string;
+  }) {
+    const mergedMetadata = this.clearAtendimentoBlockedMetadata(input.metadata || {});
+    await this.conversations.queueOutboundForCompany(input.companyId, {
+      to: input.from,
+      contactId: input.from,
+      body: input.config.humanAckMessage,
+      messageType: 'text',
+      sourceModule: 'atendimento_human',
+      senderType: 'system',
+      flowState: {
+        currentFlow: ATENDIMENTO_FLOW_ID,
+        currentStep: ATENDIMENTO_STEP.HUMAN,
+        botActive: false,
+        humanAssigned: true,
+        flowResult: null,
+        metadata: mergedMetadata,
+      },
+    });
+    await this.appendAtendimentoSystemEvent({
+      companyId: input.companyId,
+      conversationId: input.conversationId,
+      contactId: input.from,
+      text: `Conversa encaminhada para atendimento humano (${input.reason}).`,
+      eventType: 'atendimento_human_handoff',
+      sourceModule: 'atendimento_human',
+      variables: { reason: input.reason },
+    });
+  }
+
+  private async startRecoveryFromAtendimento(input: {
+    companyId: number;
+    conversationId: number;
+    from: string;
+    customer: any;
+    metadata?: Record<string, any>;
+  }) {
+    await this.queueRecoveryInteractiveMenu(
+      input.companyId,
+      input.from,
+      String(input.customer.id),
+      input.customer,
+    );
+    await this.updateRecoveryConversationState(
+      input.companyId,
+      input.conversationId,
+      {
+        currentFlow: RECOVERY_FLOW_ID,
+        currentStep: RECOVERY_STEP.MAIN_MENU,
+        botActive: true,
+        humanAssigned: false,
+        flowResult: null,
+      },
+      {
+        ...this.clearAtendimentoBlockedMetadata(input.metadata || {}),
+        atendimentoRecoveryIntroPending: false,
+        recoveryCustomerId: String(input.customer.id),
+      },
+    );
+    await this.appendRecoverySystemEvent({
+      companyId: input.companyId,
+      conversationId: input.conversationId,
+      contactId: String(input.customer.id),
+      text: 'Cliente direcionado do Atendimento para o menu do HBX Recovery.',
+      eventType: 'recovery_started_from_atendimento',
+      sourceModule: 'atendimento_router',
+    });
+  }
+
+  private getRecoveryBlockedState(metadata: Record<string, any>) {
+    const blockedAt = String(metadata?.recoveryBlockedAt || '').trim() || null;
+    const blockedReason = String(metadata?.recoveryBlockedReason || '').trim() || null;
+    return {
+      isBlocked: Boolean(blockedAt),
+      blockedAt,
+      blockedReason,
+    };
+  }
+
   private async updateRecoveryConversationState(
     companyId: number,
     conversationId: number,
@@ -671,6 +1142,64 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     });
   }
 
+  private async resolveCompanyForIncomingNumber(
+    phoneNumberIdRaw?: string | null,
+    displayPhoneRaw?: string | null,
+  ) {
+    const phoneNumberId = String(phoneNumberIdRaw || '').trim();
+    const displayPhone = normalizeWhatsAppPhone(displayPhoneRaw);
+    const displayDigits = this.normalizeDigits(displayPhoneRaw || displayPhone);
+    const endpointDelegate = (this.prisma as any).companyWhatsAppEndpoint;
+    const companyInclude = {
+      whatsappEndpoints: {
+        orderBy: [{ sortOrder: 'asc' as const }, { createdAt: 'asc' as const }],
+      },
+    };
+    const displayWhere: any[] = [];
+    if (displayPhone) {
+      displayWhere.push({ whatsappDisplayNumber: displayPhone }, { whatsappNumber: displayPhone });
+    }
+    if (displayDigits) {
+      displayWhere.push(
+        { whatsappDisplayNumber: { endsWith: displayDigits } },
+        { whatsappNumber: { endsWith: displayDigits } },
+      );
+    }
+
+    let endpoint = null as any;
+    if (phoneNumberId && endpointDelegate?.findFirst) {
+      endpoint = await endpointDelegate.findFirst({
+        where: { whatsappPhoneNumberId: phoneNumberId },
+        include: { company: { include: companyInclude } },
+      });
+    }
+    if (!endpoint && displayWhere.length > 0 && endpointDelegate?.findFirst) {
+      endpoint = await endpointDelegate.findFirst({
+        where: { OR: displayWhere },
+        include: { company: { include: companyInclude } },
+      });
+    }
+    if (endpoint?.company) {
+      return { company: endpoint.company, endpoint };
+    }
+
+    let company = null as any;
+    if (phoneNumberId) {
+      company = await this.prisma.company.findFirst({
+        where: { whatsappPhoneNumberId: phoneNumberId },
+        include: companyInclude,
+      });
+    }
+    if (!company && displayWhere.length > 0) {
+      company = await this.prisma.company.findFirst({
+        where: { OR: displayWhere },
+        include: companyInclude,
+      });
+    }
+
+    return { company, endpoint: null };
+  }
+
   private async queueRecoveryInteractiveMenu(companyId: number, to: string, contactId: string, customer?: any) {
     const config = await this.getRecoveryBotConfig(companyId);
     const targetCustomer =
@@ -736,13 +1265,19 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     const company = await this.prisma.company.findUnique({ where: { id: companyId } });
     const accessToken = String(company?.mercadoPagoAccessToken || '').trim();
     if (!company || !accessToken) {
-      await this.conversations.queueOutboundForCompany(companyId, {
-        to: customer.whatsappNumber,
-        contactId: customer.id,
-        body: 'Nao foi possivel gerar o link agora. Vou encaminhar para atendimento humano.',
-        messageType: 'text',
-        sourceModule: 'hbx_recovery_human',
-      });
+      if (this.shouldSendRecoveryHumanAck(company)) {
+        await this.conversations.queueOutboundForCompany(companyId, {
+          to: customer.whatsappNumber,
+          contactId: customer.id,
+          body: 'Nao foi possivel gerar o link agora. Vou encaminhar para atendimento humano.',
+          messageType: 'text',
+          sourceModule: 'hbx_recovery_human',
+        });
+      } else {
+        this.logger.warn(
+          `Recovery payment fallback ack suprimido fora do horario para customerId=${customer.id}`,
+        );
+      }
       return { ok: false };
     }
 
@@ -988,21 +1523,31 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
       where: { id: input.customerId },
       data: { lastContact: `Tratativa humana (${input.reason}) em ${new Date().toLocaleString('pt-BR')}` },
     });
-    await this.conversations.queueOutboundForCompany(input.companyId, {
-      to: input.from,
-      contactId: input.customerId,
-      body: config.humanAckMessage,
-      messageType: 'text',
-      sourceModule: 'hbx_recovery_human',
-      senderType: 'system',
-      flowState: {
-        currentFlow: RECOVERY_FLOW_ID,
-        currentStep: RECOVERY_STEP.HUMAN,
-        botActive: false,
-        humanAssigned: true,
-      },
-      variables: { motivo_fila_humana: input.reason },
+    const company = await this.prisma.company.findUnique({
+      where: { id: input.companyId },
+      select: { timezone: true },
     });
+    if (this.shouldSendRecoveryHumanAck(company)) {
+      await this.conversations.queueOutboundForCompany(input.companyId, {
+        to: input.from,
+        contactId: input.customerId,
+        body: config.humanAckMessage,
+        messageType: 'text',
+        sourceModule: 'hbx_recovery_human',
+        senderType: 'system',
+        flowState: {
+          currentFlow: RECOVERY_FLOW_ID,
+          currentStep: RECOVERY_STEP.HUMAN,
+          botActive: false,
+          humanAssigned: true,
+        },
+        variables: { motivo_fila_humana: input.reason },
+      });
+    } else {
+      this.logger.warn(
+        `Recovery human ack suprimido fora do horario para customerId=${input.customerId} reason=${input.reason}`,
+      );
+    }
     if (input.conversationId) {
       await this.updateRecoveryConversationState(
         input.companyId,
@@ -1044,10 +1589,18 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     const conversation = safeConversationId
       ? await this.prisma.companyConversation.findFirst({
           where: { id: safeConversationId, companyId, channel: 'whatsapp' },
-          select: { id: true, metadata: true, currentStep: true, botActive: true, humanAssigned: true },
+          select: {
+            id: true,
+            metadata: true,
+            currentStep: true,
+            flowResult: true,
+            botActive: true,
+            humanAssigned: true,
+          },
         })
       : null;
     const flowMeta = this.parseConversationMetadata(conversation?.metadata);
+    const blockedState = this.getRecoveryBlockedState(flowMeta);
 
     const setInboundMeta = async (sourceModule: string, isComplaint: boolean) => {
       await this.prisma.companyMessage.update({
@@ -1059,7 +1612,64 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     const customerName = customer.clientName || customer.name;
     const inboundMessageType = normalizeWhatsAppMessageType(rawPayload?.type);
 
-    if (conversation?.humanAssigned || conversation?.botActive === false) {
+    if (blockedState.isBlocked) {
+      await setInboundMeta('hbx_recovery_blocked', false);
+      await this.logWhatsAppEvent({
+        companyId,
+        scope: 'recovery',
+        event: 'blocked_recovery_inbound',
+        message: 'Mensagem inbound recebida em conversa bloqueada do HBX Recovery.',
+        customerId: customer.id,
+        conversationId: safeConversationId,
+        phone: from,
+        messageType: inboundMessageType,
+        flowStep: conversation?.currentStep || RECOVERY_STEP.CLOSED,
+        result: 'ignored',
+      });
+      return { handled: true, blocked: true };
+    }
+
+    let conversationState = conversation;
+    const isClosedConversation =
+      ['encerrado', 'manual_closed', 'encerrado_operador', 'paid_manual'].includes(
+        String(conversation?.flowResult || '').trim().toLowerCase(),
+      ) || String(conversation?.currentStep || '').trim().toLowerCase() === RECOVERY_STEP.CLOSED;
+
+    if (conversation?.id && isClosedConversation) {
+      await this.updateRecoveryConversationState(
+        companyId,
+        safeConversationId,
+        {
+          currentStep: RECOVERY_STEP.HUMAN,
+          flowResult: null,
+          botActive: false,
+          humanAssigned: true,
+          assignedUserId: null,
+        },
+        {
+          recoveryBlockedAt: null,
+          recoveryBlockedByUserId: null,
+          recoveryBlockedReason: null,
+        },
+      );
+      await this.appendRecoverySystemEvent({
+        companyId,
+        conversationId: safeConversationId,
+        contactId: customer.id,
+        text: 'Cliente enviou nova mensagem e a conversa foi reaberta automaticamente.',
+        eventType: 'interaction_reopened_auto',
+        sourceModule: 'hbx_recovery_human',
+      });
+      conversationState = {
+        ...conversation,
+        currentStep: RECOVERY_STEP.HUMAN,
+        flowResult: null,
+        botActive: false,
+        humanAssigned: true,
+      } as typeof conversation;
+    }
+
+    if (conversationState?.humanAssigned || conversationState?.botActive === false) {
       await setInboundMeta('hbx_recovery_human', Boolean(normalizedText));
       await this.logWhatsAppEvent({
         companyId,
@@ -1070,7 +1680,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
         conversationId: safeConversationId,
         phone: from,
         messageType: inboundMessageType,
-        flowStep: conversation?.currentStep || RECOVERY_STEP.HUMAN,
+        flowStep: conversationState?.currentStep || RECOVERY_STEP.HUMAN,
         result: 'received',
       });
       return { handled: true, humanMode: true };
@@ -1363,20 +1973,30 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
 
     if (interactiveId === 'paid_claim') {
       await setInboundMeta('hbx_recovery_human', true);
-      await this.conversations.queueOutboundForCompany(companyId, {
-        to: from,
-        contactId: customer.id,
-        body: config.paidClaimMessage,
-        messageType: 'text',
-        sourceModule: 'hbx_recovery_human',
-        senderType: 'system',
-        flowState: {
-          currentFlow: RECOVERY_FLOW_ID,
-          currentStep: RECOVERY_STEP.HUMAN,
-          botActive: false,
-          humanAssigned: true,
-        },
+      const company = await this.prisma.company.findUnique({
+        where: { id: companyId },
+        select: { timezone: true },
       });
+      if (this.shouldSendRecoveryHumanAck(company)) {
+        await this.conversations.queueOutboundForCompany(companyId, {
+          to: from,
+          contactId: customer.id,
+          body: config.paidClaimMessage,
+          messageType: 'text',
+          sourceModule: 'hbx_recovery_human',
+          senderType: 'system',
+          flowState: {
+            currentFlow: RECOVERY_FLOW_ID,
+            currentStep: RECOVERY_STEP.HUMAN,
+            botActive: false,
+            humanAssigned: true,
+          },
+        });
+      } else {
+        this.logger.warn(
+          `Recovery paid-claim ack suprimido fora do horario para customerId=${customer.id}`,
+        );
+      }
       await this.appendRecoverySystemEvent({
         companyId,
         conversationId: safeConversationId,
@@ -1413,6 +2033,420 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
       return { handled: true };
     }
 
+    await queueMainMenu();
+    return { handled: true };
+  }
+
+  private async handleAtendimentoInbound(input: {
+    companyId: number;
+    from: string;
+    text: string;
+    conversationId: number;
+    inboundMessageId: number;
+    company: { id: number; name: string; timezone?: string | null };
+    recoveryCustomer?: any | null;
+    rawPayload?: any;
+  }) {
+    const { companyId, from, text, conversationId, inboundMessageId, company, recoveryCustomer, rawPayload } = input;
+    const config = await this.getAtendimentoBotConfig(companyId);
+    const agendaConfig = await this.getAtendimentoAgendaConfig(companyId);
+    const normalizedText = String(text || '').trim().toLowerCase();
+    const rawActionId = this.extractInteractiveReplyId(rawPayload);
+    const safeConversationId = Number(conversationId || 0);
+
+    const conversation = safeConversationId
+      ? await this.prisma.companyConversation.findFirst({
+          where: { id: safeConversationId, companyId, channel: 'whatsapp' },
+          select: {
+            id: true,
+            metadata: true,
+            currentFlow: true,
+            currentStep: true,
+            flowResult: true,
+            botActive: true,
+            humanAssigned: true,
+          },
+        })
+      : null;
+
+    const metadata = this.parseConversationMetadata(conversation?.metadata);
+    const blockedState = this.getAtendimentoBlockedState(metadata);
+    const isClosedConversation =
+      ['manual_closed', 'encerrado_operador'].includes(
+        String(conversation?.flowResult || '').trim().toLowerCase(),
+      ) || String(conversation?.currentStep || '').trim().toLowerCase() === ATENDIMENTO_STEP.CLOSED;
+    const isRecoveryConversation =
+      String(conversation?.currentFlow || '').trim().toLowerCase().includes('recovery') ||
+      String(conversation?.currentStep || '').trim().toLowerCase().includes('cobranca');
+    const actionId = this.normalizeAtendimentoActionId(
+      rawActionId,
+      config,
+      rawPayload,
+      normalizedText,
+      agendaConfig,
+    );
+    const actionGuide = this.getAtendimentoActionGuide(config, actionId);
+    const messageCount = safeConversationId
+      ? await this.prisma.companyMessage.count({
+          where: { companyId, conversationId: safeConversationId },
+        })
+      : 0;
+    const hasHistory = messageCount > 1;
+    const setInboundMeta = async (sourceModule: string, isComplaint: boolean) => {
+      await this.prisma.companyMessage.update({
+        where: { id: inboundMessageId },
+        data: { sourceModule, isComplaint },
+      });
+    };
+
+    if (blockedState.isBlocked) {
+      await setInboundMeta('atendimento_blocked', false);
+      await this.logWhatsAppEvent({
+        companyId,
+        scope: 'atendimento',
+        event: 'blocked_atendimento_inbound',
+        message: 'Mensagem inbound recebida em conversa bloqueada do Atendimento.',
+        conversationId: safeConversationId,
+        phone: from,
+        messageType: normalizeWhatsAppMessageType(rawPayload?.type),
+        flowStep: conversation?.currentStep || ATENDIMENTO_STEP.CLOSED,
+        result: 'ignored',
+      });
+      return { handled: true, blocked: true };
+    }
+
+    if (isClosedConversation && config.routingRules.autoReopenClosedConversation && conversation?.id) {
+      await this.updateAtendimentoConversationState(
+        companyId,
+        safeConversationId,
+        {
+          currentFlow: ATENDIMENTO_FLOW_ID,
+          currentStep: ATENDIMENTO_STEP.WELCOME,
+          flowResult: null,
+          botActive: true,
+          humanAssigned: false,
+        },
+        this.clearAtendimentoBlockedMetadata(metadata),
+      );
+      await this.appendAtendimentoSystemEvent({
+        companyId,
+        conversationId: safeConversationId,
+        contactId: from,
+        text: 'Cliente voltou a falar e a conversa foi reaberta automaticamente.',
+        eventType: 'atendimento_reopened_auto',
+      });
+    }
+
+    if (recoveryCustomer && isRecoveryConversation) {
+      await this.handleRecoveryInbound({
+        companyId,
+        from,
+        text,
+        conversationId: safeConversationId,
+        inboundMessageId,
+        customer: recoveryCustomer,
+        rawPayload,
+      });
+      return { handled: true, delegatedToRecovery: true };
+    }
+
+    if (
+      recoveryCustomer &&
+      config.routingRules.checkRecoveryBeforeReply &&
+      config.routingRules.autoRouteDebtorsToRecovery
+    ) {
+      const recoveryVars = this.buildAtendimentoTemplateVars({
+        companyName: company.name,
+        phone: from,
+        metadata,
+        recoveryCustomer,
+      });
+
+      if (actionId === 'enter_recovery') {
+        await setInboundMeta('atendimento_router', false);
+        await this.startRecoveryFromAtendimento({
+          companyId,
+          conversationId: safeConversationId,
+          from,
+          customer: recoveryCustomer,
+          metadata,
+        });
+        return { handled: true, delegatedToRecovery: true };
+      }
+
+      if (actionId === 'talk_human') {
+        await setInboundMeta('hbx_recovery_human', true);
+        await this.routeRecoveryToHumanQueue({
+          companyId,
+          from,
+          customerId: String(recoveryCustomer.id),
+          inboundMessageId,
+          conversationId: safeConversationId,
+          reason: 'atendimento_recovery_gate_human',
+        });
+        return { handled: true, delegatedToRecovery: true };
+      }
+
+      if (actionId === 'close_topic') {
+        await setInboundMeta('atendimento_router', false);
+        await this.conversations.queueOutboundForCompany(companyId, {
+          to: from,
+          contactId: from,
+          body: renderTemplate(config.closeTopicMessage, recoveryVars),
+          messageType: 'text',
+          sourceModule: 'atendimento_router',
+          senderType: 'bot',
+          flowState: {
+            currentFlow: ATENDIMENTO_FLOW_ID,
+            currentStep: ATENDIMENTO_STEP.CLOSED,
+            flowResult: 'manual_closed',
+            botActive: false,
+            humanAssigned: false,
+          },
+        });
+        return { handled: true };
+      }
+
+      if (metadata.atendimentoRecoveryIntroPending) {
+        await this.handleRecoveryInbound({
+          companyId,
+          from,
+          text,
+          conversationId: safeConversationId,
+          inboundMessageId,
+          customer: recoveryCustomer,
+          rawPayload,
+        });
+        return { handled: true, delegatedToRecovery: true };
+      }
+
+      await setInboundMeta('atendimento_router', false);
+      await this.queueAtendimentoButtonPrompt({
+        companyId,
+        to: from,
+        contactId: from,
+        conversationId: safeConversationId,
+        body: renderTemplate(config.recoveryDetectedMessage, recoveryVars),
+        step: ATENDIMENTO_STEP.RECOVERY_GATE,
+        buttons: config.recoveryDetectedButtons,
+        variables: {
+          ...recoveryVars,
+          atendimentoRecoveryIntroPending: true,
+          recoveryCustomerId: String(recoveryCustomer.id),
+        },
+      });
+      await this.updateAtendimentoConversationState(
+        companyId,
+        safeConversationId,
+        {
+          currentFlow: ATENDIMENTO_FLOW_ID,
+          currentStep: ATENDIMENTO_STEP.RECOVERY_GATE,
+          botActive: true,
+          humanAssigned: false,
+          flowResult: null,
+        },
+        {
+          ...metadata,
+          atendimentoRecoveryIntroPending: true,
+          recoveryCustomerId: String(recoveryCustomer.id),
+        },
+      );
+      return { handled: true, recoveryGate: true };
+    }
+
+    if (conversation?.humanAssigned || conversation?.botActive === false) {
+      await setInboundMeta('atendimento_human', Boolean(normalizedText));
+      await this.logWhatsAppEvent({
+        companyId,
+        scope: 'atendimento',
+        event: 'human_mode_inbound',
+        message: 'Mensagem inbound persistida com atendimento humano ativo, sem automacao do bot.',
+        conversationId: safeConversationId,
+        phone: from,
+        messageType: normalizeWhatsAppMessageType(rawPayload?.type),
+        flowStep: conversation?.currentStep || ATENDIMENTO_STEP.HUMAN,
+        result: 'received',
+      });
+      return { handled: true, humanMode: true };
+    }
+
+    const vars = this.buildAtendimentoTemplateVars({
+      companyName: company.name,
+      phone: from,
+      metadata,
+      recoveryCustomer: null,
+    });
+
+    const queueMainMenu = async () => {
+      await this.queueAtendimentoButtonPrompt({
+        companyId,
+        to: from,
+        contactId: from,
+        conversationId: safeConversationId,
+        body: renderTemplate(config.mainMenuPrompt, vars),
+        step: ATENDIMENTO_STEP.MAIN_MENU,
+        buttons: config.mainMenuButtons,
+        variables: vars,
+      });
+    };
+
+    if (actionId === 'show_main_menu') {
+      await setInboundMeta('atendimento_bot', false);
+      await queueMainMenu();
+      return { handled: true };
+    }
+
+    if (actionId === 'talk_human' || actionGuide?.kind === 'human_handoff') {
+      await setInboundMeta('atendimento_human', true);
+      await this.routeAtendimentoToHumanQueue({
+        companyId,
+        conversationId: safeConversationId,
+        from,
+        config,
+        metadata,
+        reason: actionGuide?.title || actionId || 'pedido_humano',
+      });
+      return { handled: true };
+    }
+
+    if (actionId === 'close_topic' || actionGuide?.kind === 'close') {
+      await setInboundMeta('atendimento_bot', false);
+      await this.conversations.queueOutboundForCompany(companyId, {
+        to: from,
+        contactId: from,
+        body: renderTemplate(config.closeTopicMessage, vars),
+        messageType: 'text',
+        sourceModule: 'atendimento_bot',
+        senderType: 'bot',
+        flowState: {
+          currentFlow: ATENDIMENTO_FLOW_ID,
+          currentStep: ATENDIMENTO_STEP.CLOSED,
+          flowResult: 'manual_closed',
+          botActive: false,
+          humanAssigned: false,
+        },
+      });
+      return { handled: true };
+    }
+
+    const agendaGroupId = parseAtendimentoAgendaActionId(actionId);
+    if (agendaGroupId || actionGuide?.kind === 'agenda') {
+      const targetGroup =
+        (agendaConfig.groups || []).find((group) => group.id === (actionGuide?.agendaGroupId || agendaGroupId)) ||
+        null;
+      const agendaPreview = this.buildAgendaPreview(targetGroup);
+      const agendaVars = this.buildAtendimentoTemplateVars({
+        companyName: company.name,
+        phone: from,
+        metadata,
+        agendaGroup: targetGroup,
+        agendaPreview,
+      });
+      await setInboundMeta('atendimento_bot', false);
+      await this.conversations.queueOutboundForCompany(companyId, {
+        to: from,
+        contactId: from,
+        body: this.renderAtendimentoAgendaMessage(config, targetGroup, agendaVars),
+        messageType: 'text',
+        sourceModule: 'atendimento_bot',
+        senderType: 'bot',
+        variables: agendaVars,
+        flowState: {
+          currentFlow: ATENDIMENTO_FLOW_ID,
+          currentStep: ATENDIMENTO_STEP.AGENDA,
+          botActive: true,
+          humanAssigned: false,
+          flowResult: null,
+        },
+      });
+      if ((config.postActionButtons || []).length) {
+        await this.queueAtendimentoButtonPrompt({
+          companyId,
+          to: from,
+          contactId: from,
+          conversationId: safeConversationId,
+          body: renderTemplate(config.postActionPrompt, agendaVars),
+          step: ATENDIMENTO_STEP.AGENDA,
+          buttons: config.postActionButtons,
+          variables: agendaVars,
+        });
+      }
+      return { handled: true };
+    }
+
+    if (actionGuide?.enabled && actionGuide.kind === 'recovery_handoff' && recoveryCustomer) {
+      await setInboundMeta('atendimento_router', false);
+      await this.startRecoveryFromAtendimento({
+        companyId,
+        conversationId: safeConversationId,
+        from,
+        customer: recoveryCustomer,
+        metadata,
+      });
+      return { handled: true, delegatedToRecovery: true };
+    }
+
+    if (actionGuide?.enabled && actionGuide.kind === 'reply') {
+      await setInboundMeta('atendimento_bot', false);
+      const reply =
+        String(actionGuide.responseMessage || '').trim() ||
+        String(actionGuide.description || '').trim() ||
+        `Recebi sua solicitacao sobre ${actionGuide.title}.`;
+      await this.conversations.queueOutboundForCompany(companyId, {
+        to: from,
+        contactId: from,
+        body: renderTemplate(reply, vars),
+        messageType: 'text',
+        sourceModule: 'atendimento_bot',
+        senderType: 'bot',
+        variables: vars,
+        flowState: {
+          currentFlow: ATENDIMENTO_FLOW_ID,
+          currentStep: ATENDIMENTO_STEP.MAIN_MENU,
+          botActive: true,
+          humanAssigned: false,
+          flowResult: null,
+        },
+      });
+      if ((config.postActionButtons || []).length) {
+        await this.queueAtendimentoButtonPrompt({
+          companyId,
+          to: from,
+          contactId: from,
+          conversationId: safeConversationId,
+          body: renderTemplate(config.postActionPrompt, vars),
+          step: ATENDIMENTO_STEP.MAIN_MENU,
+          buttons: config.postActionButtons,
+          variables: vars,
+        });
+      }
+      return { handled: true };
+    }
+
+    if (actionGuide?.enabled && actionGuide.kind === 'show_menu') {
+      await setInboundMeta('atendimento_bot', false);
+      await queueMainMenu();
+      return { handled: true };
+    }
+
+    await setInboundMeta('atendimento_bot', Boolean(normalizedText));
+    const greetingMessage = hasHistory ? config.returningCustomerMessage : config.welcomeMessage;
+    await this.conversations.queueOutboundForCompany(companyId, {
+      to: from,
+      contactId: from,
+      body: renderTemplate(greetingMessage, vars),
+      messageType: 'text',
+      sourceModule: 'atendimento_bot',
+      senderType: 'bot',
+      variables: vars,
+      flowState: {
+        currentFlow: ATENDIMENTO_FLOW_ID,
+        currentStep: ATENDIMENTO_STEP.WELCOME,
+        botActive: true,
+        humanAssigned: false,
+        flowResult: null,
+      },
+    });
     await queueMainMenu();
     return { handled: true };
   }
@@ -1487,7 +2521,18 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
 
     await this.prisma.companyMessage.updateMany({ where: { outboundMessageId: messageId }, data: { status: 'SENDING' } });
 
-    const msg = await this.prisma.outboundMessage.findUnique({ where: { id: messageId }, include: { company: true } });
+    const msg = await this.prisma.outboundMessage.findUnique({
+      where: { id: messageId },
+      include: {
+        company: {
+          include: {
+            whatsappEndpoints: {
+              orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+            },
+          },
+        },
+      },
+    });
     if (!msg) return;
 
     const attemptNo = msg.attemptCount + 1;
@@ -1518,7 +2563,10 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
         return;
       }
 
-      const creds = resolveWhatsAppCredentials(msg.company);
+      const creds = resolveWhatsAppCredentials(msg.company, {
+        endpointId: String((msg as any).whatsappEndpointId || '').trim() || undefined,
+        sourceModule: String(msg.sourceModule || '').trim().toLowerCase() || undefined,
+      });
       if (!creds.phoneNumberId || !creds.accessToken) {
         throw new Error('WHATSAPP_COMPANY_CREDENTIALS_MISSING');
       }
@@ -1759,11 +2807,12 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
         const phoneNumberId = metadata?.phone_number_id ? String(metadata.phone_number_id) : '';
         const displayPhone = metadata?.display_phone_number ? String(metadata.display_phone_number) : '';
 
-        const company = phoneNumberId
-          ? await this.prisma.company.findFirst({ where: { whatsappPhoneNumberId: phoneNumberId } })
-          : displayPhone
-            ? await this.prisma.company.findFirst({ where: { whatsappNumber: displayPhone } })
-            : null;
+        const resolvedInboundTarget = await this.resolveCompanyForIncomingNumber(
+          phoneNumberId,
+          displayPhone,
+        );
+        const company = resolvedInboundTarget.company;
+        const inboundEndpoint = resolvedInboundTarget.endpoint;
 
         // Delivery statuses
         const statuses = Array.isArray(value?.statuses) ? value.statuses : [];
@@ -1843,7 +2892,13 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
               phone: displayPhone,
               messageType: 'status',
               result: status || 'received',
-              extra: { providerMessageId, phoneNumberId, displayPhone },
+              extra: {
+                providerMessageId,
+                phoneNumberId,
+                displayPhone,
+                whatsappEndpointId: inboundEndpoint?.id || null,
+                endpointModuleKey: inboundEndpoint?.moduleKey || null,
+              },
             });
           }
 
@@ -1896,6 +2951,18 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
             rawPayload: m,
             externalMessageId: providerMessageId || null,
             timestamp: receivedAt,
+            receivedOnEndpointId: inboundEndpoint?.id || null,
+            receivedOnPhoneNumberId:
+              phoneNumberId ||
+              String(inboundEndpoint?.whatsappPhoneNumberId || '').trim() ||
+              null,
+            receivedOnDisplayNumber:
+              displayPhone ||
+              String(inboundEndpoint?.whatsappDisplayNumber || '').trim() ||
+              String(inboundEndpoint?.whatsappNumber || '').trim() ||
+              null,
+            receivedOnModuleKey: String(inboundEndpoint?.moduleKey || '').trim().toLowerCase() || null,
+            receivedOnEndpointLabel: String(inboundEndpoint?.label || '').trim() || null,
           });
           messagesHandled++;
         }
@@ -1981,7 +3048,9 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
       return { ok: false };
     }
 
-    const company = await this.prisma.company.findFirst({ where: { whatsappPhoneNumberId: phoneNumberId } });
+    const resolvedInboundTarget = await this.resolveCompanyForIncomingNumber(phoneNumberId, null);
+    const company = resolvedInboundTarget.company;
+    const inboundEndpoint = resolvedInboundTarget.endpoint;
     if (!company) {
       this.logger.warn(`Inbound proxy ignored (unmapped company). phone_number_id=${phoneNumberId}`);
       return { ok: true, discarded: true };
@@ -2000,6 +3069,15 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
       rawPayload: dto.rawPayload,
       externalMessageId: null,
       timestamp: receivedAt || new Date(),
+      receivedOnEndpointId: inboundEndpoint?.id || null,
+      receivedOnPhoneNumberId:
+        phoneNumberId || String(inboundEndpoint?.whatsappPhoneNumberId || '').trim() || null,
+      receivedOnDisplayNumber:
+        String(inboundEndpoint?.whatsappDisplayNumber || '').trim() ||
+        String(inboundEndpoint?.whatsappNumber || '').trim() ||
+        null,
+      receivedOnModuleKey: String(inboundEndpoint?.moduleKey || '').trim().toLowerCase() || null,
+      receivedOnEndpointLabel: String(inboundEndpoint?.label || '').trim() || null,
     });
     return { ok: true };
   }
@@ -2023,22 +3101,71 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
       senderType: 'client',
       sourceModule: 'whatsapp_webhook',
     });
+    const inboundConversationId = Number(inboundRow?.conversationId || 0);
+    if (inboundConversationId > 0) {
+      const conversation = await this.prisma.companyConversation.findUnique({
+        where: { id: inboundConversationId },
+        select: { metadata: true },
+      });
+      const metadata = this.parseConversationMetadata(conversation?.metadata);
+      await this.prisma.companyConversation.update({
+        where: { id: inboundConversationId },
+        data: {
+          metadata: JSON.stringify({
+            ...metadata,
+            whatsappEntryEndpointId: String(input.receivedOnEndpointId || '').trim() || null,
+            whatsappEntryPhoneNumberId: String(input.receivedOnPhoneNumberId || '').trim() || null,
+            whatsappEntryDisplayNumber: String(input.receivedOnDisplayNumber || '').trim() || null,
+            whatsappEntryModuleKey: String(input.receivedOnModuleKey || '').trim().toLowerCase() || null,
+            whatsappEntryEndpointLabel: String(input.receivedOnEndpointLabel || '').trim() || null,
+            whatsappLastInboundAt: input.timestamp.toISOString(),
+          }),
+        },
+      });
+    }
     await this.logWhatsAppEvent({
       companyId,
       scope: 'webhook',
       event: 'inbound_persisted',
       message: `Mensagem inbound ${inboundType} persistida`,
-      conversationId: Number(inboundRow?.conversationId || 0) || null,
+      conversationId: inboundConversationId || null,
       phone: from,
       messageType: inboundType,
       result: 'received',
       extra: {
         providerMessageId: input.externalMessageId,
         companyMessageId: inboundRow?.id || null,
+        whatsappEndpointId: String(input.receivedOnEndpointId || '').trim() || null,
+        receivedOnModuleKey: String(input.receivedOnModuleKey || '').trim().toLowerCase() || null,
+        receivedOnDisplayNumber: String(input.receivedOnDisplayNumber || '').trim() || null,
       },
     });
 
     const recoveryCustomer = await this.findRecoveryCustomerByPhone(companyId, from);
+    if (['text', 'button', 'interactive', 'image', 'document', 'audio'].includes(inboundType)) {
+      const atendimentoResult = await this.handleAtendimentoInbound({
+        companyId,
+        from,
+        text,
+        conversationId: inboundConversationId,
+        inboundMessageId: Number(inboundRow?.id || 0),
+        company: {
+          id: company.id,
+          name: String(company.name || 'HBX Solutions'),
+          timezone: company.timezone,
+        },
+        recoveryCustomer,
+        rawPayload: input.rawPayload,
+      });
+      if (atendimentoResult?.handled) {
+        return {
+          matched: true,
+          source: atendimentoResult.delegatedToRecovery ? 'hbx_recovery' : 'atendimento',
+          customerId: recoveryCustomer?.id || null,
+        };
+      }
+    }
+
     if (recoveryCustomer && ['text', 'button', 'interactive', 'image', 'document', 'audio'].includes(inboundType)) {
       await this.handleRecoveryInbound({
         companyId,

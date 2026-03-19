@@ -401,6 +401,9 @@ export class ModulesService implements OnModuleInit {
           include: { systemModule: true },
           orderBy: { systemModule: { name: 'asc' } },
         },
+        whatsappEndpoints: {
+          orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+        },
       },
       orderBy: { id: 'asc' },
     });
@@ -435,6 +438,25 @@ export class ModulesService implements OnModuleInit {
         whatsappStatusUpdatedAt: company.whatsappStatusUpdatedAt || null,
         accessTokenConfigured: Boolean(company.whatsappAccessToken),
         accessTokenPreview: company.whatsappAccessToken || null,
+        whatsappEndpoints: (company.whatsappEndpoints || []).map((endpoint) => ({
+          id: endpoint.id,
+          label: endpoint.label || null,
+          moduleKey: endpoint.moduleKey || null,
+          whatsappNumber: endpoint.whatsappNumber || null,
+          whatsappPhoneNumberId: endpoint.whatsappPhoneNumberId || null,
+          whatsappWabaId: endpoint.whatsappWabaId || null,
+          whatsappDisplayNumber: endpoint.whatsappDisplayNumber || null,
+          whatsappStatus: endpoint.whatsappStatus || null,
+          whatsappStatusError: endpoint.whatsappStatusError || null,
+          whatsappStatusUpdatedAt: endpoint.whatsappStatusUpdatedAt || null,
+          accessTokenConfigured: Boolean(endpoint.whatsappAccessToken),
+          accessTokenPreview: endpoint.whatsappAccessToken
+            ? `***${String(endpoint.whatsappAccessToken).slice(-6)}`
+            : null,
+          isActive: endpoint.isActive !== false,
+          isPrimary: Boolean(endpoint.isPrimary),
+          sortOrder: Number(endpoint.sortOrder || 0),
+        })),
         mercadoPagoStatus: company.mercadoPagoStatus || null,
         mercadoPagoStatusError: company.mercadoPagoStatusError || null,
         mercadoPagoStatusUpdatedAt: company.mercadoPagoStatusUpdatedAt || null,

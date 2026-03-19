@@ -44,6 +44,11 @@ export type WhatsAppInboundNormalized = {
   rawPayload: unknown;
   externalMessageId: string | null;
   timestamp: Date;
+  receivedOnEndpointId?: string | null;
+  receivedOnPhoneNumberId?: string | null;
+  receivedOnDisplayNumber?: string | null;
+  receivedOnModuleKey?: string | null;
+  receivedOnEndpointLabel?: string | null;
 };
 
 export type WhatsAppOutboundNormalized = {

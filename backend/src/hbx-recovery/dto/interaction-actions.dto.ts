@@ -20,8 +20,8 @@ export class AssignHumanAgentDto {
 export class GenerateInteractionLinkDto {
   @IsOptional()
   @IsString()
-  @IsIn(['avista', 'parcelado'])
-  mode?: 'avista' | 'parcelado';
+  @IsIn(['avista', 'parcelado', 'credito'])
+  mode?: 'avista' | 'parcelado' | 'credito';
 
   @IsOptional()
   @IsInt()
@@ -46,6 +46,13 @@ export class CloseInteractionDto {
   @IsOptional()
   @IsString()
   result?: string;
+}
+
+export class BlockInteractionDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(240)
+  reason?: string;
 }
 
 export class AddInteractionNoteDto {

@@ -36,6 +36,7 @@ import {
 import {
   AddInteractionNoteDto,
   AssignHumanAgentDto,
+  BlockInteractionDto,
   CloseInteractionDto,
   GenerateInteractionLinkDto,
   MarkInteractionPaidDto,
@@ -71,27 +72,35 @@ export class HbxRecoveryController {
 
   @Get('meta-templates')
   listMetaTemplates(@Req() req: any, @Query() query: ListMetaTemplatesQueryDto) {
-    return this.recoveryService.listMetaTemplates(req.user, query?.refresh);
+    return this.recoveryService.listMetaTemplates(req.user, query?.refresh, {
+      moduleKey: 'hbx_recovery',
+    });
   }
 
   @Post('meta-templates/sync')
   syncMetaTemplates(@Req() req: any) {
-    return this.recoveryService.syncMetaTemplates(req.user);
+    return this.recoveryService.syncMetaTemplates(req.user, { moduleKey: 'hbx_recovery' });
   }
 
   @Patch('meta-templates/activation')
   setMetaTemplateActivation(@Req() req: any, @Body() dto: SetMetaTemplateActivationDto) {
-    return this.recoveryService.setMetaTemplateActivation(req.user, dto);
+    return this.recoveryService.setMetaTemplateActivation(req.user, dto, {
+      moduleKey: 'hbx_recovery',
+    });
   }
 
   @Post('meta-templates/create')
   createMetaTemplate(@Req() req: any, @Body() dto: CreateMetaTemplateDto) {
-    return this.recoveryService.createMetaTemplate(req.user, dto);
+    return this.recoveryService.createMetaTemplate(req.user, dto, {
+      moduleKey: 'hbx_recovery',
+    });
   }
 
   @Delete('meta-templates')
   deleteMetaTemplate(@Req() req: any, @Body() dto: DeleteMetaTemplateDto) {
-    return this.recoveryService.deleteMetaTemplate(req.user, dto);
+    return this.recoveryService.deleteMetaTemplate(req.user, dto, {
+      moduleKey: 'hbx_recovery',
+    });
   }
 
   @Post('meta-templates/upload-header-media')
@@ -106,7 +115,9 @@ export class HbxRecoveryController {
     @UploadedFile() file?: any,
     @Body() body?: { templateName?: string; language?: string },
   ) {
-    return this.recoveryService.uploadMetaTemplateHeaderMedia(req.user, file, body);
+    return this.recoveryService.uploadMetaTemplateHeaderMedia(req.user, file, body, {
+      moduleKey: 'hbx_recovery',
+    });
   }
 
   @Patch('bot-config')
@@ -288,6 +299,25 @@ export class HbxRecoveryController {
     @Body() dto: CloseInteractionDto,
   ) {
     return this.recoveryService.closeInteraction(req.user, Number(conversationId), dto?.result);
+  }
+
+  @Patch('interactions/:conversationId/reopen')
+  reopenInteraction(@Req() req: any, @Param('conversationId') conversationId: string) {
+    return this.recoveryService.reopenInteraction(req.user, Number(conversationId));
+  }
+
+  @Patch('interactions/:conversationId/block')
+  blockInteraction(
+    @Req() req: any,
+    @Param('conversationId') conversationId: string,
+    @Body() dto: BlockInteractionDto,
+  ) {
+    return this.recoveryService.blockInteraction(req.user, Number(conversationId), dto?.reason);
+  }
+
+  @Patch('interactions/:conversationId/unblock')
+  unblockInteraction(@Req() req: any, @Param('conversationId') conversationId: string) {
+    return this.recoveryService.unblockInteraction(req.user, Number(conversationId));
   }
 
   @Post('payments/:id/refund')

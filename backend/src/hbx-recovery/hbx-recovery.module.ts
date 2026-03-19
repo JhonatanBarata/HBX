@@ -12,5 +12,6 @@ import { HbxRecoveryWebhookController } from './hbx-recovery.webhook.controller'
   imports: [PrismaModule, ModulesAccessModule, MessagingModule, PaymentsModule],
   controllers: [HbxRecoveryController, HbxRecoveryWebhookController, HbxRecoveryPublicController],
   providers: [HbxRecoveryService],
+  exports: [HbxRecoveryService],
 })
 export class HbxRecoveryModule {}
