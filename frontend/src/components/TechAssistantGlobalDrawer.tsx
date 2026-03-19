@@ -62,6 +62,7 @@ function deriveModuleFromPath(pathname: string) {
 export default function TechAssistantGlobalDrawer({ isSystemMaster, masterContext }: Props) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
+  const [minimized, setMinimized] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [copyStatus, setCopyStatus] = useState<string | null>(null);
@@ -193,34 +194,33 @@ export default function TechAssistantGlobalDrawer({ isSystemMaster, masterContex
           borderRadius: "999px",
           boxShadow: "0 18px 45px rgba(15,23,42,0.24)",
         }}
-        onClick={() => setOpen(true)}
+        onClick={() => {
+          setOpen(true);
+          setMinimized(false);
+        }}
       >
         Assistente Tecnico
       </button>
 
       {open ? (
-        <div
+        <aside
+          className="panel"
           style={{
             position: "fixed",
-            inset: 0,
-            zIndex: 130,
-            background: "rgba(6, 19, 38, 0.42)",
-            backdropFilter: "blur(1.5px)",
-            display: "flex",
-            justifyContent: "flex-end",
+            right: "16px",
+            bottom: "74px",
+            zIndex: 131,
+            width: "min(440px, calc(100vw - 1rem))",
+            height: minimized ? "auto" : "min(72vh, 720px)",
+            borderRadius: "18px",
+            border: "1px solid var(--line)",
+            overflow: "hidden",
+            boxShadow: "0 24px 64px rgba(2, 12, 27, 0.32)",
+            display: "grid",
+            gridTemplateRows: minimized ? "auto" : "auto 1fr",
           }}
         >
-          <aside
-            className="panel"
-            style={{
-              width: "min(560px, 100vw)",
-              height: "100%",
-              borderRadius: 0,
-              borderLeft: "1px solid var(--line)",
-              overflowY: "auto",
-              padding: "16px",
-            }}
-          >
+          <div style={{ padding: "14px 14px 10px 14px", borderBottom: minimized ? "none" : "1px solid var(--line)" }}>
             <div className="flex items-start justify-between gap-3">
               <div>
                 <p className="text-xs uppercase tracking-[0.12em] text-muted">Assistente global</p>
@@ -232,10 +232,23 @@ export default function TechAssistantGlobalDrawer({ isSystemMaster, masterContex
                   Empresa ativa: {activeCompanyName || "MASTER puro"}
                 </p>
               </div>
-              <button type="button" className="btn btn-secondary btn-sm" onClick={() => setOpen(false)}>
-                Fechar
-              </button>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => setMinimized((value) => !value)}
+                >
+                  {minimized ? "Expandir" : "Minimizar"}
+                </button>
+                <button type="button" className="btn btn-secondary btn-sm" onClick={() => setOpen(false)}>
+                  Fechar
+                </button>
+              </div>
             </div>
+          </div>
+
+          {!minimized ? (
+            <div style={{ overflowY: "auto", padding: "12px 14px 14px 14px" }}>
 
             <div className="mt-4 grid gap-3">
               {error ? <div className="alert alert-error">{error}</div> : null}
@@ -427,8 +440,9 @@ export default function TechAssistantGlobalDrawer({ isSystemMaster, masterContex
                 </div>
               </section>
             ) : null}
-          </aside>
-        </div>
+            </div>
+          ) : null}
+        </aside>
       ) : null}
     </>
   );
