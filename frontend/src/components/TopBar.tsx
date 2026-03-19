@@ -937,33 +937,28 @@ export default function TopBar() {
             right: 16,
             zIndex: 160,
             display: "flex",
-            gap: 8,
+            gap: 6,
             alignItems: "center",
             pointerEvents: "auto",
           }}
           aria-hidden={false}
         >
           <button type="button" className="btn btn-secondary btn-sm" onClick={openMasterContextModal}>
-            Entrar na empresa
+            Login
           </button>
 
           {user.masterContext?.active ? (
-            <>
-              <span className="badge badge-danger">
-                MASTER no contexto de {user.masterContext.companyName || `Empresa ${user.masterContext.companyId}`}
-              </span>
-              <button
-                type="button"
-                className="btn btn-secondary btn-sm"
-                onClick={exitMasterContext}
-                disabled={masterContextActionBusy}
-              >
-                Sair do contexto
-              </button>
-            </>
-          ) : (
-            <span className="badge badge-success">MASTER puro</span>
-          )}
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              onClick={exitMasterContext}
+              disabled={masterContextActionBusy}
+              style={{ marginLeft: 4 }}
+            >
+              Logout
+            </button>
+          ) : null}
+
           {masterContextMessage ? <span className="text-xs text-muted">{masterContextMessage}</span> : null}
         </div>
       ) : null}
