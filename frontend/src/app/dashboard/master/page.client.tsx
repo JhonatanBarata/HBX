@@ -1170,6 +1170,9 @@ export default function MasterClientPage() {
           <button type="button" onClick={() => load({ background: true })} className="btn btn-primary btn-sm">
             {refreshing ? "Atualizando..." : "Atualizar"}
           </button>
+          <Link href="/dashboard/master/assistente-tecnico" className="btn btn-secondary btn-sm">
+            Assistente Técnico HBX
+          </Link>
           <Link href="/dashboard/master/exclusoes" className="btn btn-secondary btn-sm">
             Exclusões
           </Link>

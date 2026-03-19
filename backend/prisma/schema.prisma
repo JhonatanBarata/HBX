@@ -341,6 +341,28 @@ model User {
   importacoesFinalizadas Importacao[]    @relation("ImportacaoFinalizadaPor")
   importacoesReabertas   Importacao[]    @relation("ImportacaoReabertaPor")
   deletionRecords        DeletionRecord[]
+  techAssistantInteractions TechAssistantInteraction[]
+}
+
+model TechAssistantInteraction {
+  id                String   @id @default(cuid())
+  user              User     @relation(fields: [userId], references: [id])
+  userId            Int
+  mode              String
+  analysisType      String?
+  title             String?
+  route             String?
+  environment       String?
+  expectedBehavior  String?
+  currentBehavior   String?
+  maskedInput       String
+  responseJson      String
+  providerLabel     String?
+  providerStatus    String?
+  createdAt         DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([mode, createdAt])
 }
 
 model SystemModule {

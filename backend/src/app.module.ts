@@ -22,6 +22,7 @@ import { ImportacoesModule } from './importacoes/importacoes.module';
 import { CadastrosModule } from './cadastros/cadastros.module';
 import { WebsiteModule } from './website/website.module';
 import { HbxRecoveryModule } from './hbx-recovery/hbx-recovery.module';
+import { TechAssistantModule } from './tech-assistant/tech-assistant.module';
 
 @Module({
   imports: [
@@ -52,6 +53,7 @@ import { HbxRecoveryModule } from './hbx-recovery/hbx-recovery.module';
     CadastrosModule,
     WebsiteModule,
     HbxRecoveryModule,
+    TechAssistantModule,
   ],
   controllers: [AppController],
   providers: [
