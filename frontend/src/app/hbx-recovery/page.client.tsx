@@ -4414,6 +4414,27 @@ export default function HbxRecoveryClientPage() {
     return base.filter((message) => !isLowSignalInteractionMessage(message));
   }, [interactionDetail?.messages, showSystemMessages]);
 
+  const interactionMessageListRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!interactionDetail) return;
+    if (!interactionDetail.humanAssigned) return;
+    const container = interactionMessageListRef.current;
+    if (!container) return;
+
+    // Prefer to scroll to the first complaint / pending message, otherwise scroll to bottom
+    const complaintNode = container.querySelector('[data-is-complaint="true"]') as HTMLElement | null;
+    const target = complaintNode || (container.lastElementChild as HTMLElement | null);
+    if (target) {
+      try {
+        target.scrollIntoView({ behavior: "smooth", block: "end" });
+      } catch {
+        // fallback: instant
+        target.scrollIntoView(false);
+      }
+    }
+  }, [interactionDetail?.conversationId, interactionDetail?.humanAssigned, visibleInteractionMessages.length]);
+
   if (hasToken === null) {
     return (
       <main className="app-shell">
@@ -8847,7 +8868,7 @@ export default function HbxRecoveryClientPage() {
                           </label>
                         </div>
 
-                        <div className={styles.interactionMessageList}>
+                        <div ref={interactionMessageListRef} className={styles.interactionMessageList}>
                         {visibleInteractionMessages.length === 0 ? (
                           <div className={styles.paymentEmpty}>
                             Nenhuma mensagem visível com o filtro atual.
@@ -8884,6 +8905,8 @@ export default function HbxRecoveryClientPage() {
                               <div
                                 key={message.id}
                                 className={`${styles.interactionMessage} ${senderClass}`}
+                                data-message-id={String(message.id)}
+                                data-is-complaint={message.isComplaint ? "true" : "false"}
                               >
                                 <div className={styles.messageHeader}>
                                   <span className={styles.senderTag}>{senderLabel}</span>
