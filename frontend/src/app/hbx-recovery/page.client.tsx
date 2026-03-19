@@ -4424,7 +4424,6 @@ export default function HbxRecoveryClientPage() {
 
   useEffect(() => {
     if (!interactionDetail) return;
-    if (!interactionDetail.humanAssigned) return;
     const container = interactionMessageListRef.current;
     if (!container) return;
 
@@ -4439,7 +4438,7 @@ export default function HbxRecoveryClientPage() {
         target.scrollIntoView(false);
       }
     }
-  }, [interactionDetail?.conversationId, interactionDetail?.humanAssigned, visibleInteractionMessages.length]);
+  }, [interactionDetail?.conversationId, visibleInteractionMessages.length]);
 
   if (hasToken === null) {
     return (

@@ -209,14 +209,28 @@ export default function ThemeSwitcher({ storageUserId }: ThemeSwitcherProps) {
   return (
     <div className="theme-switcher-wrap">
       <div className="theme-switcher" role="group" aria-label="Tema visual">
-        <button
-          type="button"
-          onClick={toggleThemeMode}
-          className="theme-chip is-active"
-          aria-pressed={mode === 'dark'}
-        >
-          {mode === 'dark' ? 'Light' : 'Dark'}
-        </button>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          {Object.keys(THEME_PALETTES).map((id) => (
+            <button
+              key={id}
+              type="button"
+              onClick={() => applyTheme(id, mode)}
+              className={`theme-chip ${id === DEFAULT_THEME_ID ? 'is-primary' : ''}`}
+              aria-pressed={document.documentElement.getAttribute('data-theme') === id}
+            >
+              {id === 'primary' ? 'Corporate' : id[0].toUpperCase() + id.slice(1)}
+            </button>
+          ))}
+          <button
+            type="button"
+            onClick={toggleThemeMode}
+            className="theme-chip is-active"
+            aria-pressed={mode === 'dark'}
+            style={{ marginLeft: 6 }}
+          >
+            {mode === 'dark' ? 'Dark' : 'Light'}
+          </button>
+        </div>
       </div>
     </div>
   );
