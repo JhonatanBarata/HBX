@@ -802,30 +802,43 @@ export default function TopBar() {
             <span className="app-brand__mark">HB</span>
             <span className="app-brand__text">HBX Solutions</span>
             {authenticated && user && !user.isSystemMaster && user.company?.id ? (
-              <span className={`wa-health-wrap ${pendingHumanCount > 0 ? "wa-health-wrap--alert" : ""}`}>
-                <span
-                  className={`wa-health wa-health--${whatsAppHealth}`}
-                  title={
-                    pendingHumanCount > 0
-                      ? `${whatsAppHealthLabel} | ${queueLabel}`
-                      : whatsAppHealthLabel
-                  }
-                  aria-label={
-                    pendingHumanCount > 0
-                      ? `${whatsAppHealthLabel}. ${queueLabel}`
-                      : whatsAppHealthLabel
-                  }
-                >
-                  <svg viewBox="0 0 24 24" aria-hidden="true">
-                    <path d="M19.1 4.9A9.9 9.9 0 0 0 12 2a10 10 0 0 0-8.7 14.9L2 22l5.3-1.4A10 10 0 1 0 19.1 4.9Zm-7.1 15.4a8.2 8.2 0 0 1-4.2-1.2l-.3-.2-3.1.8.8-3-.2-.3a8.2 8.2 0 1 1 7 3.9Zm4.5-6.2c-.2-.1-1.2-.6-1.4-.7-.2-.1-.3-.1-.5.1-.1.2-.5.7-.6.8-.1.1-.2.1-.4 0s-.9-.3-1.7-1a6.4 6.4 0 0 1-1.2-1.5c-.1-.2 0-.3.1-.4l.3-.3.2-.3c.1-.1.1-.3 0-.4L10.4 8c-.1-.2-.3-.2-.4-.2h-.4c-.1 0-.4.1-.5.3-.2.2-.7.7-.7 1.6 0 1 .7 1.9.8 2 .1.1 1.3 2 3.2 2.8.5.2.9.4 1.2.5.5.1 1 .1 1.4.1.4-.1 1.2-.5 1.4-1 .2-.6.2-1 .1-1.1 0-.1-.2-.1-.4-.2Z" />
-                  </svg>
-                </span>
-                {pendingHumanCount > 0 ? (
-                  <span className="wa-health__queue-badge" aria-hidden="true">
-                    {pendingHumanCount}
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                {/* Atendimento indicator */}
+                <span className={`wa-health-wrap ${atendimentoPendingHumanCount > 0 ? "wa-health-wrap--alert" : ""}`}>
+                  <span
+                    className={`wa-health wa-health--${whatsAppHealth}`}
+                    title={`Atendimento: ${atendimentoPendingHumanCount}`}
+                    aria-label={`Atendimento: ${atendimentoPendingHumanCount}`}
+                  >
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="M19.1 4.9A9.9 9.9 0 0 0 12 2a10 10 0 0 0-8.7 14.9L2 22l5.3-1.4A10 10 0 1 0 19.1 4.9Zm-7.1 15.4a8.2 8.2 0 0 1-4.2-1.2l-.3-.2-3.1.8.8-3-.2-.3a8.2 8.2 0 1 1 7 3.9Zm4.5-6.2c-.2-.1-1.2-.6-1.4-.7-.2-.1-.3-.1-.5.1-.1.2-.5.7-.6.8-.1.1-.2.1-.4 0s-.9-.3-1.7-1a6.4 6.4 0 0 1-1.2-1.5c-.1-.2 0-.3.1-.4l.3-.3.2-.3c.1-.1.1-.3 0-.4L10.4 8c-.1-.2-.3-.2-.4-.2h-.4c-.1 0-.4.1-.5.3-.2.2-.7.7-.7 1.6 0 1 .7 1.9.8 2 .1.1 1.3 2 3.2 2.8.5.2.9.4 1.2.5.5.1 1 .1 1.4.1.4-.1 1.2-.5 1.4-1 .2-.6.2-1 .1-1.1 0-.1-.2-.1-.4-.2Z" />
+                    </svg>
                   </span>
-                ) : null}
-              </span>
+                  {atendimentoPendingHumanCount > 0 ? (
+                    <span className="wa-health__queue-badge" aria-hidden="true">
+                      {atendimentoPendingHumanCount}
+                    </span>
+                  ) : null}
+                </span>
+
+                {/* Recovery indicator */}
+                <span className={`wa-health-wrap ${recoveryPendingHumanCount > 0 ? "wa-health-wrap--alert" : ""}`}>
+                  <span
+                    className={`wa-health wa-health--${whatsAppHealth}`}
+                    title={`Recovery: ${recoveryPendingHumanCount}`}
+                    aria-label={`Recovery: ${recoveryPendingHumanCount}`}
+                  >
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm1 14.5V18h-2v-1.5A4 4 0 1 1 13 16.5z" />
+                    </svg>
+                  </span>
+                  {recoveryPendingHumanCount > 0 ? (
+                    <span className="wa-health__queue-badge" aria-hidden="true">
+                      {recoveryPendingHumanCount}
+                    </span>
+                  ) : null}
+                </span>
+              </div>
             ) : null}
           </Link>
         </div>
