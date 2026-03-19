@@ -1277,7 +1277,7 @@ export default function InboxClientPage() {
                 <div className={styles.actionBar}>
                   {selectedConversation.routeTarget === "recovery" ? (
                     <Link href="/hbx-recovery" className="btn btn-primary btn-sm">
-                      Abrir HBX Recovery
+                      Abrir Recovery
                     </Link>
                   ) : null}
 
@@ -1355,7 +1355,7 @@ export default function InboxClientPage() {
                     onChange={(event) => setSendText(event.target.value)}
                     placeholder={
                       selectedRouteIsRecovery
-                        ? "Conversa roteada para o Recovery. Abra o modulo HBX Recovery para responder."
+                        ? "Conversa roteada para o Recovery. Abra o modulo Recovery para responder."
                         : selectedBlocked
                           ? "Contato bloqueado. Desbloqueie para responder."
                           : "Digite uma resposta manual..."
@@ -1580,7 +1580,7 @@ export default function InboxClientPage() {
                 <div>
                   <p className={styles.attentionEyebrow}>{humanQueueLabel}</p>
                   <p className={styles.notificationModule}>
-                    {humanAttentionPreview.routeTarget === "recovery" ? "HBX Recovery" : "Atendimento"}
+                    {humanAttentionPreview.routeTarget === "recovery" ? "Recovery" : "Atendimento"}
                   </p>
                   <strong>{humanAttentionPreview.customer.name || humanAttentionPreview.customer.phone}</strong>
                   <p className={styles.notificationModule}>{humanAttentionPreview.customer.phone}</p>

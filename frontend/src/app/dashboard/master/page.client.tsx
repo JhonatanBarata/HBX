@@ -1989,7 +1989,7 @@ export default function MasterClientPage() {
               <div className="mt-3 border border-[var(--line)] rounded-[12px] p-3 bg-[var(--surface-soft)]">
                 <p className="text-sm font-medium">Mercado Pago da empresa</p>
                 <p className="text-xs text-muted mt-1">
-                  Token por empresa para gerar links de cobrança, webhook e estorno no HBX Recovery.
+                  Token por empresa para gerar links de cobrança, webhook e estorno no Recovery.
                 </p>
 
                 <div className="grid grid-cols-1 md:grid-cols-1 gap-2 mt-3">

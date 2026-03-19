@@ -316,7 +316,7 @@ function parseDigitsToIsoDate(raw: string) {
 function buildRecoveryMessage(customer: RecoveryCustomer, actionId: DrawerActionId) {
   const recipient = customer.clientName || customer.name;
   if (actionId === "send_charge") {
-    return `Oi ${recipient}, identificamos ${formatCurrency(customer.openAmount)} em aberto no HBX Recovery. Posso te enviar os detalhes para regularizacao hoje?`;
+    return `Oi ${recipient}, identificamos ${formatCurrency(customer.openAmount)} em aberto no Recovery. Posso te enviar os detalhes para regularizacao hoje?`;
   }
 
   if (actionId === "send_pix") {
@@ -872,7 +872,7 @@ const DEFAULT_BOT_CONFIG: RecoveryBotConfig = {
     preferRecoveryForNegotiations: true,
     preferInboxForManualQueue: true,
   },
-  rootFooter: "HBX Recovery",
+  rootFooter: "Recovery",
   startTemplates: [],
   mainMenuPrompt: "Perfeito, {{cliente}}. Escolha abaixo como deseja continuar:",
   mainMenuButtons: [
@@ -2409,8 +2409,8 @@ export default function HbxRecoveryClientPage() {
         );
       } catch (error) {
         if (cancelled) return;
-        const reason = error instanceof Error ? error.message : "Erro ao carregar HBX Recovery";
-        setNotice(`Falha ao carregar HBX Recovery: ${reason}`);
+        const reason = error instanceof Error ? error.message : "Erro ao carregar Recovery";
+        setNotice(`Falha ao carregar Recovery: ${reason}`);
       } finally {
         if (!cancelled) {
           setLoadingCustomers(false);
@@ -3309,7 +3309,7 @@ export default function HbxRecoveryClientPage() {
           }),
           preview:
             String(lastInbound.body || "").trim() || "Nova mensagem aguardando resposta humana.",
-          moduleLabel: "HBX Recovery",
+          moduleLabel: "Recovery",
           attentionLabel: "Nova mensagem",
           kind: "new_message",
           lastAt: lastInbound.timestamp,
@@ -3375,7 +3375,7 @@ export default function HbxRecoveryClientPage() {
       customerName: item.customerName,
       phone,
       preview,
-      moduleLabel: "HBX Recovery",
+      moduleLabel: "Recovery",
       attentionLabel: kind === "human_queue" ? "Fila humana" : "Nova mensagem",
       kind,
       lastAt: item.lastAt,
@@ -3727,7 +3727,7 @@ export default function HbxRecoveryClientPage() {
                 <span>Texto do cabecalho</span>
                 <input
                   className="field"
-                  placeholder="ex: HBX Recovery"
+                  placeholder="ex: Recovery"
                   value={templateComposer.headerText}
                   onChange={(event) =>
                     updateTemplateComposer((current) => ({
@@ -4427,16 +4427,27 @@ export default function HbxRecoveryClientPage() {
     const container = interactionMessageListRef.current;
     if (!container) return;
 
-    // Prefer to scroll to the first complaint / pending message, otherwise scroll to bottom
-    const complaintNode = container.querySelector('[data-is-complaint="true"]') as HTMLElement | null;
-    const target = complaintNode || (container.lastElementChild as HTMLElement | null);
-    if (target) {
-      try {
-        target.scrollIntoView({ behavior: "smooth", block: "end" });
-      } catch {
-        // fallback: instant
-        target.scrollIntoView(false);
-      }
+    // Always scroll to the most recent message when opening the conversation.
+    // Use requestAnimationFrame + setTimeout to ensure DOM is painted before forcing scroll.
+    try {
+      const doScroll = () => {
+        try {
+          // instant scroll to bottom to avoid large smooth-scroll delays on very long histories
+          container.scrollTop = container.scrollHeight;
+        } catch (e) {
+          // best-effort: fall back to scrollIntoView of last child
+          const last = container.lastElementChild as HTMLElement | null;
+          if (last) last.scrollIntoView(false);
+        }
+      };
+
+      // run on next paint, and again shortly after to handle late-rendered content
+      requestAnimationFrame(() => {
+        doScroll();
+        window.setTimeout(doScroll, 100);
+      });
+    } catch (err) {
+      // ignore
     }
   }, [interactionDetail?.conversationId, visibleInteractionMessages.length]);
 
@@ -4928,7 +4939,7 @@ export default function HbxRecoveryClientPage() {
         body: JSON.stringify({}),
       });
       await Promise.all([loadPaymentHistory(paymentMonth, paymentFilter), reloadCustomers()]);
-      setNotice("Estorno solicitado e sincronizado com o HBX Recovery.");
+      setNotice("Estorno solicitado e sincronizado com o Recovery.");
     } catch (error) {
       const reason = error instanceof Error ? error.message : "Erro ao estornar pagamento";
       setNotice(`Falha no estorno: ${reason}`);
@@ -5620,12 +5631,12 @@ export default function HbxRecoveryClientPage() {
       ) : null}
 
       <DashboardScaffold
-        title="HBX Recovery"
+        title="Recovery"
         description="Gestao inteligente de inadimplencia com score de risco, cobranca automatizada e uma leitura visual clara do impacto financeiro."
         showDashboardShortcut={false}
         actions={
           <div className={styles.heroActions}>
-            <div className={styles.heroTabGroup} role="tablist" aria-label="Guias do HBX Recovery">
+              <div className={styles.heroTabGroup} role="tablist" aria-label="Guias do Recovery">
               <button
                 type="button"
                 role="tab"
@@ -6132,7 +6143,7 @@ export default function HbxRecoveryClientPage() {
                 formatter={formatCurrency}
               />
             </p>
-            <p className={styles.cardFoot}>Valor recuperado via HBX Recovery</p>
+            <p className={styles.cardFoot}>Valor recuperado via Recovery</p>
           </article>
 
           <article
@@ -6185,7 +6196,7 @@ export default function HbxRecoveryClientPage() {
                 <p className={styles.sectionEyebrow}>Inteligencia de recuperacao</p>
                 <h2 className={styles.sectionTitle}>Grafico de recuperacao mensal</h2>
                 <p className={styles.sectionDescription}>
-                  Evolucao dos valores recuperados via pagamentos registrados no HBX Recovery.
+                  Evolucao dos valores recuperados via pagamentos registrados no Recovery.
                 </p>
               </div>
               <span className="badge badge-brand">
@@ -6589,7 +6600,7 @@ export default function HbxRecoveryClientPage() {
                     <span>Texto do cabecalho</span>
                     <input
                       className="field"
-                      placeholder="ex: HBX Recovery"
+                      placeholder="ex: Recovery"
                       value={templateComposer.headerText}
                       onChange={(event) =>
                         updateTemplateComposer((current) => ({
@@ -8002,7 +8013,7 @@ export default function HbxRecoveryClientPage() {
                     />
                     <div>
                       <strong>Preservar negociacoes originadas no Recovery</strong>
-                      <span>Mensagens com contexto de cobranca continuam com prioridade no HBX Recovery.</span>
+                      <span>Mensagens com contexto de cobranca continuam com prioridade no Recovery.</span>
                     </div>
                   </label>
                   <label className={styles.botRoutingToggle}>

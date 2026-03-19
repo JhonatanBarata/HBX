@@ -238,7 +238,7 @@ export default function TopBar() {
       },
       {
         href: "/hbx-recovery",
-        label: "HBX Recovery",
+        label: "Recovery",
         matcher: (route) => route.startsWith("/hbx-recovery"),
         moduleKey: "hbx_recovery",
       },
@@ -525,7 +525,7 @@ export default function TopBar() {
             ) {
               popupCandidates.push({
                 id: `recovery:${item.conversationId}:${item.lastAt}:${becameHumanQueue ? "human_queue" : "new_message"}`,
-                moduleLabel: "HBX Recovery",
+                moduleLabel: "Recovery",
                 attentionLabel: becameHumanQueue ? "Fila humana" : "Nova mensagem",
                 customerLabel: item.customerName || item.customerWhatsapp || "Cliente Recovery",
                 contactPhone: item.customerWhatsapp || item.conversationWhatsapp || "-",

@@ -39,7 +39,7 @@ export type HbxWindowMotionSpec = {
 
 export type HbxWindowStandardSpec = {
   version: "2026-03-14";
-  owner: "HBX Recovery";
+  owner: "Recovery";
   designIntent:
     | "premium-admin"
     | "overlay-first"
@@ -69,7 +69,7 @@ export type HbxWindowStandardSpec = {
 
 export const HBX_WINDOW_STANDARD: HbxWindowStandardSpec = {
   version: "2026-03-14",
-  owner: "HBX Recovery",
+  owner: "Recovery",
   designIntent: "module-standard",
   resizeHandles: ["n", "s", "e", "w", "ne", "nw", "se", "sw"],
   minimumSize: {
