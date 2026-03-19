@@ -4,6 +4,7 @@ import * as bcrypt from 'bcryptjs';
 import { UsersService } from '../users/users.service';
 import { assertPasswordPolicy } from './password-policy';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
+import { MasterContextService } from '../master-context/master-context.service';
 
 class ChangePasswordDto {
   @IsString()
@@ -16,7 +17,7 @@ class ChangePasswordDto {
   newPassword: string;
 }
 
-function sanitizeUser(user: any) {
+function sanitizeUser(user: any, masterContext?: any) {
   if (!user) return null;
   return {
     id: user.id,
@@ -47,25 +48,61 @@ function sanitizeUser(user: any) {
             : null,
         }
       : null,
+    masterContext: masterContext || {
+      active: false,
+      mode: 'master_puro',
+      sessionId: null,
+      companyId: null,
+      companyName: null,
+      reason: null,
+      startedAt: null,
+      expiresAt: null,
+    },
   };
 }
 
 @Controller('profile')
 export class ProfileController {
-  constructor(private readonly usersService: UsersService) {}
+  constructor(
+    private readonly usersService: UsersService,
+    private readonly masterContextService: MasterContextService,
+  ) {}
+
+  private async resolveMasterContext(req: any, user: any) {
+    if (!user?.isSystemMaster) {
+      return {
+        active: false,
+        mode: 'master_puro',
+        sessionId: null,
+        companyId: null,
+        companyName: null,
+        reason: null,
+        startedAt: null,
+        expiresAt: null,
+      };
+    }
+
+    if (req?.user?.masterContext) {
+      return req.user.masterContext;
+    }
+
+    return this.masterContextService.getCurrentContext(Number(user.id));
+  }
 
   @Get()
   @UseGuards(JwtAuthGuard)
   async profile(@Req() req: any) {
     const user = await this.usersService.findById(req.user.id);
-    return sanitizeUser(user);
+    const masterContext = await this.resolveMasterContext(req, user);
+    return sanitizeUser(user, masterContext);
   }
 
   @Get('current-user')
   @UseGuards(JwtAuthGuard)
   async currentUser(@Req() req: any) {
     const user = await this.usersService.findById(req.user.id);
-    return sanitizeUser(user);
+    const masterContext = await this.resolveMasterContext(req, user);
+    return sanitizeUser(user, masterContext);
   }
 
   @Patch('password')

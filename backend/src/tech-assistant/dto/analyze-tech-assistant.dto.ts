@@ -21,6 +21,21 @@ export class AnalyzeTechAssistantDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(120)
+  module?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(180)
+  activeCompanyName?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(60)
+  operationMode?: string;
+
+  @IsOptional()
+  @IsString()
   @MaxLength(4000)
   message?: string;
 

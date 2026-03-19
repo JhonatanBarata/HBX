@@ -7,6 +7,7 @@ import { apiFetch, clearToken, getToken } from "../app/dashboard/_lib/api";
 import { setActiveThemeUser } from "@/lib/theme-preferences";
 import ThemeSwitcher from "./ThemeSwitcher";
 import ModuleNav from "./ModuleNav";
+import TechAssistantGlobalDrawer from "./TechAssistantGlobalDrawer";
 
 type User = {
   id: number;
@@ -14,6 +15,23 @@ type User = {
   role?: string | null;
   isSystemMaster?: boolean;
   company?: { id: number; name?: string | null } | null;
+  masterContext?: {
+    active: boolean;
+    mode: "master_puro" | "empresa_assumida";
+    sessionId: string | null;
+    companyId: number | null;
+    companyName: string | null;
+    reason?: string | null;
+    startedAt?: string | null;
+    expiresAt?: string | null;
+  } | null;
+};
+
+type MasterOverviewCompany = {
+  id: number;
+  name: string;
+  isActive: boolean;
+  paymentStatus: string;
 };
 
 type NavItem = {
@@ -120,6 +138,12 @@ export default function TopBar() {
   const [recoveryPendingHumanCount, setRecoveryPendingHumanCount] = useState(0);
   const [atendimentoPendingHumanCount, setAtendimentoPendingHumanCount] = useState(0);
   const [incomingPopup, setIncomingPopup] = useState<TopBarIncomingPopup | null>(null);
+  const [masterContextModalOpen, setMasterContextModalOpen] = useState(false);
+  const [masterContextActionBusy, setMasterContextActionBusy] = useState(false);
+  const [masterContextMessage, setMasterContextMessage] = useState<string | null>(null);
+  const [masterCompanyOptions, setMasterCompanyOptions] = useState<MasterOverviewCompany[]>([]);
+  const [selectedMasterCompanyId, setSelectedMasterCompanyId] = useState<string>("");
+  const [masterContextReason, setMasterContextReason] = useState("");
   const navScrollRef = useRef<HTMLDivElement | null>(null);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
@@ -653,6 +677,89 @@ export default function TopBar() {
     router.push("/login");
   }
 
+  async function openMasterContextModal() {
+    setMasterContextMessage(null);
+    setMasterContextModalOpen(true);
+    if (masterCompanyOptions.length) return;
+    try {
+      const payload = await apiFetch<any[]>("/modules/master/companies");
+      const normalized = (Array.isArray(payload) ? payload : []).map((item) => ({
+        id: Number(item?.id || 0),
+        name: String(item?.name || `Empresa ${item?.id || ""}`),
+        isActive: Boolean(item?.isActive),
+        paymentStatus: String(item?.paymentStatus || "PENDING"),
+      })).filter((item) => item.id > 0);
+      setMasterCompanyOptions(normalized);
+      if (normalized[0] && !selectedMasterCompanyId) {
+        setSelectedMasterCompanyId(String(normalized[0].id));
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Falha ao carregar empresas.";
+      setMasterContextMessage(message);
+    }
+  }
+
+  async function assumeMasterContext() {
+    const companyId = Number(selectedMasterCompanyId || 0);
+    if (!companyId) {
+      setMasterContextMessage("Selecione uma empresa para assumir contexto.");
+      return;
+    }
+
+    setMasterContextActionBusy(true);
+    setMasterContextMessage(null);
+    try {
+      await apiFetch("/master-context/assume", {
+        method: "POST",
+        body: JSON.stringify({
+          companyId,
+          reason: masterContextReason || undefined,
+        }),
+      });
+
+      const [profile, myModules] = await Promise.all([
+        apiFetch<User>("/profile/current-user"),
+        apiFetch<UserModule[]>("/modules/me"),
+      ]);
+      setUser(profile);
+      setModules(myModules || []);
+      setMasterContextModalOpen(false);
+      setMasterContextReason("");
+      setMasterContextMessage("Contexto assumido com sucesso.");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Falha ao assumir contexto da empresa.";
+      setMasterContextMessage(message);
+    } finally {
+      setMasterContextActionBusy(false);
+    }
+  }
+
+  async function exitMasterContext() {
+    setMasterContextActionBusy(true);
+    setMasterContextMessage(null);
+    try {
+      await apiFetch("/master-context/exit", {
+        method: "POST",
+        body: JSON.stringify({ reason: "manual_exit" }),
+      });
+
+      const [profile, myModules] = await Promise.all([
+        apiFetch<User>("/profile/current-user"),
+        apiFetch<UserModule[]>("/modules/me"),
+      ]);
+      setUser(profile);
+      setModules(myModules || []);
+      setMasterContextModalOpen(false);
+      setMasterContextReason("");
+      setMasterContextMessage("Sessao de contexto encerrada.");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Falha ao sair do contexto assumido.";
+      setMasterContextMessage(message);
+    } finally {
+      setMasterContextActionBusy(false);
+    }
+  }
+
   async function handlePasswordSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setChanging(true);
@@ -744,7 +851,13 @@ export default function TopBar() {
                 </span>
                 <span className="app-user__meta">
                   <span className="app-user__name">{user.username}</span>
-                  <span className="app-user__company">{user.isSystemMaster ? "MASTER" : (user.company?.name ?? "Sem empresa")}</span>
+                  <span className="app-user__company">
+                    {user.isSystemMaster
+                      ? (user.masterContext?.active
+                        ? `MASTER em ${user.masterContext.companyName || "Empresa"}`
+                        : "MASTER")
+                      : (user.company?.name ?? "Sem empresa")}
+                  </span>
                 </span>
               </button>
 
@@ -802,8 +915,35 @@ export default function TopBar() {
           )}
         </div>
       </div>
+      {authenticated && user?.isSystemMaster ? (
+        <div className="app-topbar__inner" style={{ paddingTop: 0, paddingBottom: 8 }}>
+          <div className="flex flex-wrap items-center gap-2">
+            <button type="button" className="btn btn-secondary btn-sm" onClick={openMasterContextModal}>
+              Entrar na empresa
+            </button>
+            {user.masterContext?.active ? (
+              <>
+                <span className="badge badge-danger">
+                  MASTER no contexto de {user.masterContext.companyName || `Empresa ${user.masterContext.companyId}`}
+                </span>
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  onClick={exitMasterContext}
+                  disabled={masterContextActionBusy}
+                >
+                  Sair do contexto
+                </button>
+              </>
+            ) : (
+              <span className="badge badge-success">MASTER puro</span>
+            )}
+            {masterContextMessage ? <span className="text-xs text-muted">{masterContextMessage}</span> : null}
+          </div>
+        </div>
+      ) : null}
       {incomingPopup ? (
-        <div className="fixed right-4 top-[76px] z-[90] w-[min(360px,calc(100vw-2rem))] rounded-[18px] border border-[var(--line)] bg-white/95 p-4 shadow-[0_24px_60px_rgba(15,23,42,0.18)] backdrop-blur">
+        <div className="fixed right-4 top-19 z-90 w-[min(360px,calc(100vw-2rem))] rounded-[18px] border border-(--line) bg-white/95 p-4 shadow-[0_24px_60px_rgba(15,23,42,0.18)] backdrop-blur">
           <div className="flex items-start justify-between gap-3">
             <div>
               <p className="text-[11px] uppercase tracking-[0.18em] text-[#0b4a7a]">
@@ -832,7 +972,7 @@ export default function TopBar() {
             ) : null}
           </div>
 
-          <p className="mt-3 rounded-[12px] bg-slate-50 px-3 py-2 text-sm text-slate-700">
+          <p className="mt-3 rounded-xl bg-slate-50 px-3 py-2 text-sm text-slate-700">
             {incomingPopup.preview}
           </p>
 
@@ -854,6 +994,87 @@ export default function TopBar() {
           </div>
         </div>
       ) : null}
+
+      {masterContextModalOpen && authenticated && user?.isSystemMaster ? (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 150,
+            background: "rgba(6, 19, 38, 0.42)",
+            display: "grid",
+            placeItems: "center",
+            padding: "16px",
+          }}
+        >
+          <div className="panel" style={{ width: "min(620px, 100%)", padding: 16 }}>
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-xs uppercase tracking-[0.12em] text-muted">Suporte interno MASTER</p>
+                <h3 className="mt-1 text-lg font-semibold">Assumir contexto da empresa</h3>
+              </div>
+              <button type="button" className="btn btn-secondary btn-sm" onClick={() => setMasterContextModalOpen(false)}>
+                Fechar
+              </button>
+            </div>
+
+            <div className="mt-4 grid gap-3">
+              <label className="grid gap-1 text-sm">
+                Empresa
+                <select
+                  className="field"
+                  value={selectedMasterCompanyId}
+                  onChange={(event) => setSelectedMasterCompanyId(event.target.value)}
+                >
+                  <option value="">Selecione...</option>
+                  {masterCompanyOptions.map((company) => (
+                    <option key={company.id} value={String(company.id)}>
+                      {company.name} | {company.isActive ? "ativa" : "inativa"} | {company.paymentStatus}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="grid gap-1 text-sm">
+                Motivo (opcional)
+                <textarea
+                  className="field"
+                  rows={3}
+                  value={masterContextReason}
+                  onChange={(event) => setMasterContextReason(event.target.value)}
+                  placeholder="Ex.: diagnostico de webhook Meta para empresa X"
+                />
+              </label>
+
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  className="btn btn-primary btn-sm"
+                  onClick={assumeMasterContext}
+                  disabled={masterContextActionBusy}
+                >
+                  {masterContextActionBusy ? "Aplicando..." : "Assumir contexto"}
+                </button>
+                {user.masterContext?.active ? (
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    onClick={exitMasterContext}
+                    disabled={masterContextActionBusy}
+                  >
+                    Sair do contexto atual
+                  </button>
+                ) : null}
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      <TechAssistantGlobalDrawer
+        isSystemMaster={Boolean(user?.isSystemMaster)}
+        masterContext={user?.masterContext || null}
+      />
     </header>
   );
 }

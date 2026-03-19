@@ -2,6 +2,7 @@ import { BadRequestException, ForbiddenException, Injectable, OnModuleInit } fro
 import { PrismaService } from '../prisma/prisma.service';
 import { UsersService } from '../users/users.service';
 import structuralDefaults from '../bootstrap/structural-defaults.json';
+import { MasterContextService } from '../master-context/master-context.service';
 
 type DefaultModuleDef = {
   key: string;
@@ -24,7 +25,11 @@ const RETIRED_MODULE_KEYS = ['hbx_music'];
 
 @Injectable()
 export class ModulesService implements OnModuleInit {
-  constructor(private readonly prisma: PrismaService, private readonly usersService: UsersService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly usersService: UsersService,
+    private readonly masterContextService: MasterContextService,
+  ) {}
 
   private async supportsWhatsAppEndpointTable() {
     return this.prisma.hasTable('CompanyWhatsAppEndpoint');
@@ -84,7 +89,11 @@ export class ModulesService implements OnModuleInit {
   private async resolveUserContext(userId: number) {
     const user = await this.usersService.findById(Number(userId));
     if (!user) throw new ForbiddenException('Usuario nao encontrado');
-    const companyId = user.companyId ? Number(user.companyId) : null;
+    let companyId = user.companyId ? Number(user.companyId) : null;
+    if ((user as any).isSystemMaster) {
+      const runtimeContext = await this.masterContextService.resolveRuntimeContext(user);
+      companyId = runtimeContext.effectiveCompanyId || null;
+    }
     return { user, companyId, isSystemMaster: Boolean((user as any).isSystemMaster) };
   }
 
@@ -256,6 +265,10 @@ export class ModulesService implements OnModuleInit {
     const companyEnabled = await this.isCompanyModuleEnabled(companyId, moduleItem.id);
     if (!companyEnabled) return false;
 
+    if (isSystemMaster) {
+      return true;
+    }
+
     const userAccess = await this.prisma.userModuleAccess.findUnique({
       where: {
         userId_moduleId: {
@@ -273,12 +286,14 @@ export class ModulesService implements OnModuleInit {
     await this.ensureDefaultSystemModules();
     const { companyId, isSystemMaster } = await this.resolveUserContext(userId);
 
-    if (isSystemMaster) {
-      const systemMasterModules = await this.prisma.systemModule.findMany({
-        where: { key: { in: ['master', 'website', 'exclusoes'] } },
-        orderBy: { name: 'asc' },
-      });
+    const systemMasterModules = isSystemMaster
+      ? await this.prisma.systemModule.findMany({
+          where: { key: { in: ['master', 'website', 'exclusoes'] } },
+          orderBy: { name: 'asc' },
+        })
+      : [];
 
+    if (!companyId) {
       return systemMasterModules.map((moduleItem) => ({
         key: moduleItem.key,
         name: moduleItem.name,
@@ -289,10 +304,18 @@ export class ModulesService implements OnModuleInit {
       }));
     }
 
-    if (!companyId) return [];
-
     const status = await this.evaluateCompanyStatus(companyId);
-    if (!status.active) return [];
+    if (!status.active) {
+      return systemMasterModules.map((moduleItem) => ({
+        key: moduleItem.key,
+        name: moduleItem.name,
+        description: moduleItem.description,
+        serviceUrl: moduleItem.serviceUrl,
+        companyEnabled: true,
+        userAllowed: true,
+        accessible: true,
+      }));
+    }
 
     const rows = await this.prisma.companyModule.findMany({
       where: { companyId, enabled: true },
@@ -300,13 +323,18 @@ export class ModulesService implements OnModuleInit {
       orderBy: { systemModule: { name: 'asc' } },
     });
 
-    const userAccessRows = await this.prisma.userModuleAccess.findMany({
-      where: { userId },
-      select: { moduleId: true, allowed: true },
-    });
-    const userAccessMap = new Map<number, boolean>(userAccessRows.map((row) => [row.moduleId, row.allowed]));
+    const userAccessMap = new Map<number, boolean>();
+    if (!isSystemMaster) {
+      const userAccessRows = await this.prisma.userModuleAccess.findMany({
+        where: { userId },
+        select: { moduleId: true, allowed: true },
+      });
+      for (const row of userAccessRows) {
+        userAccessMap.set(row.moduleId, row.allowed);
+      }
+    }
 
-    return rows
+    const companyModules = rows
       .filter((row) => row.systemModule.companyAssignable)
       .map((row) => ({
         key: row.systemModule.key,
@@ -314,9 +342,31 @@ export class ModulesService implements OnModuleInit {
         description: row.systemModule.description,
         serviceUrl: row.systemModule.serviceUrl,
         companyEnabled: row.enabled,
-        userAllowed: userAccessMap.has(row.moduleId) ? Boolean(userAccessMap.get(row.moduleId)) : true,
-        accessible: row.enabled && (userAccessMap.has(row.moduleId) ? Boolean(userAccessMap.get(row.moduleId)) : true),
+        userAllowed: isSystemMaster ? true : (userAccessMap.has(row.moduleId) ? Boolean(userAccessMap.get(row.moduleId)) : true),
+        accessible: isSystemMaster
+          ? Boolean(row.enabled)
+          : row.enabled && (userAccessMap.has(row.moduleId) ? Boolean(userAccessMap.get(row.moduleId)) : true),
       }));
+
+    const merged = new Map<string, any>();
+    for (const moduleItem of companyModules) {
+      merged.set(String(moduleItem.key || '').trim().toLowerCase(), moduleItem);
+    }
+    for (const moduleItem of systemMasterModules) {
+      const key = String(moduleItem.key || '').trim().toLowerCase();
+      if (!key || merged.has(key)) continue;
+      merged.set(key, {
+        key: moduleItem.key,
+        name: moduleItem.name,
+        description: moduleItem.description,
+        serviceUrl: moduleItem.serviceUrl,
+        companyEnabled: true,
+        userAllowed: true,
+        accessible: true,
+      });
+    }
+
+    return Array.from(merged.values());
   }
 
   async listCompanyAccessForAdmin(adminUserId: number) {

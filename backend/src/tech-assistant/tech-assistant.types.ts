@@ -22,6 +22,9 @@ export type TechAssistantInput = {
   analysisType: TechAssistantAnalysisType;
   environment: TechAssistantEnvironment;
   route?: string | null;
+  module?: string | null;
+  activeCompanyName?: string | null;
+  operationMode?: string | null;
   message?: string | null;
   technicalContent?: string | null;
   expectedBehavior?: string | null;
@@ -47,6 +50,9 @@ export type TechAssistantBlocks = {
 
 export type TechAssistantDiagnostic = {
   route: string;
+  module: string;
+  company: string;
+  operationMode: string;
   environment: string;
   expectedBehavior: string;
   currentBehavior: string;

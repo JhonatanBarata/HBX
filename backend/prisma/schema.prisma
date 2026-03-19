@@ -73,6 +73,9 @@ model Company {
   hbxRecoveryFlowStages HbxRecoveryFlowStage[]
   hbxRecoveryPayments  HbxRecoveryPayment[]
   whatsappEndpoints    CompanyWhatsAppEndpoint[]
+  techAssistantInteractions TechAssistantInteraction[]
+  masterAssumedContextSessions MasterAssumedContextSession[]
+  masterSupportAuditLogs MasterSupportAuditLog[]
 }
 
 model CompanyWhatsAppEndpoint {
@@ -342,16 +345,23 @@ model User {
   importacoesReabertas   Importacao[]    @relation("ImportacaoReabertaPor")
   deletionRecords        DeletionRecord[]
   techAssistantInteractions TechAssistantInteraction[]
+  masterContextSessions MasterAssumedContextSession[] @relation("MasterAssumedContextUser")
+  masterContextEndedSessions MasterAssumedContextSession[] @relation("MasterAssumedContextEndedByUser")
+  masterSupportAuditLogs MasterSupportAuditLog[] @relation("MasterSupportAuditLogUser")
 }
 
 model TechAssistantInteraction {
   id                String   @id @default(cuid())
   user              User     @relation(fields: [userId], references: [id])
   userId            Int
+  company           Company? @relation(fields: [companyId], references: [id])
+  companyId         Int?
   mode              String
+  operationMode     String?
   analysisType      String?
   title             String?
   route             String?
+  module            String?
   environment       String?
   expectedBehavior  String?
   currentBehavior   String?
@@ -362,7 +372,49 @@ model TechAssistantInteraction {
   createdAt         DateTime @default(now())
 
   @@index([userId, createdAt])
+  @@index([companyId, createdAt])
   @@index([mode, createdAt])
+  @@index([operationMode, createdAt])
+  @@index([module, createdAt])
+}
+
+model MasterAssumedContextSession {
+  id            String    @id
+  masterUser    User      @relation("MasterAssumedContextUser", fields: [masterUserId], references: [id])
+  masterUserId  Int
+  company       Company   @relation(fields: [companyId], references: [id])
+  companyId     Int
+  reason        String?
+  startedAt     DateTime  @default(now())
+  expiresAt     DateTime?
+  endedAt       DateTime?
+  endedByUser   User?     @relation("MasterAssumedContextEndedByUser", fields: [endedByUserId], references: [id])
+  endedByUserId Int?
+  auditLogs     MasterSupportAuditLog[]
+
+  @@index([masterUserId, startedAt])
+  @@index([companyId, startedAt])
+  @@index([masterUserId, endedAt])
+}
+
+model MasterSupportAuditLog {
+  id                      String   @id
+  masterUser              User     @relation("MasterSupportAuditLogUser", fields: [masterUserId], references: [id])
+  masterUserId            Int
+  company                 Company? @relation(fields: [companyId], references: [id])
+  companyId               Int?
+  assumedContextSession   MasterAssumedContextSession? @relation(fields: [assumedContextSessionId], references: [id])
+  assumedContextSessionId String?
+  scope                   String
+  action                  String
+  severity                String   @default("INFO")
+  route                   String?
+  metadata                String?
+  createdAt               DateTime @default(now())
+
+  @@index([masterUserId, createdAt])
+  @@index([companyId, createdAt])
+  @@index([scope, action, createdAt])
 }
 
 model SystemModule {

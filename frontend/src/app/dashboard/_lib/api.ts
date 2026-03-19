@@ -69,6 +69,12 @@ export async function apiFetch<T>(
   if (!init?.skipAuth && token) {
     headers.set("Authorization", `Bearer ${token}`);
   }
+  if (typeof window !== "undefined") {
+    const route = `${window.location.pathname || ""}${window.location.search || ""}`.slice(0, 220);
+    if (route && !headers.has("x-master-route")) {
+      headers.set("x-master-route", route);
+    }
+  }
 
   const res = await fetch(url, { ...init, headers });
 

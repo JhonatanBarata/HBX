@@ -1,0 +1,1 @@
+-- Legacy migration placeholder to reconcile local migration history.

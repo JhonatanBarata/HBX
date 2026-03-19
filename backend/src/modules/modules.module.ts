@@ -5,9 +5,10 @@ import { ModulesController } from './modules.controller';
 import { ModulesService } from './modules.service';
 import { ModuleAccessGuard } from './module-access.guard';
 import { MasterGuard } from '../auth/guards/master.guard';
+import { MasterContextModule } from '../master-context/master-context.module';
 
 @Module({
-  imports: [PrismaModule, UsersModule],
+  imports: [PrismaModule, UsersModule, MasterContextModule],
   providers: [ModulesService, ModuleAccessGuard, MasterGuard],
   controllers: [ModulesController],
   exports: [ModulesService, ModuleAccessGuard],

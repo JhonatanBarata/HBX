@@ -1,7 +1,9 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { MasterContextService } from '../master-context/master-context.service';
 import { TechAssistantAiProvider } from './tech-assistant-ai.provider';
 import { AnalyzeTechAssistantDto } from './dto/analyze-tech-assistant.dto';
+import { ConfirmTechAssistantOperationDto } from './dto/confirm-operation.dto';
 import {
   type TechAssistantBlocks,
   type TechAssistantDiagnostic,
@@ -83,13 +85,31 @@ const ROUTE_FILE_HINTS: Array<{ pattern: RegExp; files: string[] }> = [
 export class TechAssistantService {
   constructor(
     private readonly prisma: PrismaService,
+    private readonly masterContextService: MasterContextService,
     private readonly aiProvider: TechAssistantAiProvider,
   ) {}
 
-  async analyze(userId: number, dto: AnalyzeTechAssistantDto) {
+  async analyze(user: any, dto: AnalyzeTechAssistantDto) {
+    const userId = Number(user?.id || 0);
     const input = this.normalizeInput(dto);
+    const runtimeContext = await this.resolveTechContext(user, input);
+    const companySnapshot = await this.loadCompanyDiagnosticsSnapshot(runtimeContext.effectiveCompanyId);
+
+    if (runtimeContext.companyName && !input.activeCompanyName) {
+      input.activeCompanyName = runtimeContext.companyName;
+    }
+    if (runtimeContext.operationMode && !input.operationMode) {
+      input.operationMode = runtimeContext.operationMode;
+    }
+
     const heuristics = this.buildHeuristicResponse(input);
     const warnings = [...heuristics.warnings];
+
+    if (companySnapshot?.hints?.length) {
+      for (const hint of companySnapshot.hints) {
+        warnings.push(hint);
+      }
+    }
 
     let response: TechAssistantResponse = heuristics.response;
     let providerLabel = 'Heurística interna HBX';
@@ -114,14 +134,35 @@ export class TechAssistantService {
       warnings,
     };
 
+    if (companySnapshot?.diagnosticExtension) {
+      response.diagnostic = {
+        ...response.diagnostic,
+        possibleCauses: Array.from(new Set([
+          ...response.diagnostic.possibleCauses,
+          ...companySnapshot.diagnosticExtension.possibleCauses,
+        ])).slice(0, 6),
+      };
+      response.nextActions = Array.from(new Set([
+        ...companySnapshot.diagnosticExtension.nextActions,
+        ...response.nextActions,
+      ])).slice(0, 8);
+      response.checklist = Array.from(new Set([
+        ...response.checklist,
+        ...companySnapshot.diagnosticExtension.checklist,
+      ])).slice(0, 14);
+    }
+
     const maskedInput = this.buildMaskedInput(input);
     const interaction = await this.prisma.techAssistantInteraction.create({
       data: {
         userId: Number(userId),
+        companyId: runtimeContext.effectiveCompanyId || null,
         mode: response.mode,
+        operationMode: runtimeContext.operationMode,
         analysisType: input.analysisType,
         title: response.title,
         route: input.route || null,
+        module: input.module || null,
         environment: input.environment,
         expectedBehavior: input.expectedBehavior || null,
         currentBehavior: input.currentBehavior || null,
@@ -132,31 +173,125 @@ export class TechAssistantService {
       },
     });
 
+    await this.masterContextService.registerSupportAction({
+      masterUserId: userId,
+      scope: 'tech_assistant',
+      action: 'ANALYZE',
+      route: input.route || null,
+      metadata: {
+        analysisType: input.analysisType,
+        module: input.module || null,
+        companyId: runtimeContext.effectiveCompanyId,
+      },
+    });
+
     return {
       interactionId: interaction.id,
       response,
     };
   }
 
-  async listHistory(userId: number) {
+  async listHistory(
+    user: any,
+    filters?: {
+      companyId?: number;
+      module?: string;
+      route?: string;
+      analysisType?: string;
+      from?: string;
+      to?: string;
+    },
+  ) {
+    const userId = Number(user?.id || 0);
+    const where: any = { userId };
+
+    if (filters?.companyId) {
+      where.companyId = Number(filters.companyId);
+    }
+    if (filters?.module) {
+      where.module = String(filters.module || '').trim();
+    }
+    if (filters?.analysisType) {
+      where.analysisType = String(filters.analysisType || '').trim();
+    }
+    if (filters?.route) {
+      where.route = { contains: String(filters.route || '').trim(), mode: 'insensitive' };
+    }
+    if (filters?.from || filters?.to) {
+      where.createdAt = {
+        ...(filters?.from ? { gte: new Date(filters.from) } : {}),
+        ...(filters?.to ? { lte: new Date(filters.to) } : {}),
+      };
+    }
+
     const rows = await this.prisma.techAssistantInteraction.findMany({
-      where: { userId: Number(userId) },
+      where,
       orderBy: { createdAt: 'desc' },
-      take: 25,
+      take: 100,
     });
 
     return rows.map((row) => this.mapHistoryRow(row));
   }
 
-  async deleteHistoryItem(userId: number, interactionId: string) {
+  async confirmSensitiveOperation(user: any, dto: ConfirmTechAssistantOperationDto) {
+    const { userId, companyId } = this.requireActiveCompanyContextFromMaster(user);
+    const action = String(dto?.action || '').trim();
+    const confirmationText = String(dto?.confirmationText || '').trim().toUpperCase();
+    const details = String(dto?.details || '').trim();
+
+    const isConfirmed = confirmationText === 'CONFIRMAR';
+
+    await this.masterContextService.registerSupportAction({
+      masterUserId: userId,
+      scope: 'tech_assistant_operation',
+      action: isConfirmed ? 'CONFIRMED_SENSITIVE_ACTION' : 'DENIED_SENSITIVE_ACTION',
+      severity: isConfirmed ? 'WARN' : 'ERROR',
+      metadata: {
+        action,
+        companyId,
+        details: this.maskSensitiveData(details || null),
+      },
+    });
+
+    if (!isConfirmed) {
+      throw new BadRequestException('Confirmacao invalida. Digite CONFIRMAR para registrar a acao sensivel.');
+    }
+
+    return {
+      ok: true,
+      confirmed: true,
+      message: 'Confirmacao registrada na trilha de auditoria. Nenhuma acao destrutiva foi executada automaticamente.',
+      action,
+      companyId,
+    };
+  }
+
+  async deleteHistoryItem(user: any, interactionId: string) {
+    const userId = Number(user?.id || 0);
     await this.prisma.techAssistantInteraction.deleteMany({
       where: { id: interactionId, userId: Number(userId) },
     });
+
+    await this.masterContextService.registerSupportAction({
+      masterUserId: userId,
+      scope: 'tech_assistant',
+      action: 'DELETE_HISTORY_ITEM',
+      metadata: { interactionId },
+    });
+
     return { ok: true };
   }
 
-  async clearHistory(userId: number) {
+  async clearHistory(user: any) {
+    const userId = Number(user?.id || 0);
     await this.prisma.techAssistantInteraction.deleteMany({ where: { userId: Number(userId) } });
+
+    await this.masterContextService.registerSupportAction({
+      masterUserId: userId,
+      scope: 'tech_assistant',
+      action: 'CLEAR_HISTORY',
+    });
+
     return { ok: true };
   }
 
@@ -197,11 +332,239 @@ export class TechAssistantService {
     };
   }
 
+  async listCompanyConversations(user: any) {
+    const { userId, companyId } = this.requireActiveCompanyContextFromMaster(user);
+    const rows = await this.prisma.companyConversation.findMany({
+      where: { companyId },
+      orderBy: { lastMessageAt: 'desc' },
+      take: 40,
+      select: {
+        id: true,
+        contact: true,
+        channel: true,
+        currentFlow: true,
+        currentStep: true,
+        flowResult: true,
+        botActive: true,
+        humanAssigned: true,
+        lastMessageAt: true,
+        metadata: true,
+      },
+    });
+
+    await this.masterContextService.registerSupportAction({
+      masterUserId: userId,
+      scope: 'tech_assistant_tool',
+      action: 'LIST_CONVERSATIONS',
+      metadata: { companyId, count: rows.length },
+    });
+
+    return {
+      companyId,
+      total: rows.length,
+      conversations: rows.map((row) => ({
+        ...row,
+        metadata: this.maskSensitiveData(row.metadata),
+      })),
+    };
+  }
+
+  async listConversationMessages(user: any, conversationId: number) {
+    const { userId, companyId } = this.requireActiveCompanyContextFromMaster(user);
+    const messages = await this.prisma.companyMessage.findMany({
+      where: {
+        companyId,
+        conversationId: Number(conversationId),
+      },
+      orderBy: { timestamp: 'desc' },
+      take: 80,
+      select: {
+        id: true,
+        direction: true,
+        body: true,
+        status: true,
+        error: true,
+        timestamp: true,
+        sourceModule: true,
+        provider: true,
+      },
+    });
+
+    await this.masterContextService.registerSupportAction({
+      masterUserId: userId,
+      scope: 'tech_assistant_tool',
+      action: 'LIST_CONVERSATION_MESSAGES',
+      metadata: { companyId, conversationId: Number(conversationId), count: messages.length },
+    });
+
+    return {
+      companyId,
+      conversationId: Number(conversationId),
+      total: messages.length,
+      messages: messages.map((message) => ({
+        ...message,
+        body: this.maskSensitiveData(message.body),
+        error: this.maskSensitiveData(message.error),
+      })),
+    };
+  }
+
+  async listRecentWebhooks(user: any) {
+    const { userId, companyId } = this.requireActiveCompanyContextFromMaster(user);
+    const rows = await this.prisma.whatsAppWebhookEvent.findMany({
+      where: { companyId },
+      orderBy: { receivedAt: 'desc' },
+      take: 80,
+      select: {
+        id: true,
+        kind: true,
+        providerMessageId: true,
+        receivedAt: true,
+        payload: true,
+      },
+    });
+
+    await this.masterContextService.registerSupportAction({
+      masterUserId: userId,
+      scope: 'tech_assistant_tool',
+      action: 'LIST_WEBHOOKS',
+      metadata: { companyId, count: rows.length },
+    });
+
+    return {
+      companyId,
+      total: rows.length,
+      webhooks: rows.map((row) => ({
+        ...row,
+        payload: this.maskSensitiveData(row.payload),
+      })),
+    };
+  }
+
+  async getIntegrationStatus(user: any) {
+    const { userId, companyId } = this.requireActiveCompanyContextFromMaster(user);
+    const company = await this.prisma.company.findUnique({
+      where: { id: companyId },
+      select: {
+        id: true,
+        name: true,
+        whatsappStatus: true,
+        whatsappStatusError: true,
+        whatsappStatusUpdatedAt: true,
+        whatsappDisplayNumber: true,
+        whatsappPhoneNumberId: true,
+        whatsappWabaId: true,
+        whatsappAccessToken: true,
+      },
+    });
+
+    await this.masterContextService.registerSupportAction({
+      masterUserId: userId,
+      scope: 'tech_assistant_tool',
+      action: 'GET_INTEGRATION_STATUS',
+      metadata: { companyId },
+    });
+
+    return {
+      companyId,
+      companyName: company?.name || null,
+      whatsapp: {
+        status: company?.whatsappStatus || 'DISCONNECTED',
+        statusError: this.maskSensitiveData(company?.whatsappStatusError || null),
+        statusUpdatedAt: company?.whatsappStatusUpdatedAt || null,
+        displayNumber: company?.whatsappDisplayNumber || null,
+        phoneNumberId: company?.whatsappPhoneNumberId || null,
+        wabaId: company?.whatsappWabaId || null,
+        tokenConfigured: Boolean(company?.whatsappAccessToken),
+      },
+    };
+  }
+
+  async listRecentFailures(user: any) {
+    const { userId, companyId } = this.requireActiveCompanyContextFromMaster(user);
+    const [failedOutbound, failedMessages, auditErrors] = await Promise.all([
+      this.prisma.outboundMessage.findMany({
+        where: { companyId, status: 'FAILED' },
+        orderBy: { createdAt: 'desc' },
+        take: 60,
+        select: {
+          id: true,
+          to: true,
+          status: true,
+          lastError: true,
+          sourceModule: true,
+          createdAt: true,
+          sentAt: true,
+        },
+      }),
+      this.prisma.companyMessage.findMany({
+        where: { companyId, error: { not: null } },
+        orderBy: { timestamp: 'desc' },
+        take: 60,
+        select: {
+          id: true,
+          direction: true,
+          status: true,
+          error: true,
+          sourceModule: true,
+          timestamp: true,
+        },
+      }),
+      this.prisma.whatsAppAuditLog.findMany({
+        where: { companyId, level: { in: ['ERROR', 'WARN'] } },
+        orderBy: { createdAt: 'desc' },
+        take: 60,
+        select: {
+          id: true,
+          scope: true,
+          event: true,
+          level: true,
+          message: true,
+          metadata: true,
+          createdAt: true,
+        },
+      }),
+    ]);
+
+    await this.masterContextService.registerSupportAction({
+      masterUserId: userId,
+      scope: 'tech_assistant_tool',
+      action: 'LIST_FAILURES',
+      metadata: {
+        companyId,
+        failedOutbound: failedOutbound.length,
+        failedMessages: failedMessages.length,
+        auditErrors: auditErrors.length,
+      },
+    });
+
+    return {
+      companyId,
+      failedOutbound: failedOutbound.map((row) => ({
+        ...row,
+        to: this.maskSensitiveData(row.to),
+        lastError: this.maskSensitiveData(row.lastError),
+      })),
+      failedMessages: failedMessages.map((row) => ({
+        ...row,
+        error: this.maskSensitiveData(row.error),
+      })),
+      auditErrors: auditErrors.map((row) => ({
+        ...row,
+        message: this.maskSensitiveData(row.message),
+        metadata: this.maskSensitiveData(row.metadata),
+      })),
+    };
+  }
+
   private normalizeInput(dto: AnalyzeTechAssistantDto): TechAssistantInput {
     const input: TechAssistantInput = {
       analysisType: dto.analysisType,
       environment: dto.environment || 'desconhecido',
       route: this.cleanInline(dto.route),
+      module: this.cleanInline(dto.module),
+      activeCompanyName: this.cleanInline(dto.activeCompanyName),
+      operationMode: this.cleanInline(dto.operationMode),
       message: this.cleanMultiline(dto.message),
       technicalContent: this.cleanMultiline(dto.technicalContent),
       expectedBehavior: this.cleanMultiline(dto.expectedBehavior),
@@ -236,6 +599,21 @@ export class TechAssistantService {
     return normalized || undefined;
   }
 
+  private requireActiveCompanyContextFromMaster(user: any) {
+    const userId = Number(user?.id || 0);
+    const isMaster = Boolean(user?.isSystemMaster);
+    const companyId = Number(user?.companyId || 0);
+
+    if (!userId || !isMaster) {
+      throw new ForbiddenException('Acesso exclusivo do MASTER.');
+    }
+    if (!companyId) {
+      throw new BadRequestException('Nenhuma empresa ativa no contexto. Assuma contexto de empresa para investigar.');
+    }
+
+    return { userId, companyId };
+  }
+
   private buildHeuristicResponse(input: TechAssistantInput) {
     const combinedContent = this.buildCombinedContent(input);
     const mainError = this.detectMainError(input, combinedContent);
@@ -255,6 +633,9 @@ export class TechAssistantService {
 
     const diagnostic: TechAssistantDiagnostic = {
       route: input.route || 'Nao informada',
+      module: input.module || 'Nao informado',
+      company: input.activeCompanyName || 'Nao informada',
+      operationMode: input.operationMode || 'master_puro',
       environment: input.environment,
       expectedBehavior: input.expectedBehavior || 'Nao informado',
       currentBehavior: input.currentBehavior || 'Nao informado',
@@ -501,9 +882,11 @@ export class TechAssistantService {
 
   private buildSummary(input: TechAssistantInput, mainError: string) {
     const routePart = input.route ? ` na rota ${input.route}` : '';
+    const companyPart = input.activeCompanyName ? ` Empresa ativa: ${input.activeCompanyName}.` : '';
+    const modePart = input.operationMode ? ` Modo: ${input.operationMode}.` : '';
     const expectedPart = input.expectedBehavior ? ` Esperado: ${input.expectedBehavior}.` : '';
     const currentPart = input.currentBehavior ? ` Atual: ${input.currentBehavior}.` : '';
-    return `Foi identificado um cenário de análise ${ANALYSIS_TYPE_LABELS[input.analysisType] || input.analysisType}${routePart}. Erro principal: ${mainError}.${expectedPart}${currentPart}`.trim();
+    return `Foi identificado um cenário de análise ${ANALYSIS_TYPE_LABELS[input.analysisType] || input.analysisType}${routePart}. Erro principal: ${mainError}.${companyPart}${modePart}${expectedPart}${currentPart}`.trim();
   }
 
   private buildTitle(input: TechAssistantInput, mainError: string) {
@@ -521,6 +904,9 @@ export class TechAssistantService {
       'Preserve PT-BR na interface e nas mensagens.',
       `Arquivos prováveis: ${probableFiles}.`,
       `Rota/página: ${input.route || 'não informada'}.`,
+      `Módulo atual: ${input.module || 'não informado'}.`,
+      `Empresa ativa: ${input.activeCompanyName || 'não informada'}.`,
+      `Modo de operação: ${input.operationMode || 'master_puro'}.`,
       `Comportamento esperado: ${input.expectedBehavior || 'não informado'}.`,
       `Comportamento atual: ${input.currentBehavior || 'não informado'}.`,
       `Erro atual: ${mainError}.`,
@@ -569,6 +955,9 @@ export class TechAssistantService {
       analysisType: input.analysisType,
       environment: input.environment,
       route: input.route || null,
+      module: input.module || null,
+      activeCompanyName: input.activeCompanyName || null,
+      operationMode: input.operationMode || null,
       message: this.maskSensitiveData(input.message),
       technicalContent: this.maskSensitiveData(input.technicalContent),
       expectedBehavior: this.maskSensitiveData(input.expectedBehavior),
@@ -661,6 +1050,97 @@ export class TechAssistantService {
       providerStatus: row.providerStatus || null,
       response,
       maskedInput,
+    };
+  }
+
+  private async resolveTechContext(user: any, input: TechAssistantInput) {
+    const runtimeContext = await this.masterContextService.resolveRuntimeContext(user);
+    const companyNameFromContext = runtimeContext.masterContext?.companyName || null;
+    const operationMode = runtimeContext.masterContext?.active ? 'empresa_assumida' : 'master_puro';
+
+    return {
+      effectiveCompanyId: runtimeContext.effectiveCompanyId || null,
+      companyName: companyNameFromContext || input.activeCompanyName || null,
+      operationMode,
+    };
+  }
+
+  private async loadCompanyDiagnosticsSnapshot(companyId: number | null) {
+    if (!companyId) return null;
+
+    const [company, conversationCount, latestMessages, latestWebhookEvents, failedOutboundCount] = await Promise.all([
+      this.prisma.company.findUnique({
+        where: { id: Number(companyId) },
+        select: {
+          id: true,
+          name: true,
+          whatsappStatus: true,
+          whatsappStatusError: true,
+          whatsappStatusUpdatedAt: true,
+        },
+      }),
+      this.prisma.companyConversation.count({ where: { companyId: Number(companyId) } }),
+      this.prisma.companyMessage.findMany({
+        where: { companyId: Number(companyId) },
+        select: { id: true, direction: true, status: true, timestamp: true, error: true },
+        orderBy: { timestamp: 'desc' },
+        take: 12,
+      }),
+      this.prisma.whatsAppWebhookEvent.findMany({
+        where: { companyId: Number(companyId) },
+        select: { id: true, kind: true, receivedAt: true },
+        orderBy: { receivedAt: 'desc' },
+        take: 12,
+      }),
+      this.prisma.outboundMessage.count({
+        where: { companyId: Number(companyId), status: 'FAILED' },
+      }),
+    ]);
+
+    const hints: string[] = [];
+    if (company?.whatsappStatus && String(company.whatsappStatus).toUpperCase() !== 'CONNECTED') {
+      hints.push(`Canal WhatsApp da empresa ativa está ${company.whatsappStatus}.`);
+    }
+    if (failedOutboundCount > 0) {
+      hints.push(`Foram detectadas ${failedOutboundCount} mensagens com falha no envio recente.`);
+    }
+    if (!latestWebhookEvents.length) {
+      hints.push('Nao foram encontrados webhooks recentes para a empresa ativa.');
+    }
+
+    const hasRecentMessageError = latestMessages.some((message) => String(message.error || '').trim().length > 0);
+    const possibleCauses: string[] = [];
+    const nextActions: string[] = [];
+    const checklist: string[] = [];
+
+    if (company?.whatsappStatus && String(company.whatsappStatus).toUpperCase() !== 'CONNECTED') {
+      possibleCauses.push('A integracao WhatsApp da empresa ativa nao esta conectada ou apresenta erro operacional.');
+      nextActions.push('Validar a integracao da empresa ativa no modulo Master > Empresa > WhatsApp.');
+    }
+
+    if (hasRecentMessageError) {
+      possibleCauses.push('Ha mensagens recentes com erro persistido no canal da empresa ativa.');
+      nextActions.push('Abrir as ultimas mensagens com erro e comparar payload recebido vs atendimento gerado.');
+      checklist.push('Confirmar motivo de erro das ultimas mensagens e classificar por tipo (auth, payload, timeout).');
+    }
+
+    if (!latestWebhookEvents.length) {
+      possibleCauses.push('Ausencia de webhook recente pode indicar configuracao de callback ou assinatura inconsistente.');
+      nextActions.push('Validar endpoint de webhook e eventos assinados para a empresa ativa.');
+      checklist.push('Executar teste controlado de webhook para confirmar recebimento na empresa ativa.');
+    }
+
+    if (conversationCount === 0) {
+      checklist.push('Confirmar se a empresa ativa tem historico de conversas no ambiente selecionado.');
+    }
+
+    return {
+      hints,
+      diagnosticExtension: {
+        possibleCauses,
+        nextActions,
+        checklist,
+      },
     };
   }
 }

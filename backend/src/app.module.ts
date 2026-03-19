@@ -23,6 +23,7 @@ import { CadastrosModule } from './cadastros/cadastros.module';
 import { WebsiteModule } from './website/website.module';
 import { HbxRecoveryModule } from './hbx-recovery/hbx-recovery.module';
 import { TechAssistantModule } from './tech-assistant/tech-assistant.module';
+import { MasterContextModule } from './master-context/master-context.module';
 
 @Module({
   imports: [
@@ -54,6 +55,7 @@ import { TechAssistantModule } from './tech-assistant/tech-assistant.module';
     WebsiteModule,
     HbxRecoveryModule,
     TechAssistantModule,
+    MasterContextModule,
   ],
   controllers: [AppController],
   providers: [
