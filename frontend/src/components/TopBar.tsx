@@ -725,7 +725,8 @@ export default function TopBar() {
       setModules(myModules || []);
       setMasterContextModalOpen(false);
       setMasterContextReason("");
-      setMasterContextMessage("Contexto assumido com sucesso.");
+      // reload to ensure all modules and routes update for the new context
+      window.location.reload();
     } catch (error) {
       const message = error instanceof Error ? error.message : "Falha ao assumir contexto da empresa.";
       setMasterContextMessage(message);
@@ -751,7 +752,8 @@ export default function TopBar() {
       setModules(myModules || []);
       setMasterContextModalOpen(false);
       setMasterContextReason("");
-      setMasterContextMessage("Sessao de contexto encerrada.");
+      // reload to refresh available modules after exiting context
+      window.location.reload();
     } catch (error) {
       const message = error instanceof Error ? error.message : "Falha ao sair do contexto assumido.";
       setMasterContextMessage(message);
