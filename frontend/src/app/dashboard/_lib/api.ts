@@ -54,21 +54,6 @@ function parseErrorMessage(data: unknown): string {
   return "Erro";
 }
 
-function shouldAttachMasterRouteHeader(path: string, pathname: string) {
-  const normalizedPath = String(path || "").trim();
-  const normalizedRoute = String(pathname || "").trim().toLowerCase();
-  const isMasterRoute = normalizedRoute.startsWith("/dashboard/master");
-  if (!isMasterRoute) return false;
-
-  const protectedPrefixes = [
-    "/master-context",
-    "/tech-assistant",
-    "/modules/master",
-  ];
-
-  return protectedPrefixes.some((prefix) => normalizedPath.startsWith(prefix));
-}
-
 export async function apiFetch<T>(
   path: string,
   init?: RequestInit & { skipAuth?: boolean }
@@ -84,18 +69,6 @@ export async function apiFetch<T>(
   if (!init?.skipAuth && token) {
     headers.set("Authorization", `Bearer ${token}`);
   }
-  if (typeof window !== "undefined") {
-    const routePathname = String(window.location.pathname || "");
-    const route = `${routePathname}${window.location.search || ""}`.slice(0, 220);
-    if (
-      route &&
-      !headers.has("x-master-route") &&
-      shouldAttachMasterRouteHeader(path, routePathname)
-    ) {
-      headers.set("x-master-route", route);
-    }
-  }
-
   const res = await fetch(url, { ...init, headers });
 
   let data: unknown = null;
