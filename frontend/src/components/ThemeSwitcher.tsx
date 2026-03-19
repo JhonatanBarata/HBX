@@ -176,6 +176,7 @@ type ThemeSwitcherProps = {
 
 export default function ThemeSwitcher({ storageUserId }: ThemeSwitcherProps) {
   const [mode, setMode] = React.useState<'light' | 'dark'>('light');
+  const [selectedTheme, setSelectedTheme] = React.useState<string>(DEFAULT_THEME_ID);
 
   function applyTheme(id: string, nextMode: 'light' | 'dark') {
     if (typeof window === "undefined") return;
@@ -187,25 +188,34 @@ export default function ThemeSwitcher({ storageUserId }: ThemeSwitcherProps) {
     try { localStorage.setItem('theme-mode', nextMode); } catch {}
   }
 
-  function toggleThemeMode() {
-    const nextMode = mode === 'dark' ? 'light' : 'dark';
-    applyTheme(DEFAULT_THEME_ID, nextMode);
-    setMode(nextMode);
-    try {
-      localStorage.setItem("theme", DEFAULT_THEME_ID);
-    } catch {}
+  function handleChipClick(id: string) {
+    if (typeof window === 'undefined') return;
+    if (id !== selectedTheme) {
+      const nextMode: 'light' | 'dark' = 'light';
+      setSelectedTheme(id);
+      setMode(nextMode);
+      applyTheme(id, nextMode);
+      try { localStorage.setItem('theme', id); localStorage.setItem('theme-mode', nextMode); } catch {}
+    } else {
+      const nextMode: 'light' | 'dark' = mode === 'dark' ? 'light' : 'dark';
+      setMode(nextMode);
+      applyTheme(id, nextMode);
+      try { localStorage.setItem('theme-mode', nextMode); } catch {}
+    }
   }
 
   React.useEffect(() => {
     try {
       const storedMode = (localStorage.getItem('theme-mode') as 'light' | 'dark') || (document.documentElement.getAttribute('data-theme-mode') as 'light' | 'dark') || 'light';
-      applyTheme(DEFAULT_THEME_ID, storedMode);
+      const storedTheme = (localStorage.getItem('theme') as string) || (document.documentElement.getAttribute('data-theme') as string) || DEFAULT_THEME_ID;
+      setSelectedTheme(storedTheme);
       setMode(storedMode);
-      localStorage.setItem("theme", DEFAULT_THEME_ID);
+      applyTheme(storedTheme, storedMode);
     } catch {
       // ignore
     }
   }, [storageUserId]);
+
   return (
     <div className="theme-switcher-wrap">
       <div className="theme-switcher" role="group" aria-label="Tema visual">
@@ -214,22 +224,13 @@ export default function ThemeSwitcher({ storageUserId }: ThemeSwitcherProps) {
             <button
               key={id}
               type="button"
-              onClick={() => applyTheme(id, mode)}
-              className={`theme-chip ${id === DEFAULT_THEME_ID ? 'is-primary' : ''}`}
-              aria-pressed={document.documentElement.getAttribute('data-theme') === id}
+              onClick={() => handleChipClick(id)}
+              className={`theme-chip ${selectedTheme === id ? 'is-selected' : ''} ${id === DEFAULT_THEME_ID ? 'is-primary' : ''}`}
+              aria-pressed={selectedTheme === id}
             >
               {id === 'primary' ? 'Corporate' : id[0].toUpperCase() + id.slice(1)}
             </button>
           ))}
-          <button
-            type="button"
-            onClick={toggleThemeMode}
-            className="theme-chip is-active"
-            aria-pressed={mode === 'dark'}
-            style={{ marginLeft: 6 }}
-          >
-            {mode === 'dark' ? 'Dark' : 'Light'}
-          </button>
         </div>
       </div>
     </div>

@@ -173,16 +173,13 @@ function applyThemePalette(id: string, nextStrength: number) {
 export default function ThemeInit() {
   useEffect(() => {
     try {
-      const storedMode = (localStorage.getItem("theme-mode") as "light" | "dark") || "light";
+      const storedMode = (localStorage.getItem("theme-mode") as "light" | "dark") || (document.documentElement.getAttribute('data-theme-mode') as "light" | "dark") || "light";
+      const storedTheme = (localStorage.getItem("theme") as string) || (document.documentElement.getAttribute('data-theme') as string) || 'primary';
       const safeStrength = storedMode === "dark" ? 100 : 0;
-      document.documentElement.setAttribute("data-theme", "primary");
+      document.documentElement.setAttribute("data-theme", storedTheme);
       document.documentElement.setAttribute("data-theme-mode", storedMode);
-      localStorage.setItem("theme", "primary");
-      applyThemePalette("primary", safeStrength);
-      document.documentElement.style.setProperty(
-        "--theme-strength-pct",
-        `${safeStrength}%`,
-      );
+      applyThemePalette(storedTheme, safeStrength);
+      document.documentElement.style.setProperty("--theme-strength-pct", `${safeStrength}%`);
     } catch {
       // ignore
     }

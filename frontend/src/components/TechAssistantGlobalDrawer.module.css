@@ -12,7 +12,8 @@
   right: 16px;
   bottom: max(74px, calc(env(safe-area-inset-bottom) + 66px));
   z-index: 141;
-  width: min(clamp(300px, 24vw, 360px), calc(100vw - 1rem));
+  /* Keep the drawer inside the right-side vacuum area on desktop. */
+  width: min(360px, calc((100vw - 980px) / 2 - 16px), calc(100vw - 1rem));
   max-height: min(720px, calc(100dvh - 96px));
   border-radius: 18px;
   border: 1px solid var(--line);
