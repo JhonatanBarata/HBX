@@ -2,6 +2,7 @@ import { BadRequestException, ForbiddenException, Injectable, NotFoundException 
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateCompanyDto } from './dto/create-company.dto';
 import { UpdateCompanyDto } from './dto/update-company.dto';
+import { buildImportacaoPermissaoRows } from '../bootstrap/company-structural-defaults';
 
 @Injectable()
 export class CompaniesService {
@@ -51,11 +52,18 @@ export class CompaniesService {
   }
 
   async create(dto: CreateCompanyDto) {
-    const created = await this.prisma.company.create({
-      data: {
-        name: dto.name,
-        slug: dto.slug,
-      },
+    const created = await this.prisma.$transaction(async (tx) => {
+      const company = await tx.company.create({
+        data: {
+          name: dto.name,
+          slug: dto.slug,
+        },
+      });
+      await tx.importacaoPermissao.createMany({
+        data: buildImportacaoPermissaoRows(company.id),
+        skipDuplicates: true,
+      });
+      return company;
     });
     return this.sanitizeCompany(created);
   }
@@ -76,11 +84,18 @@ export class CompaniesService {
       suffix += 1;
     }
 
-    const created = await this.prisma.company.create({
-      data: {
-        name,
-        slug: candidate,
-      },
+    const created = await this.prisma.$transaction(async (tx) => {
+      const company = await tx.company.create({
+        data: {
+          name,
+          slug: candidate,
+        },
+      });
+      await tx.importacaoPermissao.createMany({
+        data: buildImportacaoPermissaoRows(company.id),
+        skipDuplicates: true,
+      });
+      return company;
     });
     return this.sanitizeCompany(created);
   }

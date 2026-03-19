@@ -3332,7 +3332,8 @@ export class HbxRecoveryService {
 
   async listInteractions(user: any, queueRaw?: string) {
     const companyId = this.requireCompanyIdFromUser(user);
-    const queue = String(queueRaw || 'all').trim().toLowerCase() === 'human' ? 'human' : 'all';
+    const normalizedQueue = String(queueRaw || 'all').trim().toLowerCase();
+    const queue = normalizedQueue === 'closed' ? 'closed' : 'all';
 
     const conversations = await this.prisma.companyConversation.findMany({
       where: {
@@ -3408,6 +3409,11 @@ export class HbxRecoveryService {
         const conversationMeta = this.parseConversationMetadata((conversation as any).metadata);
         const humanAssigned = Boolean((conversation as any).humanAssigned);
         const botActive = Boolean((conversation as any).botActive);
+        const flowResult = (conversation as any).flowResult ? String((conversation as any).flowResult) : null;
+        const currentStep = String((conversation as any).currentStep || '');
+        const isClosed =
+          ['encerrado', 'manual_closed'].includes(String(flowResult || '').trim().toLowerCase()) ||
+          String(currentStep || '').trim().toLowerCase() === 'encerrado';
         return {
           conversationId: conversation.id,
           customerId: customer.id,
@@ -3417,13 +3423,14 @@ export class HbxRecoveryService {
           customerStatus: String(customer.status || '').toUpperCase(),
           openAmount: Number(customer.openAmount || 0),
           lastContact: customer.lastContact || 'Nunca',
-          humanQueue: humanAssigned || complaintCount > 0,
+          humanQueue: !isClosed && (humanAssigned || complaintCount > 0),
+          isClosed,
           botActive,
           humanAssigned,
           assignedUserId: (conversation as any).assignedUserId || null,
           currentFlow: String((conversation as any).currentFlow || ''),
-          currentStep: String((conversation as any).currentStep || ''),
-          flowResult: (conversation as any).flowResult ? String((conversation as any).flowResult) : null,
+          currentStep,
+          flowResult,
           metadata: conversationMeta,
           complaintCount,
           lastMessage: latest ? String(latest.body || '') : '',
@@ -3444,13 +3451,102 @@ export class HbxRecoveryService {
       })
       .filter(Boolean) as any[];
 
-    const filtered = queue === 'human' ? items.filter((item) => item.humanQueue) : items;
-    const pendingHumanCount = items.filter((item) => item.humanQueue).length;
+    const filtered =
+      queue === 'closed' ? items.filter((item) => item.isClosed) : items.filter((item) => !item.isClosed);
+    const pendingHumanCount = items.filter((item) => item.humanQueue && !item.isClosed).length;
 
     return {
       queue,
       pendingHumanCount,
       conversations: filtered,
+    };
+  }
+
+  private computeFollowupDueAt(
+    preferenceRaw: string | null | undefined,
+    baseDateRaw: Date | string | null | undefined,
+  ) {
+    const base = baseDateRaw ? new Date(baseDateRaw) : new Date();
+    if (Number.isNaN(base.getTime())) return new Date();
+    const preference = String(preferenceRaw || '').trim().toLowerCase();
+    const dueAt = new Date(base);
+    if (preference === 'hoje_mais_tarde') {
+      dueAt.setHours(Math.min(23, dueAt.getHours() + 4), 0, 0, 0);
+      return dueAt;
+    }
+    if (preference === 'amanha') {
+      dueAt.setDate(dueAt.getDate() + 1);
+      dueAt.setHours(9, 0, 0, 0);
+      return dueAt;
+    }
+    if (preference === 'esta_semana') {
+      dueAt.setDate(dueAt.getDate() + 7);
+      dueAt.setHours(9, 0, 0, 0);
+      return dueAt;
+    }
+    dueAt.setHours(Math.min(23, dueAt.getHours() + 24), 0, 0, 0);
+    return dueAt;
+  }
+
+  async listAgenda(user: any) {
+    const companyId = this.requireCompanyIdFromUser(user);
+    const conversations = await this.prisma.companyConversation.findMany({
+      where: {
+        companyId,
+        channel: 'whatsapp',
+        flowResult: 'followup_agendado',
+      },
+      orderBy: [{ lastInteractionAt: 'asc' }, { updatedAt: 'asc' }],
+      take: 200,
+      include: {
+        messages: {
+          orderBy: [{ timestamp: 'desc' }, { id: 'desc' }],
+          take: 1,
+        },
+      },
+    });
+
+    const items = await Promise.all(
+      conversations.map(async (conversation) => {
+        const customer = await this.resolveRecoveryCustomerForConversation(conversation, companyId);
+        if (!customer) return null;
+        const metadata = this.parseConversationMetadata((conversation as any).metadata);
+        const preference = String(metadata.followup_preferencia || '').trim().toLowerCase() || null;
+        const dueAt = this.computeFollowupDueAt(
+          preference,
+          (conversation as any).lastInteractionAt || conversation.updatedAt,
+        );
+        const now = Date.now();
+        const dueTime = dueAt.getTime();
+        const status = dueTime < now ? 'overdue' : dueTime - now <= 24 * 60 * 60 * 1000 ? 'today' : 'upcoming';
+        return {
+          conversationId: conversation.id,
+          customerId: customer.id,
+          customerName: String(customer.clientName || customer.name || '').trim(),
+          customerWhatsapp: String(customer.whatsappNumber || '').trim(),
+          openAmount: Number(customer.openAmount || 0),
+          preference,
+          currentStep: String((conversation as any).currentStep || '').trim() || null,
+          dueAt: dueAt.toISOString(),
+          lastInteractionAt: (conversation as any).lastInteractionAt
+            ? new Date((conversation as any).lastInteractionAt).toISOString()
+            : null,
+          status,
+          lastMessage:
+            conversation.messages?.[0] ? String(conversation.messages[0].body || '').trim() : '',
+        };
+      }),
+    );
+
+    const agendaItems = items.filter(Boolean);
+    return {
+      counters: {
+        total: agendaItems.length,
+        overdue: agendaItems.filter((item: any) => item.status === 'overdue').length,
+        today: agendaItems.filter((item: any) => item.status === 'today').length,
+        upcoming: agendaItems.filter((item: any) => item.status === 'upcoming').length,
+      },
+      items: agendaItems,
     };
   }
 

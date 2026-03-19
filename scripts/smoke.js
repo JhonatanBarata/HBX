@@ -1,5 +1,3 @@
-const axios = require('axios');
-
 const API = process.env.API_URL || 'http://localhost:3000';
 const FRONT = process.env.FRONT_URL || 'http://localhost:3001';
 
@@ -7,7 +5,17 @@ async function requestWithRetry(url, retries = 5, delayMs = 1000) {
   let lastErr;
   for (let i = 0; i < retries; i++) {
     try {
-      return await axios.get(url);
+      const response = await fetch(url);
+      if (!response.ok) {
+        const body = await response.text();
+        const error = new Error(`HTTP ${response.status}`);
+        error.response = { status: response.status, data: body };
+        throw error;
+      }
+      return {
+        status: response.status,
+        data: await response.text(),
+      };
     } catch (err) {
       lastErr = err;
       await new Promise((r) => setTimeout(r, delayMs));

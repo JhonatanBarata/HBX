@@ -84,8 +84,10 @@ export type RecoveryBotActionId =
   | "generate_installment_link"
   | "paid_claim";
 
+export type RecoveryBotAnyActionId = RecoveryBotActionId | string;
+
 export type RecoveryBotButton = {
-  actionId: RecoveryBotActionId;
+  actionId: RecoveryBotAnyActionId;
   title: string;
 };
 
@@ -96,7 +98,37 @@ export type RecoveryBotStartTemplate = {
   active: boolean;
 };
 
+export type RecoveryBotVariableScope = "shared" | "recovery" | "atendimento";
+
+export type RecoveryBotVariableDefinition = {
+  key: string;
+  label: string;
+  example: string;
+  description: string;
+  scope: RecoveryBotVariableScope;
+  required: boolean;
+};
+
+export type RecoveryBotActionGuide = {
+  actionId: RecoveryBotAnyActionId;
+  title: string;
+  description: string;
+  route: RecoveryBotVariableScope;
+  enabled: boolean;
+  responseMessage?: string;
+  custom?: boolean;
+};
+
+export type RecoveryRoutingRules = {
+  preferRecoveryForDebtors: boolean;
+  preferRecoveryForNegotiations: boolean;
+  preferInboxForManualQueue: boolean;
+};
+
 export type RecoveryBotConfig = {
+  variableCatalog: RecoveryBotVariableDefinition[];
+  actionCatalog: RecoveryBotActionGuide[];
+  routingRules: RecoveryRoutingRules;
   startTemplates: RecoveryBotStartTemplate[];
   rootFooter: string;
   mainMenuPrompt: string;
@@ -308,6 +340,7 @@ export type RecoveryInteractionConversation = {
   openAmount: number;
   lastContact: string;
   humanQueue: boolean;
+  isClosed?: boolean;
   botActive: boolean;
   humanAssigned: boolean;
   assignedUserId: number | null;
@@ -329,7 +362,7 @@ export type RecoveryInteractionConversation = {
 };
 
 export type RecoveryInteractionSummary = {
-  queue: "all" | "human";
+  queue: "all" | "closed";
   pendingHumanCount: number;
   conversations: RecoveryInteractionConversation[];
 };
@@ -367,6 +400,30 @@ export type RecoveryInteractionDetail = {
   };
   latestPayment: RecoveryPaymentHistoryItem | null;
   messages: RecoveryInteractionMessage[];
+};
+
+export type RecoveryAgendaItem = {
+  conversationId: number;
+  customerId: string;
+  customerName: string;
+  customerWhatsapp: string;
+  openAmount: number;
+  preference: string | null;
+  currentStep: string | null;
+  dueAt: string;
+  lastInteractionAt: string | null;
+  status: "overdue" | "today" | "upcoming";
+  lastMessage: string;
+};
+
+export type RecoveryAgendaSummary = {
+  counters: {
+    total: number;
+    overdue: number;
+    today: number;
+    upcoming: number;
+  };
+  items: RecoveryAgendaItem[];
 };
 
 export type RecoveryOverview = {

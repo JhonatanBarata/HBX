@@ -16,11 +16,16 @@ import AnimatedNumber from "./_components/AnimatedNumber";
 import ClientDrawer, { type DrawerActionId } from "./_components/ClientDrawer";
 import {
   buildRecoveryOverview,
+  type RecoveryBotActionGuide,
   type RecoveryBotActionId,
   type RecoveryBotButton,
   calculateRiskScore,
   type RecoveryBotConfig,
+  type RecoveryBotVariableDefinition,
+  type RecoveryBotVariableScope,
+  type RecoveryAgendaSummary,
   type RecoveryCustomer,
+  type RecoveryFlowStage,
   type RecoveryInteractionDetail,
   type RecoveryInteractionMessage,
   type RecoveryInteractionSummary,
@@ -84,6 +89,17 @@ type RecoveryHumanAttentionPopup = {
   lastAt: string;
 };
 
+type RecoveryHumanAttentionFeedItem = RecoveryHumanAttentionPopup & {
+  id: string;
+};
+
+type RecoveryNoticeHistoryItem = {
+  id: string;
+  message: string;
+  tone: "info" | "error";
+  createdAt: string;
+};
+
 function getLatestInboundPreview(messages: RecoveryInteractionMessage[]) {
   const lastInbound = [...messages]
     .reverse()
@@ -112,7 +128,7 @@ type RecoveryInboxFallbackConversation = {
 
 function mapInboxConversationsToRecoverySummary(
   rows: RecoveryInboxFallbackConversation[],
-  queue: "all" | "human",
+  queue: "all" | "closed",
 ): RecoveryInteractionSummary {
   const conversations = rows.map((row) => {
     const latestMessage = Array.isArray(row.messages) ? row.messages[0] : null;
@@ -131,6 +147,7 @@ function mapInboxConversationsToRecoverySummary(
       openAmount: 0,
       lastContact: "",
       humanQueue: status === "open",
+      isClosed: status === "closed",
       botActive: status === "new",
       humanAssigned: status === "open",
       assignedUserId: null,
@@ -152,11 +169,14 @@ function mapInboxConversationsToRecoverySummary(
     };
   });
 
-  const filtered = queue === "human" ? conversations.filter((item) => item.humanQueue) : conversations;
+  const filtered =
+    queue === "closed"
+      ? conversations.filter((item) => item.isClosed)
+      : conversations.filter((item) => !item.isClosed);
 
   return {
     queue,
-    pendingHumanCount: conversations.filter((item) => item.humanQueue).length,
+    pendingHumanCount: conversations.filter((item) => item.humanQueue && !item.isClosed).length,
     conversations: filtered,
   };
 }
@@ -554,7 +574,7 @@ type NewDebtorForm = {
   registrationDateInput: string;
 };
 
-type RecoveryTab = "recovery" | "register" | "payments" | "messages" | "templates" | "bot";
+type RecoveryTab = "recovery" | "register" | "payments" | "messages" | "templates" | "bot" | "agenda";
 
 type RecoveryImportRow = {
   sourceRow: number;
@@ -655,14 +675,204 @@ const TEMPLATE_WINDOW_DESCRIPTIONS: Record<TemplateWindowId, string> = {
 
 const RECOVERY_REQUIRED_TEMPLATE_VARIABLES = ["empresa", "cliente", "data_servico"] as const;
 
+const DEFAULT_BOT_VARIABLE_CATALOG: RecoveryBotVariableDefinition[] = [
+  {
+    key: "cliente",
+    label: "Nome do cliente",
+    example: "Maria Oliveira",
+    description: "Nome principal usado nas mensagens, templates e tratativas.",
+    scope: "shared",
+    required: true,
+  },
+  {
+    key: "empresa",
+    label: "Nome da empresa",
+    example: "Colsani Ar Condicionado",
+    description: "Tenant atual que dispara o fluxo e aparece no template inicial.",
+    scope: "shared",
+    required: true,
+  },
+  {
+    key: "funcionario",
+    label: "Nome do atendente",
+    example: "Leo Colsani",
+    description: "Usado quando o texto precisa humanizar o contato manual.",
+    scope: "atendimento",
+    required: false,
+  },
+  {
+    key: "data_servico",
+    label: "Data do servico",
+    example: "12/03/2026",
+    description: "Data da visita ou ordem de servico vinculada ao debito.",
+    scope: "recovery",
+    required: true,
+  },
+  {
+    key: "descricao_servico",
+    label: "Descricao do servico",
+    example: "manutencao preventiva",
+    description: "Resumo curto do motivo da cobranca ou da negociacao.",
+    scope: "recovery",
+    required: true,
+  },
+  {
+    key: "valor_formatado",
+    label: "Valor em aberto",
+    example: "R$ 480,00",
+    description: "Valor final formatado para aparecer no WhatsApp e no painel.",
+    scope: "recovery",
+    required: true,
+  },
+  {
+    key: "quantidade_parcelas",
+    label: "Parcelas legadas",
+    example: "3",
+    description: "Compatibilidade para templates antigos que ainda citam parcelamento.",
+    scope: "recovery",
+    required: false,
+  },
+  {
+    key: "valor_parcela_formatado",
+    label: "Valor da parcela",
+    example: "R$ 160,00",
+    description: "Compatibilidade com mensagens legadas de parcelamento.",
+    scope: "recovery",
+    required: false,
+  },
+  {
+    key: "link_pagamento",
+    label: "Link de pagamento",
+    example: "https://pagamentos.hbx.app/exemplo",
+    description: "URL final de checkout, Pix ou cartao enviada ao cliente.",
+    scope: "shared",
+    required: true,
+  },
+];
+
+const DEFAULT_BOT_ACTION_CATALOG: RecoveryBotActionGuide[] = [
+  {
+    actionId: "view_amount",
+    title: "Ver valor pendente",
+    description: "Exibe saldo, servico e contexto da cobranca.",
+    route: "recovery",
+    enabled: true,
+  },
+  {
+    actionId: "choose_installments",
+    title: "Pagar no credito",
+    description: "Leva o cliente para checkout em cartao com condicoes disponiveis.",
+    route: "recovery",
+    enabled: true,
+  },
+  {
+    actionId: "pay_full",
+    title: "Pagar no Pix",
+    description: "Gera pagamento imediato via Pix.",
+    route: "recovery",
+    enabled: true,
+  },
+  {
+    actionId: "talk_human",
+    title: "Falar com atendente",
+    description: "Entrega a conversa para a fila humana do Atendimento.",
+    route: "atendimento",
+    enabled: true,
+  },
+  {
+    actionId: "talk_later",
+    title: "Falar depois",
+    description: "Abre regras de follow-up para reagendar o contato.",
+    route: "recovery",
+    enabled: true,
+  },
+  {
+    actionId: "close_topic",
+    title: "Encerrar assunto",
+    description: "Fecha o assunto atual sem manter a fila manual aberta.",
+    route: "shared",
+    enabled: true,
+  },
+  {
+    actionId: "followup_today",
+    title: "Hoje mais tarde",
+    description: "Agenda retorno ainda hoje.",
+    route: "recovery",
+    enabled: true,
+  },
+  {
+    actionId: "followup_tomorrow",
+    title: "Amanha",
+    description: "Agenda o retorno para o proximo dia.",
+    route: "recovery",
+    enabled: true,
+  },
+  {
+    actionId: "followup_week",
+    title: "Esta semana",
+    description: "Agenda contato futuro ainda dentro da semana.",
+    route: "recovery",
+    enabled: true,
+  },
+  {
+    actionId: "installment_2",
+    title: "Opcao legada 2x",
+    description: "Alias legado preservado para cargas antigas.",
+    route: "recovery",
+    enabled: false,
+  },
+  {
+    actionId: "installment_3",
+    title: "Opcao legada 3x",
+    description: "Alias legado preservado para cargas antigas.",
+    route: "recovery",
+    enabled: false,
+  },
+  {
+    actionId: "installment_4",
+    title: "Opcao legada 4x",
+    description: "Alias legado preservado para cargas antigas.",
+    route: "recovery",
+    enabled: false,
+  },
+  {
+    actionId: "installment_5",
+    title: "Opcao legada 5x",
+    description: "Alias legado preservado para cargas antigas.",
+    route: "recovery",
+    enabled: false,
+  },
+  {
+    actionId: "generate_installment_link",
+    title: "Gerar link no credito",
+    description: "Confirma o checkout de cartao sem prender uma parcela fixa.",
+    route: "recovery",
+    enabled: true,
+  },
+  {
+    actionId: "paid_claim",
+    title: "Ja paguei",
+    description: "Encaminha prova de pagamento ou contestacao para a equipe.",
+    route: "atendimento",
+    enabled: true,
+  },
+];
+
 const DEFAULT_BOT_CONFIG: RecoveryBotConfig = {
+  variableCatalog: DEFAULT_BOT_VARIABLE_CATALOG,
+  actionCatalog: DEFAULT_BOT_ACTION_CATALOG,
+  routingRules: {
+    preferRecoveryForDebtors: true,
+    preferRecoveryForNegotiations: true,
+    preferInboxForManualQueue: true,
+  },
   rootFooter: "HBX Recovery",
   startTemplates: [],
   mainMenuPrompt: "Perfeito, {{cliente}}. Escolha abaixo como deseja continuar:",
   mainMenuButtons: [
     { actionId: "view_amount", title: "Ver valor pendente" },
-    { actionId: "choose_installments", title: "Parcelar" },
-    { actionId: "pay_full", title: "Pagar a vista" },
+    { actionId: "choose_installments", title: "Pagar no credito" },
+    { actionId: "pay_full", title: "Pagar no Pix" },
     { actionId: "talk_human", title: "Falar com atendente" },
   ],
   declineMenuPrompt:
@@ -681,33 +891,30 @@ const DEFAULT_BOT_CONFIG: RecoveryBotConfig = {
   valueMessageTemplate:
     "Seu valor pendente atual e de {{valor_formatado}} referente ao servico de {{descricao_servico}} realizado em {{data_servico}}.",
   valueButtons: [
-    { actionId: "pay_full", title: "Pagar agora" },
-    { actionId: "choose_installments", title: "Parcelar" },
+    { actionId: "pay_full", title: "Pagar no Pix" },
+    { actionId: "choose_installments", title: "Pagar no credito" },
     { actionId: "talk_human", title: "Falar com atendente" },
   ],
-  installmentsPrompt: "Sem problema. Escolha em quantas parcelas deseja pagar:",
+  installmentsPrompt: "Perfeito. Vou gerar seu link de pagamento no cartao de credito.",
   installmentButtons: [
-    { actionId: "installment_2", title: "2x" },
-    { actionId: "installment_3", title: "3x" },
-    { actionId: "installment_4", title: "4x" },
-    { actionId: "installment_5", title: "5x" },
+    { actionId: "choose_installments", title: "Gerar link no credito" },
     { actionId: "talk_human", title: "Falar com atendente" },
   ],
   installmentConfirmTemplate:
-    "Voce escolheu pagar em {{quantidade_parcelas}}x de {{valor_parcela_formatado}}. Deseja gerar o link agora?",
+    "Posso gerar agora seu link de pagamento no cartao de credito.",
   installmentConfirmButtons: [
-    { actionId: "generate_installment_link", title: "Gerar link" },
-    { actionId: "choose_installments", title: "Alterar parcelas" },
+    { actionId: "generate_installment_link", title: "Gerar link no credito" },
+    { actionId: "choose_installments", title: "Gerar novo link no credito" },
     { actionId: "talk_human", title: "Falar com atendente" },
   ],
   cashLinkMessageTemplate:
     "Pronto, {{cliente}}. Aqui esta seu link de pagamento:\n{{link_pagamento}}\n\nAssim que o pagamento for confirmado, avisaremos automaticamente.",
   installmentLinkMessageTemplate:
-    "Perfeito, {{cliente}}. Aqui esta seu link de pagamento em {{quantidade_parcelas}}x de {{valor_parcela_formatado}}:\n{{link_pagamento}}\n\nSe precisar, posso te conectar com um atendente.",
+    "Perfeito, {{cliente}}. Aqui esta seu link de pagamento no cartao de credito:\n{{link_pagamento}}\n\nO checkout vai mostrar as condicoes disponiveis direto no pagamento.",
   postLinkPrompt: "Precisando de algo mais?",
   postLinkButtons: [
     { actionId: "paid_claim", title: "Ja paguei" },
-    { actionId: "choose_installments", title: "Alterar parcelas" },
+    { actionId: "choose_installments", title: "Gerar link no credito" },
     { actionId: "talk_human", title: "Falar com atendente" },
   ],
   closeTopicMessage: "Entendido. Vamos encerrar esse assunto por agora. Se precisar, estamos por aqui.",
@@ -719,7 +926,7 @@ const DEFAULT_BOT_CONFIG: RecoveryBotConfig = {
   initialTemplateLanguage: "pt_BR",
   rootPrompt: "Perfeito, {{cliente}}. Escolha abaixo como deseja continuar:",
   optionPixLabel: "Ver valor pendente",
-  optionCardLabel: "Parcelar",
+  optionCardLabel: "Pagar no credito",
   optionAgentLabel: "Falar com atendente",
   topicsPrompt: "",
   topicsButtonLabel: "",
@@ -939,25 +1146,44 @@ type BotButtonSectionKey =
 
 const BOT_ACTION_LABELS: Record<RecoveryBotActionId, string> = {
   view_amount: "Ver valor pendente",
-  choose_installments: "Parcelar / alterar parcelas",
-  pay_full: "Pagar a vista",
+  choose_installments: "Pagar no credito",
+  pay_full: "Pagar no Pix",
   talk_human: "Falar com atendente",
   talk_later: "Falar depois",
   close_topic: "Encerrar assunto",
   followup_today: "Follow-up hoje mais tarde",
   followup_tomorrow: "Follow-up amanha",
   followup_week: "Follow-up esta semana",
-  installment_2: "Parcela 2x",
-  installment_3: "Parcela 3x",
-  installment_4: "Parcela 4x",
-  installment_5: "Parcela 5x",
-  generate_installment_link: "Gerar link parcelado",
+  installment_2: "Opcao legada 2x",
+  installment_3: "Opcao legada 3x",
+  installment_4: "Opcao legada 4x",
+  installment_5: "Opcao legada 5x",
+  generate_installment_link: "Gerar link no credito",
   paid_claim: "Ja paguei",
 };
 
 const BOT_ACTION_OPTIONS: Array<{ value: RecoveryBotActionId; label: string }> = (
   Object.keys(BOT_ACTION_LABELS) as RecoveryBotActionId[]
 ).map((value) => ({ value, label: BOT_ACTION_LABELS[value] }));
+
+const BOT_SCOPE_LABELS: Record<RecoveryBotVariableScope, string> = {
+  shared: "Compartilhado",
+  recovery: "Recovery",
+  atendimento: "Atendimento",
+};
+
+function getBotActionLabel(actionId: string) {
+  return BOT_ACTION_LABELS[actionId as RecoveryBotActionId] || actionId;
+}
+
+function normalizeCustomActionId(value: string) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "_")
+    .replace(/[^a-z0-9_]/g, "")
+    .slice(0, 48);
+}
 
 function ensureBotConfigShape(config: RecoveryBotConfig | null | undefined): RecoveryBotConfig {
   const merged: RecoveryBotConfig = {
@@ -986,7 +1212,7 @@ function ensureBotConfigShape(config: RecoveryBotConfig | null | undefined): Rec
     const current = Array.isArray(merged[section]) ? (merged[section] as RecoveryBotButton[]) : [];
     merged[section] = (current.length ? current : fallback).map((button) => ({
       actionId: button.actionId,
-      title: String(button.title || "").trim() || BOT_ACTION_LABELS[button.actionId],
+      title: String(button.title || "").trim() || getBotActionLabel(String(button.actionId || "")),
     })) as RecoveryBotConfig[BotButtonSectionKey];
   };
 
@@ -997,6 +1223,53 @@ function ensureBotConfigShape(config: RecoveryBotConfig | null | undefined): Rec
   syncButtons("installmentButtons", DEFAULT_BOT_CONFIG.installmentButtons);
   syncButtons("installmentConfirmButtons", DEFAULT_BOT_CONFIG.installmentConfirmButtons);
   syncButtons("postLinkButtons", DEFAULT_BOT_CONFIG.postLinkButtons);
+
+  const variableCatalog = Array.isArray(merged.variableCatalog) ? merged.variableCatalog : [];
+  const variables = new Map<string, RecoveryBotVariableDefinition>();
+  for (const item of DEFAULT_BOT_VARIABLE_CATALOG) {
+    variables.set(item.key, { ...item });
+  }
+  for (const item of variableCatalog) {
+    const key = String(item?.key || "").trim();
+    if (!key) continue;
+    variables.set(key, {
+      key,
+      label: String(item.label || variables.get(key)?.label || key).trim(),
+      example: String(item.example || variables.get(key)?.example || "").trim(),
+      description: String(item.description || variables.get(key)?.description || "").trim(),
+      scope: (["shared", "recovery", "atendimento"] as const).includes(item.scope)
+        ? item.scope
+        : (variables.get(key)?.scope || "shared"),
+      required: item.required ?? variables.get(key)?.required ?? false,
+    });
+  }
+  merged.variableCatalog = Array.from(variables.values());
+
+  const actionCatalog = Array.isArray(merged.actionCatalog) ? merged.actionCatalog : [];
+  const actions = new Map<string, RecoveryBotActionGuide>();
+  for (const item of DEFAULT_BOT_ACTION_CATALOG) {
+    actions.set(String(item.actionId), { ...item });
+  }
+  for (const item of actionCatalog) {
+    if (!item?.actionId) continue;
+    const actionKey = String(item.actionId);
+    actions.set(actionKey, {
+      actionId: item.actionId,
+      title: String(item.title || actions.get(actionKey)?.title || getBotActionLabel(actionKey)).trim(),
+      description: String(item.description || actions.get(actionKey)?.description || "").trim(),
+      route: (["shared", "recovery", "atendimento"] as const).includes(item.route)
+        ? item.route
+        : (actions.get(actionKey)?.route || "shared"),
+      enabled: item.enabled ?? actions.get(actionKey)?.enabled ?? true,
+      responseMessage: String(item.responseMessage || actions.get(actionKey)?.responseMessage || "").trim(),
+      custom: item.custom ?? actions.get(actionKey)?.custom ?? false,
+    });
+  }
+  merged.actionCatalog = Array.from(actions.values());
+  merged.routingRules = {
+    ...DEFAULT_BOT_CONFIG.routingRules,
+    ...(merged.routingRules || {}),
+  };
 
   const activeTemplate = merged.startTemplates.find((item) => item.active) || merged.startTemplates[0];
   merged.initialTemplateName = activeTemplate?.name || "";
@@ -1136,6 +1409,9 @@ export default function HbxRecoveryClientPage() {
   const [botConfig, setBotConfig] = useState<RecoveryBotConfig>(ensureBotConfigShape(DEFAULT_BOT_CONFIG));
   const [loadingBotConfig, setLoadingBotConfig] = useState(true);
   const [savingBotConfig, setSavingBotConfig] = useState(false);
+  const [flowStages, setFlowStages] = useState<RecoveryFlowStage[]>([]);
+  const [loadingFlowStages, setLoadingFlowStages] = useState(false);
+  const [movingFlowStageId, setMovingFlowStageId] = useState<string | null>(null);
   const [metaTemplates, setMetaTemplates] = useState<RecoveryMetaTemplatesPayload>(
     DEFAULT_META_TEMPLATES_PAYLOAD,
   );
@@ -1169,6 +1445,7 @@ export default function HbxRecoveryClientPage() {
   const [paymentMonth, setPaymentMonth] = useState(currentMonthKey());
   const [paymentFilter, setPaymentFilter] = useState<RecoveryPaymentLifecycle | "all">("in_progress");
   const [loadingPaymentHistory, setLoadingPaymentHistory] = useState(false);
+  const [loadingAgenda, setLoadingAgenda] = useState(false);
   const [refundingPaymentId, setRefundingPaymentId] = useState<string | null>(null);
   const [paymentSummary, setPaymentSummary] = useState<RecoveryPaymentHistorySummary>({
     month: currentMonthKey(),
@@ -1184,8 +1461,9 @@ export default function HbxRecoveryClientPage() {
     billing: { pendingAmount: 0, grossAmount: 0, commissionAmount: 0, netAmount: 0 },
     records: [],
   });
-  const [interactionsQueue, setInteractionsQueue] = useState<"all" | "human">("all");
+  const [interactionsQueue, setInteractionsQueue] = useState<"all" | "closed">("all");
   const [loadingInteractions, setLoadingInteractions] = useState(false);
+  const [refreshingInteractions, setRefreshingInteractions] = useState(false);
   const [loadingInteractionDetailId, setLoadingInteractionDetailId] = useState<number | null>(null);
   const [interactionSummary, setInteractionSummary] = useState<RecoveryInteractionSummary>({
     queue: "all",
@@ -1194,14 +1472,20 @@ export default function HbxRecoveryClientPage() {
   });
   const [interactionDetail, setInteractionDetail] = useState<RecoveryInteractionDetail | null>(null);
   const [interactionActionBusy, setInteractionActionBusy] = useState<string | null>(null);
+  const [agendaSummary, setAgendaSummary] = useState<RecoveryAgendaSummary>({
+    counters: { total: 0, overdue: 0, today: 0, upcoming: 0 },
+    items: [],
+  });
   const [interactionNoteDraft, setInteractionNoteDraft] = useState("");
   const [interactionReplyDraft, setInteractionReplyDraft] = useState("");
   const [showSystemMessages, setShowSystemMessages] = useState(false);
   const [humanAttentionPopup, setHumanAttentionPopup] =
     useState<RecoveryHumanAttentionPopup | null>(null);
+  const [humanAttentionFeed, setHumanAttentionFeed] = useState<RecoveryHumanAttentionFeedItem[]>([]);
   const [notice, setNotice] = useState<string | null>(
     "Carteira carregada com empresas cadastradas no Recovery. O envio de WhatsApp usa o motor oficial por empresa.",
   );
+  const [noticeHistory, setNoticeHistory] = useState<RecoveryNoticeHistoryItem[]>([]);
   const [noticeRendered, setNoticeRendered] = useState(Boolean(notice));
   const [noticeTransitionStage, setNoticeTransitionStage] = useState<"idle" | "enter" | "exit">(
     notice ? "enter" : "idle",
@@ -1214,6 +1498,9 @@ export default function HbxRecoveryClientPage() {
   const [importPreviewIssues, setImportPreviewIssues] = useState<RecoveryImportIssue[]>([]);
   const [importPreviewError, setImportPreviewError] = useState<string | null>(null);
   const [importingRows, setImportingRows] = useState(false);
+  const [creatingFlowStage, setCreatingFlowStage] = useState(false);
+  const [savingFlowStageId, setSavingFlowStageId] = useState<string | null>(null);
+  const [deletingFlowStageId, setDeletingFlowStageId] = useState<string | null>(null);
   const [loadingCustomers, setLoadingCustomers] = useState(true);
   const [customerRegisterFilter, setCustomerRegisterFilter] =
     useState<RecoveryRegisterFilterId>("overdue");
@@ -1310,6 +1597,32 @@ export default function HbxRecoveryClientPage() {
     [currentUserProfile],
   );
   const previewComposer = useDeferredValue(templateComposer);
+  const botActionOptions = useMemo(
+    () =>
+      botConfig.actionCatalog.map((action) => ({
+        value: String(action.actionId || ""),
+        label: action.custom ? `${action.title} (custom)` : action.title,
+      })),
+    [botConfig.actionCatalog],
+  );
+  useEffect(() => {
+    if (!notice) return;
+    setNoticeHistory((current) => {
+      if (current[0]?.message === notice) return current;
+      const tone: RecoveryNoticeHistoryItem["tone"] = /^falha\b/i.test(notice)
+        ? "error"
+        : "info";
+      return [
+        {
+          id: `${Date.now()}-${current.length}`,
+          message: notice,
+          tone,
+          createdAt: new Date().toISOString(),
+        },
+        ...current,
+      ].slice(0, 8);
+    });
+  }, [notice]);
   const filteredCustomers = useMemo(
     () =>
       customers.filter((customer) => {
@@ -2029,7 +2342,7 @@ export default function HbxRecoveryClientPage() {
   useEffect(() => {
     if (!hasToken) return;
     const timer = window.setInterval(() => {
-      void loadInteractions(interactionsQueue);
+      void loadInteractions(interactionsQueue, { silent: true });
       if (activeTab === "messages" && interactionDetail?.conversationId) {
         void loadInteractionDetail(interactionDetail.conversationId);
       }
@@ -2821,9 +3134,33 @@ export default function HbxRecoveryClientPage() {
     }
   }
 
-  async function loadInteractions(queue = interactionsQueue) {
+  function upsertHumanAttentionFeedItem(item: RecoveryHumanAttentionFeedItem) {
+    setHumanAttentionFeed((current) => {
+      const next = current.filter((entry) => entry.conversationId !== item.conversationId);
+      return [item, ...next].slice(0, 8);
+    });
+  }
+
+  function dismissHumanAttention(conversationId: number) {
+    setHumanAttentionFeed((current) =>
+      current.filter((entry) => entry.conversationId !== conversationId),
+    );
+    setHumanAttentionPopup((current) =>
+      current?.conversationId === conversationId ? null : current,
+    );
+  }
+
+  async function loadInteractions(
+    queue = interactionsQueue,
+    options?: { silent?: boolean },
+  ) {
     if (!hasToken) return;
-    setLoadingInteractions(true);
+    const silent = options?.silent ?? false;
+    if (silent && interactionSummary.conversations.length > 0) {
+      setRefreshingInteractions(true);
+    } else {
+      setLoadingInteractions(true);
+    }
     try {
       const query = new URLSearchParams();
       query.set("queue", queue);
@@ -2889,6 +3226,47 @@ export default function HbxRecoveryClientPage() {
       setNotice(`Falha ao carregar mensagens do Recovery: ${reason}`);
     } finally {
       setLoadingInteractions(false);
+      setRefreshingInteractions(false);
+    }
+  }
+
+  async function loadAgenda(options?: { silent?: boolean }) {
+    const silent = options?.silent ?? false;
+    if (!silent) setLoadingAgenda(true);
+    try {
+      const payload = await apiFetch<RecoveryAgendaSummary>("/hbx-recovery/agenda");
+      setAgendaSummary({
+        counters: {
+          total: Number(payload?.counters?.total || 0),
+          overdue: Number(payload?.counters?.overdue || 0),
+          today: Number(payload?.counters?.today || 0),
+          upcoming: Number(payload?.counters?.upcoming || 0),
+        },
+        items: Array.isArray(payload?.items) ? payload.items : [],
+      });
+    } catch (error) {
+      if (!silent) {
+        const reason = error instanceof Error ? error.message : "Falha ao carregar agenda.";
+        setNotice(`Falha ao carregar agenda: ${reason}`);
+      }
+    } finally {
+      if (!silent) setLoadingAgenda(false);
+    }
+  }
+
+  async function loadFlowStages(options?: { silent?: boolean }) {
+    const silent = options?.silent ?? false;
+    if (!silent) setLoadingFlowStages(true);
+    try {
+      const payload = await apiFetch<RecoveryFlowStage[]>("/hbx-recovery/flows");
+      setFlowStages(Array.isArray(payload) ? payload : []);
+    } catch (error) {
+      if (!silent) {
+        const reason = error instanceof Error ? error.message : "Falha ao carregar etapas.";
+        setNotice(`Falha ao carregar etapas do fluxo: ${reason}`);
+      }
+    } finally {
+      if (!silent) setLoadingFlowStages(false);
     }
   }
 
@@ -2971,7 +3349,7 @@ export default function HbxRecoveryClientPage() {
       return;
     }
 
-    setHumanAttentionPopup({
+    const nextPopup = {
       conversationId: item.conversationId,
       customerName: item.customerName,
       phone,
@@ -2979,11 +3357,17 @@ export default function HbxRecoveryClientPage() {
       pendingHumanCount,
       kind,
       lastAt: item.lastAt,
+    };
+
+    setHumanAttentionPopup(nextPopup);
+    upsertHumanAttentionFeedItem({
+      id: `${item.conversationId}:${item.lastAt}:${kind}`,
+      ...nextPopup,
     });
   }
 
   function openHumanAttentionConversation(conversationId: number) {
-    setHumanAttentionPopup(null);
+    dismissHumanAttention(conversationId);
     handleTabChange("messages");
     void loadInteractionDetail(conversationId);
   }
@@ -4075,6 +4459,65 @@ export default function HbxRecoveryClientPage() {
     );
   }
 
+  function appendVariableToTextField(
+    field:
+      | "mainMenuPrompt"
+      | "declineMenuPrompt"
+      | "followupPrompt"
+      | "valueMessageTemplate"
+      | "installmentsPrompt"
+      | "installmentConfirmTemplate"
+      | "cashLinkMessageTemplate"
+      | "installmentLinkMessageTemplate"
+      | "postLinkPrompt"
+      | "closeTopicMessage"
+      | "paidClaimMessage"
+      | "humanAckMessage"
+      | "rootFooter",
+    variableKey: string,
+  ) {
+    setBotConfig((current) =>
+      ensureBotConfigShape({
+        ...current,
+        [field]: `${String(current[field] || "")} {{${variableKey}}}`.trim(),
+      }),
+    );
+  }
+
+  function renderVariableShortcutRow(
+    field:
+      | "mainMenuPrompt"
+      | "declineMenuPrompt"
+      | "followupPrompt"
+      | "valueMessageTemplate"
+      | "installmentsPrompt"
+      | "installmentConfirmTemplate"
+      | "cashLinkMessageTemplate"
+      | "installmentLinkMessageTemplate"
+      | "postLinkPrompt"
+      | "closeTopicMessage"
+      | "paidClaimMessage"
+      | "humanAckMessage"
+      | "rootFooter",
+    scopes: RecoveryBotVariableScope[],
+  ) {
+    const variables = botConfig.variableCatalog.filter((item) => scopes.includes(item.scope) || item.scope === "shared");
+    return (
+      <div className={styles.botVariableShortcutRow}>
+        {variables.map((item) => (
+          <button
+            key={`${field}-${item.key}`}
+            type="button"
+            className={styles.botVariableShortcut}
+            onClick={() => appendVariableToTextField(field, item.key)}
+          >
+            {`{{${item.key}}}`}
+          </button>
+        ))}
+      </div>
+    );
+  }
+
   function setActiveStartTemplate(name: string, language: string) {
     setBotConfig((current) => {
       const selectedKey = `${String(name || "").trim().toLowerCase()}::${String(
@@ -4145,6 +4588,198 @@ export default function HbxRecoveryClientPage() {
     });
   }
 
+  function handleVariableGuideChange(
+    key: string,
+    field: "label" | "example" | "description",
+    value: string,
+  ) {
+    setBotConfig((current) =>
+      ensureBotConfigShape({
+        ...current,
+        variableCatalog: current.variableCatalog.map((item) =>
+          item.key === key
+            ? {
+                ...item,
+                [field]: value,
+              }
+            : item,
+        ),
+      }),
+    );
+  }
+
+  function addCustomActionGuide() {
+    setBotConfig((current) => {
+      const nextIndex = current.actionCatalog.filter((item) => item.custom).length + 1;
+      const actionId = normalizeCustomActionId(`custom_action_${nextIndex}`);
+      return ensureBotConfigShape({
+        ...current,
+        actionCatalog: [
+          ...current.actionCatalog,
+          {
+            actionId,
+            title: `Acao custom ${nextIndex}`,
+            description: "Explique aqui o que essa acao precisa fazer.",
+            route: "recovery",
+            enabled: true,
+            responseMessage: "Recebi sua solicitacao. Vou seguir com esse fluxo.",
+            custom: true,
+          },
+        ],
+      });
+    });
+  }
+
+  function updateActionGuide(
+    actionId: string,
+    field: "actionId" | "title" | "description" | "route" | "responseMessage" | "enabled",
+    value: string | boolean,
+  ) {
+    setBotConfig((current) =>
+      ensureBotConfigShape({
+        ...current,
+        actionCatalog: current.actionCatalog.map((item) => {
+          if (String(item.actionId) !== actionId) return item;
+          if (field === "actionId") {
+            return { ...item, actionId: normalizeCustomActionId(String(value)) || String(item.actionId) };
+          }
+          return { ...item, [field]: value };
+        }),
+      }),
+    );
+  }
+
+  function removeCustomActionGuide(actionId: string) {
+    setBotConfig((current) =>
+      ensureBotConfigShape({
+        ...current,
+        actionCatalog: current.actionCatalog.filter(
+          (item) => !(item.custom && String(item.actionId) === actionId),
+        ),
+      }),
+    );
+  }
+
+  async function moveFlowStage(stageId: string, direction: "up" | "down") {
+    const currentIndex = flowStages.findIndex((item) => item.id === stageId);
+    if (currentIndex < 0) return;
+    const targetIndex = direction === "up" ? currentIndex - 1 : currentIndex + 1;
+    if (targetIndex < 0 || targetIndex >= flowStages.length) return;
+    const target = flowStages[targetIndex];
+    setMovingFlowStageId(stageId);
+    try {
+      await apiFetch(`/hbx-recovery/flows/${stageId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ sortOrder: target.sortOrder }),
+      });
+      await loadFlowStages({ silent: true });
+      setNotice("Etapas do fluxo reordenadas.");
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : "Falha ao mover etapa.";
+      setNotice(`Falha ao mover etapa: ${reason}`);
+    } finally {
+      setMovingFlowStageId(null);
+    }
+  }
+
+  function updateFlowStageDraft(
+    stageId: string,
+    field: keyof RecoveryFlowStage,
+    value: string | number | boolean,
+  ) {
+    setFlowStages((current) =>
+      current.map((stage) =>
+        stage.id === stageId
+          ? {
+              ...stage,
+              [field]: value,
+            }
+          : stage,
+      ),
+    );
+  }
+
+  async function saveFlowStage(stageId: string) {
+    const stage = flowStages.find((item) => item.id === stageId);
+    if (!stage) return;
+    setSavingFlowStageId(stageId);
+    try {
+      await apiFetch(`/hbx-recovery/flows/${stageId}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          title: stage.title,
+          channel: stage.channel,
+          template: stage.template,
+          daysAfter: Number(stage.daysAfter || 0),
+          enabled: Boolean(stage.enabled),
+        }),
+      });
+      await loadFlowStages({ silent: true });
+      setNotice(`Etapa \"${stage.title}\" atualizada.`);
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : "Falha ao salvar etapa.";
+      setNotice(`Falha ao salvar etapa: ${reason}`);
+    } finally {
+      setSavingFlowStageId(null);
+    }
+  }
+
+  async function createFlowStage() {
+    setCreatingFlowStage(true);
+    try {
+      await apiFetch("/hbx-recovery/flows", {
+        method: "POST",
+        body: JSON.stringify({
+          title: `Nova etapa ${flowStages.length + 1}`,
+          channel: "whatsapp",
+          template: "Defina o template operacional desta etapa.",
+          daysAfter: flowStages.length + 1,
+          enabled: true,
+        }),
+      });
+      await loadFlowStages({ silent: true });
+      setNotice("Nova etapa operacional criada.");
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : "Falha ao criar etapa.";
+      setNotice(`Falha ao criar etapa: ${reason}`);
+    } finally {
+      setCreatingFlowStage(false);
+    }
+  }
+
+  async function deleteFlowStage(stageId: string) {
+    const stage = flowStages.find((item) => item.id === stageId);
+    if (!stage) return;
+    setDeletingFlowStageId(stageId);
+    try {
+      await apiFetch(`/hbx-recovery/flows/${stageId}`, {
+        method: "DELETE",
+      });
+      await loadFlowStages({ silent: true });
+      setNotice(`Etapa \"${stage.title}\" removida.`);
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : "Falha ao remover etapa.";
+      setNotice(`Falha ao remover etapa: ${reason}`);
+    } finally {
+      setDeletingFlowStageId(null);
+    }
+  }
+
+  function handleRoutingRuleChange(
+    field: keyof RecoveryBotConfig["routingRules"],
+    checked: boolean,
+  ) {
+    setBotConfig((current) =>
+      ensureBotConfigShape({
+        ...current,
+        routingRules: {
+          ...current.routingRules,
+          [field]: checked,
+        },
+      }),
+    );
+  }
+
   async function saveBotConfig() {
     if (botEditorStartTemplates.length === 0) {
       setNotice(
@@ -4208,6 +4843,12 @@ export default function HbxRecoveryClientPage() {
     setActiveTab(nextTab);
     if (nextTab === "templates") {
       loadMetaTemplates(false).catch(() => undefined);
+    }
+    if (nextTab === "agenda") {
+      loadAgenda().catch(() => undefined);
+    }
+    if (nextTab === "bot") {
+      loadFlowStages({ silent: false }).catch(() => undefined);
     }
     if (nextTab !== "messages") {
       setInteractionDetail(null);
@@ -4803,7 +5444,7 @@ export default function HbxRecoveryClientPage() {
                     handleSectionButtonChange(section, index, "actionId", event.target.value)
                   }
                 >
-                  {BOT_ACTION_OPTIONS.map((option) => (
+                  {botActionOptions.map((option) => (
                     <option key={`${section}-${option.value}`} value={option.value}>
                       {option.label}
                     </option>
@@ -4820,6 +5461,30 @@ export default function HbxRecoveryClientPage() {
                   }
                 />
               </label>
+              <div className={styles.botActionMeta}>
+                {(() => {
+                  const actionGuide = botConfig.actionCatalog.find((item) => item.actionId === button.actionId);
+                  if (!actionGuide) return null;
+                  return (
+                    <>
+                      <strong>{actionGuide.title}</strong>
+                      <p>{actionGuide.description}</p>
+                      <div className={styles.interactionBadgeRow}>
+                        <span className={`${styles.stateBadge} ${styles.stateBot}`}>
+                          {BOT_SCOPE_LABELS[actionGuide.route]}
+                        </span>
+                        <span
+                          className={`${styles.stateBadge} ${
+                            actionGuide.enabled ? styles.statePaid : styles.stateWaiting
+                          }`}
+                        >
+                          {actionGuide.enabled ? "Ativa" : "Legada"}
+                        </span>
+                      </div>
+                    </>
+                  );
+                })()}
+              </div>
               <button
                 type="button"
                 className="btn btn-danger btn-sm"
@@ -4859,6 +5524,40 @@ export default function HbxRecoveryClientPage() {
             >
               {noticeCloseReady ? "Fechar" : "Aguarde..."}
             </button>
+          </div>
+        </div>
+      ) : null}
+
+      {noticeHistory.length > 0 ? (
+        <div className={styles.noticeHistoryPanel}>
+          <div className={styles.noticeHistoryHeader}>
+            <strong>Historico operacional</strong>
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              onClick={() => setNoticeHistory([])}
+            >
+              Limpar
+            </button>
+          </div>
+          <div className={styles.noticeHistoryList}>
+            {noticeHistory.map((entry) => (
+              <article key={entry.id} className={styles.noticeHistoryItem}>
+                <div className={styles.interactionBadgeRow}>
+                  <span
+                    className={`${styles.stateBadge} ${
+                      entry.tone === "error" ? styles.stateExpired : styles.stateGenerated
+                    }`}
+                  >
+                    {entry.tone === "error" ? "Falha" : "Info"}
+                  </span>
+                  <span className={`${styles.stateBadge} ${styles.stateWaiting}`}>
+                    {formatDateTime(entry.createdAt)}
+                  </span>
+                </div>
+                <p>{entry.message}</p>
+              </article>
+            ))}
           </div>
         </div>
       ) : null}
@@ -4954,6 +5653,15 @@ export default function HbxRecoveryClientPage() {
                 onClick={() => handleTabChange("templates")}
               >
                 Templates Meta
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={activeTab === "agenda"}
+                className={activeTab === "agenda" ? styles.heroTabActive : styles.heroTab}
+                onClick={() => handleTabChange("agenda")}
+              >
+                Agenda
               </button>
               <button
                 type="button"
@@ -6727,6 +7435,111 @@ export default function HbxRecoveryClientPage() {
               <article className={styles.botStepCard}>
                 <div className={styles.botStepHeader}>
                   <div>
+                    <h4>Etapas operacionais</h4>
+                    <p>Reordene, ajuste e crie novas etapas da cadencia oficial do Recovery sem perder persistencia.</p>
+                  </div>
+                  <button type="button" className="btn btn-secondary btn-sm" onClick={createFlowStage} disabled={creatingFlowStage}>
+                    {creatingFlowStage ? "Criando..." : "Nova etapa"}
+                  </button>
+                </div>
+                {loadingFlowStages ? (
+                  <div className={styles.flowEmpty}>Carregando etapas...</div>
+                ) : (
+                  <div className={styles.flowStageList}>
+                    {flowStages.map((stage, index) => (
+                      <div key={stage.id} className={styles.flowStageRow}>
+                        <div className={styles.flowStageEditor}>
+                          <label className={styles.fieldBlock}>
+                            <span>Titulo</span>
+                            <input
+                              className="field"
+                              value={stage.title}
+                              onChange={(event) => updateFlowStageDraft(stage.id, "title", event.target.value)}
+                            />
+                          </label>
+                          <div className={styles.flowStageGrid}>
+                            <label className={styles.fieldBlock}>
+                              <span>Canal</span>
+                              <input
+                                className="field"
+                                value={stage.channel}
+                                onChange={(event) => updateFlowStageDraft(stage.id, "channel", event.target.value)}
+                              />
+                            </label>
+                            <label className={styles.fieldBlock}>
+                              <span>Dias apos</span>
+                              <input
+                                className="field"
+                                type="number"
+                                min={0}
+                                max={365}
+                                value={stage.daysAfter}
+                                onChange={(event) =>
+                                  updateFlowStageDraft(stage.id, "daysAfter", Number(event.target.value || 0))
+                                }
+                              />
+                            </label>
+                            <label className={styles.flowStageToggle}>
+                              <input
+                                type="checkbox"
+                                checked={stage.enabled}
+                                onChange={(event) => updateFlowStageDraft(stage.id, "enabled", event.target.checked)}
+                              />
+                              <span>{stage.enabled ? "Etapa ativa" : "Etapa pausada"}</span>
+                            </label>
+                          </div>
+                          <label className={styles.fieldBlock}>
+                            <span>Template operacional</span>
+                            <textarea
+                              className="field"
+                              value={stage.template}
+                              onChange={(event) => updateFlowStageDraft(stage.id, "template", event.target.value)}
+                            />
+                          </label>
+                        </div>
+                        <div className={styles.flowStageActions}>
+                          <button
+                            type="button"
+                            className="btn btn-secondary btn-sm"
+                            onClick={() => moveFlowStage(stage.id, "up")}
+                            disabled={index === 0 || movingFlowStageId === stage.id}
+                          >
+                            Subir
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn-secondary btn-sm"
+                            onClick={() => moveFlowStage(stage.id, "down")}
+                            disabled={index === flowStages.length - 1 || movingFlowStageId === stage.id}
+                          >
+                            Descer
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn-primary btn-sm"
+                            onClick={() => saveFlowStage(stage.id)}
+                            disabled={savingFlowStageId === stage.id}
+                          >
+                            {savingFlowStageId === stage.id ? "Salvando..." : "Salvar"}
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn-danger btn-sm"
+                            onClick={() => deleteFlowStage(stage.id)}
+                            disabled={deletingFlowStageId === stage.id || flowStages.length <= 1}
+                          >
+                            {deletingFlowStageId === stage.id ? "Removendo..." : "Remover"}
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </article>
+
+              <article className={styles.botStepCard}>
+                <div className={styles.botStepHeader}>
+                  <div>
                     <h4>Template inicial ativo (Meta)</h4>
                     <p>
                       O editor recebe apenas templates ativos no HBX e aprovados na Meta.
@@ -6857,6 +7670,7 @@ export default function HbxRecoveryClientPage() {
                     onChange={(event) => handleBotTextChange("mainMenuPrompt", event.target.value)}
                   />
                 </label>
+                {renderVariableShortcutRow("mainMenuPrompt", ["shared", "recovery"])}
                 {renderBotButtonEditor(
                   "Botoes apos Sim",
                   "mainMenuButtons",
@@ -6881,6 +7695,7 @@ export default function HbxRecoveryClientPage() {
                     }
                   />
                 </label>
+                {renderVariableShortcutRow("declineMenuPrompt", ["shared", "atendimento"])}
                 {renderBotButtonEditor(
                   "Botoes de recusa",
                   "declineMenuButtons",
@@ -6903,6 +7718,7 @@ export default function HbxRecoveryClientPage() {
                     onChange={(event) => handleBotTextChange("followupPrompt", event.target.value)}
                   />
                 </label>
+                {renderVariableShortcutRow("followupPrompt", ["shared", "recovery"])}
                 {renderBotButtonEditor(
                   "Botoes de follow-up",
                   "followupButtons",
@@ -6927,6 +7743,7 @@ export default function HbxRecoveryClientPage() {
                     }
                   />
                 </label>
+                {renderVariableShortcutRow("valueMessageTemplate", ["shared", "recovery"])}
                 {renderBotButtonEditor(
                   "Botoes apos exibir valor",
                   "valueButtons",
@@ -6951,6 +7768,7 @@ export default function HbxRecoveryClientPage() {
                     }
                   />
                 </label>
+                {renderVariableShortcutRow("installmentsPrompt", ["shared", "recovery"])}
                 {renderBotButtonEditor(
                   "Botoes de parcelas",
                   "installmentButtons",
@@ -6966,10 +7784,11 @@ export default function HbxRecoveryClientPage() {
                     }
                   />
                 </label>
+                {renderVariableShortcutRow("installmentConfirmTemplate", ["shared", "recovery"])}
                 {renderBotButtonEditor(
                   "Botoes de confirmacao",
                   "installmentConfirmButtons",
-                  "Exemplo: Gerar link, Alterar parcelas, Falar com atendente.",
+                  "Exemplo: Gerar link no credito, Pagar no Pix, Falar com atendente.",
                 )}
               </article>
 
@@ -6990,6 +7809,7 @@ export default function HbxRecoveryClientPage() {
                     }
                   />
                 </label>
+                {renderVariableShortcutRow("cashLinkMessageTemplate", ["shared", "recovery"])}
                 <label className={styles.fieldBlock}>
                   <span>Mensagem de link parcelado</span>
                   <textarea
@@ -7000,6 +7820,7 @@ export default function HbxRecoveryClientPage() {
                     }
                   />
                 </label>
+                {renderVariableShortcutRow("installmentLinkMessageTemplate", ["shared", "recovery"])}
                 <label className={styles.fieldBlock}>
                   <span>Pergunta apos enviar link</span>
                   <input
@@ -7008,10 +7829,11 @@ export default function HbxRecoveryClientPage() {
                     onChange={(event) => handleBotTextChange("postLinkPrompt", event.target.value)}
                   />
                 </label>
+                {renderVariableShortcutRow("postLinkPrompt", ["shared", "recovery", "atendimento"])}
                 {renderBotButtonEditor(
                   "Botoes apos link gerado",
                   "postLinkButtons",
-                  "Exemplo: Ja paguei, Alterar parcelas, Falar com atendente.",
+                  "Exemplo: Ja paguei, Gerar link no credito, Falar com atendente.",
                 )}
               </article>
 
@@ -7032,6 +7854,7 @@ export default function HbxRecoveryClientPage() {
                     }
                   />
                 </label>
+                {renderVariableShortcutRow("closeTopicMessage", ["shared", "atendimento"])}
                 <label className={styles.fieldBlock}>
                   <span>Mensagem quando cliente diz &quot;Ja paguei&quot;</span>
                   <textarea
@@ -7042,6 +7865,7 @@ export default function HbxRecoveryClientPage() {
                     }
                   />
                 </label>
+                {renderVariableShortcutRow("paidClaimMessage", ["shared", "atendimento", "recovery"])}
                 <label className={styles.fieldBlock}>
                   <span>Mensagem de encaminhamento humano (manter)</span>
                   <textarea
@@ -7050,30 +7874,70 @@ export default function HbxRecoveryClientPage() {
                     onChange={(event) => handleBotTextChange("humanAckMessage", event.target.value)}
                   />
                 </label>
+                {renderVariableShortcutRow("humanAckMessage", ["shared", "atendimento"])}
               </article>
 
               <article className={styles.botStepCard}>
                 <div className={styles.botStepHeader}>
                   <div>
                     <h4>Variaveis disponiveis</h4>
-                    <p>Use estas variaveis nos textos acima.</p>
+                    <p>Guia configuravel para o Recovery, Atendimento e templates compartilhados.</p>
                   </div>
                 </div>
-                  <div className={styles.interactionBadgeRow}>
-                    {[
-                      "{{cliente}}",
-                      "{{empresa}}",
-                      "{{funcionario}}",
-                      "{{data_servico}}",
-                      "{{descricao_servico}}",
-                      "{{valor_formatado}}",
-                    "{{quantidade_parcelas}}",
-                    "{{valor_parcela_formatado}}",
-                    "{{link_pagamento}}",
-                  ].map((tag) => (
-                    <span key={tag} className={`${styles.stateBadge} ${styles.stateWaiting}`}>
-                      {tag}
+                <div className={styles.interactionBadgeRow}>
+                  {botConfig.variableCatalog.map((item) => (
+                    <span key={item.key} className={`${styles.stateBadge} ${styles.stateWaiting}`}>
+                      {`{{${item.key}}}`}
                     </span>
+                  ))}
+                </div>
+                <div className={styles.botVariableGrid}>
+                  {botConfig.variableCatalog.map((item) => (
+                    <div key={item.key} className={styles.botVariableCard}>
+                      <div className={styles.botVariableHeader}>
+                        <strong>{`{{${item.key}}}`}</strong>
+                        <div className={styles.interactionBadgeRow}>
+                          <span className={`${styles.stateBadge} ${styles.stateBot}`}>
+                            {BOT_SCOPE_LABELS[item.scope]}
+                          </span>
+                          {item.required ? (
+                            <span className={`${styles.stateBadge} ${styles.statePaid}`}>
+                              Obrigatoria
+                            </span>
+                          ) : null}
+                        </div>
+                      </div>
+                      <label className={styles.fieldBlock}>
+                        <span>Rotulo</span>
+                        <input
+                          className="field"
+                          value={item.label}
+                          onChange={(event) =>
+                            handleVariableGuideChange(item.key, "label", event.target.value)
+                          }
+                        />
+                      </label>
+                      <label className={styles.fieldBlock}>
+                        <span>Exemplo</span>
+                        <input
+                          className="field"
+                          value={item.example}
+                          onChange={(event) =>
+                            handleVariableGuideChange(item.key, "example", event.target.value)
+                          }
+                        />
+                      </label>
+                      <label className={styles.fieldBlock}>
+                        <span>Descricao</span>
+                        <textarea
+                          className="field"
+                          value={item.description}
+                          onChange={(event) =>
+                            handleVariableGuideChange(item.key, "description", event.target.value)
+                          }
+                        />
+                      </label>
+                    </div>
                   ))}
                 </div>
                 <label className={styles.fieldBlock}>
@@ -7084,11 +7948,243 @@ export default function HbxRecoveryClientPage() {
                     onChange={(event) => handleBotTextChange("rootFooter", event.target.value)}
                   />
                 </label>
+                {renderVariableShortcutRow("rootFooter", ["shared"])}
+              </article>
+
+              <article className={styles.botStepCard}>
+                <div className={styles.botStepHeader}>
+                  <div>
+                    <h4>Acoes e roteamento</h4>
+                    <p>Base comum para dizer quando a conversa fica no Recovery e quando sobe para Atendimento.</p>
+                  </div>
+                  <button type="button" className="btn btn-secondary btn-sm" onClick={addCustomActionGuide}>
+                    Nova acao custom
+                  </button>
+                </div>
+                <div className={styles.botRoutingGrid}>
+                  <label className={styles.botRoutingToggle}>
+                    <input
+                      type="checkbox"
+                      checked={botConfig.routingRules.preferRecoveryForDebtors}
+                      onChange={(event) =>
+                        handleRoutingRuleChange("preferRecoveryForDebtors", event.target.checked)
+                      }
+                    />
+                    <div>
+                      <strong>Priorizar Recovery para devedores ativos</strong>
+                      <span>Conversa com cliente em aberto tende a permanecer no modulo de cobranca.</span>
+                    </div>
+                  </label>
+                  <label className={styles.botRoutingToggle}>
+                    <input
+                      type="checkbox"
+                      checked={botConfig.routingRules.preferRecoveryForNegotiations}
+                      onChange={(event) =>
+                        handleRoutingRuleChange("preferRecoveryForNegotiations", event.target.checked)
+                      }
+                    />
+                    <div>
+                      <strong>Preservar negociacoes originadas no Recovery</strong>
+                      <span>Mensagens com contexto de cobranca continuam com prioridade no HBX Recovery.</span>
+                    </div>
+                  </label>
+                  <label className={styles.botRoutingToggle}>
+                    <input
+                      type="checkbox"
+                      checked={botConfig.routingRules.preferInboxForManualQueue}
+                      onChange={(event) =>
+                        handleRoutingRuleChange("preferInboxForManualQueue", event.target.checked)
+                      }
+                    />
+                    <div>
+                      <strong>Fila humana vai para Atendimento</strong>
+                      <span>Quando um humano assume a conversa, a central manual vira o destino sugerido.</span>
+                    </div>
+                  </label>
+                </div>
+                <div className={styles.botActionGuideList}>
+                  {botConfig.actionCatalog.map((action) => (
+                    <div key={action.actionId} className={styles.botActionGuideItem}>
+                      <div className={styles.botActionGuideEditor}>
+                        {action.custom ? (
+                          <label className={styles.fieldBlock}>
+                            <span>Id tecnico</span>
+                            <input
+                              className="field"
+                              value={String(action.actionId)}
+                              onChange={(event) =>
+                                updateActionGuide(String(action.actionId), "actionId", event.target.value)
+                              }
+                            />
+                          </label>
+                        ) : null}
+                        <label className={styles.fieldBlock}>
+                          <span>Titulo</span>
+                          <input
+                            className="field"
+                            value={action.title}
+                            onChange={(event) =>
+                              updateActionGuide(String(action.actionId), "title", event.target.value)
+                            }
+                          />
+                        </label>
+                        <label className={styles.fieldBlock}>
+                          <span>Descricao</span>
+                          <textarea
+                            className="field"
+                            value={action.description}
+                            onChange={(event) =>
+                              updateActionGuide(String(action.actionId), "description", event.target.value)
+                            }
+                          />
+                        </label>
+                        <label className={styles.fieldBlock}>
+                          <span>Resposta automatica</span>
+                          <textarea
+                            className="field"
+                            value={action.responseMessage || ""}
+                            onChange={(event) =>
+                              updateActionGuide(String(action.actionId), "responseMessage", event.target.value)
+                            }
+                          />
+                        </label>
+                        <label className={styles.fieldBlock}>
+                          <span>Destino</span>
+                          <select
+                            className="field"
+                            value={action.route}
+                            onChange={(event) =>
+                              updateActionGuide(String(action.actionId), "route", event.target.value)
+                            }
+                          >
+                            <option value="shared">Compartilhado</option>
+                            <option value="recovery">Recovery</option>
+                            <option value="atendimento">Atendimento</option>
+                          </select>
+                        </label>
+                      </div>
+                      <div className={styles.interactionBadgeRow}>
+                        <span className={`${styles.stateBadge} ${styles.stateBot}`}>
+                          {BOT_SCOPE_LABELS[action.route]}
+                        </span>
+                        {action.custom ? (
+                          <span className={`${styles.stateBadge} ${styles.stateGenerated}`}>Custom</span>
+                        ) : null}
+                        <span
+                          className={`${styles.stateBadge} ${
+                            action.enabled ? styles.statePaid : styles.stateWaiting
+                          }`}
+                          onClick={() =>
+                            updateActionGuide(String(action.actionId), "enabled", !action.enabled)
+                          }
+                        >
+                          {action.enabled ? "Ativa" : "Legada"}
+                        </span>
+                        {action.custom ? (
+                          <button
+                            type="button"
+                            className="btn btn-danger btn-sm"
+                            onClick={() => removeCustomActionGuide(String(action.actionId))}
+                          >
+                            Remover
+                          </button>
+                        ) : null}
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </article>
             </div>
           )}
         </section>
           </>
+        ) : null}
+
+        {renderedTab === "agenda" ? (
+          <section className={`panel ${styles.sectionCard}`}>
+            <div className={styles.sectionHeader}>
+              <div>
+                <p className={styles.sectionEyebrow}>Follow-up operacional</p>
+                <h2 className={styles.sectionTitle}>Agenda inteligente</h2>
+                <p className={styles.sectionDescription}>
+                  Conversas que ficaram com retorno combinado no bot, ordenadas pelo prazo calculado a partir da preferencia do cliente.
+                </p>
+              </div>
+            </div>
+
+            <div className={styles.agendaStatsGrid}>
+              <article className={styles.agendaStatCard}>
+                <span>Total</span>
+                <strong>{agendaSummary.counters.total}</strong>
+              </article>
+              <article className={styles.agendaStatCard}>
+                <span>Atrasados</span>
+                <strong>{agendaSummary.counters.overdue}</strong>
+              </article>
+              <article className={styles.agendaStatCard}>
+                <span>Hoje</span>
+                <strong>{agendaSummary.counters.today}</strong>
+              </article>
+              <article className={styles.agendaStatCard}>
+                <span>Proximos</span>
+                <strong>{agendaSummary.counters.upcoming}</strong>
+              </article>
+            </div>
+
+            {loadingAgenda ? (
+              <div className={styles.flowEmpty}>Carregando agenda...</div>
+            ) : agendaSummary.items.length === 0 ? (
+              <div className={styles.flowEmpty}>Nenhum follow-up agendado no momento.</div>
+            ) : (
+              <div className={styles.agendaList}>
+                {agendaSummary.items.map((item) => (
+                  <article key={`agenda-${item.conversationId}`} className={styles.agendaItemCard}>
+                    <div className={styles.agendaItemHeader}>
+                      <div>
+                        <strong>{item.customerName}</strong>
+                        <p>{item.customerWhatsapp}</p>
+                      </div>
+                      <div className={styles.interactionBadgeRow}>
+                        <span className={`${styles.stateBadge} ${item.status === "overdue" ? styles.stateExpired : item.status === "today" ? styles.stateGenerated : styles.stateWaiting}`}>
+                          {item.status === "overdue" ? "Atrasado" : item.status === "today" ? "Hoje" : "Proximo"}
+                        </span>
+                        <span className={`${styles.stateBadge} ${styles.stateBot}`}>
+                          {item.preference || "follow-up"}
+                        </span>
+                      </div>
+                    </div>
+                    <div className={styles.agendaMetaGrid}>
+                      <div>
+                        <span>Valor em aberto</span>
+                        <strong>{formatCurrency(item.openAmount)}</strong>
+                      </div>
+                      <div>
+                        <span>Prazo calculado</span>
+                        <strong>{formatDateTime(item.dueAt)}</strong>
+                      </div>
+                      <div>
+                        <span>Ultima interacao</span>
+                        <strong>{formatDateTime(item.lastInteractionAt)}</strong>
+                      </div>
+                    </div>
+                    <p className={styles.agendaItemPreview}>{item.lastMessage || "Sem mensagem recente."}</p>
+                    <div className={styles.agendaItemActions}>
+                      <button
+                        type="button"
+                        className="btn btn-secondary btn-sm"
+                        onClick={() => {
+                          handleTabChange("messages");
+                          void loadInteractionDetail(item.conversationId);
+                        }}
+                      >
+                        Abrir conversa
+                      </button>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            )}
+          </section>
         ) : null}
 
         {renderedTab === "payments" ? (
@@ -7271,12 +8367,49 @@ export default function HbxRecoveryClientPage() {
               </button>
               <button
                 type="button"
-                className={`btn btn-sm ${interactionsQueue === "human" ? "btn-primary" : "btn-secondary"}`}
-                onClick={() => setInteractionsQueue("human")}
+                className={`btn btn-sm ${interactionsQueue === "closed" ? "btn-primary" : "btn-secondary"}`}
+                onClick={() => setInteractionsQueue("closed")}
               >
-                Tratativas humanas
+                Conversas encerradas
               </button>
+              <div className={styles.interactionsRefreshStatus} aria-live="polite">
+                <span
+                  className={`${styles.interactionsRefreshSpinner} ${
+                    refreshingInteractions ? styles.interactionsRefreshSpinnerActive : ""
+                  }`}
+                  aria-hidden="true"
+                >
+                  <span />
+                  <span />
+                </span>
+                <span>
+                  {refreshingInteractions ? "Atualizando silenciosamente..." : "Atualizacao continua ativa"}
+                </span>
+              </div>
             </div>
+
+            {humanAttentionFeed.length > 0 ? (
+              <div className={styles.humanAttentionFeed}>
+                {humanAttentionFeed.map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    className={styles.humanAttentionFeedItem}
+                    onClick={() => openHumanAttentionConversation(item.conversationId)}
+                  >
+                    <div>
+                      <p className={styles.humanAttentionFeedTitle}>
+                        {item.kind === "human_queue" ? "Aguardando humano" : "Nova mensagem"}
+                      </p>
+                      <strong>{item.customerName}</strong>
+                      <p className={styles.humanAttentionFeedMeta}>{item.phone}</p>
+                      <p className={styles.humanAttentionFeedPreview}>{item.preview}</p>
+                    </div>
+                    <span className={styles.humanAttentionFeedCount}>{item.pendingHumanCount}</span>
+                  </button>
+                ))}
+              </div>
+            ) : null}
 
             <div className={styles.interactionsWorkspace}>
               <div className={styles.interactionsList}>

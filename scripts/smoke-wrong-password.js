@@ -4,8 +4,6 @@
   const payload = {
     username,
     email: `pwcheck+${Date.now()}@example.test`,
-    companySlug: 'pwcheck-company',
-    companyName: 'PWCheck Co',
     password: 'correct-password',
     name: 'PW Check',
   };
@@ -25,7 +23,7 @@
     const l = await fetch(`${API}/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username, password: 'wrong-password', companySlug: payload.companySlug }),
+      body: JSON.stringify({ username, password: 'wrong-password' }),
     });
     const loginBody = await l.text();
     console.log('\nWrong-password login status:', l.status);

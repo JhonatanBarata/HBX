@@ -40,7 +40,92 @@ class UpdateRecoveryBotButtonDto {
   title!: string;
 }
 
+class UpdateRecoveryBotVariableDto {
+  @IsString()
+  key!: string;
+
+  @IsString()
+  @IsOptional()
+  label?: string;
+
+  @IsString()
+  @IsOptional()
+  example?: string;
+
+  @IsString()
+  @IsOptional()
+  description?: string;
+
+  @IsString()
+  @IsOptional()
+  scope?: string;
+
+  @IsBoolean()
+  @IsOptional()
+  required?: boolean;
+}
+
+class UpdateRecoveryBotActionGuideDto {
+  @IsString()
+  actionId!: string;
+
+  @IsString()
+  @IsOptional()
+  title?: string;
+
+  @IsString()
+  @IsOptional()
+  description?: string;
+
+  @IsString()
+  @IsOptional()
+  route?: string;
+
+  @IsBoolean()
+  @IsOptional()
+  enabled?: boolean;
+
+  @IsString()
+  @IsOptional()
+  responseMessage?: string;
+
+  @IsBoolean()
+  @IsOptional()
+  custom?: boolean;
+}
+
+class UpdateRecoveryRoutingRulesDto {
+  @IsBoolean()
+  @IsOptional()
+  preferRecoveryForDebtors?: boolean;
+
+  @IsBoolean()
+  @IsOptional()
+  preferRecoveryForNegotiations?: boolean;
+
+  @IsBoolean()
+  @IsOptional()
+  preferInboxForManualQueue?: boolean;
+}
+
 export class UpdateRecoveryBotConfigDto {
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => UpdateRecoveryBotVariableDto)
+  @IsOptional()
+  variableCatalog?: UpdateRecoveryBotVariableDto[];
+
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => UpdateRecoveryBotActionGuideDto)
+  @IsOptional()
+  actionCatalog?: UpdateRecoveryBotActionGuideDto[];
+
+  @ValidateNested()
+  @Type(() => UpdateRecoveryRoutingRulesDto)
+  @IsOptional()
+  routingRules?: UpdateRecoveryRoutingRulesDto;
+
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => UpdateRecoveryStartTemplateDto)

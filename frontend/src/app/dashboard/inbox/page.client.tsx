@@ -1,11 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useDeferredValue, useEffect, useMemo, useState } from "react";
 import DashboardScaffold from "@/components/DashboardScaffold";
 import { apiFetch } from "../_lib/api";
 import { startSmartPolling } from "../_lib/polling";
 import { useRequireAuth } from "../_lib/useRequireAuth";
+import styles from "./page.module.css";
 
 type Customer = {
   id: string;
@@ -20,6 +21,7 @@ type InboxMessage = {
   createdAt: string;
   messageType: string;
   senderType: string;
+  sourceModule?: string | null;
   status: string;
   error: string | null;
 };
@@ -30,51 +32,68 @@ type InboxConversation = {
   assignedTo: string | null;
   createdAt: string;
   updatedAt: string;
+  routeTarget: "recovery" | "atendimento";
+  routeReason: string;
+  recoveryCustomerId: string | null;
+  recoveryCustomerName: string | null;
+  recoveryOpenAmount: number;
+  recoveryCurrentStep: string | null;
+  recoverySuggestedPath: string;
+  latestSourceModule: string | null;
   customer: Customer;
   messages: InboxMessage[];
 };
 
+type StatusFilter = "all" | "new" | "open" | "closed";
+type RouteFilter = "all" | "recovery" | "atendimento";
+
+function getMessagePreview(message?: InboxMessage | null) {
+  if (!message) return "Sem mensagens";
+  const content = String(message.content || "").trim();
+  if (content) return content;
+  const type = String(message.messageType || "text").trim().toLowerCase();
+  if (type === "image") return "[Imagem recebida]";
+  if (type === "audio") return "[Audio recebido]";
+  if (type === "document") return "[Documento recebido]";
+  if (type === "interactive") return "[Interacao recebida]";
+  if (type === "button") return "[Botao recebido]";
+  if (type === "system") return "[Evento do sistema]";
+  return `[${type || "mensagem"}]`;
+}
+
+function formatCurrency(value: number) {
+  return Number(value || 0).toLocaleString("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+  });
+}
+
 export default function InboxClientPage() {
   const hasToken = useRequireAuth();
   const [mounted, setMounted] = useState(false);
-
   const [conversations, setConversations] = useState<InboxConversation[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedConversation, setSelectedConversation] = useState<InboxConversation | null>(null);
-
   const [loadingList, setLoadingList] = useState(true);
+  const [refreshingList, setRefreshingList] = useState(false);
   const [loadingConversation, setLoadingConversation] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sendText, setSendText] = useState("");
   const [sending, setSending] = useState(false);
   const [simulating, setSimulating] = useState(false);
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+  const [routeFilter, setRouteFilter] = useState<RouteFilter>("all");
+  const [searchTerm, setSearchTerm] = useState("");
+  const [lastRefreshedAt, setLastRefreshedAt] = useState<string | null>(null);
+  const deferredSearch = useDeferredValue(searchTerm);
 
   useEffect(() => setMounted(true), []);
 
-  function getMessagePreview(message?: InboxMessage | null) {
-    if (!message) return "Sem mensagens";
-    const content = String(message.content || "").trim();
-    if (content) return content;
-    const type = String(message.messageType || "text").trim().toLowerCase();
-    if (type === "image") return "[Imagem recebida]";
-    if (type === "audio") return "[Audio recebido]";
-    if (type === "document") return "[Documento recebido]";
-    if (type === "interactive") return "[Interacao recebida]";
-    if (type === "button") return "[Botao recebido]";
-    if (type === "system") return "[Evento do sistema]";
-    return `[${type || "mensagem"}]`;
-  }
-
-  function getMessageBubbleClass(message: InboxMessage) {
-    const direction = String(message.direction || "").trim().toLowerCase();
-    const senderType = String(message.senderType || "").trim().toLowerCase();
-    if (senderType === "system") {
-      return "mx-auto bg-[var(--surface)] border border-dashed border-[var(--line)]";
-    }
-    if (direction === "outbound") {
-      return "ml-auto bg-[color-mix(in_srgb,var(--brand)_12%,white)] border border-[color-mix(in_srgb,var(--brand)_26%,white)]";
-    }
-    return "bg-white border border-[var(--line)]";
+  function formatDate(dateStr?: string | null) {
+    if (!dateStr) return "";
+    const date = new Date(dateStr);
+    if (!mounted) return date.toISOString();
+    return date.toLocaleString("pt-BR");
   }
 
   function getMessageMeta(message: InboxMessage) {
@@ -87,11 +106,12 @@ export default function InboxClientPage() {
     return parts.join(" • ");
   }
 
-  function formatDate(dateStr?: string | null) {
-    if (!dateStr) return "";
-    const date = new Date(dateStr);
-    if (!mounted) return date.toISOString();
-    return date.toLocaleString();
+  function getBubbleClass(message: InboxMessage) {
+    const direction = String(message.direction || "").trim().toLowerCase();
+    const senderType = String(message.senderType || "").trim().toLowerCase();
+    if (senderType === "system") return styles.systemBubble;
+    if (direction === "outbound") return styles.outboundBubble;
+    return styles.inboundBubble;
   }
 
   const loadConversation = useCallback(async (id: string, options?: { silent?: boolean }) => {
@@ -102,8 +122,7 @@ export default function InboxClientPage() {
       setSelectedConversation(data);
       setSelectedId(data.id);
     } catch (loadError) {
-      const message =
-        loadError instanceof Error ? loadError.message : "Falha ao carregar conversa.";
+      const message = loadError instanceof Error ? loadError.message : "Falha ao carregar conversa.";
       setError(message);
     } finally {
       if (!silent) setLoadingConversation(false);
@@ -111,13 +130,17 @@ export default function InboxClientPage() {
   }, []);
 
   const loadConversations = useCallback(
-    async (preferredId?: string | null) => {
+    async (options?: { preferredId?: string | null; silent?: boolean }) => {
+      const silent = options?.silent ?? false;
+      if (!silent) setLoadingList(true);
+      if (silent) setRefreshingList(true);
       setError(null);
       try {
         const data = await apiFetch<InboxConversation[]>("/inbox/conversations");
         setConversations(data);
+        setLastRefreshedAt(new Date().toISOString());
 
-        const pickedId = preferredId ?? selectedId ?? data[0]?.id ?? null;
+        const pickedId = options?.preferredId ?? selectedId ?? data[0]?.id ?? null;
         setSelectedId(pickedId);
         if (pickedId) {
           await loadConversation(pickedId, { silent: true });
@@ -125,20 +148,19 @@ export default function InboxClientPage() {
           setSelectedConversation(null);
         }
       } catch (loadError) {
-        const message =
-          loadError instanceof Error ? loadError.message : "Falha ao carregar conversas.";
+        const message = loadError instanceof Error ? loadError.message : "Falha ao carregar conversas.";
         setError(message);
       } finally {
-        setLoadingList(false);
+        if (!silent) setLoadingList(false);
+        if (silent) setRefreshingList(false);
       }
     },
-    [loadConversation, selectedId]
+    [loadConversation, selectedId],
   );
 
   useEffect(() => {
     if (hasToken !== true) return;
-    setLoadingList(true);
-    return startSmartPolling(() => loadConversations(), {
+    return startSmartPolling(() => loadConversations({ silent: true }), {
       intervalMs: 10000,
       immediate: true,
     });
@@ -153,10 +175,9 @@ export default function InboxClientPage() {
         body: JSON.stringify({ status }),
       });
       setSelectedConversation(data);
-      await loadConversations(data.id);
+      await loadConversations({ preferredId: data.id, silent: true });
     } catch (updateError) {
-      const message =
-        updateError instanceof Error ? updateError.message : "Falha ao atualizar status.";
+      const message = updateError instanceof Error ? updateError.message : "Falha ao atualizar status.";
       setError(message);
     }
   }
@@ -164,7 +185,6 @@ export default function InboxClientPage() {
   async function sendMessage(event: React.FormEvent) {
     event.preventDefault();
     if (!selectedId || !sendText.trim()) return;
-
     setSending(true);
     setError(null);
     try {
@@ -174,7 +194,7 @@ export default function InboxClientPage() {
       });
       setSendText("");
       setSelectedConversation(data);
-      await loadConversations(data.id);
+      await loadConversations({ preferredId: data.id, silent: true });
     } catch (sendError) {
       const message = sendError instanceof Error ? sendError.message : "Falha ao enviar mensagem.";
       setError(message);
@@ -189,23 +209,106 @@ export default function InboxClientPage() {
     try {
       const fallback = `+5511${Math.floor(100000000 + Math.random() * 899999999)}`;
       const phone = selectedConversation?.customer.phone || fallback;
-      const message = `Mensagem simulada em ${new Date().toLocaleTimeString()}`;
-
+      const message = `Mensagem simulada em ${new Date().toLocaleTimeString("pt-BR")}`;
       const data = await apiFetch<InboxConversation>("/inbox/mock-message", {
         method: "POST",
         body: JSON.stringify({ phone, message }),
       });
-      await loadConversations(data.id);
+      await loadConversations({ preferredId: data.id, silent: true });
     } catch (simulateError) {
-      const message =
-        simulateError instanceof Error ? simulateError.message : "Falha ao simular mensagem.";
+      const message = simulateError instanceof Error ? simulateError.message : "Falha ao simular mensagem.";
       setError(message);
     } finally {
       setSimulating(false);
     }
   }
 
-  const selectedStatus = useMemo(() => selectedConversation?.status ?? "new", [selectedConversation]);
+  const filteredConversations = useMemo(() => {
+    const normalizedSearch = String(deferredSearch || "").trim().toLowerCase();
+    return conversations.filter((conversation) => {
+      if (statusFilter !== "all" && conversation.status !== statusFilter) return false;
+      if (routeFilter !== "all" && conversation.routeTarget !== routeFilter) return false;
+      if (!normalizedSearch) return true;
+      const haystack = [
+        conversation.customer.name || "",
+        conversation.customer.phone,
+        conversation.routeReason,
+        conversation.recoveryCustomerName || "",
+        getMessagePreview(conversation.messages?.[0]),
+      ]
+        .join(" ")
+        .toLowerCase();
+      return haystack.includes(normalizedSearch);
+    });
+  }, [conversations, deferredSearch, routeFilter, statusFilter]);
+
+  const stats = useMemo(
+    () => ({
+      total: conversations.length,
+      newCount: conversations.filter((item) => item.status === "new").length,
+      openCount: conversations.filter((item) => item.status === "open").length,
+      closedCount: conversations.filter((item) => item.status === "closed").length,
+      recoveryCount: conversations.filter((item) => item.routeTarget === "recovery").length,
+      atendimentoCount: conversations.filter((item) => item.routeTarget === "atendimento").length,
+    }),
+    [conversations],
+  );
+
+  const selectedStatus = selectedConversation?.status ?? "new";
+  const customerRows = useMemo(() => {
+    const map = new Map<
+      string,
+      {
+        customerName: string;
+        phone: string;
+        routeTarget: "recovery" | "atendimento";
+        routeReason: string;
+        openAmount: number;
+        conversationCount: number;
+        openConversationCount: number;
+        updatedAt: string;
+        recoveryCurrentStep: string | null;
+        recoverySuggestedPath: string;
+        conversationId: string;
+      }
+    >();
+
+    for (const conversation of filteredConversations) {
+      const key = String(conversation.customer.phone || conversation.id);
+      const existing = map.get(key);
+      if (!existing) {
+        map.set(key, {
+          customerName: conversation.customer.name || conversation.customer.phone,
+          phone: conversation.customer.phone,
+          routeTarget: conversation.routeTarget,
+          routeReason: conversation.routeReason,
+          openAmount: conversation.recoveryOpenAmount,
+          conversationCount: 1,
+          openConversationCount: conversation.status === "open" ? 1 : 0,
+          updatedAt: conversation.updatedAt,
+          recoveryCurrentStep: conversation.recoveryCurrentStep,
+          recoverySuggestedPath: conversation.recoverySuggestedPath,
+          conversationId: conversation.id,
+        });
+        continue;
+      }
+      existing.conversationCount += 1;
+      if (conversation.status === "open") existing.openConversationCount += 1;
+      if (new Date(conversation.updatedAt).getTime() > new Date(existing.updatedAt).getTime()) {
+        existing.updatedAt = conversation.updatedAt;
+        existing.routeTarget = conversation.routeTarget;
+        existing.routeReason = conversation.routeReason;
+        existing.openAmount = conversation.recoveryOpenAmount;
+        existing.recoveryCurrentStep = conversation.recoveryCurrentStep;
+        existing.recoverySuggestedPath = conversation.recoverySuggestedPath;
+        existing.conversationId = conversation.id;
+      }
+    }
+
+    return Array.from(map.values()).sort(
+      (left, right) => new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime(),
+    );
+  }, [filteredConversations]);
 
   if (hasToken === null) {
     return (
@@ -220,19 +323,14 @@ export default function InboxClientPage() {
 
   return (
     <DashboardScaffold
-      title="Dashboard operacional"
-      description="Monitoramento de conversas em tempo real com fluxo de atendimento."
+      title="Central premium de Atendimento"
+      description="Fila manual, contexto de cobranca e rota sugerida entre Atendimento e HBX Recovery sem perder a conversa."
       actions={
         <>
           <Link href="/dashboard/messages" className="btn btn-secondary btn-sm">
             Mensagens e logs
           </Link>
-          <button
-            type="button"
-            onClick={simulateMessage}
-            disabled={simulating}
-            className="btn btn-primary btn-sm"
-          >
+          <button type="button" onClick={simulateMessage} disabled={simulating} className="btn btn-primary btn-sm">
             {simulating ? "Simulando..." : "Simular mensagem"}
           </button>
         </>
@@ -240,52 +338,125 @@ export default function InboxClientPage() {
     >
       {error ? <div className="alert alert-error">{error}</div> : null}
 
-      <section className="grid grid-cols-1 lg:grid-cols-[330px_1fr] gap-4">
-        <article className="panel p-3">
-          <div className="flex items-center justify-between gap-2 mb-3">
+      <section className={styles.heroGrid}>
+        <article className={`panel ${styles.heroPanel}`}>
+          <div>
+            <p className={styles.eyebrow}>Atendimento vivo</p>
+            <h2>Fila manual com contexto de rota</h2>
+            <p>
+              O Inbox agora distingue o que deve continuar no Atendimento e o que faz mais sentido abrir no HBX Recovery.
+            </p>
+          </div>
+          <div className={styles.refreshBadge}>
+            <span className={refreshingList ? styles.refreshDotActive : styles.refreshDot} />
+            {refreshingList ? "Atualizando silenciosamente" : "Sincronizacao continua ativa"}
+            {lastRefreshedAt ? <strong>{formatDate(lastRefreshedAt)}</strong> : null}
+          </div>
+        </article>
+
+        <div className={styles.statGrid}>
+          <article className={`panel ${styles.statCard}`}>
+            <span>Total</span>
+            <strong>{stats.total}</strong>
+          </article>
+          <article className={`panel ${styles.statCard}`}>
+            <span>Novas</span>
+            <strong>{stats.newCount}</strong>
+          </article>
+          <article className={`panel ${styles.statCard}`}>
+            <span>Em humano</span>
+            <strong>{stats.openCount}</strong>
+          </article>
+          <article className={`panel ${styles.statCard}`}>
+            <span>Rota Recovery</span>
+            <strong>{stats.recoveryCount}</strong>
+          </article>
+        </div>
+      </section>
+
+      <section className={`panel ${styles.filterPanel}`}>
+        <div className={styles.filterRow}>
+          <label className={styles.filterField}>
+            <span>Buscar conversa</span>
+            <input
+              className="field"
+              value={searchTerm}
+              onChange={(event) => setSearchTerm(event.target.value)}
+              placeholder="Cliente, telefone ou motivo da rota"
+            />
+          </label>
+          <label className={styles.filterField}>
+            <span>Status</span>
+            <select className="field" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as StatusFilter)}>
+              <option value="all">Todos</option>
+              <option value="new">Novas</option>
+              <option value="open">Em humano</option>
+              <option value="closed">Encerradas</option>
+            </select>
+          </label>
+          <label className={styles.filterField}>
+            <span>Destino sugerido</span>
+            <select className="field" value={routeFilter} onChange={(event) => setRouteFilter(event.target.value as RouteFilter)}>
+              <option value="all">Tudo</option>
+              <option value="atendimento">Atendimento</option>
+              <option value="recovery">Recovery</option>
+            </select>
+          </label>
+          <button type="button" className="btn btn-secondary" onClick={() => loadConversations()}>
+            Atualizar agora
+          </button>
+        </div>
+      </section>
+
+      <section className={styles.workspace}>
+        <article className={`panel ${styles.listPanel}`}>
+          <div className={styles.panelHeader}>
             <div>
-              <h2 className="font-semibold">Conversas</h2>
-              <p className="text-xs text-muted">Fila ativa de atendimento</p>
+              <h3>Fila filtrada</h3>
+              <p>{filteredConversations.length} conversa(s) na visualizacao atual.</p>
             </div>
-            <button
-              type="button"
-              onClick={() => loadConversations()}
-              className="btn btn-secondary btn-sm"
-            >
-              Atualizar
-            </button>
           </div>
 
           {loadingList ? (
             <p className="text-sm text-muted">Carregando conversas...</p>
-          ) : conversations.length === 0 ? (
-            <p className="text-sm text-muted">Nenhuma conversa encontrada.</p>
+          ) : filteredConversations.length === 0 ? (
+            <p className="text-sm text-muted">Nenhuma conversa encontrada com os filtros atuais.</p>
           ) : (
-            <div className="max-h-155 space-y-2 overflow-auto pr-1">
-              {conversations.map((conversation) => {
-                const last = conversation.messages?.[0];
+            <div className={styles.conversationList}>
+              {filteredConversations.map((conversation) => {
                 const active = conversation.id === selectedId;
+                const last = conversation.messages?.[0];
                 return (
                   <button
                     key={conversation.id}
                     type="button"
                     onClick={() => loadConversation(conversation.id)}
-                    className={`w-full rounded-xl border p-2.5 text-left transition ${
-                      active
-                        ? "border-(--brand) bg-[color-mix(in_srgb,var(--brand)_10%,white)]"
-                        : "border-(--line) hover:bg-(--surface-soft)"
-                    }`}
+                    className={`${styles.conversationCard} ${active ? styles.conversationCardActive : ""}`}
                   >
-                    <div className="flex items-center justify-between gap-2">
-                      <p className="text-sm font-semibold truncate">
-                        {conversation.customer.name || conversation.customer.phone}
-                      </p>
-                      <span className="badge uppercase">{conversation.status}</span>
+                    <div className={styles.cardHeader}>
+                      <div>
+                        <strong>{conversation.customer.name || conversation.customer.phone}</strong>
+                        <span>{conversation.customer.phone}</span>
+                      </div>
+                      <span className={styles.statusBadge}>{conversation.status}</span>
                     </div>
-                    <p className="text-xs text-muted truncate mt-1">{conversation.customer.phone}</p>
-                    <p className="text-xs text-muted truncate mt-1">
-                      {getMessagePreview(last)}
-                    </p>
+
+                    <div className={styles.badgeRow}>
+                      <span
+                        className={`${styles.routeBadge} ${
+                          conversation.routeTarget === "recovery" ? styles.routeRecovery : styles.routeAtendimento
+                        }`}
+                      >
+                        {conversation.routeTarget === "recovery" ? "Rota Recovery" : "Rota Atendimento"}
+                      </span>
+                      {conversation.recoveryOpenAmount > 0 ? (
+                        <span className={styles.amountBadge}>{formatCurrency(conversation.recoveryOpenAmount)}</span>
+                      ) : null}
+                    </div>
+
+                    <p className={styles.routeReason}>{conversation.routeReason}</p>
+                    <p className={styles.preview}>{getMessagePreview(last)}</p>
+                    <p className={styles.previewMeta}>Atualizada em {formatDate(conversation.updatedAt)}</p>
                   </button>
                 );
               })}
@@ -293,33 +464,30 @@ export default function InboxClientPage() {
           )}
         </article>
 
-        <article className="panel p-3">
+        <article className={`panel ${styles.detailPanel}`}>
           {loadingConversation ? (
             <p className="text-sm text-muted">Carregando conversa...</p>
           ) : !selectedConversation ? (
             <p className="text-sm text-muted">Selecione uma conversa para iniciar o atendimento.</p>
           ) : (
-            <div className="space-y-3">
-              <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className={styles.detailBody}>
+              <div className={styles.panelHeader}>
                 <div>
-                  <h2 className="font-semibold text-lg">
-                    {selectedConversation.customer.name || "Cliente sem nome"}
-                  </h2>
-                  <p className="text-xs text-muted">{selectedConversation.customer.phone}</p>
-                  <p className="text-xs text-muted mt-1">
-                    Atualizado em {formatDate(selectedConversation.updatedAt)}
-                  </p>
+                  <h3>{selectedConversation.customer.name || "Cliente sem nome"}</h3>
+                  <p>{selectedConversation.customer.phone}</p>
                 </div>
-
-                <div className="flex items-center gap-1">
+                <div className={styles.headerActions}>
+                  {selectedConversation.routeTarget === "recovery" ? (
+                    <Link href="/hbx-recovery" className="btn btn-secondary btn-sm">
+                      Abrir no Recovery
+                    </Link>
+                  ) : null}
                   {(["new", "open", "closed"] as const).map((status) => (
                     <button
                       key={status}
                       type="button"
                       onClick={() => updateStatus(status)}
-                      className={`btn btn-sm ${
-                        selectedStatus === status ? "btn-primary" : "btn-secondary"
-                      }`}
+                      className={`btn btn-sm ${selectedStatus === status ? "btn-primary" : "btn-secondary"}`}
                     >
                       {status}
                     </button>
@@ -327,29 +495,45 @@ export default function InboxClientPage() {
                 </div>
               </div>
 
-              <div className="h-112.5 space-y-2 overflow-auto rounded-[14px] border border-(--line) bg-(--surface-soft) p-3">
+              <div className={styles.routeBanner}>
+                <div>
+                  <strong>
+                    {selectedConversation.routeTarget === "recovery"
+                      ? "Destino sugerido: HBX Recovery"
+                      : "Destino sugerido: Atendimento"}
+                  </strong>
+                  <p>{selectedConversation.routeReason}</p>
+                </div>
+                <div className={styles.badgeRow}>
+                  {selectedConversation.recoveryCurrentStep ? (
+                    <span className={styles.infoBadge}>{selectedConversation.recoveryCurrentStep}</span>
+                  ) : null}
+                  {selectedConversation.recoveryOpenAmount > 0 ? (
+                    <span className={styles.amountBadge}>{formatCurrency(selectedConversation.recoveryOpenAmount)}</span>
+                  ) : null}
+                </div>
+              </div>
+
+              <div className={styles.timeline}>
                 {selectedConversation.messages.length === 0 ? (
                   <p className="text-sm text-muted">Sem mensagens nesta conversa.</p>
                 ) : (
                   selectedConversation.messages.map((message) => (
-                    <div
-                      key={message.id}
-                      className={`max-w-[82%] rounded-xl p-2.5 text-sm ${getMessageBubbleClass(message)}`}
-                    >
-                      <p className="wrap-break-word leading-relaxed">{getMessagePreview(message)}</p>
-                      <p className="text-[10px] text-muted mt-1">{getMessageMeta(message)}</p>
-                      <p className="text-[10px] text-muted mt-1">{formatDate(message.createdAt)}</p>
+                    <div key={message.id} className={`${styles.messageBubble} ${getBubbleClass(message)}`}>
+                      <p>{getMessagePreview(message)}</p>
+                      <span>{getMessageMeta(message)}</span>
+                      <span>{formatDate(message.createdAt)}</span>
                     </div>
                   ))
                 )}
               </div>
 
-              <form onSubmit={sendMessage} className="flex gap-2">
+              <form onSubmit={sendMessage} className={styles.replyForm}>
                 <input
                   value={sendText}
                   onChange={(event) => setSendText(event.target.value)}
-                  placeholder="Digite uma resposta..."
-                  className="field flex-1"
+                  placeholder="Digite uma resposta manual..."
+                  className="field"
                 />
                 <button disabled={sending || !sendText.trim()} className="btn btn-primary" type="submit">
                   {sending ? "Enviando..." : "Enviar"}
@@ -358,6 +542,70 @@ export default function InboxClientPage() {
             </div>
           )}
         </article>
+      </section>
+
+      <section className={`panel ${styles.customerTablePanel}`}>
+        <div className={styles.panelHeader}>
+          <div>
+            <h3>Tabela de clientes do Atendimento</h3>
+            <p>Base consolidada por telefone, com rota sugerida e contexto de cobranca para priorizacao operacional.</p>
+          </div>
+        </div>
+
+        {customerRows.length === 0 ? (
+          <p className="text-sm text-muted">Nenhum cliente encontrado para os filtros atuais.</p>
+        ) : (
+          <div className={styles.customerTableWrap}>
+            <table className={styles.customerTable}>
+              <thead>
+                <tr>
+                  <th>Cliente</th>
+                  <th>Rota</th>
+                  <th>Em aberto</th>
+                  <th>Conversas</th>
+                  <th>Ultima atualizacao</th>
+                  <th>Contexto</th>
+                  <th>Abrir</th>
+                </tr>
+              </thead>
+              <tbody>
+                {customerRows.map((row) => (
+                  <tr key={`customer-${row.phone}`}>
+                    <td>
+                      <strong>{row.customerName}</strong>
+                      <span>{row.phone}</span>
+                    </td>
+                    <td>
+                      <span className={`${styles.routeBadge} ${row.routeTarget === "recovery" ? styles.routeRecovery : styles.routeAtendimento}`}>
+                        {row.routeTarget === "recovery" ? "Recovery" : "Atendimento"}
+                      </span>
+                    </td>
+                    <td>{row.openAmount > 0 ? formatCurrency(row.openAmount) : "-"}</td>
+                    <td>{`${row.conversationCount} total / ${row.openConversationCount} abertas`}</td>
+                    <td>{formatDate(row.updatedAt)}</td>
+                    <td>{row.recoveryCurrentStep || row.routeReason}</td>
+                    <td>
+                      <div className={styles.tableActionRow}>
+                        <button
+                          type="button"
+                          className="btn btn-secondary btn-sm"
+                          onClick={() => loadConversation(row.conversationId)}
+                        >
+                          Conversa
+                        </button>
+                        {row.routeTarget === "recovery" ? (
+                          <Link href={row.recoverySuggestedPath} className="btn btn-primary btn-sm">
+                            Recovery
+                          </Link>
+                        ) : null}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </section>
     </DashboardScaffold>
   );

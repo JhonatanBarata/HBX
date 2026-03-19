@@ -4,6 +4,13 @@ import { MockMessageDto } from './dto/mock-message.dto';
 import { ConversationsService } from '../messaging/conversations.service';
 import { WhatsAppAuditService } from '../messaging/whatsapp-audit.service';
 import {
+  DEFAULT_RECOVERY_BOT_CONFIG,
+  normalizeRecoveryBotConfig,
+  RECOVERY_BOT_CONFIG_CHANNEL,
+  RECOVERY_BOT_CONFIG_TITLE,
+  type RecoveryRoutingRules,
+} from '../hbx-recovery/recovery-bot-config';
+import {
   buildStructuredWhatsAppLog,
   buildWhatsAppPhoneCandidates,
   normalizeWhatsAppPhone,
@@ -90,18 +97,108 @@ export class InboxService {
     return String(customer?.clientName || customer?.name || '').trim() || null;
   }
 
-  private async mapConversation(companyId: number, conversation: any) {
+  private async getRecoveryRoutingRules(companyId: number): Promise<RecoveryRoutingRules> {
+    const row = await this.prisma.hbxRecoveryFlowStage.findFirst({
+      where: {
+        companyId,
+        channel: RECOVERY_BOT_CONFIG_CHANNEL,
+        title: RECOVERY_BOT_CONFIG_TITLE,
+      },
+      orderBy: { updatedAt: 'desc' },
+      select: { template: true },
+    });
+    if (!row?.template) return { ...DEFAULT_RECOVERY_BOT_CONFIG.routingRules };
+    try {
+      return normalizeRecoveryBotConfig(JSON.parse(row.template)).routingRules;
+    } catch {
+      return { ...DEFAULT_RECOVERY_BOT_CONFIG.routingRules };
+    }
+  }
+
+  private async resolveRecoveryRoutingContext(
+    companyId: number,
+    conversation: any,
+    routingRules: RecoveryRoutingRules,
+  ) {
+    const metadata = this.parseConversationMetadata(conversation?.metadata);
+    const metadataCustomerId = String(
+      metadata?.recoveryCustomerId || metadata?.customerId || metadata?.customer_id || '',
+    ).trim();
+    const digits = String(conversation?.contact || '').replace(/\D/g, '');
+    const latestSourceModule = String(conversation?.messages?.[0]?.sourceModule || '')
+      .trim()
+      .toLowerCase();
+
+    const recoveryCustomer = metadataCustomerId
+      ? await this.prisma.hbxRecoveryCustomer.findFirst({
+          where: { companyId, id: metadataCustomerId },
+          select: { id: true, name: true, clientName: true, openAmount: true },
+        })
+      : digits
+        ? await this.prisma.hbxRecoveryCustomer.findFirst({
+            where: { companyId, whatsappNumber: { endsWith: digits } },
+            select: { id: true, name: true, clientName: true, openAmount: true },
+          })
+        : null;
+
+    const hasRecoveryDebt = Number(recoveryCustomer?.openAmount || 0) > 0;
+    const recoveryFlow =
+      String(conversation?.currentFlow || '').trim().toLowerCase().includes('recovery') ||
+      latestSourceModule.startsWith('hbx_recovery');
+
+    let routeTarget: 'recovery' | 'atendimento' = 'atendimento';
+    let routeReason = 'Atendimento manual padrao.';
+
+    if (conversation?.humanAssigned && routingRules.preferInboxForManualQueue) {
+      routeTarget = 'atendimento';
+      routeReason = 'Cliente aguardando tratativa humana na fila manual.';
+    } else if (hasRecoveryDebt && routingRules.preferRecoveryForDebtors) {
+      routeTarget = 'recovery';
+      routeReason = 'Cliente com debito em aberto e contexto ativo de cobranca.';
+    } else if (recoveryFlow && routingRules.preferRecoveryForNegotiations) {
+      routeTarget = 'recovery';
+      routeReason = 'Conversa originada ou mantida pelo fluxo do HBX Recovery.';
+    }
+
+    return {
+      routeTarget,
+      routeReason,
+      recoveryCustomerId: recoveryCustomer?.id ? String(recoveryCustomer.id) : null,
+      recoveryCustomerName: String(
+        recoveryCustomer?.clientName || recoveryCustomer?.name || '',
+      ).trim() || null,
+      recoveryOpenAmount: Number(recoveryCustomer?.openAmount || 0),
+      recoveryCurrentStep: String(conversation?.currentStep || '').trim() || null,
+      recoverySuggestedPath: routeTarget === 'recovery' ? '/hbx-recovery' : '/dashboard/inbox',
+      latestSourceModule: latestSourceModule || null,
+    };
+  }
+
+  private async mapConversation(
+    companyId: number,
+    conversation: any,
+    routingRules: RecoveryRoutingRules,
+  ) {
     const displayName = await this.resolveConversationDisplayName(
       companyId,
       String(conversation.contact || ''),
       conversation.metadata,
     );
+    const routeContext = await this.resolveRecoveryRoutingContext(companyId, conversation, routingRules);
     return {
       id: String(conversation.id),
       status: this.toInboxStatus(conversation),
       assignedTo: conversation.humanAssigned ? 'humano' : null,
       createdAt: conversation.createdAt,
       updatedAt: conversation.updatedAt,
+      routeTarget: routeContext.routeTarget,
+      routeReason: routeContext.routeReason,
+      recoveryCustomerId: routeContext.recoveryCustomerId,
+      recoveryCustomerName: routeContext.recoveryCustomerName,
+      recoveryOpenAmount: routeContext.recoveryOpenAmount,
+      recoveryCurrentStep: routeContext.recoveryCurrentStep,
+      recoverySuggestedPath: routeContext.recoverySuggestedPath,
+      latestSourceModule: routeContext.latestSourceModule,
       customer: {
         id: String(conversation.id),
         phone: String(conversation.contact || ''),
@@ -115,6 +212,7 @@ export class InboxService {
         messageType: String(message.messageType || 'text').trim().toLowerCase(),
         senderType: String(message.senderType || 'system').trim().toLowerCase(),
         status: String(message.status || 'RECEIVED').trim().toUpperCase(),
+        sourceModule: String(message.sourceModule || '').trim().toLowerCase() || null,
         error: message.error ? String(message.error) : null,
       })),
     };
@@ -128,6 +226,7 @@ export class InboxService {
 
   async listConversations(user: any) {
     const companyId = this.requireCompanyIdFromUser(user);
+    const routingRules = await this.getRecoveryRoutingRules(companyId);
     const rows = await this.prisma.companyConversation.findMany({
       where: { companyId, channel: 'whatsapp' },
       orderBy: { updatedAt: 'desc' },
@@ -138,10 +237,11 @@ export class InboxService {
         },
       },
     });
-    return Promise.all(rows.map((row) => this.mapConversation(companyId, row)));
+    return Promise.all(rows.map((row) => this.mapConversation(companyId, row, routingRules)));
   }
 
   private async getConversationByIdForCompany(companyId: number, id: number) {
+    const routingRules = await this.getRecoveryRoutingRules(companyId);
     const conversation = await this.prisma.companyConversation.findFirst({
       where: { id, companyId, channel: 'whatsapp' },
       include: {
@@ -149,7 +249,7 @@ export class InboxService {
       },
     });
     if (!conversation) throw new NotFoundException('Conversation not found');
-    return this.mapConversation(companyId, conversation);
+    return this.mapConversation(companyId, conversation, routingRules);
   }
 
   async getConversationById(user: any, id: number) {

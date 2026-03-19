@@ -4,8 +4,6 @@
   const payload = {
     username,
     email: `smoke+${Date.now()}@example.test`,
-    companySlug: 'smoke-company-20260209',
-    companyName: 'Smoke Co',
     password: 'password123',
     name: 'Smoke Test',
   };
@@ -31,7 +29,6 @@
     const lpayload = {
       username: payload.username,
       password: payload.password,
-      companySlug: payload.companySlug,
     };
     const l = await fetch(`${API}/auth/login`, {
       method: 'POST',

@@ -3,6 +3,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CreatePlanDto } from './dto/create-plan.dto';
 import { CreateFeatureDto } from './dto/create-feature.dto';
 import structuralDefaults from '../bootstrap/structural-defaults.json';
+import { buildImportacaoPermissaoRows } from '../bootstrap/company-structural-defaults';
 
 type StructuralPlanDef = {
   name: string;
@@ -108,7 +109,14 @@ export class PlansService {
     if (!plan) plan = await this.prisma.plan.findFirst({});
 
     // create company
-    const company = await this.prisma.company.create({ data: { name: input.companyName || 'Admin Company', planId: plan?.id } });
+    const company = await this.prisma.$transaction(async (tx) => {
+      const createdCompany = await tx.company.create({ data: { name: input.companyName || 'Admin Company', planId: plan?.id } });
+      await tx.importacaoPermissao.createMany({
+        data: buildImportacaoPermissaoRows(createdCompany.id),
+        skipDuplicates: true,
+      });
+      return createdCompany;
+    });
 
     // create admin user
     const hashed = await (await import('bcryptjs')).hash(input.adminPassword, 10);

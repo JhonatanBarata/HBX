@@ -27,37 +27,6 @@
   --muted: #475569;
   --line: #d9e3ef;
   --success: #0f766e;
-
-  .wa-health-wrap {
-    position: relative;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-  }
-
-  .wa-health__queue-badge {
-    position: absolute;
-    top: -6px;
-    right: -4px;
-    min-width: 20px;
-    height: 20px;
-    padding: 0 0.35rem;
-    border-radius: 999px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    background: linear-gradient(180deg, #d92d20, #b42318);
-    color: white;
-    font-size: 0.68rem;
-    font-weight: 900;
-    line-height: 1;
-    border: 2px solid white;
-    box-shadow: 0 8px 18px -12px rgba(180, 35, 24, 0.85);
-  }
-
-  .wa-health-wrap--alert .wa-health__queue-badge {
-    animation: wa-queue-badge-pulse 1.4s ease-in-out infinite;
-  }
   --danger: #b42318;
 
   --radius-sm: 10px;
@@ -87,52 +56,38 @@ html[data-theme="primary"] {
 html[data-theme="secondary"] {
   --brand-source: #0f766e;
   --background: #ebf5f4;
-    0%,
-    100% {
-      box-shadow: 0 0 0 0 rgba(15, 118, 110, 0.1);
-      background: color-mix(in srgb, #0f766e 14%, white);
-    }
-    50% {
-      box-shadow: 0 0 0 7px rgba(15, 118, 110, 0.22);
-      background: color-mix(in srgb, #0f766e 22%, white);
-    }
-  }
-
-  @keyframes wa-status-pulse-yellow {
-    0%,
-    100% {
-      box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.12);
-      background: color-mix(in srgb, #f59e0b 18%, white);
-    }
-    50% {
-      box-shadow: 0 0 0 7px rgba(245, 158, 11, 0.25);
-      background: color-mix(in srgb, #f59e0b 28%, white);
-    }
-  }
-
-  @keyframes wa-status-pulse-red {
-    0%,
-    100% {
-      box-shadow: 0 0 0 0 rgba(180, 35, 24, 0.12);
-      background: color-mix(in srgb, #b42318 12%, white);
-    }
-    50% {
-      box-shadow: 0 0 0 7px rgba(180, 35, 24, 0.24);
-      background: color-mix(in srgb, #b42318 22%, white);
-    }
-  }
-
-  @keyframes wa-queue-badge-pulse {
-    0%,
-    100% {
-      transform: scale(1);
-      box-shadow: 0 8px 18px -12px rgba(180, 35, 24, 0.85), 0 0 0 0 rgba(217, 45, 32, 0.14);
-    }
-    50% {
-      transform: scale(1.06);
-      box-shadow: 0 10px 24px -12px rgba(180, 35, 24, 0.9), 0 0 0 8px rgba(217, 45, 32, 0.1);
-    }
   --background-alt: #dcedea;
+  --surface: #ffffff;
+  --surface-soft: #eef8f6;
+  --foreground: #0f172a;
+  --muted: #475569;
+  --line: #cfe4df;
+}
+
+html[data-theme="slate"] {
+  --brand-source: #334155;
+  --background: #eff2f6;
+  --background-alt: #e2e8f0;
+  --surface: #ffffff;
+  --surface-soft: #f8fafc;
+  --foreground: #0f172a;
+  --muted: #475569;
+  --line: #d7dee8;
+}
+
+html[data-theme="pink"] {
+  --brand-source: #be185d;
+  --background: #fff1f7;
+  --background-alt: #ffe3ee;
+  --surface: #ffffff;
+  --surface-soft: #fff7fb;
+  --foreground: #1f172a;
+  --muted: #6b4c5d;
+  --line: #f2d5e1;
+}
+
+html,
+body {
   min-height: 100%;
 }
 
@@ -256,28 +211,13 @@ a {
   transition: transform var(--motion-fast), box-shadow var(--motion-fast), background-color var(--motion-fast), border-color var(--motion-fast), color var(--motion-fast);
 }
 
-.wa-health svg {
-  width: 23px;
-  height: 23px;
-  fill: currentColor;
-}
-
-.wa-health--green {
-  color: #0f766e;
-  background: color-mix(in srgb, #0f766e 14%, white);
-  border-color: color-mix(in srgb, #0f766e 34%, white);
-  animation: wa-status-pulse-green 1.35s ease-in-out infinite;
-}
-
-.wa-health--yellow {
-  color: #b45309;
-  background: color-mix(in srgb, #f59e0b 18%, white);
 .wa-health-wrap {
   position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
 }
+
 .wa-health__queue-badge {
   position: absolute;
   top: -6px;
@@ -297,9 +237,27 @@ a {
   border: 2px solid white;
   box-shadow: 0 8px 18px -12px rgba(180, 35, 24, 0.85);
 }
+
 .wa-health-wrap--alert .wa-health__queue-badge {
   animation: wa-queue-badge-pulse 1.4s ease-in-out infinite;
 }
+
+.wa-health svg {
+  width: 23px;
+  height: 23px;
+  fill: currentColor;
+}
+
+.wa-health--green {
+  color: #0f766e;
+  background: color-mix(in srgb, #0f766e 14%, white);
+  border-color: color-mix(in srgb, #0f766e 34%, white);
+  animation: wa-status-pulse-green 1.35s ease-in-out infinite;
+}
+
+.wa-health--yellow {
+  color: #b45309;
+  background: color-mix(in srgb, #f59e0b 18%, white);
   border-color: color-mix(in srgb, #f59e0b 38%, white);
   animation: wa-status-pulse-yellow 1.35s ease-in-out infinite;
 }
@@ -312,18 +270,6 @@ a {
 }
 
 @keyframes wa-status-pulse-green {
-
-@keyframes wa-queue-badge-pulse {
-  0%,
-  100% {
-    transform: scale(1);
-    box-shadow: 0 8px 18px -12px rgba(180, 35, 24, 0.85), 0 0 0 0 rgba(217, 45, 32, 0.14);
-  }
-  50% {
-    transform: scale(1.06);
-    box-shadow: 0 10px 24px -12px rgba(180, 35, 24, 0.9), 0 0 0 8px rgba(217, 45, 32, 0.1);
-  }
-}
   0%,
   100% {
     box-shadow: 0 0 0 0 rgba(15, 118, 110, 0.1);
@@ -356,6 +302,18 @@ a {
   50% {
     box-shadow: 0 0 0 7px rgba(180, 35, 24, 0.24);
     background: color-mix(in srgb, #b42318 22%, white);
+  }
+}
+
+@keyframes wa-queue-badge-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+    box-shadow: 0 8px 18px -12px rgba(180, 35, 24, 0.85), 0 0 0 0 rgba(217, 45, 32, 0.14);
+  }
+  50% {
+    transform: scale(1.06);
+    box-shadow: 0 10px 24px -12px rgba(180, 35, 24, 0.9), 0 0 0 8px rgba(217, 45, 32, 0.1);
   }
 }
 

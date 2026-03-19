@@ -456,19 +456,35 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     // Fallback aliases for common template labels and older wording.
     aliasMap['pagar agora'] = aliasMap['pagar agora'] || 'pay_full';
     aliasMap['parcelar'] = aliasMap['parcelar'] || 'choose_installments';
+    aliasMap['pagar no credito'] = aliasMap['pagar no credito'] || 'choose_installments';
+    aliasMap['cartao de credito'] = aliasMap['cartao de credito'] || 'choose_installments';
+    aliasMap['credito'] = aliasMap['credito'] || 'choose_installments';
     aliasMap['falar com atendente'] = aliasMap['falar com atendente'] || 'talk_human';
     aliasMap['fale conosco'] = aliasMap['fale conosco'] || 'talk_human';
     aliasMap['preciso de ajuda'] = aliasMap['preciso de ajuda'] || 'talk_human';
     aliasMap['ja paguei'] = aliasMap['ja paguei'] || 'paid_claim';
     aliasMap['gerar link'] = aliasMap['gerar link'] || 'generate_installment_link';
     aliasMap['alterar parcelas'] = aliasMap['alterar parcelas'] || 'choose_installments';
+    aliasMap['gerar link no credito'] = aliasMap['gerar link no credito'] || 'choose_installments';
     aliasMap['hoje mais tarde'] = aliasMap['hoje mais tarde'] || 'followup_today';
     aliasMap['amanha'] = aliasMap['amanha'] || 'followup_tomorrow';
     aliasMap['esta semana'] = aliasMap['esta semana'] || 'followup_week';
     aliasMap['revisar e pagar'] = aliasMap['revisar e pagar'] || 'pay_full';
     aliasMap['review and pay'] = aliasMap['review and pay'] || 'pay_full';
 
+    for (const action of config.actionCatalog || []) {
+      const label = this.normalizeActionLabel(String(action.title || ''));
+      if (label) aliasMap[label] = String(action.actionId || '').trim().toLowerCase();
+    }
+
     return aliasMap;
+  }
+
+  private getRecoveryActionGuide(config: RecoveryBotConfig, actionId: string) {
+    const normalized = String(actionId || '').trim().toLowerCase();
+    return (config.actionCatalog || []).find(
+      (action) => String(action.actionId || '').trim().toLowerCase() === normalized,
+    );
   }
 
   private parseConversationMetadata(raw: string | null | undefined): Record<string, any> {
@@ -712,7 +728,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     mode: 'pix' | 'card',
     opts?: {
       conversationId?: number;
-      chargeType?: 'avista' | 'parcelado';
+      chargeType?: 'avista' | 'parcelado' | 'cartao';
       installmentCount?: number;
       totalAmount?: number;
     },
@@ -839,10 +855,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
         },
       });
 
-      const msgTemplate =
-        chargeType === 'parcelado'
-          ? config.installmentLinkMessageTemplate
-          : config.cashLinkMessageTemplate;
+      const msgTemplate = mode === 'card' ? config.installmentLinkMessageTemplate : config.cashLinkMessageTemplate;
       const msg = renderTemplate(msgTemplate, {
         cliente: customer.clientName || customer.name,
         link_pagamento: paymentUrl,
@@ -941,6 +954,9 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     if (RECOVERY_BOT_ACTION_IDS.includes(direct as RecoveryBotButtonActionId)) {
       return direct;
     }
+
+    const directGuide = this.getRecoveryActionGuide(config, rawActionId);
+    if (directGuide?.enabled) return String(directGuide.actionId || '').trim().toLowerCase();
 
     const aliasMap = this.buildRecoveryActionAliasMap(config);
     const directByLabel = aliasMap[this.normalizeActionLabel(rawActionId)];
@@ -1128,6 +1144,52 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
       return { handled: true };
     }
 
+    const customActionGuide = this.getRecoveryActionGuide(config, interactiveId);
+    if (
+      customActionGuide?.enabled &&
+      !(RECOVERY_BOT_ACTION_IDS as readonly string[]).includes(interactiveId)
+    ) {
+      await setInboundMeta(
+        customActionGuide.route === 'atendimento' ? 'hbx_recovery_human' : 'hbx_recovery_bot',
+        customActionGuide.route === 'atendimento',
+      );
+
+      if (customActionGuide.route === 'atendimento') {
+        await this.routeRecoveryToHumanQueue({
+          companyId,
+          from,
+          customerId: customer.id,
+          inboundMessageId,
+          conversationId: safeConversationId,
+          reason: customActionGuide.title,
+        });
+        return { handled: true };
+      }
+
+      const reply =
+        String(customActionGuide.responseMessage || '').trim() ||
+        String(customActionGuide.description || '').trim() ||
+        `Recebi sua solicitacao sobre ${customActionGuide.title}.`;
+      await this.conversations.queueOutboundForCompany(companyId, {
+        to: from,
+        contactId: customer.id,
+        body: renderTemplate(reply, {
+          cliente: customerName,
+          valor_formatado: this.formatCurrencyBRL(Number(customer.openAmount || 0)),
+        }),
+        messageType: 'text',
+        sourceModule: 'hbx_recovery_bot',
+        senderType: 'bot',
+        flowState: {
+          currentFlow: RECOVERY_FLOW_ID,
+          currentStep: conversation?.currentStep || RECOVERY_STEP.MAIN_MENU,
+          botActive: true,
+        },
+      });
+      await queueMainMenu();
+      return { handled: true };
+    }
+
     if (
       interactiveId === 'followup_today' ||
       interactiveId === 'followup_tomorrow' ||
@@ -1229,14 +1291,11 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
 
     if (interactiveId === 'choose_installments') {
       await setInboundMeta('hbx_recovery_bot', false);
-      await this.queueRecoveryButtonPrompt({
-        companyId,
-        to: from,
-        contactId: customer.id,
+      await this.createAndSendRecoveryPaymentLink(companyId, customer, 'card', {
         conversationId: safeConversationId,
-        body: config.installmentsPrompt,
-        step: RECOVERY_STEP.CHOOSING_INSTALLMENTS,
-        buttons: config.installmentButtons,
+        chargeType: 'cartao',
+        installmentCount: 1,
+        totalAmount: Number(customer.openAmount || 0),
       });
       return { handled: true };
     }
@@ -1282,13 +1341,11 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
 
     if (interactiveId === 'generate_installment_link') {
       await setInboundMeta('hbx_recovery_bot', false);
-      const installmentCount = Math.max(2, Math.min(12, Number(flowMeta?.installmentCount || 2)));
-      const plan = this.calculateInstallment(Number(customer.openAmount || 0), installmentCount);
       await this.createAndSendRecoveryPaymentLink(companyId, customer, 'card', {
         conversationId: safeConversationId,
-        chargeType: 'parcelado',
-        installmentCount,
-        totalAmount: Number(flowMeta?.totalAmount || plan.totalAmount),
+        chargeType: 'cartao',
+        installmentCount: 1,
+        totalAmount: Number(customer.openAmount || 0),
       });
       return { handled: true };
     }

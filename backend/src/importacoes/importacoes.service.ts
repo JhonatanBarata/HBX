@@ -79,7 +79,7 @@ export class ImportacoesService implements OnModuleInit, OnModuleDestroy {
       where: { key: 'follow_up_internacional' },
       update: {
         name: 'Follow Up Internacional',
-        description: 'Gestao visual de importacoes, historico financeiro e alertas inteligentes.',
+        description: 'Acompanhamento visual de importacoes, historico e alertas.',
         defaultEnabled: false,
         companyAssignable: true,
         serviceUrl: '/dashboard/importacoes/followup-global',
@@ -87,7 +87,7 @@ export class ImportacoesService implements OnModuleInit, OnModuleDestroy {
       create: {
         key: 'follow_up_internacional',
         name: 'Follow Up Internacional',
-        description: 'Gestao visual de importacoes, historico financeiro e alertas inteligentes.',
+        description: 'Acompanhamento visual de importacoes, historico e alertas.',
         defaultEnabled: false,
         companyAssignable: true,
         serviceUrl: '/dashboard/importacoes/followup-global',

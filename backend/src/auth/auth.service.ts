@@ -6,6 +6,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { MailService } from '../mail/mail.service';
 import * as crypto from 'crypto';
 import { assertPasswordPolicy } from './password-policy';
+import { buildImportacaoPermissaoRows } from '../bootstrap/company-structural-defaults';
 
 @Injectable()
 export class AuthService implements OnModuleInit {
@@ -192,8 +193,15 @@ export class AuthService implements OnModuleInit {
       const companyId = existingUsername.companyId
         ? Number(existingUsername.companyId)
         : (
-            await this.prisma.company.create({
-              data: { slug, name: String(data.name || username).trim() || username },
+            await this.prisma.$transaction(async (tx) => {
+              const company = await tx.company.create({
+                data: { slug, name: String(data.name || username).trim() || username },
+              });
+              await tx.importacaoPermissao.createMany({
+                data: buildImportacaoPermissaoRows(company.id),
+                skipDuplicates: true,
+              });
+              return company;
             })
           ).id;
 
@@ -211,6 +219,11 @@ export class AuthService implements OnModuleInit {
           slug,
           name: String(data.name || username).trim() || username,
         },
+      });
+
+      await tx.importacaoPermissao.createMany({
+        data: buildImportacaoPermissaoRows(company.id),
+        skipDuplicates: true,
       });
 
       const user = await tx.user.create({
