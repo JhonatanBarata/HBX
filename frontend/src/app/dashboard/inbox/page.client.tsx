@@ -1281,7 +1281,7 @@ export default function InboxClientPage() {
                     </Link>
                   ) : null}
 
-                  {!selectedBlocked && !selectedRouteIsRecovery ? (
+                  {!selectedBlocked ? (
                     <>
                       <button
                         type="button"
@@ -1354,24 +1354,22 @@ export default function InboxClientPage() {
                     value={sendText}
                     onChange={(event) => setSendText(event.target.value)}
                     placeholder={
-                      selectedRouteIsRecovery
-                        ? "Conversa roteada para o Recovery. Abra o modulo Recovery para responder."
-                        : selectedBlocked
-                          ? "Contato bloqueado. Desbloqueie para responder."
-                          : "Digite uma resposta manual..."
+                      selectedBlocked
+                        ? "Contato bloqueado. Desbloqueie para responder."
+                        : "Digite uma resposta manual..."
                     }
-                    disabled={selectedRouteIsRecovery || selectedBlocked || sending}
+                    disabled={selectedBlocked || sending}
                   />
                   <div className={styles.replyFooter}>
                     <small>
                       {selectedRouteIsRecovery
-                        ? "Parede ativa: clientes inadimplentes ficam 100% no Recovery."
+                        ? "Conversa tambem visivel no Recovery para acompanhamento operacional."
                         : "Quando o cliente voltar a falar depois de encerrado, o bot pode reabrir a conversa automaticamente."}
                     </small>
                     <button
                       type="submit"
                       className="btn btn-primary"
-                      disabled={sending || !sendText.trim() || selectedRouteIsRecovery || selectedBlocked}
+                      disabled={sending || !sendText.trim() || selectedBlocked}
                     >
                       {sending ? "Enviando..." : "Enviar resposta"}
                     </button>
@@ -1385,6 +1383,22 @@ export default function InboxClientPage() {
 
       {activeTab === "customers" ? (
         <section className={styles.stackSection}>
+          <article className={`panel ${recoveryStyles.sectionCard}`}>
+            <div className={recoveryStyles.sectionHeader}>
+              <div>
+                <p className={recoveryStyles.sectionEyebrow}>Importacao e integracoes</p>
+                <h3 className={recoveryStyles.sectionTitle}>Entrada em lote</h3>
+                <p className={recoveryStyles.sectionDescription}>
+                  Importe sua planilha real com as mesmas colunas do cadastro: Empresa, Cliente,
+                  WhatsApp, Valor em aberto e Dia do registro.
+                </p>
+              </div>
+              <Link href="/hbx-recovery" className="btn btn-primary btn-sm">
+                Importar
+              </Link>
+            </div>
+          </article>
+
           <article className={`panel ${recoveryStyles.sectionCard} ${recoveryStyles.registerTableCard}`}>
             <div className={recoveryStyles.sectionHeader}>
               <div>
