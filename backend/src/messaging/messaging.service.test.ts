@@ -5,6 +5,8 @@ import { MessagingService } from './messaging.service';
 
 function createService(overrides?: Partial<Record<string, any>>) {
   const prisma = {
+    hasTable: async () => false,
+    hasColumn: async () => false,
     company: {
       findFirst: async ({ where }: any) => {
         if (String(where?.whatsappPhoneNumberId || '') === 'phone-number-id') {

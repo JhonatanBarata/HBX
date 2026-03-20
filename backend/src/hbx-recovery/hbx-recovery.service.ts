@@ -22,6 +22,7 @@ import {
   DEFAULT_RECOVERY_BOT_CONFIG,
   RECOVERY_BOT_CONFIG_CHANNEL,
   RECOVERY_BOT_CONFIG_TITLE,
+  type RecoveryBotButton,
   type RecoveryBotConfig,
   normalizeRecoveryBotConfig,
 } from './recovery-bot-config';
@@ -2658,10 +2659,61 @@ export class HbxRecoveryService {
     return this.getRecoveryBotConfig(companyId);
   }
 
+  private validateRecoveryButtons(
+    buttons: RecoveryBotButton[],
+    sectionLabel: string,
+    allowedActionIds: Set<string>,
+    usedButtonIds: Set<string>,
+  ) {
+    for (const button of buttons || []) {
+      const buttonId = String(button.buttonId || '').trim().toLowerCase();
+      const actionId = String(button.actionId || '').trim().toLowerCase();
+      const title = String(button.title || '').trim();
+      if (!buttonId) {
+        throw new BadRequestException(`Cada botao de ${sectionLabel} precisa ter um id interno estavel.`);
+      }
+      if (usedButtonIds.has(buttonId)) {
+        throw new BadRequestException(`O id interno '${buttonId}' esta duplicado no editor do Recovery.`);
+      }
+      usedButtonIds.add(buttonId);
+      if (!actionId) {
+        throw new BadRequestException(`O botao '${title || buttonId}' em ${sectionLabel} precisa ter uma acao.`);
+      }
+      if (!allowedActionIds.has(actionId)) {
+        throw new BadRequestException(
+          `O botao '${title || buttonId}' em ${sectionLabel} aponta para a acao '${actionId}', que nao existe.`,
+        );
+      }
+    }
+  }
+
+  private validateRecoveryBotConfig(config: RecoveryBotConfig) {
+    const allowedActionIds = new Set(
+      (config.actionCatalog || [])
+        .map((action) => String(action.actionId || '').trim().toLowerCase())
+        .filter(Boolean),
+    );
+    const usedButtonIds = new Set<string>();
+    this.validateRecoveryButtons(config.mainMenuButtons, 'menu principal', allowedActionIds, usedButtonIds);
+    this.validateRecoveryButtons(config.declineMenuButtons, 'menu de recusa', allowedActionIds, usedButtonIds);
+    this.validateRecoveryButtons(config.followupButtons, 'menu de follow-up', allowedActionIds, usedButtonIds);
+    this.validateRecoveryButtons(config.valueButtons, 'menu de valor pendente', allowedActionIds, usedButtonIds);
+    this.validateRecoveryButtons(config.installmentButtons, 'menu de parcelamento', allowedActionIds, usedButtonIds);
+    this.validateRecoveryButtons(
+      config.installmentConfirmButtons,
+      'confirmacao de parcelamento',
+      allowedActionIds,
+      usedButtonIds,
+    );
+    this.validateRecoveryButtons(config.postLinkButtons, 'menu pos-link', allowedActionIds, usedButtonIds);
+  }
+
   async updateBotConfig(user: any, dto: UpdateRecoveryBotConfigDto) {
     const companyId = this.requireCompanyIdFromUser(user);
     await this.ensureDefaultFlowStages(companyId);
-    return this.saveRecoveryBotConfig(companyId, dto || {});
+    const normalized = normalizeRecoveryBotConfig(dto || {});
+    this.validateRecoveryBotConfig(normalized);
+    return this.saveRecoveryBotConfig(companyId, normalized);
   }
 
   async createFlowStage(user: any, dto: CreateRecoveryFlowStageDto) {

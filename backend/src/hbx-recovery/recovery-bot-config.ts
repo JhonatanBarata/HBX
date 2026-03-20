@@ -23,6 +23,7 @@ export type RecoveryBotButtonActionId = (typeof RECOVERY_BOT_ACTION_IDS)[number]
 export type RecoveryBotAnyActionId = RecoveryBotButtonActionId | string;
 
 export type RecoveryBotButton = {
+  buttonId: string;
   actionId: RecoveryBotAnyActionId;
   title: string;
 };
@@ -130,46 +131,73 @@ const DEFAULT_TEMPLATE_LANGUAGE =
       'pt_BR',
   ).trim() || 'pt_BR';
 
+function normalizeBotButtonId(value: unknown, fallback: string) {
+  const normalized = String(value || fallback)
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, '_')
+    .replace(/[^a-z0-9_:-]/g, '')
+    .slice(0, 80);
+  return normalized || fallback;
+}
+
+function buildDefaultButtonId(sectionKey: string, actionId: string, index: number) {
+  return normalizeBotButtonId(`${sectionKey}_${actionId || 'action'}_${index + 1}`, `${sectionKey}_${index + 1}`);
+}
+
+function makeDefaultButton(
+  sectionKey: string,
+  actionId: RecoveryBotAnyActionId,
+  title: string,
+  index: number,
+): RecoveryBotButton {
+  return {
+    buttonId: buildDefaultButtonId(sectionKey, String(actionId || ''), index),
+    actionId,
+    title,
+  };
+}
+
 const DEFAULT_MAIN_MENU_BUTTONS: RecoveryBotButton[] = [
-  { actionId: 'view_amount', title: 'Ver valor pendente' },
-  { actionId: 'choose_installments', title: 'Pagar no credito' },
-  { actionId: 'pay_full', title: 'Pagar no Pix' },
-  { actionId: 'talk_human', title: 'Falar com atendente' },
+  makeDefaultButton('main_menu', 'view_amount', 'Ver valor pendente', 0),
+  makeDefaultButton('main_menu', 'choose_installments', 'Pagar no credito', 1),
+  makeDefaultButton('main_menu', 'pay_full', 'Pagar no Pix', 2),
+  makeDefaultButton('main_menu', 'talk_human', 'Falar com atendente', 3),
 ];
 
 const DEFAULT_DECLINE_MENU_BUTTONS: RecoveryBotButton[] = [
-  { actionId: 'talk_later', title: 'Falar depois' },
-  { actionId: 'close_topic', title: 'Encerrar assunto' },
-  { actionId: 'talk_human', title: 'Falar com atendente' },
+  makeDefaultButton('decline_menu', 'talk_later', 'Falar depois', 0),
+  makeDefaultButton('decline_menu', 'close_topic', 'Encerrar assunto', 1),
+  makeDefaultButton('decline_menu', 'talk_human', 'Falar com atendente', 2),
 ];
 
 const DEFAULT_FOLLOWUP_BUTTONS: RecoveryBotButton[] = [
-  { actionId: 'followup_today', title: 'Hoje mais tarde' },
-  { actionId: 'followup_tomorrow', title: 'Amanha' },
-  { actionId: 'followup_week', title: 'Esta semana' },
+  makeDefaultButton('followup_menu', 'followup_today', 'Hoje mais tarde', 0),
+  makeDefaultButton('followup_menu', 'followup_tomorrow', 'Amanha', 1),
+  makeDefaultButton('followup_menu', 'followup_week', 'Esta semana', 2),
 ];
 
 const DEFAULT_VALUE_BUTTONS: RecoveryBotButton[] = [
-  { actionId: 'pay_full', title: 'Pagar no Pix' },
-  { actionId: 'choose_installments', title: 'Pagar no credito' },
-  { actionId: 'talk_human', title: 'Falar com atendente' },
+  makeDefaultButton('value_menu', 'pay_full', 'Pagar no Pix', 0),
+  makeDefaultButton('value_menu', 'choose_installments', 'Pagar no credito', 1),
+  makeDefaultButton('value_menu', 'talk_human', 'Falar com atendente', 2),
 ];
 
 const DEFAULT_INSTALLMENT_BUTTONS: RecoveryBotButton[] = [
-  { actionId: 'choose_installments', title: 'Gerar link no credito' },
-  { actionId: 'talk_human', title: 'Falar com atendente' },
+  makeDefaultButton('installment_menu', 'choose_installments', 'Gerar link no credito', 0),
+  makeDefaultButton('installment_menu', 'talk_human', 'Falar com atendente', 1),
 ];
 
 const DEFAULT_INSTALLMENT_CONFIRM_BUTTONS: RecoveryBotButton[] = [
-  { actionId: 'generate_installment_link', title: 'Gerar link no credito' },
-  { actionId: 'choose_installments', title: 'Gerar novo link no credito' },
-  { actionId: 'talk_human', title: 'Falar com atendente' },
+  makeDefaultButton('installment_confirm', 'generate_installment_link', 'Gerar link no credito', 0),
+  makeDefaultButton('installment_confirm', 'choose_installments', 'Gerar novo link no credito', 1),
+  makeDefaultButton('installment_confirm', 'talk_human', 'Falar com atendente', 2),
 ];
 
 const DEFAULT_POST_LINK_BUTTONS: RecoveryBotButton[] = [
-  { actionId: 'paid_claim', title: 'Ja paguei' },
-  { actionId: 'choose_installments', title: 'Gerar link no credito' },
-  { actionId: 'talk_human', title: 'Falar com atendente' },
+  makeDefaultButton('post_link_menu', 'paid_claim', 'Ja paguei', 0),
+  makeDefaultButton('post_link_menu', 'choose_installments', 'Gerar link no credito', 1),
+  makeDefaultButton('post_link_menu', 'talk_human', 'Falar com atendente', 2),
 ];
 
 const DEFAULT_VARIABLE_CATALOG: RecoveryBotVariableDefinition[] = [
@@ -473,10 +501,15 @@ function normalizeActionId(value: unknown): RecoveryBotAnyActionId | null {
 function normalizeButtons(
   value: unknown,
   fallback: RecoveryBotButton[],
+  sectionKey: string,
   maxButtons = 10,
 ): RecoveryBotButton[] {
+  if (value === undefined || value === null) {
+    return fallback.map((item) => ({ ...item }));
+  }
   const rows = Array.isArray(value) ? value : [];
   const normalized: RecoveryBotButton[] = [];
+  const seen = new Set<string>();
   for (const row of rows) {
     if (!row || typeof row !== 'object') continue;
     const item = row as Record<string, unknown>;
@@ -484,11 +517,21 @@ function normalizeButtons(
     if (!actionId) continue;
     const title = normalizeText(item.title, '', 25);
     if (!title) continue;
-    normalized.push({ actionId, title });
+    let buttonId = normalizeBotButtonId(
+      item.buttonId,
+      buildDefaultButtonId(sectionKey, actionId, normalized.length),
+    );
+    let collisionIndex = 1;
+    while (seen.has(buttonId)) {
+      buttonId = normalizeBotButtonId(
+        `${buttonId}_${collisionIndex}`,
+        buildDefaultButtonId(sectionKey, actionId, normalized.length + collisionIndex),
+      );
+      collisionIndex += 1;
+    }
+    seen.add(buttonId);
+    normalized.push({ buttonId, actionId, title });
     if (normalized.length >= maxButtons) break;
-  }
-  if (!normalized.length) {
-    return fallback.map((item) => ({ ...item }));
   }
   return normalized;
 }
@@ -682,17 +725,28 @@ export function normalizeRecoveryBotConfig(input: unknown): RecoveryBotConfig {
     startTemplates.find((item) => item.active) ||
     (startTemplates.length ? startTemplates[0] : null);
 
-  const mainMenuButtons = normalizeButtons(data.mainMenuButtons, DEFAULT_MAIN_MENU_BUTTONS, 10);
-  const declineMenuButtons = normalizeButtons(data.declineMenuButtons, DEFAULT_DECLINE_MENU_BUTTONS, 10);
-  const followupButtons = normalizeButtons(data.followupButtons, DEFAULT_FOLLOWUP_BUTTONS, 10);
-  const valueButtons = normalizeButtons(data.valueButtons, DEFAULT_VALUE_BUTTONS, 10);
-  const installmentButtons = normalizeButtons(data.installmentButtons, DEFAULT_INSTALLMENT_BUTTONS, 10);
+  const mainMenuButtons = normalizeButtons(data.mainMenuButtons, DEFAULT_MAIN_MENU_BUTTONS, 'main_menu', 10);
+  const declineMenuButtons = normalizeButtons(
+    data.declineMenuButtons,
+    DEFAULT_DECLINE_MENU_BUTTONS,
+    'decline_menu',
+    10,
+  );
+  const followupButtons = normalizeButtons(data.followupButtons, DEFAULT_FOLLOWUP_BUTTONS, 'followup_menu', 10);
+  const valueButtons = normalizeButtons(data.valueButtons, DEFAULT_VALUE_BUTTONS, 'value_menu', 10);
+  const installmentButtons = normalizeButtons(
+    data.installmentButtons,
+    DEFAULT_INSTALLMENT_BUTTONS,
+    'installment_menu',
+    10,
+  );
   const installmentConfirmButtons = normalizeButtons(
     data.installmentConfirmButtons,
     DEFAULT_INSTALLMENT_CONFIRM_BUTTONS,
+    'installment_confirm',
     10,
   );
-  const postLinkButtons = normalizeButtons(data.postLinkButtons, DEFAULT_POST_LINK_BUTTONS, 10);
+  const postLinkButtons = normalizeButtons(data.postLinkButtons, DEFAULT_POST_LINK_BUTTONS, 'post_link_menu', 10);
   const topics = normalizeLegacyTopics(data.topics);
   const variableCatalog = normalizeVariableCatalog(data.variableCatalog);
   const actionCatalog = normalizeActionCatalog(data.actionCatalog);

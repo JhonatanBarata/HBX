@@ -3,6 +3,10 @@ import { IsArray, IsBoolean, IsOptional, IsString, ValidateNested } from 'class-
 
 class UpdateAtendimentoBotButtonDto {
   @IsString()
+  @IsOptional()
+  buttonId?: string;
+
+  @IsString()
   actionId!: string;
 
   @IsString()
@@ -110,6 +114,12 @@ export class UpdateAtendimentoBotConfigDto {
   @IsString()
   @IsOptional()
   welcomeMessage?: string;
+
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => UpdateAtendimentoBotButtonDto)
+  @IsOptional()
+  welcomeButtons?: UpdateAtendimentoBotButtonDto[];
 
   @IsString()
   @IsOptional()

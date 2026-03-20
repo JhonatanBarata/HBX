@@ -61,6 +61,7 @@ export type AtendimentoBotActionKind =
   | "agenda";
 
 export type AtendimentoBotButton = {
+  buttonId: string;
   actionId: string;
   title: string;
 };
@@ -88,6 +89,7 @@ export type AtendimentoBotConfig = {
   variableCatalog: AtendimentoBotVariableDefinition[];
   actionCatalog: AtendimentoBotActionGuide[];
   routingRules: AtendimentoRoutingRules;
+  welcomeButtons: AtendimentoBotButton[];
   mainMenuPrompt: string;
   mainMenuButtons: AtendimentoBotButton[];
   welcomeMessage: string;
@@ -126,6 +128,28 @@ export type AtendimentoAgendaConfig = {
 };
 
 export const ATENDIMENTO_QUEUE_EVENT = "atendimento-human-queue";
+
+function normalizeButtonId(value: string, fallback: string) {
+  const normalized = String(value || fallback)
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "_")
+    .replace(/[^a-z0-9_:-]/g, "")
+    .slice(0, 80);
+  return normalized || fallback;
+}
+
+function buildDefaultButtonId(sectionKey: string, actionId: string, index: number) {
+  return normalizeButtonId(`${sectionKey}_${actionId || "action"}_${index + 1}`, `${sectionKey}_${index + 1}`);
+}
+
+function makeDefaultButton(sectionKey: string, actionId: string, title: string, index: number): AtendimentoBotButton {
+  return {
+    buttonId: buildDefaultButtonId(sectionKey, actionId, index),
+    actionId,
+    title,
+  };
+}
 
 export const DEFAULT_ATENDIMENTO_BOT_CONFIG: AtendimentoBotConfig = {
   variableCatalog: [
@@ -180,6 +204,16 @@ export const DEFAULT_ATENDIMENTO_BOT_CONFIG: AtendimentoBotConfig = {
   ],
   actionCatalog: [
     {
+      actionId: "start_quick_registration",
+      title: "Iniciar cadastro rapido",
+      description: "Abre a coleta inicial de dados para um novo cliente sem depender de texto livre.",
+      route: "atendimento",
+      kind: "reply",
+      enabled: true,
+      responseMessage:
+        "Perfeito. Vamos iniciar seu cadastro rapido agora. Me envie seu nome completo para eu abrir a ficha inicial.",
+    },
+    {
       actionId: "talk_human",
       title: "Falar com atendente",
       description: "Entrega a conversa para a fila humana do Atendimento.",
@@ -218,22 +252,26 @@ export const DEFAULT_ATENDIMENTO_BOT_CONFIG: AtendimentoBotConfig = {
     autoReopenClosedConversation: true,
     notifyOnNewInbound: true,
   },
-  mainMenuPrompt: "Escolha abaixo como deseja continuar:",
-  mainMenuButtons: [{ actionId: "talk_human", title: "Falar com atendente" }],
   welcomeMessage:
-    "Oi, {{cliente}}. Eu sou o atendimento digital da {{empresa}}. Posso te mostrar as opcoes disponiveis agora.",
+    "Ola, tudo bem?\nEu sou o atendimento digital da {{empresa}}. Nao localizamos em nosso cadastro seu telefone.",
+  welcomeButtons: [
+    makeDefaultButton("welcome_message", "start_quick_registration", "Fazer cadastro rapido", 0),
+    makeDefaultButton("welcome_message", "talk_human", "Falar com atendente", 1),
+  ],
+  mainMenuPrompt: "Escolha abaixo como deseja continuar:",
+  mainMenuButtons: [makeDefaultButton("main_menu", "talk_human", "Falar com atendente", 0)],
   returningCustomerMessage:
     "Que bom te ver de novo, {{cliente}}. Vou continuar daqui e te mostrar as opcoes disponiveis.",
   recoveryDetectedMessage:
     "Localizei um cadastro com valor em aberto de {{valor_formatado}} no Recovery. Podemos conversar sobre isso agora ou prefere falar com um atendente?",
   recoveryDetectedButtons: [
-    { actionId: "enter_recovery", title: "Falar sobre o debito" },
-    { actionId: "talk_human", title: "Falar com atendente" },
+    makeDefaultButton("recovery_detected", "enter_recovery", "Falar sobre o debito", 0),
+    makeDefaultButton("recovery_detected", "talk_human", "Falar com atendente", 1),
   ],
   postActionPrompt: "Se precisar de mais alguma coisa, posso continuar por aqui.",
   postActionButtons: [
-    { actionId: "show_main_menu", title: "Voltar ao menu" },
-    { actionId: "talk_human", title: "Atendimento humano" },
+    makeDefaultButton("post_action", "show_main_menu", "Voltar ao menu", 0),
+    makeDefaultButton("post_action", "talk_human", "Atendimento humano", 1),
   ],
   humanAckMessage: "Perfeito. Vou encaminhar sua conversa para um atendente agora.",
   closeTopicMessage: "Entendido. Vou encerrar esta conversa por agora. Quando precisar, e so chamar.",
@@ -288,6 +326,7 @@ function uniqueByAction<T extends { actionId: string }>(items: T[]) {
 export function normalizeBotConfig(
   payload: Partial<AtendimentoBotConfig> | null | undefined,
 ): AtendimentoBotConfig {
+  const hasWelcomeButtons = Boolean(payload) && Object.prototype.hasOwnProperty.call(payload, "welcomeButtons");
   const merged = {
     ...DEFAULT_ATENDIMENTO_BOT_CONFIG,
     ...(payload || {}),
@@ -330,14 +369,27 @@ export function normalizeBotConfig(
         }),
       ),
     ).filter((item) => item.actionId),
-    mainMenuButtons: normalizeButtons(payload?.mainMenuButtons, DEFAULT_ATENDIMENTO_BOT_CONFIG.mainMenuButtons),
+    welcomeButtons: hasWelcomeButtons
+      ? normalizeButtons(
+          payload?.welcomeButtons,
+          DEFAULT_ATENDIMENTO_BOT_CONFIG.welcomeButtons,
+          "welcome_message",
+        )
+      : [],
+    mainMenuButtons: normalizeButtons(
+      payload?.mainMenuButtons,
+      DEFAULT_ATENDIMENTO_BOT_CONFIG.mainMenuButtons,
+      "main_menu",
+    ),
     recoveryDetectedButtons: normalizeButtons(
       payload?.recoveryDetectedButtons,
       DEFAULT_ATENDIMENTO_BOT_CONFIG.recoveryDetectedButtons,
+      "recovery_detected",
     ),
     postActionButtons: normalizeButtons(
       payload?.postActionButtons,
       DEFAULT_ATENDIMENTO_BOT_CONFIG.postActionButtons,
+      "post_action",
     ),
     routingRules: {
       ...DEFAULT_ATENDIMENTO_BOT_CONFIG.routingRules,
@@ -349,14 +401,24 @@ export function normalizeBotConfig(
 function normalizeButtons(
   buttons: AtendimentoBotButton[] | undefined,
   fallback: AtendimentoBotButton[],
+  sectionKey: string,
 ) {
-  const source = Array.isArray(buttons) && buttons.length ? buttons : fallback;
-  return source
-    .map((button) => ({
+  if (buttons === undefined || buttons === null) {
+    return fallback.map((button) => ({ ...button }));
+  }
+  const seen = new Set<string>();
+  return buttons
+    .map((button, index) => {
+      const buttonId = normalizeButtonId(button.buttonId, buildDefaultButtonId(sectionKey, button.actionId, index));
+      if (seen.has(buttonId)) return null;
+      seen.add(buttonId);
+      return {
+        buttonId,
       actionId: String(button.actionId || "").trim(),
       title: String(button.title || "").trim(),
-    }))
-    .filter((button) => button.actionId && button.title);
+      };
+    })
+    .filter((button): button is AtendimentoBotButton => Boolean(button?.buttonId && button.actionId && button.title));
 }
 
 export function normalizeAgendaConfig(

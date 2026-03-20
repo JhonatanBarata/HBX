@@ -177,6 +177,7 @@ function normalizeTemplateName(value: string) {
 function removeButtonFromSections(config: AtendimentoBotConfig, actionId: string): AtendimentoBotConfig {
   return {
     ...config,
+    welcomeButtons: config.welcomeButtons.filter((button) => button.actionId !== actionId),
     mainMenuButtons: config.mainMenuButtons.filter((button) => button.actionId !== actionId),
     recoveryDetectedButtons: config.recoveryDetectedButtons.filter(
       (button) => button.actionId !== actionId,
@@ -476,6 +477,7 @@ export default function InboxClientPage() {
     }
 
     [
+      ...botConfig.welcomeButtons,
       ...botConfig.mainMenuButtons,
       ...botConfig.recoveryDetectedButtons,
       ...botConfig.postActionButtons,
@@ -492,6 +494,7 @@ export default function InboxClientPage() {
   }, [
     agendaConfig.groups,
     botConfig.actionCatalog,
+    botConfig.welcomeButtons,
     botConfig.mainMenuButtons,
     botConfig.postActionButtons,
     botConfig.recoveryDetectedButtons,
@@ -925,7 +928,7 @@ export default function InboxClientPage() {
 
   const updateButtonSection = useCallback(
     (
-      section: "mainMenuButtons" | "recoveryDetectedButtons" | "postActionButtons",
+      section: "welcomeButtons" | "mainMenuButtons" | "recoveryDetectedButtons" | "postActionButtons",
       index: number,
       field: keyof AtendimentoBotButton,
       value: string,
@@ -933,7 +936,20 @@ export default function InboxClientPage() {
       setBotConfig((current) => ({
         ...current,
         [section]: current[section].map((button, buttonIndex) =>
-          buttonIndex === index ? { ...button, [field]: value } : button,
+          buttonIndex === index
+            ? {
+                ...button,
+                [field]:
+                  field === "buttonId"
+                    ? String(value || "")
+                        .trim()
+                        .toLowerCase()
+                        .replace(/\s+/g, "_")
+                        .replace(/[^a-z0-9_:-]/g, "")
+                        .slice(0, 80)
+                    : value,
+              }
+            : button,
         ),
       }));
     },
@@ -941,13 +957,14 @@ export default function InboxClientPage() {
   );
 
   const addButtonSection = useCallback(
-    (section: "mainMenuButtons" | "recoveryDetectedButtons" | "postActionButtons") => {
+    (section: "welcomeButtons" | "mainMenuButtons" | "recoveryDetectedButtons" | "postActionButtons") => {
       const fallback = actionOptions[0] || { value: "talk_human", label: "Falar com atendente" };
       setBotConfig((current) => ({
         ...current,
         [section]: [
           ...current[section],
           {
+            buttonId: makeClientId(`${section}_button`),
             actionId: fallback.value,
             title: fallback.label.split(" • ")[0],
           },
@@ -959,7 +976,7 @@ export default function InboxClientPage() {
 
   const removeButtonSection = useCallback(
     (
-      section: "mainMenuButtons" | "recoveryDetectedButtons" | "postActionButtons",
+      section: "welcomeButtons" | "mainMenuButtons" | "recoveryDetectedButtons" | "postActionButtons",
       index: number,
     ) => {
       setBotConfig((current) => ({

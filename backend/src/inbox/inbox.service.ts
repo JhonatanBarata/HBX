@@ -17,9 +17,11 @@ import {
   ATENDIMENTO_BOT_CONFIG_TITLE,
   DEFAULT_ATENDIMENTO_AGENDA_CONFIG,
   DEFAULT_ATENDIMENTO_BOT_CONFIG,
+  buildAtendimentoAgendaActionId,
   normalizeAtendimentoAgendaConfig,
   normalizeAtendimentoBotConfig,
   type AtendimentoAgendaConfig,
+  type AtendimentoBotButton,
   type AtendimentoBotConfig,
 } from './atendimento-config';
 
@@ -392,9 +394,70 @@ export class InboxService {
     return this.getBotConfigByCompanyId(companyId);
   }
 
+  private validateAtendimentoButtons(
+    buttons: AtendimentoBotButton[],
+    sectionLabel: string,
+    allowedActionIds: Set<string>,
+    usedButtonIds: Set<string>,
+  ) {
+    for (const button of buttons || []) {
+      const buttonId = String(button.buttonId || '').trim().toLowerCase();
+      const actionId = String(button.actionId || '').trim().toLowerCase();
+      const title = String(button.title || '').trim();
+      if (!buttonId) {
+        throw new BadRequestException(`Cada botao de ${sectionLabel} precisa ter um id interno estavel.`);
+      }
+      if (usedButtonIds.has(buttonId)) {
+        throw new BadRequestException(`O id interno '${buttonId}' esta duplicado no editor do Atendimento.`);
+      }
+      usedButtonIds.add(buttonId);
+      if (!actionId) {
+        throw new BadRequestException(`O botao '${title || buttonId}' em ${sectionLabel} precisa ter uma acao.`);
+      }
+      if (!allowedActionIds.has(actionId)) {
+        throw new BadRequestException(
+          `O botao '${title || buttonId}' em ${sectionLabel} aponta para a acao '${actionId}', que nao existe.`,
+        );
+      }
+    }
+  }
+
+  private validateAtendimentoBotConfig(config: AtendimentoBotConfig, agendaConfig: AtendimentoAgendaConfig) {
+    const allowedActionIds = new Set(
+      (config.actionCatalog || [])
+        .map((action) => String(action.actionId || '').trim().toLowerCase())
+        .filter(Boolean),
+    );
+    for (const group of agendaConfig.groups || []) {
+      allowedActionIds.add(buildAtendimentoAgendaActionId(group.id));
+    }
+    const usedButtonIds = new Set<string>();
+    this.validateAtendimentoButtons(
+      config.welcomeButtons,
+      'mensagem inicial',
+      allowedActionIds,
+      usedButtonIds,
+    );
+    this.validateAtendimentoButtons(config.mainMenuButtons, 'menu principal', allowedActionIds, usedButtonIds);
+    this.validateAtendimentoButtons(
+      config.recoveryDetectedButtons,
+      'parede de recovery',
+      allowedActionIds,
+      usedButtonIds,
+    );
+    this.validateAtendimentoButtons(
+      config.postActionButtons,
+      'acoes posteriores',
+      allowedActionIds,
+      usedButtonIds,
+    );
+  }
+
   async updateBotConfig(user: any, payload: unknown) {
     const companyId = this.requireCompanyIdFromUser(user);
     const normalized = normalizeAtendimentoBotConfig(payload || {});
+    const agendaConfig = await this.getAgendaConfigByCompanyId(companyId);
+    this.validateAtendimentoBotConfig(normalized, agendaConfig);
     await this.saveConfigRow(
       companyId,
       ATENDIMENTO_BOT_CONFIG_CHANNEL,

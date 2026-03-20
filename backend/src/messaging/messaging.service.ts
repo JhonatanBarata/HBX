@@ -457,8 +457,41 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
       .trim();
   }
 
-  private toRecoveryButtonId(actionId: string) {
-    return `${RECOVERY_BUTTON_ID_PREFIX}${String(actionId || '').trim()}`;
+  private buildButtonFallbackText<TButton extends { title?: string | null }>(
+    body: string,
+    buttons: TButton[],
+  ) {
+    const normalizedBody = String(body || '').trim();
+    const labels = (buttons || [])
+      .map((button) => String(button?.title || '').trim())
+      .filter(Boolean);
+    if (!labels.length) return normalizedBody;
+    return `${normalizedBody}\n\n${labels.map((label, index) => `${index + 1}. ${label}`).join('\n')}`.trim();
+  }
+
+  private flattenRecoveryButtons(config: RecoveryBotConfig) {
+    return [
+      ...(config.mainMenuButtons || []),
+      ...(config.declineMenuButtons || []),
+      ...(config.followupButtons || []),
+      ...(config.valueButtons || []),
+      ...(config.installmentButtons || []),
+      ...(config.installmentConfirmButtons || []),
+      ...(config.postLinkButtons || []),
+    ];
+  }
+
+  private flattenAtendimentoButtons(config: AtendimentoBotConfig) {
+    return [
+      ...(config.welcomeButtons || []),
+      ...(config.mainMenuButtons || []),
+      ...(config.recoveryDetectedButtons || []),
+      ...(config.postActionButtons || []),
+    ];
+  }
+
+  private toRecoveryButtonId(buttonId: string) {
+    return `${RECOVERY_BUTTON_ID_PREFIX}${String(buttonId || '').trim()}`;
   }
 
   private fromRecoveryButtonId(rawId: string): string {
@@ -505,6 +538,18 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
       return stripped;
     }
     return stripped;
+  }
+
+  private resolveRecoveryActionIdFromButtonId(config: RecoveryBotConfig, rawButtonId: string) {
+    const normalized = this.fromRecoveryButtonId(rawButtonId);
+    if (!normalized) return '';
+    const matchedButton = this.flattenRecoveryButtons(config).find(
+      (button) => String(button.buttonId || '').trim().toLowerCase() === normalized,
+    );
+    if (matchedButton?.actionId) {
+      return String(matchedButton.actionId || '').trim().toLowerCase();
+    }
+    return '';
   }
 
   private buildRecoveryActionAliasMap(config: RecoveryBotConfig) {
@@ -688,8 +733,8 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     });
   }
 
-  private toAtendimentoButtonId(actionId: string) {
-    return `${ATENDIMENTO_BUTTON_ID_PREFIX}${String(actionId || '').trim()}`;
+  private toAtendimentoButtonId(buttonId: string) {
+    return `${ATENDIMENTO_BUTTON_ID_PREFIX}${String(buttonId || '').trim()}`;
   }
 
   private fromAtendimentoButtonId(rawId: string) {
@@ -706,6 +751,21 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     return (config.actionCatalog || []).find(
       (action) => String(action.actionId || '').trim().toLowerCase() === normalized,
     );
+  }
+
+  private resolveAtendimentoActionIdFromButtonId(
+    config: AtendimentoBotConfig,
+    rawButtonId: string,
+  ) {
+    const normalized = this.fromAtendimentoButtonId(rawButtonId);
+    if (!normalized) return '';
+    const matchedButton = this.flattenAtendimentoButtons(config).find(
+      (button) => String(button.buttonId || '').trim().toLowerCase() === normalized,
+    );
+    if (matchedButton?.actionId) {
+      return String(matchedButton.actionId || '').trim().toLowerCase();
+    }
+    return normalized;
   }
 
   private buildAtendimentoActionAliasMap(
@@ -729,6 +789,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
       }
     };
 
+    mergeButtons(config.welcomeButtons || []);
     mergeButtons(config.mainMenuButtons || []);
     mergeButtons(config.recoveryDetectedButtons || []);
     mergeButtons(config.postActionButtons || []);
@@ -754,7 +815,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     normalizedText: string,
     agendaConfig: AtendimentoAgendaConfig,
   ) {
-    const direct = this.fromAtendimentoButtonId(rawActionId);
+    const direct = this.resolveAtendimentoActionIdFromButtonId(config, rawActionId);
     if (direct) return direct;
     const aliasMap = this.buildAtendimentoActionAliasMap(config, agendaConfig);
     const normalizedPayloadText = this.normalizeActionLabel(extractInboundTextFromPayload(rawPayload));
@@ -771,8 +832,9 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     footer?: string,
   ) {
     const normalizedButtons = (buttons || [])
-      .filter((button) => button?.actionId && button?.title)
+      .filter((button) => button?.buttonId && button?.actionId && button?.title)
       .slice(0, 10);
+    if (!normalizedButtons.length) return null;
     if (normalizedButtons.length <= 3) {
       return {
         type: 'button',
@@ -781,7 +843,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
         action: {
           buttons: normalizedButtons.map((button) => ({
             type: 'reply',
-            reply: { id: this.toAtendimentoButtonId(button.actionId), title: button.title },
+            reply: { id: this.toAtendimentoButtonId(button.buttonId), title: button.title },
           })),
         },
       };
@@ -796,7 +858,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
           {
             title: 'Opcoes',
             rows: normalizedButtons.map((button) => ({
-              id: this.toAtendimentoButtonId(button.actionId),
+              id: this.toAtendimentoButtonId(button.buttonId),
               title: button.title,
               description: '',
             })),
@@ -816,15 +878,20 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     buttons: AtendimentoBotButton[];
     variables?: Record<string, unknown>;
   }) {
+    const interactivePayload = this.getAtendimentoButtonsInteractive(input.body, input.buttons);
+    const fallbackText = this.buildButtonFallbackText(input.body, input.buttons);
     await this.conversations.queueOutboundForCompany(input.companyId, {
       to: input.to,
       contactId: input.contactId,
-      body: input.body,
-      messageType: 'interactive',
-      interactivePayload: this.getAtendimentoButtonsInteractive(input.body, input.buttons),
+      body: interactivePayload ? input.body : fallbackText,
+      messageType: interactivePayload ? 'interactive' : 'text',
+      interactivePayload: interactivePayload || undefined,
       sourceModule: 'atendimento_bot',
       senderType: 'bot',
-      variables: input.variables || {},
+      variables: {
+        ...(input.variables || {}),
+        interactiveFallbackText: fallbackText,
+      },
       flowState: {
         currentFlow: ATENDIMENTO_FLOW_ID,
         currentStep: input.step,
@@ -1060,8 +1127,9 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     footer?: string,
   ) {
     const normalizedButtons = (buttons || [])
-      .filter((button) => button?.actionId && button?.title)
+      .filter((button) => button?.buttonId && button?.actionId && button?.title)
       .slice(0, 10);
+    if (!normalizedButtons.length) return null;
     if (normalizedButtons.length <= 3) {
       return {
         type: 'button',
@@ -1070,7 +1138,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
         action: {
           buttons: normalizedButtons.map((button) => ({
             type: 'reply',
-            reply: { id: this.toRecoveryButtonId(button.actionId), title: button.title },
+            reply: { id: this.toRecoveryButtonId(button.buttonId), title: button.title },
           })),
         },
       };
@@ -1085,7 +1153,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
           {
             title: 'Opcoes',
             rows: normalizedButtons.map((button) => ({
-              id: this.toRecoveryButtonId(button.actionId),
+              id: this.toRecoveryButtonId(button.buttonId),
               title: button.title,
               description: '',
             })),
@@ -1105,15 +1173,20 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     buttons: RecoveryBotButton[];
     variables?: Record<string, unknown>;
   }) {
+    const interactivePayload = this.getRecoveryButtonsInteractive(input.body, input.buttons);
+    const fallbackText = this.buildButtonFallbackText(input.body, input.buttons);
     await this.conversations.queueOutboundForCompany(input.companyId, {
       to: input.to,
       contactId: input.contactId,
-      body: input.body,
-      messageType: 'interactive',
-      interactivePayload: this.getRecoveryButtonsInteractive(input.body, input.buttons),
+      body: interactivePayload ? input.body : fallbackText,
+      messageType: interactivePayload ? 'interactive' : 'text',
+      interactivePayload: interactivePayload || undefined,
       sourceModule: 'hbx_recovery_bot',
       senderType: 'bot',
-      variables: input.variables || {},
+      variables: {
+        ...(input.variables || {}),
+        interactiveFallbackText: fallbackText,
+      },
       flowState: {
         currentFlow: RECOVERY_FLOW_ID,
         currentStep: input.step,
@@ -1521,6 +1594,9 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     rawPayload?: any,
     normalizedText?: string,
   ): string {
+    const directButtonAction = this.resolveRecoveryActionIdFromButtonId(config, rawActionId);
+    if (directButtonAction) return directButtonAction;
+
     const direct = this.mapLegacyRecoveryActionId(rawActionId);
     if (RECOVERY_BOT_ACTION_IDS.includes(direct as RecoveryBotButtonActionId)) {
       return direct;
@@ -2466,6 +2542,20 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     }
 
     await setInboundMeta('atendimento_bot', Boolean(normalizedText));
+    if (!hasHistory && (config.welcomeButtons || []).length > 0) {
+      await this.queueAtendimentoButtonPrompt({
+        companyId,
+        to: from,
+        contactId: from,
+        conversationId: safeConversationId,
+        body: renderTemplate(config.welcomeMessage, vars),
+        step: ATENDIMENTO_STEP.WELCOME,
+        buttons: config.welcomeButtons,
+        variables: vars,
+      });
+      return { handled: true };
+    }
+
     const greetingMessage = hasHistory ? config.returningCustomerMessage : config.welcomeMessage;
     await this.conversations.queueOutboundForCompany(companyId, {
       to: from,

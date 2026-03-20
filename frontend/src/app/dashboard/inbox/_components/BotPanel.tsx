@@ -1,6 +1,9 @@
 "use client";
 
+import { useMemo, useState } from "react";
+import BotMessageStudio from "@/components/bot-editor/BotMessageStudio";
 import {
+  buildAgendaActionId,
   type AtendimentoBotActionKind,
   type AtendimentoBotConfig,
   type AtendimentoBotVariableScope,
@@ -14,38 +17,109 @@ const VARIABLE_SCOPE_LABELS: Record<AtendimentoBotVariableScope, string> = {
 };
 
 const ACTION_KIND_LABELS: Record<AtendimentoBotActionKind, string> = {
-  reply: "Responder",
-  human_handoff: "Humano",
-  recovery_handoff: "Recovery",
+  reply: "Resposta",
+  human_handoff: "Fila humana",
+  recovery_handoff: "Ir para Recovery",
   close: "Encerrar",
   show_menu: "Mostrar menu",
   agenda: "Agenda",
 };
 
-const BOT_TEXT_FIELDS: Array<{
-  key:
-    | "welcomeMessage"
-    | "returningCustomerMessage"
-    | "mainMenuPrompt"
-    | "recoveryDetectedMessage"
-    | "postActionPrompt"
-    | "humanAckMessage"
-    | "closeTopicMessage"
-    | "blockedMessage";
+type BotTextField =
+  | "welcomeMessage"
+  | "returningCustomerMessage"
+  | "mainMenuPrompt"
+  | "recoveryDetectedMessage"
+  | "postActionPrompt"
+  | "humanAckMessage"
+  | "closeTopicMessage"
+  | "blockedMessage";
+type ButtonSection =
+  | "welcomeButtons"
+  | "mainMenuButtons"
+  | "recoveryDetectedButtons"
+  | "postActionButtons";
+
+type ScenarioDef = {
+  id: BotTextField;
   label: string;
   description: string;
+  badge: string;
+  supportsButtons: boolean;
   scopes: AtendimentoBotVariableScope[];
-}> = [
-  { key: "welcomeMessage", label: "Mensagem para cliente novo", description: "Primeira resposta para contato novo no Atendimento.", scopes: ["shared", "atendimento"] },
-  { key: "returningCustomerMessage", label: "Mensagem para cliente recorrente", description: "Usada quando o cliente volta a falar depois do primeiro contato.", scopes: ["shared", "atendimento"] },
-  { key: "mainMenuPrompt", label: "Prompt do menu principal", description: "Texto que acompanha os botoes principais do Atendimento.", scopes: ["shared", "atendimento"] },
-  { key: "recoveryDetectedMessage", label: "Mensagem quando encontrar debito", description: "Parede entre Atendimento e Recovery para clientes inadimplentes.", scopes: ["shared", "recovery"] },
-  { key: "postActionPrompt", label: "Prompt apos acoes", description: "Mensagem curta para continuar guiando depois de agenda ou resposta custom.", scopes: ["shared", "atendimento"] },
-  { key: "humanAckMessage", label: "Confirmacao de atendimento humano", description: "Aviso enviado quando a conversa vai para humano.", scopes: ["shared", "atendimento"] },
-  { key: "closeTopicMessage", label: "Mensagem de encerramento", description: "Texto quando o bot encerra a conversa.", scopes: ["shared", "atendimento"] },
-  { key: "blockedMessage", label: "Mensagem de bloqueio", description: "Referencia visual do estado bloqueado no editor.", scopes: ["shared", "atendimento"] },
-];
+  buttonSection?: ButtonSection;
+};
 
+const BOT_SCENARIOS: ScenarioDef[] = [
+  {
+    id: "welcomeMessage",
+    label: "Mensagem para cliente novo",
+    description: "Primeira resposta para quem ainda nao tem historico de conversa.",
+    badge: "Entrada",
+    supportsButtons: true,
+    buttonSection: "welcomeButtons" as const,
+    scopes: ["shared", "atendimento"] as AtendimentoBotVariableScope[],
+  },
+  {
+    id: "returningCustomerMessage",
+    label: "Mensagem para cliente recorrente",
+    description: "Resposta curta para retomar o atendimento de quem voltou a falar.",
+    badge: "Retorno",
+    supportsButtons: false,
+    scopes: ["shared", "atendimento"] as AtendimentoBotVariableScope[],
+  },
+  {
+    id: "mainMenuPrompt",
+    label: "Menu principal",
+    description: "Mensagem central com as opcoes principais do Atendimento.",
+    badge: "Interativo",
+    supportsButtons: true,
+    buttonSection: "mainMenuButtons" as const,
+    scopes: ["shared", "atendimento"] as AtendimentoBotVariableScope[],
+  },
+  {
+    id: "recoveryDetectedMessage",
+    label: "Parede com Recovery",
+    description: "Mensagem quando o cliente tem debito e precisa ser encaminhado com clareza.",
+    badge: "Recovery",
+    supportsButtons: true,
+    buttonSection: "recoveryDetectedButtons" as const,
+    scopes: ["shared", "recovery"] as AtendimentoBotVariableScope[],
+  },
+  {
+    id: "postActionPrompt",
+    label: "Mensagem apos acoes",
+    description: "Continua o fluxo depois de agenda ou resposta custom.",
+    badge: "Continuidade",
+    supportsButtons: true,
+    buttonSection: "postActionButtons" as const,
+    scopes: ["shared", "atendimento"] as AtendimentoBotVariableScope[],
+  },
+  {
+    id: "humanAckMessage",
+    label: "Confirmacao de humano",
+    description: "Mensagem enviada quando a conversa sai do bot e entra na fila humana.",
+    badge: "Humano",
+    supportsButtons: false,
+    scopes: ["shared", "atendimento"] as AtendimentoBotVariableScope[],
+  },
+  {
+    id: "closeTopicMessage",
+    label: "Encerramento",
+    description: "Fecha a conversa de forma clara e sem ruído visual.",
+    badge: "Saida",
+    supportsButtons: false,
+    scopes: ["shared", "atendimento"] as AtendimentoBotVariableScope[],
+  },
+  {
+    id: "blockedMessage",
+    label: "Mensagem de bloqueio",
+    description: "Referencia visual do estado bloqueado dentro do Atendimento.",
+    badge: "Bloqueio",
+    supportsButtons: false,
+    scopes: ["shared", "atendimento"] as AtendimentoBotVariableScope[],
+  },
+] as const;
 type ActionOption = { value: string; label: string };
 
 type BotPanelProps = {
@@ -70,13 +144,13 @@ type BotPanelProps = {
     value: string,
   ) => void;
   onUpdateButtonSection: (
-    section: "mainMenuButtons" | "recoveryDetectedButtons" | "postActionButtons",
+    section: ButtonSection,
     index: number,
-    field: "actionId" | "title",
+    field: "buttonId" | "actionId" | "title",
     value: string,
   ) => void;
-  onAddButtonSection: (section: "mainMenuButtons" | "recoveryDetectedButtons" | "postActionButtons") => void;
-  onRemoveButtonSection: (section: "mainMenuButtons" | "recoveryDetectedButtons" | "postActionButtons", index: number) => void;
+  onAddButtonSection: (section: ButtonSection) => void;
+  onRemoveButtonSection: (section: ButtonSection, index: number) => void;
   onUpdateActionGuide: (
     actionId: string,
     field: "title" | "description" | "route" | "kind" | "enabled" | "responseMessage" | "agendaGroupId",
@@ -85,6 +159,20 @@ type BotPanelProps = {
   onAddCustomAction: () => void;
   onRemoveCustomAction: (actionId: string) => void;
 };
+
+function buildFallbackText(message: string, buttons: Array<{ title: string }>) {
+  const lines = buttons.map((button, index) => `${index + 1}. ${button.title}`).join("\n");
+  return lines ? `${message}\n\n${lines}`.trim() : message;
+}
+
+function renderPreviewText(message: string, botConfig: AtendimentoBotConfig) {
+  const samples = Object.fromEntries(
+    botConfig.variableCatalog.map((item) => [item.key, item.example || item.label || item.key]),
+  );
+  return String(message || "").replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (_match, key) => {
+    return String(samples[key] || `{{${key}}}`);
+  });
+}
 
 export default function BotPanel({
   botConfig,
@@ -103,23 +191,126 @@ export default function BotPanel({
   onAddCustomAction,
   onRemoveCustomAction,
 }: BotPanelProps) {
+  const [selectedScenarioId, setSelectedScenarioId] = useState<BotTextField>("welcomeMessage");
+
+  const selectedScenario =
+    BOT_SCENARIOS.find((scenario) => scenario.id === selectedScenarioId) || BOT_SCENARIOS[0];
+  const selectedButtons =
+    selectedScenario.supportsButtons && selectedScenario.buttonSection
+      ? botConfig[selectedScenario.buttonSection]
+      : [];
+  const messageType =
+    selectedScenario.supportsButtons && selectedButtons.length > 0 ? "buttons" : "simple";
+
+  const actionById = useMemo(() => {
+    const next: Record<string, { actionId: string; title: string; description: string; routeLabel: string; typeLabel: string; enabled: boolean }> = {};
+    for (const action of botConfig.actionCatalog) {
+      next[action.actionId] = {
+        actionId: action.actionId,
+        title: action.title,
+        description: action.description,
+        routeLabel: VARIABLE_SCOPE_LABELS[action.route],
+        typeLabel: ACTION_KIND_LABELS[action.kind],
+        enabled: action.enabled,
+      };
+    }
+    for (const agenda of agendaOptions) {
+      const actionId = buildAgendaActionId(agenda.id);
+      next[actionId] = {
+        actionId,
+        title: agenda.title,
+        description: "Abre uma agenda operacional real vinculada ao Atendimento.",
+        routeLabel: "Atendimento",
+        typeLabel: "Agenda",
+        enabled: true,
+      };
+    }
+    return next;
+  }, [agendaOptions, botConfig.actionCatalog]);
+
+  const studioVariables = useMemo(
+    () =>
+      botConfig.variableCatalog
+        .filter((item) => selectedScenario.scopes.includes(item.scope) || item.scope === "shared")
+        .map((item) => ({
+          key: item.key,
+          label: item.label,
+          example: item.example,
+          scopeLabel: VARIABLE_SCOPE_LABELS[item.scope],
+          required: item.required,
+        })),
+    [botConfig.variableCatalog, selectedScenario.scopes],
+  );
+
+  const handleMessageTypeChange = (nextType: "simple" | "buttons") => {
+    if (!selectedScenario.supportsButtons || !selectedScenario.buttonSection) return;
+    if (nextType === "simple") {
+      for (let index = selectedButtons.length - 1; index >= 0; index -= 1) {
+        onRemoveButtonSection(selectedScenario.buttonSection, index);
+      }
+      return;
+    }
+    if (selectedButtons.length === 0) {
+      onAddButtonSection(selectedScenario.buttonSection);
+    }
+  };
+
   return (
     <section className={styles.stackSection}>
       <article className={styles.workspaceCard}>
         <div className={styles.sectionHead}>
           <div>
-            <p className={styles.sectionEyebrow}>Editor isolado do Recovery</p>
-            <h3>Bot 100% controlavel no Atendimento</h3>
-            <small>Regras para cliente novo, cliente recorrente, parede com Recovery e botoes ligados a agenda.</small>
+            <p className={styles.sectionEyebrow}>Editor premium do bot</p>
+            <h3>Mensagens claras, botoes estaveis e preview fiel</h3>
+            <small>Agora o editor trabalha por mensagem: menos ruido visual e mais previsibilidade no backend.</small>
           </div>
           <button type="button" className="btn btn-primary btn-sm" onClick={onSave} disabled={savingBot || loadingBot}>
             {savingBot ? "Salvando..." : "Salvar editor"}
           </button>
         </div>
 
-        {loadingBot ? (
-          <div className={styles.emptyState}>Carregando editor do bot...</div>
-        ) : (
+        <BotMessageStudio
+          eyebrow="Atendimento"
+          title={selectedScenario.label}
+          description={selectedScenario.description}
+          scenarios={BOT_SCENARIOS.map((scenario) => ({
+            id: scenario.id,
+            label: scenario.label,
+            description: scenario.description,
+            badge: scenario.badge,
+            supportsButtons: scenario.supportsButtons,
+          }))}
+          selectedScenarioId={selectedScenario.id}
+          onSelectScenario={(scenarioId) => setSelectedScenarioId(scenarioId as BotTextField)}
+          messageText={String(botConfig[selectedScenario.id] || "")}
+          onMessageTextChange={(value) => onUpdateBotText(selectedScenario.id, value)}
+          messageType={messageType}
+          onMessageTypeChange={handleMessageTypeChange}
+          buttons={selectedButtons}
+          actionOptions={actionOptions}
+          actionById={actionById}
+          onUpdateButton={(index, field, value) => {
+            if (!selectedScenario.buttonSection) return;
+            onUpdateButtonSection(selectedScenario.buttonSection, index, field, value);
+          }}
+          onAddButton={() => {
+            if (!selectedScenario.buttonSection) return;
+            onAddButtonSection(selectedScenario.buttonSection);
+          }}
+          onRemoveButton={(index) => {
+            if (!selectedScenario.buttonSection) return;
+            onRemoveButtonSection(selectedScenario.buttonSection, index);
+          }}
+          variables={studioVariables}
+          onAppendVariable={(variableKey) => onAppendVariable(selectedScenario.id, variableKey)}
+          previewText={renderPreviewText(String(botConfig[selectedScenario.id] || ""), botConfig)}
+          previewFooter="Atendimento"
+          previewFallbackText={buildFallbackText(renderPreviewText(String(botConfig[selectedScenario.id] || ""), botConfig), selectedButtons)}
+          previewNote="O fallback textual continua disponivel para canais ou cenarios sem suporte a botoes."
+          loading={loadingBot}
+        />
+
+        {!loadingBot ? (
           <>
             <div className={styles.ruleGrid}>
               <label className={styles.switchCard}>
@@ -140,139 +331,84 @@ export default function BotPanel({
               </label>
             </div>
 
-            <div className={styles.editorGrid}>
-              <div className={styles.editorColumn}>
-                {BOT_TEXT_FIELDS.map((field) => (
-                  <article key={field.key} className={styles.editorCard}>
-                    <div className={styles.cardHeader}>
-                      <div>
-                        <strong>{field.label}</strong>
-                        <small>{field.description}</small>
-                      </div>
-                    </div>
-                    <div className={styles.variableChipRow}>
-                      {botConfig.variableCatalog
-                        .filter((item) => field.scopes.includes(item.scope) || item.scope === "shared")
-                        .map((item) => (
-                          <button key={`${field.key}-${item.key}`} type="button" className={styles.variableChip} onClick={() => onAppendVariable(field.key, item.key)}>
-                            {`{{${item.key}}}`}
-                          </button>
-                        ))}
-                    </div>
-                    <textarea className="field" rows={4} value={String(botConfig[field.key] || "")} onChange={(event) => onUpdateBotText(field.key, event.target.value)} />
-                  </article>
-                ))}
+            <article className={styles.editorCard}>
+              <div className={styles.cardHeader}>
+                <div>
+                  <strong>Catalogo de acoes</strong>
+                  <small>Base real para os botoes do editor, com rota, tipo e resposta automatica.</small>
+                </div>
+                <button type="button" className="btn btn-secondary btn-sm" onClick={onAddCustomAction}>
+                  Nova acao custom
+                </button>
               </div>
 
-              <div className={styles.editorColumn}>
-                {[
-                  { key: "mainMenuButtons" as const, title: "Botoes do menu principal", description: "Opcoes de quem esta no Atendimento normal." },
-                  { key: "recoveryDetectedButtons" as const, title: "Botoes da parede Recovery", description: "Opcoes exibidas quando o cadastro estiver devendo." },
-                  { key: "postActionButtons" as const, title: "Botoes apos agenda/acao", description: "Acoes de continuidade para nao deixar o cliente solto." },
-                ].map((section) => (
-                  <article key={section.key} className={styles.editorCard}>
-                    <div className={styles.cardHeader}>
-                      <div>
-                        <strong>{section.title}</strong>
-                        <small>{section.description}</small>
-                      </div>
-                      <button type="button" className="btn btn-secondary btn-sm" onClick={() => onAddButtonSection(section.key)}>
-                        Adicionar botao
-                      </button>
+              <div className={styles.actionCatalogList}>
+                {botConfig.actionCatalog.map((action) => (
+                  <div key={action.actionId} className={styles.actionCard}>
+                    <div className={styles.formGrid}>
+                      <label className={styles.fieldBlock}>
+                        <span>Titulo</span>
+                        <input className="field" value={action.title} onChange={(event) => onUpdateActionGuide(action.actionId, "title", event.target.value)} />
+                      </label>
+                      <label className={styles.fieldBlock}>
+                        <span>Tipo</span>
+                        <select className="field" value={action.kind} onChange={(event) => onUpdateActionGuide(action.actionId, "kind", event.target.value)}>
+                          {Object.entries(ACTION_KIND_LABELS).map(([value, label]) => (
+                            <option key={value} value={value}>{label}</option>
+                          ))}
+                        </select>
+                      </label>
+                      <label className={styles.fieldBlock}>
+                        <span>Destino</span>
+                        <select className="field" value={action.route} onChange={(event) => onUpdateActionGuide(action.actionId, "route", event.target.value)}>
+                          {Object.entries(VARIABLE_SCOPE_LABELS).map(([value, label]) => (
+                            <option key={value} value={value}>{label}</option>
+                          ))}
+                        </select>
+                      </label>
+                      <label className={styles.switchRow}>
+                        <input type="checkbox" checked={action.enabled} onChange={(event) => onUpdateActionGuide(action.actionId, "enabled", event.target.checked)} />
+                        <span>Ativa</span>
+                      </label>
                     </div>
-                    <div className={styles.buttonBuilderList}>
-                      {botConfig[section.key].map((button, index) => (
-                        <div key={`${section.key}-${index}`} className={styles.buttonBuilderRow}>
-                          <select className="field" value={button.actionId} onChange={(event) => onUpdateButtonSection(section.key, index, "actionId", event.target.value)}>
-                            {actionOptions.map((option) => (
-                              <option key={option.value} value={option.value}>{option.label}</option>
-                            ))}
-                          </select>
-                          <input className="field" value={button.title} onChange={(event) => onUpdateButtonSection(section.key, index, "title", event.target.value)} />
-                          <button type="button" className="btn btn-danger btn-sm" onClick={() => onRemoveButtonSection(section.key, index)}>
-                            Remover
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  </article>
-                ))}
 
-                <article className={styles.editorCard}>
-                  <div className={styles.cardHeader}>
-                    <div>
-                      <strong>Catalogo de acoes</strong>
-                      <small>Define o que cada botao ou acao custom faz dentro do Atendimento.</small>
-                    </div>
-                    <button type="button" className="btn btn-secondary btn-sm" onClick={onAddCustomAction}>
-                      Nova acao custom
-                    </button>
-                  </div>
-                  <div className={styles.actionCatalogList}>
-                    {botConfig.actionCatalog.map((action) => (
-                      <div key={action.actionId} className={styles.actionCard}>
-                        <div className={styles.formGrid}>
-                          <label className={styles.fieldBlock}>
-                            <span>Titulo</span>
-                            <input className="field" value={action.title} onChange={(event) => onUpdateActionGuide(action.actionId, "title", event.target.value)} />
-                          </label>
-                          <label className={styles.fieldBlock}>
-                            <span>Tipo</span>
-                            <select className="field" value={action.kind} onChange={(event) => onUpdateActionGuide(action.actionId, "kind", event.target.value)}>
-                              {Object.entries(ACTION_KIND_LABELS).map(([value, label]) => (
-                                <option key={value} value={value}>{label}</option>
-                              ))}
-                            </select>
-                          </label>
-                          <label className={styles.fieldBlock}>
-                            <span>Destino</span>
-                            <select className="field" value={action.route} onChange={(event) => onUpdateActionGuide(action.actionId, "route", event.target.value)}>
-                              {Object.entries(VARIABLE_SCOPE_LABELS).map(([value, label]) => (
-                                <option key={value} value={value}>{label}</option>
-                              ))}
-                            </select>
-                          </label>
-                          <label className={styles.switchRow}>
-                            <input type="checkbox" checked={action.enabled} onChange={(event) => onUpdateActionGuide(action.actionId, "enabled", event.target.checked)} />
-                            <span>Ativa</span>
-                          </label>
-                        </div>
-                        <label className={styles.fieldBlock}>
-                          <span>Descricao operacional</span>
-                          <input className="field" value={action.description} onChange={(event) => onUpdateActionGuide(action.actionId, "description", event.target.value)} />
-                        </label>
-                        {action.kind === "agenda" ? (
-                          <label className={styles.fieldBlock}>
-                            <span>Agenda vinculada</span>
-                            <select className="field" value={String(action.agendaGroupId || "")} onChange={(event) => onUpdateActionGuide(action.actionId, "agendaGroupId", event.target.value)}>
-                              <option value="">Selecione</option>
-                              {agendaOptions.map((group) => (
-                                <option key={group.id} value={group.id}>{group.title}</option>
-                              ))}
-                            </select>
-                          </label>
-                        ) : null}
-                        {action.kind === "reply" ? (
-                          <label className={styles.fieldBlock}>
-                            <span>Mensagem da acao</span>
-                            <textarea className="field" rows={3} value={action.responseMessage || ""} onChange={(event) => onUpdateActionGuide(action.actionId, "responseMessage", event.target.value)} />
-                          </label>
-                        ) : null}
-                        {action.custom ? (
-                          <div className={styles.footerActions}>
-                            <button type="button" className="btn btn-danger btn-sm" onClick={() => onRemoveCustomAction(action.actionId)}>
-                              Excluir acao custom
-                            </button>
-                          </div>
-                        ) : null}
+                    <label className={styles.fieldBlock}>
+                      <span>Descricao operacional</span>
+                      <input className="field" value={action.description} onChange={(event) => onUpdateActionGuide(action.actionId, "description", event.target.value)} />
+                    </label>
+
+                    {action.kind === "agenda" ? (
+                      <label className={styles.fieldBlock}>
+                        <span>Agenda vinculada</span>
+                        <select className="field" value={String(action.agendaGroupId || "")} onChange={(event) => onUpdateActionGuide(action.actionId, "agendaGroupId", event.target.value)}>
+                          <option value="">Selecione</option>
+                          {agendaOptions.map((group) => (
+                            <option key={group.id} value={group.id}>{group.title}</option>
+                          ))}
+                        </select>
+                      </label>
+                    ) : null}
+
+                    {action.kind === "reply" ? (
+                      <label className={styles.fieldBlock}>
+                        <span>Mensagem da acao</span>
+                        <textarea className="field" rows={3} value={action.responseMessage || ""} onChange={(event) => onUpdateActionGuide(action.actionId, "responseMessage", event.target.value)} />
+                      </label>
+                    ) : null}
+
+                    {action.custom ? (
+                      <div className={styles.footerActions}>
+                        <button type="button" className="btn btn-danger btn-sm" onClick={() => onRemoveCustomAction(action.actionId)}>
+                          Excluir acao custom
+                        </button>
                       </div>
-                    ))}
+                    ) : null}
                   </div>
-                </article>
+                ))}
               </div>
-            </div>
+            </article>
           </>
-        )}
+        ) : null}
       </article>
     </section>
   );

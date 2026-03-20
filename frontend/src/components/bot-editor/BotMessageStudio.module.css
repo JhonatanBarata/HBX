@@ -1,0 +1,420 @@
+.studio {
+  display: grid;
+  gap: 1rem;
+}
+
+.shell {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: minmax(240px, 0.82fr) minmax(0, 1.28fr);
+}
+
+.panel {
+  border: 1px solid color-mix(in srgb, var(--brand) 12%, #dbe7f1);
+  border-radius: 24px;
+  background:
+    radial-gradient(circle at top right, color-mix(in srgb, var(--brand) 10%, transparent), transparent 34%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(243, 248, 251, 0.98));
+  box-shadow: 0 22px 48px rgba(15, 23, 42, 0.08);
+}
+
+.sidebar {
+  padding: 1rem;
+  display: grid;
+  gap: 0.85rem;
+  align-content: start;
+}
+
+.sidebarHeader,
+.editorHeader,
+.cardHeader,
+.previewHeader,
+.previewFooter,
+.actionItemHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.8rem;
+}
+
+.eyebrow {
+  margin: 0;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--brand) 80%, #17324a);
+}
+
+.title {
+  margin: 0.35rem 0 0;
+  font-size: clamp(1.15rem, 1.9vw, 1.55rem);
+  line-height: 1.05;
+  letter-spacing: -0.03em;
+  color: #102033;
+}
+
+.description {
+  margin: 0.45rem 0 0;
+  color: var(--muted);
+  line-height: 1.55;
+  font-size: 0.92rem;
+}
+
+.scenarioList,
+.buttonList,
+.actionList,
+.chipList,
+.previewButtonList {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.scenarioItem {
+  width: 100%;
+  text-align: left;
+  padding: 0.95rem 1rem;
+  border-radius: 18px;
+  border: 1px solid color-mix(in srgb, var(--brand) 10%, #dbe7f1);
+  background: rgba(255, 255, 255, 0.76);
+  transition:
+    transform 160ms ease,
+    border-color 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.scenarioItem:hover {
+  transform: translateY(-1px);
+  border-color: color-mix(in srgb, var(--brand) 24%, #dbe7f1);
+  box-shadow: 0 14px 26px rgba(15, 23, 42, 0.08);
+}
+
+.scenarioItemActive {
+  border-color: color-mix(in srgb, var(--brand) 34%, #0f172a);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(231, 244, 242, 0.96)),
+    rgba(255, 255, 255, 0.94);
+  box-shadow: 0 18px 32px rgba(15, 118, 110, 0.12);
+}
+
+.scenarioItem strong,
+.cardHeader strong,
+.previewPhone strong,
+.actionItemHeader strong,
+.buttonMeta strong {
+  color: #102033;
+}
+
+.scenarioItem p,
+.buttonMeta p,
+.actionItem p,
+.previewBody,
+.emptyState,
+.previewFallback,
+.previewNote {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.scenarioMeta,
+.previewMeta,
+.buttonMetaBadges,
+.actionMeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.badge,
+.previewButton,
+.chip,
+.previewType,
+.previewFallbackBadge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 30px;
+  padding: 0.35rem 0.72rem;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.badge {
+  border: 1px solid color-mix(in srgb, var(--brand) 12%, #d8e4ee);
+  background: rgba(255, 255, 255, 0.82);
+  color: #183449;
+}
+
+.badgeMuted {
+  background: rgba(241, 245, 249, 0.96);
+  border-color: rgba(148, 163, 184, 0.24);
+  color: #475569;
+}
+
+.badgeAccent {
+  background: color-mix(in srgb, var(--brand) 10%, white);
+  border-color: color-mix(in srgb, var(--brand) 18%, #d8e4ee);
+  color: color-mix(in srgb, var(--brand) 86%, #17324a);
+}
+
+.badgeDanger {
+  background: rgba(254, 242, 242, 0.96);
+  border-color: rgba(239, 68, 68, 0.2);
+  color: #b42318;
+}
+
+.editor {
+  padding: 1rem;
+  display: grid;
+  gap: 1rem;
+}
+
+.editorGrid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: minmax(0, 1.18fr) minmax(320px, 0.92fr);
+}
+
+.cards {
+  display: grid;
+  gap: 1rem;
+}
+
+.card {
+  padding: 1rem;
+  border-radius: 20px;
+  border: 1px solid color-mix(in srgb, var(--brand) 10%, #dbe7f1);
+  background: rgba(255, 255, 255, 0.82);
+  display: grid;
+  gap: 0.85rem;
+}
+
+.toggleGrid {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.toggleCard {
+  text-align: left;
+  min-height: 84px;
+  padding: 0.95rem 1rem;
+  border-radius: 18px;
+  border: 1px solid color-mix(in srgb, var(--brand) 10%, #dbe7f1);
+  background: rgba(248, 250, 252, 0.96);
+  transition:
+    transform 160ms ease,
+    border-color 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.toggleCard:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 12px 22px rgba(15, 23, 42, 0.07);
+}
+
+.toggleCardActive {
+  border-color: color-mix(in srgb, var(--brand) 34%, #0f172a);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(230, 243, 241, 0.98)),
+    rgba(255, 255, 255, 0.96);
+}
+
+.toggleCard strong,
+.buttonRow label span,
+.actionSelectLabel,
+.previewPhone span {
+  display: block;
+}
+
+.toggleCard p {
+  margin: 0.35rem 0 0;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.buttonRow,
+.actionItem {
+  padding: 0.95rem;
+  border-radius: 18px;
+  border: 1px solid color-mix(in srgb, var(--brand) 9%, #dbe7f1);
+  background: rgba(248, 250, 252, 0.94);
+  display: grid;
+  gap: 0.8rem;
+}
+
+.buttonGrid {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.fieldBlock {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.fieldBlock span,
+.actionSelectLabel {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #21384b;
+}
+
+.fieldBlock :global(.field) {
+  width: 100%;
+}
+
+.buttonMeta {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.buttonActions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.chipList {
+  display: flex;
+  flex-wrap: wrap;
+}
+
+.chip {
+  border: 1px solid color-mix(in srgb, var(--brand) 16%, #d8e4ee);
+  background: rgba(255, 255, 255, 0.94);
+  color: color-mix(in srgb, var(--brand) 82%, #17324a);
+  cursor: pointer;
+}
+
+.chip strong {
+  font-weight: 800;
+}
+
+.chip small {
+  margin-left: 0.45rem;
+  color: #64748b;
+}
+
+.previewPane {
+  display: grid;
+  gap: 1rem;
+  align-content: start;
+}
+
+.previewCard {
+  padding: 1rem;
+  border-radius: 22px;
+  border: 1px solid color-mix(in srgb, var(--brand) 10%, #dbe7f1);
+  background:
+    linear-gradient(180deg, rgba(14, 23, 33, 0.04), rgba(14, 23, 33, 0)),
+    linear-gradient(180deg, #f5fafc, #eef4f8);
+  display: grid;
+  gap: 0.85rem;
+}
+
+.previewPhone {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.previewPhone span {
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.previewBubble {
+  display: grid;
+  gap: 0.7rem;
+  padding: 1rem;
+  border-radius: 22px 22px 10px 22px;
+  background: linear-gradient(180deg, #ffffff, #f9fcfd);
+  border: 1px solid rgba(255, 255, 255, 0.8);
+  box-shadow: 0 18px 34px rgba(15, 23, 42, 0.08);
+}
+
+.previewBody {
+  white-space: pre-wrap;
+  color: #183449;
+}
+
+.previewButtonList {
+  display: flex;
+  flex-wrap: wrap;
+}
+
+.previewButton {
+  justify-content: flex-start;
+  border: 1px solid color-mix(in srgb, var(--brand) 22%, #d8e4ee);
+  background: color-mix(in srgb, var(--brand) 10%, white);
+  color: color-mix(in srgb, var(--brand) 88%, #17324a);
+}
+
+.previewFooter {
+  align-items: center;
+}
+
+.previewFallbackBadge {
+  border: 1px solid rgba(245, 158, 11, 0.22);
+  background: rgba(255, 247, 237, 0.98);
+  color: #b45309;
+}
+
+.previewType {
+  border: 1px solid color-mix(in srgb, var(--brand) 14%, #d8e4ee);
+  background: rgba(255, 255, 255, 0.86);
+  color: #183449;
+}
+
+.previewFallback {
+  padding: 0.9rem;
+  border-radius: 16px;
+  border: 1px dashed color-mix(in srgb, var(--brand) 16%, #d8e4ee);
+  background: rgba(255, 255, 255, 0.78);
+  white-space: pre-wrap;
+}
+
+.emptyState {
+  padding: 0.95rem 1rem;
+  border-radius: 18px;
+  border: 1px dashed color-mix(in srgb, var(--brand) 16%, #d8e4ee);
+  background: rgba(248, 250, 252, 0.88);
+}
+
+.previewNote {
+  font-size: 0.84rem;
+}
+
+@media (max-width: 1080px) {
+  .shell,
+  .editorGrid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 720px) {
+  .panel,
+  .card,
+  .previewCard,
+  .buttonRow,
+  .actionItem,
+  .scenarioItem,
+  .toggleCard {
+    border-radius: 18px;
+  }
+
+  .sidebar,
+  .editor,
+  .card,
+  .previewCard {
+    padding: 0.9rem;
+  }
+
+  .toggleGrid,
+  .buttonGrid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

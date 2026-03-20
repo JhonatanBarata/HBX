@@ -34,6 +34,10 @@ class UpdateRecoveryStartTemplateDto {
 
 class UpdateRecoveryBotButtonDto {
   @IsString()
+  @IsOptional()
+  buttonId?: string;
+
+  @IsString()
   actionId!: string;
 
   @IsString()

@@ -77,6 +77,7 @@ test('sendMessage queues outbound on the real conversation with human flow state
       flowState: {
         humanAssigned: true,
         botActive: false,
+        flowResult: null,
       },
     },
   });
@@ -120,11 +121,16 @@ test('updateConversationStatus maps open and closed to real conversation flags',
   assert.deepEqual(updatedCalls, [
     {
       where: { id: 42 },
-      data: { botActive: false, humanAssigned: true, flowResult: null },
+      data: { botActive: false, humanAssigned: true, flowResult: null, metadata: '{}' },
     },
     {
       where: { id: 42 },
-      data: { botActive: false, humanAssigned: false, flowResult: 'manual_closed' },
+      data: {
+        botActive: false,
+        humanAssigned: false,
+        flowResult: 'manual_closed',
+        metadata: '{}',
+      },
     },
   ]);
   assert.equal(auditCalls.length, 2);

@@ -87,6 +87,7 @@ export type RecoveryBotActionId =
 export type RecoveryBotAnyActionId = RecoveryBotActionId | string;
 
 export type RecoveryBotButton = {
+  buttonId: string;
   actionId: RecoveryBotAnyActionId;
   title: string;
 };

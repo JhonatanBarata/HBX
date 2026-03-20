@@ -14,6 +14,7 @@ import { useRequireAuth } from "../dashboard/_lib/useRequireAuth";
 import { apiFetch } from "../dashboard/_lib/api";
 import AnimatedNumber from "./_components/AnimatedNumber";
 import ClientDrawer, { type DrawerActionId } from "./_components/ClientDrawer";
+import RecoveryBotStudio from "./_components/RecoveryBotStudio";
 import {
   buildRecoveryOverview,
   type RecoveryBotActionGuide,
@@ -22,7 +23,6 @@ import {
   calculateRiskScore,
   type RecoveryBotConfig,
   type RecoveryBotVariableDefinition,
-  type RecoveryBotVariableScope,
   type RecoveryAgendaSummary,
   type RecoveryCustomer,
   type RecoveryFlowStage,
@@ -876,42 +876,42 @@ const DEFAULT_BOT_CONFIG: RecoveryBotConfig = {
   startTemplates: [],
   mainMenuPrompt: "Perfeito, {{cliente}}. Escolha abaixo como deseja continuar:",
   mainMenuButtons: [
-    { actionId: "view_amount", title: "Ver valor pendente" },
-    { actionId: "choose_installments", title: "Pagar no credito" },
-    { actionId: "pay_full", title: "Pagar no Pix" },
-    { actionId: "talk_human", title: "Falar com atendente" },
+    makeRecoveryButton("main_menu", "view_amount", "Ver valor pendente", 0),
+    makeRecoveryButton("main_menu", "choose_installments", "Pagar no credito", 1),
+    makeRecoveryButton("main_menu", "pay_full", "Pagar no Pix", 2),
+    makeRecoveryButton("main_menu", "talk_human", "Falar com atendente", 3),
   ],
   declineMenuPrompt:
     "Tudo bem. Deseja que nossa equipe entre em contato em outro momento ou prefere encerrar por aqui?",
   declineMenuButtons: [
-    { actionId: "talk_later", title: "Falar depois" },
-    { actionId: "close_topic", title: "Encerrar assunto" },
-    { actionId: "talk_human", title: "Falar com atendente" },
+    makeRecoveryButton("decline_menu", "talk_later", "Falar depois", 0),
+    makeRecoveryButton("decline_menu", "close_topic", "Encerrar assunto", 1),
+    makeRecoveryButton("decline_menu", "talk_human", "Falar com atendente", 2),
   ],
   followupPrompt: "Qual periodo prefere?",
   followupButtons: [
-    { actionId: "followup_today", title: "Hoje mais tarde" },
-    { actionId: "followup_tomorrow", title: "Amanha" },
-    { actionId: "followup_week", title: "Esta semana" },
+    makeRecoveryButton("followup_menu", "followup_today", "Hoje mais tarde", 0),
+    makeRecoveryButton("followup_menu", "followup_tomorrow", "Amanha", 1),
+    makeRecoveryButton("followup_menu", "followup_week", "Esta semana", 2),
   ],
   valueMessageTemplate:
     "Seu valor pendente atual e de {{valor_formatado}} referente ao servico de {{descricao_servico}} realizado em {{data_servico}}.",
   valueButtons: [
-    { actionId: "pay_full", title: "Pagar no Pix" },
-    { actionId: "choose_installments", title: "Pagar no credito" },
-    { actionId: "talk_human", title: "Falar com atendente" },
+    makeRecoveryButton("value_menu", "pay_full", "Pagar no Pix", 0),
+    makeRecoveryButton("value_menu", "choose_installments", "Pagar no credito", 1),
+    makeRecoveryButton("value_menu", "talk_human", "Falar com atendente", 2),
   ],
   installmentsPrompt: "Perfeito. Vou gerar seu link de pagamento no cartao de credito.",
   installmentButtons: [
-    { actionId: "choose_installments", title: "Gerar link no credito" },
-    { actionId: "talk_human", title: "Falar com atendente" },
+    makeRecoveryButton("installment_menu", "choose_installments", "Gerar link no credito", 0),
+    makeRecoveryButton("installment_menu", "talk_human", "Falar com atendente", 1),
   ],
   installmentConfirmTemplate:
     "Posso gerar agora seu link de pagamento no cartao de credito.",
   installmentConfirmButtons: [
-    { actionId: "generate_installment_link", title: "Gerar link no credito" },
-    { actionId: "choose_installments", title: "Gerar novo link no credito" },
-    { actionId: "talk_human", title: "Falar com atendente" },
+    makeRecoveryButton("installment_confirm", "generate_installment_link", "Gerar link no credito", 0),
+    makeRecoveryButton("installment_confirm", "choose_installments", "Gerar novo link no credito", 1),
+    makeRecoveryButton("installment_confirm", "talk_human", "Falar com atendente", 2),
   ],
   cashLinkMessageTemplate:
     "Pronto, {{cliente}}. Aqui esta seu link de pagamento:\n{{link_pagamento}}\n\nAssim que o pagamento for confirmado, avisaremos automaticamente.",
@@ -919,9 +919,9 @@ const DEFAULT_BOT_CONFIG: RecoveryBotConfig = {
     "Perfeito, {{cliente}}. Aqui esta seu link de pagamento no cartao de credito:\n{{link_pagamento}}\n\nO checkout vai mostrar as condicoes disponiveis direto no pagamento.",
   postLinkPrompt: "Precisando de algo mais?",
   postLinkButtons: [
-    { actionId: "paid_claim", title: "Ja paguei" },
-    { actionId: "choose_installments", title: "Gerar link no credito" },
-    { actionId: "talk_human", title: "Falar com atendente" },
+    makeRecoveryButton("post_link_menu", "paid_claim", "Ja paguei", 0),
+    makeRecoveryButton("post_link_menu", "choose_installments", "Gerar link no credito", 1),
+    makeRecoveryButton("post_link_menu", "talk_human", "Falar com atendente", 2),
   ],
   closeTopicMessage: "Entendido. Vamos encerrar esse assunto por agora. Se precisar, estamos por aqui.",
   paidClaimMessage: "Obrigado pelo aviso. Vou encaminhar para validacao humana do pagamento.",
@@ -1172,12 +1172,6 @@ const BOT_ACTION_OPTIONS: Array<{ value: RecoveryBotActionId; label: string }> =
   Object.keys(BOT_ACTION_LABELS) as RecoveryBotActionId[]
 ).map((value) => ({ value, label: BOT_ACTION_LABELS[value] }));
 
-const BOT_SCOPE_LABELS: Record<RecoveryBotVariableScope, string> = {
-  shared: "Compartilhado",
-  recovery: "Recovery",
-  atendimento: "Atendimento",
-};
-
 function getBotActionLabel(actionId: string) {
   return BOT_ACTION_LABELS[actionId as RecoveryBotActionId] || actionId;
 }
@@ -1189,6 +1183,36 @@ function normalizeCustomActionId(value: string) {
     .replace(/\s+/g, "_")
     .replace(/[^a-z0-9_]/g, "")
     .slice(0, 48);
+}
+
+function normalizeRecoveryButtonId(value: string, fallback: string) {
+  const normalized = String(value || fallback)
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "_")
+    .replace(/[^a-z0-9_:-]/g, "")
+    .slice(0, 80);
+  return normalized || fallback;
+}
+
+function buildRecoveryButtonId(sectionKey: string, actionId: string, index: number) {
+  return normalizeRecoveryButtonId(
+    `${sectionKey}_${actionId || "action"}_${index + 1}`,
+    `${sectionKey}_${index + 1}`,
+  );
+}
+
+function makeRecoveryButton(
+  sectionKey: string,
+  actionId: RecoveryBotActionId | string,
+  title: string,
+  index: number,
+): RecoveryBotButton {
+  return {
+    buttonId: buildRecoveryButtonId(sectionKey, String(actionId || ""), index),
+    actionId,
+    title,
+  };
 }
 
 function ensureBotConfigShape(config: RecoveryBotConfig | null | undefined): RecoveryBotConfig {
@@ -1215,11 +1239,26 @@ function ensureBotConfigShape(config: RecoveryBotConfig | null | undefined): Rec
   merged.startTemplates = templates.map((item, index) => ({ ...item, active: index === activeIndex }));
 
   const syncButtons = (section: BotButtonSectionKey, fallback: RecoveryBotButton[]) => {
-    const current = Array.isArray(merged[section]) ? (merged[section] as RecoveryBotButton[]) : [];
-    merged[section] = (current.length ? current : fallback).map((button) => ({
-      actionId: button.actionId,
-      title: String(button.title || "").trim() || getBotActionLabel(String(button.actionId || "")),
-    })) as RecoveryBotConfig[BotButtonSectionKey];
+    const hasExplicitButtons = Array.isArray(merged[section]);
+    const source = hasExplicitButtons ? (merged[section] as RecoveryBotButton[]) : fallback;
+    const seen = new Set<string>();
+    merged[section] = source
+      .map((button, index) => {
+        const actionId = String(button.actionId || "").trim();
+        const title = String(button.title || "").trim() || getBotActionLabel(actionId);
+        const buttonId = normalizeRecoveryButtonId(
+          String(button.buttonId || ""),
+          buildRecoveryButtonId(section, actionId, index),
+        );
+        if (!actionId || !title || seen.has(buttonId)) return null;
+        seen.add(buttonId);
+        return {
+          buttonId,
+          actionId,
+          title,
+        };
+      })
+      .filter(Boolean) as RecoveryBotConfig[BotButtonSectionKey];
   };
 
   syncButtons("mainMenuButtons", DEFAULT_BOT_CONFIG.mainMenuButtons);
@@ -4545,40 +4584,6 @@ export default function HbxRecoveryClientPage() {
     );
   }
 
-  function renderVariableShortcutRow(
-    field:
-      | "mainMenuPrompt"
-      | "declineMenuPrompt"
-      | "followupPrompt"
-      | "valueMessageTemplate"
-      | "installmentsPrompt"
-      | "installmentConfirmTemplate"
-      | "cashLinkMessageTemplate"
-      | "installmentLinkMessageTemplate"
-      | "postLinkPrompt"
-      | "closeTopicMessage"
-      | "paidClaimMessage"
-      | "humanAckMessage"
-      | "rootFooter",
-    scopes: RecoveryBotVariableScope[],
-  ) {
-    const variables = botConfig.variableCatalog.filter((item) => scopes.includes(item.scope) || item.scope === "shared");
-    return (
-      <div className={styles.botVariableShortcutRow}>
-        {variables.map((item) => (
-          <button
-            key={`${field}-${item.key}`}
-            type="button"
-            className={styles.botVariableShortcut}
-            onClick={() => appendVariableToTextField(field, item.key)}
-          >
-            {`{{${item.key}}}`}
-          </button>
-        ))}
-      </div>
-    );
-  }
-
   function setActiveStartTemplate(name: string, language: string) {
     setBotConfig((current) => {
       const selectedKey = `${String(name || "").trim().toLowerCase()}::${String(
@@ -4604,7 +4609,7 @@ export default function HbxRecoveryClientPage() {
   function handleSectionButtonChange(
     section: BotButtonSectionKey,
     buttonIndex: number,
-    field: "actionId" | "title",
+    field: "buttonId" | "actionId" | "title",
     value: string,
   ) {
     setBotConfig((current) => {
@@ -4615,7 +4620,12 @@ export default function HbxRecoveryClientPage() {
         [field]:
           field === "actionId"
             ? (value as RecoveryBotActionId)
-            : value,
+            : field === "buttonId"
+              ? normalizeRecoveryButtonId(
+                  value,
+                  buildRecoveryButtonId(section, String(currentButtons[buttonIndex]?.actionId || ""), buttonIndex),
+                )
+              : value,
       };
       return ensureBotConfigShape({
         ...current,
@@ -4628,6 +4638,7 @@ export default function HbxRecoveryClientPage() {
     setBotConfig((current) => {
       const currentButtons = [...(current[section] as RecoveryBotButton[])];
       currentButtons.push({
+        buttonId: buildRecoveryButtonId(section, "talk_human", currentButtons.length),
         actionId: "talk_human",
         title: BOT_ACTION_LABELS.talk_human,
       });
@@ -4711,14 +4722,27 @@ export default function HbxRecoveryClientPage() {
   }
 
   function removeCustomActionGuide(actionId: string) {
-    setBotConfig((current) =>
-      ensureBotConfigShape({
+    setBotConfig((current) => {
+      const next = ensureBotConfigShape({
         ...current,
         actionCatalog: current.actionCatalog.filter(
           (item) => !(item.custom && String(item.actionId) === actionId),
         ),
-      }),
-    );
+      });
+      const buttonSections: BotButtonSectionKey[] = [
+        "mainMenuButtons",
+        "declineMenuButtons",
+        "followupButtons",
+        "valueButtons",
+        "installmentButtons",
+        "installmentConfirmButtons",
+        "postLinkButtons",
+      ];
+      for (const section of buttonSections) {
+        next[section] = next[section].filter((button) => String(button.actionId) !== actionId);
+      }
+      return ensureBotConfigShape(next);
+    });
   }
 
   async function moveFlowStage(stageId: string, direction: "up" | "down") {
@@ -5471,94 +5495,6 @@ export default function HbxRecoveryClientPage() {
       return styles.stateExpired;
     return styles.stateWaiting;
   };
-
-  function renderBotButtonEditor(
-    title: string,
-    section: BotButtonSectionKey,
-    description: string,
-  ) {
-    const buttons = botConfig[section] as RecoveryBotButton[];
-    return (
-      <article className={styles.botStepCard}>
-        <div className={styles.botStepHeader}>
-          <div>
-            <h4>{title}</h4>
-            <p>{description}</p>
-          </div>
-          <button
-            type="button"
-            className="btn btn-secondary btn-sm"
-            onClick={() => addSectionButton(section)}
-          >
-            Adicionar botao
-          </button>
-        </div>
-        <div className={styles.botButtonList}>
-          {buttons.map((button, index) => (
-            <div key={`${section}-${index}-${button.actionId}`} className={styles.botButtonRow}>
-              <label className={styles.fieldBlock}>
-                <span>Acao</span>
-                <select
-                  className="field"
-                  value={button.actionId}
-                  onChange={(event) =>
-                    handleSectionButtonChange(section, index, "actionId", event.target.value)
-                  }
-                >
-                  {botActionOptions.map((option) => (
-                    <option key={`${section}-${option.value}`} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className={styles.fieldBlock}>
-                <span>Texto exibido para o cliente</span>
-                <input
-                  className="field"
-                  value={button.title}
-                  onChange={(event) =>
-                    handleSectionButtonChange(section, index, "title", event.target.value)
-                  }
-                />
-              </label>
-              <div className={styles.botActionMeta}>
-                {(() => {
-                  const actionGuide = botConfig.actionCatalog.find((item) => item.actionId === button.actionId);
-                  if (!actionGuide) return null;
-                  return (
-                    <>
-                      <strong>{actionGuide.title}</strong>
-                      <p>{actionGuide.description}</p>
-                      <div className={styles.interactionBadgeRow}>
-                        <span className={`${styles.stateBadge} ${styles.stateBot}`}>
-                          {BOT_SCOPE_LABELS[actionGuide.route]}
-                        </span>
-                        <span
-                          className={`${styles.stateBadge} ${
-                            actionGuide.enabled ? styles.statePaid : styles.stateWaiting
-                          }`}
-                        >
-                          {actionGuide.enabled ? "Ativa" : "Legada"}
-                        </span>
-                      </div>
-                    </>
-                  );
-                })()}
-              </div>
-              <button
-                type="button"
-                className="btn btn-danger btn-sm"
-                onClick={() => removeSectionButton(section, index)}
-              >
-                Remover
-              </button>
-            </div>
-          ))}
-        </div>
-      </article>
-    );
-  }
 
   return (
     <>
@@ -7683,445 +7619,23 @@ export default function HbxRecoveryClientPage() {
                 ) : null}
               </article>
 
-              <article className={styles.botStepCard}>
-                <div className={styles.botStepHeader}>
-                  <div>
-                    <h4>Depois que o cliente clica &quot;Sim&quot;</h4>
-                    <p>Mensagem enviada e botoes exibidos para continuar a cobranca.</p>
-                  </div>
-                </div>
-                <label className={styles.fieldBlock}>
-                  <span>Mensagem</span>
-                  <textarea
-                    className="field"
-                    value={botConfig.mainMenuPrompt}
-                    onChange={(event) => handleBotTextChange("mainMenuPrompt", event.target.value)}
-                  />
-                </label>
-                {renderVariableShortcutRow("mainMenuPrompt", ["shared", "recovery"])}
-                {renderBotButtonEditor(
-                  "Botoes apos Sim",
-                  "mainMenuButtons",
-                  "Defina os botoes que vao aparecer assim que o cliente confirmar o contato.",
-                )}
-              </article>
-
-              <article className={styles.botStepCard}>
-                <div className={styles.botStepHeader}>
-                  <div>
-                    <h4>Depois que o cliente clica &quot;Nao, obrigado&quot;</h4>
-                    <p>Roteiro para recusa inicial.</p>
-                  </div>
-                </div>
-                <label className={styles.fieldBlock}>
-                  <span>Mensagem</span>
-                  <textarea
-                    className="field"
-                    value={botConfig.declineMenuPrompt}
-                    onChange={(event) =>
-                      handleBotTextChange("declineMenuPrompt", event.target.value)
-                    }
-                  />
-                </label>
-                {renderVariableShortcutRow("declineMenuPrompt", ["shared", "atendimento"])}
-                {renderBotButtonEditor(
-                  "Botoes de recusa",
-                  "declineMenuButtons",
-                  "Exemplo: Falar depois, Encerrar assunto, Falar com atendente.",
-                )}
-              </article>
-
-              <article className={styles.botStepCard}>
-                <div className={styles.botStepHeader}>
-                  <div>
-                    <h4>Follow-up (quando escolhe falar depois)</h4>
-                    <p>Mensagem e opcoes de periodo.</p>
-                  </div>
-                </div>
-                <label className={styles.fieldBlock}>
-                  <span>Mensagem</span>
-                  <textarea
-                    className="field"
-                    value={botConfig.followupPrompt}
-                    onChange={(event) => handleBotTextChange("followupPrompt", event.target.value)}
-                  />
-                </label>
-                {renderVariableShortcutRow("followupPrompt", ["shared", "recovery"])}
-                {renderBotButtonEditor(
-                  "Botoes de follow-up",
-                  "followupButtons",
-                  "Defina hoje/amanha/esta semana ou qualquer outra combinacao.",
-                )}
-              </article>
-
-              <article className={styles.botStepCard}>
-                <div className={styles.botStepHeader}>
-                  <div>
-                    <h4>Exibir valor pendente</h4>
-                    <p>Use variaveis para mostrar valor, servico e data.</p>
-                  </div>
-                </div>
-                <label className={styles.fieldBlock}>
-                  <span>Mensagem</span>
-                  <textarea
-                    className="field"
-                    value={botConfig.valueMessageTemplate}
-                    onChange={(event) =>
-                      handleBotTextChange("valueMessageTemplate", event.target.value)
-                    }
-                  />
-                </label>
-                {renderVariableShortcutRow("valueMessageTemplate", ["shared", "recovery"])}
-                {renderBotButtonEditor(
-                  "Botoes apos exibir valor",
-                  "valueButtons",
-                  "Defina para onde o fluxo segue apos mostrar o valor pendente.",
-                )}
-              </article>
-
-              <article className={styles.botStepCard}>
-                <div className={styles.botStepHeader}>
-                  <div>
-                    <h4>Parcelamento</h4>
-                    <p>Mensagem de escolha de parcelas e confirmacao antes de gerar link.</p>
-                  </div>
-                </div>
-                <label className={styles.fieldBlock}>
-                  <span>Mensagem de escolha</span>
-                  <textarea
-                    className="field"
-                    value={botConfig.installmentsPrompt}
-                    onChange={(event) =>
-                      handleBotTextChange("installmentsPrompt", event.target.value)
-                    }
-                  />
-                </label>
-                {renderVariableShortcutRow("installmentsPrompt", ["shared", "recovery"])}
-                {renderBotButtonEditor(
-                  "Botoes de parcelas",
-                  "installmentButtons",
-                  "Inclua 2x/3x/4x/5x e outras opcoes se necessario.",
-                )}
-                <label className={styles.fieldBlock}>
-                  <span>Mensagem de confirmacao da parcela</span>
-                  <textarea
-                    className="field"
-                    value={botConfig.installmentConfirmTemplate}
-                    onChange={(event) =>
-                      handleBotTextChange("installmentConfirmTemplate", event.target.value)
-                    }
-                  />
-                </label>
-                {renderVariableShortcutRow("installmentConfirmTemplate", ["shared", "recovery"])}
-                {renderBotButtonEditor(
-                  "Botoes de confirmacao",
-                  "installmentConfirmButtons",
-                  "Exemplo: Gerar link no credito, Pagar no Pix, Falar com atendente.",
-                )}
-              </article>
-
-              <article className={styles.botStepCard}>
-                <div className={styles.botStepHeader}>
-                  <div>
-                    <h4>Mensagens de link de pagamento</h4>
-                    <p>Texto enviado quando gera link avista ou parcelado e menu posterior.</p>
-                  </div>
-                </div>
-                <label className={styles.fieldBlock}>
-                  <span>Mensagem de link avista</span>
-                  <textarea
-                    className="field"
-                    value={botConfig.cashLinkMessageTemplate}
-                    onChange={(event) =>
-                      handleBotTextChange("cashLinkMessageTemplate", event.target.value)
-                    }
-                  />
-                </label>
-                {renderVariableShortcutRow("cashLinkMessageTemplate", ["shared", "recovery"])}
-                <label className={styles.fieldBlock}>
-                  <span>Mensagem de link parcelado</span>
-                  <textarea
-                    className="field"
-                    value={botConfig.installmentLinkMessageTemplate}
-                    onChange={(event) =>
-                      handleBotTextChange("installmentLinkMessageTemplate", event.target.value)
-                    }
-                  />
-                </label>
-                {renderVariableShortcutRow("installmentLinkMessageTemplate", ["shared", "recovery"])}
-                <label className={styles.fieldBlock}>
-                  <span>Pergunta apos enviar link</span>
-                  <input
-                    className="field"
-                    value={botConfig.postLinkPrompt}
-                    onChange={(event) => handleBotTextChange("postLinkPrompt", event.target.value)}
-                  />
-                </label>
-                {renderVariableShortcutRow("postLinkPrompt", ["shared", "recovery", "atendimento"])}
-                {renderBotButtonEditor(
-                  "Botoes apos link gerado",
-                  "postLinkButtons",
-                  "Exemplo: Ja paguei, Gerar link no credito, Falar com atendente.",
-                )}
-              </article>
-
-              <article className={styles.botStepCard}>
-                <div className={styles.botStepHeader}>
-                  <div>
-                    <h4>Encaminhamento humano e encerramento</h4>
-                    <p>Somente estas mensagens ficam para fila humana.</p>
-                  </div>
-                </div>
-                <label className={styles.fieldBlock}>
-                  <span>Mensagem ao encerrar assunto</span>
-                  <textarea
-                    className="field"
-                    value={botConfig.closeTopicMessage}
-                    onChange={(event) =>
-                      handleBotTextChange("closeTopicMessage", event.target.value)
-                    }
-                  />
-                </label>
-                {renderVariableShortcutRow("closeTopicMessage", ["shared", "atendimento"])}
-                <label className={styles.fieldBlock}>
-                  <span>Mensagem quando cliente diz &quot;Ja paguei&quot;</span>
-                  <textarea
-                    className="field"
-                    value={botConfig.paidClaimMessage}
-                    onChange={(event) =>
-                      handleBotTextChange("paidClaimMessage", event.target.value)
-                    }
-                  />
-                </label>
-                {renderVariableShortcutRow("paidClaimMessage", ["shared", "atendimento", "recovery"])}
-                <label className={styles.fieldBlock}>
-                  <span>Mensagem de encaminhamento humano (manter)</span>
-                  <textarea
-                    className="field"
-                    value={botConfig.humanAckMessage}
-                    onChange={(event) => handleBotTextChange("humanAckMessage", event.target.value)}
-                  />
-                </label>
-                {renderVariableShortcutRow("humanAckMessage", ["shared", "atendimento"])}
-              </article>
-
-              <article className={styles.botStepCard}>
-                <div className={styles.botStepHeader}>
-                  <div>
-                    <h4>Variaveis disponiveis</h4>
-                    <p>Guia configuravel para o Recovery, Atendimento e templates compartilhados.</p>
-                  </div>
-                </div>
-                <div className={styles.interactionBadgeRow}>
-                  {botConfig.variableCatalog.map((item) => (
-                    <span key={item.key} className={`${styles.stateBadge} ${styles.stateWaiting}`}>
-                      {`{{${item.key}}}`}
-                    </span>
-                  ))}
-                </div>
-                <div className={styles.botVariableGrid}>
-                  {botConfig.variableCatalog.map((item) => (
-                    <div key={item.key} className={styles.botVariableCard}>
-                      <div className={styles.botVariableHeader}>
-                        <strong>{`{{${item.key}}}`}</strong>
-                        <div className={styles.interactionBadgeRow}>
-                          <span className={`${styles.stateBadge} ${styles.stateBot}`}>
-                            {BOT_SCOPE_LABELS[item.scope]}
-                          </span>
-                          {item.required ? (
-                            <span className={`${styles.stateBadge} ${styles.statePaid}`}>
-                              Obrigatoria
-                            </span>
-                          ) : null}
-                        </div>
-                      </div>
-                      <label className={styles.fieldBlock}>
-                        <span>Rotulo</span>
-                        <input
-                          className="field"
-                          value={item.label}
-                          onChange={(event) =>
-                            handleVariableGuideChange(item.key, "label", event.target.value)
-                          }
-                        />
-                      </label>
-                      <label className={styles.fieldBlock}>
-                        <span>Exemplo</span>
-                        <input
-                          className="field"
-                          value={item.example}
-                          onChange={(event) =>
-                            handleVariableGuideChange(item.key, "example", event.target.value)
-                          }
-                        />
-                      </label>
-                      <label className={styles.fieldBlock}>
-                        <span>Descricao</span>
-                        <textarea
-                          className="field"
-                          value={item.description}
-                          onChange={(event) =>
-                            handleVariableGuideChange(item.key, "description", event.target.value)
-                          }
-                        />
-                      </label>
-                    </div>
-                  ))}
-                </div>
-                <label className={styles.fieldBlock}>
-                  <span>Rodape dos interativos</span>
-                  <input
-                    className="field"
-                    value={botConfig.rootFooter}
-                    onChange={(event) => handleBotTextChange("rootFooter", event.target.value)}
-                  />
-                </label>
-                {renderVariableShortcutRow("rootFooter", ["shared"])}
-              </article>
-
-              <article className={styles.botStepCard}>
-                <div className={styles.botStepHeader}>
-                  <div>
-                    <h4>Acoes e roteamento</h4>
-                    <p>Base comum para dizer quando a conversa fica no Recovery e quando sobe para Atendimento.</p>
-                  </div>
-                  <button type="button" className="btn btn-secondary btn-sm" onClick={addCustomActionGuide}>
-                    Nova acao custom
-                  </button>
-                </div>
-                <div className={styles.botRoutingGrid}>
-                  <label className={styles.botRoutingToggle}>
-                    <input
-                      type="checkbox"
-                      checked={botConfig.routingRules.preferRecoveryForDebtors}
-                      onChange={(event) =>
-                        handleRoutingRuleChange("preferRecoveryForDebtors", event.target.checked)
-                      }
-                    />
-                    <div>
-                      <strong>Priorizar Recovery para devedores ativos</strong>
-                      <span>Conversa com cliente em aberto tende a permanecer no modulo de cobranca.</span>
-                    </div>
-                  </label>
-                  <label className={styles.botRoutingToggle}>
-                    <input
-                      type="checkbox"
-                      checked={botConfig.routingRules.preferRecoveryForNegotiations}
-                      onChange={(event) =>
-                        handleRoutingRuleChange("preferRecoveryForNegotiations", event.target.checked)
-                      }
-                    />
-                    <div>
-                      <strong>Preservar negociacoes originadas no Recovery</strong>
-                      <span>Mensagens com contexto de cobranca continuam com prioridade no Recovery.</span>
-                    </div>
-                  </label>
-                  <label className={styles.botRoutingToggle}>
-                    <input
-                      type="checkbox"
-                      checked={botConfig.routingRules.preferInboxForManualQueue}
-                      onChange={(event) =>
-                        handleRoutingRuleChange("preferInboxForManualQueue", event.target.checked)
-                      }
-                    />
-                    <div>
-                      <strong>Fila humana vai para Atendimento</strong>
-                      <span>Quando um humano assume a conversa, a central manual vira o destino sugerido.</span>
-                    </div>
-                  </label>
-                </div>
-                <div className={styles.botActionGuideList}>
-                  {botConfig.actionCatalog.map((action) => (
-                    <div key={action.actionId} className={styles.botActionGuideItem}>
-                      <div className={styles.botActionGuideEditor}>
-                        {action.custom ? (
-                          <label className={styles.fieldBlock}>
-                            <span>Id tecnico</span>
-                            <input
-                              className="field"
-                              value={String(action.actionId)}
-                              onChange={(event) =>
-                                updateActionGuide(String(action.actionId), "actionId", event.target.value)
-                              }
-                            />
-                          </label>
-                        ) : null}
-                        <label className={styles.fieldBlock}>
-                          <span>Titulo</span>
-                          <input
-                            className="field"
-                            value={action.title}
-                            onChange={(event) =>
-                              updateActionGuide(String(action.actionId), "title", event.target.value)
-                            }
-                          />
-                        </label>
-                        <label className={styles.fieldBlock}>
-                          <span>Descricao</span>
-                          <textarea
-                            className="field"
-                            value={action.description}
-                            onChange={(event) =>
-                              updateActionGuide(String(action.actionId), "description", event.target.value)
-                            }
-                          />
-                        </label>
-                        <label className={styles.fieldBlock}>
-                          <span>Resposta automatica</span>
-                          <textarea
-                            className="field"
-                            value={action.responseMessage || ""}
-                            onChange={(event) =>
-                              updateActionGuide(String(action.actionId), "responseMessage", event.target.value)
-                            }
-                          />
-                        </label>
-                        <label className={styles.fieldBlock}>
-                          <span>Destino</span>
-                          <select
-                            className="field"
-                            value={action.route}
-                            onChange={(event) =>
-                              updateActionGuide(String(action.actionId), "route", event.target.value)
-                            }
-                          >
-                            <option value="shared">Compartilhado</option>
-                            <option value="recovery">Recovery</option>
-                            <option value="atendimento">Atendimento</option>
-                          </select>
-                        </label>
-                      </div>
-                      <div className={styles.interactionBadgeRow}>
-                        <span className={`${styles.stateBadge} ${styles.stateBot}`}>
-                          {BOT_SCOPE_LABELS[action.route]}
-                        </span>
-                        {action.custom ? (
-                          <span className={`${styles.stateBadge} ${styles.stateGenerated}`}>Custom</span>
-                        ) : null}
-                        <span
-                          className={`${styles.stateBadge} ${
-                            action.enabled ? styles.statePaid : styles.stateWaiting
-                          }`}
-                          onClick={() =>
-                            updateActionGuide(String(action.actionId), "enabled", !action.enabled)
-                          }
-                        >
-                          {action.enabled ? "Ativa" : "Legada"}
-                        </span>
-                        {action.custom ? (
-                          <button
-                            type="button"
-                            className="btn btn-danger btn-sm"
-                            onClick={() => removeCustomActionGuide(String(action.actionId))}
-                          >
-                            Remover
-                          </button>
-                        ) : null}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </article>
+              <RecoveryBotStudio
+                botConfig={botConfig}
+                loadingBotConfig={loadingBotConfig}
+                savingBotConfig={savingBotConfig}
+                botActionOptions={botActionOptions}
+                onSave={saveBotConfig}
+                onBotTextChange={handleBotTextChange}
+                onAppendVariable={appendVariableToTextField}
+                onUpdateButton={handleSectionButtonChange}
+                onAddButton={addSectionButton}
+                onRemoveButton={removeSectionButton}
+                onUpdateVariableGuide={handleVariableGuideChange}
+                onUpdateActionGuide={updateActionGuide}
+                onAddCustomActionGuide={addCustomActionGuide}
+                onRemoveCustomActionGuide={removeCustomActionGuide}
+                onUpdateRoutingRule={handleRoutingRuleChange}
+              />
             </div>
           )}
         </section>

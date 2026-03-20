@@ -1196,6 +1196,11 @@
   counter-reset: bot-step;
 }
 
+.botStudioStack {
+  display: grid;
+  gap: 0.95rem;
+}
+
 .botStepCard {
   position: relative;
   overflow: hidden;

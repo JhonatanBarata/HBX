@@ -7,6 +7,7 @@ export const ATENDIMENTO_AGENDA_CONFIG_TITLE = 'config_v1';
 export const ATENDIMENTO_BUTTON_ID_PREFIX = 'atendimento_';
 
 export const ATENDIMENTO_BOT_ACTION_IDS = [
+  'start_quick_registration',
   'talk_human',
   'close_topic',
   'enter_recovery',
@@ -48,6 +49,7 @@ export type AtendimentoBotActionGuide = {
 };
 
 export type AtendimentoBotButton = {
+  buttonId: string;
   actionId: AtendimentoBotAnyActionId;
   title: string;
 };
@@ -63,6 +65,7 @@ export type AtendimentoBotConfig = {
   variableCatalog: AtendimentoBotVariableDefinition[];
   actionCatalog: AtendimentoBotActionGuide[];
   routingRules: AtendimentoRoutingRules;
+  welcomeButtons: AtendimentoBotButton[];
   mainMenuPrompt: string;
   mainMenuButtons: AtendimentoBotButton[];
   welcomeMessage: string;
@@ -153,6 +156,16 @@ const DEFAULT_VARIABLE_CATALOG: AtendimentoBotVariableDefinition[] = [
 
 const DEFAULT_ACTION_CATALOG: AtendimentoBotActionGuide[] = [
   {
+    actionId: 'start_quick_registration',
+    title: 'Iniciar cadastro rapido',
+    description: 'Abre a coleta inicial de dados para um novo cliente sem depender de texto livre.',
+    route: 'atendimento',
+    kind: 'reply',
+    enabled: true,
+    responseMessage:
+      'Perfeito. Vamos iniciar seu cadastro rapido agora. Me envie seu nome completo para eu abrir a ficha inicial.',
+  },
+  {
     actionId: 'talk_human',
     title: 'Falar com atendente',
     description: 'Encaminha a conversa para a fila humana do Atendimento.',
@@ -186,6 +199,33 @@ const DEFAULT_ACTION_CATALOG: AtendimentoBotActionGuide[] = [
   },
 ];
 
+function normalizeButtonId(value: unknown, fallback: string) {
+  const normalized = String(value || fallback)
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, '_')
+    .replace(/[^a-z0-9_:-]/g, '')
+    .slice(0, 80);
+  return normalized || fallback;
+}
+
+function buildDefaultButtonId(sectionKey: string, actionId: string, index: number) {
+  return normalizeButtonId(`${sectionKey}_${actionId || 'action'}_${index + 1}`, `${sectionKey}_${index + 1}`);
+}
+
+function makeDefaultButton(
+  sectionKey: string,
+  actionId: AtendimentoBotAnyActionId,
+  title: string,
+  index: number,
+): AtendimentoBotButton {
+  return {
+    buttonId: buildDefaultButtonId(sectionKey, String(actionId || ''), index),
+    actionId,
+    title,
+  };
+}
+
 export const DEFAULT_ATENDIMENTO_BOT_CONFIG: AtendimentoBotConfig = {
   variableCatalog: DEFAULT_VARIABLE_CATALOG,
   actionCatalog: DEFAULT_ACTION_CATALOG,
@@ -196,21 +236,30 @@ export const DEFAULT_ATENDIMENTO_BOT_CONFIG: AtendimentoBotConfig = {
     notifyOnNewInbound: true,
   },
   welcomeMessage:
-    'Oi, {{cliente}}. Eu sou o atendimento digital da {{empresa}}. Posso te mostrar as opcoes disponiveis agora.',
+    'Ola, tudo bem?\nEu sou o atendimento digital da {{empresa}}. Nao localizamos em nosso cadastro seu telefone.',
+  welcomeButtons: [
+    makeDefaultButton(
+      'welcome_message',
+      'start_quick_registration',
+      'Fazer cadastro rapido',
+      0,
+    ),
+    makeDefaultButton('welcome_message', 'talk_human', 'Falar com atendente', 1),
+  ],
   returningCustomerMessage:
     'Que bom te ver de novo, {{cliente}}. Vou continuar daqui e te mostrar as opcoes disponiveis.',
   mainMenuPrompt: 'Escolha abaixo como deseja continuar:',
-  mainMenuButtons: [{ actionId: 'talk_human', title: 'Falar com atendente' }],
+  mainMenuButtons: [makeDefaultButton('main_menu', 'talk_human', 'Falar com atendente', 0)],
   recoveryDetectedMessage:
     'Localizei um cadastro com valor em aberto de {{valor_formatado}} no Recovery. Podemos conversar sobre isso agora ou prefere falar com um atendente?',
   recoveryDetectedButtons: [
-    { actionId: 'enter_recovery', title: 'Falar sobre o debito' },
-    { actionId: 'talk_human', title: 'Falar com atendente' },
+    makeDefaultButton('recovery_detected', 'enter_recovery', 'Falar sobre o debito', 0),
+    makeDefaultButton('recovery_detected', 'talk_human', 'Falar com atendente', 1),
   ],
   postActionPrompt: 'Se precisar de mais alguma coisa, posso continuar por aqui.',
   postActionButtons: [
-    { actionId: 'show_main_menu', title: 'Voltar ao menu' },
-    { actionId: 'talk_human', title: 'Atendimento humano' },
+    makeDefaultButton('post_action', 'show_main_menu', 'Voltar ao menu', 0),
+    makeDefaultButton('post_action', 'talk_human', 'Atendimento humano', 1),
   ],
   humanAckMessage: 'Perfeito. Vou encaminhar sua conversa para um atendente agora.',
   closeTopicMessage: 'Entendido. Vou encerrar esta conversa por agora. Quando precisar, e so chamar.',
@@ -281,17 +330,34 @@ function normalizeActionId(value: unknown, fallback: string) {
   return normalized || fallback;
 }
 
-function normalizeButtons(value: unknown, fallback: AtendimentoBotButton[]) {
+function normalizeButtons(value: unknown, fallback: AtendimentoBotButton[], sectionKey: string) {
+  if (value === undefined || value === null) {
+    return fallback.map((item) => ({ ...item }));
+  }
   const items = Array.isArray(value) ? value : [];
+  const seen = new Set<string>();
   const normalized = items
-    .map((item) => {
+    .map((item, index) => {
       const actionId = normalizeActionId((item as any)?.actionId, '');
       const title = normalizeText((item as any)?.title);
       if (!actionId || !title) return null;
-      return { actionId, title };
+      let buttonId = normalizeButtonId(
+        (item as any)?.buttonId,
+        buildDefaultButtonId(sectionKey, actionId, index),
+      );
+      let collisionIndex = 1;
+      while (seen.has(buttonId)) {
+        buttonId = normalizeButtonId(
+          `${buttonId}_${collisionIndex}`,
+          buildDefaultButtonId(sectionKey, actionId, index + collisionIndex),
+        );
+        collisionIndex += 1;
+      }
+      seen.add(buttonId);
+      return { buttonId, actionId, title };
     })
     .filter(Boolean) as AtendimentoBotButton[];
-  return normalized.length ? normalized : fallback.map((item) => ({ ...item }));
+  return normalized;
 }
 
 function normalizeVariableCatalog(value: unknown) {
@@ -354,6 +420,8 @@ export function normalizeAtendimentoBotConfig(
   payload: Partial<AtendimentoBotConfig> | null | undefined,
 ): AtendimentoBotConfig {
   const config = payload || {};
+  const hasWelcomeButtons =
+    Boolean(config) && Object.prototype.hasOwnProperty.call(config, 'welcomeButtons');
   return {
     variableCatalog: normalizeVariableCatalog(config.variableCatalog),
     actionCatalog: normalizeActionCatalog(config.actionCatalog),
@@ -377,6 +445,13 @@ export function normalizeAtendimentoBotConfig(
       config.welcomeMessage,
       DEFAULT_ATENDIMENTO_BOT_CONFIG.welcomeMessage,
     ),
+    welcomeButtons: hasWelcomeButtons
+      ? normalizeButtons(
+          config.welcomeButtons,
+          DEFAULT_ATENDIMENTO_BOT_CONFIG.welcomeButtons,
+          'welcome_message',
+        )
+      : [],
     returningCustomerMessage: normalizeText(
       config.returningCustomerMessage,
       DEFAULT_ATENDIMENTO_BOT_CONFIG.returningCustomerMessage,
@@ -388,6 +463,7 @@ export function normalizeAtendimentoBotConfig(
     mainMenuButtons: normalizeButtons(
       config.mainMenuButtons,
       DEFAULT_ATENDIMENTO_BOT_CONFIG.mainMenuButtons,
+      'main_menu',
     ),
     recoveryDetectedMessage: normalizeText(
       config.recoveryDetectedMessage,
@@ -396,6 +472,7 @@ export function normalizeAtendimentoBotConfig(
     recoveryDetectedButtons: normalizeButtons(
       config.recoveryDetectedButtons,
       DEFAULT_ATENDIMENTO_BOT_CONFIG.recoveryDetectedButtons,
+      'recovery_detected',
     ),
     postActionPrompt: normalizeText(
       config.postActionPrompt,
@@ -404,6 +481,7 @@ export function normalizeAtendimentoBotConfig(
     postActionButtons: normalizeButtons(
       config.postActionButtons,
       DEFAULT_ATENDIMENTO_BOT_CONFIG.postActionButtons,
+      'post_action',
     ),
     humanAckMessage: normalizeText(
       config.humanAckMessage,
@@ -501,4 +579,3 @@ export function parseAtendimentoAgendaActionId(actionIdRaw: string | null | unde
   if (!normalized.startsWith('agenda_group_')) return null;
   return normalized.replace(/^agenda_group_/, '').trim() || null;
 }
-
