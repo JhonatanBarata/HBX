@@ -6,7 +6,7 @@
 .shell {
   display: grid;
   gap: 1rem;
-  grid-template-columns: minmax(240px, 0.82fr) minmax(0, 1.28fr);
+  grid-template-columns: minmax(260px, 300px) minmax(0, 1fr);
 }
 
 .panel {
@@ -174,7 +174,7 @@
 .editorGrid {
   display: grid;
   gap: 1rem;
-  grid-template-columns: minmax(0, 1.18fr) minmax(320px, 0.92fr);
+  grid-template-columns: minmax(0, 1fr) minmax(360px, 420px);
 }
 
 .cards {
@@ -388,7 +388,7 @@
   font-size: 0.84rem;
 }
 
-@media (max-width: 1080px) {
+@media (max-width: 1240px) {
   .shell,
   .editorGrid {
     grid-template-columns: minmax(0, 1fr);
