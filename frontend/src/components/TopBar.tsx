@@ -846,17 +846,15 @@ export default function TopBar() {
         </div>
 
           {authenticated ? (
-            <div className="app-topbar__center">
+            <div className="app-topbar__center" style={{ display: 'flex', alignItems: 'center', marginLeft: '6px' }}>
               <ModuleNav inHeader={true} />
             </div>
           ) : null}
 
         <div className="app-topbar__right">
-          <div className="app-topbar__controls">
-            {authenticated ? <ThemeSwitcher storageUserId={user?.id ?? null} /> : null}
-          </div>
+          {authenticated ? <ThemeSwitcher storageUserId={user?.id ?? null} /> : null}
           {user ? (
-            <div ref={userMenuRef} className="app-user app-topbar__user">
+            <div ref={userMenuRef} className="app-user">
               <button
                 type="button"
                 className="app-user__trigger"
@@ -922,17 +920,13 @@ export default function TopBar() {
           ) : null}
 
           {authenticated ? (
-            <div className="app-topbar__auth">
-              <button type="button" onClick={handleLogout} className="btn btn-secondary btn-sm">
-                Sair
-              </button>
-            </div>
+            <button type="button" onClick={handleLogout} className="btn btn-secondary btn-sm">
+              Sair
+            </button>
           ) : (
-            <div className="app-topbar__auth">
-              <Link href="/login" className="btn btn-secondary btn-sm">
-                Entrar
-              </Link>
-            </div>
+            <Link href="/login" className="btn btn-secondary btn-sm">
+              Entrar
+            </Link>
           )}
         </div>
       </div>
