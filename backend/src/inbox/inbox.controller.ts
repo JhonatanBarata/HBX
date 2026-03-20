@@ -33,6 +33,7 @@ import { UpdateAtendimentoAgendaDto } from './dto/update-atendimento-agenda.dto'
 import { BlockConversationDto } from './dto/block-conversation.dto';
 import { CreateAtendimentoCustomerDto } from './dto/create-atendimento-customer.dto';
 import { UpdateAtendimentoCustomerDto } from './dto/update-atendimento-customer.dto';
+import { PromoteToRecoveryDto } from './dto/promote-to-recovery.dto';
 
 @Controller('inbox')
 @UseGuards(JwtAuthGuard, ModuleAccessGuard)
@@ -181,5 +182,14 @@ export class InboxController {
     @Body() dto: UpdateAtendimentoCustomerDto,
   ) {
     return this.inboxService.updateAtendimentoCustomer(req.user, id, dto);
+  }
+
+  @Post('customers/:id/promote-to-recovery')
+  promoteToRecovery(
+    @Req() req: any,
+    @Param('id') id: string,
+    @Body() dto: PromoteToRecoveryDto,
+  ) {
+    return this.inboxService.promoteToRecovery(req.user, id, dto);
   }
 }

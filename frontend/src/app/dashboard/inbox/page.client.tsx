@@ -241,6 +241,9 @@ export default function InboxClientPage() {
   const [showCreateCustomerModal, setShowCreateCustomerModal] = useState(false);
   const [customerForm, setCustomerForm] = useState({ phone: "", name: "", route: "atendimento", notes: "" });
   const [savingCustomer, setSavingCustomer] = useState(false);
+  const [promoteTarget, setPromoteTarget] = useState<AtendimentoCustomer | null>(null);
+  const [promoteForm, setPromoteForm] = useState({ openAmount: "", saleDate: "" });
+  const [savingPromotion, setSavingPromotion] = useState(false);
 
   useEffect(() => {
     setMounted(true);
@@ -1530,7 +1533,7 @@ export default function InboxClientPage() {
                     <tr>
                       <th>Cliente</th>
                       <th>Origem</th>
-                      <th>Status</th>
+                      <th>Recovery</th>
                       <th>Ultima interacao</th>
                       <th>Cadastrado em</th>
                       <th>Acoes</th>
@@ -1544,14 +1547,28 @@ export default function InboxClientPage() {
                           <span>{customer.phone}</span>
                         </td>
                         <td>
-                          <span className={customer.registrationOrigin === "manual" ? styles.badgeManual : styles.badgeWhatsapp}>
-                            {customer.registrationOrigin === "manual" ? "Manual" : "WhatsApp"}
+                          <span className={
+                            customer.registrationOrigin === "manual" ? styles.badgeManual :
+                            customer.registrationOrigin === "recovery" ? styles.badgeRecovery :
+                            styles.badgeWhatsapp
+                          }>
+                            {customer.registrationOrigin === "manual" ? "Manual" :
+                             customer.registrationOrigin === "recovery" ? "Recovery" : "WhatsApp"}
                           </span>
                         </td>
                         <td>
-                          <span className={customer.registrationStatus === "confirmed" ? styles.badgeConfirmed : styles.badgePending}>
-                            {customer.registrationStatus === "confirmed" ? "Confirmado" : "Pendente"}
-                          </span>
+                          {customer.recoveryCustomerId ? (
+                            <div className={styles.customerCell}>
+                              <span className={customer.recoveryStatus === "PAID" ? styles.badgeConfirmed : styles.badgeDebt}>
+                                {customer.recoveryStatus === "PAID" ? "Pago" : "Inadimplente"}
+                              </span>
+                              {customer.openAmount != null ? (
+                                <span className={styles.mutedText}>{formatCurrency(customer.openAmount)}</span>
+                              ) : null}
+                            </div>
+                          ) : (
+                            <span className={styles.mutedText}>—</span>
+                          )}
                         </td>
                         <td>{formatDateLabel(customer.lastMessageAt, mounted)}</td>
                         <td>{formatDateLabel(customer.createdAt, mounted)}</td>
@@ -1567,6 +1584,18 @@ export default function InboxClientPage() {
                                 }}
                               >
                                 Ver conversa
+                              </button>
+                            ) : null}
+                            {!customer.recoveryCustomerId ? (
+                              <button
+                                type="button"
+                                className="btn btn-warning btn-sm"
+                                onClick={() => {
+                                  setPromoteTarget(customer);
+                                  setPromoteForm({ openAmount: "", saleDate: "" });
+                                }}
+                              >
+                                Enviar para Recovery
                               </button>
                             ) : null}
                           </div>
@@ -1653,6 +1682,78 @@ export default function InboxClientPage() {
                     </button>
                     <button type="submit" className="btn btn-primary btn-sm" disabled={savingCustomer}>
                       {savingCustomer ? "Salvando..." : "Salvar"}
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          ) : null}
+
+          {promoteTarget ? (
+            <div className={styles.modalBackdrop}>
+              <div className={styles.modalCard}>
+                <h3 className={styles.modalTitle}>Enviar para Recovery</h3>
+                <p className={styles.modalSubtitle}>
+                  Cliente: <strong>{promoteTarget.name ?? promoteTarget.phone}</strong>
+                </p>
+                <form
+                  onSubmit={async (e: FormEvent) => {
+                    e.preventDefault();
+                    const amount = parseFloat(promoteForm.openAmount.replace(",", "."));
+                    if (!amount || amount <= 0) return;
+                    setSavingPromotion(true);
+                    try {
+                      await apiFetch(`/inbox/customers/${promoteTarget.id}/promote-to-recovery`, {
+                        method: "POST",
+                        body: JSON.stringify({
+                          openAmount: amount,
+                          saleDate: promoteForm.saleDate || undefined,
+                        }),
+                      });
+                      setPromoteTarget(null);
+                      setNotice({ tone: "success", text: "Cliente enviado para o HBX Recovery." });
+                      void loadAtendimentoCustomers();
+                    } catch (err) {
+                      setNotice({ tone: "error", text: err instanceof Error ? err.message : "Erro ao promover cliente." });
+                    } finally {
+                      setSavingPromotion(false);
+                    }
+                  }}
+                >
+                  <div className={styles.formGroup}>
+                    <label htmlFor="rec-amount">Valor em aberto (R$) *</label>
+                    <input
+                      id="rec-amount"
+                      type="text"
+                      inputMode="decimal"
+                      className={styles.formInput}
+                      placeholder="Ex: 1500,00"
+                      value={promoteForm.openAmount}
+                      onChange={(e) => setPromoteForm((prev) => ({ ...prev, openAmount: e.target.value }))}
+                      required
+                    />
+                  </div>
+                  <div className={styles.formGroup}>
+                    <label htmlFor="rec-date">Data do servico / venda</label>
+                    <input
+                      id="rec-date"
+                      type="date"
+                      className={styles.formInput}
+                      value={promoteForm.saleDate}
+                      onChange={(e) => setPromoteForm((prev) => ({ ...prev, saleDate: e.target.value }))}
+                    />
+                  </div>
+                  <div className={styles.modalActions}>
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-sm"
+                      onClick={() => setPromoteTarget(null)}
+                      disabled={savingPromotion}
+                    >
+                      Cancelar
+                    </button>
+                    <button type="submit" className="btn btn-warning btn-sm" disabled={savingPromotion}>
+                      {savingPromotion ? "Enviando..." : "Confirmar"}
                     </button>
                   </div>
                 </form>

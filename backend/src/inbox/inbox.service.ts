@@ -638,7 +638,7 @@ export class InboxService {
     return String(raw || '').replace(/\D/g, '').slice(-13);
   }
 
-  private buildCustomerRecord(row: any) {
+  private buildCustomerRecord(row: any, recoveryData?: any) {
     return {
       id: String(row.id),
       companyId: Number(row.companyId),
@@ -653,6 +653,10 @@ export class InboxService {
       conversationId: row.conversationId ? Number(row.conversationId) : null,
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
+      // Recovery enrichment (null when not in recovery)
+      recoveryCustomerId: recoveryData?.id ?? null,
+      openAmount: recoveryData?.openAmount ?? null,
+      recoveryStatus: recoveryData?.status ?? null,
     };
   }
 
@@ -713,18 +717,101 @@ export class InboxService {
 
   async listAtendimentoCustomers(user: any, phoneFilter?: string) {
     const companyId = this.requireCompanyIdFromUser(user);
+
+    // 1. Fetch AtendimentoCustomer records
     const where: any = { companyId };
     if (phoneFilter) {
       const digits = InboxService.normalizePhone(phoneFilter);
-      if (digits) {
-        where.phoneNormalized = { endsWith: digits.slice(-9) };
-      }
+      if (digits) where.phoneNormalized = { endsWith: digits.slice(-9) };
     }
-    const rows = await this.prisma.atendimentoCustomer.findMany({
+    const atendRows: any[] = await this.prisma.atendimentoCustomer.findMany({
       where,
       orderBy: { updatedAt: 'desc' },
     });
-    return rows.map((r) => this.buildCustomerRecord(r));
+
+    // 2. Fetch all HbxRecoveryCustomer records for this company
+    const recoveryRows: any[] = await (this.prisma as any).hbxRecoveryCustomer.findMany({
+      where: { companyId },
+      select: { id: true, name: true, clientName: true, whatsappNumber: true, openAmount: true, status: true, createdAt: true, updatedAt: true },
+    });
+
+    // 3. Build phoneNorm → recovery lookup
+    const recoveryByPhone = new Map<string, any>();
+    for (const rec of recoveryRows) {
+      const norm = InboxService.normalizePhone(rec.whatsappNumber);
+      if (norm) recoveryByPhone.set(norm, rec);
+    }
+
+    // 4. Auto-upsert Recovery customers that have no AtendimentoCustomer yet
+    const atendPhones = new Set(atendRows.map((r: any) => String(r.phoneNormalized)));
+    for (const [normPhone, rec] of recoveryByPhone) {
+      if (!atendPhones.has(normPhone)) {
+        const rawPhone = String(rec.whatsappNumber);
+        const newId = `atc_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+        const now = new Date();
+        try {
+          const created = await this.prisma.atendimentoCustomer.create({
+            data: {
+              id: newId,
+              companyId,
+              phone: rawPhone,
+              phoneNormalized: normPhone,
+              name: rec.clientName || rec.name || null,
+              registrationOrigin: 'recovery',
+              registrationStatus: 'confirmed',
+              route: 'recovery',
+              createdAt: now,
+              updatedAt: now,
+            },
+          });
+          atendRows.push(created);
+          atendPhones.add(normPhone);
+        } catch { /* duplicate race — ignore */ }
+      }
+    }
+
+    // 5. Sort and return enriched records
+    atendRows.sort((a: any, b: any) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+    return atendRows.map((r: any) => this.buildCustomerRecord(r, recoveryByPhone.get(r.phoneNormalized) ?? null));
+  }
+
+  async promoteToRecovery(user: any, customerId: string, dto: { openAmount: number; saleDate?: string | null }) {
+    const companyId = this.requireCompanyIdFromUser(user);
+    const customer = await this.prisma.atendimentoCustomer.findFirst({
+      where: { id: customerId, companyId },
+    });
+    if (!customer) throw new NotFoundException('Cliente nao encontrado.');
+
+    // Check if already in recovery
+    const tail9 = customer.phoneNormalized.slice(-9);
+    const existingRec = await (this.prisma as any).hbxRecoveryCustomer.findFirst({
+      where: { companyId, whatsappNumber: { endsWith: tail9 } },
+    });
+    if (existingRec) throw new BadRequestException('Este cliente ja esta cadastrado no HBX Recovery.');
+
+    const saleDay = dto.saleDate ? new Date(dto.saleDate).getDate() : new Date().getDate();
+    const rawPhone = String(customer.phone);
+    const waNumber = rawPhone.startsWith('+') ? rawPhone : `+${rawPhone}`;
+    const displayName = customer.name || rawPhone;
+
+    await (this.prisma as any).hbxRecoveryCustomer.create({
+      data: {
+        companyId,
+        name: displayName,
+        clientName: displayName,
+        whatsappNumber: waNumber,
+        openAmount: Number(dto.openAmount),
+        workdaySaleDay: saleDay,
+        status: 'OVERDUE',
+      },
+    });
+
+    await this.prisma.atendimentoCustomer.update({
+      where: { id: customerId },
+      data: { route: 'recovery', updatedAt: new Date() },
+    });
+
+    return { ok: true };
   }
 
   async createAtendimentoCustomer(user: any, dto: { phone: string; name?: string; route?: string; notes?: string }) {

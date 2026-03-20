@@ -21,6 +21,10 @@ export type AtendimentoCustomer = {
   conversationId: number | null;
   createdAt: string;
   updatedAt: string;
+  // Recovery enrichment (null when not linked to recovery)
+  recoveryCustomerId: string | null;
+  openAmount: number | null;
+  recoveryStatus: string | null;
 };
 
 export type InboxMessage = {
