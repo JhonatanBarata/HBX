@@ -1,280 +1,107 @@
-/**
- * DESIGN SYSTEM TOKENS
- * Centralized design language for HBX 2026 Redesign
- * 
- * Principles:
- * - Premium SaaS aesthetic
- * - Strong visual hierarchy
- * - Subtle 3D depth without exaggeration
- * - Compact, efficient layout
- * - Professional, corporate feeling
- */
+import {
+  HBX_THEME_PALETTES,
+  type HbxThemeId,
+  type HbxThemeMode,
+} from "./theme-palettes";
 
-// ============================================================================
-// SPACING SCALE
-// ============================================================================
-export const spacing = {
-  xs: "0.25rem", // 4px
-  sm: "0.5rem", // 8px
-  md: "0.75rem", // 12px
-  lg: "1rem", // 16px
-  xl: "1.25rem", // 20px
-  "2xl": "1.5rem", // 24px
-  "3xl": "2rem", // 32px
-  "4xl": "2.5rem", // 40px
-  "5xl": "3rem", // 48px
-} as const;
+export type HbxThemeSelection = {
+  themeId: HbxThemeId;
+  mode: HbxThemeMode;
+};
 
-// ============================================================================
-// BORDER RADIUS
-// ============================================================================
-export const borderRadius = {
-  none: "0",
-  sm: "6px",
-  md: "10px",
-  lg: "14px",
-  xl: "18px",
-  "2xl": "24px",
-  full: "999px",
-} as const;
+export const DEFAULT_THEME_SELECTION: HbxThemeSelection = {
+  themeId: "shadcn",
+  mode: "light",
+};
 
-// ============================================================================
-// SHADOWS
-// Professional, layered elevation with subtle 3D effect
-// ============================================================================
-export const shadows = {
-  // Subtle shadows for interactive elements
-  xs: "0 1px 2px rgba(15, 23, 42, 0.04)",
-  sm: "0 2px 8px rgba(15, 23, 42, 0.08)",
-  
-  // Standard elevation for cards and sections
-  md: "0 8px 16px rgba(15, 23, 42, 0.12)",
-  lg: "0 12px 28px rgba(15, 23, 42, 0.16)",
-  
-  // Strong elevation for modals, dropdowns, floating panels
-  xl: "0 16px 40px rgba(15, 23, 42, 0.20)",
-  "2xl": "0 20px 56px rgba(15, 23, 42, 0.24)",
-  
-  // Premium elevation for hero/spotlight sections
-  premium: "0 24px 64px rgba(15, 23, 42, 0.28)",
-  
-  // Inset shadows for subtle inner depth
-  inset: "inset 0 1px 2px rgba(255, 255, 255, 0.5)",
-  "inset-soft": "inset 0 1px 3px rgba(15, 23, 42, 0.05)",
-} as const;
+function hexToRgb(hex: string) {
+  const normalized = hex.replace("#", "");
+  const safeHex =
+    normalized.length === 3
+      ? normalized
+          .split("")
+          .map((part) => `${part}${part}`)
+          .join("")
+      : normalized.padEnd(6, "0").slice(0, 6);
 
-// ============================================================================
-// STATES
-// ============================================================================
-export const states = {
-  // Hover states (elevation boost)
-  hoverShadow: "0 10px 20px rgba(15, 23, 42, 0.15)",
-  
-  // Focus states (ring)
-  focusRing: "0 0 0 3px var(--brand)",
-  focusRingOffset: "2px",
-  
-  // Active states (depth increase)
-  activeShadow: "0 2px 6px rgba(15, 23, 42, 0.08)",
-  
-  // Disabled opacity
-  disabledOpacity: "0.5",
-} as const;
+  return {
+    r: Number.parseInt(safeHex.slice(0, 2), 16),
+    g: Number.parseInt(safeHex.slice(2, 4), 16),
+    b: Number.parseInt(safeHex.slice(4, 6), 16),
+  };
+}
 
-// ============================================================================
-// TRANSITIONS/ANIMATIONS
-// ============================================================================
-export const motion = {
-  fast: "120ms cubic-bezier(0.2, 0.9, 0.2, 1)",
-  base: "220ms cubic-bezier(0.2, 0.8, 0.2, 1)",
-  slow: "320ms cubic-bezier(0.14, 0.82, 0.2, 1)",
-  enter: "250ms cubic-bezier(0.16, 1, 0.3, 1)",
-  exit: "200ms cubic-bezier(0.7, 0, 0.84, 0)",
-} as const;
+function withAlpha(hex: string, alpha: number) {
+  const rgb = hexToRgb(hex);
+  return `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${alpha})`;
+}
 
-// ============================================================================
-// TYPOGRAPHY
-// ============================================================================
-export const typography = {
-  // Font weights
-  weights: {
-    regular: 400,
-    medium: 500,
-    semibold: 600,
-    bold: 700,
-    extrabold: 800,
-  } as const,
-  
-  // Font sizes with line heights
-  sizes: {
-    xs: { size: "0.75rem", lineHeight: "1rem" },
-    sm: { size: "0.875rem", lineHeight: "1.25rem" },
-    base: { size: "1rem", lineHeight: "1.5rem" },
-    lg: { size: "1.125rem", lineHeight: "1.75rem" },
-    xl: { size: "1.25rem", lineHeight: "1.75rem" },
-    "2xl": { size: "1.5rem", lineHeight: "2rem" },
-    "3xl": { size: "1.875rem", lineHeight: "2.25rem" },
-    "4xl": { size: "2.25rem", lineHeight: "2.5rem" },
-  } as const,
-  
-  // Letter spacing
-  tracking: {
-    tight: "-0.02em",
-    normal: "0",
-    wide: "0.04em",
-    wider: "0.08em",
-    widest: "0.12em",
-  } as const,
-} as const;
+export function applyThemeSelectionToDocument(selection: HbxThemeSelection) {
+  if (typeof document === "undefined") return;
 
-// ============================================================================
-// COMPONENT-LEVEL TOKENS
-// ============================================================================
-export const components = {
-  button: {
-    // Primary button
-    primary: {
-      padding: `${spacing.md} ${spacing.xl}`,
-      minHeight: "40px",
-      fontSize: "0.875rem",
-      fontWeight: 500,
-      borderRadius: borderRadius.md,
-      shadow: shadows.sm,
-      shadowHover: shadows.md,
-    },
-    
-    // Secondary button
-    secondary: {
-      padding: `${spacing.md} ${spacing.xl}`,
-      minHeight: "40px",
-      fontSize: "0.875rem",
-      fontWeight: 500,
-      borderRadius: borderRadius.md,
-      shadow: "none",
-    },
-    
-    // Small button (compact)
-    small: {
-      padding: `${spacing.sm} ${spacing.lg}`,
-      minHeight: "32px",
-      fontSize: "0.8125rem",
-      fontWeight: 500,
-      borderRadius: borderRadius.sm,
-    },
-  } as const,
-  
-  // Input fields
-  input: {
-    padding: `${spacing.md} ${spacing.lg}`,
-    minHeight: "40px",
-    fontSize: "0.9375rem",
-    borderRadius: borderRadius.md,
-    borderWidth: "1px",
-    shadow: shadows.xs,
-  } as const,
-  
-  // Cards
-  card: {
-    padding: spacing["2xl"],
-    borderRadius: borderRadius.lg,
-    shadow: shadows.md,
-    shadowHover: shadows.lg,
-    border: "1px solid",
-  } as const,
-  
-  // Compact cards (for lists/tables)
-  cardCompact: {
-    padding: `${spacing.lg} ${spacing.xl}`,
-    borderRadius: borderRadius.md,
-    shadow: shadows.xs,
-    border: "1px solid",
-  } as const,
-  
-  // Tabs
-  tab: {
-    padding: `${spacing.md} ${spacing.lg}`,
-    minHeight: "40px",
-    fontSize: "0.875rem",
-    fontWeight: 500,
-    borderRadius: `${borderRadius.md} ${borderRadius.md} 0 0`,
-  } as const,
-  
-  // Badges
-  badge: {
-    padding: `${spacing.xs} ${spacing.md}`,
-    fontSize: "0.75rem",
-    fontWeight: 600,
-    borderRadius: borderRadius.full,
-    minHeight: "24px",
-  } as const,
-} as const;
+  const theme = HBX_THEME_PALETTES[selection.themeId];
+  const palette = theme[selection.mode];
+  const root = document.documentElement;
 
-// ============================================================================
-// LAYOUT CONSTRAINTS
-// ============================================================================
-export const layout = {
-  // Container widths (desktop-first)
-  container: {
-    sm: "640px",
-    md: "768px",
-    lg: "1024px",
-    xl: "1280px",
-    "2xl": "1440px",
-    max: "1600px",
-  } as const,
-  
-  // Header/TopBar
-  topbar: {
-    height: "64px",
-    paddingY: spacing.lg,
-    paddingX: spacing["2xl"],
-  } as const,
-  
-  // Module navigation
-  moduleNav: {
-    height: "48px",
-    padding: `${spacing.sm} ${spacing.lg}`,
-  } as const,
-  
-  // Sidebar (for future use)
-  sidebar: {
-    width: "280px",
-    minWidth: "260px",
-    maxWidth: "320px",
-  } as const,
-  
-  // Content areas
-  contentGap: spacing["2xl"],
-  sectionGap: spacing.xl,
-} as const;
+  root.setAttribute("data-theme", selection.themeId);
+  root.setAttribute("data-theme-mode", selection.mode);
+  root.setAttribute("data-theme-shell", theme.shellLabel.toLowerCase().replace(/\s+/g, "-"));
+  root.style.colorScheme = selection.mode;
 
-// ============================================================================
-// Z-INDEX SCALE
-// ============================================================================
-export const zIndex = {
-  base: 0,
-  overlay: 10,
-  sticky: 20,
-  fixed: 30,
-  modal: 100,
-  dropdown: 50,
-  tooltip: 60,
-  notification: 110,
-} as const;
+  const variables: Record<string, string> = {
+    "--brand": palette.brand,
+    "--brand-solid": palette.brandStrong,
+    "--brand-soft": palette.brandSoft,
+    "--brand-contrast": palette.brandContrast,
+    "--background": palette.background,
+    "--background-alt": palette.backgroundAlt,
+    "--surface": palette.surface,
+    "--surface-soft": palette.surfaceSoft,
+    "--surface-raised": palette.surfaceRaised,
+    "--header-surface": palette.headerSurface,
+    "--nav-surface": palette.navSurface,
+    "--field-surface": palette.fieldSurface,
+    "--hero-from": palette.heroFrom,
+    "--hero-to": palette.heroTo,
+    "--hero-spotlight": palette.heroSpotlight,
+    "--table-head": palette.tableHead,
+    "--chat-inbound": palette.chatInbound,
+    "--chat-outbound": palette.chatOutbound,
+    "--chat-system": palette.chatSystem,
+    "--foreground": palette.foreground,
+    "--foreground-soft": palette.foregroundSoft,
+    "--muted": palette.muted,
+    "--line": palette.line,
+    "--success": palette.success,
+    "--warning": palette.warning,
+    "--danger": palette.danger,
+    "--info": palette.info,
+    "--overlay": palette.overlay,
+    "--radius-xs": theme.chrome.radiusXs,
+    "--radius-sm": theme.chrome.radiusSm,
+    "--radius-md": theme.chrome.radiusMd,
+    "--radius-lg": theme.chrome.radiusLg,
+    "--radius-xl": theme.chrome.radiusXl,
+    "--control-radius": theme.chrome.radiusSm,
+    "--panel-radius": theme.chrome.radiusLg,
+    "--hero-radius": theme.chrome.radiusXl,
+    "--pill-radius": "999px",
+    "--topbar-frame-width": theme.chrome.topbarWidth,
+    "--app-max-width": theme.chrome.contentWidth,
+    "--content-gutter": theme.chrome.contentGutter,
+    "--topbar-blur": theme.chrome.topbarBlur,
+    "--theme-density-label": `"${theme.densityLabel}"`,
+    "--theme-depth-label": `"${theme.depthLabel}"`,
+    "--shadow-xs": `0 10px 22px -18px ${withAlpha(palette.shadow, 0.3)}`,
+    "--shadow-sm": `0 18px 40px -24px ${withAlpha(palette.shadow, 0.34)}`,
+    "--shadow-md": `0 28px 64px -30px ${withAlpha(palette.shadow, 0.42)}`,
+    "--shadow-lg": `0 42px 96px -36px ${withAlpha(palette.shadow, 0.48)}`,
+    "--shadow-inset": `inset 0 1px 0 ${selection.mode === "light" ? "rgba(255,255,255,0.72)" : "rgba(255,255,255,0.06)"}`,
+    "--panel-glow": withAlpha(palette.brand, selection.mode === "light" ? 0.12 : 0.18),
+    "--hero-glow": withAlpha(palette.brand, selection.mode === "light" ? 0.2 : 0.24),
+  };
 
-// ============================================================================
-// DEFAULT EXPORTS
-// ============================================================================
-export const designTokens = {
-  spacing,
-  borderRadius,
-  shadows,
-  states,
-  motion,
-  typography,
-  components,
-  layout,
-  zIndex,
-} as const;
-
-export default designTokens;
+  Object.entries(variables).forEach(([name, value]) => {
+    root.style.setProperty(name, value);
+  });
+}

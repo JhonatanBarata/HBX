@@ -486,6 +486,24 @@ export default function InboxClientPage() {
     [pendingAtendimentoConversations],
   );
 
+  const recoveryRoutedCount = useMemo(
+    () => filteredConversations.filter((conversation) => conversation.routeTarget === "recovery").length,
+    [filteredConversations],
+  );
+
+  const blockedConversationCount = useMemo(
+    () =>
+      filteredConversations.filter(
+        (conversation) => conversation.status === "blocked" || conversation.isBlocked,
+      ).length,
+    [filteredConversations],
+  );
+
+  const activeCustomerCount = useMemo(
+    () => customerRows.filter((row) => row.activeConversationCount > 0).length,
+    [customerRows],
+  );
+
   const actionOptions = useMemo(() => {
     const options = new Map<string, ActionOption>();
 
@@ -1291,6 +1309,42 @@ export default function InboxClientPage() {
       }
     >
       {error ? <div className="alert alert-error">{error}</div> : null}
+
+      <section className={`${styles.workspaceCard} ${styles.heroPanel}`}>
+        <div className={styles.sectionHead}>
+          <div className={styles.heroIntro}>
+            <p className={styles.heroEyebrow}>Painel operacional</p>
+            <h2 className={styles.heroTitle}>Atendimento com fila viva, leitura rápida e parede real entre módulos.</h2>
+            <p className={styles.heroDescription}>
+              O fluxo agora prioriza densidade visual, ação imediata e contexto resumido para notebook e desktop sem esticar a interface.
+            </p>
+          </div>
+          <div className={styles.heroMeta}>
+            <span className={styles.pulseBadge}>{pendingAtendimentoCount} aguardando</span>
+            <span className={styles.metaBadge}>{humanAttentionConversations.length} em humano</span>
+            <span className={styles.routeRecovery}>{recoveryRoutedCount} em Recovery</span>
+          </div>
+        </div>
+
+        <div className={styles.metricStrip}>
+          <div className={styles.metricCard}>
+            <strong>{filteredConversations.length}</strong>
+            <span>Conversas monitoradas</span>
+          </div>
+          <div className={styles.metricCard}>
+            <strong>{activeCustomerCount}</strong>
+            <span>Clientes com fila ativa</span>
+          </div>
+          <div className={styles.metricCard}>
+            <strong>{atendimentoCustomers.length}</strong>
+            <span>Clientes na base local</span>
+          </div>
+          <div className={styles.metricCard}>
+            <strong>{blockedConversationCount}</strong>
+            <span>Contatos bloqueados</span>
+          </div>
+        </div>
+      </section>
 
       {activeTab === "messages" ? (
         <section className={styles.messageGrid}>

@@ -798,14 +798,27 @@ export default function TopBar() {
 
   return (
     <header className="app-topbar">
-      <div className="app-topbar__inner">
-        <div className="app-topbar__left">
-          <Link href={authenticated ? "/dashboard" : "/login"} className="app-brand">
-            <span className="app-brand__mark">HB</span>
-            <span className="app-brand__text">HBX Solutions</span>
+      <div className="app-topbar__frame">
+        <div className="app-topbar__inner">
+          <div className="app-topbar__left">
+            <Link href={authenticated ? "/dashboard" : "/login"} className="app-brand">
+              <span className="app-brand__mark">HB</span>
+              <span className="app-brand__body">
+                <span className="app-brand__text">HBX Control Center</span>
+                <span className="app-brand__context">
+                  {authenticated
+                    ? user?.isSystemMaster
+                      ? user.masterContext?.active
+                        ? `MASTER em ${user.masterContext.companyName || "Empresa"}`
+                        : "MASTER GLOBAL"
+                      : user?.company?.name || "Operacao sem empresa"
+                    : "Plataforma operacional HBX"}
+                </span>
+              </span>
+            </Link>
+
             {authenticated && user && !user.isSystemMaster && user.company?.id ? (
-              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                {/* Atendimento indicator */}
+              <div className="app-topbar__signals">
                 <span className={`wa-health-wrap ${atendimentoPendingHumanCount > 0 ? "wa-health-wrap--alert" : ""}`}>
                   <span
                     className={`wa-health wa-health--${whatsAppHealth}`}
@@ -823,7 +836,6 @@ export default function TopBar() {
                   ) : null}
                 </span>
 
-                {/* Recovery indicator */}
                 <span className={`wa-health-wrap ${recoveryPendingHumanCount > 0 ? "wa-health-wrap--alert" : ""}`}>
                   <span
                     className={`wa-health wa-health--${whatsAppHealth}`}
@@ -840,19 +852,35 @@ export default function TopBar() {
                     </span>
                   ) : null}
                 </span>
+
+                {queueLabel ? <span className="app-topbar__queueLabel">{queueLabel}</span> : null}
               </div>
             ) : null}
-          </Link>
-        </div>
+          </div>
 
           {authenticated ? (
-            <div className="app-topbar__center" style={{ display: 'flex', alignItems: 'center', marginLeft: '6px' }}>
+            <div className="app-topbar__center">
               <ModuleNav inHeader={true} />
             </div>
           ) : null}
 
-        <div className="app-topbar__right">
-          {authenticated ? <ThemeSwitcher storageUserId={user?.id ?? null} /> : null}
+          <div className="app-topbar__right">
+            {authenticated && user?.isSystemMaster ? (
+              <button type="button" className="btn btn-secondary btn-sm" onClick={openMasterContextModal}>
+                Contexto
+              </button>
+            ) : null}
+            {authenticated && user?.isSystemMaster && user.masterContext?.active ? (
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                onClick={exitMasterContext}
+                disabled={masterContextActionBusy}
+              >
+                Sair contexto
+              </button>
+            ) : null}
+            {authenticated ? <ThemeSwitcher storageUserId={user?.id ?? null} /> : null}
           {user ? (
             <div ref={userMenuRef} className="app-user">
               <button
@@ -930,53 +958,14 @@ export default function TopBar() {
           )}
         </div>
       </div>
-      {/* MASTER controls rendered in a fixed strip above the topbar to avoid increasing header height */}
-      {authenticated && user?.isSystemMaster ? (
-        <div
-          style={{
-            position: "fixed",
-            top: 8,
-            right: 16,
-            zIndex: 160,
-            display: "flex",
-            gap: 6,
-            alignItems: "center",
-            pointerEvents: "auto",
-          }}
-          aria-hidden={false}
-        >
-          <button type="button" className="btn btn-secondary btn-sm" onClick={openMasterContextModal}>
-            Login
-          </button>
-
-          {user.masterContext?.active ? (
-            <button
-              type="button"
-              className="btn btn-secondary btn-sm"
-              onClick={exitMasterContext}
-              disabled={masterContextActionBusy}
-              style={{ marginLeft: 4 }}
-            >
-              Logout
-            </button>
-          ) : null}
-
-          {masterContextMessage ? <span className="text-xs text-muted">{masterContextMessage}</span> : null}
-        </div>
-      ) : null}
+      </div>
       {incomingPopup ? (
-        <div className="fixed right-4 top-19 z-90 w-[min(360px,calc(100vw-2rem))] rounded-[18px] border border-(--line) bg-white/95 p-4 shadow-[0_24px_60px_rgba(15,23,42,0.18)] backdrop-blur">
-          <div className="flex items-start justify-between gap-3">
+        <div className="incoming-alert">
+          <div className="incoming-alert__header">
             <div>
-              <p className="text-[11px] uppercase tracking-[0.18em] text-[#0b4a7a]">
-                {incomingPopup.moduleLabel}
-              </p>
-              <p className="mt-1 text-sm font-semibold text-slate-900">
-                {incomingPopup.attentionLabel}
-              </p>
-              <p className="mt-1 text-sm text-slate-700">
-                {incomingPopup.customerLabel}
-              </p>
+              <p className="incoming-alert__eyebrow">{incomingPopup.moduleLabel}</p>
+              <p className="incoming-alert__title">{incomingPopup.attentionLabel}</p>
+              <p className="incoming-alert__customer">{incomingPopup.customerLabel}</p>
             </div>
             <button
               type="button"
@@ -987,18 +976,16 @@ export default function TopBar() {
             </button>
           </div>
 
-          <div className="mt-3 space-y-1 text-xs text-slate-600">
+          <div className="incoming-alert__meta">
             <p>Contato: {incomingPopup.contactPhone}</p>
             {incomingPopup.entryNumberLabel ? (
               <p>Recebido em: {incomingPopup.entryNumberLabel}</p>
             ) : null}
           </div>
 
-          <p className="mt-3 rounded-xl bg-slate-50 px-3 py-2 text-sm text-slate-700">
-            {incomingPopup.preview}
-          </p>
+          <p className="incoming-alert__preview">{incomingPopup.preview}</p>
 
-          <div className="mt-3 flex gap-2">
+          <div className="incoming-alert__actions">
             <Link
               href={incomingPopup.href}
               className="btn btn-primary btn-sm"

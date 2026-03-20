@@ -226,10 +226,30 @@ function validateChangedFiles(changedFiles) {
   }
 }
 
+function normalizeChangedFiles(changedFiles) {
+  return changedFiles
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => line.replace(/^\?\?\s+/, '').replace(/^[A-Z]{1,2}\s+/, ''));
+}
+
+function requiresBackendPreflight(changedFiles) {
+  const files = normalizeChangedFiles(changedFiles);
+  if (files.length === 0) {
+    return false;
+  }
+
+  return files.some((filePath) => (
+    filePath.startsWith('backend/') ||
+    filePath === 'docker-compose.yml' ||
+    filePath === 'Dockerfile' ||
+    filePath === 'render.yaml'
+  ));
+}
+
 async function main() {
   logStage('Preflight Validation');
-
-  const backendEnv = validateBackendEnvironment();
   validateFileExpectations();
 
   runStep('git', ['rev-parse', '--is-inside-work-tree']);
@@ -249,11 +269,18 @@ async function main() {
     validateChangedFiles(changedFiles);
   }
 
-  runStep('npm', ['--prefix', 'backend', 'run', 'prisma:generate'], { env: backendEnv });
-  runStep('npm', ['--prefix', 'backend', 'run', 'prisma:validate'], { env: backendEnv });
-  runStep('npm', ['--prefix', 'backend', 'run', 'prisma:migrate:status'], { env: backendEnv });
-  runStep('node', ['backend/scripts/structural-seed.js', '--check'], { env: backendEnv });
-  runStep('node', ['backend/node_modules/typescript/bin/tsc', '-p', 'backend/tsconfig.json']);
+  const shouldRunBackendPreflight = requiresBackendPreflight(changedFiles);
+  if (shouldRunBackendPreflight) {
+    const backendEnv = validateBackendEnvironment();
+    runStep('npm', ['--prefix', 'backend', 'run', 'prisma:generate'], { env: backendEnv });
+    runStep('npm', ['--prefix', 'backend', 'run', 'prisma:validate'], { env: backendEnv });
+    runStep('npm', ['--prefix', 'backend', 'run', 'prisma:migrate:status'], { env: backendEnv });
+    runStep('node', ['backend/scripts/structural-seed.js', '--check'], { env: backendEnv });
+    runStep('node', ['backend/node_modules/typescript/bin/tsc', '-p', 'backend/tsconfig.json']);
+  } else {
+    console.log('\nNo backend or deployment-sensitive files changed; skipping local Prisma/database preflight.');
+  }
+
   runStep('npm', ['--prefix', 'frontend', 'run', 'build']);
 
   if (isDryRun) {

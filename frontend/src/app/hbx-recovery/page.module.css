@@ -245,6 +245,39 @@
   transform: translateY(-1px);
 }
 
+:global(html[data-theme="shadcn"]) .heroTabGroup {
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--nav-surface) 96%, white), color-mix(in srgb, var(--surface-soft) 92%, var(--background)));
+  box-shadow: var(--shadow-inset), var(--shadow-sm);
+}
+
+:global(html[data-theme="tailadmin"]) .heroTabGroup {
+  border-color: color-mix(in srgb, var(--brand) 18%, var(--line));
+  box-shadow: var(--shadow-inset), var(--shadow-md);
+}
+
+:global(html[data-theme="mosaic"]) .heroTabGroup {
+  background:
+    radial-gradient(circle at top right, color-mix(in srgb, var(--brand) 18%, transparent), transparent 38%),
+    linear-gradient(180deg, color-mix(in srgb, var(--nav-surface) 94%, white), color-mix(in srgb, var(--surface-soft) 90%, var(--background)));
+}
+
+:global(html[data-theme="flowbite"]) .heroTabGroup,
+:global(html[data-theme="flowbite"]) .heroTab,
+:global(html[data-theme="flowbite"]) .heroTabActive,
+:global(html[data-theme="tabler"]) .heroTabGroup,
+:global(html[data-theme="tabler"]) .heroTab,
+:global(html[data-theme="tabler"]) .heroTabActive {
+  border-radius: calc(var(--control-radius) + 2px);
+  box-shadow: none;
+}
+
+:global(html[data-theme="tabler"]) .heroTabGroup {
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--nav-surface) 98%, white), color-mix(in srgb, var(--surface-soft) 92%, var(--background))),
+    repeating-linear-gradient(90deg, transparent 0, transparent 28px, color-mix(in srgb, var(--line) 10%, transparent) 28px, color-mix(in srgb, var(--line) 10%, transparent) 29px);
+}
+
 .registerPanel {
   margin-top: 0.9rem;
 }
@@ -663,6 +696,18 @@
 .tableWrap {
   margin-top: 1rem;
   overflow-x: auto;
+}
+
+:global(html[data-theme="tailadmin"]) .tableWrap,
+:global(html[data-theme="mosaic"]) .tableWrap {
+  border-radius: calc(var(--panel-radius) - 6px);
+  box-shadow: var(--shadow-inset), var(--shadow-sm);
+}
+
+:global(html[data-theme="flowbite"]) .tableWrap,
+:global(html[data-theme="tabler"]) .tableWrap {
+  border-radius: calc(var(--control-radius) + 2px);
+  box-shadow: none;
 }
 
 .tableToolbar {
@@ -3887,6 +3932,15 @@
   grid-template-columns: minmax(280px, 0.82fr) minmax(0, 1.18fr);
 }
 
+:global(html[data-theme="tailadmin"]) .interactionsWorkspace {
+  gap: 1rem;
+}
+
+:global(html[data-theme="flowbite"]) .interactionsWorkspace,
+:global(html[data-theme="tabler"]) .interactionsWorkspace {
+  gap: 0.75rem;
+}
+
 .interactionsList {
   display: grid;
   gap: 0.65rem;
@@ -3914,6 +3968,32 @@
 .interactionRowActive {
   border-color: color-mix(in srgb, var(--brand) 32%, var(--line));
   background: color-mix(in srgb, var(--brand) 9%, white);
+}
+
+:global(html[data-theme="mosaic"]) .interactionRow,
+:global(html[data-theme="mosaic"]) .registerCard,
+:global(html[data-theme="mosaic"]) .impactCard,
+:global(html[data-theme="mosaic"]) .comparisonItem {
+  box-shadow: var(--shadow-inset), var(--shadow-sm);
+}
+
+:global(html[data-theme="flowbite"]) .interactionRow,
+:global(html[data-theme="flowbite"]) .registerCard,
+:global(html[data-theme="flowbite"]) .impactCard,
+:global(html[data-theme="flowbite"]) .comparisonItem,
+:global(html[data-theme="flowbite"]) .noticeToast {
+  border-radius: calc(var(--control-radius) + 2px);
+  box-shadow: none;
+}
+
+:global(html[data-theme="tabler"]) .interactionRow,
+:global(html[data-theme="tabler"]) .registerCard,
+:global(html[data-theme="tabler"]) .impactCard,
+:global(html[data-theme="tabler"]) .comparisonItem,
+:global(html[data-theme="tabler"]) .noticeToast {
+  border-radius: calc(var(--control-radius) + 2px);
+  box-shadow: none;
+  border-color: color-mix(in srgb, var(--line) 96%, white);
 }
 
 .interactionRowButton {

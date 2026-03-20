@@ -1,164 +1,188 @@
 "use client";
 
 import React from "react";
-import { THEME_PALETTES } from "@/lib/theme-palettes";
-
-const DEFAULT_THEME_ID = "blue";
-
-const THEME_LABELS: Record<string, string> = {
-  blue: "Blue",
-  green: "Green",
-  grey: "Grey",
-  pink: "Pink",
-};
-
-function hexToRgb(hex: string) {
-  const normalized = hex.replace("#", "");
-  const safeHex =
-    normalized.length === 3
-      ? normalized
-          .split("")
-          .map((part) => `${part}${part}`)
-          .join("")
-      : normalized.padEnd(6, "0").slice(0, 6);
-  return {
-    r: Number.parseInt(safeHex.slice(0, 2), 16),
-    g: Number.parseInt(safeHex.slice(2, 4), 16),
-    b: Number.parseInt(safeHex.slice(4, 6), 16),
-  };
-}
-
-function mixHexColors(fromHex: string, toHex: string, ratio: number) {
-  const from = hexToRgb(fromHex);
-  const to = hexToRgb(toHex);
-  const safeRatio = Math.max(0, Math.min(1, ratio));
-  const channel = (fromValue: number, toValue: number) =>
-    Math.round(fromValue + (toValue - fromValue) * safeRatio)
-      .toString(16)
-      .padStart(2, "0");
-  return `#${channel(from.r, to.r)}${channel(from.g, to.g)}${channel(from.b, to.b)}`;
-}
-
-function applyThemePalette(id: string, nextStrength: number) {
-  const palette =
-    (THEME_PALETTES as any)[id] || (THEME_PALETTES as any)[DEFAULT_THEME_ID];
-  const ratio = Math.max(0, Math.min(100, nextStrength)) / 100;
-  const root = document.documentElement.style;
-  root.setProperty(
-    "--brand",
-    mixHexColors(palette.light.brand, palette.dark.brand, ratio)
-  );
-  root.setProperty(
-    "--brand-solid",
-    mixHexColors(palette.light.brand, palette.dark.brand, ratio)
-  );
-  root.setProperty(
-    "--background",
-    mixHexColors(palette.light.background, palette.dark.background, ratio)
-  );
-  root.setProperty(
-    "--background-alt",
-    mixHexColors(
-      palette.light.backgroundAlt,
-      palette.dark.backgroundAlt,
-      ratio
-    )
-  );
-  root.setProperty(
-    "--surface",
-    mixHexColors(palette.light.surface, palette.dark.surface, ratio)
-  );
-  root.setProperty(
-    "--surface-soft",
-    mixHexColors(palette.light.surfaceSoft, palette.dark.surfaceSoft, ratio)
-  );
-  root.setProperty(
-    "--foreground",
-    mixHexColors(palette.light.foreground, palette.dark.foreground, ratio)
-  );
-  root.setProperty(
-    "--muted",
-    mixHexColors(palette.light.muted, palette.dark.muted, ratio)
-  );
-  root.setProperty(
-    "--line",
-    mixHexColors(palette.light.line, palette.dark.line, ratio)
-  );
-  root.setProperty(
-    "--success",
-    mixHexColors(palette.light.success, palette.dark.success, ratio)
-  );
-  root.setProperty(
-    "--danger",
-    mixHexColors(palette.light.danger, palette.dark.danger, ratio)
-  );
-  root.setProperty("--brand-contrast", ratio >= 0.58 ? "#06111d" : "#f8fafc");
-}
+import { applyThemeSelectionToDocument } from "@/lib/design-tokens";
+import { HBX_THEME_PALETTES, HBX_THEME_IDS, type HbxThemeId } from "@/lib/theme-palettes";
+import {
+  persistThemeSelection,
+  readStoredThemeSelection,
+} from "@/lib/theme-preferences";
 
 type ThemeSwitcherProps = {
   storageUserId?: string | number | null;
 };
 
 export default function ThemeSwitcher({ storageUserId }: ThemeSwitcherProps) {
-  const [mode, setMode] = React.useState<'light' | 'dark'>('light');
-  const [selectedTheme, setSelectedTheme] = React.useState<string>(DEFAULT_THEME_ID);
+  const rootRef = React.useRef<HTMLDivElement | null>(null);
+  const [open, setOpen] = React.useState(false);
+  const [selection, setSelection] = React.useState(() =>
+    readStoredThemeSelection(storageUserId),
+  );
 
-  function applyTheme(id: string, nextMode: 'light' | 'dark') {
-    if (typeof window === "undefined") return;
-    document.documentElement.setAttribute("data-theme", id);
-    const value = nextMode === 'dark' ? 100 : 0;
-    applyThemePalette(id, value);
-    document.documentElement.style.setProperty("--theme-strength-pct", `${value}%`);
-    document.documentElement.setAttribute('data-theme-mode', nextMode);
-    try { localStorage.setItem('theme-mode', nextMode); } catch {}
-  }
+  const activeTheme = HBX_THEME_PALETTES[selection.themeId];
 
-  function handleChipClick(id: string) {
-    if (typeof window === 'undefined') return;
-    if (id !== selectedTheme) {
-      const nextMode: 'light' | 'dark' = 'light';
-      setSelectedTheme(id);
-      setMode(nextMode);
-      applyTheme(id, nextMode);
-      try { localStorage.setItem('theme', id); localStorage.setItem('theme-mode', nextMode); } catch {}
-    } else {
-      const nextMode: 'light' | 'dark' = mode === 'dark' ? 'light' : 'dark';
-      setMode(nextMode);
-      applyTheme(id, nextMode);
-      try { localStorage.setItem('theme-mode', nextMode); } catch {}
-    }
+  function commitTheme(nextThemeId: HbxThemeId, explicitMode?: "light" | "dark") {
+    const nextSelection = {
+      themeId: nextThemeId,
+      mode:
+        explicitMode ??
+        (selection.themeId === nextThemeId && selection.mode === "light" ? "dark" : "light"),
+    } as const;
+
+    setSelection(nextSelection);
+    applyThemeSelectionToDocument(nextSelection);
+    persistThemeSelection(nextSelection, storageUserId);
   }
 
   React.useEffect(() => {
-    try {
-      const storedMode = (localStorage.getItem('theme-mode') as 'light' | 'dark') || (document.documentElement.getAttribute('data-theme-mode') as 'light' | 'dark') || 'light';
-      const storedTheme = (localStorage.getItem('theme') as string) || (document.documentElement.getAttribute('data-theme') as string) || DEFAULT_THEME_ID;
-      setSelectedTheme(storedTheme);
-      setMode(storedMode);
-      applyTheme(storedTheme, storedMode);
-    } catch {
-      // ignore
-    }
+    if (!open) return undefined;
+
+    const handlePointerDown = (event: PointerEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+
+    window.addEventListener("pointerdown", handlePointerDown);
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("pointerdown", handlePointerDown);
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [open]);
+
+  React.useEffect(() => {
+    const nextSelection = readStoredThemeSelection(storageUserId);
+    setSelection(nextSelection);
+    applyThemeSelectionToDocument(nextSelection);
   }, [storageUserId]);
 
   return (
-    <div className="theme-switcher-wrap">
-      <div className="theme-switcher" role="group" aria-label="Tema visual">
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          {["blue", "green", "grey", "pink"].map((id) => (
-            <button
-              key={id}
-              type="button"
-              onClick={() => handleChipClick(id)}
-              className={`theme-chip ${selectedTheme === id ? 'is-selected' : ''} ${id === DEFAULT_THEME_ID ? 'is-primary' : ''}`}
-              aria-pressed={selectedTheme === id}
-              title={`${THEME_LABELS[id]} - ${mode === 'light' ? 'Light' : 'Dark'}`}
-            >
-              {THEME_LABELS[id]}
-            </button>
-          ))}
+    <div className="theme-switcher-wrap" ref={rootRef}>
+      <button
+        type="button"
+        className={`theme-switcher__trigger ${open ? "is-open" : ""}`}
+        onClick={() => setOpen((value) => !value)}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+      >
+        <span
+          className="theme-switcher__trigger-preview"
+          style={{
+            background: `linear-gradient(145deg, ${activeTheme[selection.mode].brand}, ${activeTheme[selection.mode].brandStrong})`,
+          }}
+          aria-hidden="true"
+        />
+        <span className="theme-switcher__trigger-copy">
+          <span className="theme-switcher__label">Tema visual</span>
+          <strong>{activeTheme.label}</strong>
+          <span className="theme-switcher__trigger-meta">{activeTheme.shellLabel}</span>
+        </span>
+        <span className="theme-switcher__modeBadge">
+          {selection.mode === "dark" ? "Dark" : "Light"}
+        </span>
+      </button>
+
+      {open ? (
+        <div className="theme-switcher__panel" role="dialog" aria-label="Selecionar tema visual">
+          <div className="theme-switcher__panelHeader">
+            <div>
+              <p className="theme-switcher__eyebrow">5 skins HBX</p>
+              <strong className="theme-switcher__title">Escolha a experiencia visual</strong>
+              <p className="theme-switcher__subtitle">
+                O HBX troca shell, profundidade, ritmo e assinatura visual em tempo real, preservando os mesmos fluxos e contratos.
+              </p>
+            </div>
+            <div className="theme-switcher__modeRow" role="group" aria-label="Modo de tema">
+              <button
+                type="button"
+                className={`theme-mode-chip ${selection.mode === "light" ? "is-selected" : ""}`}
+                onClick={() => commitTheme(selection.themeId, "light")}
+              >
+                Claro
+              </button>
+              <button
+                type="button"
+                className={`theme-mode-chip ${selection.mode === "dark" ? "is-selected" : ""}`}
+                onClick={() => commitTheme(selection.themeId, "dark")}
+              >
+                Escuro
+              </button>
+            </div>
+          </div>
+
+          <div className="theme-switcher__grid">
+            {HBX_THEME_IDS.map((themeId) => {
+              const theme = HBX_THEME_PALETTES[themeId];
+              const palette = theme[selection.mode];
+              const active = selection.themeId === themeId;
+
+              return (
+                <button
+                  key={themeId}
+                  type="button"
+                  onClick={() => commitTheme(themeId)}
+                  className={`theme-card ${active ? "is-selected" : ""}`}
+                  aria-pressed={active}
+                >
+                  <span
+                    className="theme-card__preview"
+                    style={{
+                      background: `linear-gradient(155deg, ${palette.heroFrom}, ${palette.heroTo})`,
+                    }}
+                    aria-hidden="true"
+                  >
+                    <span
+                      className="theme-card__previewTop"
+                      style={{ background: palette.headerSurface }}
+                    />
+                    <span className="theme-card__previewBody">
+                      <span
+                        className="theme-card__previewNav"
+                        style={{ background: palette.navSurface }}
+                      />
+                      <span className="theme-card__previewStack">
+                        <span
+                          className="theme-card__previewMetric"
+                          style={{ background: palette.surface }}
+                        />
+                        <span
+                          className="theme-card__previewMetric"
+                          style={{ background: palette.surfaceRaised }}
+                        />
+                        <span
+                          className="theme-card__previewCta"
+                          style={{
+                            background: `linear-gradient(145deg, ${palette.brand}, ${palette.brandStrong})`,
+                          }}
+                        />
+                      </span>
+                    </span>
+                  </span>
+
+                  <span className="theme-card__copy">
+                    <span className="theme-card__headline">
+                      <strong>{theme.label}</strong>
+                      <span>{theme.inspiration}</span>
+                    </span>
+                    <span className="theme-card__tags">
+                      <span>{theme.shellLabel}</span>
+                      <span>{theme.densityLabel}</span>
+                      <span>{theme.depthLabel}</span>
+                    </span>
+                    <span className="theme-card__description">{theme.description}</span>
+                    <span className="theme-card__personality">{theme.personality}</span>
+                  </span>
+                </button>
+              );
+            })}
+          </div>
         </div>
-      </div>
+      ) : null}
     </div>
   );
 }
