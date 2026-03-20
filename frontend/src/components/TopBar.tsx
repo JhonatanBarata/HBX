@@ -4,9 +4,8 @@ import Link from "next/link";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { apiFetch, clearToken, getToken } from "../app/dashboard/_lib/api";
-import { setActiveThemeUser } from "@/lib/theme-preferences";
+import { useHbxTheme } from "@/components/ThemeProvider";
 import ThemeSwitcher from "./ThemeSwitcher";
-import ModuleNav from "./ModuleNav";
 import TechAssistantGlobalDrawer from "./TechAssistantGlobalDrawer";
 
 type User = {
@@ -34,12 +33,11 @@ type MasterOverviewCompany = {
   paymentStatus: string;
 };
 
-type NavItem = {
-  href: string;
-  label: string;
-  matcher: (pathname: string) => boolean;
-  adminOnly?: boolean;
-  moduleKey?: string;
+type MasterOverviewCompanyPayload = {
+  id?: number | string | null;
+  name?: string | null;
+  isActive?: boolean | null;
+  paymentStatus?: string | null;
 };
 
 type UserModule = { key: string; accessible: boolean };
@@ -124,6 +122,7 @@ export default function TopBar() {
   const router = useRouter();
   const pathname = usePathname();
   const userMenuRef = useRef<HTMLDivElement | null>(null);
+  const { activeTheme, selection, setStorageUserId } = useHbxTheme();
 
   const [authenticated, setAuthenticated] = useState(false);
   const [user, setUser] = useState<User | null>(null);
@@ -144,9 +143,6 @@ export default function TopBar() {
   const [masterCompanyOptions, setMasterCompanyOptions] = useState<MasterOverviewCompany[]>([]);
   const [selectedMasterCompanyId, setSelectedMasterCompanyId] = useState<string>("");
   const [masterContextReason, setMasterContextReason] = useState("");
-  const navScrollRef = useRef<HTMLDivElement | null>(null);
-  const [canScrollLeft, setCanScrollLeft] = useState(false);
-  const [canScrollRight, setCanScrollRight] = useState(false);
   const recoveryLastSeenRef = useRef<Map<number, string>>(new Map());
   const recoveryHumanQueueRef = useRef<Map<number, boolean>>(new Map());
   const recoveryAlertReadyRef = useRef(false);
@@ -155,14 +151,7 @@ export default function TopBar() {
   const audioContextRef = useRef<AudioContext | null>(null);
   const audioArmedRef = useRef(false);
 
-  function updateScrollButtons() {
-    const el = navScrollRef.current;
-    if (!el) return;
-    setCanScrollLeft(el.scrollLeft > 4);
-    setCanScrollRight(el.scrollWidth - el.clientWidth - el.scrollLeft > 4);
-  }
-
-  function playIncomingAlertTone() {
+  const playIncomingAlertTone = React.useCallback(() => {
     if (typeof window === "undefined" || !audioArmedRef.current) return;
     const AudioContextCtor = window.AudioContext;
     if (!AudioContextCtor) return;
@@ -187,9 +176,9 @@ export default function TopBar() {
     gain.connect(audioContext.destination);
     oscillator.start(now);
     oscillator.stop(now + 0.26);
-  }
+  }, []);
 
-  function presentIncomingPopup(nextPopup: TopBarIncomingPopup) {
+  const presentIncomingPopup = React.useCallback((nextPopup: TopBarIncomingPopup) => {
     setIncomingPopup((current) => {
       if (
         current &&
@@ -201,90 +190,11 @@ export default function TopBar() {
       return nextPopup;
     });
     playIncomingAlertTone();
-  }
-
-  const showWorkspaceNav =
-    pathname.startsWith("/dashboard") ||
-  pathname.startsWith("/hbx-recovery");
-  const isAdmin = String(user?.role ?? "").toUpperCase() === "ADMIN";
-  const isSystemMaster = Boolean(user?.isSystemMaster);
+  }, [playIncomingAlertTone]);
 
   const accessibleModules = useMemo(() => {
     return new Set((modules || []).filter((m) => m.accessible).map((m) => m.key));
   }, [modules]);
-
-  const navItems = useMemo<NavItem[]>(() => {
-    const items: NavItem[] = [
-      {
-        href: "/dashboard",
-        label: "Menu",
-        matcher: (route) => route === "/dashboard",
-      },
-      {
-        href: "/dashboard/inbox",
-        label: "Atendimento",
-        matcher: (route) =>
-          route.startsWith("/dashboard/inbox") ||
-          route.startsWith("/dashboard/auto-replies") ||
-          route.startsWith("/dashboard/messages"),
-        moduleKey: 'atendimento',
-      },
-      {
-        href: "/dashboard/gerencial",
-        label: "Gerencial",
-        matcher: (route) => route.startsWith("/dashboard/gerencial"),
-        adminOnly: true,
-        moduleKey: 'gerencial',
-      },
-      {
-        href: "/hbx-recovery",
-        label: "Recovery",
-        matcher: (route) => route.startsWith("/hbx-recovery"),
-        moduleKey: "hbx_recovery",
-      },
-      {
-        href: "/dashboard/webscraping",
-        label: "Webscraping",
-        matcher: (route) => route.startsWith("/dashboard/webscraping"),
-        moduleKey: 'webscraping',
-      },
-      {
-        href: "/dashboard/website",
-        label: "Website",
-        matcher: (route) => route.startsWith("/dashboard/website"),
-        moduleKey: "website",
-      },
-      {
-        href: "/dashboard/importacoes/followup-global",
-        label: "Follow Up",
-        matcher: (route) =>
-          route.startsWith("/dashboard/importacoes/followup-global") ||
-          route.startsWith("/dashboard/importacoes/historico") ||
-          route.startsWith("/dashboard/importacoes/novo"),
-        moduleKey: "follow_up_internacional",
-      },
-      {
-        href: "/dashboard/importacoes/cadastros",
-        label: "Cadastros",
-        matcher: (route) => route.startsWith("/dashboard/importacoes/cadastros"),
-        moduleKey: "cadastros",
-      },
-      {
-        href: "/dashboard/master",
-        label: "Master",
-        matcher: (route) => route.startsWith("/dashboard/master"),
-        adminOnly: true,
-        moduleKey: 'master',
-      },
-    ];
-
-    return items.filter((item) => {
-      if (item.moduleKey && !accessibleModules.has(item.moduleKey)) return false;
-      if (!item.adminOnly) return true;
-      if (item.href === '/dashboard/master') return isSystemMaster;
-      return isAdmin;
-    });
-  }, [accessibleModules, isAdmin, isSystemMaster]);
 
   useEffect(() => {
     function refreshAuthState() {
@@ -327,7 +237,7 @@ export default function TopBar() {
       setWhatsAppHealthLabel("WhatsApp status: sem validacao");
       setRecoveryPendingHumanCount(0);
       setAtendimentoPendingHumanCount(0);
-      setActiveThemeUser(null);
+      setStorageUserId(null);
       return;
     }
 
@@ -355,11 +265,11 @@ export default function TopBar() {
     return () => {
       mounted = false;
     };
-  }, [authenticated]);
+  }, [authenticated, setStorageUserId]);
 
   useEffect(() => {
-    setActiveThemeUser(user?.id ?? null);
-  }, [user?.id]);
+    setStorageUserId(user?.id ?? null);
+  }, [setStorageUserId, user?.id]);
 
   useEffect(() => {
     if (!authenticated || !user) return;
@@ -406,7 +316,7 @@ export default function TopBar() {
       mounted = false;
       window.clearInterval(timer);
     };
-  }, [authenticated, user?.id, user?.company?.id, user?.isSystemMaster]);
+  }, [authenticated, user, user?.id, user?.company?.id, user?.isSystemMaster]);
 
   useEffect(() => {
     if (!authenticated) {
@@ -631,29 +541,11 @@ export default function TopBar() {
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [
-    authenticated,
-    accessibleModules,
-    user,
-  ]);
+  }, [authenticated, accessibleModules, presentIncomingPopup, user]);
 
   useEffect(() => {
     setOpen(false);
   }, [pathname]);
-
-  useEffect(() => {
-    // initialize scroll button visibility after items load
-    const el = navScrollRef.current;
-    if (!el) return;
-    const onResize = () => updateScrollButtons();
-    updateScrollButtons();
-    window.addEventListener('resize', onResize);
-    el.addEventListener('transitionend', updateScrollButtons);
-    return () => {
-      window.removeEventListener('resize', onResize);
-      el.removeEventListener('transitionend', updateScrollButtons);
-    };
-  }, [navItems.length]);
 
   useEffect(() => {
     function handleOutsideClick(event: MouseEvent) {
@@ -670,6 +562,32 @@ export default function TopBar() {
     };
   }, []);
 
+  useEffect(() => {
+    const root = document.documentElement;
+    const topbar = document.querySelector(".app-topbar");
+    if (!root || !topbar) return;
+
+    const setVar = () => {
+      const rect = topbar.getBoundingClientRect();
+      root.style.setProperty("--topbar-total-height", `${Math.ceil(rect.height)}px`);
+    };
+
+    setVar();
+
+    let observer: ResizeObserver | null = null;
+    try {
+      observer = new ResizeObserver(setVar);
+      observer.observe(topbar);
+    } catch {
+      window.addEventListener("resize", setVar);
+    }
+
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener("resize", setVar);
+    };
+  }, [authenticated, incomingPopup, open]);
+
   function handleLogout() {
     clearToken();
     setAuthenticated(false);
@@ -682,7 +600,7 @@ export default function TopBar() {
     setMasterContextModalOpen(true);
     if (masterCompanyOptions.length) return;
     try {
-      const payload = await apiFetch<any[]>("/modules/master/companies");
+      const payload = await apiFetch<MasterOverviewCompanyPayload[]>("/modules/master/companies");
       const normalized = (Array.isArray(payload) ? payload : []).map((item) => ({
         id: Number(item?.id || 0),
         name: String(item?.name || `Empresa ${item?.id || ""}`),
@@ -791,6 +709,15 @@ export default function TopBar() {
     pendingHumanCount > 0
       ? `Atendimento: ${atendimentoPendingHumanCount} | Recovery: ${recoveryPendingHumanCount}`
       : null;
+  const accountContext = authenticated
+    ? user?.isSystemMaster
+      ? user.masterContext?.active
+        ? `MASTER em ${user.masterContext.companyName || "Empresa"}`
+        : "MASTER GLOBAL"
+      : user?.company?.name || "Operacao sem empresa"
+    : "Plataforma operacional HBX";
+  const workspaceBadge = pendingHumanCount > 0 ? `${pendingHumanCount} na fila` : "Fila sob controle";
+  const themeLabel = `${activeTheme.shortLabel} · ${selection.mode === "dark" ? "Dark" : "Light"}`;
 
   if (hiddenRoutes.has(pathname)) {
     return null;
@@ -805,15 +732,7 @@ export default function TopBar() {
               <span className="app-brand__mark">HB</span>
               <span className="app-brand__body">
                 <span className="app-brand__text">HBX Control Center</span>
-                <span className="app-brand__context">
-                  {authenticated
-                    ? user?.isSystemMaster
-                      ? user.masterContext?.active
-                        ? `MASTER em ${user.masterContext.companyName || "Empresa"}`
-                        : "MASTER GLOBAL"
-                      : user?.company?.name || "Operacao sem empresa"
-                    : "Plataforma operacional HBX"}
-                </span>
+                <span className="app-brand__context">{accountContext}</span>
               </span>
             </Link>
 
@@ -822,8 +741,8 @@ export default function TopBar() {
                 <span className={`wa-health-wrap ${atendimentoPendingHumanCount > 0 ? "wa-health-wrap--alert" : ""}`}>
                   <span
                     className={`wa-health wa-health--${whatsAppHealth}`}
-                    title={`Atendimento: ${atendimentoPendingHumanCount}`}
-                    aria-label={`Atendimento: ${atendimentoPendingHumanCount}`}
+                    title={`${whatsAppHealthLabel} · Atendimento: ${atendimentoPendingHumanCount}`}
+                    aria-label={`${whatsAppHealthLabel} · Atendimento: ${atendimentoPendingHumanCount}`}
                   >
                     <svg viewBox="0 0 24 24" aria-hidden="true">
                       <path d="M19.1 4.9A9.9 9.9 0 0 0 12 2a10 10 0 0 0-8.7 14.9L2 22l5.3-1.4A10 10 0 1 0 19.1 4.9Zm-7.1 15.4a8.2 8.2 0 0 1-4.2-1.2l-.3-.2-3.1.8.8-3-.2-.3a8.2 8.2 0 1 1 7 3.9Zm4.5-6.2c-.2-.1-1.2-.6-1.4-.7-.2-.1-.3-.1-.5.1-.1.2-.5.7-.6.8-.1.1-.2.1-.4 0s-.9-.3-1.7-1a6.4 6.4 0 0 1-1.2-1.5c-.1-.2 0-.3.1-.4l.3-.3.2-.3c.1-.1.1-.3 0-.4L10.4 8c-.1-.2-.3-.2-.4-.2h-.4c-.1 0-.4.1-.5.3-.2.2-.7.7-.7 1.6 0 1 .7 1.9.8 2 .1.1 1.3 2 3.2 2.8.5.2.9.4 1.2.5.5.1 1 .1 1.4.1.4-.1 1.2-.5 1.4-1 .2-.6.2-1 .1-1.1 0-.1-.2-.1-.4-.2Z" />
@@ -839,8 +758,8 @@ export default function TopBar() {
                 <span className={`wa-health-wrap ${recoveryPendingHumanCount > 0 ? "wa-health-wrap--alert" : ""}`}>
                   <span
                     className={`wa-health wa-health--${whatsAppHealth}`}
-                    title={`Recovery: ${recoveryPendingHumanCount}`}
-                    aria-label={`Recovery: ${recoveryPendingHumanCount}`}
+                    title={`${whatsAppHealthLabel} · Recovery: ${recoveryPendingHumanCount}`}
+                    aria-label={`${whatsAppHealthLabel} · Recovery: ${recoveryPendingHumanCount}`}
                   >
                     <svg viewBox="0 0 24 24" aria-hidden="true">
                       <path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm1 14.5V18h-2v-1.5A4 4 0 1 1 13 16.5z" />
@@ -858,15 +777,35 @@ export default function TopBar() {
             ) : null}
           </div>
 
-          {authenticated ? (
-            <div className="app-topbar__center">
-              <ModuleNav inHeader={true} />
+          <div className="app-topbar__center">
+            <div className="app-topbar__summary">
+              <p className="app-topbar__summaryLabel">Workspace ativo</p>
+              <strong>{activeTheme.shellLabel}</strong>
+              <span>{activeTheme.personality}</span>
             </div>
-          ) : null}
+            <div className="app-topbar__metaGrid" aria-label="Resumo rapido do shell">
+              <span className="app-topbar__metaPill">
+                <strong>{themeLabel}</strong>
+                <span>Tema</span>
+              </span>
+              <span className="app-topbar__metaPill">
+                <strong>{workspaceBadge}</strong>
+                <span>Fila</span>
+              </span>
+              <span className="app-topbar__metaPill">
+                <strong>{activeTheme.densityLabel}</strong>
+                <span>Ritmo visual</span>
+              </span>
+            </div>
+          </div>
 
           <div className="app-topbar__right">
             {authenticated && user?.isSystemMaster ? (
-              <button type="button" className="btn btn-secondary btn-sm" onClick={openMasterContextModal}>
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                onClick={openMasterContextModal}
+              >
                 Contexto
               </button>
             ) : null}
@@ -880,85 +819,105 @@ export default function TopBar() {
                 Sair contexto
               </button>
             ) : null}
-            {authenticated ? <ThemeSwitcher storageUserId={user?.id ?? null} /> : null}
-          {user ? (
-            <div ref={userMenuRef} className="app-user">
-              <button
-                type="button"
-                className="app-user__trigger"
-                onClick={() => setOpen((value) => !value)}
-                aria-expanded={open}
-              >
-                <span className="app-user__avatar">
-                  {user.username ? user.username.charAt(0).toUpperCase() : "U"}
-                </span>
-                <span className="app-user__meta">
-                  <span className="app-user__name">{user.username}</span>
-                  <span className="app-user__company">
-                    {user.isSystemMaster
-                      ? (user.masterContext?.active
-                        ? `MASTER em ${user.masterContext.companyName || "Empresa"}`
-                        : "MASTER")
-                      : (user.company?.name ?? "Sem empresa")}
+            {authenticated ? <ThemeSwitcher /> : null}
+            {user ? (
+              <div ref={userMenuRef} className="app-user">
+                <button
+                  type="button"
+                  className="app-user__trigger"
+                  onClick={() => setOpen((value) => !value)}
+                  aria-expanded={open}
+                >
+                  <span className="app-user__avatar">
+                    {user.username ? user.username.charAt(0).toUpperCase() : "U"}
                   </span>
-                </span>
+                  <span className="app-user__meta">
+                    <span className="app-user__name">{user.username}</span>
+                    <span className="app-user__company">
+                      {user.isSystemMaster
+                        ? user.masterContext?.active
+                          ? `MASTER em ${user.masterContext.companyName || "Empresa"}`
+                          : "MASTER"
+                        : user.company?.name ?? "Sem empresa"}
+                    </span>
+                  </span>
+                </button>
+
+                {open ? (
+                  <div className="app-user__menu">
+                    <p className="app-user__menu-title">Editar senha</p>
+                    <form onSubmit={handlePasswordSubmit} className="app-user__form">
+                      <input
+                        type="password"
+                        placeholder="Senha atual"
+                        value={curPass}
+                        onChange={(event) => setCurPass(event.target.value)}
+                        className="field"
+                      />
+                      <input
+                        type="password"
+                        placeholder="Nova senha (min. 4)"
+                        value={newPass}
+                        onChange={(event) => setNewPass(event.target.value)}
+                        className="field"
+                      />
+                      {changeMsg ? <p className="text-xs text-muted leading-5">{changeMsg}</p> : null}
+                      <div className="app-user__menu-actions">
+                        <button
+                          type="submit"
+                          className="btn btn-primary btn-sm"
+                          disabled={changing || newPass.length < 4}
+                        >
+                          {changing ? "Salvando..." : "Salvar senha"}
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-secondary btn-sm"
+                          onClick={() => setOpen(false)}
+                        >
+                          Fechar
+                        </button>
+                      </div>
+                    </form>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+
+            {authenticated ? (
+              <button type="button" onClick={handleLogout} className="btn btn-secondary btn-sm">
+                Sair
               </button>
-
-              {open ? (
-                <div className="app-user__menu">
-                  <p className="app-user__menu-title">Editar senha</p>
-                  <form onSubmit={handlePasswordSubmit} className="app-user__form">
-                    <input
-                      type="password"
-                      placeholder="Senha atual"
-                      value={curPass}
-                      onChange={(event) => setCurPass(event.target.value)}
-                      className="field"
-                    />
-                    <input
-                      type="password"
-                      placeholder="Nova senha (min. 4)"
-                      value={newPass}
-                      onChange={(event) => setNewPass(event.target.value)}
-                      className="field"
-                    />
-                    {changeMsg ? (
-                      <p className="text-xs text-(--muted) leading-5">{changeMsg}</p>
-                    ) : null}
-                    <div className="app-user__menu-actions">
-                      <button
-                        type="submit"
-                        className="btn btn-primary btn-sm"
-                        disabled={changing || newPass.length < 4}
-                      >
-                        {changing ? "Salvando..." : "Salvar senha"}
-                      </button>
-                      <button
-                        type="button"
-                        className="btn btn-secondary btn-sm"
-                        onClick={() => setOpen(false)}
-                      >
-                        Fechar
-                      </button>
-                    </div>
-                  </form>
-                </div>
-              ) : null}
-            </div>
-          ) : null}
-
-          {authenticated ? (
-            <button type="button" onClick={handleLogout} className="btn btn-secondary btn-sm">
-              Sair
-            </button>
-          ) : (
-            <Link href="/login" className="btn btn-secondary btn-sm">
-              Entrar
-            </Link>
-          )}
+            ) : (
+              <Link href="/login" className="btn btn-secondary btn-sm">
+                Entrar
+              </Link>
+            )}
+          </div>
         </div>
+
+        {authenticated ? (
+          <div className="app-topbar__dock">
+            <span className="app-topbar__dockChip">
+              <strong>{activeTheme.label}</strong>
+              <span>Skin ativa</span>
+            </span>
+            <span className="app-topbar__dockChip">
+              <strong>{activeTheme.densityLabel}</strong>
+              <span>Densidade</span>
+            </span>
+            <span className="app-topbar__dockChip">
+              <strong>{activeTheme.depthLabel}</strong>
+              <span>Profundidade</span>
+            </span>
+            <span className="app-topbar__dockChip">
+              <strong>{pendingHumanCount}</strong>
+              <span>Itens em fila</span>
+            </span>
+          </div>
+        ) : null}
       </div>
-      </div>
+
       {incomingPopup ? (
         <div className="incoming-alert">
           <div className="incoming-alert__header">
@@ -1028,6 +987,10 @@ export default function TopBar() {
             </div>
 
             <div className="mt-4 grid gap-3">
+              {masterContextMessage ? (
+                <div className="alert alert-error">{masterContextMessage}</div>
+              ) : null}
+
               <label className="grid gap-1 text-sm">
                 Empresa
                 <select

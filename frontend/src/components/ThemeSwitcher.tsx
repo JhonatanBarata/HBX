@@ -1,38 +1,13 @@
 "use client";
 
 import React from "react";
-import { applyThemeSelectionToDocument } from "@/lib/design-tokens";
+import { useHbxTheme } from "@/components/ThemeProvider";
 import { HBX_THEME_PALETTES, HBX_THEME_IDS, type HbxThemeId } from "@/lib/theme-palettes";
-import {
-  persistThemeSelection,
-  readStoredThemeSelection,
-} from "@/lib/theme-preferences";
 
-type ThemeSwitcherProps = {
-  storageUserId?: string | number | null;
-};
-
-export default function ThemeSwitcher({ storageUserId }: ThemeSwitcherProps) {
+export default function ThemeSwitcher() {
   const rootRef = React.useRef<HTMLDivElement | null>(null);
   const [open, setOpen] = React.useState(false);
-  const [selection, setSelection] = React.useState(() =>
-    readStoredThemeSelection(storageUserId),
-  );
-
-  const activeTheme = HBX_THEME_PALETTES[selection.themeId];
-
-  function commitTheme(nextThemeId: HbxThemeId, explicitMode?: "light" | "dark") {
-    const nextSelection = {
-      themeId: nextThemeId,
-      mode:
-        explicitMode ??
-        (selection.themeId === nextThemeId && selection.mode === "light" ? "dark" : "light"),
-    } as const;
-
-    setSelection(nextSelection);
-    applyThemeSelectionToDocument(nextSelection);
-    persistThemeSelection(nextSelection, storageUserId);
-  }
+  const { selection, activeTheme, setMode, setThemeId } = useHbxTheme();
 
   React.useEffect(() => {
     if (!open) return undefined;
@@ -55,11 +30,9 @@ export default function ThemeSwitcher({ storageUserId }: ThemeSwitcherProps) {
     };
   }, [open]);
 
-  React.useEffect(() => {
-    const nextSelection = readStoredThemeSelection(storageUserId);
-    setSelection(nextSelection);
-    applyThemeSelectionToDocument(nextSelection);
-  }, [storageUserId]);
+  function handleThemeSelection(themeId: HbxThemeId) {
+    setThemeId(themeId);
+  }
 
   return (
     <div className="theme-switcher-wrap" ref={rootRef}>
@@ -80,7 +53,9 @@ export default function ThemeSwitcher({ storageUserId }: ThemeSwitcherProps) {
         <span className="theme-switcher__trigger-copy">
           <span className="theme-switcher__label">Tema visual</span>
           <strong>{activeTheme.label}</strong>
-          <span className="theme-switcher__trigger-meta">{activeTheme.shellLabel}</span>
+          <span className="theme-switcher__trigger-meta">
+            {activeTheme.shellLabel} · {activeTheme.depthLabel}
+          </span>
         </span>
         <span className="theme-switcher__modeBadge">
           {selection.mode === "dark" ? "Dark" : "Light"}
@@ -94,21 +69,22 @@ export default function ThemeSwitcher({ storageUserId }: ThemeSwitcherProps) {
               <p className="theme-switcher__eyebrow">5 skins HBX</p>
               <strong className="theme-switcher__title">Escolha a experiencia visual</strong>
               <p className="theme-switcher__subtitle">
-                O HBX troca shell, profundidade, ritmo e assinatura visual em tempo real, preservando os mesmos fluxos e contratos.
+                O HBX troca shell, hierarquia, profundidade e tipografia em tempo real sem tocar nos
+                contratos do backend.
               </p>
             </div>
             <div className="theme-switcher__modeRow" role="group" aria-label="Modo de tema">
               <button
                 type="button"
                 className={`theme-mode-chip ${selection.mode === "light" ? "is-selected" : ""}`}
-                onClick={() => commitTheme(selection.themeId, "light")}
+                onClick={() => setMode("light")}
               >
                 Claro
               </button>
               <button
                 type="button"
                 className={`theme-mode-chip ${selection.mode === "dark" ? "is-selected" : ""}`}
-                onClick={() => commitTheme(selection.themeId, "dark")}
+                onClick={() => setMode("dark")}
               >
                 Escuro
               </button>
@@ -125,7 +101,7 @@ export default function ThemeSwitcher({ storageUserId }: ThemeSwitcherProps) {
                 <button
                   key={themeId}
                   type="button"
-                  onClick={() => commitTheme(themeId)}
+                  onClick={() => handleThemeSelection(themeId)}
                   className={`theme-card ${active ? "is-selected" : ""}`}
                   aria-pressed={active}
                 >

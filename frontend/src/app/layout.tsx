@@ -1,14 +1,35 @@
 import type { Metadata } from "next";
-import { IBM_Plex_Mono, Manrope } from "next/font/google";
+import {
+  IBM_Plex_Mono,
+  Manrope,
+  Plus_Jakarta_Sans,
+  Sora,
+  Space_Grotesk,
+} from "next/font/google";
 import "./globals.css";
 import PageTransition from "../components/PageTransition";
 import TopBar from "../components/TopBar";
-import ThemeInit from "../components/ThemeInit";
+import { ThemeProvider } from "../components/ThemeProvider";
 
 export const dynamic = "force-dynamic";
 
 const manrope = Manrope({
   variable: "--font-manrope",
+  subsets: ["latin"],
+});
+
+const plusJakartaSans = Plus_Jakarta_Sans({
+  variable: "--font-plus-jakarta",
+  subsets: ["latin"],
+});
+
+const sora = Sora({
+  variable: "--font-sora",
+  subsets: ["latin"],
+});
+
+const spaceGrotesk = Space_Grotesk({
+  variable: "--font-space-grotesk",
   subsets: ["latin"],
 });
 
@@ -31,11 +52,12 @@ export default function RootLayout({
   return (
     <html lang="pt-BR" suppressHydrationWarning>
       <body
-        className={`${manrope.variable} ${ibmPlexMono.variable} antialiased app-root`}
+        className={`${manrope.variable} ${plusJakartaSans.variable} ${sora.variable} ${spaceGrotesk.variable} ${ibmPlexMono.variable} antialiased app-root`}
       >
-        <ThemeInit />
-        <TopBar />
-        <PageTransition>{children}</PageTransition>
+        <ThemeProvider>
+          <TopBar />
+          <PageTransition>{children}</PageTransition>
+        </ThemeProvider>
       </body>
     </html>
   );

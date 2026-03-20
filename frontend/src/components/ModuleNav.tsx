@@ -11,205 +11,167 @@ type UserModule = { key: string; accessible: boolean };
 type NavItem = {
   href: string;
   label: string;
+  shortLabel: string;
+  description: string;
   matcher: (pathname: string) => boolean;
   adminOnly?: boolean;
   moduleKey?: string;
 };
 
-export default function ModuleNav({ inHeader = false }: { inHeader?: boolean }) {
+const NAV_ITEMS: NavItem[] = [
+  {
+    href: "/dashboard",
+    label: "Menu",
+    shortLabel: "ME",
+    description: "Resumo de acesso e atalhos por modulo.",
+    matcher: (route) => route === "/dashboard",
+  },
+  {
+    href: "/dashboard/inbox",
+    label: "Atendimento",
+    shortLabel: "AT",
+    description: "Inbox, agenda, templates e bot do atendimento.",
+    matcher: (route) =>
+      route.startsWith("/dashboard/inbox") ||
+      route.startsWith("/dashboard/auto-replies") ||
+      route.startsWith("/dashboard/messages"),
+    moduleKey: "atendimento",
+  },
+  {
+    href: "/dashboard/gerencial",
+    label: "Gerencial",
+    shortLabel: "GE",
+    description: "Usuarios, acessos e operacao de equipe.",
+    matcher: (route) => route.startsWith("/dashboard/gerencial"),
+    adminOnly: true,
+    moduleKey: "gerencial",
+  },
+  {
+    href: "/hbx-recovery",
+    label: "Recovery",
+    shortLabel: "RC",
+    description: "Cobranca, negociacao e console de recuperacao.",
+    matcher: (route) => route.startsWith("/hbx-recovery"),
+    moduleKey: "hbx_recovery",
+  },
+  {
+    href: "/dashboard/webscraping",
+    label: "Webscraping",
+    shortLabel: "WS",
+    description: "Prospeccao local integrada ao workspace.",
+    matcher: (route) => route.startsWith("/dashboard/webscraping"),
+    moduleKey: "webscraping",
+  },
+  {
+    href: "/dashboard/website",
+    label: "Website",
+    shortLabel: "WB",
+    description: "Provisionamento e operacao do website por empresa.",
+    matcher: (route) => route.startsWith("/dashboard/website"),
+    moduleKey: "website",
+  },
+  {
+    href: "/dashboard/importacoes/followup-global",
+    label: "Follow Up",
+    shortLabel: "FU",
+    description: "Importacoes, historico e follow-up global.",
+    matcher: (route) =>
+      route.startsWith("/dashboard/importacoes/followup-global") ||
+      route.startsWith("/dashboard/importacoes/historico") ||
+      route.startsWith("/dashboard/importacoes/novo"),
+    moduleKey: "follow_up_internacional",
+  },
+  {
+    href: "/dashboard/importacoes/cadastros",
+    label: "Cadastros",
+    shortLabel: "CD",
+    description: "Tabelas operacionais e base de fornecedores.",
+    matcher: (route) => route.startsWith("/dashboard/importacoes/cadastros"),
+    moduleKey: "cadastros",
+  },
+  {
+    href: "/dashboard/master",
+    label: "Master",
+    shortLabel: "MS",
+    description: "Empresas, billing, acessos e configuracoes globais.",
+    matcher: (route) => route.startsWith("/dashboard/master"),
+    adminOnly: true,
+    moduleKey: "master",
+  },
+];
+
+export default function ModuleNav() {
   const pathname = usePathname();
   const authenticated = Boolean(getToken());
   const [modules, setModules] = useState<UserModule[]>([]);
   const [userRole, setUserRole] = useState<string | null>(null);
   const [isSystemMaster, setIsSystemMaster] = useState(false);
-  const navScrollRef = React.useRef<HTMLDivElement | null>(null);
-  const [canScrollLeft, setCanScrollLeft] = useState(false);
-  const [canScrollRight, setCanScrollRight] = useState(false);
-
-  // Keep CSS var for topbar total height in sync with the actual header height.
-  useEffect(() => {
-    const root = document.documentElement;
-    const topbar = document.querySelector('.app-topbar');
-    if (!topbar || !root) return;
-
-    const setVar = () => {
-      const rect = topbar.getBoundingClientRect();
-      // use the header's full rendered height (px)
-      root.style.setProperty('--topbar-total-height', `${Math.ceil(rect.height)}px`);
-    };
-
-    setVar();
-
-    // observe size changes to the header (e.g., when "Intensidade" control grows it)
-    let ro: ResizeObserver | null = null;
-    try {
-      ro = new ResizeObserver(setVar);
-      ro.observe(topbar as Element);
-    } catch (e) {
-      // ResizeObserver may not exist in some older environments; fallback to window resize
-      window.addEventListener('resize', setVar);
-    }
-
-    return () => {
-      if (ro) ro.disconnect();
-      window.removeEventListener('resize', setVar);
-    };
-  }, []);
 
   useEffect(() => {
-    let mounted = true;
     if (!authenticated) return;
+    let mounted = true;
+
     (async () => {
       try {
         const [myModules, profile] = await Promise.all([
-          apiFetch<UserModule[]>('/modules/me'),
-          apiFetch<any>('/profile/current-user').catch(() => null),
+          apiFetch<UserModule[]>("/modules/me"),
+          apiFetch<{ role?: string | null; isSystemMaster?: boolean }>("/profile/current-user").catch(
+            () => null,
+          ),
         ]);
         if (!mounted) return;
         setModules(myModules || []);
         setUserRole(String(profile?.role || null));
         setIsSystemMaster(Boolean(profile?.isSystemMaster));
-      } catch (e) {
+      } catch {
         // ignore
       }
     })();
-    return () => { mounted = false; };
+
+    return () => {
+      mounted = false;
+    };
   }, [authenticated]);
 
-  function updateScrollButtons() {
-    const el = navScrollRef.current;
-    if (!el) return;
-    setCanScrollLeft(el.scrollLeft > 4);
-    setCanScrollRight(el.scrollWidth - el.clientWidth - el.scrollLeft > 4);
-  }
+  const accessibleModules = useMemo(
+    () => new Set((modules || []).filter((module) => module.accessible).map((module) => module.key)),
+    [modules],
+  );
 
-  useEffect(() => {
-    const el = navScrollRef.current;
-    if (!el) return;
-    const stableEl = el;
-    updateScrollButtons();
-    const onScroll = () => updateScrollButtons();
-    window.addEventListener('resize', updateScrollButtons);
-    stableEl.addEventListener('scroll', onScroll);
-    // add pointer drag-to-scroll when rendered in header for touch/drag UX
-    let isDown = false;
-    let startX = 0;
-    let scrollStart = 0;
-    function onPointerDown(e: PointerEvent) {
-      isDown = true;
-      (e.target as Element).setPointerCapture?.(e.pointerId);
-      startX = e.clientX;
-      scrollStart = stableEl.scrollLeft;
-      stableEl.classList.add('dragging');
-    }
-    function onPointerMove(e: PointerEvent) {
-      if (!isDown) return;
-      const dx = startX - e.clientX;
-      stableEl.scrollLeft = scrollStart + dx;
-      updateScrollButtons();
-    }
-    function onPointerUp(e: PointerEvent) {
-      isDown = false;
-      stableEl.classList.remove('dragging');
-      try { (e.target as Element).releasePointerCapture?.(e.pointerId); } catch (err) {}
-    }
-    if (inHeader) {
-      stableEl.addEventListener('pointerdown', onPointerDown);
-      window.addEventListener('pointermove', onPointerMove);
-      window.addEventListener('pointerup', onPointerUp);
-    }
-    return () => {
-      window.removeEventListener('resize', updateScrollButtons);
-      stableEl.removeEventListener('scroll', onScroll);
-      if (inHeader) {
-        stableEl.removeEventListener('pointerdown', onPointerDown);
-        window.removeEventListener('pointermove', onPointerMove);
-        window.removeEventListener('pointerup', onPointerUp);
-      }
-    };
-  }, [navScrollRef.current, /* eslint-disable-line */]);
-
-  const accessibleModules = useMemo(() => new Set((modules || []).filter((m) => m.accessible).map((m) => m.key)), [modules]);
-
-  const navItems: NavItem[] = useMemo(() => {
-    const items: NavItem[] = [
-      { href: "/dashboard", label: "Menu", matcher: (r)=> r === "/dashboard" },
-      { href: "/dashboard/inbox", label: "Atendimento", matcher: (r)=> r.startsWith('/dashboard/inbox') || r.startsWith('/dashboard/auto-replies') || r.startsWith('/dashboard/messages'), moduleKey: 'atendimento' },
-      { href: "/dashboard/gerencial", label: "Gerencial", matcher: (r)=> r.startsWith('/dashboard/gerencial'), adminOnly: true, moduleKey: 'gerencial' },
-      { href: "/hbx-recovery", label: "Recovery", matcher: (r)=> r.startsWith('/hbx-recovery'), moduleKey: 'hbx_recovery' },
-      { href: "/dashboard/webscraping", label: "Webscraping", matcher: (r)=> r.startsWith('/dashboard/webscraping'), moduleKey: 'webscraping' },
-      { href: "/dashboard/website", label: "Website", matcher: (r)=> r.startsWith('/dashboard/website'), moduleKey: 'website' },
-      { href: "/dashboard/importacoes/followup-global", label: "Follow Up", matcher: (r)=> r.startsWith('/dashboard/importacoes/followup-global') || r.startsWith('/dashboard/importacoes/historico') || r.startsWith('/dashboard/importacoes/novo'), moduleKey: 'follow_up_internacional' },
-      { href: "/dashboard/importacoes/cadastros", label: "Cadastros", matcher: (r)=> r.startsWith('/dashboard/importacoes/cadastros'), moduleKey: 'cadastros' },
-      { href: "/dashboard/master", label: "Master", matcher: (r)=> r.startsWith('/dashboard/master'), adminOnly: true, moduleKey: 'master' },
-    ];
-
-    // If modules haven't loaded yet (modules length === 0), show the full nav
+  const navItems = useMemo(() => {
     const showAllUntilLoaded = Array.isArray(modules) && modules.length === 0;
-    return items.filter((item) => {
-      if (!showAllUntilLoaded) {
-        if (item.moduleKey && !accessibleModules.has(item.moduleKey!)) return false;
-        if (!item.adminOnly) return true;
-        if (item.href === "/dashboard/master") return isSystemMaster;
-        return String(userRole || "").toUpperCase() === "ADMIN";
-      }
-      // modules not loaded yet: show everything (helps initial render)
-      return true;
-    });
-  }, [accessibleModules, userRole, isSystemMaster]);
 
-  // Always render the module navigation so it appears on all pages.
+    return NAV_ITEMS.filter((item) => {
+      if (showAllUntilLoaded) return true;
+      if (item.moduleKey && !accessibleModules.has(item.moduleKey)) return false;
+      if (!item.adminOnly) return true;
+      if (item.href === "/dashboard/master") return isSystemMaster;
+      return String(userRole || "").toUpperCase() === "ADMIN";
+    });
+  }, [accessibleModules, isSystemMaster, modules, userRole]);
 
   return (
-    <div className={[styles.moduleNavWrap, inHeader ? styles.moduleNavHeader : ''].filter(Boolean).join(' ')}>
-      <div className={styles.moduleNavContainer}>
-        <button
-          type="button"
-          className={styles.navScrollBtn}
-          aria-hidden={!canScrollLeft}
-          style={{ display: canScrollLeft ? 'flex' : 'none' }}
-          onClick={() => {
-            const el = navScrollRef.current;
-            if (el) el.scrollBy({ left: -220, behavior: 'smooth' });
-          }}
-        >
-          ‹
-        </button>
-
-        <div
-          className={styles.heroTabGroup}
-          role="tablist"
-          aria-label="Navegacao de modulos"
-          ref={navScrollRef}
-        >
-          {navItems.map((item) => {
-            const active = item.matcher(pathname || '');
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                className={active ? styles.heroTabActive : styles.heroTab}
-                aria-current={active ? 'page' : undefined}
-              >
-                {item.label}
-              </Link>
-            );
-          })}
-        </div>
-
-        <button
-          type="button"
-          className={styles.navScrollBtn}
-          aria-hidden={!canScrollRight}
-          style={{ display: canScrollRight ? 'flex' : 'none' }}
-          onClick={() => {
-            const el = navScrollRef.current;
-            if (el) el.scrollBy({ left: 220, behavior: 'smooth' });
-          }}
-        >
-          ›
-        </button>
-      </div>
-    </div>
+    <nav className={styles.moduleNavWrap} aria-label="Navegacao de modulos">
+      {navItems.map((item) => {
+        const active = item.matcher(pathname || "");
+        return (
+          <Link
+            key={item.href}
+            href={item.href}
+            className={active ? styles.moduleCardActive : styles.moduleCard}
+            aria-current={active ? "page" : undefined}
+          >
+            <span className={styles.moduleCardBadge}>{item.shortLabel}</span>
+            <span className={styles.moduleCardBody}>
+              <strong>{item.label}</strong>
+              <small>{item.description}</small>
+            </span>
+            <span className={styles.moduleCardArrow} aria-hidden="true">
+              {active ? "ATIVO" : "ABRIR"}
+            </span>
+          </Link>
+        );
+      })}
+    </nav>
   );
 }

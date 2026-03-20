@@ -1,205 +1,150 @@
 .moduleNavWrap {
-  margin: 0 auto;
-  width: 100%;
-  display: flex;
-  justify-content: center;
-  box-sizing: border-box;
+  display: grid;
+  gap: 0.7rem;
 }
 
-.moduleNavHeader {
-  padding: 0;
-  height: auto;
-  display: flex;
+.moduleCard,
+.moduleCardActive {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
-  width: 100%;
-  justify-content: center;
-  z-index: 95;
-  pointer-events: auto;
-}
-
-.moduleNavHeader .moduleNavContainer {
-  max-width: min(760px, 100%);
-  width: 100%;
-  gap: 0.45rem;
-}
-
-.moduleNavHeader .heroTabGroup {
-  overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
-  scrollbar-width: none;
-  display: flex;
-  gap: 0.36rem;
-}
-
-.moduleNavHeader .heroTab,
-.moduleNavHeader .heroTabActive {
-  padding: 0.5rem 0.82rem;
-  font-size: 0.75rem;
-  min-height: 34px;
-  border-radius: 12px;
-}
-
-.moduleNavHeader .navScrollBtn {
-  width: 36px;
-  height: 36px;
-  border-radius: 12px;
-}
-
-.moduleNavHeader .moduleNavContainer { min-width: 0; }
-
-.heroTabGroup {
-  display: flex;
-  align-items: center;
-  gap: 0.42rem;
-  padding: 0.34rem;
+  gap: 0.8rem;
+  padding: 0.92rem 0.95rem;
   border-radius: calc(var(--control-radius) + 2px);
-  border: 1px solid color-mix(in srgb, var(--line) 90%, white);
+  border: 1px solid color-mix(in srgb, var(--line) 88%, white);
   background:
-    linear-gradient(180deg, color-mix(in srgb, var(--nav-surface) 92%, white), color-mix(in srgb, var(--surface-soft) 92%, var(--background))),
-    linear-gradient(135deg, color-mix(in srgb, var(--brand) 8%, transparent), transparent 55%);
-  box-shadow: var(--shadow-inset), var(--shadow-sm);
-}
-
-.heroTab,
-.heroTabActive {
-  min-height: 36px;
-  border-radius: var(--control-radius);
-  padding: 0.48rem 0.88rem;
-  font-size: 0.78rem;
-  font-weight: 800;
-  letter-spacing: 0.01em;
-  border: 1px solid transparent;
-  transition: transform var(--motion-base), box-shadow var(--motion-base), background-color var(--motion-base), color var(--motion-base), border-color var(--motion-base);
-}
-
-.heroTab {
-  color: color-mix(in srgb, var(--foreground) 94%, var(--brand));
-  background: linear-gradient(180deg, color-mix(in srgb, white 96%, transparent), color-mix(in srgb, var(--surface-soft) 92%, var(--background)));
-  border-color: color-mix(in srgb, var(--line) 88%, white);
+    linear-gradient(180deg, color-mix(in srgb, var(--surface) 98%, white), color-mix(in srgb, var(--surface-soft) 94%, var(--background)));
   box-shadow: var(--shadow-inset), var(--shadow-xs);
+  transition:
+    transform var(--motion-base),
+    box-shadow var(--motion-base),
+    border-color var(--motion-base),
+    background-color var(--motion-base);
 }
 
-.heroTab:hover {
+.moduleCard:hover,
+.moduleCardActive:hover {
   transform: translateY(-1px);
-  border-color: color-mix(in srgb, var(--brand) 26%, var(--line));
+  border-color: color-mix(in srgb, var(--brand) 24%, var(--line));
   box-shadow: var(--shadow-inset), var(--shadow-sm);
 }
 
-.heroTabActive {
-  color: var(--brand-contrast);
-  border-color: color-mix(in srgb, var(--brand) 72%, var(--foreground));
-  background: linear-gradient(145deg, var(--brand), var(--brand-solid));
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18), 0 14px 28px -18px var(--panel-glow);
+.moduleCardActive {
+  border-color: color-mix(in srgb, var(--brand) 36%, var(--line));
+  background:
+    radial-gradient(circle at top right, color-mix(in srgb, var(--brand) 12%, transparent), transparent 38%),
+    linear-gradient(180deg, color-mix(in srgb, var(--surface) 98%, white), color-mix(in srgb, var(--surface-raised) 92%, var(--background)));
 }
 
-.heroTabActive:hover { transform: translateY(-1px); }
-
-.moduleNavContainer {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.55rem;
-  max-width: 1220px;
-  width: 100%;
-  position: relative;
-  z-index: 1;
-}
-
-.navScrollBtn {
-  width: 38px;
-  height: 38px;
-  border-radius: var(--control-radius);
+.moduleCardBadge {
+  width: 42px;
+  height: 42px;
+  border-radius: calc(var(--control-radius) - 2px);
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(180deg, color-mix(in srgb, var(--surface) 96%, white), color-mix(in srgb, var(--surface-soft) 92%, var(--background)));
-  border: 1px solid color-mix(in srgb, var(--line) 92%, white);
-  box-shadow: var(--shadow-inset), var(--shadow-xs);
-  cursor: pointer;
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  color: var(--brand-contrast);
+  background: linear-gradient(145deg, var(--brand), var(--brand-solid));
+  box-shadow: 0 16px 28px -22px var(--panel-glow);
 }
 
-.navScrollBtn:hover {
-  border-color: color-mix(in srgb, var(--brand) 22%, var(--line));
+.moduleCardBody {
+  min-width: 0;
+  display: grid;
+  gap: 0.18rem;
 }
 
-.heroTabGroup {
-  display: flex;
-  align-items: center;
-  overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
+.moduleCardBody strong {
+  font-size: 0.88rem;
+  line-height: 1.1;
+  color: var(--foreground);
 }
 
-:global(html[data-theme="shadcn"]) .heroTabGroup {
-  background:
-    linear-gradient(180deg, color-mix(in srgb, var(--nav-surface) 96%, white), color-mix(in srgb, var(--surface-soft) 92%, var(--background)));
+.moduleCardBody small {
+  font-size: 0.73rem;
+  line-height: 1.48;
+  color: var(--muted);
 }
 
-:global(html[data-theme="tailadmin"]) .heroTabGroup {
-  border-color: color-mix(in srgb, var(--brand) 18%, var(--line));
+.moduleCardArrow {
+  min-height: 28px;
+  padding: 0.24rem 0.58rem;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--line) 88%, white);
+  background: color-mix(in srgb, var(--surface-raised) 92%, white);
+  color: var(--muted);
+  font-size: 0.62rem;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+}
+
+:global(html[data-theme="tailadmin"]) .moduleCardActive,
+:global(html[data-theme="tabler"]) .moduleCardActive {
+  border-color: color-mix(in srgb, var(--brand) 30%, var(--line));
+}
+
+:global(html[data-theme="mosaic"]) .moduleCardActive {
   box-shadow: var(--shadow-inset), var(--shadow-md);
 }
 
-:global(html[data-theme="tailadmin"]) .heroTab,
-:global(html[data-theme="tailadmin"]) .heroTabActive {
-  min-height: 38px;
+:global(html[data-theme="flowbite"]) .moduleCard,
+:global(html[data-theme="flowbite"]) .moduleCardActive,
+:global(html[data-theme="tabler"]) .moduleCard,
+:global(html[data-theme="tabler"]) .moduleCardActive {
+  border-radius: calc(var(--control-radius) + 1px);
 }
 
-:global(html[data-theme="mosaic"]) .heroTabGroup {
-  background:
-    radial-gradient(circle at top right, color-mix(in srgb, var(--brand) 16%, transparent), transparent 36%),
-    linear-gradient(180deg, color-mix(in srgb, var(--nav-surface) 94%, white), color-mix(in srgb, var(--surface-soft) 90%, var(--background)));
+:global(html[data-theme="flowbite"]) .moduleCard,
+:global(html[data-theme="flowbite"]) .moduleCardActive {
+  box-shadow: none;
 }
 
-:global(html[data-theme="mosaic"]) .heroTabActive {
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.24), 0 18px 30px -20px var(--panel-glow);
-}
-
-:global(html[data-theme="flowbite"]) .heroTab,
-:global(html[data-theme="tabler"]) .heroTab,
-:global(html[data-theme="flowbite"]) .heroTabActive,
-:global(html[data-theme="tabler"]) .heroTabActive,
-:global(html[data-theme="flowbite"]) .navScrollBtn,
-:global(html[data-theme="tabler"]) .navScrollBtn {
+:global(html[data-theme="flowbite"]) .moduleCardArrow,
+:global(html[data-theme="tabler"]) .moduleCardArrow {
   border-radius: calc(var(--control-radius) - 2px);
 }
 
-:global(html[data-theme="flowbite"]) .moduleNavHeader .moduleNavContainer,
-:global(html[data-theme="tabler"]) .moduleNavHeader .moduleNavContainer {
-  max-width: 100%;
+:global(html[data-theme="flowbite"]) .moduleNavWrap {
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
 }
 
-:global(html[data-theme="flowbite"]) .heroTabGroup {
-  justify-content: flex-start;
-  background: color-mix(in srgb, var(--nav-surface) 96%, white);
-  box-shadow: none;
+:global(html[data-theme="flowbite"]) .moduleCard,
+:global(html[data-theme="flowbite"]) .moduleCardActive {
+  grid-template-columns: auto minmax(0, 1fr);
 }
 
-:global(html[data-theme="flowbite"]) .heroTab,
-:global(html[data-theme="flowbite"]) .heroTabActive,
-:global(html[data-theme="flowbite"]) .navScrollBtn {
-  box-shadow: none;
+:global(html[data-theme="flowbite"]) .moduleCardArrow {
+  display: none;
 }
 
-:global(html[data-theme="tabler"]) .heroTabGroup {
-  justify-content: flex-start;
+:global(html[data-theme="tabler"]) .moduleCard,
+:global(html[data-theme="tabler"]) .moduleCardActive {
   background:
-    linear-gradient(180deg, color-mix(in srgb, var(--nav-surface) 98%, white), color-mix(in srgb, var(--surface-soft) 92%, var(--background))),
-    repeating-linear-gradient(90deg, transparent 0, transparent 28px, color-mix(in srgb, var(--line) 10%, transparent) 28px, color-mix(in srgb, var(--line) 10%, transparent) 29px);
-  box-shadow: none;
+    linear-gradient(180deg, color-mix(in srgb, var(--surface) 98%, white), color-mix(in srgb, var(--surface-raised) 96%, var(--background)));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 12px 24px -24px color-mix(in srgb, var(--foreground) 42%, transparent);
 }
 
-:global(html[data-theme="tabler"]) .heroTab {
-  box-shadow: none;
+@media (max-width: 980px) {
+  .moduleNavWrap {
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  }
 }
 
-:global(html[data-theme="tabler"]) .heroTabActive {
-  box-shadow: none;
-}
+@media (max-width: 640px) {
+  .moduleNavWrap,
+  :global(html[data-theme="flowbite"]) .moduleNavWrap {
+    grid-template-columns: 1fr;
+  }
 
-:global(html[data-theme="tabler"]) .heroTabGroup {
-  border-color: color-mix(in srgb, var(--line) 96%, white);
-}
+  .moduleCard,
+  .moduleCardActive {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
 
-/* hide default scrollbar but keep functionality */
-.heroTabGroup::-webkit-scrollbar { display: none; }
-.heroTabGroup { scrollbar-width: none; -ms-overflow-style: none; }
+  .moduleCardArrow {
+    display: none;
+  }
+}

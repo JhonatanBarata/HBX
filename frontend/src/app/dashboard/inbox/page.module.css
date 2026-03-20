@@ -11,7 +11,7 @@
 }
 
 .messageGrid {
-  grid-template-columns: minmax(320px, 0.82fr) minmax(0, 1.18fr);
+  grid-template-columns: minmax(300px, 0.76fr) minmax(0, 1.12fr) minmax(280px, 0.74fr);
   align-items: start;
 }
 
@@ -31,6 +31,10 @@
 .editorGrid {
   display: grid;
   gap: 1rem;
+}
+
+.priorityList {
+  align-content: start;
 }
 
 .workspaceCard,

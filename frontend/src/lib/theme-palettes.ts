@@ -48,6 +48,22 @@ type ThemeChrome = {
   topbarBlur: string;
 };
 
+type ThemeTypography = {
+  bodyFont: string;
+  displayFont: string;
+  monoFont: string;
+  eyebrowSpacing: string;
+};
+
+type ThemeWorkspace = {
+  railWidth: string;
+  contextWidth: string;
+  shellGap: string;
+  shellPadding: string;
+  heroColumns: string;
+  heroMinHeight: string;
+};
+
 export type HbxThemePalette = {
   label: string;
   shortLabel: string;
@@ -58,6 +74,8 @@ export type HbxThemePalette = {
   densityLabel: string;
   depthLabel: string;
   chrome: ThemeChrome;
+  typography: ThemeTypography;
+  workspace: ThemeWorkspace;
   light: ThemeTone;
   dark: ThemeTone;
 };
@@ -79,9 +97,23 @@ export const HBX_THEME_PALETTES: Record<HbxThemeId, HbxThemePalette> = {
       radiusLg: "24px",
       radiusXl: "32px",
       topbarWidth: "1480px",
-      contentWidth: "1500px",
+      contentWidth: "1540px",
       contentGutter: "18px",
-      topbarBlur: "20px",
+      topbarBlur: "24px",
+    },
+    typography: {
+      bodyFont: "var(--font-plus-jakarta)",
+      displayFont: "var(--font-plus-jakarta)",
+      monoFont: "var(--font-ibm-plex-mono)",
+      eyebrowSpacing: "0.22em",
+    },
+    workspace: {
+      railWidth: "292px",
+      contextWidth: "286px",
+      shellGap: "18px",
+      shellPadding: "20px",
+      heroColumns: "1.25fr 0.9fr",
+      heroMinHeight: "196px",
     },
     light: {
       brand: "#111827",
@@ -162,9 +194,23 @@ export const HBX_THEME_PALETTES: Record<HbxThemeId, HbxThemePalette> = {
       radiusLg: "22px",
       radiusXl: "28px",
       topbarWidth: "1620px",
-      contentWidth: "1660px",
+      contentWidth: "1680px",
       contentGutter: "18px",
       topbarBlur: "18px",
+    },
+    typography: {
+      bodyFont: "var(--font-manrope)",
+      displayFont: "var(--font-sora)",
+      monoFont: "var(--font-ibm-plex-mono)",
+      eyebrowSpacing: "0.18em",
+    },
+    workspace: {
+      railWidth: "320px",
+      contextWidth: "264px",
+      shellGap: "16px",
+      shellPadding: "18px",
+      heroColumns: "1.35fr 0.85fr",
+      heroMinHeight: "188px",
     },
     light: {
       brand: "#465fff",
@@ -245,9 +291,23 @@ export const HBX_THEME_PALETTES: Record<HbxThemeId, HbxThemePalette> = {
       radiusLg: "26px",
       radiusXl: "34px",
       topbarWidth: "1520px",
-      contentWidth: "1540px",
+      contentWidth: "1580px",
       contentGutter: "20px",
       topbarBlur: "22px",
+    },
+    typography: {
+      bodyFont: "var(--font-plus-jakarta)",
+      displayFont: "var(--font-space-grotesk)",
+      monoFont: "var(--font-ibm-plex-mono)",
+      eyebrowSpacing: "0.26em",
+    },
+    workspace: {
+      railWidth: "278px",
+      contextWidth: "320px",
+      shellGap: "20px",
+      shellPadding: "22px",
+      heroColumns: "1.08fr 0.92fr",
+      heroMinHeight: "208px",
     },
     light: {
       brand: "#0f766e",
@@ -332,6 +392,20 @@ export const HBX_THEME_PALETTES: Record<HbxThemeId, HbxThemePalette> = {
       contentGutter: "16px",
       topbarBlur: "14px",
     },
+    typography: {
+      bodyFont: "var(--font-manrope)",
+      displayFont: "var(--font-manrope)",
+      monoFont: "var(--font-ibm-plex-mono)",
+      eyebrowSpacing: "0.18em",
+    },
+    workspace: {
+      railWidth: "248px",
+      contextWidth: "254px",
+      shellGap: "14px",
+      shellPadding: "16px",
+      heroColumns: "1.42fr 0.78fr",
+      heroMinHeight: "174px",
+    },
     light: {
       brand: "#1d4ed8",
       brandStrong: "#1e40af",
@@ -410,10 +484,24 @@ export const HBX_THEME_PALETTES: Record<HbxThemeId, HbxThemePalette> = {
       radiusMd: "12px",
       radiusLg: "16px",
       radiusXl: "22px",
-      topbarWidth: "1700px",
-      contentWidth: "1720px",
+      topbarWidth: "1720px",
+      contentWidth: "1760px",
       contentGutter: "16px",
       topbarBlur: "10px",
+    },
+    typography: {
+      bodyFont: "var(--font-sora)",
+      displayFont: "var(--font-space-grotesk)",
+      monoFont: "var(--font-ibm-plex-mono)",
+      eyebrowSpacing: "0.16em",
+    },
+    workspace: {
+      railWidth: "324px",
+      contextWidth: "296px",
+      shellGap: "16px",
+      shellPadding: "16px",
+      heroColumns: "1.4fr 0.82fr",
+      heroMinHeight: "186px",
     },
     light: {
       brand: "#3151a4",

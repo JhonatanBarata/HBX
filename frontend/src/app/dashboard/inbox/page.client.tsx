@@ -147,17 +147,6 @@ function formatDateLabel(dateStr: string | null | undefined, mounted: boolean) {
   return parsed.toLocaleString("pt-BR");
 }
 
-function getMessageMeta(message: InboxMessage) {
-  const parts = [
-    String(message.senderType || "").trim().toLowerCase() || "system",
-    String(message.messageType || "").trim().toLowerCase() || "text",
-    String(message.status || "").trim().toUpperCase() || "RECEIVED",
-  ];
-  if (message.sourceModule) parts.push(String(message.sourceModule).replaceAll("_", " "));
-  if (message.error) parts.push(`erro: ${message.error}`);
-  return parts.join(" • ");
-}
-
 function getBubbleClass(message: InboxMessage) {
   const direction = String(message.direction || "").trim().toLowerCase();
   const senderType = String(message.senderType || "").trim().toLowerCase();
@@ -554,6 +543,18 @@ export default function InboxClientPage() {
   const selectedStatus = selectedConversation?.status ?? "new";
   const selectedRouteIsRecovery = selectedConversation?.routeTarget === "recovery";
   const selectedBlocked = Boolean(selectedConversation?.isBlocked);
+  const selectedConversationMetadata =
+    (selectedConversation?.metadata as Record<string, unknown> | null | undefined) ?? null;
+  const selectedConversationDisplayName =
+    selectedConversation?.customer.name ||
+    String(
+      selectedConversationMetadata?.waNickname ||
+        selectedConversationMetadata?.whatsappName ||
+        selectedConversationMetadata?.whatsappProfileName ||
+        "",
+    ).trim() ||
+    selectedConversation?.customer.phone ||
+    "";
   const humanAttentionPreview = humanAttentionConversations[0] || null;
   const newInboundPreview = newInboundConversations[0] || null;
   const humanQueueLabel = `${humanAttentionConversations.length} mensagem${
@@ -1211,7 +1212,7 @@ export default function InboxClientPage() {
     window.requestAnimationFrame(() => {
       timeline.scrollTop = timeline.scrollHeight;
     });
-  }, [selectedConversation?.id, selectedConversation?.messages.length]);
+  }, [selectedConversation, selectedConversation?.id, selectedConversation?.messages.length]);
 
   useEffect(() => {
     if (humanAlertTimerRef.current !== null) {
@@ -1351,8 +1352,16 @@ export default function InboxClientPage() {
           <article className={styles.workspaceCard}>
             <div className={styles.sectionHead}>
               <div>
-                <p className={styles.sectionEyebrow}>Inbox do Atendimento</p>
+                <p className={styles.sectionEyebrow}>Fila viva do Atendimento</p>
                 <h3>Mensagens recebidas</h3>
+                <small>
+                  {pendingAtendimentoCount} em aberto · {humanAttentionConversations.length} em
+                  humano · {newInboundConversations.length} novas aguardando leitura.
+                </small>
+              </div>
+              <div className={styles.heroMeta}>
+                <span className={styles.pulseBadge}>{pendingAtendimentoCount} na fila</span>
+                <span className={styles.metaBadge}>{filteredConversations.length} monitoradas</span>
               </div>
             </div>
 
@@ -1419,14 +1428,7 @@ export default function InboxClientPage() {
                   <div>
                     <p className={styles.sectionEyebrow}>Conversa ativa</p>
                     <h3>
-                      {selectedConversation.customer.name ||
-                        String(
-                          (selectedConversation.metadata as any)?.waNickname ||
-                            (selectedConversation.metadata as any)?.whatsappName ||
-                            (selectedConversation.metadata as any)?.whatsappProfileName ||
-                            '',
-                        ).trim() ||
-                        selectedConversation.customer.phone}
+                      {selectedConversationDisplayName}
                     </h3>
                     <small>{selectedConversation.customer.phone}</small>
                   </div>
@@ -1556,6 +1558,105 @@ export default function InboxClientPage() {
               </>
             )}
           </article>
+
+          <aside className={styles.workspaceCard}>
+            <div className={styles.sectionHead}>
+              <div>
+                <p className={styles.sectionEyebrow}>Prioridades do turno</p>
+                <h3>Fila humana e atalhos</h3>
+                <small>Visao resumida para agir sem perder contexto.</small>
+              </div>
+            </div>
+
+            <div className={styles.priorityList}>
+              {humanAttentionPreview ? (
+                <button
+                  type="button"
+                  className={styles.priorityItem}
+                  onClick={() => void loadConversation(humanAttentionPreview.id)}
+                >
+                  <div className={styles.conversationHead}>
+                    <div>
+                      <strong>
+                        {humanAttentionPreview.customer.name || humanAttentionPreview.customer.phone}
+                      </strong>
+                      <small>{humanAttentionPreview.customer.phone}</small>
+                    </div>
+                    <div className={styles.priorityMeta}>
+                      <span className={styles.pulseBadge}>Fila humana</span>
+                    </div>
+                  </div>
+                  <p>{getMessagePreview(humanAttentionPreview.messages?.[0])}</p>
+                  <div className={styles.conversationFoot}>
+                    <span>Assumir agora</span>
+                    <span>{formatDateLabel(humanAttentionPreview.updatedAt, mounted)}</span>
+                  </div>
+                </button>
+              ) : (
+                <div className={styles.emptyState}>Nenhuma conversa em fila humana agora.</div>
+              )}
+
+              {newInboundPreview ? (
+                <button
+                  type="button"
+                  className={styles.priorityItem}
+                  onClick={() => void loadConversation(newInboundPreview.id)}
+                >
+                  <div className={styles.conversationHead}>
+                    <div>
+                      <strong>
+                        {newInboundPreview.customer.name || newInboundPreview.customer.phone}
+                      </strong>
+                      <small>{newInboundPreview.customer.phone}</small>
+                    </div>
+                    <div className={styles.priorityMeta}>
+                      <span className={styles.metaBadge}>Nova mensagem</span>
+                    </div>
+                  </div>
+                  <p>{getMessagePreview(newInboundPreview.messages?.[0])}</p>
+                  <div className={styles.conversationFoot}>
+                    <span>Responder rapido</span>
+                    <span>{formatDateLabel(newInboundPreview.updatedAt, mounted)}</span>
+                  </div>
+                </button>
+              ) : null}
+            </div>
+
+            <div className={styles.flowList}>
+              <button
+                type="button"
+                className={styles.switchCard}
+                onClick={() => setActiveTab("customers")}
+              >
+                <strong>Base de clientes</strong>
+                <span>{atendimentoCustomers.length} registros locais para revisar.</span>
+              </button>
+              <button
+                type="button"
+                className={styles.switchCard}
+                onClick={() => setActiveTab("templates")}
+              >
+                <strong>Templates Meta</strong>
+                <span>{metaTemplates.counters.total} modelos sincronizados no atendimento.</span>
+              </button>
+              <button
+                type="button"
+                className={styles.switchCard}
+                onClick={() => setActiveTab("agenda")}
+              >
+                <strong>Agenda</strong>
+                <span>{agendaConfig.groups.length} grupos prontos para o bot oferecer.</span>
+              </button>
+              <button
+                type="button"
+                className={styles.switchCard}
+                onClick={() => setActiveTab("bot")}
+              >
+                <strong>Editor do bot</strong>
+                <span>{botConfig.actionCatalog.length} acoes configuradas para a triagem.</span>
+              </button>
+            </div>
+          </aside>
         </section>
       ) : null}
 
