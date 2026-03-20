@@ -514,6 +514,77 @@ export default function InboxClientPage() {
     humanAttentionConversations.length === 1 ? "" : "s"
   }`;
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const summaryParts = [
+      `Atendimento na aba ${activeTab}`,
+      selectedConversation?.customer?.name
+        ? `conversa selecionada com ${selectedConversation.customer.name}`
+        : selectedId
+          ? `conversa selecionada ${selectedId}`
+          : "sem conversa selecionada",
+    ];
+    if (selectedConversation?.routeTarget) {
+      summaryParts.push(`rota ${selectedConversation.routeTarget}`);
+    }
+    if (selectedBlocked) {
+      summaryParts.push("contato bloqueado");
+    }
+
+    window.dispatchEvent(
+      new CustomEvent("hbx-tech-assistant:page-context", {
+        detail: {
+          moduleKey: "atendimento",
+          route: "/dashboard/inbox",
+          summary: summaryParts.join(", "),
+          tags: [
+            activeTab,
+            selectedStatus,
+            selectedConversation?.routeTarget || "sem_rota",
+            selectedBlocked ? "bloqueado" : "ativo",
+          ],
+          details: {
+            activeTab,
+            selectedConversationId: selectedId || null,
+            selectedConversationName: selectedConversation?.customer?.name || null,
+            selectedConversationPhone: selectedConversation?.customer?.phone || null,
+            selectedStatus,
+            selectedRoute: selectedConversation?.routeTarget || null,
+            selectedBlocked,
+            loadingConversation,
+            loadingBot,
+            savingBot,
+            loadingAgenda,
+            savingAgenda,
+            syncingTemplates,
+            creatingTemplate,
+            humanAttentionCount: humanAttentionConversations.length,
+            newInboundCount: newInboundConversations.length,
+            conversationsCount: conversations.length,
+          },
+        },
+      }),
+    );
+  }, [
+    activeTab,
+    conversations.length,
+    creatingTemplate,
+    humanAttentionConversations.length,
+    loadingAgenda,
+    loadingBot,
+    loadingConversation,
+    newInboundConversations.length,
+    savingAgenda,
+    savingBot,
+    selectedBlocked,
+    selectedConversation?.customer?.name,
+    selectedConversation?.customer?.phone,
+    selectedConversation?.routeTarget,
+    selectedId,
+    selectedStatus,
+    syncingTemplates,
+  ]);
+
   const updateStatus = useCallback(
     async (status: Exclude<StatusFilter, "all" | "blocked">) => {
       if (!selectedId) return;
@@ -1356,8 +1427,7 @@ export default function InboxClientPage() {
                       <div key={message.id} className={`${styles.chatBubble} ${getBubbleClass(message)}`}>
                         <p>{getMessagePreview(message)}</p>
                         <div className={styles.chatMeta}>
-                          <span>{getMessageMeta(message)}</span>
-                          <span>{formatDateLabel(message.createdAt, mounted)}</span>
+                          <span className={styles.chatDate}>{formatDateLabel(message.createdAt, mounted)}</span>
                         </div>
                       </div>
                     ))

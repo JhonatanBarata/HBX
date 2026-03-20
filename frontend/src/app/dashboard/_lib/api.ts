@@ -54,6 +54,19 @@ function parseErrorMessage(data: unknown): string {
   return "Erro";
 }
 
+function dispatchTechAssistantApiError(detail: Record<string, unknown>) {
+  if (typeof window === "undefined") return;
+  try {
+    window.dispatchEvent(
+      new CustomEvent("hbx-tech-assistant:api-error", {
+        detail,
+      }),
+    );
+  } catch {
+    // ignore event dispatch errors
+  }
+}
+
 export async function apiFetch<T>(
   path: string,
   init?: RequestInit & { skipAuth?: boolean }
@@ -83,6 +96,18 @@ export async function apiFetch<T>(
 
   if (!res.ok) {
     const message = typeof data === "string" ? data : parseErrorMessage(data);
+    dispatchTechAssistantApiError({
+      path,
+      url,
+      method: String(init?.method || "GET").toUpperCase(),
+      status: res.status,
+      message,
+      response:
+        typeof data === "string"
+          ? data.slice(0, 1200)
+          : JSON.stringify(data ?? null).slice(0, 1200),
+      at: new Date().toISOString(),
+    });
     throw new Error(message);
   }
 

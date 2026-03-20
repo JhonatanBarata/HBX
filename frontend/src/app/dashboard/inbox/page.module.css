@@ -485,6 +485,11 @@
   color: var(--muted);
 }
 
+.chatDate {
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+
 .inboundBubble {
   background: linear-gradient(180deg, #ffffff, #f8fbfd);
 }

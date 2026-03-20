@@ -1562,6 +1562,87 @@ export default function HbxRecoveryClientPage() {
     registrationDate: todayIsoDate(),
     registrationDateInput: isoDateToMaskedDigits(todayIsoDate()),
   });
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const summaryParts = [
+      `Recovery na aba ${activeTab}`,
+      interactionDetail?.customer?.name
+        ? `cliente em foco ${interactionDetail.customer.name}`
+        : drawerCustomerId
+          ? `drawer aberto para ${drawerCustomerId}`
+          : "sem cliente em foco",
+    ];
+    if (interactionDetail?.conversationId) {
+      summaryParts.push(`conversa ${interactionDetail.conversationId}`);
+    }
+    if (selectedCustomerIds.length) {
+      summaryParts.push(`${selectedCustomerIds.length} cliente(s) selecionado(s)`);
+    }
+
+    window.dispatchEvent(
+      new CustomEvent("hbx-tech-assistant:page-context", {
+        detail: {
+          moduleKey: "hbx_recovery",
+          route: "/hbx-recovery",
+          summary: summaryParts.join(", "),
+          tags: [
+            activeTab,
+            drawerOpen ? "drawer_aberto" : "drawer_fechado",
+            interactionDetail?.customer?.status || "sem_status",
+            selectedCustomerIds.length ? "com_selecao" : "sem_selecao",
+          ],
+          details: {
+            activeTab,
+            renderedTab,
+            drawerOpen,
+            drawerCustomerId,
+            selectedCustomerCount: selectedCustomerIds.length,
+            interactionConversationId: interactionDetail?.conversationId || null,
+            interactionCustomerId: interactionDetail?.customer?.id || null,
+            interactionCustomerName: interactionDetail?.customer?.name || null,
+            interactionStatus: interactionDetail?.customer?.status || null,
+            interactionRouteTarget: interactionDetail?.currentFlow || null,
+            loadingBotConfig,
+            savingBotConfig,
+            loadingMetaTemplates,
+            metaTemplateBusy,
+            loadingInteractions,
+            refreshingInteractions,
+            interactionActionBusy,
+            loadingCustomers,
+            loadingAgenda,
+            loadingPaymentHistory,
+            customerAutomationBusyId,
+            customerAutomationBatchBusy,
+          },
+        },
+      }),
+    );
+  }, [
+    activeTab,
+    customerAutomationBatchBusy,
+    customerAutomationBusyId,
+    drawerCustomerId,
+    drawerOpen,
+    interactionActionBusy,
+    interactionDetail?.conversationId,
+    interactionDetail?.currentFlow,
+    interactionDetail?.customer?.id,
+    interactionDetail?.customer?.name,
+    interactionDetail?.customer?.status,
+    loadingAgenda,
+    loadingBotConfig,
+    loadingCustomers,
+    loadingInteractions,
+    loadingMetaTemplates,
+    loadingPaymentHistory,
+    metaTemplateBusy,
+    refreshingInteractions,
+    renderedTab,
+    savingBotConfig,
+    selectedCustomerIds.length,
+  ]);
   const [customerSource, setCustomerSource] = useState<RecoveryCustomer[]>([]);
   const closeTimerRef = useRef<number | null>(null);
   const customerRefreshTimerRef = useRef<number | null>(null);
