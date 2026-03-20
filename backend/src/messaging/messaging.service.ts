@@ -2242,11 +2242,13 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
 
     const metadata = this.parseConversationMetadata(conversation?.metadata);
     const blockedState = this.getAtendimentoBlockedState(metadata);
+    const inboundProfileName = String((rawPayload as any)?._contactName || '').trim();
 
     // Upsert customer record on every inbound message
     await this.upsertAtendimentoCustomerLocal({
       companyId,
       phone: from,
+      name: inboundProfileName || undefined,
       conversationId: safeConversationId || null,
     });
 
@@ -3313,6 +3315,16 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
           statusesHandled++;
         }
 
+        const contacts = Array.isArray(value?.contacts) ? value.contacts : [];
+        const contactNameByWaId = new Map<string, string>();
+        for (const c of contacts) {
+          const waId = String(c?.wa_id || '').replace(/\D/g, '');
+          const profileName = String(c?.profile?.name || '').trim();
+          if (waId && profileName) {
+            contactNameByWaId.set(waId, profileName);
+          }
+        }
+
         // Inbound messages
         const messages = Array.isArray(value?.messages) ? value.messages : [];
         for (const m of messages) {
@@ -3343,6 +3355,9 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
           const from = m?.from ? String(m.from) : '';
           const type = normalizeWhatsAppMessageType(m?.type);
           const text = extractInboundTextFromPayload(m);
+          const contactProfileName = String(
+            contactNameByWaId.get(String(from).replace(/\D/g, '')) || '',
+          ).trim();
           if (!from) continue;
 
           const tsMs = m?.timestamp ? Number(String(m.timestamp)) * 1000 : NaN;
@@ -3356,7 +3371,10 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
             senderType: 'customer',
             messageType: type === 'template' ? 'text' : type,
             text,
-            rawPayload: m,
+            rawPayload: {
+              ...(m || {}),
+              _contactName: contactProfileName || undefined,
+            },
             externalMessageId: providerMessageId || null,
             timestamp: receivedAt,
             receivedOnEndpointId: inboundEndpoint?.id || null,
@@ -3498,6 +3516,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     if (!company) throw new NotFoundException(`Company with id ${companyId} not found`);
 
     const inboundType = normalizeWhatsAppMessageType(input.messageType);
+    const inboundContactName = String((input.rawPayload as any)?._contactName || '').trim();
     const inboundRow = await this.conversations.recordInboundMessage({
       companyId,
       from,
@@ -3521,6 +3540,13 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
         data: {
           metadata: JSON.stringify({
             ...metadata,
+            ...(inboundContactName
+              ? {
+                  whatsappName: inboundContactName,
+                  waNickname: inboundContactName,
+                  whatsappProfileName: inboundContactName,
+                }
+              : {}),
             whatsappEntryEndpointId: String(input.receivedOnEndpointId || '').trim() || null,
             whatsappEntryPhoneNumberId: String(input.receivedOnPhoneNumberId || '').trim() || null,
             whatsappEntryDisplayNumber: String(input.receivedOnDisplayNumber || '').trim() || null,

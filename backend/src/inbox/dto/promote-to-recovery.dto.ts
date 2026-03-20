@@ -11,4 +11,8 @@ export class PromoteToRecoveryDto {
   @IsOptional()
   @IsString()
   saleDate?: string | null;
+
+  @IsOptional()
+  @IsString()
+  companyName?: string | null;
 }

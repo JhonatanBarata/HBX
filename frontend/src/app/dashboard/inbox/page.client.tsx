@@ -242,7 +242,7 @@ export default function InboxClientPage() {
   const [customerForm, setCustomerForm] = useState({ phone: "", name: "", route: "atendimento", notes: "" });
   const [savingCustomer, setSavingCustomer] = useState(false);
   const [promoteTarget, setPromoteTarget] = useState<AtendimentoCustomer | null>(null);
-  const [promoteForm, setPromoteForm] = useState({ openAmount: "", saleDate: "" });
+  const [promoteForm, setPromoteForm] = useState({ openAmount: "", saleDate: "", companyName: "" });
   const [savingPromotion, setSavingPromotion] = useState(false);
 
   useEffect(() => {
@@ -1364,7 +1364,16 @@ export default function InboxClientPage() {
                 <div className={styles.sectionHead}>
                   <div>
                     <p className={styles.sectionEyebrow}>Conversa ativa</p>
-                    <h3>{selectedConversation.customer.name || selectedConversation.customer.phone}</h3>
+                    <h3>
+                      {selectedConversation.customer.name ||
+                        String(
+                          (selectedConversation.metadata as any)?.waNickname ||
+                            (selectedConversation.metadata as any)?.whatsappName ||
+                            (selectedConversation.metadata as any)?.whatsappProfileName ||
+                            '',
+                        ).trim() ||
+                        selectedConversation.customer.phone}
+                    </h3>
                     <small>{selectedConversation.customer.phone}</small>
                   </div>
                   <div className={styles.detailMeta}>
@@ -1592,7 +1601,11 @@ export default function InboxClientPage() {
                                 className="btn btn-warning btn-sm"
                                 onClick={() => {
                                   setPromoteTarget(customer);
-                                  setPromoteForm({ openAmount: "", saleDate: "" });
+                                  setPromoteForm({
+                                    openAmount: "",
+                                    saleDate: "",
+                                    companyName: customer.name ?? "",
+                                  });
                                 }}
                               >
                                 Enviar para Recovery
@@ -1708,6 +1721,7 @@ export default function InboxClientPage() {
                         body: JSON.stringify({
                           openAmount: amount,
                           saleDate: promoteForm.saleDate || undefined,
+                          companyName: promoteForm.companyName.trim() || undefined,
                         }),
                       });
                       setPromoteTarget(null);
@@ -1720,6 +1734,19 @@ export default function InboxClientPage() {
                     }
                   }}
                 >
+                  <div className={styles.formGroup}>
+                    <label htmlFor="rec-company">Empresa (opcional)</label>
+                    <input
+                      id="rec-company"
+                      type="text"
+                      className={styles.formInput}
+                      placeholder="Nome da empresa"
+                      value={promoteForm.companyName}
+                      onChange={(e) =>
+                        setPromoteForm((prev) => ({ ...prev, companyName: e.target.value }))
+                      }
+                    />
+                  </div>
                   <div className={styles.formGroup}>
                     <label htmlFor="rec-amount">Valor em aberto (R$) *</label>
                     <input

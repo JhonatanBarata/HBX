@@ -119,7 +119,15 @@ export class InboxService {
 
   private async resolveConversationDisplayName(companyId: number, contact: string, metadataRaw?: string | null) {
     const metadata = this.parseConversationMetadata(metadataRaw);
-    const metadataName = String(metadata?.cliente || metadata?.customerName || metadata?.name || '').trim();
+    const metadataName = String(
+      metadata?.cliente ||
+        metadata?.customerName ||
+        metadata?.name ||
+        metadata?.waNickname ||
+        metadata?.whatsappName ||
+        metadata?.whatsappProfileName ||
+        '',
+    ).trim();
     if (metadataName) return metadataName;
     const digits = String(contact || '').replace(/\D/g, '');
     if (!digits) return null;
@@ -775,7 +783,11 @@ export class InboxService {
     return atendRows.map((r: any) => this.buildCustomerRecord(r, recoveryByPhone.get(r.phoneNormalized) ?? null));
   }
 
-  async promoteToRecovery(user: any, customerId: string, dto: { openAmount: number; saleDate?: string | null }) {
+  async promoteToRecovery(
+    user: any,
+    customerId: string,
+    dto: { openAmount: number; saleDate?: string | null; companyName?: string | null },
+  ) {
     const companyId = this.requireCompanyIdFromUser(user);
     const customer = await this.prisma.atendimentoCustomer.findFirst({
       where: { id: customerId, companyId },
@@ -793,11 +805,12 @@ export class InboxService {
     const rawPhone = String(customer.phone);
     const waNumber = rawPhone.startsWith('+') ? rawPhone : `+${rawPhone}`;
     const displayName = customer.name || rawPhone;
+    const companyName = String(dto.companyName || '').trim() || displayName;
 
     await (this.prisma as any).hbxRecoveryCustomer.create({
       data: {
         companyId,
-        name: displayName,
+        name: companyName,
         clientName: displayName,
         whatsappNumber: waNumber,
         openAmount: Number(dto.openAmount),
