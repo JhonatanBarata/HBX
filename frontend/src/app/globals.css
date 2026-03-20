@@ -153,24 +153,47 @@ a {
   max-width: 1320px;
   margin: 0 auto;
   min-height: var(--topbar-height);
-  display: flex;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
   align-items: center;
-  justify-content: space-between;
+  justify-content: stretch;
   gap: 1rem;
   padding: 0.8rem 1rem;
 }
+
+.app-topbar__inner > * { align-self: center; }
+
+.app-topbar__left { justify-self: start; }
+.app-topbar__center { justify-self: center; display: flex; align-items: center; justify-content: center; min-width: 0; }
+.app-topbar__right { justify-self: end; display: flex; align-items: center; gap: 0.6rem; }
+
+.app-brand { justify-self: start; }
+
+.app-topbar__controls { display:flex; align-items:center; gap:0.5rem; padding-right:6px; }
+.app-topbar__user { margin-left: 6px; }
+.app-topbar__auth { margin-left: 8px; }
+
+/* Visual separators and consistent pill sizing */
+.app-topbar__controls .theme-switcher { margin: 0; }
+.heroTab, .heroTabActive { padding: 0.36rem 0.6rem; min-width: 54px; }
+.heroTabGroup { gap: 0.28rem; padding: 0.2rem; }
+
+/* ensure nav scroll doesn't overflow header */
+.moduleNavHeader .heroTabGroup { max-width: calc(100% - 12px); }
 
 .app-topbar__left {
   min-width: 0;
   display: flex;
   align-items: center;
   gap: 0.8rem;
+  flex: 1 1 auto;
 }
 
 .app-topbar__right {
   display: flex;
   align-items: center;
   gap: 0.55rem;
+  flex: 0 0 auto;
 }
 
 .app-brand {
