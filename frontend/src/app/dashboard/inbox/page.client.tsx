@@ -35,6 +35,7 @@ import {
   type AtendimentoBotButton,
   type AtendimentoBotConfig,
   type AtendimentoBotVariableScope,
+  type AtendimentoCustomer,
   type InboxConversation,
   type InboxMessage,
   type InboxRouteTarget,
@@ -234,6 +235,13 @@ export default function InboxClientPage() {
   const noticeTimerRef = useRef<number | null>(null);
   const chatTimelineRef = useRef<HTMLDivElement | null>(null);
 
+  // Customer management state
+  const [atendimentoCustomers, setAtendimentoCustomers] = useState<AtendimentoCustomer[]>([]);
+  const [loadingCustomers, setLoadingCustomers] = useState(false);
+  const [showCreateCustomerModal, setShowCreateCustomerModal] = useState(false);
+  const [customerForm, setCustomerForm] = useState({ phone: "", name: "", route: "atendimento", notes: "" });
+  const [savingCustomer, setSavingCustomer] = useState(false);
+
   useEffect(() => {
     setMounted(true);
   }, []);
@@ -327,6 +335,18 @@ export default function InboxClientPage() {
     }
   }, []);
 
+  const loadAtendimentoCustomers = useCallback(async () => {
+    setLoadingCustomers(true);
+    try {
+      const data = await apiFetch<AtendimentoCustomer[]>("/inbox/customers");
+      setAtendimentoCustomers(data ?? []);
+    } catch {
+      // non-fatal
+    } finally {
+      setLoadingCustomers(false);
+    }
+  }, []);
+
   useEffect(() => {
     if (hasToken !== true) return;
     return startSmartPolling(() => loadConversations({ silent: true }), {
@@ -339,6 +359,11 @@ export default function InboxClientPage() {
     if (hasToken !== true) return;
     void Promise.all([loadBotConfig(), loadAgendaConfig(), loadTemplates()]);
   }, [hasToken, loadAgendaConfig, loadBotConfig, loadTemplates]);
+
+  useEffect(() => {
+    if (hasToken !== true) return;
+    if (activeTab === "customers") void loadAtendimentoCustomers();
+  }, [hasToken, activeTab, loadAtendimentoCustomers]);
 
   const pendingAtendimentoConversations = useMemo(
     () =>
@@ -1470,95 +1495,79 @@ export default function InboxClientPage() {
 
       {activeTab === "customers" ? (
         <section className={styles.stackSection}>
-          <article className={`panel ${recoveryStyles.sectionCard}`}>
-            <div className={recoveryStyles.sectionHeader}>
-              <div>
-                <p className={recoveryStyles.sectionEyebrow}>Importacao e integracoes</p>
-                <h3 className={recoveryStyles.sectionTitle}>Entrada em lote</h3>
-                <p className={recoveryStyles.sectionDescription}>
-                  Importe sua planilha real com as mesmas colunas do cadastro: Empresa, Cliente,
-                  WhatsApp, Valor em aberto e Dia do registro.
-                </p>
-              </div>
-              <Link href="/hbx-recovery" className="btn btn-primary btn-sm">
-                Importar
-              </Link>
-            </div>
-          </article>
-
           <article className={`panel ${recoveryStyles.sectionCard} ${recoveryStyles.registerTableCard}`}>
             <div className={recoveryStyles.sectionHeader}>
               <div>
                 <p className={recoveryStyles.sectionEyebrow}>Tabela de clientes</p>
                 <h3 className={recoveryStyles.sectionTitle}>Base operacional do Atendimento</h3>
                 <p className={recoveryStyles.sectionDescription}>
-                  Equivalente da tabela de inadimplentes, mas agora focada em clientes, rota e
-                  prioridade de atendimento.
+                  Clientes cadastrados pelo bot ou manualmente. Origem, status e ultima interacao.
                 </p>
               </div>
-              <span className="badge badge-brand">{customerRows.length} clientes</span>
+              <div className={styles.footerActions}>
+                <span className="badge badge-brand">{atendimentoCustomers.length} clientes</span>
+                <button
+                  type="button"
+                  className="btn btn-primary btn-sm"
+                  onClick={() => {
+                    setCustomerForm({ phone: "", name: "", route: "atendimento", notes: "" });
+                    setShowCreateCustomerModal(true);
+                  }}
+                >
+                  Novo cliente
+                </button>
+              </div>
             </div>
 
-            {customerRows.length === 0 ? (
-              <div className={styles.emptyState}>Nenhum cliente encontrado neste recorte.</div>
+            {loadingCustomers ? (
+              <div className={styles.emptyState}>Carregando clientes...</div>
+            ) : atendimentoCustomers.length === 0 ? (
+              <div className={styles.emptyState}>Nenhum cliente cadastrado ainda. Clientes aparecem aqui automaticamente ao interagir pelo WhatsApp.</div>
             ) : (
               <div className={recoveryStyles.tableWrap}>
                 <table className={recoveryStyles.importPreviewTable}>
                   <thead>
                     <tr>
                       <th>Cliente</th>
-                      <th>Rota</th>
-                      <th>Em aberto</th>
-                      <th>Conversas</th>
-                      <th>Ultima mensagem</th>
-                      <th>Ultima atualizacao</th>
+                      <th>Origem</th>
+                      <th>Status</th>
+                      <th>Ultima interacao</th>
+                      <th>Cadastrado em</th>
                       <th>Acoes</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {customerRows.map((row) => (
-                      <tr key={row.phone}>
+                    {atendimentoCustomers.map((customer) => (
+                      <tr key={customer.id}>
                         <td className={styles.customerCell}>
-                          <strong>{row.customerName}</strong>
-                          <span>{row.phone}</span>
+                          <strong>{customer.name ?? <em className={styles.mutedText}>Sem nome confirmado</em>}</strong>
+                          <span>{customer.phone}</span>
                         </td>
                         <td>
-                          <div className={styles.detailMeta}>
-                            <span
-                              className={
-                                row.routeTarget === "recovery"
-                                  ? styles.routeRecovery
-                                  : styles.routeAtendimento
-                              }
-                            >
-                              {row.routeTarget === "recovery" ? "Recovery" : "Atendimento"}
-                            </span>
-                            {row.blockedCount > 0 ? (
-                              <span className={styles.blockTag}>{row.blockedCount} bloqueada(s)</span>
-                            ) : null}
-                          </div>
-                          <small>{row.recoveryCurrentStep || row.routeReason}</small>
+                          <span className={customer.registrationOrigin === "manual" ? styles.badgeManual : styles.badgeWhatsapp}>
+                            {customer.registrationOrigin === "manual" ? "Manual" : "WhatsApp"}
+                          </span>
                         </td>
-                        <td>{row.openAmount > 0 ? formatCurrency(row.openAmount) : "-"}</td>
-                        <td>{`${row.activeConversationCount} ativa(s) / ${row.conversationCount} total`}</td>
-                        <td>{row.latestPreview}</td>
-                        <td>{formatDateLabel(row.updatedAt, mounted)}</td>
+                        <td>
+                          <span className={customer.registrationStatus === "confirmed" ? styles.badgeConfirmed : styles.badgePending}>
+                            {customer.registrationStatus === "confirmed" ? "Confirmado" : "Pendente"}
+                          </span>
+                        </td>
+                        <td>{formatDateLabel(customer.lastMessageAt, mounted)}</td>
+                        <td>{formatDateLabel(customer.createdAt, mounted)}</td>
                         <td>
                           <div className={styles.footerActions}>
-                            <button
-                              type="button"
-                              className="btn btn-secondary btn-sm"
-                              onClick={() => {
-                                setActiveTab("messages");
-                                void loadConversation(row.conversationId);
-                              }}
-                            >
-                              Abrir conversa
-                            </button>
-                            {row.routeTarget === "recovery" ? (
-                              <Link href={row.recoverySuggestedPath} className="btn btn-primary btn-sm">
-                                Recovery
-                              </Link>
+                            {customer.conversationId ? (
+                              <button
+                                type="button"
+                                className="btn btn-secondary btn-sm"
+                                onClick={() => {
+                                  setActiveTab("messages");
+                                  void loadConversation(String(customer.conversationId));
+                                }}
+                              >
+                                Ver conversa
+                              </button>
                             ) : null}
                           </div>
                         </td>
@@ -1569,6 +1578,87 @@ export default function InboxClientPage() {
               </div>
             )}
           </article>
+
+          {showCreateCustomerModal ? (
+            <div className={styles.modalBackdrop}>
+              <div className={styles.modalCard}>
+                <h3 className={styles.modalTitle}>Novo cliente</h3>
+                <form
+                  onSubmit={async (e: FormEvent) => {
+                    e.preventDefault();
+                    if (!customerForm.phone.trim()) return;
+                    setSavingCustomer(true);
+                    try {
+                      await apiFetch("/inbox/customers", {
+                        method: "POST",
+                        body: JSON.stringify({
+                          phone: customerForm.phone.trim(),
+                          name: customerForm.name.trim() || undefined,
+                          route: customerForm.route || "atendimento",
+                          notes: customerForm.notes.trim() || undefined,
+                        }),
+                      });
+                      setShowCreateCustomerModal(false);
+                      setNotice({ tone: "success", text: "Cliente cadastrado com sucesso." });
+                      void loadAtendimentoCustomers();
+                    } catch (err) {
+                      setNotice({ tone: "error", text: err instanceof Error ? err.message : "Erro ao cadastrar cliente." });
+                    } finally {
+                      setSavingCustomer(false);
+                    }
+                  }}
+                >
+                  <div className={styles.formGroup}>
+                    <label htmlFor="cust-phone">Telefone (WhatsApp) *</label>
+                    <input
+                      id="cust-phone"
+                      type="tel"
+                      className={styles.formInput}
+                      placeholder="Ex: 5511999998888"
+                      value={customerForm.phone}
+                      onChange={(e) => setCustomerForm((prev) => ({ ...prev, phone: e.target.value }))}
+                      required
+                    />
+                  </div>
+                  <div className={styles.formGroup}>
+                    <label htmlFor="cust-name">Nome</label>
+                    <input
+                      id="cust-name"
+                      type="text"
+                      className={styles.formInput}
+                      placeholder="Nome do cliente"
+                      value={customerForm.name}
+                      onChange={(e) => setCustomerForm((prev) => ({ ...prev, name: e.target.value }))}
+                    />
+                  </div>
+                  <div className={styles.formGroup}>
+                    <label htmlFor="cust-notes">Observacoes</label>
+                    <textarea
+                      id="cust-notes"
+                      className={styles.formInput}
+                      placeholder="Informacoes adicionais"
+                      value={customerForm.notes}
+                      onChange={(e) => setCustomerForm((prev) => ({ ...prev, notes: e.target.value }))}
+                      rows={3}
+                    />
+                  </div>
+                  <div className={styles.modalActions}>
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-sm"
+                      onClick={() => setShowCreateCustomerModal(false)}
+                      disabled={savingCustomer}
+                    >
+                      Cancelar
+                    </button>
+                    <button type="submit" className="btn btn-primary btn-sm" disabled={savingCustomer}>
+                      {savingCustomer ? "Salvando..." : "Salvar"}
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          ) : null}
         </section>
       ) : null}
 

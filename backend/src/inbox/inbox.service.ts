@@ -629,4 +629,164 @@ export class InboxService {
 
     return this.getConversationByIdForCompany(companyId, conversationId);
   }
+
+  // ---------------------------------------------------------------------------
+  // AtendimentoCustomer helpers
+  // ---------------------------------------------------------------------------
+
+  static normalizePhone(raw: string): string {
+    return String(raw || '').replace(/\D/g, '').slice(-13);
+  }
+
+  private buildCustomerRecord(row: any) {
+    return {
+      id: String(row.id),
+      companyId: Number(row.companyId),
+      name: row.name ? String(row.name) : null,
+      phone: String(row.phone),
+      phoneNormalized: String(row.phoneNormalized),
+      registrationOrigin: String(row.registrationOrigin || 'whatsapp_bot'),
+      registrationStatus: String(row.registrationStatus || 'pending_confirmation'),
+      route: String(row.route || 'atendimento'),
+      notes: row.notes ? String(row.notes) : null,
+      lastMessageAt: row.lastMessageAt ? new Date(row.lastMessageAt).toISOString() : null,
+      conversationId: row.conversationId ? Number(row.conversationId) : null,
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
+    };
+  }
+
+  /**
+   * Upsert de cliente do Atendimento com base no telefone normalizado (usado pelo bot e webhook).
+   */
+  async upsertAtendimentoCustomer(input: {
+    companyId: number;
+    phone: string;
+    name?: string | null;
+    registrationOrigin?: string;
+    registrationStatus?: string;
+    conversationId?: number | null;
+    lastMessageAt?: Date | null;
+  }) {
+    const phoneNorm = InboxService.normalizePhone(input.phone);
+    if (!phoneNorm) return null;
+
+    const now = new Date();
+    const existing = await this.prisma.atendimentoCustomer.findUnique({
+      where: { companyId_phoneNormalized: { companyId: input.companyId, phoneNormalized: phoneNorm } },
+    });
+
+    if (existing) {
+      // Só atualiza nome se o existente estiver vazio
+      const shouldUpdateName = !existing.name && !!input.name;
+      const updated = await this.prisma.atendimentoCustomer.update({
+        where: { id: existing.id },
+        data: {
+          ...(shouldUpdateName ? { name: input.name!, registrationStatus: input.registrationStatus || existing.registrationStatus } : {}),
+          ...(input.conversationId ? { conversationId: input.conversationId } : {}),
+          lastMessageAt: input.lastMessageAt ?? now,
+          updatedAt: now,
+        },
+      });
+      return this.buildCustomerRecord(updated);
+    }
+
+    const newId = `atc_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const created = await this.prisma.atendimentoCustomer.create({
+      data: {
+        id: newId,
+        companyId: input.companyId,
+        phone: input.phone,
+        phoneNormalized: phoneNorm,
+        name: input.name || null,
+        registrationOrigin: input.registrationOrigin || 'whatsapp_bot',
+        registrationStatus: input.registrationStatus || 'pending_confirmation',
+        route: 'atendimento',
+        conversationId: input.conversationId ?? null,
+        lastMessageAt: input.lastMessageAt ?? now,
+        createdAt: now,
+        updatedAt: now,
+      },
+    });
+    return this.buildCustomerRecord(created);
+  }
+
+  async listAtendimentoCustomers(user: any, phoneFilter?: string) {
+    const companyId = this.requireCompanyIdFromUser(user);
+    const where: any = { companyId };
+    if (phoneFilter) {
+      const digits = InboxService.normalizePhone(phoneFilter);
+      if (digits) {
+        where.phoneNormalized = { endsWith: digits.slice(-9) };
+      }
+    }
+    const rows = await this.prisma.atendimentoCustomer.findMany({
+      where,
+      orderBy: { updatedAt: 'desc' },
+    });
+    return rows.map((r) => this.buildCustomerRecord(r));
+  }
+
+  async createAtendimentoCustomer(user: any, dto: { phone: string; name?: string; route?: string; notes?: string }) {
+    const companyId = this.requireCompanyIdFromUser(user);
+    const phone = this.requireTrimmed(dto.phone, 'phone');
+    const phoneNorm = InboxService.normalizePhone(phone);
+    if (!phoneNorm || phoneNorm.length < 8) {
+      throw new BadRequestException('Telefone invalido. Informe apenas os digitos incluindo DDI.');
+    }
+    const existing = await this.prisma.atendimentoCustomer.findUnique({
+      where: { companyId_phoneNormalized: { companyId, phoneNormalized: phoneNorm } },
+    });
+    if (existing) {
+      throw new BadRequestException(`Ja existe um cliente cadastrado com o telefone ${phone}.`);
+    }
+    const now = new Date();
+    const newId = `atc_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const created = await this.prisma.atendimentoCustomer.create({
+      data: {
+        id: newId,
+        companyId,
+        phone,
+        phoneNormalized: phoneNorm,
+        name: dto.name ? String(dto.name).trim() || null : null,
+        registrationOrigin: 'manual',
+        registrationStatus: 'manual',
+        route: dto.route ? String(dto.route).trim() || 'atendimento' : 'atendimento',
+        notes: dto.notes ? String(dto.notes).trim() || null : null,
+        createdAt: now,
+        updatedAt: now,
+      },
+    });
+    return this.buildCustomerRecord(created);
+  }
+
+  async updateAtendimentoCustomer(user: any, customerId: string, dto: { name?: string; route?: string; notes?: string; registrationStatus?: string }) {
+    const companyId = this.requireCompanyIdFromUser(user);
+    const existing = await this.prisma.atendimentoCustomer.findFirst({
+      where: { id: customerId, companyId },
+    });
+    if (!existing) throw new NotFoundException('Cliente nao encontrado.');
+    const updated = await this.prisma.atendimentoCustomer.update({
+      where: { id: customerId },
+      data: {
+        ...(dto.name !== undefined ? { name: dto.name ? dto.name.trim() || null : null } : {}),
+        ...(dto.route !== undefined ? { route: dto.route ? dto.route.trim() || 'atendimento' : 'atendimento' } : {}),
+        ...(dto.notes !== undefined ? { notes: dto.notes ? dto.notes.trim() || null : null } : {}),
+        ...(dto.registrationStatus !== undefined ? { registrationStatus: dto.registrationStatus } : {}),
+        updatedAt: new Date(),
+      },
+    });
+    return this.buildCustomerRecord(updated);
+  }
+
+  async getAtendimentoCustomerByPhone(user: any, phone: string) {
+    const companyId = this.requireCompanyIdFromUser(user);
+    const phoneNorm = InboxService.normalizePhone(phone);
+    if (!phoneNorm) throw new BadRequestException('Telefone invalido.');
+    const row = await this.prisma.atendimentoCustomer.findUnique({
+      where: { companyId_phoneNormalized: { companyId, phoneNormalized: phoneNorm } },
+    });
+    if (!row) throw new NotFoundException('Cliente nao encontrado.');
+    return this.buildCustomerRecord(row);
+  }
 }

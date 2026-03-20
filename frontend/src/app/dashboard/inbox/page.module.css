@@ -925,3 +925,112 @@
     width: min(100vw - 24px, 360px);
   }
 }
+
+/* Customer badges */
+.badgeWhatsapp {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  background: #dcfce7;
+  color: #166534;
+}
+
+.badgeManual {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  background: #e0f2fe;
+  color: #0369a1;
+}
+
+.badgePending {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  background: #fef9c3;
+  color: #854d0e;
+}
+
+.badgeConfirmed {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  background: #dcfce7;
+  color: #14532d;
+}
+
+.mutedText {
+  color: var(--muted);
+  font-style: italic;
+  font-weight: 400;
+}
+
+/* Modal */
+.modalBackdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 999;
+}
+
+.modalCard {
+  background: var(--surface, #fff);
+  border-radius: 12px;
+  padding: 28px 32px;
+  min-width: 360px;
+  max-width: 480px;
+  width: 100%;
+  box-shadow: 0 8px 40px rgba(0, 0, 0, 0.18);
+}
+
+.modalTitle {
+  font-size: 1.1rem;
+  font-weight: 700;
+  margin-bottom: 20px;
+}
+
+.formGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 14px;
+}
+
+.formGroup label {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.formInput {
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border, #e2e8f0);
+  font-size: 0.9rem;
+  width: 100%;
+  background: var(--surface-alt, #f8fafc);
+  resize: vertical;
+}
+
+.formInput:focus {
+  outline: 2px solid var(--brand);
+  border-color: var(--brand);
+}
+
+.modalActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 20px;
+}

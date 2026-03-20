@@ -76,6 +76,7 @@ model Company {
   techAssistantInteractions TechAssistantInteraction[]
   masterAssumedContextSessions MasterAssumedContextSession[]
   masterSupportAuditLogs MasterSupportAuditLog[]
+  atendimentoCustomers AtendimentoCustomer[]
 }
 
 model CompanyWhatsAppEndpoint {
@@ -253,6 +254,28 @@ model Customer {
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
   conversations Conversation[]
+}
+
+model AtendimentoCustomer {
+  id                  String   @id @default(cuid())
+  company             Company  @relation(fields: [companyId], references: [id])
+  companyId           Int
+  name                String?
+  phone               String
+  phoneNormalized     String
+  registrationOrigin  String   @default("whatsapp_bot") // whatsapp_bot | manual | recovery_to_atendimento
+  registrationStatus  String   @default("pending_confirmation") // pending_confirmation | confirmed | manual
+  route               String   @default("atendimento") // atendimento | recovery
+  notes               String?
+  lastMessageAt       DateTime?
+  conversationId      Int?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@unique([companyId, phoneNormalized])
+  @@index([companyId, registrationStatus])
+  @@index([companyId, registrationOrigin])
+  @@index([companyId, updatedAt])
 }
 
 model Conversation {

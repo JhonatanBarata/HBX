@@ -128,6 +128,8 @@ const ATENDIMENTO_STEP = {
   HUMAN: 'atendimento_humano',
   AGENDA: 'agenda_compartilhada',
   CLOSED: 'encerrado',
+  COLLECTING_NAME_CONFIRM: 'coletando_confirmacao_nome',
+  COLLECTING_NAME: 'coletando_nome',
 } as const;
 
 @Injectable()
@@ -637,6 +639,63 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     delete next.atendimentoBlockedReason;
     delete next.atendimentoBlockedByUserId;
     return next;
+  }
+
+  private normalizePhoneForCustomer(raw: string): string {
+    return String(raw || '').replace(/\D/g, '').slice(-13);
+  }
+
+  private async upsertAtendimentoCustomerLocal(input: {
+    companyId: number;
+    phone: string;
+    name?: string | null;
+    registrationOrigin?: string;
+    registrationStatus?: string;
+    conversationId?: number | null;
+  }): Promise<void> {
+    const phoneNorm = this.normalizePhoneForCustomer(input.phone);
+    if (!phoneNorm || phoneNorm.length < 8) return;
+    const now = new Date();
+    try {
+      const existing = await (this.prisma as any).atendimentoCustomer.findUnique({
+        where: {
+          companyId_phoneNormalized: { companyId: input.companyId, phoneNormalized: phoneNorm },
+        },
+      });
+      if (existing) {
+        const shouldUpdateName = !existing.name && !!input.name;
+        await (this.prisma as any).atendimentoCustomer.update({
+          where: { id: existing.id },
+          data: {
+            ...(shouldUpdateName
+              ? { name: input.name, registrationStatus: input.registrationStatus ?? existing.registrationStatus }
+              : {}),
+            ...(input.registrationStatus && input.registrationStatus !== 'pending_confirmation'
+              ? { registrationStatus: input.registrationStatus }
+              : {}),
+            ...(input.conversationId ? { conversationId: input.conversationId } : {}),
+            lastMessageAt: now,
+            updatedAt: now,
+          },
+        });
+      } else {
+        await (this.prisma as any).atendimentoCustomer.create({
+          data: {
+            companyId: input.companyId,
+            phone: input.phone,
+            phoneNormalized: phoneNorm,
+            name: input.name ?? null,
+            registrationOrigin: input.registrationOrigin ?? 'whatsapp_bot',
+            registrationStatus: input.registrationStatus ?? 'pending_confirmation',
+            route: 'atendimento',
+            conversationId: input.conversationId ?? null,
+            lastMessageAt: now,
+          },
+        });
+      }
+    } catch (err) {
+      this.logger.warn(`upsertAtendimentoCustomerLocal failed: ${(err as any)?.message}`);
+    }
   }
 
   private async getAtendimentoBotConfig(companyId: number): Promise<AtendimentoBotConfig> {
@@ -2183,6 +2242,14 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
 
     const metadata = this.parseConversationMetadata(conversation?.metadata);
     const blockedState = this.getAtendimentoBlockedState(metadata);
+
+    // Upsert customer record on every inbound message
+    await this.upsertAtendimentoCustomerLocal({
+      companyId,
+      phone: from,
+      conversationId: safeConversationId || null,
+    });
+
     const isClosedConversation =
       ['manual_closed', 'encerrado_operador'].includes(
         String(conversation?.flowResult || '').trim().toLowerCase(),
@@ -2540,6 +2607,122 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
       await queueMainMenu();
       return { handled: true };
     }
+
+    // ------- Name-collection flow steps -------
+
+    // Step: user is confirming a suggested name (Yes / Inform another)
+    if (conversation?.currentStep === ATENDIMENTO_STEP.COLLECTING_NAME_CONFIRM) {
+      await setInboundMeta('atendimento_bot', false);
+      const rawBtn = this.extractInteractiveReplyId(rawPayload);
+      const btnAction = this.fromAtendimentoButtonId(rawBtn);
+      const suggestedName = String(metadata?.atendimentoRegSuggestedName || '').trim();
+      if (btnAction === 'reg_confirm_yes' && suggestedName) {
+        await this.upsertAtendimentoCustomerLocal({
+          companyId, phone: from, name: suggestedName,
+          registrationStatus: 'confirmed', conversationId: safeConversationId,
+        });
+        const updatedMetadata: Record<string, unknown> = { ...metadata, cliente: suggestedName };
+        delete updatedMetadata.atendimentoRegSuggestedName;
+        await this.updateAtendimentoConversationState(
+          companyId, safeConversationId,
+          { currentFlow: ATENDIMENTO_FLOW_ID, currentStep: ATENDIMENTO_STEP.MAIN_MENU, botActive: true, humanAssigned: false, flowResult: null },
+          updatedMetadata,
+        );
+        await this.conversations.queueOutboundForCompany(companyId, {
+          to: from, contactId: from,
+          body: 'Cadastro realizado com sucesso. Podemos continuar seu atendimento.',
+          messageType: 'text', sourceModule: 'atendimento_bot', senderType: 'bot',
+          flowState: { currentFlow: ATENDIMENTO_FLOW_ID, currentStep: ATENDIMENTO_STEP.MAIN_MENU, botActive: true, humanAssigned: false, flowResult: null },
+        });
+        await queueMainMenu();
+        return { handled: true };
+      } else {
+        // User wants to enter a different name
+        await this.conversations.queueOutboundForCompany(companyId, {
+          to: from, contactId: from,
+          body: 'Qual nome devo cadastrar para seu atendimento?',
+          messageType: 'text', sourceModule: 'atendimento_bot', senderType: 'bot',
+          flowState: { currentFlow: ATENDIMENTO_FLOW_ID, currentStep: ATENDIMENTO_STEP.COLLECTING_NAME, botActive: true, humanAssigned: false, flowResult: null },
+        });
+        const metaWithoutSuggested: Record<string, unknown> = { ...metadata };
+        delete metaWithoutSuggested.atendimentoRegSuggestedName;
+        await this.updateAtendimentoConversationState(
+          companyId, safeConversationId,
+          { currentFlow: ATENDIMENTO_FLOW_ID, currentStep: ATENDIMENTO_STEP.COLLECTING_NAME, botActive: true, humanAssigned: false, flowResult: null },
+          metaWithoutSuggested,
+        );
+        return { handled: true };
+      }
+    }
+
+    // Step: user typed their name as free text
+    if (conversation?.currentStep === ATENDIMENTO_STEP.COLLECTING_NAME && normalizedText) {
+      await setInboundMeta('atendimento_bot', false);
+      const confirmedName = text.trim().slice(0, 120);
+      await this.upsertAtendimentoCustomerLocal({
+        companyId, phone: from, name: confirmedName,
+        registrationStatus: 'confirmed', conversationId: safeConversationId,
+      });
+      await this.updateAtendimentoConversationState(
+        companyId, safeConversationId,
+        { currentFlow: ATENDIMENTO_FLOW_ID, currentStep: ATENDIMENTO_STEP.MAIN_MENU, botActive: true, humanAssigned: false, flowResult: null },
+        { ...metadata, cliente: confirmedName },
+      );
+      await this.conversations.queueOutboundForCompany(companyId, {
+        to: from, contactId: from,
+        body: 'Cadastro realizado com sucesso. Podemos continuar seu atendimento.',
+        messageType: 'text', sourceModule: 'atendimento_bot', senderType: 'bot',
+        flowState: { currentFlow: ATENDIMENTO_FLOW_ID, currentStep: ATENDIMENTO_STEP.MAIN_MENU, botActive: true, humanAssigned: false, flowResult: null },
+      });
+      await queueMainMenu();
+      return { handled: true };
+    }
+
+    // Action: quick registration triggered from main menu button
+    if (actionId === 'start_quick_registration') {
+      await setInboundMeta('atendimento_bot', false);
+      const suggestedName = String(metadata?.waNickname || metadata?.whatsappName || '').trim();
+      if (suggestedName) {
+        await this.conversations.queueOutboundForCompany(companyId, {
+          to: from, contactId: from,
+          body: `Posso cadastrar seu nome como *${suggestedName}*?`,
+          messageType: 'interactive',
+          interactivePayload: {
+            type: 'button',
+            body: { text: `Posso cadastrar seu nome como *${suggestedName}*?` },
+            footer: { text: 'Atendimento' },
+            action: {
+              buttons: [
+                { type: 'reply', reply: { id: this.toAtendimentoButtonId('reg_confirm_yes'), title: 'Sim, pode salvar' } },
+                { type: 'reply', reply: { id: this.toAtendimentoButtonId('reg_confirm_no'), title: 'Informar outro' } },
+              ],
+            },
+          },
+          sourceModule: 'atendimento_bot', senderType: 'bot',
+          flowState: { currentFlow: ATENDIMENTO_FLOW_ID, currentStep: ATENDIMENTO_STEP.COLLECTING_NAME_CONFIRM, botActive: true, humanAssigned: false, flowResult: null },
+        });
+        await this.updateAtendimentoConversationState(
+          companyId, safeConversationId,
+          { currentFlow: ATENDIMENTO_FLOW_ID, currentStep: ATENDIMENTO_STEP.COLLECTING_NAME_CONFIRM, botActive: true, humanAssigned: false, flowResult: null },
+          { ...metadata, atendimentoRegSuggestedName: suggestedName },
+        );
+      } else {
+        await this.conversations.queueOutboundForCompany(companyId, {
+          to: from, contactId: from,
+          body: 'Qual nome devo cadastrar para seu atendimento?',
+          messageType: 'text', sourceModule: 'atendimento_bot', senderType: 'bot',
+          flowState: { currentFlow: ATENDIMENTO_FLOW_ID, currentStep: ATENDIMENTO_STEP.COLLECTING_NAME, botActive: true, humanAssigned: false, flowResult: null },
+        });
+        await this.updateAtendimentoConversationState(
+          companyId, safeConversationId,
+          { currentFlow: ATENDIMENTO_FLOW_ID, currentStep: ATENDIMENTO_STEP.COLLECTING_NAME, botActive: true, humanAssigned: false, flowResult: null },
+          metadata,
+        );
+      }
+      return { handled: true };
+    }
+
+    // ------- End name-collection flow -------
 
     await setInboundMeta('atendimento_bot', Boolean(normalizedText));
     if (!hasHistory && (config.welcomeButtons || []).length > 0) {

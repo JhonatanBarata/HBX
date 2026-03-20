@@ -457,6 +457,8 @@ export default function TechAssistantGlobalDrawer({ isSystemMaster, masterContex
   const [result, setResult] = useState<TechAssistantResponse | null>(null);
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [historyVisible, setHistoryVisible] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [showPromptPreview, setShowPromptPreview] = useState(false);
   const [historyRouteFilter, setHistoryRouteFilter] = useState("");
   const [historyAnalysisTypeFilter, setHistoryAnalysisTypeFilter] = useState("");
   const [operationAction, setOperationAction] = useState("reprocessar_evento_teste");
@@ -742,6 +744,7 @@ export default function TechAssistantGlobalDrawer({ isSystemMaster, masterContex
     setError(null);
     setCopyStatus(null);
     setOperationResult(null);
+    setShowPromptPreview(false);
   }
 
   async function confirmSensitiveOperation() {
@@ -822,11 +825,11 @@ export default function TechAssistantGlobalDrawer({ isSystemMaster, masterContex
               {error ? <div className="alert alert-error">{error}</div> : null}
               {copyStatus ? <div className="alert alert-info">{copyStatus}</div> : null}
 
-              <section className={`panel panel-soft ${styles.contextCard}`}>
+              <section className={`panel panel-soft ${styles.formCard}`}>
                 <div className={styles.cardHeader}>
                   <div>
-                    <p className={styles.cardEyebrow}>Modo local</p>
-                    <strong>Contexto automatico + perguntas guiadas + prompt para chat</strong>
+                    <p className={styles.cardEyebrow}>Problema da pagina atual</p>
+                    <strong>Digite aqui o que esta acontecendo</strong>
                   </div>
                   <span className={`${styles.scoreBadge} ${styles[`score${briefingAssessment.tone}`]}`}>
                     {briefingAssessment.label} · {briefingAssessment.score}/100
@@ -834,9 +837,8 @@ export default function TechAssistantGlobalDrawer({ isSystemMaster, masterContex
                 </div>
 
                 <p className={styles.cardText}>
-                  Este drawer agora serve para afunilar o problema antes de falar com ChatGPT,
-                  Gemini ou Codex. A analise HBX continua disponivel, mas o foco aqui e montar
-                  um briefing forte com contexto real da pagina.
+                  O contexto da tela ja foi capturado automaticamente. Aqui voce pode focar
+                  so em descrever o problema desta pagina, sem montar um prompt inteiro.
                 </p>
 
                 <div className={styles.badgeRow}>
@@ -846,11 +848,42 @@ export default function TechAssistantGlobalDrawer({ isSystemMaster, masterContex
                   <span className="badge badge-neutral">{viewport}</span>
                 </div>
 
+                <div className={styles.questionBox}>
+                  <strong>{pageContext?.summary || "Contexto automatico da tela"}</strong>
+                  <ul>
+                    <li>Rota atual: {pathname || "-"}</li>
+                    <li>Empresa ativa: {activeCompanyName || "MASTER puro"}</li>
+                    <li>Tipo de ajuda atual: {selectedGuide.title}</li>
+                  </ul>
+                </div>
+
+                <label className="grid gap-1 text-sm">
+                  Descricao do problema
+                  <textarea
+                    className="field"
+                    rows={5}
+                    value={message}
+                    onChange={(event) => setMessage(event.target.value)}
+                    placeholder="Ex.: estou na aba Messages do Recovery e nao entendi por que a tela nao mostra onde editar a mensagem. Descreva o que voce fez, onde travou e o impacto."
+                  />
+                </label>
+
+                <label className="grid gap-1 text-sm">
+                  O que deveria acontecer? (opcional)
+                  <textarea
+                    className="field"
+                    rows={3}
+                    value={expectedBehavior}
+                    onChange={(event) => setExpectedBehavior(event.target.value)}
+                    placeholder="Ex.: eu queria um fluxo mais claro, com o campo certo visivel e menos informacoes na tela."
+                  />
+                </label>
+
                 {briefingAssessment.missing.length ? (
                   <div className={styles.missingBox}>
-                    <strong>Para ficar mais inteligente sem API, ainda faltam:</strong>
+                    <strong>Se quiser deixar a analise melhor, voce ainda pode complementar com:</strong>
                     <ul>
-                      {briefingAssessment.missing.slice(0, 5).map((item) => (
+                      {briefingAssessment.missing.slice(0, 4).map((item) => (
                         <li key={item}>{item}</li>
                       ))}
                     </ul>
@@ -860,194 +893,7 @@ export default function TechAssistantGlobalDrawer({ isSystemMaster, masterContex
                 <div className={styles.inlineActions}>
                   <button
                     type="button"
-                    className="btn btn-secondary btn-sm"
-                    onClick={() => copyText(contextSnapshot, "Contexto automatico copiado.")}
-                  >
-                    Copiar contexto
-                  </button>
-                  <button
-                    type="button"
-                    className="btn btn-secondary btn-sm"
-                    onClick={() => copyText(externalPrompt, `Prompt ${promptPreviewLabel} copiado.`)}
-                  >
-                    Copiar prompt atual
-                  </button>
-                </div>
-              </section>
-
-              {pageContext ? (
-                <section className={`panel panel-soft ${styles.contextCard}`}>
-                  <div className={styles.cardHeader}>
-                    <div>
-                      <p className={styles.cardEyebrow}>Contexto da pagina</p>
-                      <strong>{pageContext.summary || "Contexto capturado"}</strong>
-                    </div>
-                  </div>
-
-                  {(pageContext.tags || []).length ? (
-                    <div className={styles.badgeRow}>
-                      {(pageContext.tags || []).map((tag) => (
-                        <span key={tag} className="badge badge-neutral">
-                          {tag}
-                        </span>
-                      ))}
-                    </div>
-                  ) : null}
-
-                  {Object.keys(pageContext.details || {}).length ? (
-                    <div className={styles.questionBox}>
-                      <strong>Estado atual da tela</strong>
-                      <ul>
-                        {Object.entries(pageContext.details || {})
-                          .slice(0, 8)
-                          .map(([key, value]) => (
-                            <li key={key}>
-                              {key}: {formatUnknown(value)}
-                            </li>
-                          ))}
-                      </ul>
-                    </div>
-                  ) : null}
-                </section>
-              ) : null}
-
-              {runtimeSignals.length ? (
-                <section className={`panel panel-soft ${styles.contextCard}`}>
-                  <div className={styles.cardHeader}>
-                    <div>
-                      <p className={styles.cardEyebrow}>Sinais automaticos</p>
-                      <strong>Erros e eventos recentes do frontend</strong>
-                    </div>
-                  </div>
-
-                  <div className={styles.historyList}>
-                    {runtimeSignals.map((signal) => (
-                      <div key={signal.id} className={styles.historyButton}>
-                        <strong>
-                          {signal.kind.toUpperCase()} · {new Date(signal.at).toLocaleTimeString("pt-BR")}
-                        </strong>
-                        <span>{signal.message}</span>
-                        {signal.meta ? <span>{signal.meta}</span> : null}
-                      </div>
-                    ))}
-                  </div>
-                </section>
-              ) : null}
-
-              <section className={`panel panel-soft ${styles.formCard}`}>
-                <div className={styles.cardHeader}>
-                  <div>
-                    <p className={styles.cardEyebrow}>Guia da conversa</p>
-                    <strong>{selectedGuide.title}</strong>
-                  </div>
-                  <span className="badge badge-brand">{selectedGuide.goal}</span>
-                </div>
-
-                <p className={styles.cardText}>{selectedGuide.description}</p>
-
-                <div className={styles.fieldGridTwo}>
-                  <label className="grid gap-1 text-sm">
-                    Tipo de analise
-                    <select
-                      className="field"
-                      value={analysisType}
-                      onChange={(event) => setAnalysisType(event.target.value)}
-                    >
-                      <option value="manual">Mensagem manual</option>
-                      <option value="page_analysis">Analisar pagina atual</option>
-                      <option value="error_analysis">Analisar erro</option>
-                      <option value="ctrl_u">Ctrl+U / HTML</option>
-                      <option value="codex_prompt">Gerar prompt para Codex</option>
-                      <option value="prompt_review">Revisar prompt</option>
-                      <option value="pre_publish_checklist">Checklist</option>
-                    </select>
-                  </label>
-
-                  <label className="grid gap-1 text-sm">
-                    Ambiente
-                    <select
-                      className="field"
-                      value={environment}
-                      onChange={(event) => setEnvironment(event.target.value)}
-                    >
-                      <option value="localhost">localhost</option>
-                      <option value="homologacao">homologacao</option>
-                      <option value="producao">producao</option>
-                      <option value="desconhecido">desconhecido</option>
-                    </select>
-                  </label>
-                </div>
-
-                <div className={styles.questionBox}>
-                  <strong>Perguntas que o chat deve afunilar</strong>
-                  <ul>
-                    {selectedGuide.questions.map((question) => (
-                      <li key={question}>{question}</li>
-                    ))}
-                  </ul>
-                </div>
-
-                <label className="grid gap-1 text-sm">
-                  Descricao do problema
-                  <textarea
-                    className="field"
-                    rows={4}
-                    value={message}
-                    onChange={(event) => setMessage(event.target.value)}
-                    placeholder="Explique o problema com objetividade: o que voce fez, onde doeu e qual impacto percebeu."
-                  />
-                </label>
-
-                <div className={styles.fieldGridTwo}>
-                  <label className="grid gap-1 text-sm">
-                    Comportamento atual
-                    <textarea
-                      className="field"
-                      rows={4}
-                      value={currentBehavior}
-                      onChange={(event) => setCurrentBehavior(event.target.value)}
-                      placeholder="Ex.: ao salvar, a tela corta o preview e o usuario perde visibilidade dos botoes."
-                    />
-                  </label>
-
-                  <label className="grid gap-1 text-sm">
-                    Comportamento esperado
-                    <textarea
-                      className="field"
-                      rows={4}
-                      value={expectedBehavior}
-                      onChange={(event) => setExpectedBehavior(event.target.value)}
-                      placeholder="Ex.: editor deve usar melhor a tela, mostrar preview sem corte e manter responsividade."
-                    />
-                  </label>
-                </div>
-
-                <label className="grid gap-1 text-sm">
-                  Evidencia tecnica
-                  <textarea
-                    className="field"
-                    rows={6}
-                    value={technicalContent}
-                    onChange={(event) => setTechnicalContent(event.target.value)}
-                    placeholder={selectedGuide.technicalPlaceholder}
-                  />
-                </label>
-
-                <label className="grid gap-1 text-sm">
-                  Rascunho / prompt atual
-                  <textarea
-                    className="field"
-                    rows={4}
-                    value={promptDraft}
-                    onChange={(event) => setPromptDraft(event.target.value)}
-                    placeholder={selectedGuide.draftPlaceholder}
-                  />
-                </label>
-
-                <div className={styles.inlineActions}>
-                  <button
-                    type="button"
-                    className="btn btn-secondary btn-sm"
+                    className="btn btn-primary btn-sm"
                     onClick={() => {
                       setPromptTarget("chatgpt");
                       void copyText(
@@ -1141,11 +987,35 @@ export default function TechAssistantGlobalDrawer({ isSystemMaster, masterContex
                 </div>
 
                 <div className={styles.inlineActions}>
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    onClick={() => setShowAdvanced((value) => !value)}
+                  >
+                    {showAdvanced ? "Esconder detalhes" : "Mostrar detalhes"}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    onClick={() => setShowPromptPreview((value) => !value)}
+                  >
+                    {showPromptPreview ? `Esconder pacote ${promptPreviewLabel}` : `Ver pacote ${promptPreviewLabel}`}
+                  </button>
                   <button type="button" className="btn btn-secondary btn-sm" onClick={clearSession}>
                     Limpar sessao
                   </button>
-                  <button type="button" className="btn btn-secondary btn-sm" onClick={loadHistory}>
-                    Ver historico
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    onClick={() => {
+                      if (historyVisible) {
+                        setHistoryVisible(false);
+                        return;
+                      }
+                      void loadHistory();
+                    }}
+                  >
+                    {historyVisible ? "Ocultar historico" : "Ver historico"}
                   </button>
                   <Link href="/dashboard/master/assistente-tecnico" className="btn btn-secondary btn-sm">
                     Abrir central avancada
@@ -1153,7 +1023,162 @@ export default function TechAssistantGlobalDrawer({ isSystemMaster, masterContex
                 </div>
               </section>
 
-              <section className={`panel panel-soft ${styles.promptCard}`}>
+              {showAdvanced ? (
+                <section className={`panel panel-soft ${styles.contextCard}`}>
+                  <div className={styles.cardHeader}>
+                    <div>
+                      <p className={styles.cardEyebrow}>Detalhes opcionais</p>
+                      <strong>Contexto, sinais tecnicos e ajustes finos</strong>
+                    </div>
+                    <span className="badge badge-neutral">{selectedGuide.goal}</span>
+                  </div>
+
+                  <p className={styles.cardText}>
+                    Abra esta area quando quiser aprofundar a analise, anexar evidencias ou ajustar
+                    o pacote que sera enviado ao ChatGPT, Gemini ou Codex.
+                  </p>
+
+                  <div className={styles.fieldGridTwo}>
+                    <label className="grid gap-1 text-sm">
+                      Tipo de analise
+                      <select
+                        className="field"
+                        value={analysisType}
+                        onChange={(event) => setAnalysisType(event.target.value)}
+                      >
+                        <option value="manual">Mensagem manual</option>
+                        <option value="page_analysis">Analisar pagina atual</option>
+                        <option value="error_analysis">Analisar erro</option>
+                        <option value="ctrl_u">Ctrl+U / HTML</option>
+                        <option value="codex_prompt">Gerar prompt para Codex</option>
+                        <option value="prompt_review">Revisar prompt</option>
+                        <option value="pre_publish_checklist">Checklist</option>
+                      </select>
+                    </label>
+
+                    <label className="grid gap-1 text-sm">
+                      Ambiente
+                      <select
+                        className="field"
+                        value={environment}
+                        onChange={(event) => setEnvironment(event.target.value)}
+                      >
+                        <option value="localhost">localhost</option>
+                        <option value="homologacao">homologacao</option>
+                        <option value="producao">producao</option>
+                        <option value="desconhecido">desconhecido</option>
+                      </select>
+                    </label>
+                  </div>
+
+                  <div className={styles.questionBox}>
+                    <strong>Perguntas que o chat deve afunilar</strong>
+                    <ul>
+                      {selectedGuide.questions.map((question) => (
+                        <li key={question}>{question}</li>
+                      ))}
+                    </ul>
+                  </div>
+
+                  {pageContext ? (
+                    <div className={styles.questionBox}>
+                      <strong>Contexto da pagina</strong>
+                      <ul>
+                        {(pageContext.tags || []).slice(0, 6).map((tag) => (
+                          <li key={tag}>{tag}</li>
+                        ))}
+                        {Object.entries(pageContext.details || {})
+                          .slice(0, 8)
+                          .map(([key, value]) => (
+                            <li key={key}>
+                              {key}: {formatUnknown(value)}
+                            </li>
+                          ))}
+                      </ul>
+                    </div>
+                  ) : null}
+
+                  {runtimeSignals.length ? (
+                    <div className={styles.warningBox}>
+                      <strong>Sinais automaticos recentes</strong>
+                      <ul>
+                        {runtimeSignals.slice(0, 5).map((signal) => (
+                          <li key={signal.id}>
+                            {signal.kind.toUpperCase()}: {signal.message}
+                            {signal.meta ? ` | ${signal.meta}` : ""}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
+
+                  <div className={styles.fieldGridTwo}>
+                    <label className="grid gap-1 text-sm">
+                      Comportamento atual
+                      <textarea
+                        className="field"
+                        rows={4}
+                        value={currentBehavior}
+                        onChange={(event) => setCurrentBehavior(event.target.value)}
+                        placeholder="Ex.: ao salvar, a tela corta o preview e o usuario perde visibilidade dos botoes."
+                      />
+                    </label>
+
+                    <label className="grid gap-1 text-sm">
+                      Comportamento esperado
+                      <textarea
+                        className="field"
+                        rows={4}
+                        value={expectedBehavior}
+                        onChange={(event) => setExpectedBehavior(event.target.value)}
+                        placeholder="Ex.: editor deve usar melhor a tela, mostrar preview sem corte e manter responsividade."
+                      />
+                    </label>
+                  </div>
+
+                  <label className="grid gap-1 text-sm">
+                    Evidencia tecnica
+                    <textarea
+                      className="field"
+                      rows={5}
+                      value={technicalContent}
+                      onChange={(event) => setTechnicalContent(event.target.value)}
+                      placeholder={selectedGuide.technicalPlaceholder}
+                    />
+                  </label>
+
+                  <label className="grid gap-1 text-sm">
+                    Rascunho / prompt atual
+                    <textarea
+                      className="field"
+                      rows={4}
+                      value={promptDraft}
+                      onChange={(event) => setPromptDraft(event.target.value)}
+                      placeholder={selectedGuide.draftPlaceholder}
+                    />
+                  </label>
+
+                  <div className={styles.inlineActions}>
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-sm"
+                      onClick={() => copyText(contextSnapshot, "Contexto automatico copiado.")}
+                    >
+                      Copiar contexto
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-sm"
+                      onClick={() => copyText(externalPrompt, `Prompt ${promptPreviewLabel} copiado.`)}
+                    >
+                      Copiar prompt atual
+                    </button>
+                  </div>
+                </section>
+              ) : null}
+
+              {showPromptPreview ? (
+                <section className={`panel panel-soft ${styles.promptCard}`}>
                 <div className={styles.cardHeader}>
                   <div>
                     <p className={styles.cardEyebrow}>Prompt pronto</p>
@@ -1212,8 +1237,10 @@ export default function TechAssistantGlobalDrawer({ isSystemMaster, masterContex
                   </button>
                 </div>
               </section>
+              ) : null}
 
-              <section className={`panel panel-soft ${styles.operationCard}`}>
+              {showAdvanced ? (
+                <section className={`panel panel-soft ${styles.operationCard}`}>
                 <div className={styles.cardHeader}>
                   <div>
                     <p className={styles.cardEyebrow}>Operacao sensivel</p>
@@ -1263,6 +1290,7 @@ export default function TechAssistantGlobalDrawer({ isSystemMaster, masterContex
                   {operationResult ? <p className={styles.mutedText}>{operationResult}</p> : null}
                 </div>
               </section>
+              ) : null}
 
             {result ? (
               <section className={`panel panel-soft ${styles.resultCard}`}>

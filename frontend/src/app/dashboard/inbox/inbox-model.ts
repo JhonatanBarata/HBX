@@ -7,6 +7,22 @@ export type Customer = {
   name: string | null;
 };
 
+export type AtendimentoCustomer = {
+  id: string;
+  companyId: number;
+  name: string | null;
+  phone: string;
+  phoneNormalized: string;
+  registrationOrigin: string;
+  registrationStatus: string;
+  route: string;
+  notes: string | null;
+  lastMessageAt: string | null;
+  conversationId: number | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type InboxMessage = {
   id: string;
   direction: "inbound" | "outbound" | string;

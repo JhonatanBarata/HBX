@@ -31,6 +31,8 @@ import {
 import { UpdateAtendimentoBotConfigDto } from './dto/update-atendimento-bot-config.dto';
 import { UpdateAtendimentoAgendaDto } from './dto/update-atendimento-agenda.dto';
 import { BlockConversationDto } from './dto/block-conversation.dto';
+import { CreateAtendimentoCustomerDto } from './dto/create-atendimento-customer.dto';
+import { UpdateAtendimentoCustomerDto } from './dto/update-atendimento-customer.dto';
 
 @Controller('inbox')
 @UseGuards(JwtAuthGuard, ModuleAccessGuard)
@@ -151,5 +153,33 @@ export class InboxController {
     return this.recoveryService.uploadMetaTemplateHeaderMedia(req.user, file, body, {
       moduleKey: 'atendimento',
     });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Customers (Tabela de clientes)
+  // ---------------------------------------------------------------------------
+
+  @Get('customers')
+  listCustomers(@Req() req: any, @Query('phone') phone?: string) {
+    return this.inboxService.listAtendimentoCustomers(req.user, phone);
+  }
+
+  @Get('customers/by-phone')
+  getCustomerByPhone(@Req() req: any, @Query('phone') phone: string) {
+    return this.inboxService.getAtendimentoCustomerByPhone(req.user, phone);
+  }
+
+  @Post('customers')
+  createCustomer(@Req() req: any, @Body() dto: CreateAtendimentoCustomerDto) {
+    return this.inboxService.createAtendimentoCustomer(req.user, dto);
+  }
+
+  @Patch('customers/:id')
+  updateCustomer(
+    @Req() req: any,
+    @Param('id') id: string,
+    @Body() dto: UpdateAtendimentoCustomerDto,
+  ) {
+    return this.inboxService.updateAtendimentoCustomer(req.user, id, dto);
   }
 }
