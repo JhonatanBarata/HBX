@@ -187,6 +187,48 @@ textarea {
   pointer-events: none;
 }
 
+.ui-shutdown-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  display: grid;
+  place-items: center;
+  padding: 2rem;
+  background:
+    radial-gradient(circle at center, color-mix(in srgb, var(--brand) 12%, transparent), transparent 42%),
+    linear-gradient(180deg, color-mix(in srgb, var(--background) 76%, white), color-mix(in srgb, var(--background-alt) 84%, white));
+  animation: ui-shutdown-overlay-in 260ms var(--motion-base) both;
+}
+
+.ui-shutdown-overlay__content {
+  width: min(920px, calc(100vw - 2rem));
+  display: grid;
+  place-items: center;
+  gap: 0.7rem;
+  margin: 0 auto;
+  text-align: center;
+  animation: ui-farewell-in 420ms cubic-bezier(0.18, 0.84, 0.22, 1) 90ms both;
+}
+
+.ui-shutdown-overlay__eyebrow {
+  margin: 0;
+  text-transform: uppercase;
+  letter-spacing: 0.34em;
+  font-size: 0.75rem;
+  font-weight: 900;
+  color: color-mix(in srgb, var(--brand) 74%, var(--muted));
+}
+
+.ui-shutdown-overlay__title {
+  margin: 0;
+  max-width: 22ch;
+  font-family: var(--font-display), var(--font-body), sans-serif;
+  font-size: clamp(1.9rem, 4vw, 3.5rem);
+  line-height: 0.95;
+  letter-spacing: -0.08em;
+  color: var(--foreground);
+}
+
 .route-transition {
   position: relative;
   z-index: 1;
@@ -257,6 +299,30 @@ textarea {
     opacity: 0;
     transform: translate3d(38px, 0, 0) scale(0.96);
     filter: blur(9px) saturate(0.76) brightness(0.92);
+  }
+}
+
+@keyframes ui-shutdown-overlay-in {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes ui-farewell-in {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 14px, 0) scale(0.985);
+    filter: blur(10px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+    filter: blur(0);
   }
 }
 
@@ -411,7 +477,9 @@ textarea {
 
 /* Login visuals and narrower card */
 .login-card {
-  max-width: calc(720px * 0.85);
+  /* make the login card narrower as requested */
+  max-width: 520px; /* reduced width to avoid stretched appearance */
+  width: 92%;
   margin: 0 auto;
   position: relative;
   z-index: 10;
@@ -1552,6 +1620,8 @@ html[data-theme="tabler"] .workspace-context {
 
 @media (prefers-reduced-motion: reduce) {
   .route-transition,
+  .ui-shutdown-overlay,
+  .ui-shutdown-overlay__content,
   .ui-orchestrator [data-ui-reveal="true"] {
     animation: none !important;
     transition: none !important;

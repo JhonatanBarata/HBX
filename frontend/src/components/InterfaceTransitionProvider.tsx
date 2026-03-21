@@ -8,6 +8,7 @@ const EXIT_DURATION_MS = 560;
 const ROW_SNAP_PX = 18;
 
 const REVEAL_TARGET_SELECTOR = [
+  ".app-topbar__summary",
   ".app-brand",
   ".wa-health-wrap",
   ".app-topbar__queueLabel",
@@ -37,6 +38,7 @@ type InterfaceTransitionPhase = "boot" | "active" | "shutdown";
 type InterfaceTransitionContextValue = {
   phase: InterfaceTransitionPhase;
   isShuttingDown: boolean;
+  replayGlobalTransition: () => void;
   runGlobalShutdown: (task: () => void | Promise<void>) => Promise<void>;
 };
 
@@ -122,6 +124,22 @@ export function InterfaceTransitionProvider({ children }: { children: React.Reac
     });
   }, [applyRevealMap]);
 
+  const startRevealCycle = React.useCallback(() => {
+    if (shutdownPromiseRef.current) return;
+
+    setPhase("boot");
+    scheduleRevealMap();
+
+    if (readyTimerRef.current !== null) {
+      window.clearTimeout(readyTimerRef.current);
+    }
+
+    readyTimerRef.current = window.setTimeout(() => {
+      scheduleRevealMap();
+      setPhase("active");
+    }, ENTER_READY_DELAY_MS);
+  }, [scheduleRevealMap]);
+
   React.useEffect(() => {
     scheduleRevealMap();
 
@@ -157,25 +175,14 @@ export function InterfaceTransitionProvider({ children }: { children: React.Reac
   }, [scheduleRevealMap]);
 
   React.useEffect(() => {
-    setPhase("boot");
-    scheduleRevealMap();
-
-    if (readyTimerRef.current !== null) {
-      window.clearTimeout(readyTimerRef.current);
-    }
-
-    readyTimerRef.current = window.setTimeout(() => {
-      scheduleRevealMap();
-      setPhase("active");
-    }, ENTER_READY_DELAY_MS);
-
+    startRevealCycle();
     return () => {
       if (readyTimerRef.current !== null) {
         window.clearTimeout(readyTimerRef.current);
         readyTimerRef.current = null;
       }
     };
-  }, [pathname, scheduleRevealMap]);
+  }, [pathname, startRevealCycle]);
 
   const runGlobalShutdown = React.useCallback(
     async (task: () => void | Promise<void>) => {
@@ -207,15 +214,26 @@ export function InterfaceTransitionProvider({ children }: { children: React.Reac
     () => ({
       phase,
       isShuttingDown: phase === "shutdown",
+      replayGlobalTransition: startRevealCycle,
       runGlobalShutdown,
     }),
-    [phase, runGlobalShutdown],
+    [phase, runGlobalShutdown, startRevealCycle],
   );
 
   return (
     <InterfaceTransitionContext.Provider value={value}>
       <div ref={rootRef} className="ui-orchestrator" data-ui-phase={phase}>
         {children}
+        {phase === "shutdown" ? (
+          <div className="ui-shutdown-overlay" aria-hidden="true">
+            <div className="ui-shutdown-overlay__content">
+              <p className="ui-shutdown-overlay__eyebrow">HBX Solutions</p>
+              <strong className="ui-shutdown-overlay__title">
+                OBRIGADO POR SER CLIENTE HBX
+              </strong>
+            </div>
+          </div>
+        ) : null}
       </div>
     </InterfaceTransitionContext.Provider>
   );

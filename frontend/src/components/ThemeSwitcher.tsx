@@ -1,12 +1,14 @@
 "use client";
 
 import React from "react";
+import { useInterfaceTransition } from "@/components/InterfaceTransitionProvider";
 import { useHbxTheme } from "@/components/ThemeProvider";
 import { HBX_THEME_PALETTES, HBX_THEME_IDS, type HbxThemeId } from "@/lib/theme-palettes";
 
 export default function ThemeSwitcher() {
   const rootRef = React.useRef<HTMLDivElement | null>(null);
   const [open, setOpen] = React.useState(false);
+  const { replayGlobalTransition } = useInterfaceTransition();
   const { selection, activeTheme, setMode, setThemeId } = useHbxTheme();
 
   React.useEffect(() => {
@@ -32,6 +34,7 @@ export default function ThemeSwitcher() {
 
   function handleThemeSelection(themeId: HbxThemeId) {
     setThemeId(themeId);
+    replayGlobalTransition();
   }
 
   return (
@@ -70,14 +73,20 @@ export default function ThemeSwitcher() {
               <button
                 type="button"
                 className={`theme-mode-chip ${selection.mode === "light" ? "is-selected" : ""}`}
-                onClick={() => setMode("light")}
+                onClick={() => {
+                  setMode("light");
+                  replayGlobalTransition();
+                }}
               >
                 Claro
               </button>
               <button
                 type="button"
                 className={`theme-mode-chip ${selection.mode === "dark" ? "is-selected" : ""}`}
-                onClick={() => setMode("dark")}
+                onClick={() => {
+                  setMode("dark");
+                  replayGlobalTransition();
+                }}
               >
                 Escuro
               </button>
