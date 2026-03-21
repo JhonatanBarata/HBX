@@ -296,6 +296,18 @@ textarea {
   color: color-mix(in srgb, var(--brand) 70%, var(--muted));
 }
 
+.page-overline {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: fit-content;
+  min-height: 30px;
+  padding: 0.28rem 0.72rem;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--brand) 16%, var(--line));
+  background: color-mix(in srgb, var(--surface-raised) 92%, white);
+}
+
 .app-topbar__summary strong,
 .app-brand__text,
 .theme-switcher__title,
@@ -848,6 +860,10 @@ textarea {
   gap: 0.55rem;
 }
 
+.shell-card__header {
+  margin-bottom: 0.45rem;
+}
+
 .shell-card__title {
   display: block;
   font-size: 1rem;
@@ -885,8 +901,8 @@ textarea {
 .page-hero {
   min-height: var(--workspace-hero-min-height);
   display: grid;
-  grid-template-columns: var(--workspace-hero-columns);
-  gap: 1rem;
+  grid-template-columns: 1fr;
+  gap: 0.85rem;
   padding: 1.2rem 1.25rem;
   border-radius: var(--hero-radius);
   border: 1px solid color-mix(in srgb, var(--line) 88%, white);
@@ -899,7 +915,7 @@ textarea {
 .page-hero__copy {
   display: grid;
   align-content: start;
-  gap: 0.35rem;
+  gap: 0.55rem;
 }
 
 .page-hero h1 {
@@ -920,26 +936,9 @@ textarea {
 
 .page-hero__sidebar {
   min-width: 0;
-  display: grid;
-  gap: 0.9rem;
-  justify-items: end;
-  align-content: space-between;
-}
-
-.page-hero__meta {
-  justify-content: flex-end;
-}
-
-.page-hero__metaChip,
-.shell-inline-stat {
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 0.08rem;
-}
-
-.page-hero__metaChip strong,
-.shell-inline-stat strong {
-  font-size: 0.74rem;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
 }
 
 .page-content {
@@ -1319,7 +1318,6 @@ html[data-theme="flowbite"] .workspace-context {
 }
 
 html[data-theme="flowbite"] .page-hero {
-  grid-template-columns: 1fr;
   min-height: auto;
   border-radius: calc(var(--hero-radius) - 6px);
   background: linear-gradient(180deg, color-mix(in srgb, var(--surface) 98%, white), color-mix(in srgb, var(--surface-raised) 94%, var(--background)));
@@ -1420,7 +1418,7 @@ html[data-theme="tabler"] .workspace-context {
   }
 
   .page-hero__sidebar {
-    justify-items: start;
+    justify-content: flex-start;
   }
 }
 
@@ -1516,3 +1514,45 @@ html[data-theme="tabler"] .workspace-context {
     transition: none !important;
   }
 }
+
+/* Custom overrides: hide Workspace Shell and keep page-hero content contained */
+
+/* Remove the left workspace rail (WORKSPACE SHELL) and let main area take full width */
+.workspace-rail {
+  display: none !important;
+}
+.workspace-shell {
+  grid-template-columns: 1fr !important;
+}
+
+/* Ensure .page-hero behaves as a bounded bubble and its internal guides/tabs do not overflow */
+.page-hero {
+  overflow: hidden;
+  position: relative;
+}
+
+/* Make direct children able to shrink to container width to avoid horizontal overflow */
+.page-hero > * {
+  min-width: 0;
+}
+
+/* Allow action/meta groups to wrap and avoid leaking outside the hero bubble */
+.page-hero__actions,
+.page-hero__meta,
+.page-hero__header,
+.page-hero .tabs,
+.panel .tabs {
+  flex-wrap: wrap;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+/* Prevent individual tab/buttons from forcing horizontal scroll; truncate if needed */
+.page-hero .tabs > *,
+.panel .tabs > * {
+  min-width: 0;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  overflow: hidden;
+}
+
