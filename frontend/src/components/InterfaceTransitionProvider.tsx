@@ -53,7 +53,33 @@ type RevealCandidate = {
 
 type CSSVarStyle = React.CSSProperties & {
   "--i"?: number;
+  "--spread-x"?: string;
+  "--size"?: string;
+  "--orbit-x"?: string;
+  "--orbit-y"?: string;
+  "--flare-x"?: string;
+  "--flare-y"?: string;
+  "--exit-x"?: string;
+  "--exit-y"?: string;
+  "--burst-x"?: string;
+  "--burst-y"?: string;
 };
+
+function buildShutdownParticleStyle(index: number): CSSVarStyle {
+  return {
+    "--i": index,
+    "--spread-x": `${(index * 37) % 100}%`,
+    "--size": `${6 + (index % 5) * 2}px`,
+    "--orbit-x": `${((index % 10) - 5) * 48}px`,
+    "--orbit-y": `${((index % 8) - 4) * 36}px`,
+    "--flare-x": `${((index % 11) - 6) * 86}px`,
+    "--flare-y": `${((index % 9) - 4) * 92}px`,
+    "--exit-x": `${((index % 13) - 6) * 132}px`,
+    "--exit-y": `${((index % 10) - 5) * 132}px`,
+    "--burst-x": `${((index % 2) * 2 - 1) * 80}px`,
+    "--burst-y": `${-120 - (index % 7) * 18}px`,
+  };
+}
 
 const InterfaceTransitionContext = React.createContext<InterfaceTransitionContextValue | null>(null);
 
@@ -259,7 +285,7 @@ export function InterfaceTransitionProvider({ children }: { children: React.Reac
                   <span
                     key={i}
                     className="shutdown-confetti__piece"
-                    style={{ "--i": i } as CSSVarStyle}
+                    style={buildShutdownParticleStyle(i)}
                   />
                 ))}
               </div>

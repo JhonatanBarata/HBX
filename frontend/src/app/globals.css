@@ -1,5 +1,4 @@
-@import "tailwindcss/preflight";
-@tailwind utilities;
+@import "tailwindcss";
 
 :root {
   --topbar-height: 36px;
@@ -325,8 +324,8 @@ textarea {
   }
   60% {
     transform: translate3d(
-      calc(((var(--i) % 10) - 5) * 48px),
-      calc(((var(--i) % 8) - 4) * 36px),
+      var(--orbit-x, 0px),
+      var(--orbit-y, 0px),
       0
     ) scale(1.02) rotate(calc(var(--i) * 23deg));
     opacity: 1;
@@ -334,8 +333,8 @@ textarea {
   }
   85% {
     transform: translate3d(
-      calc(((var(--i) % 11) - 6) * 86px),
-      calc(((var(--i) % 9) - 4) * 92px),
+      var(--flare-x, 0px),
+      var(--flare-y, 0px),
       0
     ) scale(0.8) rotate(calc(var(--i) * 320deg));
     opacity: 0.92;
@@ -343,8 +342,8 @@ textarea {
   }
   100% {
     transform: translate3d(
-      calc(((var(--i) % 13) - 6) * 132px),
-      calc(((var(--i) % 10) - 5) * 132px),
+      var(--exit-x, 0px),
+      var(--exit-y, 0px),
       0
     ) scale(0.6) rotate(calc(var(--i) * 440deg));
     opacity: 0;
@@ -789,8 +788,8 @@ textarea {
   border-radius: 2px;
   opacity: 0;
   transform: translate3d(
-    calc(((var(--i) % 13) - 6) * 44px),
-    calc(((var(--i) % 9) - 4) * 44px),
+    var(--home-x, 0px),
+    var(--home-y, 0px),
     0
   ) scale(0.2) rotate(calc(var(--i) * 20deg));
 }
@@ -806,8 +805,8 @@ textarea {
     opacity: 0;
     filter: blur(10px);
     transform: translate3d(
-      calc(((var(--i) % 13) - 6) * 160px),
-      calc(((var(--i) % 9) - 4) * 140px),
+      var(--far-x, 0px),
+      var(--far-y, 0px),
       0
     ) scale(0.12) rotate(0deg);
   }
@@ -815,8 +814,8 @@ textarea {
     opacity: 0.85;
     filter: blur(3px);
     transform: translate3d(
-      calc(((var(--i) % 7) - 3) * 28px),
-      calc(((var(--i) % 6) - 3) * 28px),
+      var(--near-x, 0px),
+      var(--near-y, 0px),
       0
     ) scale(1.06) rotate(calc(var(--i) * 120deg));
   }
@@ -829,8 +828,8 @@ textarea {
     opacity: 0.96;
     filter: blur(4px);
     transform: translate3d(
-      calc(((var(--i) % 11) - 5) * 62px),
-      calc(((var(--i) % 8) - 4) * 62px),
+      var(--drift-x, 0px),
+      var(--drift-y, 0px),
       0
     ) scale(0.94) rotate(calc(var(--i) * 360deg));
   }
@@ -838,8 +837,8 @@ textarea {
     opacity: 0;
     filter: blur(12px);
     transform: translate3d(
-      calc(((var(--i) % 13) - 6) * 122px),
-      calc(((var(--i) % 10) - 5) * 122px),
+      var(--exit-x, 0px),
+      var(--exit-y, 0px),
       0
     ) scale(0.6) rotate(calc(var(--i) * 520deg));
   }
@@ -2275,10 +2274,8 @@ html[data-theme="tabler"] .workspace-context {
 }
 
 .shutdown-confetti__piece {
-  --spread: calc((var(--i) * 37) % 100);
-  --size: calc(6px + (var(--i) % 5) * 2px);
   position: absolute;
-  left: calc(var(--spread) * 1%);
+  left: var(--spread-x, 50%);
   top: 50%;
   width: var(--size);
   height: calc(var(--size) * 1.8);
@@ -2356,7 +2353,7 @@ html[data-theme="tabler"] .workspace-context {
   100% {
     opacity: 0;
     transform:
-      translate3d(calc(((var(--i) % 2) * 2 - 1) * 80px), calc(-120px - (var(--i) % 7) * 18px), 0)
+      translate3d(var(--burst-x, 0px), var(--burst-y, -120px), 0)
       rotate(calc(var(--i) * 24deg))
       scale(1.05);
   }

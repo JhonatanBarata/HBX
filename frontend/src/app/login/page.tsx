@@ -1,5 +1,6 @@
 "use client";
 
+import type { CSSProperties } from "react";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { setToken } from "../dashboard/_lib/api";
@@ -12,6 +13,36 @@ type ApiErrorPayload = {
   error?: string;
   needsRegistration?: boolean;
 };
+
+type LoginParticleStyle = CSSProperties & {
+  "--i"?: number;
+  "--home-x"?: string;
+  "--home-y"?: string;
+  "--far-x"?: string;
+  "--far-y"?: string;
+  "--near-x"?: string;
+  "--near-y"?: string;
+  "--drift-x"?: string;
+  "--drift-y"?: string;
+  "--exit-x"?: string;
+  "--exit-y"?: string;
+};
+
+function buildLoginParticleStyle(index: number): LoginParticleStyle {
+  return {
+    "--i": index,
+    "--home-x": `${((index % 13) - 6) * 44}px`,
+    "--home-y": `${((index % 9) - 4) * 44}px`,
+    "--far-x": `${((index % 13) - 6) * 160}px`,
+    "--far-y": `${((index % 9) - 4) * 140}px`,
+    "--near-x": `${((index % 7) - 3) * 28}px`,
+    "--near-y": `${((index % 6) - 3) * 28}px`,
+    "--drift-x": `${((index % 11) - 5) * 62}px`,
+    "--drift-y": `${((index % 8) - 4) * 62}px`,
+    "--exit-x": `${((index % 13) - 6) * 122}px`,
+    "--exit-y": `${((index % 10) - 5) * 122}px`,
+  };
+}
 
 function getErrorMessage(data: unknown) {
   if (!data || typeof data !== "object") return null;
@@ -203,7 +234,7 @@ export default function LoginPage() {
           <span className="login-meteor" style={{ left: "68%", animationDelay: "220ms" }} />
           <span className="login-meteor" style={{ left: "84%", animationDelay: "640ms" }} />
           {Array.from({ length: 60 }).map((_, i) => (
-            <i key={i} className="login-confetti__piece" style={{ ['--i' as any]: i }} />
+            <i key={i} className="login-confetti__piece" style={buildLoginParticleStyle(i)} />
           ))}
         </div>
       </div>
@@ -213,7 +244,11 @@ export default function LoginPage() {
             mounted ? "opacity-100 translate-y-0" : "opacity-0 translate-y-3"
           } ${playingWelcome ? "is-exploding" : ""}`}
       >
+        <div className="page-overline mb-2">Acesso seguro HBX</div>
         <h1 className="text-2xl font-bold mb-6">Login</h1>
+        <p className="text-sm text-foreground/70 mb-6">
+          Entre para continuar no seu painel. Se este for seu primeiro acesso, o sistema vai te direcionar para concluir o cadastro.
+        </p>
 
         {mode === "login" && (
           <form onSubmit={handleLogin} className="space-y-4">
@@ -265,13 +300,21 @@ export default function LoginPage() {
             ) : null}
 
             {isWakingServer ? (
-              <div className="msg-waking-server">
+              <div className="msg-waking-server" aria-live="polite">
                 <div className="flex items-center gap-3">
                   <div className="spinner-waking" aria-hidden />
                   <div>
                     <div className="text-sm font-medium">Ambiente em inicialização</div>
                     <div className="text-xs opacity-75">{wakingMessage}</div>
                   </div>
+                </div>
+              </div>
+            ) : null}
+
+            {preRegistered ? (
+              <div className="msg-info" aria-live="polite">
+                <div className="text-sm">
+                  Encontramos um primeiro acesso pendente para este usuário. Continue em <strong>Registrar</strong> para finalizar seu cadastro sem perder o contexto.
                 </div>
               </div>
             ) : null}
