@@ -307,26 +307,38 @@ textarea {
   transform-origin: center;
   opacity: 0;
   filter: drop-shadow(0 6px 18px rgba(6,24,40,0.12));
-  animation: confetti-assemble 1400ms cubic-bezier(0.2,0.8,0.2,1) both;
-  animation-delay: calc(var(--i) * 24ms);
+  animation: confetti-sequence 2200ms cubic-bezier(0.2,0.8,0.2,1) both;
+  animation-delay: calc(var(--i) * 9ms);
 }
 
-@keyframes confetti-assemble {
+@keyframes confetti-sequence {
+  /* 0-45% assemble into center, 45-75% explode outward, 75-100% drift and fade with blur */
   0% {
-    transform: translate3d(calc((var(--i) * 13px) - 156px), calc((var(--i) * -9px) + 140px), 0) scale(0.2) rotate(0deg);
+    transform: translate3d(calc((var(--i) * 16px) - 800px), calc((var(--i) * -12px) + 400px), 0) scale(0.18) rotate(0deg);
     opacity: 0;
+    filter: blur(0px) drop-shadow(0 6px 18px rgba(6,24,40,0.06));
   }
-  55% {
-    transform: translate3d(0, 0, 0) scale(1.05) rotate(220deg);
+  40% {
+    transform: translate3d(0, 0, 0) scale(1.06) rotate(calc(var(--i) * 9deg));
     opacity: 1;
+    filter: blur(0px) drop-shadow(0 10px 30px rgba(6,24,40,0.12));
+  }
+  60% {
+    /* explosion outward */
+    transform: translate3d(calc((var(--i) % 10 - 5) * 48px), calc((floor((var(--i) / 10) - 5) * 36px)), 0) scale(1.02) rotate(calc(var(--i) * 23deg));
+    opacity: 1;
+    filter: blur(1px) drop-shadow(0 18px 48px rgba(6,24,40,0.16));
   }
   85% {
-    transform: translate3d(0, 0, 0) scale(0.98) rotate(260deg);
-    opacity: 1;
+    /* drift and blur background pieces */
+    transform: translate3d(calc((var(--i) % 11 - 6) * 86px), calc((floor((var(--i) / 11) - 5) * 92px)), 0) scale(0.8) rotate(calc(var(--i) * 320deg));
+    opacity: 0.92;
+    filter: blur(6px) drop-shadow(0 18px 60px rgba(6,24,40,0.22));
   }
   100% {
-    transform: translate3d(calc((var(--i) * 8px) - 100px), calc((var(--i) * 4px) - 40px), 0) scale(0.6) rotate(320deg);
-    opacity: 0;
+    transform: translate3d(calc((var(--i) % 13 - 6) * 132px), calc((floor((var(--i) / 13) - 5) * 132px)), 0) scale(0.6) rotate(calc(var(--i) * 440deg));
+    opacity: 0.0;
+    filter: blur(10px) drop-shadow(0 22px 88px rgba(6,24,40,0.28));
   }
 }
 
@@ -754,6 +766,61 @@ textarea {
     animation: none !important;
     opacity: 1 !important;
   }
+}
+
+/* Login confetti implode sequence */
+.login-confetti__piece {
+  --size: 8px;
+  position: absolute;
+  left: calc(50% + (var(--i) * 1px));
+  top: calc(50% + (var(--i) * 1px));
+  width: var(--size);
+  height: var(--size);
+  background: linear-gradient(135deg, rgba(6,182,212,0.95), rgba(99,102,241,0.95));
+  border-radius: 2px;
+  opacity: 0;
+  transform: translate3d(calc((var(--i) % 13 - 6) * 44px), calc((floor((var(--i) / 13) - 3) * 44px)), 0) scale(0.2) rotate(calc(var(--i) * 20deg));
+}
+
+.login-visuals.play .login-confetti__piece {
+  animation: confetti-implode 1150ms cubic-bezier(0.22,0.9,0.2,1) both;
+  animation-delay: calc((60 - var(--i)) * 6ms);
+}
+
+@keyframes confetti-implode {
+  0% {
+    opacity: 0;
+    filter: blur(6px);
+    transform: translate3d(var(--x,0px), var(--y,0px), 0) scale(0.18) rotate(0deg);
+  }
+  55% {
+    opacity: 1;
+    filter: blur(2px);
+    transform: translate3d(0, 0, 0) scale(1.04) rotate(180deg);
+  }
+  85% {
+    opacity: 0.95;
+    filter: blur(1px);
+    transform: translate3d(0, 0, 0) scale(0.98) rotate(260deg);
+  }
+  100% {
+    opacity: 0;
+    filter: blur(10px);
+    transform: translate3d(0, 0, 0) scale(0.6) rotate(320deg);
+  }
+}
+
+/* Slight card animation while imploding */
+.login-card.is-exploding {
+  transform: scale(0.98) translateY(-6px);
+  opacity: 0.96;
+  transition: transform 1.1s cubic-bezier(0.2,0.9,0.2,1), opacity 1.1s;
+  pointer-events: none;
+}
+
+/* ensure visuals hidden on small screens to avoid heavy animation */
+@media (max-width: 720px) {
+  .login-confetti__piece { display: none; }
 }
 
 .app-brand {

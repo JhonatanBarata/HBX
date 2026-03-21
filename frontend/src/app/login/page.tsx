@@ -30,6 +30,7 @@ export default function LoginPage() {
   const [info, setInfo] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [mounted, setMounted] = useState(false);
+  const [playingWelcome, setPlayingWelcome] = useState(false);
   const [mode, setMode] = useState<"login" | "forgot">("login");
   const [preRegistered, setPreRegistered] = useState(false);
 
@@ -98,11 +99,19 @@ export default function LoginPage() {
       }
 
       setToken(token);
-      router.push("/dashboard");
+        setToken(token);
+        // play welcome implode animation before navigating
+        try {
+          setPlayingWelcome(true);
+          // allow animation to run then navigate
+          await new Promise((res) => setTimeout(res, 2300));
+        } finally {
+          router.push("/dashboard");
+        }
     } catch {
       setError("Falha ao conectar no backend");
     } finally {
-      setLoading(false);
+        setLoading(false);
     }
   }
 
@@ -176,20 +185,25 @@ export default function LoginPage() {
   return (
     <main className="min-h-screen flex items-center justify-center p-6 relative overflow-hidden">
       <div className="login-visuals" aria-hidden>
-        <div className="login-drop login-drop-top" />
-        <div className="login-drop login-drop-bottom" />
-        <div className="login-drop login-drop-left" />
-        <div className="login-drop login-drop-right" />
-        <span className="login-meteor" style={{ left: "12%", animationDelay: "120ms" }} />
-        <span className="login-meteor" style={{ left: "28%", animationDelay: "420ms" }} />
-        <span className="login-meteor" style={{ left: "68%", animationDelay: "220ms" }} />
-        <span className="login-meteor" style={{ left: "84%", animationDelay: "640ms" }} />
+        <div className={`login-visuals ${playingWelcome ? "play" : ""}`} aria-hidden>
+          <div className="login-drop" />
+          <div className="login-drop login-drop-bottom" />
+          <div className="login-drop login-drop-left" />
+          <div className="login-drop login-drop-right" />
+          <span className="login-meteor" style={{ left: "12%", animationDelay: "120ms" }} />
+          <span className="login-meteor" style={{ left: "28%", animationDelay: "420ms" }} />
+          <span className="login-meteor" style={{ left: "68%", animationDelay: "220ms" }} />
+          <span className="login-meteor" style={{ left: "84%", animationDelay: "640ms" }} />
+          {Array.from({ length: 60 }).map((_, i) => (
+            <i key={i} className="login-confetti__piece" style={{ ['--i' as any]: i }} />
+          ))}
+        </div>
       </div>
 
       <div
-        className={`container-sm login-card w-full p-6 card transition-all duration-200 ${
-          mounted ? "opacity-100 translate-y-0" : "opacity-0 translate-y-3"
-        }`}
+          className={`container-sm login-card w-full p-6 card transition-all duration-200 ${
+            mounted ? "opacity-100 translate-y-0" : "opacity-0 translate-y-3"
+          } ${playingWelcome ? "is-exploding" : ""}`}
       >
         <h1 className="text-2xl font-bold mb-6">Login</h1>
 

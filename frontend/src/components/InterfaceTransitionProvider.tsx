@@ -4,7 +4,7 @@ import React from "react";
 import { usePathname } from "next/navigation";
 
 const ENTER_READY_DELAY_MS = 34;
-const EXIT_DURATION_MS = 560;
+const EXIT_DURATION_MS = 2200; // extended to allow assemble->explode->disperse animation
 const ROW_SNAP_PX = 18;
 
 const REVEAL_TARGET_SELECTOR = [
@@ -229,7 +229,7 @@ export function InterfaceTransitionProvider({ children }: { children: React.Reac
             <div className="ui-shutdown-overlay__content">
               <p className="ui-shutdown-overlay__eyebrow">HBX Solutions</p>
               <div className="shutdown-confetti" aria-hidden>
-                {Array.from({ length: 26 }).map((_, i) => (
+                {Array.from({ length: 100 }).map((_, i) => (
                   <span key={i} className="shutdown-confetti__piece" style={{ ['--i' as any]: i }} />
                 ))}
               </div>
