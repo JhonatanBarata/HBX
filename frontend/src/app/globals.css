@@ -101,6 +101,11 @@ body.app-root {
   -moz-osx-font-smoothing: grayscale;
 }
 
+/* Prevent horizontal overflow and keep content centered */
+body.app-root {
+  overflow-x: hidden;
+}
+
 body.app-root::before,
 body.app-root::after {
   content: "";
@@ -1030,6 +1035,9 @@ textarea {
 .app-container {
   width: min(var(--app-max-width), calc(100vw - (var(--content-gutter) * 2)));
   margin: 0 auto;
+  box-sizing: border-box;
+  padding-left: var(--content-gutter);
+  padding-right: var(--content-gutter);
 }
 
 .workspace-shell {
