@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { setToken } from "../dashboard/_lib/api";
+import { useLoginColdStart, type LoginState } from "../../lib/useLoginColdStart";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3000";
 
@@ -23,96 +24,91 @@ function getErrorMessage(data: unknown) {
 
 export default function LoginPage() {
   const router = useRouter();
+  const { executeLoginWithRetry, cancel: cancelLogin } = useLoginColdStart({
+    apiUrl: API_URL,
+    wakingThresholdMs: 3000,
+    maxRetries: 3,
+    retryBackoffMs: 1000,
+  });
+
   const [username, setUsername] = useState("");
   const [recoveryEmail, setRecoveryEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [wakingMessage, setWakingMessage] = useState<string | null>(null);
+  const [loginState, setLoginState] = useState<LoginState>("idle");
   const [mounted, setMounted] = useState(false);
   const [playingWelcome, setPlayingWelcome] = useState(false);
   const [visualsPlayOnLoad, setVisualsPlayOnLoad] = useState(false);
   const [mode, setMode] = useState<"login" | "forgot">("login");
   const [preRegistered, setPreRegistered] = useState(false);
 
+  // Helper para traduzir estado de login para UI
+  const isSubmitting = loginState === "submitting" || loginState === "waking_server";
+  const isWakingServer = loginState === "waking_server";
+
   async function handleLogin(event: React.FormEvent) {
     event.preventDefault();
     setError(null);
     setInfo(null);
-    setLoading(true);
+    setWakingMessage(null);
+    setLoginState("submitting");
 
     try {
-      const res = await fetch(`${API_URL}/auth/login`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username, password }),
-      });
+      const result = await executeLoginWithRetry(username, password);
 
-      const data: unknown = await res.json().catch(() => null);
+      if (result.state === "success") {
+        const token = (result.data as any)?.token;
+        if (!token) {
+          setError("Login falhou: token não recebido");
+          setLoginState("error");
+          return;
+        }
 
-      if (!res.ok) {
+        setToken(token);
+        setLoginState("success");
+
+        // Play welcome animation
+        try {
+          setPlayingWelcome(true);
+          await new Promise((res) => setTimeout(res, 2300));
+        } finally {
+          router.push("/dashboard");
+        }
+      } else if (result.state === "error") {
+        setError(result.message ?? "Erro ao autenticar");
+        setLoginState("error");
+
+        // Verificar se precisa de primeiro acesso
         if (
-          data &&
-          typeof data === "object" &&
-          Boolean((data as ApiErrorPayload).needsRegistration)
+          result.data &&
+          typeof result.data === "object" &&
+          Boolean((result.data as ApiErrorPayload).needsRegistration)
         ) {
           try {
             localStorage.setItem(
               "firstAccess",
               JSON.stringify({
                 username,
-                message: getErrorMessage(data) ?? "Complete seu cadastro.",
+                message: result.message ?? "Complete seu cadastro.",
               })
             );
           } catch {
             // ignore localStorage errors
           }
-          router.push("/register");
-          return;
+          setTimeout(() => router.push("/register"), 2000);
         }
-
-        if (res.status === 404) {
-          setError("Usuário inexistente");
-          return;
-        }
-
-        if (res.status === 401) {
-          setError(getErrorMessage(data) ?? "Senha incorreta");
-          return;
-        }
-
-        setError(
-          getErrorMessage(data) ??
-            "Não foi possível autenticar. Verifique suas credenciais e tente novamente."
+      } else if (result.state === "waking_server") {
+        setWakingMessage(
+          result.message ??
+            "Estamos iniciando o ambiente seguro. A primeira conexão pode levar alguns segundos."
         );
-        return;
+        setLoginState("waking_server");
       }
-
-      const payload = (data as Record<string, unknown> | null) ?? null;
-      const token =
-        (typeof payload?.access_token === "string" && payload.access_token) ||
-        (typeof payload?.accessToken === "string" && payload.accessToken) ||
-        (typeof payload?.token === "string" && payload.token);
-
-      if (!token) {
-        setError(getErrorMessage(data) ?? "Login não retornou token.");
-        return;
-      }
-
-      setToken(token);
-        setToken(token);
-        // play welcome implode animation before navigating
-        try {
-          setPlayingWelcome(true);
-          // allow animation to run then navigate
-          await new Promise((res) => setTimeout(res, 2300));
-        } finally {
-          router.push("/dashboard");
-        }
-    } catch {
+    } catch (err) {
       setError("Falha ao conectar no backend");
-    } finally {
-        setLoading(false);
+      setLoginState("error");
     }
   }
 
@@ -158,14 +154,18 @@ export default function LoginPage() {
     return () => {
       clearTimeout(t);
       setMounted(false);
+      // Cleanup login if component unmounts
+      if (loginState === "submitting" || loginState === "waking_server") {
+        cancelLogin();
+      }
     };
-  }, []);
+  }, [cancelLogin, loginState]);
 
   async function handleRecoverByEmail(event: React.FormEvent) {
     event.preventDefault();
     setError(null);
     setInfo(null);
-    setLoading(true);
+    setLoginState("submitting");
 
     try {
       const res = await fetch(`${API_URL}/auth/recover-password`, {
@@ -177,15 +177,16 @@ export default function LoginPage() {
       const data: unknown = await res.json().catch(() => null);
       if (!res.ok) {
         setError(getErrorMessage(data) ?? "Erro na recuperação.");
+        setLoginState("error");
         return;
       }
 
       setInfo("Se o e-mail existir, enviaremos um link de redefinição.");
+      setLoginState("idle");
       setMode("login");
     } catch {
       setError("Falha ao conectar no backend");
-    } finally {
-      setLoading(false);
+      setLoginState("error");
     }
   }
 
@@ -263,8 +264,20 @@ export default function LoginPage() {
               </div>
             ) : null}
 
+            {isWakingServer ? (
+              <div className="msg-waking-server">
+                <div className="flex items-center gap-3">
+                  <div className="spinner-waking" aria-hidden />
+                  <div>
+                    <div className="text-sm font-medium">Ambiente em inicialização</div>
+                    <div className="text-xs opacity-75">{wakingMessage}</div>
+                  </div>
+                </div>
+              </div>
+            ) : null}
+
             <button
-              disabled={loading}
+              disabled={isSubmitting || preRegistered}
               type={preRegistered ? "button" : "submit"}
               onClick={
                 preRegistered
@@ -284,15 +297,17 @@ export default function LoginPage() {
                     }
                   : undefined
               }
-              className={`btn ${preRegistered ? "btn-secondary w-full mt-2" : "btn btn-primary w-full mt-2"}`}
+              className={`btn ${preRegistered ? "btn-secondary w-full mt-2" : "btn btn-primary w-full mt-2 transition-all duration-300"} ${isWakingServer ? "opacity-75" : ""}`}
             >
-              {loading
-                ? preRegistered
-                  ? "Aguarde..."
-                  : "Entrando..."
-                : preRegistered
-                  ? "Registrar"
-                  : "Entrar"}
+              {isWakingServer
+                ? "⏳ Iniciando..."
+                : isSubmitting
+                  ? preRegistered
+                    ? "Aguarde..."
+                    : "🔐 Autenticando..."
+                  : preRegistered
+                    ? "Registrar"
+                    : "Entrar"}
             </button>
           </form>
         )}
@@ -326,8 +341,8 @@ export default function LoginPage() {
               </div>
             ) : null}
 
-              <button disabled={loading} className="btn btn-primary w-full mt-2">
-              {loading ? "Enviando..." : "Enviar recuperação"}
+              <button disabled={isSubmitting} className="btn btn-primary w-full mt-2">
+              {isSubmitting ? "Enviando..." : "Enviar recuperação"}
             </button>
             <button type="button" className="btn w-full mt-2" onClick={() => setMode("login")}>
               Voltar

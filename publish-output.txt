@@ -1,0 +1,16 @@
+
+> app-root@1.0.0 publish
+> node ./scripts/publish.js --yes --message "Automated publish"
+
+
+=== Preflight Validation ===
+
+> git rev-parse --is-inside-work-tree
+true
+
+> git diff --check
+warning: in the working copy of 'backend/src/app.controller.ts', CRLF will be replaced by LF the next time Git touches it
+warning: in the working copy of 'backend/src/app.service.ts', CRLF will be replaced by LF the next time Git touches it
+backend/src/app.service.ts:16: trailing whitespace.
++      
+git diff --check exited with status 2

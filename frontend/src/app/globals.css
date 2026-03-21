@@ -1643,6 +1643,48 @@ textarea.field {
   border-left: 4px solid currentColor;
 }
 
+/* Waking server state - elegant initialization message */
+.msg-waking-server {
+  border-radius: calc(var(--control-radius) + 2px);
+  padding: 0.82rem 0.95rem;
+  font-size: 0.84rem;
+  line-height: 1.55;
+  color: color-mix(in srgb, var(--info) 72%, var(--foreground));
+  border-color: color-mix(in srgb, var(--info) 22%, white);
+  background: color-mix(in srgb, var(--info) 8%, white);
+  border-left: 4px solid var(--info);
+  animation: slide-in-gentle 0.3s ease-out;
+}
+
+@keyframes slide-in-gentle {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Discrete spinner for waking state */
+.spinner-waking {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  border: 2px solid color-mix(in srgb, var(--info) 20%, transparent);
+  border-radius: 50%;
+  border-top-color: var(--info);
+  animation: spin-smooth 1.2s linear infinite;
+  flex-shrink: 0;
+}
+
+@keyframes spin-smooth {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .badge {
   display: inline-flex;
   align-items: center;
