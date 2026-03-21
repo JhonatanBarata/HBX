@@ -918,7 +918,7 @@ export default function MasterPremiumPage() {
         loadWorkspace(true),
       ]);
       setCurrentUser(userPayload);
-      dispatchMasterContextChanged();
+      dispatchMasterContextChanged({ mode: "assumed", companyName: company.name });
     } catch (actionError) {
       setError(actionError instanceof Error ? actionError.message : "Falha ao assumir contexto.");
     } finally {
@@ -941,7 +941,7 @@ export default function MasterPremiumPage() {
         loadWorkspace(true),
       ]);
       setCurrentUser(userPayload);
-      dispatchMasterContextChanged();
+      dispatchMasterContextChanged({ mode: "exited", companyName: currentUser?.masterContext?.companyName || null });
     } catch (actionError) {
       setError(actionError instanceof Error ? actionError.message : "Falha ao sair do contexto.");
     } finally {

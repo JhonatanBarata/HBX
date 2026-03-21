@@ -6,7 +6,11 @@ import { usePathname, useRouter } from "next/navigation";
 import { apiFetch, clearToken, getToken } from "../app/dashboard/_lib/api";
 import { useInterfaceTransition } from "@/components/InterfaceTransitionProvider";
 import { useHbxTheme } from "@/components/ThemeProvider";
-import { MASTER_CONTEXT_CHANGED_EVENT, dispatchMasterContextChanged } from "../lib/masterContextEvents";
+import {
+  MASTER_CONTEXT_CHANGED_EVENT,
+  dispatchMasterContextChanged,
+  type MasterContextChangedDetail,
+} from "../lib/masterContextEvents";
 import ThemeSwitcher from "./ThemeSwitcher";
 import TechAssistantGlobalDrawer from "./TechAssistantGlobalDrawer";
 
@@ -147,6 +151,7 @@ export default function TopBar() {
   const [masterCompanyOptions, setMasterCompanyOptions] = useState<MasterOverviewCompany[]>([]);
   const [selectedMasterCompanyId, setSelectedMasterCompanyId] = useState<string>("");
   const [masterContextReason, setMasterContextReason] = useState("");
+  const [masterContextToast, setMasterContextToast] = useState<string | null>(null);
   const recoveryLastSeenRef = useRef<Map<number, string>>(new Map());
   const recoveryHumanQueueRef = useRef<Map<number, boolean>>(new Map());
   const recoveryAlertReadyRef = useRef(false);
@@ -154,6 +159,7 @@ export default function TopBar() {
   const atendimentoAlertReadyRef = useRef(false);
   const audioContextRef = useRef<AudioContext | null>(null);
   const audioArmedRef = useRef(false);
+  const masterContextToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const refreshMasterAwareState = React.useCallback(async () => {
     const [profile, myModules] = await Promise.all([
@@ -162,6 +168,25 @@ export default function TopBar() {
     ]);
     setUser(profile);
     setModules(myModules || []);
+  }, []);
+
+  const showMasterContextToast = React.useCallback((detail?: MasterContextChangedDetail | null) => {
+    const mode = detail?.mode;
+    const companyName = String(detail?.companyName || "").trim();
+    const nextMessage =
+      mode === "assumed"
+        ? `Contexto alterado para ${companyName || "a empresa selecionada"}.`
+        : "Contexto MASTER encerrado.";
+
+    if (masterContextToastTimerRef.current) {
+      clearTimeout(masterContextToastTimerRef.current);
+    }
+
+    setMasterContextToast(nextMessage);
+    masterContextToastTimerRef.current = setTimeout(() => {
+      setMasterContextToast(null);
+      masterContextToastTimerRef.current = null;
+    }, 3200);
   }, []);
 
   const playIncomingAlertTone = React.useCallback(() => {
@@ -234,6 +259,9 @@ export default function TopBar() {
     window.addEventListener("keydown", armAudio, { once: true });
 
     return () => {
+      if (masterContextToastTimerRef.current) {
+        clearTimeout(masterContextToastTimerRef.current);
+      }
       window.removeEventListener("pointerdown", armAudio);
       window.removeEventListener("keydown", armAudio);
       if (audioContextRef.current && audioContextRef.current.state !== "closed") {
@@ -277,8 +305,10 @@ export default function TopBar() {
 
     void loadUser();
 
-    function handleMasterContextChanged() {
+    function handleMasterContextChanged(event: Event) {
+      const customEvent = event as CustomEvent<MasterContextChangedDetail>;
       void refreshMasterAwareState().catch(() => undefined);
+      showMasterContextToast(customEvent.detail);
     }
 
     window.addEventListener(MASTER_CONTEXT_CHANGED_EVENT, handleMasterContextChanged);
@@ -287,7 +317,7 @@ export default function TopBar() {
       mounted = false;
       window.removeEventListener(MASTER_CONTEXT_CHANGED_EVENT, handleMasterContextChanged);
     };
-  }, [authenticated, refreshMasterAwareState, setStorageUserId]);
+  }, [authenticated, refreshMasterAwareState, setStorageUserId, showMasterContextToast]);
 
   useEffect(() => {
     setStorageUserId(user?.id ?? null);
@@ -689,6 +719,7 @@ export default function TopBar() {
 
   async function assumeMasterContext() {
     const companyId = Number(selectedMasterCompanyId || 0);
+    const selectedCompany = masterCompanyOptions.find((company) => company.id === companyId) || null;
     if (!companyId) {
       setMasterContextMessage("Selecione uma empresa para assumir contexto.");
       return;
@@ -713,7 +744,10 @@ export default function TopBar() {
       setModules(myModules || []);
       setMasterContextModalOpen(false);
       setMasterContextReason("");
-      dispatchMasterContextChanged();
+      dispatchMasterContextChanged({
+        mode: "assumed",
+        companyName: profile.masterContext?.companyName || selectedCompany?.name || null,
+      });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Falha ao assumir contexto da empresa.";
       setMasterContextMessage(message);
@@ -739,7 +773,10 @@ export default function TopBar() {
       setModules(myModules || []);
       setMasterContextModalOpen(false);
       setMasterContextReason("");
-      dispatchMasterContextChanged();
+      dispatchMasterContextChanged({
+        mode: "exited",
+        companyName: profile.masterContext?.companyName || null,
+      });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Falha ao sair do contexto assumido.";
       setMasterContextMessage(message);
@@ -1013,6 +1050,32 @@ export default function TopBar() {
               Dispensar
             </button>
           </div>
+        </div>
+      ) : null}
+
+      {masterContextToast ? (
+        <div
+          style={{
+            position: "fixed",
+            top: 84,
+            right: 20,
+            zIndex: 145,
+            maxWidth: 360,
+            padding: "12px 14px",
+            borderRadius: 18,
+            border: "1px solid rgba(20, 122, 108, 0.18)",
+            background: "linear-gradient(180deg, rgba(255,255,255,0.96), rgba(238,247,244,0.98))",
+            boxShadow: "0 18px 40px rgba(14, 30, 37, 0.14)",
+            color: "#17313a",
+            display: "grid",
+            gap: 4,
+          }}
+          aria-live="polite"
+        >
+          <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase", color: "#147a6c" }}>
+            Contexto atualizado
+          </span>
+          <strong style={{ fontSize: 14, lineHeight: 1.4 }}>{masterContextToast}</strong>
         </div>
       ) : null}
 
