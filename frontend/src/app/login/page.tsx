@@ -258,7 +258,9 @@ export default function LoginPage() {
             mounted ? "opacity-100 translate-y-0" : "opacity-0 translate-y-3"
           } ${playingWelcome ? "is-exploding" : ""}`}
       >
-        <div className="page-overline mb-2 ml-auto w-fit">Acesso seguro HBX</div>
+        <div className="mb-2 flex justify-end">
+          <div className="page-overline">Acesso seguro HBX</div>
+        </div>
         <h1 className="text-2xl font-bold mb-6">Login</h1>
 
         {mode === "login" && (
