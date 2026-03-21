@@ -102,14 +102,14 @@ export default function WebscrapingClientPage() {
   return (
     <DashboardScaffold
       title="Webscraping"
-      description="Prospeccao local de contatos integrada como modulo do sistema."
+      description="Prospecção local de contatos integrada como módulo do sistema."
     >
       {error ? <div className="alert alert-error">{error}</div> : null}
       {sendInfo ? <div className="alert alert-success">{sendInfo}</div> : null}
       {sendError ? <div className="alert alert-error">{sendError}</div> : null}
 
       {loading ? (
-        <div className="panel p-4 text-sm text-muted">Carregando modulo...</div>
+        <div className="panel p-4 text-sm text-muted">Carregando módulo...</div>
       ) : entryUrl ? (
         <section className="panel p-2">
           <iframe
@@ -119,7 +119,7 @@ export default function WebscrapingClientPage() {
           />
         </section>
       ) : (
-        <div className="panel p-4 text-sm text-muted">Modulo indisponivel.</div>
+        <div className="panel p-4 text-sm text-muted">Módulo indisponível.</div>
       )}
     </DashboardScaffold>
   );

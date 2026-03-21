@@ -74,7 +74,7 @@ export default function RegisterPage() {
         (typeof payload?.token === "string" && payload.token);
 
       if (!token) {
-        setError(getErrorMessage(signupData) ?? "Registro nao retornou token.");
+        setError(getErrorMessage(signupData) ?? "Registro não retornou token.");
         return;
       }
 
@@ -98,7 +98,7 @@ export default function RegisterPage() {
 
         <form onSubmit={handleRegister} className="space-y-4">
           <div>
-            <label className="text-sm font-medium">Usuario</label>
+            <label className="text-sm font-medium">Usuário</label>
             <input
               className="w-full mt-1 p-2 border border-foreground/10 rounded-xl bg-background"
               value={username}
@@ -132,7 +132,7 @@ export default function RegisterPage() {
               required
               autoComplete="new-password"
             />
-            <p className="text-xs text-foreground/60 mt-1">Minimo de 4 caracteres.</p>
+            <p className="text-xs text-foreground/60 mt-1">Mínimo de 4 caracteres.</p>
           </div>
 
           {error ? (
@@ -158,7 +158,7 @@ export default function RegisterPage() {
         </form>
 
         <p className="text-sm text-foreground/70 mt-4">
-          Ja tem conta?{" "}
+          Já tem conta?{" "}
           <a className="underline" href="/login">
             Login
           </a>

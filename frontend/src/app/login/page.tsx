@@ -70,7 +70,7 @@ export default function LoginPage() {
         }
 
         if (res.status === 404) {
-          setError("Usuario inexistente");
+          setError("Usuário inexistente");
           return;
         }
 
@@ -81,7 +81,7 @@ export default function LoginPage() {
 
         setError(
           getErrorMessage(data) ??
-            "Nao foi possivel autenticar. Verifique suas credenciais e tente novamente."
+            "Não foi possível autenticar. Verifique suas credenciais e tente novamente."
         );
         return;
       }
@@ -93,7 +93,7 @@ export default function LoginPage() {
         (typeof payload?.token === "string" && payload.token);
 
       if (!token) {
-        setError(getErrorMessage(data) ?? "Login nao retornou token.");
+        setError(getErrorMessage(data) ?? "Login não retornou token.");
         return;
       }
 
@@ -160,11 +160,11 @@ export default function LoginPage() {
 
       const data: unknown = await res.json().catch(() => null);
       if (!res.ok) {
-        setError(getErrorMessage(data) ?? "Erro na recuperacao.");
+        setError(getErrorMessage(data) ?? "Erro na recuperação.");
         return;
       }
 
-      setInfo("Se o e-mail existir, enviamos um link de redefinicao.");
+      setInfo("Se o e-mail existir, enviaremos um link de redefinição.");
       setMode("login");
     } catch {
       setError("Falha ao conectar no backend");
@@ -185,7 +185,7 @@ export default function LoginPage() {
         {mode === "login" && (
           <form onSubmit={handleLogin} className="space-y-4">
             <div>
-              <label className="text-sm font-medium">Usuario</label>
+              <label className="text-sm font-medium">Usuário</label>
               <input
                 className="input mt-1"
                 value={username}
@@ -268,7 +268,7 @@ export default function LoginPage() {
         {mode === "forgot" && (
           <form onSubmit={handleRecoverByEmail} className="space-y-4">
             <p className="text-sm text-foreground/80">
-              Digite seu e-mail para receber o link de redefinicao.
+              Digite seu e-mail para receber o link de redefinição.
             </p>
             <div>
               <label className="text-sm font-medium">E-mail</label>
@@ -294,8 +294,8 @@ export default function LoginPage() {
               </div>
             ) : null}
 
-            <button disabled={loading} className="btn btn-primary w-full mt-2">
-              {loading ? "Enviando..." : "Enviar recuperacao"}
+              <button disabled={loading} className="btn btn-primary w-full mt-2">
+              {loading ? "Enviando..." : "Enviar recuperação"}
             </button>
             <button type="button" className="btn w-full mt-2" onClick={() => setMode("login")}>
               Voltar

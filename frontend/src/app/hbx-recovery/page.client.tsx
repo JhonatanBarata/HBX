@@ -5649,7 +5649,7 @@ export default function HbxRecoveryClientPage() {
 
       <DashboardScaffold
         title="Recovery"
-        description="Gestao inteligente de inadimplencia com score de risco, cobranca automatizada e uma leitura visual clara do impacto financeiro."
+        description="Gestão inteligente de inadimplência com score de risco, cobrança automatizada e leitura clara do impacto financeiro."
         showDashboardShortcut={false}
         actions={
           <div className={styles.heroActions}>
@@ -5679,7 +5679,7 @@ export default function HbxRecoveryClientPage() {
                 className={activeTab === "payments" ? styles.heroTabActive : styles.heroTab}
                 onClick={() => handleTabChange("payments")}
               >
-                Historico de pagamentos
+                Histórico de pagamentos
               </button>
               <button
                 type="button"
@@ -6210,8 +6210,8 @@ export default function HbxRecoveryClientPage() {
           <article className={`panel ${styles.sectionCard}`}>
             <div className={styles.sectionHeader}>
               <div>
-                <p className={styles.sectionEyebrow}>Inteligencia de recuperacao</p>
-                <h2 className={styles.sectionTitle}>Grafico de recuperacao mensal</h2>
+                <p className={styles.sectionEyebrow}>Inteligência de recuperação</p>
+                <h2 className={styles.sectionTitle}>Gráfico de recuperação mensal</h2>
                 <p className={styles.sectionDescription}>
                   Evolucao dos valores recuperados via pagamentos registrados no Recovery.
                 </p>
@@ -6226,7 +6226,7 @@ export default function HbxRecoveryClientPage() {
                 className={styles.chartSvg}
                 viewBox={`0 0 ${recoveryChartSvg.width} ${recoveryChartSvg.height}`}
                 role="img"
-                aria-label="Grafico de recuperacao mensal"
+                aria-label="Gráfico de recuperação mensal"
               >
                 {recoveryChartSvg.gridLines.map((line) => (
                   <g key={`grid-${line.y}`}>

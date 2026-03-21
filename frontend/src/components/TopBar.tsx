@@ -763,7 +763,7 @@ export default function TopBar() {
       : user?.company?.name || "Operacao sem empresa"
     : "Plataforma operacional HBX";
   const workspaceBadge = pendingHumanCount > 0 ? `${pendingHumanCount} na fila` : "Fila sob controle";
-  const themeLabel = `${activeTheme.shortLabel} · ${selection.mode === "dark" ? "Dark" : "Light"}`;
+  const themeLabel = `${activeTheme.shortLabel} · ${selection.mode === "dark" ? "Escuro" : "Claro"}`;
 
   if (hiddenRoutes.has(pathname)) {
     return null;
@@ -834,20 +834,12 @@ export default function TopBar() {
           <div className="app-topbar__center">
             <div className="app-topbar__summary">
               <p className="app-topbar__summaryLabel">Workspace ativo</p>
-              <strong>{activeTheme.shellLabel}</strong>
+              <strong>HBX Workspace</strong>
             </div>
             <div className="app-topbar__metaGrid" aria-label="Resumo rapido do shell">
               <span className="app-topbar__metaPill">
-                <strong>{themeLabel}</strong>
-                <span>Tema</span>
-              </span>
-              <span className="app-topbar__metaPill">
                 <strong>{workspaceBadge}</strong>
                 <span>Fila</span>
-              </span>
-              <span className="app-topbar__metaPill">
-                <strong>{activeTheme.densityLabel}</strong>
-                <span>Ritmo visual</span>
               </span>
             </div>
           </div>
@@ -952,18 +944,6 @@ export default function TopBar() {
         {authenticated ? (
           <div className="app-topbar__dock">
             <span className="app-topbar__dockChip">
-              <strong>{activeTheme.label}</strong>
-              <span>Skin ativa</span>
-            </span>
-            <span className="app-topbar__dockChip">
-              <strong>{activeTheme.densityLabel}</strong>
-              <span>Densidade</span>
-            </span>
-            <span className="app-topbar__dockChip">
-              <strong>{activeTheme.depthLabel}</strong>
-              <span>Profundidade</span>
-            </span>
-            <span className="app-topbar__dockChip">
               <strong>{pendingHumanCount}</strong>
               <span>Itens em fila</span>
             </span>
@@ -1003,7 +983,7 @@ export default function TopBar() {
               className="btn btn-primary btn-sm"
               onClick={() => setIncomingPopup(null)}
             >
-              Abrir modulo
+              Abrir módulo
             </Link>
             <button
               type="button"

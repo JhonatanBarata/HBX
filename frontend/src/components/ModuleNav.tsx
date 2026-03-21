@@ -23,7 +23,7 @@ const NAV_ITEMS: NavItem[] = [
     href: "/dashboard",
     label: "Menu",
     shortLabel: "ME",
-    description: "Resumo de acesso e atalhos por modulo.",
+    description: "Resumo de acesso e atalhos por módulo.",
     matcher: (route) => route === "/dashboard",
   },
   {
@@ -41,7 +41,7 @@ const NAV_ITEMS: NavItem[] = [
     href: "/dashboard/gerencial",
     label: "Gerencial",
     shortLabel: "GE",
-    description: "Usuarios, acessos e operacao de equipe.",
+    description: "Usuários, acessos e operação de equipe.",
     matcher: (route) => route.startsWith("/dashboard/gerencial"),
     adminOnly: true,
     moduleKey: "gerencial",
@@ -50,7 +50,7 @@ const NAV_ITEMS: NavItem[] = [
     href: "/hbx-recovery",
     label: "Recovery",
     shortLabel: "RC",
-    description: "Cobranca, negociacao e console de recuperacao.",
+    description: "Cobrança, negociação e console de recuperação.",
     matcher: (route) => route.startsWith("/hbx-recovery"),
     moduleKey: "hbx_recovery",
   },
@@ -58,7 +58,7 @@ const NAV_ITEMS: NavItem[] = [
     href: "/dashboard/webscraping",
     label: "Webscraping",
     shortLabel: "WS",
-    description: "Prospeccao local integrada ao workspace.",
+    description: "Prospecção local integrada ao workspace.",
     matcher: (route) => route.startsWith("/dashboard/webscraping"),
     moduleKey: "webscraping",
   },
@@ -66,7 +66,7 @@ const NAV_ITEMS: NavItem[] = [
     href: "/dashboard/website",
     label: "Website",
     shortLabel: "WB",
-    description: "Provisionamento e operacao do website por empresa.",
+    description: "Provisionamento e operação do website por empresa.",
     matcher: (route) => route.startsWith("/dashboard/website"),
     moduleKey: "website",
   },
@@ -74,7 +74,7 @@ const NAV_ITEMS: NavItem[] = [
     href: "/dashboard/importacoes/followup-global",
     label: "Follow Up",
     shortLabel: "FU",
-    description: "Importacoes, historico e follow-up global.",
+    description: "Importações, histórico e follow-up global.",
     matcher: (route) =>
       route.startsWith("/dashboard/importacoes/followup-global") ||
       route.startsWith("/dashboard/importacoes/historico") ||
@@ -93,7 +93,7 @@ const NAV_ITEMS: NavItem[] = [
     href: "/dashboard/master",
     label: "Master",
     shortLabel: "MS",
-    description: "Empresas, billing, acessos e configuracoes globais.",
+    description: "Empresas, billing, acessos e configurações globais.",
     matcher: (route) => route.startsWith("/dashboard/master"),
     adminOnly: true,
     moduleKey: "master",
@@ -151,7 +151,7 @@ export default function ModuleNav() {
   }, [accessibleModules, isSystemMaster, modules, userRole]);
 
   return (
-    <nav className={styles.moduleNavWrap} aria-label="Navegacao de modulos">
+    <nav className={styles.moduleNavWrap} aria-label="Navegação de módulos">
       {navItems.map((item) => {
         const active = item.matcher(pathname || "");
         return (

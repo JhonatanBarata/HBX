@@ -51,7 +51,7 @@ export default function DashboardClientPage() {
         setModules(userModules || []);
       } catch (loadError) {
         const message =
-          loadError instanceof Error ? loadError.message : "Falha ao carregar usuario.";
+          loadError instanceof Error ? loadError.message : "Falha ao carregar usuário.";
         setError(message);
       } finally {
         setLoading(false);
@@ -60,7 +60,7 @@ export default function DashboardClientPage() {
   }, [hasToken]);
 
   const isAdmin = String(user?.role ?? "").toUpperCase() === "ADMIN";
-  const roleLabel = String(user?.role ?? "").toUpperCase() || "USUARIO";
+  const roleLabel = String(user?.role ?? "").toUpperCase() || "USUÁRIO";
   const isSystemMaster = Boolean(user?.isSystemMaster);
 
   const moduleCards = useMemo<ModuleCard[]>(() => {
@@ -80,7 +80,7 @@ export default function DashboardClientPage() {
       .filter((item) => (item.key === 'gerencial' ? isAdmin : true))
       .map((item) => ({
         title: item.name,
-        description: item.description || "Modulo disponivel para seu usuario.",
+        description: item.description || "Módulo disponível para seu usuário.",
         href: moduleRoutes[item.key] || "/dashboard",
         badge: item.key === "gerencial" || item.key === "master" ? "ADMIN" : undefined,
       }));
@@ -88,7 +88,7 @@ export default function DashboardClientPage() {
     if (isSystemMaster && !base.some((item) => item.href === "/dashboard/master")) {
       base.push({
         title: "Master",
-        description: "Gestao global de empresas, modulos, usuarios e billing.",
+        description: "Gestão global de empresas, módulos, usuários e billing.",
         href: "/dashboard/master",
         badge: "ADMIN",
       });
@@ -118,11 +118,11 @@ export default function DashboardClientPage() {
           <article className="stat-card">
             <p className="stat-card__label">Empresa</p>
             <p className="stat-card__value text-[1.1rem] leading-tight">
-              {isSystemMaster ? "Sistema Global" : user?.company?.name ?? "Nao vinculada"}
+              {isSystemMaster ? "Sistema Global" : user?.company?.name ?? "Não vinculada"}
             </p>
           </article>
           <article className="stat-card">
-            <p className="stat-card__label">Usuario</p>
+            <p className="stat-card__label">Usuário</p>
             <p className="stat-card__value text-[1.1rem] leading-tight">{user?.username ?? "-"}</p>
           </article>
           <article className="stat-card">
@@ -130,14 +130,14 @@ export default function DashboardClientPage() {
             <p className="stat-card__value text-[1.1rem] leading-tight">{roleLabel}</p>
           </article>
           <article className="stat-card">
-            <p className="stat-card__label">Modulos ativos</p>
+            <p className="stat-card__label">Módulos ativos</p>
             <p className="stat-card__value">{moduleCards.length}</p>
           </article>
         </section>
 
         <section className="grid grid-cols-1 lg:grid-cols-2 gap-3">
           {loading ? (
-            <div className="panel p-4 text-sm text-muted lg:col-span-2">Carregando modulos...</div>
+            <div className="panel p-4 text-sm text-muted lg:col-span-2">Carregando módulos...</div>
           ) : (
             moduleCards.map((item) => (
               <Link key={item.href} href={item.href} className="panel panel-interactive p-5">
@@ -149,7 +149,7 @@ export default function DashboardClientPage() {
                   {item.badge ? <span className="badge badge-brand">{item.badge}</span> : null}
                 </div>
                 <div className="mt-5 inline-flex items-center gap-2 text-sm font-semibold text-(--brand)">
-                  Acessar modulo
+                  Acessar módulo
                   <span aria-hidden="true">{"->"}</span>
                 </div>
               </Link>

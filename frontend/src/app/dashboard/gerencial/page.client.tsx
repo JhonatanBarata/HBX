@@ -302,8 +302,8 @@ export default function GerencialClientPage() {
 
   return (
     <DashboardScaffold
-      title="Modulo gerencial"
-      description="Visao analitica e administrativa da operacao."
+      title="Módulo gerencial"
+      description="Visão analítica e administrativa da operação."
       actions={
         <button type="button" onClick={load} className="btn btn-primary btn-sm">
           Atualizar dados
@@ -339,7 +339,7 @@ export default function GerencialClientPage() {
               <p className="stat-card__value">{data.totals.outbound}</p>
             </article>
             <article className="stat-card">
-              <p className="stat-card__label">Usuarios</p>
+              <p className="stat-card__label">Usuários</p>
               <p className="stat-card__value">{data.totals.users}</p>
             </article>
             <article className="stat-card">
@@ -398,8 +398,8 @@ export default function GerencialClientPage() {
 
           <section className="panel p-4">
             <div className="flex items-center justify-between gap-2">
-              <h2 className="text-lg font-semibold">Usuarios da empresa #{data.companyId}</h2>
-              <span className="badge badge-brand">{data.users.length} usuarios</span>
+              <h2 className="text-lg font-semibold">Usuários da empresa #{data.companyId}</h2>
+              <span className="badge badge-brand">{data.users.length} usuários</span>
             </div>
 
             <div className="space-y-2 mt-3">
@@ -410,7 +410,7 @@ export default function GerencialClientPage() {
                 >
                   <div className="min-w-0">
                     <p className="font-medium truncate">
-                      {user.username || user.email || `Usuario #${user.id}`}
+                      {user.username || user.email || `Usuário #${user.id}`}
                     </p>
                     <p className="text-xs text-muted truncate">
                       {user.email || "sem e-mail"} | {user.role} | {user.isActive ? "ATIVO" : "DESATIVADO"}

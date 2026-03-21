@@ -245,13 +245,13 @@ export default function WebsiteClientPage() {
     return (
       <DashboardScaffold
         title="Website"
-        description="Area reservada ao MASTER para importar, provisionar e publicar websites."
+        description="Área reservada ao MASTER para importar, provisionar e publicar websites."
       >
         <section className="panel p-5">
           <h2 className="text-lg font-semibold">Acesso exclusivo do MASTER</h2>
           <p className="text-sm text-muted mt-2">
-            O modulo Website agora e uma area central de provisionamento por empresa e nao fica mais
-            disponivel para usuarios comuns.
+            O módulo Website agora é uma área central de provisionamento por empresa e não fica mais
+            disponível para usuários comuns.
           </p>
         </section>
       </DashboardScaffold>
@@ -261,13 +261,13 @@ export default function WebsiteClientPage() {
   return (
     <DashboardScaffold
       title="Website"
-      description="Gerencie websites por empresa, com importacao do template HBX e deploy guiado pelo modulo master."
+      description="Gerencie websites por empresa, com importação do template HBX e deploy guiado pelo módulo master."
     >
       {error ? <div className="alert alert-error">{error}</div> : null}
       {success ? <div className="alert alert-success">{success}</div> : null}
 
       {loading ? (
-        <div className="panel p-4 text-sm text-muted">Carregando configuracoes do website...</div>
+        <div className="panel p-4 text-sm text-muted">Carregando configurações do website...</div>
       ) : (
         <>
           <section className="panel p-4 space-y-4">

@@ -53,12 +53,9 @@ export default function ThemeSwitcher() {
         <span className="theme-switcher__trigger-copy">
           <span className="theme-switcher__label">Tema visual</span>
           <strong>{activeTheme.label}</strong>
-          <span className="theme-switcher__trigger-meta">
-            {activeTheme.shellLabel} · {activeTheme.depthLabel}
-          </span>
         </span>
         <span className="theme-switcher__modeBadge">
-          {selection.mode === "dark" ? "Dark" : "Light"}
+          {selection.mode === "dark" ? "Escuro" : "Claro"}
         </span>
       </button>
 
@@ -66,8 +63,8 @@ export default function ThemeSwitcher() {
         <div className="theme-switcher__panel" role="dialog" aria-label="Selecionar tema visual">
           <div className="theme-switcher__panelHeader">
             <div>
-              <p className="theme-switcher__eyebrow">5 skins HBX</p>
-              <strong className="theme-switcher__title">Escolha a experiencia visual</strong>
+              <p className="theme-switcher__eyebrow">5 temas HBX</p>
+              <strong className="theme-switcher__title">Escolha a experiência visual</strong>
             </div>
             <div className="theme-switcher__modeRow" role="group" aria-label="Modo de tema">
               <button
@@ -139,12 +136,6 @@ export default function ThemeSwitcher() {
                   <span className="theme-card__copy">
                     <span className="theme-card__headline">
                       <strong>{theme.label}</strong>
-                      <span>{theme.inspiration}</span>
-                    </span>
-                    <span className="theme-card__tags">
-                      <span>{theme.shellLabel}</span>
-                      <span>{theme.densityLabel}</span>
-                      <span>{theme.depthLabel}</span>
                     </span>
                   </span>
                 </button>

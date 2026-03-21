@@ -45,15 +45,15 @@ function ResetPasswordInner() {
     setInfo(null);
 
     if (!token) {
-      setError("Link invalido. Solicite uma nova recuperacao.");
+      setError("Link inválido. Solicite uma nova recuperação.");
       return;
     }
     if (password.length < 4) {
-      setError("Senha invalida - use pelo menos 4 caracteres.");
+      setError("Senha inválida - use pelo menos 4 caracteres.");
       return;
     }
     if (password !== confirmPassword) {
-      setError("As senhas nao conferem.");
+      setError("As senhas não conferem.");
       return;
     }
 
@@ -67,11 +67,11 @@ function ResetPasswordInner() {
 
       const data: unknown = await res.json().catch(() => null);
       if (!res.ok) {
-        setError(getErrorMessage(data) ?? "Nao foi possivel redefinir a senha.");
+        setError(getErrorMessage(data) ?? "Não foi possível redefinir a senha.");
         return;
       }
 
-      setInfo("Senha redefinida com sucesso. Voce ja pode fazer login.");
+      setInfo("Senha redefinida com sucesso. Você já pode fazer login.");
       setTimeout(() => router.push("/login"), 800);
     } catch {
       setError("Falha ao conectar no backend");
@@ -98,7 +98,7 @@ function ResetPasswordInner() {
               required
               autoComplete="new-password"
             />
-            <p className="text-xs text-foreground/60 mt-1">Minimo de 4 caracteres.</p>
+            <p className="text-xs text-foreground/60 mt-1">Mínimo de 4 caracteres.</p>
           </div>
 
           <div>
