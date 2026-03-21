@@ -31,6 +31,7 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [mounted, setMounted] = useState(false);
   const [playingWelcome, setPlayingWelcome] = useState(false);
+  const [visualsPlayOnLoad, setVisualsPlayOnLoad] = useState(false);
   const [mode, setMode] = useState<"login" | "forgot">("login");
   const [preRegistered, setPreRegistered] = useState(false);
 
@@ -151,7 +152,13 @@ export default function LoginPage() {
 
   useEffect(() => {
     setMounted(true);
-    return () => setMounted(false);
+    // trigger visuals animation when the page first mounts
+    setVisualsPlayOnLoad(true);
+    const t = setTimeout(() => setVisualsPlayOnLoad(false), 2200);
+    return () => {
+      clearTimeout(t);
+      setMounted(false);
+    };
   }, []);
 
   async function handleRecoverByEmail(event: React.FormEvent) {
@@ -185,7 +192,7 @@ export default function LoginPage() {
   return (
     <main className="min-h-screen flex items-center justify-center p-6 relative overflow-hidden">
       <div className="login-visuals" aria-hidden>
-        <div className={`login-visuals ${playingWelcome ? "play" : ""}`} aria-hidden>
+        <div className={`login-visuals ${playingWelcome || visualsPlayOnLoad ? "play" : ""}`} aria-hidden>
           <div className="login-drop" />
           <div className="login-drop login-drop-bottom" />
           <div className="login-drop login-drop-left" />
