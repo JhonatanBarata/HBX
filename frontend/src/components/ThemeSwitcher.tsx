@@ -68,10 +68,6 @@ export default function ThemeSwitcher() {
             <div>
               <p className="theme-switcher__eyebrow">5 skins HBX</p>
               <strong className="theme-switcher__title">Escolha a experiencia visual</strong>
-              <p className="theme-switcher__subtitle">
-                O HBX troca shell, hierarquia, profundidade e tipografia em tempo real sem tocar nos
-                contratos do backend.
-              </p>
             </div>
             <div className="theme-switcher__modeRow" role="group" aria-label="Modo de tema">
               <button
@@ -150,8 +146,6 @@ export default function ThemeSwitcher() {
                       <span>{theme.densityLabel}</span>
                       <span>{theme.depthLabel}</span>
                     </span>
-                    <span className="theme-card__description">{theme.description}</span>
-                    <span className="theme-card__personality">{theme.personality}</span>
                   </span>
                 </button>
               );

@@ -595,6 +595,52 @@ export default function TopBar() {
     router.push("/login");
   }
 
+  function clearQueueBadge(
+    moduleKey: "atendimento" | "recovery",
+    options?: { dismissPopup?: boolean },
+  ) {
+    if (typeof window !== "undefined") {
+      try {
+        const storageKey =
+          moduleKey === "atendimento"
+            ? ATENDIMENTO_QUEUE_STORAGE_KEY
+            : RECOVERY_QUEUE_STORAGE_KEY;
+        const eventName =
+          moduleKey === "atendimento"
+            ? ATENDIMENTO_HUMAN_QUEUE_EVENT
+            : RECOVERY_HUMAN_QUEUE_EVENT;
+        window.localStorage.setItem(storageKey, "0");
+        window.dispatchEvent(
+          new CustomEvent<{ count: number }>(eventName, {
+            detail: { count: 0 },
+          }),
+        );
+      } catch {
+        // ignore storage/event errors
+      }
+    }
+
+    if (moduleKey === "atendimento") {
+      setAtendimentoPendingHumanCount(0);
+    } else {
+      setRecoveryPendingHumanCount(0);
+    }
+
+    if (
+      options?.dismissPopup &&
+      incomingPopup &&
+      ((moduleKey === "atendimento" && incomingPopup.href === "/dashboard/inbox") ||
+        (moduleKey === "recovery" && incomingPopup.href === "/hbx-recovery"))
+    ) {
+      setIncomingPopup(null);
+    }
+  }
+
+  function handleQueueShortcut(moduleKey: "atendimento" | "recovery") {
+    clearQueueBadge(moduleKey, { dismissPopup: true });
+    router.push(moduleKey === "atendimento" ? "/dashboard/inbox" : "/hbx-recovery");
+  }
+
   async function openMasterContextModal() {
     setMasterContextMessage(null);
     setMasterContextModalOpen(true);
@@ -738,7 +784,11 @@ export default function TopBar() {
 
             {authenticated && user && !user.isSystemMaster && user.company?.id ? (
               <div className="app-topbar__signals">
-                <span className={`wa-health-wrap ${atendimentoPendingHumanCount > 0 ? "wa-health-wrap--alert" : ""}`}>
+                <button
+                  type="button"
+                  className={`wa-health-wrap ${atendimentoPendingHumanCount > 0 ? "wa-health-wrap--alert" : ""}`}
+                  onClick={() => handleQueueShortcut("atendimento")}
+                >
                   <span
                     className={`wa-health wa-health--${whatsAppHealth}`}
                     title={`${whatsAppHealthLabel} · Atendimento: ${atendimentoPendingHumanCount}`}
@@ -753,9 +803,13 @@ export default function TopBar() {
                       {atendimentoPendingHumanCount}
                     </span>
                   ) : null}
-                </span>
+                </button>
 
-                <span className={`wa-health-wrap ${recoveryPendingHumanCount > 0 ? "wa-health-wrap--alert" : ""}`}>
+                <button
+                  type="button"
+                  className={`wa-health-wrap ${recoveryPendingHumanCount > 0 ? "wa-health-wrap--alert" : ""}`}
+                  onClick={() => handleQueueShortcut("recovery")}
+                >
                   <span
                     className={`wa-health wa-health--${whatsAppHealth}`}
                     title={`${whatsAppHealthLabel} · Recovery: ${recoveryPendingHumanCount}`}
@@ -770,7 +824,7 @@ export default function TopBar() {
                       {recoveryPendingHumanCount}
                     </span>
                   ) : null}
-                </span>
+                </button>
 
                 {queueLabel ? <span className="app-topbar__queueLabel">{queueLabel}</span> : null}
               </div>
@@ -781,7 +835,6 @@ export default function TopBar() {
             <div className="app-topbar__summary">
               <p className="app-topbar__summaryLabel">Workspace ativo</p>
               <strong>{activeTheme.shellLabel}</strong>
-              <span>{activeTheme.personality}</span>
             </div>
             <div className="app-topbar__metaGrid" aria-label="Resumo rapido do shell">
               <span className="app-topbar__metaPill">

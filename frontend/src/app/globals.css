@@ -377,6 +377,10 @@ textarea {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
 }
 
 .wa-health {
@@ -800,10 +804,7 @@ textarea {
 
 .workspace-shell {
   display: grid;
-  grid-template-columns:
-    minmax(250px, var(--workspace-rail-width))
-    minmax(0, 1fr)
-    minmax(240px, var(--workspace-context-width));
+  grid-template-columns: minmax(250px, var(--workspace-rail-width)) minmax(0, 1fr);
   gap: var(--workspace-gap);
   align-items: start;
 }
@@ -1282,10 +1283,7 @@ html[data-theme="tailadmin"] .shell-card {
 }
 
 html[data-theme="mosaic"] .workspace-shell {
-  grid-template-columns:
-    minmax(250px, var(--workspace-rail-width))
-    minmax(0, 1fr)
-    minmax(280px, var(--workspace-context-width));
+  grid-template-columns: minmax(250px, var(--workspace-rail-width)) minmax(0, 1fr);
 }
 
 html[data-theme="mosaic"] .app-topbar__frame,
@@ -1360,10 +1358,7 @@ html[data-theme="tabler"] .app-topbar__frame {
 }
 
 html[data-theme="tabler"] .workspace-shell {
-  grid-template-columns:
-    minmax(272px, var(--workspace-rail-width))
-    minmax(0, 1fr)
-    minmax(250px, var(--workspace-context-width));
+  grid-template-columns: minmax(272px, var(--workspace-rail-width)) minmax(0, 1fr);
 }
 
 html[data-theme="tabler"] .page-hero,
@@ -1404,13 +1399,6 @@ html[data-theme="tabler"] .workspace-context {
   html[data-theme="mosaic"] .workspace-shell,
   html[data-theme="tabler"] .workspace-shell {
     grid-template-columns: minmax(250px, var(--workspace-rail-width)) minmax(0, 1fr);
-  }
-
-  .workspace-context,
-  html[data-theme="flowbite"] .workspace-context {
-    position: static;
-    grid-column: 1 / -1;
-    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
   }
 }
 
