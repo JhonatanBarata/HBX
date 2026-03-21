@@ -23,6 +23,11 @@ interface ColdStartResponse {
   needsRetry?: boolean;
 }
 
+interface LoginPhaseUpdate {
+  state: Exclude<LoginState, "success" | "error">;
+  message?: string;
+}
+
 /**
  * Hook que gerencia login com detecção elegante de cold start.
  * 
@@ -202,8 +207,13 @@ export function useLoginColdStart(options: UseLoginColdStartOptions) {
    * Realiza login com retry automático para cold start
    */
   const executeLoginWithRetry = useCallback(
-    async (username: string, password: string): Promise<ColdStartResponse> => {
+    async (
+      username: string,
+      password: string,
+      onPhaseUpdate?: (phase: LoginPhaseUpdate) => void
+    ): Promise<ColdStartResponse> => {
       retryCountRef.current = 0;
+      onPhaseUpdate?.({ state: "submitting" });
 
       while (retryCountRef.current < maxRetries) {
         const response = await attemptLogin(username, password, () => "submitting");
@@ -215,6 +225,12 @@ export function useLoginColdStart(options: UseLoginColdStartOptions) {
 
         // Se for "waking_server" e temos retries
         if (response.needsRetry && retryCountRef.current < maxRetries - 1) {
+          onPhaseUpdate?.({
+            state: "waking_server",
+            message:
+              response.message ??
+              "Estamos iniciando o ambiente seguro. A primeira conexao pode levar alguns segundos.",
+          });
           retryCountRef.current++;
 
           // Aguardar com backoff exponencial

@@ -78,6 +78,7 @@ export default function LoginPage() {
   // Helper para traduzir estado de login para UI
   const isSubmitting = loginState === "submitting" || loginState === "waking_server";
   const isWakingServer = loginState === "waking_server";
+  const isSuccess = loginState === "success";
 
   async function handleLogin(event: React.FormEvent) {
     event.preventDefault();
@@ -87,7 +88,20 @@ export default function LoginPage() {
     setLoginState("submitting");
 
     try {
-      const result = await executeLoginWithRetry(username, password);
+      const result = await executeLoginWithRetry(username, password, (phase) => {
+        if (phase.state === "waking_server") {
+          setWakingMessage(
+            phase.message ??
+              "Estamos iniciando o ambiente seguro. A primeira conexao pode levar alguns segundos."
+          );
+          setLoginState("waking_server");
+          return;
+        }
+
+        if (phase.state === "submitting") {
+          setLoginState("submitting");
+        }
+      });
 
       if (result.state === "success") {
         const token = (result.data as any)?.token;
@@ -103,7 +117,7 @@ export default function LoginPage() {
         // Play welcome animation
         try {
           setPlayingWelcome(true);
-          await new Promise((res) => setTimeout(res, 2300));
+          await new Promise((res) => setTimeout(res, 900));
         } finally {
           router.push("/dashboard");
         }
@@ -244,11 +258,8 @@ export default function LoginPage() {
             mounted ? "opacity-100 translate-y-0" : "opacity-0 translate-y-3"
           } ${playingWelcome ? "is-exploding" : ""}`}
       >
-        <div className="page-overline mb-2">Acesso seguro HBX</div>
+        <div className="page-overline mb-2 ml-auto w-fit">Acesso seguro HBX</div>
         <h1 className="text-2xl font-bold mb-6">Login</h1>
-        <p className="text-sm text-foreground/70 mb-6">
-          Entre para continuar no seu painel. Se este for seu primeiro acesso, o sistema vai te direcionar para concluir o cadastro.
-        </p>
 
         {mode === "login" && (
           <form onSubmit={handleLogin} className="space-y-4">
@@ -320,7 +331,7 @@ export default function LoginPage() {
             ) : null}
 
             <button
-              disabled={isSubmitting || preRegistered}
+              disabled={isSubmitting}
               type={preRegistered ? "button" : "submit"}
               onClick={
                 preRegistered
@@ -340,17 +351,23 @@ export default function LoginPage() {
                     }
                   : undefined
               }
-              className={`btn ${preRegistered ? "btn-secondary w-full mt-2" : "btn btn-primary w-full mt-2 transition-all duration-300"} ${isWakingServer ? "opacity-75" : ""}`}
+              className={`btn ${preRegistered ? "btn-secondary w-full mt-2" : "btn btn-primary w-full mt-2 transition-all duration-300"} ${isWakingServer ? "opacity-75" : ""} ${isSuccess ? "btn-auth-success" : ""}`}
+              aria-live="polite"
             >
-              {isWakingServer
-                ? "⏳ Iniciando..."
-                : isSubmitting
-                  ? preRegistered
-                    ? "Aguarde..."
-                    : "🔐 Autenticando..."
-                  : preRegistered
-                    ? "Registrar"
-                    : "Entrar"}
+              {!preRegistered && isSuccess ? (
+                <span className="btn-auth-success__content">
+                  <span className="btn-auth-success__bar" aria-hidden />
+                  <span className="btn-auth-success__label">Autenticado</span>
+                </span>
+              ) : isWakingServer ? (
+                "Iniciando ambiente..."
+              ) : isSubmitting ? (
+                preRegistered ? "Aguarde..." : "Autenticando..."
+              ) : preRegistered ? (
+                "Registrar"
+              ) : (
+                "Entrar"
+              )}
             </button>
           </form>
         )}
