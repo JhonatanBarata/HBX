@@ -2318,7 +2318,7 @@ export class HbxRecoveryService {
     return {
       ok: true,
       headerHandle,
-      headerMediaUrl,
+      headerMediaUrl: `${this.publicApiBaseUrl()}${stored.relativePath}`,
       fileName: stored.fileName,
       contentType,
     };
@@ -3045,7 +3045,7 @@ export class HbxRecoveryService {
     if (this.isMetaMediaHeaderFormat(selectedTemplate.headerFormat)) {
       this.assertTemplateHeaderMediaUrlIsPublic(
         templateName,
-        this.resolveTemplateHeaderMediaUrl(selectedTemplate),
+        this.resolveTemplateHeaderMediaUrl(selectedTemplate, companyId),
       );
     }
     const company = await this.prisma.company.findUnique({
