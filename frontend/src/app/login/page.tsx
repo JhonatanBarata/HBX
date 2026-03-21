@@ -174,9 +174,17 @@ export default function LoginPage() {
   }
 
   return (
-    <main className="min-h-screen flex items-center justify-center p-6">
+    <main className="min-h-screen flex items-center justify-center p-6 relative overflow-hidden">
+      <div className="login-visuals" aria-hidden>
+        <div className="login-drop" />
+        <span className="login-meteor" style={{ left: "12%", animationDelay: "120ms" }} />
+        <span className="login-meteor" style={{ left: "28%", animationDelay: "420ms" }} />
+        <span className="login-meteor" style={{ left: "68%", animationDelay: "220ms" }} />
+        <span className="login-meteor" style={{ left: "84%", animationDelay: "640ms" }} />
+      </div>
+
       <div
-        className={`container-sm w-full p-6 card transition-all duration-200 ${
+        className={`container-sm login-card w-full p-6 card transition-all duration-200 ${
           mounted ? "opacity-100 translate-y-0" : "opacity-0 translate-y-3"
         }`}
       >
