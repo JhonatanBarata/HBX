@@ -114,8 +114,18 @@
 }
 
 .commandUser {
-  grid-template-columns: auto 1fr auto;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
+}
+
+.commandUser > div {
+  min-width: 0;
+}
+
+.commandUser strong,
+.commandUser p {
+  overflow-wrap: normal;
+  word-break: normal;
 }
 
 .avatarToken {
@@ -915,6 +925,18 @@
 
   .moduleToggle {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .commandUser {
+    grid-template-columns: auto 1fr;
+    align-items: start;
+  }
+
+  .commandUser > button {
+    grid-column: 1 / -1;
+    justify-self: stretch;
   }
 }
 
