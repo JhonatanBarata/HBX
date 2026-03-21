@@ -11,6 +11,7 @@ import {
 import DashboardScaffold from "@/components/DashboardScaffold";
 import { apiFetch } from "../_lib/api";
 import { useRequireAuth } from "../_lib/useRequireAuth";
+import { dispatchMasterContextChanged } from "@/lib/masterContextEvents";
 import styles from "./page.module.css";
 
 type CurrentUser = {
@@ -917,7 +918,7 @@ export default function MasterPremiumPage() {
         loadWorkspace(true),
       ]);
       setCurrentUser(userPayload);
-      window.location.reload();
+      dispatchMasterContextChanged();
     } catch (actionError) {
       setError(actionError instanceof Error ? actionError.message : "Falha ao assumir contexto.");
     } finally {
@@ -940,7 +941,7 @@ export default function MasterPremiumPage() {
         loadWorkspace(true),
       ]);
       setCurrentUser(userPayload);
-      window.location.reload();
+      dispatchMasterContextChanged();
     } catch (actionError) {
       setError(actionError instanceof Error ? actionError.message : "Falha ao sair do contexto.");
     } finally {

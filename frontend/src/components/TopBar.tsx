@@ -6,6 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { apiFetch, clearToken, getToken } from "../app/dashboard/_lib/api";
 import { useInterfaceTransition } from "@/components/InterfaceTransitionProvider";
 import { useHbxTheme } from "@/components/ThemeProvider";
+import { MASTER_CONTEXT_CHANGED_EVENT, dispatchMasterContextChanged } from "../lib/masterContextEvents";
 import ThemeSwitcher from "./ThemeSwitcher";
 import TechAssistantGlobalDrawer from "./TechAssistantGlobalDrawer";
 
@@ -154,6 +155,15 @@ export default function TopBar() {
   const audioContextRef = useRef<AudioContext | null>(null);
   const audioArmedRef = useRef(false);
 
+  const refreshMasterAwareState = React.useCallback(async () => {
+    const [profile, myModules] = await Promise.all([
+      apiFetch<User>("/profile/current-user"),
+      apiFetch<UserModule[]>("/modules/me"),
+    ]);
+    setUser(profile);
+    setModules(myModules || []);
+  }, []);
+
   const playIncomingAlertTone = React.useCallback(() => {
     if (typeof window === "undefined" || !audioArmedRef.current) return;
     const AudioContextCtor = window.AudioContext;
@@ -236,6 +246,7 @@ export default function TopBar() {
   useEffect(() => {
     if (!authenticated) {
       setUser(null);
+      setModules([]);
       setWhatsAppHealth("yellow");
       setWhatsAppHealthLabel("WhatsApp status: sem validacao");
       setRecoveryPendingHumanCount(0);
@@ -264,11 +275,19 @@ export default function TopBar() {
       }
     }
 
-    loadUser();
+    void loadUser();
+
+    function handleMasterContextChanged() {
+      void refreshMasterAwareState().catch(() => undefined);
+    }
+
+    window.addEventListener(MASTER_CONTEXT_CHANGED_EVENT, handleMasterContextChanged);
+
     return () => {
       mounted = false;
+      window.removeEventListener(MASTER_CONTEXT_CHANGED_EVENT, handleMasterContextChanged);
     };
-  }, [authenticated, setStorageUserId]);
+  }, [authenticated, refreshMasterAwareState, setStorageUserId]);
 
   useEffect(() => {
     setStorageUserId(user?.id ?? null);
@@ -694,8 +713,7 @@ export default function TopBar() {
       setModules(myModules || []);
       setMasterContextModalOpen(false);
       setMasterContextReason("");
-      // reload to ensure all modules and routes update for the new context
-      window.location.reload();
+      dispatchMasterContextChanged();
     } catch (error) {
       const message = error instanceof Error ? error.message : "Falha ao assumir contexto da empresa.";
       setMasterContextMessage(message);
@@ -721,8 +739,7 @@ export default function TopBar() {
       setModules(myModules || []);
       setMasterContextModalOpen(false);
       setMasterContextReason("");
-      // reload to refresh available modules after exiting context
-      window.location.reload();
+      dispatchMasterContextChanged();
     } catch (error) {
       const message = error instanceof Error ? error.message : "Falha ao sair do contexto assumido.";
       setMasterContextMessage(message);

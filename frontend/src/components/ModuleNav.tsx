@@ -4,6 +4,7 @@ import Link from "next/link";
 import React, { useEffect, useMemo, useState } from "react";
 import { usePathname } from "next/navigation";
 import { apiFetch, getToken } from "../app/dashboard/_lib/api";
+import { MASTER_CONTEXT_CHANGED_EVENT } from "../lib/masterContextEvents";
 import styles from "./ModuleNav.module.css";
 
 type UserModule = { key: string; accessible: boolean };
@@ -109,18 +110,19 @@ export default function ModuleNav() {
   const [loading, setLoading] = useState(authenticated);
 
   useEffect(() => {
-    if (!authenticated) {
-      setModules([]);
-      setUserRole(null);
-      setIsSystemMaster(false);
-      setLoading(false);
-      return;
-    }
-
     let mounted = true;
-    setLoading(true);
 
-    (async () => {
+    async function loadNavigationContext() {
+      if (!authenticated) {
+        if (!mounted) return;
+        setModules([]);
+        setUserRole(null);
+        setIsSystemMaster(false);
+        setLoading(false);
+        return;
+      }
+
+      setLoading(true);
       try {
         const [myModules, profile] = await Promise.all([
           apiFetch<UserModule[]>("/modules/me"),
@@ -142,10 +144,19 @@ export default function ModuleNav() {
           setLoading(false);
         }
       }
-    })();
+    }
+
+    void loadNavigationContext();
+
+    function handleMasterContextChanged() {
+      void loadNavigationContext();
+    }
+
+    window.addEventListener(MASTER_CONTEXT_CHANGED_EVENT, handleMasterContextChanged);
 
     return () => {
       mounted = false;
+      window.removeEventListener(MASTER_CONTEXT_CHANGED_EVENT, handleMasterContextChanged);
     };
   }, [authenticated]);
 
