@@ -242,6 +242,83 @@ export default function BotPanel({
     [botConfig.variableCatalog, selectedScenario.scopes],
   );
 
+  const flowScenarios = useMemo(
+    () =>
+      BOT_SCENARIOS.map((scenario) => ({
+        id: scenario.id,
+        label: scenario.label,
+        description: scenario.description,
+        badge: scenario.badge,
+        supportsButtons: scenario.supportsButtons,
+        messageText: String(botConfig[scenario.id] || ""),
+        buttons:
+          scenario.supportsButtons && scenario.buttonSection ? botConfig[scenario.buttonSection] : [],
+      })),
+    [botConfig],
+  );
+
+  const catalogVariables = useMemo(
+    () =>
+      botConfig.variableCatalog.map((item) => ({
+        key: item.key,
+        label: item.label,
+        example: item.example,
+        scopeLabel: VARIABLE_SCOPE_LABELS[item.scope],
+        required: item.required,
+      })),
+    [botConfig.variableCatalog],
+  );
+
+  const catalogActions = useMemo(() => {
+    const base = botConfig.actionCatalog.map((action) => ({
+      actionId: action.actionId,
+      title: action.title,
+      description: action.description,
+      routeLabel: VARIABLE_SCOPE_LABELS[action.route],
+      typeLabel: ACTION_KIND_LABELS[action.kind],
+      enabled: action.enabled,
+    }));
+    const agendas = agendaOptions.map((agenda) => ({
+      actionId: buildAgendaActionId(agenda.id),
+      title: agenda.title,
+      description: "Abre uma agenda operacional real vinculada ao Atendimento.",
+      routeLabel: "Atendimento",
+      typeLabel: "Agenda",
+      enabled: true,
+    }));
+    return [...base, ...agendas];
+  }, [agendaOptions, botConfig.actionCatalog]);
+
+  const publicationChecks = useMemo(
+    () => [
+      {
+        id: "welcome",
+        label: "Boas-vindas",
+        description: "O primeiro contato precisa ter uma mensagem clara para cliente novo.",
+        ok: String(botConfig.welcomeMessage || "").trim().length > 0,
+      },
+      {
+        id: "main_menu",
+        label: "Menu principal",
+        description: "O fluxo principal do Atendimento precisa ter pelo menos uma rota clicavel.",
+        ok: botConfig.mainMenuButtons.length > 0,
+      },
+      {
+        id: "active_actions",
+        label: "Acoes operacionais",
+        description: "Pelo menos uma acao do catalogo precisa estar ativa e pronta para uso.",
+        ok: botConfig.actionCatalog.some((action) => action.enabled),
+      },
+      {
+        id: "routing",
+        label: "Parede com Recovery",
+        description: "As regras de triagem precisam continuar ativas para nao misturar cobranca com atendimento.",
+        ok: botConfig.routingRules.checkRecoveryBeforeReply || botConfig.routingRules.autoRouteDebtorsToRecovery,
+      },
+    ],
+    [botConfig.actionCatalog, botConfig.mainMenuButtons.length, botConfig.routingRules, botConfig.welcomeMessage],
+  );
+
   const handleMessageTypeChange = (nextType: "simple" | "buttons") => {
     if (!selectedScenario.supportsButtons || !selectedScenario.buttonSection) return;
     if (nextType === "simple") {
@@ -273,13 +350,7 @@ export default function BotPanel({
           eyebrow="Atendimento"
           title={selectedScenario.label}
           description={selectedScenario.description}
-          scenarios={BOT_SCENARIOS.map((scenario) => ({
-            id: scenario.id,
-            label: scenario.label,
-            description: scenario.description,
-            badge: scenario.badge,
-            supportsButtons: scenario.supportsButtons,
-          }))}
+          flowScenarios={flowScenarios}
           selectedScenarioId={selectedScenario.id}
           onSelectScenario={(scenarioId) => setSelectedScenarioId(scenarioId as BotTextField)}
           messageText={String(botConfig[selectedScenario.id] || "")}
@@ -289,6 +360,7 @@ export default function BotPanel({
           buttons={selectedButtons}
           actionOptions={actionOptions}
           actionById={actionById}
+          catalogActions={catalogActions}
           onUpdateButton={(index, field, value) => {
             if (!selectedScenario.buttonSection) return;
             onUpdateButtonSection(selectedScenario.buttonSection, index, field, value);
@@ -302,113 +374,119 @@ export default function BotPanel({
             onRemoveButtonSection(selectedScenario.buttonSection, index);
           }}
           variables={studioVariables}
+          catalogVariables={catalogVariables}
           onAppendVariable={(variableKey) => onAppendVariable(selectedScenario.id, variableKey)}
           previewText={renderPreviewText(String(botConfig[selectedScenario.id] || ""), botConfig)}
           previewFooter="Atendimento"
           previewFallbackText={buildFallbackText(renderPreviewText(String(botConfig[selectedScenario.id] || ""), botConfig), selectedButtons)}
           previewNote="O fallback textual continua disponivel para canais ou cenarios sem suporte a botoes."
+          publicationChecks={publicationChecks}
+          publicationTitle="Publicacao do fluxo Atendimento"
+          publicationDescription="Revise entrada, menu principal e parede com Recovery antes de salvar o builder."
+          primaryActionLabel={savingBot ? "Salvando..." : "Salvar editor"}
+          onPrimaryAction={onSave}
+          primaryActionDisabled={savingBot || loadingBot}
+          actionsTabExtra={
+            <>
+              <div className={styles.ruleGrid}>
+                <label className={styles.switchCard}>
+                  <input type="checkbox" checked={botConfig.routingRules.checkRecoveryBeforeReply} onChange={(event) => onUpdateRoutingRule("checkRecoveryBeforeReply", event.target.checked)} />
+                  <div><strong>Checar Recovery antes</strong><span>Primeiro passo do Atendimento ao receber qualquer mensagem.</span></div>
+                </label>
+                <label className={styles.switchCard}>
+                  <input type="checkbox" checked={botConfig.routingRules.autoRouteDebtorsToRecovery} onChange={(event) => onUpdateRoutingRule("autoRouteDebtorsToRecovery", event.target.checked)} />
+                  <div><strong>Subir devedor para Recovery</strong><span>Clientes inadimplentes nao ficam misturados no Atendimento.</span></div>
+                </label>
+                <label className={styles.switchCard}>
+                  <input type="checkbox" checked={botConfig.routingRules.autoReopenClosedConversation} onChange={(event) => onUpdateRoutingRule("autoReopenClosedConversation", event.target.checked)} />
+                  <div><strong>Reabrir conversa encerrada</strong><span>Se o cliente voltar a falar, a conversa volta automaticamente.</span></div>
+                </label>
+                <label className={styles.switchCard}>
+                  <input type="checkbox" checked={botConfig.routingRules.notifyOnNewInbound} onChange={(event) => onUpdateRoutingRule("notifyOnNewInbound", event.target.checked)} />
+                  <div><strong>Notificar novas mensagens</strong><span>Alimenta o aviso visual do modulo e do topo do sistema.</span></div>
+                </label>
+              </div>
+
+              <article className={styles.editorCard}>
+                <div className={styles.cardHeader}>
+                  <div>
+                    <strong>Catalogo de acoes</strong>
+                    <small>Base real para os botoes do editor, com rota, tipo e resposta automatica.</small>
+                  </div>
+                  <button type="button" className="btn btn-secondary btn-sm" onClick={onAddCustomAction}>
+                    Nova acao custom
+                  </button>
+                </div>
+
+                <div className={styles.actionCatalogList}>
+                  {botConfig.actionCatalog.map((action) => (
+                    <div key={action.actionId} className={styles.actionCard}>
+                      <div className={styles.formGrid}>
+                        <label className={styles.fieldBlock}>
+                          <span>Titulo</span>
+                          <input className="field" value={action.title} onChange={(event) => onUpdateActionGuide(action.actionId, "title", event.target.value)} />
+                        </label>
+                        <label className={styles.fieldBlock}>
+                          <span>Tipo</span>
+                          <select className="field" value={action.kind} onChange={(event) => onUpdateActionGuide(action.actionId, "kind", event.target.value)}>
+                            {Object.entries(ACTION_KIND_LABELS).map(([value, label]) => (
+                              <option key={value} value={value}>{label}</option>
+                            ))}
+                          </select>
+                        </label>
+                        <label className={styles.fieldBlock}>
+                          <span>Destino</span>
+                          <select className="field" value={action.route} onChange={(event) => onUpdateActionGuide(action.actionId, "route", event.target.value)}>
+                            {Object.entries(VARIABLE_SCOPE_LABELS).map(([value, label]) => (
+                              <option key={value} value={value}>{label}</option>
+                            ))}
+                          </select>
+                        </label>
+                        <label className={styles.switchRow}>
+                          <input type="checkbox" checked={action.enabled} onChange={(event) => onUpdateActionGuide(action.actionId, "enabled", event.target.checked)} />
+                          <span>Ativa</span>
+                        </label>
+                      </div>
+
+                      <label className={styles.fieldBlock}>
+                        <span>Descricao operacional</span>
+                        <input className="field" value={action.description} onChange={(event) => onUpdateActionGuide(action.actionId, "description", event.target.value)} />
+                      </label>
+
+                      {action.kind === "agenda" ? (
+                        <label className={styles.fieldBlock}>
+                          <span>Agenda vinculada</span>
+                          <select className="field" value={String(action.agendaGroupId || "")} onChange={(event) => onUpdateActionGuide(action.actionId, "agendaGroupId", event.target.value)}>
+                            <option value="">Selecione</option>
+                            {agendaOptions.map((group) => (
+                              <option key={group.id} value={group.id}>{group.title}</option>
+                            ))}
+                          </select>
+                        </label>
+                      ) : null}
+
+                      {action.kind === "reply" ? (
+                        <label className={styles.fieldBlock}>
+                          <span>Mensagem da acao</span>
+                          <textarea className="field" rows={3} value={action.responseMessage || ""} onChange={(event) => onUpdateActionGuide(action.actionId, "responseMessage", event.target.value)} />
+                        </label>
+                      ) : null}
+
+                      {action.custom ? (
+                        <div className={styles.footerActions}>
+                          <button type="button" className="btn btn-danger btn-sm" onClick={() => onRemoveCustomAction(action.actionId)}>
+                            Excluir acao custom
+                          </button>
+                        </div>
+                      ) : null}
+                    </div>
+                  ))}
+                </div>
+              </article>
+            </>
+          }
           loading={loadingBot}
         />
-
-        {!loadingBot ? (
-          <>
-            <div className={styles.ruleGrid}>
-              <label className={styles.switchCard}>
-                <input type="checkbox" checked={botConfig.routingRules.checkRecoveryBeforeReply} onChange={(event) => onUpdateRoutingRule("checkRecoveryBeforeReply", event.target.checked)} />
-                <div><strong>Checar Recovery antes</strong><span>Primeiro passo do Atendimento ao receber qualquer mensagem.</span></div>
-              </label>
-              <label className={styles.switchCard}>
-                <input type="checkbox" checked={botConfig.routingRules.autoRouteDebtorsToRecovery} onChange={(event) => onUpdateRoutingRule("autoRouteDebtorsToRecovery", event.target.checked)} />
-                <div><strong>Subir devedor para Recovery</strong><span>Clientes inadimplentes nao ficam misturados no Atendimento.</span></div>
-              </label>
-              <label className={styles.switchCard}>
-                <input type="checkbox" checked={botConfig.routingRules.autoReopenClosedConversation} onChange={(event) => onUpdateRoutingRule("autoReopenClosedConversation", event.target.checked)} />
-                <div><strong>Reabrir conversa encerrada</strong><span>Se o cliente voltar a falar, a conversa volta automaticamente.</span></div>
-              </label>
-              <label className={styles.switchCard}>
-                <input type="checkbox" checked={botConfig.routingRules.notifyOnNewInbound} onChange={(event) => onUpdateRoutingRule("notifyOnNewInbound", event.target.checked)} />
-                <div><strong>Notificar novas mensagens</strong><span>Alimenta o aviso visual do modulo e do topo do sistema.</span></div>
-              </label>
-            </div>
-
-            <article className={styles.editorCard}>
-              <div className={styles.cardHeader}>
-                <div>
-                  <strong>Catalogo de acoes</strong>
-                  <small>Base real para os botoes do editor, com rota, tipo e resposta automatica.</small>
-                </div>
-                <button type="button" className="btn btn-secondary btn-sm" onClick={onAddCustomAction}>
-                  Nova acao custom
-                </button>
-              </div>
-
-              <div className={styles.actionCatalogList}>
-                {botConfig.actionCatalog.map((action) => (
-                  <div key={action.actionId} className={styles.actionCard}>
-                    <div className={styles.formGrid}>
-                      <label className={styles.fieldBlock}>
-                        <span>Titulo</span>
-                        <input className="field" value={action.title} onChange={(event) => onUpdateActionGuide(action.actionId, "title", event.target.value)} />
-                      </label>
-                      <label className={styles.fieldBlock}>
-                        <span>Tipo</span>
-                        <select className="field" value={action.kind} onChange={(event) => onUpdateActionGuide(action.actionId, "kind", event.target.value)}>
-                          {Object.entries(ACTION_KIND_LABELS).map(([value, label]) => (
-                            <option key={value} value={value}>{label}</option>
-                          ))}
-                        </select>
-                      </label>
-                      <label className={styles.fieldBlock}>
-                        <span>Destino</span>
-                        <select className="field" value={action.route} onChange={(event) => onUpdateActionGuide(action.actionId, "route", event.target.value)}>
-                          {Object.entries(VARIABLE_SCOPE_LABELS).map(([value, label]) => (
-                            <option key={value} value={value}>{label}</option>
-                          ))}
-                        </select>
-                      </label>
-                      <label className={styles.switchRow}>
-                        <input type="checkbox" checked={action.enabled} onChange={(event) => onUpdateActionGuide(action.actionId, "enabled", event.target.checked)} />
-                        <span>Ativa</span>
-                      </label>
-                    </div>
-
-                    <label className={styles.fieldBlock}>
-                      <span>Descricao operacional</span>
-                      <input className="field" value={action.description} onChange={(event) => onUpdateActionGuide(action.actionId, "description", event.target.value)} />
-                    </label>
-
-                    {action.kind === "agenda" ? (
-                      <label className={styles.fieldBlock}>
-                        <span>Agenda vinculada</span>
-                        <select className="field" value={String(action.agendaGroupId || "")} onChange={(event) => onUpdateActionGuide(action.actionId, "agendaGroupId", event.target.value)}>
-                          <option value="">Selecione</option>
-                          {agendaOptions.map((group) => (
-                            <option key={group.id} value={group.id}>{group.title}</option>
-                          ))}
-                        </select>
-                      </label>
-                    ) : null}
-
-                    {action.kind === "reply" ? (
-                      <label className={styles.fieldBlock}>
-                        <span>Mensagem da acao</span>
-                        <textarea className="field" rows={3} value={action.responseMessage || ""} onChange={(event) => onUpdateActionGuide(action.actionId, "responseMessage", event.target.value)} />
-                      </label>
-                    ) : null}
-
-                    {action.custom ? (
-                      <div className={styles.footerActions}>
-                        <button type="button" className="btn btn-danger btn-sm" onClick={() => onRemoveCustomAction(action.actionId)}>
-                          Excluir acao custom
-                        </button>
-                      </div>
-                    ) : null}
-                  </div>
-                ))}
-              </div>
-            </article>
-          </>
-        ) : null}
       </article>
     </section>
   );

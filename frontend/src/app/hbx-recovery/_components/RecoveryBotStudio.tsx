@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import BotMessageStudio from "@/components/bot-editor/BotMessageStudio";
+import BotMessageStudio, { type BotStudioTemplateStart } from "@/components/bot-editor/BotMessageStudio";
 import type {
   RecoveryBotButton,
   RecoveryBotConfig,
@@ -177,6 +177,8 @@ type RecoveryBotStudioProps = {
   loadingBotConfig: boolean;
   savingBotConfig: boolean;
   botActionOptions: ActionOption[];
+  templateStart?: BotStudioTemplateStart | null;
+  startTemplateReady?: boolean;
   onSave: () => void;
   onBotTextChange: (field: BotTextField, value: string) => void;
   onAppendVariable: (field: BotTextField, variableKey: string) => void;
@@ -208,6 +210,8 @@ export default function RecoveryBotStudio({
   loadingBotConfig,
   savingBotConfig,
   botActionOptions,
+  templateStart,
+  startTemplateReady = false,
   onSave,
   onBotTextChange,
   onAppendVariable,
@@ -260,6 +264,76 @@ export default function RecoveryBotStudio({
     [botConfig.variableCatalog, selectedScenario.scopes],
   );
 
+  const flowScenarios = useMemo(
+    () =>
+      BOT_SCENARIOS.map((scenario) => ({
+        id: scenario.id,
+        label: scenario.label,
+        description: scenario.description,
+        badge: scenario.badge,
+        supportsButtons: scenario.supportsButtons,
+        messageText: String(botConfig[scenario.id] || ""),
+        buttons:
+          scenario.supportsButtons && scenario.buttonSection ? botConfig[scenario.buttonSection] : [],
+      })),
+    [botConfig],
+  );
+
+  const catalogVariables = useMemo(
+    () =>
+      botConfig.variableCatalog.map((item: RecoveryBotVariableDefinition) => ({
+        key: item.key,
+        label: item.label,
+        example: item.example,
+        scopeLabel: BOT_SCOPE_LABELS[item.scope],
+        required: item.required,
+      })),
+    [botConfig.variableCatalog],
+  );
+
+  const catalogActions = useMemo(
+    () =>
+      botConfig.actionCatalog.map((action) => ({
+        actionId: String(action.actionId),
+        title: action.title,
+        description: action.description,
+        routeLabel: BOT_SCOPE_LABELS[action.route],
+        typeLabel: "Acao do bot",
+        enabled: action.enabled,
+      })),
+    [botConfig.actionCatalog],
+  );
+
+  const publicationChecks = useMemo(
+    () => [
+      {
+        id: "template",
+        label: "Template inicial",
+        description: "O bloco de entrada precisa permanecer pronto e compativel com a Meta.",
+        ok: Boolean(templateStart) && startTemplateReady,
+      },
+      {
+        id: "entry_message",
+        label: "Mensagem principal",
+        description: "O menu principal do Recovery precisa ter texto claro para abrir o fluxo.",
+        ok: String(botConfig.mainMenuPrompt || "").trim().length > 0,
+      },
+      {
+        id: "interactive_paths",
+        label: "Ramificacoes por botoes",
+        description: "Pelo menos um bloco interativo precisa ter botoes validos para o cliente seguir.",
+        ok: flowScenarios.some((scenario) => scenario.buttons.length > 0),
+      },
+      {
+        id: "actions",
+        label: "Acoes ativas",
+        description: "O builder precisa ter pelo menos uma acao operacional ativa no catalogo.",
+        ok: botConfig.actionCatalog.some((action) => action.enabled),
+      },
+    ],
+    [botConfig.actionCatalog, botConfig.mainMenuPrompt, flowScenarios, startTemplateReady, templateStart],
+  );
+
   const handleMessageTypeChange = (nextType: "simple" | "buttons") => {
     if (!selectedScenario.supportsButtons || !selectedScenario.buttonSection) return;
     if (nextType === "simple") {
@@ -292,13 +366,7 @@ export default function RecoveryBotStudio({
         eyebrow="Recovery"
         title={selectedScenario.label}
         description={selectedScenario.description}
-        scenarios={BOT_SCENARIOS.map((scenario) => ({
-          id: scenario.id,
-          label: scenario.label,
-          description: scenario.description,
-          badge: scenario.badge,
-          supportsButtons: scenario.supportsButtons,
-        }))}
+        flowScenarios={flowScenarios}
         selectedScenarioId={selectedScenario.id}
         onSelectScenario={(scenarioId) => setSelectedScenarioId(scenarioId as (typeof BOT_SCENARIOS)[number]["id"])}
         messageText={String(botConfig[selectedScenario.id] || "")}
@@ -308,6 +376,7 @@ export default function RecoveryBotStudio({
         buttons={selectedButtons}
         actionOptions={botActionOptions}
         actionById={actionById}
+        catalogActions={catalogActions}
         onUpdateButton={(index, field, value) => {
           if (!selectedScenario.buttonSection) return;
           onUpdateButton(selectedScenario.buttonSection, index, field, value);
@@ -321,21 +390,25 @@ export default function RecoveryBotStudio({
           onRemoveButton(selectedScenario.buttonSection, index);
         }}
         variables={studioVariables}
+        catalogVariables={catalogVariables}
         onAppendVariable={(variableKey) => onAppendVariable(selectedScenario.id, variableKey)}
         previewText={renderPreviewText(String(botConfig[selectedScenario.id] || ""), botConfig)}
         previewFooter={botConfig.rootFooter || "HBX Recovery"}
         previewFallbackText={buildFallbackText(renderPreviewText(String(botConfig[selectedScenario.id] || ""), botConfig), selectedButtons)}
         previewNote="O fallback textual tambem fica preparado para canais ou cenarios sem botoes."
-        loading={loadingBotConfig}
-      />
-
-      {!loadingBotConfig ? (
-        <>
+        templateStart={templateStart}
+        publicationChecks={publicationChecks}
+        publicationTitle="Publicacao do fluxo Recovery"
+        publicationDescription="Valide entrada, menu principal e rotas de cobranca antes de salvar este rascunho."
+        primaryActionLabel={savingBotConfig ? "Salvando..." : "Salvar editor"}
+        onPrimaryAction={onSave}
+        primaryActionDisabled={savingBotConfig || loadingBotConfig}
+        variablesTabExtra={
           <article className={styles.botStepCard}>
             <div className={styles.botStepHeader}>
               <div>
                 <h4>Variaveis e rodape</h4>
-                <p>Catalogo visual do que pode entrar nas mensagens do fluxo.</p>
+                <p>Catalogo operacional do que pode entrar nas mensagens do fluxo.</p>
               </div>
             </div>
             <div className={styles.botVariableGrid}>
@@ -344,12 +417,8 @@ export default function RecoveryBotStudio({
                   <div className={styles.botVariableHeader}>
                     <strong>{`{{${item.key}}}`}</strong>
                     <div className={styles.interactionBadgeRow}>
-                      <span className={`${styles.stateBadge} ${styles.stateBot}`}>
-                        {BOT_SCOPE_LABELS[item.scope]}
-                      </span>
-                      {item.required ? (
-                        <span className={`${styles.stateBadge} ${styles.statePaid}`}>Obrigatoria</span>
-                      ) : null}
+                      <span className={`${styles.stateBadge} ${styles.stateBot}`}>{BOT_SCOPE_LABELS[item.scope]}</span>
+                      {item.required ? <span className={`${styles.stateBadge} ${styles.statePaid}`}>Obrigatoria</span> : null}
                     </div>
                   </div>
                   <label className={styles.fieldBlock}>
@@ -372,7 +441,8 @@ export default function RecoveryBotStudio({
               <input className="field" value={botConfig.rootFooter} onChange={(event) => onBotTextChange("rootFooter", event.target.value)} />
             </label>
           </article>
-
+        }
+        actionsTabExtra={
           <article className={styles.botStepCard}>
             <div className={styles.botStepHeader}>
               <div>
@@ -458,8 +528,9 @@ export default function RecoveryBotStudio({
               ))}
             </div>
           </article>
-        </>
-      ) : null}
+        }
+        loading={loadingBotConfig}
+      />
     </div>
   );
 }

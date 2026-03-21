@@ -9,6 +9,7 @@ import type {
   PointerEvent as ReactPointerEvent,
 } from "react";
 import { createPortal } from "react-dom";
+import type { BotStudioTemplateStart } from "@/components/bot-editor/BotMessageStudio";
 import DashboardScaffold from "@/components/DashboardScaffold";
 import { useRequireAuth } from "../dashboard/_lib/useRequireAuth";
 import { apiFetch } from "../dashboard/_lib/api";
@@ -1809,6 +1810,22 @@ export default function HbxRecoveryClientPage() {
     () => getRecoveryStartTemplateIssues(selectedStartTemplate),
     [selectedStartTemplate],
   );
+  const botStudioTemplateStart = useMemo<BotStudioTemplateStart | null>(() => {
+    if (!selectedStartTemplate) return null;
+    const view = getTemplateViewModel(selectedStartTemplate);
+    return {
+      title: `${selectedStartTemplate.name} (${selectedStartTemplate.language})`,
+      description: "Template inicial fixo aprovado na Meta antes das etapas livres do builder.",
+      body: view.bodyText
+        ? renderTemplatePreviewText(view.bodyText, previewTemplateSamples)
+        : "Sem body retornado pela Meta.",
+      footer: view.footerText || null,
+      buttons:
+        view.buttons.map((button) => String(button.text || "").trim()).filter(Boolean).slice(0, 3),
+      badges: ["HBX ativo", "Meta aprovado"],
+      tone: selectedStartTemplateIssues.length > 0 ? "warning" : "ready",
+    };
+  }, [previewTemplateSamples, selectedStartTemplate, selectedStartTemplateIssues.length]);
   const recoveryChartSeries = useMemo(
     () => buildRecoveryChartSeries(customerSource, 6),
     [customerSource],
@@ -7588,24 +7605,11 @@ export default function HbxRecoveryClientPage() {
               <article className={styles.botStepCard}>
                 <div className={styles.botStepHeader}>
                   <div>
-                    <h4>Template inicial ativo (Meta)</h4>
-                    <p>
-                      O editor recebe apenas templates ativos no HBX e aprovados na Meta.
-                    </p>
+                    <h4>Template inicial do builder</h4>
+                    <p>Selecione o template Meta que abre a conversa antes dos blocos visuais do fluxo.</p>
                   </div>
                 </div>
 
-                <div className={styles.templateHint}>
-                  <strong>Conteudo fixo aprovado:</strong>
-                  <p>
-                    Ola, tudo bem? Aqui e da {"{{empresa}}"}. Falo com {"{{cliente}}"}? Temos um assunto financeiro pendente referente ao servico realizado em {"{{data_servico}}"}. Podemos conversar sobre opcoes de pagamento?
-                  </p>
-                  <p>Opcional: use {"{{funcionario}}"} para mostrar o nome do usuario logado.</p>
-                  <div className={styles.interactionBadgeRow}>
-                    <span className={`${styles.stateBadge} ${styles.stateBot}`}>Botao: Sim</span>
-                    <span className={`${styles.stateBadge} ${styles.stateBot}`}>Botao: Nao, obrigado</span>
-                  </div>
-                </div>
                 {botEditorStartTemplates.length === 0 ? (
                   <div className="alert alert-error">
                     Nenhum template ativo no HBX e aprovado na Meta apareceu no editor.
@@ -7630,77 +7634,36 @@ export default function HbxRecoveryClientPage() {
                       );
 
                       return (
-                      <div key={`${template.name}-${template.language}`} className={styles.templateRow}>
-                        <label className={styles.templateActive}>
-                          <input
-                            type="radio"
-                            name="active-recovery-template"
-                            checked={isSelected}
-                            onChange={() => setActiveStartTemplate(template.name, template.language)}
-                          />
-                          <span>Template inicial</span>
-                        </label>
-                        <label className={styles.fieldBlock}>
-                          <span>Nome do template</span>
-                          <input className="field" value={template.name} disabled />
-                        </label>
-                        <label className={styles.fieldBlock}>
-                          <span>Idioma</span>
-                          <input className="field" value={template.language} disabled />
-                        </label>
-                        <div className={styles.interactionBadgeRow}>
-                          <span className={`${styles.stateBadge} ${styles.statePaid}`}>HBX ativo</span>
-                          <span className={`${styles.stateBadge} ${styles.statePaid}`}>Meta aprovado</span>
-                          {templateIssues.length === 0 ? (
-                            <span className={`${styles.stateBadge} ${styles.stateBot}`}>Pronto para o bot</span>
-                          ) : (
-                            <span className={`${styles.stateBadge} ${styles.stateWaiting}`}>Revisar template</span>
-                          )}
-                        </div>
-                        {isSelected && templateIssues.length > 0 ? (
-                          <div className="alert alert-error">
-                            Incompatibilidades do fluxo inicial: {templateIssues.join("; ")}.
+                        <div key={`${template.name}-${template.language}`} className={styles.templateRow}>
+                          <label className={styles.templateActive}>
+                            <input
+                              type="radio"
+                              name="active-recovery-template"
+                              checked={isSelected}
+                              onChange={() => setActiveStartTemplate(template.name, template.language)}
+                            />
+                            <span>Entrada fixa</span>
+                          </label>
+                          <label className={styles.fieldBlock}>
+                            <span>Nome do template</span>
+                            <input className="field" value={template.name} disabled />
+                          </label>
+                          <label className={styles.fieldBlock}>
+                            <span>Idioma</span>
+                            <input className="field" value={template.language} disabled />
+                          </label>
+                          <div className={styles.interactionBadgeRow}>
+                            <span className={`${styles.stateBadge} ${styles.statePaid}`}>HBX ativo</span>
+                            <span className={`${styles.stateBadge} ${styles.statePaid}`}>Meta aprovado</span>
+                            <span className={`${styles.stateBadge} ${templateIssues.length === 0 ? styles.stateBot : styles.stateWaiting}`}>
+                              {templateIssues.length === 0 ? "Pronto" : "Revisar"}
+                            </span>
                           </div>
-                        ) : null}
-                      </div>
-                    )})}
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
-
-                {selectedStartTemplate ? (
-                  <div className={styles.templatePreviewPanel}>
-                    {(() => {
-                      const selectedStartTemplateView = getTemplateViewModel(selectedStartTemplate);
-                      return (
-                      <>
-                    <strong>Preview do template selecionado</strong>
-                    <p>
-                      {selectedStartTemplateView.bodyText
-                        ? renderTemplatePreviewText(
-                            selectedStartTemplateView.bodyText,
-                            previewTemplateSamples,
-                          )
-                        : "Sem body retornado pela Meta."}
-                    </p>
-                    <div className={styles.interactionBadgeRow}>
-                      {selectedStartTemplateView.variableOrder.map((variable) => (
-                        <span
-                          key={`preview-var-${variable}`}
-                          className={`${styles.stateBadge} ${styles.stateWaiting}`}
-                        >
-                          {`{{${variable}}}`}
-                        </span>
-                      ))}
-                    </div>
-                    {selectedStartTemplateIssues.length > 0 ? (
-                      <div className="alert alert-error">
-                        Template inicial incompativel com o bot: {selectedStartTemplateIssues.join("; ")}.
-                      </div>
-                    ) : null}
-                      </>
-                      );})()}
-                  </div>
-                ) : null}
               </article>
 
               <RecoveryBotStudio
@@ -7708,6 +7671,8 @@ export default function HbxRecoveryClientPage() {
                 loadingBotConfig={loadingBotConfig}
                 savingBotConfig={savingBotConfig}
                 botActionOptions={botActionOptions}
+                templateStart={botStudioTemplateStart}
+                startTemplateReady={selectedStartTemplateIssues.length === 0}
                 onSave={saveBotConfig}
                 onBotTextChange={handleBotTextChange}
                 onAppendVariable={appendVariableToTextField}
