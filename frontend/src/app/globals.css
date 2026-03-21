@@ -1061,6 +1061,47 @@ textarea {
   gap: 1rem;
 }
 
+/* Prevent long unbroken strings (tokens/ids) from stretching the layout */
+.app-container,
+.workspace-shell,
+.workspace-main,
+.workspace-rail,
+.workspace-context,
+.workspace-main > *,
+.page-content,
+.panel,
+.card,
+.shell-card,
+.shell-card * {
+  min-width: 0;
+}
+
+/* Prefer breaking long words and allow wrapping inside cards and text */
+.page-content,
+.panel,
+.card,
+.shell-card,
+.text-muted,
+.field,
+input.field,
+textarea.field,
+code,
+pre {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  hyphens: auto;
+}
+
+/* Ensure token previews and other inline text don't force horizontal growth */
+.text-xs,
+.text-sm,
+.text-md,
+.mono,
+.paymentEmpty {
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
 .shell-card,
 .panel,
 .card {
