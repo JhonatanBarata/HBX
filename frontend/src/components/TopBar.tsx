@@ -940,17 +940,7 @@ export default function TopBar() {
           </div>
         </div>
 
-        {authenticated ? (
-          <div className="app-topbar__dock">
-            <span
-              className="app-topbar__dockChip"
-              role="status"
-              aria-label={`${pendingHumanCount} itens em fila`}
-            >
-              <strong>{pendingHumanCount}</strong>
-            </span>
-          </div>
-        ) : null}
+        {/* dock removed: counter is shown on individual icons (wa-health__queue-badge) */}
       </div>
 
       {incomingPopup ? (
