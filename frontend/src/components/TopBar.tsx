@@ -121,8 +121,9 @@ function formatInboxPreview(conversation: InboxAlertConversation) {
 export default function TopBar() {
   const router = useRouter();
   const pathname = usePathname();
+  const topbarFrameRef = useRef<HTMLDivElement | null>(null);
   const userMenuRef = useRef<HTMLDivElement | null>(null);
-  const { activeTheme, selection, setStorageUserId } = useHbxTheme();
+  const { setStorageUserId } = useHbxTheme();
 
   const [authenticated, setAuthenticated] = useState(false);
   const [user, setUser] = useState<User | null>(null);
@@ -564,7 +565,7 @@ export default function TopBar() {
 
   useLayoutEffect(() => {
     const root = document.documentElement;
-    const topbar = document.querySelector(".app-topbar");
+    const topbar = topbarFrameRef.current;
     if (!root || !topbar) return;
 
     const setVar = () => {
@@ -586,7 +587,7 @@ export default function TopBar() {
       observer?.disconnect();
       window.removeEventListener("resize", setVar);
     };
-  }, [authenticated, incomingPopup, open]);
+  }, [authenticated, incomingPopup, open, pathname]);
 
   function handleLogout() {
     clearToken();
@@ -763,15 +764,13 @@ export default function TopBar() {
       : user?.company?.name || "Operacao sem empresa"
     : "Plataforma operacional HBX";
   const workspaceBadge = pendingHumanCount > 0 ? `${pendingHumanCount} na fila` : "Fila sob controle";
-  const themeLabel = `${activeTheme.shortLabel} · ${selection.mode === "dark" ? "Escuro" : "Claro"}`;
-
   if (hiddenRoutes.has(pathname)) {
     return null;
   }
 
   return (
     <header className="app-topbar">
-      <div className="app-topbar__frame">
+      <div ref={topbarFrameRef} className="app-topbar__frame">
         <div className="app-topbar__inner">
           <div className="app-topbar__left">
             <Link href={authenticated ? "/dashboard" : "/login"} className="app-brand">
@@ -943,9 +942,12 @@ export default function TopBar() {
 
         {authenticated ? (
           <div className="app-topbar__dock">
-            <span className="app-topbar__dockChip">
+            <span
+              className="app-topbar__dockChip"
+              role="status"
+              aria-label={`${pendingHumanCount} itens em fila`}
+            >
               <strong>{pendingHumanCount}</strong>
-              <span>Itens em fila</span>
             </span>
           </div>
         ) : null}

@@ -3,6 +3,14 @@
   gap: 0.7rem;
 }
 
+.moduleNavStatus {
+  margin: 0;
+  padding: 0.2rem 0.1rem 0;
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
 .moduleCard,
 .moduleCardActive {
   display: grid;

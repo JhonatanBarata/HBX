@@ -106,10 +106,19 @@ export default function ModuleNav() {
   const [modules, setModules] = useState<UserModule[]>([]);
   const [userRole, setUserRole] = useState<string | null>(null);
   const [isSystemMaster, setIsSystemMaster] = useState(false);
+  const [loading, setLoading] = useState(authenticated);
 
   useEffect(() => {
-    if (!authenticated) return;
+    if (!authenticated) {
+      setModules([]);
+      setUserRole(null);
+      setIsSystemMaster(false);
+      setLoading(false);
+      return;
+    }
+
     let mounted = true;
+    setLoading(true);
 
     (async () => {
       try {
@@ -124,7 +133,14 @@ export default function ModuleNav() {
         setUserRole(String(profile?.role || null));
         setIsSystemMaster(Boolean(profile?.isSystemMaster));
       } catch {
-        // ignore
+        if (!mounted) return;
+        setModules([]);
+        setUserRole(null);
+        setIsSystemMaster(false);
+      } finally {
+        if (mounted) {
+          setLoading(false);
+        }
       }
     })();
 
@@ -139,16 +155,15 @@ export default function ModuleNav() {
   );
 
   const navItems = useMemo(() => {
-    const showAllUntilLoaded = Array.isArray(modules) && modules.length === 0;
-
     return NAV_ITEMS.filter((item) => {
-      if (showAllUntilLoaded) return true;
+      if (item.href === "/dashboard") return true;
+      if (loading) return false;
       if (item.moduleKey && !accessibleModules.has(item.moduleKey)) return false;
       if (!item.adminOnly) return true;
       if (item.href === "/dashboard/master") return isSystemMaster;
       return String(userRole || "").toUpperCase() === "ADMIN";
     });
-  }, [accessibleModules, isSystemMaster, modules, userRole]);
+  }, [accessibleModules, isSystemMaster, loading, userRole]);
 
   return (
     <nav className={styles.moduleNavWrap} aria-label="Navegação de módulos">
@@ -172,6 +187,7 @@ export default function ModuleNav() {
           </Link>
         );
       })}
+      {loading ? <p className={styles.moduleNavStatus}>Carregando módulos...</p> : null}
     </nav>
   );
 }
