@@ -8,6 +8,7 @@ import { Throttle } from '@nestjs/throttler';
 import { IsBoolean, IsEmail, IsIn, IsOptional, IsString, MinLength } from 'class-validator';
 import * as bcrypt from 'bcryptjs';
 import { assertPasswordPolicy } from '../auth/password-policy';
+import { MasterContextService } from '../master-context/master-context.service';
 
 class UpdateRoleDto {
 	@IsString()
@@ -87,7 +88,10 @@ class MasterResetPasswordDto {
 
 @Controller('users')
 export class UsersController {
-	constructor(private readonly usersService: UsersService) {}
+	constructor(
+		private readonly usersService: UsersService,
+		private readonly masterContextService: MasterContextService,
+	) {}
 
 	// GET /users/check-username?username=foo
 	@Get('check-username')
@@ -222,18 +226,31 @@ export class UsersController {
 
 	@Patch('master/:id/delete')
 	@UseGuards(JwtAuthGuard, MasterGuard)
-	async masterDeleteUser(@Param('id', ParseIntPipe) id: number) {
+	async masterDeleteUser(@Req() req: any, @Param('id', ParseIntPipe) id: number) {
 		const target = await this.usersService.findById(id);
 		if (!target) throw new NotFoundException('Usuário não encontrado');
 		if (target.isSystemMaster) throw new ForbiddenException('Usuário MASTER não pode ser removido');
 
 		await this.usersService.hardDeleteUser(id);
+		await this.masterContextService.registerSupportAction({
+			masterUserId: Number(req.user?.id),
+			companyId: Number(target.companyId || 0) || null,
+			scope: 'master_user',
+			action: 'USER_DELETED',
+			severity: 'WARN',
+			metadata: {
+				userId: id,
+				email: target.email || null,
+				username: target.username || null,
+			},
+		});
 		return { ok: true, id };
 	}
 
 	@Post('master/company/:companyId/create')
 	@UseGuards(JwtAuthGuard, MasterGuard)
 	async masterCreateCompanyUser(
+		@Req() req: any,
 		@Param('companyId', ParseIntPipe) companyId: number,
 		@Body() dto: MasterCreateUserDto,
 	) {
@@ -262,6 +279,19 @@ export class UsersController {
 			role,
 		});
 
+		await this.masterContextService.registerSupportAction({
+			masterUserId: Number(req.user?.id),
+			companyId,
+			scope: 'master_user',
+			action: 'USER_CREATED',
+			metadata: {
+				userId: created.id,
+				email: created.email,
+				username: created.username || null,
+				role: created.role,
+			},
+		});
+
 		return {
 			user: {
 				id: created.id,
@@ -276,7 +306,7 @@ export class UsersController {
 
 	@Patch('master/:id')
 	@UseGuards(JwtAuthGuard, MasterGuard)
-	async masterEditUser(@Param('id', ParseIntPipe) id: number, @Body() dto: MasterEditUserDto) {
+	async masterEditUser(@Req() req: any, @Param('id', ParseIntPipe) id: number, @Body() dto: MasterEditUserDto) {
 		const target = await this.usersService.findById(id);
 		if (!target) throw new NotFoundException('Usuário não encontrado');
 		if (target.isSystemMaster) throw new ForbiddenException('Usuário MASTER não pode ser alterado');
@@ -320,6 +350,19 @@ export class UsersController {
 		}
 
 		const updated = await this.usersService.updateById(id, data);
+		await this.masterContextService.registerSupportAction({
+			masterUserId: Number(req.user?.id),
+			companyId: Number(updated.companyId || 0) || null,
+			scope: 'master_user',
+			action: 'USER_UPDATED',
+			metadata: {
+				userId: updated.id,
+				email: updated.email || null,
+				username: updated.username || null,
+				role: updated.role,
+				isActive: updated.isActive,
+			},
+		});
 		return {
 			id: updated.id,
 			email: updated.email,
@@ -333,7 +376,7 @@ export class UsersController {
 
 	@Patch('master/:id/reset-password')
 	@UseGuards(JwtAuthGuard, MasterGuard)
-	async masterResetPassword(@Param('id', ParseIntPipe) id: number, @Body() dto: MasterResetPasswordDto) {
+	async masterResetPassword(@Req() req: any, @Param('id', ParseIntPipe) id: number, @Body() dto: MasterResetPasswordDto) {
 		const target = await this.usersService.findById(id);
 		if (!target) throw new NotFoundException('Usuário não encontrado');
 		if (target.isSystemMaster) throw new ForbiddenException('Usuário MASTER não pode ter senha resetada aqui');
@@ -342,6 +385,18 @@ export class UsersController {
 		assertPasswordPolicy(tempPassword);
 		const hashed = await bcrypt.hash(tempPassword, 10);
 		await this.usersService.setPassword(id, hashed);
+		await this.masterContextService.registerSupportAction({
+			masterUserId: Number(req.user?.id),
+			companyId: Number(target.companyId || 0) || null,
+			scope: 'master_user',
+			action: 'USER_PASSWORD_RESET',
+			severity: 'WARN',
+			metadata: {
+				userId: id,
+				email: target.email || null,
+				username: target.username || null,
+			},
+		});
 
 		return {
 			ok: true,

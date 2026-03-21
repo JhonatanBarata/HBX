@@ -1,387 +1,589 @@
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { constants } from 'fs';
-import { access, cp, mkdir, readFile, readdir, rm, writeFile } from 'fs/promises';
-import { join, relative, resolve } from 'path';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException, OnModuleInit } from '@nestjs/common';
+import { JwtService } from '@nestjs/jwt';
+import { randomUUID } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
-import { CreateWebsiteProjectDto } from './dto/create-website-project.dto';
-import { UpdateWebsiteProjectDto } from './dto/update-website-project.dto';
+import { MasterContextService } from '../master-context/master-context.service';
+import { ModulesService } from '../modules/modules.service';
+import { UpdateCompanyWebsiteConfigDto } from './dto/update-company-website-config.dto';
+import { WebsiteAdminExchangeDto } from './dto/website-admin-exchange.dto';
+import { WebsiteAdminVerifyDto } from './dto/website-admin-verify.dto';
+import {
+  CompanyWebsiteConfigRecord,
+  consumeWebsiteAdminEntryTokenRecord,
+  createWebsiteAdminEntryTokenRecord,
+  ensureWebsiteRuntimeSchema,
+  getCompanyWebsiteConfig,
+  getWebsiteAdminEntryTokenRecord,
+  upsertCompanyWebsiteConfig,
+} from './website-runtime';
 
-type WebsiteTemplate = {
-  key: string;
-  name: string;
-  type?: string;
-  hasFunctions?: boolean;
-  sourcePath?: string;
-  copiedAt?: string;
-  templateRoot: string;
-  sourceRoot: string;
-};
+type LaunchTarget = 'public' | 'admin';
 
-type WebsiteProjectRecord = {
-  companyId: number;
-  companyName: string;
-  companySlug: string;
-  templateKey: string;
-  templateName: string;
-  firebaseProjectId?: string | null;
-  status: 'CREATED';
-  localPath: string;
-  relativePath: string;
-  createdAt: string;
-  updatedAt: string;
-};
-
-type WebsiteProjectsState = {
-  version: number;
-  projects: WebsiteProjectRecord[];
+type WebsitePortalPayload = {
+  companyId: number | null;
+  companyName: string | null;
+  companySlug: string | null;
+  configured: boolean;
+  websiteEnabled: boolean;
+  websitePublicUrl: string | null;
+  websiteAdminUrl: string | null;
+  websiteProjectId: string | null;
+  websiteAdminEnabled: boolean;
+  websiteLaunchMode: 'public' | 'admin';
+  adminAllowed: boolean;
+  launchTarget: LaunchTarget | null;
+  launchUrl: string | null;
+  message: string | null;
 };
 
 @Injectable()
-export class WebsiteService {
-  constructor(private readonly prisma: PrismaService) {}
+export class WebsiteService implements OnModuleInit {
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly jwtService: JwtService,
+    private readonly modulesService: ModulesService,
+    private readonly masterContextService: MasterContextService,
+  ) {}
 
-  private readonly backendRoot = resolve(__dirname, '..', '..');
-  private readonly kitRoot = join(this.backendRoot, 'website-kit');
-  private readonly templatesRoot = join(this.kitRoot, 'templates');
-  private readonly companiesRoot = join(this.kitRoot, 'companies');
-  private readonly stateFilePath = join(this.kitRoot, 'projects.json');
-
-  private normalizeSlug(input: string) {
-    return String(input || '')
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '')
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-+|-+$/g, '')
-      .slice(0, 80);
+  async onModuleInit() {
+    await ensureWebsiteRuntimeSchema(this.prisma);
   }
 
-  private async fileExists(path: string) {
+  private websiteEntrySecret() {
+    return String(process.env.WEBSITE_ENTRY_TOKEN_SECRET || process.env.JWT_SECRET || 'secretKey');
+  }
+
+  private websiteSessionSecret() {
+    return String(process.env.WEBSITE_ADMIN_SESSION_SECRET || process.env.JWT_SECRET || 'secretKey');
+  }
+
+  private websiteEntryTtlSeconds() {
+    const configured = Number(process.env.WEBSITE_ENTRY_TOKEN_TTL_SECONDS || 90);
+    return Math.max(30, Math.min(300, Number.isFinite(configured) ? configured : 90));
+  }
+
+  private websiteSessionTtlSeconds() {
+    const configured = Number(process.env.WEBSITE_ADMIN_SESSION_TTL_SECONDS || 28800);
+    return Math.max(300, Math.min(86400, Number.isFinite(configured) ? configured : 28800));
+  }
+
+  private normalizeOptionalString(value: unknown) {
+    const normalized = String(value || '').trim();
+    return normalized || null;
+  }
+
+  private normalizeLaunchMode(value: unknown): 'public' | 'admin' {
+    return String(value || '').trim().toLowerCase() === 'admin' ? 'admin' : 'public';
+  }
+
+  private normalizePortalTarget(value: unknown): 'auto' | LaunchTarget {
+    const normalized = String(value || '').trim().toLowerCase();
+    if (normalized === 'admin') return 'admin';
+    if (normalized === 'public') return 'public';
+    return 'auto';
+  }
+
+  private requireValidUrl(value: string | null, fieldName: string) {
+    const normalized = this.normalizeOptionalString(value);
+    if (!normalized) return null;
     try {
-      await access(path, constants.F_OK);
-      return true;
-    } catch {
-      return false;
-    }
-  }
-
-  private async ensureBaseDirectories() {
-    await mkdir(this.templatesRoot, { recursive: true });
-    await mkdir(this.companiesRoot, { recursive: true });
-  }
-
-  private async readState(): Promise<WebsiteProjectsState> {
-    await this.ensureBaseDirectories();
-    const exists = await this.fileExists(this.stateFilePath);
-    if (!exists) {
-      return { version: 1, projects: [] };
-    }
-
-    try {
-      const raw = await readFile(this.stateFilePath, 'utf8');
-      const parsed = JSON.parse(raw.replace(/^\uFEFF/, '')) as WebsiteProjectsState;
-      if (!parsed || typeof parsed !== 'object' || !Array.isArray(parsed.projects)) {
-        return { version: 1, projects: [] };
+      const parsed = new URL(normalized);
+      if (!['http:', 'https:'].includes(parsed.protocol)) {
+        throw new Error('invalid protocol');
       }
-      return {
-        version: Number(parsed.version || 1),
-        projects: parsed.projects,
-      };
+      return parsed.toString();
     } catch {
-      return { version: 1, projects: [] };
+      throw new BadRequestException(`${fieldName} precisa ser uma URL http(s) valida.`);
     }
   }
 
-  private async writeState(state: WebsiteProjectsState) {
-    await this.ensureBaseDirectories();
-    await writeFile(this.stateFilePath, JSON.stringify(state, null, 2), 'utf8');
+  private appendQueryValue(url: string, key: string, value: string) {
+    const parsed = new URL(url);
+    parsed.searchParams.set(key, value);
+    return parsed.toString();
   }
 
-  private async resolveCompanyFromUser(user: any) {
+  private isWebsiteAdminUser(user: any) {
+    return Boolean(user?.isSystemMaster) || String(user?.role || '').trim().toUpperCase() === 'ADMIN';
+  }
+
+  private async resolveCompanyFromRuntimeUser(user: any) {
     const companyId = Number(user?.companyId || 0);
-    if (!companyId) throw new ForbiddenException('Empresa nao identificada no contexto do usuario');
+    if (!companyId) {
+      return null;
+    }
 
     const company = await this.prisma.company.findUnique({
       where: { id: companyId },
       select: { id: true, name: true, slug: true },
     });
-    if (!company) throw new NotFoundException('Empresa nao encontrada');
-
-    const companySlug = this.normalizeSlug(company.slug || company.name || `empresa-${company.id}`) || `empresa-${company.id}`;
-    return { id: company.id, name: company.name, slug: companySlug };
+    if (!company) {
+      throw new NotFoundException('Empresa nao encontrada para o modulo Website.');
+    }
+    return company;
   }
 
-  private async resolveCompanyForWebsite(user: any, overrideCompanyId?: number) {
-    const requestedCompanyId = Number(overrideCompanyId || 0);
-    const isSystemMaster = Boolean(user?.isSystemMaster);
-
-    if (isSystemMaster) {
-      if (!requestedCompanyId) {
-        throw new BadRequestException('companyId e obrigatorio para o usuario MASTER no modulo Website');
-      }
-
-      const company = await this.prisma.company.findUnique({
-        where: { id: requestedCompanyId },
-        select: { id: true, name: true, slug: true },
-      });
-      if (!company) throw new NotFoundException('Empresa nao encontrada');
-
-      const companySlug =
-        this.normalizeSlug(company.slug || company.name || `empresa-${company.id}`) ||
-        `empresa-${company.id}`;
-      return { id: company.id, name: company.name, slug: companySlug };
-    }
-
-    const currentCompany = await this.resolveCompanyFromUser(user);
-    if (requestedCompanyId && requestedCompanyId !== currentCompany.id) {
-      throw new ForbiddenException('Este usuario nao pode operar websites de outra empresa');
-    }
-    return currentCompany;
-  }
-
-  private async readTemplateMeta(templateRoot: string): Promise<WebsiteTemplate | null> {
-    const metaPath = join(templateRoot, 'template.json');
-    const sourceRoot = join(templateRoot, 'source');
-    const sourceExists = await this.fileExists(sourceRoot);
-    if (!sourceExists) return null;
-
-    const fallbackKey = templateRoot.split(/[\\/]/).pop() || 'template';
-    const fallback: WebsiteTemplate = {
-      key: fallbackKey,
-      name: fallbackKey,
-      templateRoot,
-      sourceRoot,
-    };
-
-    const metaExists = await this.fileExists(metaPath);
-    if (!metaExists) return fallback;
-
-    try {
-      const parsed = JSON.parse((await readFile(metaPath, 'utf8')).replace(/^\uFEFF/, '')) as Partial<WebsiteTemplate>;
-      return {
-        key: String(parsed.key || fallback.key),
-        name: String(parsed.name || fallback.name),
-        type: parsed.type ? String(parsed.type) : undefined,
-        hasFunctions: Boolean(parsed.hasFunctions),
-        sourcePath: parsed.sourcePath ? String(parsed.sourcePath) : undefined,
-        copiedAt: parsed.copiedAt ? String(parsed.copiedAt) : undefined,
-        templateRoot,
-        sourceRoot,
-      };
-    } catch {
-      return fallback;
+  private async assertMasterUser(masterUserId: number) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: Number(masterUserId) },
+      select: { id: true, isSystemMaster: true },
+    });
+    if (!user?.isSystemMaster) {
+      throw new ForbiddenException('Acesso exclusivo do MASTER.');
     }
   }
 
-  private async listTemplatesInternal() {
-    await this.ensureBaseDirectories();
-    const entries = await readdir(this.templatesRoot, { withFileTypes: true });
-
-    const templates: WebsiteTemplate[] = [];
-    for (const entry of entries) {
-      if (!entry.isDirectory()) continue;
-      const templateRoot = join(this.templatesRoot, entry.name);
-      const meta = await this.readTemplateMeta(templateRoot);
-      if (!meta) continue;
-      templates.push(meta);
+  private async assertWebsiteAdminAccess(userId: number, companyId: number) {
+    const user: any = await this.prisma.user.findUnique({
+      where: { id: Number(userId) },
+      select: {
+        id: true,
+        username: true,
+        name: true,
+        role: true,
+        email: true,
+        isActive: true,
+        isSystemMaster: true,
+        companyId: true,
+      },
+    });
+    if (!user) throw new ForbiddenException('Usuario nao encontrado.');
+    if (user.isActive === false) throw new ForbiddenException('Usuario desativado.');
+    if (!user.isSystemMaster && Number(user.companyId || 0) !== Number(companyId)) {
+      throw new ForbiddenException('Usuario fora da empresa configurada para este website.');
     }
-
-    templates.sort((a, b) => a.name.localeCompare(b.name));
-    return templates;
-  }
-
-  private async applyFirebaseProjectIdIfProvided(sitePath: string, firebaseProjectId?: string) {
-    const normalized = String(firebaseProjectId || '').trim();
-    if (!normalized) return null;
-
-    const firebasercPath = join(sitePath, '.firebaserc');
-    let payload: any = { projects: { default: normalized } };
-
-    if (await this.fileExists(firebasercPath)) {
-      try {
-        const current = JSON.parse(await readFile(firebasercPath, 'utf8'));
-        payload = {
-          ...current,
-          projects: {
-            ...(current?.projects || {}),
-            default: normalized,
-          },
-        };
-      } catch {
-        payload = { projects: { default: normalized } };
+    if (!this.isWebsiteAdminUser(user)) {
+      throw new ForbiddenException('Usuario sem permissao de admin do website.');
+    }
+    if (!user.isSystemMaster) {
+      const allowed = await this.modulesService.canUserAccessModule(Number(user.id), 'website');
+      if (!allowed) {
+        throw new ForbiddenException('Usuario sem acesso ao modulo Website.');
       }
     }
-
-    await writeFile(firebasercPath, JSON.stringify(payload, null, 2), 'utf8');
-    return normalized;
+    return user;
   }
 
-  private async writeWebsiteManifest(sitePath: string, project: WebsiteProjectRecord) {
-    const manifestPath = join(sitePath, 'hbx.website.json');
-    await writeFile(
-      manifestPath,
-      JSON.stringify(
-        {
-          company: {
-            id: project.companyId,
-            name: project.companyName,
-            slug: project.companySlug,
-          },
-          template: {
-            key: project.templateKey,
-            name: project.templateName,
-          },
-          firebaseProjectId: project.firebaseProjectId || null,
-          createdAt: project.createdAt,
-          updatedAt: project.updatedAt,
-        },
-        null,
-        2,
-      ),
-      'utf8',
-    );
-  }
-
-  private async writeDeployGuide(sitePath: string, project: WebsiteProjectRecord) {
-    const deployGuidePath = join(sitePath, 'HBX-DEPLOY.md');
-    const firebaseProject = project.firebaseProjectId ? `\`${project.firebaseProjectId}\`` : '`SEU_FIREBASE_PROJECT_ID`';
-    const lines = [
-      '# Deploy do Website (HBX)',
-      '',
-      `Empresa: ${project.companyName} (#${project.companyId})`,
-      `Template: ${project.templateName} (${project.templateKey})`,
-      '',
-      '## Passos',
-      '1. Instalar Firebase CLI (uma vez): `npm i -g firebase-tools`',
-      '2. Fazer login: `firebase login`',
-      `3. Selecionar projeto Firebase: \`firebase use ${firebaseProject}\``,
-      '4. Publicar hosting:',
-      '   - sem functions: `firebase deploy --only hosting`',
-      '   - com functions: `firebase deploy --only hosting,functions`',
-      '',
-      '## Observacoes',
-      '- Este website foi provisionado automaticamente pelo modulo Website do HBX.',
-      '- Ajuste `firebase-config.js`/`firebase-config.local.js` conforme o projeto Firebase da empresa.',
-    ];
-    await writeFile(deployGuidePath, `${lines.join('\n')}\n`, 'utf8');
-  }
-
-  private toProjectResponse(project: WebsiteProjectRecord) {
+  private buildPortalPayload(
+    company: { id: number; name: string; slug: string | null } | null,
+    config: CompanyWebsiteConfigRecord | null,
+    extra?: Partial<WebsitePortalPayload>,
+  ): WebsitePortalPayload {
     return {
-      ...project,
-      deploy: {
-        useCommand: project.firebaseProjectId ? `firebase use ${project.firebaseProjectId}` : 'firebase use <project-id>',
-        hostingCommand: 'firebase deploy --only hosting',
-        hostingFunctionsCommand: 'firebase deploy --only hosting,functions',
+      companyId: company?.id || null,
+      companyName: company?.name || null,
+      companySlug: company?.slug || null,
+      configured: Boolean(config?.websiteEnabled && config?.websitePublicUrl),
+      websiteEnabled: Boolean(config?.websiteEnabled),
+      websitePublicUrl: config?.websitePublicUrl || null,
+      websiteAdminUrl: config?.websiteAdminUrl || null,
+      websiteProjectId: config?.websiteProjectId || null,
+      websiteAdminEnabled: Boolean(config?.websiteAdminEnabled),
+      websiteLaunchMode: config?.websiteLaunchMode || 'public',
+      adminAllowed: false,
+      launchTarget: null,
+      launchUrl: null,
+      message: null,
+      ...extra,
+    };
+  }
+
+  private async buildAdminLaunchUrl(user: any, company: { id: number; name: string; slug: string | null }, config: CompanyWebsiteConfigRecord) {
+    if (!config.websiteAdminEnabled || !config.websiteAdminUrl || !config.websiteProjectId) {
+      throw new BadRequestException('Admin do website nao esta configurado para esta empresa.');
+    }
+
+    await this.assertWebsiteAdminAccess(Number(user?.id), company.id);
+
+    const entryId = randomUUID();
+    const expiresAt = new Date(Date.now() + this.websiteEntryTtlSeconds() * 1000);
+    await createWebsiteAdminEntryTokenRecord(this.prisma, {
+      id: entryId,
+      companyId: company.id,
+      userId: Number(user.id),
+      websiteProjectId: config.websiteProjectId,
+      expiresAt,
+    });
+
+    const entryToken = await this.jwtService.signAsync(
+      {
+        sub: Number(user.id),
+        companyId: company.id,
+        websiteProjectId: config.websiteProjectId,
+        tokenType: 'website-admin-entry',
+      },
+      {
+        secret: this.websiteEntrySecret(),
+        issuer: 'hbx-website',
+        audience: 'hbx-website-admin-entry',
+        expiresIn: this.websiteEntryTtlSeconds(),
+        jwtid: entryId,
+      },
+    );
+
+    return this.appendQueryValue(config.websiteAdminUrl, 'hbx_entry', entryToken);
+  }
+
+  async getPortal(user: any, target?: string) {
+    const company = await this.resolveCompanyFromRuntimeUser(user);
+    if (!company) {
+      return this.buildPortalPayload(null, null, {
+        message: 'Selecione uma empresa no MASTER para abrir o Website.',
+      });
+    }
+
+    const config = await getCompanyWebsiteConfig(this.prisma, company.id);
+    if (!config?.websiteEnabled || !config.websitePublicUrl) {
+      return this.buildPortalPayload(company, config, {
+        configured: false,
+        message: 'Website nao configurado para esta empresa.',
+      });
+    }
+
+    const adminAllowed = Boolean(
+      config.websiteAdminEnabled &&
+        config.websiteAdminUrl &&
+        config.websiteProjectId &&
+        this.isWebsiteAdminUser(user),
+    );
+    const requestedTarget = this.normalizePortalTarget(target);
+    const effectiveTarget: LaunchTarget =
+      requestedTarget === 'admin'
+        ? 'admin'
+        : requestedTarget === 'public'
+          ? 'public'
+          : config.websiteLaunchMode === 'admin' && adminAllowed
+            ? 'admin'
+            : 'public';
+
+    if (effectiveTarget === 'admin') {
+      if (!adminAllowed) {
+        return this.buildPortalPayload(company, config, {
+          configured: true,
+          adminAllowed: false,
+          launchTarget: null,
+          launchUrl: null,
+          message: 'Admin do website indisponivel para este usuario.',
+        });
+      }
+      const launchUrl = await this.buildAdminLaunchUrl(user, company, config);
+      return this.buildPortalPayload(company, config, {
+        configured: true,
+        adminAllowed: true,
+        launchTarget: 'admin',
+        launchUrl,
+        message: null,
+      });
+    }
+
+    return this.buildPortalPayload(company, config, {
+      configured: true,
+      adminAllowed,
+      launchTarget: 'public',
+      launchUrl: config.websitePublicUrl,
+      message: null,
+    });
+  }
+
+  async getPortalForCompanyByMaster(masterUserId: number, companyId: number, target?: string) {
+    await this.assertMasterUser(masterUserId);
+
+    const [masterUser, company] = await Promise.all([
+      this.prisma.user.findUnique({
+        where: { id: Number(masterUserId) },
+        select: {
+          id: true,
+          username: true,
+          name: true,
+          email: true,
+          role: true,
+          isActive: true,
+          isSystemMaster: true,
+          companyId: true,
+        },
+      }),
+      this.prisma.company.findUnique({
+        where: { id: Number(companyId) },
+        select: { id: true, name: true, slug: true },
+      }),
+    ]);
+
+    if (!masterUser?.isSystemMaster) {
+      throw new ForbiddenException('Acesso exclusivo do MASTER.');
+    }
+    if (!company) {
+      throw new NotFoundException('Empresa nao encontrada.');
+    }
+
+    const config = await getCompanyWebsiteConfig(this.prisma, company.id);
+    if (!config?.websiteEnabled || !config.websitePublicUrl) {
+      return this.buildPortalPayload(company, config, {
+        configured: false,
+        message: 'Website nao configurado para esta empresa.',
+      });
+    }
+
+    const adminAllowed = Boolean(
+      config.websiteAdminEnabled &&
+        config.websiteAdminUrl &&
+        config.websiteProjectId &&
+        this.isWebsiteAdminUser(masterUser),
+    );
+    const requestedTarget = this.normalizePortalTarget(target);
+    const effectiveTarget: LaunchTarget =
+      requestedTarget === 'admin'
+        ? 'admin'
+        : requestedTarget === 'public'
+          ? 'public'
+          : config.websiteLaunchMode === 'admin' && adminAllowed
+            ? 'admin'
+            : 'public';
+
+    if (effectiveTarget === 'admin') {
+      if (!adminAllowed) {
+        return this.buildPortalPayload(company, config, {
+          configured: true,
+          adminAllowed: false,
+          launchTarget: null,
+          launchUrl: null,
+          message: 'Admin do website indisponivel para esta empresa.',
+        });
+      }
+
+      const launchUrl = await this.buildAdminLaunchUrl(masterUser, company, config);
+      return this.buildPortalPayload(company, config, {
+        configured: true,
+        adminAllowed: true,
+        launchTarget: 'admin',
+        launchUrl,
+      });
+    }
+
+    return this.buildPortalPayload(company, config, {
+      configured: true,
+      adminAllowed,
+      launchTarget: 'public',
+      launchUrl: config.websitePublicUrl,
+    });
+  }
+
+  async updateCompanyConfigByMaster(
+    masterUserId: number,
+    companyId: number,
+    input: UpdateCompanyWebsiteConfigDto,
+  ) {
+    await this.assertMasterUser(masterUserId);
+
+    const company = await this.prisma.company.findUnique({
+      where: { id: Number(companyId) },
+      select: { id: true, name: true, slug: true },
+    });
+    if (!company) throw new NotFoundException('Empresa nao encontrada.');
+
+    const websiteEnabled = Boolean(input?.websiteEnabled);
+    const websiteAdminEnabled = Boolean(input?.websiteAdminEnabled);
+    const websitePublicUrl = this.requireValidUrl(input?.websitePublicUrl || null, 'websitePublicUrl');
+    const websiteAdminUrl = this.requireValidUrl(input?.websiteAdminUrl || null, 'websiteAdminUrl');
+    const websiteProjectId = this.normalizeOptionalString(input?.websiteProjectId);
+    const websiteLaunchMode = this.normalizeLaunchMode(input?.websiteLaunchMode);
+
+    if (websiteEnabled && !websitePublicUrl) {
+      throw new BadRequestException('websitePublicUrl e obrigatorio quando websiteEnabled=true.');
+    }
+    if (websiteAdminEnabled && !websiteAdminUrl) {
+      throw new BadRequestException('websiteAdminUrl e obrigatorio quando websiteAdminEnabled=true.');
+    }
+    if (websiteAdminEnabled && !websiteProjectId) {
+      throw new BadRequestException('websiteProjectId e obrigatorio quando websiteAdminEnabled=true.');
+    }
+    if (websiteLaunchMode === 'admin' && !websiteAdminEnabled) {
+      throw new BadRequestException('websiteLaunchMode=admin exige websiteAdminEnabled=true.');
+    }
+
+    const saved = await upsertCompanyWebsiteConfig(this.prisma, {
+      companyId: company.id,
+      websiteEnabled,
+      websitePublicUrl,
+      websiteAdminUrl,
+      websiteProjectId,
+      websiteAdminEnabled,
+      websiteLaunchMode,
+    });
+
+    await this.masterContextService.registerSupportAction({
+      masterUserId,
+      companyId: company.id,
+      scope: 'master_website',
+      action: 'WEBSITE_CONFIG_UPDATED',
+      metadata: {
+        websiteEnabled,
+        websiteAdminEnabled,
+        websitePublicUrl,
+        websiteAdminUrl,
+        websiteProjectId,
+        websiteLaunchMode,
+      },
+    });
+
+    return this.buildPortalPayload(company, saved, {
+      configured: Boolean(saved?.websiteEnabled && saved?.websitePublicUrl),
+      adminAllowed: Boolean(saved?.websiteAdminEnabled && saved?.websiteAdminUrl && saved?.websiteProjectId),
+    });
+  }
+
+  async exchangeAdminEntry(dto: WebsiteAdminExchangeDto, ip?: string) {
+    const entryToken = String(dto?.entryToken || '').trim();
+    if (!entryToken) {
+      throw new BadRequestException('entryToken e obrigatorio.');
+    }
+
+    let claims: any;
+    try {
+      claims = await this.jwtService.verifyAsync(entryToken, {
+        secret: this.websiteEntrySecret(),
+        issuer: 'hbx-website',
+        audience: 'hbx-website-admin-entry',
+      });
+    } catch {
+      throw new ForbiddenException('Token temporario do admin invalido ou expirado.');
+    }
+
+    const entryId = String(claims?.jti || '');
+    if (!entryId) {
+      throw new ForbiddenException('Token temporario sem identificador.');
+    }
+
+    const entryRecord = await getWebsiteAdminEntryTokenRecord(this.prisma, entryId);
+    if (!entryRecord || entryRecord.usedAt || entryRecord.expiresAt.getTime() <= Date.now()) {
+      throw new ForbiddenException('Token temporario indisponivel para uso.');
+    }
+
+    const companyId = Number(claims?.companyId || 0);
+    const userId = Number(claims?.sub || 0);
+    const websiteProjectId = String(claims?.websiteProjectId || '');
+    if (
+      companyId !== entryRecord.companyId ||
+      userId !== entryRecord.userId ||
+      websiteProjectId !== entryRecord.websiteProjectId
+    ) {
+      throw new ForbiddenException('Token temporario inconsistente.');
+    }
+
+    const company = await this.prisma.company.findUnique({
+      where: { id: companyId },
+      select: { id: true, name: true, slug: true },
+    });
+    if (!company) throw new NotFoundException('Empresa nao encontrada.');
+
+    const config = await getCompanyWebsiteConfig(this.prisma, companyId);
+    if (!config?.websiteEnabled || !config.websiteAdminEnabled || !config.websiteAdminUrl || !config.websiteProjectId) {
+      throw new ForbiddenException('Admin do website nao esta configurado para esta empresa.');
+    }
+    if (config.websiteProjectId !== websiteProjectId) {
+      throw new ForbiddenException('Projeto do website divergente da configuracao atual.');
+    }
+
+    const user = await this.assertWebsiteAdminAccess(userId, companyId);
+    const consumed = await consumeWebsiteAdminEntryTokenRecord(this.prisma, entryId, ip);
+    if (!consumed) {
+      throw new ForbiddenException('Token temporario ja foi utilizado.');
+    }
+
+    const sessionExpiresIn = this.websiteSessionTtlSeconds();
+    const sessionToken = await this.jwtService.signAsync(
+      {
+        sub: user.id,
+        companyId: company.id,
+        websiteProjectId: config.websiteProjectId,
+        role: user.role,
+        tokenType: 'website-admin-session',
+      },
+      {
+        secret: this.websiteSessionSecret(),
+        issuer: 'hbx-website',
+        audience: 'hbx-website-admin-session',
+        expiresIn: sessionExpiresIn,
+        jwtid: randomUUID(),
+      },
+    );
+
+    return {
+      ok: true,
+      sessionToken,
+      expiresAt: new Date(Date.now() + sessionExpiresIn * 1000).toISOString(),
+      company: {
+        id: company.id,
+        name: company.name,
+        slug: company.slug || null,
+      },
+      website: {
+        projectId: config.websiteProjectId,
+        publicUrl: config.websitePublicUrl,
+        adminUrl: config.websiteAdminUrl,
+      },
+      user: {
+        id: user.id,
+        username: user.username || null,
+        name: user.name || null,
+        role: user.role || null,
       },
     };
   }
 
-  async listTemplates() {
-    const templates = await this.listTemplatesInternal();
-    return templates.map((template) => ({
-      key: template.key,
-      name: template.name,
-      type: template.type || null,
-      hasFunctions: Boolean(template.hasFunctions),
-      sourcePath: template.sourcePath || null,
-      copiedAt: template.copiedAt || null,
-    }));
-  }
-
-  async getMyProject(user: any, companyId?: number) {
-    const company = await this.resolveCompanyForWebsite(user, companyId);
-    const state = await this.readState();
-    const existing = state.projects.find((project) => project.companyId === company.id);
-    return existing ? this.toProjectResponse(existing) : null;
-  }
-
-  async createMyProject(user: any, input: CreateWebsiteProjectDto) {
-    const company = await this.resolveCompanyForWebsite(user, input?.companyId);
-    const templateKey = String(input?.templateKey || '').trim();
-    if (!templateKey) throw new BadRequestException('templateKey e obrigatorio');
-
-    const templates = await this.listTemplatesInternal();
-    const template = templates.find((item) => item.key === templateKey);
-    if (!template) throw new BadRequestException(`Template '${templateKey}' nao encontrado`);
-
-    const companyRoot = join(this.companiesRoot, company.slug);
-    const sitePath = join(companyRoot, 'site');
-
-    const siteExists = await this.fileExists(sitePath);
-    if (siteExists && !input?.overwrite) {
-      throw new BadRequestException('Este website ja existe para a empresa. Use overwrite=true para recriar.');
+  async verifyAdminSession(dto: WebsiteAdminVerifyDto, _ip?: string) {
+    const sessionToken = String(dto?.sessionToken || '').trim();
+    if (!sessionToken) {
+      throw new BadRequestException('sessionToken e obrigatorio.');
     }
 
-    await mkdir(companyRoot, { recursive: true });
-    if (siteExists && input?.overwrite) {
-      await rm(sitePath, { recursive: true, force: true });
+    let claims: any;
+    try {
+      claims = await this.jwtService.verifyAsync(sessionToken, {
+        secret: this.websiteSessionSecret(),
+        issuer: 'hbx-website',
+        audience: 'hbx-website-admin-session',
+      });
+    } catch {
+      throw new ForbiddenException('Sessao do admin invalida ou expirada.');
     }
 
-    await cp(template.sourceRoot, sitePath, { recursive: true, force: true });
-    const firebaseProjectId = await this.applyFirebaseProjectIdIfProvided(sitePath, input?.firebaseProjectId);
+    const companyId = Number(claims?.companyId || 0);
+    const userId = Number(claims?.sub || 0);
+    const websiteProjectId = String(claims?.websiteProjectId || '');
+    if (!companyId || !userId || !websiteProjectId) {
+      throw new ForbiddenException('Sessao do admin incompleta.');
+    }
 
-    const nowIso = new Date().toISOString();
-    const projectRecord: WebsiteProjectRecord = {
-      companyId: company.id,
-      companyName: company.name,
-      companySlug: company.slug,
-      templateKey: template.key,
-      templateName: template.name,
-      firebaseProjectId: firebaseProjectId || null,
-      status: 'CREATED',
-      localPath: sitePath,
-      relativePath: relative(this.backendRoot, sitePath).replace(/\\/g, '/'),
-      createdAt: nowIso,
-      updatedAt: nowIso,
+    const company = await this.prisma.company.findUnique({
+      where: { id: companyId },
+      select: { id: true, name: true, slug: true },
+    });
+    if (!company) throw new NotFoundException('Empresa nao encontrada.');
+
+    const config = await getCompanyWebsiteConfig(this.prisma, companyId);
+    if (!config?.websiteEnabled || !config.websiteAdminEnabled || config.websiteProjectId !== websiteProjectId) {
+      throw new ForbiddenException('Configuracao atual do website nao permite esta sessao.');
+    }
+
+    const user = await this.assertWebsiteAdminAccess(userId, companyId);
+    return {
+      ok: true,
+      company: {
+        id: company.id,
+        name: company.name,
+        slug: company.slug || null,
+      },
+      website: {
+        projectId: config.websiteProjectId,
+        publicUrl: config.websitePublicUrl,
+        adminUrl: config.websiteAdminUrl,
+      },
+      user: {
+        id: user.id,
+        username: user.username || null,
+        name: user.name || null,
+        role: user.role || null,
+      },
     };
-
-    const state = await this.readState();
-    const existingIndex = state.projects.findIndex((project) => project.companyId === company.id);
-    if (existingIndex >= 0) {
-      const existing = state.projects[existingIndex];
-      projectRecord.createdAt = existing.createdAt;
-      state.projects[existingIndex] = projectRecord;
-    } else {
-      state.projects.push(projectRecord);
-    }
-    await this.writeState(state);
-
-    await this.writeWebsiteManifest(sitePath, projectRecord);
-    await this.writeDeployGuide(sitePath, projectRecord);
-
-    return this.toProjectResponse(projectRecord);
-  }
-
-  async updateMyProject(user: any, input: UpdateWebsiteProjectDto) {
-    const company = await this.resolveCompanyForWebsite(user, input?.companyId);
-    const state = await this.readState();
-    const index = state.projects.findIndex((project) => project.companyId === company.id);
-    if (index < 0) throw new NotFoundException('Website da empresa nao foi criado ainda');
-
-    const current = state.projects[index];
-    const sitePath = current.localPath;
-    const siteExists = await this.fileExists(sitePath);
-    if (!siteExists) {
-      throw new NotFoundException('Pasta do website nao encontrada. Recrie o website desta empresa.');
-    }
-
-    let firebaseProjectId = current.firebaseProjectId || null;
-    if (typeof input?.firebaseProjectId === 'string') {
-      firebaseProjectId = await this.applyFirebaseProjectIdIfProvided(sitePath, input.firebaseProjectId);
-    }
-
-    const updated: WebsiteProjectRecord = {
-      ...current,
-      firebaseProjectId: firebaseProjectId || null,
-      updatedAt: new Date().toISOString(),
-    };
-
-    state.projects[index] = updated;
-    await this.writeState(state);
-    await this.writeWebsiteManifest(sitePath, updated);
-    await this.writeDeployGuide(sitePath, updated);
-
-    return this.toProjectResponse(updated);
   }
 }

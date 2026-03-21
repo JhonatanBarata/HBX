@@ -66,7 +66,7 @@ const NAV_ITEMS: NavItem[] = [
     href: "/dashboard/website",
     label: "Website",
     shortLabel: "WB",
-    description: "Provisionamento e operação do website por empresa.",
+    description: "Abrir o site da empresa e entrar no admin com segurança.",
     matcher: (route) => route.startsWith("/dashboard/website"),
     moduleKey: "website",
   },

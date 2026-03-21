@@ -27,6 +27,10 @@ function buildAllowedOrigins() {
   return Array.from(new Set(configured));
 }
 
+function isFirebaseHostingOrigin(origin: string) {
+  return /^https:\/\/[a-z0-9-]+\.(web\.app|firebaseapp\.com)$/i.test(origin);
+}
+
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, { rawBody: true });
   const webscrapingTarget = process.env.WEBSCRAPING_INTERNAL_URL || 'http://localhost:8501';
@@ -44,7 +48,11 @@ async function bootstrap() {
     origin: (origin, callback) => {
       if (!origin) return callback(null, true);
       const normalizedOrigin = normalizeOrigin(origin);
-      if (!allowedOrigins.length || allowedOrigins.includes(normalizedOrigin)) {
+      if (
+        !allowedOrigins.length ||
+        allowedOrigins.includes(normalizedOrigin) ||
+        isFirebaseHostingOrigin(normalizedOrigin)
+      ) {
         return callback(null, true);
       }
       return callback(new Error(`Origin ${normalizedOrigin} is not allowed by CORS`), false);

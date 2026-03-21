@@ -1,0 +1,928 @@
+:global(.app-shell[data-page-key="master"]) {
+  --master-bg: #f4efe7;
+  --master-surface: rgba(255, 255, 255, 0.86);
+  --master-surface-strong: #ffffff;
+  --master-border: rgba(26, 44, 66, 0.12);
+  --master-text: #152235;
+  --master-text-soft: #5d697a;
+  --master-navy: #183153;
+  --master-emerald: #147a6c;
+  --master-sun: #ca8d28;
+  --master-rose: #b14d58;
+  --master-slate: #5a6a85;
+  --master-shadow: 0 24px 60px rgba(23, 34, 47, 0.12);
+  --master-shadow-soft: 0 16px 36px rgba(23, 34, 47, 0.08);
+}
+
+.heroActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  justify-content: flex-end;
+}
+
+.masterPage {
+  display: grid;
+  gap: 1.5rem;
+  font-family: Manrope, "Segoe UI", sans-serif;
+  color: var(--master-text);
+}
+
+.commandBar {
+  display: grid;
+  grid-template-columns: minmax(0, 2.2fr) minmax(0, 1.5fr) minmax(260px, 1.1fr) minmax(260px, 1fr);
+  gap: 1rem;
+  padding: 1.2rem;
+  border: 1px solid var(--master-border);
+  border-radius: 28px;
+  background:
+    radial-gradient(circle at top left, rgba(20, 122, 108, 0.14), transparent 34%),
+    linear-gradient(135deg, rgba(255, 255, 255, 0.95), rgba(246, 242, 236, 0.88));
+  box-shadow: var(--master-shadow-soft);
+}
+
+.commandSearch,
+.commandQuick,
+.commandAlerts,
+.commandUser {
+  display: grid;
+  gap: 0.75rem;
+  align-content: start;
+}
+
+.commandLabel,
+.sectionEyebrow,
+.metricEyebrow {
+  margin: 0;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--master-text-soft);
+}
+
+.commandQuick {
+  padding: 0.95rem;
+  border-radius: 22px;
+  background: rgba(24, 49, 83, 0.05);
+}
+
+.quickRow,
+.rowActions,
+.modalActions,
+.drawerQuickActions,
+.drawerBadges,
+.modulePills,
+.chartLegend,
+.filterChips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+
+.commandAlerts,
+.commandUser {
+  padding: 1rem;
+  border-radius: 22px;
+  border: 1px solid var(--master-border);
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.commandAlerts strong,
+.commandUser strong,
+.panelCardHeader h3,
+.sectionHeader h2,
+.drawerHeader h2,
+.modalHeader h3 {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+.commandAlerts p,
+.commandUser p,
+.metricNote,
+.modalHeader p,
+.summaryMeta p,
+.timelineItem p,
+.secondaryCell span,
+.companyCell span,
+.paymentHint {
+  margin: 0;
+  color: var(--master-text-soft);
+}
+
+.commandUser {
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+}
+
+.avatarToken {
+  width: 3rem;
+  height: 3rem;
+  display: grid;
+  place-items: center;
+  border-radius: 18px;
+  background: linear-gradient(135deg, var(--master-navy), #2f5d8a);
+  color: #fff;
+  font-weight: 800;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18);
+}
+
+.loadingGrid,
+.metricsGrid,
+.attentionGrid,
+.userList,
+.moduleList {
+  display: grid;
+  gap: 1rem;
+}
+
+.loadingGrid,
+.metricsGrid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.skeletonCard,
+.metricCard,
+.chartCard,
+.panelCard,
+.attentionCard,
+.summaryCard {
+  border-radius: 26px;
+  border: 1px solid var(--master-border);
+  background: var(--master-surface);
+  box-shadow: var(--master-shadow-soft);
+  backdrop-filter: blur(14px);
+}
+
+.skeletonCard {
+  min-height: 168px;
+  background:
+    linear-gradient(110deg, rgba(255, 255, 255, 0.64) 8%, rgba(245, 240, 232, 0.94) 18%, rgba(255, 255, 255, 0.64) 33%),
+    rgba(255, 255, 255, 0.9);
+  background-size: 200% 100%;
+  animation: masterShimmer 1.5s linear infinite;
+}
+
+.metricCard {
+  display: grid;
+  gap: 0.8rem;
+  padding: 1.2rem;
+  min-height: 170px;
+  position: relative;
+  overflow: hidden;
+}
+
+.metricCard::before {
+  content: "";
+  position: absolute;
+  inset: auto auto -24px -12px;
+  width: 96px;
+  height: 96px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.52);
+  filter: blur(4px);
+}
+
+.metricCard[data-accent="navy"] {
+  background: linear-gradient(180deg, rgba(24, 49, 83, 0.96), rgba(35, 67, 108, 0.95));
+  color: #fff;
+}
+
+.metricCard[data-accent="emerald"] {
+  background: linear-gradient(180deg, rgba(20, 122, 108, 0.95), rgba(20, 91, 86, 0.92));
+  color: #fff;
+}
+
+.metricCard[data-accent="sun"] {
+  background: linear-gradient(180deg, rgba(202, 141, 40, 0.94), rgba(181, 112, 26, 0.92));
+  color: #fff;
+}
+
+.metricCard[data-accent="rose"] {
+  background: linear-gradient(180deg, rgba(177, 77, 88, 0.94), rgba(145, 57, 69, 0.92));
+  color: #fff;
+}
+
+.metricCard[data-accent="amber"] {
+  background: linear-gradient(180deg, rgba(205, 155, 59, 0.94), rgba(176, 128, 36, 0.92));
+  color: #fff;
+}
+
+.metricCard[data-accent="mint"] {
+  background: linear-gradient(180deg, rgba(46, 140, 117, 0.94), rgba(34, 109, 91, 0.92));
+  color: #fff;
+}
+
+.metricCard[data-accent="crimson"] {
+  background: linear-gradient(180deg, rgba(143, 50, 62, 0.95), rgba(112, 38, 49, 0.92));
+  color: #fff;
+}
+
+.metricCard[data-accent="slate"] {
+  background: linear-gradient(180deg, rgba(70, 85, 108, 0.96), rgba(49, 61, 81, 0.92));
+  color: #fff;
+}
+
+.metricCard[data-accent] .metricEyebrow,
+.metricCard[data-accent] .metricTrend,
+.metricCard[data-accent] .metricNote,
+.metricCard[data-accent] .metricAux {
+  color: rgba(255, 255, 255, 0.82);
+}
+
+.metricCardHeader,
+.panelCardHeader,
+.sectionHeader,
+.drawerHeader,
+.timelineTopline {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: flex-start;
+}
+
+.metricTrend {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--master-text-soft);
+}
+
+.metricValue {
+  position: relative;
+  font-size: clamp(1.8rem, 2.4vw, 2.65rem);
+  line-height: 1.05;
+  font-weight: 900;
+  letter-spacing: -0.04em;
+}
+
+.metricAux {
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.metricNote {
+  font-size: 0.9rem;
+}
+
+.chartsGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.chartsGrid > :first-child,
+.chartsGrid > :nth-child(2) {
+  grid-column: span 2;
+}
+
+.chartCard,
+.panelCard,
+.attentionCard,
+.summaryCard {
+  padding: 1.25rem;
+}
+
+.chartLegend {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--master-text-soft);
+}
+
+.legendDot {
+  width: 0.7rem;
+  height: 0.7rem;
+  display: inline-block;
+  margin-right: 0.35rem;
+  border-radius: 999px;
+  vertical-align: middle;
+  background: var(--master-slate);
+}
+
+.legendDot[data-tone="received"] {
+  background: var(--master-emerald);
+}
+
+.legendDot[data-tone="projected"] {
+  background: rgba(24, 49, 83, 0.8);
+}
+
+.legendDot[data-tone="loss"] {
+  background: var(--master-rose);
+}
+
+.chartSvg {
+  width: 100%;
+  height: auto;
+  margin-top: 0.8rem;
+  overflow: visible;
+}
+
+.chartGrid {
+  stroke: rgba(21, 34, 53, 0.1);
+  stroke-dasharray: 4 6;
+}
+
+.chartProjectedArea {
+  fill: rgba(24, 49, 83, 0.08);
+}
+
+.chartProjectedLine,
+.chartReceivedLine,
+.chartLossLine {
+  fill: none;
+  stroke-width: 3.5;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.chartProjectedLine {
+  stroke: rgba(24, 49, 83, 0.8);
+}
+
+.chartReceivedLine {
+  stroke: var(--master-emerald);
+}
+
+.chartLossLine {
+  stroke: var(--master-rose);
+}
+
+.chartPoint {
+  fill: #fff;
+  stroke: var(--master-emerald);
+  stroke-width: 3;
+}
+
+.chartAxis {
+  font-size: 11px;
+  font-weight: 700;
+  fill: var(--master-text-soft);
+}
+
+.distributionList,
+.timeline {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.distributionItem {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.distributionMeta {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: center;
+  font-size: 0.94rem;
+}
+
+.distributionTrack,
+.paymentBarTrack {
+  position: relative;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(24, 49, 83, 0.08);
+}
+
+.distributionTrack {
+  height: 0.72rem;
+}
+
+.distributionFill {
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--master-navy), var(--master-emerald));
+}
+
+.paymentBars {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(92px, 1fr));
+  gap: 1rem;
+  align-items: end;
+  min-height: 260px;
+  margin-top: 1rem;
+}
+
+.paymentBar {
+  display: grid;
+  gap: 0.65rem;
+  justify-items: center;
+}
+
+.paymentBarTrack {
+  width: 100%;
+  min-height: 180px;
+  padding: 0.45rem;
+  display: flex;
+  align-items: flex-end;
+}
+
+.paymentBarFill {
+  width: 100%;
+  min-height: 10%;
+  border-radius: 22px;
+  background: linear-gradient(180deg, rgba(20, 122, 108, 0.92), rgba(24, 49, 83, 0.88));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2);
+}
+
+.paymentBarFill[data-mode="failed"] {
+  background: linear-gradient(180deg, rgba(177, 77, 88, 0.96), rgba(122, 38, 49, 0.92));
+}
+
+.paymentBarFill[data-mode="manual"] {
+  background: linear-gradient(180deg, rgba(202, 141, 40, 0.96), rgba(157, 99, 29, 0.92));
+}
+
+.paymentBarFill[data-mode="pending"] {
+  background: linear-gradient(180deg, rgba(94, 111, 136, 0.95), rgba(61, 74, 96, 0.92));
+}
+
+.paymentBarValue {
+  font-size: 1rem;
+  font-weight: 800;
+}
+
+.paymentBarLabel {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--master-text-soft);
+}
+
+.paymentHint {
+  margin-top: 0.9rem;
+  font-size: 0.86rem;
+}
+
+.attentionSection,
+.tableSection {
+  display: grid;
+  gap: 1rem;
+}
+
+.attentionGrid {
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+}
+
+.attentionCard {
+  display: grid;
+  gap: 1rem;
+}
+
+.attentionCard[data-tone="danger"] {
+  border-color: rgba(177, 77, 88, 0.26);
+}
+
+.attentionCard[data-tone="warning"] {
+  border-color: rgba(202, 141, 40, 0.26);
+}
+
+.attentionCardHeader {
+  display: flex;
+  gap: 0.8rem;
+  align-items: center;
+}
+
+.attentionList {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.attentionRow,
+.companyCell,
+.iconButton {
+  border: 0;
+  cursor: pointer;
+}
+
+.attentionRow {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.8rem;
+  align-items: center;
+  padding: 0.85rem 0.95rem;
+  border-radius: 18px;
+  background: rgba(24, 49, 83, 0.04);
+  color: var(--master-text);
+  transition: transform 160ms ease, background 160ms ease;
+}
+
+.attentionRow:hover,
+.companyCell:hover,
+.iconButton:hover {
+  transform: translateY(-1px);
+}
+
+.attentionRow strong,
+.companyCell strong,
+.secondaryCell strong,
+.distributionMeta strong,
+.timelineTopline strong,
+.summaryStats strong {
+  display: block;
+  font-weight: 800;
+}
+
+.tableControls {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.tableWrap,
+.historyTableWrap {
+  overflow: auto;
+  border-radius: 26px;
+  border: 1px solid var(--master-border);
+  background: rgba(255, 255, 255, 0.84);
+  box-shadow: var(--master-shadow-soft);
+}
+
+.masterTable,
+.historyTable {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 1080px;
+}
+
+.masterTable th,
+.masterTable td,
+.historyTable th,
+.historyTable td {
+  padding: 0.95rem 1rem;
+  border-bottom: 1px solid rgba(21, 34, 53, 0.08);
+  text-align: left;
+  vertical-align: top;
+}
+
+.masterTable th,
+.historyTable th {
+  font-size: 0.74rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--master-text-soft);
+  background: rgba(24, 49, 83, 0.03);
+}
+
+.masterTable tbody tr:hover,
+.historyTable tbody tr:hover {
+  background: rgba(20, 122, 108, 0.04);
+}
+
+.companyCell {
+  display: grid;
+  gap: 0.25rem;
+  padding: 0;
+  background: transparent;
+  color: var(--master-text);
+  text-align: left;
+}
+
+.secondaryCell,
+.statusStack {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.emptyPanel,
+.drawerEmpty,
+.drawerLoading {
+  display: grid;
+  place-items: center;
+  min-height: 180px;
+  padding: 1.25rem;
+  border-radius: 24px;
+  border: 1px dashed rgba(24, 49, 83, 0.16);
+  background: rgba(255, 255, 255, 0.62);
+  color: var(--master-text-soft);
+  text-align: center;
+}
+
+.drawerRoot {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  pointer-events: none;
+}
+
+.drawerRoot[data-open="true"] {
+  pointer-events: auto;
+}
+
+.drawerBackdrop {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  background: rgba(19, 29, 44, 0.38);
+  opacity: 0;
+  transition: opacity 220ms ease;
+}
+
+.drawerRoot[data-open="true"] .drawerBackdrop {
+  opacity: 1;
+}
+
+.drawerPanel {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  bottom: 16px;
+  width: min(720px, calc(100vw - 32px));
+  padding: 1.15rem;
+  border-radius: 32px;
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  background:
+    radial-gradient(circle at top right, rgba(20, 122, 108, 0.12), transparent 28%),
+    linear-gradient(180deg, rgba(251, 249, 244, 0.98), rgba(243, 238, 230, 0.98));
+  box-shadow: 0 28px 70px rgba(15, 24, 35, 0.22);
+  transform: translateX(108%);
+  transition: transform 240ms ease;
+  display: grid;
+  grid-template-rows: auto auto auto 1fr;
+  gap: 1rem;
+  overflow: hidden;
+}
+
+.drawerRoot[data-open="true"] .drawerPanel {
+  transform: translateX(0);
+}
+
+.drawerHeader {
+  align-items: center;
+}
+
+.contextBanner,
+.contextBannerActive,
+.contextBannerStrong {
+  display: grid;
+  gap: 0.35rem;
+  padding: 1rem 1.1rem;
+  border-radius: 22px;
+  border: 1px solid rgba(24, 49, 83, 0.1);
+  background: rgba(24, 49, 83, 0.05);
+}
+
+.contextBannerActive {
+  border-color: rgba(20, 122, 108, 0.28);
+  background: rgba(20, 122, 108, 0.11);
+}
+
+.contextBannerStrong {
+  border-color: rgba(177, 77, 88, 0.22);
+  background: rgba(177, 77, 88, 0.08);
+}
+
+.drawerTabs {
+  display: flex;
+  gap: 0.5rem;
+  overflow: auto hidden;
+  padding-bottom: 0.2rem;
+}
+
+.drawerTab,
+.drawerTabActive,
+.filterChip,
+.filterChipActive,
+.toggleOn,
+.toggleOff {
+  border: 1px solid transparent;
+  border-radius: 999px;
+  padding: 0.6rem 0.9rem;
+  font-size: 0.82rem;
+  font-weight: 800;
+  transition: all 160ms ease;
+}
+
+.drawerTab,
+.filterChip {
+  background: rgba(24, 49, 83, 0.05);
+  color: var(--master-text-soft);
+}
+
+.drawerTabActive,
+.filterChipActive {
+  background: var(--master-navy);
+  color: #fff;
+  box-shadow: 0 12px 28px rgba(24, 49, 83, 0.18);
+}
+
+.drawerBody {
+  overflow: auto;
+  display: grid;
+  gap: 1rem;
+  padding-right: 0.2rem;
+}
+
+.summaryStats,
+.summaryMeta,
+.formGrid {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.summaryStats {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.summaryStats > div,
+.checkboxCard,
+.userCard,
+.moduleToggle {
+  padding: 1rem;
+  border-radius: 20px;
+  border: 1px solid var(--master-border);
+  background: rgba(255, 255, 255, 0.7);
+}
+
+.summaryStats span {
+  display: block;
+  margin-bottom: 0.35rem;
+  font-size: 0.78rem;
+  color: var(--master-text-soft);
+}
+
+.summaryMeta {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.drawerQuickActions {
+  margin-top: 1rem;
+}
+
+.formGrid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.checkboxCard {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  font-weight: 700;
+}
+
+.checkboxCard input {
+  width: 1.05rem;
+  height: 1.05rem;
+}
+
+.userList,
+.moduleList {
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+}
+
+.userCard,
+.moduleToggle {
+  display: grid;
+  gap: 0.9rem;
+}
+
+.moduleToggle {
+  grid-template-columns: 1fr auto;
+  align-items: center;
+}
+
+.toggleOn {
+  background: rgba(20, 122, 108, 0.12);
+  color: var(--master-emerald);
+}
+
+.toggleOff {
+  background: rgba(177, 77, 88, 0.1);
+  color: var(--master-rose);
+}
+
+.timelineItem {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.85rem;
+  align-items: start;
+  padding: 0.2rem 0;
+}
+
+.timelineDot {
+  width: 0.9rem;
+  height: 0.9rem;
+  margin-top: 0.28rem;
+  border-radius: 999px;
+  background: linear-gradient(180deg, var(--master-emerald), var(--master-navy));
+  box-shadow: 0 0 0 6px rgba(20, 122, 108, 0.08);
+}
+
+.modalRoot {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: grid;
+  place-items: center;
+  padding: 1.25rem;
+}
+
+.modalBackdrop {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  background: rgba(16, 23, 34, 0.45);
+}
+
+.modalCard {
+  position: relative;
+  z-index: 1;
+  width: min(640px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
+  overflow: auto;
+  padding: 1.2rem;
+  border-radius: 30px;
+  border: 1px solid rgba(255, 255, 255, 0.45);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.97), rgba(244, 239, 231, 0.98));
+  box-shadow: 0 28px 70px rgba(15, 24, 35, 0.24);
+}
+
+.modalHeader {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: flex-start;
+  margin-bottom: 1rem;
+}
+
+.iconButton {
+  padding: 0.7rem 0.95rem;
+  border-radius: 16px;
+  background: rgba(24, 49, 83, 0.08);
+  color: var(--master-text);
+  font-weight: 700;
+}
+
+.modalBody {
+  display: grid;
+  gap: 1rem;
+}
+
+@media (max-width: 1260px) {
+  .commandBar {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .loadingGrid,
+  .metricsGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .summaryStats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 880px) {
+  .heroActions,
+  .tableControls {
+    justify-content: stretch;
+  }
+
+  .commandBar,
+  .chartsGrid,
+  .summaryMeta,
+  .formGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .chartsGrid > :first-child,
+  .chartsGrid > :nth-child(2) {
+    grid-column: span 1;
+  }
+
+  .loadingGrid,
+  .metricsGrid,
+  .attentionGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .drawerPanel {
+    top: 8px;
+    right: 8px;
+    bottom: 8px;
+    width: calc(100vw - 16px);
+    border-radius: 24px;
+  }
+
+  .summaryStats {
+    grid-template-columns: 1fr;
+  }
+
+  .moduleToggle {
+    grid-template-columns: 1fr;
+  }
+}
+
+@keyframes masterShimmer {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}

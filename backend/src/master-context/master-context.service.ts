@@ -210,6 +210,7 @@ export class MasterContextService implements OnModuleInit {
     scope?: string;
     severity?: 'INFO' | 'WARN' | 'ERROR';
     route?: string | null;
+    companyId?: number | null;
     metadata?: Record<string, unknown>;
   }) {
     const action = String(input?.action || '').trim();
@@ -224,7 +225,10 @@ export class MasterContextService implements OnModuleInit {
     const active = await this.getActiveSessionRow(user.id, { closeExpired: true });
     await this.writeAuditLog({
       masterUserId: user.id,
-      companyId: active?.companyId || null,
+      companyId:
+        input.companyId !== undefined && input.companyId !== null
+          ? Number(input.companyId)
+          : active?.companyId || null,
       sessionId: active?.id || null,
       scope: String(input.scope || 'support_operation').trim() || 'support_operation',
       action,

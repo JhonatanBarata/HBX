@@ -13,6 +13,7 @@ import { MasterGuard } from '../auth/guards/master.guard';
 import { IsArray, IsBoolean, IsNotEmpty, IsOptional, IsString, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
 import { MercadoPagoClientService } from '../payments/mercado-pago-client.service';
+import { MasterContextService } from '../master-context/master-context.service';
 
 class MasterCreateCompanyDto {
   @IsString()
@@ -102,6 +103,7 @@ export class CompaniesController {
     private readonly usersService: UsersService,
     private readonly whatsappStatus: WhatsAppStatusService,
     private readonly mercadoPagoClient: MercadoPagoClientService,
+    private readonly masterContextService: MasterContextService,
   ) {}
 
   // NOTE: We intentionally do not provide a public company lookup endpoint.
@@ -153,14 +155,36 @@ export class CompaniesController {
 
   @Post('master')
   @UseGuards(JwtAuthGuard, MasterGuard)
-  async createByMaster(@Body() dto: MasterCreateCompanyDto) {
-    return this.companiesService.createByMaster(dto);
+  async createByMaster(@Req() req: any, @Body() dto: MasterCreateCompanyDto) {
+    const created = await this.companiesService.createByMaster(dto);
+    await this.masterContextService.registerSupportAction({
+      masterUserId: Number(req.user?.id),
+      companyId: Number(created?.id || 0) || null,
+      scope: 'master_company',
+      action: 'COMPANY_CREATED',
+      metadata: {
+        name: created?.name || null,
+        slug: created?.slug || null,
+      },
+    });
+    return created;
   }
 
   @Delete('master/:id')
   @UseGuards(JwtAuthGuard, MasterGuard)
   async removeByMaster(@Req() req: any, @Param('id', ParseIntPipe) id: number) {
-    return this.companiesService.removeByMaster(Number(req.user?.id), id);
+    const payload = await this.companiesService.removeByMaster(Number(req.user?.id), id);
+    await this.masterContextService.registerSupportAction({
+      masterUserId: Number(req.user?.id),
+      companyId: Number(id),
+      scope: 'master_company',
+      action: 'COMPANY_DELETED',
+      severity: 'WARN',
+      metadata: {
+        deletedCompany: payload?.deletedCompany || null,
+      },
+    });
+    return payload;
   }
 
   @Get('master/:id/whatsapp')

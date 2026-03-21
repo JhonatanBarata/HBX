@@ -35,9 +35,9 @@
     {
       "key": "website",
       "name": "Website",
-      "description": "Criacao e gestao de websites por empresa com templates prontos.",
+      "description": "Acesso ao site da empresa e entrada segura no admin do website.",
       "defaultEnabled": false,
-      "companyAssignable": false,
+      "companyAssignable": true,
       "serviceUrl": "/dashboard/website"
     },
     {

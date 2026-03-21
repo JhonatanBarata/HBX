@@ -3,7 +3,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { ModulesService } from './modules.service';
 import { ModuleAccessGuard } from './module-access.guard';
 import { ModuleAccess } from './module-feature.decorator';
-import { IsBoolean, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
+import { IsBoolean, IsInt, IsNumber, IsOptional, IsString, Max, Min } from 'class-validator';
 import { MasterGuard } from '../auth/guards/master.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { Admin } from '../auth/admin.decorator';
@@ -35,15 +35,63 @@ class SetCompanyModuleDto {
 
 class GrantTrialDto {
   @IsOptional()
+  @IsString()
+  action?: string;
+
+  @IsOptional()
   @IsInt()
   @Min(1)
   @Max(365)
   days?: number;
+
+  @IsOptional()
+  @IsString()
+  endsAt?: string;
+
+  @IsOptional()
+  @IsString()
+  reason?: string;
 }
 
 class SetPaymentStatusDto {
   @IsString()
   paymentStatus!: string;
+}
+
+class RecordManualPaymentDto {
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  value!: number;
+
+  @IsOptional()
+  @IsString()
+  competence?: string;
+
+  @IsOptional()
+  @IsString()
+  paidAt?: string;
+
+  @IsOptional()
+  @IsString()
+  dueDate?: string;
+
+  @IsOptional()
+  @IsString()
+  paymentMethod?: string;
+
+  @IsOptional()
+  @IsString()
+  observation?: string;
+
+  @IsOptional()
+  @Type(() => Boolean)
+  @IsBoolean()
+  settlePending?: boolean;
+
+  @IsOptional()
+  @Type(() => Boolean)
+  @IsBoolean()
+  generateAudit?: boolean;
 }
 
 class UpdateMasterCompanyProfileDto {
@@ -148,6 +196,21 @@ export class ModulesController {
     return this.modulesService.listMasterOverview(Number(req.user?.id));
   }
 
+  @Get('master/workspace')
+  @UseGuards(JwtAuthGuard, MasterGuard)
+  getMasterWorkspace(@Req() req: any) {
+    return this.modulesService.getMasterWorkspace(Number(req.user?.id));
+  }
+
+  @Get('master/company/:companyId/detail')
+  @UseGuards(JwtAuthGuard, MasterGuard)
+  getMasterCompanyDetail(
+    @Req() req: any,
+    @Param('companyId', ParseIntPipe) companyId: number,
+  ) {
+    return this.modulesService.getMasterCompanyDetail(Number(req.user?.id), companyId);
+  }
+
   @Put('master/company/:companyId')
   @UseGuards(JwtAuthGuard, MasterGuard)
   setCompanyModule(
@@ -165,7 +228,7 @@ export class ModulesController {
     @Param('companyId', ParseIntPipe) companyId: number,
     @Body() dto: GrantTrialDto,
   ) {
-    return this.modulesService.grantTrial(Number(req.user?.id), companyId, Number(dto?.days || 30));
+    return this.modulesService.manageTrialByMaster(Number(req.user?.id), companyId, dto || {});
   }
 
   @Put('master/company/:companyId/payment')
@@ -176,6 +239,16 @@ export class ModulesController {
     @Body() dto: SetPaymentStatusDto,
   ) {
     return this.modulesService.setPaymentStatus(Number(req.user?.id), companyId, dto?.paymentStatus);
+  }
+
+  @Post('master/company/:companyId/manual-payment')
+  @UseGuards(JwtAuthGuard, MasterGuard)
+  recordManualPayment(
+    @Req() req: any,
+    @Param('companyId', ParseIntPipe) companyId: number,
+    @Body() dto: RecordManualPaymentDto,
+  ) {
+    return this.modulesService.recordManualPayment(Number(req.user?.id), companyId, dto || {});
   }
 
   @Put('master/company/:companyId/profile')

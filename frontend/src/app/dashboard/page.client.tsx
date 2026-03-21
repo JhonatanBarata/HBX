@@ -1,10 +1,12 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import DashboardScaffold from "@/components/DashboardScaffold";
 import { apiFetch } from "./_lib/api";
 import { useRequireAuth } from "./_lib/useRequireAuth";
+import { resolveWebsiteOnlyDestination } from "@/lib/websiteLaunch";
 
 type CurrentUser = {
   id: number;
@@ -30,11 +32,13 @@ type UserModule = {
 };
 
 export default function DashboardClientPage() {
+  const router = useRouter();
   const hasToken = useRequireAuth();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [user, setUser] = useState<CurrentUser | null>(null);
   const [modules, setModules] = useState<UserModule[]>([]);
+  const [redirectingToWebsite, setRedirectingToWebsite] = useState(false);
 
   useEffect(() => {
     if (hasToken !== true) return;
@@ -97,6 +101,38 @@ export default function DashboardClientPage() {
     return base;
   }, [isAdmin, isSystemMaster, modules]);
 
+  useEffect(() => {
+    if (hasToken !== true || loading || redirectingToWebsite) return;
+    if (moduleCards.length !== 1 || moduleCards[0]?.href !== "/dashboard/website") return;
+
+    let cancelled = false;
+    setRedirectingToWebsite(true);
+
+    resolveWebsiteOnlyDestination()
+      .then((destination) => {
+        if (cancelled) return;
+        if (!destination) {
+          setRedirectingToWebsite(false);
+          return;
+        }
+        if (/^https?:\/\//i.test(destination)) {
+          window.location.assign(destination);
+          return;
+        }
+        router.replace(destination);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setRedirectingToWebsite(false);
+          router.replace("/dashboard/website");
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [hasToken, loading, moduleCards, redirectingToWebsite, router]);
+
   if (hasToken === null) {
     return (
       <main className="app-shell">
@@ -108,6 +144,14 @@ export default function DashboardClientPage() {
   }
 
   if (!hasToken) return null;
+
+  if (redirectingToWebsite) {
+    return (
+      <DashboardScaffold title="Dashboard">
+        <div className="panel p-4 text-sm text-muted">Abrindo o admin do website...</div>
+      </DashboardScaffold>
+    );
+  }
 
   return (
     <DashboardScaffold title="Dashboard">

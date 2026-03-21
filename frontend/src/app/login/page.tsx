@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { setToken } from "../dashboard/_lib/api";
 import { useLoginColdStart, type LoginState } from "../../lib/useLoginColdStart";
+import { resolveWebsiteOnlyDestination } from "../../lib/websiteLaunch";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3000";
 
@@ -115,11 +116,24 @@ export default function LoginPage() {
         setLoginState("success");
 
         // Play welcome animation
+        let handledRedirect = false;
         try {
           setPlayingWelcome(true);
           await new Promise((res) => setTimeout(res, 900));
+          const destination = await resolveWebsiteOnlyDestination();
+          if (destination) {
+            handledRedirect = true;
+            if (/^https?:\/\//i.test(destination)) {
+              window.location.assign(destination);
+            } else {
+              router.replace(destination);
+            }
+            return;
+          }
         } finally {
-          router.push("/dashboard");
+          if (!handledRedirect) {
+            router.replace("/dashboard");
+          }
         }
       } else if (result.state === "error") {
         setError(result.message ?? "Erro ao autenticar");

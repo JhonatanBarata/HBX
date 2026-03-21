@@ -1,8 +1,12 @@
 import { BadRequestException, ForbiddenException, Injectable, OnModuleInit } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
+import { randomUUID } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { UsersService } from '../users/users.service';
 import structuralDefaults from '../bootstrap/structural-defaults.json';
 import { MasterContextService } from '../master-context/master-context.service';
+import { ensureWebsiteRuntimeSchema, listCompanyWebsiteConfigs } from '../website/website-runtime';
+import { ensureMasterBillingRuntimeSchema } from './master-runtime';
 
 type DefaultModuleDef = {
   key: string;
@@ -22,6 +26,27 @@ const DEFAULT_MODULES: DefaultModuleDef[] = (structuralDefaults.systemModules as
 
 const LEGACY_MODULE_KEYS = structuralDefaults.legacyModuleKeys as string[];
 const RETIRED_MODULE_KEYS = ['hbx_music'];
+
+type BillingLedgerEntryRow = {
+  id: string;
+  companyId: number;
+  entryType: string;
+  entryGroup: string;
+  status: string;
+  origin: string | null;
+  currency: string;
+  competence: string | null;
+  amount: number;
+  dueDate: Date | null;
+  paidAt: Date | null;
+  paymentMethod: string | null;
+  referenceLabel: string | null;
+  observation: string | null;
+  metadata: string | null;
+  createdByUserId: number | null;
+  createdAt: Date;
+  updatedAt: Date;
+};
 
 @Injectable()
 export class ModulesService implements OnModuleInit {
@@ -75,11 +100,234 @@ export class ModulesService implements OnModuleInit {
     return 'past_due';
   }
 
+  private parseDateValue(value: unknown) {
+    if (!value) return null;
+    const parsed = new Date(String(value));
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
+
+  private startOfMonth(date = new Date()) {
+    return new Date(date.getFullYear(), date.getMonth(), 1, 0, 0, 0, 0);
+  }
+
+  private startOfNextMonth(date = new Date()) {
+    return new Date(date.getFullYear(), date.getMonth() + 1, 1, 0, 0, 0, 0);
+  }
+
+  private addDays(date: Date, days: number) {
+    return new Date(date.getTime() + days * 24 * 60 * 60 * 1000);
+  }
+
+  private monthKey(date: Date) {
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+  }
+
+  private monthLabel(date: Date) {
+    return date.toLocaleDateString('pt-BR', { month: 'short', year: '2-digit' });
+  }
+
+  private normalizeCurrencyAmount(value: unknown) {
+    const numeric = Number(value || 0);
+    if (!Number.isFinite(numeric)) return 0;
+    return Number(numeric.toFixed(2));
+  }
+
+  private safeJsonParse(value: unknown) {
+    if (value == null) return null;
+    if (typeof value === 'object') return value;
+    const raw = String(value || '').trim();
+    if (!raw) return null;
+    try {
+      return JSON.parse(raw);
+    } catch {
+      return { raw };
+    }
+  }
+
+  private resolveCompanyMonthlyValue(company: any) {
+    return this.normalizeCurrencyAmount(company?.plan?.price || 0);
+  }
+
+  private normalizeLedgerEntryRow(row: BillingLedgerEntryRow) {
+    return {
+      id: String(row.id),
+      companyId: Number(row.companyId),
+      entryType: String(row.entryType || ''),
+      entryGroup: String(row.entryGroup || 'revenue'),
+      status: String(row.status || 'PENDING'),
+      origin: row.origin ? String(row.origin) : null,
+      currency: String(row.currency || 'BRL'),
+      competence: row.competence ? String(row.competence) : null,
+      amount: this.normalizeCurrencyAmount(row.amount),
+      dueDate: row.dueDate instanceof Date ? row.dueDate.toISOString() : null,
+      paidAt: row.paidAt instanceof Date ? row.paidAt.toISOString() : null,
+      paymentMethod: row.paymentMethod ? String(row.paymentMethod) : null,
+      referenceLabel: row.referenceLabel ? String(row.referenceLabel) : null,
+      observation: row.observation ? String(row.observation) : null,
+      metadata: this.safeJsonParse(row.metadata),
+      createdByUserId: Number(row.createdByUserId || 0) || null,
+      createdAt: row.createdAt instanceof Date ? row.createdAt.toISOString() : null,
+      updatedAt: row.updatedAt instanceof Date ? row.updatedAt.toISOString() : null,
+    };
+  }
+
+  private normalizeAuditRow(row: any) {
+    return {
+      id: String(row?.id || ''),
+      companyId: Number(row?.companyId || 0) || null,
+      scope: String(row?.scope || ''),
+      action: String(row?.action || ''),
+      severity: String(row?.severity || 'INFO'),
+      route: row?.route ? String(row.route) : null,
+      metadata: this.safeJsonParse(row?.metadata),
+      masterUserId: Number(row?.masterUserId || 0) || null,
+      createdAt: row?.createdAt instanceof Date ? row.createdAt.toISOString() : String(row?.createdAt || ''),
+    };
+  }
+
+  private companyStatusBucket(company: any) {
+    const paymentMethod = String(company?.paymentMethod || '').trim().toUpperCase();
+    const paymentStatus = String(company?.paymentStatus || '').trim().toUpperCase();
+    const subscriptionStatus = String(company?.subscriptionStatus || '').trim().toLowerCase();
+    const trialEndsAt = this.parseDateValue(company?.trialEndsAt);
+
+    if (company?.isActive === false) return 'SUSPENDED';
+    if (!paymentMethod || paymentMethod === 'NONE') return 'NO_METHOD';
+    if (paymentStatus === 'DISABLED' || paymentStatus === 'EXPIRED' || subscriptionStatus === 'canceled' || subscriptionStatus === 'expired') {
+      return 'SUSPENDED';
+    }
+    if (subscriptionStatus === 'trialing') {
+      if (trialEndsAt && trialEndsAt.getTime() - Date.now() <= 7 * 24 * 60 * 60 * 1000) {
+        return 'TRIAL_ENDING';
+      }
+      return 'TRIAL';
+    }
+    if (paymentStatus === 'OVERDUE' || paymentStatus === 'PENDING' || subscriptionStatus === 'past_due') {
+      return 'OVERDUE';
+    }
+    if (paymentStatus === 'PAID' || subscriptionStatus === 'active') {
+      return 'PAYING';
+    }
+    return 'UNKNOWN';
+  }
+
+  private computeDaysOverdue(company: any, pendingEntry?: BillingLedgerEntryRow | null) {
+    const dueDate =
+      this.parseDateValue(pendingEntry?.dueDate) ||
+      this.parseDateValue(company?.subscriptionCurrentPeriodEnd) ||
+      this.parseDateValue(company?.trialEndsAt);
+    if (!dueDate) return 0;
+    const diff = Date.now() - dueDate.getTime();
+    if (diff <= 0) return 0;
+    return Math.ceil(diff / (24 * 60 * 60 * 1000));
+  }
+
+  private async insertBillingLedgerEntry(input: {
+    companyId: number;
+    entryType: string;
+    entryGroup?: string;
+    status?: string;
+    origin?: string | null;
+    competence?: string | null;
+    amount?: number;
+    dueDate?: Date | null;
+    paidAt?: Date | null;
+    paymentMethod?: string | null;
+    referenceLabel?: string | null;
+    observation?: string | null;
+    metadata?: Record<string, unknown> | null;
+    createdByUserId?: number | null;
+  }) {
+    const now = new Date();
+    const metadataJson = input.metadata ? JSON.stringify(input.metadata) : null;
+    const amount = this.normalizeCurrencyAmount(input.amount || 0);
+
+    await this.prisma.$executeRaw`
+      INSERT INTO "MasterBillingLedgerEntry"
+      ("id", "companyId", "entryType", "entryGroup", "status", "origin", "currency", "competence", "amount", "dueDate", "paidAt", "paymentMethod", "referenceLabel", "observation", "metadata", "createdByUserId", "createdAt", "updatedAt")
+      VALUES (
+        ${randomUUID()},
+        ${Number(input.companyId)},
+        ${String(input.entryType || 'MANUAL_ENTRY')},
+        ${String(input.entryGroup || 'revenue')},
+        ${String(input.status || 'PENDING')},
+        ${input.origin ? String(input.origin) : null},
+        ${'BRL'},
+        ${input.competence ? String(input.competence) : null},
+        ${amount},
+        ${input.dueDate || null},
+        ${input.paidAt || null},
+        ${input.paymentMethod ? String(input.paymentMethod) : null},
+        ${input.referenceLabel ? String(input.referenceLabel) : null},
+        ${input.observation ? String(input.observation) : null},
+        ${metadataJson},
+        ${input.createdByUserId ? Number(input.createdByUserId) : null},
+        ${now},
+        ${now}
+      )
+    `;
+  }
+
+  private async listBillingLedgerEntriesByCompanyIds(companyIds: number[], limit = 1200) {
+    if (!companyIds.length) return [] as BillingLedgerEntryRow[];
+    const rows = await this.prisma.$queryRaw<BillingLedgerEntryRow[]>(
+      Prisma.sql`
+        SELECT
+          "id",
+          "companyId",
+          "entryType",
+          "entryGroup",
+          "status",
+          "origin",
+          "currency",
+          "competence",
+          "amount",
+          "dueDate",
+          "paidAt",
+          "paymentMethod",
+          "referenceLabel",
+          "observation",
+          "metadata",
+          "createdByUserId",
+          "createdAt",
+          "updatedAt"
+        FROM "MasterBillingLedgerEntry"
+        WHERE "companyId" IN (${Prisma.join(companyIds.map((id) => Number(id)))})
+        ORDER BY COALESCE("paidAt", "dueDate", "createdAt") DESC, "createdAt" DESC
+        LIMIT ${Math.max(1, Math.trunc(limit))}
+      `,
+    );
+    return rows || [];
+  }
+
+  private async listCompanyAuditRows(companyIds: number[], limit = 400) {
+    if (!companyIds.length) return [] as Array<any>;
+    return this.prisma.$queryRaw<Array<any>>(
+      Prisma.sql`
+        SELECT
+          "id",
+          "companyId",
+          "scope",
+          "action",
+          "severity",
+          "route",
+          "metadata",
+          "masterUserId",
+          "createdAt"
+        FROM "MasterSupportAuditLog"
+        WHERE "companyId" IN (${Prisma.join(companyIds.map((id) => Number(id)))})
+        ORDER BY "createdAt" DESC
+        LIMIT ${Math.max(1, Math.trunc(limit))}
+      `,
+    );
+  }
+
   async onModuleInit() {
     await this.ensureDefaultSystemModules();
     await this.removeRetiredSystemModules();
     await this.ensureDatabaseAutomation();
     await this.syncCompanyModulesForAllCompanies();
+    await ensureMasterBillingRuntimeSchema(this.prisma);
   }
 
   private normalizeKey(key: string) {
@@ -253,7 +501,7 @@ export class ModulesService implements OnModuleInit {
     const { companyId, isSystemMaster } = await this.resolveUserContext(userId);
 
     const key = this.normalizeKey(moduleKey);
-    if (key === 'master' || key === 'website' || key === 'exclusoes') return isSystemMaster;
+    if (key === 'master' || key === 'exclusoes') return isSystemMaster;
     if (!companyId) return false;
 
     const moduleItem = await this.prisma.systemModule.findUnique({ where: { key } });
@@ -288,7 +536,7 @@ export class ModulesService implements OnModuleInit {
 
     const systemMasterModules = isSystemMaster
       ? await this.prisma.systemModule.findMany({
-          where: { key: { in: ['master', 'website', 'exclusoes'] } },
+          where: { key: { in: ['master', 'exclusoes'] } },
           orderBy: { name: 'asc' },
         })
       : [];
@@ -457,10 +705,684 @@ export class ModulesService implements OnModuleInit {
     return { ok: true };
   }
 
+  private buildMasterCompanySummary(
+    company: any,
+    websiteConfig: any,
+    companyLedgerRows: BillingLedgerEntryRow[],
+    companyAuditRows: Array<any>,
+    active: boolean,
+  ) {
+    const monthlyValue = this.resolveCompanyMonthlyValue(company);
+    const statusBucket = this.companyStatusBucket({
+      ...company,
+      isActive: active,
+      paymentStatus:
+        active && String(company?.paymentStatus || '').trim().toUpperCase() !== 'DISABLED'
+          ? company?.paymentStatus
+          : company?.paymentStatus || 'DISABLED',
+    });
+    const enabledModules = (company.companyModules || [])
+      .filter((row: any) => row?.systemModule?.companyAssignable)
+      .map((row: any) => ({
+        key: row.systemModule.key,
+        name: row.systemModule.name,
+        enabled: Boolean(row.enabled),
+      }));
+    const activeModules = enabledModules.filter((module: any) => module.enabled);
+    const lastApproved =
+      companyLedgerRows.find(
+        (row) => row.entryGroup === 'revenue' && String(row.status || '').toUpperCase() === 'APPROVED',
+      ) || null;
+    const lastFailed =
+      companyLedgerRows.find((row) =>
+        ['FAILED', 'CANCELLED', 'REFUNDED'].includes(String(row.status || '').toUpperCase()),
+      ) || null;
+    const pendingEntry =
+      companyLedgerRows.find((row) => String(row.status || '').toUpperCase() === 'PENDING') || null;
+    const daysOverdue = this.computeDaysOverdue(company, pendingEntry);
+    const nextDueAt =
+      (pendingEntry?.dueDate instanceof Date ? pendingEntry.dueDate.toISOString() : null) ||
+      (company?.subscriptionCurrentPeriodEnd instanceof Date
+        ? company.subscriptionCurrentPeriodEnd.toISOString()
+        : null) ||
+      (company?.trialEndsAt instanceof Date ? company.trialEndsAt.toISOString() : null);
+    const trialEndsAt = company?.trialEndsAt instanceof Date ? company.trialEndsAt.toISOString() : null;
+    const trialStartsAt =
+      company?.trialStartsAt instanceof Date ? company.trialStartsAt.toISOString() : null;
+    const trialRemainingDays = trialEndsAt
+      ? Math.ceil((new Date(trialEndsAt).getTime() - Date.now()) / (24 * 60 * 60 * 1000))
+      : null;
+    const currentOutstandingValue =
+      statusBucket === 'OVERDUE'
+        ? Math.max(monthlyValue, this.normalizeCurrencyAmount(pendingEntry?.amount || 0))
+        : 0;
+    const websiteConfigured = Boolean(websiteConfig?.websiteEnabled && websiteConfig?.websitePublicUrl);
+    const hasWebsiteModule = activeModules.some((module: any) => module.key === 'website');
+    const websiteNeedsAttention = Boolean(hasWebsiteModule && !websiteConfigured);
+    const recentCardFailure = Boolean(
+      String(company?.paymentMethod || '').trim().toUpperCase() === 'CARD' &&
+        (String(company?.mercadoPagoStatus || '').trim().toUpperCase() === 'ERROR' ||
+          (lastFailed?.createdAt instanceof Date &&
+            Date.now() - lastFailed.createdAt.getTime() <= 45 * 24 * 60 * 60 * 1000)),
+    );
+    const manualPaymentPending = Boolean(
+      String(company?.paymentMethod || '').trim().toUpperCase() === 'MANUAL' &&
+        ['PENDING', 'OVERDUE'].includes(String(company?.paymentStatus || '').trim().toUpperCase()),
+    );
+
+    let riskLevel: 'stable' | 'warning' | 'critical' = 'stable';
+    if (['OVERDUE', 'NO_METHOD', 'SUSPENDED'].includes(statusBucket) || recentCardFailure) {
+      riskLevel = 'critical';
+    } else if (statusBucket === 'TRIAL_ENDING' || manualPaymentPending || websiteNeedsAttention) {
+      riskLevel = 'warning';
+    }
+
+    return {
+      id: company.id,
+      name: company.name,
+      slug: company.slug || null,
+      createdAt: company?.createdAt instanceof Date ? company.createdAt.toISOString() : null,
+      primaryContactName: company.primaryContactName || null,
+      contactEmail: company.contactEmail || null,
+      contactPhone: company.contactPhone || null,
+      taxDocument: company.taxDocument || null,
+      isActive: active,
+      userCount: Number(company?._count?.users || 0),
+      plan: company.plan
+        ? {
+            id: company.plan.id,
+            name: company.plan.name,
+            price: this.normalizeCurrencyAmount(company.plan.price || 0),
+          }
+        : null,
+      monthlyValue,
+      paymentStatus: company.paymentStatus,
+      paymentMethod: company.paymentMethod,
+      subscriptionStatus: company.subscriptionStatus,
+      billingProvider: company.billingProvider,
+      premiumAccess: Boolean(company.premiumAccess),
+      trialStartsAt,
+      trialEndsAt,
+      trialRemainingDays,
+      subscriptionCurrentPeriodStart:
+        company?.subscriptionCurrentPeriodStart instanceof Date
+          ? company.subscriptionCurrentPeriodStart.toISOString()
+          : null,
+      subscriptionCurrentPeriodEnd:
+        company?.subscriptionCurrentPeriodEnd instanceof Date
+          ? company.subscriptionCurrentPeriodEnd.toISOString()
+          : null,
+      nextDueAt,
+      daysOverdue,
+      currentOutstandingValue,
+      statusBucket,
+      riskLevel,
+      financialSituation:
+        statusBucket === 'PAYING'
+          ? 'Adimplente'
+          : statusBucket === 'TRIAL'
+            ? 'Em trial'
+            : statusBucket === 'TRIAL_ENDING'
+              ? 'Trial vencendo'
+              : statusBucket === 'OVERDUE'
+                ? 'Em atraso'
+                : statusBucket === 'NO_METHOD'
+                  ? 'Sem metodo'
+                  : 'Suspenso',
+      lastPayment: lastApproved ? this.normalizeLedgerEntryRow(lastApproved) : null,
+      lastFailure: lastFailed ? this.normalizeLedgerEntryRow(lastFailed) : null,
+      manualPaymentPending,
+      recentCardFailure,
+      websiteNeedsAttention,
+      website: {
+        enabled: Boolean(websiteConfig?.websiteEnabled),
+        configured: websiteConfigured,
+        adminEnabled: Boolean(websiteConfig?.websiteAdminEnabled),
+        publicUrl: websiteConfig?.websitePublicUrl || null,
+        adminUrl: websiteConfig?.websiteAdminUrl || null,
+        projectId: websiteConfig?.websiteProjectId || null,
+        launchMode: websiteConfig?.websiteLaunchMode || 'public',
+      },
+      whatsapp: {
+        status: company.whatsappStatus || null,
+        hasNumber: Boolean(company.whatsappPhoneNumberId || company.whatsappNumber),
+        displayNumber: company.whatsappDisplayNumber || company.whatsappNumber || null,
+      },
+      mercadoPago: {
+        status: company.mercadoPagoStatus || null,
+        accountEmail: company.mercadoPagoAccountEmail || null,
+        accountUserId: company.mercadoPagoUserId || null,
+        tokenConfigured: Boolean(company.mercadoPagoAccessToken),
+      },
+      modules: activeModules,
+      auditCount: companyAuditRows.length,
+    };
+  }
+
+  async getMasterWorkspace(masterUserId: number) {
+    await this.assertMasterUser(masterUserId);
+    await this.ensureDefaultSystemModules();
+    await this.syncCompanyModulesForAllCompanies();
+    await ensureWebsiteRuntimeSchema(this.prisma);
+    await ensureMasterBillingRuntimeSchema(this.prisma);
+
+    const companies = await this.prisma.company.findMany({
+      include: {
+        plan: {
+          select: {
+            id: true,
+            name: true,
+            price: true,
+          },
+        },
+        companyModules: {
+          include: { systemModule: true },
+          orderBy: { systemModule: { name: 'asc' } },
+        },
+        _count: {
+          select: { users: true },
+        },
+      },
+      orderBy: [{ name: 'asc' }, { id: 'asc' }],
+    });
+
+    const companyIds = companies.map((company) => Number(company.id));
+    const [websiteConfigs, ledgerRows, auditRows] = await Promise.all([
+      listCompanyWebsiteConfigs(this.prisma, companyIds),
+      this.listBillingLedgerEntriesByCompanyIds(companyIds, 2400),
+      this.listCompanyAuditRows(companyIds, 600),
+    ]);
+
+    const ledgerByCompany = new Map<number, BillingLedgerEntryRow[]>();
+    for (const row of ledgerRows) {
+      const existing = ledgerByCompany.get(Number(row.companyId)) || [];
+      existing.push(row);
+      ledgerByCompany.set(Number(row.companyId), existing);
+    }
+
+    const auditByCompany = new Map<number, Array<any>>();
+    for (const row of auditRows || []) {
+      const companyId = Number(row.companyId || 0);
+      if (!companyId) continue;
+      const existing = auditByCompany.get(companyId) || [];
+      existing.push(row);
+      auditByCompany.set(companyId, existing);
+    }
+
+    const companySummaries: Array<any> = [];
+    for (const company of companies) {
+      const status = await this.evaluateCompanyStatus(company.id);
+      companySummaries.push(
+        this.buildMasterCompanySummary(
+          company,
+          websiteConfigs.get(Number(company.id)) || null,
+          ledgerByCompany.get(Number(company.id)) || [],
+          auditByCompany.get(Number(company.id)) || [],
+          status.active,
+        ),
+      );
+    }
+
+    const now = new Date();
+    const currentMonthStart = this.startOfMonth(now);
+    const nextMonthStart = this.startOfNextMonth(now);
+    const previousMonthStart = new Date(currentMonthStart.getFullYear(), currentMonthStart.getMonth() - 1, 1);
+    const previousMonthEnd = currentMonthStart;
+
+    const approvedRevenueCurrent = ledgerRows
+      .filter((row) =>
+        row.entryGroup === 'revenue' &&
+        String(row.status || '').toUpperCase() === 'APPROVED' &&
+        row.paidAt instanceof Date &&
+        row.paidAt >= currentMonthStart &&
+        row.paidAt < nextMonthStart,
+      )
+      .reduce((total, row) => total + this.normalizeCurrencyAmount(row.amount), 0);
+    const approvedRevenuePrevious = ledgerRows
+      .filter((row) =>
+        row.entryGroup === 'revenue' &&
+        String(row.status || '').toUpperCase() === 'APPROVED' &&
+        row.paidAt instanceof Date &&
+        row.paidAt >= previousMonthStart &&
+        row.paidAt < previousMonthEnd,
+      )
+      .reduce((total, row) => total + this.normalizeCurrencyAmount(row.amount), 0);
+    const currentCosts = ledgerRows
+      .filter((row) =>
+        row.entryGroup === 'cost' &&
+        String(row.status || '').toUpperCase() === 'APPROVED' &&
+        row.createdAt instanceof Date &&
+        row.createdAt >= currentMonthStart &&
+        row.createdAt < nextMonthStart,
+      )
+      .reduce((total, row) => total + this.normalizeCurrencyAmount(row.amount), 0);
+    const previousCosts = ledgerRows
+      .filter((row) =>
+        row.entryGroup === 'cost' &&
+        String(row.status || '').toUpperCase() === 'APPROVED' &&
+        row.createdAt instanceof Date &&
+        row.createdAt >= previousMonthStart &&
+        row.createdAt < previousMonthEnd,
+      )
+      .reduce((total, row) => total + this.normalizeCurrencyAmount(row.amount), 0);
+
+    const projectedRevenueMonth = companySummaries
+      .filter((company) => ['PAYING', 'TRIAL', 'TRIAL_ENDING', 'OVERDUE'].includes(company.statusBucket))
+      .reduce((total, company) => total + this.normalizeCurrencyAmount(company.monthlyValue || 0), 0);
+    const currentDelinquency = companySummaries
+      .filter((company) => company.statusBucket === 'OVERDUE')
+      .reduce((total, company) => total + this.normalizeCurrencyAmount(company.currentOutstandingValue || 0), 0);
+    const activeTrials = companySummaries.filter((company) => ['TRIAL', 'TRIAL_ENDING'].includes(company.statusBucket)).length;
+    const payingClients = companySummaries.filter((company) => company.statusBucket === 'PAYING').length;
+    const recentCardFailures = companySummaries.filter((company) => company.recentCardFailure).length;
+    const manualPaymentsCurrent = ledgerRows.filter((row) =>
+      row.paidAt instanceof Date &&
+      row.paidAt >= currentMonthStart &&
+      row.paidAt < nextMonthStart &&
+      String(row.status || '').toUpperCase() === 'APPROVED' &&
+      String(row.entryType || '').toUpperCase().includes('MANUAL'),
+    );
+
+    const monthlyPoints = Array.from({ length: 6 }, (_, index) => {
+      const pointDate = new Date(now.getFullYear(), now.getMonth() - 5 + index, 1);
+      const pointStart = this.startOfMonth(pointDate);
+      const pointEnd = this.startOfNextMonth(pointDate);
+      const monthApproved = ledgerRows
+        .filter((row) =>
+          row.entryGroup === 'revenue' &&
+          String(row.status || '').toUpperCase() === 'APPROVED' &&
+          row.paidAt instanceof Date &&
+          row.paidAt >= pointStart &&
+          row.paidAt < pointEnd,
+        )
+        .reduce((total, row) => total + this.normalizeCurrencyAmount(row.amount), 0);
+      const monthPending = ledgerRows
+        .filter((row) =>
+          row.entryGroup === 'revenue' &&
+          String(row.status || '').toUpperCase() === 'PENDING' &&
+          row.dueDate instanceof Date &&
+          row.dueDate >= pointStart &&
+          row.dueDate < pointEnd,
+        )
+        .reduce((total, row) => total + this.normalizeCurrencyAmount(row.amount), 0);
+      const monthLoss = ledgerRows
+        .filter((row) =>
+          row.entryGroup === 'revenue' &&
+          ['FAILED', 'REFUNDED', 'CANCELLED'].includes(String(row.status || '').toUpperCase()) &&
+          row.createdAt instanceof Date &&
+          row.createdAt >= pointStart &&
+          row.createdAt < pointEnd,
+        )
+        .reduce((total, row) => total + this.normalizeCurrencyAmount(row.amount), 0);
+      return {
+        id: this.monthKey(pointDate),
+        label: this.monthLabel(pointDate),
+        received: this.normalizeCurrencyAmount(monthApproved),
+        projected:
+          pointStart.getTime() === currentMonthStart.getTime()
+            ? this.normalizeCurrencyAmount(projectedRevenueMonth)
+            : this.normalizeCurrencyAmount(monthApproved + monthPending),
+        loss:
+          pointStart.getTime() === currentMonthStart.getTime()
+            ? this.normalizeCurrencyAmount(monthLoss + currentDelinquency)
+            : this.normalizeCurrencyAmount(monthLoss),
+      };
+    });
+
+    const paymentSeries = monthlyPoints.map((point) => {
+      const pointStart = this.parseDateValue(`${point.id}-01T00:00:00.000Z`) || currentMonthStart;
+      const pointEnd = this.startOfNextMonth(pointStart);
+      const rowsInMonth = ledgerRows.filter((row) => {
+        const baseDate = row.paidAt instanceof Date ? row.paidAt : row.createdAt;
+        return baseDate instanceof Date && baseDate >= pointStart && baseDate < pointEnd;
+      });
+      return {
+        id: point.id,
+        label: point.label,
+        approved: rowsInMonth.filter((row) => String(row.status || '').toUpperCase() === 'APPROVED').length,
+        failed: rowsInMonth.filter((row) =>
+          ['FAILED', 'REFUNDED', 'CANCELLED'].includes(String(row.status || '').toUpperCase()),
+        ).length,
+        manual: rowsInMonth.filter((row) => String(row.entryType || '').toUpperCase().includes('MANUAL')).length,
+        pending: rowsInMonth.filter((row) => String(row.status || '').toUpperCase() === 'PENDING').length,
+      };
+    });
+
+    const baseStatusDistribution = [
+      { key: 'PAYING', label: 'Pagando', value: companySummaries.filter((company) => company.statusBucket === 'PAYING').length },
+      { key: 'TRIAL', label: 'Trial', value: companySummaries.filter((company) => company.statusBucket === 'TRIAL').length },
+      { key: 'TRIAL_ENDING', label: 'Trial vencendo', value: companySummaries.filter((company) => company.statusBucket === 'TRIAL_ENDING').length },
+      { key: 'OVERDUE', label: 'Atrasado', value: companySummaries.filter((company) => company.statusBucket === 'OVERDUE').length },
+      { key: 'SUSPENDED', label: 'Suspenso', value: companySummaries.filter((company) => company.statusBucket === 'SUSPENDED').length },
+      { key: 'NO_METHOD', label: 'Sem metodo', value: companySummaries.filter((company) => company.statusBucket === 'NO_METHOD').length },
+    ];
+
+    const ninetyDaysAgo = this.addDays(now, -90);
+    const trialConversionRows = (auditRows || []).filter((row) => row.createdAt instanceof Date && row.createdAt >= ninetyDaysAgo);
+    const trialConversion = {
+      active: activeTrials,
+      converted: trialConversionRows.filter((row) => String(row.action || '').toUpperCase() === 'TRIAL_CONVERTED').length,
+      expired: trialConversionRows.filter((row) =>
+        ['TRIAL_ENDED', 'TRIAL_SET_DATE_EXPIRED'].includes(String(row.action || '').toUpperCase()),
+      ).length,
+      extended: trialConversionRows.filter((row) => String(row.action || '').toUpperCase() === 'TRIAL_EXTENDED').length,
+    };
+
+    const moduleRevenueMap = new Map<string, number>();
+    for (const company of companySummaries) {
+      if (!['PAYING', 'TRIAL', 'TRIAL_ENDING'].includes(company.statusBucket)) continue;
+      const enabledModules = Array.isArray(company.modules) ? company.modules : [];
+      if (!enabledModules.length || company.monthlyValue <= 0) continue;
+      const slice = company.monthlyValue / enabledModules.length;
+      for (const moduleItem of enabledModules) {
+        moduleRevenueMap.set(
+          String(moduleItem.name || moduleItem.key),
+          this.normalizeCurrencyAmount((moduleRevenueMap.get(String(moduleItem.name || moduleItem.key)) || 0) + slice),
+        );
+      }
+    }
+
+    const attentionDefinitions = [
+      {
+        id: 'trial_today',
+        title: 'Trial vencendo hoje',
+        severity: 'danger',
+        companies: companySummaries.filter((company) => company.statusBucket === 'TRIAL_ENDING' && (company.trialRemainingDays || 0) <= 0),
+      },
+      {
+        id: 'trial_soon',
+        title: 'Trial vencendo em ate 3 dias',
+        severity: 'warning',
+        companies: companySummaries.filter((company) => company.statusBucket === 'TRIAL_ENDING' && (company.trialRemainingDays || 0) > 0 && (company.trialRemainingDays || 0) <= 3),
+      },
+      {
+        id: 'overdue',
+        title: 'Clientes em atraso',
+        severity: 'danger',
+        companies: companySummaries.filter((company) => company.statusBucket === 'OVERDUE'),
+      },
+      {
+        id: 'no_method',
+        title: 'Clientes sem metodo',
+        severity: 'warning',
+        companies: companySummaries.filter((company) => company.statusBucket === 'NO_METHOD'),
+      },
+      {
+        id: 'manual_payment',
+        title: 'Pagamento manual pendente',
+        severity: 'warning',
+        companies: companySummaries.filter((company) => company.manualPaymentPending),
+      },
+      {
+        id: 'website_missing',
+        title: 'Website sem configuracao',
+        severity: 'info',
+        companies: companySummaries.filter((company) => company.websiteNeedsAttention),
+      },
+      {
+        id: 'card_failure',
+        title: 'Cartao com falha recente',
+        severity: 'danger',
+        companies: companySummaries.filter((company) => company.recentCardFailure),
+      },
+    ]
+      .filter((item) => item.companies.length > 0)
+      .map((item) => ({
+        id: item.id,
+        title: item.title,
+        severity: item.severity,
+        count: item.companies.length,
+        companies: item.companies.slice(0, 5).map((company) => ({
+          id: company.id,
+          name: company.name,
+          statusBucket: company.statusBucket,
+          nextDueAt: company.nextDueAt,
+          trialRemainingDays: company.trialRemainingDays,
+        })),
+      }));
+
+    return {
+      generatedAt: now.toISOString(),
+      summary: {
+        confirmedRevenueMonth: {
+          kind: 'currency',
+          value: this.normalizeCurrencyAmount(approvedRevenueCurrent),
+          previousValue: this.normalizeCurrencyAmount(approvedRevenuePrevious),
+          delta: this.normalizeCurrencyAmount(approvedRevenueCurrent - approvedRevenuePrevious),
+          note: 'Receita recebida e registrada no ledger SaaS.',
+        },
+        projectedRevenueMonth: {
+          kind: 'currency',
+          value: this.normalizeCurrencyAmount(projectedRevenueMonth),
+          previousValue: null,
+          delta: null,
+          note: 'Estimativa pela base ativa do mes e pendencias em aberto.',
+        },
+        netRevenueMonth: {
+          kind: 'currency',
+          value: this.normalizeCurrencyAmount(approvedRevenueCurrent - currentCosts),
+          previousValue: this.normalizeCurrencyAmount(approvedRevenuePrevious - previousCosts),
+          delta: this.normalizeCurrencyAmount((approvedRevenueCurrent - currentCosts) - (approvedRevenuePrevious - previousCosts)),
+          note:
+            currentCosts > 0 || previousCosts > 0
+              ? 'Receita recebida menos custos registrados no MASTER.'
+              : 'Sem custos registrados. Exibindo receita liquida do mes.',
+        },
+        delinquencyCurrent: {
+          kind: 'currency',
+          value: this.normalizeCurrencyAmount(currentDelinquency),
+          previousValue: null,
+          delta: null,
+          note: 'Soma estimada das empresas em atraso no ciclo atual.',
+        },
+        activeTrials: {
+          kind: 'count',
+          value: activeTrials,
+          previousValue: null,
+          delta: null,
+          note: 'Trials ativos e trials em vencimento iminente.',
+        },
+        payingClients: {
+          kind: 'count',
+          value: payingClients,
+          previousValue: null,
+          delta: null,
+          note: 'Clientes ativos com status financeiro saudavel.',
+        },
+        recentCardFailures: {
+          kind: 'count',
+          value: recentCardFailures,
+          previousValue: null,
+          delta: null,
+          note: 'Falhas recentes de cartao ou conexao Mercado Pago.',
+        },
+        manualPaymentsMonth: {
+          kind: 'count',
+          value: manualPaymentsCurrent.length,
+          auxValue: this.normalizeCurrencyAmount(
+            manualPaymentsCurrent.reduce((total, row) => total + this.normalizeCurrencyAmount(row.amount), 0),
+          ),
+          previousValue: null,
+          delta: null,
+          note: 'Lancamentos manuais aprovados no mes.',
+        },
+      },
+      charts: {
+        revenue: monthlyPoints,
+        payments: paymentSeries,
+        baseStatus: baseStatusDistribution,
+        trialConversion,
+        revenueByModule: Array.from(moduleRevenueMap.entries()).map(([label, value]) => ({
+          label,
+          value: this.normalizeCurrencyAmount(value),
+        })),
+      },
+      attention: attentionDefinitions,
+      companies: companySummaries,
+    };
+  }
+
+  async getMasterCompanyDetail(masterUserId: number, companyId: number) {
+    await this.assertMasterUser(masterUserId);
+    await this.ensureDefaultSystemModules();
+    await ensureWebsiteRuntimeSchema(this.prisma);
+    await ensureMasterBillingRuntimeSchema(this.prisma);
+
+    const supportsEndpointTable = await this.supportsWhatsAppEndpointTable();
+    const company = supportsEndpointTable
+      ? await this.prisma.company.findUnique({
+          where: { id: companyId },
+          include: {
+            plan: {
+              select: {
+                id: true,
+                name: true,
+                price: true,
+              },
+            },
+            users: {
+              select: {
+                id: true,
+                username: true,
+                email: true,
+                role: true,
+                isActive: true,
+                deactivatedAt: true,
+                retentionUntil: true,
+                createdAt: true,
+              },
+              orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+            },
+            companyModules: {
+              include: { systemModule: true },
+              orderBy: { systemModule: { name: 'asc' } },
+            },
+            whatsappEndpoints: {
+              orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+            },
+            _count: {
+              select: { users: true },
+            },
+          },
+        })
+      : await this.prisma.company.findUnique({
+          where: { id: companyId },
+          include: {
+            plan: {
+              select: {
+                id: true,
+                name: true,
+                price: true,
+              },
+            },
+            users: {
+              select: {
+                id: true,
+                username: true,
+                email: true,
+                role: true,
+                isActive: true,
+                deactivatedAt: true,
+                retentionUntil: true,
+                createdAt: true,
+              },
+              orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+            },
+            companyModules: {
+              include: { systemModule: true },
+              orderBy: { systemModule: { name: 'asc' } },
+            },
+            _count: {
+              select: { users: true },
+            },
+          },
+        });
+
+    if (!company) throw new BadRequestException('Empresa nao encontrada');
+
+    const [websiteConfigs, ledgerRows, auditRows] = await Promise.all([
+      listCompanyWebsiteConfigs(this.prisma, [Number(companyId)]),
+      this.listBillingLedgerEntriesByCompanyIds([Number(companyId)], 240),
+      this.listCompanyAuditRows([Number(companyId)], 240),
+    ]);
+
+    const status = await this.evaluateCompanyStatus(company.id);
+    const summary = this.buildMasterCompanySummary(
+      company,
+      websiteConfigs.get(Number(company.id)) || null,
+      ledgerRows,
+      auditRows,
+      status.active,
+    );
+
+    const auditTimeline = (auditRows || []).map((row) => this.normalizeAuditRow(row));
+    const trialHistory = auditTimeline.filter((row) => String(row.action || '').toUpperCase().startsWith('TRIAL_'));
+
+    return {
+      generatedAt: new Date().toISOString(),
+      company: {
+        ...summary,
+        users: company.users.map((user) => ({
+          id: user.id,
+          username: user.username || null,
+          email: user.email || null,
+          role: user.role,
+          isActive: Boolean(user.isActive),
+          deactivatedAt: user.deactivatedAt ? user.deactivatedAt.toISOString() : null,
+          retentionUntil: user.retentionUntil ? user.retentionUntil.toISOString() : null,
+          createdAt: user.createdAt ? user.createdAt.toISOString() : null,
+        })),
+        modules: (company.companyModules || [])
+          .filter((row) => row.systemModule.companyAssignable)
+          .map((row) => ({
+            key: row.systemModule.key,
+            name: row.systemModule.name,
+            enabled: Boolean(row.enabled),
+          })),
+        website: {
+          ...summary.website,
+        },
+        whatsapp: {
+          ...summary.whatsapp,
+          endpoints: (((company as any).whatsappEndpoints || this.buildLegacyEndpointSnapshot(company)) as any[]).map((endpoint) => ({
+            id: endpoint.id,
+            label: endpoint.label || null,
+            moduleKey: endpoint.moduleKey || null,
+            whatsappNumber: endpoint.whatsappNumber || null,
+            whatsappPhoneNumberId: endpoint.whatsappPhoneNumberId || null,
+            whatsappWabaId: endpoint.whatsappWabaId || null,
+            whatsappDisplayNumber: endpoint.whatsappDisplayNumber || null,
+            whatsappStatus: endpoint.whatsappStatus || null,
+            whatsappStatusError: endpoint.whatsappStatusError || null,
+            whatsappStatusUpdatedAt:
+              endpoint.whatsappStatusUpdatedAt instanceof Date
+                ? endpoint.whatsappStatusUpdatedAt.toISOString()
+                : endpoint.whatsappStatusUpdatedAt || null,
+            accessTokenConfigured: Boolean(endpoint.whatsappAccessToken),
+            isActive: endpoint.isActive !== false,
+            isPrimary: Boolean(endpoint.isPrimary),
+          })),
+        },
+        mercadoPago: {
+          ...summary.mercadoPago,
+          statusError: company.mercadoPagoStatusError || null,
+          lastValidatedAt:
+            company.mercadoPagoStatusUpdatedAt instanceof Date
+              ? company.mercadoPagoStatusUpdatedAt.toISOString()
+              : null,
+        },
+        financeHistory: ledgerRows.map((row) => this.normalizeLedgerEntryRow(row)),
+        trialHistory,
+        auditTimeline,
+      },
+    };
+  }
+
   async listMasterOverview(masterUserId: number) {
     await this.assertMasterUser(masterUserId);
     await this.ensureDefaultSystemModules();
     await this.syncCompanyModulesForAllCompanies();
+    await ensureWebsiteRuntimeSchema(this.prisma);
 
     const supportsEndpointTable = await this.supportsWhatsAppEndpointTable();
     const companies = supportsEndpointTable
@@ -512,9 +1434,15 @@ export class ModulesService implements OnModuleInit {
           orderBy: { id: 'asc' },
         });
 
+    const websiteConfigs = await listCompanyWebsiteConfigs(
+      this.prisma,
+      companies.map((company) => Number(company.id)),
+    );
+
     const result: any[] = [];
     for (const company of companies) {
       const status = await this.evaluateCompanyStatus(company.id);
+      const websiteConfig = websiteConfigs.get(Number(company.id)) || null;
       result.push({
         id: company.id,
         name: company.name,
@@ -533,6 +1461,12 @@ export class ModulesService implements OnModuleInit {
         trialEndsAt: company.trialEndsAt,
         subscriptionCurrentPeriodStart: company.subscriptionCurrentPeriodStart,
         subscriptionCurrentPeriodEnd: company.subscriptionCurrentPeriodEnd,
+        websiteEnabled: Boolean(websiteConfig?.websiteEnabled),
+        websitePublicUrl: websiteConfig?.websitePublicUrl || null,
+        websiteAdminUrl: websiteConfig?.websiteAdminUrl || null,
+        websiteProjectId: websiteConfig?.websiteProjectId || null,
+        websiteAdminEnabled: Boolean(websiteConfig?.websiteAdminEnabled),
+        websiteLaunchMode: websiteConfig?.websiteLaunchMode || 'public',
         whatsappNumber: company.whatsappNumber || null,
         whatsappPhoneNumberId: company.whatsappPhoneNumberId || null,
         whatsappWabaId: company.whatsappWabaId || null,
@@ -597,18 +1531,148 @@ export class ModulesService implements OnModuleInit {
       create: { companyId, moduleId: moduleItem.id, enabled: Boolean(enabled) },
     });
 
+    await this.masterContextService.registerSupportAction({
+      masterUserId,
+      companyId,
+      scope: 'master_module',
+      action: 'MODULE_TOGGLED',
+      metadata: {
+        moduleKey: moduleItem.key,
+        enabled: Boolean(result.enabled),
+      },
+    });
+
     return { ok: true, companyId: result.companyId, moduleKey: moduleItem.key, enabled: result.enabled };
   }
 
-  async grantTrial(masterUserId: number, companyId: number, days = 30) {
+  async manageTrialByMaster(
+    masterUserId: number,
+    companyId: number,
+    input?: { action?: string; days?: number; endsAt?: string; reason?: string },
+  ) {
     await this.assertMasterUser(masterUserId);
-    if (days < 1 || days > 365) throw new BadRequestException('Periodo de trial invalido');
-
     const company = await this.prisma.company.findUnique({ where: { id: companyId } });
     if (!company) throw new BadRequestException('Empresa nao encontrada');
 
-    const trialStartsAt = new Date();
-    const trialEndsAt = new Date(Date.now() + days * 24 * 60 * 60 * 1000);
+    const action = String(input?.action || 'grant').trim().toLowerCase();
+    const reason = this.normalizeOptionalString(input?.reason);
+    const now = new Date();
+    let trialStartsAt = company.trialStartsAt || now;
+    let trialEndsAt = company.trialEndsAt || null;
+    let auditAction = 'TRIAL_GRANTED';
+
+    if (action === 'end') {
+      await this.prisma.$transaction([
+        this.prisma.company.update({
+          where: { id: companyId },
+          data: {
+            isActive: false,
+            paymentStatus: 'EXPIRED',
+            subscriptionStatus: 'expired',
+            premiumAccess: false,
+            deactivatedAt: now,
+          },
+        }),
+        this.prisma.companyModule.updateMany({ where: { companyId }, data: { enabled: false } }),
+      ]);
+
+      await this.masterContextService.registerSupportAction({
+        masterUserId,
+        companyId,
+        scope: 'master_trial',
+        action: 'TRIAL_ENDED',
+        metadata: { reason },
+      });
+
+      return {
+        ok: true,
+        companyId,
+        action: 'end',
+        trialStartsAt: company.trialStartsAt?.toISOString() || null,
+        trialEndsAt: company.trialEndsAt?.toISOString() || null,
+      };
+    }
+
+    if (action === 'set_date') {
+      const manualEnd = this.parseDateValue(input?.endsAt);
+      if (!manualEnd) throw new BadRequestException('Informe endsAt em formato de data valido.');
+      trialEndsAt = manualEnd;
+      auditAction = manualEnd.getTime() <= now.getTime() ? 'TRIAL_SET_DATE_EXPIRED' : 'TRIAL_SET_DATE';
+      if (manualEnd.getTime() <= now.getTime()) {
+        await this.prisma.$transaction([
+          this.prisma.company.update({
+            where: { id: companyId },
+            data: {
+              trialStartsAt,
+              trialEndsAt: manualEnd,
+              isActive: false,
+              paymentStatus: 'EXPIRED',
+              subscriptionStatus: 'expired',
+              premiumAccess: false,
+              deactivatedAt: now,
+            },
+          }),
+          this.prisma.companyModule.updateMany({ where: { companyId }, data: { enabled: false } }),
+        ]);
+      } else {
+        await this.prisma.$transaction([
+          this.prisma.company.update({
+            where: { id: companyId },
+            data: {
+              isActive: true,
+              paymentStatus: 'TRIAL',
+              subscriptionStatus: 'trialing',
+              premiumAccess: true,
+              trialStartsAt,
+              trialEndsAt: manualEnd,
+              subscriptionCurrentPeriodStart: null,
+              subscriptionCurrentPeriodEnd: null,
+              deactivatedAt: null,
+            },
+          }),
+          this.prisma.companyModule.updateMany({ where: { companyId }, data: { enabled: true } }),
+        ]);
+      }
+
+      await this.masterContextService.registerSupportAction({
+        masterUserId,
+        companyId,
+        scope: 'master_trial',
+        action: auditAction,
+        metadata: {
+          reason,
+          endsAt: manualEnd.toISOString(),
+        },
+      });
+
+      return {
+        ok: true,
+        companyId,
+        action,
+        trialStartsAt: trialStartsAt.toISOString(),
+        trialEndsAt: manualEnd.toISOString(),
+      };
+    }
+
+    const days = Number(input?.days || 30);
+    if (!Number.isFinite(days) || days < 1 || days > 365) {
+      throw new BadRequestException('Periodo de trial invalido');
+    }
+
+    if (action === 'extend') {
+      const base = company.trialEndsAt && company.trialEndsAt.getTime() > now.getTime() ? company.trialEndsAt : now;
+      trialEndsAt = this.addDays(base, Math.trunc(days));
+      auditAction = 'TRIAL_EXTENDED';
+    } else if (action === 'reactivate') {
+      trialStartsAt = now;
+      trialEndsAt = this.addDays(now, Math.trunc(days));
+      auditAction = 'TRIAL_REACTIVATED';
+    } else {
+      trialStartsAt = now;
+      trialEndsAt = this.addDays(now, Math.trunc(days));
+      auditAction = 'TRIAL_GRANTED';
+    }
+
     await this.prisma.$transaction([
       this.prisma.company.update({
         where: { id: companyId },
@@ -627,7 +1691,33 @@ export class ModulesService implements OnModuleInit {
       this.prisma.companyModule.updateMany({ where: { companyId }, data: { enabled: true } }),
     ]);
 
-    return { ok: true, companyId, trialStartsAt, trialEndsAt };
+    await this.masterContextService.registerSupportAction({
+      masterUserId,
+      companyId,
+      scope: 'master_trial',
+      action: auditAction,
+      metadata: {
+        reason,
+        days: Math.trunc(days),
+        trialStartsAt: trialStartsAt.toISOString(),
+        trialEndsAt: trialEndsAt.toISOString(),
+      },
+    });
+
+    return {
+      ok: true,
+      companyId,
+      action,
+      trialStartsAt: trialStartsAt.toISOString(),
+      trialEndsAt: trialEndsAt.toISOString(),
+    };
+  }
+
+  async grantTrial(masterUserId: number, companyId: number, days = 30) {
+    return this.manageTrialByMaster(masterUserId, companyId, {
+      action: 'grant',
+      days,
+    });
   }
 
   async setPaymentStatus(masterUserId: number, companyId: number, paymentStatus: string) {
@@ -665,9 +1755,153 @@ export class ModulesService implements OnModuleInit {
 
     if (!isActive) {
       await this.prisma.companyModule.updateMany({ where: { companyId }, data: { enabled: false } });
+    } else {
+      await this.prisma.companyModule.updateMany({ where: { companyId }, data: { enabled: true } });
     }
 
+    await this.masterContextService.registerSupportAction({
+      masterUserId,
+      companyId,
+      scope: 'master_billing',
+      action: 'PAYMENT_STATUS_UPDATED',
+      metadata: {
+        paymentStatus: normalized,
+        subscriptionStatus,
+        isActive,
+      },
+    });
+
     return { ok: true, companyId, paymentStatus: normalized, subscriptionStatus, isActive };
+  }
+
+  async recordManualPayment(
+    masterUserId: number,
+    companyId: number,
+    input: {
+      value?: number;
+      competence?: string;
+      paidAt?: string;
+      dueDate?: string;
+      paymentMethod?: string;
+      observation?: string;
+      settlePending?: boolean;
+      generateAudit?: boolean;
+    },
+  ) {
+    await this.assertMasterUser(masterUserId);
+    await ensureMasterBillingRuntimeSchema(this.prisma);
+
+    const company = await this.prisma.company.findUnique({
+      where: { id: companyId },
+      include: {
+        plan: {
+          select: {
+            id: true,
+            name: true,
+            price: true,
+          },
+        },
+      },
+    });
+    if (!company) throw new BadRequestException('Empresa nao encontrada');
+
+    const value = this.normalizeCurrencyAmount(input?.value || 0);
+    if (value <= 0) throw new BadRequestException('Informe um valor maior que zero.');
+
+    const paidAt = this.parseDateValue(input?.paidAt) || new Date();
+    const dueDate = this.parseDateValue(input?.dueDate);
+    const paymentMethod = String(input?.paymentMethod || company.paymentMethod || 'MANUAL')
+      .trim()
+      .toUpperCase();
+    const competence =
+      this.normalizeOptionalString(input?.competence) || this.monthKey(paidAt);
+    const observation = this.normalizeOptionalString(input?.observation);
+    const settlePending = input?.settlePending !== false;
+    const previousSubscriptionStatus = String(company.subscriptionStatus || '').trim().toLowerCase();
+
+    await this.insertBillingLedgerEntry({
+      companyId,
+      createdByUserId: masterUserId,
+      entryType:
+        paymentMethod === 'PIX'
+          ? 'PIX_MANUAL'
+          : paymentMethod === 'TRANSFERENCIA'
+            ? 'TRANSFERENCIA_MANUAL'
+            : paymentMethod === 'DINHEIRO'
+              ? 'DINHEIRO_MANUAL'
+              : 'MANUAL_PAYMENT',
+      entryGroup: 'revenue',
+      status: 'APPROVED',
+      origin: 'master_manual_payment',
+      competence,
+      amount: value,
+      dueDate,
+      paidAt,
+      paymentMethod,
+      observation,
+      referenceLabel: company.plan?.name || 'Mensalidade SaaS',
+      metadata: {
+        settlePending,
+        previousPaymentStatus: company.paymentStatus,
+      },
+    });
+
+    if (settlePending) {
+      await this.prisma.company.update({
+        where: { id: companyId },
+        data: {
+          paymentStatus: 'PAID',
+          subscriptionStatus: 'active',
+          premiumAccess: true,
+          subscriptionCurrentPeriodStart: paidAt,
+          subscriptionCurrentPeriodEnd: this.addDays(paidAt, 30),
+          isActive: true,
+          deactivatedAt: null,
+        },
+      });
+      await this.prisma.companyModule.updateMany({ where: { companyId }, data: { enabled: true } });
+    }
+
+    if (input?.generateAudit !== false) {
+      await this.masterContextService.registerSupportAction({
+        masterUserId,
+        companyId,
+        scope: 'master_billing',
+        action: 'MANUAL_PAYMENT_RECORDED',
+        metadata: {
+          value,
+          competence,
+          paidAt: paidAt.toISOString(),
+          paymentMethod,
+          settlePending,
+          observation,
+        },
+      });
+
+      if (settlePending && previousSubscriptionStatus === 'trialing') {
+        await this.masterContextService.registerSupportAction({
+          masterUserId,
+          companyId,
+          scope: 'master_trial',
+          action: 'TRIAL_CONVERTED',
+          metadata: {
+            value,
+            paidAt: paidAt.toISOString(),
+            paymentMethod,
+          },
+        });
+      }
+    }
+
+    return {
+      ok: true,
+      companyId,
+      value,
+      competence,
+      paidAt: paidAt.toISOString(),
+      paymentMethod,
+      settlePending,
+    };
   }
 
   async updateCompanyProfileByMaster(
@@ -727,6 +1961,22 @@ export class ModulesService implements OnModuleInit {
         contactEmail: this.normalizeOptionalString(dto?.contactEmail),
         contactPhone: this.normalizeOptionalString(dto?.contactPhone),
         taxDocument: this.normalizeOptionalString(dto?.taxDocument),
+        paymentMethod,
+        billingProvider,
+        subscriptionStatus,
+        premiumAccess:
+          typeof dto?.premiumAccess === 'boolean'
+            ? dto.premiumAccess
+            : subscriptionStatus === 'active' || subscriptionStatus === 'trialing',
+      },
+    });
+
+    await this.masterContextService.registerSupportAction({
+      masterUserId,
+      companyId,
+      scope: 'master_company',
+      action: 'COMPANY_PROFILE_UPDATED',
+      metadata: {
         paymentMethod,
         billingProvider,
         subscriptionStatus,

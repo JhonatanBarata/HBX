@@ -1,7 +1,7 @@
 export const dynamic = "force-dynamic";
 
-import MasterClientPage from "./page.client";
+import MasterPremiumPage from "./page.premium";
 
 export default function Page() {
-  return <MasterClientPage />;
+  return <MasterPremiumPage />;
 }
