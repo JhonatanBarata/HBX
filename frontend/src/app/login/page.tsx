@@ -176,7 +176,10 @@ export default function LoginPage() {
   return (
     <main className="min-h-screen flex items-center justify-center p-6 relative overflow-hidden">
       <div className="login-visuals" aria-hidden>
-        <div className="login-drop" />
+        <div className="login-drop login-drop-top" />
+        <div className="login-drop login-drop-bottom" />
+        <div className="login-drop login-drop-left" />
+        <div className="login-drop login-drop-right" />
         <span className="login-meteor" style={{ left: "12%", animationDelay: "120ms" }} />
         <span className="login-meteor" style={{ left: "28%", animationDelay: "420ms" }} />
         <span className="login-meteor" style={{ left: "68%", animationDelay: "220ms" }} />
