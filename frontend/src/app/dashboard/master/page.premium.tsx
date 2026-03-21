@@ -912,9 +912,12 @@ export default function MasterPremiumPage() {
         body: JSON.stringify({ companyId: company.id, reason: `Operacao no master: ${company.name}` }),
       });
       setMessage(`Contexto MASTER aplicado em ${company.name}.`);
-      await loadWorkspace(true);
-      const userPayload = await apiFetch<CurrentUser>("/profile/current-user");
+      const [userPayload] = await Promise.all([
+        apiFetch<CurrentUser>("/profile/current-user"),
+        loadWorkspace(true),
+      ]);
       setCurrentUser(userPayload);
+      window.location.reload();
     } catch (actionError) {
       setError(actionError instanceof Error ? actionError.message : "Falha ao assumir contexto.");
     } finally {
@@ -932,9 +935,12 @@ export default function MasterPremiumPage() {
         body: JSON.stringify({ reason: "Saindo do contexto pela central master" }),
       });
       setMessage("Contexto MASTER encerrado.");
-      const userPayload = await apiFetch<CurrentUser>("/profile/current-user");
+      const [userPayload] = await Promise.all([
+        apiFetch<CurrentUser>("/profile/current-user"),
+        loadWorkspace(true),
+      ]);
       setCurrentUser(userPayload);
-      await loadWorkspace(true);
+      window.location.reload();
     } catch (actionError) {
       setError(actionError instanceof Error ? actionError.message : "Falha ao sair do contexto.");
     } finally {
