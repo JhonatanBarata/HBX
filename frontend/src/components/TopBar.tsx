@@ -4,6 +4,7 @@ import Link from "next/link";
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { apiFetch, clearToken, getToken } from "../app/dashboard/_lib/api";
+import { useInterfaceTransition } from "@/components/InterfaceTransitionProvider";
 import { useHbxTheme } from "@/components/ThemeProvider";
 import ThemeSwitcher from "./ThemeSwitcher";
 import TechAssistantGlobalDrawer from "./TechAssistantGlobalDrawer";
@@ -123,6 +124,7 @@ export default function TopBar() {
   const pathname = usePathname();
   const topbarFrameRef = useRef<HTMLDivElement | null>(null);
   const userMenuRef = useRef<HTMLDivElement | null>(null);
+  const { isShuttingDown, runGlobalShutdown } = useInterfaceTransition();
   const { setStorageUserId } = useHbxTheme();
 
   const [authenticated, setAuthenticated] = useState(false);
@@ -589,11 +591,13 @@ export default function TopBar() {
     };
   }, [authenticated, incomingPopup, open, pathname]);
 
-  function handleLogout() {
-    clearToken();
-    setAuthenticated(false);
-    setUser(null);
-    router.push("/login");
+  async function handleLogout() {
+    await runGlobalShutdown(async () => {
+      clearToken();
+      setAuthenticated(false);
+      setUser(null);
+      router.push("/login");
+    });
   }
 
   function clearQueueBadge(
@@ -929,8 +933,15 @@ export default function TopBar() {
             ) : null}
 
             {authenticated ? (
-              <button type="button" onClick={handleLogout} className="btn btn-secondary btn-sm">
-                Sair
+              <button
+                type="button"
+                onClick={() => {
+                  void handleLogout();
+                }}
+                className="btn btn-secondary btn-sm"
+                disabled={isShuttingDown}
+              >
+                {isShuttingDown ? "Saindo..." : "Sair"}
               </button>
             ) : (
               <Link href="/login" className="btn btn-secondary btn-sm">

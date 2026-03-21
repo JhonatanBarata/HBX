@@ -11,7 +11,7 @@
 }
 
 .messageGrid {
-  grid-template-columns: minmax(300px, 0.76fr) minmax(0, 1.12fr) minmax(280px, 0.74fr);
+  grid-template-columns: minmax(300px, 0.9fr) minmax(0, 1.1fr);
   align-items: start;
 }
 

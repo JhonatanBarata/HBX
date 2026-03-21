@@ -68,6 +68,8 @@
   --hairline: rgba(15, 23, 42, 0.06);
   --motion-fast: 140ms cubic-bezier(0.2, 0.9, 0.2, 1);
   --motion-base: 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  --ui-reveal-step: 46ms;
+  --ui-exit-step: 22ms;
 }
 
 html,
@@ -176,10 +178,42 @@ textarea {
   color: var(--foreground);
 }
 
+.ui-orchestrator {
+  position: relative;
+  min-height: 100vh;
+}
+
+.ui-orchestrator[data-ui-phase="shutdown"] {
+  pointer-events: none;
+}
+
 .route-transition {
   position: relative;
   z-index: 1;
-  animation: route-enter 260ms var(--motion-base);
+}
+
+.ui-orchestrator [data-ui-reveal="true"] {
+  --ui-reveal-order: 0;
+  --ui-reveal-exit-order: 0;
+  transform-origin: right center;
+  backface-visibility: hidden;
+  will-change: transform, opacity, filter;
+}
+
+.ui-orchestrator[data-ui-phase="boot"] [data-ui-reveal="true"] {
+  opacity: 0;
+  transform: translate3d(44px, 0, 0) scale(0.985);
+  filter: blur(10px) saturate(0.92);
+}
+
+.ui-orchestrator[data-ui-phase="active"] [data-ui-reveal="true"] {
+  animation: ui-reveal-in 640ms cubic-bezier(0.18, 0.84, 0.22, 1) both;
+  animation-delay: calc(var(--ui-reveal-order) * var(--ui-reveal-step));
+}
+
+.ui-orchestrator[data-ui-phase="shutdown"] [data-ui-reveal="true"] {
+  animation: ui-reveal-out 380ms cubic-bezier(0.4, 0, 0.75, 0.2) both;
+  animation-delay: calc(var(--ui-reveal-exit-order) * var(--ui-exit-step));
 }
 
 @keyframes route-enter {
@@ -191,6 +225,38 @@ textarea {
   to {
     opacity: 1;
     transform: translateY(0);
+  }
+}
+
+@keyframes ui-reveal-in {
+  0% {
+    opacity: 0;
+    transform: translate3d(44px, 0, 0) scale(0.985);
+    filter: blur(10px) saturate(0.92);
+  }
+
+  62% {
+    opacity: 1;
+  }
+
+  100% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+    filter: blur(0) saturate(1);
+  }
+}
+
+@keyframes ui-reveal-out {
+  0% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+    filter: blur(0) saturate(1);
+  }
+
+  100% {
+    opacity: 0;
+    transform: translate3d(38px, 0, 0) scale(0.96);
+    filter: blur(9px) saturate(0.76) brightness(0.92);
   }
 }
 
@@ -1397,6 +1463,22 @@ html[data-theme="tabler"] .workspace-context {
   html[data-theme="mosaic"] .workspace-shell,
   html[data-theme="tabler"] .workspace-shell {
     grid-template-columns: minmax(250px, var(--workspace-rail-width)) minmax(0, 1fr);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .route-transition,
+  .ui-orchestrator [data-ui-reveal="true"] {
+    animation: none !important;
+    transition: none !important;
+  }
+
+  .ui-orchestrator[data-ui-phase="boot"] [data-ui-reveal="true"],
+  .ui-orchestrator[data-ui-phase="active"] [data-ui-reveal="true"],
+  .ui-orchestrator[data-ui-phase="shutdown"] [data-ui-reveal="true"] {
+    opacity: 1 !important;
+    transform: none !important;
+    filter: none !important;
   }
 }
 

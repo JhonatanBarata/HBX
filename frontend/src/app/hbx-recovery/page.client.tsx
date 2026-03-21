@@ -4537,7 +4537,10 @@ export default function HbxRecoveryClientPage() {
   const visibleInteractionMessages = useMemo(() => {
     const base = interactionDetail?.messages || [];
     if (showSystemMessages) return base;
-    return base.filter((message) => !isLowSignalInteractionMessage(message));
+    return base.filter((message) => {
+      const messageType = String(message.messageType || "").trim().toLowerCase();
+      return messageType !== "system_event";
+    });
   }, [interactionDetail?.messages, showSystemMessages]);
 
   const interactionMessageListRef = useRef<HTMLDivElement | null>(null);

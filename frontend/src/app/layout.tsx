@@ -7,6 +7,7 @@ import {
   Space_Grotesk,
 } from "next/font/google";
 import "./globals.css";
+import { InterfaceTransitionProvider } from "../components/InterfaceTransitionProvider";
 import PageTransition from "../components/PageTransition";
 import TopBar from "../components/TopBar";
 import { ThemeProvider } from "../components/ThemeProvider";
@@ -55,8 +56,10 @@ export default function RootLayout({
         className={`${manrope.variable} ${plusJakartaSans.variable} ${sora.variable} ${spaceGrotesk.variable} ${ibmPlexMono.variable} antialiased app-root`}
       >
         <ThemeProvider>
-          <TopBar />
-          <PageTransition>{children}</PageTransition>
+          <InterfaceTransitionProvider>
+            <TopBar />
+            <PageTransition>{children}</PageTransition>
+          </InterfaceTransitionProvider>
         </ThemeProvider>
       </body>
     </html>

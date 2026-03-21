@@ -174,6 +174,7 @@ export default function ModuleNav() {
             key={item.href}
             href={item.href}
             className={active ? styles.moduleCardActive : styles.moduleCard}
+            data-ui-slot="module-card"
             aria-current={active ? "page" : undefined}
           >
             <span className={styles.moduleCardBadge}>{item.shortLabel}</span>
