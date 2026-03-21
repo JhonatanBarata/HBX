@@ -228,6 +228,12 @@ export function InterfaceTransitionProvider({ children }: { children: React.Reac
           <div className="ui-shutdown-overlay" aria-hidden="true">
             <div className="ui-shutdown-overlay__content">
               <p className="ui-shutdown-overlay__eyebrow">HBX Solutions</p>
+              <div className="shutdown-confetti" aria-hidden>
+                {Array.from({ length: 26 }).map((_, i) => (
+                  <span key={i} className="shutdown-confetti__piece" style={{ ['--i' as any]: i }} />
+                ))}
+              </div>
+
               <strong className="ui-shutdown-overlay__title">
                 OBRIGADO POR SER CLIENTE HBX
               </strong>
