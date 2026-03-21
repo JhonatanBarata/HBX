@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { apiFetch, clearToken, getToken } from "../app/dashboard/_lib/api";
 import { useHbxTheme } from "@/components/ThemeProvider";
@@ -562,7 +562,7 @@ export default function TopBar() {
     };
   }, []);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const root = document.documentElement;
     const topbar = document.querySelector(".app-topbar");
     if (!root || !topbar) return;
