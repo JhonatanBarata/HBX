@@ -3,9 +3,10 @@
 import React from "react";
 import { usePathname } from "next/navigation";
 
-const ENTER_READY_DELAY_MS = 34;
-const EXIT_DURATION_MS = 2200; // extended to allow assemble->explode->disperse animation
+const ENTER_READY_DELAY_MS = 24;
+const EXIT_DURATION_MS = 1500;
 const ROW_SNAP_PX = 18;
+const SHUTDOWN_PARTICLE_COUNT = 72;
 
 const REVEAL_TARGET_SELECTOR = [
   ".app-topbar__summary",
@@ -48,6 +49,10 @@ type RevealCandidate = {
   left: number;
   right: number;
   index: number;
+};
+
+type CSSVarStyle = React.CSSProperties & {
+  "--i"?: number;
 };
 
 const InterfaceTransitionContext = React.createContext<InterfaceTransitionContextValue | null>(null);
@@ -224,19 +229,40 @@ export function InterfaceTransitionProvider({ children }: { children: React.Reac
     <InterfaceTransitionContext.Provider value={value}>
       <div ref={rootRef} className="ui-orchestrator" data-ui-phase={phase}>
         {children}
+
         {phase === "shutdown" ? (
           <div className="ui-shutdown-overlay" aria-hidden="true">
-            <div className="ui-shutdown-overlay__content">
-              <p className="ui-shutdown-overlay__eyebrow">HBX Solutions</p>
-              <div className="shutdown-confetti" aria-hidden>
-                {Array.from({ length: 100 }).map((_, i) => (
-                  <span key={i} className="shutdown-confetti__piece" style={{ ['--i' as any]: i }} />
-                ))}
+            <div className="ui-shutdown-overlay__backdrop" />
+            <div className="ui-shutdown-overlay__glow ui-shutdown-overlay__glow--1" />
+            <div className="ui-shutdown-overlay__glow ui-shutdown-overlay__glow--2" />
+
+            <div className="ui-shutdown-card">
+              <div className="ui-shutdown-card__badge">
+                <span className="ui-shutdown-card__dot" />
+                Encerrando sessão com segurança
               </div>
 
-              <strong className="ui-shutdown-overlay__title">
-                OBRIGADO POR SER CLIENTE HBX
-              </strong>
+              <div className="ui-shutdown-card__brand">HBX Solutions</div>
+
+              <h2 className="ui-shutdown-card__title">Até já.</h2>
+
+              <p className="ui-shutdown-card__text">
+                Obrigado por usar o sistema HBX. Estamos finalizando a transição da interface.
+              </p>
+
+              <div className="ui-shutdown-card__progress">
+                <span className="ui-shutdown-card__progressBar" />
+              </div>
+
+              <div className="shutdown-confetti" aria-hidden>
+                {Array.from({ length: SHUTDOWN_PARTICLE_COUNT }).map((_, i) => (
+                  <span
+                    key={i}
+                    className="shutdown-confetti__piece"
+                    style={{ "--i": i } as CSSVarStyle}
+                  />
+                ))}
+              </div>
             </div>
           </div>
         ) : null}

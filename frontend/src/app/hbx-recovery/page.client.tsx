@@ -1814,6 +1814,7 @@ export default function HbxRecoveryClientPage() {
     if (!selectedStartTemplate) return null;
     const view = getTemplateViewModel(selectedStartTemplate);
     return {
+      id: "template_start",
       title: `${selectedStartTemplate.name} (${selectedStartTemplate.language})`,
       description: "Template inicial fixo aprovado na Meta antes das etapas livres do builder.",
       body: view.bodyText
@@ -1826,6 +1827,35 @@ export default function HbxRecoveryClientPage() {
       tone: selectedStartTemplateIssues.length > 0 ? "warning" : "ready",
     };
   }, [previewTemplateSamples, selectedStartTemplate, selectedStartTemplateIssues.length]);
+  const botStudioTemplateOptions = useMemo(
+    () =>
+      botEditorStartTemplates.map((template) => {
+        const templateRecord =
+          metaTemplates.templates.find(
+            (item) =>
+              item.name.toLowerCase() === template.name.toLowerCase() &&
+              item.language.toLowerCase() === template.language.toLowerCase(),
+          ) || null;
+        const templateIssues = getRecoveryStartTemplateIssues(templateRecord);
+        const selected = Boolean(
+          botConfig.startTemplates.find(
+            (item) =>
+              item.active &&
+              item.name === template.name &&
+              item.language === template.language,
+          ),
+        );
+        return {
+          id: `${template.name}::${template.language}`,
+          title: template.name,
+          subtitle: template.language,
+          selected,
+          ready: templateIssues.length === 0,
+          issues: templateIssues,
+        };
+      }),
+    [botConfig.startTemplates, botEditorStartTemplates, metaTemplates.templates],
+  );
   const recoveryChartSeries = useMemo(
     () => buildRecoveryChartSeries(customerSource, 6),
     [customerSource],
@@ -7478,9 +7508,9 @@ export default function HbxRecoveryClientPage() {
           <div className={styles.sectionHeader}>
             <div>
               <p className={styles.sectionEyebrow}>WhatsApp interativo</p>
-              <h2 className={styles.sectionTitle}>Editor do bot por etapas</h2>
+              <h2 className={styles.sectionTitle}>Builder visual do bot</h2>
               <p className={styles.sectionDescription}>
-                Aqui voce enxerga exatamente o que o cliente recebe em cada etapa e pode editar tudo: template inicial, mensagens e botoes.
+                Fluxo completo, template inicial como primeiro no, preview navegavel e bibliotecas separadas sem configuracao legada brigando com a experiencia.
               </p>
             </div>
             <button
@@ -7497,182 +7527,18 @@ export default function HbxRecoveryClientPage() {
             <div className={styles.flowEmpty}>Carregando editor do bot...</div>
           ) : (
             <div className={styles.botFlowLayout}>
-              <article className={styles.botStepCard}>
-                <div className={styles.botStepHeader}>
-                  <div>
-                    <h4>Etapas operacionais</h4>
-                    <p>Reordene, ajuste e crie novas etapas da cadencia oficial do Recovery sem perder persistencia.</p>
-                  </div>
-                  <button type="button" className="btn btn-secondary btn-sm" onClick={createFlowStage} disabled={creatingFlowStage}>
-                    {creatingFlowStage ? "Criando..." : "Nova etapa"}
-                  </button>
-                </div>
-                {loadingFlowStages ? (
-                  <div className={styles.flowEmpty}>Carregando etapas...</div>
-                ) : (
-                  <div className={styles.flowStageList}>
-                    {flowStages.map((stage, index) => (
-                      <div key={stage.id} className={styles.flowStageRow}>
-                        <div className={styles.flowStageEditor}>
-                          <label className={styles.fieldBlock}>
-                            <span>Titulo</span>
-                            <input
-                              className="field"
-                              value={stage.title}
-                              onChange={(event) => updateFlowStageDraft(stage.id, "title", event.target.value)}
-                            />
-                          </label>
-                          <div className={styles.flowStageGrid}>
-                            <label className={styles.fieldBlock}>
-                              <span>Canal</span>
-                              <input
-                                className="field"
-                                value={stage.channel}
-                                onChange={(event) => updateFlowStageDraft(stage.id, "channel", event.target.value)}
-                              />
-                            </label>
-                            <label className={styles.fieldBlock}>
-                              <span>Dias apos</span>
-                              <input
-                                className="field"
-                                type="number"
-                                min={0}
-                                max={365}
-                                value={stage.daysAfter}
-                                onChange={(event) =>
-                                  updateFlowStageDraft(stage.id, "daysAfter", Number(event.target.value || 0))
-                                }
-                              />
-                            </label>
-                            <label className={styles.flowStageToggle}>
-                              <input
-                                type="checkbox"
-                                checked={stage.enabled}
-                                onChange={(event) => updateFlowStageDraft(stage.id, "enabled", event.target.checked)}
-                              />
-                              <span>{stage.enabled ? "Etapa ativa" : "Etapa pausada"}</span>
-                            </label>
-                          </div>
-                          <label className={styles.fieldBlock}>
-                            <span>Template operacional</span>
-                            <textarea
-                              className="field"
-                              value={stage.template}
-                              onChange={(event) => updateFlowStageDraft(stage.id, "template", event.target.value)}
-                            />
-                          </label>
-                        </div>
-                        <div className={styles.flowStageActions}>
-                          <button
-                            type="button"
-                            className="btn btn-secondary btn-sm"
-                            onClick={() => moveFlowStage(stage.id, "up")}
-                            disabled={index === 0 || movingFlowStageId === stage.id}
-                          >
-                            Subir
-                          </button>
-                          <button
-                            type="button"
-                            className="btn btn-secondary btn-sm"
-                            onClick={() => moveFlowStage(stage.id, "down")}
-                            disabled={index === flowStages.length - 1 || movingFlowStageId === stage.id}
-                          >
-                            Descer
-                          </button>
-                          <button
-                            type="button"
-                            className="btn btn-primary btn-sm"
-                            onClick={() => saveFlowStage(stage.id)}
-                            disabled={savingFlowStageId === stage.id}
-                          >
-                            {savingFlowStageId === stage.id ? "Salvando..." : "Salvar"}
-                          </button>
-                          <button
-                            type="button"
-                            className="btn btn-danger btn-sm"
-                            onClick={() => deleteFlowStage(stage.id)}
-                            disabled={deletingFlowStageId === stage.id || flowStages.length <= 1}
-                          >
-                            {deletingFlowStageId === stage.id ? "Removendo..." : "Remover"}
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </article>
-
-              <article className={styles.botStepCard}>
-                <div className={styles.botStepHeader}>
-                  <div>
-                    <h4>Template inicial do builder</h4>
-                    <p>Selecione o template Meta que abre a conversa antes dos blocos visuais do fluxo.</p>
-                  </div>
-                </div>
-
-                {botEditorStartTemplates.length === 0 ? (
-                  <div className="alert alert-error">
-                    Nenhum template ativo no HBX e aprovado na Meta apareceu no editor.
-                  </div>
-                ) : (
-                  <div className={styles.templateList}>
-                    {botEditorStartTemplates.map((template) => {
-                      const templateRecord =
-                        metaTemplates.templates.find(
-                          (item) =>
-                            item.name.toLowerCase() === template.name.toLowerCase() &&
-                            item.language.toLowerCase() === template.language.toLowerCase(),
-                        ) || null;
-                      const templateIssues = getRecoveryStartTemplateIssues(templateRecord);
-                      const isSelected = Boolean(
-                        botConfig.startTemplates.find(
-                          (item) =>
-                            item.active &&
-                            item.name === template.name &&
-                            item.language === template.language,
-                        ),
-                      );
-
-                      return (
-                        <div key={`${template.name}-${template.language}`} className={styles.templateRow}>
-                          <label className={styles.templateActive}>
-                            <input
-                              type="radio"
-                              name="active-recovery-template"
-                              checked={isSelected}
-                              onChange={() => setActiveStartTemplate(template.name, template.language)}
-                            />
-                            <span>Entrada fixa</span>
-                          </label>
-                          <label className={styles.fieldBlock}>
-                            <span>Nome do template</span>
-                            <input className="field" value={template.name} disabled />
-                          </label>
-                          <label className={styles.fieldBlock}>
-                            <span>Idioma</span>
-                            <input className="field" value={template.language} disabled />
-                          </label>
-                          <div className={styles.interactionBadgeRow}>
-                            <span className={`${styles.stateBadge} ${styles.statePaid}`}>HBX ativo</span>
-                            <span className={`${styles.stateBadge} ${styles.statePaid}`}>Meta aprovado</span>
-                            <span className={`${styles.stateBadge} ${templateIssues.length === 0 ? styles.stateBot : styles.stateWaiting}`}>
-                              {templateIssues.length === 0 ? "Pronto" : "Revisar"}
-                            </span>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </article>
-
               <RecoveryBotStudio
                 botConfig={botConfig}
                 loadingBotConfig={loadingBotConfig}
                 savingBotConfig={savingBotConfig}
                 botActionOptions={botActionOptions}
                 templateStart={botStudioTemplateStart}
+                templateOptions={botStudioTemplateOptions}
                 startTemplateReady={selectedStartTemplateIssues.length === 0}
+                onSelectTemplateOption={(templateId) => {
+                  const [name, language] = templateId.split("::");
+                  void setActiveStartTemplate(name || "", language || "pt_BR");
+                }}
                 onSave={saveBotConfig}
                 onBotTextChange={handleBotTextChange}
                 onAppendVariable={appendVariableToTextField}

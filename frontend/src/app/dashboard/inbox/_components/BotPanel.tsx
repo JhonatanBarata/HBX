@@ -174,6 +174,24 @@ function renderPreviewText(message: string, botConfig: AtendimentoBotConfig) {
   });
 }
 
+function resolveAtendimentoNextNode(actionId: string) {
+  switch (actionId) {
+    case "talk_human":
+      return "humanAckMessage";
+    case "close_topic":
+      return "closeTopicMessage";
+    case "show_main_menu":
+      return "mainMenuPrompt";
+    case "enter_recovery":
+      return "recoveryDetectedMessage";
+    case "start_quick_registration":
+      return "registrationCapture";
+    default:
+      if (actionId.startsWith("agenda:")) return "agendaDispatch";
+      return "postActionPrompt";
+  }
+}
+
 export default function BotPanel({
   botConfig,
   loadingBot,
@@ -191,16 +209,16 @@ export default function BotPanel({
   onAddCustomAction,
   onRemoveCustomAction,
 }: BotPanelProps) {
-  const [selectedScenarioId, setSelectedScenarioId] = useState<BotTextField>("welcomeMessage");
+  const [selectedScenarioId, setSelectedScenarioId] = useState<string>("entry_gate");
 
   const selectedScenario =
-    BOT_SCENARIOS.find((scenario) => scenario.id === selectedScenarioId) || BOT_SCENARIOS[0];
+    BOT_SCENARIOS.find((scenario) => scenario.id === selectedScenarioId) || null;
   const selectedButtons =
-    selectedScenario.supportsButtons && selectedScenario.buttonSection
+    selectedScenario?.supportsButtons && selectedScenario.buttonSection
       ? botConfig[selectedScenario.buttonSection]
       : [];
   const messageType =
-    selectedScenario.supportsButtons && selectedButtons.length > 0 ? "buttons" : "simple";
+    selectedScenario?.supportsButtons && selectedButtons.length > 0 ? "buttons" : "simple";
 
   const actionById = useMemo(() => {
     const next: Record<string, { actionId: string; title: string; description: string; routeLabel: string; typeLabel: string; enabled: boolean }> = {};
@@ -231,29 +249,137 @@ export default function BotPanel({
   const studioVariables = useMemo(
     () =>
       botConfig.variableCatalog
-        .filter((item) => selectedScenario.scopes.includes(item.scope) || item.scope === "shared")
+        .filter((item) => !selectedScenario || selectedScenario.scopes.includes(item.scope) || item.scope === "shared")
         .map((item) => ({
           key: item.key,
           label: item.label,
           example: item.example,
           scopeLabel: VARIABLE_SCOPE_LABELS[item.scope],
+          categoryLabel:
+            item.key === "empresa"
+              ? "Empresa"
+              : item.key === "cliente"
+                ? "Cliente"
+                : item.scope === "recovery"
+                  ? "Recovery"
+                  : item.scope === "atendimento"
+                    ? "Atendimento"
+                    : "Sistema",
+          originLabel:
+            item.scope === "shared"
+              ? "Contexto automatico da empresa logada"
+              : item.scope === "recovery"
+                ? "Parede com Recovery e debitos"
+                : "Dados operacionais do Atendimento",
           required: item.required,
         })),
-    [botConfig.variableCatalog, selectedScenario.scopes],
+    [botConfig.variableCatalog, selectedScenario],
   );
 
   const flowScenarios = useMemo(
-    () =>
-      BOT_SCENARIOS.map((scenario) => ({
+    () => {
+      const positions: Record<string, { x: number; y: number }> = {
+        entry_gate: { x: 40, y: 140 },
+        welcomeMessage: { x: 360, y: 20 },
+        returningCustomerMessage: { x: 360, y: 240 },
+        mainMenuPrompt: { x: 700, y: 20 },
+        recoveryDetectedMessage: { x: 700, y: 240 },
+        postActionPrompt: { x: 1040, y: 20 },
+        registrationCapture: { x: 1040, y: 240 },
+        agendaDispatch: { x: 1380, y: 20 },
+        humanAckMessage: { x: 1380, y: 240 },
+        closeTopicMessage: { x: 1380, y: 440 },
+        blockedMessage: { x: 700, y: 460 },
+      };
+
+      const gateNode = {
+        id: "entry_gate",
+        label: "Entrada do WhatsApp",
+        description: "Primeiro no do Atendimento apos a mensagem inbound do cliente.",
+        badge: "Entrada",
+        nodeKind: "template" as const,
+        supportsButtons: true,
+        editable: false,
+        messageText: "Primeira triagem automatica do Atendimento.",
+        buttons: [
+          {
+            buttonId: "new_customer",
+            actionId: "entry_new_customer",
+            title: "Cliente novo",
+            nextNodeId: "welcomeMessage",
+            nextLabel: "Abrir mensagem para cliente novo",
+          },
+          {
+            buttonId: "returning_customer",
+            actionId: "entry_returning_customer",
+            title: "Cliente recorrente",
+            nextNodeId: "returningCustomerMessage",
+            nextLabel: "Retomar atendimento do cliente recorrente",
+          },
+        ],
+        position: positions.entry_gate,
+        toneLabel: "Entrada automatica do canal",
+      };
+
+      const scenarioNodes = BOT_SCENARIOS.map((scenario) => ({
         id: scenario.id,
         label: scenario.label,
         description: scenario.description,
         badge: scenario.badge,
+        nodeKind:
+          scenario.id === "humanAckMessage"
+            ? ("human_handoff" as const)
+            : scenario.id === "closeTopicMessage"
+              ? ("end" as const)
+              : ("message" as const),
         supportsButtons: scenario.supportsButtons,
+        editable: true,
         messageText: String(botConfig[scenario.id] || ""),
         buttons:
-          scenario.supportsButtons && scenario.buttonSection ? botConfig[scenario.buttonSection] : [],
-      })),
+          scenario.supportsButtons && scenario.buttonSection
+            ? botConfig[scenario.buttonSection].map((button) => ({
+                ...button,
+                nextNodeId: resolveAtendimentoNextNode(String(button.actionId)),
+                nextLabel:
+                  BOT_SCENARIOS.find((item) => item.id === resolveAtendimentoNextNode(String(button.actionId)))
+                    ?.label ||
+                  (String(button.actionId).startsWith("agenda:") ? "Despacho para agenda operacional" : "Destino do fluxo"),
+              }))
+            : [],
+        position: positions[scenario.id] || { x: 0, y: 0 },
+      }));
+
+      const syntheticNodes = [
+        {
+          id: "registrationCapture",
+          label: "Captura de cadastro",
+          description: "Coleta rapida de dados do novo cliente antes de continuar o atendimento.",
+          badge: "Acao",
+          nodeKind: "action" as const,
+          supportsButtons: false,
+          editable: false,
+          messageText: "Acao de cadastro rapido em andamento.",
+          buttons: [],
+          position: positions.registrationCapture,
+          effectLabel: "Salva cadastro inicial e depois devolve o cliente ao fluxo principal.",
+        },
+        {
+          id: "agendaDispatch",
+          label: "Despacho para agenda",
+          description: "Envia o cliente para a agenda operacional selecionada.",
+          badge: "Agenda",
+          nodeKind: "action" as const,
+          supportsButtons: false,
+          editable: false,
+          messageText: "Agenda operacional selecionada.",
+          buttons: [],
+          position: positions.agendaDispatch,
+          effectLabel: "Abre agenda real e registra o grupo selecionado para o atendimento.",
+        },
+      ];
+
+      return [gateNode, ...scenarioNodes, ...syntheticNodes];
+    },
     [botConfig],
   );
 
@@ -264,9 +390,40 @@ export default function BotPanel({
         label: item.label,
         example: item.example,
         scopeLabel: VARIABLE_SCOPE_LABELS[item.scope],
+        categoryLabel:
+          item.key === "empresa"
+            ? "Empresa"
+            : item.key === "cliente"
+              ? "Cliente"
+              : item.scope === "recovery"
+                ? "Recovery"
+                : item.scope === "atendimento"
+                  ? "Atendimento"
+                  : "Sistema",
+        originLabel:
+          item.scope === "shared"
+            ? "Contexto automatico da empresa logada"
+            : item.scope === "recovery"
+              ? "Parede com Recovery e debitos"
+              : "Dados operacionais do Atendimento",
         required: item.required,
       })),
     [botConfig.variableCatalog],
+  );
+
+  const flowEdges = useMemo(
+    () =>
+      flowScenarios.flatMap((scenario) =>
+        scenario.buttons
+          .filter((button) => button.nextNodeId)
+          .map((button) => ({
+            id: `${scenario.id}-${button.buttonId}-${button.nextNodeId}`,
+            from: scenario.id,
+            to: String(button.nextNodeId),
+            label: button.title,
+          })),
+      ),
+    [flowScenarios],
   );
 
   const catalogActions = useMemo(() => {
@@ -320,7 +477,7 @@ export default function BotPanel({
   );
 
   const handleMessageTypeChange = (nextType: "simple" | "buttons") => {
-    if (!selectedScenario.supportsButtons || !selectedScenario.buttonSection) return;
+    if (!selectedScenario?.supportsButtons || !selectedScenario.buttonSection) return;
     if (nextType === "simple") {
       for (let index = selectedButtons.length - 1; index >= 0; index -= 1) {
         onRemoveButtonSection(selectedScenario.buttonSection, index);
@@ -338,8 +495,8 @@ export default function BotPanel({
         <div className={styles.sectionHead}>
           <div>
             <p className={styles.sectionEyebrow}>Editor premium do bot</p>
-            <h3>Mensagens claras, botoes estaveis e preview fiel</h3>
-            <small>Agora o editor trabalha por mensagem: menos ruido visual e mais previsibilidade no backend.</small>
+            <h3>Fluxo visual do Atendimento com nos, arestas e preview real</h3>
+            <small>O builder agora separa fluxo, preview, variaveis e acoes sem parecer um painel administrativo hibrido.</small>
           </div>
           <button type="button" className="btn btn-primary btn-sm" onClick={onSave} disabled={savingBot || loadingBot}>
             {savingBot ? "Salvando..." : "Salvar editor"}
@@ -348,13 +505,18 @@ export default function BotPanel({
 
         <BotMessageStudio
           eyebrow="Atendimento"
-          title={selectedScenario.label}
-          description={selectedScenario.description}
+          title={selectedScenario?.label || "Entrada do WhatsApp"}
+          description={selectedScenario?.description || "Primeiro no do fluxo do Atendimento."}
           flowScenarios={flowScenarios}
-          selectedScenarioId={selectedScenario.id}
-          onSelectScenario={(scenarioId) => setSelectedScenarioId(scenarioId as BotTextField)}
-          messageText={String(botConfig[selectedScenario.id] || "")}
-          onMessageTextChange={(value) => onUpdateBotText(selectedScenario.id, value)}
+          flowEdges={flowEdges}
+          startNodeId="entry_gate"
+          selectedScenarioId={selectedScenarioId}
+          onSelectScenario={(scenarioId) => setSelectedScenarioId(scenarioId)}
+          messageText={selectedScenario ? String(botConfig[selectedScenario.id] || "") : ""}
+          onMessageTextChange={(value) => {
+            if (!selectedScenario) return;
+            onUpdateBotText(selectedScenario.id, value);
+          }}
           messageType={messageType}
           onMessageTypeChange={handleMessageTypeChange}
           buttons={selectedButtons}
@@ -362,23 +524,30 @@ export default function BotPanel({
           actionById={actionById}
           catalogActions={catalogActions}
           onUpdateButton={(index, field, value) => {
-            if (!selectedScenario.buttonSection) return;
+            if (!selectedScenario?.buttonSection) return;
             onUpdateButtonSection(selectedScenario.buttonSection, index, field, value);
           }}
           onAddButton={() => {
-            if (!selectedScenario.buttonSection) return;
+            if (!selectedScenario?.buttonSection) return;
             onAddButtonSection(selectedScenario.buttonSection);
           }}
           onRemoveButton={(index) => {
-            if (!selectedScenario.buttonSection) return;
+            if (!selectedScenario?.buttonSection) return;
             onRemoveButtonSection(selectedScenario.buttonSection, index);
           }}
           variables={studioVariables}
           catalogVariables={catalogVariables}
-          onAppendVariable={(variableKey) => onAppendVariable(selectedScenario.id, variableKey)}
-          previewText={renderPreviewText(String(botConfig[selectedScenario.id] || ""), botConfig)}
+          onAppendVariable={(variableKey) => {
+            if (!selectedScenario) return;
+            onAppendVariable(selectedScenario.id, variableKey);
+          }}
+          previewText={selectedScenario ? renderPreviewText(String(botConfig[selectedScenario.id] || ""), botConfig) : "Entrada inicial do canal."}
           previewFooter="Atendimento"
-          previewFallbackText={buildFallbackText(renderPreviewText(String(botConfig[selectedScenario.id] || ""), botConfig), selectedButtons)}
+          previewFallbackText={
+            selectedScenario
+              ? buildFallbackText(renderPreviewText(String(botConfig[selectedScenario.id] || ""), botConfig), selectedButtons)
+              : "Entrada inicial do canal."
+          }
           previewNote="O fallback textual continua disponivel para canais ou cenarios sem suporte a botoes."
           publicationChecks={publicationChecks}
           publicationTitle="Publicacao do fluxo Atendimento"

@@ -1,7 +1,10 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import BotMessageStudio, { type BotStudioTemplateStart } from "@/components/bot-editor/BotMessageStudio";
+import BotMessageStudio, {
+  type BotStudioTemplateOption,
+  type BotStudioTemplateStart,
+} from "@/components/bot-editor/BotMessageStudio";
 import type {
   RecoveryBotButton,
   RecoveryBotConfig,
@@ -172,13 +175,46 @@ function renderPreviewText(message: string, botConfig: RecoveryBotConfig) {
   });
 }
 
+function resolveRecoveryNextNodeId(actionId: string) {
+  switch (actionId) {
+    case "view_amount":
+      return "valueMessageTemplate";
+    case "choose_installments":
+      return "installmentsPrompt";
+    case "pay_full":
+      return "cashLinkMessageTemplate";
+    case "talk_human":
+      return "humanAckMessage";
+    case "talk_later":
+    case "followup_today":
+    case "followup_tomorrow":
+    case "followup_week":
+      return "followupPrompt";
+    case "installment_2":
+    case "installment_3":
+    case "installment_4":
+    case "installment_5":
+      return "installmentConfirmTemplate";
+    case "generate_installment_link":
+      return "installmentLinkMessageTemplate";
+    case "paid_claim":
+      return "paidClaimMessage";
+    case "close_topic":
+      return "closeTopicMessage";
+    default:
+      return "postLinkPrompt";
+  }
+}
+
 type RecoveryBotStudioProps = {
   botConfig: RecoveryBotConfig;
   loadingBotConfig: boolean;
   savingBotConfig: boolean;
   botActionOptions: ActionOption[];
   templateStart?: BotStudioTemplateStart | null;
+  templateOptions?: BotStudioTemplateOption[];
   startTemplateReady?: boolean;
+  onSelectTemplateOption?: (templateId: string) => void;
   onSave: () => void;
   onBotTextChange: (field: BotTextField, value: string) => void;
   onAppendVariable: (field: BotTextField, variableKey: string) => void;
@@ -211,7 +247,9 @@ export default function RecoveryBotStudio({
   savingBotConfig,
   botActionOptions,
   templateStart,
+  templateOptions = [],
   startTemplateReady = false,
+  onSelectTemplateOption,
   onSave,
   onBotTextChange,
   onAppendVariable,
@@ -224,16 +262,15 @@ export default function RecoveryBotStudio({
   onRemoveCustomActionGuide,
   onUpdateRoutingRule,
 }: RecoveryBotStudioProps) {
-  const [selectedScenarioId, setSelectedScenarioId] = useState<(typeof BOT_SCENARIOS)[number]["id"]>("mainMenuPrompt");
+  const [selectedScenarioId, setSelectedScenarioId] = useState<string>(templateStart?.id || "template_start");
 
-  const selectedScenario =
-    BOT_SCENARIOS.find((scenario) => scenario.id === selectedScenarioId) || BOT_SCENARIOS[0];
+  const selectedScenario = BOT_SCENARIOS.find((scenario) => scenario.id === selectedScenarioId) || null;
   const selectedButtons =
-    selectedScenario.supportsButtons && selectedScenario.buttonSection
+    selectedScenario?.supportsButtons && selectedScenario.buttonSection
       ? botConfig[selectedScenario.buttonSection]
       : [];
   const messageType =
-    selectedScenario.supportsButtons && selectedButtons.length > 0 ? "buttons" : "simple";
+    selectedScenario?.supportsButtons && selectedButtons.length > 0 ? "buttons" : "simple";
 
   const actionById = useMemo(() => {
     const next: Record<string, { actionId: string; title: string; description: string; routeLabel: string; typeLabel: string; enabled: boolean }> = {};
@@ -253,30 +290,125 @@ export default function RecoveryBotStudio({
   const studioVariables = useMemo(
     () =>
       botConfig.variableCatalog
-        .filter((item) => selectedScenario.scopes.includes(item.scope) || item.scope === "shared")
+        .filter((item) => !selectedScenario || selectedScenario.scopes.includes(item.scope) || item.scope === "shared")
         .map((item: RecoveryBotVariableDefinition) => ({
           key: item.key,
           label: item.label,
           example: item.example,
           scopeLabel: BOT_SCOPE_LABELS[item.scope],
+          categoryLabel:
+            item.key === "empresa"
+              ? "Empresa"
+              : item.key === "cliente"
+                ? "Cliente"
+                : item.scope === "recovery"
+                  ? "Recovery"
+                  : item.scope === "atendimento"
+                    ? "Atendimento"
+                    : "Sistema",
+          originLabel:
+            item.scope === "shared"
+              ? "Contexto automatico da empresa logada"
+              : item.scope === "recovery"
+                ? "Dados financeiros do Recovery"
+                : "Dados operacionais do Atendimento",
           required: item.required,
         })),
-    [botConfig.variableCatalog, selectedScenario.scopes],
+    [botConfig.variableCatalog, selectedScenario],
   );
 
   const flowScenarios = useMemo(
-    () =>
-      BOT_SCENARIOS.map((scenario) => ({
+    () => {
+      const positions: Record<string, { x: number; y: number }> = {
+        template_start: { x: 40, y: 120 },
+        mainMenuPrompt: { x: 340, y: 40 },
+        declineMenuPrompt: { x: 340, y: 260 },
+        valueMessageTemplate: { x: 680, y: 0 },
+        followupPrompt: { x: 680, y: 220 },
+        humanAckMessage: { x: 680, y: 440 },
+        installmentsPrompt: { x: 1020, y: 0 },
+        cashLinkMessageTemplate: { x: 1020, y: 220 },
+        paidClaimMessage: { x: 1020, y: 440 },
+        installmentConfirmTemplate: { x: 1360, y: 0 },
+        installmentLinkMessageTemplate: { x: 1360, y: 220 },
+        postLinkPrompt: { x: 1700, y: 120 },
+        closeTopicMessage: { x: 1700, y: 360 },
+      };
+
+      const templateNode = {
+        id: templateStart?.id || "template_start",
+        label: "Template Meta inicial",
+        description: templateStart?.description || "Primeiro no obrigatorio do fluxo Recovery.",
+        badge: templateStart ? "Meta" : "Sem template",
+        nodeKind: "template" as const,
+        supportsButtons: true,
+        editable: false,
+        messageText: templateStart?.body || "Nenhum template inicial ativo.",
+        buttons: [
+          {
+            buttonId: "template_yes",
+            actionId: "enter_recovery_flow",
+            title: templateStart?.buttons?.[0] || "Sim",
+            nextNodeId: "mainMenuPrompt",
+            nextLabel: "Entrar no menu principal do Recovery",
+          },
+          {
+            buttonId: "template_no",
+            actionId: "decline_recovery_flow",
+            title: templateStart?.buttons?.[1] || "Nao, obrigado",
+            nextNodeId: "declineMenuPrompt",
+            nextLabel: "Abrir recusa inicial",
+          },
+        ],
+        position: positions.template_start,
+        toneLabel: templateStart?.tone === "warning" ? "Template requer revisao" : "Template aprovado",
+      };
+
+      const scenarioNodes = BOT_SCENARIOS.map((scenario) => ({
         id: scenario.id,
         label: scenario.label,
         description: scenario.description,
         badge: scenario.badge,
+        nodeKind:
+          scenario.id === "humanAckMessage"
+            ? ("human_handoff" as const)
+            : scenario.id === "closeTopicMessage"
+              ? ("end" as const)
+              : ("message" as const),
         supportsButtons: scenario.supportsButtons,
+        editable: true,
         messageText: String(botConfig[scenario.id] || ""),
         buttons:
-          scenario.supportsButtons && scenario.buttonSection ? botConfig[scenario.buttonSection] : [],
-      })),
-    [botConfig],
+          scenario.supportsButtons && scenario.buttonSection
+            ? botConfig[scenario.buttonSection].map((button) => ({
+                ...button,
+                nextNodeId: resolveRecoveryNextNodeId(String(button.actionId)),
+                nextLabel:
+                  BOT_SCENARIOS.find((item) => item.id === resolveRecoveryNextNodeId(String(button.actionId)))
+                    ?.label || "Destino complementar do fluxo",
+              }))
+            : [],
+        position: positions[scenario.id] || { x: 0, y: 0 },
+      }));
+
+      return [templateNode, ...scenarioNodes];
+    },
+    [botConfig, templateStart],
+  );
+
+  const flowEdges = useMemo(
+    () =>
+      flowScenarios.flatMap((scenario) =>
+        scenario.buttons
+          .filter((button) => button.nextNodeId)
+          .map((button) => ({
+            id: `${scenario.id}-${button.buttonId}-${button.nextNodeId}`,
+            from: scenario.id,
+            to: String(button.nextNodeId),
+            label: button.title,
+          })),
+      ),
+    [flowScenarios],
   );
 
   const catalogVariables = useMemo(
@@ -286,6 +418,22 @@ export default function RecoveryBotStudio({
         label: item.label,
         example: item.example,
         scopeLabel: BOT_SCOPE_LABELS[item.scope],
+        categoryLabel:
+          item.key === "empresa"
+            ? "Empresa"
+            : item.key === "cliente"
+              ? "Cliente"
+              : item.scope === "recovery"
+                ? "Recovery"
+                : item.scope === "atendimento"
+                  ? "Atendimento"
+                  : "Sistema",
+        originLabel:
+          item.scope === "shared"
+            ? "Contexto automatico da empresa logada"
+            : item.scope === "recovery"
+              ? "Dados financeiros do Recovery"
+              : "Dados operacionais do Atendimento",
         required: item.required,
       })),
     [botConfig.variableCatalog],
@@ -335,7 +483,7 @@ export default function RecoveryBotStudio({
   );
 
   const handleMessageTypeChange = (nextType: "simple" | "buttons") => {
-    if (!selectedScenario.supportsButtons || !selectedScenario.buttonSection) return;
+    if (!selectedScenario?.supportsButtons || !selectedScenario.buttonSection) return;
     if (nextType === "simple") {
       for (let index = selectedButtons.length - 1; index >= 0; index -= 1) {
         onRemoveButton(selectedScenario.buttonSection, index);
@@ -352,9 +500,9 @@ export default function RecoveryBotStudio({
       <div className={styles.sectionHeader}>
         <div>
           <p className={styles.sectionEyebrow}>Mensagens do fluxo</p>
-          <h3 className={styles.sectionTitle}>Editor visual do Recovery</h3>
+          <h3 className={styles.sectionTitle}>Builder conversacional do Recovery</h3>
           <p className={styles.sectionDescription}>
-            Edite uma etapa por vez, com botao estavel, preview fiel e separacao clara entre texto, variaveis e acoes.
+            Fluxo completo, template Meta como primeiro no e navegacao visual por ramos reais do cliente.
           </p>
         </div>
         <button type="button" className="btn btn-primary btn-sm" onClick={onSave} disabled={savingBotConfig || loadingBotConfig}>
@@ -364,13 +512,18 @@ export default function RecoveryBotStudio({
 
       <BotMessageStudio
         eyebrow="Recovery"
-        title={selectedScenario.label}
-        description={selectedScenario.description}
+        title={selectedScenario?.label || "Template Meta inicial"}
+        description={selectedScenario?.description || "Primeiro no fixo do fluxo de cobranca."}
         flowScenarios={flowScenarios}
-        selectedScenarioId={selectedScenario.id}
-        onSelectScenario={(scenarioId) => setSelectedScenarioId(scenarioId as (typeof BOT_SCENARIOS)[number]["id"])}
-        messageText={String(botConfig[selectedScenario.id] || "")}
-        onMessageTextChange={(value) => onBotTextChange(selectedScenario.id, value)}
+        flowEdges={flowEdges}
+        startNodeId={templateStart?.id || "template_start"}
+        selectedScenarioId={selectedScenarioId}
+        onSelectScenario={(scenarioId) => setSelectedScenarioId(scenarioId)}
+        messageText={selectedScenario ? String(botConfig[selectedScenario.id] || "") : ""}
+        onMessageTextChange={(value) => {
+          if (!selectedScenario) return;
+          onBotTextChange(selectedScenario.id, value);
+        }}
         messageType={messageType}
         onMessageTypeChange={handleMessageTypeChange}
         buttons={selectedButtons}
@@ -378,25 +531,34 @@ export default function RecoveryBotStudio({
         actionById={actionById}
         catalogActions={catalogActions}
         onUpdateButton={(index, field, value) => {
-          if (!selectedScenario.buttonSection) return;
+          if (!selectedScenario?.buttonSection) return;
           onUpdateButton(selectedScenario.buttonSection, index, field, value);
         }}
         onAddButton={() => {
-          if (!selectedScenario.buttonSection) return;
+          if (!selectedScenario?.buttonSection) return;
           onAddButton(selectedScenario.buttonSection);
         }}
         onRemoveButton={(index) => {
-          if (!selectedScenario.buttonSection) return;
+          if (!selectedScenario?.buttonSection) return;
           onRemoveButton(selectedScenario.buttonSection, index);
         }}
         variables={studioVariables}
         catalogVariables={catalogVariables}
-        onAppendVariable={(variableKey) => onAppendVariable(selectedScenario.id, variableKey)}
-        previewText={renderPreviewText(String(botConfig[selectedScenario.id] || ""), botConfig)}
+        onAppendVariable={(variableKey) => {
+          if (!selectedScenario) return;
+          onAppendVariable(selectedScenario.id, variableKey);
+        }}
+        previewText={selectedScenario ? renderPreviewText(String(botConfig[selectedScenario.id] || ""), botConfig) : templateStart?.body || ""}
         previewFooter={botConfig.rootFooter || "HBX Recovery"}
-        previewFallbackText={buildFallbackText(renderPreviewText(String(botConfig[selectedScenario.id] || ""), botConfig), selectedButtons)}
+        previewFallbackText={
+          selectedScenario
+            ? buildFallbackText(renderPreviewText(String(botConfig[selectedScenario.id] || ""), botConfig), selectedButtons)
+            : templateStart?.body || ""
+        }
         previewNote="O fallback textual tambem fica preparado para canais ou cenarios sem botoes."
         templateStart={templateStart}
+        templateOptions={templateOptions}
+        onSelectTemplateOption={onSelectTemplateOption}
         publicationChecks={publicationChecks}
         publicationTitle="Publicacao do fluxo Recovery"
         publicationDescription="Valide entrada, menu principal e rotas de cobranca antes de salvar este rascunho."

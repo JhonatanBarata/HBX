@@ -308,6 +308,9 @@
   background:
     radial-gradient(circle at top, rgba(255, 255, 255, 0.92), rgba(255, 255, 255, 0.76)),
     linear-gradient(180deg, rgba(244, 249, 251, 0.96), rgba(238, 245, 248, 0.92));
+  grid-template-columns: minmax(0, 1fr) 180px;
+  align-items: start;
+  cursor: grab;
 }
 
 .flowNode {
@@ -386,6 +389,92 @@
 .flowIndexItem span {
   font-size: 0.76rem;
   color: var(--muted);
+}
+
+.canvasViewport {
+  position: relative;
+  min-height: 620px;
+  overflow: hidden;
+  border-radius: 20px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  background:
+    linear-gradient(rgba(203, 213, 225, 0.22) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(203, 213, 225, 0.22) 1px, transparent 1px),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.82), rgba(248, 250, 252, 0.82));
+  background-size: 28px 28px, 28px 28px, auto;
+}
+
+.canvasTransform {
+  position: relative;
+  transform-origin: top left;
+}
+
+.flowSvg {
+  position: absolute;
+  inset: 0;
+  overflow: visible;
+}
+
+.flowEdgePath {
+  fill: none;
+  stroke: color-mix(in srgb, var(--brand) 30%, #94a3b8);
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+
+.flowEdgeLabel {
+  fill: #64748b;
+  font-size: 12px;
+  font-weight: 700;
+  text-anchor: middle;
+}
+
+.flowCanvasNode {
+  position: absolute;
+  width: 248px;
+  text-align: left;
+  padding: 0.95rem 1rem;
+  border-radius: 20px;
+  border: 1px solid color-mix(in srgb, var(--brand) 12%, #dbe7f1);
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 18px 26px rgba(15, 23, 42, 0.08);
+}
+
+.flowCanvasNodeActive {
+  border-color: color-mix(in srgb, var(--brand) 34%, #0f172a);
+  box-shadow: 0 22px 34px rgba(15, 118, 110, 0.16);
+}
+
+.minimap {
+  display: grid;
+  gap: 0.75rem;
+  align-content: start;
+}
+
+.minimap strong {
+  color: #102033;
+}
+
+.minimapFrame {
+  position: relative;
+  min-height: 140px;
+  border-radius: 18px;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  background: rgba(255, 255, 255, 0.82);
+}
+
+.minimapNode {
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: rgba(100, 116, 139, 0.4);
+  transform: translate(-50%, -50%);
+}
+
+.minimapNodeActive {
+  background: color-mix(in srgb, var(--brand) 88%, #0f172a);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--brand) 12%, transparent);
 }
 
 .toggleGrid,
@@ -537,6 +626,11 @@
   align-content: start;
 }
 
+.previewConversationStep {
+  display: grid;
+  gap: 0.75rem;
+}
+
 .previewFallback {
   padding: 0.9rem;
   border-radius: 16px;
@@ -554,6 +648,29 @@
 .extraPanel {
   display: grid;
   gap: 0.9rem;
+}
+
+.variableGroup,
+.readonlyInspector,
+.templateInspector {
+  display: grid;
+  gap: 0.9rem;
+}
+
+.templateOption {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.8rem;
+  padding: 0.9rem;
+  border-radius: 18px;
+  border: 1px solid color-mix(in srgb, var(--brand) 10%, #dbe7f1);
+  background: rgba(255, 255, 255, 0.88);
+}
+
+.templateOptionActive {
+  border-color: color-mix(in srgb, var(--brand) 32%, #102033);
+  box-shadow: 0 16px 28px rgba(15, 118, 110, 0.12);
 }
 
 .statusBadge {
@@ -591,6 +708,10 @@
 
   .tabRow {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .canvasSurface {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 

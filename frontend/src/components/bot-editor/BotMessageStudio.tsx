@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, type ReactNode } from "react";
+import { useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import styles from "./BotMessageStudio.module.css";
 
 export type BotStudioVariable = {
@@ -8,6 +8,8 @@ export type BotStudioVariable = {
   label: string;
   example: string;
   scopeLabel: string;
+  categoryLabel?: string;
+  originLabel?: string;
   required?: boolean;
 };
 
@@ -15,6 +17,8 @@ export type BotStudioButton = {
   buttonId: string;
   actionId: string;
   title: string;
+  nextNodeId?: string;
+  nextLabel?: string;
 };
 
 export type BotStudioAction = {
@@ -31,12 +35,25 @@ export type BotStudioFlowScenario = {
   label: string;
   description: string;
   badge?: string;
+  nodeKind?: "template" | "message" | "action" | "human_handoff" | "end";
   supportsButtons?: boolean;
+  editable?: boolean;
   messageText: string;
   buttons: BotStudioButton[];
+  position?: { x: number; y: number };
+  effectLabel?: string;
+  toneLabel?: string;
+};
+
+export type BotStudioFlowEdge = {
+  id: string;
+  from: string;
+  to: string;
+  label?: string;
 };
 
 export type BotStudioTemplateStart = {
+  id?: string;
   title: string;
   description: string;
   body: string;
@@ -44,6 +61,15 @@ export type BotStudioTemplateStart = {
   buttons?: string[];
   badges?: string[];
   tone?: "ready" | "warning";
+};
+
+export type BotStudioTemplateOption = {
+  id: string;
+  title: string;
+  subtitle?: string;
+  selected?: boolean;
+  ready?: boolean;
+  issues?: string[];
 };
 
 export type BotStudioPublicationCheck = {
@@ -63,6 +89,8 @@ type BotMessageStudioProps = {
   title: string;
   description: string;
   flowScenarios: BotStudioFlowScenario[];
+  flowEdges?: BotStudioFlowEdge[];
+  startNodeId?: string;
   selectedScenarioId: string;
   onSelectScenario: (scenarioId: string) => void;
   messageText: string;
@@ -84,6 +112,8 @@ type BotMessageStudioProps = {
   previewFallbackText: string;
   previewNote?: string | null;
   templateStart?: BotStudioTemplateStart | null;
+  templateOptions?: BotStudioTemplateOption[];
+  onSelectTemplateOption?: (templateId: string) => void;
   publicationChecks?: BotStudioPublicationCheck[];
   publicationTitle?: string;
   publicationDescription?: string;
@@ -109,12 +139,33 @@ function extractVariableKeys(message: string) {
   );
 }
 
+function getNodeKindLabel(kind?: BotStudioFlowScenario["nodeKind"]) {
+  switch (kind) {
+    case "template":
+      return "Template";
+    case "action":
+      return "Acao";
+    case "human_handoff":
+      return "Humano";
+    case "end":
+      return "Encerrar";
+    default:
+      return "Mensagem";
+  }
+}
+
+function isEditableNode(node: BotStudioFlowScenario | null) {
+  return Boolean(node && node.editable !== false && node.nodeKind !== "template" && node.nodeKind !== "action");
+}
+
 export default function BotMessageStudio(props: BotMessageStudioProps) {
   const {
     eyebrow,
     title,
     description,
     flowScenarios,
+    flowEdges = [],
+    startNodeId,
     selectedScenarioId,
     onSelectScenario,
     messageText,
@@ -136,6 +187,8 @@ export default function BotMessageStudio(props: BotMessageStudioProps) {
     previewFallbackText,
     previewNote,
     templateStart,
+    templateOptions = [],
+    onSelectTemplateOption,
     publicationChecks = [],
     publicationTitle = "Publicacao",
     publicationDescription = "Valide se o builder esta legivel, previsivel e pronto para seguir como rascunho confiavel.",
@@ -150,10 +203,25 @@ export default function BotMessageStudio(props: BotMessageStudioProps) {
   } = props;
 
   const [activeTab, setActiveTab] = useState<StudioTab>("flow");
+  const [zoom, setZoom] = useState(1);
+  const [pan, setPan] = useState({ x: 72, y: 48 });
+  const [previewTrail, setPreviewTrail] = useState<string[]>([startNodeId || selectedScenarioId]);
+  const dragStateRef = useRef<{ pointerId: number; x: number; y: number } | null>(null);
 
   const selectedScenario =
     flowScenarios.find((scenario) => scenario.id === selectedScenarioId) || flowScenarios[0] || null;
-  const supportsButtons = selectedScenario?.supportsButtons !== false;
+  const supportsButtons = Boolean(
+    selectedScenario &&
+      selectedScenario.supportsButtons !== false &&
+      selectedScenario.nodeKind !== "template" &&
+      selectedScenario.nodeKind !== "action",
+  );
+  const nodeById = useMemo(
+    () => new Map(flowScenarios.map((scenario, index) => [scenario.id, { ...scenario, position: scenario.position || { x: 320 * index, y: 120 } }])),
+    [flowScenarios],
+  );
+  const selectedNode = nodeById.get(selectedScenarioId) || selectedScenario || null;
+  const startNode = nodeById.get(startNodeId || "") || nodeById.get(templateStart?.id || "") || flowScenarios[0] || null;
 
   const variableUsage = useMemo(() => {
     const entries = catalogVariables.map((variable) => {
@@ -180,14 +248,25 @@ export default function BotMessageStudio(props: BotMessageStudioProps) {
     return next;
   }, [flowScenarios]);
 
+  const graphBounds = useMemo(() => {
+    const points = flowScenarios.map((node, index) => node.position || { x: 320 * index, y: 120 });
+    const xs = points.map((point) => point.x);
+    const ys = points.map((point) => point.y);
+    const minX = Math.min(...xs, 0);
+    const minY = Math.min(...ys, 0);
+    const maxX = Math.max(...xs, 1480) + 280;
+    const maxY = Math.max(...ys, 560) + 180;
+    return { minX, minY, maxX, maxY, width: maxX - minX, height: maxY - minY };
+  }, [flowScenarios]);
+
+  const previewNodeId = previewTrail[previewTrail.length - 1] || startNode?.id || selectedScenarioId;
+  const previewNode = nodeById.get(previewNodeId) || startNode || null;
+  const previewNodeButtons = previewNode?.buttons || [];
+
   const activeQuickInsertKeys = useMemo(() => new Set(variables.map((item) => item.key)), [variables]);
   const publicationReady = publicationChecks.length > 0 && publicationChecks.every((item) => item.ok);
   const computedPublicationStatus =
     publicationStatusLabel || (publicationReady ? "Fluxo pronto para salvar" : "Rascunho com pontos para revisar");
-  const firstPreviewReply =
-    buttons.find((button) => String(button.title || "").trim())?.title ||
-    templateStart?.buttons?.[0] ||
-    "Continuar";
 
   const tabItems: Array<{ id: StudioTab; label: string; helper: string }> = [
     { id: "flow", label: "Fluxo", helper: `${flowScenarios.length} blocos` },
@@ -197,6 +276,39 @@ export default function BotMessageStudio(props: BotMessageStudioProps) {
     { id: "publication", label: "Publicacao", helper: publicationReady ? "Pronto" : "Rascunho" },
   ];
 
+  function handleSelectNode(nodeId: string) {
+    onSelectScenario(nodeId);
+    setPreviewTrail([startNode?.id || nodeId]);
+  }
+
+  function handleCanvasPointerDown(event: ReactPointerEvent<HTMLDivElement>) {
+    if ((event.target as HTMLElement).closest(`.${styles.flowCanvasNode}`)) return;
+    dragStateRef.current = { pointerId: event.pointerId, x: event.clientX, y: event.clientY };
+    (event.currentTarget as HTMLDivElement).setPointerCapture(event.pointerId);
+  }
+
+  function handleCanvasPointerMove(event: ReactPointerEvent<HTMLDivElement>) {
+    if (!dragStateRef.current || dragStateRef.current.pointerId !== event.pointerId) return;
+    const deltaX = event.clientX - dragStateRef.current.x;
+    const deltaY = event.clientY - dragStateRef.current.y;
+    dragStateRef.current = { pointerId: event.pointerId, x: event.clientX, y: event.clientY };
+    setPan((current) => ({ x: current.x + deltaX, y: current.y + deltaY }));
+  }
+
+  function handleCanvasPointerUp(event: ReactPointerEvent<HTMLDivElement>) {
+    if (dragStateRef.current?.pointerId === event.pointerId) {
+      dragStateRef.current = null;
+    }
+    if ((event.currentTarget as HTMLDivElement).hasPointerCapture(event.pointerId)) {
+      (event.currentTarget as HTMLDivElement).releasePointerCapture(event.pointerId);
+    }
+  }
+
+  function handlePreviewAdvance(button: BotStudioButton) {
+    if (!button.nextNodeId || !nodeById.has(button.nextNodeId)) return;
+    setPreviewTrail((current) => [...current, button.nextNodeId as string]);
+  }
+
   function renderFlowTab() {
     return (
       <div className={styles.flowLayout}>
@@ -204,7 +316,7 @@ export default function BotMessageStudio(props: BotMessageStudioProps) {
           <div className={styles.panelHeader}>
             <div>
               <strong>Biblioteca do fluxo</strong>
-              <p>O canvas agora separa entrada, blocos conversacionais e saídas do bot.</p>
+              <p>O builder agora mostra o fluxo inteiro e nao apenas o bloco isolado.</p>
             </div>
           </div>
 
@@ -225,14 +337,15 @@ export default function BotMessageStudio(props: BotMessageStudioProps) {
                 className={`${styles.scenarioItem} ${
                   scenario.id === selectedScenarioId ? styles.scenarioItemActive : ""
                 }`}
-                onClick={() => onSelectScenario(scenario.id)}
+                onClick={() => handleSelectNode(scenario.id)}
               >
                 <div className={styles.scenarioTitleRow}>
                   <strong>{scenario.label}</strong>
-                  {scenario.badge ? <span className={styles.badge}>{scenario.badge}</span> : null}
+                  <span className={styles.badge}>{scenario.badge || getNodeKindLabel(scenario.nodeKind)}</span>
                 </div>
                 <p>{scenario.description}</p>
                 <div className={styles.scenarioMeta}>
+                  <span className={`${styles.badge} ${styles.badgeMuted}`}>{getNodeKindLabel(scenario.nodeKind)}</span>
                   <span className={`${styles.badge} ${styles.badgeMuted}`}>
                     {scenario.buttons.length > 0 ? `${scenario.buttons.length} botoes` : "Sem botoes"}
                   </span>
@@ -248,253 +361,302 @@ export default function BotMessageStudio(props: BotMessageStudioProps) {
         <section className={`${styles.panel} ${styles.canvasPanel}`}>
           <div className={styles.panelHeader}>
             <div>
-              <strong>Organograma do bloco selecionado</strong>
-              <p>O fluxo central mostra entrada, resposta do cliente e o que cada clique dispara.</p>
+              <strong>Canvas completo do fluxo</strong>
+              <p>Leitura ponta a ponta com conexoes reais, no ativo destacado, zoom e navegacao por nos.</p>
             </div>
             <div className={styles.canvasStatus}>
-              <span className={`${styles.badge} ${styles.badgeAccent}`}>Canvas visual</span>
-              <span className={`${styles.badge} ${styles.badgeMuted}`}>{selectedScenario?.label || "Bloco"}</span>
+              <button type="button" className="btn btn-secondary btn-sm" onClick={() => setZoom((current) => Math.max(0.72, Number((current - 0.12).toFixed(2))))}>-</button>
+              <span className={`${styles.badge} ${styles.badgeAccent}`}>{Math.round(zoom * 100)}%</span>
+              <button type="button" className="btn btn-secondary btn-sm" onClick={() => setZoom((current) => Math.min(1.4, Number((current + 0.12).toFixed(2))))}>+</button>
+              <button type="button" className="btn btn-ghost btn-sm" onClick={() => { setZoom(1); setPan({ x: 72, y: 48 }); }}>
+                Resetar vista
+              </button>
             </div>
           </div>
 
-          <div className={styles.canvasSurface}>
-            {templateStart ? (
-              <>
-                <article className={`${styles.flowNode} ${styles.flowNodeTemplate}`}>
-                  <span className={styles.flowNodeEyebrow}>Inicio</span>
-                  <strong>{templateStart.title}</strong>
-                  <p>{templateStart.description}</p>
-                  <div className={styles.nodeBadgeRow}>
-                    {(templateStart.badges || []).map((badge) => (
-                      <span key={`template-badge-${badge}`} className={`${styles.badge} ${styles.badgeMuted}`}>
-                        {badge}
-                      </span>
-                    ))}
-                    <span
-                      className={`${styles.badge} ${
-                        templateStart.tone === "warning" ? styles.badgeWarning : styles.badgeAccent
-                      }`}
-                    >
-                      {templateStart.tone === "warning" ? "Revisar" : "Pronto"}
-                    </span>
-                  </div>
-                </article>
-                <div className={styles.connectorLine} />
-              </>
-            ) : null}
+          <div
+            className={styles.canvasSurface}
+            onPointerDown={handleCanvasPointerDown}
+            onPointerMove={handleCanvasPointerMove}
+            onPointerUp={handleCanvasPointerUp}
+            onPointerCancel={handleCanvasPointerUp}
+          >
+            <div className={styles.canvasViewport}>
+              <div
+                className={styles.canvasTransform}
+                style={{
+                  transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+                  width: graphBounds.width,
+                  height: graphBounds.height,
+                }}
+              >
+                <svg className={styles.flowSvg} viewBox={`0 0 ${graphBounds.width} ${graphBounds.height}`}>
+                  {flowEdges.map((edge) => {
+                    const from = nodeById.get(edge.from);
+                    const to = nodeById.get(edge.to);
+                    if (!from?.position || !to?.position) return null;
+                    const startX = from.position.x + 124 - graphBounds.minX;
+                    const startY = from.position.y + 74 - graphBounds.minY;
+                    const endX = to.position.x + 124 - graphBounds.minX;
+                    const endY = to.position.y + 18 - graphBounds.minY;
+                    const midX = (startX + endX) / 2;
+                    const path = `M ${startX} ${startY} C ${midX} ${startY}, ${midX} ${endY}, ${endX} ${endY}`;
+                    return (
+                      <g key={edge.id}>
+                        <path d={path} className={styles.flowEdgePath} />
+                        {edge.label ? (
+                          <text x={midX} y={(startY + endY) / 2 - 8} className={styles.flowEdgeLabel}>
+                            {edge.label}
+                          </text>
+                        ) : null}
+                      </g>
+                    );
+                  })}
+                </svg>
 
-            <article className={`${styles.flowNode} ${styles.flowNodePrimary}`}>
-              <span className={styles.flowNodeEyebrow}>Bloco selecionado</span>
-              <strong>{selectedScenario?.label || title}</strong>
-              <p>{selectedScenario?.description || description}</p>
-              <div className={styles.nodeBadgeRow}>
-                <span className={`${styles.badge} ${styles.badgeAccent}`}>
-                  {messageType === "buttons" && supportsButtons ? "Mensagem com botoes" : "Mensagem simples"}
-                </span>
-                <span className={`${styles.badge} ${styles.badgeMuted}`}>
-                  {extractVariableKeys(messageText).length} variaveis no texto
-                </span>
-              </div>
-            </article>
-
-            <div className={styles.connectorLine} />
-
-            {supportsButtons && messageType === "buttons" && buttons.length > 0 ? (
-              <div className={styles.branchGrid}>
-                {buttons.map((button) => {
-                  const action = actionById[button.actionId];
+                {flowScenarios.map((node) => {
+                  const position = node.position || { x: 0, y: 0 };
+                  const active = node.id === selectedScenarioId;
                   return (
-                    <div key={`flow-branch-${button.buttonId}`} className={styles.branchLane}>
-                      <article className={`${styles.flowNode} ${styles.flowNodeSecondary}`}>
-                        <span className={styles.flowNodeEyebrow}>Botao</span>
-                        <strong>{button.title || "Botao sem titulo"}</strong>
-                        <p>{button.buttonId || "Sem id interno"}</p>
-                      </article>
-                      <div className={styles.branchConnector} />
-                      <article className={`${styles.flowNode} ${styles.flowNodeAction}`}>
-                        <span className={styles.flowNodeEyebrow}>Destino</span>
-                        <strong>{action?.title || button.actionId}</strong>
-                        <p>{action?.description || "Selecione uma acao valida para esse clique."}</p>
-                        <div className={styles.nodeBadgeRow}>
-                          {action?.typeLabel ? <span className={`${styles.badge} ${styles.badgeAccent}`}>{action.typeLabel}</span> : null}
-                          {action?.routeLabel ? <span className={`${styles.badge} ${styles.badgeMuted}`}>{action.routeLabel}</span> : null}
-                        </div>
-                      </article>
-                    </div>
+                    <button
+                      key={node.id}
+                      type="button"
+                      className={`${styles.flowCanvasNode} ${active ? styles.flowCanvasNodeActive : ""}`}
+                      style={{ left: position.x - graphBounds.minX, top: position.y - graphBounds.minY }}
+                      onClick={() => handleSelectNode(node.id)}
+                    >
+                      <span className={styles.flowNodeEyebrow}>{getNodeKindLabel(node.nodeKind)}</span>
+                      <strong>{node.label}</strong>
+                      <p>{node.description}</p>
+                      <div className={styles.nodeBadgeRow}>
+                        {node.badge ? <span className={styles.badge}>{node.badge}</span> : null}
+                        {node.buttons.length > 0 ? (
+                          <span className={`${styles.badge} ${styles.badgeMuted}`}>{node.buttons.length} saídas</span>
+                        ) : null}
+                      </div>
+                    </button>
                   );
                 })}
               </div>
-            ) : (
-              <article className={`${styles.flowNode} ${styles.flowNodeTerminal}`}>
-                <span className={styles.flowNodeEyebrow}>Saida</span>
-                <strong>Mensagem sem bifurcacao visual</strong>
-                <p>Esse bloco segue como resposta textual simples, sem botao clicavel.</p>
-              </article>
-            )}
-
-            <div className={styles.flowIndex}>
-              <div className={styles.panelHeader}>
-                <div>
-                  <strong>Mapa rapido do modulo</strong>
-                  <p>Os outros blocos continuam acessiveis sem ocupar o centro do canvas.</p>
-                </div>
-              </div>
-              <div className={styles.flowIndexGrid}>
-                {flowScenarios.map((scenario) => (
-                  <button
-                    key={`flow-index-${scenario.id}`}
-                    type="button"
-                    className={`${styles.flowIndexItem} ${
-                      scenario.id === selectedScenarioId ? styles.flowIndexItemActive : ""
-                    }`}
-                    onClick={() => onSelectScenario(scenario.id)}
-                  >
-                    <strong>{scenario.label}</strong>
-                    <span>{scenario.buttons.length > 0 ? `${scenario.buttons.length} botoes` : "Mensagem simples"}</span>
-                  </button>
-                ))}
-              </div>
             </div>
+
+            <aside className={styles.minimap}>
+              <strong>Mini mapa</strong>
+              <div className={styles.minimapFrame}>
+                {flowScenarios.map((node) => {
+                  const position = node.position || { x: 0, y: 0 };
+                  const x = ((position.x - graphBounds.minX) / graphBounds.width) * 100;
+                  const y = ((position.y - graphBounds.minY) / graphBounds.height) * 100;
+                  return (
+                    <span
+                      key={`minimap-${node.id}`}
+                      className={`${styles.minimapNode} ${node.id === selectedScenarioId ? styles.minimapNodeActive : ""}`}
+                      style={{ left: `${x}%`, top: `${y}%` }}
+                    />
+                  );
+                })}
+              </div>
+            </aside>
           </div>
         </section>
 
         <aside className={`${styles.panel} ${styles.inspectorPanel}`}>
           <div className={styles.panelHeader}>
             <div>
-              <strong>Configuracao do bloco</strong>
-              <p>Edicao contextual em vez de um formulario gigante para o fluxo inteiro.</p>
+              <strong>Inspector contextual</strong>
+              <p>So o que importa para o tipo de no selecionado.</p>
             </div>
           </div>
 
           <article className={styles.card}>
             <div className={styles.cardHeader}>
               <div>
-                <strong>Tipo de mensagem</strong>
-                <p>Escolha se esta etapa usa apenas texto ou ramificacoes por botoes.</p>
+                <strong>{selectedNode?.label || "Sem no selecionado"}</strong>
+                <p>{selectedNode?.description || "Selecione um no para editar o fluxo."}</p>
               </div>
-            </div>
-            <div className={styles.toggleGrid}>
-              <button
-                type="button"
-                className={`${styles.toggleCard} ${messageType === "simple" ? styles.toggleCardActive : ""}`}
-                onClick={() => onMessageTypeChange("simple")}
-              >
-                <strong>Simples</strong>
-                <p>Resposta direta sem clique visual.</p>
-              </button>
-              <button
-                type="button"
-                disabled={!supportsButtons}
-                className={`${styles.toggleCard} ${messageType === "buttons" ? styles.toggleCardActive : ""}`}
-                onClick={() => onMessageTypeChange("buttons")}
-              >
-                <strong>Com botoes</strong>
-                <p>Mostra escolhas e aciona rotas estaveis.</p>
-              </button>
-            </div>
-          </article>
-
-          <article className={styles.card}>
-            <div className={styles.cardHeader}>
-              <div>
-                <strong>Mensagem</strong>
-                <p>Texto principal do bloco atual.</p>
-              </div>
-            </div>
-            <textarea
-              className="field"
-              rows={7}
-              value={messageText}
-              onChange={(event) => onMessageTextChange(event.target.value)}
-            />
-            <div className={styles.chipList}>
-              {variables.map((variable) => (
-                <button
-                  key={variable.key}
-                  type="button"
-                  className={styles.chip}
-                  onClick={() => onAppendVariable(variable.key)}
-                >
-                  <strong>{`{{${variable.key}}}`}</strong>
-                  <small>{variable.scopeLabel}</small>
-                </button>
-              ))}
-            </div>
-          </article>
-
-          <article className={styles.card}>
-            <div className={styles.cardHeader}>
-              <div>
-                <strong>Botoes e destinos</strong>
-                <p>Nome visivel, id estavel e acao por clique.</p>
-              </div>
-              {supportsButtons && messageType === "buttons" ? (
-                <button type="button" className="btn btn-secondary btn-sm" onClick={onAddButton}>
-                  Adicionar botao
-                </button>
-              ) : null}
+              <span className={`${styles.badge} ${styles.badgeMuted}`}>{getNodeKindLabel(selectedNode?.nodeKind)}</span>
             </div>
 
-            {!supportsButtons || messageType === "simple" ? (
-              <div className={styles.emptyState}>Esse bloco esta em modo simples.</div>
-            ) : buttons.length ? (
-              <div className={styles.buttonList}>
-                {buttons.map((button, index) => {
-                  const action = actionById[button.actionId];
-                  return (
-                    <div key={`${button.buttonId}-${index}`} className={styles.buttonRow}>
-                      <div className={styles.buttonGrid}>
-                        <label className={styles.fieldBlock}>
-                          <span>Rotulo</span>
-                          <input
-                            className="field"
-                            value={button.title}
-                            onChange={(event) => onUpdateButton(index, "title", event.target.value)}
-                          />
-                        </label>
-                        <label className={styles.fieldBlock}>
-                          <span>ID do botao</span>
-                          <input
-                            className="field"
-                            value={button.buttonId}
-                            onChange={(event) => onUpdateButton(index, "buttonId", event.target.value)}
-                          />
-                        </label>
-                        <label className={styles.fieldBlock}>
-                          <span>Destino</span>
-                          <select
-                            className="field"
-                            value={button.actionId}
-                            onChange={(event) => onUpdateButton(index, "actionId", event.target.value)}
-                          >
-                            {actionOptions.map((option) => (
-                              <option key={option.value} value={option.value}>
-                                {option.label}
-                              </option>
-                            ))}
-                          </select>
-                        </label>
+            {selectedNode?.nodeKind === "template" ? (
+              <div className={styles.templateInspector}>
+                {templateOptions.length > 0 ? (
+                  templateOptions.map((option) => (
+                    <button
+                      key={option.id}
+                      type="button"
+                      className={`${styles.templateOption} ${option.selected ? styles.templateOptionActive : ""}`}
+                      onClick={() => {
+                        onSelectTemplateOption?.(option.id);
+                        setPreviewTrail([startNode?.id || selectedScenarioId]);
+                      }}
+                    >
+                      <div>
+                        <strong>{option.title}</strong>
+                        {option.subtitle ? <p>{option.subtitle}</p> : null}
                       </div>
-                      <div className={styles.buttonMeta}>
-                        <strong>{action?.title || "Acao sem cadastro"}</strong>
-                        <p>{action?.description || "Escolha uma acao valida para este botao."}</p>
+                      <div className={styles.scenarioMeta}>
+                        <span className={`${styles.badge} ${option.ready === false ? styles.badgeWarning : styles.badgeAccent}`}>
+                          {option.ready === false ? "Revisar" : "Pronto"}
+                        </span>
+                        {option.selected ? <span className={styles.badge}>Ativo</span> : null}
                       </div>
-                      <div className={styles.buttonActions}>
-                        <button
-                          type="button"
-                          className="btn btn-danger btn-sm"
-                          onClick={() => onRemoveButton(index)}
-                        >
-                          Remover
-                        </button>
-                      </div>
+                    </button>
+                  ))
+                ) : (
+                  <div className={styles.emptyState}>Nenhum template ativo para ser usado como primeiro no.</div>
+                )}
+              </div>
+            ) : null}
+
+            {isEditableNode(selectedNode) ? (
+              <>
+                <div className={styles.fieldBlock}>
+                  <span>Nome interno</span>
+                  <input className="field" value={selectedNode?.id || ""} disabled />
+                </div>
+                <article className={styles.card}>
+                  <div className={styles.cardHeader}>
+                    <div>
+                      <strong>Tipo de mensagem</strong>
+                      <p>Escolha se esta etapa usa apenas texto ou ramificacoes por botoes.</p>
                     </div>
-                  );
-                })}
+                  </div>
+                  <div className={styles.toggleGrid}>
+                    <button
+                      type="button"
+                      className={`${styles.toggleCard} ${messageType === "simple" ? styles.toggleCardActive : ""}`}
+                      onClick={() => onMessageTypeChange("simple")}
+                    >
+                      <strong>Simples</strong>
+                      <p>Resposta direta sem clique visual.</p>
+                    </button>
+                    <button
+                      type="button"
+                      disabled={!supportsButtons}
+                      className={`${styles.toggleCard} ${messageType === "buttons" ? styles.toggleCardActive : ""}`}
+                      onClick={() => onMessageTypeChange("buttons")}
+                    >
+                      <strong>Com botoes</strong>
+                      <p>Navega por nos estaveis do fluxo.</p>
+                    </button>
+                  </div>
+                </article>
+
+                <div className={styles.fieldBlock}>
+                  <span>Texto</span>
+                  <textarea
+                    className="field"
+                    rows={7}
+                    value={messageText}
+                    onChange={(event) => onMessageTextChange(event.target.value)}
+                  />
+                </div>
+
+                <div className={styles.fieldBlock}>
+                  <span>Variaveis usadas</span>
+                  <div className={styles.chipList}>
+                    {variables.map((variable) => (
+                      <button
+                        key={variable.key}
+                        type="button"
+                        className={styles.chip}
+                        onClick={() => onAppendVariable(variable.key)}
+                      >
+                        <strong>{`{{${variable.key}}}`}</strong>
+                        <small>{variable.scopeLabel}</small>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <article className={styles.card}>
+                  <div className={styles.cardHeader}>
+                    <div>
+                      <strong>Botoes</strong>
+                      <p>Label, id estavel, proximo no e acao complementar.</p>
+                    </div>
+                    {supportsButtons && messageType === "buttons" ? (
+                      <button type="button" className="btn btn-secondary btn-sm" onClick={onAddButton}>
+                        Adicionar botao
+                      </button>
+                    ) : null}
+                  </div>
+
+                  {!supportsButtons || messageType === "simple" ? (
+                    <div className={styles.emptyState}>Esse no esta em modo simples.</div>
+                  ) : buttons.length ? (
+                    <div className={styles.buttonList}>
+                      {buttons.map((button, index) => {
+                        const action = actionById[button.actionId];
+                        return (
+                          <div key={`${button.buttonId}-${index}`} className={styles.buttonRow}>
+                            <div className={styles.buttonGrid}>
+                              <label className={styles.fieldBlock}>
+                                <span>Label</span>
+                                <input
+                                  className="field"
+                                  value={button.title}
+                                  onChange={(event) => onUpdateButton(index, "title", event.target.value)}
+                                />
+                              </label>
+                              <label className={styles.fieldBlock}>
+                                <span>ID</span>
+                                <input
+                                  className="field"
+                                  value={button.buttonId}
+                                  onChange={(event) => onUpdateButton(index, "buttonId", event.target.value)}
+                                />
+                              </label>
+                              <label className={styles.fieldBlock}>
+                                <span>ActionId</span>
+                                <select
+                                  className="field"
+                                  value={button.actionId}
+                                  onChange={(event) => onUpdateButton(index, "actionId", event.target.value)}
+                                >
+                                  {actionOptions.map((option) => (
+                                    <option key={option.value} value={option.value}>
+                                      {option.label}
+                                    </option>
+                                  ))}
+                                </select>
+                              </label>
+                            </div>
+                            <div className={styles.buttonMeta}>
+                              <strong>{button.nextNodeId || "Sem nextNodeId"}</strong>
+                              <p>{button.nextLabel || "Defina um destino visual para esse clique."}</p>
+                              {action ? <p>{`Acao complementar: ${action.title}`}</p> : null}
+                            </div>
+                            <div className={styles.buttonActions}>
+                              <button type="button" className="btn btn-danger btn-sm" onClick={() => onRemoveButton(index)}>
+                                Remover
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className={styles.emptyState}>Nenhum botao configurado neste no ainda.</div>
+                  )}
+                </article>
+              </>
+            ) : selectedNode ? (
+              <div className={styles.readonlyInspector}>
+                <div className={styles.fieldBlock}>
+                  <span>ID tecnico</span>
+                  <input className="field" value={selectedNode.id} disabled />
+                </div>
+                <div className={styles.fieldBlock}>
+                  <span>Efeito esperado</span>
+                  <textarea className="field" rows={4} value={selectedNode.effectLabel || selectedNode.description} disabled />
+                </div>
+                <div className={styles.scenarioMeta}>
+                  {selectedNode.toneLabel ? <span className={styles.badge}>{selectedNode.toneLabel}</span> : null}
+                  {selectedNode.badge ? <span className={`${styles.badge} ${styles.badgeMuted}`}>{selectedNode.badge}</span> : null}
+                </div>
               </div>
-            ) : (
-              <div className={styles.emptyState}>Nenhum botao configurado neste bloco ainda.</div>
-            )}
+            ) : null}
           </article>
         </aside>
       </div>
@@ -508,11 +670,14 @@ export default function BotMessageStudio(props: BotMessageStudioProps) {
           <div className={styles.panelHeader}>
             <div>
               <strong>Preview da conversa</strong>
-              <p>Visual do cliente, sem misturar configuracao tecnica na mesma tela.</p>
+              <p>Simulacao navegavel dos ramos principais do fluxo, com baloes e botões reais.</p>
             </div>
-            <span className={`${styles.badge} ${styles.badgeAccent}`}>
-              {messageType === "buttons" && supportsButtons ? "Interativo" : "Texto puro"}
-            </span>
+            <div className={styles.canvasStatus}>
+              <span className={`${styles.badge} ${styles.badgeAccent}`}>{previewNode?.label || "Inicio"}</span>
+              <button type="button" className="btn btn-secondary btn-sm" onClick={() => setPreviewTrail([startNode?.id || selectedScenarioId])}>
+                Reiniciar preview
+              </button>
+            </div>
           </div>
 
           <div className={styles.phoneShell}>
@@ -522,37 +687,41 @@ export default function BotMessageStudio(props: BotMessageStudioProps) {
             </div>
 
             <div className={styles.phoneBody}>
-              {templateStart ? (
-                <div className={`${styles.messageBubble} ${styles.outboundBubble}`}>
-                  <p>{templateStart.body}</p>
-                  {(templateStart.buttons || []).length > 0 ? (
-                    <div className={styles.previewButtonList}>
-                      {(templateStart.buttons || []).map((button) => (
-                        <span key={`template-preview-${button}`} className={styles.previewButton}>
-                          {button}
-                        </span>
-                      ))}
+              {previewTrail.map((nodeId, index) => {
+                const node = nodeById.get(nodeId);
+                if (!node) return null;
+                const previousNodeId = index > 0 ? previewTrail[index - 1] : null;
+                const previousNode = previousNodeId ? nodeById.get(previousNodeId) : null;
+                const inboundButton =
+                  previousNode?.buttons.find((button) => button.nextNodeId === node.id)?.title || null;
+
+                return (
+                  <div key={`preview-step-${node.id}-${index}`} className={styles.previewConversationStep}>
+                    {inboundButton ? (
+                      <div className={`${styles.messageBubble} ${styles.inboundBubble}`}>
+                        <p>{inboundButton}</p>
+                      </div>
+                    ) : null}
+                    <div className={`${styles.messageBubble} ${styles.outboundBubble}`}>
+                      <p>{index === 0 && node.nodeKind === "template" ? templateStart?.body || node.messageText : node.messageText}</p>
+                      {node.buttons.length > 0 ? (
+                        <div className={styles.previewButtonList}>
+                          {node.buttons.map((button) => (
+                            <button
+                              key={`preview-${node.id}-${button.buttonId}`}
+                              type="button"
+                              className={styles.previewButton}
+                              onClick={() => handlePreviewAdvance(button)}
+                            >
+                              {button.title}
+                            </button>
+                          ))}
+                        </div>
+                      ) : null}
                     </div>
-                  ) : null}
-                </div>
-              ) : null}
-
-              <div className={`${styles.messageBubble} ${styles.inboundBubble}`}>
-                <p>{firstPreviewReply}</p>
-              </div>
-
-              <div className={`${styles.messageBubble} ${styles.outboundBubble}`}>
-                <p>{previewText || "Mensagem vazia."}</p>
-                {messageType === "buttons" && supportsButtons && buttons.length > 0 ? (
-                  <div className={styles.previewButtonList}>
-                    {buttons.map((button) => (
-                      <span key={`preview-${button.buttonId}`} className={styles.previewButton}>
-                        {button.title}
-                      </span>
-                    ))}
                   </div>
-                ) : null}
-              </div>
+                );
+              })}
             </div>
           </div>
         </section>
@@ -573,13 +742,13 @@ export default function BotMessageStudio(props: BotMessageStudioProps) {
           <article className={`${styles.panel} ${styles.card}`}>
             <div className={styles.cardHeader}>
               <div>
-                <strong>Variaveis ativas neste bloco</strong>
-                <p>So o que o cliente realmente precisa ver.</p>
+                <strong>Variaveis do no atual</strong>
+                <p>Substituicoes visuais aplicadas no ramo que esta em simulacao.</p>
               </div>
             </div>
             <div className={styles.chipList}>
-              {extractVariableKeys(messageText).length > 0 ? (
-                extractVariableKeys(messageText).map((key) => (
+              {extractVariableKeys(previewNode?.messageText || "").length > 0 ? (
+                extractVariableKeys(previewNode?.messageText || "").map((key) => (
                   <span key={`preview-var-${key}`} className={styles.chipStatic}>
                     {`{{${key}}}`}
                   </span>
@@ -593,24 +762,25 @@ export default function BotMessageStudio(props: BotMessageStudioProps) {
           <article className={`${styles.panel} ${styles.card}`}>
             <div className={styles.cardHeader}>
               <div>
-                <strong>Leitura do fluxo</strong>
-                <p>O que acontece quando o cliente toca em cada botao.</p>
+                <strong>Saidas do no atual</strong>
+                <p>O preview agora navega por `nextNodeId`, e a acao fica complementar.</p>
               </div>
             </div>
-            {buttons.length > 0 ? (
+            {previewNodeButtons.length > 0 ? (
               <div className={styles.actionList}>
-                {buttons.map((button) => {
+                {previewNodeButtons.map((button) => {
                   const action = actionById[button.actionId];
                   return (
-                    <div key={`preview-action-${button.buttonId}`} className={styles.actionItem}>
+                    <div key={`preview-action-${previewNode?.id}-${button.buttonId}`} className={styles.actionItem}>
                       <div className={styles.actionItemHeader}>
                         <div>
                           <strong>{button.title || "Botao sem titulo"}</strong>
-                          <p>{action?.description || "Selecione uma acao para esse clique."}</p>
+                          <p>{button.nextLabel || action?.description || "Selecione uma acao para esse clique."}</p>
                         </div>
                       </div>
                       <div className={styles.scenarioMeta}>
                         <span className={`${styles.badge} ${styles.badgeMuted}`}>{button.buttonId}</span>
+                        {button.nextNodeId ? <span className={styles.badge}>{button.nextNodeId}</span> : null}
                         <span className={`${styles.badge} ${styles.badgeAccent}`}>{action?.title || button.actionId}</span>
                         {action?.routeLabel ? <span className={styles.badge}>{action.routeLabel}</span> : null}
                       </div>
@@ -628,6 +798,14 @@ export default function BotMessageStudio(props: BotMessageStudioProps) {
   }
 
   function renderVariablesTab() {
+    const groupOrder = ["Empresa", "Cliente", "Recovery", "Atendimento", "Sistema", "Capturadas no fluxo"];
+    const grouped = catalogVariables.reduce((map, variable) => {
+      const group = variable.categoryLabel || variable.scopeLabel || "Sistema";
+      const current = map.get(group) || [];
+      current.push(variable);
+      map.set(group, current);
+      return map;
+    }, new Map<string, BotStudioVariable[]>());
     return (
       <div className={styles.catalogLayout}>
         <section className={styles.catalogSummary}>
@@ -645,44 +823,64 @@ export default function BotMessageStudio(props: BotMessageStudioProps) {
           </article>
         </section>
 
-        <section className={styles.catalogGrid}>
-          {catalogVariables.map((variable) => {
-            const usedIn = (variableUsage[variable.key] as string[] | undefined) || [];
-            return (
-              <article key={variable.key} className={`${styles.panel} ${styles.catalogCard}`}>
-                <div className={styles.cardHeader}>
-                  <div>
-                    <strong>{variable.label}</strong>
-                    <p>{`{{${variable.key}}}`}</p>
-                  </div>
-                  <div className={styles.scenarioMeta}>
-                    <span className={`${styles.badge} ${styles.badgeMuted}`}>{variable.scopeLabel}</span>
-                    {variable.required ? <span className={`${styles.badge} ${styles.badgeAccent}`}>Obrigatoria</span> : null}
-                    {activeQuickInsertKeys.has(variable.key) ? <span className={styles.badge}>Disponivel agora</span> : null}
-                  </div>
-                </div>
-                <div className={styles.catalogMeta}>
-                  <span className={styles.metaLabel}>Exemplo</span>
-                  <p>{variable.example || "Sem exemplo cadastrado."}</p>
-                </div>
-                <div className={styles.catalogMeta}>
-                  <span className={styles.metaLabel}>Usada em</span>
-                  <div className={styles.scenarioMeta}>
-                    {usedIn.length > 0 ? (
-                      usedIn.map((usage) => (
-                        <span key={`${variable.key}-${usage}`} className={`${styles.badge} ${styles.badgeMuted}`}>
-                          {usage}
-                        </span>
-                      ))
-                    ) : (
-                      <span className={styles.badge}>Ainda nao usada</span>
-                    )}
-                  </div>
-                </div>
-              </article>
-            );
-          })}
-        </section>
+        {groupOrder.map((groupLabel) => {
+          const items = grouped.get(groupLabel) || [];
+          return (
+          <section key={groupLabel} className={styles.variableGroup}>
+            <div className={styles.panelHeader}>
+              <div>
+                <strong>{groupLabel}</strong>
+                <p>{items.length > 0 ? `${items.length} variaveis agrupadas por contexto de origem.` : "Nenhuma variavel exposta nesta categoria por enquanto."}</p>
+              </div>
+            </div>
+            {items.length > 0 ? (
+            <div className={styles.catalogGrid}>
+              {items.map((variable) => {
+                const usedIn = (variableUsage[variable.key] as string[] | undefined) || [];
+                return (
+                  <article key={variable.key} className={`${styles.panel} ${styles.catalogCard}`}>
+                    <div className={styles.cardHeader}>
+                      <div>
+                        <strong>{variable.label}</strong>
+                        <p>{`{{${variable.key}}}`}</p>
+                      </div>
+                      <div className={styles.scenarioMeta}>
+                        <span className={`${styles.badge} ${styles.badgeMuted}`}>{variable.scopeLabel}</span>
+                        {variable.required ? <span className={`${styles.badge} ${styles.badgeAccent}`}>Obrigatoria</span> : null}
+                        {activeQuickInsertKeys.has(variable.key) ? <span className={styles.badge}>Disponivel agora</span> : null}
+                      </div>
+                    </div>
+                    <div className={styles.catalogMeta}>
+                      <span className={styles.metaLabel}>Origem</span>
+                      <p>{variable.originLabel || variable.scopeLabel}</p>
+                    </div>
+                    <div className={styles.catalogMeta}>
+                      <span className={styles.metaLabel}>Exemplo</span>
+                      <p>{variable.example || "Sem exemplo cadastrado."}</p>
+                    </div>
+                    <div className={styles.catalogMeta}>
+                      <span className={styles.metaLabel}>Usada em</span>
+                      <div className={styles.scenarioMeta}>
+                        {usedIn.length > 0 ? (
+                          usedIn.map((usage) => (
+                            <span key={`${variable.key}-${usage}`} className={`${styles.badge} ${styles.badgeMuted}`}>
+                              {usage}
+                            </span>
+                          ))
+                        ) : (
+                          <span className={styles.badge}>Ainda nao usada</span>
+                        )}
+                      </div>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+            ) : (
+              <div className={styles.emptyState}>O fluxo atual ainda nao expoe variaveis desta categoria.</div>
+            )}
+          </section>
+        );})}
 
         {variablesTabExtra ? <div className={styles.extraPanel}>{variablesTabExtra}</div> : null}
       </div>
