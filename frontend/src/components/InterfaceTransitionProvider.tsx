@@ -4,7 +4,7 @@ import React from "react";
 import { usePathname } from "next/navigation";
 
 const ENTER_READY_DELAY_MS = 24;
-const EXIT_DURATION_MS = 1500;
+const EXIT_DURATION_MS = 2200;
 const ROW_SNAP_PX = 18;
 const SHUTDOWN_PARTICLE_COUNT = 72;
 
