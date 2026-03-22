@@ -843,12 +843,7 @@ export class ModulesService implements OnModuleInit {
       await this.prisma.systemModule.upsert({
         where: { key: moduleDef.key },
         update: {
-          name: moduleDef.name,
-          description: moduleDef.description,
-          monthlyPrice: this.normalizeCurrencyAmount(moduleDef.monthlyPrice || 0),
-          defaultEnabled: moduleDef.defaultEnabled,
           companyAssignable: moduleDef.companyAssignable,
-          serviceUrl: moduleDef.serviceUrl ?? null,
         },
         create: {
           key: moduleDef.key,
