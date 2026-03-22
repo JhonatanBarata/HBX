@@ -481,6 +481,13 @@ function paymentStatusLabel(value?: string | null) {
   return status || "-";
 }
 
+function companyHasOperationalAccess(company?: Pick<CompanySummary, "isActive" | "paymentStatus" | "subscriptionStatus"> | null) {
+  if (!company?.isActive) return false;
+  const paymentStatus = String(company.paymentStatus || "").trim().toUpperCase();
+  const subscriptionStatus = String(company.subscriptionStatus || "").trim().toLowerCase();
+  return paymentStatus === "PAID" || paymentStatus === "TRIAL" || subscriptionStatus === "active" || subscriptionStatus === "trialing";
+}
+
 function bucketLabel(value: StatusBucket) {
   if (value === "PAYING") return "Pagando";
   if (value === "TRIAL") return "Trial";
@@ -2338,6 +2345,11 @@ export default function MasterPremiumPage() {
                         <p>Total mensal dos ativos: {formatCurrency(activeCompany.modules.filter((module) => module.enabled).reduce((total, module) => total + Number(module.monthlyPrice || 0), 0))}</p>
                       </div>
                     </div>
+                    {!companyHasOperationalAccess(activeCompany) ? (
+                      <div className="alert alert-error">
+                        Esta empresa está sem acesso liberado. Os módulos só podem ser operados quando houver trial ativo ou cobrança ativa.
+                      </div>
+                    ) : null}
                     <div className={styles.moduleList}>
                       {activeCompany.modules.map((module) => (
                         <label key={module.key} className={styles.moduleToggle}>
@@ -2345,7 +2357,7 @@ export default function MasterPremiumPage() {
                             <strong>{module.name}</strong>
                             <p>{module.key} • {formatCurrency(module.monthlyPrice || 0)}/mês</p>
                           </div>
-                          <button type="button" className={module.enabled ? styles.toggleOn : styles.toggleOff} onClick={() => toggleModule(activeCompany.id, module.key, module.enabled)}>
+                          <button type="button" className={module.enabled ? styles.toggleOn : styles.toggleOff} onClick={() => toggleModule(activeCompany.id, module.key, module.enabled)} disabled={!companyHasOperationalAccess(activeCompany)}>
                             {module.enabled ? "Ativo" : "Desativado"}
                           </button>
                         </label>

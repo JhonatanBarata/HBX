@@ -898,14 +898,26 @@ export class ModulesService implements OnModuleInit {
   private async evaluateCompanyStatus(companyId: number) {
     const company = await this.prisma.company.findUnique({
       where: { id: companyId },
-      select: { id: true, isActive: true, paymentStatus: true, trialEndsAt: true },
+      select: { id: true, isActive: true, paymentStatus: true, subscriptionStatus: true, trialEndsAt: true },
     });
     if (!company) return { exists: false, active: false };
 
     const now = Date.now();
-    const trialExpired = Boolean(company.trialEndsAt && company.trialEndsAt.getTime() < now && company.paymentStatus !== 'PAID');
+    const paymentStatus = String(company.paymentStatus || '').trim().toUpperCase();
+    const subscriptionStatus = String(company.subscriptionStatus || '').trim().toLowerCase();
+    const trialExpired = Boolean(
+      company.trialEndsAt &&
+      company.trialEndsAt.getTime() < now &&
+      paymentStatus !== 'PAID' &&
+      subscriptionStatus !== 'active',
+    );
+    const trialAllowed =
+      (paymentStatus === 'TRIAL' || subscriptionStatus === 'trialing') &&
+      (!company.trialEndsAt || company.trialEndsAt.getTime() >= now);
+    const paidAllowed = paymentStatus === 'PAID' || subscriptionStatus === 'active';
+    const shouldRemainActive = Boolean(company.isActive && (paidAllowed || trialAllowed));
 
-    if (trialExpired || !company.isActive) {
+    if (trialExpired || !shouldRemainActive) {
       await this.prisma.$transaction([
         this.prisma.company.update({
           where: { id: companyId },
@@ -2032,6 +2044,12 @@ export class ModulesService implements OnModuleInit {
 
     const company = await this.prisma.company.findUnique({ where: { id: companyId } });
     if (!company) throw new BadRequestException('Empresa nao encontrada');
+    const status = await this.evaluateCompanyStatus(companyId);
+    if (!status.active) {
+      throw new BadRequestException(
+        'Esta empresa esta sem acesso liberado. Ative pagamento ou trial antes de liberar modulos.',
+      );
+    }
 
     const result = await this.prisma.companyModule.upsert({
       where: { companyId_moduleId: { companyId, moduleId: moduleItem.id } },
@@ -2240,7 +2258,7 @@ export class ModulesService implements OnModuleInit {
     const company = await this.prisma.company.findUnique({ where: { id: companyId } });
     if (!company) throw new BadRequestException('Empresa nao encontrada');
 
-    const isActive = normalized !== 'DISABLED' && normalized !== 'EXPIRED';
+    const isActive = normalized === 'PAID' || normalized === 'TRIAL';
     const subscriptionStatus = this.mapPaymentStatusToSubscriptionStatus(normalized);
     const now = new Date();
     await this.prisma.company.update({
