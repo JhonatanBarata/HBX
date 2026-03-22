@@ -72,12 +72,26 @@ function equalValue(left, right) {
   return (left ?? null) === (right ?? null);
 }
 
+function normalizeCurrencyAmount(value) {
+  const numeric = Number(value || 0);
+  if (!Number.isFinite(numeric)) return 0;
+  return Number(numeric.toFixed(2));
+}
+
+async function ensureMasterRuntimeColumns(prisma) {
+  await prisma.$executeRawUnsafe(`
+    ALTER TABLE "SystemModule"
+    ADD COLUMN IF NOT EXISTS "monthlyPrice" DOUBLE PRECISION NOT NULL DEFAULT 0
+  `);
+}
+
 async function ensureSystemModules(prisma, mode, summary) {
   for (const moduleDef of structuralDefaults.systemModules) {
     const existing = await prisma.systemModule.findUnique({ where: { key: moduleDef.key } });
     const expected = {
       name: moduleDef.name,
       description: moduleDef.description || null,
+      monthlyPrice: normalizeCurrencyAmount(moduleDef.monthlyPrice || 0),
       defaultEnabled: Boolean(moduleDef.defaultEnabled),
       companyAssignable: Boolean(moduleDef.companyAssignable),
       serviceUrl: moduleDef.serviceUrl || null,
@@ -91,6 +105,7 @@ async function ensureSystemModules(prisma, mode, summary) {
 
       const mismatch = !equalValue(existing.name, expected.name)
         || !equalValue(existing.description, expected.description)
+        || !equalValue(existing.monthlyPrice, expected.monthlyPrice)
         || !equalValue(existing.defaultEnabled, expected.defaultEnabled)
         || !equalValue(existing.companyAssignable, expected.companyAssignable)
         || !equalValue(existing.serviceUrl, expected.serviceUrl);
@@ -313,6 +328,7 @@ async function runStructuralSeed(options = {}) {
   };
 
   try {
+    await ensureMasterRuntimeColumns(prisma);
     await ensureSystemModules(prisma, mode, summary);
     await ensurePlansAndFeatures(prisma, mode, summary);
     await ensureCompanyModules(prisma, mode, summary);
