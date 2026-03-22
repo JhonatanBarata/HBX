@@ -7,11 +7,19 @@ import structuralDefaults from '../bootstrap/structural-defaults.json';
 import { MasterContextService } from '../master-context/master-context.service';
 import { ensureWebsiteRuntimeSchema, listCompanyWebsiteConfigs } from '../website/website-runtime';
 import { ensureMasterBillingRuntimeSchema } from './master-runtime';
+import {
+  getMasterGlobalIntegrationConfig,
+  pickMasterMercadoPagoCredential,
+  pickMasterWhatsAppCredential,
+  serializeMasterGlobalIntegrationConfig,
+  serializeMasterIntegrationLibrariesForStorage,
+} from './master-global-integrations.util';
 
 type DefaultModuleDef = {
   key: string;
   name: string;
   description: string;
+  monthlyPrice?: number;
   defaultEnabled: boolean;
   companyAssignable: boolean;
   serviceUrl?: string;
@@ -91,6 +99,45 @@ export class ModulesService implements OnModuleInit {
     return normalized || null;
   }
 
+  private previewSecret(value: unknown) {
+    const normalized = String(value || '').trim();
+    if (!normalized) return null;
+    return `***${normalized.slice(-6)}`;
+  }
+
+  private effectiveMercadoPagoAccessToken(company: any, masterIntegrations?: any) {
+    if (company?.useMasterMercadoPagoToken) {
+      return this.normalizeOptionalString(
+        pickMasterMercadoPagoCredential(masterIntegrations, company?.masterMercadoPagoCredentialKey)?.accessToken,
+      );
+    }
+    return this.normalizeOptionalString(company?.mercadoPagoAccessToken);
+  }
+
+  private effectiveWhatsAppConfig(company: any, masterIntegrations?: any) {
+    if (company?.useMasterWhatsAppToken) {
+      const credential = pickMasterWhatsAppCredential(masterIntegrations, company?.masterWhatsAppCredentialKey);
+      return {
+        accessToken: this.normalizeOptionalString(credential?.accessToken),
+        phoneNumberId: this.normalizeOptionalString(credential?.phoneNumberId),
+        wabaId: this.normalizeOptionalString(credential?.wabaId),
+        whatsappNumber: this.normalizeOptionalString(credential?.whatsappNumber),
+        displayNumber:
+          this.normalizeOptionalString(credential?.displayNumber) ||
+          this.normalizeOptionalString(credential?.whatsappNumber),
+      };
+    }
+    return {
+      accessToken: this.normalizeOptionalString(company?.whatsappAccessToken),
+      phoneNumberId: this.normalizeOptionalString(company?.whatsappPhoneNumberId),
+      wabaId: this.normalizeOptionalString(company?.whatsappWabaId),
+      whatsappNumber: this.normalizeOptionalString(company?.whatsappNumber),
+      displayNumber:
+        this.normalizeOptionalString(company?.whatsappDisplayNumber) ||
+        this.normalizeOptionalString(company?.whatsappNumber),
+    };
+  }
+
   private mapPaymentStatusToSubscriptionStatus(paymentStatusRaw: string) {
     const normalized = String(paymentStatusRaw || '').trim().toUpperCase();
     if (normalized === 'PAID') return 'active';
@@ -145,6 +192,17 @@ export class ModulesService implements OnModuleInit {
   }
 
   private resolveCompanyMonthlyValue(company: any) {
+    const enabledModuleTotal = Array.isArray(company?.companyModules)
+      ? company.companyModules
+          .filter((row: any) => row?.enabled && row?.systemModule?.companyAssignable)
+          .reduce(
+            (total: number, row: any) => total + this.normalizeCurrencyAmount(row?.systemModule?.monthlyPrice || 0),
+            0,
+          )
+      : 0;
+    if (enabledModuleTotal > 0) {
+      return this.normalizeCurrencyAmount(enabledModuleTotal);
+    }
     return this.normalizeCurrencyAmount(company?.plan?.price || 0);
   }
 
@@ -300,6 +358,387 @@ export class ModulesService implements OnModuleInit {
     return rows || [];
   }
 
+  async listMasterSystemModules(masterUserId: number) {
+    await this.assertMasterUser(masterUserId);
+    await ensureMasterBillingRuntimeSchema(this.prisma);
+    await this.ensureDefaultSystemModules();
+
+    const modules = await this.prisma.systemModule.findMany({
+      orderBy: [{ companyAssignable: 'desc' }, { name: 'asc' }, { id: 'asc' }],
+    });
+
+    return modules.map((moduleItem) => ({
+      id: moduleItem.id,
+      key: moduleItem.key,
+      name: moduleItem.name,
+      description: moduleItem.description || null,
+      monthlyPrice: this.normalizeCurrencyAmount((moduleItem as any).monthlyPrice || 0),
+      defaultEnabled: Boolean(moduleItem.defaultEnabled),
+      companyAssignable: Boolean(moduleItem.companyAssignable),
+      serviceUrl: moduleItem.serviceUrl || null,
+    }));
+  }
+
+  async updateMasterSystemModule(
+    masterUserId: number,
+    moduleKey: string,
+    input: { monthlyPrice?: number; name?: string; description?: string; defaultEnabled?: boolean },
+  ) {
+    await this.assertMasterUser(masterUserId);
+    await ensureMasterBillingRuntimeSchema(this.prisma);
+    await this.ensureDefaultSystemModules();
+
+    const key = this.normalizeKey(moduleKey);
+    const moduleItem = await this.prisma.systemModule.findUnique({ where: { key } });
+    if (!moduleItem) throw new BadRequestException('Modulo nao encontrado');
+
+    const updateData: Prisma.SystemModuleUpdateInput = {};
+    if (input?.name !== undefined) updateData.name = String(input.name || '').trim() || moduleItem.name;
+    if (input?.description !== undefined) {
+      updateData.description = this.normalizeOptionalString(input.description);
+    }
+    if (input?.monthlyPrice !== undefined) {
+      updateData.monthlyPrice = this.normalizeCurrencyAmount(input.monthlyPrice);
+    }
+    if (input?.defaultEnabled !== undefined) {
+      updateData.defaultEnabled = Boolean(input.defaultEnabled);
+    }
+
+    const updated = await this.prisma.systemModule.update({
+      where: { id: moduleItem.id },
+      data: updateData,
+    });
+
+    await this.masterContextService.registerSupportAction({
+      masterUserId,
+      scope: 'master_module_catalog',
+      action: 'SYSTEM_MODULE_UPDATED',
+      metadata: {
+        moduleKey: updated.key,
+        monthlyPrice: this.normalizeCurrencyAmount((updated as any).monthlyPrice || 0),
+        defaultEnabled: Boolean(updated.defaultEnabled),
+      },
+    });
+
+    return {
+      id: updated.id,
+      key: updated.key,
+      name: updated.name,
+      description: updated.description || null,
+      monthlyPrice: this.normalizeCurrencyAmount((updated as any).monthlyPrice || 0),
+      defaultEnabled: Boolean(updated.defaultEnabled),
+      companyAssignable: Boolean(updated.companyAssignable),
+      serviceUrl: updated.serviceUrl || null,
+    };
+  }
+
+  async getMasterGlobalIntegrations(masterUserId: number) {
+    await this.assertMasterUser(masterUserId);
+    const config = await getMasterGlobalIntegrationConfig(this.prisma);
+    return serializeMasterGlobalIntegrationConfig(config);
+  }
+
+  async updateMasterGlobalIntegrations(
+    masterUserId: number,
+    input: {
+      mercadoPagoLibrary?: Array<any>;
+      whatsappLibrary?: Array<any>;
+    },
+  ) {
+    await this.assertMasterUser(masterUserId);
+    await ensureMasterBillingRuntimeSchema(this.prisma);
+    const existing = await getMasterGlobalIntegrationConfig(this.prisma);
+    const currentLibraries = serializeMasterGlobalIntegrationConfig(existing);
+    const serializedLibraries = serializeMasterIntegrationLibrariesForStorage({
+      mercadoPagoLibrary:
+        input?.mercadoPagoLibrary !== undefined
+          ? input.mercadoPagoLibrary
+          : currentLibraries.mercadoPagoLibrary,
+      whatsappLibrary:
+        input?.whatsappLibrary !== undefined ? input.whatsappLibrary : currentLibraries.whatsappLibrary,
+    });
+    const primaryMercadoPago = serializedLibraries.mercadoPagoLibrary.find((entry) => Boolean(entry.accessToken)) || null;
+    const primaryWhatsApp =
+      serializedLibraries.whatsappLibrary.find((entry) => Boolean(entry.accessToken && entry.phoneNumberId)) || null;
+
+    const updated = await this.prisma.masterGlobalIntegrationConfig.update({
+      where: { key: existing.key },
+      data: {
+        mercadoPagoAccessToken: primaryMercadoPago?.accessToken || null,
+        whatsappAccessToken: primaryWhatsApp?.accessToken || null,
+        whatsappPhoneNumberId: primaryWhatsApp?.phoneNumberId || null,
+        whatsappWabaId: primaryWhatsApp?.wabaId || null,
+        whatsappNumber: primaryWhatsApp?.whatsappNumber || null,
+        whatsappDisplayNumber: primaryWhatsApp?.displayNumber || null,
+        mercadoPagoLibrary: serializedLibraries.mercadoPagoLibraryJson,
+        whatsappLibrary: serializedLibraries.whatsappLibraryJson,
+      },
+    });
+
+    await this.masterContextService.registerSupportAction({
+      masterUserId,
+      scope: 'master_global_integrations',
+      action: 'MASTER_GLOBAL_TOKENS_UPDATED',
+      metadata: {
+        mercadoPagoCredentials: serializedLibraries.mercadoPagoLibrary.length,
+        whatsappCredentials: serializedLibraries.whatsappLibrary.length,
+      },
+    });
+
+    return serializeMasterGlobalIntegrationConfig(updated);
+  }
+
+  async updateCompanyMasterTokenUsage(
+    masterUserId: number,
+    companyId: number,
+    input: {
+      useMasterMercadoPagoToken?: boolean;
+      useMasterWhatsAppToken?: boolean;
+      masterMercadoPagoCredentialKey?: string;
+      masterWhatsAppCredentialKey?: string;
+    },
+  ) {
+    await this.assertMasterUser(masterUserId);
+    await ensureMasterBillingRuntimeSchema(this.prisma);
+
+    const company = await this.prisma.company.findUnique({ where: { id: Number(companyId) } });
+    if (!company) throw new BadRequestException('Empresa nao encontrada');
+    const masterConfig = await getMasterGlobalIntegrationConfig(this.prisma);
+    const serializedConfig = serializeMasterGlobalIntegrationConfig(masterConfig);
+    const selectedMercadoPago = input?.masterMercadoPagoCredentialKey
+      ? serializedConfig.mercadoPagoLibrary.find((entry) => entry.key === this.normalizeOptionalString(input.masterMercadoPagoCredentialKey))
+      : serializedConfig.mercadoPagoLibrary.find((entry) => entry.key === company.masterMercadoPagoCredentialKey) ||
+        serializedConfig.mercadoPagoLibrary.find((entry) => entry.configured);
+    const selectedWhatsApp = input?.masterWhatsAppCredentialKey
+      ? serializedConfig.whatsappLibrary.find((entry) => entry.key === this.normalizeOptionalString(input.masterWhatsAppCredentialKey))
+      : serializedConfig.whatsappLibrary.find((entry) => entry.key === company.masterWhatsAppCredentialKey) ||
+        serializedConfig.whatsappLibrary.find((entry) => entry.configured);
+
+    if (input?.useMasterMercadoPagoToken === true && !selectedMercadoPago?.configured) {
+      throw new BadRequestException('Escolha antes uma credencial de pagamentos configurada no MASTER.');
+    }
+    if (
+      input?.useMasterWhatsAppToken === true &&
+      !selectedWhatsApp?.configured
+    ) {
+      throw new BadRequestException('Escolha antes uma credencial de WhatsApp configurada no MASTER.');
+    }
+
+    const updated = await this.prisma.company.update({
+      where: { id: company.id },
+      data: {
+        useMasterMercadoPagoToken:
+          input?.useMasterMercadoPagoToken !== undefined
+            ? Boolean(input.useMasterMercadoPagoToken)
+            : company.useMasterMercadoPagoToken,
+        useMasterWhatsAppToken:
+          input?.useMasterWhatsAppToken !== undefined
+            ? Boolean(input.useMasterWhatsAppToken)
+            : company.useMasterWhatsAppToken,
+        masterMercadoPagoCredentialKey:
+          input?.masterMercadoPagoCredentialKey !== undefined
+            ? this.normalizeOptionalString(input.masterMercadoPagoCredentialKey)
+            : company.masterMercadoPagoCredentialKey,
+        masterWhatsAppCredentialKey:
+          input?.masterWhatsAppCredentialKey !== undefined
+            ? this.normalizeOptionalString(input.masterWhatsAppCredentialKey)
+            : company.masterWhatsAppCredentialKey,
+      },
+    });
+
+    await this.masterContextService.registerSupportAction({
+      masterUserId,
+      companyId,
+      scope: 'master_global_integrations',
+      action: 'COMPANY_MASTER_TOKEN_USAGE_UPDATED',
+      metadata: {
+        useMasterMercadoPagoToken: Boolean(updated.useMasterMercadoPagoToken),
+        useMasterWhatsAppToken: Boolean(updated.useMasterWhatsAppToken),
+        masterMercadoPagoCredentialKey: updated.masterMercadoPagoCredentialKey || null,
+        masterWhatsAppCredentialKey: updated.masterWhatsAppCredentialKey || null,
+      },
+    });
+
+    return {
+      ok: true,
+      companyId: updated.id,
+      useMasterMercadoPagoToken: Boolean(updated.useMasterMercadoPagoToken),
+      useMasterWhatsAppToken: Boolean(updated.useMasterWhatsAppToken),
+      masterMercadoPagoCredentialKey: updated.masterMercadoPagoCredentialKey || null,
+      masterWhatsAppCredentialKey: updated.masterWhatsAppCredentialKey || null,
+    };
+  }
+
+  async importCompanyTokensToMaster(
+    masterUserId: number,
+    companyId: number,
+    input?: { clearSource?: boolean },
+  ) {
+    await this.assertMasterUser(masterUserId);
+    await ensureMasterBillingRuntimeSchema(this.prisma);
+
+    const company = await this.prisma.company.findUnique({ where: { id: Number(companyId) } });
+    if (!company) throw new BadRequestException('Empresa nao encontrada');
+
+    const mercadoPagoAccessToken = this.normalizeOptionalString(company.mercadoPagoAccessToken);
+    const whatsappAccessToken = this.normalizeOptionalString(company.whatsappAccessToken);
+    const whatsappPhoneNumberId = this.normalizeOptionalString(company.whatsappPhoneNumberId);
+    const whatsappWabaId = this.normalizeOptionalString(company.whatsappWabaId);
+    const whatsappNumber = this.normalizeOptionalString(company.whatsappNumber);
+    const whatsappDisplayNumber =
+      this.normalizeOptionalString(company.whatsappDisplayNumber) || whatsappNumber;
+
+    if (!mercadoPagoAccessToken && !(whatsappAccessToken && whatsappPhoneNumberId)) {
+      throw new BadRequestException('A empresa nao possui tokens-raiz para importar ao MASTER.');
+    }
+
+    const masterConfig = await getMasterGlobalIntegrationConfig(this.prisma);
+    const clearSource = input?.clearSource !== false;
+    const serializedMaster = serializeMasterGlobalIntegrationConfig(masterConfig);
+    const mercadoPagoLibrary = serializedMaster.mercadoPagoLibrary.map(
+      ({ accessTokenPreview: _preview, configured: _configured, ...entry }) => ({ ...entry }),
+    );
+    const whatsappLibrary = serializedMaster.whatsappLibrary.map(
+      ({ accessTokenPreview: _preview, configured: _configured, ...entry }) => ({ ...entry }),
+    );
+
+    let importedMercadoPagoKey: string | null = null;
+    let importedWhatsAppKey: string | null = null;
+
+    if (mercadoPagoAccessToken) {
+      const existingMercadoPago =
+        mercadoPagoLibrary.find((entry) => entry.accessToken === mercadoPagoAccessToken) || null;
+      if (existingMercadoPago) {
+        importedMercadoPagoKey = existingMercadoPago.key;
+      } else {
+        const createdAt = new Date().toISOString();
+        const created = {
+          key: randomUUID(),
+          label: `${company.name} Pagamentos`,
+          accessToken: mercadoPagoAccessToken,
+          sourceCompanyId: company.id,
+          sourceCompanyName: company.name,
+          createdAt,
+          updatedAt: createdAt,
+        };
+        mercadoPagoLibrary.unshift(created);
+        importedMercadoPagoKey = created.key;
+      }
+    }
+
+    if (whatsappAccessToken && whatsappPhoneNumberId) {
+      const existingWhatsApp =
+        whatsappLibrary.find(
+          (entry) =>
+            entry.accessToken === whatsappAccessToken && entry.phoneNumberId === whatsappPhoneNumberId,
+        ) || null;
+      if (existingWhatsApp) {
+        importedWhatsAppKey = existingWhatsApp.key;
+      } else {
+        const createdAt = new Date().toISOString();
+        const created = {
+          key: randomUUID(),
+          label: whatsappDisplayNumber || whatsappNumber || `${company.name} WhatsApp`,
+          accessToken: whatsappAccessToken,
+          phoneNumberId: whatsappPhoneNumberId,
+          wabaId: whatsappWabaId,
+          whatsappNumber,
+          displayNumber: whatsappDisplayNumber,
+          sourceCompanyId: company.id,
+          sourceCompanyName: company.name,
+          createdAt,
+          updatedAt: createdAt,
+        };
+        whatsappLibrary.unshift(created);
+        importedWhatsAppKey = created.key;
+      }
+    }
+
+    const serializedLibraries = serializeMasterIntegrationLibrariesForStorage({
+      mercadoPagoLibrary,
+      whatsappLibrary,
+    });
+    const primaryMercadoPago = serializedLibraries.mercadoPagoLibrary.find((entry) => Boolean(entry.accessToken)) || null;
+    const primaryWhatsApp =
+      serializedLibraries.whatsappLibrary.find((entry) => Boolean(entry.accessToken && entry.phoneNumberId)) || null;
+
+    const updatedMaster = await this.prisma.masterGlobalIntegrationConfig.update({
+      where: { key: masterConfig.key },
+      data: {
+        mercadoPagoAccessToken: primaryMercadoPago?.accessToken || null,
+        whatsappAccessToken: primaryWhatsApp?.accessToken || null,
+        whatsappPhoneNumberId: primaryWhatsApp?.phoneNumberId || null,
+        whatsappWabaId: primaryWhatsApp?.wabaId || null,
+        whatsappNumber: primaryWhatsApp?.whatsappNumber || null,
+        whatsappDisplayNumber: primaryWhatsApp?.displayNumber || null,
+        mercadoPagoLibrary: serializedLibraries.mercadoPagoLibraryJson,
+        whatsappLibrary: serializedLibraries.whatsappLibraryJson,
+      },
+    });
+
+    const companyUpdateData: Prisma.CompanyUpdateInput = {
+      useMasterMercadoPagoToken: mercadoPagoAccessToken ? true : company.useMasterMercadoPagoToken,
+      useMasterWhatsAppToken:
+        whatsappAccessToken && whatsappPhoneNumberId ? true : company.useMasterWhatsAppToken,
+      masterMercadoPagoCredentialKey: importedMercadoPagoKey || company.masterMercadoPagoCredentialKey,
+      masterWhatsAppCredentialKey: importedWhatsAppKey || company.masterWhatsAppCredentialKey,
+    };
+
+    if (clearSource) {
+      if (mercadoPagoAccessToken) {
+        companyUpdateData.mercadoPagoAccessToken = null;
+        companyUpdateData.mercadoPagoStatus = 'DISCONNECTED';
+        companyUpdateData.mercadoPagoStatusError = null;
+        companyUpdateData.mercadoPagoStatusUpdatedAt = new Date();
+      }
+      if (whatsappAccessToken && whatsappPhoneNumberId) {
+        companyUpdateData.whatsappAccessToken = null;
+        companyUpdateData.whatsappPhoneNumberId = null;
+        companyUpdateData.whatsappWabaId = null;
+        companyUpdateData.whatsappNumber = null;
+        companyUpdateData.whatsappDisplayNumber = null;
+        companyUpdateData.whatsappStatus = 'DISCONNECTED';
+        companyUpdateData.whatsappStatusError = null;
+        companyUpdateData.whatsappStatusUpdatedAt = new Date();
+      }
+    }
+
+    const updatedCompany = await this.prisma.company.update({
+      where: { id: company.id },
+      data: companyUpdateData,
+    });
+
+    await this.masterContextService.registerSupportAction({
+      masterUserId,
+      companyId,
+      scope: 'master_global_integrations',
+      action: 'COMPANY_TOKENS_IMPORTED_TO_MASTER',
+      metadata: {
+        clearSource,
+        importedMercadoPago: Boolean(mercadoPagoAccessToken),
+        importedWhatsApp: Boolean(whatsappAccessToken && whatsappPhoneNumberId),
+        useMasterMercadoPagoToken: Boolean(updatedCompany.useMasterMercadoPagoToken),
+        useMasterWhatsAppToken: Boolean(updatedCompany.useMasterWhatsAppToken),
+        masterMercadoPagoCredentialKey: updatedCompany.masterMercadoPagoCredentialKey || null,
+        masterWhatsAppCredentialKey: updatedCompany.masterWhatsAppCredentialKey || null,
+      },
+    });
+
+    return {
+      ok: true,
+      companyId: updatedCompany.id,
+      companyName: updatedCompany.name,
+      clearSource,
+      masterIntegrations: serializeMasterGlobalIntegrationConfig(updatedMaster),
+      company: {
+        useMasterMercadoPagoToken: Boolean(updatedCompany.useMasterMercadoPagoToken),
+        useMasterWhatsAppToken: Boolean(updatedCompany.useMasterWhatsAppToken),
+        masterMercadoPagoCredentialKey: updatedCompany.masterMercadoPagoCredentialKey || null,
+        masterWhatsAppCredentialKey: updatedCompany.masterWhatsAppCredentialKey || null,
+      },
+    };
+  }
+
   private async listCompanyAuditRows(companyIds: number[], limit = 400) {
     if (!companyIds.length) return [] as Array<any>;
     return this.prisma.$queryRaw<Array<any>>(
@@ -323,11 +762,11 @@ export class ModulesService implements OnModuleInit {
   }
 
   async onModuleInit() {
+    await ensureMasterBillingRuntimeSchema(this.prisma);
     await this.ensureDefaultSystemModules();
     await this.removeRetiredSystemModules();
     await this.ensureDatabaseAutomation();
     await this.syncCompanyModulesForAllCompanies();
-    await ensureMasterBillingRuntimeSchema(this.prisma);
   }
 
   private normalizeKey(key: string) {
@@ -398,12 +837,15 @@ export class ModulesService implements OnModuleInit {
   }
 
   private async ensureDefaultSystemModules() {
+    await ensureMasterBillingRuntimeSchema(this.prisma);
+
     for (const moduleDef of DEFAULT_MODULES) {
       await this.prisma.systemModule.upsert({
         where: { key: moduleDef.key },
         update: {
           name: moduleDef.name,
           description: moduleDef.description,
+          monthlyPrice: this.normalizeCurrencyAmount(moduleDef.monthlyPrice || 0),
           defaultEnabled: moduleDef.defaultEnabled,
           companyAssignable: moduleDef.companyAssignable,
           serviceUrl: moduleDef.serviceUrl ?? null,
@@ -412,6 +854,7 @@ export class ModulesService implements OnModuleInit {
           key: moduleDef.key,
           name: moduleDef.name,
           description: moduleDef.description,
+          monthlyPrice: this.normalizeCurrencyAmount(moduleDef.monthlyPrice || 0),
           defaultEnabled: moduleDef.defaultEnabled,
           companyAssignable: moduleDef.companyAssignable,
           serviceUrl: moduleDef.serviceUrl ?? null,
@@ -711,7 +1154,14 @@ export class ModulesService implements OnModuleInit {
     companyLedgerRows: BillingLedgerEntryRow[],
     companyAuditRows: Array<any>,
     active: boolean,
+    masterIntegrations?: any,
   ) {
+    const selectedMercadoPagoCredential = company?.useMasterMercadoPagoToken
+      ? pickMasterMercadoPagoCredential(masterIntegrations, company?.masterMercadoPagoCredentialKey)
+      : null;
+    const selectedWhatsAppCredential = company?.useMasterWhatsAppToken
+      ? pickMasterWhatsAppCredential(masterIntegrations, company?.masterWhatsAppCredentialKey)
+      : null;
     const monthlyValue = this.resolveCompanyMonthlyValue(company);
     const statusBucket = this.companyStatusBucket({
       ...company,
@@ -727,6 +1177,7 @@ export class ModulesService implements OnModuleInit {
         key: row.systemModule.key,
         name: row.systemModule.name,
         enabled: Boolean(row.enabled),
+        monthlyPrice: this.normalizeCurrencyAmount(row?.systemModule?.monthlyPrice || 0),
       }));
     const activeModules = enabledModules.filter((module: any) => module.enabled);
     const lastApproved =
@@ -769,6 +1220,8 @@ export class ModulesService implements OnModuleInit {
       String(company?.paymentMethod || '').trim().toUpperCase() === 'MANUAL' &&
         ['PENDING', 'OVERDUE'].includes(String(company?.paymentStatus || '').trim().toUpperCase()),
     );
+    const effectiveMercadoPagoToken = this.effectiveMercadoPagoAccessToken(company, masterIntegrations);
+    const effectiveWhatsApp = this.effectiveWhatsAppConfig(company, masterIntegrations);
 
     let riskLevel: 'stable' | 'warning' | 'critical' = 'stable';
     if (['OVERDUE', 'NO_METHOD', 'SUSPENDED'].includes(statusBucket) || recentCardFailure) {
@@ -845,16 +1298,28 @@ export class ModulesService implements OnModuleInit {
       },
       whatsapp: {
         status: company.whatsappStatus || null,
-        hasNumber: Boolean(company.whatsappPhoneNumberId || company.whatsappNumber),
-        displayNumber: company.whatsappDisplayNumber || company.whatsappNumber || null,
+        hasNumber: Boolean(effectiveWhatsApp.phoneNumberId || effectiveWhatsApp.whatsappNumber),
+        displayNumber: effectiveWhatsApp.displayNumber || null,
+        usingMasterToken: Boolean(company?.useMasterWhatsAppToken),
+        tokenConfigured: Boolean(effectiveWhatsApp.accessToken && effectiveWhatsApp.phoneNumberId),
+        masterCredentialKey: selectedWhatsAppCredential?.key || company?.masterWhatsAppCredentialKey || null,
+        masterCredentialLabel: selectedWhatsAppCredential?.label || null,
       },
       mercadoPago: {
         status: company.mercadoPagoStatus || null,
         accountEmail: company.mercadoPagoAccountEmail || null,
         accountUserId: company.mercadoPagoUserId || null,
-        tokenConfigured: Boolean(company.mercadoPagoAccessToken),
+        tokenConfigured: Boolean(effectiveMercadoPagoToken),
+        usingMasterToken: Boolean(company?.useMasterMercadoPagoToken),
+        masterCredentialKey: selectedMercadoPagoCredential?.key || company?.masterMercadoPagoCredentialKey || null,
+        masterCredentialLabel: selectedMercadoPagoCredential?.label || null,
       },
       modules: activeModules,
+      modulesTotalMonthlyValue: this.normalizeCurrencyAmount(
+        enabledModules
+          .filter((module: any) => module.enabled)
+          .reduce((total: number, module: any) => total + this.normalizeCurrencyAmount(module.monthlyPrice || 0), 0),
+      ),
       auditCount: companyAuditRows.length,
     };
   }
@@ -887,10 +1352,14 @@ export class ModulesService implements OnModuleInit {
     });
 
     const companyIds = companies.map((company) => Number(company.id));
-    const [websiteConfigs, ledgerRows, auditRows] = await Promise.all([
+    const [websiteConfigs, ledgerRows, auditRows, systemModules, masterIntegrationConfig] = await Promise.all([
       listCompanyWebsiteConfigs(this.prisma, companyIds),
       this.listBillingLedgerEntriesByCompanyIds(companyIds, 2400),
       this.listCompanyAuditRows(companyIds, 600),
+      this.prisma.systemModule.findMany({
+        orderBy: [{ companyAssignable: 'desc' }, { name: 'asc' }, { id: 'asc' }],
+      }),
+      getMasterGlobalIntegrationConfig(this.prisma),
     ]);
 
     const ledgerByCompany = new Map<number, BillingLedgerEntryRow[]>();
@@ -919,6 +1388,7 @@ export class ModulesService implements OnModuleInit {
           ledgerByCompany.get(Number(company.id)) || [],
           auditByCompany.get(Number(company.id)) || [],
           status.active,
+          masterIntegrationConfig,
         ),
       );
     }
@@ -1219,6 +1689,17 @@ export class ModulesService implements OnModuleInit {
       },
       attention: attentionDefinitions,
       companies: companySummaries,
+      masterIntegrations: serializeMasterGlobalIntegrationConfig(masterIntegrationConfig),
+      systemModules: systemModules.map((moduleItem) => ({
+        id: moduleItem.id,
+        key: moduleItem.key,
+        name: moduleItem.name,
+        description: moduleItem.description || null,
+        monthlyPrice: this.normalizeCurrencyAmount((moduleItem as any).monthlyPrice || 0),
+        defaultEnabled: Boolean(moduleItem.defaultEnabled),
+        companyAssignable: Boolean(moduleItem.companyAssignable),
+        serviceUrl: moduleItem.serviceUrl || null,
+      })),
     };
   }
 
@@ -1300,11 +1781,21 @@ export class ModulesService implements OnModuleInit {
 
     if (!company) throw new BadRequestException('Empresa nao encontrada');
 
-    const [websiteConfigs, ledgerRows, auditRows] = await Promise.all([
+    const [websiteConfigs, ledgerRows, auditRows, masterIntegrationConfig] = await Promise.all([
       listCompanyWebsiteConfigs(this.prisma, [Number(companyId)]),
       this.listBillingLedgerEntriesByCompanyIds([Number(companyId)], 240),
       this.listCompanyAuditRows([Number(companyId)], 240),
+      getMasterGlobalIntegrationConfig(this.prisma),
     ]);
+    const serializedMasterIntegrations = serializeMasterGlobalIntegrationConfig(masterIntegrationConfig);
+    const selectedWhatsAppCredential = pickMasterWhatsAppCredential(
+      masterIntegrationConfig,
+      company.masterWhatsAppCredentialKey,
+    );
+    const selectedMercadoPagoCredential = pickMasterMercadoPagoCredential(
+      masterIntegrationConfig,
+      company.masterMercadoPagoCredentialKey,
+    );
 
     const status = await this.evaluateCompanyStatus(company.id);
     const summary = this.buildMasterCompanySummary(
@@ -1313,6 +1804,7 @@ export class ModulesService implements OnModuleInit {
       ledgerRows,
       auditRows,
       status.active,
+      masterIntegrationConfig,
     );
 
     const auditTimeline = (auditRows || []).map((row) => this.normalizeAuditRow(row));
@@ -1338,6 +1830,7 @@ export class ModulesService implements OnModuleInit {
             key: row.systemModule.key,
             name: row.systemModule.name,
             enabled: Boolean(row.enabled),
+            monthlyPrice: this.normalizeCurrencyAmount(row.systemModule.monthlyPrice || 0),
           })),
         website: {
           ...summary.website,
@@ -1359,18 +1852,38 @@ export class ModulesService implements OnModuleInit {
                 ? endpoint.whatsappStatusUpdatedAt.toISOString()
                 : endpoint.whatsappStatusUpdatedAt || null,
             accessTokenConfigured: Boolean(endpoint.whatsappAccessToken),
+            accessTokenValue: endpoint.whatsappAccessToken || null,
             isActive: endpoint.isActive !== false,
             isPrimary: Boolean(endpoint.isPrimary),
           })),
+          companyAccessTokenConfigured: Boolean(company.whatsappAccessToken),
+          companyAccessTokenValue: company.whatsappAccessToken || null,
+          usingMasterToken: Boolean(company.useMasterWhatsAppToken),
+          masterCredentialKey: selectedWhatsAppCredential?.key || company.masterWhatsAppCredentialKey || null,
+          masterCredentialLabel: selectedWhatsAppCredential?.label || null,
+          masterAccessTokenConfigured: Boolean(
+            selectedWhatsAppCredential?.accessToken && selectedWhatsAppCredential?.phoneNumberId,
+          ),
+          masterAccessTokenValue: selectedWhatsAppCredential?.accessToken || null,
+          masterPhoneNumberId: selectedWhatsAppCredential?.phoneNumberId || null,
+          masterWabaId: selectedWhatsAppCredential?.wabaId || null,
+          masterDisplayNumber: selectedWhatsAppCredential?.displayNumber || null,
         },
         mercadoPago: {
           ...summary.mercadoPago,
           statusError: company.mercadoPagoStatusError || null,
+          accessTokenValue: company.mercadoPagoAccessToken || null,
+          usingMasterToken: Boolean(company.useMasterMercadoPagoToken),
+          masterCredentialKey: selectedMercadoPagoCredential?.key || company.masterMercadoPagoCredentialKey || null,
+          masterCredentialLabel: selectedMercadoPagoCredential?.label || null,
+          masterTokenConfigured: Boolean(selectedMercadoPagoCredential?.accessToken),
+          masterAccessTokenValue: selectedMercadoPagoCredential?.accessToken || null,
           lastValidatedAt:
             company.mercadoPagoStatusUpdatedAt instanceof Date
               ? company.mercadoPagoStatusUpdatedAt.toISOString()
               : null,
         },
+        masterIntegrations: serializedMasterIntegrations,
         financeHistory: ledgerRows.map((row) => this.normalizeLedgerEntryRow(row)),
         trialHistory,
         auditTimeline,
@@ -1901,6 +2414,89 @@ export class ModulesService implements OnModuleInit {
       paidAt: paidAt.toISOString(),
       paymentMethod,
       settlePending,
+    };
+  }
+
+  async cancelManualPaymentEntry(
+    masterUserId: number,
+    companyId: number,
+    entryId: string,
+    input?: { observation?: string },
+  ) {
+    await this.assertMasterUser(masterUserId);
+    await ensureMasterBillingRuntimeSchema(this.prisma);
+
+    const rows = await this.prisma.$queryRaw<BillingLedgerEntryRow[]>(
+      Prisma.sql`
+        SELECT
+          "id",
+          "companyId",
+          "entryType",
+          "entryGroup",
+          "status",
+          "origin",
+          "currency",
+          "competence",
+          "amount",
+          "dueDate",
+          "paidAt",
+          "paymentMethod",
+          "referenceLabel",
+          "observation",
+          "metadata",
+          "createdByUserId",
+          "createdAt",
+          "updatedAt"
+        FROM "MasterBillingLedgerEntry"
+        WHERE "id" = ${String(entryId)}
+          AND "companyId" = ${Number(companyId)}
+        LIMIT 1
+      `,
+    );
+
+    const entry = rows?.[0];
+    if (!entry) throw new BadRequestException('Lancamento financeiro nao encontrado.');
+
+    const entryType = String(entry.entryType || '').toUpperCase();
+    const isManualEntry =
+      String(entry.origin || '').toLowerCase() === 'master_manual_payment' ||
+      ['MANUAL_PAYMENT', 'PIX_MANUAL', 'TRANSFERENCIA_MANUAL', 'DINHEIRO_MANUAL'].includes(entryType);
+    if (!isManualEntry) {
+      throw new BadRequestException('Somente lancamentos manuais podem ser removidos por esta tela.');
+    }
+
+    const nextObservation = [entry.observation, this.normalizeOptionalString(input?.observation), `Removido pelo MASTER em ${new Date().toLocaleString('pt-BR')}`]
+      .filter(Boolean)
+      .join(' | ');
+
+    await this.prisma.$executeRaw`
+      UPDATE "MasterBillingLedgerEntry"
+      SET
+        "status" = ${'CANCELLED'},
+        "observation" = ${nextObservation || null},
+        "updatedAt" = ${new Date()}
+      WHERE "id" = ${String(entryId)}
+        AND "companyId" = ${Number(companyId)}
+    `;
+
+    await this.masterContextService.registerSupportAction({
+      masterUserId,
+      companyId,
+      scope: 'master_billing',
+      action: 'MANUAL_PAYMENT_CANCELLED',
+      severity: 'WARN',
+      metadata: {
+        entryId: String(entryId),
+        amount: this.normalizeCurrencyAmount(entry.amount),
+        competence: entry.competence || null,
+      },
+    });
+
+    return {
+      ok: true,
+      companyId,
+      entryId: String(entryId),
+      status: 'CANCELLED',
     };
   }
 

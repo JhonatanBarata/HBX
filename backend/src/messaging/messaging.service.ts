@@ -39,6 +39,10 @@ import {
   type AtendimentoBotConfig,
 } from '../inbox/atendimento-config';
 import {
+  applyMasterWhatsAppCredentials,
+  resolveCompanyMercadoPagoAccess,
+} from '../modules/master-global-integrations.util';
+import {
   buildStructuredWhatsAppLog,
   extractInboundTextFromPayload,
   normalizeMetaProviderError,
@@ -196,20 +200,21 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async findCompanyWithOptionalEndpoints(companyId: number) {
-    if (await this.supportsWhatsAppEndpointTable()) {
-      return this.prisma.company.findUnique({
+    const company = (await this.supportsWhatsAppEndpointTable())
+      ? await this.prisma.company.findUnique({
         where: { id: companyId },
         include: {
           whatsappEndpoints: {
             orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
           },
         },
-      });
-    }
+      })
+      : await this.prisma.company.findUnique({
+          where: { id: companyId },
+        });
 
-    return this.prisma.company.findUnique({
-      where: { id: companyId },
-    });
+    const resolved = await applyMasterWhatsAppCredentials(this.prisma, company);
+    return resolved.company || null;
   }
 
   private computeWebhookSignature(rawBody: Buffer): string {
@@ -1430,8 +1435,9 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
       totalAmount?: number;
     },
   ) {
-    const company = await this.prisma.company.findUnique({ where: { id: companyId } });
-    const accessToken = String(company?.mercadoPagoAccessToken || '').trim();
+    const resolved = await resolveCompanyMercadoPagoAccess(this.prisma, companyId);
+    const company = resolved.company;
+    const accessToken = String(resolved.accessToken || '').trim();
     if (!company || !accessToken) {
       if (this.shouldSendRecoveryHumanAck(company)) {
         await this.conversations.queueOutboundForCompany(companyId, {

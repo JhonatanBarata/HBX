@@ -3,7 +3,8 @@
     {
       "key": "atendimento",
       "name": "Atendimento",
-      "description": "Inclui Operacao de atendimento, Respostas automaticas e Mensagens e logs.",
+      "description": "Central de atendimento da empresa com filas, conversas e operacao diaria.",
+      "monthlyPrice": 0,
       "defaultEnabled": true,
       "companyAssignable": true,
       "serviceUrl": null
@@ -12,6 +13,7 @@
       "key": "gerencial",
       "name": "Gerencial",
       "description": "Indicadores e administracao da empresa.",
+      "monthlyPrice": 0,
       "defaultEnabled": true,
       "companyAssignable": true,
       "serviceUrl": null
@@ -20,6 +22,7 @@
       "key": "webscraping",
       "name": "Webscraping",
       "description": "Prospeccao local com busca de contatos.",
+      "monthlyPrice": 0,
       "defaultEnabled": true,
       "companyAssignable": true,
       "serviceUrl": "/hbx/webscraping"
@@ -28,6 +31,7 @@
       "key": "hbx_recovery",
       "name": "HBX Recovery",
       "description": "Recuperacao de inadimplencia com score, historico e automacao de cobranca.",
+      "monthlyPrice": 0,
       "defaultEnabled": true,
       "companyAssignable": true,
       "serviceUrl": "/hbx-recovery"
@@ -36,6 +40,7 @@
       "key": "website",
       "name": "Website",
       "description": "Acesso ao site da empresa e entrada segura no admin do website.",
+      "monthlyPrice": 0,
       "defaultEnabled": false,
       "companyAssignable": true,
       "serviceUrl": "/dashboard/website"
@@ -44,6 +49,7 @@
       "key": "follow_up_internacional",
       "name": "Follow Up Internacional",
       "description": "Acompanhamento visual de importacoes, historico e alertas.",
+      "monthlyPrice": 0,
       "defaultEnabled": false,
       "companyAssignable": true,
       "serviceUrl": "/dashboard/importacoes/followup-global"
@@ -52,6 +58,7 @@
       "key": "cadastros",
       "name": "Cadastros",
       "description": "Cadastros de fornecedor, pais, portos e transit time.",
+      "monthlyPrice": 0,
       "defaultEnabled": true,
       "companyAssignable": true,
       "serviceUrl": "/dashboard/importacoes/cadastros"
@@ -60,6 +67,7 @@
       "key": "master",
       "name": "Master",
       "description": "Gestao global do sistema (empresas, modulos, usuarios e billing).",
+      "monthlyPrice": 0,
       "defaultEnabled": false,
       "companyAssignable": false,
       "serviceUrl": "/dashboard/master"
@@ -68,6 +76,7 @@
       "key": "exclusoes",
       "name": "Exclusoes",
       "description": "Painel master para auditoria e limpeza permanente de registros excluidos.",
+      "monthlyPrice": 0,
       "defaultEnabled": false,
       "companyAssignable": false,
       "serviceUrl": "/dashboard/master/exclusoes"

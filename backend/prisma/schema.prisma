@@ -32,6 +32,10 @@ model Company {
   mercadoPagoStatusUpdatedAt DateTime?
   mercadoPagoAccountEmail   String?
   mercadoPagoUserId         String?
+  useMasterMercadoPagoToken Boolean   @default(false)
+  useMasterWhatsAppToken    Boolean   @default(false)
+  masterMercadoPagoCredentialKey String?
+  masterWhatsAppCredentialKey    String?
   timezone                String?   @default("America/Sao_Paulo")
   isActive                Boolean   @default(true)
   paymentStatus           String    @default("PENDING") // PENDING | TRIAL | PAID | OVERDUE | EXPIRED | DISABLED
@@ -440,11 +444,26 @@ model MasterSupportAuditLog {
   @@index([scope, action, createdAt])
 }
 
+model MasterGlobalIntegrationConfig {
+  key                      String   @id
+  mercadoPagoAccessToken   String?
+  whatsappAccessToken      String?
+  whatsappPhoneNumberId    String?
+  whatsappWabaId           String?
+  whatsappNumber           String?
+  whatsappDisplayNumber    String?
+  mercadoPagoLibrary       String?
+  whatsappLibrary          String?
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @updatedAt
+}
+
 model SystemModule {
   id             Int                @id @default(autoincrement())
   key            String             @unique
   name           String
   description    String?
+  monthlyPrice   Float              @default(0)
   serviceUrl     String?
   defaultEnabled Boolean            @default(false)
   companyAssignable Boolean         @default(true)

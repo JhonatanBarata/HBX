@@ -152,6 +152,7 @@ export default function TopBar() {
   const [selectedMasterCompanyId, setSelectedMasterCompanyId] = useState<string>("");
   const [masterContextReason, setMasterContextReason] = useState("");
   const [masterContextToast, setMasterContextToast] = useState<string | null>(null);
+  const [topbarHiddenByScroll, setTopbarHiddenByScroll] = useState(false);
   const recoveryLastSeenRef = useRef<Map<number, string>>(new Map());
   const recoveryHumanQueueRef = useRef<Map<number, boolean>>(new Map());
   const recoveryAlertReadyRef = useRef(false);
@@ -160,6 +161,7 @@ export default function TopBar() {
   const audioContextRef = useRef<AudioContext | null>(null);
   const audioArmedRef = useRef(false);
   const masterContextToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastScrollYRef = useRef(0);
 
   const refreshMasterAwareState = React.useCallback(async () => {
     const [profile, myModules] = await Promise.all([
@@ -640,6 +642,36 @@ export default function TopBar() {
     };
   }, [authenticated, incomingPopup, open, pathname]);
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    lastScrollYRef.current = window.scrollY || 0;
+
+    const handleScroll = () => {
+      const currentY = window.scrollY || 0;
+      const delta = currentY - lastScrollYRef.current;
+
+      if (currentY <= 24) {
+        setTopbarHiddenByScroll(false);
+        lastScrollYRef.current = currentY;
+        return;
+      }
+
+      if (delta > 8) {
+        setTopbarHiddenByScroll(true);
+      } else if (delta < -8) {
+        setTopbarHiddenByScroll(false);
+      }
+
+      lastScrollYRef.current = currentY;
+    };
+
+    window.addEventListener("scroll", handleScroll, { passive: true });
+    return () => {
+      window.removeEventListener("scroll", handleScroll);
+    };
+  }, []);
+
   async function handleLogout() {
     await runGlobalShutdown(async () => {
       clearToken();
@@ -827,7 +859,7 @@ export default function TopBar() {
   }
 
   return (
-    <header className="app-topbar">
+    <header className={`app-topbar${topbarHiddenByScroll ? " app-topbar--hidden" : ""}`}>
       <div ref={topbarFrameRef} className="app-topbar__frame">
         <div className="app-topbar__inner">
           <div className="app-topbar__left">

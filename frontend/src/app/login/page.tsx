@@ -1,7 +1,7 @@
 "use client";
 
 import type { CSSProperties } from "react";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { setToken } from "../dashboard/_lib/api";
 import { useLoginColdStart, type LoginState } from "../../lib/useLoginColdStart";
@@ -75,6 +75,9 @@ export default function LoginPage() {
   const [visualsPlayOnLoad, setVisualsPlayOnLoad] = useState(false);
   const [mode, setMode] = useState<"login" | "forgot">("login");
   const [preRegistered, setPreRegistered] = useState(false);
+  const [countdown, setCountdown] = useState<number | null>(null);
+  const countdownRef = useRef<number | null>(null);
+  const countdownIntervalRef = useRef<number | null>(null);
 
   // Helper para traduzir estado de login para UI
   const isSubmitting = loginState === "submitting" || loginState === "waking_server";
@@ -135,6 +138,140 @@ export default function LoginPage() {
             router.replace("/dashboard");
           }
         }
+
+          // Programmatic login routine used after reload/auto-login
+          async function doLoginProgrammatic(u: string, p: string) {
+            setError(null);
+            setInfo(null);
+            setWakingMessage(null);
+            setLoginState("submitting");
+
+            try {
+              const result = await executeLoginWithRetry(u, p, (phase) => {
+                if (phase.state === "waking_server") {
+                  setWakingMessage(
+                    phase.message ??
+                      "Estamos iniciando o ambiente seguro. A primeira conexao pode levar alguns segundos."
+                  );
+                  setLoginState("waking_server");
+                  return;
+                }
+
+                if (phase.state === "submitting") {
+                  setLoginState("submitting");
+                }
+              });
+
+              if (result.state === "success") {
+                const token = (result.data as any)?.token;
+                if (!token) {
+                  setError("Login falhou: token não recebido");
+                  setLoginState("error");
+                  return;
+                }
+
+                setToken(token);
+                setLoginState("success");
+                let handledRedirect = false;
+                try {
+                  setPlayingWelcome(true);
+                  await new Promise((res) => setTimeout(res, 900));
+                  const destination = await resolveWebsiteOnlyDestination();
+                  if (destination) {
+                    handledRedirect = true;
+                    if (/^https?:\/\//i.test(destination)) {
+                      window.location.assign(destination);
+                    } else {
+                      router.replace(destination);
+                    }
+                    return;
+                  }
+                } finally {
+                  if (!handledRedirect) {
+                    router.replace("/dashboard");
+                  }
+                }
+              } else if (result.state === "error") {
+                setError(result.message ?? "Erro ao autenticar");
+                setLoginState("error");
+              } else if (result.state === "waking_server") {
+                setWakingMessage(
+                  result.message ??
+                    "Estamos iniciando o ambiente seguro. A primeira conexão pode levar alguns segundos."
+                );
+                setLoginState("waking_server");
+              }
+            } catch (err) {
+              setError("Falha ao conectar no backend");
+              setLoginState("error");
+            }
+          }
+
+          // Inicia contagem regressiva quando detectamos waking_server
+          useEffect(() => {
+            if (loginState !== "waking_server") {
+              // limpar contagem se não estiver em waking
+              if (countdownIntervalRef.current) {
+                window.clearInterval(countdownIntervalRef.current as any);
+                countdownIntervalRef.current = null;
+              }
+              countdownRef.current = null;
+              setCountdown(null);
+              return;
+            }
+
+            // já rodando
+            if (countdownRef.current !== null) return;
+
+            // iniciar 49s
+            countdownRef.current = 49;
+            setCountdown(49);
+            countdownIntervalRef.current = window.setInterval(() => {
+              if (countdownRef.current === null) return;
+              countdownRef.current = countdownRef.current - 1;
+              setCountdown(countdownRef.current);
+              if (countdownRef.current <= 0) {
+                // salvar credenciais temporariamente e recarregar a página para tentar novamente
+                try {
+                  sessionStorage.setItem(
+                    "hbx_auto_login",
+                    JSON.stringify({ username: username || "", password: password || "" })
+                  );
+                } catch {
+                  // ignore
+                }
+                window.location.reload();
+              }
+            }, 1000);
+
+            return () => {
+              if (countdownIntervalRef.current) {
+                window.clearInterval(countdownIntervalRef.current as any);
+                countdownIntervalRef.current = null;
+              }
+            };
+          }, [loginState, password, username]);
+
+          // Ao montar, verificar se tem auto-login pendente (de reload)
+          useEffect(() => {
+            try {
+              const raw = sessionStorage.getItem("hbx_auto_login");
+              if (!raw) return;
+              sessionStorage.removeItem("hbx_auto_login");
+              const parsed = JSON.parse(raw || "{}") as { username?: string; password?: string };
+              if (parsed?.username) {
+                const restoredUsername = parsed.username;
+                setUsername(restoredUsername);
+                setPassword(parsed.password ?? "");
+                // aguardar um tick para o componente estabilizar
+                setTimeout(() => {
+                  doLoginProgrammatic(restoredUsername, parsed.password ?? "");
+                }, 200);
+              }
+            } catch {
+              // ignore parse errors
+            }
+          }, []);
       } else if (result.state === "error") {
         setError(result.message ?? "Erro ao autenticar");
         setLoginState("error");
@@ -333,6 +470,9 @@ export default function LoginPage() {
                   <div>
                     <div className="text-sm font-medium">Ambiente em inicialização</div>
                     <div className="text-xs opacity-75">{wakingMessage}</div>
+                    {countdown !== null ? (
+                      <div className="text-xs opacity-60">Recarregando em {countdown}s</div>
+                    ) : null}
                   </div>
                 </div>
               </div>

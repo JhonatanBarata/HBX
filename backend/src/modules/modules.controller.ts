@@ -33,6 +33,63 @@ class SetCompanyModuleDto {
   enabled!: boolean;
 }
 
+class UpdateSystemModuleCatalogDto {
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  monthlyPrice?: number;
+
+  @IsOptional()
+  @IsString()
+  name?: string;
+
+  @IsOptional()
+  @IsString()
+  description?: string;
+
+  @IsOptional()
+  @Type(() => Boolean)
+  @IsBoolean()
+  defaultEnabled?: boolean;
+}
+
+class UpdateMasterGlobalIntegrationsDto {
+  @IsOptional()
+  @IsArray()
+  mercadoPagoLibrary?: any[];
+
+  @IsOptional()
+  @IsArray()
+  whatsappLibrary?: any[];
+}
+
+class UpdateCompanyMasterTokenUsageDto {
+  @IsOptional()
+  @Type(() => Boolean)
+  @IsBoolean()
+  useMasterMercadoPagoToken?: boolean;
+
+  @IsOptional()
+  @Type(() => Boolean)
+  @IsBoolean()
+  useMasterWhatsAppToken?: boolean;
+
+  @IsOptional()
+  @IsString()
+  masterMercadoPagoCredentialKey?: string;
+
+  @IsOptional()
+  @IsString()
+  masterWhatsAppCredentialKey?: string;
+}
+
+class ImportCompanyTokensToMasterDto {
+  @IsOptional()
+  @Type(() => Boolean)
+  @IsBoolean()
+  clearSource?: boolean;
+}
+
 class GrantTrialDto {
   @IsOptional()
   @IsString()
@@ -92,6 +149,12 @@ class RecordManualPaymentDto {
   @Type(() => Boolean)
   @IsBoolean()
   generateAudit?: boolean;
+}
+
+class CancelManualPaymentDto {
+  @IsOptional()
+  @IsString()
+  observation?: string;
 }
 
 class UpdateMasterCompanyProfileDto {
@@ -202,6 +265,34 @@ export class ModulesController {
     return this.modulesService.getMasterWorkspace(Number(req.user?.id));
   }
 
+  @Get('master/system-modules')
+  @UseGuards(JwtAuthGuard, MasterGuard)
+  listMasterSystemModules(@Req() req: any) {
+    return this.modulesService.listMasterSystemModules(Number(req.user?.id));
+  }
+
+  @Put('master/system-modules/:moduleKey')
+  @UseGuards(JwtAuthGuard, MasterGuard)
+  updateMasterSystemModule(
+    @Req() req: any,
+    @Param('moduleKey') moduleKey: string,
+    @Body() dto: UpdateSystemModuleCatalogDto,
+  ) {
+    return this.modulesService.updateMasterSystemModule(Number(req.user?.id), moduleKey, dto || {});
+  }
+
+  @Get('master/global-integrations')
+  @UseGuards(JwtAuthGuard, MasterGuard)
+  getMasterGlobalIntegrations(@Req() req: any) {
+    return this.modulesService.getMasterGlobalIntegrations(Number(req.user?.id));
+  }
+
+  @Put('master/global-integrations')
+  @UseGuards(JwtAuthGuard, MasterGuard)
+  updateMasterGlobalIntegrations(@Req() req: any, @Body() dto: UpdateMasterGlobalIntegrationsDto) {
+    return this.modulesService.updateMasterGlobalIntegrations(Number(req.user?.id), dto || {});
+  }
+
   @Get('master/company/:companyId/detail')
   @UseGuards(JwtAuthGuard, MasterGuard)
   getMasterCompanyDetail(
@@ -219,6 +310,26 @@ export class ModulesController {
     @Body() dto: SetCompanyModuleDto,
   ) {
     return this.modulesService.setCompanyModuleByMaster(Number(req.user?.id), companyId, dto?.moduleKey, Boolean(dto?.enabled));
+  }
+
+  @Put('master/company/:companyId/global-token-usage')
+  @UseGuards(JwtAuthGuard, MasterGuard)
+  updateCompanyMasterTokenUsage(
+    @Req() req: any,
+    @Param('companyId', ParseIntPipe) companyId: number,
+    @Body() dto: UpdateCompanyMasterTokenUsageDto,
+  ) {
+    return this.modulesService.updateCompanyMasterTokenUsage(Number(req.user?.id), companyId, dto || {});
+  }
+
+  @Post('master/company/:companyId/import-tokens-to-master')
+  @UseGuards(JwtAuthGuard, MasterGuard)
+  importCompanyTokensToMaster(
+    @Req() req: any,
+    @Param('companyId', ParseIntPipe) companyId: number,
+    @Body() dto: ImportCompanyTokensToMasterDto,
+  ) {
+    return this.modulesService.importCompanyTokensToMaster(Number(req.user?.id), companyId, dto || {});
   }
 
   @Post('master/company/:companyId/trial')
@@ -249,6 +360,17 @@ export class ModulesController {
     @Body() dto: RecordManualPaymentDto,
   ) {
     return this.modulesService.recordManualPayment(Number(req.user?.id), companyId, dto || {});
+  }
+
+  @Put('master/company/:companyId/manual-payment/:entryId/cancel')
+  @UseGuards(JwtAuthGuard, MasterGuard)
+  cancelManualPayment(
+    @Req() req: any,
+    @Param('companyId', ParseIntPipe) companyId: number,
+    @Param('entryId') entryId: string,
+    @Body() dto: CancelManualPaymentDto,
+  ) {
+    return this.modulesService.cancelManualPaymentEntry(Number(req.user?.id), companyId, entryId, dto || {});
   }
 
   @Put('master/company/:companyId/profile')

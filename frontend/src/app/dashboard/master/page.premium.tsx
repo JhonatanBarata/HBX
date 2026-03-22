@@ -146,12 +146,45 @@ type CompanySummary = {
     accountEmail?: string | null;
     accountUserId?: string | null;
     tokenConfigured: boolean;
+    usingMasterToken?: boolean;
+    masterCredentialKey?: string | null;
+    masterCredentialLabel?: string | null;
   };
   modules: Array<{
     key: string;
     name: string;
     enabled: boolean;
+    monthlyPrice?: number;
   }>;
+  modulesTotalMonthlyValue?: number;
+};
+
+type MasterMercadoPagoCredential = {
+  key: string;
+  label: string;
+  accessToken?: string | null;
+  accessTokenPreview?: string | null;
+  configured: boolean;
+  sourceCompanyId?: number | null;
+  sourceCompanyName?: string | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+};
+
+type MasterWhatsAppCredential = {
+  key: string;
+  label: string;
+  accessToken?: string | null;
+  accessTokenPreview?: string | null;
+  phoneNumberId?: string | null;
+  wabaId?: string | null;
+  whatsappNumber?: string | null;
+  displayNumber?: string | null;
+  configured: boolean;
+  sourceCompanyId?: number | null;
+  sourceCompanyName?: string | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
 };
 
 type AttentionGroup = {
@@ -180,6 +213,22 @@ type WorkspacePayload = {
   };
   attention: AttentionGroup[];
   companies: CompanySummary[];
+  masterIntegrations: {
+    mercadoPagoConfigured: boolean;
+    whatsappConfigured: boolean;
+    mercadoPagoLibrary: MasterMercadoPagoCredential[];
+    whatsappLibrary: MasterWhatsAppCredential[];
+  };
+  systemModules: Array<{
+    id: number;
+    key: string;
+    name: string;
+    description?: string | null;
+    monthlyPrice: number;
+    defaultEnabled: boolean;
+    companyAssignable: boolean;
+    serviceUrl?: string | null;
+  }>;
 };
 
 type CompanyUser = {
@@ -211,6 +260,8 @@ type CompanyDetailPayload = {
     trialHistory: AuditEntry[];
     auditTimeline: AuditEntry[];
     whatsapp: {
+      tokenConfigured?: boolean;
+      usingMasterToken?: boolean;
       endpoints: Array<{
         id: string;
         label?: string | null;
@@ -220,14 +271,30 @@ type CompanyDetailPayload = {
         whatsappStatus?: string | null;
         whatsappStatusError?: string | null;
         accessTokenConfigured: boolean;
+        accessTokenValue?: string | null;
         isActive: boolean;
         isPrimary: boolean;
       }>;
+      companyAccessTokenConfigured?: boolean;
+      companyAccessTokenValue?: string | null;
+      masterCredentialKey?: string | null;
+      masterCredentialLabel?: string | null;
+      masterAccessTokenConfigured?: boolean;
+      masterAccessTokenValue?: string | null;
+      masterPhoneNumberId?: string | null;
+      masterWabaId?: string | null;
+      masterDisplayNumber?: string | null;
     };
     mercadoPago: CompanySummary["mercadoPago"] & {
       statusError?: string | null;
       lastValidatedAt?: string | null;
+      accessTokenValue?: string | null;
+      masterCredentialKey?: string | null;
+      masterCredentialLabel?: string | null;
+      masterTokenConfigured?: boolean;
+      masterAccessTokenValue?: string | null;
     };
+    masterIntegrations?: WorkspacePayload["masterIntegrations"];
   };
 };
 
@@ -261,6 +328,17 @@ type MercadoPagoDraft = {
   lastValidatedAt: string | null;
   accessTokenConfigured: boolean;
 };
+
+type ModuleCatalogDraft = {
+  key: string;
+  name: string;
+  description: string;
+  monthlyPrice: string;
+  companyAssignable: boolean;
+  defaultEnabled: boolean;
+};
+
+type MasterIntegrationsDraft = WorkspacePayload["masterIntegrations"];
 
 type UserModalState = {
   mode: "create" | "edit" | "reset";
@@ -297,8 +375,7 @@ type ConfirmActionState = {
 
 type DrawerTab =
   | "summary"
-  | "billing"
-  | "payments"
+  | "finance"
   | "users"
   | "modules"
   | "website"
@@ -318,8 +395,7 @@ const FILTERS = [
 
 const TABS: Array<{ id: DrawerTab; label: string }> = [
   { id: "summary", label: "Resumo" },
-  { id: "billing", label: "Cobrança" },
-  { id: "payments", label: "Pagamentos" },
+  { id: "finance", label: "Financeiro" },
   { id: "users", label: "Usuários" },
   { id: "modules", label: "Módulos" },
   { id: "website", label: "Website" },
@@ -333,6 +409,30 @@ function formatCurrency(value?: number | null) {
     currency: "BRL",
     maximumFractionDigits: 2,
   });
+}
+
+function formatCurrencyInput(value?: number | null) {
+  return Number(value || 0).toLocaleString("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+}
+
+function normalizeCurrencyInput(raw: string) {
+  const digits = String(raw || "").replace(/\D+/g, "");
+  const amount = Number(digits || 0) / 100;
+  return formatCurrencyInput(amount);
+}
+
+function parseCurrencyInput(raw: string) {
+  const normalized = String(raw || "")
+    .replace(/[^\d,.-]/g, "")
+    .replace(/\./g, "")
+    .replace(",", ".");
+  const amount = Number(normalized);
+  return Number.isFinite(amount) ? amount : 0;
 }
 
 function formatDate(value?: string | null) {
@@ -481,6 +581,37 @@ function buildMercadoPagoDraft(company: CompanyDetailPayload["company"]): Mercad
     lastValidatedAt: company.mercadoPago.lastValidatedAt || null,
     accessTokenConfigured: Boolean(company.mercadoPago.tokenConfigured),
   };
+}
+
+function buildModuleCatalogDrafts(workspace?: WorkspacePayload | null): Record<string, ModuleCatalogDraft> {
+  const entries = (workspace?.systemModules || []).map((moduleItem) => [
+    moduleItem.key,
+    {
+      key: moduleItem.key,
+      name: moduleItem.name,
+      description: moduleItem.description || "",
+      monthlyPrice: formatCurrencyInput(moduleItem.monthlyPrice ?? 0),
+      companyAssignable: Boolean(moduleItem.companyAssignable),
+      defaultEnabled: Boolean(moduleItem.defaultEnabled),
+    },
+  ]);
+  return Object.fromEntries(entries);
+}
+
+function buildMasterIntegrationsDraft(workspace?: WorkspacePayload | null): MasterIntegrationsDraft {
+  return {
+    mercadoPagoConfigured: Boolean(workspace?.masterIntegrations?.mercadoPagoConfigured),
+    whatsappConfigured: Boolean(workspace?.masterIntegrations?.whatsappConfigured),
+    mercadoPagoLibrary: [...(workspace?.masterIntegrations?.mercadoPagoLibrary || [])],
+    whatsappLibrary: [...(workspace?.masterIntegrations?.whatsappLibrary || [])],
+  };
+}
+
+function createDraftKey(prefix: string) {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return `${prefix}-${crypto.randomUUID()}`;
+  }
+  return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
 }
 
 function buildCsv(detail: CompanyDetailPayload["company"]) {
@@ -695,24 +826,42 @@ function PaymentChart({
   );
 }
 
+function EyeIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+      <path
+        d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" strokeWidth="1.8" />
+    </svg>
+  );
+}
+
 function ModalShell({
   title,
   subtitle,
   open,
   onClose,
   children,
+  wide = false,
 }: {
   title: string;
   subtitle: string;
   open: boolean;
   onClose: () => void;
   children: React.ReactNode;
+  wide?: boolean;
 }) {
   if (!open) return null;
   return (
     <div className={styles.modalRoot}>
       <button type="button" className={styles.modalBackdrop} onClick={onClose} aria-label="Fechar modal" />
-      <article className={styles.modalCard}>
+      <article className={wide ? `${styles.modalCard} ${styles.modalCardWide}` : styles.modalCard}>
         <header className={styles.modalHeader}>
           <div>
             <p className={styles.sectionEyebrow}>Operação MASTER</p>
@@ -748,16 +897,34 @@ export default function MasterPremiumPage() {
   const [error, setError] = useState<string | null>(null);
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [createCompanyOpen, setCreateCompanyOpen] = useState(false);
+  const [masterIntegrationsOpen, setMasterIntegrationsOpen] = useState(false);
+  const [moduleCatalogOpen, setModuleCatalogOpen] = useState(false);
   const [createCompanyName, setCreateCompanyName] = useState("");
   const [createCompanySlug, setCreateCompanySlug] = useState("");
   const [profileDraft, setProfileDraft] = useState<ProfileDraft | null>(null);
   const [websiteDraft, setWebsiteDraft] = useState<WebsiteDraft | null>(null);
   const [mercadoPagoDraft, setMercadoPagoDraft] = useState<MercadoPagoDraft | null>(null);
   const [trialDateDraft, setTrialDateDraft] = useState("");
+  const [trialDaysDraft, setTrialDaysDraft] = useState("7");
+  const [moduleCatalogDrafts, setModuleCatalogDrafts] = useState<Record<string, ModuleCatalogDraft>>({});
+  const [masterIntegrationsDraft, setMasterIntegrationsDraft] = useState<MasterIntegrationsDraft>({
+    mercadoPagoConfigured: false,
+    whatsappConfigured: false,
+    mercadoPagoLibrary: [],
+    whatsappLibrary: [],
+  });
+  const [integrationVisibility, setIntegrationVisibility] = useState<Record<string, boolean>>({});
   const [userModal, setUserModal] = useState<UserModalState | null>(null);
   const [manualPaymentModal, setManualPaymentModal] = useState<ManualPaymentState | null>(null);
   const [confirmAction, setConfirmAction] = useState<ConfirmActionState | null>(null);
   const deferredSearch = useDeferredValue(search);
+  const commercialModuleDrafts = useMemo(
+    () =>
+      Object.values(moduleCatalogDrafts)
+        .filter((moduleItem) => moduleItem.companyAssignable)
+        .sort((left, right) => left.name.localeCompare(right.name, "pt-BR")),
+    [moduleCatalogDrafts],
+  );
 
   async function loadWorkspace(background = false) {
     if (background) {
@@ -773,6 +940,8 @@ export default function MasterPremiumPage() {
       ]);
       setWorkspace(workspacePayload);
       setCurrentUser(userPayload);
+      setModuleCatalogDrafts(buildModuleCatalogDrafts(workspacePayload));
+      setMasterIntegrationsDraft(buildMasterIntegrationsDraft(workspacePayload));
       if (!quickCompanyId && workspacePayload.companies.length) {
         setQuickCompanyId(String(workspacePayload.companies[0].id));
       }
@@ -818,6 +987,56 @@ export default function MasterPremiumPage() {
     loadWorkspace();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hasToken]);
+
+  useEffect(() => {
+    const anyModalOpen =
+      createCompanyOpen ||
+      masterIntegrationsOpen ||
+      moduleCatalogOpen ||
+      Boolean(userModal) ||
+      Boolean(manualPaymentModal) ||
+      Boolean(confirmAction);
+    const focusOpen = drawerOpen || anyModalOpen;
+    if (typeof document === "undefined") return;
+    document.body.classList.toggle("master-company-focus-open", focusOpen);
+    document.body.style.overflow = focusOpen ? "hidden" : "";
+    const topbar = document.querySelector<HTMLElement>(".app-topbar");
+    if (topbar) {
+      if (focusOpen) {
+        topbar.dataset.masterFocusHidden = "true";
+        topbar.style.opacity = "0";
+        topbar.style.pointerEvents = "none";
+        topbar.style.transform = "translateY(-16px)";
+        topbar.style.visibility = "hidden";
+      } else if (topbar.dataset.masterFocusHidden === "true") {
+        topbar.style.opacity = "";
+        topbar.style.pointerEvents = "";
+        topbar.style.transform = "";
+        topbar.style.visibility = "";
+        delete topbar.dataset.masterFocusHidden;
+      }
+    }
+    return () => {
+      document.body.classList.remove("master-company-focus-open");
+      document.body.style.overflow = "";
+      const activeTopbar = document.querySelector<HTMLElement>(".app-topbar");
+      if (activeTopbar?.dataset.masterFocusHidden === "true") {
+        activeTopbar.style.opacity = "";
+        activeTopbar.style.pointerEvents = "";
+        activeTopbar.style.transform = "";
+        activeTopbar.style.visibility = "";
+        delete activeTopbar.dataset.masterFocusHidden;
+      }
+    };
+  }, [
+    drawerOpen,
+    createCompanyOpen,
+    masterIntegrationsOpen,
+    moduleCatalogOpen,
+    userModal,
+    manualPaymentModal,
+    confirmAction,
+  ]);
 
   const filteredCompanies = useMemo(() => {
     const items = [...(workspace?.companies || [])];
@@ -901,6 +1120,168 @@ export default function MasterPremiumPage() {
     } finally {
       setBusyAction(null);
     }
+  }
+
+  async function saveSystemModule(moduleKey: string) {
+    const draft = moduleCatalogDrafts[moduleKey];
+    if (!draft) return;
+    setBusyAction(`system-module-${moduleKey}`);
+    setError(null);
+    try {
+      await apiFetch(`/modules/master/system-modules/${moduleKey}`, {
+        method: "PUT",
+        body: JSON.stringify({
+          name: draft.name.trim(),
+          description: draft.description.trim(),
+          monthlyPrice: parseCurrencyInput(draft.monthlyPrice),
+          defaultEnabled: draft.defaultEnabled,
+        }),
+      });
+      setMessage(`Módulo ${draft.name} atualizado.`);
+      await loadWorkspace(true);
+      if (activeCompany) {
+        await loadDetail(activeCompany.id, drawerTab);
+      }
+    } catch (actionError) {
+      setError(actionError instanceof Error ? actionError.message : "Falha ao salvar módulo.");
+    } finally {
+      setBusyAction(null);
+    }
+  }
+
+  async function saveMasterIntegrations() {
+    setBusyAction("master-integrations-save");
+    setError(null);
+    try {
+      await apiFetch("/modules/master/global-integrations", {
+        method: "PUT",
+        body: JSON.stringify({
+          mercadoPagoLibrary: masterIntegrationsDraft.mercadoPagoLibrary,
+          whatsappLibrary: masterIntegrationsDraft.whatsappLibrary,
+        }),
+      });
+      setMessage("Biblioteca de credenciais do MASTER atualizada.");
+      await loadWorkspace(true);
+      if (activeCompany) {
+        await loadDetail(activeCompany.id, drawerTab);
+      }
+    } catch (actionError) {
+      setError(actionError instanceof Error ? actionError.message : "Falha ao salvar os tokens globais do MASTER.");
+    } finally {
+      setBusyAction(null);
+    }
+  }
+
+  async function setCompanyMasterTokenUsage(next: {
+    useMasterMercadoPagoToken?: boolean;
+    useMasterWhatsAppToken?: boolean;
+    masterMercadoPagoCredentialKey?: string;
+    masterWhatsAppCredentialKey?: string;
+  }) {
+    if (!activeCompany) return;
+    setBusyAction(`master-token-usage-${activeCompany.id}`);
+    setError(null);
+    try {
+      await apiFetch(`/modules/master/company/${activeCompany.id}/global-token-usage`, {
+        method: "PUT",
+        body: JSON.stringify(next),
+      });
+      setMessage("Vínculo com token MASTER atualizado.");
+      await refreshAll(activeCompany.id);
+    } catch (actionError) {
+      setError(actionError instanceof Error ? actionError.message : "Falha ao atualizar o vínculo com o token MASTER.");
+    } finally {
+      setBusyAction(null);
+    }
+  }
+
+  async function importActiveCompanyTokensToMaster(clearSource = true) {
+    if (!activeCompany) return;
+    setBusyAction(`import-master-tokens-${activeCompany.id}`);
+    setError(null);
+    try {
+      await apiFetch(`/modules/master/company/${activeCompany.id}/import-tokens-to-master`, {
+        method: "POST",
+        body: JSON.stringify({ clearSource }),
+      });
+      setMessage(`Tokens de ${activeCompany.name} importados para o MASTER.`);
+      await refreshAll(activeCompany.id);
+      setMasterIntegrationsOpen(false);
+    } catch (actionError) {
+      setError(actionError instanceof Error ? actionError.message : "Falha ao importar tokens da empresa para o MASTER.");
+    } finally {
+      setBusyAction(null);
+    }
+  }
+
+  function addMasterMercadoPagoCredential() {
+    setMasterIntegrationsDraft((current) => ({
+      ...current,
+      mercadoPagoLibrary: [
+        {
+          key: createDraftKey("mp"),
+          label: "Novo token de pagamentos",
+          accessToken: "",
+          configured: false,
+          sourceCompanyId: null,
+          sourceCompanyName: "MASTER",
+        },
+        ...current.mercadoPagoLibrary,
+      ],
+    }));
+  }
+
+  function addMasterWhatsAppCredential() {
+    setMasterIntegrationsDraft((current) => ({
+      ...current,
+      whatsappLibrary: [
+        {
+          key: createDraftKey("wa"),
+          label: "Novo token de WhatsApp",
+          accessToken: "",
+          phoneNumberId: "",
+          wabaId: "",
+          whatsappNumber: "",
+          displayNumber: "",
+          configured: false,
+          sourceCompanyId: null,
+          sourceCompanyName: "MASTER",
+        },
+        ...current.whatsappLibrary,
+      ],
+    }));
+  }
+
+  function updateMasterMercadoPagoCredential(credentialKey: string, patch: Partial<MasterMercadoPagoCredential>) {
+    setMasterIntegrationsDraft((current) => ({
+      ...current,
+      mercadoPagoLibrary: current.mercadoPagoLibrary.map((credential) =>
+        credential.key === credentialKey ? { ...credential, ...patch } : credential,
+      ),
+    }));
+  }
+
+  function updateMasterWhatsAppCredential(credentialKey: string, patch: Partial<MasterWhatsAppCredential>) {
+    setMasterIntegrationsDraft((current) => ({
+      ...current,
+      whatsappLibrary: current.whatsappLibrary.map((credential) =>
+        credential.key === credentialKey ? { ...credential, ...patch } : credential,
+      ),
+    }));
+  }
+
+  function removeMasterMercadoPagoCredential(credentialKey: string) {
+    setMasterIntegrationsDraft((current) => ({
+      ...current,
+      mercadoPagoLibrary: current.mercadoPagoLibrary.filter((credential) => credential.key !== credentialKey),
+    }));
+  }
+
+  function removeMasterWhatsAppCredential(credentialKey: string) {
+    setMasterIntegrationsDraft((current) => ({
+      ...current,
+      whatsappLibrary: current.whatsappLibrary.filter((credential) => credential.key !== credentialKey),
+    }));
   }
 
   async function assumeContext(company: CompanySummary) {
@@ -1044,6 +1425,20 @@ export default function MasterPremiumPage() {
     }
   }
 
+  async function deleteUser(companyId: number, userId: number, userLabel: string) {
+    setBusyAction(`user-delete-${userId}`);
+    setError(null);
+    try {
+      await apiFetch(`/users/master/${userId}/delete`, { method: "PATCH" });
+      setMessage(`Usuário removido: ${userLabel}.`);
+      await refreshAll(companyId);
+    } catch (actionError) {
+      setError(actionError instanceof Error ? actionError.message : "Falha ao deletar usuário.");
+    } finally {
+      setBusyAction(null);
+    }
+  }
+
   async function submitManualPayment() {
     if (!manualPaymentModal) return;
     setBusyAction("manual-payment");
@@ -1068,6 +1463,24 @@ export default function MasterPremiumPage() {
       await refreshAll(companyId);
     } catch (actionError) {
       setError(actionError instanceof Error ? actionError.message : "Falha ao lançar pagamento manual.");
+    } finally {
+      setBusyAction(null);
+    }
+  }
+
+  async function cancelManualPayment(entryId: string) {
+    if (!activeCompany) return;
+    setBusyAction(`cancel-manual-${entryId}`);
+    setError(null);
+    try {
+      await apiFetch(`/modules/master/company/${activeCompany.id}/manual-payment/${entryId}/cancel`, {
+        method: "PUT",
+        body: JSON.stringify({ observation: "Cancelado pela central master." }),
+      });
+      setMessage("Lançamento manual removido e preservado no histórico.");
+      await refreshAll(activeCompany.id);
+    } catch (actionError) {
+      setError(actionError instanceof Error ? actionError.message : "Falha ao remover lançamento manual.");
     } finally {
       setBusyAction(null);
     }
@@ -1259,6 +1672,12 @@ export default function MasterPremiumPage() {
           <button type="button" className="btn btn-primary btn-sm" onClick={() => setCreateCompanyOpen(true)}>
             Nova empresa
           </button>
+          <button type="button" className="btn btn-secondary btn-sm" onClick={() => setMasterIntegrationsOpen(true)}>
+            Tokens MASTER
+          </button>
+          <button type="button" className="btn btn-secondary btn-sm" onClick={() => setModuleCatalogOpen(true)}>
+            Módulos
+          </button>
           <button type="button" className="btn btn-secondary btn-sm" onClick={() => loadWorkspace(true)}>
             {refreshing ? "Atualizando..." : "Atualizar"}
           </button>
@@ -1402,7 +1821,7 @@ export default function MasterPremiumPage() {
                             key={company.id}
                             type="button"
                             className={styles.attentionRow}
-                            onClick={() => openCompany(company.id, company.statusBucket === "OVERDUE" ? "payments" : "summary")}
+                            onClick={() => openCompany(company.id, company.statusBucket === "OVERDUE" ? "finance" : "summary")}
                           >
                             <div>
                               <strong>{company.name}</strong>
@@ -1576,6 +1995,7 @@ export default function MasterPremiumPage() {
               </nav>
 
               <div className={styles.drawerBody}>
+                {drawerTab === "finance" ? (
                 <section className={styles.summaryCard}>
                   <div className={styles.summaryStats}>
                     <div><span>Mensalidade</span><strong>{formatCurrency(activeCompany.monthlyValue)}</strong></div>
@@ -1585,9 +2005,8 @@ export default function MasterPremiumPage() {
                   </div>
                   <div className={styles.drawerQuickActions}>
                     <button type="button" className="btn btn-primary btn-sm" onClick={() => openManualPayment(activeCompany)}>Lançar pagamento manual</button>
-                    <button type="button" className="btn btn-secondary btn-sm" onClick={() => runTrialAction(activeCompany.id, { action: "extend", days: 7 }, "Trial prorrogado em 7 dias.")}>+7 dias</button>
-                    <button type="button" className="btn btn-secondary btn-sm" onClick={() => runTrialAction(activeCompany.id, { action: "extend", days: 15 }, "Trial prorrogado em 15 dias.")}>+15 dias</button>
-                    <button type="button" className="btn btn-secondary btn-sm" onClick={() => runTrialAction(activeCompany.id, { action: "extend", days: 30 }, "Trial prorrogado em 30 dias.")}>+30 dias</button>
+                    <input className="field" type="number" min="1" max="365" value={trialDaysDraft} onChange={(event) => setTrialDaysDraft(event.target.value)} />
+                    <button type="button" className="btn btn-secondary btn-sm" disabled={!Number(trialDaysDraft)} onClick={() => runTrialAction(activeCompany.id, { action: "extend", days: Number(trialDaysDraft) }, `Trial prorrogado em ${trialDaysDraft} dias.`)}>Aplicar dias</button>
                     <input className="field" type="date" value={trialDateDraft} onChange={(event) => setTrialDateDraft(event.target.value)} />
                     <button type="button" className="btn btn-secondary btn-sm" disabled={!trialDateDraft} onClick={() => runTrialAction(activeCompany.id, { action: "set_date", endsAt: `${trialDateDraft}T12:00:00` }, "Data do trial atualizada.")}>Definir data</button>
                     <button type="button" className="btn btn-secondary btn-sm" onClick={() => setPaymentStatus(activeCompany.id, "PAID", "Cliente marcado como pago.")}>Marcar pago</button>
@@ -1603,6 +2022,7 @@ export default function MasterPremiumPage() {
                     })}>Suspender</button>
                   </div>
                 </section>
+                ) : null}
 
                 {drawerTab === "summary" ? (
                   <section className={styles.summaryCard}>
@@ -1612,7 +2032,7 @@ export default function MasterPremiumPage() {
                         <h3>Contexto completo da empresa ativa</h3>
                       </div>
                       <div className={styles.rowActions}>
-                        <button type="button" className="btn btn-secondary btn-sm" onClick={() => openCompany(activeCompany.id, "payments")}>
+                        <button type="button" className="btn btn-secondary btn-sm" onClick={() => openCompany(activeCompany.id, "finance")}>
                           Ver pagamentos
                         </button>
                         <button type="button" className="btn btn-secondary btn-sm" onClick={() => setDrawerTab("audit")}>
@@ -1686,16 +2106,36 @@ export default function MasterPremiumPage() {
                   </section>
                 ) : null}
 
-                {drawerTab === "billing" ? (
+                {drawerTab === "finance" ? (
                   <section className={styles.summaryCard}>
                     <div className={styles.panelCardHeader}>
                       <div>
-                        <p className={styles.sectionEyebrow}>Cadastro financeiro</p>
-                        <h3>Perfil SaaS e cobrança</h3>
+                        <p className={styles.sectionEyebrow}>Financeiro</p>
+                        <h3>Configuração financeira e histórico</h3>
                       </div>
-                      <button type="button" className="btn btn-primary btn-sm" onClick={saveProfile}>
-                        Salvar perfil
-                      </button>
+                      <div className={styles.rowActions}>
+                        <button type="button" className="btn btn-primary btn-sm" onClick={saveProfile}>
+                          Salvar financeiro
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-secondary btn-sm"
+                          onClick={() => {
+                            const csv = buildCsv(activeCompany);
+                            const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+                            const url = URL.createObjectURL(blob);
+                            const link = document.createElement("a");
+                            link.href = url;
+                            link.download = `master-financeiro-${activeCompany.slug || activeCompany.id}.csv`;
+                            document.body.appendChild(link);
+                            link.click();
+                            link.remove();
+                            URL.revokeObjectURL(url);
+                          }}
+                        >
+                          Exportar histórico
+                        </button>
+                      </div>
                     </div>
                     <div className={styles.formGrid}>
                       <input className="field" placeholder="Nome da empresa" value={profileDraft?.name || ""} onChange={(event) => setProfileDraft((current) => current ? { ...current, name: event.target.value } : current)} />
@@ -1726,37 +2166,8 @@ export default function MasterPremiumPage() {
                       </select>
                       <label className={styles.checkboxCard}>
                         <input type="checkbox" checked={Boolean(profileDraft?.premiumAccess)} onChange={(event) => setProfileDraft((current) => current ? { ...current, premiumAccess: event.target.checked } : current)} />
-                        Premium access liberado
+                        Liberar acesso operacional mesmo fora da régua automática
                       </label>
-                    </div>
-                  </section>
-                ) : null}
-
-                {drawerTab === "payments" ? (
-                  <section className={styles.summaryCard}>
-                    <div className={styles.panelCardHeader}>
-                      <div>
-                        <p className={styles.sectionEyebrow}>Financeiro</p>
-                        <h3>Histórico financeiro</h3>
-                      </div>
-                      <button
-                        type="button"
-                        className="btn btn-secondary btn-sm"
-                        onClick={() => {
-                          const csv = buildCsv(activeCompany);
-                          const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-                          const url = URL.createObjectURL(blob);
-                          const link = document.createElement("a");
-                          link.href = url;
-                          link.download = `master-financeiro-${activeCompany.slug || activeCompany.id}.csv`;
-                          document.body.appendChild(link);
-                          link.click();
-                          link.remove();
-                          URL.revokeObjectURL(url);
-                        }}
-                      >
-                        Exportar histórico
-                      </button>
                     </div>
                     <div className={styles.historyTableWrap}>
                       <table className={styles.historyTable}>
@@ -1770,6 +2181,7 @@ export default function MasterPremiumPage() {
                             <th>Status</th>
                             <th>Origem</th>
                             <th>Método</th>
+                            <th>Ações</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -1783,6 +2195,30 @@ export default function MasterPremiumPage() {
                               <td><span className="badge">{entry.status}</span></td>
                               <td>{entry.origin || entry.entryType}</td>
                               <td>{paymentMethodLabel(entry.paymentMethod)}</td>
+                              <td>
+                                {String(entry.origin || "").toLowerCase() === "master_manual_payment" ? (
+                                  <button
+                                    type="button"
+                                    className="btn btn-secondary btn-sm"
+                                    onClick={() =>
+                                      setConfirmAction({
+                                        title: "Remover lançamento manual",
+                                        description: `O lançamento ${entry.id.slice(0, 8)} será marcado como cancelado e continuará no histórico.`,
+                                        confirmLabel: "Remover lançamento",
+                                        tone: "danger",
+                                        run: async () => {
+                                          setConfirmAction(null);
+                                          await cancelManualPayment(entry.id);
+                                        },
+                                      })
+                                    }
+                                  >
+                                    Remover
+                                  </button>
+                                ) : (
+                                  "-"
+                                )}
+                              </td>
                             </tr>
                           ))}
                         </tbody>
@@ -1866,6 +2302,24 @@ export default function MasterPremiumPage() {
                             >
                               Resetar senha
                             </button>
+                            <button
+                              type="button"
+                              className="btn btn-danger btn-sm"
+                              onClick={() =>
+                                setConfirmAction({
+                                  title: "Deletar usuário",
+                                  description: `O usuário ${user.username || user.email || `#${user.id}`} será removido desta empresa.`,
+                                  confirmLabel: "Deletar usuário",
+                                  tone: "danger",
+                                  run: async () => {
+                                    setConfirmAction(null);
+                                    await deleteUser(activeCompany.id, user.id, user.username || user.email || `#${user.id}`);
+                                  },
+                                })
+                              }
+                            >
+                              Deletar
+                            </button>
                           </div>
                         </article>
                       ))}
@@ -1880,13 +2334,16 @@ export default function MasterPremiumPage() {
                         <p className={styles.sectionEyebrow}>Produtos habilitados</p>
                         <h3>Módulos</h3>
                       </div>
+                      <div className={styles.summaryMeta}>
+                        <p>Total mensal dos ativos: {formatCurrency(activeCompany.modules.filter((module) => module.enabled).reduce((total, module) => total + Number(module.monthlyPrice || 0), 0))}</p>
+                      </div>
                     </div>
                     <div className={styles.moduleList}>
                       {activeCompany.modules.map((module) => (
                         <label key={module.key} className={styles.moduleToggle}>
                           <div>
                             <strong>{module.name}</strong>
-                            <p>{module.key}</p>
+                            <p>{module.key} • {formatCurrency(module.monthlyPrice || 0)}/mês</p>
                           </div>
                           <button type="button" className={module.enabled ? styles.toggleOn : styles.toggleOff} onClick={() => toggleModule(activeCompany.id, module.key, module.enabled)}>
                             {module.enabled ? "Ativo" : "Desativado"}
@@ -1937,19 +2394,176 @@ export default function MasterPremiumPage() {
                     <div className={styles.panelCardHeader}>
                       <div>
                         <p className={styles.sectionEyebrow}>Integrações</p>
-                        <h3>Mercado Pago e WhatsApp</h3>
+                        <h3>Mercado Pago e WhatsApp com credenciais MASTER</h3>
                       </div>
+                      <button type="button" className="btn btn-secondary btn-sm" onClick={() => setMasterIntegrationsOpen(true)}>
+                        Editar credenciais MASTER
+                      </button>
                     </div>
                     <div className={styles.summaryMeta}>
                       <p>Mercado Pago: {mercadoPagoDraft?.status || activeCompany.mercadoPago.status || "Sem status"}</p>
                       <p>Conta MP: {mercadoPagoDraft?.accountEmail || activeCompany.mercadoPago.accountEmail || "-"}</p>
+                      <p>Pagamentos MASTER: {workspace?.masterIntegrations?.mercadoPagoLibrary.length || 0} credenciais</p>
                       <p>WhatsApps configurados: {activeCompany.whatsapp.endpoints.length}</p>
+                      <p>WhatsApp MASTER: {workspace?.masterIntegrations?.whatsappLibrary.length || 0} credenciais</p>
                     </div>
-                    <input className="field" placeholder="Cole o access token do Mercado Pago" value={mercadoPagoDraft?.mercadoPagoAccessToken || ""} onChange={(event) => setMercadoPagoDraft((current) => current ? { ...current, mercadoPagoAccessToken: event.target.value } : current)} />
+                    <div className={styles.userCard}>
+                      <div className={styles.panelCardHeader}>
+                        <div>
+                          <strong>Mercado Pago da empresa</strong>
+                          <p>Checkout por cartão e webhook financeiro desta empresa. Você pode trocar para o token global do MASTER.</p>
+                        </div>
+                        <div className={styles.rowActions}>
+                          <label className={styles.inlineCheck}>
+                            <input
+                              type="checkbox"
+                              checked={Boolean(activeCompany.mercadoPago.usingMasterToken)}
+                              onChange={() =>
+                                void setCompanyMasterTokenUsage({
+                                  useMasterMercadoPagoToken: !activeCompany.mercadoPago.usingMasterToken,
+                                  masterMercadoPagoCredentialKey:
+                                    activeCompany.mercadoPago.masterCredentialKey ||
+                                    workspace?.masterIntegrations?.mercadoPagoLibrary.find((item) => item.configured)?.key,
+                                })
+                              }
+                              disabled={
+                                busyAction === `master-token-usage-${activeCompany.id}` ||
+                                (!activeCompany.mercadoPago.usingMasterToken &&
+                                  !workspace?.masterIntegrations?.mercadoPagoLibrary.some((item) => item.configured))
+                              }
+                            />
+                            <span>Usar credencial MASTER</span>
+                          </label>
+                          <button type="button" className={styles.iconOnlyButton} onClick={() => setIntegrationVisibility((current) => ({ ...current, mercadopago: !current.mercadopago }))} aria-label="Ver token da empresa">
+                            <EyeIcon />
+                          </button>
+                        </div>
+                      </div>
+                      <div className={styles.modulePills}>
+                        <span className={badgeClass(activeCompany.mercadoPago.usingMasterToken ? "success" : "warning")}>
+                          {activeCompany.mercadoPago.usingMasterToken ? "Usando credencial MASTER" : "Usando token próprio"}
+                        </span>
+                        <span className="badge">
+                          {activeCompany.mercadoPago.masterCredentialLabel || "Nenhuma credencial selecionada"}
+                        </span>
+                      </div>
+                      <select
+                        className="field"
+                        value={activeCompany.mercadoPago.masterCredentialKey || ""}
+                        onChange={(event) =>
+                          void setCompanyMasterTokenUsage({
+                            masterMercadoPagoCredentialKey: event.target.value || undefined,
+                            useMasterMercadoPagoToken: true,
+                          })
+                        }
+                        disabled={!workspace?.masterIntegrations?.mercadoPagoLibrary.length}
+                      >
+                        <option value="">Selecionar credencial MASTER de pagamentos</option>
+                        {(workspace?.masterIntegrations?.mercadoPagoLibrary || []).map((credential) => (
+                          <option key={credential.key} value={credential.key}>
+                            {credential.label} {credential.sourceCompanyName ? `• ${credential.sourceCompanyName}` : ""}
+                          </option>
+                        ))}
+                      </select>
+                      <input className="field" placeholder="Cole o access token do Mercado Pago" value={mercadoPagoDraft?.mercadoPagoAccessToken || ""} onChange={(event) => setMercadoPagoDraft((current) => current ? { ...current, mercadoPagoAccessToken: event.target.value } : current)} />
+                      {integrationVisibility.mercadopago && activeCompany.mercadoPago.accessTokenValue ? (
+                        <div className="msg-info"><div className="text-sm">{activeCompany.mercadoPago.accessTokenValue}</div></div>
+                      ) : null}
+                      {activeCompany.mercadoPago.masterTokenConfigured ? (
+                        <div className="msg-info">
+                          <div className="text-sm">
+                            Token MASTER pronto para uso nesta empresa.
+                            {integrationVisibility.master_mp && activeCompany.mercadoPago.masterAccessTokenValue
+                              ? ` ${activeCompany.mercadoPago.masterAccessTokenValue}`
+                              : ""}
+                          </div>
+                          <button type="button" className={styles.iconOnlyButton} onClick={() => setIntegrationVisibility((current) => ({ ...current, master_mp: !current.master_mp }))} aria-label="Ver token master de Mercado Pago">
+                            <EyeIcon />
+                          </button>
+                        </div>
+                      ) : null}
+                    </div>
                     {mercadoPagoDraft?.statusError ? <div className="alert alert-error">{mercadoPagoDraft.statusError}</div> : null}
                     <div className={styles.rowActions}>
                       <button type="button" className="btn btn-secondary btn-sm" onClick={validateMercadoPagoConfig}>Validar token</button>
                       <button type="button" className="btn btn-primary btn-sm" onClick={saveMercadoPagoConfig}>Salvar token</button>
+                    </div>
+                    <div className={styles.userCard}>
+                      <div className={styles.panelCardHeader}>
+                        <div>
+                          <strong>WhatsApp da empresa</strong>
+                          <p>Use o token global do MASTER para onboarding e operação guiada da empresa.</p>
+                        </div>
+                        <div className={styles.rowActions}>
+                          <label className={styles.inlineCheck}>
+                            <input
+                              type="checkbox"
+                              checked={Boolean(activeCompany.whatsapp.usingMasterToken)}
+                              onChange={() =>
+                                void setCompanyMasterTokenUsage({
+                                  useMasterWhatsAppToken: !activeCompany.whatsapp.usingMasterToken,
+                                  masterWhatsAppCredentialKey:
+                                    activeCompany.whatsapp.masterCredentialKey ||
+                                    workspace?.masterIntegrations?.whatsappLibrary.find((item) => item.configured)?.key,
+                                })
+                              }
+                              disabled={
+                                busyAction === `master-token-usage-${activeCompany.id}` ||
+                                (!activeCompany.whatsapp.usingMasterToken &&
+                                  !workspace?.masterIntegrations?.whatsappLibrary.some((item) => item.configured))
+                              }
+                            />
+                            <span>Usar credencial MASTER</span>
+                          </label>
+                          <button type="button" className={styles.iconOnlyButton} onClick={() => setIntegrationVisibility((current) => ({ ...current, whatsapp_company: !current.whatsapp_company }))} aria-label="Ver token de WhatsApp da empresa">
+                            <EyeIcon />
+                          </button>
+                        </div>
+                      </div>
+                      <div className={styles.modulePills}>
+                        <span className={badgeClass(activeCompany.whatsapp.usingMasterToken ? "success" : "warning")}>
+                          {activeCompany.whatsapp.usingMasterToken ? "Usando credencial MASTER" : "Usando token próprio"}
+                        </span>
+                        <span className="badge">
+                          {activeCompany.whatsapp.masterCredentialLabel || "Nenhuma credencial selecionada"}
+                        </span>
+                      </div>
+                      <select
+                        className="field"
+                        value={activeCompany.whatsapp.masterCredentialKey || ""}
+                        onChange={(event) =>
+                          void setCompanyMasterTokenUsage({
+                            masterWhatsAppCredentialKey: event.target.value || undefined,
+                            useMasterWhatsAppToken: true,
+                          })
+                        }
+                        disabled={!workspace?.masterIntegrations?.whatsappLibrary.length}
+                      >
+                        <option value="">Selecionar credencial MASTER de WhatsApp</option>
+                        {(workspace?.masterIntegrations?.whatsappLibrary || []).map((credential) => (
+                          <option key={credential.key} value={credential.key}>
+                            {credential.label} {credential.sourceCompanyName ? `• ${credential.sourceCompanyName}` : ""}
+                          </option>
+                        ))}
+                      </select>
+                      {integrationVisibility.whatsapp_company && activeCompany.whatsapp.companyAccessTokenValue ? (
+                        <div className="msg-info"><div className="text-sm">{activeCompany.whatsapp.companyAccessTokenValue}</div></div>
+                      ) : null}
+                      {activeCompany.whatsapp.masterAccessTokenConfigured ? (
+                        <div className="msg-info">
+                          <div className="text-sm">
+                            Número MASTER: {activeCompany.whatsapp.masterDisplayNumber || "-"} • Phone ID: {activeCompany.whatsapp.masterPhoneNumberId || "-"}
+                            {integrationVisibility.whatsapp_master && activeCompany.whatsapp.masterAccessTokenValue
+                              ? ` • Token: ${activeCompany.whatsapp.masterAccessTokenValue}`
+                              : ""}
+                          </div>
+                          <button type="button" className={styles.iconOnlyButton} onClick={() => setIntegrationVisibility((current) => ({ ...current, whatsapp_master: !current.whatsapp_master }))} aria-label="Ver token master de WhatsApp">
+                            <EyeIcon />
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="msg-info"><div className="text-sm">Cadastre ao menos uma credencial de WhatsApp no MASTER para habilitar o uso herdado nesta empresa.</div></div>
+                      )}
                     </div>
                     <div className={styles.userList}>
                       {activeCompany.whatsapp.endpoints.map((endpoint) => (
@@ -1964,6 +2578,12 @@ export default function MasterPremiumPage() {
                               {endpoint.whatsappStatus || "DISCONNECTED"}
                             </span>
                           </div>
+                          <button type="button" className={styles.iconOnlyButton} onClick={() => setIntegrationVisibility((current) => ({ ...current, [endpoint.id]: !current[endpoint.id] }))} aria-label="Ver token do endpoint">
+                            <EyeIcon />
+                          </button>
+                          {integrationVisibility[endpoint.id] ? (
+                            <div className="msg-info"><div className="text-sm">{endpoint.accessTokenValue || "Sem token neste endpoint"}</div></div>
+                          ) : null}
                         </article>
                       ))}
                     </div>
@@ -2001,6 +2621,174 @@ export default function MasterPremiumPage() {
           ) : null}
         </aside>
       </div>
+
+      <ModalShell open={masterIntegrationsOpen} onClose={() => setMasterIntegrationsOpen(false)} title="Credenciais globais do MASTER" subtitle="Monte uma biblioteca de credenciais e reaproveite por empresa sem sobrescrever tokens existentes.">
+        <div className={styles.modalBody}>
+          {activeCompany ? (
+            <div className={styles.contextBannerActive}>
+              <strong>Importar da empresa ativa</strong>
+              <span>
+                {activeCompany.name} pode transferir os tokens atuais para o MASTER, virar uma nova credencial da biblioteca e já usar essa credencial no lugar.
+              </span>
+              <div className={styles.rowActions}>
+                <button
+                  type="button"
+                  className="btn btn-primary btn-sm"
+                  onClick={() =>
+                    setConfirmAction({
+                      title: "Importar tokens para o MASTER",
+                      description: `${activeCompany.name} terá os tokens copiados para a biblioteca do MASTER, a origem será limpa e a empresa passará a usar essa credencial MASTER.`,
+                      confirmLabel: "Importar e limpar origem",
+                      tone: "primary",
+                      run: async () => {
+                        setConfirmAction(null);
+                        await importActiveCompanyTokensToMaster(true);
+                      },
+                    })
+                  }
+                  disabled={busyAction === `import-master-tokens-${activeCompany.id}`}
+                >
+                  {busyAction === `import-master-tokens-${activeCompany.id}` ? "Importando..." : "Importar da empresa ativa"}
+                </button>
+              </div>
+            </div>
+          ) : null}
+
+          <article className={styles.userCard}>
+            <div className={styles.panelCardHeader}>
+              <div>
+                <strong>Pagamentos do MASTER</strong>
+                <p>Biblioteca de access tokens do Mercado Pago para checkout e webhooks.</p>
+              </div>
+              <button type="button" className="btn btn-secondary btn-sm" onClick={addMasterMercadoPagoCredential}>
+                Novo token
+              </button>
+            </div>
+            <div className={styles.summaryMeta}>
+              <p>Status: {masterIntegrationsDraft.mercadoPagoLibrary.some((entry) => entry.accessToken) ? "Configurado" : "Pendente"}</p>
+              <p>Uso: cada empresa pode escolher qual credencial MASTER de pagamentos vai herdar.</p>
+            </div>
+            <div className={styles.userList}>
+              {masterIntegrationsDraft.mercadoPagoLibrary.map((credential) => (
+                <article key={credential.key} className={styles.userCard}>
+                  <div className={styles.panelCardHeader}>
+                    <div>
+                      <strong>{credential.label || "Credencial de pagamentos"}</strong>
+                      <p>{credential.sourceCompanyName ? `Origem: ${credential.sourceCompanyName}` : "Origem: MASTER"}</p>
+                    </div>
+                    <div className={styles.rowActions}>
+                      <button type="button" className={styles.iconOnlyButton} onClick={() => setIntegrationVisibility((current) => ({ ...current, [credential.key]: !current[credential.key] }))} aria-label="Ver token master de pagamentos">
+                        <EyeIcon />
+                      </button>
+                      <button type="button" className="btn btn-secondary btn-sm" onClick={() => removeMasterMercadoPagoCredential(credential.key)}>
+                        Remover
+                      </button>
+                    </div>
+                  </div>
+                  <input className="field" placeholder="Nome da credencial" value={credential.label || ""} onChange={(event) => updateMasterMercadoPagoCredential(credential.key, { label: event.target.value })} />
+                  <input className="field" placeholder="Access token do Mercado Pago" value={integrationVisibility[credential.key] ? credential.accessToken || "" : credential.accessTokenPreview || ""} onChange={(event) => updateMasterMercadoPagoCredential(credential.key, { accessToken: event.target.value })} />
+                  <div className={styles.summaryMeta}>
+                    <p>{credential.sourceCompanyName ? `Empresa herdada: ${credential.sourceCompanyName}` : "Credencial criada direto no MASTER"}</p>
+                    <p>{credential.accessToken ? "Pronta para uso" : "Token pendente"}</p>
+                  </div>
+                </article>
+              ))}
+            </div>
+          </article>
+
+          <article className={styles.userCard}>
+            <div className={styles.panelCardHeader}>
+              <div>
+                <strong>WhatsApp do MASTER</strong>
+                <p>Biblioteca de números e tokens para onboarding e operação guiada das empresas.</p>
+              </div>
+              <button type="button" className="btn btn-secondary btn-sm" onClick={addMasterWhatsAppCredential}>
+                Novo WhatsApp
+              </button>
+            </div>
+            <div className={styles.summaryMeta}>
+              <p>Status: {masterIntegrationsDraft.whatsappLibrary.some((entry) => entry.accessToken && entry.phoneNumberId) ? "Configurado" : "Pendente"}</p>
+              <p>Uso: cada empresa pode escolher qual credencial MASTER de WhatsApp vai herdar.</p>
+            </div>
+            <div className={styles.userList}>
+              {masterIntegrationsDraft.whatsappLibrary.map((credential) => (
+                <article key={credential.key} className={styles.userCard}>
+                  <div className={styles.panelCardHeader}>
+                    <div>
+                      <strong>{credential.label || "Credencial de WhatsApp"}</strong>
+                      <p>{credential.sourceCompanyName ? `Origem: ${credential.sourceCompanyName}` : "Origem: MASTER"}</p>
+                    </div>
+                    <div className={styles.rowActions}>
+                      <button type="button" className={styles.iconOnlyButton} onClick={() => setIntegrationVisibility((current) => ({ ...current, [credential.key]: !current[credential.key] }))} aria-label="Ver token master de WhatsApp">
+                        <EyeIcon />
+                      </button>
+                      <button type="button" className="btn btn-secondary btn-sm" onClick={() => removeMasterWhatsAppCredential(credential.key)}>
+                        Remover
+                      </button>
+                    </div>
+                  </div>
+                  <div className={styles.formGrid}>
+                    <input className="field" placeholder="Nome da credencial" value={credential.label || ""} onChange={(event) => updateMasterWhatsAppCredential(credential.key, { label: event.target.value })} />
+                    <input className="field" placeholder="Access token do WhatsApp" value={integrationVisibility[credential.key] ? credential.accessToken || "" : credential.accessTokenPreview || ""} onChange={(event) => updateMasterWhatsAppCredential(credential.key, { accessToken: event.target.value })} />
+                    <input className="field" placeholder="Phone Number ID" value={credential.phoneNumberId || ""} onChange={(event) => updateMasterWhatsAppCredential(credential.key, { phoneNumberId: event.target.value })} />
+                    <input className="field" placeholder="WABA ID" value={credential.wabaId || ""} onChange={(event) => updateMasterWhatsAppCredential(credential.key, { wabaId: event.target.value })} />
+                    <input className="field" placeholder="Número WhatsApp" value={credential.whatsappNumber || ""} onChange={(event) => updateMasterWhatsAppCredential(credential.key, { whatsappNumber: event.target.value })} />
+                    <input className="field" placeholder="Número exibido" value={credential.displayNumber || ""} onChange={(event) => updateMasterWhatsAppCredential(credential.key, { displayNumber: event.target.value })} />
+                  </div>
+                  <div className={styles.summaryMeta}>
+                    <p>{credential.sourceCompanyName ? `Empresa herdada: ${credential.sourceCompanyName}` : "Credencial criada direto no MASTER"}</p>
+                    <p>{credential.accessToken && credential.phoneNumberId ? "Pronta para uso" : "Dados incompletos"}</p>
+                  </div>
+                </article>
+              ))}
+            </div>
+          </article>
+
+          <div className={styles.modalActions}>
+            <button type="button" className="btn btn-secondary btn-sm" onClick={() => setMasterIntegrationsOpen(false)}>
+              Fechar
+            </button>
+            <button type="button" className="btn btn-primary btn-sm" onClick={saveMasterIntegrations} disabled={busyAction === "master-integrations-save"}>
+              {busyAction === "master-integrations-save" ? "Salvando..." : "Salvar biblioteca MASTER"}
+            </button>
+          </div>
+        </div>
+      </ModalShell>
+
+      <ModalShell open={moduleCatalogOpen} onClose={() => setModuleCatalogOpen(false)} title="Módulos comercializáveis" subtitle="Defina aqui apenas os módulos que podem ser liberados para empresas e entram na cobrança mensal." wide>
+        <div className={styles.modalBody}>
+          <div className={styles.contextBannerStrong}>
+            <strong>Catálogo financeiro do HBX</strong>
+            <span>Itens internos do MASTER e ferramentas operacionais não aparecem aqui nem entram na mensalidade das empresas.</span>
+          </div>
+          <div className={styles.moduleCatalogGrid}>
+            {commercialModuleDrafts.map((moduleItem) => (
+              <article key={moduleItem.key} className={styles.userCard}>
+                <div>
+                  <strong>{moduleItem.name}</strong>
+                  <p>{moduleItem.key}</p>
+                </div>
+                <input className="field" placeholder="Nome do módulo" value={moduleItem.name} onChange={(event) => setModuleCatalogDrafts((current) => ({ ...current, [moduleItem.key]: { ...current[moduleItem.key], name: event.target.value } }))} />
+                <input className="field" inputMode="numeric" placeholder="R$ 0,00" value={moduleItem.monthlyPrice} onChange={(event) => setModuleCatalogDrafts((current) => ({ ...current, [moduleItem.key]: { ...current[moduleItem.key], monthlyPrice: normalizeCurrencyInput(event.target.value) } }))} />
+                <textarea className="field" placeholder="Descrição" rows={3} value={moduleItem.description} onChange={(event) => setModuleCatalogDrafts((current) => ({ ...current, [moduleItem.key]: { ...current[moduleItem.key], description: event.target.value } }))} />
+                <select className="field" value={moduleItem.defaultEnabled ? "enabled" : "disabled"} onChange={(event) => setModuleCatalogDrafts((current) => ({ ...current, [moduleItem.key]: { ...current[moduleItem.key], defaultEnabled: event.target.value === "enabled" } }))}>
+                  <option value="enabled">Ativo por padrão</option>
+                  <option value="disabled">Desativado por padrão</option>
+                </select>
+                <div className={styles.summaryMeta}>
+                  <p>Liberável para empresas</p>
+                  <p>{moduleItem.defaultEnabled ? "Novas empresas recebem este módulo ativo" : "Novas empresas começam com este módulo desativado"}</p>
+                </div>
+                <div className={styles.modalActions}>
+                  <button type="button" className="btn btn-primary btn-sm" onClick={() => saveSystemModule(moduleItem.key)} disabled={busyAction === `system-module-${moduleItem.key}`}>
+                    {busyAction === `system-module-${moduleItem.key}` ? "Salvando..." : "Salvar catálogo"}
+                  </button>
+                </div>
+              </article>
+            ))}
+          </div>
+        </div>
+      </ModalShell>
 
       <ModalShell open={createCompanyOpen} onClose={() => setCreateCompanyOpen(false)} title="Nova empresa" subtitle="Crie a empresa e depois configure cobrança, website e módulos.">
         <div className={styles.modalBody}>

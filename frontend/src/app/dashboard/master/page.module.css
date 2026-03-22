@@ -14,6 +14,19 @@
   --master-shadow-soft: 0 16px 36px rgba(23, 34, 47, 0.08);
 }
 
+:global(body.master-company-focus-open) .app-topbar {
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-16px);
+  visibility: hidden;
+  transition: opacity 180ms ease, transform 180ms ease;
+}
+
+:global(body.master-company-focus-open) .app-shell,
+:global(body.master-company-focus-open) main {
+  overscroll-behavior: none;
+}
+
 .heroActions {
   display: flex;
   flex-wrap: wrap;
@@ -615,7 +628,7 @@
 .drawerRoot {
   position: fixed;
   inset: 0;
-  z-index: 60;
+  z-index: 130;
   pointer-events: none;
 }
 
@@ -627,7 +640,9 @@
   position: absolute;
   inset: 0;
   border: 0;
-  background: rgba(19, 29, 44, 0.38);
+  background:
+    radial-gradient(circle at top, rgba(20, 122, 108, 0.1), transparent 28%),
+    rgba(19, 29, 44, 0.54);
   opacity: 0;
   transition: opacity 220ms ease;
 }
@@ -638,19 +653,20 @@
 
 .drawerPanel {
   position: absolute;
-  top: 16px;
-  right: 16px;
-  bottom: 16px;
-  width: min(720px, calc(100vw - 32px));
-  padding: 1.15rem;
+  top: 34px;
+  left: 50%;
+  width: min(1180px, calc(100vw - 56px));
+  height: min(calc(100vh - 68px), 920px);
+  padding: 1.2rem;
   border-radius: 32px;
   border: 1px solid rgba(255, 255, 255, 0.5);
   background:
     radial-gradient(circle at top right, rgba(20, 122, 108, 0.12), transparent 28%),
     linear-gradient(180deg, rgba(251, 249, 244, 0.98), rgba(243, 238, 230, 0.98));
-  box-shadow: 0 28px 70px rgba(15, 24, 35, 0.22);
-  transform: translateX(108%);
-  transition: transform 240ms ease;
+  box-shadow: 0 34px 90px rgba(15, 24, 35, 0.28);
+  transform: translate(-50%, 24px) scale(0.985);
+  transition: transform 240ms ease, opacity 240ms ease;
+  opacity: 0;
   display: grid;
   grid-template-rows: auto auto auto 1fr;
   gap: 1rem;
@@ -658,7 +674,8 @@
 }
 
 .drawerRoot[data-open="true"] .drawerPanel {
-  transform: translateX(0);
+  transform: translate(-50%, 0) scale(1);
+  opacity: 1;
 }
 
 .drawerHeader {
@@ -774,6 +791,44 @@
   font-weight: 700;
 }
 
+.inlineCheck {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.7rem 0.95rem;
+  border-radius: 16px;
+  border: 1px solid var(--master-border);
+  background: rgba(255, 255, 255, 0.84);
+  color: var(--master-text);
+  font-size: 0.84rem;
+  font-weight: 800;
+}
+
+.inlineCheck input {
+  width: 1rem;
+  height: 1rem;
+  accent-color: var(--master-navy);
+}
+
+.iconOnlyButton {
+  width: 2.5rem;
+  height: 2.5rem;
+  display: inline-grid;
+  place-items: center;
+  border: 1px solid var(--master-border);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.84);
+  color: var(--master-text);
+  cursor: pointer;
+  transition: transform 160ms ease, border-color 160ms ease, background 160ms ease;
+}
+
+.iconOnlyButton:hover {
+  transform: translateY(-1px);
+  border-color: rgba(24, 49, 83, 0.22);
+  background: rgba(255, 255, 255, 0.96);
+}
+
 .checkboxCard input {
   width: 1.05rem;
   height: 1.05rem;
@@ -825,7 +880,7 @@
 .modalRoot {
   position: fixed;
   inset: 0;
-  z-index: 80;
+  z-index: 240;
   display: grid;
   place-items: center;
   padding: 1.25rem;
@@ -851,6 +906,10 @@
   box-shadow: 0 28px 70px rgba(15, 24, 35, 0.24);
 }
 
+.modalCardWide {
+  width: min(1480px, calc(100vw - 32px));
+}
+
 .modalHeader {
   display: flex;
   justify-content: space-between;
@@ -872,6 +931,12 @@
   gap: 1rem;
 }
 
+.moduleCatalogGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1rem;
+}
+
 @media (max-width: 1260px) {
   .commandBar {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -883,6 +948,10 @@
   }
 
   .summaryStats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .moduleCatalogGrid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
@@ -911,11 +980,15 @@
     grid-template-columns: 1fr;
   }
 
+  .moduleCatalogGrid {
+    grid-template-columns: 1fr;
+  }
+
   .drawerPanel {
-    top: 8px;
-    right: 8px;
-    bottom: 8px;
+    top: 12px;
+    left: 50%;
     width: calc(100vw - 16px);
+    height: calc(100vh - 24px);
     border-radius: 24px;
   }
 

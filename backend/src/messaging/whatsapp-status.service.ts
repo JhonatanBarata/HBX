@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import axios from 'axios';
 import { PrismaService } from '../prisma/prisma.service';
 import { pickWhatsAppEndpoint, resolveWhatsAppCredentials } from './whatsapp-credentials.util';
+import { applyMasterWhatsAppCredentials } from '../modules/master-global-integrations.util';
 
 function clamp(n: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, n));
@@ -26,18 +27,19 @@ export class WhatsAppStatusService {
 
   private async findCompanyForStatus(companyId: number) {
     const supportsEndpointTable = await this.supportsWhatsAppEndpointTable();
-    if (!supportsEndpointTable) {
-      return this.prisma.company.findUnique({ where: { id: companyId } });
-    }
+    const company = !supportsEndpointTable
+      ? await this.prisma.company.findUnique({ where: { id: companyId } })
+      : await this.prisma.company.findUnique({
+          where: { id: companyId },
+          include: {
+            whatsappEndpoints: {
+              orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+            },
+          },
+        });
 
-    return this.prisma.company.findUnique({
-      where: { id: companyId },
-      include: {
-        whatsappEndpoints: {
-          orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
-        },
-      },
-    });
+    const resolved = await applyMasterWhatsAppCredentials(this.prisma, company);
+    return resolved.company || null;
   }
 
   private async validateStatusWithCredentials(input: {

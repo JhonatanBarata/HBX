@@ -6,6 +6,7 @@ import {
   normalizeWhatsAppPhone,
 } from './whatsapp-channel';
 import { resolveWhatsAppCredentials } from './whatsapp-credentials.util';
+import { applyMasterWhatsAppCredentials } from '../modules/master-global-integrations.util';
 
 function requireCompanyIdFromUser(user: any): number {
   const companyId = Number(user?.companyId);
@@ -329,7 +330,7 @@ export class ConversationsService {
     if (!companyId) throw new ForbiddenException('Company context required');
     if (!to) throw new BadRequestException('to is required');
 
-    const company = (await this.supportsWhatsAppEndpointTable())
+    const companyRow = (await this.supportsWhatsAppEndpointTable())
       ? await this.prisma.company.findUnique({
           where: { id: companyId },
           include: {
@@ -341,6 +342,7 @@ export class ConversationsService {
       : await this.prisma.company.findUnique({
           where: { id: companyId },
         });
+    const { company } = await applyMasterWhatsAppCredentials(this.prisma, companyRow);
     if (!company) throw new NotFoundException(`Company with id ${companyId} not found`);
 
     let conversation = null as any;

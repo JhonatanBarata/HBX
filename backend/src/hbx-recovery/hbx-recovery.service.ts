@@ -36,6 +36,10 @@ import {
   normalizeMetaTemplateStatus,
   type RecoveryNormalizedMetaTemplate,
 } from './meta-template-normalization';
+import {
+  applyMasterWhatsAppCredentials,
+  resolveCompanyMercadoPagoAccess,
+} from '../modules/master-global-integrations.util';
 
 type RecoveryPaymentRecord = { id: string; label: string; date: string; amount: number; status: string };
 type RecoveryDelayRecord = { id: string; period: string; daysLate: number; outcome: string };
@@ -1228,7 +1232,7 @@ export class HbxRecoveryService {
 
   private async resolveMetaTemplateContext(companyId: number, opts?: MetaTemplateScopeOptions) {
     const moduleKey = this.normalizeMetaTemplateModuleKey(opts?.moduleKey);
-    const company = (await this.prisma.hasTable('CompanyWhatsAppEndpoint'))
+    const companyRow = (await this.prisma.hasTable('CompanyWhatsAppEndpoint'))
       ? await this.prisma.company.findUnique({
           where: { id: companyId },
           include: {
@@ -1240,6 +1244,7 @@ export class HbxRecoveryService {
       : await this.prisma.company.findUnique({
           where: { id: companyId },
         });
+    const { company } = await applyMasterWhatsAppCredentials(this.prisma, companyRow);
     if (!company) throw new BadRequestException('Empresa nao encontrada.');
 
     const creds = resolveWhatsAppCredentials(company, {
@@ -2387,10 +2392,19 @@ export class HbxRecoveryService {
   }
 
   private async mercadoPagoCredentials(companyId: number) {
-    const company = await this.prisma.company.findUnique({ where: { id: companyId } });
+    const { company, accessToken, source } = await resolveCompanyMercadoPagoAccess(
+      this.prisma,
+      companyId,
+    );
     if (!company) throw new BadRequestException('Empresa nao encontrada.');
-    const accessToken = String(company.mercadoPagoAccessToken || '').trim();
-    if (!accessToken) throw new BadRequestException('Mercado Pago nao configurado para esta empresa. Configure no MASTER.');
+    if (!accessToken) {
+      if (source === 'master_missing') {
+        throw new BadRequestException(
+          'Empresa marcada para usar o token MASTER, mas o Mercado Pago global ainda nao foi configurado.',
+        );
+      }
+      throw new BadRequestException('Mercado Pago nao configurado para esta empresa. Configure no MASTER.');
+    }
     return { company, accessToken };
   }
 

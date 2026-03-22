@@ -459,6 +459,34 @@ textarea {
   left: 0;
   z-index: 90;
   padding: 8px var(--content-gutter) 0;
+  transition: padding 320ms cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: padding;
+}
+
+.app-topbar::after {
+  content: "";
+  display: block;
+  width: min(112px, calc(100vw - (var(--content-gutter) * 2)));
+  height: 2px;
+  margin: 5px auto 0;
+  border-radius: 999px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in srgb, var(--line) 48%, var(--brand)),
+    transparent
+  );
+  opacity: 0;
+  transform: translateY(-6px) scaleX(0.82);
+  transition:
+    opacity 240ms ease,
+    transform 320ms cubic-bezier(0.22, 1, 0.36, 1);
+  pointer-events: none;
+}
+
+.app-topbar--hidden {
+  padding-top: 3px;
+  pointer-events: none;
 }
 
 .app-topbar__frame {
@@ -471,6 +499,25 @@ textarea {
     linear-gradient(180deg, color-mix(in srgb, var(--header-surface) 96%, white), color-mix(in srgb, var(--surface-soft) 92%, var(--background)));
   box-shadow: var(--shadow-inset), var(--shadow-md);
   backdrop-filter: blur(var(--topbar-blur));
+  transform-origin: top center;
+  transition:
+    transform 340ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 280ms ease,
+    filter 320ms ease,
+    box-shadow 320ms ease;
+  will-change: transform, opacity, filter;
+}
+
+.app-topbar--hidden .app-topbar__frame {
+  transform: translateY(-10px) scale(0.992);
+  opacity: 0;
+  filter: blur(10px) saturate(0.94);
+  box-shadow: none;
+}
+
+.app-topbar--hidden::after {
+  opacity: 0.9;
+  transform: translateY(0) scaleX(1);
 }
 
 .app-topbar__inner {
