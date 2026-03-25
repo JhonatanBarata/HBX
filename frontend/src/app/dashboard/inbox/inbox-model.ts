@@ -25,6 +25,9 @@ export type AtendimentoCustomer = {
   recoveryCustomerId: string | null;
   openAmount: number | null;
   recoveryStatus: string | null;
+  recoveryRiskScore: number | null;
+  recoveryTotalPaid: number;
+  recoveryAutomationEnabled: boolean | null;
 };
 
 export type InboxMessage = {
@@ -39,17 +42,36 @@ export type InboxMessage = {
   error: string | null;
 };
 
+export type InboxRecoveryPaymentSummary = {
+  id: string;
+  amount: number;
+  status: string | null;
+  lifecycle: string | null;
+  chargeType: string | null;
+  createdAt: string | null;
+  paidAt: string | null;
+  paymentUrl: string | null;
+};
+
 export type InboxConversation = {
   id: string;
   status: InboxStatus | string;
   assignedTo: string | null;
+  botActive: boolean | null;
+  humanAssigned: boolean | null;
   createdAt: string;
   updatedAt: string;
+  currentFlow: string | null;
+  flowResult: string | null;
   routeTarget: InboxRouteTarget;
   routeReason: string;
   recoveryCustomerId: string | null;
   recoveryCustomerName: string | null;
   recoveryOpenAmount: number;
+  recoveryRiskScore: number | null;
+  recoveryTotalPaid: number;
+  recoveryStatus: string | null;
+  recoveryPaymentHistory: InboxRecoveryPaymentSummary[];
   recoveryCurrentStep: string | null;
   recoverySuggestedPath: string;
   latestSourceModule: string | null;

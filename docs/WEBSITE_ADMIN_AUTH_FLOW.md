@@ -115,7 +115,6 @@ Resposta:
   - o usuario estiver ativo;
   - a empresa estiver correta;
   - o modulo `website` estiver liberado;
-  - o usuario for `ADMIN` ou `MASTER`;
   - o admin do website estiver habilitado na empresa.
 
 ## Observacao importante

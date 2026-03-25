@@ -5,7 +5,7 @@ App em Streamlit para buscar negócios por cidade e segmento e listar telefones 
 ## Requisitos
 
 - Python 3.10+
-- Chave da Google Places API (`GOOGLE_PLACES_API_KEY`)
+- Chave da Google Places API (`GOOGLE_PLACES_API_KEY`) ou `MOCK_MODE=1`
 
 ## Instalação
 
@@ -20,6 +20,12 @@ Edite `.env` e preencha sua chave:
 
 ```env
 GOOGLE_PLACES_API_KEY=sua_chave
+```
+
+Para demonstracao controlada sem bater na Google API:
+
+```env
+MOCK_MODE=1
 ```
 
 ## Executar
@@ -42,3 +48,4 @@ streamlit run app.py
 - O campo `WhatsApp (provavel)` e heuristica, nao confirmacao oficial.
 - Nem todos os negócios têm telefone público disponível.
 - Contatos sao deduplicados por telefone canonico para reduzir repeticoes.
+- O app exibe diagnostico operacional no carregamento; a disponibilidade do servico e verificada pelo backend via `healthz`, enquanto problemas de credencial Google aparecem dentro da propria interface.

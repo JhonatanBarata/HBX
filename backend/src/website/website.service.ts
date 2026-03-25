@@ -103,8 +103,14 @@ export class WebsiteService implements OnModuleInit {
     return parsed.toString();
   }
 
-  private isWebsiteAdminUser(user: any) {
-    return Boolean(user?.isSystemMaster) || String(user?.role || '').trim().toUpperCase() === 'ADMIN';
+  private async canUserOpenWebsiteAdmin(user: any, companyId: number) {
+    const userId = Number(user?.id || 0);
+    if (!userId) return false;
+    if (user?.isActive === false) return false;
+    if (Boolean(user?.isSystemMaster)) return true;
+    if (Number(user?.companyId || 0) !== Number(companyId)) return false;
+
+    return this.modulesService.canUserAccessModule(userId, 'website');
   }
 
   private async resolveCompanyFromRuntimeUser(user: any) {
@@ -152,14 +158,9 @@ export class WebsiteService implements OnModuleInit {
     if (!user.isSystemMaster && Number(user.companyId || 0) !== Number(companyId)) {
       throw new ForbiddenException('Usuario fora da empresa configurada para este website.');
     }
-    if (!this.isWebsiteAdminUser(user)) {
-      throw new ForbiddenException('Usuario sem permissao de admin do website.');
-    }
-    if (!user.isSystemMaster) {
-      const allowed = await this.modulesService.canUserAccessModule(Number(user.id), 'website');
-      if (!allowed) {
-        throw new ForbiddenException('Usuario sem acesso ao modulo Website.');
-      }
+    const allowed = await this.canUserOpenWebsiteAdmin(user, companyId);
+    if (!allowed) {
+      throw new ForbiddenException('Usuario sem acesso ao admin do website.');
     }
     return user;
   }
@@ -244,7 +245,7 @@ export class WebsiteService implements OnModuleInit {
       config.websiteAdminEnabled &&
         config.websiteAdminUrl &&
         config.websiteProjectId &&
-        this.isWebsiteAdminUser(user),
+        (await this.canUserOpenWebsiteAdmin(user, company.id)),
     );
     const requestedTarget = this.normalizePortalTarget(target);
     const effectiveTarget: LaunchTarget =
@@ -327,7 +328,7 @@ export class WebsiteService implements OnModuleInit {
       config.websiteAdminEnabled &&
         config.websiteAdminUrl &&
         config.websiteProjectId &&
-        this.isWebsiteAdminUser(masterUser),
+        (await this.canUserOpenWebsiteAdmin(masterUser, company.id)),
     );
     const requestedTarget = this.normalizePortalTarget(target);
     const effectiveTarget: LaunchTarget =

@@ -3765,68 +3765,6 @@ export class HbxRecoveryService {
     return dueAt;
   }
 
-  async listAgenda(user: any) {
-    const companyId = this.requireCompanyIdFromUser(user);
-    const conversations = await this.prisma.companyConversation.findMany({
-      where: {
-        companyId,
-        channel: 'whatsapp',
-        flowResult: 'followup_agendado',
-      },
-      orderBy: [{ lastInteractionAt: 'asc' }, { updatedAt: 'asc' }],
-      take: 200,
-      include: {
-        messages: {
-          orderBy: [{ timestamp: 'desc' }, { id: 'desc' }],
-          take: 1,
-        },
-      },
-    });
-
-    const items = await Promise.all(
-      conversations.map(async (conversation) => {
-        const customer = await this.resolveRecoveryCustomerForConversation(conversation, companyId);
-        if (!customer) return null;
-        const metadata = this.parseConversationMetadata((conversation as any).metadata);
-        const preference = String(metadata.followup_preferencia || '').trim().toLowerCase() || null;
-        const dueAt = this.computeFollowupDueAt(
-          preference,
-          (conversation as any).lastInteractionAt || conversation.updatedAt,
-        );
-        const now = Date.now();
-        const dueTime = dueAt.getTime();
-        const status = dueTime < now ? 'overdue' : dueTime - now <= 24 * 60 * 60 * 1000 ? 'today' : 'upcoming';
-        return {
-          conversationId: conversation.id,
-          customerId: customer.id,
-          customerName: String(customer.clientName || customer.name || '').trim(),
-          customerWhatsapp: String(customer.whatsappNumber || '').trim(),
-          openAmount: Number(customer.openAmount || 0),
-          preference,
-          currentStep: String((conversation as any).currentStep || '').trim() || null,
-          dueAt: dueAt.toISOString(),
-          lastInteractionAt: (conversation as any).lastInteractionAt
-            ? new Date((conversation as any).lastInteractionAt).toISOString()
-            : null,
-          status,
-          lastMessage:
-            conversation.messages?.[0] ? String(conversation.messages[0].body || '').trim() : '',
-        };
-      }),
-    );
-
-    const agendaItems = items.filter(Boolean);
-    return {
-      counters: {
-        total: agendaItems.length,
-        overdue: agendaItems.filter((item: any) => item.status === 'overdue').length,
-        today: agendaItems.filter((item: any) => item.status === 'today').length,
-        upcoming: agendaItems.filter((item: any) => item.status === 'upcoming').length,
-      },
-      items: agendaItems,
-    };
-  }
-
   async listInteractionMessages(user: any, conversationId: number) {
     const companyId = this.requireCompanyIdFromUser(user);
     const conversation = await this.prisma.companyConversation.findFirst({

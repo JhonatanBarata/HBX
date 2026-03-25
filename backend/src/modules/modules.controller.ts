@@ -9,6 +9,7 @@ import { RolesGuard } from '../auth/roles.guard';
 import { Admin } from '../auth/admin.decorator';
 import { IsArray, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
+import { probeWebscrapingRuntime } from './webscraping-runtime.util';
 
 class ModulePermissionDto {
   @IsString()
@@ -231,8 +232,12 @@ export class ModulesController {
   @Get('webscraping/entry')
   @UseGuards(JwtAuthGuard, ModuleAccessGuard)
   @ModuleAccess('webscraping')
-  webscrapingEntry() {
-    return { url: process.env.WEBSCRAPING_URL || '/hbx/webscraping' };
+  async webscrapingEntry() {
+    const runtime = await probeWebscrapingRuntime();
+    return {
+      url: runtime.publicUrl,
+      runtime,
+    };
   }
 
   @Get('company/access')

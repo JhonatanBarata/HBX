@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import {
   useCallback,
   useEffect,
@@ -10,10 +9,8 @@ import {
   type FormEvent,
 } from "react";
 import {
-  ChatActionButton,
   ChatActionGrid,
   ChatAvatar,
-  ChatBadge,
   ChatComposer,
   ChatDockPanel,
   ChatEmptyState,
@@ -27,14 +24,33 @@ import {
   ChatThread,
 } from "@/components/chat/PremiumChat";
 import DashboardScaffold from "@/components/DashboardScaffold";
-import WorkspaceShell from "@/components/workspace/WorkspaceShell";
+import ConversationActionList from "@/components/workspace/ConversationActionList";
+import ConversationBadgeList from "@/components/workspace/ConversationBadgeList";
+import ConversationContextPanel from "@/components/workspace/ConversationContextPanel";
+import ConversationListPane from "@/components/workspace/ConversationListPane";
+import ConversationMainPane from "@/components/workspace/ConversationMainPane";
+import ConversationQueueFilterBar from "@/components/workspace/ConversationQueueFilterBar";
+import ConversationWorkspaceStatus from "@/components/workspace/ConversationWorkspaceStatus";
+import ConversationWorkspaceShell from "@/components/workspace/ConversationWorkspaceShell";
+import {
+  buildAtendimentoContextActions,
+  buildAtendimentoContextSummary,
+  buildAtendimentoRecoveryPaymentHistory,
+  buildAtendimentoRecoverySummary,
+  buildAtendimentoQueueBadges,
+  buildAtendimentoThreadBadges,
+  formatAtendimentoRecoveryPaymentStatusLabel,
+  getAtendimentoComposerHint,
+  getAtendimentoRecoveryPaymentDate,
+  getAtendimentoConversationStatusMeta,
+  mapAtendimentoConversationToneToQueueTone,
+} from "@/components/workspace/adapters/atendimento";
 import type {
   WorkspacePanelDescriptor,
 } from "@/components/workspace/types";
 import {
   SHARED_CONVERSATION_WORKSPACE_IDS,
-  SHARED_CONVERSATION_WORKSPACE_MODULE_KEY,
-  createSharedConversationWorkspaceLayout,
+  buildSharedConversationWorkspacePanels,
 } from "@/components/workspace/conversation-workspace";
 import { acquirePopupTopbarLock } from "@/lib/popup-visibility";
 import { apiFetch } from "../_lib/api";
@@ -92,6 +108,8 @@ type ActionOption = {
   label: string;
 };
 
+type AtendimentoCustomerViewFilter = "all" | "debtors" | "atendimento_only" | "paid";
+
 type AgendaGroupEditableField =
   | "title"
   | "slug"
@@ -128,7 +146,20 @@ type CurrentUserProfile = {
   } | null;
 };
 
-type ConversationStatusTone = "bot" | "human" | "recovery" | "blocked" | "closed";
+const ATENDIMENTO_CUSTOMER_VIEW_OPTIONS: Array<{
+  id: AtendimentoCustomerViewFilter;
+  label: string;
+}> = [
+  { id: "all", label: "Todos" },
+  { id: "debtors", label: "Em cobranca" },
+  { id: "atendimento_only", label: "Somente atendimento" },
+  { id: "paid", label: "Pagos" },
+];
+
+type UserModule = {
+  key: string;
+  accessible: boolean;
+};
 
 const ATENDIMENTO_PENDING_STORAGE_KEY = "atendimentoPendingHumanCount";
 
@@ -237,14 +268,6 @@ function mergeInboxConversationSummary(
   };
 }
 
-function mapConversationToneToChatTone(tone: ConversationStatusTone) {
-  if (tone === "human") return "success" as const;
-  if (tone === "recovery") return "amber" as const;
-  if (tone === "blocked") return "danger" as const;
-  if (tone === "closed") return "muted" as const;
-  return "brand" as const;
-}
-
 function mapInboxBubbleTone(message: InboxMessage) {
   const direction = String(message.direction || "").trim().toLowerCase();
   const senderType = String(message.senderType || "").trim().toLowerCase();
@@ -252,6 +275,51 @@ function mapInboxBubbleTone(message: InboxMessage) {
   if (senderType === "human") return "human" as const;
   if (direction === "outbound") return "outbound" as const;
   return "inbound" as const;
+}
+
+function formatInboxSourceModuleLabel(sourceRaw: string | null | undefined) {
+  const source = String(sourceRaw || "").trim().toLowerCase();
+  if (!source) return null;
+
+  const labels: Record<string, string> = {
+    hbx_recovery: "Recovery",
+    hbx_recovery_bot: "BOT Recovery",
+    atendimento_human: "Humano Atendimento",
+    atendimento_internal: "Sistema Atendimento",
+    whatsapp: "WhatsApp",
+  };
+
+  return labels[source] || source.replace(/[_-]+/g, " ");
+}
+
+function getInboxMessageSenderLabel(message: InboxMessage) {
+  const sourceLabel = formatInboxSourceModuleLabel(message.sourceModule);
+  if (sourceLabel === "Recovery" || sourceLabel === "BOT Recovery") {
+    return sourceLabel;
+  }
+
+  const senderType = String(message.senderType || "").trim().toLowerCase();
+  if (senderType === "human") return "Humano";
+  if (senderType === "system") return "Sistema";
+  return String(message.direction || "").trim().toLowerCase() === "outbound" ? "HBX" : "Cliente";
+}
+
+function getInboxMessageTypeLabel(message: InboxMessage) {
+  const sourceLabel = formatInboxSourceModuleLabel(message.sourceModule);
+  const messageType = String(message.messageType || "texto").replace(/_/g, " ");
+  if (messageType === "system event" && sourceLabel) {
+    return `${messageType} • ${sourceLabel}`;
+  }
+  return messageType;
+}
+
+function getInboxMessageMeta(message: InboxMessage, mounted: boolean) {
+  const sourceLabel = formatInboxSourceModuleLabel(message.sourceModule);
+  const base = formatDateLabel(message.createdAt, mounted);
+  if (!sourceLabel || sourceLabel === "Recovery" || sourceLabel === "BOT Recovery") {
+    return base;
+  }
+  return `${base} • ${sourceLabel}`;
 }
 
 function removeButtonFromSections(config: AtendimentoBotConfig, actionId: string): AtendimentoBotConfig {
@@ -269,26 +337,6 @@ function removeButtonFromSections(config: AtendimentoBotConfig, actionId: string
   };
 }
 
-function getConversationStatusMeta(conversation: InboxConversation): {
-  label: string;
-  shortLabel: string;
-  tone: ConversationStatusTone;
-} {
-  if (conversation.status === "blocked" || conversation.isBlocked) {
-    return { label: "Bloqueado", shortLabel: "BLQ", tone: "blocked" };
-  }
-  if (conversation.routeTarget === "recovery") {
-    return { label: "Recovery", shortLabel: "REC", tone: "recovery" };
-  }
-  if (conversation.status === "open") {
-    return { label: "Humano", shortLabel: "HUM", tone: "human" };
-  }
-  if (conversation.status === "closed") {
-    return { label: "Resolvido", shortLabel: "OK", tone: "closed" };
-  }
-  return { label: "No bot", shortLabel: "BOT", tone: "bot" };
-}
-
 export default function InboxClientPage() {
   const hasToken = useRequireAuth();
   const [mounted, setMounted] = useState(false);
@@ -304,6 +352,9 @@ export default function InboxClientPage() {
   const [loadingAgenda, setLoadingAgenda] = useState(true);
   const [savingAgenda, setSavingAgenda] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [conversationListError, setConversationListError] = useState<string | null>(null);
+  const [conversationDetailError, setConversationDetailError] = useState<string | null>(null);
+  const [lastConversationSyncAt, setLastConversationSyncAt] = useState<string | null>(null);
   const [notice, setNotice] = useState<NoticeState | null>(null);
   const [sendText, setSendText] = useState("");
   const [sending, setSending] = useState(false);
@@ -314,6 +365,7 @@ export default function InboxClientPage() {
     DEFAULT_ATENDIMENTO_AGENDA_CONFIG,
   );
   const [currentUserProfile, setCurrentUserProfile] = useState<CurrentUserProfile | null>(null);
+  const [userModules, setUserModules] = useState<UserModule[]>([]);
   const [expandedAlerts, setExpandedAlerts] = useState<Record<InboxAlertKind | "system_notice", boolean>>({
     human_queue: false,
     new_message: false,
@@ -329,10 +381,13 @@ export default function InboxClientPage() {
   const newAlertTimerRef = useRef<number | null>(null);
   const noticeTimerRef = useRef<number | null>(null);
   const chatTimelineRef = useRef<HTMLDivElement | null>(null);
+  const conversationsRef = useRef<InboxConversation[]>([]);
   const selectedIdRef = useRef<string | null>(null);
   const selectedConversationRef = useRef<InboxConversation | null>(null);
 
   const [atendimentoCustomers, setAtendimentoCustomers] = useState<AtendimentoCustomer[]>([]);
+  const [atendimentoCustomerView, setAtendimentoCustomerView] =
+    useState<AtendimentoCustomerViewFilter>("all");
   const [loadingCustomers, setLoadingCustomers] = useState(false);
   const [showCreateCustomerModal, setShowCreateCustomerModal] = useState(false);
   const [customerForm, setCustomerForm] = useState({ phone: "", name: "", route: "atendimento", notes: "" });
@@ -352,20 +407,37 @@ export default function InboxClientPage() {
   }, [botStudioOpen, agendaStudioOpen]);
 
   useEffect(() => {
+    conversationsRef.current = conversations;
+  }, [conversations]);
+
+  useEffect(() => {
     selectedIdRef.current = selectedId;
     selectedConversationRef.current = selectedConversation;
   }, [selectedConversation, selectedId]);
 
   const loadConversation = useCallback(async (id: string, options?: { silent?: boolean }) => {
     const silent = options?.silent ?? false;
+    const summary =
+      conversationsRef.current.find((conversation) => conversation.id === id) || null;
+    const mergedSummary = mergeInboxConversationSummary(
+      summary,
+      selectedConversationRef.current?.id === id ? selectedConversationRef.current : null,
+    );
+    setSelectedId(id);
+    if (mergedSummary) {
+      setSelectedConversation(mergedSummary);
+    }
+    setConversationDetailError(null);
     if (!silent) setLoadingConversation(true);
     try {
       const data = await apiFetch<InboxConversation>(`/inbox/conversations/${id}`);
       setSelectedConversation(data);
       setSelectedId(data.id);
+      setConversationDetailError(null);
     } catch (loadError) {
       const message =
         loadError instanceof Error ? loadError.message : "Falha ao carregar conversa.";
+      setConversationDetailError(message);
       setError(message);
     } finally {
       if (!silent) setLoadingConversation(false);
@@ -377,9 +449,12 @@ export default function InboxClientPage() {
       const silent = options?.silent ?? false;
       if (!silent) setLoadingList(true);
       setError(null);
+      setConversationListError(null);
       try {
         const data = await apiFetch<InboxConversation[]>("/inbox/conversations");
         setConversations(data);
+        setConversationListError(null);
+        setLastConversationSyncAt(new Date().toISOString());
 
         const preferredId = options?.preferredId ?? selectedIdRef.current;
         const selectedSummary =
@@ -423,7 +498,10 @@ export default function InboxClientPage() {
       } catch (loadError) {
         const message =
           loadError instanceof Error ? loadError.message : "Falha ao carregar conversas.";
-        setError(message);
+        setConversationListError(message);
+        if (!silent || conversationsRef.current.length === 0) {
+          setError(message);
+        }
       } finally {
         if (!silent) setLoadingList(false);
       }
@@ -466,6 +544,15 @@ export default function InboxClientPage() {
     }
   }, []);
 
+  const loadUserModules = useCallback(async () => {
+    try {
+      const data = await apiFetch<UserModule[]>("/modules/me");
+      setUserModules(Array.isArray(data) ? data : []);
+    } catch {
+      setUserModules([]);
+    }
+  }, []);
+
   const loadAtendimentoCustomers = useCallback(async () => {
     setLoadingCustomers(true);
     try {
@@ -489,8 +576,8 @@ export default function InboxClientPage() {
 
   useEffect(() => {
     if (hasToken === false) return;
-    void Promise.all([loadBotConfig(), loadAgendaConfig(), loadCurrentUser()]);
-  }, [hasToken, loadAgendaConfig, loadBotConfig, loadCurrentUser]);
+    void Promise.all([loadBotConfig(), loadAgendaConfig(), loadCurrentUser(), loadUserModules()]);
+  }, [hasToken, loadAgendaConfig, loadBotConfig, loadCurrentUser, loadUserModules]);
 
   useEffect(() => {
     if (hasToken === false) return;
@@ -510,6 +597,77 @@ export default function InboxClientPage() {
       (conversation) => conversation.status !== "closed" && conversation.status !== "blocked" && !conversation.isBlocked,
     );
   }, [conversations, inboxQueue]);
+
+  const inboxQueueDiagnostics = useMemo(
+    () => [
+      {
+        label: "Sessao",
+        value: hasToken === true ? "ativa" : hasToken === false ? "sem token" : "validando",
+      },
+      {
+        label: "Fila",
+        value:
+          inboxQueue === "all"
+            ? "Conversas"
+            : inboxQueue === "closed"
+              ? "Conversas encerradas"
+              : "Clientes bloqueados",
+      },
+      {
+        label: "Recebidas",
+        value: String(conversations.length),
+      },
+      {
+        label: "Visiveis",
+        value: String(filteredConversations.length),
+      },
+      {
+        label: "Selecionada",
+        value: selectedId || "--",
+      },
+      {
+        label: "Ultima leitura",
+        value: lastConversationSyncAt ? formatDateLabel(lastConversationSyncAt, mounted) : "nenhuma",
+      },
+    ],
+    [conversations.length, filteredConversations.length, hasToken, inboxQueue, lastConversationSyncAt, mounted, selectedId],
+  );
+
+  const inboxDetailDiagnostics = useMemo(
+    () => [
+      {
+        label: "Conversa",
+        value: selectedId || "--",
+      },
+      {
+        label: "Fila",
+        value:
+          inboxQueue === "all"
+            ? "Conversas"
+            : inboxQueue === "closed"
+              ? "Conversas encerradas"
+              : "Clientes bloqueados",
+      },
+      {
+        label: "Mensagens em cache",
+        value: String(selectedConversation?.messages.length || 0),
+      },
+      {
+        label: "Ultima leitura",
+        value: lastConversationSyncAt ? formatDateLabel(lastConversationSyncAt, mounted) : "nenhuma",
+      },
+    ],
+    [inboxQueue, lastConversationSyncAt, mounted, selectedConversation?.messages.length, selectedId],
+  );
+
+  const retryConversationList = useCallback(() => {
+    void loadConversations({ preferredId: selectedIdRef.current });
+  }, [loadConversations]);
+
+  const retryConversationDetail = useCallback(() => {
+    if (!selectedIdRef.current) return;
+    void loadConversation(selectedIdRef.current);
+  }, [loadConversation]);
 
   useEffect(() => {
     if (activeTab !== "messages") return;
@@ -645,6 +803,11 @@ export default function InboxClientPage() {
     return role === "ADMIN" || role === "GERENTE";
   }, [currentUserProfile?.isSystemMaster, currentUserProfile?.role]);
 
+  const hasRecoveryCapability = useMemo(
+    () => userModules.some((module) => module.accessible && module.key === "hbx_recovery"),
+    [userModules],
+  );
+
   const selectedStatus = selectedConversation?.status ?? "new";
   const selectedRouteIsRecovery = selectedConversation?.routeTarget === "recovery";
   const selectedBlocked = Boolean(selectedConversation?.isBlocked);
@@ -661,13 +824,55 @@ export default function InboxClientPage() {
     selectedConversation?.customer.phone ||
     "";
   const selectedConversationStatusMeta = selectedConversation
-    ? getConversationStatusMeta(selectedConversation)
+    ? getAtendimentoConversationStatusMeta(selectedConversation, hasRecoveryCapability)
     : null;
   const humanAttentionPreview = humanAttentionConversations[0] || null;
   const newInboundPreview = newInboundConversations[0] || null;
   const humanQueueLabel = `${humanAttentionConversations.length} mensagem${
     humanAttentionConversations.length === 1 ? "" : "s"
   }`;
+  const atendimentoDebtorCustomersCount = useMemo(
+    () =>
+      atendimentoCustomers.filter(
+        (customer) =>
+          Boolean(customer.recoveryCustomerId) &&
+          customer.recoveryStatus !== "PAID" &&
+          Number(customer.openAmount || 0) > 0,
+      ).length,
+    [atendimentoCustomers],
+  );
+  const atendimentoPaidCustomersCount = useMemo(
+    () =>
+      atendimentoCustomers.filter(
+        (customer) =>
+          Boolean(customer.recoveryCustomerId) && String(customer.recoveryStatus || "") === "PAID",
+      ).length,
+    [atendimentoCustomers],
+  );
+  const atendimentoOnlyCustomersCount = useMemo(
+    () => atendimentoCustomers.filter((customer) => !customer.recoveryCustomerId).length,
+    [atendimentoCustomers],
+  );
+  const filteredAtendimentoCustomers = useMemo(() => {
+    if (atendimentoCustomerView === "debtors") {
+      return atendimentoCustomers.filter(
+        (customer) =>
+          Boolean(customer.recoveryCustomerId) &&
+          customer.recoveryStatus !== "PAID" &&
+          Number(customer.openAmount || 0) > 0,
+      );
+    }
+    if (atendimentoCustomerView === "paid") {
+      return atendimentoCustomers.filter(
+        (customer) =>
+          Boolean(customer.recoveryCustomerId) && String(customer.recoveryStatus || "") === "PAID",
+      );
+    }
+    if (atendimentoCustomerView === "atendimento_only") {
+      return atendimentoCustomers.filter((customer) => !customer.recoveryCustomerId);
+    }
+    return atendimentoCustomers;
+  }, [atendimentoCustomerView, atendimentoCustomers]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -869,63 +1074,48 @@ export default function InboxClientPage() {
   );
 
   const inboxWorkspacePanels: WorkspacePanelDescriptor[] = useMemo(
-    () => [
-      {
-        id: SHARED_CONVERSATION_WORKSPACE_IDS.listPanel,
-        title: "Conversas",
-        description: "Fila principal de atendimento com troca rápida de contexto.",
-        component: SHARED_CONVERSATION_WORKSPACE_IDS.listComponent,
-        params: {
+    () =>
+      buildSharedConversationWorkspacePanels({
+        list: {
+          title: "Conversas",
+          description: "Fila principal de atendimento com troca rápida de contexto.",
           accent: "#2563eb",
+          minimumWidth: 300,
+          minimumHeight: 240,
+          initialWidth: 360,
         },
-        minimumWidth: 300,
-        minimumHeight: 240,
-        initialWidth: 360,
-      },
-      {
-        id: SHARED_CONVERSATION_WORKSPACE_IDS.mainPanel,
-        title: "Chat",
-        description: "Historico principal, contexto e leitura operacional.",
-        component: SHARED_CONVERSATION_WORKSPACE_IDS.mainComponent,
-        params: {
+        main: {
+          title: "Chat",
+          description: "Historico principal, contexto e leitura operacional.",
           accent: "#0f766e",
+          minimumWidth: 540,
+          minimumHeight: 320,
+          initialWidth: 760,
         },
-        minimumWidth: 540,
-        minimumHeight: 320,
-        initialWidth: 760,
-      },
-      {
-        id: SHARED_CONVERSATION_WORKSPACE_IDS.composerPanel,
-        title: "Resposta",
-        description: "Resposta manual com crescimento vertical livre.",
-        component: SHARED_CONVERSATION_WORKSPACE_IDS.composerComponent,
-        params: {
+        composer: {
+          title: "Resposta",
+          description: "Resposta manual com crescimento vertical livre.",
           accent: "#1d4ed8",
+          minimumWidth: 520,
+          minimumHeight: 220,
+          initialHeight: 260,
         },
-        minimumWidth: 520,
-        minimumHeight: 220,
-        initialHeight: 260,
-      },
-      {
-        id: SHARED_CONVERSATION_WORKSPACE_IDS.contextPanel,
-        title: "Cliente / Recovery",
-        description: "Cliente, status, rota e ações rápidas de operação.",
-        component: SHARED_CONVERSATION_WORKSPACE_IDS.contextComponent,
-        params: {
+        context: {
+          title: "Cliente / Recovery",
+          description: "Cliente, status, rota e ações rápidas de operação.",
           accent: "#b45309",
+          minimumWidth: 320,
+          minimumHeight: 260,
+          initialWidth: 360,
         },
-        minimumWidth: 320,
-        minimumHeight: 260,
-        initialWidth: 360,
-      },
-    ],
+      }),
     [],
   );
 
   const inboxWorkspaceComponents = useMemo(
     () => ({
       [SHARED_CONVERSATION_WORKSPACE_IDS.listComponent]: () => (
-        <ChatDockPanel
+        <ConversationListPane
           eyebrow="Atendimento"
           title="Fila"
           description="Conversas ativas, prioridade e rota em uma unica leitura."
@@ -935,6 +1125,15 @@ export default function InboxClientPage() {
         >
           {loadingList ? (
             <ChatEmptyState title="Carregando conversas">A fila sera montada assim que a leitura inicial terminar.</ChatEmptyState>
+          ) : conversationListError && filteredConversations.length === 0 ? (
+            <ConversationWorkspaceStatus
+              title="Falha ao carregar conversas"
+              description={conversationListError}
+              tone="error"
+              diagnostics={inboxQueueDiagnostics}
+              onRetry={retryConversationList}
+              retryLabel="Recarregar fila"
+            />
           ) : filteredConversations.length === 0 ? (
             <ChatEmptyState title="Nenhuma conversa encontrada">Ajuste o filtro ou aguarde novas mensagens entrarem na fila.</ChatEmptyState>
           ) : (
@@ -942,7 +1141,10 @@ export default function InboxClientPage() {
               {filteredConversations.map((conversation) => {
                 const active = conversation.id === selectedId;
                 const latestMessage = conversation.messages?.[0];
-                const statusMeta = getConversationStatusMeta(conversation);
+                const statusMeta = getAtendimentoConversationStatusMeta(
+                  conversation,
+                  hasRecoveryCapability,
+                );
                 return (
                   <ChatQueueItem
                     key={conversation.id}
@@ -950,31 +1152,25 @@ export default function InboxClientPage() {
                     onClick={() => loadConversation(conversation.id)}
                     initials={String(conversation.customer.name || conversation.customer.phone).slice(0, 2).toUpperCase()}
                     label={statusMeta.shortLabel}
-                    tone={mapConversationToneToChatTone(statusMeta.tone)}
+                    tone={mapAtendimentoConversationToneToQueueTone(statusMeta.tone)}
                     title={conversation.customer.name || conversation.customer.phone}
                     subtitle={conversation.customer.phone}
                     preview={getMessagePreview(latestMessage)}
                     meta={formatTimeLabel(conversation.updatedAt, mounted)}
                     badges={
-                      <>
-                        <ChatBadge tone="brand">{statusMeta.label}</ChatBadge>
-                        {conversation.routeTarget === "recovery" ? (
-                          <ChatBadge tone="warning">Recovery</ChatBadge>
-                        ) : null}
-                        {conversation.status === "blocked" || conversation.isBlocked ? (
-                          <ChatBadge tone="danger">Bloqueado</ChatBadge>
-                        ) : null}
-                      </>
+                      <ConversationBadgeList
+                        badges={buildAtendimentoQueueBadges(conversation, hasRecoveryCapability)}
+                      />
                     }
                   />
                 );
               })}
             </ChatQueue>
           )}
-        </ChatDockPanel>
+        </ConversationListPane>
       ),
       [SHARED_CONVERSATION_WORKSPACE_IDS.mainComponent]: () => (
-        <ChatDockPanel
+        <ConversationMainPane
           eyebrow="Chat"
           title={selectedConversation ? selectedConversationDisplayName : "Chat"}
           description="Historico principal do atendimento."
@@ -984,6 +1180,15 @@ export default function InboxClientPage() {
         >
           {loadingConversation ? (
             <ChatEmptyState title="Carregando conversa">Preparando historico e contexto do cliente.</ChatEmptyState>
+          ) : conversationDetailError && selectedId ? (
+            <ConversationWorkspaceStatus
+              title="Falha ao abrir conversa"
+              description={conversationDetailError}
+              tone="error"
+              diagnostics={inboxDetailDiagnostics}
+              onRetry={retryConversationDetail}
+              retryLabel="Reabrir conversa"
+            />
           ) : !selectedConversation ? (
             <ChatEmptyState title="Nenhuma conversa selecionada">Escolha uma conversa na fila para abrir o chat.</ChatEmptyState>
           ) : (
@@ -992,22 +1197,20 @@ export default function InboxClientPage() {
                 <ChatAvatar
                   initials={String(selectedConversationDisplayName).slice(0, 2).toUpperCase()}
                   label={selectedConversationStatusMeta?.shortLabel || "BOT"}
-                  tone={mapConversationToneToChatTone(selectedConversationStatusMeta?.tone || "bot")}
+                  tone={mapAtendimentoConversationToneToQueueTone(selectedConversationStatusMeta?.tone || "bot")}
                 />
               }
               title={selectedConversationDisplayName}
               subtitle={selectedConversation.customer.phone}
-              badges={
-                <>
-                  <ChatBadge tone="teal">{selectedConversationStatusMeta?.label || "Ativo"}</ChatBadge>
-                  {selectedConversation.routeTarget === "recovery" ? (
-                    <ChatBadge tone="warning">Rota recovery</ChatBadge>
-                  ) : null}
-                  {selectedConversation.recoveryOpenAmount > 0 ? (
-                    <ChatBadge tone="brand">{formatCurrency(selectedConversation.recoveryOpenAmount)}</ChatBadge>
-                  ) : null}
-                </>
-              }
+              badges={(
+                <ConversationBadgeList
+                  badges={buildAtendimentoThreadBadges(
+                    selectedConversation,
+                    formatCurrency,
+                    hasRecoveryCapability,
+                  )}
+                />
+              )}
               actions={
                 <ChatIconButton
                   icon="gear"
@@ -1026,17 +1229,9 @@ export default function InboxClientPage() {
                     <ChatMessageBubble
                       key={message.id}
                       tone={mapInboxBubbleTone(message)}
-                      sender={
-                        String(message.senderType || "").trim().toLowerCase() === "human"
-                          ? "Humano"
-                          : String(message.senderType || "").trim().toLowerCase() === "system"
-                            ? "Sistema"
-                            : String(message.direction || "").trim().toLowerCase() === "outbound"
-                              ? "HBX"
-                              : "Cliente"
-                      }
-                      messageType={String(message.messageType || "texto").replace(/_/g, " ")}
-                      meta={formatDateLabel(message.createdAt, mounted)}
+                      sender={getInboxMessageSenderLabel(message)}
+                      messageType={getInboxMessageTypeLabel(message)}
+                      meta={getInboxMessageMeta(message, mounted)}
                     >
                       <p>{getMessagePreview(message)}</p>
                     </ChatMessageBubble>
@@ -1045,7 +1240,7 @@ export default function InboxClientPage() {
               </div>
             </ChatThread>
           )}
-        </ChatDockPanel>
+        </ConversationMainPane>
       ),
       [SHARED_CONVERSATION_WORKSPACE_IDS.composerComponent]: () => (
         <ChatDockPanel
@@ -1072,9 +1267,7 @@ export default function InboxClientPage() {
                 footer={
                   <>
                     <ChatFieldNote>
-                      {selectedRouteIsRecovery
-                        ? "Esta conversa tambem aparece no Recovery."
-                        : "O bot pode retomar a conversa depois do encerramento."}
+                      {getAtendimentoComposerHint(selectedConversation, hasRecoveryCapability)}
                     </ChatFieldNote>
                     <button
                       type="submit"
@@ -1106,9 +1299,9 @@ export default function InboxClientPage() {
         </ChatDockPanel>
       ),
       [SHARED_CONVERSATION_WORKSPACE_IDS.contextComponent]: () => (
-        <ChatDockPanel
+        <ConversationContextPanel
           eyebrow="Contexto"
-          title="Cliente / Recovery"
+          title={hasRecoveryCapability ? "Cliente / Recovery" : "Cliente / Contexto"}
           description="Status, rota e acoes do atendimento."
           count={selectedConversation ? "LIVE" : "--"}
           className={styles.workspaceDockPanel}
@@ -1118,101 +1311,115 @@ export default function InboxClientPage() {
             <ChatEmptyState title="Sem contexto ativo">Abra uma conversa para liberar os atalhos operacionais.</ChatEmptyState>
           ) : (
             <ChatSideGrid>
-              <ChatInfoCard title="Resumo do cliente" meta={selectedConversation.routeTarget || "atendimento"}>
-                <p><strong>Cliente:</strong> {selectedConversationDisplayName}</p>
-                <p><strong>Telefone:</strong> {selectedConversation.customer.phone}</p>
-                <p><strong>Status:</strong> {selectedConversationStatusMeta?.label ?? "-"}</p>
-                <p><strong>Motivo:</strong> {selectedConversation.routeReason || "-"}</p>
-                <p><strong>Atualizado:</strong> {formatDateLabel(selectedConversation.updatedAt, mounted)}</p>
-                {selectedConversation.recoveryOpenAmount > 0 ? (
-                  <p><strong>Recovery:</strong> {formatCurrency(selectedConversation.recoveryOpenAmount)}</p>
-                ) : null}
-                {selectedBlocked ? (
-                  <p>
-                    <strong>Bloqueio:</strong> {formatDateLabel(selectedConversation.blockedAt, mounted)}
-                    {selectedConversation.blockedReason ? ` - ${selectedConversation.blockedReason}` : ""}
+              <ChatInfoCard
+                title="Resumo do cliente"
+                meta={
+                  hasRecoveryCapability
+                    ? selectedConversation.routeTarget || "atendimento"
+                    : "atendimento"
+                }
+              >
+                {buildAtendimentoContextSummary({
+                  conversation: selectedConversation,
+                  displayName: selectedConversationDisplayName,
+                  statusLabel: selectedConversationStatusMeta?.label ?? "-",
+                  updatedAtLabel: formatDateLabel(selectedConversation.updatedAt, mounted),
+                  blockedAtLabel: selectedBlocked
+                    ? formatDateLabel(selectedConversation.blockedAt, mounted)
+                    : null,
+                  formatCurrency,
+                  allowRecoveryCapability: hasRecoveryCapability,
+                }).map((item) => (
+                  <p key={item.label}>
+                    <strong>{item.label}:</strong> {item.value}
                   </p>
-                ) : null}
+                ))}
               </ChatInfoCard>
 
               <ChatInfoCard title="Acoes rapidas" meta="Operacao">
                 <ChatActionGrid>
-                  {selectedConversation.routeTarget === "recovery" ? (
-                    <Link href="/hbx-recovery?tab=messages" className="btn btn-primary btn-sm">
-                      Abrir Recovery
-                    </Link>
-                  ) : null}
-                  {selectedConversation.routeTarget === "recovery" ? (
-                    <Link href="/hbx-recovery?tab=payments" className="btn btn-secondary btn-sm">
-                      Ver pagamentos
-                    </Link>
-                  ) : null}
-                  {selectedConversation.routeTarget === "recovery" ? (
-                    <Link href="/hbx-recovery?tab=templates" className="btn btn-secondary btn-sm">
-                      Templates Meta
-                    </Link>
-                  ) : null}
-                  <button
-                    type="button"
-                    className="btn btn-secondary btn-sm"
-                    onClick={() => setBotStudioOpen(true)}
-                  >
-                    Abrir automacao
-                  </button>
-                  <button
-                    type="button"
-                    className="btn btn-secondary btn-sm"
-                    onClick={() => {
-                      setActiveTab("agenda");
-                      setAgendaStudioOpen(true);
-                      setBotStudioOpen(false);
-                    }}
-                  >
-                    Abrir agenda
-                  </button>
-                  {!selectedBlocked ? (
-                    <>
-                      <ChatActionButton
-                        type="button"
-                        className={`btn btn-sm ${selectedStatus === "open" ? "btn-primary" : "btn-secondary"}`}
-                        onClick={() => updateStatus("open")}
-                      >
-                        Assumir humano
-                      </ChatActionButton>
-                      <ChatActionButton
-                        type="button"
-                        className={`btn btn-sm ${selectedStatus === "new" ? "btn-primary" : "btn-secondary"}`}
-                        onClick={() => updateStatus("new")}
-                      >
-                        Voltar ao bot
-                      </ChatActionButton>
-                      <ChatActionButton
-                        type="button"
-                        className={`btn btn-sm ${selectedStatus === "closed" ? "btn-primary" : "btn-secondary"}`}
-                        onClick={() => updateStatus("closed")}
-                      >
-                        Encerrar conversa
-                      </ChatActionButton>
-                    </>
-                  ) : null}
-                  {selectedBlocked ? (
-                    <ChatActionButton type="button" className="btn btn-secondary btn-sm" onClick={unblockConversation}>
-                      Desbloquear contato
-                    </ChatActionButton>
-                  ) : (
-                    <ChatActionButton type="button" className="btn btn-danger btn-sm" onClick={blockConversation}>
-                      Bloquear contato
-                    </ChatActionButton>
-                  )}
+                  <ConversationActionList
+                    actions={buildAtendimentoContextActions({
+                      conversation: selectedConversation,
+                      selectedStatus,
+                      selectedBlocked,
+                      allowRecoveryCapability: hasRecoveryCapability,
+                      openAutomation: () => setBotStudioOpen(true),
+                      openAgenda: () => {
+                        setActiveTab("agenda");
+                        setAgendaStudioOpen(true);
+                        setBotStudioOpen(false);
+                      },
+                      updateStatus,
+                      blockConversation,
+                      unblockConversation,
+                    })}
+                  />
                 </ChatActionGrid>
               </ChatInfoCard>
+
+              {hasRecoveryCapability && selectedConversation.recoveryCustomerId ? (
+                <ChatInfoCard
+                  title="Recovery"
+                  meta={selectedConversation.recoveryStatus || "cobranca"}
+                >
+                  {buildAtendimentoRecoverySummary({
+                    conversation: selectedConversation,
+                    formatCurrency,
+                  }).map((item) => (
+                    <p key={item.label}>
+                      <strong>{item.label}:</strong> {item.value}
+                    </p>
+                  ))}
+
+                  {buildAtendimentoRecoveryPaymentHistory(selectedConversation).length > 0 ? (
+                    <>
+                      <ChatFieldNote>Ultimos pagamentos e links desta cobranca.</ChatFieldNote>
+                      <div className={styles.recoveryPaymentHistory}>
+                        {buildAtendimentoRecoveryPaymentHistory(selectedConversation).map((payment) => (
+                          <article key={payment.id} className={styles.recoveryPaymentRow}>
+                            <div>
+                              <strong>{formatCurrency(payment.amount)}</strong>
+                              <p>
+                                {formatAtendimentoRecoveryPaymentStatusLabel(payment.status)}
+                                {payment.chargeType
+                                  ? ` • ${payment.chargeType === "parcelado" ? "Parcelado" : "A vista"}`
+                                  : ""}
+                              </p>
+                              <p>
+                                {formatDateLabel(
+                                  getAtendimentoRecoveryPaymentDate(payment),
+                                  mounted,
+                                )}
+                              </p>
+                            </div>
+                            {payment.paymentUrl ? (
+                              <a
+                                href={payment.paymentUrl}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="btn btn-secondary btn-sm"
+                              >
+                                Abrir link
+                              </a>
+                            ) : null}
+                          </article>
+                        ))}
+                      </div>
+                    </>
+                  ) : (
+                    <ChatFieldNote>Nenhum pagamento recente vinculado a esta cobranca.</ChatFieldNote>
+                  )}
+                </ChatInfoCard>
+              ) : null}
             </ChatSideGrid>
           )}
-        </ChatDockPanel>
+        </ConversationContextPanel>
       ),
     }),
     [
       blockConversation,
+      hasRecoveryCapability,
       filteredConversations,
       loadConversation,
       loadingConversation,
@@ -1223,7 +1430,6 @@ export default function InboxClientPage() {
       selectedConversationDisplayName,
       selectedConversationStatusMeta,
       selectedId,
-      selectedRouteIsRecovery,
       selectedStatus,
       sendMessage,
       sendText,
@@ -1835,57 +2041,23 @@ export default function InboxClientPage() {
         {error ? <div className="alert alert-error">{error}</div> : null}
 
         {activeTab === "messages" ? (
-          <WorkspaceShell
-            key={`inbox-workspace:${String(currentUserProfile?.company?.id || "tenant-default")}:${String(
-              currentUserProfile?.role || "USER",
-            ).toUpperCase()}:${String(
+          <ConversationWorkspaceShell
+            moduleLabel="Atendimento"
+            tenantId={String(currentUserProfile?.company?.id || "tenant-default")}
+            role={String(currentUserProfile?.role || "USER")}
+            userId={String(
               currentUserProfile?.id ||
                 currentUserProfile?.username ||
                 currentUserProfile?.email ||
                 "anonymous",
-            )}:${loadingList ? "loading" : "ready"}:${filteredConversations.length}:${selectedId || "none"}:${selectedConversation?.messages.length || 0}`}
-            moduleLabel="Atendimento"
-            scope={{
-              tenantId: String(currentUserProfile?.company?.id || "tenant-default"),
-              moduleKey: SHARED_CONVERSATION_WORKSPACE_MODULE_KEY,
-              role: String(currentUserProfile?.role || "USER").toUpperCase(),
-              userId: String(
-                currentUserProfile?.id ||
-                  currentUserProfile?.username ||
-                  currentUserProfile?.email ||
-                  "anonymous",
-              ),
-              isMaster: Boolean(currentUserProfile?.isSystemMaster),
-            }}
+            )}
+            isMaster={Boolean(currentUserProfile?.isSystemMaster)}
+            remountSignature={`${inboxQueue}:${loadingList ? "loading" : "ready"}:${filteredConversations.length}:${selectedId || "none"}:${selectedConversation?.messages.length || 0}`}
             panels={inboxWorkspacePanels}
             components={inboxWorkspaceComponents}
-            createDefaultLayout={createSharedConversationWorkspaceLayout}
-            chromeMode="minimal"
             className={styles.workspaceDockShell}
             toolbarSlot={
-              <>
-                <button
-                  type="button"
-                  className={`btn btn-sm ${inboxQueue === "all" ? "btn-primary" : "btn-secondary"}`}
-                  onClick={() => setInboxQueue("all")}
-                >
-                  Conversas
-                </button>
-                <button
-                  type="button"
-                  className={`btn btn-sm ${inboxQueue === "closed" ? "btn-primary" : "btn-secondary"}`}
-                  onClick={() => setInboxQueue("closed")}
-                >
-                  Conversas encerradas
-                </button>
-                <button
-                  type="button"
-                  className={`btn btn-sm ${inboxQueue === "blocked" ? "btn-primary" : "btn-secondary"}`}
-                  onClick={() => setInboxQueue("blocked")}
-                >
-                  Clientes bloqueados
-                </button>
-              </>
+              <ConversationQueueFilterBar value={inboxQueue} onChange={setInboxQueue} />
             }
           />
         ) : null}
@@ -1896,9 +2068,18 @@ export default function InboxClientPage() {
               <div className={recoveryStyles.sectionHeader}>
                 <div>
                   <p className={recoveryStyles.sectionEyebrow}>Clientes cadastrados</p>
+                  <h3 className={recoveryStyles.sectionTitle}>Base operacional unificada</h3>
+                  <p className={recoveryStyles.sectionDescription}>
+                    Atendimento e cobranca passam a compartilhar a mesma leitura de clientes, com
+                    filtros por operacao e contexto financeiro na mesma tela.
+                  </p>
                 </div>
                 <div className={styles.footerActions}>
-                  <span className="badge badge-brand">{atendimentoCustomers.length} clientes</span>
+                  <span className="badge badge-brand">
+                    {loadingCustomers
+                      ? "Carregando..."
+                      : `${atendimentoDebtorCustomersCount} cobranca / ${atendimentoOnlyCustomersCount} atendimento`}
+                  </span>
                   <button
                     type="button"
                     className="btn btn-primary btn-sm"
@@ -1912,17 +2093,39 @@ export default function InboxClientPage() {
                 </div>
               </div>
 
+              <div className={recoveryStyles.tableToolbar}>
+                <div className={recoveryStyles.filterPills}>
+                  {ATENDIMENTO_CUSTOMER_VIEW_OPTIONS.map((option) => (
+                    <button
+                      key={option.id}
+                      type="button"
+                      className={`${recoveryStyles.filterPill} ${
+                        atendimentoCustomerView === option.id ? recoveryStyles.filterPillActive : ""
+                      }`}
+                      onClick={() => setAtendimentoCustomerView(option.id)}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+                <span className={recoveryStyles.selectionMeta}>
+                  {filteredAtendimentoCustomers.length} visiveis · {atendimentoCustomers.length} totais ·{" "}
+                  {atendimentoPaidCustomersCount} pagos
+                </span>
+              </div>
+
               {loadingCustomers ? (
                 <div className={styles.emptyState}>Carregando clientes...</div>
               ) : atendimentoCustomers.length === 0 ? (
                 <div className={styles.emptyState}>Nenhum cliente cadastrado ainda. Clientes aparecem aqui automaticamente ao interagir pelo WhatsApp.</div>
               ) : (
                 <div className={recoveryStyles.tableWrap}>
-                  <table className={recoveryStyles.importPreviewTable}>
+                  <table className={recoveryStyles.scoreTable}>
                     <thead>
                       <tr>
                         <th>Cliente</th>
-                        <th>Origem</th>
+                        <th>Origem / rota</th>
+                        <th>Situacao</th>
                         <th>Recovery</th>
                         <th>Ultima interacao</th>
                         <th>Cadastrado em</th>
@@ -1930,38 +2133,90 @@ export default function InboxClientPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {atendimentoCustomers.map((customer) => (
+                      {filteredAtendimentoCustomers.map((customer) => (
                         <tr key={customer.id}>
-                          <td className={styles.customerCell}>
+                          <td className={recoveryStyles.clientCell}>
                             <strong>{customer.name ?? <em className={styles.mutedText}>Sem nome confirmado</em>}</strong>
                             <span>{customer.phone}</span>
                           </td>
                           <td>
-                            <span className={
-                              customer.registrationOrigin === "manual" ? styles.badgeManual :
-                              customer.registrationOrigin === "recovery" ? styles.badgeRecovery :
-                              styles.badgeWhatsapp
-                            }>
-                              {customer.registrationOrigin === "manual" ? "Manual" :
-                               customer.registrationOrigin === "recovery" ? "Recovery" : "WhatsApp"}
-                            </span>
+                            <div className={recoveryStyles.delayCell}>
+                              <strong>
+                                <span
+                                  className={
+                                    customer.registrationOrigin === "manual"
+                                      ? styles.badgeManual
+                                      : customer.registrationOrigin === "recovery"
+                                        ? styles.badgeRecovery
+                                        : styles.badgeWhatsapp
+                                  }
+                                >
+                                  {customer.registrationOrigin === "manual"
+                                    ? "Manual"
+                                    : customer.registrationOrigin === "recovery"
+                                      ? "Recovery"
+                                      : "WhatsApp"}
+                                </span>
+                              </strong>
+                              <span>
+                                {customer.route === "recovery"
+                                  ? "Rota recovery"
+                                  : "Rota atendimento"}
+                              </span>
+                            </div>
+                          </td>
+                          <td>
+                            <div className={recoveryStyles.delayCell}>
+                              <strong>
+                                {customer.registrationStatus === "confirmed"
+                                  ? "Confirmado"
+                                  : customer.registrationStatus === "pending_confirmation"
+                                    ? "Aguardando confirmacao"
+                                    : customer.registrationStatus || "-"}
+                              </strong>
+                              <span>
+                                {customer.recoveryAutomationEnabled === null
+                                  ? "Sem automacao de cobranca"
+                                  : customer.recoveryAutomationEnabled
+                                    ? "Automacao ativa"
+                                    : "Automacao pausada"}
+                              </span>
+                            </div>
                           </td>
                           <td>
                             {customer.recoveryCustomerId ? (
-                              <div className={styles.customerCell}>
-                                <span className={customer.recoveryStatus === "PAID" ? styles.badgeConfirmed : styles.badgeDebt}>
-                                  {customer.recoveryStatus === "PAID" ? "Pago" : "Inadimplente"}
-                                </span>
+                              <div className={recoveryStyles.clientCell}>
+                                <strong>
+                                  <span
+                                    className={
+                                      customer.recoveryStatus === "PAID"
+                                        ? styles.badgeConfirmed
+                                        : styles.badgeDebt
+                                    }
+                                  >
+                                    {customer.recoveryStatus === "PAID" ? "Pago" : "Inadimplente"}
+                                  </span>
+                                </strong>
                                 {customer.openAmount != null ? (
-                                  <span className={styles.mutedText}>{formatCurrency(customer.openAmount)}</span>
+                                  <span>{formatCurrency(customer.openAmount)}</span>
+                                ) : null}
+                                {customer.recoveryRiskScore !== null ? (
+                                  <span>Score {customer.recoveryRiskScore}</span>
+                                ) : null}
+                                {customer.recoveryTotalPaid > 0 ? (
+                                  <span>Recuperado: {formatCurrency(customer.recoveryTotalPaid)}</span>
                                 ) : null}
                               </div>
                             ) : (
-                              <span className={styles.mutedText}>-</span>
+                              <span className={styles.mutedText}>Sem cobranca ativa</span>
                             )}
                           </td>
-                          <td>{formatDateLabel(customer.lastMessageAt, mounted)}</td>
-                          <td>{formatDateLabel(customer.createdAt, mounted)}</td>
+                          <td className={recoveryStyles.monoCell}>
+                            {formatDateLabel(customer.lastMessageAt, mounted)}
+                          </td>
+                          <td className={recoveryStyles.monoCell}>
+                            {formatDateLabel(customer.createdAt, mounted)}
+                          </td>
                           <td>
                             <div className={styles.footerActions}>
                               {customer.conversationId ? (
@@ -1974,6 +2229,17 @@ export default function InboxClientPage() {
                                   }}
                                 >
                                   Ver conversa
+                                </button>
+                              ) : null}
+                              {customer.recoveryCustomerId ? (
+                                <button
+                                  type="button"
+                                  className="btn btn-secondary btn-sm"
+                                  onClick={() => {
+                                    window.location.assign("/hbx-recovery?tab=messages");
+                                  }}
+                                >
+                                  Abrir Recovery
                                 </button>
                               ) : null}
                               {!customer.recoveryCustomerId ? (
@@ -1996,6 +2262,13 @@ export default function InboxClientPage() {
                           </td>
                         </tr>
                       ))}
+                      {!loadingCustomers && filteredAtendimentoCustomers.length === 0 ? (
+                        <tr>
+                          <td colSpan={7} className={recoveryStyles.emptyCell}>
+                            Nenhum cliente encontrado para esta visao operacional.
+                          </td>
+                        </tr>
+                      ) : null}
                     </tbody>
                   </table>
                 </div>

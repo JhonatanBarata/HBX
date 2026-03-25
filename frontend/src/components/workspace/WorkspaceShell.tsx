@@ -17,6 +17,7 @@ import type {
   WorkspaceComponentRegistry,
   WorkspaceCreateDefaultLayout,
   WorkspaceLayoutScope,
+  WorkspaceLayoutSource,
   WorkspacePanelDescriptor,
   WorkspacePanelMap,
 } from "./types";
@@ -33,7 +34,8 @@ type WorkspaceShellProps = {
   className?: string;
 };
 
-function formatSourceLabel(source: "default" | "global" | "user") {
+function formatSourceLabel(source: WorkspaceLayoutSource) {
+  if (source === "draft") return "Rascunho local";
   if (source === "user") return "Preferência local";
   if (source === "global") return "Layout global";
   return "Layout padrão";
@@ -121,24 +123,27 @@ export default function WorkspaceShell({
     panels: panelMap,
     createDefaultLayout,
   });
+  const canEdit = store.canEdit;
+  const isEditing = store.isEditing;
+  const setEditing = store.setEditing;
 
-  const rootClassName = [styles.root, store.isEditing ? styles.editing : "", className || ""]
+  const rootClassName = [styles.root, isEditing ? styles.editing : "", className || ""]
     .filter(Boolean)
     .join(" ");
 
   useEffect(() => {
-    if (!store.canEdit) return;
+    if (!canEdit) return;
 
     const handleWorkspaceEditToggle = (event: Event) => {
       const customEvent = event as CustomEvent<WorkspaceEditToggleDetail>;
-      store.setEditing(Boolean(customEvent.detail?.active));
+      setEditing(Boolean(customEvent.detail?.active));
     };
 
     window.addEventListener(WORKSPACE_EDIT_TOGGLE_EVENT, handleWorkspaceEditToggle);
     return () => {
       window.removeEventListener(WORKSPACE_EDIT_TOGGLE_EVENT, handleWorkspaceEditToggle);
     };
-  }, [store.canEdit, store.setEditing]);
+  }, [canEdit, setEditing]);
 
   return (
     <WorkspaceLayoutProvider value={store}>

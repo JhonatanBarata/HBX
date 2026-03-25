@@ -5,18 +5,43 @@ import DashboardScaffold from "@/components/DashboardScaffold";
 import { apiFetch } from "../_lib/api";
 import { useRequireAuth } from "../_lib/useRequireAuth";
 
-type EntryPayload = { url: string };
+type RuntimePayload = {
+  status: "online" | "degraded" | "offline";
+  code: string;
+  message: string;
+  checkedAt: string;
+  publicUrl: string;
+  internalUrl: string | null;
+  healthUrl: string | null;
+  usingFallbackInternalUrl: boolean;
+  serviceReachable: boolean;
+  httpStatus: number | null;
+  googleApiKeyConfigured: boolean | null;
+  mockMode: boolean;
+};
+
+type EntryPayload = {
+  url: string;
+  runtime: RuntimePayload;
+};
 type ProfilePayload = {
   username?: string | null;
   name?: string | null;
   company?: { name?: string | null } | null;
 };
 
+function getRuntimeTone(status: RuntimePayload["status"] | null) {
+  if (status === "offline") return "alert-error";
+  if (status === "degraded") return "alert-warning";
+  return "alert-success";
+}
+
 export default function WebscrapingClientPage() {
   const hasToken = useRequireAuth();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [entryUrl, setEntryUrl] = useState<string | null>(null);
+  const [runtime, setRuntime] = useState<RuntimePayload | null>(null);
   const [sendInfo, setSendInfo] = useState<string | null>(null);
   const [sendError, setSendError] = useState<string | null>(null);
 
@@ -31,6 +56,7 @@ export default function WebscrapingClientPage() {
           apiFetch<EntryPayload>("/modules/webscraping/entry"),
           apiFetch<ProfilePayload>("/profile/current-user"),
         ]);
+        setRuntime(payload.runtime);
 
         const userName = (profile.name || profile.username || "").trim();
         const companyName = (profile.company?.name || "").trim();
@@ -43,11 +69,17 @@ export default function WebscrapingClientPage() {
           url.searchParams.set("company_name", companyName);
         }
 
+        if (payload.runtime.status === "offline") {
+          setEntryUrl(null);
+          return;
+        }
+
         setEntryUrl(`${url.pathname}${url.search}${url.hash}`);
       } catch (loadError) {
         const message =
           loadError instanceof Error ? loadError.message : "Falha ao abrir modulo Webscraping.";
         setError(message);
+        setRuntime(null);
       } finally {
         setLoading(false);
       }
@@ -105,6 +137,23 @@ export default function WebscrapingClientPage() {
       description="Prospecção local de contatos integrada como módulo do sistema."
     >
       {error ? <div className="alert alert-error">{error}</div> : null}
+      {runtime ? (
+        <div className={`alert ${getRuntimeTone(runtime.status)}`}>
+          <div className="space-y-1">
+            <div>{runtime.message}</div>
+            {runtime.usingFallbackInternalUrl ? (
+              <div className="text-xs opacity-80">
+                Diagnostico via destino local padrao; confirme WEBSCRAPING_INTERNAL_URL no ambiente online.
+              </div>
+            ) : null}
+            {runtime.mockMode ? (
+              <div className="text-xs opacity-80">
+                O modulo esta em modo demonstracao controlado.
+              </div>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
       {sendInfo ? <div className="alert alert-success">{sendInfo}</div> : null}
       {sendError ? <div className="alert alert-error">{sendError}</div> : null}
 
@@ -115,11 +164,15 @@ export default function WebscrapingClientPage() {
           <iframe
             title="Modulo Webscraping"
             src={entryUrl}
-            className="w-full min-h-[78vh] rounded-[12px]"
+            className="w-full min-h-[78vh] rounded-xl"
           />
         </section>
       ) : (
-        <div className="panel p-4 text-sm text-muted">Módulo indisponível.</div>
+        <div className="panel p-4 text-sm text-muted">
+          {runtime?.status === "offline"
+            ? "Modulo indisponivel por falha de infraestrutura ou configuracao."
+            : "Modulo indisponivel."}
+        </div>
       )}
     </DashboardScaffold>
   );

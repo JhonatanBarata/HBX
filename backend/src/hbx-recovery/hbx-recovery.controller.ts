@@ -208,11 +208,6 @@ export class HbxRecoveryController {
     return this.recoveryService.listInteractions(req.user, queue);
   }
 
-  @Get('agenda')
-  listAgenda(@Req() req: any) {
-    return this.recoveryService.listAgenda(req.user);
-  }
-
   @Get('interactions/:conversationId/messages')
   listInteractionMessages(@Req() req: any, @Param('conversationId') conversationId: string) {
     return this.recoveryService.listInteractionMessages(req.user, Number(conversationId));
