@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import styles from "./BotMessageStudio.module.css";
 
 export type BotStudioVariable = {
@@ -84,12 +85,21 @@ type ActionOption = {
   label: string;
 };
 
+type ButtonTargetOption = {
+  value: string;
+  label: string;
+  description?: string;
+};
+
 type BotMessageStudioProps = {
   eyebrow: string;
   title: string;
   description: string;
   flowScenarios: BotStudioFlowScenario[];
   flowEdges?: BotStudioFlowEdge[];
+  flowOrientation?: "horizontal" | "vertical";
+  flowLayoutMode?: "standard" | "canvas-focus";
+  canvasViewportMaxHeight?: number;
   startNodeId?: string;
   selectedScenarioId: string;
   onSelectScenario: (scenarioId: string) => void;
@@ -102,6 +112,8 @@ type BotMessageStudioProps = {
   actionById: Record<string, BotStudioAction>;
   catalogActions: BotStudioAction[];
   onUpdateButton: (index: number, field: "buttonId" | "actionId" | "title", value: string) => void;
+  buttonTargetOptions?: ButtonTargetOption[];
+  onUpdateButtonTarget?: (index: number, nextNodeId: string) => void;
   onAddButton: () => void;
   onRemoveButton: (index: number) => void;
   variables: BotStudioVariable[];
@@ -127,7 +139,12 @@ type BotMessageStudioProps = {
   loading?: boolean;
 };
 
-type StudioTab = "flow" | "preview" | "variables" | "actions" | "publication";
+type StudioTab = "flow" | "variables" | "actions" | "publication";
+
+const FLOW_NODE_WIDTH = 248;
+const FLOW_NODE_HEIGHT = 110;
+const FLOW_CANVAS_PADDING_X = 28;
+const FLOW_CANVAS_PADDING_Y = 28;
 
 function extractVariableKeys(message: string) {
   return Array.from(
@@ -165,6 +182,9 @@ export default function BotMessageStudio(props: BotMessageStudioProps) {
     description,
     flowScenarios,
     flowEdges = [],
+    flowOrientation = "horizontal",
+    flowLayoutMode = "standard",
+    canvasViewportMaxHeight = 640,
     startNodeId,
     selectedScenarioId,
     onSelectScenario,
@@ -177,15 +197,14 @@ export default function BotMessageStudio(props: BotMessageStudioProps) {
     actionById,
     catalogActions,
     onUpdateButton,
+    buttonTargetOptions = [],
+    onUpdateButtonTarget,
     onAddButton,
     onRemoveButton,
     variables,
     catalogVariables,
     onAppendVariable,
-    previewText,
     previewFooter,
-    previewFallbackText,
-    previewNote,
     templateStart,
     templateOptions = [],
     onSelectTemplateOption,
@@ -204,8 +223,9 @@ export default function BotMessageStudio(props: BotMessageStudioProps) {
 
   const [activeTab, setActiveTab] = useState<StudioTab>("flow");
   const [zoom, setZoom] = useState(1);
-  const [pan, setPan] = useState({ x: 72, y: 48 });
+  const [pan, setPan] = useState({ x: 24, y: 24 });
   const [previewTrail, setPreviewTrail] = useState<string[]>([startNodeId || selectedScenarioId]);
+  const [previewModalOpen, setPreviewModalOpen] = useState(false);
   const dragStateRef = useRef<{ pointerId: number; x: number; y: number } | null>(null);
 
   const selectedScenario =
@@ -222,6 +242,21 @@ export default function BotMessageStudio(props: BotMessageStudioProps) {
   );
   const selectedNode = nodeById.get(selectedScenarioId) || selectedScenario || null;
   const startNode = nodeById.get(startNodeId || "") || nodeById.get(templateStart?.id || "") || flowScenarios[0] || null;
+  const relatedNodeIds = useMemo(() => {
+    const related = new Set<string>();
+    if (selectedScenarioId) related.add(selectedScenarioId);
+    for (const edge of flowEdges) {
+      if (edge.from === selectedScenarioId || edge.to === selectedScenarioId) {
+        related.add(edge.from);
+        related.add(edge.to);
+      }
+    }
+    return related;
+  }, [flowEdges, selectedScenarioId]);
+  const selectedEdgeIds = useMemo(
+    () => new Set(flowEdges.filter((edge) => edge.from === selectedScenarioId || edge.to === selectedScenarioId).map((edge) => edge.id)),
+    [flowEdges, selectedScenarioId],
+  );
 
   const variableUsage = useMemo(() => {
     const entries = catalogVariables.map((variable) => {
@@ -252,33 +287,99 @@ export default function BotMessageStudio(props: BotMessageStudioProps) {
     const points = flowScenarios.map((node, index) => node.position || { x: 320 * index, y: 120 });
     const xs = points.map((point) => point.x);
     const ys = points.map((point) => point.y);
-    const minX = Math.min(...xs, 0);
-    const minY = Math.min(...ys, 0);
-    const maxX = Math.max(...xs, 1480) + 280;
-    const maxY = Math.max(...ys, 560) + 180;
+    const minX = Math.min(...xs, 0) - FLOW_CANVAS_PADDING_X;
+    const minY = Math.min(...ys, 0) - FLOW_CANVAS_PADDING_Y;
+    const maxX = Math.max(...xs.map((x) => x + FLOW_NODE_WIDTH), FLOW_NODE_WIDTH) + FLOW_CANVAS_PADDING_X;
+    const maxY = Math.max(...ys.map((y) => y + FLOW_NODE_HEIGHT), FLOW_NODE_HEIGHT) + FLOW_CANVAS_PADDING_Y;
     return { minX, minY, maxX, maxY, width: maxX - minX, height: maxY - minY };
   }, [flowScenarios]);
 
+  const canvasViewportHeight = useMemo(
+    () => Math.max(360, Math.min(graphBounds.height + 12, canvasViewportMaxHeight)),
+    [canvasViewportMaxHeight, graphBounds.height],
+  );
+
+  const previewPaths = useMemo(() => {
+    const rootId = startNode?.id || selectedScenarioId || flowScenarios[0]?.id;
+    const paths = new Map<string, string[]>();
+    if (!rootId || !nodeById.has(rootId)) return paths;
+
+    const queue = [rootId];
+    paths.set(rootId, [rootId]);
+
+    while (queue.length > 0) {
+      const currentId = queue.shift() as string;
+      const currentPath = paths.get(currentId) || [currentId];
+      const currentNode = nodeById.get(currentId);
+
+      for (const button of currentNode?.buttons || []) {
+        if (!button.nextNodeId || paths.has(button.nextNodeId) || !nodeById.has(button.nextNodeId)) {
+          continue;
+        }
+        paths.set(button.nextNodeId, [...currentPath, button.nextNodeId]);
+        queue.push(button.nextNodeId);
+      }
+    }
+
+    return paths;
+  }, [flowScenarios, nodeById, selectedScenarioId, startNode?.id]);
+
   const previewNodeId = previewTrail[previewTrail.length - 1] || startNode?.id || selectedScenarioId;
   const previewNode = nodeById.get(previewNodeId) || startNode || null;
-  const previewNodeButtons = previewNode?.buttons || [];
 
   const activeQuickInsertKeys = useMemo(() => new Set(variables.map((item) => item.key)), [variables]);
+  const buttonTargetById = useMemo(
+    () => new Map(buttonTargetOptions.map((item) => [item.value, item])),
+    [buttonTargetOptions],
+  );
   const publicationReady = publicationChecks.length > 0 && publicationChecks.every((item) => item.ok);
   const computedPublicationStatus =
     publicationStatusLabel || (publicationReady ? "Fluxo pronto para salvar" : "Rascunho com pontos para revisar");
 
+  useEffect(() => {
+    if (!previewModalOpen) return;
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    function handleEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setPreviewModalOpen(false);
+      }
+    }
+
+    window.addEventListener("keydown", handleEscape);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", handleEscape);
+    };
+  }, [previewModalOpen]);
+
   const tabItems: Array<{ id: StudioTab; label: string; helper: string }> = [
     { id: "flow", label: "Fluxo", helper: `${flowScenarios.length} blocos` },
-    { id: "preview", label: "Preview", helper: "Conversa real" },
     { id: "variables", label: "Variaveis", helper: `${catalogVariables.length} itens` },
     { id: "actions", label: "Acoes", helper: `${catalogActions.length} rotas` },
     { id: "publication", label: "Publicacao", helper: publicationReady ? "Pronto" : "Rascunho" },
   ];
 
-  function handleSelectNode(nodeId: string) {
+  function getPreviewPath(nodeId: string) {
+    return previewPaths.get(nodeId) || [nodeId];
+  }
+
+  function getPreviewMessage(node: BotStudioFlowScenario | null, index: number) {
+    if (!node) return "";
+    if (index === 0 && node.nodeKind === "template") {
+      return templateStart?.body || node.messageText || node.effectLabel || node.description;
+    }
+    return node.messageText || node.effectLabel || node.description || "Sem mensagem configurada.";
+  }
+
+  function handleSelectNode(nodeId: string, options?: { openPreview?: boolean }) {
     onSelectScenario(nodeId);
-    setPreviewTrail([startNode?.id || nodeId]);
+    setPreviewTrail(getPreviewPath(nodeId));
+    if (options?.openPreview) {
+      setPreviewModalOpen(true);
+    }
   }
 
   function handleCanvasPointerDown(event: ReactPointerEvent<HTMLDivElement>) {
@@ -306,28 +407,101 @@ export default function BotMessageStudio(props: BotMessageStudioProps) {
 
   function handlePreviewAdvance(button: BotStudioButton) {
     if (!button.nextNodeId || !nodeById.has(button.nextNodeId)) return;
+    onSelectScenario(button.nextNodeId);
     setPreviewTrail((current) => [...current, button.nextNodeId as string]);
   }
 
-  function renderFlowTab() {
+  function renderConversationPreview() {
     return (
-      <div className={styles.flowLayout}>
-        <aside className={`${styles.panel} ${styles.libraryPanel}`}>
+      <div className={styles.phoneShell}>
+        <div className={styles.phoneHeader}>
+          <div className={styles.phoneHeaderMain}>
+            <span className={styles.phoneAvatar}>{(previewFooter || eyebrow).slice(0, 1)}</span>
+            <div>
+              <strong>{previewFooter || eyebrow}</strong>
+              <span className={styles.phonePresence}>{previewNode?.label || "Fluxo"}</span>
+            </div>
+          </div>
+          <button
+            type="button"
+            className="btn btn-secondary btn-sm"
+            onClick={() => setPreviewTrail(getPreviewPath(selectedScenarioId))}
+          >
+            Reiniciar
+          </button>
+        </div>
+
+        <div className={styles.phoneBody}>
+          {previewTrail.map((nodeId, index) => {
+            const node = nodeById.get(nodeId);
+            if (!node) return null;
+
+            const previousNodeId = index > 0 ? previewTrail[index - 1] : null;
+            const previousNode = previousNodeId ? nodeById.get(previousNodeId) : null;
+            const triggerButton = previousNode?.buttons.find((button) => button.nextNodeId === node.id) || null;
+            const triggerAction = triggerButton ? actionById[triggerButton.actionId] : null;
+            const isLastStep = index === previewTrail.length - 1;
+
+            return (
+              <div key={`preview-step-${node.id}-${index}`} className={styles.previewConversationStep}>
+                {triggerButton ? (
+                  <div className={`${styles.messageBubble} ${styles.inboundBubble}`}>
+                    <p>{triggerButton.title}</p>
+                    <span className={styles.bubbleMeta}>Cliente</span>
+                  </div>
+                ) : null}
+
+                {triggerAction ? (
+                  <div className={styles.previewActionEvent}>
+                    <span className={`${styles.badge} ${styles.badgeAccent}`}>{triggerAction.title}</span>
+                    {triggerAction.typeLabel ? <span className={`${styles.badge} ${styles.badgeMuted}`}>{triggerAction.typeLabel}</span> : null}
+                  </div>
+                ) : null}
+
+                <div className={`${styles.messageBubble} ${styles.outboundBubble}`}>
+                  <p>{getPreviewMessage(node, index)}</p>
+                  <span className={styles.bubbleMeta}>Agora</span>
+                  {isLastStep && node.buttons.length > 0 ? (
+                    <div className={styles.previewButtonList}>
+                      {node.buttons.map((button) => (
+                        <button
+                          key={`preview-${node.id}-${button.buttonId}`}
+                          type="button"
+                          className={styles.previewButton}
+                          onClick={() => handlePreviewAdvance(button)}
+                        >
+                          {button.title}
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
+
+  function renderFlowTab() {
+    const templateFocus = flowLayoutMode === "canvas-focus" && selectedNode?.nodeKind === "template";
+
+    return (
+      <div
+        className={`${styles.flowLayout} ${
+          flowLayoutMode === "canvas-focus" ? styles.flowLayoutCanvasFocus : ""
+        } ${templateFocus ? styles.flowLayoutCanvasFocusTemplate : ""}`}
+      >
+        <aside className={`${styles.panel} ${styles.libraryPanel} ${styles.flowLibraryRegion}`}>
           <div className={styles.panelHeader}>
             <div>
               <strong>Biblioteca do fluxo</strong>
-              <p>O builder agora mostra o fluxo inteiro e nao apenas o bloco isolado.</p>
+           
             </div>
           </div>
 
-          <div className={styles.paletteGrid}>
-            <span className={`${styles.libraryChip} ${styles.libraryChipAccent}`}>Template inicial</span>
-            <span className={styles.libraryChip}>Mensagem</span>
-            <span className={styles.libraryChip}>Botoes</span>
-            <span className={styles.libraryChip}>Acao</span>
-            <span className={styles.libraryChip}>Encerrar</span>
-            <span className={styles.libraryChip}>Humano</span>
-          </div>
+         
 
           <div className={styles.scenarioList}>
             {flowScenarios.map((scenario) => (
@@ -343,32 +517,22 @@ export default function BotMessageStudio(props: BotMessageStudioProps) {
                   <strong>{scenario.label}</strong>
                   <span className={styles.badge}>{scenario.badge || getNodeKindLabel(scenario.nodeKind)}</span>
                 </div>
-                <p>{scenario.description}</p>
-                <div className={styles.scenarioMeta}>
-                  <span className={`${styles.badge} ${styles.badgeMuted}`}>{getNodeKindLabel(scenario.nodeKind)}</span>
-                  <span className={`${styles.badge} ${styles.badgeMuted}`}>
-                    {scenario.buttons.length > 0 ? `${scenario.buttons.length} botoes` : "Sem botoes"}
-                  </span>
-                  <span className={`${styles.badge} ${styles.badgeMuted}`}>
-                    {extractVariableKeys(scenario.messageText).length} variaveis
-                  </span>
-                </div>
               </button>
             ))}
           </div>
         </aside>
 
-        <section className={`${styles.panel} ${styles.canvasPanel}`}>
+        <section className={`${styles.panel} ${styles.canvasPanel} ${styles.flowCanvasRegion}`}>
           <div className={styles.panelHeader}>
             <div>
-              <strong>Canvas completo do fluxo</strong>
-              <p>Leitura ponta a ponta com conexoes reais, no ativo destacado, zoom e navegacao por nos.</p>
+              <strong>Organograma automatico</strong>
+              <p>O fluxo se reorganiza sozinho conforme os botoes e respostas configurados em cada bloco.</p>
             </div>
             <div className={styles.canvasStatus}>
               <button type="button" className="btn btn-secondary btn-sm" onClick={() => setZoom((current) => Math.max(0.72, Number((current - 0.12).toFixed(2))))}>-</button>
               <span className={`${styles.badge} ${styles.badgeAccent}`}>{Math.round(zoom * 100)}%</span>
               <button type="button" className="btn btn-secondary btn-sm" onClick={() => setZoom((current) => Math.min(1.4, Number((current + 0.12).toFixed(2))))}>+</button>
-              <button type="button" className="btn btn-ghost btn-sm" onClick={() => { setZoom(1); setPan({ x: 72, y: 48 }); }}>
+              <button type="button" className="btn btn-ghost btn-sm" onClick={() => { setZoom(1); setPan({ x: 24, y: 24 }); }}>
                 Resetar vista
               </button>
             </div>
@@ -381,7 +545,7 @@ export default function BotMessageStudio(props: BotMessageStudioProps) {
             onPointerUp={handleCanvasPointerUp}
             onPointerCancel={handleCanvasPointerUp}
           >
-            <div className={styles.canvasViewport}>
+            <div className={styles.canvasViewport} style={{ minHeight: canvasViewportHeight }}>
               <div
                 className={styles.canvasTransform}
                 style={{
@@ -395,17 +559,32 @@ export default function BotMessageStudio(props: BotMessageStudioProps) {
                     const from = nodeById.get(edge.from);
                     const to = nodeById.get(edge.to);
                     if (!from?.position || !to?.position) return null;
-                    const startX = from.position.x + 124 - graphBounds.minX;
-                    const startY = from.position.y + 74 - graphBounds.minY;
-                    const endX = to.position.x + 124 - graphBounds.minX;
-                    const endY = to.position.y + 18 - graphBounds.minY;
+                    const startX = from.position.x + FLOW_NODE_WIDTH / 2 - graphBounds.minX;
+                    const endX = to.position.x + FLOW_NODE_WIDTH / 2 - graphBounds.minX;
+                    const startY =
+                      flowOrientation === "vertical"
+                        ? from.position.y + FLOW_NODE_HEIGHT - graphBounds.minY
+                        : from.position.y + FLOW_NODE_HEIGHT * 0.68 - graphBounds.minY;
+                    const endY =
+                      flowOrientation === "vertical"
+                        ? to.position.y - graphBounds.minY
+                        : to.position.y + FLOW_NODE_HEIGHT * 0.16 - graphBounds.minY;
                     const midX = (startX + endX) / 2;
-                    const path = `M ${startX} ${startY} C ${midX} ${startY}, ${midX} ${endY}, ${endX} ${endY}`;
+                    const midY = (startY + endY) / 2;
+                    const path =
+                      flowOrientation === "vertical"
+                        ? `M ${startX} ${startY} C ${startX} ${midY}, ${endX} ${midY}, ${endX} ${endY}`
+                        : `M ${startX} ${startY} C ${midX} ${startY}, ${midX} ${endY}, ${endX} ${endY}`;
+                    const edgeActive = selectedEdgeIds.has(edge.id);
                     return (
                       <g key={edge.id}>
-                        <path d={path} className={styles.flowEdgePath} />
+                        <path d={path} className={`${styles.flowEdgePath} ${edgeActive ? styles.flowEdgePathActive : styles.flowEdgePathMuted}`} />
                         {edge.label ? (
-                          <text x={midX} y={(startY + endY) / 2 - 8} className={styles.flowEdgeLabel}>
+                          <text
+                            x={flowOrientation === "vertical" ? midX + 8 : midX}
+                            y={flowOrientation === "vertical" ? midY - 6 : (startY + endY) / 2 - 8}
+                            className={`${styles.flowEdgeLabel} ${edgeActive ? styles.flowEdgeLabelActive : styles.flowEdgeLabelMuted}`}
+                          >
                             {edge.label}
                           </text>
                         ) : null}
@@ -417,17 +596,17 @@ export default function BotMessageStudio(props: BotMessageStudioProps) {
                 {flowScenarios.map((node) => {
                   const position = node.position || { x: 0, y: 0 };
                   const active = node.id === selectedScenarioId;
+                  const connected = relatedNodeIds.has(node.id);
                   return (
                     <button
                       key={node.id}
                       type="button"
-                      className={`${styles.flowCanvasNode} ${active ? styles.flowCanvasNodeActive : ""}`}
+                      className={`${styles.flowCanvasNode} ${active ? styles.flowCanvasNodeActive : ""} ${!active && connected ? styles.flowCanvasNodeConnected : ""} ${!connected ? styles.flowCanvasNodeMuted : ""}`}
                       style={{ left: position.x - graphBounds.minX, top: position.y - graphBounds.minY }}
-                      onClick={() => handleSelectNode(node.id)}
+                      onClick={() => handleSelectNode(node.id, { openPreview: true })}
                     >
                       <span className={styles.flowNodeEyebrow}>{getNodeKindLabel(node.nodeKind)}</span>
                       <strong>{node.label}</strong>
-                      <p>{node.description}</p>
                       <div className={styles.nodeBadgeRow}>
                         {node.badge ? <span className={styles.badge}>{node.badge}</span> : null}
                         {node.buttons.length > 0 ? (
@@ -439,28 +618,10 @@ export default function BotMessageStudio(props: BotMessageStudioProps) {
                 })}
               </div>
             </div>
-
-            <aside className={styles.minimap}>
-              <strong>Mini mapa</strong>
-              <div className={styles.minimapFrame}>
-                {flowScenarios.map((node) => {
-                  const position = node.position || { x: 0, y: 0 };
-                  const x = ((position.x - graphBounds.minX) / graphBounds.width) * 100;
-                  const y = ((position.y - graphBounds.minY) / graphBounds.height) * 100;
-                  return (
-                    <span
-                      key={`minimap-${node.id}`}
-                      className={`${styles.minimapNode} ${node.id === selectedScenarioId ? styles.minimapNodeActive : ""}`}
-                      style={{ left: `${x}%`, top: `${y}%` }}
-                    />
-                  );
-                })}
-              </div>
-            </aside>
           </div>
         </section>
 
-        <aside className={`${styles.panel} ${styles.inspectorPanel}`}>
+        <aside className={`${styles.panel} ${styles.inspectorPanel} ${styles.flowInspectorRegion}`}>
           <div className={styles.panelHeader}>
             <div>
               <strong>Inspector contextual</strong>
@@ -472,7 +633,6 @@ export default function BotMessageStudio(props: BotMessageStudioProps) {
             <div className={styles.cardHeader}>
               <div>
                 <strong>{selectedNode?.label || "Sem no selecionado"}</strong>
-                <p>{selectedNode?.description || "Selecione um no para editar o fluxo."}</p>
               </div>
               <span className={`${styles.badge} ${styles.badgeMuted}`}>{getNodeKindLabel(selectedNode?.nodeKind)}</span>
             </div>
@@ -573,7 +733,7 @@ export default function BotMessageStudio(props: BotMessageStudioProps) {
                   <div className={styles.cardHeader}>
                     <div>
                       <strong>Botoes</strong>
-                      <p>Label, id estavel, proximo no e acao complementar.</p>
+                      <p>Cada botao define a resposta clicavel e o proximo bloco esperado no fluxo.</p>
                     </div>
                     {supportsButtons && messageType === "buttons" ? (
                       <button type="button" className="btn btn-secondary btn-sm" onClick={onAddButton}>
@@ -608,7 +768,7 @@ export default function BotMessageStudio(props: BotMessageStudioProps) {
                                 />
                               </label>
                               <label className={styles.fieldBlock}>
-                                <span>ActionId</span>
+                                <span>Resposta/acao</span>
                                 <select
                                   className="field"
                                   value={button.actionId}
@@ -621,10 +781,35 @@ export default function BotMessageStudio(props: BotMessageStudioProps) {
                                   ))}
                                 </select>
                               </label>
+                              {buttonTargetOptions.length > 0 ? (
+                                <label className={styles.fieldBlock}>
+                                  <span>Proximo bloco</span>
+                                  <select
+                                    className="field"
+                                    value={button.nextNodeId || ""}
+                                    onChange={(event) => onUpdateButtonTarget?.(index, event.target.value)}
+                                  >
+                                    {buttonTargetOptions.map((option) => (
+                                      <option key={option.value} value={option.value}>
+                                        {option.label}
+                                      </option>
+                                    ))}
+                                  </select>
+                                </label>
+                              ) : null}
                             </div>
                             <div className={styles.buttonMeta}>
-                              <strong>{button.nextNodeId || "Sem nextNodeId"}</strong>
-                              <p>{button.nextLabel || "Defina um destino visual para esse clique."}</p>
+                              <strong>
+                                {buttonTargetById.get(String(button.nextNodeId || ""))?.label ||
+                                  button.nextLabel ||
+                                  "Proximo bloco ainda indefinido"}
+                              </strong>
+                              <p>
+                                {buttonTargetById.get(String(button.nextNodeId || ""))?.description ||
+                                  (button.nextNodeId
+                                    ? `ID interno do destino: ${button.nextNodeId}`
+                                    : "Defina uma resposta/acao para o sistema encaixar o proximo passo.")}
+                              </p>
                               {action ? <p>{`Acao complementar: ${action.title}`}</p> : null}
                             </div>
                             <div className={styles.buttonActions}>
@@ -657,140 +842,6 @@ export default function BotMessageStudio(props: BotMessageStudioProps) {
                 </div>
               </div>
             ) : null}
-          </article>
-        </aside>
-      </div>
-    );
-  }
-
-  function renderPreviewTab() {
-    return (
-      <div className={styles.previewLayout}>
-        <section className={`${styles.panel} ${styles.previewStage}`}>
-          <div className={styles.panelHeader}>
-            <div>
-              <strong>Preview da conversa</strong>
-              <p>Simulacao navegavel dos ramos principais do fluxo, com baloes e botões reais.</p>
-            </div>
-            <div className={styles.canvasStatus}>
-              <span className={`${styles.badge} ${styles.badgeAccent}`}>{previewNode?.label || "Inicio"}</span>
-              <button type="button" className="btn btn-secondary btn-sm" onClick={() => setPreviewTrail([startNode?.id || selectedScenarioId])}>
-                Reiniciar preview
-              </button>
-            </div>
-          </div>
-
-          <div className={styles.phoneShell}>
-            <div className={styles.phoneHeader}>
-              <strong>{previewFooter || eyebrow}</strong>
-              <span>online agora</span>
-            </div>
-
-            <div className={styles.phoneBody}>
-              {previewTrail.map((nodeId, index) => {
-                const node = nodeById.get(nodeId);
-                if (!node) return null;
-                const previousNodeId = index > 0 ? previewTrail[index - 1] : null;
-                const previousNode = previousNodeId ? nodeById.get(previousNodeId) : null;
-                const inboundButton =
-                  previousNode?.buttons.find((button) => button.nextNodeId === node.id)?.title || null;
-
-                return (
-                  <div key={`preview-step-${node.id}-${index}`} className={styles.previewConversationStep}>
-                    {inboundButton ? (
-                      <div className={`${styles.messageBubble} ${styles.inboundBubble}`}>
-                        <p>{inboundButton}</p>
-                      </div>
-                    ) : null}
-                    <div className={`${styles.messageBubble} ${styles.outboundBubble}`}>
-                      <p>{index === 0 && node.nodeKind === "template" ? templateStart?.body || node.messageText : node.messageText}</p>
-                      {node.buttons.length > 0 ? (
-                        <div className={styles.previewButtonList}>
-                          {node.buttons.map((button) => (
-                            <button
-                              key={`preview-${node.id}-${button.buttonId}`}
-                              type="button"
-                              className={styles.previewButton}
-                              onClick={() => handlePreviewAdvance(button)}
-                            >
-                              {button.title}
-                            </button>
-                          ))}
-                        </div>
-                      ) : null}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        </section>
-
-        <aside className={styles.previewSidebar}>
-          <article className={`${styles.panel} ${styles.card}`}>
-            <div className={styles.cardHeader}>
-              <div>
-                <strong>Fallback textual</strong>
-                <p>Versao pronta para cenarios sem botoes.</p>
-              </div>
-              <span className={`${styles.badge} ${styles.badgeWarning}`}>Fallback</span>
-            </div>
-            <pre className={styles.previewFallback}>{previewFallbackText || previewText || "Mensagem vazia."}</pre>
-            {previewNote ? <p className={styles.previewNote}>{previewNote}</p> : null}
-          </article>
-
-          <article className={`${styles.panel} ${styles.card}`}>
-            <div className={styles.cardHeader}>
-              <div>
-                <strong>Variaveis do no atual</strong>
-                <p>Substituicoes visuais aplicadas no ramo que esta em simulacao.</p>
-              </div>
-            </div>
-            <div className={styles.chipList}>
-              {extractVariableKeys(previewNode?.messageText || "").length > 0 ? (
-                extractVariableKeys(previewNode?.messageText || "").map((key) => (
-                  <span key={`preview-var-${key}`} className={styles.chipStatic}>
-                    {`{{${key}}}`}
-                  </span>
-                ))
-              ) : (
-                <div className={styles.emptyState}>Sem variaveis detectadas neste bloco.</div>
-              )}
-            </div>
-          </article>
-
-          <article className={`${styles.panel} ${styles.card}`}>
-            <div className={styles.cardHeader}>
-              <div>
-                <strong>Saidas do no atual</strong>
-                <p>O preview agora navega por `nextNodeId`, e a acao fica complementar.</p>
-              </div>
-            </div>
-            {previewNodeButtons.length > 0 ? (
-              <div className={styles.actionList}>
-                {previewNodeButtons.map((button) => {
-                  const action = actionById[button.actionId];
-                  return (
-                    <div key={`preview-action-${previewNode?.id}-${button.buttonId}`} className={styles.actionItem}>
-                      <div className={styles.actionItemHeader}>
-                        <div>
-                          <strong>{button.title || "Botao sem titulo"}</strong>
-                          <p>{button.nextLabel || action?.description || "Selecione uma acao para esse clique."}</p>
-                        </div>
-                      </div>
-                      <div className={styles.scenarioMeta}>
-                        <span className={`${styles.badge} ${styles.badgeMuted}`}>{button.buttonId}</span>
-                        {button.nextNodeId ? <span className={styles.badge}>{button.nextNodeId}</span> : null}
-                        <span className={`${styles.badge} ${styles.badgeAccent}`}>{action?.title || button.actionId}</span>
-                        {action?.routeLabel ? <span className={styles.badge}>{action.routeLabel}</span> : null}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            ) : (
-              <div className={styles.emptyState}>Este bloco nao possui ramificacoes visuais.</div>
-            )}
           </article>
         </aside>
       </div>
@@ -1046,8 +1097,6 @@ export default function BotMessageStudio(props: BotMessageStudioProps) {
         <div className={styles.emptyState}>Carregando editor...</div>
       ) : activeTab === "flow" ? (
         renderFlowTab()
-      ) : activeTab === "preview" ? (
-        renderPreviewTab()
       ) : activeTab === "variables" ? (
         renderVariablesTab()
       ) : activeTab === "actions" ? (
@@ -1055,6 +1104,31 @@ export default function BotMessageStudio(props: BotMessageStudioProps) {
       ) : (
         renderPublicationTab()
       )}
+
+      {previewModalOpen && typeof document !== "undefined"
+        ? createPortal(
+            <div className={styles.previewPopoverLayer} role="presentation">
+              <div className={styles.previewPopover} role="dialog" aria-modal="true" aria-label="Preview do fluxo selecionado">
+                <div className={styles.previewPopoverHeader}>
+                  <div>
+                    <p className={styles.eyebrow}>Visualizado</p>
+                    <strong>{previewNode?.label || title}</strong>
+                  </div>
+                  <button
+                    type="button"
+                    className={styles.previewPopoverClose}
+                    aria-label="Fechar preview"
+                    onClick={() => setPreviewModalOpen(false)}
+                  >
+                    <span aria-hidden="true">×</span>
+                  </button>
+                </div>
+                {renderConversationPreview()}
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
     </section>
   );
 }

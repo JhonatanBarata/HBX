@@ -9,8 +9,35 @@ import type {
   PointerEvent as ReactPointerEvent,
 } from "react";
 import { createPortal } from "react-dom";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type { BotStudioTemplateStart } from "@/components/bot-editor/BotMessageStudio";
+import {
+  ChatActionButton,
+  ChatActionGrid,
+  ChatAvatar,
+  ChatBadge,
+  ChatComposer,
+  ChatDockPanel,
+  ChatEmptyState,
+  ChatFieldNote,
+  ChatIconButton,
+  ChatMessageBubble,
+  ChatQueue,
+  ChatQueueItem,
+  ChatSideGrid,
+  ChatInfoCard,
+  ChatThread,
+} from "@/components/chat/PremiumChat";
 import DashboardScaffold from "@/components/DashboardScaffold";
+import WorkspaceShell from "@/components/workspace/WorkspaceShell";
+import type {
+  WorkspacePanelDescriptor,
+} from "@/components/workspace/types";
+import {
+  SHARED_CONVERSATION_WORKSPACE_IDS,
+  SHARED_CONVERSATION_WORKSPACE_MODULE_KEY,
+  createSharedConversationWorkspaceLayout,
+} from "@/components/workspace/conversation-workspace";
 import { useRequireAuth } from "../dashboard/_lib/useRequireAuth";
 import { apiFetch } from "../dashboard/_lib/api";
 import AnimatedNumber from "./_components/AnimatedNumber";
@@ -27,6 +54,7 @@ import {
   type RecoveryAgendaSummary,
   type RecoveryCustomer,
   type RecoveryFlowStage,
+  type RecoveryInteractionConversation,
   type RecoveryInteractionDetail,
   type RecoveryInteractionMessage,
   type RecoveryInteractionSummary,
@@ -76,6 +104,77 @@ function getLiveInteractionPhone(input: {
   return String(input.conversationWhatsapp || input.customerWhatsapp || "").trim();
 }
 
+function getRecoveryInteractionFreshness(input: {
+  lastAt?: string | null;
+  lastInteractionAt?: string | null;
+}) {
+  return String(input.lastInteractionAt || input.lastAt || "").trim();
+}
+
+function shouldReloadRecoveryInteraction(
+  summary?: RecoveryInteractionConversation | null,
+  detail?: RecoveryInteractionDetail | null,
+) {
+  if (!summary) return false;
+  if (!detail) return true;
+  if (summary.conversationId !== detail.conversationId) return true;
+  return getRecoveryInteractionFreshness(summary) !== getRecoveryInteractionFreshness(detail);
+}
+
+function buildRecoveryInteractionSkeleton(
+  summary?: RecoveryInteractionConversation | null,
+  current?: RecoveryInteractionDetail | null,
+): RecoveryInteractionDetail | null {
+  if (!summary && !current) return null;
+  if (!summary) return current || null;
+  return {
+    conversationId: summary.conversationId,
+    botActive: summary.botActive,
+    humanAssigned: summary.humanAssigned,
+    isBlocked: summary.isBlocked,
+    blockedAt: summary.blockedAt ?? null,
+    blockedReason: summary.blockedReason ?? null,
+    assignedUserId: summary.assignedUserId,
+    currentFlow: summary.currentFlow,
+    currentStep: summary.currentStep,
+    flowResult: summary.flowResult,
+    metadata: summary.metadata || {},
+    lastInteractionAt: summary.lastInteractionAt,
+    customer: {
+      id: summary.customerId,
+      name: summary.customerName || current?.customer?.name || "Cliente",
+      whatsappNumber: summary.customerWhatsapp || current?.customer?.whatsappNumber || "",
+      conversationWhatsapp:
+        summary.conversationWhatsapp || current?.customer?.conversationWhatsapp || "",
+      openAmount: summary.openAmount || current?.customer?.openAmount || 0,
+      status: summary.customerStatus || current?.customer?.status || "UNKNOWN",
+    },
+    latestPayment: current?.conversationId === summary.conversationId ? current.latestPayment : null,
+    messages:
+      current?.conversationId === summary.conversationId
+        ? current.messages
+        : summary.lastMessage
+          ? [
+              {
+                id: -summary.conversationId,
+                direction: summary.lastDirection || "OUTBOUND",
+                messageType: "summary_preview",
+                senderType:
+                  String(summary.lastDirection || "").trim().toUpperCase() === "INBOUND"
+                    ? "client"
+                    : "bot",
+                body: summary.lastMessage,
+                variables: {},
+                status: "delivered",
+                sourceModule: summary.lastSourceModule || "recovery",
+                isComplaint: false,
+                timestamp: summary.lastAt,
+              },
+            ]
+          : [],
+  };
+}
+
 const RECOVERY_HUMAN_QUEUE_EVENT = "hbx-recovery-human-queue";
 
 type RecoveryHumanAttentionKind = "human_queue" | "new_message";
@@ -113,57 +212,132 @@ type RecoveryInboxFallbackConversation = {
   id: string;
   status: string;
   updatedAt: string;
+  routeTarget?: string;
+  routeReason?: string;
+  recoveryCustomerId?: string | null;
+  recoveryCustomerName?: string | null;
+  recoveryOpenAmount?: number | null;
+  recoveryCurrentStep?: string | null;
+  latestSourceModule?: string | null;
+  isBlocked?: boolean;
+  blockedAt?: string | null;
+  blockedReason?: string | null;
+  metadata?: Record<string, unknown> | null;
   customer?: {
     id?: string;
     phone?: string;
     name?: string | null;
   };
   messages?: Array<{
+    id?: string;
     direction?: string;
     content?: string;
     createdAt?: string;
     messageType?: string;
     senderType?: string;
+    sourceModule?: string | null;
     status?: string;
   }>;
 };
+
+function mapInboxConversationDetailToRecoveryDetail(
+  row: RecoveryInboxFallbackConversation,
+): RecoveryInteractionDetail {
+  const status = String(row.status || "").trim().toLowerCase();
+  const phone = String(row.customer?.phone || "").trim();
+  const customerName = String(
+    row.customer?.name || row.recoveryCustomerName || phone || "Cliente",
+  ).trim();
+  const messages = Array.isArray(row.messages) ? [...row.messages] : [];
+
+  return {
+    conversationId: Number(row.id),
+    botActive: status === "new",
+    humanAssigned: status === "open",
+    isBlocked: Boolean(row.isBlocked || status === "blocked"),
+    blockedAt: row.blockedAt ?? null,
+    blockedReason: row.blockedReason ?? null,
+    assignedUserId: null,
+    currentFlow:
+      String(row.routeTarget || "").trim().toLowerCase() === "recovery"
+        ? "inbox_recovery_fallback"
+        : "inbox_fallback",
+    currentStep: String(row.recoveryCurrentStep || "").trim() || "novo",
+    flowResult: status === "closed" ? "manual_closed" : null,
+    metadata: row.metadata || {},
+    lastInteractionAt: String(row.updatedAt || "").trim() || null,
+    customer: {
+      id: String(row.recoveryCustomerId || row.customer?.id || row.id || "").trim(),
+      name: customerName,
+      whatsappNumber: phone,
+      conversationWhatsapp: phone,
+      openAmount: Number(row.recoveryOpenAmount || 0),
+      status: status === "open" || String(row.routeTarget || "").trim().toLowerCase() === "recovery"
+        ? "OVERDUE"
+        : "UNKNOWN",
+    },
+    latestPayment: null,
+    messages: messages.map((message, index) => ({
+      id: Number(message.id || index + 1),
+      direction: String(message.direction || "").trim().toUpperCase() || "OUTBOUND",
+      messageType: String(message.messageType || "text").trim().toLowerCase(),
+      senderType: String(message.senderType || "").trim().toLowerCase() || null,
+      body: String(message.content || "").trim(),
+      variables: {},
+      status: String(message.status || "RECEIVED").trim().toUpperCase(),
+      sourceModule: String(message.sourceModule || row.latestSourceModule || "").trim() || null,
+      isComplaint: false,
+      timestamp: String(message.createdAt || row.updatedAt || new Date().toISOString()).trim(),
+    })),
+  };
+}
 
 function mapInboxConversationsToRecoverySummary(
   rows: RecoveryInboxFallbackConversation[],
   queue: "all" | "closed" | "blocked",
 ): RecoveryInteractionSummary {
-  const conversations = rows.map((row) => {
+  const conversations = rows
+    .filter((row) => String(row.routeTarget || "").trim().toLowerCase() === "recovery")
+    .map((row) => {
     const latestMessage = Array.isArray(row.messages) ? row.messages[0] : null;
     const status = String(row.status || "").trim().toLowerCase();
     const phone = String(row.customer?.phone || "").trim();
-    const customerName = String(row.customer?.name || phone || "Cliente").trim();
+    const customerName = String(
+      row.customer?.name || row.recoveryCustomerName || phone || "Cliente",
+    ).trim();
     const updatedAt = String(latestMessage?.createdAt || row.updatedAt || new Date().toISOString()).trim();
 
     return {
       conversationId: Number(row.id),
-      customerId: String(row.customer?.id || row.id || "").trim(),
+      customerId: String(row.recoveryCustomerId || row.customer?.id || row.id || "").trim(),
       customerName,
       customerWhatsapp: phone,
       conversationWhatsapp: phone,
       customerStatus: status === "open" ? "OVERDUE" : "UNKNOWN",
-      openAmount: 0,
+      openAmount: Number(row.recoveryOpenAmount || 0),
       lastContact: "",
       humanQueue: status === "open",
       isClosed: status === "closed",
-      isBlocked: false,
-      blockedAt: null,
-      blockedReason: null,
+      isBlocked: Boolean(row.isBlocked || status === "blocked"),
+      blockedAt: row.blockedAt ?? null,
+      blockedReason: row.blockedReason ?? null,
       botActive: status === "new",
       humanAssigned: status === "open",
       assignedUserId: null,
-      currentFlow: "",
-      currentStep: "",
+      currentFlow: "inbox_recovery_fallback",
+      currentStep: String(row.recoveryCurrentStep || "").trim(),
       flowResult: status === "closed" ? "manual_closed" : null,
-      metadata: {},
+      metadata: row.metadata || {},
       complaintCount: 0,
       lastMessage: String(latestMessage?.content || "").trim(),
       lastDirection: String(latestMessage?.direction || "").trim().toUpperCase(),
-      lastSourceModule: String(latestMessage?.senderType || latestMessage?.messageType || "").trim(),
+      lastSourceModule: String(
+        latestMessage?.sourceModule ||
+          latestMessage?.senderType ||
+          latestMessage?.messageType ||
+          row.latestSourceModule ||
+          "",
+      ).trim(),
       lastAt: updatedAt,
       lastInteractionAt: updatedAt,
       paymentGenerated: false,
@@ -176,10 +350,10 @@ function mapInboxConversationsToRecoverySummary(
 
   const filtered =
     queue === "blocked"
-      ? []
+      ? conversations.filter((item) => item.isBlocked)
       : queue === "closed"
       ? conversations.filter((item) => item.isClosed)
-      : conversations.filter((item) => !item.isClosed);
+      : conversations.filter((item) => !item.isClosed && !item.isBlocked);
 
   return {
     queue,
@@ -250,6 +424,29 @@ function mapSenderLabel(senderType: string | null | undefined, direction: string
   if (sender === "system") return "Sistema";
   if (sender === "client") return "Cliente";
   return String(direction || "").toUpperCase() === "INBOUND" ? "Cliente" : "BOT";
+}
+
+function mapRecoveryQueueTone(input: {
+  humanAssigned?: boolean;
+  humanQueue?: boolean;
+  isBlocked?: boolean;
+  paymentGenerated?: boolean;
+  botActive?: boolean;
+}) {
+  if (input.isBlocked) return "danger" as const;
+  if (input.humanAssigned || input.humanQueue) return "success" as const;
+  if (input.paymentGenerated) return "amber" as const;
+  if (input.botActive) return "brand" as const;
+  return "muted" as const;
+}
+
+function mapRecoveryMessageTone(message: RecoveryInteractionMessage) {
+  const senderType = String(message.senderType || "").trim().toLowerCase();
+  const direction = String(message.direction || "").trim().toUpperCase();
+  if (senderType === "system") return "system" as const;
+  if (senderType === "human") return "human" as const;
+  if (direction === "INBOUND" || senderType === "client") return "inbound" as const;
+  return "outbound" as const;
 }
 
 function mapPaymentStatusLabel(statusRaw: string | null | undefined) {
@@ -583,6 +780,22 @@ type NewDebtorForm = {
 
 type RecoveryTab = "recovery" | "register" | "payments" | "messages" | "templates" | "bot" | "agenda";
 
+function normalizeRecoveryTab(value: string | null | undefined): RecoveryTab | null {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (
+    normalized === "recovery" ||
+    normalized === "register" ||
+    normalized === "payments" ||
+    normalized === "messages" ||
+    normalized === "templates" ||
+    normalized === "bot" ||
+    normalized === "agenda"
+  ) {
+    return normalized;
+  }
+  return null;
+}
+
 type RecoveryImportRow = {
   sourceRow: number;
   name: string;
@@ -601,6 +814,9 @@ type RecoveryCurrentUserPayload = {
   id?: string | number | null;
   username?: string | null;
   name?: string | null;
+  email?: string | null;
+  role?: string | null;
+  isSystemMaster?: boolean;
   company?: {
     id?: number | null;
     name?: string | null;
@@ -1203,6 +1419,46 @@ function buildRecoveryButtonId(sectionKey: string, actionId: string, index: numb
   );
 }
 
+function resolveRecoveryButtonNextNodeId(actionIdRaw: string | null | undefined) {
+  const actionId = String(actionIdRaw || "").trim().toLowerCase();
+  switch (actionId) {
+    case "view_amount":
+      return "valueMessageTemplate";
+    case "choose_installments":
+      return "installmentsPrompt";
+    case "pay_full":
+      return "cashLinkMessageTemplate";
+    case "talk_human":
+      return "humanAckMessage";
+    case "talk_later":
+    case "followup_today":
+    case "followup_tomorrow":
+    case "followup_week":
+      return "followupPrompt";
+    case "installment_2":
+    case "installment_3":
+    case "installment_4":
+    case "installment_5":
+      return "installmentConfirmTemplate";
+    case "generate_installment_link":
+      return "installmentLinkMessageTemplate";
+    case "paid_claim":
+      return "paidClaimMessage";
+    case "close_topic":
+      return "closeTopicMessage";
+    default:
+      return "postLinkPrompt";
+  }
+}
+
+function normalizeRecoveryNextNodeId(value: string | null | undefined, actionId: string) {
+  const normalized = String(value || "")
+    .trim()
+    .replace(/[^a-zA-Z0-9_:-]/g, "")
+    .slice(0, 80);
+  return normalized || resolveRecoveryButtonNextNodeId(actionId);
+}
+
 function makeRecoveryButton(
   sectionKey: string,
   actionId: RecoveryBotActionId | string,
@@ -1213,6 +1469,7 @@ function makeRecoveryButton(
     buttonId: buildRecoveryButtonId(sectionKey, String(actionId || ""), index),
     actionId,
     title,
+    nextNodeId: resolveRecoveryButtonNextNodeId(String(actionId || "")),
   };
 }
 
@@ -1257,6 +1514,7 @@ function ensureBotConfigShape(config: RecoveryBotConfig | null | undefined): Rec
           buttonId,
           actionId,
           title,
+          nextNodeId: normalizeRecoveryNextNodeId(String(button.nextNodeId || ""), actionId),
         };
       })
       .filter(Boolean) as RecoveryBotConfig[BotButtonSectionKey];
@@ -1450,6 +1708,13 @@ function syncBotConfigWithMetaTemplates(
 
 export default function HbxRecoveryClientPage() {
   const hasToken = useRequireAuth();
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const requestedTab = useMemo(
+    () => normalizeRecoveryTab(searchParams?.get("tab")) || "messages",
+    [searchParams],
+  );
   const [drawerCustomerId, setDrawerCustomerId] = useState<string | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [botConfig, setBotConfig] = useState<RecoveryBotConfig>(ensureBotConfigShape(DEFAULT_BOT_CONFIG));
@@ -1482,8 +1747,8 @@ export default function HbxRecoveryClientPage() {
   const [recoveryLayoutStorageKey, setRecoveryLayoutStorageKey] = useState("hbx-recovery:layout");
   const [savingRecoveryLayout, setSavingRecoveryLayout] = useState(false);
   const [drawerBusyAction, setDrawerBusyAction] = useState<DrawerActionId | null>(null);
-  const [activeTab, setActiveTab] = useState<RecoveryTab>("messages");
-  const [renderedTab, setRenderedTab] = useState<RecoveryTab>("messages");
+  const [activeTab, setActiveTab] = useState<RecoveryTab>(requestedTab);
+  const [renderedTab, setRenderedTab] = useState<RecoveryTab>(requestedTab);
   const [tabTransitionStage, setTabTransitionStage] = useState<"idle" | "exit" | "enter">("idle");
   const [currentUserProfile, setCurrentUserProfile] = useState<RecoveryCurrentUserPayload | null>(
     null,
@@ -1528,6 +1793,18 @@ export default function HbxRecoveryClientPage() {
   const [humanAttentionPopup, setHumanAttentionPopup] =
     useState<RecoveryHumanAttentionPopup | null>(null);
   const [humanAttentionFeed, setHumanAttentionFeed] = useState<RecoveryHumanAttentionFeedItem[]>([]);
+  const interactionDetailRef = useRef<RecoveryInteractionDetail | null>(null);
+  const displayedInteractionConversations = useMemo(() => {
+    if (interactionsQueue === "closed") {
+      return interactionSummary.conversations.filter((conversation) => conversation.isClosed);
+    }
+    if (interactionsQueue === "blocked") {
+      return interactionSummary.conversations.filter((conversation) => conversation.isBlocked);
+    }
+    return interactionSummary.conversations.filter(
+      (conversation) => !conversation.isClosed && !conversation.isBlocked,
+    );
+  }, [interactionSummary.conversations, interactionsQueue]);
   const [notice, setNotice] = useState<string | null>(
     "Carteira carregada com empresas cadastradas no Recovery. O envio de WhatsApp usa o motor oficial por empresa.",
   );
@@ -1563,6 +1840,10 @@ export default function HbxRecoveryClientPage() {
     registrationDate: todayIsoDate(),
     registrationDateInput: isoDateToMaskedDigits(todayIsoDate()),
   });
+
+  useEffect(() => {
+    interactionDetailRef.current = interactionDetail;
+  }, [interactionDetail]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -1656,6 +1937,7 @@ export default function HbxRecoveryClientPage() {
   const interactionHumanQueueRef = useRef<Map<number, boolean>>(new Map());
   const interactionInitialLoadDoneRef = useRef(false);
   const interactionDetailLastInboundRef = useRef<Map<number, string>>(new Map());
+  const dismissedHumanAttentionRef = useRef<Map<number, string>>(new Map());
   const humanAttentionRequestRef = useRef(0);
   const workspaceCanvasRef = useRef<HTMLDivElement | null>(null);
   const composerCanvasRef = useRef<HTMLDivElement | null>(null);
@@ -2513,15 +2795,12 @@ export default function HbxRecoveryClientPage() {
   }, []);
 
   useEffect(() => {
-    if (!hasToken) return;
+    if (hasToken === false) return;
     const timer = window.setInterval(() => {
-      void loadInteractions(interactionsQueue, { silent: true });
-      if (activeTab === "messages" && interactionDetail?.conversationId) {
-        void loadInteractionDetail(interactionDetail.conversationId);
-      }
+      void loadInteractions("all", { silent: true });
     }, 5000);
     return () => window.clearInterval(timer);
-  }, [activeTab, hasToken, interactionDetail?.conversationId, interactionsQueue]);
+  }, [activeTab, hasToken, interactionDetail?.conversationId]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -2537,7 +2816,7 @@ export default function HbxRecoveryClientPage() {
   }, [hasToken, interactionSummary.pendingHumanCount]);
 
   useEffect(() => {
-    if (!hasToken) return;
+    if (hasToken === false) return;
     let cancelled = false;
 
     async function loadRecoveryData() {
@@ -3289,7 +3568,7 @@ export default function HbxRecoveryClientPage() {
   }
 
   async function loadPaymentHistory(month = paymentMonth, lifecycle = paymentFilter) {
-    if (!hasToken) return;
+    if (hasToken === false) return;
     setLoadingPaymentHistory(true);
     try {
       const query = new URLSearchParams();
@@ -3307,14 +3586,41 @@ export default function HbxRecoveryClientPage() {
     }
   }
 
+  function buildHumanAttentionSignature(input: {
+    conversationId: number;
+    lastAt: string;
+    kind: RecoveryHumanAttentionKind;
+  }) {
+    return `${input.conversationId}:${input.lastAt}:${input.kind}`;
+  }
+
   function upsertHumanAttentionFeedItem(item: RecoveryHumanAttentionFeedItem) {
+    const dismissedSignature = dismissedHumanAttentionRef.current.get(item.conversationId);
+    const nextSignature = buildHumanAttentionSignature(item);
+    if (dismissedSignature === nextSignature) {
+      return;
+    }
+
     setHumanAttentionFeed((current) => {
       const next = current.filter((entry) => entry.conversationId !== item.conversationId);
       return [item, ...next].slice(0, 8);
     });
   }
 
-  function dismissHumanAttention(conversationId: number) {
+  function dismissHumanAttention(
+    conversationId: number,
+    options?: { lastAt?: string; kind?: RecoveryHumanAttentionKind },
+  ) {
+    if (options?.lastAt && options?.kind) {
+      dismissedHumanAttentionRef.current.set(
+        conversationId,
+        buildHumanAttentionSignature({
+          conversationId,
+          lastAt: options.lastAt,
+          kind: options.kind,
+        }),
+      );
+    }
     setHumanAttentionFeed((current) =>
       current.filter((entry) => entry.conversationId !== conversationId),
     );
@@ -3327,7 +3633,7 @@ export default function HbxRecoveryClientPage() {
     queue = interactionsQueue,
     options?: { silent?: boolean },
   ) {
-    if (!hasToken) return;
+    if (hasToken === false) return;
     const silent = options?.silent ?? false;
     if (silent || interactionSummary.conversations.length > 0 || interactionDetail) {
       setRefreshingInteractions(true);
@@ -3335,16 +3641,21 @@ export default function HbxRecoveryClientPage() {
       setLoadingInteractions(true);
     }
     try {
+      const effectiveQueue = "all" as const;
       const query = new URLSearchParams();
-      query.set("queue", queue);
+      query.set("queue", effectiveQueue);
       let payload: RecoveryInteractionSummary;
       try {
         payload = await apiFetch<RecoveryInteractionSummary>(
           `/hbx-recovery/interactions?${query.toString()}`,
         );
+        if (!Array.isArray(payload?.conversations) || payload.conversations.length === 0) {
+          const inboxRows = await apiFetch<RecoveryInboxFallbackConversation[]>("/inbox/conversations");
+          payload = mapInboxConversationsToRecoverySummary(inboxRows, effectiveQueue);
+        }
       } catch {
         const inboxRows = await apiFetch<RecoveryInboxFallbackConversation[]>("/inbox/conversations");
-        payload = mapInboxConversationsToRecoverySummary(inboxRows, queue);
+        payload = mapInboxConversationsToRecoverySummary(inboxRows, effectiveQueue);
       }
       const previousLastSeen = interactionLastSeenRef.current;
       const previousHumanQueue = interactionHumanQueueRef.current;
@@ -3387,7 +3698,62 @@ export default function HbxRecoveryClientPage() {
       interactionHumanQueueRef.current = nextHumanQueue;
       interactionInitialLoadDoneRef.current = true;
       setInteractionSummary(payload);
-      if (queue === "all") {
+      const availableConversationIds = new Set(
+        payload.conversations.map((conversation) => conversation.conversationId),
+      );
+      const currentConversationId = interactionDetail?.conversationId ?? null;
+      const nextConversationId =
+        currentConversationId && availableConversationIds.has(currentConversationId)
+          ? currentConversationId
+          : payload.conversations[0]?.conversationId ?? null;
+      const nextConversation =
+        nextConversationId
+          ? payload.conversations.find(
+              (conversation) => conversation.conversationId === nextConversationId,
+            ) || null
+          : null;
+
+      if (
+        nextConversationId &&
+        (currentConversationId !== nextConversationId ||
+          shouldReloadRecoveryInteraction(nextConversation, interactionDetailRef.current))
+      ) {
+        const nextSkeleton = buildRecoveryInteractionSkeleton(
+          nextConversation,
+          interactionDetailRef.current?.conversationId === nextConversationId
+            ? interactionDetailRef.current
+            : null,
+        );
+        if (nextSkeleton) {
+          setInteractionDetail(nextSkeleton);
+        }
+        void loadInteractionDetail(nextConversationId);
+      } else if (
+        nextConversation &&
+        interactionDetailRef.current?.conversationId === nextConversationId
+      ) {
+        setInteractionDetail((current) =>
+          current && current.conversationId === nextConversationId
+            ? {
+                ...current,
+                botActive: nextConversation.botActive,
+                humanAssigned: nextConversation.humanAssigned,
+                isBlocked: nextConversation.isBlocked,
+                blockedAt: nextConversation.blockedAt,
+                blockedReason: nextConversation.blockedReason,
+                assignedUserId: nextConversation.assignedUserId,
+                currentFlow: nextConversation.currentFlow,
+                currentStep: nextConversation.currentStep,
+                flowResult: nextConversation.flowResult,
+                lastInteractionAt: nextConversation.lastInteractionAt,
+              }
+            : current,
+        );
+      } else if (!nextConversationId && currentConversationId) {
+        setInteractionDetail(null);
+      }
+
+      if (effectiveQueue === "all") {
         const activeHumanAttentionIds = new Set(
           payload.conversations
             .filter((item) => item.humanQueue && !item.isClosed && !item.isBlocked)
@@ -3455,9 +3821,21 @@ export default function HbxRecoveryClientPage() {
   async function loadInteractionDetail(conversationId: number) {
     setLoadingInteractionDetailId(conversationId);
     try {
-      const payload = await apiFetch<RecoveryInteractionDetail>(
-        `/hbx-recovery/interactions/${conversationId}/messages`,
-      );
+      let payload: RecoveryInteractionDetail;
+      try {
+        payload = await apiFetch<RecoveryInteractionDetail>(
+          `/hbx-recovery/interactions/${conversationId}/messages`,
+        );
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : "Erro ao abrir conversa";
+        if (!/fora da carteira|not found/i.test(reason)) {
+          throw error;
+        }
+        const inboxPayload = await apiFetch<RecoveryInboxFallbackConversation>(
+          `/inbox/conversations/${conversationId}`,
+        );
+        payload = mapInboxConversationDetailToRecoveryDetail(inboxPayload);
+      }
       const lastInbound = [...payload.messages]
         .reverse()
         .find((message) => String(message.direction || "").trim().toUpperCase() === "INBOUND");
@@ -3548,6 +3926,11 @@ export default function HbxRecoveryClientPage() {
       lastAt: item.lastAt,
     };
 
+    const nextSignature = buildHumanAttentionSignature(nextPopup);
+    if (dismissedHumanAttentionRef.current.get(item.conversationId) === nextSignature) {
+      return;
+    }
+
     setHumanAttentionPopup(nextPopup);
     upsertHumanAttentionFeedItem({
       id: `${item.conversationId}:${item.lastAt}:${kind}`,
@@ -3562,13 +3945,13 @@ export default function HbxRecoveryClientPage() {
   }
 
   async function refreshInteractionContext(conversationId: number) {
-    await Promise.all([loadInteractions(interactionsQueue), loadInteractionDetail(conversationId), reloadCustomers()]);
+    await Promise.all([loadInteractions("all"), loadInteractionDetail(conversationId), reloadCustomers()]);
   }
 
   useEffect(() => {
     if (renderedTab !== "messages") return;
     const availableConversationIds = new Set(
-      interactionSummary.conversations.map((conversation) => conversation.conversationId),
+      displayedInteractionConversations.map((conversation) => conversation.conversationId),
     );
     const currentConversationId = interactionDetail?.conversationId ?? null;
 
@@ -3576,7 +3959,7 @@ export default function HbxRecoveryClientPage() {
       return;
     }
 
-    const nextConversationId = interactionSummary.conversations[0]?.conversationId;
+    const nextConversationId = displayedInteractionConversations[0]?.conversationId;
     if (!nextConversationId) {
       if (currentConversationId) {
         setInteractionDetail(null);
@@ -3588,7 +3971,7 @@ export default function HbxRecoveryClientPage() {
     void loadInteractionDetail(nextConversationId);
   }, [
     renderedTab,
-    interactionSummary.conversations,
+    displayedInteractionConversations,
     interactionDetail?.conversationId,
     loadingInteractionDetailId,
   ]);
@@ -3738,19 +4121,18 @@ export default function HbxRecoveryClientPage() {
   }
 
   useEffect(() => {
-    if (!hasToken) return;
+    if (hasToken === false) return;
     if (activeTab === "payments") {
       loadPaymentHistory(paymentMonth, paymentFilter);
     }
     if (activeTab === "messages") {
-      loadInteractions(interactionsQueue);
+      loadInteractions("all");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     activeTab,
     paymentMonth,
     paymentFilter,
-    interactionsQueue,
     hasToken,
   ]);
 
@@ -4621,6 +5003,27 @@ export default function HbxRecoveryClientPage() {
     }
   }, [interactionDetail?.conversationId, visibleInteractionMessages.length]);
 
+  useEffect(() => {
+    if (requestedTab === activeTab) return;
+    setActiveTab(requestedTab);
+    setRenderedTab(requestedTab);
+    setTabTransitionStage("idle");
+
+    if (requestedTab === "templates") {
+      loadMetaTemplates(false).catch(() => undefined);
+    }
+    if (requestedTab === "agenda") {
+      loadAgenda().catch(() => undefined);
+    }
+    if (requestedTab === "bot") {
+      loadFlowStages({ silent: false }).catch(() => undefined);
+    }
+    if (requestedTab !== "messages") {
+      setInteractionDetail(null);
+      setInteractionNoteDraft("");
+    }
+  }, [activeTab, requestedTab]);
+
   if (hasToken === null) {
     return (
       <main className="app-shell">
@@ -4740,12 +5143,14 @@ export default function HbxRecoveryClientPage() {
   function handleSectionButtonChange(
     section: BotButtonSectionKey,
     buttonIndex: number,
-    field: "buttonId" | "actionId" | "title",
+    field: "buttonId" | "actionId" | "title" | "nextNodeId",
     value: string,
   ) {
     setBotConfig((current) => {
       const currentButtons = [...(current[section] as RecoveryBotButton[])];
       if (!currentButtons[buttonIndex]) return current;
+      const currentActionId =
+        field === "actionId" ? String(value || "") : String(currentButtons[buttonIndex]?.actionId || "");
       currentButtons[buttonIndex] = {
         ...currentButtons[buttonIndex],
         [field]:
@@ -4756,7 +5161,15 @@ export default function HbxRecoveryClientPage() {
                   value,
                   buildRecoveryButtonId(section, String(currentButtons[buttonIndex]?.actionId || ""), buttonIndex),
                 )
+              : field === "nextNodeId"
+                ? normalizeRecoveryNextNodeId(value, currentActionId)
               : value,
+        nextNodeId:
+          field === "actionId"
+            ? resolveRecoveryButtonNextNodeId(value)
+            : field === "nextNodeId"
+              ? normalizeRecoveryNextNodeId(value, currentActionId)
+              : normalizeRecoveryNextNodeId(String(currentButtons[buttonIndex]?.nextNodeId || ""), currentActionId),
       };
       return ensureBotConfigShape({
         ...current,
@@ -4772,6 +5185,7 @@ export default function HbxRecoveryClientPage() {
         buttonId: buildRecoveryButtonId(section, "talk_human", currentButtons.length),
         actionId: "talk_human",
         title: BOT_ACTION_LABELS.talk_human,
+        nextNodeId: resolveRecoveryButtonNextNodeId("talk_human"),
       });
       return ensureBotConfigShape({
         ...current,
@@ -5054,9 +5468,22 @@ export default function HbxRecoveryClientPage() {
     }
   }
 
+  function syncRecoveryTabInUrl(nextTab: RecoveryTab) {
+    if (!pathname) return;
+    const params = new URLSearchParams(searchParams?.toString() || "");
+    if (nextTab === "messages") {
+      params.delete("tab");
+    } else {
+      params.set("tab", nextTab);
+    }
+    const nextUrl = params.toString() ? `${pathname}?${params.toString()}` : pathname;
+    router.replace(nextUrl, { scroll: false });
+  }
+
   function handleTabChange(nextTab: RecoveryTab) {
     if (nextTab === activeTab && renderedTab === nextTab) return;
     setActiveTab(nextTab);
+    syncRecoveryTabInUrl(nextTab);
     if (nextTab === "templates") {
       loadMetaTemplates(false).catch(() => undefined);
     }
@@ -5618,6 +6045,12 @@ export default function HbxRecoveryClientPage() {
     : 0;
   const isInteractionBusy = (conversationId: number, action: string) =>
     interactionActionBusy === `${conversationId}:${action}`;
+  const selectedInteractionPhone = interactionDetail
+    ? getLiveInteractionPhone({
+        conversationWhatsapp: interactionDetail.customer.conversationWhatsapp,
+        customerWhatsapp: interactionDetail.customer.whatsappNumber,
+      })
+    : "-";
   const getMetaStatusBadgeClass = (statusRaw: string) => {
     const normalized = String(statusRaw || "").trim().toUpperCase();
     if (normalized === "APPROVED") return styles.statePaid;
@@ -5626,6 +6059,372 @@ export default function HbxRecoveryClientPage() {
       return styles.stateExpired;
     return styles.stateWaiting;
   };
+
+  const recoveryWorkspacePanels: WorkspacePanelDescriptor[] = [
+      {
+        id: SHARED_CONVERSATION_WORKSPACE_IDS.listPanel,
+        title: "Conversas",
+        description: "Fila de cobrança com triagem, prioridade humana e histórico recente.",
+        component: SHARED_CONVERSATION_WORKSPACE_IDS.listComponent,
+        params: { accent: "#2563eb" },
+        minimumWidth: 300,
+        minimumHeight: 240,
+        initialWidth: 360,
+      },
+      {
+        id: SHARED_CONVERSATION_WORKSPACE_IDS.mainPanel,
+        title: "Chat",
+        description: "Historico principal da cobranca e contexto do fluxo.",
+        component: SHARED_CONVERSATION_WORKSPACE_IDS.mainComponent,
+        params: { accent: "#0f766e" },
+        minimumWidth: 560,
+        minimumHeight: 320,
+        initialWidth: 820,
+      },
+      {
+        id: SHARED_CONVERSATION_WORKSPACE_IDS.composerPanel,
+        title: "Resposta",
+        description: "Resposta humana com crescimento vertical livre.",
+        component: SHARED_CONVERSATION_WORKSPACE_IDS.composerComponent,
+        params: { accent: "#1d4ed8" },
+        minimumWidth: 520,
+        minimumHeight: 240,
+        initialHeight: 280,
+      },
+      {
+        id: SHARED_CONVERSATION_WORKSPACE_IDS.contextPanel,
+        title: "Financeiro / Ações",
+        description: "Resumo financeiro, controles operacionais e nota interna.",
+        component: SHARED_CONVERSATION_WORKSPACE_IDS.contextComponent,
+        params: { accent: "#b45309" },
+        minimumWidth: 320,
+        minimumHeight: 260,
+        initialWidth: 380,
+      },
+    ];
+
+  const recoveryWorkspaceComponents = {
+      [SHARED_CONVERSATION_WORKSPACE_IDS.listComponent]: () => (
+        <ChatDockPanel
+          eyebrow="Recovery"
+          title="Fila"
+          description="Cobrancas abertas, prioridade humana e status do fluxo."
+          count={displayedInteractionConversations.length}
+          className={styles.workspaceDockPanel}
+          bodyClassName={`${styles.workspaceDockBody} ${styles.workspaceDockQueueBody}`}
+        >
+          {humanAttentionFeed.length > 0 ? (
+            <ChatInfoCard title="Prioridade humana" meta={humanAttentionFeed.length}>
+              <ChatQueue>
+                {humanAttentionFeed.map((item) => (
+                  <ChatQueueItem
+                    key={item.id}
+                    onClick={() => openHumanAttentionConversation(item.conversationId)}
+                    initials={String(item.customerName || item.phone).slice(0, 2).toUpperCase()}
+                    label={item.kind === "human_queue" ? "HUM" : "MSG"}
+                    tone="amber"
+                    title={item.customerName}
+                    subtitle={item.phone}
+                    preview={item.preview}
+                    meta={item.attentionLabel}
+                    badges={
+                      <>
+                        <ChatBadge tone="warning">
+                          {item.kind === "human_queue" ? "Aguardando humano" : "Nova mensagem"}
+                        </ChatBadge>
+                        <ChatBadge tone="neutral">{item.moduleLabel}</ChatBadge>
+                      </>
+                    }
+                  />
+                ))}
+              </ChatQueue>
+            </ChatInfoCard>
+          ) : null}
+
+          {loadingInteractions ? (
+            <ChatEmptyState title="Carregando conversas">A fila de cobranca esta sendo sincronizada.</ChatEmptyState>
+          ) : displayedInteractionConversations.length === 0 ? (
+            <ChatEmptyState title="Nenhuma conversa encontrada">
+              Ajuste o filtro ou aguarde novas interacoes entrarem na fila.
+            </ChatEmptyState>
+          ) : (
+            <ChatQueue className={styles.interactionsList}>
+              {displayedInteractionConversations.map((item) => (
+                <ChatQueueItem
+                  key={item.conversationId}
+                  active={interactionDetail?.conversationId === item.conversationId}
+                  onClick={() => loadInteractionDetail(item.conversationId)}
+                  disabled={loadingInteractionDetailId === item.conversationId}
+                  initials={String(item.customerName || item.customerWhatsapp || item.conversationId).slice(0, 2).toUpperCase()}
+                  label={
+                    item.humanAssigned || item.humanQueue
+                      ? "HUM"
+                      : item.isBlocked
+                        ? "BLK"
+                        : item.paymentGenerated
+                          ? "PAY"
+                          : "BOT"
+                  }
+                  tone={mapRecoveryQueueTone(item)}
+                  title={item.customerName}
+                  subtitle={getLiveInteractionPhone({
+                    conversationWhatsapp: item.conversationWhatsapp,
+                    customerWhatsapp: item.customerWhatsapp,
+                  })}
+                  preview={item.lastMessage || "-"}
+                  meta={formatDateTime(item.lastAt)}
+                  badges={
+                    <>
+                      {item.humanAssigned || item.humanQueue ? <ChatBadge tone="warning">Humano</ChatBadge> : null}
+                      {item.botActive ? <ChatBadge tone="brand">BOT ativo</ChatBadge> : null}
+                      {item.paymentGenerated ? <ChatBadge tone="teal">Pagamento</ChatBadge> : null}
+                      {item.isBlocked ? <ChatBadge tone="danger">Bloqueado</ChatBadge> : null}
+                    </>
+                  }
+                />
+              ))}
+            </ChatQueue>
+          )}
+        </ChatDockPanel>
+      ),
+      [SHARED_CONVERSATION_WORKSPACE_IDS.mainComponent]: () => (
+        <ChatDockPanel
+          eyebrow="Chat"
+          title={interactionDetail?.customer.name || "Chat"}
+          description="Historico da cobranca, etapa atual e leitura operacional."
+          count={visibleInteractionMessages.length}
+          className={styles.workspaceDockPanel}
+          bodyClassName={`${styles.workspaceDockBody} ${styles.workspaceDockDetailBody}`}
+        >
+          {!interactionDetail ? (
+            <ChatEmptyState title="Nenhuma conversa selecionada">
+              Escolha uma conversa na fila para abrir o chat e as acoes da cobranca.
+            </ChatEmptyState>
+          ) : (
+            <ChatThread
+              avatar={
+                <ChatAvatar
+                  initials={String(interactionDetail.customer.name || selectedInteractionPhone).slice(0, 2).toUpperCase()}
+                  label={interactionDetail.humanAssigned ? "HUM" : interactionDetail.isBlocked ? "BLK" : "REC"}
+                  tone={mapRecoveryQueueTone({
+                    humanAssigned: interactionDetail.humanAssigned,
+                    isBlocked: Boolean(interactionDetail.isBlocked),
+                    paymentGenerated: Boolean(latestPayment?.paymentUrl),
+                    botActive: interactionDetail.botActive,
+                  })}
+                />
+              }
+              title={interactionDetail.customer.name}
+              subtitle={selectedInteractionPhone}
+              badges={
+                <>
+                  <ChatBadge tone="neutral">{mapFlowStepLabel(interactionDetail.currentStep)}</ChatBadge>
+                  {interactionDetail.humanAssigned ? <ChatBadge tone="warning">Atendimento humano</ChatBadge> : null}
+                  {interactionDetail.botActive ? <ChatBadge tone="brand">BOT ativo</ChatBadge> : null}
+                  {latestPayment?.paymentUrl ? <ChatBadge tone="teal">Pagamento gerado</ChatBadge> : null}
+                  {paymentIsPaid ? <ChatBadge tone="success">Pago</ChatBadge> : null}
+                  {linkExpired ? <ChatBadge tone="danger">Link expirado</ChatBadge> : null}
+                </>
+              }
+              actions={
+                <ChatIconButton
+                  icon="spark"
+                  label={showSystemMessages ? "Eventos on" : "Eventos"}
+                  onClick={() => setShowSystemMessages((current) => !current)}
+                  title="Alternar eventos do sistema"
+                  aria-label="Alternar eventos do sistema"
+                />
+              }
+            >
+              <div ref={interactionMessageListRef} className={styles.interactionMessageList}>
+                {visibleInteractionMessages.length === 0 ? (
+                  <ChatEmptyState title="Nenhuma mensagem visivel">
+                    Ative os eventos do sistema ou aguarde novas interacoes.
+                  </ChatEmptyState>
+                ) : (
+                  visibleInteractionMessages.map((message) => (
+                    <ChatMessageBubble
+                      key={message.id}
+                      tone={mapRecoveryMessageTone(message)}
+                      sender={mapSenderLabel(message.senderType, message.direction)}
+                      messageType={String(message.messageType || "text").replace(/_/g, " ")}
+                      meta={formatDateTime(message.timestamp)}
+                    >
+                      <p>{message.body}</p>
+                    </ChatMessageBubble>
+                  ))
+                )}
+              </div>
+            </ChatThread>
+          )}
+        </ChatDockPanel>
+      ),
+      [SHARED_CONVERSATION_WORKSPACE_IDS.composerComponent]: () => (
+        <ChatDockPanel
+          eyebrow="Resposta"
+          title="Resposta humana"
+          description="Escreva sem apertar o historico do cliente."
+          count={interactionReplyDraft.trim().length}
+          className={styles.workspaceDockPanel}
+          bodyClassName={`${styles.workspaceDockBody} ${styles.workspaceDockComposerBody}`}
+        >
+          {!interactionDetail ? (
+            <ChatEmptyState title="Resposta indisponivel">Abra uma conversa para responder manualmente.</ChatEmptyState>
+          ) : (
+            <ChatComposer
+              title="Responder ao cliente"
+              description="Mensagem humana enviada para este WhatsApp."
+              toolbar={
+                <>
+                  <ChatIconButton icon="phone" title="Canal WhatsApp" aria-label="Canal WhatsApp" />
+                  <ChatIconButton icon="send" title="Pronto para enviar" aria-label="Pronto para enviar" />
+                </>
+              }
+              footer={
+                <>
+                  <ChatFieldNote>
+                    {Boolean(interactionDetail.isBlocked)
+                      ? "Cliente bloqueado para novas mensagens."
+                      : "A resposta sera registrada no historico desta cobranca."}
+                  </ChatFieldNote>
+                  <button
+                    type="button"
+                    className="btn btn-primary btn-sm"
+                    onClick={() => sendInteractionReply(interactionDetail.conversationId)}
+                    disabled={
+                      isInteractionBusy(interactionDetail.conversationId, "send_message") ||
+                      Boolean(interactionDetail.isBlocked)
+                    }
+                  >
+                    {isInteractionBusy(interactionDetail.conversationId, "send_message")
+                      ? "Enviando..."
+                      : "Enviar mensagem"}
+                  </button>
+                </>
+              }
+            >
+              <textarea
+                id="recovery-chat-reply"
+                name="recoveryChatReply"
+                className="field"
+                rows={6}
+                value={interactionReplyDraft}
+                placeholder="Digite a mensagem que deve ser enviada ao cliente..."
+                onChange={(event) => setInteractionReplyDraft(event.target.value)}
+                disabled={
+                  Boolean(interactionDetail.isBlocked) ||
+                  String(interactionDetail.currentStep || "").trim().toLowerCase() === "encerrado"
+                }
+              />
+            </ChatComposer>
+          )}
+        </ChatDockPanel>
+      ),
+      [SHARED_CONVERSATION_WORKSPACE_IDS.contextComponent]: () => (
+        <ChatDockPanel
+          eyebrow="Operacao"
+          title="Financeiro / Acoes"
+          description="Resumo financeiro, controles e nota interna."
+          count={interactionDetail ? "LIVE" : "--"}
+          className={styles.workspaceDockPanel}
+          bodyClassName={`${styles.workspaceDockBody} ${styles.workspaceDockFinanceBody}`}
+        >
+          {!interactionDetail ? (
+            <ChatEmptyState title="Sem contexto ativo">Abra uma conversa para liberar a operacao financeira.</ChatEmptyState>
+          ) : (
+            <ChatSideGrid>
+              <ChatInfoCard title="Acoes rapidas" meta="Recovery">
+                <ChatActionGrid>
+                  <ChatActionButton
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    onClick={() => runInteractionAction(interactionDetail.conversationId, "assign_human")}
+                    disabled={isInteractionBusy(interactionDetail.conversationId, "assign_human")}
+                  >
+                    Assumir atendimento
+                  </ChatActionButton>
+                  <ChatActionButton
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    onClick={() => runInteractionAction(interactionDetail.conversationId, "pause_bot")}
+                    disabled={isInteractionBusy(interactionDetail.conversationId, "pause_bot")}
+                  >
+                    Pausar BOT
+                  </ChatActionButton>
+                  <ChatActionButton
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    onClick={() => runInteractionAction(interactionDetail.conversationId, "resume_bot")}
+                    disabled={isInteractionBusy(interactionDetail.conversationId, "resume_bot")}
+                  >
+                    Reativar BOT
+                  </ChatActionButton>
+                  <ChatActionButton
+                    type="button"
+                    className="btn btn-primary btn-sm"
+                    onClick={() => runInteractionAction(interactionDetail.conversationId, "generate_cash_link")}
+                    disabled={isInteractionBusy(interactionDetail.conversationId, "generate_cash_link")}
+                  >
+                    Gerar link a vista
+                  </ChatActionButton>
+                  <ChatActionButton
+                    type="button"
+                    className="btn btn-primary btn-sm"
+                    onClick={() => runInteractionAction(interactionDetail.conversationId, "generate_credit_link")}
+                    disabled={isInteractionBusy(interactionDetail.conversationId, "generate_credit_link")}
+                  >
+                    Pagar no credito
+                  </ChatActionButton>
+                  <ChatActionButton
+                    type="button"
+                    className="btn btn-danger btn-sm"
+                    onClick={() => runInteractionAction(interactionDetail.conversationId, "block_interaction")}
+                    disabled={isInteractionBusy(interactionDetail.conversationId, "block_interaction")}
+                  >
+                    Bloquear cliente
+                  </ChatActionButton>
+                </ChatActionGrid>
+              </ChatInfoCard>
+
+              <ChatInfoCard title="Resumo financeiro" meta={mapPaymentStatusLabel(latestPayment?.status)}>
+                <p><strong>Cliente:</strong> {interactionDetail.customer.name}</p>
+                <p><strong>Empresa:</strong> {String(interactionDetail.metadata?.empresa || "-")}</p>
+                <p><strong>Valor original:</strong> {formatCurrency(interactionDetail.customer.openAmount || 0)}</p>
+                <p><strong>Status cobranca:</strong> {mapFlowStepLabel(interactionDetail.currentStep)}</p>
+                <p><strong>Status pagamento:</strong> {mapPaymentStatusLabel(latestPayment?.status)}</p>
+                <p><strong>Ultimo link:</strong> {latestPayment?.paymentUrl ? "Gerado" : "-"}</p>
+                <p><strong>Tentativas:</strong> {paymentAttemptCount}</p>
+                <p><strong>Ultima interacao:</strong> {formatDateTime(interactionDetail.lastInteractionAt)}</p>
+              </ChatInfoCard>
+
+              <ChatInfoCard title="Nota interna" meta="Equipe">
+                <ChatFieldNote>Registro interno da equipe. Nada daqui vai para o cliente.</ChatFieldNote>
+                <textarea
+                  id="recovery-internal-note"
+                  name="recoveryInternalNote"
+                  className="field"
+                  rows={4}
+                  value={interactionNoteDraft}
+                  placeholder="Ex: Cliente pediu retorno sexta as 15h."
+                  onChange={(event) => setInteractionNoteDraft(event.target.value)}
+                  disabled={Boolean(interactionDetail.isBlocked)}
+                />
+                <ChatActionButton
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => saveInteractionInternalNote(interactionDetail.conversationId)}
+                  disabled={isInteractionBusy(interactionDetail.conversationId, "internal_note")}
+                >
+                  {isInteractionBusy(interactionDetail.conversationId, "internal_note")
+                    ? "Salvando..."
+                    : "Salvar nota"}
+                </ChatActionButton>
+              </ChatInfoCard>
+            </ChatSideGrid>
+          )}
+        </ChatDockPanel>
+      ),
+    };
 
   return (
     <>
@@ -5688,7 +6487,12 @@ export default function HbxRecoveryClientPage() {
               <button
                 type="button"
                 className="btn btn-secondary btn-sm"
-                onClick={() => setHumanAttentionPopup(null)}
+                onClick={() =>
+                  dismissHumanAttention(humanAttentionPopup.conversationId, {
+                    lastAt: humanAttentionPopup.lastAt,
+                    kind: humanAttentionPopup.kind,
+                  })
+                }
               >
                 Dispensar
               </button>
@@ -5701,6 +6505,7 @@ export default function HbxRecoveryClientPage() {
         title="Recovery"
         description="Gestão inteligente de inadimplência com score de risco, cobrança automatizada e leitura clara do impacto financeiro."
         showDashboardShortcut={false}
+        layoutMode="workspace"
         actions={
           <div className={styles.heroActions}>
               <div className={styles.heroTabGroup} role="tablist" aria-label="Guias do Recovery">
@@ -5738,7 +6543,7 @@ export default function HbxRecoveryClientPage() {
                 className={activeTab === "messages" ? styles.heroTabActive : styles.heroTab}
                 onClick={() => handleTabChange("messages")}
               >
-                Histórico de Mensagens
+                Chat
               </button>
               <button
                 type="button"
@@ -7789,6 +8594,62 @@ export default function HbxRecoveryClientPage() {
         ) : null}
 
         {renderedTab === "messages" ? (
+          <WorkspaceShell
+            key={`recovery-workspace:${String(currentUserProfile?.company?.id || "tenant-default")}:${String(
+              currentUserProfile?.role || "USER",
+            ).toUpperCase()}:${String(
+              currentUserProfile?.id ||
+                currentUserProfile?.username ||
+                currentUserProfile?.email ||
+                "anonymous",
+            )}:${loadingInteractions ? "loading" : "ready"}:${displayedInteractionConversations.length}:${interactionDetail?.conversationId || "none"}:${visibleInteractionMessages.length}`}
+            moduleLabel="Recovery"
+            scope={{
+              tenantId: String(currentUserProfile?.company?.id || "tenant-default"),
+              moduleKey: SHARED_CONVERSATION_WORKSPACE_MODULE_KEY,
+              role: String(currentUserProfile?.role || "USER").toUpperCase(),
+              userId: String(
+                currentUserProfile?.id ||
+                  currentUserProfile?.username ||
+                  currentUserProfile?.email ||
+                  "anonymous",
+              ),
+              isMaster: Boolean(currentUserProfile?.isSystemMaster),
+            }}
+            panels={recoveryWorkspacePanels}
+            components={recoveryWorkspaceComponents}
+            createDefaultLayout={createSharedConversationWorkspaceLayout}
+            chromeMode="minimal"
+            className={styles.workspaceDockShell}
+            toolbarSlot={
+              <>
+                <button
+                  type="button"
+                  className={`btn btn-sm ${interactionsQueue === "all" ? "btn-primary" : "btn-secondary"}`}
+                  onClick={() => setInteractionsQueue("all")}
+                >
+                  Conversas
+                </button>
+                <button
+                  type="button"
+                  className={`btn btn-sm ${interactionsQueue === "closed" ? "btn-primary" : "btn-secondary"}`}
+                  onClick={() => setInteractionsQueue("closed")}
+                >
+                  Conversas encerradas
+                </button>
+                <button
+                  type="button"
+                  className={`btn btn-sm ${interactionsQueue === "blocked" ? "btn-primary" : "btn-secondary"}`}
+                  onClick={() => setInteractionsQueue("blocked")}
+                >
+                  Clientes bloqueados
+                </button>
+              </>
+            }
+          />
+        ) : null}
+
+        {/*
           <section className={`panel ${styles.sectionCard} ${styles.interactionsPanel}`}>
             <div className={styles.sectionHeader}>
               <div>
@@ -8514,7 +9375,7 @@ export default function HbxRecoveryClientPage() {
               </div>
             </div>
           </section>
-        ) : null}
+        */}
         </div>
 
       </DashboardScaffold>

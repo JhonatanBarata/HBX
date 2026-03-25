@@ -33,6 +33,8 @@ Isso inclui:
 
 O fluxo oficial completo está em [docs/SAAS_OPERATIONS.md](docs/SAAS_OPERATIONS.md).
 
+Para salvar o projeto antes de formatar a maquina e reconstruir o ambiente depois, use [docs/FORMATAR_PC_CHECKLIST.md](docs/FORMATAR_PC_CHECKLIST.md).
+
 ## Observações
 
 - `npm run up` recusa `backend/.env` apontando para banco remoto no host, para evitar abrir Prisma Studio ou ferramentas locais contra produção por engano.

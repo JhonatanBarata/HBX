@@ -9,28 +9,53 @@ import {
   useState,
   type FormEvent,
 } from "react";
-import type {
-  RecoveryMetaTemplateItem,
-  RecoveryMetaTemplatesPayload,
-} from "@/app/hbx-recovery/recovery-model";
+import {
+  ChatActionButton,
+  ChatActionGrid,
+  ChatAvatar,
+  ChatBadge,
+  ChatComposer,
+  ChatDockPanel,
+  ChatEmptyState,
+  ChatFieldNote,
+  ChatIconButton,
+  ChatMessageBubble,
+  ChatQueue,
+  ChatQueueItem,
+  ChatSideGrid,
+  ChatInfoCard,
+  ChatThread,
+} from "@/components/chat/PremiumChat";
 import DashboardScaffold from "@/components/DashboardScaffold";
+import WorkspaceShell from "@/components/workspace/WorkspaceShell";
+import type {
+  WorkspacePanelDescriptor,
+} from "@/components/workspace/types";
+import {
+  SHARED_CONVERSATION_WORKSPACE_IDS,
+  SHARED_CONVERSATION_WORKSPACE_MODULE_KEY,
+  createSharedConversationWorkspaceLayout,
+} from "@/components/workspace/conversation-workspace";
+import { acquirePopupTopbarLock } from "@/lib/popup-visibility";
 import { apiFetch } from "../_lib/api";
 import { startSmartPolling } from "../_lib/polling";
 import { useRequireAuth } from "../_lib/useRequireAuth";
 import AgendaPanel from "./_components/AgendaPanel";
 import BotPanel from "./_components/BotPanel";
-import TemplatesPanel, { type TemplateComposer } from "./_components/TemplatesPanel";
 import {
   ATENDIMENTO_QUEUE_EVENT,
   DEFAULT_ATENDIMENTO_AGENDA_CONFIG,
   DEFAULT_ATENDIMENTO_BOT_CONFIG,
   buildAgendaActionId,
   createCustomAction,
+  fetchBrazilianHolidays,
   formatCurrency,
   getMessagePreview,
   normalizeAgendaConfig,
   normalizeBotConfig,
   type AtendimentoAgendaConfig,
+  type AtendimentoAgendaSimulationPayload,
+  type AtendimentoAgendaSimulationResult,
   type AtendimentoBotActionGuide,
   type AtendimentoBotButton,
   type AtendimentoBotConfig,
@@ -38,12 +63,12 @@ import {
   type AtendimentoCustomer,
   type InboxConversation,
   type InboxMessage,
-  type InboxRouteTarget,
 } from "./inbox-model";
 import styles from "./page.module.css";
 import recoveryStyles from "@/app/hbx-recovery/page.module.css";
 
-type InboxTab = "customers" | "messages" | "templates" | "agenda" | "bot";
+type InboxTab = "messages" | "customers" | "agenda";
+type InboxQueue = "all" | "closed" | "blocked";
 type StatusFilter = "all" | "new" | "open" | "closed" | "blocked";
 type BotTextField =
   | "welcomeMessage"
@@ -54,6 +79,7 @@ type BotTextField =
   | "humanAckMessage"
   | "closeTopicMessage"
   | "blockedMessage";
+
 type NoticeState = {
   tone: "success" | "error";
   text: string;
@@ -66,44 +92,51 @@ type ActionOption = {
   label: string;
 };
 
+type AgendaGroupEditableField =
+  | "title"
+  | "slug"
+  | "description"
+  | "buttonLabel"
+  | "actionType"
+  | "linkedAgendaId"
+  | "customActionKey"
+  | "sortOrder"
+  | "introMessage"
+  | "emptyMessage"
+  | "noImmediateAvailabilityMessage"
+  | "linkedEmail"
+  | "linkedUserName"
+  | "connectionStatus"
+  | "accentColor"
+  | "isActive"
+  | "workdays"
+  | "visibleBusinessDays"
+  | "searchWindowDays"
+  | "suggestedSlotsCount"
+  | "fallbackFutureSlotsCount";
+
+type CurrentUserProfile = {
+  id?: number | null;
+  username?: string | null;
+  email?: string | null;
+  name?: string | null;
+  role?: string | null;
+  isSystemMaster?: boolean;
+  company?: {
+    id?: number | null;
+    name?: string | null;
+  } | null;
+};
+
+type ConversationStatusTone = "bot" | "human" | "recovery" | "blocked" | "closed";
+
 const ATENDIMENTO_PENDING_STORAGE_KEY = "atendimentoPendingHumanCount";
-
-const EMPTY_META_TEMPLATES_PAYLOAD: RecoveryMetaTemplatesPayload = {
-  phoneNumberId: null,
-  wabaId: null,
-  lastSyncAt: null,
-  syncError: null,
-  counters: {
-    total: 0,
-    approved: 0,
-    pending: 0,
-    rejected: 0,
-    hbxActive: 0,
-    eligible: 0,
-  },
-  templates: [],
-  history: [],
-};
-
-const DEFAULT_TEMPLATE_COMPOSER: TemplateComposer = {
-  name: "",
-  category: "UTILITY",
-  language: "pt_BR",
-  bodyText: "",
-  footerText: "",
-  buttonsText: "",
-  activateInHbx: true,
-  headerFormat: "NONE",
-  headerText: "",
-  headerHandle: "",
-  headerMediaUrl: "",
-};
 
 const TAB_ITEMS: Array<{ id: InboxTab; label: string; description: string }> = [
   {
     id: "messages",
-    label: "Mensagens",
-    description: "Fila viva do Atendimento com parede real entre Atendimento e Recovery.",
+    label: "Chat",
+    description: "Operacao principal de chat com fila, historico e resposta humana.",
   },
   {
     id: "customers",
@@ -111,19 +144,9 @@ const TAB_ITEMS: Array<{ id: InboxTab; label: string; description: string }> = [
     description: "Leitura consolidada por telefone, com rota e prioridade operacional.",
   },
   {
-    id: "templates",
-    label: "Templates Meta",
-    description: "Mesmo catalogo oficial do Recovery, agora dentro do Atendimento.",
-  },
-  {
     id: "agenda",
     label: "Agenda",
-    description: "Guias, horarios e botoes que o bot pode oferecer no atendimento.",
-  },
-  {
-    id: "bot",
-    label: "Editor do bot",
-    description: "Controle total sobre cliente novo, cadastrado, inadimplente e agendamento.",
+    description: "Guias cadastraveis, agenda semanal e vinculo por e-mail para cada frente.",
   },
 ];
 
@@ -140,6 +163,33 @@ function makeClientId(prefix: string) {
   return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
+function resolveAtendimentoButtonNextNodeId(actionIdRaw: string | null | undefined) {
+  const actionId = String(actionIdRaw || "").trim().toLowerCase();
+  switch (actionId) {
+    case "talk_human":
+      return "humanAckMessage";
+    case "close_topic":
+      return "closeTopicMessage";
+    case "show_main_menu":
+      return "mainMenuPrompt";
+    case "enter_recovery":
+      return "recoveryDetectedMessage";
+    case "start_quick_registration":
+      return "registrationCapture";
+    default:
+      if (actionId.startsWith("agenda:")) return "agendaDispatch";
+      return "postActionPrompt";
+  }
+}
+
+function normalizeAtendimentoNextNodeId(value: string | null | undefined, actionId: string) {
+  const normalized = String(value || "")
+    .trim()
+    .replace(/[^a-zA-Z0-9_:-]/g, "")
+    .slice(0, 80);
+  return normalized || resolveAtendimentoButtonNextNodeId(actionId);
+}
+
 function formatDateLabel(dateStr: string | null | undefined, mounted: boolean) {
   if (!dateStr) return "-";
   const parsed = new Date(dateStr);
@@ -147,27 +197,70 @@ function formatDateLabel(dateStr: string | null | undefined, mounted: boolean) {
   return parsed.toLocaleString("pt-BR");
 }
 
-function getBubbleClass(message: InboxMessage) {
-  const direction = String(message.direction || "").trim().toLowerCase();
-  const senderType = String(message.senderType || "").trim().toLowerCase();
-  if (senderType === "system") return styles.systemBubble;
-  if (direction === "outbound") return styles.outboundBubble;
-  return styles.inboundBubble;
+function formatTimeLabel(dateStr: string | null | undefined, mounted: boolean) {
+  if (!dateStr) return "-";
+  const parsed = new Date(dateStr);
+  if (!mounted) return parsed.toISOString();
+  return parsed.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
 }
 
-function normalizeTemplateName(value: string) {
-  return String(value || "")
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9_]+/g, "_")
-    .replace(/^_+|_+$/g, "")
-    .slice(0, 512);
+function getInboxConversationFreshness(conversation?: Pick<InboxConversation, "updatedAt" | "messages"> | null) {
+  const messages = Array.isArray(conversation?.messages) ? conversation.messages : [];
+  const newestMessage = messages.length <= 1 ? messages[0] : messages[messages.length - 1];
+  return String(newestMessage?.createdAt || conversation?.updatedAt || "").trim();
+}
+
+function shouldReloadInboxConversation(
+  summary?: InboxConversation | null,
+  detail?: InboxConversation | null,
+) {
+  if (!summary) return false;
+  if (!detail) return true;
+  if (summary.id !== detail.id) return true;
+  return getInboxConversationFreshness(summary) !== getInboxConversationFreshness(detail);
+}
+
+function mergeInboxConversationSummary(
+  summary?: InboxConversation | null,
+  detail?: InboxConversation | null,
+) {
+  if (!summary && !detail) return null;
+  if (!summary) return detail || null;
+  if (!detail || detail.id !== summary.id) return summary;
+  return {
+    ...detail,
+    ...summary,
+    messages:
+      Array.isArray(detail.messages) && detail.messages.length > 0
+        ? detail.messages
+        : summary.messages,
+  };
+}
+
+function mapConversationToneToChatTone(tone: ConversationStatusTone) {
+  if (tone === "human") return "success" as const;
+  if (tone === "recovery") return "amber" as const;
+  if (tone === "blocked") return "danger" as const;
+  if (tone === "closed") return "muted" as const;
+  return "brand" as const;
+}
+
+function mapInboxBubbleTone(message: InboxMessage) {
+  const direction = String(message.direction || "").trim().toLowerCase();
+  const senderType = String(message.senderType || "").trim().toLowerCase();
+  if (senderType === "system") return "system" as const;
+  if (senderType === "human") return "human" as const;
+  if (direction === "outbound") return "outbound" as const;
+  return "inbound" as const;
 }
 
 function removeButtonFromSections(config: AtendimentoBotConfig, actionId: string): AtendimentoBotConfig {
   return {
     ...config,
     welcomeButtons: config.welcomeButtons.filter((button) => button.actionId !== actionId),
+    returningCustomerButtons: config.returningCustomerButtons.filter(
+      (button) => button.actionId !== actionId,
+    ),
     mainMenuButtons: config.mainMenuButtons.filter((button) => button.actionId !== actionId),
     recoveryDetectedButtons: config.recoveryDetectedButtons.filter(
       (button) => button.actionId !== actionId,
@@ -176,19 +269,36 @@ function removeButtonFromSections(config: AtendimentoBotConfig, actionId: string
   };
 }
 
+function getConversationStatusMeta(conversation: InboxConversation): {
+  label: string;
+  shortLabel: string;
+  tone: ConversationStatusTone;
+} {
+  if (conversation.status === "blocked" || conversation.isBlocked) {
+    return { label: "Bloqueado", shortLabel: "BLQ", tone: "blocked" };
+  }
+  if (conversation.routeTarget === "recovery") {
+    return { label: "Recovery", shortLabel: "REC", tone: "recovery" };
+  }
+  if (conversation.status === "open") {
+    return { label: "Humano", shortLabel: "HUM", tone: "human" };
+  }
+  if (conversation.status === "closed") {
+    return { label: "Resolvido", shortLabel: "OK", tone: "closed" };
+  }
+  return { label: "No bot", shortLabel: "BOT", tone: "bot" };
+}
+
 export default function InboxClientPage() {
   const hasToken = useRequireAuth();
   const [mounted, setMounted] = useState(false);
   const [activeTab, setActiveTab] = useState<InboxTab>("messages");
+  const [inboxQueue, setInboxQueue] = useState<InboxQueue>("all");
   const [conversations, setConversations] = useState<InboxConversation[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedConversation, setSelectedConversation] = useState<InboxConversation | null>(null);
   const [loadingList, setLoadingList] = useState(true);
   const [loadingConversation, setLoadingConversation] = useState(false);
-  const [loadingTemplates, setLoadingTemplates] = useState(true);
-  const [syncingTemplates, setSyncingTemplates] = useState(false);
-  const [creatingTemplate, setCreatingTemplate] = useState(false);
-  const [deletingTemplateId, setDeletingTemplateId] = useState<string | null>(null);
   const [loadingBot, setLoadingBot] = useState(true);
   const [savingBot, setSavingBot] = useState(false);
   const [loadingAgenda, setLoadingAgenda] = useState(true);
@@ -197,16 +307,13 @@ export default function InboxClientPage() {
   const [notice, setNotice] = useState<NoticeState | null>(null);
   const [sendText, setSendText] = useState("");
   const [sending, setSending] = useState(false);
-  const [metaTemplates, setMetaTemplates] = useState<RecoveryMetaTemplatesPayload>(
-    EMPTY_META_TEMPLATES_PAYLOAD,
-  );
-  const [templateComposer, setTemplateComposer] = useState<TemplateComposer>(
-    DEFAULT_TEMPLATE_COMPOSER,
-  );
+  const [botStudioOpen, setBotStudioOpen] = useState(false);
+  const [agendaStudioOpen, setAgendaStudioOpen] = useState(false);
   const [botConfig, setBotConfig] = useState<AtendimentoBotConfig>(DEFAULT_ATENDIMENTO_BOT_CONFIG);
   const [agendaConfig, setAgendaConfig] = useState<AtendimentoAgendaConfig>(
     DEFAULT_ATENDIMENTO_AGENDA_CONFIG,
   );
+  const [currentUserProfile, setCurrentUserProfile] = useState<CurrentUserProfile | null>(null);
   const [expandedAlerts, setExpandedAlerts] = useState<Record<InboxAlertKind | "system_notice", boolean>>({
     human_queue: false,
     new_message: false,
@@ -216,15 +323,15 @@ export default function InboxClientPage() {
     human_queue: false,
     new_message: false,
   });
-  const previousPendingRef = useRef(0);
   const previousHumanCountRef = useRef(0);
   const previousNewCountRef = useRef(0);
   const humanAlertTimerRef = useRef<number | null>(null);
   const newAlertTimerRef = useRef<number | null>(null);
   const noticeTimerRef = useRef<number | null>(null);
   const chatTimelineRef = useRef<HTMLDivElement | null>(null);
+  const selectedIdRef = useRef<string | null>(null);
+  const selectedConversationRef = useRef<InboxConversation | null>(null);
 
-  // Customer management state
   const [atendimentoCustomers, setAtendimentoCustomers] = useState<AtendimentoCustomer[]>([]);
   const [loadingCustomers, setLoadingCustomers] = useState(false);
   const [showCreateCustomerModal, setShowCreateCustomerModal] = useState(false);
@@ -238,6 +345,17 @@ export default function InboxClientPage() {
     setMounted(true);
   }, []);
 
+  useEffect(() => {
+    if (!botStudioOpen && !agendaStudioOpen) return;
+    const releaseTopbarLock = acquirePopupTopbarLock();
+    return releaseTopbarLock;
+  }, [botStudioOpen, agendaStudioOpen]);
+
+  useEffect(() => {
+    selectedIdRef.current = selectedId;
+    selectedConversationRef.current = selectedConversation;
+  }, [selectedConversation, selectedId]);
+
   const loadConversation = useCallback(async (id: string, options?: { silent?: boolean }) => {
     const silent = options?.silent ?? false;
     if (!silent) setLoadingConversation(true);
@@ -246,7 +364,6 @@ export default function InboxClientPage() {
       setSelectedConversation(data);
       setSelectedId(data.id);
     } catch (loadError) {
-      setSelectedConversation(null);
       const message =
         loadError instanceof Error ? loadError.message : "Falha ao carregar conversa.";
       setError(message);
@@ -264,15 +381,42 @@ export default function InboxClientPage() {
         const data = await apiFetch<InboxConversation[]>("/inbox/conversations");
         setConversations(data);
 
-        const preferredId = options?.preferredId ?? selectedId;
-        const availableId =
-          preferredId && data.some((conversation) => conversation.id === preferredId)
-            ? preferredId
-            : data[0]?.id ?? null;
+        const preferredId = options?.preferredId ?? selectedIdRef.current;
+        const selectedSummary =
+          preferredId ? data.find((conversation) => conversation.id === preferredId) || null : null;
+        const fallbackSummary = data[0] ?? null;
+        const nextSummary = selectedSummary || fallbackSummary;
+        const nextId = nextSummary?.id ?? null;
 
-        setSelectedId(availableId);
-        if (availableId) {
-          await loadConversation(availableId, { silent: true });
+        if (nextId !== selectedIdRef.current) {
+          setSelectedId(nextId);
+        }
+
+        const mergedConversation = mergeInboxConversationSummary(
+          nextSummary,
+          selectedConversationRef.current?.id === nextId
+            ? selectedConversationRef.current
+            : null,
+        );
+
+        if (mergedConversation) {
+          setSelectedConversation(mergedConversation);
+        } else if (!nextId) {
+          setSelectedConversation(null);
+        }
+
+        if (nextId && shouldReloadInboxConversation(nextSummary, selectedConversationRef.current)) {
+          void loadConversation(nextId, { silent: true });
+        } else if (nextSummary && selectedConversationRef.current?.id === nextId) {
+          setSelectedConversation((current) =>
+            current && current.id === nextId
+              ? {
+                  ...current,
+                  ...nextSummary,
+                  messages: current.messages,
+                }
+              : current,
+          );
         } else {
           setSelectedConversation(null);
         }
@@ -284,22 +428,8 @@ export default function InboxClientPage() {
         if (!silent) setLoadingList(false);
       }
     },
-    [loadConversation, selectedId],
+    [loadConversation],
   );
-
-  const loadTemplates = useCallback(async () => {
-    setLoadingTemplates(true);
-    try {
-      const data = await apiFetch<RecoveryMetaTemplatesPayload>("/inbox/meta-templates");
-      setMetaTemplates(data || EMPTY_META_TEMPLATES_PAYLOAD);
-    } catch (loadError) {
-      const message =
-        loadError instanceof Error ? loadError.message : "Falha ao carregar templates Meta.";
-      setError(message);
-    } finally {
-      setLoadingTemplates(false);
-    }
-  }, []);
 
   const loadBotConfig = useCallback(async () => {
     setLoadingBot(true);
@@ -327,6 +457,15 @@ export default function InboxClientPage() {
     }
   }, []);
 
+  const loadCurrentUser = useCallback(async () => {
+    try {
+      const data = await apiFetch<CurrentUserProfile>("/profile/current-user");
+      setCurrentUserProfile(data || null);
+    } catch {
+      setCurrentUserProfile(null);
+    }
+  }, []);
+
   const loadAtendimentoCustomers = useCallback(async () => {
     setLoadingCustomers(true);
     try {
@@ -340,22 +479,70 @@ export default function InboxClientPage() {
   }, []);
 
   useEffect(() => {
-    if (hasToken !== true) return;
+    if (hasToken === false) return;
+    void loadConversations();
     return startSmartPolling(() => loadConversations({ silent: true }), {
       intervalMs: 10000,
-      immediate: true,
+      immediate: false,
     });
   }, [hasToken, loadConversations]);
 
   useEffect(() => {
-    if (hasToken !== true) return;
-    void Promise.all([loadBotConfig(), loadAgendaConfig(), loadTemplates()]);
-  }, [hasToken, loadAgendaConfig, loadBotConfig, loadTemplates]);
+    if (hasToken === false) return;
+    void Promise.all([loadBotConfig(), loadAgendaConfig(), loadCurrentUser()]);
+  }, [hasToken, loadAgendaConfig, loadBotConfig, loadCurrentUser]);
 
   useEffect(() => {
-    if (hasToken !== true) return;
+    if (hasToken === false) return;
     if (activeTab === "customers") void loadAtendimentoCustomers();
-  }, [hasToken, activeTab, loadAtendimentoCustomers]);
+  }, [activeTab, hasToken, loadAtendimentoCustomers]);
+
+  const filteredConversations = useMemo(() => {
+    if (inboxQueue === "closed") {
+      return conversations.filter((conversation) => conversation.status === "closed");
+    }
+    if (inboxQueue === "blocked") {
+      return conversations.filter(
+        (conversation) => conversation.status === "blocked" || conversation.isBlocked,
+      );
+    }
+    return conversations.filter(
+      (conversation) => conversation.status !== "closed" && conversation.status !== "blocked" && !conversation.isBlocked,
+    );
+  }, [conversations, inboxQueue]);
+
+  useEffect(() => {
+    if (activeTab !== "messages") return;
+
+    const currentConversationId = selectedConversation?.id ?? selectedId ?? null;
+    const nextConversation = currentConversationId
+      ? filteredConversations.find((conversation) => conversation.id === currentConversationId) || null
+      : null;
+
+    if (nextConversation) {
+      if (selectedId !== nextConversation.id) {
+        setSelectedId(nextConversation.id);
+      }
+      return;
+    }
+
+    const fallbackConversation = filteredConversations[0] ?? null;
+    if (!fallbackConversation) {
+      if (selectedId !== null) setSelectedId(null);
+      if (selectedConversation !== null) setSelectedConversation(null);
+      return;
+    }
+
+    if (selectedId === fallbackConversation.id || loadingConversation) return;
+    void loadConversation(fallbackConversation.id);
+  }, [
+    activeTab,
+    filteredConversations,
+    loadConversation,
+    loadingConversation,
+    selectedConversation,
+    selectedId,
+  ]);
 
   const pendingAtendimentoConversations = useMemo(
     () =>
@@ -377,10 +564,7 @@ export default function InboxClientPage() {
   useEffect(() => {
     if (typeof window === "undefined") return;
     try {
-      window.localStorage.setItem(
-        ATENDIMENTO_PENDING_STORAGE_KEY,
-        String(pendingAtendimentoCount),
-      );
+      window.localStorage.setItem(ATENDIMENTO_PENDING_STORAGE_KEY, String(pendingAtendimentoCount));
     } catch {
       // ignore storage errors
     }
@@ -394,103 +578,16 @@ export default function InboxClientPage() {
     } catch {
       // ignore event dispatch errors
     }
-    previousPendingRef.current = pendingAtendimentoCount;
   }, [pendingAtendimentoCount]);
 
-  const filteredConversations = conversations;
-
-  const customerRows = useMemo(() => {
-    const map = new Map<
-      string,
-      {
-        customerName: string;
-        phone: string;
-        routeTarget: InboxRouteTarget;
-        routeReason: string;
-        openAmount: number;
-        conversationCount: number;
-        activeConversationCount: number;
-        blockedCount: number;
-        updatedAt: string;
-        latestPreview: string;
-        recoveryCurrentStep: string | null;
-        recoverySuggestedPath: string;
-        conversationId: string;
-      }
-    >();
-
-    for (const conversation of filteredConversations) {
-      const key = String(conversation.customer.phone || conversation.id);
-      const existing = map.get(key);
-      if (!existing) {
-        map.set(key, {
-          customerName: conversation.customer.name || conversation.customer.phone,
-          phone: conversation.customer.phone,
-          routeTarget: conversation.routeTarget,
-          routeReason: conversation.routeReason,
-          openAmount: conversation.recoveryOpenAmount,
-          conversationCount: 1,
-          activeConversationCount:
-            conversation.status === "new" || conversation.status === "open" ? 1 : 0,
-          blockedCount: conversation.status === "blocked" ? 1 : 0,
-          updatedAt: conversation.updatedAt,
-          latestPreview: getMessagePreview(conversation.messages?.[0]),
-          recoveryCurrentStep: conversation.recoveryCurrentStep,
-          recoverySuggestedPath: conversation.recoverySuggestedPath,
-          conversationId: conversation.id,
-        });
-        continue;
-      }
-
-      existing.conversationCount += 1;
-      if (conversation.status === "new" || conversation.status === "open") {
-        existing.activeConversationCount += 1;
-      }
-      if (conversation.status === "blocked") existing.blockedCount += 1;
-      if (new Date(conversation.updatedAt).getTime() > new Date(existing.updatedAt).getTime()) {
-        existing.updatedAt = conversation.updatedAt;
-        existing.routeTarget = conversation.routeTarget;
-        existing.routeReason = conversation.routeReason;
-        existing.openAmount = conversation.recoveryOpenAmount;
-        existing.latestPreview = getMessagePreview(conversation.messages?.[0]);
-        existing.recoveryCurrentStep = conversation.recoveryCurrentStep;
-        existing.recoverySuggestedPath = conversation.recoverySuggestedPath;
-        existing.conversationId = conversation.id;
-      }
-    }
-
-    return Array.from(map.values()).sort(
-      (left, right) => new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime(),
-    );
-  }, [filteredConversations]);
-
   const humanAttentionConversations = useMemo(
-    () =>
-      pendingAtendimentoConversations.filter((conversation) => conversation.status === "open"),
+    () => pendingAtendimentoConversations.filter((conversation) => conversation.status === "open"),
     [pendingAtendimentoConversations],
   );
 
   const newInboundConversations = useMemo(
     () => pendingAtendimentoConversations.filter((conversation) => conversation.status === "new"),
     [pendingAtendimentoConversations],
-  );
-
-  const recoveryRoutedCount = useMemo(
-    () => filteredConversations.filter((conversation) => conversation.routeTarget === "recovery").length,
-    [filteredConversations],
-  );
-
-  const blockedConversationCount = useMemo(
-    () =>
-      filteredConversations.filter(
-        (conversation) => conversation.status === "blocked" || conversation.isBlocked,
-      ).length,
-    [filteredConversations],
-  );
-
-  const activeCustomerCount = useMemo(
-    () => customerRows.filter((row) => row.activeConversationCount > 0).length,
-    [customerRows],
   );
 
   const actionOptions = useMemo(() => {
@@ -513,6 +610,7 @@ export default function InboxClientPage() {
 
     [
       ...botConfig.welcomeButtons,
+      ...botConfig.returningCustomerButtons,
       ...botConfig.mainMenuButtons,
       ...botConfig.recoveryDetectedButtons,
       ...botConfig.postActionButtons,
@@ -529,16 +627,23 @@ export default function InboxClientPage() {
   }, [
     agendaConfig.groups,
     botConfig.actionCatalog,
-    botConfig.welcomeButtons,
     botConfig.mainMenuButtons,
     botConfig.postActionButtons,
     botConfig.recoveryDetectedButtons,
+    botConfig.returningCustomerButtons,
+    botConfig.welcomeButtons,
   ]);
 
   const agendaOptions = useMemo(
     () => agendaConfig.groups.map((group) => ({ id: group.id, title: group.title })),
     [agendaConfig.groups],
   );
+
+  const canManageAgenda = useMemo(() => {
+    if (currentUserProfile?.isSystemMaster) return true;
+    const role = String(currentUserProfile?.role || "").trim().toUpperCase();
+    return role === "ADMIN" || role === "GERENTE";
+  }, [currentUserProfile?.isSystemMaster, currentUserProfile?.role]);
 
   const selectedStatus = selectedConversation?.status ?? "new";
   const selectedRouteIsRecovery = selectedConversation?.routeTarget === "recovery";
@@ -555,6 +660,9 @@ export default function InboxClientPage() {
     ).trim() ||
     selectedConversation?.customer.phone ||
     "";
+  const selectedConversationStatusMeta = selectedConversation
+    ? getConversationStatusMeta(selectedConversation)
+    : null;
   const humanAttentionPreview = humanAttentionConversations[0] || null;
   const newInboundPreview = newInboundConversations[0] || null;
   const humanQueueLabel = `${humanAttentionConversations.length} mensagem${
@@ -565,6 +673,8 @@ export default function InboxClientPage() {
     if (typeof window === "undefined") return;
     const summaryParts = [
       `Atendimento na aba ${activeTab}`,
+      botStudioOpen ? "editor do bot aberto" : "editor do bot fechado",
+      agendaStudioOpen ? "agenda aberta" : "agenda fechada",
       selectedConversation?.customer?.name
         ? `conversa selecionada com ${selectedConversation.customer.name}`
         : selectedId
@@ -588,6 +698,8 @@ export default function InboxClientPage() {
             activeTab,
             selectedStatus,
             selectedConversation?.routeTarget || "sem_rota",
+            botStudioOpen ? "editor_aberto" : "editor_fechado",
+            agendaStudioOpen ? "agenda_aberta" : "agenda_fechada",
             selectedBlocked ? "bloqueado" : "ativo",
           ],
           details: {
@@ -603,8 +715,8 @@ export default function InboxClientPage() {
             savingBot,
             loadingAgenda,
             savingAgenda,
-            syncingTemplates,
-            creatingTemplate,
+            botStudioOpen,
+            agendaStudioOpen,
             humanAttentionCount: humanAttentionConversations.length,
             newInboundCount: newInboundConversations.length,
             conversationsCount: conversations.length,
@@ -614,8 +726,9 @@ export default function InboxClientPage() {
     );
   }, [
     activeTab,
+    botStudioOpen,
+    agendaStudioOpen,
     conversations.length,
-    creatingTemplate,
     humanAttentionConversations.length,
     loadingAgenda,
     loadingBot,
@@ -629,8 +742,46 @@ export default function InboxClientPage() {
     selectedConversation?.routeTarget,
     selectedId,
     selectedStatus,
-    syncingTemplates,
   ]);
+
+  const handleTabChange = useCallback((nextTab: InboxTab) => {
+    setActiveTab(nextTab);
+    if (nextTab === "agenda") {
+      setAgendaStudioOpen(true);
+      setBotStudioOpen(false);
+      return;
+    }
+    setAgendaStudioOpen(false);
+  }, []);
+
+  const renderAgendaPanel = () => (
+    <AgendaPanel
+      agendaConfig={agendaConfig}
+      loadingAgenda={loadingAgenda}
+      savingAgenda={savingAgenda}
+      currentUserEmail={String(currentUserProfile?.email || "")}
+      currentUserName={String(currentUserProfile?.name || "")}
+      currentUserRole={String(currentUserProfile?.role || "")}
+      canManageAgenda={canManageAgenda}
+      onAddGroup={addAgendaGroup}
+      onMoveGroup={moveAgendaGroup}
+      onRemoveGroup={removeAgendaGroup}
+      onLinkCurrentUser={linkAgendaToCurrentUser}
+      onSave={() => {
+        setNotice(null);
+        void saveAgenda();
+      }}
+      onUpdateGroup={updateAgendaGroup}
+      onAddSlot={addAgendaSlot}
+      onRemoveSlot={removeAgendaSlot}
+      onUpdateSlot={updateAgendaSlot}
+      onUpdateHolidays={updateAgendaHolidays}
+      onLoadHolidays={loadAgendaHolidaysFromAPI}
+      onUpdateInitialMessage={updateAgendaInitialMessage}
+      onUpdateFlowMessage={updateAgendaFlowMessage}
+      onSimulate={simulateAgendaFlow}
+    />
+  );
 
   const updateStatus = useCallback(
     async (status: Exclude<StatusFilter, "all" | "blocked">) => {
@@ -717,155 +868,369 @@ export default function InboxClientPage() {
     [loadConversations, selectedBlocked, selectedId, selectedRouteIsRecovery, sendText],
   );
 
-  const syncTemplates = useCallback(async () => {
-    setSyncingTemplates(true);
-    setError(null);
-    try {
-      await apiFetch("/inbox/meta-templates/sync", { method: "POST" });
-      await loadTemplates();
-      setNotice({ tone: "success", text: "Templates Meta sincronizados com sucesso." });
-    } catch (syncError) {
-      const message = syncError instanceof Error ? syncError.message : "Falha ao sincronizar templates.";
-      setError(message);
-    } finally {
-      setSyncingTemplates(false);
-    }
-  }, [loadTemplates]);
-
-  const toggleTemplateActivation = useCallback(
-    async (template: RecoveryMetaTemplateItem, active: boolean) => {
-      setError(null);
-      try {
-        const payload = await apiFetch<RecoveryMetaTemplatesPayload>(
-          "/inbox/meta-templates/activation",
-          {
-            method: "PATCH",
-            body: JSON.stringify({
-              name: template.name,
-              language: template.language,
-              active,
-              headerMediaUrl:
-                template.normalized?.header?.mediaUrl || template.headerMediaUrl || undefined,
-            }),
-          },
-        );
-        setMetaTemplates(payload || EMPTY_META_TEMPLATES_PAYLOAD);
-        setNotice({
-          tone: "success",
-          text: active
-            ? `Template ${template.name} ativado para uso no HBX.`
-            : `Template ${template.name} desativado no HBX.`,
-        });
-      } catch (toggleError) {
-        const message =
-          toggleError instanceof Error ? toggleError.message : "Falha ao alterar template.";
-        setError(message);
-      }
-    },
+  const inboxWorkspacePanels: WorkspacePanelDescriptor[] = useMemo(
+    () => [
+      {
+        id: SHARED_CONVERSATION_WORKSPACE_IDS.listPanel,
+        title: "Conversas",
+        description: "Fila principal de atendimento com troca rápida de contexto.",
+        component: SHARED_CONVERSATION_WORKSPACE_IDS.listComponent,
+        params: {
+          accent: "#2563eb",
+        },
+        minimumWidth: 300,
+        minimumHeight: 240,
+        initialWidth: 360,
+      },
+      {
+        id: SHARED_CONVERSATION_WORKSPACE_IDS.mainPanel,
+        title: "Chat",
+        description: "Historico principal, contexto e leitura operacional.",
+        component: SHARED_CONVERSATION_WORKSPACE_IDS.mainComponent,
+        params: {
+          accent: "#0f766e",
+        },
+        minimumWidth: 540,
+        minimumHeight: 320,
+        initialWidth: 760,
+      },
+      {
+        id: SHARED_CONVERSATION_WORKSPACE_IDS.composerPanel,
+        title: "Resposta",
+        description: "Resposta manual com crescimento vertical livre.",
+        component: SHARED_CONVERSATION_WORKSPACE_IDS.composerComponent,
+        params: {
+          accent: "#1d4ed8",
+        },
+        minimumWidth: 520,
+        minimumHeight: 220,
+        initialHeight: 260,
+      },
+      {
+        id: SHARED_CONVERSATION_WORKSPACE_IDS.contextPanel,
+        title: "Cliente / Recovery",
+        description: "Cliente, status, rota e ações rápidas de operação.",
+        component: SHARED_CONVERSATION_WORKSPACE_IDS.contextComponent,
+        params: {
+          accent: "#b45309",
+        },
+        minimumWidth: 320,
+        minimumHeight: 260,
+        initialWidth: 360,
+      },
+    ],
     [],
   );
 
-  const createTemplate = useCallback(async () => {
-    const normalizedName = normalizeTemplateName(templateComposer.name);
-    const bodyText = String(templateComposer.bodyText || "").trim();
-    if (!normalizedName) {
-      setError("Informe um nome interno valido para o template.");
-      return;
-    }
-    if (!bodyText) {
-      setError("Informe o corpo do template Meta.");
-      return;
-    }
-    if (templateComposer.headerFormat === "TEXT") {
-      const headerText = String(templateComposer.headerText || "").trim();
-      if (!headerText) {
-        setError("Informe o texto do cabecalho.");
-        return;
-      }
-    }
-    if (
-      ["IMAGE", "DOCUMENT", "VIDEO"].includes(templateComposer.headerFormat) &&
-      !String(templateComposer.headerHandle || "").trim()
-    ) {
-      setError("Informe o header_handle da Meta para cabecalho com midia.");
-      return;
-    }
-    if (
-      templateComposer.activateInHbx &&
-      ["IMAGE", "DOCUMENT", "VIDEO"].includes(templateComposer.headerFormat) &&
-      !String(templateComposer.headerMediaUrl || "").trim()
-    ) {
-      setError("Informe a URL publica da midia para ativar o template no HBX.");
-      return;
-    }
+  const inboxWorkspaceComponents = useMemo(
+    () => ({
+      [SHARED_CONVERSATION_WORKSPACE_IDS.listComponent]: () => (
+        <ChatDockPanel
+          eyebrow="Atendimento"
+          title="Fila"
+          description="Conversas ativas, prioridade e rota em uma unica leitura."
+          count={filteredConversations.length}
+          className={styles.workspaceDockPanel}
+          bodyClassName={styles.workspaceDockBody}
+        >
+          {loadingList ? (
+            <ChatEmptyState title="Carregando conversas">A fila sera montada assim que a leitura inicial terminar.</ChatEmptyState>
+          ) : filteredConversations.length === 0 ? (
+            <ChatEmptyState title="Nenhuma conversa encontrada">Ajuste o filtro ou aguarde novas mensagens entrarem na fila.</ChatEmptyState>
+          ) : (
+            <ChatQueue className={styles.conversationList}>
+              {filteredConversations.map((conversation) => {
+                const active = conversation.id === selectedId;
+                const latestMessage = conversation.messages?.[0];
+                const statusMeta = getConversationStatusMeta(conversation);
+                return (
+                  <ChatQueueItem
+                    key={conversation.id}
+                    active={active}
+                    onClick={() => loadConversation(conversation.id)}
+                    initials={String(conversation.customer.name || conversation.customer.phone).slice(0, 2).toUpperCase()}
+                    label={statusMeta.shortLabel}
+                    tone={mapConversationToneToChatTone(statusMeta.tone)}
+                    title={conversation.customer.name || conversation.customer.phone}
+                    subtitle={conversation.customer.phone}
+                    preview={getMessagePreview(latestMessage)}
+                    meta={formatTimeLabel(conversation.updatedAt, mounted)}
+                    badges={
+                      <>
+                        <ChatBadge tone="brand">{statusMeta.label}</ChatBadge>
+                        {conversation.routeTarget === "recovery" ? (
+                          <ChatBadge tone="warning">Recovery</ChatBadge>
+                        ) : null}
+                        {conversation.status === "blocked" || conversation.isBlocked ? (
+                          <ChatBadge tone="danger">Bloqueado</ChatBadge>
+                        ) : null}
+                      </>
+                    }
+                  />
+                );
+              })}
+            </ChatQueue>
+          )}
+        </ChatDockPanel>
+      ),
+      [SHARED_CONVERSATION_WORKSPACE_IDS.mainComponent]: () => (
+        <ChatDockPanel
+          eyebrow="Chat"
+          title={selectedConversation ? selectedConversationDisplayName : "Chat"}
+          description="Historico principal do atendimento."
+          count={selectedConversation?.messages.length || 0}
+          className={styles.workspaceDockPanel}
+          bodyClassName={styles.workspaceDockBody}
+        >
+          {loadingConversation ? (
+            <ChatEmptyState title="Carregando conversa">Preparando historico e contexto do cliente.</ChatEmptyState>
+          ) : !selectedConversation ? (
+            <ChatEmptyState title="Nenhuma conversa selecionada">Escolha uma conversa na fila para abrir o chat.</ChatEmptyState>
+          ) : (
+            <ChatThread
+              avatar={
+                <ChatAvatar
+                  initials={String(selectedConversationDisplayName).slice(0, 2).toUpperCase()}
+                  label={selectedConversationStatusMeta?.shortLabel || "BOT"}
+                  tone={mapConversationToneToChatTone(selectedConversationStatusMeta?.tone || "bot")}
+                />
+              }
+              title={selectedConversationDisplayName}
+              subtitle={selectedConversation.customer.phone}
+              badges={
+                <>
+                  <ChatBadge tone="teal">{selectedConversationStatusMeta?.label || "Ativo"}</ChatBadge>
+                  {selectedConversation.routeTarget === "recovery" ? (
+                    <ChatBadge tone="warning">Rota recovery</ChatBadge>
+                  ) : null}
+                  {selectedConversation.recoveryOpenAmount > 0 ? (
+                    <ChatBadge tone="brand">{formatCurrency(selectedConversation.recoveryOpenAmount)}</ChatBadge>
+                  ) : null}
+                </>
+              }
+              actions={
+                <ChatIconButton
+                  icon="gear"
+                  label="Editor"
+                  onClick={() => setBotStudioOpen(true)}
+                  title="Configurar automacao"
+                  aria-label="Configurar automacao"
+                />
+              }
+            >
+              <div ref={chatTimelineRef} className={styles.chatTimeline}>
+                {selectedConversation.messages.length === 0 ? (
+                  <ChatEmptyState title="Sem mensagens">Esta conversa ainda nao tem historico registrado.</ChatEmptyState>
+                ) : (
+                  selectedConversation.messages.map((message) => (
+                    <ChatMessageBubble
+                      key={message.id}
+                      tone={mapInboxBubbleTone(message)}
+                      sender={
+                        String(message.senderType || "").trim().toLowerCase() === "human"
+                          ? "Humano"
+                          : String(message.senderType || "").trim().toLowerCase() === "system"
+                            ? "Sistema"
+                            : String(message.direction || "").trim().toLowerCase() === "outbound"
+                              ? "HBX"
+                              : "Cliente"
+                      }
+                      messageType={String(message.messageType || "texto").replace(/_/g, " ")}
+                      meta={formatDateLabel(message.createdAt, mounted)}
+                    >
+                      <p>{getMessagePreview(message)}</p>
+                    </ChatMessageBubble>
+                  ))
+                )}
+              </div>
+            </ChatThread>
+          )}
+        </ChatDockPanel>
+      ),
+      [SHARED_CONVERSATION_WORKSPACE_IDS.composerComponent]: () => (
+        <ChatDockPanel
+          eyebrow="Resposta"
+          title="Resposta manual"
+          description="Escreva, ajuste e envie sem apertar o historico."
+          count={sendText.trim().length}
+          className={styles.workspaceDockPanel}
+          bodyClassName={`${styles.workspaceDockBody} ${styles.workspaceDockComposerBody}`}
+        >
+          {!selectedConversation ? (
+            <ChatEmptyState title="Resposta indisponivel">Selecione uma conversa para abrir o composer.</ChatEmptyState>
+          ) : (
+            <form className={styles.workspaceDockComposer} onSubmit={sendMessage}>
+              <ChatComposer
+                title="Responder ao cliente"
+                description="Mensagem humana com resize vertical livre."
+                toolbar={
+                  <>
+                    <ChatIconButton icon="spark" title="Contexto do atendimento" aria-label="Contexto do atendimento" />
+                    <ChatIconButton icon="send" title="Pronto para enviar" aria-label="Pronto para enviar" />
+                  </>
+                }
+                footer={
+                  <>
+                    <ChatFieldNote>
+                      {selectedRouteIsRecovery
+                        ? "Esta conversa tambem aparece no Recovery."
+                        : "O bot pode retomar a conversa depois do encerramento."}
+                    </ChatFieldNote>
+                    <button
+                      type="submit"
+                      className="btn btn-primary"
+                      disabled={sending || !sendText.trim() || selectedBlocked}
+                    >
+                      {sending ? "Enviando..." : "Enviar resposta"}
+                    </button>
+                  </>
+                }
+              >
+                <textarea
+                  id="atendimento-chat-reply"
+                  name="atendimentoChatReply"
+                  className="field"
+                  rows={6}
+                  value={sendText}
+                  onChange={(event) => setSendText(event.target.value)}
+                  placeholder={
+                    selectedBlocked
+                      ? "Contato bloqueado. Desbloqueie para responder."
+                      : "Digite uma resposta manual..."
+                  }
+                  disabled={selectedBlocked || sending}
+                />
+              </ChatComposer>
+            </form>
+          )}
+        </ChatDockPanel>
+      ),
+      [SHARED_CONVERSATION_WORKSPACE_IDS.contextComponent]: () => (
+        <ChatDockPanel
+          eyebrow="Contexto"
+          title="Cliente / Recovery"
+          description="Status, rota e acoes do atendimento."
+          count={selectedConversation ? "LIVE" : "--"}
+          className={styles.workspaceDockPanel}
+          bodyClassName={styles.workspaceDockBody}
+        >
+          {!selectedConversation ? (
+            <ChatEmptyState title="Sem contexto ativo">Abra uma conversa para liberar os atalhos operacionais.</ChatEmptyState>
+          ) : (
+            <ChatSideGrid>
+              <ChatInfoCard title="Resumo do cliente" meta={selectedConversation.routeTarget || "atendimento"}>
+                <p><strong>Cliente:</strong> {selectedConversationDisplayName}</p>
+                <p><strong>Telefone:</strong> {selectedConversation.customer.phone}</p>
+                <p><strong>Status:</strong> {selectedConversationStatusMeta?.label ?? "-"}</p>
+                <p><strong>Motivo:</strong> {selectedConversation.routeReason || "-"}</p>
+                <p><strong>Atualizado:</strong> {formatDateLabel(selectedConversation.updatedAt, mounted)}</p>
+                {selectedConversation.recoveryOpenAmount > 0 ? (
+                  <p><strong>Recovery:</strong> {formatCurrency(selectedConversation.recoveryOpenAmount)}</p>
+                ) : null}
+                {selectedBlocked ? (
+                  <p>
+                    <strong>Bloqueio:</strong> {formatDateLabel(selectedConversation.blockedAt, mounted)}
+                    {selectedConversation.blockedReason ? ` - ${selectedConversation.blockedReason}` : ""}
+                  </p>
+                ) : null}
+              </ChatInfoCard>
 
-    setCreatingTemplate(true);
-    setError(null);
-    try {
-      await apiFetch("/inbox/meta-templates/create", {
-        method: "POST",
-        body: JSON.stringify({
-          name: normalizedName,
-          category: templateComposer.category,
-          language: templateComposer.language || "pt_BR",
-          headerFormat:
-            templateComposer.headerFormat === "NONE" ? undefined : templateComposer.headerFormat,
-          headerText: templateComposer.headerText || undefined,
-          headerHandle: templateComposer.headerHandle || undefined,
-          headerMediaUrl: templateComposer.headerMediaUrl || undefined,
-          bodyText,
-          footerText: templateComposer.footerText || undefined,
-          buttons: String(templateComposer.buttonsText || "")
-            .split(/\r?\n/)
-            .map((line) => line.trim())
-            .filter(Boolean),
-          activateInHbx: templateComposer.activateInHbx,
-        }),
-      });
-      setTemplateComposer(DEFAULT_TEMPLATE_COMPOSER);
-      await loadTemplates();
-      setNotice({
-        tone: "success",
-        text: `Template ${normalizedName} enviado para aprovacao na Meta.`,
-      });
-    } catch (createError) {
-      const message =
-        createError instanceof Error ? createError.message : "Falha ao criar template Meta.";
-      setError(message);
-    } finally {
-      setCreatingTemplate(false);
-    }
-  }, [loadTemplates, templateComposer]);
-
-  const deleteTemplate = useCallback(
-    async (template: RecoveryMetaTemplateItem) => {
-      const deletingKey = `${template.name}:${template.language}`;
-      const confirmed = window.confirm(
-        `Excluir o template ${template.name} (${template.language}) da Meta e do HBX?`,
-      );
-      if (!confirmed) return;
-      setDeletingTemplateId(deletingKey);
-      setError(null);
-      try {
-        await apiFetch("/inbox/meta-templates", {
-          method: "DELETE",
-          body: JSON.stringify({
-            name: template.name,
-            language: template.language,
-            id: template.id || undefined,
-          }),
-        });
-        await loadTemplates();
-        setNotice({ tone: "success", text: `Template ${template.name} excluido.` });
-      } catch (deleteError) {
-        const message =
-          deleteError instanceof Error ? deleteError.message : "Falha ao excluir template.";
-        setError(message);
-      } finally {
-        setDeletingTemplateId(null);
-      }
-    },
-    [loadTemplates],
+              <ChatInfoCard title="Acoes rapidas" meta="Operacao">
+                <ChatActionGrid>
+                  {selectedConversation.routeTarget === "recovery" ? (
+                    <Link href="/hbx-recovery?tab=messages" className="btn btn-primary btn-sm">
+                      Abrir Recovery
+                    </Link>
+                  ) : null}
+                  {selectedConversation.routeTarget === "recovery" ? (
+                    <Link href="/hbx-recovery?tab=payments" className="btn btn-secondary btn-sm">
+                      Ver pagamentos
+                    </Link>
+                  ) : null}
+                  {selectedConversation.routeTarget === "recovery" ? (
+                    <Link href="/hbx-recovery?tab=templates" className="btn btn-secondary btn-sm">
+                      Templates Meta
+                    </Link>
+                  ) : null}
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    onClick={() => setBotStudioOpen(true)}
+                  >
+                    Abrir automacao
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    onClick={() => {
+                      setActiveTab("agenda");
+                      setAgendaStudioOpen(true);
+                      setBotStudioOpen(false);
+                    }}
+                  >
+                    Abrir agenda
+                  </button>
+                  {!selectedBlocked ? (
+                    <>
+                      <ChatActionButton
+                        type="button"
+                        className={`btn btn-sm ${selectedStatus === "open" ? "btn-primary" : "btn-secondary"}`}
+                        onClick={() => updateStatus("open")}
+                      >
+                        Assumir humano
+                      </ChatActionButton>
+                      <ChatActionButton
+                        type="button"
+                        className={`btn btn-sm ${selectedStatus === "new" ? "btn-primary" : "btn-secondary"}`}
+                        onClick={() => updateStatus("new")}
+                      >
+                        Voltar ao bot
+                      </ChatActionButton>
+                      <ChatActionButton
+                        type="button"
+                        className={`btn btn-sm ${selectedStatus === "closed" ? "btn-primary" : "btn-secondary"}`}
+                        onClick={() => updateStatus("closed")}
+                      >
+                        Encerrar conversa
+                      </ChatActionButton>
+                    </>
+                  ) : null}
+                  {selectedBlocked ? (
+                    <ChatActionButton type="button" className="btn btn-secondary btn-sm" onClick={unblockConversation}>
+                      Desbloquear contato
+                    </ChatActionButton>
+                  ) : (
+                    <ChatActionButton type="button" className="btn btn-danger btn-sm" onClick={blockConversation}>
+                      Bloquear contato
+                    </ChatActionButton>
+                  )}
+                </ChatActionGrid>
+              </ChatInfoCard>
+            </ChatSideGrid>
+          )}
+        </ChatDockPanel>
+      ),
+    }),
+    [
+      blockConversation,
+      filteredConversations,
+      loadConversation,
+      loadingConversation,
+      loadingList,
+      mounted,
+      selectedBlocked,
+      selectedConversation,
+      selectedConversationDisplayName,
+      selectedConversationStatusMeta,
+      selectedId,
+      selectedRouteIsRecovery,
+      selectedStatus,
+      sendMessage,
+      sendText,
+      sending,
+      unblockConversation,
+      updateStatus,
+    ],
   );
 
   const addAgendaGroup = useCallback(() => {
@@ -875,17 +1240,34 @@ export default function InboxClientPage() {
         ...current.groups,
         {
           id: makeClientId("agenda_group"),
-          title: `Nova agenda ${current.groups.length + 1}`,
-          description: "Explique quando essa agenda deve ser usada.",
-          buttonLabel: "Ver horarios",
+          slug: `nova_guia_${current.groups.length + 1}`,
+          title: `Nova guia ${current.groups.length + 1}`,
+          description: "Explique rapidamente quando esse time deve ser usado.",
+          buttonLabel: "Nova guia",
+          actionType: "abrir_agenda",
+          linkedAgendaId: "",
+          customActionKey: null,
+          sortOrder: current.groups.length,
           introMessage:
             "Esses sao os horarios disponiveis para {{agenda_nome}}.\n\n{{agenda_slots}}",
           emptyMessage: "No momento nao ha horarios ativos para essa agenda.",
+          noImmediateAvailabilityMessage:
+            "Nao encontrei disponibilidade imediata para esta guia. Vou priorizar os proximos horarios futuros.",
+          linkedEmail: String(currentUserProfile?.email || "").trim().toLowerCase(),
+          linkedUserName: String(currentUserProfile?.name || "").trim(),
+          connectionStatus: currentUserProfile?.email ? "pending" : "not_linked",
+          accentColor: ["#4da36f", "#5d83ff", "#e57b47", "#9b59b6"][current.groups.length % 4],
+          isActive: true,
+          workdays: [1, 2, 3, 4, 5],
+          visibleBusinessDays: 7,
+          searchWindowDays: 7,
+          suggestedSlotsCount: 3,
+          fallbackFutureSlotsCount: 3,
           slots: [],
         },
       ],
     }));
-  }, []);
+  }, [currentUserProfile?.email, currentUserProfile?.name]);
 
   const removeAgendaGroup = useCallback((groupId: string) => {
     const actionId = buildAgendaActionId(groupId);
@@ -907,8 +1289,8 @@ export default function InboxClientPage() {
   const updateAgendaGroup = useCallback(
     (
       groupId: string,
-      field: "title" | "description" | "buttonLabel" | "introMessage" | "emptyMessage",
-      value: string,
+      field: AgendaGroupEditableField,
+      value: string | boolean | number | number[],
     ) => {
       setAgendaConfig((current) => ({
         ...current,
@@ -918,6 +1300,45 @@ export default function InboxClientPage() {
       }));
     },
     [],
+  );
+
+  const moveAgendaGroup = useCallback((groupId: string, direction: -1 | 1) => {
+    setAgendaConfig((current) => {
+      const index = current.groups.findIndex((group) => group.id === groupId);
+      const nextIndex = index + direction;
+      if (index < 0 || nextIndex < 0 || nextIndex >= current.groups.length) return current;
+      const groups = [...current.groups];
+      const [group] = groups.splice(index, 1);
+      groups.splice(nextIndex, 0, group);
+      return {
+        ...current,
+        groups: groups.map((item, itemIndex) => ({
+          ...item,
+          sortOrder: itemIndex,
+        })),
+      };
+    });
+  }, []);
+
+  const linkAgendaToCurrentUser = useCallback(
+    (groupId: string) => {
+      const email = String(currentUserProfile?.email || "").trim().toLowerCase();
+      if (!email) return;
+      setAgendaConfig((current) => ({
+        ...current,
+        groups: current.groups.map((group) =>
+          group.id === groupId
+            ? {
+                ...group,
+                linkedEmail: email,
+                linkedUserName: String(currentUserProfile?.name || "").trim(),
+                connectionStatus: "connected",
+              }
+            : group,
+        ),
+      }));
+    },
+    [currentUserProfile?.email, currentUserProfile?.name],
   );
 
   const addAgendaSlot = useCallback((groupId: string) => {
@@ -979,6 +1400,65 @@ export default function InboxClientPage() {
     [],
   );
 
+  const updateAgendaHolidays = useCallback((holidays: string[]) => {
+    setAgendaConfig((current) => ({
+      ...current,
+      holidays: holidays.sort(),
+    }));
+  }, []);
+
+  const updateAgendaInitialMessage = useCallback(
+    (
+      field: keyof AtendimentoAgendaConfig["initialMessage"],
+      value: string,
+    ) => {
+      setAgendaConfig((current) => ({
+        ...current,
+        initialMessage: {
+          ...current.initialMessage,
+          [field]: value,
+        },
+      }));
+    },
+    [],
+  );
+
+  const updateAgendaFlowMessage = useCallback(
+    (
+      field: keyof AtendimentoAgendaConfig["flowMessages"],
+      value: string,
+    ) => {
+      setAgendaConfig((current) => ({
+        ...current,
+        flowMessages: {
+          ...current.flowMessages,
+          [field]: value,
+        },
+      }));
+    },
+    [],
+  );
+
+  const loadAgendaHolidaysFromAPI = useCallback(async () => {
+    const now = new Date();
+    const currentYear = now.getFullYear();
+    try {
+      const holidays = await fetchBrazilianHolidays(currentYear);
+      if (holidays.length === 0) {
+        setError("Nenhum feriado encontrado para o ano atual.");
+        return;
+      }
+      setAgendaConfig((current) => ({
+        ...current,
+        holidays: Array.from(new Set([...current.holidays, ...holidays])).sort(),
+      }));
+      setNotice({ tone: "success", text: `${holidays.length} feriados carregados com sucesso.` });
+    } catch (loadError) {
+      const message = loadError instanceof Error ? loadError.message : "Falha ao carregar feriados.";
+      setError(message);
+    }
+  }, []);
+
   const saveAgenda = useCallback(async () => {
     setSavingAgenda(true);
     setError(null);
@@ -996,6 +1476,16 @@ export default function InboxClientPage() {
       setSavingAgenda(false);
     }
   }, [agendaConfig]);
+
+  const simulateAgendaFlow = useCallback(
+    async (payload: AtendimentoAgendaSimulationPayload) => {
+      return apiFetch<AtendimentoAgendaSimulationResult>("/inbox/agenda/simulate", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+    },
+    [],
+  );
 
   const updateRoutingRule = useCallback(
     (field: keyof AtendimentoBotConfig["routingRules"], value: boolean) => {
@@ -1046,7 +1536,12 @@ export default function InboxClientPage() {
 
   const updateButtonSection = useCallback(
     (
-      section: "welcomeButtons" | "mainMenuButtons" | "recoveryDetectedButtons" | "postActionButtons",
+      section:
+        | "welcomeButtons"
+        | "returningCustomerButtons"
+        | "mainMenuButtons"
+        | "recoveryDetectedButtons"
+        | "postActionButtons",
       index: number,
       field: keyof AtendimentoBotButton,
       value: string,
@@ -1055,18 +1550,30 @@ export default function InboxClientPage() {
         ...current,
         [section]: current[section].map((button, buttonIndex) =>
           buttonIndex === index
-            ? {
-                ...button,
-                [field]:
-                  field === "buttonId"
-                    ? String(value || "")
-                        .trim()
-                        .toLowerCase()
-                        .replace(/\s+/g, "_")
-                        .replace(/[^a-z0-9_:-]/g, "")
-                        .slice(0, 80)
-                    : value,
-              }
+            ? (() => {
+                const currentActionId =
+                  field === "actionId" ? String(value || "") : String(button.actionId || "");
+                return {
+                  ...button,
+                  [field]:
+                    field === "buttonId"
+                      ? String(value || "")
+                          .trim()
+                          .toLowerCase()
+                          .replace(/\s+/g, "_")
+                          .replace(/[^a-z0-9_:-]/g, "")
+                          .slice(0, 80)
+                      : field === "nextNodeId"
+                        ? normalizeAtendimentoNextNodeId(value, currentActionId)
+                        : value,
+                  nextNodeId:
+                    field === "actionId"
+                      ? resolveAtendimentoButtonNextNodeId(value)
+                      : field === "nextNodeId"
+                        ? normalizeAtendimentoNextNodeId(value, currentActionId)
+                        : normalizeAtendimentoNextNodeId(String(button.nextNodeId || ""), currentActionId),
+                };
+              })()
             : button,
         ),
       }));
@@ -1075,7 +1582,14 @@ export default function InboxClientPage() {
   );
 
   const addButtonSection = useCallback(
-    (section: "welcomeButtons" | "mainMenuButtons" | "recoveryDetectedButtons" | "postActionButtons") => {
+    (
+      section:
+        | "welcomeButtons"
+        | "returningCustomerButtons"
+        | "mainMenuButtons"
+        | "recoveryDetectedButtons"
+        | "postActionButtons",
+    ) => {
       const fallback = actionOptions[0] || { value: "talk_human", label: "Falar com atendente" };
       setBotConfig((current) => ({
         ...current,
@@ -1085,6 +1599,7 @@ export default function InboxClientPage() {
             buttonId: makeClientId(`${section}_button`),
             actionId: fallback.value,
             title: fallback.label.split(" • ")[0],
+            nextNodeId: resolveAtendimentoButtonNextNodeId(fallback.value),
           },
         ],
       }));
@@ -1094,7 +1609,12 @@ export default function InboxClientPage() {
 
   const removeButtonSection = useCallback(
     (
-      section: "welcomeButtons" | "mainMenuButtons" | "recoveryDetectedButtons" | "postActionButtons",
+      section:
+        | "welcomeButtons"
+        | "returningCustomerButtons"
+        | "mainMenuButtons"
+        | "recoveryDetectedButtons"
+        | "postActionButtons",
       index: number,
     ) => {
       setBotConfig((current) => ({
@@ -1289,763 +1809,612 @@ export default function InboxClientPage() {
   if (!hasToken) return null;
 
   return (
-    <DashboardScaffold
-      title="Atendimento"
-      description="Parede real entre Atendimento, Agenda e Recovery, com editor do bot isolado e 100% controlavel."
-      actions={
-        <div className={recoveryStyles.heroTabGroup} role="tablist" aria-label="Guias do Atendimento">
-          {TAB_ITEMS.map((tab) => (
-            <button
-              key={tab.id}
-              type="button"
-              role="tab"
-              aria-selected={tab.id === activeTab}
-              className={tab.id === activeTab ? recoveryStyles.heroTabActive : recoveryStyles.heroTab}
-              onClick={() => setActiveTab(tab.id)}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </div>
-      }
-    >
-      {error ? <div className="alert alert-error">{error}</div> : null}
+    <>
+      <DashboardScaffold
+        title="Atendimento"
+        description="Mensagens com costume visual de chat, automacao por engrenagem e agenda separada da operacao."
+        hideHeader={botStudioOpen || agendaStudioOpen}
+        layoutMode="workspace"
+        actions={
+          <div className={recoveryStyles.heroTabGroup} role="tablist" aria-label="Guias do Atendimento">
+            {TAB_ITEMS.map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                role="tab"
+                aria-selected={tab.id === activeTab}
+                className={tab.id === activeTab ? recoveryStyles.heroTabActive : recoveryStyles.heroTab}
+                onClick={() => handleTabChange(tab.id)}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+        }
+      >
+        {error ? <div className="alert alert-error">{error}</div> : null}
 
-      <section className={`${styles.workspaceCard} ${styles.heroPanel}`}>
-        <div className={styles.sectionHead}>
-          <div className={styles.heroIntro}>
-            <p className={styles.heroEyebrow}>Painel operacional</p>
-            <h2 className={styles.heroTitle}>Atendimento com fila viva, leitura rápida e parede real entre módulos.</h2>
-            <p className={styles.heroDescription}>
-              O fluxo agora prioriza densidade visual, ação imediata e contexto resumido para notebook e desktop sem esticar a interface.
-            </p>
-          </div>
-          <div className={styles.heroMeta}>
-            <span className={styles.pulseBadge}>{pendingAtendimentoCount} aguardando</span>
-            <span className={styles.metaBadge}>{humanAttentionConversations.length} em humano</span>
-            <span className={styles.routeRecovery}>{recoveryRoutedCount} em Recovery</span>
-          </div>
-        </div>
-
-        <div className={styles.metricStrip}>
-          <div className={styles.metricCard}>
-            <strong>{filteredConversations.length}</strong>
-            <span>Conversas monitoradas</span>
-          </div>
-          <div className={styles.metricCard}>
-            <strong>{activeCustomerCount}</strong>
-            <span>Clientes com fila ativa</span>
-          </div>
-          <div className={styles.metricCard}>
-            <strong>{atendimentoCustomers.length}</strong>
-            <span>Clientes na base local</span>
-          </div>
-          <div className={styles.metricCard}>
-            <strong>{blockedConversationCount}</strong>
-            <span>Contatos bloqueados</span>
-          </div>
-        </div>
-      </section>
-
-      {activeTab === "messages" ? (
-        <section className={styles.messageGrid}>
-          <article className={styles.workspaceCard}>
-            <div className={styles.sectionHead}>
-              <div>
-                <p className={styles.sectionEyebrow}>Fila viva do Atendimento</p>
-                <h3>Mensagens recebidas</h3>
-                <small>
-                  {pendingAtendimentoCount} em aberto · {humanAttentionConversations.length} em
-                  humano · {newInboundConversations.length} novas aguardando leitura.
-                </small>
-              </div>
-              <div className={styles.heroMeta}>
-                <span className={styles.pulseBadge}>{pendingAtendimentoCount} na fila</span>
-                <span className={styles.metaBadge}>{filteredConversations.length} monitoradas</span>
-              </div>
-            </div>
-
-            <div className={styles.conversationList}>
-              {loadingList ? (
-                <div className={styles.emptyState}>Carregando conversas...</div>
-              ) : filteredConversations.length === 0 ? (
-                <div className={styles.emptyState}>Nenhuma conversa encontrada para este filtro.</div>
-              ) : (
-                filteredConversations.map((conversation) => {
-                  const active = conversation.id === selectedId;
-                  const latestMessage = conversation.messages?.[0];
-                  return (
-                    <button
-                      key={conversation.id}
-                      type="button"
-                      className={`${styles.conversationItem} ${
-                        active ? styles.conversationItemActive : ""
-                      }`}
-                      onClick={() => loadConversation(conversation.id)}
-                    >
-                      <div className={styles.conversationHead}>
-                        <div>
-                          <strong>{conversation.customer.name || conversation.customer.phone}</strong>
-                          <small>{conversation.customer.phone}</small>
-                        </div>
-                        <div className={styles.detailMeta}>
-                          <span
-                            className={
-                              conversation.routeTarget === "recovery"
-                                ? styles.routeRecovery
-                                : styles.routeAtendimento
-                            }
-                          >
-                            {conversation.routeTarget === "recovery" ? "Recovery" : "Atendimento"}
-                          </span>
-                          {conversation.status === "blocked" ? (
-                            <span className={styles.blockTag}>Bloqueado</span>
-                          ) : null}
-                        </div>
-                      </div>
-                      <p>{getMessagePreview(latestMessage)}</p>
-                      <div className={styles.conversationFoot}>
-                        <span>{conversation.routeReason}</span>
-                        <span>{formatDateLabel(conversation.updatedAt, mounted)}</span>
-                      </div>
-                    </button>
-                  );
-                })
-              )}
-            </div>
-          </article>
-
-          <article className={styles.workspaceCard}>
-            {loadingConversation ? (
-              <div className={styles.emptyState}>Carregando conversa...</div>
-            ) : !selectedConversation ? (
-              <div className={styles.emptyState}>
-                Selecione uma conversa para ver timeline, status e a parede de roteamento.
-              </div>
-            ) : (
+        {activeTab === "messages" ? (
+          <WorkspaceShell
+            key={`inbox-workspace:${String(currentUserProfile?.company?.id || "tenant-default")}:${String(
+              currentUserProfile?.role || "USER",
+            ).toUpperCase()}:${String(
+              currentUserProfile?.id ||
+                currentUserProfile?.username ||
+                currentUserProfile?.email ||
+                "anonymous",
+            )}:${loadingList ? "loading" : "ready"}:${filteredConversations.length}:${selectedId || "none"}:${selectedConversation?.messages.length || 0}`}
+            moduleLabel="Atendimento"
+            scope={{
+              tenantId: String(currentUserProfile?.company?.id || "tenant-default"),
+              moduleKey: SHARED_CONVERSATION_WORKSPACE_MODULE_KEY,
+              role: String(currentUserProfile?.role || "USER").toUpperCase(),
+              userId: String(
+                currentUserProfile?.id ||
+                  currentUserProfile?.username ||
+                  currentUserProfile?.email ||
+                  "anonymous",
+              ),
+              isMaster: Boolean(currentUserProfile?.isSystemMaster),
+            }}
+            panels={inboxWorkspacePanels}
+            components={inboxWorkspaceComponents}
+            createDefaultLayout={createSharedConversationWorkspaceLayout}
+            chromeMode="minimal"
+            className={styles.workspaceDockShell}
+            toolbarSlot={
               <>
-                <div className={styles.sectionHead}>
-                  <div>
-                    <p className={styles.sectionEyebrow}>Conversa ativa</p>
-                    <h3>
-                      {selectedConversationDisplayName}
-                    </h3>
-                    <small>{selectedConversation.customer.phone}</small>
-                  </div>
-                  <div className={styles.detailMeta}>
-                    <span
-                      className={
-                        selectedConversation.routeTarget === "recovery"
-                          ? styles.routeRecovery
-                          : styles.routeAtendimento
-                      }
-                    >
-                      {selectedConversation.routeTarget === "recovery"
-                        ? "Cliente no Recovery"
-                        : "Cliente no Atendimento"}
-                    </span>
-                    {selectedConversation.recoveryOpenAmount > 0 ? (
-                      <span className={styles.metaBadge}>
-                        {formatCurrency(selectedConversation.recoveryOpenAmount)}
-                      </span>
-                    ) : null}
-                    {selectedConversation.status === "blocked" ? (
-                      <span className={styles.blockTag}>Bloqueado</span>
-                    ) : null}
-                  </div>
-                </div>
-
-                <div className={styles.actionBar}>
-                  {selectedConversation.routeTarget === "recovery" ? (
-                    <Link href="/hbx-recovery" className="btn btn-primary btn-sm">
-                      Abrir Recovery
-                    </Link>
-                  ) : null}
-
-                  {!selectedBlocked ? (
-                    <>
-                      <button
-                        type="button"
-                        className={`btn btn-sm ${
-                          selectedStatus === "open" ? "btn-primary" : "btn-secondary"
-                        }`}
-                        onClick={() => updateStatus("open")}
-                      >
-                        Assumir humano
-                      </button>
-                      <button
-                        type="button"
-                        className={`btn btn-sm ${
-                          selectedStatus === "new" ? "btn-primary" : "btn-secondary"
-                        }`}
-                        onClick={() => updateStatus("new")}
-                      >
-                        Voltar ao bot
-                      </button>
-                      <button
-                        type="button"
-                        className={`btn btn-sm ${
-                          selectedStatus === "closed" ? "btn-primary" : "btn-secondary"
-                        }`}
-                        onClick={() => updateStatus("closed")}
-                      >
-                        Encerrar conversa
-                      </button>
-                    </>
-                  ) : null}
-
-                  {selectedBlocked ? (
-                    <button type="button" className="btn btn-secondary btn-sm" onClick={unblockConversation}>
-                      Desbloquear contato
-                    </button>
-                  ) : (
-                    <button type="button" className="btn btn-danger btn-sm" onClick={blockConversation}>
-                      Bloquear contato
-                    </button>
-                  )}
-                </div>
-
-                {selectedBlocked ? (
-                  <div className={`${styles.inlineNote} ${styles.inlineError}`}>
-                    Contato bloqueado em {formatDateLabel(selectedConversation.blockedAt, mounted)}.
-                    {selectedConversation.blockedReason ? ` Motivo: ${selectedConversation.blockedReason}` : ""}
-                  </div>
-                ) : null}
-
-                <div ref={chatTimelineRef} className={styles.chatTimeline}>
-                  {selectedConversation.messages.length === 0 ? (
-                    <div className={styles.emptyState}>Sem mensagens nesta conversa.</div>
-                  ) : (
-                    selectedConversation.messages.map((message) => (
-                      <div key={message.id} className={`${styles.chatBubble} ${getBubbleClass(message)}`}>
-                        <p>{getMessagePreview(message)}</p>
-                        <div className={styles.chatMeta}>
-                          <span className={styles.chatDate}>{formatDateLabel(message.createdAt, mounted)}</span>
-                        </div>
-                      </div>
-                    ))
-                  )}
-                </div>
-
-                <form className={styles.replyComposer} onSubmit={sendMessage}>
-                  <textarea
-                    className="field"
-                    rows={4}
-                    value={sendText}
-                    onChange={(event) => setSendText(event.target.value)}
-                    placeholder={
-                      selectedBlocked
-                        ? "Contato bloqueado. Desbloqueie para responder."
-                        : "Digite uma resposta manual..."
-                    }
-                    disabled={selectedBlocked || sending}
-                  />
-                  <div className={styles.replyFooter}>
-                    <small>
-                      {selectedRouteIsRecovery
-                        ? "Conversa tambem visivel no Recovery para acompanhamento operacional."
-                        : "Quando o cliente voltar a falar depois de encerrado, o bot pode reabrir a conversa automaticamente."}
-                    </small>
-                    <button
-                      type="submit"
-                      className="btn btn-primary"
-                      disabled={sending || !sendText.trim() || selectedBlocked}
-                    >
-                      {sending ? "Enviando..." : "Enviar resposta"}
-                    </button>
-                  </div>
-                </form>
-              </>
-            )}
-          </article>
-
-        </section>
-      ) : null}
-
-      {activeTab === "customers" ? (
-        <section className={styles.stackSection}>
-          <article className={`panel ${recoveryStyles.sectionCard} ${recoveryStyles.registerTableCard}`}>
-            <div className={recoveryStyles.sectionHeader}>
-              <div>
-                <p className={recoveryStyles.sectionEyebrow}>Tabela de clientes</p>
-                <h3 className={recoveryStyles.sectionTitle}>Base operacional do Atendimento</h3>
-                <p className={recoveryStyles.sectionDescription}>
-                  Clientes cadastrados pelo bot ou manualmente. Origem, status e ultima interacao.
-                </p>
-              </div>
-              <div className={styles.footerActions}>
-                <span className="badge badge-brand">{atendimentoCustomers.length} clientes</span>
                 <button
                   type="button"
-                  className="btn btn-primary btn-sm"
-                  onClick={() => {
-                    setCustomerForm({ phone: "", name: "", route: "atendimento", notes: "" });
-                    setShowCreateCustomerModal(true);
-                  }}
+                  className={`btn btn-sm ${inboxQueue === "all" ? "btn-primary" : "btn-secondary"}`}
+                  onClick={() => setInboxQueue("all")}
                 >
-                  Novo cliente
+                  Conversas
                 </button>
-              </div>
-            </div>
+                <button
+                  type="button"
+                  className={`btn btn-sm ${inboxQueue === "closed" ? "btn-primary" : "btn-secondary"}`}
+                  onClick={() => setInboxQueue("closed")}
+                >
+                  Conversas encerradas
+                </button>
+                <button
+                  type="button"
+                  className={`btn btn-sm ${inboxQueue === "blocked" ? "btn-primary" : "btn-secondary"}`}
+                  onClick={() => setInboxQueue("blocked")}
+                >
+                  Clientes bloqueados
+                </button>
+              </>
+            }
+          />
+        ) : null}
 
-            {loadingCustomers ? (
-              <div className={styles.emptyState}>Carregando clientes...</div>
-            ) : atendimentoCustomers.length === 0 ? (
-              <div className={styles.emptyState}>Nenhum cliente cadastrado ainda. Clientes aparecem aqui automaticamente ao interagir pelo WhatsApp.</div>
-            ) : (
-              <div className={recoveryStyles.tableWrap}>
-                <table className={recoveryStyles.importPreviewTable}>
-                  <thead>
-                    <tr>
-                      <th>Cliente</th>
-                      <th>Origem</th>
-                      <th>Recovery</th>
-                      <th>Ultima interacao</th>
-                      <th>Cadastrado em</th>
-                      <th>Acoes</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {atendimentoCustomers.map((customer) => (
-                      <tr key={customer.id}>
-                        <td className={styles.customerCell}>
-                          <strong>{customer.name ?? <em className={styles.mutedText}>Sem nome confirmado</em>}</strong>
-                          <span>{customer.phone}</span>
-                        </td>
-                        <td>
-                          <span className={
-                            customer.registrationOrigin === "manual" ? styles.badgeManual :
-                            customer.registrationOrigin === "recovery" ? styles.badgeRecovery :
-                            styles.badgeWhatsapp
-                          }>
-                            {customer.registrationOrigin === "manual" ? "Manual" :
-                             customer.registrationOrigin === "recovery" ? "Recovery" : "WhatsApp"}
-                          </span>
-                        </td>
-                        <td>
-                          {customer.recoveryCustomerId ? (
-                            <div className={styles.customerCell}>
-                              <span className={customer.recoveryStatus === "PAID" ? styles.badgeConfirmed : styles.badgeDebt}>
-                                {customer.recoveryStatus === "PAID" ? "Pago" : "Inadimplente"}
-                              </span>
-                              {customer.openAmount != null ? (
-                                <span className={styles.mutedText}>{formatCurrency(customer.openAmount)}</span>
+        {activeTab === "customers" ? (
+          <section className={styles.stackSection}>
+            <article className={`panel ${recoveryStyles.sectionCard} ${recoveryStyles.registerTableCard}`}>
+              <div className={recoveryStyles.sectionHeader}>
+                <div>
+                  <p className={recoveryStyles.sectionEyebrow}>Clientes cadastrados</p>
+                </div>
+                <div className={styles.footerActions}>
+                  <span className="badge badge-brand">{atendimentoCustomers.length} clientes</span>
+                  <button
+                    type="button"
+                    className="btn btn-primary btn-sm"
+                    onClick={() => {
+                      setCustomerForm({ phone: "", name: "", route: "atendimento", notes: "" });
+                      setShowCreateCustomerModal(true);
+                    }}
+                  >
+                    Novo cliente
+                  </button>
+                </div>
+              </div>
+
+              {loadingCustomers ? (
+                <div className={styles.emptyState}>Carregando clientes...</div>
+              ) : atendimentoCustomers.length === 0 ? (
+                <div className={styles.emptyState}>Nenhum cliente cadastrado ainda. Clientes aparecem aqui automaticamente ao interagir pelo WhatsApp.</div>
+              ) : (
+                <div className={recoveryStyles.tableWrap}>
+                  <table className={recoveryStyles.importPreviewTable}>
+                    <thead>
+                      <tr>
+                        <th>Cliente</th>
+                        <th>Origem</th>
+                        <th>Recovery</th>
+                        <th>Ultima interacao</th>
+                        <th>Cadastrado em</th>
+                        <th>Acoes</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {atendimentoCustomers.map((customer) => (
+                        <tr key={customer.id}>
+                          <td className={styles.customerCell}>
+                            <strong>{customer.name ?? <em className={styles.mutedText}>Sem nome confirmado</em>}</strong>
+                            <span>{customer.phone}</span>
+                          </td>
+                          <td>
+                            <span className={
+                              customer.registrationOrigin === "manual" ? styles.badgeManual :
+                              customer.registrationOrigin === "recovery" ? styles.badgeRecovery :
+                              styles.badgeWhatsapp
+                            }>
+                              {customer.registrationOrigin === "manual" ? "Manual" :
+                               customer.registrationOrigin === "recovery" ? "Recovery" : "WhatsApp"}
+                            </span>
+                          </td>
+                          <td>
+                            {customer.recoveryCustomerId ? (
+                              <div className={styles.customerCell}>
+                                <span className={customer.recoveryStatus === "PAID" ? styles.badgeConfirmed : styles.badgeDebt}>
+                                  {customer.recoveryStatus === "PAID" ? "Pago" : "Inadimplente"}
+                                </span>
+                                {customer.openAmount != null ? (
+                                  <span className={styles.mutedText}>{formatCurrency(customer.openAmount)}</span>
+                                ) : null}
+                              </div>
+                            ) : (
+                              <span className={styles.mutedText}>-</span>
+                            )}
+                          </td>
+                          <td>{formatDateLabel(customer.lastMessageAt, mounted)}</td>
+                          <td>{formatDateLabel(customer.createdAt, mounted)}</td>
+                          <td>
+                            <div className={styles.footerActions}>
+                              {customer.conversationId ? (
+                                <button
+                                  type="button"
+                                  className="btn btn-secondary btn-sm"
+                                  onClick={() => {
+                                    setActiveTab("messages");
+                                    void loadConversation(String(customer.conversationId));
+                                  }}
+                                >
+                                  Ver conversa
+                                </button>
+                              ) : null}
+                              {!customer.recoveryCustomerId ? (
+                                <button
+                                  type="button"
+                                  className="btn btn-warning btn-sm"
+                                  onClick={() => {
+                                    setPromoteTarget(customer);
+                                    setPromoteForm({
+                                      openAmount: "",
+                                      saleDate: "",
+                                      companyName: customer.name ?? "",
+                                    });
+                                  }}
+                                >
+                                  Enviar para Recovery
+                                </button>
                               ) : null}
                             </div>
-                          ) : (
-                            <span className={styles.mutedText}>—</span>
-                          )}
-                        </td>
-                        <td>{formatDateLabel(customer.lastMessageAt, mounted)}</td>
-                        <td>{formatDateLabel(customer.createdAt, mounted)}</td>
-                        <td>
-                          <div className={styles.footerActions}>
-                            {customer.conversationId ? (
-                              <button
-                                type="button"
-                                className="btn btn-secondary btn-sm"
-                                onClick={() => {
-                                  setActiveTab("messages");
-                                  void loadConversation(String(customer.conversationId));
-                                }}
-                              >
-                                Ver conversa
-                              </button>
-                            ) : null}
-                            {!customer.recoveryCustomerId ? (
-                              <button
-                                type="button"
-                                className="btn btn-warning btn-sm"
-                                onClick={() => {
-                                  setPromoteTarget(customer);
-                                  setPromoteForm({
-                                    openAmount: "",
-                                    saleDate: "",
-                                    companyName: customer.name ?? "",
-                                  });
-                                }}
-                              >
-                                Enviar para Recovery
-                              </button>
-                            ) : null}
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </article>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </article>
 
-          {showCreateCustomerModal ? (
-            <div className={styles.modalBackdrop}>
-              <div className={styles.modalCard}>
-                <h3 className={styles.modalTitle}>Novo cliente</h3>
-                <form
-                  onSubmit={async (e: FormEvent) => {
-                    e.preventDefault();
-                    if (!customerForm.phone.trim()) return;
-                    setSavingCustomer(true);
-                    try {
-                      await apiFetch("/inbox/customers", {
-                        method: "POST",
-                        body: JSON.stringify({
-                          phone: customerForm.phone.trim(),
-                          name: customerForm.name.trim() || undefined,
-                          route: customerForm.route || "atendimento",
-                          notes: customerForm.notes.trim() || undefined,
-                        }),
-                      });
-                      setShowCreateCustomerModal(false);
-                      setNotice({ tone: "success", text: "Cliente cadastrado com sucesso." });
-                      void loadAtendimentoCustomers();
-                    } catch (err) {
-                      setNotice({ tone: "error", text: err instanceof Error ? err.message : "Erro ao cadastrar cliente." });
-                    } finally {
-                      setSavingCustomer(false);
-                    }
-                  }}
-                >
-                  <div className={styles.formGroup}>
-                    <label htmlFor="cust-phone">Telefone (WhatsApp) *</label>
-                    <input
-                      id="cust-phone"
-                      type="tel"
-                      className={styles.formInput}
-                      placeholder="Ex: 5511999998888"
-                      value={customerForm.phone}
-                      onChange={(e) => setCustomerForm((prev) => ({ ...prev, phone: e.target.value }))}
-                      required
-                    />
-                  </div>
-                  <div className={styles.formGroup}>
-                    <label htmlFor="cust-name">Nome</label>
-                    <input
-                      id="cust-name"
-                      type="text"
-                      className={styles.formInput}
-                      placeholder="Nome do cliente"
-                      value={customerForm.name}
-                      onChange={(e) => setCustomerForm((prev) => ({ ...prev, name: e.target.value }))}
-                    />
-                  </div>
-                  <div className={styles.formGroup}>
-                    <label htmlFor="cust-notes">Observacoes</label>
-                    <textarea
-                      id="cust-notes"
-                      className={styles.formInput}
-                      placeholder="Informacoes adicionais"
-                      value={customerForm.notes}
-                      onChange={(e) => setCustomerForm((prev) => ({ ...prev, notes: e.target.value }))}
-                      rows={3}
-                    />
-                  </div>
-                  <div className={styles.modalActions}>
-                    <button
-                      type="button"
-                      className="btn btn-secondary btn-sm"
-                      onClick={() => setShowCreateCustomerModal(false)}
-                      disabled={savingCustomer}
-                    >
-                      Cancelar
-                    </button>
-                    <button type="submit" className="btn btn-primary btn-sm" disabled={savingCustomer}>
-                      {savingCustomer ? "Salvando..." : "Salvar"}
-                    </button>
-                  </div>
-                </form>
-              </div>
-            </div>
-          ) : null}
-
-          {promoteTarget ? (
-            <div className={styles.modalBackdrop}>
-              <div className={styles.modalCard}>
-                <h3 className={styles.modalTitle}>Enviar para Recovery</h3>
-                <p className={styles.modalSubtitle}>
-                  Cliente: <strong>{promoteTarget.name ?? promoteTarget.phone}</strong>
-                </p>
-                <form
-                  onSubmit={async (e: FormEvent) => {
-                    e.preventDefault();
-                    const amount = parseFloat(promoteForm.openAmount.replace(",", "."));
-                    if (!amount || amount <= 0) return;
-                    setSavingPromotion(true);
-                    try {
-                      await apiFetch(`/inbox/customers/${promoteTarget.id}/promote-to-recovery`, {
-                        method: "POST",
-                        body: JSON.stringify({
-                          openAmount: amount,
-                          saleDate: promoteForm.saleDate || undefined,
-                          companyName: promoteForm.companyName.trim() || undefined,
-                        }),
-                      });
-                      setPromoteTarget(null);
-                      setNotice({ tone: "success", text: "Cliente enviado para o HBX Recovery." });
-                      void loadAtendimentoCustomers();
-                    } catch (err) {
-                      setNotice({ tone: "error", text: err instanceof Error ? err.message : "Erro ao promover cliente." });
-                    } finally {
-                      setSavingPromotion(false);
-                    }
-                  }}
-                >
-                  <div className={styles.formGroup}>
-                    <label htmlFor="rec-company">Empresa (opcional)</label>
-                    <input
-                      id="rec-company"
-                      type="text"
-                      className={styles.formInput}
-                      placeholder="Nome da empresa"
-                      value={promoteForm.companyName}
-                      onChange={(e) =>
-                        setPromoteForm((prev) => ({ ...prev, companyName: e.target.value }))
+            {showCreateCustomerModal ? (
+              <div className={styles.modalBackdrop}>
+                <div className={styles.modalCard}>
+                  <h3 className={styles.modalTitle}>Novo cliente</h3>
+                  <form
+                    onSubmit={async (event: FormEvent) => {
+                      event.preventDefault();
+                      if (!customerForm.phone.trim()) return;
+                      setSavingCustomer(true);
+                      try {
+                        await apiFetch("/inbox/customers", {
+                          method: "POST",
+                          body: JSON.stringify({
+                            phone: customerForm.phone.trim(),
+                            name: customerForm.name.trim() || undefined,
+                            route: customerForm.route || "atendimento",
+                            notes: customerForm.notes.trim() || undefined,
+                          }),
+                        });
+                        setShowCreateCustomerModal(false);
+                        setNotice({ tone: "success", text: "Cliente cadastrado com sucesso." });
+                        void loadAtendimentoCustomers();
+                      } catch (saveError) {
+                        setNotice({
+                          tone: "error",
+                          text: saveError instanceof Error ? saveError.message : "Erro ao cadastrar cliente.",
+                        });
+                      } finally {
+                        setSavingCustomer(false);
                       }
-                    />
+                    }}
+                  >
+                    <div className={styles.formGroup}>
+                      <label htmlFor="cust-phone">Telefone (WhatsApp) *</label>
+                      <input
+                        id="cust-phone"
+                        name="customerPhone"
+                        type="tel"
+                        className={styles.formInput}
+                        placeholder="Ex: 5511999998888"
+                        value={customerForm.phone}
+                        onChange={(event) => setCustomerForm((prev) => ({ ...prev, phone: event.target.value }))}
+                        required
+                      />
+                    </div>
+                    <div className={styles.formGroup}>
+                      <label htmlFor="cust-name">Nome</label>
+                      <input
+                        id="cust-name"
+                        name="customerName"
+                        type="text"
+                        className={styles.formInput}
+                        placeholder="Nome do cliente"
+                        value={customerForm.name}
+                        onChange={(event) => setCustomerForm((prev) => ({ ...prev, name: event.target.value }))}
+                      />
+                    </div>
+                    <div className={styles.formGroup}>
+                      <label htmlFor="cust-notes">Observacoes</label>
+                      <textarea
+                        id="cust-notes"
+                        name="customerNotes"
+                        className={styles.formInput}
+                        placeholder="Informacoes adicionais"
+                        value={customerForm.notes}
+                        onChange={(event) => setCustomerForm((prev) => ({ ...prev, notes: event.target.value }))}
+                        rows={3}
+                      />
+                    </div>
+                    <div className={styles.modalActions}>
+                      <button
+                        type="button"
+                        className="btn btn-secondary btn-sm"
+                        onClick={() => setShowCreateCustomerModal(false)}
+                        disabled={savingCustomer}
+                      >
+                        Cancelar
+                      </button>
+                      <button type="submit" className="btn btn-primary btn-sm" disabled={savingCustomer}>
+                        {savingCustomer ? "Salvando..." : "Salvar"}
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              </div>
+            ) : null}
+
+            {promoteTarget ? (
+              <div className={styles.modalBackdrop}>
+                <div className={styles.modalCard}>
+                  <h3 className={styles.modalTitle}>Enviar para Recovery</h3>
+                  <p className={styles.modalSubtitle}>
+                    Cliente: <strong>{promoteTarget.name ?? promoteTarget.phone}</strong>
+                  </p>
+                  <form
+                    onSubmit={async (event: FormEvent) => {
+                      event.preventDefault();
+                      const amount = parseFloat(promoteForm.openAmount.replace(",", "."));
+                      if (!amount || amount <= 0) return;
+                      setSavingPromotion(true);
+                      try {
+                        await apiFetch(`/inbox/customers/${promoteTarget.id}/promote-to-recovery`, {
+                          method: "POST",
+                          body: JSON.stringify({
+                            openAmount: amount,
+                            saleDate: promoteForm.saleDate || undefined,
+                            companyName: promoteForm.companyName.trim() || undefined,
+                          }),
+                        });
+                        setPromoteTarget(null);
+                        setNotice({ tone: "success", text: "Cliente enviado para o HBX Recovery." });
+                        void loadAtendimentoCustomers();
+                      } catch (saveError) {
+                        setNotice({
+                          tone: "error",
+                          text: saveError instanceof Error ? saveError.message : "Erro ao promover cliente.",
+                        });
+                      } finally {
+                        setSavingPromotion(false);
+                      }
+                    }}
+                  >
+                    <div className={styles.formGroup}>
+                      <label htmlFor="rec-company">Empresa (opcional)</label>
+                      <input
+                        id="rec-company"
+                        name="recoveryCompanyName"
+                        type="text"
+                        className={styles.formInput}
+                        placeholder="Nome da empresa"
+                        value={promoteForm.companyName}
+                        onChange={(event) =>
+                          setPromoteForm((prev) => ({ ...prev, companyName: event.target.value }))
+                        }
+                      />
+                    </div>
+                    <div className={styles.formGroup}>
+                      <label htmlFor="rec-amount">Valor em aberto (R$) *</label>
+                      <input
+                        id="rec-amount"
+                        name="recoveryOpenAmount"
+                        type="text"
+                        inputMode="decimal"
+                        className={styles.formInput}
+                        placeholder="Ex: 1500,00"
+                        value={promoteForm.openAmount}
+                        onChange={(event) => setPromoteForm((prev) => ({ ...prev, openAmount: event.target.value }))}
+                        required
+                      />
+                    </div>
+                    <div className={styles.formGroup}>
+                      <label htmlFor="rec-date">Data do servico / venda</label>
+                      <input
+                        id="rec-date"
+                        name="recoverySaleDate"
+                        type="date"
+                        className={styles.formInput}
+                        value={promoteForm.saleDate}
+                        onChange={(event) => setPromoteForm((prev) => ({ ...prev, saleDate: event.target.value }))}
+                      />
+                    </div>
+                    <div className={styles.modalActions}>
+                      <button
+                        type="button"
+                        className="btn btn-secondary btn-sm"
+                        onClick={() => setPromoteTarget(null)}
+                        disabled={savingPromotion}
+                      >
+                        Cancelar
+                      </button>
+                      <button type="submit" className="btn btn-warning btn-sm" disabled={savingPromotion}>
+                        {savingPromotion ? "Enviando..." : "Confirmar"}
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              </div>
+            ) : null}
+          </section>
+        ) : null}
+
+        {activeTab === "agenda" ? (
+          <section className={styles.stackSection}>
+            <article className={styles.workspaceCard}>
+              <div className={styles.sectionHead}>
+                <div>
+                  <p className={styles.sectionEyebrow}>Agenda do grupo</p>
+                </div>
+                <div className={styles.headerActions}>
+                  <ChatIconButton
+                    icon="gear"
+                    label="Agenda"
+                    onClick={() => setAgendaStudioOpen(true)}
+                    title="Configurar agenda"
+                    aria-label="Configurar agenda"
+                  />
+                  <button type="button" className="btn btn-primary btn-sm" onClick={() => setAgendaStudioOpen(true)}>
+                    Abrir
+                  </button>
+                </div>
+              </div>
+            </article>
+            <article className={styles.workspaceCard}>
+              <div className={styles.sectionHead}>
+                <div>
+                  <p className={styles.sectionEyebrow}>Editor do bot</p>
+                  <small>Abra o builder visual do Atendimento.</small>
+                </div>
+                <div className={styles.headerActions}>
+                  <ChatIconButton
+                    icon="gear"
+                    label="Editor"
+                    onClick={() => setBotStudioOpen(true)}
+                    title="Configurar editor do bot"
+                    aria-label="Configurar editor do bot"
+                  />
+                  <button type="button" className="btn btn-primary btn-sm" onClick={() => setBotStudioOpen(true)}>
+                    Abrir editor
+                  </button>
+                </div>
+              </div>
+            </article>
+          </section>
+        ) : null}
+
+        <div className={styles.notificationDock}>
+          {notice ? (
+            expandedAlerts.system_notice ? (
+              <article className={`${styles.notificationCard} ${styles.notificationCardInfo}`}>
+                <div className={styles.notificationHeader}>
+                  <div>
+                    <p className={styles.attentionEyebrow}>Atualizacao do sistema</p>
+                    <strong>{notice.tone === "success" ? "Acao concluida" : "Falha na acao"}</strong>
                   </div>
-                  <div className={styles.formGroup}>
-                    <label htmlFor="rec-amount">Valor em aberto (R$) *</label>
-                    <input
-                      id="rec-amount"
-                      type="text"
-                      inputMode="decimal"
-                      className={styles.formInput}
-                      placeholder="Ex: 1500,00"
-                      value={promoteForm.openAmount}
-                      onChange={(e) => setPromoteForm((prev) => ({ ...prev, openAmount: e.target.value }))}
-                      required
-                    />
+                  <button type="button" className={styles.closePopupButton} onClick={() => setNotice(null)}>
+                    Fechar
+                  </button>
+                </div>
+                <p className={styles.attentionPreview}>{notice.text}</p>
+              </article>
+            ) : (
+              <button
+                type="button"
+                className={`${styles.notificationMinimized} ${styles.notificationMinimizedInfo}`}
+                onClick={() => {
+                  setExpandedAlerts((current) => ({ ...current, system_notice: true }));
+                  scheduleAlertCollapse("system_notice", noticeTimerRef);
+                }}
+              >
+                Atualizacao do sistema
+              </button>
+            )
+          ) : null}
+
+          {humanAttentionPreview && !dismissedAlerts.human_queue ? (
+            expandedAlerts.human_queue ? (
+              <article className={styles.notificationCard}>
+                <div className={styles.notificationHeader}>
+                  <div>
+                    <p className={styles.attentionEyebrow}>{humanQueueLabel}</p>
+                    <p className={styles.notificationModule}>
+                      {humanAttentionPreview.routeTarget === "recovery" ? "Recovery" : "Atendimento"}
+                    </p>
+                    <strong>{humanAttentionPreview.customer.name || humanAttentionPreview.customer.phone}</strong>
+                    <p className={styles.notificationModule}>{humanAttentionPreview.customer.phone}</p>
                   </div>
-                  <div className={styles.formGroup}>
-                    <label htmlFor="rec-date">Data do servico / venda</label>
-                    <input
-                      id="rec-date"
-                      type="date"
-                      className={styles.formInput}
-                      value={promoteForm.saleDate}
-                      onChange={(e) => setPromoteForm((prev) => ({ ...prev, saleDate: e.target.value }))}
-                    />
+                  <span className={styles.pulseBadge}>Fila humana</span>
+                </div>
+                <p className={styles.attentionPreview}>{getMessagePreview(humanAttentionPreview.messages?.[0])}</p>
+                <div className={styles.footerActions}>
+                  <button
+                    type="button"
+                    className="btn btn-primary btn-sm"
+                    onClick={() => {
+                      setActiveTab("messages");
+                      setDismissedAlerts((current) => ({ ...current, human_queue: true }));
+                      void loadConversation(humanAttentionPreview.id);
+                    }}
+                  >
+                    Abrir conversa
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    onClick={() => setDismissedAlerts((current) => ({ ...current, human_queue: true }))}
+                  >
+                    Dispensar
+                  </button>
+                </div>
+              </article>
+            ) : (
+              <button
+                type="button"
+                className={`${styles.notificationMinimized} ${styles.notificationUnread}`}
+                onClick={() => {
+                  setExpandedAlerts((current) => ({ ...current, human_queue: true }));
+                  scheduleAlertCollapse("human_queue", humanAlertTimerRef);
+                }}
+              >
+                {humanQueueLabel}
+                <span className={styles.notificationCount}>{humanAttentionConversations.length}</span>
+              </button>
+            )
+          ) : null}
+
+          {newInboundPreview && !dismissedAlerts.new_message ? (
+            expandedAlerts.new_message ? (
+              <article className={styles.notificationCard}>
+                <div className={styles.notificationHeader}>
+                  <div>
+                    <p className={styles.attentionEyebrow}>Nova mensagem no Atendimento</p>
+                    <strong>{newInboundPreview.customer.name || newInboundPreview.customer.phone}</strong>
                   </div>
-                  <div className={styles.modalActions}>
-                    <button
-                      type="button"
-                      className="btn btn-secondary btn-sm"
-                      onClick={() => setPromoteTarget(null)}
-                      disabled={savingPromotion}
-                    >
-                      Cancelar
-                    </button>
-                    <button type="submit" className="btn btn-warning btn-sm" disabled={savingPromotion}>
-                      {savingPromotion ? "Enviando..." : "Confirmar"}
-                    </button>
-                  </div>
-                </form>
+                  <button
+                    type="button"
+                    className={styles.closePopupButton}
+                    onClick={() => setDismissedAlerts((current) => ({ ...current, new_message: true }))}
+                  >
+                    Fechar
+                  </button>
+                </div>
+                <p className={styles.attentionPreview}>{getMessagePreview(newInboundPreview.messages?.[0])}</p>
+                <div className={styles.footerActions}>
+                  <button
+                    type="button"
+                    className="btn btn-primary btn-sm"
+                    onClick={() => {
+                      setActiveTab("messages");
+                      setDismissedAlerts((current) => ({ ...current, new_message: true }));
+                      void loadConversation(newInboundPreview.id);
+                    }}
+                  >
+                    Abrir fila agora
+                  </button>
+                </div>
+              </article>
+            ) : (
+              <button
+                type="button"
+                className={`${styles.notificationMinimized} ${styles.notificationUnread}`}
+                onClick={() => {
+                  setExpandedAlerts((current) => ({ ...current, new_message: true }));
+                  scheduleAlertCollapse("new_message", newAlertTimerRef);
+                }}
+              >
+                Nova mensagem no Atendimento
+                <span className={styles.notificationCount}>{newInboundConversations.length}</span>
+              </button>
+            )
+          ) : null}
+        </div>
+      </DashboardScaffold>
+
+      {botStudioOpen ? (
+        <div className={styles.botStudioOverlay}>
+          <div className={styles.botStudioFrame}>
+            <div className={styles.botStudioChrome}>
+              <div>
+                <p className={styles.sectionEyebrow}>Automacao do Atendimento</p>
+                <h3>Builder conversacional do Atendimento</h3>
+                <small>Mesmo padrão visual do Recovery, com organograma vertical e preview navegável.</small>
+              </div>
+              <div className={styles.headerActions}>
+                <span className={styles.metaBadge}>{selectedConversationStatusMeta?.label || "Fluxo geral"}</span>
+                <button type="button" className="btn btn-secondary btn-sm" onClick={() => setBotStudioOpen(false)}>
+                  Fechar
+                </button>
               </div>
             </div>
-          ) : null}
-        </section>
+            <div className={styles.botStudioBody}>
+              <BotPanel
+                botConfig={botConfig}
+                loadingBot={loadingBot}
+                savingBot={savingBot}
+                actionOptions={actionOptions}
+                agendaOptions={agendaOptions}
+                onSave={() => {
+                  setNotice(null);
+                  void saveBot();
+                }}
+                onUpdateRoutingRule={updateRoutingRule}
+                onAppendVariable={appendVariable}
+                onUpdateBotText={updateBotText}
+                onUpdateButtonSection={updateButtonSection}
+                onAddButtonSection={addButtonSection}
+                onRemoveButtonSection={removeButtonSection}
+                onUpdateActionGuide={updateActionGuide}
+                onAddCustomAction={addCustomAction}
+                onRemoveCustomAction={removeCustomAction}
+              />
+            </div>
+          </div>
+        </div>
       ) : null}
 
-      {activeTab === "templates" ? (
-        <TemplatesPanel
-          loadingTemplates={loadingTemplates}
-          syncingTemplates={syncingTemplates}
-          metaTemplates={metaTemplates}
-          templateComposer={templateComposer}
-          creatingTemplate={creatingTemplate}
-          deletingTemplateId={deletingTemplateId}
-          onReload={() => {
-            setNotice(null);
-            void loadTemplates();
-          }}
-          onSync={() => {
-            setNotice(null);
-            void syncTemplates();
-          }}
-          onToggleActivation={(template, active) => {
-            setNotice(null);
-            void toggleTemplateActivation(template, active);
-          }}
-          onComposerChange={(updater) => setTemplateComposer((current) => updater(current))}
-          onCreateTemplate={() => {
-            setNotice(null);
-            void createTemplate();
-          }}
-          onDeleteTemplate={(template) => {
-            setNotice(null);
-            void deleteTemplate(template);
-          }}
-        />
-      ) : null}
-
-      {activeTab === "agenda" ? (
-        <AgendaPanel
-          agendaConfig={agendaConfig}
-          loadingAgenda={loadingAgenda}
-          savingAgenda={savingAgenda}
-          onAddGroup={addAgendaGroup}
-          onRemoveGroup={removeAgendaGroup}
-          onSave={() => {
-            setNotice(null);
-            void saveAgenda();
-          }}
-          onUpdateGroup={updateAgendaGroup}
-          onAddSlot={addAgendaSlot}
-          onRemoveSlot={removeAgendaSlot}
-          onUpdateSlot={updateAgendaSlot}
-        />
-      ) : null}
-
-      {activeTab === "bot" ? (
-        <BotPanel
-          botConfig={botConfig}
-          loadingBot={loadingBot}
-          savingBot={savingBot}
-          actionOptions={actionOptions}
-          agendaOptions={agendaOptions}
-          onSave={() => {
-            setNotice(null);
-            void saveBot();
-          }}
-          onUpdateRoutingRule={updateRoutingRule}
-          onAppendVariable={appendVariable}
-          onUpdateBotText={updateBotText}
-          onUpdateButtonSection={updateButtonSection}
-          onAddButtonSection={addButtonSection}
-          onRemoveButtonSection={removeButtonSection}
-          onUpdateActionGuide={updateActionGuide}
-          onAddCustomAction={addCustomAction}
-          onRemoveCustomAction={removeCustomAction}
-        />
-      ) : null}
-
-      <div className={styles.notificationDock}>
-        {notice ? (
-          expandedAlerts.system_notice ? (
-            <article className={`${styles.notificationCard} ${styles.notificationCardInfo}`}>
-              <div className={styles.notificationHeader}>
-                <div>
-                  <p className={styles.attentionEyebrow}>Atualizacao do sistema</p>
-                  <strong>{notice.tone === "success" ? "Acao concluida" : "Falha na acao"}</strong>
-                </div>
-                <button type="button" className={styles.closePopupButton} onClick={() => setNotice(null)}>
+      {agendaStudioOpen ? (
+        <div className={styles.botStudioOverlay}>
+          <div className={styles.botStudioFrame}>
+            <div className={styles.botStudioChrome}>
+              <div>
+                <p className={styles.sectionEyebrow}>Agenda do Atendimento</p>
+              </div>
+              <div className={styles.headerActions}>
+                <span className={styles.metaBadge}>{agendaConfig.groups.length} guias ativas</span>
+                <button type="button" className="btn btn-secondary btn-sm" onClick={() => setAgendaStudioOpen(false)}>
                   Fechar
                 </button>
               </div>
-              <p className={styles.attentionPreview}>{notice.text}</p>
-            </article>
-          ) : (
-            <button
-              type="button"
-              className={`${styles.notificationMinimized} ${styles.notificationMinimizedInfo}`}
-              onClick={() => {
-                setExpandedAlerts((current) => ({ ...current, system_notice: true }));
-                scheduleAlertCollapse("system_notice", noticeTimerRef);
-              }}
-            >
-              Atualizacao do sistema
-            </button>
-          )
-        ) : null}
-
-        {humanAttentionPreview && !dismissedAlerts.human_queue ? (
-          expandedAlerts.human_queue ? (
-            <article className={styles.notificationCard}>
-              <div className={styles.notificationHeader}>
-                <div>
-                  <p className={styles.attentionEyebrow}>{humanQueueLabel}</p>
-                  <p className={styles.notificationModule}>
-                    {humanAttentionPreview.routeTarget === "recovery" ? "Recovery" : "Atendimento"}
-                  </p>
-                  <strong>{humanAttentionPreview.customer.name || humanAttentionPreview.customer.phone}</strong>
-                  <p className={styles.notificationModule}>{humanAttentionPreview.customer.phone}</p>
-                </div>
-                <span className={styles.pulseBadge}>Fila humana</span>
-              </div>
-              <p className={styles.attentionPreview}>{getMessagePreview(humanAttentionPreview.messages?.[0])}</p>
-              <div className={styles.footerActions}>
-                <button
-                  type="button"
-                  className="btn btn-primary btn-sm"
-                  onClick={() => {
-                    setActiveTab("messages");
-                    setDismissedAlerts((current) => ({ ...current, human_queue: true }));
-                    void loadConversation(humanAttentionPreview.id);
-                  }}
-                >
-                  Abrir conversa
-                </button>
-                <button
-                  type="button"
-                  className="btn btn-secondary btn-sm"
-                  onClick={() => setDismissedAlerts((current) => ({ ...current, human_queue: true }))}
-                >
-                  Dispensar
-                </button>
-              </div>
-            </article>
-          ) : (
-            <button
-              type="button"
-              className={`${styles.notificationMinimized} ${styles.notificationUnread}`}
-              onClick={() => {
-                setExpandedAlerts((current) => ({ ...current, human_queue: true }));
-                scheduleAlertCollapse("human_queue", humanAlertTimerRef);
-              }}
-            >
-              {humanQueueLabel}
-              <span className={styles.notificationCount}>{humanAttentionConversations.length}</span>
-            </button>
-          )
-        ) : null}
-
-        {newInboundPreview && !dismissedAlerts.new_message ? (
-          expandedAlerts.new_message ? (
-            <article className={styles.notificationCard}>
-              <div className={styles.notificationHeader}>
-                <div>
-                  <p className={styles.attentionEyebrow}>Nova mensagem no Atendimento</p>
-                  <strong>{newInboundPreview.customer.name || newInboundPreview.customer.phone}</strong>
-                </div>
-                <button
-                  type="button"
-                  className={styles.closePopupButton}
-                  onClick={() => setDismissedAlerts((current) => ({ ...current, new_message: true }))}
-                >
-                  Fechar
-                </button>
-              </div>
-              <p className={styles.attentionPreview}>{getMessagePreview(newInboundPreview.messages?.[0])}</p>
-              <div className={styles.footerActions}>
-                <button
-                  type="button"
-                  className="btn btn-primary btn-sm"
-                  onClick={() => {
-                    setActiveTab("messages");
-                    setDismissedAlerts((current) => ({ ...current, new_message: true }));
-                    void loadConversation(newInboundPreview.id);
-                  }}
-                >
-                  Abrir fila agora
-                </button>
-              </div>
-            </article>
-          ) : (
-            <button
-              type="button"
-              className={`${styles.notificationMinimized} ${styles.notificationUnread}`}
-              onClick={() => {
-                setExpandedAlerts((current) => ({ ...current, new_message: true }));
-                scheduleAlertCollapse("new_message", newAlertTimerRef);
-              }}
-            >
-              Nova mensagem no Atendimento
-              <span className={styles.notificationCount}>{newInboundConversations.length}</span>
-            </button>
-          )
-        ) : null}
-      </div>
-    </DashboardScaffold>
+            </div>
+            <div className={styles.botStudioBody}>{renderAgendaPanel()}</div>
+          </div>
+        </div>
+      ) : null}
+    </>
   );
 }

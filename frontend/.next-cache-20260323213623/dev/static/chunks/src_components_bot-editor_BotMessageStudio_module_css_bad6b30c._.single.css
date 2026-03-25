@@ -1,0 +1,686 @@
+/* [project]/src/components/bot-editor/BotMessageStudio.module.css [app-client] (css) */
+.BotMessageStudio-module__gr4-ZW__studio {
+  gap: 1rem;
+  display: grid;
+}
+
+.BotMessageStudio-module__gr4-ZW__panel, .BotMessageStudio-module__gr4-ZW__card, .BotMessageStudio-module__gr4-ZW__metricCard, .BotMessageStudio-module__gr4-ZW__catalogCard, .BotMessageStudio-module__gr4-ZW__checkCard {
+  border: 1px solid color-mix(in srgb, var(--brand) 12%, #dbe7f1);
+  background: radial-gradient(circle at top right, color-mix(in srgb, var(--brand) 10%, transparent), transparent 36%), linear-gradient(180deg, #fffffffa, #f3f8fbfa);
+  border-radius: 24px;
+  box-shadow: 0 22px 48px #0f172a14;
+}
+
+.BotMessageStudio-module__gr4-ZW__hero, .BotMessageStudio-module__gr4-ZW__card, .BotMessageStudio-module__gr4-ZW__metricCard, .BotMessageStudio-module__gr4-ZW__catalogCard, .BotMessageStudio-module__gr4-ZW__checkCard, .BotMessageStudio-module__gr4-ZW__previewStage, .BotMessageStudio-module__gr4-ZW__libraryPanel, .BotMessageStudio-module__gr4-ZW__canvasPanel, .BotMessageStudio-module__gr4-ZW__inspectorPanel {
+  gap: .9rem;
+  padding: 1rem;
+  display: grid;
+}
+
+.BotMessageStudio-module__gr4-ZW__hero, .BotMessageStudio-module__gr4-ZW__panelHeader, .BotMessageStudio-module__gr4-ZW__cardHeader, .BotMessageStudio-module__gr4-ZW__actionItemHeader {
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: .8rem;
+  display: flex;
+}
+
+.BotMessageStudio-module__gr4-ZW__eyebrow {
+  letter-spacing: .14em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--brand) 80%, #17324a);
+  margin: 0;
+  font-size: .72rem;
+  font-weight: 800;
+}
+
+.BotMessageStudio-module__gr4-ZW__title {
+  letter-spacing: -.03em;
+  color: #102033;
+  margin: .35rem 0 0;
+  font-size: clamp(1.15rem, 1.9vw, 1.6rem);
+  line-height: 1.04;
+}
+
+.BotMessageStudio-module__gr4-ZW__description, .BotMessageStudio-module__gr4-ZW__panelHeader p, .BotMessageStudio-module__gr4-ZW__cardHeader p, .BotMessageStudio-module__gr4-ZW__previewNote, .BotMessageStudio-module__gr4-ZW__catalogMeta p, .BotMessageStudio-module__gr4-ZW__flowNode p, .BotMessageStudio-module__gr4-ZW__scenarioItem p, .BotMessageStudio-module__gr4-ZW__emptyState, .BotMessageStudio-module__gr4-ZW__previewFallback {
+  color: var(--muted);
+  margin: 0;
+  line-height: 1.55;
+}
+
+.BotMessageStudio-module__gr4-ZW__heroMeta, .BotMessageStudio-module__gr4-ZW__scenarioMeta, .BotMessageStudio-module__gr4-ZW__nodeBadgeRow, .BotMessageStudio-module__gr4-ZW__canvasStatus, .BotMessageStudio-module__gr4-ZW__publicationActions, .BotMessageStudio-module__gr4-ZW__chipList, .BotMessageStudio-module__gr4-ZW__previewButtonList {
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .55rem;
+  display: flex;
+}
+
+.BotMessageStudio-module__gr4-ZW__tabRow {
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: .75rem;
+  display: grid;
+}
+
+.BotMessageStudio-module__gr4-ZW__tabButton {
+  border: 1px solid color-mix(in srgb, var(--brand) 10%, #dbe7f1);
+  background: #ffffffd1;
+  border-radius: 18px;
+  justify-items: start;
+  gap: .2rem;
+  min-height: 62px;
+  padding: .82rem .95rem;
+  transition: transform .16s, border-color .16s, box-shadow .16s;
+  display: grid;
+}
+
+.BotMessageStudio-module__gr4-ZW__tabButton:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 12px 22px #0f172a12;
+}
+
+.BotMessageStudio-module__gr4-ZW__tabButton strong {
+  color: #102033;
+  font-size: .9rem;
+}
+
+.BotMessageStudio-module__gr4-ZW__tabButton span {
+  color: var(--muted);
+  font-size: .76rem;
+  font-weight: 700;
+}
+
+.BotMessageStudio-module__gr4-ZW__tabButtonActive {
+  border-color: color-mix(in srgb, var(--brand) 36%, #102033);
+  background: linear-gradient(#fffffff5, #e7f4f2f5), #fffffff5;
+  box-shadow: 0 18px 32px #0f766e1f;
+}
+
+.BotMessageStudio-module__gr4-ZW__flowLayout {
+  grid-template-columns: minmax(240px, 280px) minmax(0, 1fr) minmax(320px, 380px);
+  gap: 1rem;
+  display: grid;
+}
+
+.BotMessageStudio-module__gr4-ZW__previewLayout {
+  grid-template-columns: minmax(0, 1.2fr) minmax(320px, .8fr);
+  gap: 1rem;
+  display: grid;
+}
+
+.BotMessageStudio-module__gr4-ZW__catalogLayout, .BotMessageStudio-module__gr4-ZW__publicationLayout {
+  gap: 1rem;
+  display: grid;
+}
+
+.BotMessageStudio-module__gr4-ZW__catalogSummary {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1rem;
+  display: grid;
+}
+
+.BotMessageStudio-module__gr4-ZW__catalogGrid, .BotMessageStudio-module__gr4-ZW__checkGrid {
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 1rem;
+  display: grid;
+}
+
+.BotMessageStudio-module__gr4-ZW__metricCard strong {
+  letter-spacing: -.05em;
+  color: #102033;
+  font-size: 1.9rem;
+  line-height: 1;
+}
+
+.BotMessageStudio-module__gr4-ZW__metricCard span {
+  color: var(--muted);
+  font-size: .78rem;
+  font-weight: 700;
+}
+
+.BotMessageStudio-module__gr4-ZW__paletteGrid {
+  flex-wrap: wrap;
+  gap: .5rem;
+  display: flex;
+}
+
+.BotMessageStudio-module__gr4-ZW__libraryChip, .BotMessageStudio-module__gr4-ZW__chip, .BotMessageStudio-module__gr4-ZW__chipStatic, .BotMessageStudio-module__gr4-ZW__previewButton, .BotMessageStudio-module__gr4-ZW__statusBadge {
+  border-radius: 999px;
+  justify-content: center;
+  align-items: center;
+  min-height: 30px;
+  padding: .34rem .74rem;
+  font-size: .77rem;
+  font-weight: 800;
+  display: inline-flex;
+}
+
+.BotMessageStudio-module__gr4-ZW__badge {
+  border-radius: 999px;
+  justify-content: center;
+  align-items: center;
+  min-height: 24px;
+  padding: .18rem .56rem;
+  font-size: .68rem;
+  font-weight: 800;
+  display: inline-flex;
+}
+
+.BotMessageStudio-module__gr4-ZW__libraryChip, .BotMessageStudio-module__gr4-ZW__badge, .BotMessageStudio-module__gr4-ZW__chipStatic {
+  border: 1px solid color-mix(in srgb, var(--brand) 12%, #d8e4ee);
+  color: #183449;
+  background: #ffffffe0;
+}
+
+.BotMessageStudio-module__gr4-ZW__libraryChipAccent, .BotMessageStudio-module__gr4-ZW__badgeAccent, .BotMessageStudio-module__gr4-ZW__statusReady {
+  background: color-mix(in srgb, var(--brand) 10%, white);
+  border-color: color-mix(in srgb, var(--brand) 18%, #d8e4ee);
+  color: color-mix(in srgb, var(--brand) 86%, #17324a);
+}
+
+.BotMessageStudio-module__gr4-ZW__badgeMuted, .BotMessageStudio-module__gr4-ZW__statusDraft {
+  color: #475569;
+  background: #f1f5f9f5;
+  border-color: #94a3b83d;
+}
+
+.BotMessageStudio-module__gr4-ZW__badgeWarning {
+  color: #b45309;
+  background: #fff7edfa;
+  border-color: #f59e0b38;
+}
+
+.BotMessageStudio-module__gr4-ZW__chip {
+  border: 1px solid color-mix(in srgb, var(--brand) 18%, #d8e4ee);
+  color: color-mix(in srgb, var(--brand) 84%, #17324a);
+  cursor: pointer;
+  background: #fffffff0;
+}
+
+.BotMessageStudio-module__gr4-ZW__chip strong {
+  font-weight: 800;
+}
+
+.BotMessageStudio-module__gr4-ZW__chip small {
+  color: #64748b;
+  margin-left: .45rem;
+}
+
+.BotMessageStudio-module__gr4-ZW__scenarioList, .BotMessageStudio-module__gr4-ZW__buttonList, .BotMessageStudio-module__gr4-ZW__actionList {
+  gap: .75rem;
+  display: grid;
+}
+
+.BotMessageStudio-module__gr4-ZW__scenarioItem, .BotMessageStudio-module__gr4-ZW__flowIndexItem, .BotMessageStudio-module__gr4-ZW__buttonRow, .BotMessageStudio-module__gr4-ZW__actionItem {
+  border: 1px solid color-mix(in srgb, var(--brand) 10%, #dbe7f1);
+  background: #ffffffd1;
+  border-radius: 18px;
+}
+
+.BotMessageStudio-module__gr4-ZW__scenarioItem, .BotMessageStudio-module__gr4-ZW__flowIndexItem {
+  text-align: left;
+  width: 100%;
+  padding: .95rem 1rem;
+  transition: transform .16s, border-color .16s, box-shadow .16s;
+}
+
+.BotMessageStudio-module__gr4-ZW__scenarioItem:hover, .BotMessageStudio-module__gr4-ZW__flowIndexItem:hover {
+  border-color: color-mix(in srgb, var(--brand) 24%, #dbe7f1);
+  transform: translateY(-1px);
+  box-shadow: 0 14px 26px #0f172a14;
+}
+
+.BotMessageStudio-module__gr4-ZW__scenarioItemActive, .BotMessageStudio-module__gr4-ZW__flowIndexItemActive {
+  border-color: color-mix(in srgb, var(--brand) 34%, #0f172a);
+  background: linear-gradient(#fffffff5, #e7f4f2f5), #fffffff0;
+  box-shadow: 0 18px 32px #0f766e1f;
+}
+
+.BotMessageStudio-module__gr4-ZW__scenarioTitleRow {
+  justify-content: space-between;
+  align-items: center;
+  gap: .6rem;
+  display: flex;
+}
+
+.BotMessageStudio-module__gr4-ZW__scenarioItem strong, .BotMessageStudio-module__gr4-ZW__flowIndexItem strong, .BotMessageStudio-module__gr4-ZW__flowNode strong, .BotMessageStudio-module__gr4-ZW__catalogCard strong, .BotMessageStudio-module__gr4-ZW__actionItem strong, .BotMessageStudio-module__gr4-ZW__buttonMeta strong {
+  color: #102033;
+}
+
+.BotMessageStudio-module__gr4-ZW__canvasSurface {
+  border: 1px dashed color-mix(in srgb, var(--brand) 16%, #dbe7f1);
+  cursor: grab;
+  background: radial-gradient(circle at top, #ffffffeb, #ffffffc2), linear-gradient(#f4f9fbf5, #eef5f8eb);
+  border-radius: 24px;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+  gap: 1rem;
+  padding: 1rem;
+  display: grid;
+}
+
+.BotMessageStudio-module__gr4-ZW__flowNode {
+  border: 1px solid color-mix(in srgb, var(--brand) 12%, #dbe7f1);
+  background: #ffffffeb;
+  border-radius: 20px;
+  gap: .55rem;
+  padding: .95rem 1rem;
+  display: grid;
+}
+
+.BotMessageStudio-module__gr4-ZW__flowNodePrimary {
+  box-shadow: 0 18px 30px #0f766e1a;
+}
+
+.BotMessageStudio-module__gr4-ZW__flowNodeTemplate {
+  background: linear-gradient(#fffffffa, #f4f9f6f5);
+}
+
+.BotMessageStudio-module__gr4-ZW__flowNodeSecondary, .BotMessageStudio-module__gr4-ZW__flowNodeAction, .BotMessageStudio-module__gr4-ZW__flowNodeTerminal {
+  min-height: 100%;
+}
+
+.BotMessageStudio-module__gr4-ZW__flowNodeEyebrow, .BotMessageStudio-module__gr4-ZW__metaLabel {
+  text-transform: uppercase;
+  letter-spacing: .12em;
+  color: #5b7284;
+  font-size: .72rem;
+  font-weight: 800;
+}
+
+.BotMessageStudio-module__gr4-ZW__connectorLine {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--brand) 22%, white), #94a3b847);
+  justify-self: center;
+  width: 2px;
+  min-height: 32px;
+}
+
+.BotMessageStudio-module__gr4-ZW__branchGrid {
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: .9rem;
+  display: grid;
+}
+
+.BotMessageStudio-module__gr4-ZW__branchLane {
+  gap: .75rem;
+  display: grid;
+}
+
+.BotMessageStudio-module__gr4-ZW__branchConnector {
+  background: linear-gradient(180deg, #94a3b83d, color-mix(in srgb, var(--brand) 22%, white));
+  justify-self: center;
+  width: 2px;
+  min-height: 24px;
+}
+
+.BotMessageStudio-module__gr4-ZW__flowIndex {
+  gap: .8rem;
+  display: grid;
+}
+
+.BotMessageStudio-module__gr4-ZW__flowIndexGrid {
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: .75rem;
+  display: grid;
+}
+
+.BotMessageStudio-module__gr4-ZW__flowIndexItem {
+  gap: .22rem;
+  display: grid;
+}
+
+.BotMessageStudio-module__gr4-ZW__flowIndexItem span {
+  color: var(--muted);
+  font-size: .76rem;
+}
+
+.BotMessageStudio-module__gr4-ZW__canvasViewport {
+  background: linear-gradient(#cbd5e138 1px, #0000 1px) 0 0 / 28px 28px, linear-gradient(90deg, #cbd5e138 1px, #0000 1px) 0 0 / 28px 28px, linear-gradient(#ffffffd1, #f8fafcd1);
+  border: 1px solid #94a3b82e;
+  border-radius: 20px;
+  min-height: 480px;
+  position: relative;
+  overflow: hidden;
+}
+
+.BotMessageStudio-module__gr4-ZW__canvasTransform {
+  transform-origin: 0 0;
+  position: relative;
+}
+
+.BotMessageStudio-module__gr4-ZW__flowSvg {
+  position: absolute;
+  inset: 0;
+  overflow: visible;
+}
+
+.BotMessageStudio-module__gr4-ZW__flowEdgePath {
+  fill: none;
+  stroke: color-mix(in srgb, var(--brand) 30%, #94a3b8);
+  stroke-width: 2px;
+  stroke-linecap: round;
+}
+
+.BotMessageStudio-module__gr4-ZW__flowEdgeLabel {
+  fill: #64748b;
+  text-anchor: middle;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.BotMessageStudio-module__gr4-ZW__flowCanvasNode {
+  text-align: left;
+  border: 1px solid color-mix(in srgb, var(--brand) 12%, #dbe7f1);
+  background: #fffffff0;
+  border-radius: 20px;
+  width: 248px;
+  padding: .95rem 1rem;
+  position: absolute;
+  box-shadow: 0 18px 26px #0f172a14;
+}
+
+.BotMessageStudio-module__gr4-ZW__flowCanvasNodeActive {
+  border-color: color-mix(in srgb, var(--brand) 34%, #0f172a);
+  box-shadow: 0 22px 34px #0f766e29;
+}
+
+.BotMessageStudio-module__gr4-ZW__inspectorPreviewWrap {
+  justify-content: flex-end;
+  align-items: flex-start;
+  width: 100%;
+  display: flex;
+}
+
+.BotMessageStudio-module__gr4-ZW__inspectorPhoneShell {
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+  width: 100%;
+  max-width: 380px;
+  max-height: 620px;
+}
+
+.BotMessageStudio-module__gr4-ZW__previewHeaderActions {
+  align-items: center;
+  gap: .4rem;
+  display: inline-flex;
+}
+
+.BotMessageStudio-module__gr4-ZW__toggleGrid, .BotMessageStudio-module__gr4-ZW__buttonGrid {
+  gap: .75rem;
+  display: grid;
+}
+
+.BotMessageStudio-module__gr4-ZW__toggleGrid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.BotMessageStudio-module__gr4-ZW__toggleCard {
+  text-align: left;
+  border: 1px solid color-mix(in srgb, var(--brand) 10%, #dbe7f1);
+  background: #f8fafcf5;
+  border-radius: 18px;
+  min-height: 84px;
+  padding: .95rem 1rem;
+  transition: transform .16s, border-color .16s, box-shadow .16s;
+}
+
+.BotMessageStudio-module__gr4-ZW__toggleCard:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 12px 22px #0f172a12;
+}
+
+.BotMessageStudio-module__gr4-ZW__toggleCardActive {
+  border-color: color-mix(in srgb, var(--brand) 34%, #0f172a);
+  background: linear-gradient(#fffffff5, #e6f3f1fa), #fffffff5;
+}
+
+.BotMessageStudio-module__gr4-ZW__toggleCard p {
+  margin-top: .35rem;
+}
+
+.BotMessageStudio-module__gr4-ZW__buttonRow, .BotMessageStudio-module__gr4-ZW__actionItem {
+  gap: .8rem;
+  padding: .95rem;
+  display: grid;
+}
+
+.BotMessageStudio-module__gr4-ZW__buttonGrid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.BotMessageStudio-module__gr4-ZW__fieldBlock {
+  gap: .38rem;
+  display: grid;
+}
+
+.BotMessageStudio-module__gr4-ZW__fieldBlock span {
+  color: #21384b;
+  font-size: .76rem;
+  font-weight: 800;
+}
+
+.BotMessageStudio-module__gr4-ZW__fieldBlock .field {
+  width: 100%;
+}
+
+.BotMessageStudio-module__gr4-ZW__buttonMeta {
+  gap: .35rem;
+  display: grid;
+}
+
+.BotMessageStudio-module__gr4-ZW__buttonActions {
+  justify-content: flex-end;
+  display: flex;
+}
+
+.BotMessageStudio-module__gr4-ZW__phoneShell {
+  background: linear-gradient(#1018280a, #10182800), linear-gradient(#dff4ea, #cfe8df);
+  border: 1px solid #0f172a14;
+  border-radius: 30px;
+  width: 100%;
+  max-width: 460px;
+  margin: 0 auto;
+  overflow: hidden;
+  box-shadow: 0 28px 50px #0f172a1f;
+}
+
+.BotMessageStudio-module__gr4-ZW__phoneHeader {
+  background: linear-gradient(#e6f5ee, #d7efe4);
+  border-bottom: 1px solid #0f172a0f;
+  justify-content: space-between;
+  align-items: center;
+  gap: .8rem;
+  padding: .9rem 1rem;
+  display: flex;
+}
+
+.BotMessageStudio-module__gr4-ZW__phoneHeaderMain {
+  align-items: center;
+  gap: .75rem;
+  display: flex;
+}
+
+.BotMessageStudio-module__gr4-ZW__phoneAvatar {
+  color: #fff;
+  background: #1f7a5c;
+  border-radius: 999px;
+  justify-content: center;
+  align-items: center;
+  width: 2.2rem;
+  height: 2.2rem;
+  font-size: .9rem;
+  font-weight: 800;
+  display: inline-flex;
+}
+
+.BotMessageStudio-module__gr4-ZW__phonePresence {
+  color: #4b635b;
+  margin-top: .08rem;
+  font-size: .72rem;
+  display: block;
+}
+
+.BotMessageStudio-module__gr4-ZW__phoneHeader strong {
+  color: #102033;
+}
+
+.BotMessageStudio-module__gr4-ZW__phoneHeader span {
+  color: var(--muted);
+  font-size: .78rem;
+}
+
+.BotMessageStudio-module__gr4-ZW__phoneBody {
+  gap: .85rem;
+  max-height: 520px;
+  padding: 1rem;
+  display: grid;
+  overflow: auto;
+}
+
+.BotMessageStudio-module__gr4-ZW__messageBubble {
+  border-radius: 22px;
+  max-width: 88%;
+  padding: .95rem 1rem;
+  box-shadow: 0 14px 28px #0f172a14;
+}
+
+.BotMessageStudio-module__gr4-ZW__messageBubble p {
+  white-space: pre-wrap;
+  margin: 0;
+  line-height: 1.56;
+}
+
+.BotMessageStudio-module__gr4-ZW__bubbleMeta {
+  color: #6b7280;
+  margin-top: .45rem;
+  font-size: .68rem;
+  display: block;
+}
+
+.BotMessageStudio-module__gr4-ZW__outboundBubble {
+  background: linear-gradient(#fff, #f8fcfb);
+  border-radius: 22px 22px 12px;
+  justify-self: end;
+}
+
+.BotMessageStudio-module__gr4-ZW__inboundBubble {
+  background: linear-gradient(#eef3f7, #e4edf5);
+  border-radius: 22px 22px 22px 12px;
+}
+
+.BotMessageStudio-module__gr4-ZW__previewButton {
+  border: 1px solid color-mix(in srgb, var(--brand) 22%, #d8e4ee);
+  background: color-mix(in srgb, var(--brand) 10%, white);
+  color: color-mix(in srgb, var(--brand) 88%, #17324a);
+  justify-content: flex-start;
+}
+
+.BotMessageStudio-module__gr4-ZW__previewActionEvent {
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: .45rem;
+  display: flex;
+}
+
+.BotMessageStudio-module__gr4-ZW__previewConversationStep {
+  gap: .75rem;
+  display: grid;
+}
+
+.BotMessageStudio-module__gr4-ZW__previewFallback {
+  border: 1px dashed color-mix(in srgb, var(--brand) 16%, #d8e4ee);
+  white-space: pre-wrap;
+  background: #ffffffc7;
+  border-radius: 16px;
+  padding: .9rem;
+}
+
+.BotMessageStudio-module__gr4-ZW__catalogMeta {
+  gap: .3rem;
+  display: grid;
+}
+
+.BotMessageStudio-module__gr4-ZW__publicationHero, .BotMessageStudio-module__gr4-ZW__extraPanel, .BotMessageStudio-module__gr4-ZW__variableGroup, .BotMessageStudio-module__gr4-ZW__readonlyInspector, .BotMessageStudio-module__gr4-ZW__templateInspector {
+  gap: .9rem;
+  display: grid;
+}
+
+.BotMessageStudio-module__gr4-ZW__templateOption {
+  border: 1px solid color-mix(in srgb, var(--brand) 10%, #dbe7f1);
+  background: #ffffffe0;
+  border-radius: 18px;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: .8rem;
+  padding: .9rem;
+  display: flex;
+}
+
+.BotMessageStudio-module__gr4-ZW__templateOptionActive {
+  border-color: color-mix(in srgb, var(--brand) 32%, #102033);
+  box-shadow: 0 16px 28px #0f766e1f;
+}
+
+.BotMessageStudio-module__gr4-ZW__statusBadge {
+  justify-self: end;
+}
+
+.BotMessageStudio-module__gr4-ZW__statusDot {
+  border-radius: 999px;
+  width: 14px;
+  height: 14px;
+}
+
+.BotMessageStudio-module__gr4-ZW__statusDotReady {
+  background: color-mix(in srgb, var(--brand) 84%, #22c55e);
+  box-shadow: 0 0 0 6px color-mix(in srgb, var(--brand) 12%, transparent);
+}
+
+.BotMessageStudio-module__gr4-ZW__statusDotDraft {
+  background: #f59e0b;
+  box-shadow: 0 0 0 6px #f59e0b1f;
+}
+
+.BotMessageStudio-module__gr4-ZW__emptyState {
+  border: 1px dashed color-mix(in srgb, var(--brand) 16%, #d8e4ee);
+  background: #f8fafce0;
+  border-radius: 18px;
+  padding: .95rem 1rem;
+}
+
+@media (max-width: 1240px) {
+  .BotMessageStudio-module__gr4-ZW__flowLayout, .BotMessageStudio-module__gr4-ZW__previewLayout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .BotMessageStudio-module__gr4-ZW__tabRow {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .BotMessageStudio-module__gr4-ZW__inspectorPreviewWrap {
+    justify-content: stretch;
+  }
+
+  .BotMessageStudio-module__gr4-ZW__inspectorPhoneShell {
+    max-width: none;
+  }
+}
+
+@media (max-width: 760px) {
+  .BotMessageStudio-module__gr4-ZW__hero, .BotMessageStudio-module__gr4-ZW__card, .BotMessageStudio-module__gr4-ZW__metricCard, .BotMessageStudio-module__gr4-ZW__catalogCard, .BotMessageStudio-module__gr4-ZW__checkCard, .BotMessageStudio-module__gr4-ZW__previewStage, .BotMessageStudio-module__gr4-ZW__libraryPanel, .BotMessageStudio-module__gr4-ZW__canvasPanel, .BotMessageStudio-module__gr4-ZW__inspectorPanel {
+    border-radius: 18px;
+    padding: .9rem;
+  }
+
+  .BotMessageStudio-module__gr4-ZW__tabRow, .BotMessageStudio-module__gr4-ZW__catalogSummary, .BotMessageStudio-module__gr4-ZW__catalogGrid, .BotMessageStudio-module__gr4-ZW__checkGrid, .BotMessageStudio-module__gr4-ZW__toggleGrid, .BotMessageStudio-module__gr4-ZW__buttonGrid, .BotMessageStudio-module__gr4-ZW__flowIndexGrid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .BotMessageStudio-module__gr4-ZW__phoneShell {
+    border-radius: 24px;
+  }
+
+  .BotMessageStudio-module__gr4-ZW__messageBubble {
+    max-width: 94%;
+  }
+}
+
+/*# sourceMappingURL=src_components_bot-editor_BotMessageStudio_module_css_bad6b30c._.single.css.map*/

@@ -5,6 +5,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { usePathname } from "next/navigation";
 import { apiFetch, getToken } from "../app/dashboard/_lib/api";
 import { MASTER_CONTEXT_CHANGED_EVENT } from "../lib/masterContextEvents";
+import type { PresentationConfig, PresentationModuleOverride } from "../lib/presentation-config";
 import styles from "./ModuleNav.module.css";
 
 type UserModule = { key: string; accessible: boolean };
@@ -31,7 +32,7 @@ const NAV_ITEMS: NavItem[] = [
     href: "/dashboard/inbox",
     label: "Atendimento",
     shortLabel: "AT",
-    description: "Inbox, agenda, templates e bot do atendimento.",
+    description: "Inbox, agenda conectada e bot do atendimento.",
     matcher: (route) =>
       route.startsWith("/dashboard/inbox") ||
       route.startsWith("/dashboard/auto-replies") ||
@@ -101,7 +102,19 @@ const NAV_ITEMS: NavItem[] = [
   },
 ];
 
-export default function ModuleNav() {
+type ModuleNavProps = {
+  presentationEditing?: boolean;
+  canEditPresentation?: boolean;
+  presentationConfig?: PresentationConfig | null;
+  onUpdateModulePresentation?: (href: string, patch: Partial<PresentationModuleOverride>) => void;
+};
+
+export default function ModuleNav({
+  presentationEditing = false,
+  canEditPresentation = false,
+  presentationConfig,
+  onUpdateModulePresentation,
+}: ModuleNavProps) {
   const pathname = usePathname();
   const authenticated = Boolean(getToken());
   const [modules, setModules] = useState<UserModule[]>([]);
@@ -180,6 +193,62 @@ export default function ModuleNav() {
     <nav className={styles.moduleNavWrap} aria-label="Navegação de módulos">
       {navItems.map((item) => {
         const active = item.matcher(pathname || "");
+        const override = presentationConfig?.modules?.[item.href];
+        const label = String(override?.label || item.label);
+        const shortLabel = String(override?.shortLabel || item.shortLabel).slice(0, 4).toUpperCase();
+        const description = String(override?.description || item.description);
+
+        if (presentationEditing && canEditPresentation) {
+          return (
+            <div
+              key={item.href}
+              className={active ? styles.moduleCardActive : styles.moduleCard}
+              data-ui-slot="module-card"
+              data-editing="true"
+            >
+              <span className={styles.moduleCardBadge}>
+                <input
+                  className={styles.moduleBadgeInput}
+                  value={shortLabel}
+                  maxLength={4}
+                  aria-label={`Sigla do módulo ${item.label}`}
+                  onChange={(event) =>
+                    onUpdateModulePresentation?.(item.href, {
+                      shortLabel: event.target.value.toUpperCase(),
+                    })
+                  }
+                />
+              </span>
+              <span className={styles.moduleCardBody}>
+                <input
+                  className={styles.moduleEditInput}
+                  value={label}
+                  aria-label={`Título do módulo ${item.label}`}
+                  onChange={(event) =>
+                    onUpdateModulePresentation?.(item.href, {
+                      label: event.target.value,
+                    })
+                  }
+                />
+                <textarea
+                  className={styles.moduleEditTextarea}
+                  value={description}
+                  rows={3}
+                  aria-label={`Descrição do módulo ${item.label}`}
+                  onChange={(event) =>
+                    onUpdateModulePresentation?.(item.href, {
+                      description: event.target.value,
+                    })
+                  }
+                />
+              </span>
+              <span className={styles.moduleCardArrow} aria-hidden="true">
+                EDITAR
+              </span>
+            </div>
+          );
+        }
+
         return (
           <Link
             key={item.href}
@@ -188,10 +257,10 @@ export default function ModuleNav() {
             data-ui-slot="module-card"
             aria-current={active ? "page" : undefined}
           >
-            <span className={styles.moduleCardBadge}>{item.shortLabel}</span>
+            <span className={styles.moduleCardBadge}>{shortLabel}</span>
             <span className={styles.moduleCardBody}>
-              <strong>{item.label}</strong>
-              <small>{item.description}</small>
+              <strong>{label}</strong>
+              <small>{description}</small>
             </span>
             <span className={styles.moduleCardArrow} aria-hidden="true">
               {active ? "ATIVO" : "ABRIR"}

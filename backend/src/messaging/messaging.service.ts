@@ -1011,7 +1011,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
 
   private buildAgendaPreview(group: AtendimentoAgendaGroup | null | undefined) {
     const slots = (group?.slots || [])
-      .filter((slot) => slot.enabled)
+      .filter((slot) => slot.enabled && (group?.workdays || []).includes(slot.dayOfWeek))
       .sort((left, right) => {
         if (left.dayOfWeek !== right.dayOfWeek) return left.dayOfWeek - right.dayOfWeek;
         return String(left.startTime || '').localeCompare(String(right.startTime || ''));

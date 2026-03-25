@@ -84,6 +84,7 @@ export type AtendimentoBotButton = {
   buttonId: string;
   actionId: string;
   title: string;
+  nextNodeId?: string;
 };
 
 export type AtendimentoBotActionGuide = {
@@ -110,6 +111,7 @@ export type AtendimentoBotConfig = {
   actionCatalog: AtendimentoBotActionGuide[];
   routingRules: AtendimentoRoutingRules;
   welcomeButtons: AtendimentoBotButton[];
+  returningCustomerButtons: AtendimentoBotButton[];
   mainMenuPrompt: string;
   mainMenuButtons: AtendimentoBotButton[];
   welcomeMessage: string;
@@ -132,22 +134,128 @@ export type AtendimentoAgendaSlot = {
   enabled: boolean;
 };
 
+export type AtendimentoAgendaConnectionStatus = "not_linked" | "pending" | "connected";
+
+export type AtendimentoAgendaGuideActionType =
+  | "abrir_agenda"
+  | "cancelar_agendamento"
+  | "acao_customizada";
+
+export type AtendimentoAgendaSendType = "botoes" | "lista";
+
+export type AtendimentoAgendaInitialMessage = {
+  greeting: string;
+  companyLabel: string;
+  attendantLabel: string;
+  introText: string;
+  sendType: AtendimentoAgendaSendType;
+  fallbackText: string;
+};
+
+export type AtendimentoAgendaFlowMessages = {
+  availabilityIntro: string;
+  fallbackFutureSlots: string;
+  confirmationMessage: string;
+  cancellationPrompt: string;
+  cancellationSuccess: string;
+  cancellationNotFound: string;
+};
+
 export type AtendimentoAgendaGroup = {
   id: string;
+  slug: string;
   title: string;
   description: string;
   buttonLabel: string;
+  actionType: AtendimentoAgendaGuideActionType;
+  linkedAgendaId: string;
+  customActionKey?: string | null;
+  sortOrder: number;
   introMessage: string;
   emptyMessage: string;
+  linkedEmail: string;
+  linkedUserName: string;
+  connectionStatus: AtendimentoAgendaConnectionStatus;
+  accentColor: string;
+  isActive: boolean;
+  workdays: number[];
+  visibleBusinessDays: number;
+  searchWindowDays: number;
+  suggestedSlotsCount: number;
+  fallbackFutureSlotsCount: number;
+  noImmediateAvailabilityMessage: string;
   slots: AtendimentoAgendaSlot[];
 };
 
 export type AtendimentoAgendaConfig = {
   timezone: string;
+  initialMessage: AtendimentoAgendaInitialMessage;
+  flowMessages: AtendimentoAgendaFlowMessages;
   groups: AtendimentoAgendaGroup[];
+  holidays: string[]; // ISO dates (YYYY-MM-DD) of holidays to exclude from availability
+};
+
+export type AtendimentoAgendaSimulationStage =
+  | "abrir_guia"
+  | "confirmar_agendamento"
+  | "cancelar_agendamento";
+
+export type AtendimentoAgendaSimulationPayload = {
+  groupId: string;
+  stage?: AtendimentoAgendaSimulationStage;
+  selectedSlotId?: string;
+  referenceDate?: string;
+  customerName?: string;
+  companyName?: string;
+  attendantName?: string;
+  hasActiveBooking?: boolean;
+};
+
+export type AtendimentoAgendaSimulationSlot = {
+  id: string;
+  label: string;
+  dateLabel: string;
+  startTime: string;
+  endTime: string;
+  isoDate: string;
+};
+
+export type AtendimentoAgendaSimulationMessage = {
+  role: "bot" | "customer" | "system";
+  label: string;
+  text: string;
+};
+
+export type AtendimentoAgendaSimulationResult = {
+  status: "ok" | "warning";
+  stage: AtendimentoAgendaSimulationStage;
+  groupId: string;
+  groupTitle: string;
+  actionType: AtendimentoAgendaGuideActionType;
+  summary: string;
+  messages: AtendimentoAgendaSimulationMessage[];
+  suggestedSlots: AtendimentoAgendaSimulationSlot[];
+  fallbackSlots: AtendimentoAgendaSimulationSlot[];
 };
 
 export const ATENDIMENTO_QUEUE_EVENT = "atendimento-human-queue";
+
+function normalizeAgendaWorkdays(value: unknown, fallback: number[]) {
+  const normalized = Array.from(
+    new Set(
+      (Array.isArray(value) ? value : [])
+        .map((item) => Math.trunc(Number(item)))
+        .filter((item) => Number.isFinite(item) && item >= 0 && item <= 6),
+    ),
+  ).sort((left, right) => left - right);
+  return normalized.length ? normalized : [...fallback];
+}
+
+function normalizeVisibleBusinessDays(value: unknown, fallback: number) {
+  const normalized = Math.trunc(Number(value));
+  if (!Number.isFinite(normalized)) return fallback;
+  return Math.max(1, Math.min(14, normalized));
+}
 
 function normalizeButtonId(value: string, fallback: string) {
   const normalized = String(value || fallback)
@@ -163,11 +271,39 @@ function buildDefaultButtonId(sectionKey: string, actionId: string, index: numbe
   return normalizeButtonId(`${sectionKey}_${actionId || "action"}_${index + 1}`, `${sectionKey}_${index + 1}`);
 }
 
+function resolveDefaultAtendimentoNextNodeId(actionIdRaw: string | null | undefined) {
+  const actionId = String(actionIdRaw || "").trim().toLowerCase();
+  switch (actionId) {
+    case "talk_human":
+      return "humanAckMessage";
+    case "close_topic":
+      return "closeTopicMessage";
+    case "show_main_menu":
+      return "mainMenuPrompt";
+    case "enter_recovery":
+      return "recoveryDetectedMessage";
+    case "start_quick_registration":
+      return "registrationCapture";
+    default:
+      if (actionId.startsWith("agenda:")) return "agendaDispatch";
+      return "postActionPrompt";
+  }
+}
+
+function normalizeNextNodeId(value: string | null | undefined, actionId: string) {
+  const normalized = String(value || "")
+    .trim()
+    .replace(/[^a-zA-Z0-9_:-]/g, "")
+    .slice(0, 80);
+  return normalized || resolveDefaultAtendimentoNextNodeId(actionId);
+}
+
 function makeDefaultButton(sectionKey: string, actionId: string, title: string, index: number): AtendimentoBotButton {
   return {
     buttonId: buildDefaultButtonId(sectionKey, actionId, index),
     actionId,
     title,
+    nextNodeId: resolveDefaultAtendimentoNextNodeId(actionId),
   };
 }
 
@@ -278,6 +414,10 @@ export const DEFAULT_ATENDIMENTO_BOT_CONFIG: AtendimentoBotConfig = {
     makeDefaultButton("welcome_message", "start_quick_registration", "Fazer cadastro rapido", 0),
     makeDefaultButton("welcome_message", "talk_human", "Falar com atendente", 1),
   ],
+  returningCustomerButtons: [
+    makeDefaultButton("returning_customer", "show_main_menu", "Ver opcoes", 0),
+    makeDefaultButton("returning_customer", "talk_human", "Falar com atendente", 1),
+  ],
   mainMenuPrompt: "Escolha abaixo como deseja continuar:",
   mainMenuButtons: [makeDefaultButton("main_menu", "talk_human", "Falar com atendente", 0)],
   returningCustomerMessage:
@@ -300,15 +440,56 @@ export const DEFAULT_ATENDIMENTO_BOT_CONFIG: AtendimentoBotConfig = {
 
 export const DEFAULT_ATENDIMENTO_AGENDA_CONFIG: AtendimentoAgendaConfig = {
   timezone: "America/Sao_Paulo",
+  initialMessage: {
+    greeting: "Ola! Tudo bem?",
+    companyLabel: "{{empresa}}",
+    attendantLabel: "{{funcionario}}",
+    introText:
+      "Escolha abaixo a guia que faz mais sentido para o seu atendimento e eu vou sugerir os horarios disponiveis.",
+    sendType: "botoes",
+    fallbackText:
+      "Se nenhuma guia fizer sentido agora, responda esta mensagem e um atendente continua por aqui.",
+  },
+  flowMessages: {
+    availabilityIntro:
+      "Esses sao os horarios que encontrei para {{agenda_nome}}. Escolha uma opcao para confirmar.",
+    fallbackFutureSlots:
+      "Nao encontrei horario imediato. Posso te oferecer as proximas opcoes futuras desta guia.",
+    confirmationMessage:
+      "Agendamento confirmado para {{agenda_nome}} em {{agenda_slots}}. Se precisar, voce pode cancelar pela propria jornada.",
+    cancellationPrompt:
+      "Localizei um agendamento ativo para {{agenda_nome}} em {{agenda_slots}}. Deseja cancelar agora?",
+    cancellationSuccess:
+      "Pronto. O agendamento de {{agenda_nome}} foi cancelado com sucesso.",
+    cancellationNotFound:
+      "Nao encontrei agendamento ativo para este cliente. Se quiser, posso te mostrar novas opcoes de horario.",
+  },
   groups: [
     {
       id: "agenda_tecnicos",
+      slug: "tecnicos",
       title: "Tecnicos",
       description: "Horarios de manutencao e visitas tecnicas.",
-      buttonLabel: "Agenda tecnicos",
+      buttonLabel: "Tecnicos",
+      actionType: "abrir_agenda",
+      linkedAgendaId: "agenda_tecnicos",
+      customActionKey: null,
+      sortOrder: 0,
       introMessage:
         "Esses sao os horarios disponiveis para {{agenda_nome}}. Se quiser, um atendente pode confirmar o melhor encaixe.\n\n{{agenda_slots}}",
       emptyMessage: "No momento nao ha horarios ativos para essa agenda.",
+      linkedEmail: "",
+      linkedUserName: "",
+      connectionStatus: "not_linked",
+      accentColor: "#4da36f",
+      isActive: true,
+      workdays: [1, 2, 3, 4, 5],
+      visibleBusinessDays: 7,
+      searchWindowDays: 7,
+      suggestedSlotsCount: 3,
+      fallbackFutureSlotsCount: 3,
+      noImmediateAvailabilityMessage:
+        "Nao encontrei disponibilidade imediata para esta guia. Vou priorizar os proximos horarios futuros.",
       slots: [
         {
           id: "agenda_tecnicos_seg_0900",
@@ -328,7 +509,123 @@ export const DEFAULT_ATENDIMENTO_AGENDA_CONFIG: AtendimentoAgendaConfig = {
         },
       ],
     },
+    {
+      id: "agenda_gerencia",
+      slug: "gerencia",
+      title: "Gerencia",
+      description: "Espacos de alinhamento, aprovacao e retorno executivo.",
+      buttonLabel: "Gerencia",
+      actionType: "abrir_agenda",
+      linkedAgendaId: "agenda_gerencia",
+      customActionKey: null,
+      sortOrder: 1,
+      introMessage:
+        "Essas sao as janelas abertas para {{agenda_nome}}. Escolha a melhor opcao e eu sigo com a confirmacao.\n\n{{agenda_slots}}",
+      emptyMessage: "A gerencia nao abriu novos horarios nesta semana.",
+      linkedEmail: "",
+      linkedUserName: "",
+      connectionStatus: "not_linked",
+      accentColor: "#5d83ff",
+      isActive: true,
+      workdays: [1, 2, 3, 4, 5],
+      visibleBusinessDays: 7,
+      searchWindowDays: 7,
+      suggestedSlotsCount: 3,
+      fallbackFutureSlotsCount: 3,
+      noImmediateAvailabilityMessage:
+        "A gerencia nao tem horario imediato. Vou abrir os proximos encaixes futuros para escolha.",
+      slots: [
+        {
+          id: "agenda_gerencia_ter_1000",
+          label: "Terca 10:00-11:00",
+          dayOfWeek: 2,
+          startTime: "10:00",
+          endTime: "11:00",
+          enabled: true,
+        },
+        {
+          id: "agenda_gerencia_qui_1500",
+          label: "Quinta 15:00-16:30",
+          dayOfWeek: 4,
+          startTime: "15:00",
+          endTime: "16:30",
+          enabled: true,
+        },
+      ],
+    },
+    {
+      id: "agenda_equipe",
+      slug: "equipe",
+      title: "Equipe",
+      description: "Treinamentos, handoff e distribuicao da operacao.",
+      buttonLabel: "Equipe",
+      actionType: "abrir_agenda",
+      linkedAgendaId: "agenda_equipe",
+      customActionKey: null,
+      sortOrder: 2,
+      introMessage:
+        "Esses horarios da {{agenda_nome}} ja estao liberados para atendimento.\n\n{{agenda_slots}}",
+      emptyMessage: "A equipe ainda nao publicou novas faixas para este fluxo.",
+      linkedEmail: "",
+      linkedUserName: "",
+      connectionStatus: "not_linked",
+      accentColor: "#e57b47",
+      isActive: true,
+      workdays: [1, 2, 3, 4, 5],
+      visibleBusinessDays: 7,
+      searchWindowDays: 7,
+      suggestedSlotsCount: 3,
+      fallbackFutureSlotsCount: 3,
+      noImmediateAvailabilityMessage:
+        "A equipe nao publicou horario imediato. Vou te mostrar os proximos horarios futuros.",
+      slots: [
+        {
+          id: "agenda_equipe_seg_0830",
+          label: "Segunda 08:30-09:30",
+          dayOfWeek: 1,
+          startTime: "08:30",
+          endTime: "09:30",
+          enabled: true,
+        },
+        {
+          id: "agenda_equipe_sex_1330",
+          label: "Sexta 13:30-15:00",
+          dayOfWeek: 5,
+          startTime: "13:30",
+          endTime: "15:00",
+          enabled: true,
+        },
+      ],
+    },
+    {
+      id: "agenda_cancelamento",
+      slug: "cancelar_agendamento",
+      title: "Cancelar agenda",
+      description: "Guia especial para localizar e cancelar agendamentos ativos do cliente.",
+      buttonLabel: "Cancelar agenda",
+      actionType: "cancelar_agendamento",
+      linkedAgendaId: "agenda_cancelamento",
+      customActionKey: null,
+      sortOrder: 3,
+      introMessage:
+        "Vou localizar o compromisso atual deste cliente e pedir a confirmacao do cancelamento.",
+      emptyMessage: "Nao encontrei compromisso ativo para cancelar neste momento.",
+      linkedEmail: "",
+      linkedUserName: "",
+      connectionStatus: "not_linked",
+      accentColor: "#d05b42",
+      isActive: true,
+      workdays: [1, 2, 3, 4, 5],
+      visibleBusinessDays: 7,
+      searchWindowDays: 14,
+      suggestedSlotsCount: 1,
+      fallbackFutureSlotsCount: 0,
+      noImmediateAvailabilityMessage:
+        "Nao foi possivel localizar compromisso imediato para cancelamento.",
+      slots: [],
+    },
   ],
+  holidays: [],
 };
 
 function uniqueByKey<T extends { key: string }>(items: T[]) {
@@ -396,6 +693,11 @@ export function normalizeBotConfig(
           "welcome_message",
         )
       : [],
+    returningCustomerButtons: normalizeButtons(
+      payload?.returningCustomerButtons,
+      DEFAULT_ATENDIMENTO_BOT_CONFIG.returningCustomerButtons,
+      "returning_customer",
+    ),
     mainMenuButtons: normalizeButtons(
       payload?.mainMenuButtons,
       DEFAULT_ATENDIMENTO_BOT_CONFIG.mainMenuButtons,
@@ -422,7 +724,7 @@ function normalizeButtons(
   buttons: AtendimentoBotButton[] | undefined,
   fallback: AtendimentoBotButton[],
   sectionKey: string,
-) {
+): AtendimentoBotButton[] {
   if (buttons === undefined || buttons === null) {
     return fallback.map((button) => ({ ...button }));
   }
@@ -432,40 +734,221 @@ function normalizeButtons(
       const buttonId = normalizeButtonId(button.buttonId, buildDefaultButtonId(sectionKey, button.actionId, index));
       if (seen.has(buttonId)) return null;
       seen.add(buttonId);
+      const nextNodeId = normalizeNextNodeId(
+        String(button.nextNodeId || ""),
+        String(button.actionId || ""),
+      );
       return {
         buttonId,
-      actionId: String(button.actionId || "").trim(),
-      title: String(button.title || "").trim(),
+        actionId: String(button.actionId || "").trim(),
+        title: String(button.title || "").trim(),
+        ...(nextNodeId ? { nextNodeId } : {}),
       };
     })
-    .filter((button): button is AtendimentoBotButton => Boolean(button?.buttonId && button.actionId && button.title));
+    .filter(
+      (
+        button,
+      ): button is AtendimentoBotButton => Boolean(button && button.buttonId && button.actionId && button.title),
+    );
+}
+
+function normalizeAgendaSendType(value: unknown): AtendimentoAgendaSendType {
+  return String(value || "").trim().toLowerCase() === "lista" ? "lista" : "botoes";
+}
+
+function normalizeAgendaGuideActionType(value: unknown): AtendimentoAgendaGuideActionType {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (normalized === "cancelar_agendamento") return "cancelar_agendamento";
+  if (normalized === "acao_customizada") return "acao_customizada";
+  return "abrir_agenda";
+}
+
+function normalizePositiveRange(value: unknown, fallback: number, min: number, max: number) {
+  const normalized = Math.trunc(Number(value));
+  if (!Number.isFinite(normalized)) return fallback;
+  return Math.max(min, Math.min(max, normalized));
+}
+
+function normalizeAgendaSlug(value: unknown, fallback: string) {
+  const normalized = String(value || fallback)
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, "_")
+    .replace(/[^a-z0-9_:-]/g, "")
+    .slice(0, 80);
+  return normalized || fallback;
+}
+
+function normalizeHolidayList(value: unknown) {
+  return Array.from(
+    new Set(
+      (Array.isArray(value) ? value : [])
+        .map((item) => String(item || "").trim())
+        .filter((item) => /^\d{4}-\d{2}-\d{2}$/.test(item)),
+    ),
+  ).sort();
+}
+
+function normalizeAgendaSlots(value: unknown, fallback: AtendimentoAgendaSlot[]) {
+  const items = Array.isArray(value) ? value : [];
+  const normalized = items
+    .map((item, index) => {
+      const slot = item as Partial<AtendimentoAgendaSlot>;
+      const rawId = String(slot.id || "").trim();
+      const fallbackId = `agenda_slot_${index + 1}`;
+      const id = rawId
+        ? normalizeButtonId(rawId, fallbackId)
+        : fallbackId;
+      const startTime = /^\d{2}:\d{2}$/.test(String(slot.startTime || ""))
+        ? String(slot.startTime)
+        : "09:00";
+      const endTime = /^\d{2}:\d{2}$/.test(String(slot.endTime || ""))
+        ? String(slot.endTime)
+        : "10:00";
+      const dayOfWeek = Math.max(0, Math.min(6, Math.trunc(Number(slot.dayOfWeek || 0))));
+      return {
+        id,
+        label: String(slot.label || `${startTime}-${endTime}`).trim(),
+        dayOfWeek,
+        startTime,
+        endTime,
+        enabled: slot.enabled ?? true,
+      };
+    })
+    .filter((item) => item.id);
+  return normalized.length ? normalized : fallback.map((item) => ({ ...item }));
 }
 
 export function normalizeAgendaConfig(
   payload: Partial<AtendimentoAgendaConfig> | null | undefined,
 ): AtendimentoAgendaConfig {
+  const config = payload || {};
+  const groupsInput = Array.isArray(config.groups) ? config.groups : [];
+  const groups = groupsInput
+    .map((group, index) => {
+      const fallback =
+        DEFAULT_ATENDIMENTO_AGENDA_CONFIG.groups[index] || DEFAULT_ATENDIMENTO_AGENDA_CONFIG.groups[0];
+      const id = normalizeButtonId(String(group.id || ""), `agenda_group_${index + 1}`);
+      return {
+        id,
+        slug: normalizeAgendaSlug(group.slug, fallback?.slug || id),
+        title: String(group.title || fallback?.title || `Agenda ${index + 1}`).trim(),
+        description: String(group.description || fallback?.description || "").trim(),
+        buttonLabel: String(group.buttonLabel || fallback?.buttonLabel || "Abrir agenda").trim(),
+        actionType: normalizeAgendaGuideActionType(group.actionType ?? fallback?.actionType),
+        linkedAgendaId:
+          normalizeButtonId(String(group.linkedAgendaId || ""), fallback?.linkedAgendaId || id) || id,
+        customActionKey: String(group.customActionKey || fallback?.customActionKey || "").trim() || null,
+        sortOrder: normalizePositiveRange(group.sortOrder, fallback?.sortOrder ?? index, 0, 999),
+        introMessage: String(group.introMessage || fallback?.introMessage || "").trim(),
+        emptyMessage: String(group.emptyMessage || fallback?.emptyMessage || "").trim(),
+        linkedEmail: String(group.linkedEmail || fallback?.linkedEmail || "").trim().toLowerCase(),
+        linkedUserName: String(group.linkedUserName || fallback?.linkedUserName || "").trim(),
+        connectionStatus:
+          group.connectionStatus === "connected" || group.connectionStatus === "pending"
+            ? group.connectionStatus
+            : fallback?.connectionStatus || "not_linked",
+        accentColor: String(group.accentColor || fallback?.accentColor || "#4da36f").trim() || "#4da36f",
+        isActive: group.isActive ?? fallback?.isActive ?? true,
+        workdays: normalizeAgendaWorkdays(
+          group.workdays,
+          Array.from(
+            new Set(
+              Array.isArray(group.slots)
+                ? group.slots
+                    .map((slot) => Math.trunc(Number(slot.dayOfWeek)))
+                    .filter((day) => Number.isFinite(day) && day >= 0 && day <= 6)
+                : fallback?.workdays || [1, 2, 3, 4, 5],
+            ),
+          ),
+        ),
+        visibleBusinessDays: normalizeVisibleBusinessDays(
+          group.visibleBusinessDays,
+          fallback?.visibleBusinessDays || 7,
+        ),
+        searchWindowDays: normalizePositiveRange(
+          group.searchWindowDays,
+          fallback?.searchWindowDays || fallback?.visibleBusinessDays || 7,
+          1,
+          30,
+        ),
+        suggestedSlotsCount: normalizePositiveRange(
+          group.suggestedSlotsCount,
+          fallback?.suggestedSlotsCount || 3,
+          1,
+          10,
+        ),
+        fallbackFutureSlotsCount: normalizePositiveRange(
+          group.fallbackFutureSlotsCount,
+          fallback?.fallbackFutureSlotsCount || 3,
+          0,
+          10,
+        ),
+        noImmediateAvailabilityMessage: String(
+          group.noImmediateAvailabilityMessage ||
+            fallback?.noImmediateAvailabilityMessage ||
+            fallback?.emptyMessage ||
+            "",
+        ).trim(),
+        slots: normalizeAgendaSlots(group.slots, fallback?.slots || []),
+      };
+    })
+    .filter((group) => group.id);
+
   return {
-    timezone: String(payload?.timezone || DEFAULT_ATENDIMENTO_AGENDA_CONFIG.timezone).trim(),
+    timezone: String(config.timezone || DEFAULT_ATENDIMENTO_AGENDA_CONFIG.timezone).trim(),
+    initialMessage: {
+      greeting: String(
+        config.initialMessage?.greeting || DEFAULT_ATENDIMENTO_AGENDA_CONFIG.initialMessage.greeting,
+      ).trim(),
+      companyLabel: String(
+        config.initialMessage?.companyLabel || DEFAULT_ATENDIMENTO_AGENDA_CONFIG.initialMessage.companyLabel,
+      ).trim(),
+      attendantLabel: String(
+        config.initialMessage?.attendantLabel || DEFAULT_ATENDIMENTO_AGENDA_CONFIG.initialMessage.attendantLabel,
+      ).trim(),
+      introText: String(
+        config.initialMessage?.introText || DEFAULT_ATENDIMENTO_AGENDA_CONFIG.initialMessage.introText,
+      ).trim(),
+      sendType: normalizeAgendaSendType(
+        config.initialMessage?.sendType ?? DEFAULT_ATENDIMENTO_AGENDA_CONFIG.initialMessage.sendType,
+      ),
+      fallbackText: String(
+        config.initialMessage?.fallbackText || DEFAULT_ATENDIMENTO_AGENDA_CONFIG.initialMessage.fallbackText,
+      ).trim(),
+    },
+    flowMessages: {
+      availabilityIntro: String(
+        config.flowMessages?.availabilityIntro ||
+          DEFAULT_ATENDIMENTO_AGENDA_CONFIG.flowMessages.availabilityIntro,
+      ).trim(),
+      fallbackFutureSlots: String(
+        config.flowMessages?.fallbackFutureSlots ||
+          DEFAULT_ATENDIMENTO_AGENDA_CONFIG.flowMessages.fallbackFutureSlots,
+      ).trim(),
+      confirmationMessage: String(
+        config.flowMessages?.confirmationMessage ||
+          DEFAULT_ATENDIMENTO_AGENDA_CONFIG.flowMessages.confirmationMessage,
+      ).trim(),
+      cancellationPrompt: String(
+        config.flowMessages?.cancellationPrompt ||
+          DEFAULT_ATENDIMENTO_AGENDA_CONFIG.flowMessages.cancellationPrompt,
+      ).trim(),
+      cancellationSuccess: String(
+        config.flowMessages?.cancellationSuccess ||
+          DEFAULT_ATENDIMENTO_AGENDA_CONFIG.flowMessages.cancellationSuccess,
+      ).trim(),
+      cancellationNotFound: String(
+        config.flowMessages?.cancellationNotFound ||
+          DEFAULT_ATENDIMENTO_AGENDA_CONFIG.flowMessages.cancellationNotFound,
+      ).trim(),
+    },
+    holidays: normalizeHolidayList(config.holidays),
     groups:
-      Array.isArray(payload?.groups) && payload.groups.length
-        ? payload.groups.map((group, groupIndex) => ({
-            id: String(group.id || `agenda_group_${groupIndex + 1}`).trim(),
-            title: String(group.title || `Agenda ${groupIndex + 1}`).trim(),
-            description: String(group.description || "").trim(),
-            buttonLabel: String(group.buttonLabel || group.title || "Abrir agenda").trim(),
-            introMessage: String(group.introMessage || "").trim(),
-            emptyMessage: String(group.emptyMessage || "Sem horarios ativos.").trim(),
-            slots: Array.isArray(group.slots)
-              ? group.slots.map((slot, slotIndex) => ({
-                  id: String(slot.id || `${group.id || `agenda_group_${groupIndex + 1}`}_${slotIndex + 1}`).trim(),
-                  label: String(slot.label || `${slot.startTime}-${slot.endTime}`).trim(),
-                  dayOfWeek: Number(slot.dayOfWeek || 0),
-                  startTime: String(slot.startTime || "09:00").trim(),
-                  endTime: String(slot.endTime || "10:00").trim(),
-                  enabled: slot.enabled ?? true,
-                }))
-              : [],
-          }))
+      groups.length > 0
+        ? groups.sort((left, right) => left.sortOrder - right.sortOrder)
         : DEFAULT_ATENDIMENTO_AGENDA_CONFIG.groups.map((group) => ({
             ...group,
             slots: group.slots.map((slot) => ({ ...slot })),
@@ -500,7 +983,7 @@ export function buildAgendaActionId(groupId: string) {
 
 export function formatAgendaPreview(group: AtendimentoAgendaGroup) {
   return [...(group.slots || [])]
-    .filter((slot) => slot.enabled)
+    .filter((slot) => slot.enabled && (group.workdays || []).includes(slot.dayOfWeek))
     .sort((left, right) => {
       if (left.dayOfWeek !== right.dayOfWeek) return left.dayOfWeek - right.dayOfWeek;
       return String(left.startTime || "").localeCompare(String(right.startTime || ""));
@@ -526,4 +1009,38 @@ export function createCustomAction(config: AtendimentoBotConfig): AtendimentoBot
     responseMessage: "Recebi sua solicitacao e vou seguir com esse fluxo.",
     custom: true,
   };
+}
+
+/**
+ * Fetch Brazilian holidays from public API or return empty array if unavailable
+ * Returns ISO date strings (YYYY-MM-DD)
+ */
+export async function fetchBrazilianHolidays(year: number): Promise<string[]> {
+  try {
+    // Using a public API for Brazilian holidays
+    const response = await fetch(`https://api.iseatz.com/holidays?country=BR&year=${year}`);
+    if (!response.ok) throw new Error("API request failed");
+    
+    const data = (await response.json()) as Array<{ date: string; name?: string }>;
+    if (!Array.isArray(data)) return [];
+    
+    return data
+      .map((item) => {
+        // Extract just the date part (YYYY-MM-DD)
+        const dateStr = String(item.date || "").split("T")[0];
+        return /^\d{4}-\d{2}-\d{2}$/.test(dateStr) ? dateStr : null;
+      })
+      .filter((date): date is string => date !== null)
+      .sort();
+  } catch (error) {
+    console.warn("Failed to fetch holidays from API:", error);
+    return [];
+  }
+}
+
+/**
+ * Check if a date is a holiday (must be ISO date string YYYY-MM-DD)
+ */
+export function isHoliday(date: string, holidays: string[]): boolean {
+  return holidays.includes(date);
 }

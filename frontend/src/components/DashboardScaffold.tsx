@@ -2,8 +2,19 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import type { ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import ModuleNav from "./ModuleNav";
+import { apiFetch, getToken } from "../app/dashboard/_lib/api";
+import { MASTER_CONTEXT_CHANGED_EVENT } from "../lib/masterContextEvents";
+import {
+  clearPresentationConfig,
+  createDefaultPresentationConfig,
+  readPresentationConfig,
+  savePresentationConfig,
+  type PresentationConfig,
+  type PresentationModuleOverride,
+} from "../lib/presentation-config";
+import { dispatchWorkspaceEditToggle } from "../lib/workspace-edit-events";
 
 type DashboardScaffoldProps = {
   title: string;
@@ -11,6 +22,8 @@ type DashboardScaffoldProps = {
   children: ReactNode;
   actions?: ReactNode;
   showDashboardShortcut?: boolean;
+  hideHeader?: boolean;
+  layoutMode?: "default" | "workspace";
 };
 
 function buildPageKey(pathname: string) {
@@ -18,42 +31,231 @@ function buildPageKey(pathname: string) {
   return parts[parts.length - 1] || "dashboard";
 }
 
+type PresentationProfile = {
+  tenantId: string;
+  userId: string;
+  isSystemMaster: boolean;
+};
+
 export default function DashboardScaffold({
   title,
+  description,
   children,
   actions,
   showDashboardShortcut = true,
+  hideHeader = false,
+  layoutMode = "default",
 }: DashboardScaffoldProps) {
   const pathname = usePathname();
   const isRootDashboard = pathname === "/dashboard";
-  const sectionLabel = pathname.startsWith("/hbx-recovery") ? "HBX Recovery" : "HBX Workspace";
+  const defaultSectionLabel = pathname.startsWith("/hbx-recovery") ? "HBX Recovery" : "HBX Workspace";
   const pageKey = buildPageKey(pathname);
+  const isWorkspaceMode = layoutMode === "workspace";
+  const authenticated = Boolean(getToken());
+  const [presentationProfile, setPresentationProfile] = useState<PresentationProfile | null>(null);
+  const [presentationConfig, setPresentationConfig] = useState<PresentationConfig | null>(null);
+  const [presentationEditing, setPresentationEditing] = useState(false);
+
+  const loadPresentationProfile = useCallback(async () => {
+    if (!authenticated) {
+      setPresentationProfile(null);
+      setPresentationConfig(null);
+      return;
+    }
+
+    try {
+      const profile = await apiFetch<{
+        id?: number | null;
+        username?: string | null;
+        email?: string | null;
+        isSystemMaster?: boolean;
+        company?: { id?: number | null } | null;
+      }>("/profile/current-user");
+
+      const tenantId = String(profile?.company?.id || "tenant-default");
+      const userId = String(profile?.id || profile?.username || profile?.email || "anonymous");
+      setPresentationProfile({
+        tenantId,
+        userId,
+        isSystemMaster: Boolean(profile?.isSystemMaster),
+      });
+      setPresentationConfig(readPresentationConfig(tenantId));
+    } catch {
+      setPresentationProfile(null);
+      setPresentationConfig(null);
+    }
+  }, [authenticated]);
+
+  useEffect(() => {
+    void loadPresentationProfile();
+
+    const handleMasterContextChanged = () => {
+      void loadPresentationProfile();
+    };
+
+    window.addEventListener(MASTER_CONTEXT_CHANGED_EVENT, handleMasterContextChanged);
+    return () => {
+      window.removeEventListener(MASTER_CONTEXT_CHANGED_EVENT, handleMasterContextChanged);
+    };
+  }, [loadPresentationProfile]);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !presentationProfile?.tenantId) return;
+
+    const storageKey = `hbx.presentation.v1:global:${encodeURIComponent(
+      presentationProfile.tenantId.trim().toLowerCase(),
+    )}`;
+    const handleStorage = (event: StorageEvent) => {
+      if (event.storageArea !== window.localStorage || event.key !== storageKey) return;
+      setPresentationConfig(readPresentationConfig(presentationProfile.tenantId));
+    };
+
+    window.addEventListener("storage", handleStorage);
+    return () => {
+      window.removeEventListener("storage", handleStorage);
+    };
+  }, [presentationProfile?.tenantId]);
+
+  const canEditPresentation = Boolean(presentationProfile?.isSystemMaster);
+
+  useEffect(() => {
+    if (!isWorkspaceMode || !canEditPresentation) return;
+    dispatchWorkspaceEditToggle({ active: presentationEditing });
+  }, [canEditPresentation, isWorkspaceMode, presentationEditing]);
+
+  const updatePresentationConfig = useCallback(
+    (updater: (current: PresentationConfig) => PresentationConfig) => {
+      if (!presentationProfile?.tenantId) return;
+
+      setPresentationConfig((current) => {
+        const base = current || createDefaultPresentationConfig(presentationProfile.tenantId);
+        const next = updater(base);
+        return savePresentationConfig({
+          ...next,
+          tenantId: presentationProfile.tenantId,
+          updatedBy: presentationProfile.userId,
+        });
+      });
+    },
+    [presentationProfile?.tenantId, presentationProfile?.userId],
+  );
+
+  const pageOverride = presentationConfig?.pages?.[pageKey];
+  const resolvedSectionLabel = pageOverride?.sectionLabel || defaultSectionLabel;
+  const resolvedTitle = pageOverride?.title || title;
+  const resolvedDescription = pageOverride?.description || description || "";
+  const resolvedNavEyebrow = presentationConfig?.nav.eyebrow || "Módulos";
+  const resolvedNavTitle = presentationConfig?.nav.title || "Navegação principal";
+
+  const shellStyle = useMemo<CSSProperties>(
+    () =>
+      ({
+        ["--workspace-rail-width" as string]: `${presentationConfig?.layout.navWidth || 292}px`,
+        ["--workspace-hero-min-height" as string]: `${presentationConfig?.layout.heroMinHeight || 132}px`,
+        ["--workspace-stage-height" as string]:
+          presentationConfig?.layout.workspaceHeight && presentationConfig.layout.workspaceHeight > 0
+            ? `${presentationConfig.layout.workspaceHeight}px`
+            : undefined,
+      }) satisfies CSSProperties,
+    [
+      presentationConfig?.layout.heroMinHeight,
+      presentationConfig?.layout.navWidth,
+      presentationConfig?.layout.workspaceHeight,
+    ],
+  );
+
+  const updatePageCopy = useCallback(
+    (patch: Partial<{ sectionLabel: string; title: string; description: string }>) => {
+      updatePresentationConfig((current) => ({
+        ...current,
+        pages: {
+          ...current.pages,
+          [pageKey]: {
+            ...current.pages[pageKey],
+            ...patch,
+          },
+        },
+      }));
+    },
+    [pageKey, updatePresentationConfig],
+  );
+
+  const updateModulePresentation = useCallback(
+    (href: string, patch: Partial<PresentationModuleOverride>) => {
+      updatePresentationConfig((current) => ({
+        ...current,
+        modules: {
+          ...current.modules,
+          [href]: {
+            ...current.modules[href],
+            ...patch,
+          },
+        },
+      }));
+    },
+    [updatePresentationConfig],
+  );
+
+  const restorePresentationDefaults = useCallback(() => {
+    if (!presentationProfile?.tenantId) return;
+    clearPresentationConfig(presentationProfile.tenantId);
+    setPresentationConfig(createDefaultPresentationConfig(presentationProfile.tenantId));
+  }, [presentationProfile?.tenantId]);
 
   return (
-    <main className="app-shell" data-page-key={pageKey}>
-      <div className="app-container">
-        <div className="workspace-shell">
+    <main
+      className={`app-shell ${isWorkspaceMode ? "app-shell--workspace" : ""}`}
+      data-page-key={pageKey}
+    >
+      <div
+        className={`app-container ${isWorkspaceMode ? "app-container--workspace" : ""}`}
+        style={shellStyle}
+      >
+        <div className={`workspace-shell ${isWorkspaceMode ? "workspace-shell--workspace" : ""}`}>
           <aside className="workspace-rail">
             <section className="shell-card shell-card--nav">
               <div className="shell-card__header">
                 <div>
-                  <p className="shell-card__eyebrow">Módulos</p>
-                  <strong className="shell-card__title">Navegação principal</strong>
+                  <p className="shell-card__eyebrow">{resolvedNavEyebrow}</p>
+                  <strong className="shell-card__title">{resolvedNavTitle}</strong>
                 </div>
               </div>
-              <ModuleNav />
+              <ModuleNav
+                presentationEditing={presentationEditing}
+                canEditPresentation={canEditPresentation}
+                presentationConfig={presentationConfig}
+                onUpdateModulePresentation={updateModulePresentation}
+              />
             </section>
           </aside>
 
-          <section className="workspace-main">
-            <section className="panel page-hero">
+          <section className={`workspace-main ${isWorkspaceMode ? "workspace-main--workspace" : ""}`}>
+            <section
+              className={`panel page-hero ${isWorkspaceMode ? "page-hero--workspace" : ""}`}
+              style={{ display: hideHeader ? "none" : "block" }}
+            >
               <div className="page-hero__copy">
-                <span className="page-overline">{sectionLabel}</span>
-                <h1>{title}</h1>
+                <span className="page-overline">{resolvedSectionLabel}</span>
+                <h1>{resolvedTitle}</h1>
+                {resolvedDescription ? <p>{resolvedDescription}</p> : null}
               </div>
 
               <div className="page-hero__sidebar">
                 <div className="page-hero__actions">
+                  {canEditPresentation ? (
+                    <button
+                      type="button"
+                      className={`btn btn-sm ${presentationEditing ? "btn-primary" : "btn-secondary"}`}
+                      onClick={() => setPresentationEditing((current) => !current)}
+                    >
+                      {presentationEditing ? "Fechar edição UI" : "Editar interface"}
+                    </button>
+                  ) : null}
+                  {canEditPresentation && presentationEditing ? (
+                    <button type="button" className="btn btn-secondary btn-sm" onClick={restorePresentationDefaults}>
+                      Restaurar interface
+                    </button>
+                  ) : null}
                   {showDashboardShortcut && !isRootDashboard ? (
                     <Link href="/dashboard" className="btn btn-secondary btn-sm">
                       Voltar ao menu
@@ -62,9 +264,130 @@ export default function DashboardScaffold({
                   {actions}
                 </div>
               </div>
+
+              {canEditPresentation && presentationEditing ? (
+                <div className="presentation-editor">
+                  <label className="presentation-editor__field">
+                    <span>Rótulo superior</span>
+                    <input
+                      className="field"
+                      value={resolvedSectionLabel}
+                      onChange={(event) => updatePageCopy({ sectionLabel: event.target.value })}
+                    />
+                  </label>
+                  <label className="presentation-editor__field">
+                    <span>Título da página</span>
+                    <input
+                      className="field"
+                      value={resolvedTitle}
+                      onChange={(event) => updatePageCopy({ title: event.target.value })}
+                    />
+                  </label>
+                  <label className="presentation-editor__field presentation-editor__field--wide">
+                    <span>Descrição</span>
+                    <textarea
+                      className="field"
+                      rows={3}
+                      value={resolvedDescription}
+                      onChange={(event) => updatePageCopy({ description: event.target.value })}
+                    />
+                  </label>
+                  <label className="presentation-editor__field">
+                    <span>Header módulos</span>
+                    <input
+                      className="field"
+                      value={resolvedNavTitle}
+                      onChange={(event) =>
+                        updatePresentationConfig((current) => ({
+                          ...current,
+                          nav: {
+                            ...current.nav,
+                            title: event.target.value,
+                          },
+                        }))
+                      }
+                    />
+                  </label>
+                  <label className="presentation-editor__field">
+                    <span>Eyebrow módulos</span>
+                    <input
+                      className="field"
+                      value={resolvedNavEyebrow}
+                      onChange={(event) =>
+                        updatePresentationConfig((current) => ({
+                          ...current,
+                          nav: {
+                            ...current.nav,
+                            eyebrow: event.target.value,
+                          },
+                        }))
+                      }
+                    />
+                  </label>
+                  <label className="presentation-editor__field">
+                    <span>Largura módulos</span>
+                    <input
+                      className="field"
+                      type="number"
+                      min={248}
+                      max={440}
+                      value={presentationConfig?.layout.navWidth || 292}
+                      onChange={(event) =>
+                        updatePresentationConfig((current) => ({
+                          ...current,
+                          layout: {
+                            ...current.layout,
+                            navWidth: Math.max(248, Math.min(440, Number(event.target.value) || 292)),
+                          },
+                        }))
+                      }
+                    />
+                  </label>
+                  <label className="presentation-editor__field">
+                    <span>Altura header</span>
+                    <input
+                      className="field"
+                      type="number"
+                      min={96}
+                      max={220}
+                      value={presentationConfig?.layout.heroMinHeight || 132}
+                      onChange={(event) =>
+                        updatePresentationConfig((current) => ({
+                          ...current,
+                          layout: {
+                            ...current.layout,
+                            heroMinHeight: Math.max(96, Math.min(220, Number(event.target.value) || 132)),
+                          },
+                        }))
+                      }
+                    />
+                  </label>
+                  <label className="presentation-editor__field">
+                    <span>Altura workspace</span>
+                    <input
+                      className="field"
+                      type="number"
+                      min={0}
+                      max={1600}
+                      value={presentationConfig?.layout.workspaceHeight || 0}
+                      onChange={(event) =>
+                        updatePresentationConfig((current) => ({
+                          ...current,
+                          layout: {
+                            ...current.layout,
+                            workspaceHeight: Math.max(0, Number(event.target.value) || 0),
+                          },
+                        }))
+                      }
+                    />
+                  </label>
+                </div>
+              ) : null}
             </section>
 
-            <div className="page-content">{children}</div>
+            <div className={`page-content ${isWorkspaceMode ? "page-content--workspace" : ""}`}>
+              {children}
+            </div>
           </section>
         </div>
       </div>

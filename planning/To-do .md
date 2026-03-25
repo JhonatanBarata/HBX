@@ -1,245 +1,459 @@
-Você está no projeto HBX.
-
-Quero implementar um painel administrativo para configurar jornadas de agendamento via WhatsApp dentro do sistema.
-
-Importante:
-- Não quero hardcode do fluxo final.
-- Não quero só um “editor de bot” genérico.
-- Quero um painel utilizável onde eu consiga criar e editar esse fluxo sozinho.
-
-Objetivo:
-
-# TO-DO: Jornada de Agendamento WhatsApp — Painel Administrativo (HBX)
-
-## Resumo
-Painel administrativo para configurar jornadas de agendamento via WhatsApp. Cada "Guia" é uma opção clicável que aponta para uma agenda específica. O objetivo é permitir criação/edição das guias, regras de disponibilidade, mensagens automáticas, simulação e cancelamento, mantendo PT-BR e patch mínimo.
-
----
-
-## Objetivo
-Criar um painel no HBX que permita montar a jornada completa:
-
-- Mensagem inicial editável
-- Botões / Guias clicáveis
-- Agenda vinculada por guia
-- Exibição de disponibilidade e fallback
-- Confirmação de agendamento
-- Cancelamento de agendamento
-
-O painel deve ser administrável, reutilizável e não depender de hardcode do fluxo.
-
----
-
-## Principais requisitos (resumido)
-
-- Não hardcodear o fluxo final
-- Não ser apenas um editor de bot genérico
-- PT-BR em toda a interface
-- Patch mínimo e preservação do padrão visual do projeto
-- Frontend/Backend bem separados
-- Não expor credenciais nem executar automações perigosas
-
----
-
-## Funcionalidades necessárias
-
-1) Guias (services)
-- Criar / editar / remover / ordenar
-- Nome exibido editável (inline)
-- Slug / id interno
-- Tipo de ação: `abrir_agenda`, `cancelar_agendamento`, `acao_customizada` (futura)
-- Agenda vinculada
-- Ordem de exibição
-- Ativo / Inativo
-
-2) Mensagem inicial
-- Texto editável com variáveis (empresa, atendente, contexto)
-- Campos: saudação, nome da empresa, nome da atendente, texto introdutório, tipo de envio, fallback
-
-3) Regras por guia
-- Agenda vinculada
-- Dias úteis (configuráveis)
-- Horários válidos e faixa de funcionamento
-- Janela de busca (quantos dias priorizar)
-- Quantidade de horários sugeridos
-- Mensagem quando não houver disponibilidade imediata
-- Fallback com N (ex.: 3) horários futuros
-
-4) Cancelamento
-- Guia especial para cancelar agenda
-- Localizar agendamento do cliente
-- Mostrar compromisso atual e solicitar confirmação
-- Cancelar mediante confirmação
-- Tratar caso sem agendamento encontrado
-
-5) Simulação
-- Simular clique na guia
-- Simular retorno de horários
-- Simular confirmação de agendamento
-- Simular cancelamento
-
-6) UX e aparência
-- Visual profissional, mantendo cores e identidade HBX
-- Foco em produtividade e simplicidade
-- Interface em PT-BR
-
-7) Arquitetura
-- Patch mínimo
-- Reaproveitar componentes existentes quando possível
-- Separar responsabilidades frontend/backend
-- Evitar mudanças de alto impacto fora do escopo
-
----
-
-## Fluxo do cliente (exemplo)
-
-1. Bot envia mensagem inicial com botões (guias).
-2. Cliente clica em uma guia (ex.: Manutenção).
-3. Sistema busca disponibilidade na agenda vinculada.
-4A. Se tiver horários nas regras prioritárias: mostrar opções.
-4B. Se não tiver: mostrar mensagem de indisponibilidade + fallback com 3 horários futuros.
-5. Cliente escolhe horário.
-6. Sistema cria o agendamento e confirma.
-7. Cliente pode escolher a guia "Cancelar agenda" para localizar e cancelar seu agendamento.
-
----
-
-## O que precisa existir no sistema (modelos lógicos)
-
-- Guias do WhatsApp (id, nome, slug, tipo, agenda_id, ordem, ativo, regras)
-- Agendas/Calendários (referência existente no sistema)
-- Regras de disponibilidade por guia (dias úteis, janela, limites)
-- Mensagens automáticas e variáveis
-- Endpoint de simulação (sandbox) para testar fluxo sem cliente real
-
----
-
-## Nome da feature (sugestões)
-
-- Construtor de Fluxo de Agendamento WhatsApp
-- Painel de Botões de Agendamento
-- Jornada de Agendamento no WhatsApp
-
----
-
-## Como o painel deve ser organizado (telas)
-
-- Tela 1 — Fluxo principal: mensagem inicial + visual dos botões/guias
-- Tela 2 — Guias / Serviços: lista, editar nome/ação/agenda/ordem/ativo
-- Tela 3 — Regras da agenda (por guia): dias úteis, horário, antecedência, limite, janela
-- Tela 4 — Mensagens automáticas: textos editáveis (confirmação, cancelamento, fallback)
-- Tela 5 — Simulação: sandbox para reproduzir fluxo e validar respostas
-
----
-
-## Entregáveis esperados
-
-- Implementação incremental por fases (ver abaixo)
-- Arquivos alterados listados ao final de cada fase
-- Instruções para configurar nova guia e vincular agenda
-- Testes de simulação e validação
-- Garantia mínima de que não quebra build/publish
-
----
-
-## Fases (plano de execução — objetivo: patch mínimo e incremental)
-
-### Fase 1 — Mapear e preparar (entregável: relatório de análise)
-- Analisar estrutura atual em `/dashboard/inbox` e componentes relacionados
-- Identificar estados, props e endpoints já existentes
-- Encontrar menor ponto de integração para: calendário melhorado, guias, edição inline, painel dias úteis
-- Listar o que pode ser reaproveitado (componentes, hooks, styles)
-- Propor implementação com patch mínimo e definir API necessária (endpoints/read-only ou persistência)
-
-Saída: arquivo com lista de arquivos analisados, arquitetura encontrada, proposta de implementação e ordem das próximas fases.
-
-### Fase 2 — Estrutura de guias/abas
-- Implementar frontend básico de guias (UI e estado local/global)
-- Permitir selecionar guia ativa e preparar estrutura para nomes editáveis
-- Não persistir ainda (ou usar persistência temporária/localStorage se necessário)
-
-Saída: guias funcionando localmente; lista de arquivos alterados; instruções de teste.
-
-### Fase 3 — Edição inline do nome da guia
-- Implementar edição inline (click → input → salvar/cancel)
-- Tratar comportamentos: Enter = salvar, Esc/blur = cancelar
-- Preparar hooks para futura persistência
-
-Saída: comportamento de edição testado e documentado; arquivos alterados listados.
-
-### Fase 4 — Card lateral de dias úteis
-- UI à direita para definir dias úteis por guia (visual de cartões)
-- Vincular seleção ao guia ativo (estado temporário ou persistido se já existir API)
-- Garantir usabilidade e coerência visual com HBX
-
-Saída: painel de dias úteis operacional; instruções de uso; arquivos alterados.
-
-### Fase 5 — Aperfeiçoamento visual do calendário
-- Polimento visual do calendário (hierarquia, cards, estados ativos, tipografia)
-- Manter cores padrão do sistema; evitar dependências novas sem necessidade
-- Testes de responsividade (desktop/mobile)
-
-Saída: melhoria visual implementada e validada; arquivos alterados listados.
-
-### Fase 6 — Persistência (apenas se necessário)
-- Persistir nomes das guias e configuração de dias úteis por agenda (API/backend)
-- Reaproveitar endpoints existentes quando possível; criar endpoint mínimo se necessário
-- Validar segurança (não expor credenciais) e validação de dados
-
-Saída: backend (se necessário) + migrations/updates; instruções de deploy/teste.
-
----
-
-## Checklist pré-implementação
-
-- [ ] Executar Fase 1 (análise) — PRIORIDADE IMEDIATA
-- [ ] Revisar componentes e padrões de estilo existentes
-- [ ] Confirmar se existe endpoint para agendas; mapear modelo de dados
-- [ ] Escolher estratégia de persistência (reaproveitar ou criar novo endpoint)
-
----
-
-## Arquivos prováveis a serem tocados
-
-- frontend/src/app/dashboard/inbox/page.client.tsx
-- frontend/src/app/dashboard/inbox/components/* (novo: Guias, DaysPanel, CalendarWrapper)
-- frontend/src/styles/* (preservar tema)
-- backend/src/inbox/inbox.controller.ts (se persistir)
-- backend/src/inbox/inbox.service.ts (se persistir)
-
----
-
-## Como configurar uma nova guia (resumo de uso administrativo)
-
-1. Acesse o painel "Guias / Serviços" (Tela 2).
-2. Clique em "Nova Guia" e preencha: nome, tipo de ação, agenda vinculada, ordem e status.
-3. Ajuste regras (Tela 3) e mensagens (Tela 4) conforme necessário.
-4. Use a Tela 5 (Simulação) para testar o fluxo antes de publicar.
-
----
-
-## Como testar (manual rápido)
-
-1. Fase 1: revisar relatório de análise.
-2. Após Fase 2: verificar seleção de guias e mudança de guia ativa.
-3. Após Fase 3: testar edição inline (Enter/blur/Esc).
-4. Após Fase 4: configurar dias úteis e validar que o painel reflete a guia ativa.
-5. Após Fase 5: testar visual em desktop e mobile.
-6. Após Fase 6: criar/editar guia e validar persistência entre reloads.
-
----
-
-## Ao final de cada fase — entregue pelo desenvolvedor
-
-- Lista de arquivos criados/alterados
-- Breve explicação do fluxo implementado naquela fase
-- Como configurar e criar uma nova guia (passo a passo)
-- Como testar (passos rápidos)
-- Validação mínima que foi executada (build/testes manuais)
-
----
-
-## Observações finais
-
-- Vou seguir o plano fase a fase (começando pela Fase 1). Se quiser que eu avance imediatamente para a Fase 2 após a análise, confirme.
-- Mantive todo o conteúdo original organizado por tópicos e fases; não removi nenhuma solicitação funcional — apenas reestruturei e sintetizei para execução incremental.
+# To-do Mestre — Atendimento + Recovery + Cadastro + Agenda + Bot Studio
+
+> Arquivo vivo para execucao faseada.
+> Regra de uso:
+> - so marcar ou apagar item quando estiver implementado e testado
+> - nao considerar "parece pronto" como concluido
+> - preservar tudo que e unico do Recovery dentro da fusao com Atendimento
+
+## Invariantes obrigatorias
+
+- [ ] Nao perder `Templates Meta` do Recovery
+- [ ] Nao perder a sequencia de conversas encaminhadas para inadimplencia
+- [ ] Nao perder `currentFlow`, `currentStep`, `flowResult` e eventos do fluxo Recovery
+- [ ] Nao perder historico de pagamento, valor em aberto, score e status financeiro
+- [ ] Nao perder handoff humano, bloqueio, encerramento e retomada do bot no Recovery
+- [ ] Nao perder compatibilidade com dados atuais sempre que possivel
+- [ ] Nao esconder problema estrutural com CSS
+- [ ] Nao fazer redesign pesado antes da base estrutural estabilizar
+- [ ] Nao deixar Atendimento e Recovery como dois chats paralelos no estado final
+- [ ] Nao criar agendamento sem vinculo claro com cadastro central
+- [ ] Nao criar cadastro duplicado por falha de fluxo
+
+## Fase 1 — Estabilizacao operacional sem redesign pesado
+
+### 1. Chat e fila
+
+- [ ] Garantir que o chat do Atendimento carregue sempre sem precisar "fuçar" ou trocar de aba
+- [ ] Garantir que o chat do Recovery carregue sempre sem precisar fallback manual do usuario
+- [ ] Garantir que selecionar conversa nunca deixe a tela travada ou cinza
+- [ ] Garantir que o polling nao gere piscada no painel central
+- [ ] Garantir que o WorkspaceShell remonte corretamente quando lista, selecao ou filtros mudarem
+- [ ] Garantir mensagens de erro claras quando endpoint falhar
+- [ ] Exibir diagnostico tecnico controlado quando a fila vier vazia e a API estiver com erro
+
+### 2. Workspace unico de conversas
+
+- [ ] Criar `ConversationWorkspaceShell`
+- [ ] Criar `ConversationListPane`
+- [ ] Criar `ConversationMainPane`
+- [ ] Criar `ConversationContextPanel`
+- [ ] Migrar o `Atendimento` para usar a nova base comum
+- [ ] Migrar o `Recovery` para usar a nova base comum
+- [ ] Remover duplicacao grosseira de layout entre Atendimento e Recovery
+- [ ] Garantir que a UI principal seja unica
+
+### 3. Recovery como incremento do Atendimento
+
+- [ ] Tratar Recovery como capability/feature do Atendimento
+- [ ] Quando Recovery estiver ativo, exibir badges de cobranca no Atendimento
+- [ ] Quando Recovery estiver ativo, exibir contexto de cobranca no painel lateral do Atendimento
+- [ ] Quando Recovery estiver ativo, exibir valor em aberto no Atendimento
+- [ ] Quando Recovery estiver ativo, exibir score de risco no Atendimento
+- [ ] Quando Recovery estiver ativo, exibir historico de pagamento no Atendimento
+- [ ] Quando Recovery estiver ativo, exibir eventos do fluxo Recovery no Atendimento
+- [ ] Quando Recovery estiver ativo, exibir acesso a `Templates Meta` dentro da experiencia unificada
+- [ ] Quando Recovery estiver desligado, esconder tudo isso sem quebrar o Atendimento
+
+### 4. Adapters por dominio/capability
+
+- [ ] Criar adapter de dados do Atendimento
+- [ ] Criar adapter de dados do Recovery
+- [ ] Criar adapter de acoes do Atendimento
+- [ ] Criar adapter de acoes do Recovery
+- [ ] Criar adapter de badges/indicadores do Atendimento
+- [ ] Criar adapter de badges/indicadores do Recovery
+- [ ] Garantir que a UI consuma adapters e nao logica duplicada espalhada
+
+### 5. Layout persistente e coerente
+
+- [ ] Salvar layout do workspace de forma unica por modulo/capability
+- [ ] Compartilhar layout salvo entre `Conversas`, `Conversas encerradas` e `Clientes bloqueados`
+- [ ] Garantir que o Recovery espelhe o mesmo padrao de layout do Atendimento
+- [ ] Garantir que troca de filtro nao destrua o layout salvo
+- [ ] Garantir que troca de conversa nao destrua o layout salvo
+- [ ] Garantir que refresh da pagina preserve o layout
+
+### 6. Agenda do Recovery
+
+- [ ] Remover rota da agenda do Recovery da experiencia principal
+- [ ] Remover botao da agenda do Recovery
+- [ ] Remover referencias visuais orfas da agenda do Recovery
+- [ ] Remover sujeira de navegacao ligada a agenda do Recovery
+- [ ] Confirmar que nada essencial do Recovery depende dessa agenda antiga
+
+### 7. Tabela e visoes operacionais
+
+- [ ] Aproveitar a melhor UI da tabela do Recovery como base de visao operacional unificada
+- [ ] Encaixar inadimplentes como visao dentro da base operacional
+- [ ] Garantir que Atendimento continue com clientes comuns
+- [ ] Garantir que visao de inadimplentes nao vire um mundo separado
+
+### 8. Recovery exclusivo que precisa sobreviver na fusao
+
+- [ ] Preservar `Templates Meta`
+- [ ] Preservar inicio de fluxo via template aprovado
+- [ ] Preservar historico de pagamento
+- [ ] Preservar geracao de link de pagamento
+- [ ] Preservar marcacao de pago/manual
+- [ ] Preservar nota interna
+- [ ] Preservar queue humana do Recovery
+- [ ] Preservar bloqueio especifico do Recovery
+- [ ] Preservar eventos `sourceModule` do Recovery
+- [ ] Preservar fluxo `cobranca_recovery_whatsapp_hibrido`
+- [ ] Preservar identificacao de conversas originadas ou mantidas pelo Recovery
+
+### Checklist manual da Fase 1
+
+- [ ] Empresa com Recovery habilitado: conversa comum abre no workspace unificado
+- [ ] Empresa com Recovery habilitado: conversa com cobranca abre no mesmo workspace, com extras de Recovery
+- [ ] Empresa sem Recovery habilitado: Atendimento fica limpo e funcional
+- [ ] Recovery deixa de parecer um segundo chat separado
+- [ ] Historico de pagamento continua acessivel
+- [ ] Templates Meta continuam acessiveis
+- [ ] Agenda do Recovery some da experiencia principal
+
+## Fase 2 — Cadastro central + Agenda via chat
+
+### 1. Dominio central de cadastro
+
+- [ ] Definir modelo central de identidade do cliente/contato
+- [ ] Decidir se a base final sera extensao de `Customer` atual ou nova camada `Contact/CustomerProfile`
+- [ ] Garantir que nome, telefone e identidade nao fiquem presos a modulo
+- [ ] Garantir que perder permissao da tela de Cadastros nao apague o dado
+- [ ] Garantir leitura minima do cadastro pelos modulos operacionais
+
+### 2. Conversa nova chegando pelo WhatsApp
+
+- [ ] Ao chegar mensagem de numero desconhecido, tentar localizar cadastro existente
+- [ ] Se nao encontrar, criar contato provisiorio sem duplicar
+- [ ] Puxar nome do perfil do WhatsApp quando disponivel
+- [ ] Perguntar confirmacao do nome
+- [ ] Salvar nome confirmado no dominio central
+- [ ] Marcar origem como `WhatsApp/Chat`
+- [ ] Exibir no chat quando estiver em fluxo de cadastro
+
+### 3. Conversa de contato existente
+
+- [ ] Reutilizar cadastro central pelo telefone
+- [ ] Exibir dados do cadastro central no painel lateral
+- [ ] Continuar fluxo sem duplicar cadastro
+- [ ] Garantir que Recovery e Atendimento leiam a mesma identidade
+
+### 4. Agenda no fluxo conversacional
+
+- [ ] Tratar agenda como parte explicita da arquitetura conversacional
+- [ ] Tratar agenda como parte explicita do motor do bot
+- [ ] Tratar agenda como parte explicita da interface
+- [ ] Permitir consultar datas disponiveis pelo chat
+- [ ] Permitir consultar horarios disponiveis pelo chat
+- [ ] Permitir listar opcoes para o cliente
+- [ ] Registrar tentativa de consulta de agenda
+- [ ] Seguir o fluxo conforme disponibilidade encontrada
+- [ ] Exibir claramente quando estiver em fluxo de agenda
+
+### 5. Criacao de agendamento
+
+- [ ] Criar compromisso/agendamento vinculado ao cadastro central
+- [ ] Salvar data do compromisso
+- [ ] Salvar horario do compromisso
+- [ ] Salvar tipo de atendimento
+- [ ] Salvar observacoes
+- [ ] Registrar origem do agendamento como `chat/conversa`
+- [ ] Exibir confirmacao no chat
+- [ ] Garantir que nunca exista agendamento solto sem cadastro
+
+### 6. Sem disponibilidade
+
+- [ ] Informar indisponibilidade no chat
+- [ ] Oferecer novas datas
+- [ ] Oferecer novos horarios
+- [ ] Permitir encaminhar para atendente humano
+- [ ] Registrar evento no historico da conversa
+
+### 7. Entidades e relacoes
+
+- [ ] Formalizar suporte para `Contact`
+- [ ] Formalizar suporte para `CustomerProfile`
+- [ ] Formalizar suporte para `Conversation`
+- [ ] Formalizar suporte para `Appointment` ou `ScheduleEvent`
+- [ ] Formalizar suporte para `AvailabilitySlot`
+- [ ] Formalizar suporte para `BotExecution`
+- [ ] Garantir relacao `Conversation -> Contact`
+- [ ] Garantir relacao `Appointment/ScheduleEvent -> Contact`
+- [ ] Garantir que consulta de agenda possa partir de `BotExecution` dentro da conversa
+- [ ] Garantir que tudo fique vinculado ao cadastro central
+
+### 8. Painel contextual do chat
+
+- [ ] Exibir status do cadastro
+- [ ] Exibir ultimo agendamento
+- [ ] Exibir proximo agendamento
+- [ ] Exibir historico de consultas de agenda
+- [ ] Exibir origem do agendamento
+- [ ] Exibir se o fluxo atual e cadastro, agenda, atendimento ou cobranca
+
+### 9. Permissoes e sobrevivencia dos vinculos
+
+- [ ] Garantir que restricao de acesso ao modulo visual de Cadastros nao apague vinculos
+- [ ] Garantir que agendamentos continuem existindo mesmo sem acesso visual a Cadastros
+- [ ] Garantir que conversas continuem vinculadas ao contato central
+
+### Checklist manual da Fase 2
+
+- [ ] Contato novo cria cadastro sem duplicidade
+- [ ] Contato existente reutiliza cadastro
+- [ ] Chat consulta agenda real
+- [ ] Chat cria agendamento vinculado ao cadastro
+- [ ] Chat mostra indisponibilidade e oferece alternativas
+- [ ] Cadastro e agenda ficam ligados ao mesmo contato central
+
+## Fase 3 — Cadastros como base central do sistema
+
+### 1. Arquitetura
+
+- [ ] Transformar Cadastros em fonte unica de identidade do cliente
+- [ ] Fazer Atendimento consumir cadastro central
+- [ ] Fazer Recovery consumir cadastro central
+- [ ] Fazer WhatsApp criar e atualizar cadastro central
+- [ ] Remover conceito de "cliente solto do Recovery" como dono da identidade
+
+### 2. Modelo de dados
+
+- [ ] Definir campos centrais: nome, whatsapp, empresa, email, documento, origem, status, tags, observacoes
+- [ ] Garantir `Conversation` vinculada ao cadastro central
+- [ ] Garantir `DebtCase` vinculado ao cadastro central
+- [ ] Garantir `PaymentHistory` vinculado ao `DebtCase`
+- [ ] Garantir `BotExecution` vinculado a `Conversation`
+- [ ] Garantir compatibilidade com dados atuais
+
+### 3. Migracao e backfill
+
+- [ ] Mapear dados espalhados entre `AtendimentoCustomer`, `HbxRecoveryCustomer` e conversa
+- [ ] Definir estrategia de backfill sem perda de historico
+- [ ] Migrar nomes e telefones para a base central
+- [ ] Migrar vinculos de cobranca para a base central
+- [ ] Migrar vinculos de conversa para a base central
+- [ ] Documentar inconsistencias encontradas
+
+### 4. Fluxos operacionais
+
+- [ ] Atendimento nao manter identidade solta propria
+- [ ] Recovery nao criar cliente isolado
+- [ ] Tela de cobranca buscar cadastro antes de abrir caso
+- [ ] Tela de cobranca criar cadastro so quando necessario
+- [ ] Abrir `DebtCase` vinculado ao cadastro central
+
+### 5. Importacao em lote
+
+- [ ] Buscar cadastro por WhatsApp
+- [ ] Buscar cadastro por documento
+- [ ] Buscar cadastro por email
+- [ ] Criar cadastro quando nao existir
+- [ ] Criar `DebtCase` vinculado ao cadastro
+- [ ] Gerar relatorio de encontrados
+- [ ] Gerar relatorio de criados
+- [ ] Gerar relatorio de duplicados
+- [ ] Gerar relatorio de erros
+
+### Checklist manual da Fase 3
+
+- [ ] Contato existente no WhatsApp vincula no cadastro central
+- [ ] Contato novo no WhatsApp cria cadastro central
+- [ ] Abertura de cobranca com cliente existente reutiliza cadastro
+- [ ] Abertura de cobranca com cliente novo cria cadastro e depois caso
+- [ ] Importacao em lote vincula cadastro e divida corretamente
+- [ ] Restricao da tela Cadastros nao apaga nomes nem vinculos nos outros modulos
+
+## Fase 4 — Editor do bot e runtime unificados
+
+### 1. Separacao de camadas
+
+- [ ] Separar claramente `Flow Builder`
+- [ ] Separar claramente `Flow Engine`
+- [ ] Separar claramente `Chat Runtime / Inbox`
+- [ ] Garantir que o runtime consuma o mesmo schema do builder
+- [ ] Garantir que nao exista logica duplicada entre editor e execucao
+
+### 2. Contextos explicitos do bot
+
+- [ ] Exibir claramente `Fluxo de Cadastro`
+- [ ] Exibir claramente `Fluxo de Atendimento`
+- [ ] Exibir claramente `Fluxo de Recovery`
+- [ ] Exibir claramente `Fluxo de Agenda`
+- [ ] Deixar evidente no editor quando um node pertence a cada contexto
+
+### 3. Fluxo de agenda no editor
+
+- [ ] Permitir consultar disponibilidade
+- [ ] Permitir oferecer opcoes ao cliente
+- [ ] Permitir confirmar escolha
+- [ ] Permitir criar agendamento
+- [ ] Permitir remarcar
+- [ ] Permitir cancelar quando a regra existir
+
+### 4. Fluxo de recovery no editor
+
+- [ ] Deixar claro o handoff para cobranca
+- [ ] Deixar claro o fluxo iniciado por template Meta
+- [ ] Deixar claro o menu principal do Recovery
+- [ ] Deixar claro os eventos de pagamento e pausa humana
+
+### 5. Runtime / Inbox
+
+- [ ] Mostrar de qual node do fluxo cada mensagem veio
+- [ ] Mostrar quando o bot pausou
+- [ ] Mostrar quando transferiu para humano
+- [ ] Mostrar quando encerrou
+- [ ] Mostrar quando entrou em cadastro
+- [ ] Mostrar quando entrou em agenda
+- [ ] Mostrar quando entrou em Recovery
+
+### Checklist manual da Fase 4
+
+- [ ] Editor mostra claramente os contextos de fluxo
+- [ ] Runtime exibe origem das mensagens pelo fluxo
+- [ ] Runtime exibe pausa, transferencia e encerramento
+- [ ] Recovery e Atendimento compartilham schema base
+
+## Fase 5 — UI/UX premium sem reabrir estrutura
+
+### 1. Workspace de conversas
+
+- [ ] Redesenhar coluna de lista
+- [ ] Redesenhar area central da conversa
+- [ ] Redesenhar painel lateral com abas `Perfil`, `Atendimento`, `Recovery`
+- [ ] Melhorar estados vazios
+- [ ] Melhorar loading
+- [ ] Melhorar hierarquia visual
+- [ ] Melhorar acoes e badges
+
+### 2. Cadastros como mini CRM
+
+- [ ] Criar visual tabela + cards
+- [ ] Criar busca forte
+- [ ] Criar filtros por origem
+- [ ] Criar filtros por status
+- [ ] Criar filtros por cobranca/atendimento
+- [ ] Criar timeline do cliente
+- [ ] Mostrar ultimo contato
+- [ ] Mostrar indicadores uteis
+
+### 3. Nova experiencia de cobranca
+
+- [ ] Criar wizard/stepper: buscar cadastro
+- [ ] Criar wizard/stepper: criar cadastro se necessario
+- [ ] Criar wizard/stepper: abrir cobranca
+- [ ] Melhorar area de importacao em lote
+- [ ] Melhorar feedback visual
+- [ ] Remover aparencia de formulario duro
+
+### 4. Bot Studio comercial
+
+- [ ] Criar home do Bot Studio
+- [ ] Criar cards de entrada
+- [ ] Criar templates recomendados
+- [ ] Criar ultimos fluxos
+- [ ] Criar status do canal
+- [ ] Criar modo simples por wizard/template
+- [ ] Criar modo avancado para master
+
+### 5. Template gallery
+
+- [ ] Criar galeria de templates
+- [ ] Criar template `Cobranca simples`
+- [ ] Criar template `Cobranca com parcelamento`
+- [ ] Criar template `Cobranca com link de pagamento`
+- [ ] Criar template `Cadastro de cliente`
+- [ ] Criar template `Triagem de atendimento`
+- [ ] Criar template `Agendamento`
+- [ ] Criar template `Confirmacao de pagamento`
+- [ ] Criar template `Pos-atendimento com avaliacao`
+- [ ] Criar template `Encaminhar para atendente humano`
+- [ ] Criar template `Recuperar cliente sem resposta`
+
+### 6. Preview realista de WhatsApp
+
+- [ ] Exibir bolhas realistas
+- [ ] Exibir botoes
+- [ ] Exibir listas
+- [ ] Exibir horarios
+- [ ] Exibir status
+- [ ] Exibir respostas do cliente
+- [ ] Exibir mensagens do bot
+
+### 7. Design system interno
+
+- [ ] Consolidar tokens de espacamento
+- [ ] Consolidar raios de borda
+- [ ] Consolidar sombras
+- [ ] Consolidar estados
+- [ ] Consolidar cards
+- [ ] Consolidar headers
+- [ ] Consolidar paineis
+- [ ] Consolidar abas
+- [ ] Consolidar tabelas
+- [ ] Consolidar formularios
+- [ ] Consolidar toasts
+- [ ] Consolidar modais
+- [ ] Consolidar padrao de popup
+- [ ] Consolidar padrao de janela flutuante
+
+### Checklist manual da Fase 5
+
+- [ ] Workspace unificado parece outra geracao do produto
+- [ ] Cadastros parece base central valiosa
+- [ ] Cobranca parece operacao inteligente
+- [ ] Bot Studio fica claro e vendavel
+- [ ] Templates ficam visiveis e usaveis
+- [ ] Preview WhatsApp fica convincente
+- [ ] Nada estrutural das fases anteriores foi desfeito
+
+## Testes tecnicos e regressao
+
+- [ ] Testar empresa com Recovery habilitado
+- [ ] Testar empresa sem Recovery habilitado
+- [ ] Testar conversa comum
+- [ ] Testar conversa com cobranca
+- [ ] Testar conversa bloqueada
+- [ ] Testar conversa encerrada
+- [ ] Testar historico de pagamento
+- [ ] Testar template Meta
+- [ ] Testar editor do bot
+- [ ] Testar agenda via chat
+- [ ] Testar cadastro via chat
+- [ ] Testar importacao em lote
+- [ ] Testar permissoes de Cadastros sem perder nomes no restante do sistema
+- [ ] Testar persistencia de layout
+- [ ] Testar publish/build sem regressao
+
+## Entregas obrigatorias por fase
+
+### Ao finalizar cada fase, sempre entregar:
+
+- [ ] Resumo do que mudou
+- [ ] Arquivos principais alterados
+- [ ] Riscos de regressao
+- [ ] Checklist manual de teste
+- [ ] O que ficou para a proxima fase
+
+## Ordem recomendada de execucao
+
+- [ ] Rodar Fase 1
+- [ ] Testar e corrigir Fase 1
+- [ ] Rodar Fase 2
+- [ ] Testar e corrigir Fase 2
+- [ ] Rodar Fase 3
+- [ ] Testar e corrigir Fase 3
+- [ ] Rodar Fase 4
+- [ ] Testar e corrigir Fase 4
+- [ ] Rodar Fase 5
+- [ ] Testar e corrigir Fase 5
+
+## Observacoes de disciplina
+
+- [ ] Nao misturar objetivos da fase atual com a proxima
+- [ ] Nao declarar concluido sem teste
+- [ ] Nao sacrificar funcionalidade unica do Recovery para simplificar fusao
+- [ ] Nao deixar lixo legado sem decisao explicita
+- [ ] Nao reabrir decisoes estruturais aprovadas quando estivermos so na fase visual

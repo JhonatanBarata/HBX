@@ -26,6 +26,7 @@ export type RecoveryBotButton = {
   buttonId: string;
   actionId: RecoveryBotAnyActionId;
   title: string;
+  nextNodeId?: string;
 };
 
 export type RecoveryBotStartTemplate = {
@@ -145,6 +146,46 @@ function buildDefaultButtonId(sectionKey: string, actionId: string, index: numbe
   return normalizeBotButtonId(`${sectionKey}_${actionId || 'action'}_${index + 1}`, `${sectionKey}_${index + 1}`);
 }
 
+function resolveDefaultRecoveryNextNodeId(actionIdRaw: string | null | undefined) {
+  const actionId = String(actionIdRaw || '').trim().toLowerCase();
+  switch (actionId) {
+    case 'view_amount':
+      return 'valueMessageTemplate';
+    case 'choose_installments':
+      return 'installmentsPrompt';
+    case 'pay_full':
+      return 'cashLinkMessageTemplate';
+    case 'talk_human':
+      return 'humanAckMessage';
+    case 'talk_later':
+    case 'followup_today':
+    case 'followup_tomorrow':
+    case 'followup_week':
+      return 'followupPrompt';
+    case 'installment_2':
+    case 'installment_3':
+    case 'installment_4':
+    case 'installment_5':
+      return 'installmentConfirmTemplate';
+    case 'generate_installment_link':
+      return 'installmentLinkMessageTemplate';
+    case 'paid_claim':
+      return 'paidClaimMessage';
+    case 'close_topic':
+      return 'closeTopicMessage';
+    default:
+      return 'postLinkPrompt';
+  }
+}
+
+function normalizeNextNodeId(value: unknown, actionId: string) {
+  const normalized = String(value || '')
+    .trim()
+    .replace(/[^a-zA-Z0-9_:-]/g, '')
+    .slice(0, 80);
+  return normalized || resolveDefaultRecoveryNextNodeId(actionId);
+}
+
 function makeDefaultButton(
   sectionKey: string,
   actionId: RecoveryBotAnyActionId,
@@ -155,6 +196,7 @@ function makeDefaultButton(
     buttonId: buildDefaultButtonId(sectionKey, String(actionId || ''), index),
     actionId,
     title,
+    nextNodeId: resolveDefaultRecoveryNextNodeId(String(actionId || '')),
   };
 }
 
@@ -530,7 +572,7 @@ function normalizeButtons(
       collisionIndex += 1;
     }
     seen.add(buttonId);
-    normalized.push({ buttonId, actionId, title });
+    normalized.push({ buttonId, actionId, title, nextNodeId: normalizeNextNodeId(item.nextNodeId, actionId) });
     if (normalized.length >= maxButtons) break;
   }
   return normalized;

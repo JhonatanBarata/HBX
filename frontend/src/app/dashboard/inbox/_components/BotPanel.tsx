@@ -1,14 +1,15 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { ChatIconButton } from "@/components/chat/PremiumChat";
 import BotMessageStudio from "@/components/bot-editor/BotMessageStudio";
+import recoveryStyles from "@/app/hbx-recovery/page.module.css";
 import {
   buildAgendaActionId,
   type AtendimentoBotActionKind,
   type AtendimentoBotConfig,
   type AtendimentoBotVariableScope,
 } from "../inbox-model";
-import styles from "../page.module.css";
 
 const VARIABLE_SCOPE_LABELS: Record<AtendimentoBotVariableScope, string> = {
   shared: "Compartilhado",
@@ -36,6 +37,7 @@ type BotTextField =
   | "blockedMessage";
 type ButtonSection =
   | "welcomeButtons"
+  | "returningCustomerButtons"
   | "mainMenuButtons"
   | "recoveryDetectedButtons"
   | "postActionButtons";
@@ -65,7 +67,8 @@ const BOT_SCENARIOS: ScenarioDef[] = [
     label: "Mensagem para cliente recorrente",
     description: "Resposta curta para retomar o atendimento de quem voltou a falar.",
     badge: "Retorno",
-    supportsButtons: false,
+    supportsButtons: true,
+    buttonSection: "returningCustomerButtons" as const,
     scopes: ["shared", "atendimento"] as AtendimentoBotVariableScope[],
   },
   {
@@ -146,7 +149,7 @@ type BotPanelProps = {
   onUpdateButtonSection: (
     section: ButtonSection,
     index: number,
-    field: "buttonId" | "actionId" | "title",
+    field: "buttonId" | "actionId" | "title" | "nextNodeId",
     value: string,
   ) => void;
   onAddButtonSection: (section: ButtonSection) => void;
@@ -190,6 +193,87 @@ function resolveAtendimentoNextNode(actionId: string) {
       if (actionId.startsWith("agenda:")) return "agendaDispatch";
       return "postActionPrompt";
   }
+}
+
+function getAtendimentoNodeLabel(nodeId: string) {
+  return BOT_SCENARIOS.find((item) => item.id === nodeId)?.label || nodeId;
+}
+
+function sortNodeIds(nodeIds: string[]) {
+  const nodeOrder = [
+    "entry_gate",
+    "welcomeMessage",
+    "returningCustomerMessage",
+    "mainMenuPrompt",
+    "recoveryDetectedMessage",
+    "postActionPrompt",
+    "registrationCapture",
+    "agendaDispatch",
+    "humanAckMessage",
+    "closeTopicMessage",
+    "blockedMessage",
+  ];
+
+  return [...nodeIds].sort((left, right) => {
+    const leftIndex = nodeOrder.indexOf(left);
+    const rightIndex = nodeOrder.indexOf(right);
+    const safeLeft = leftIndex === -1 ? Number.MAX_SAFE_INTEGER : leftIndex;
+    const safeRight = rightIndex === -1 ? Number.MAX_SAFE_INTEGER : rightIndex;
+    return safeLeft - safeRight || left.localeCompare(right);
+  });
+}
+
+function applyAutoLayout<T extends { id: string; buttons: Array<{ nextNodeId?: string }>; position?: { x: number; y: number } }>(
+  nodes: T[],
+) {
+  const nodeIds = new Set(nodes.map((node) => node.id));
+  const levelById = new Map<string, number>();
+  const queue = [{ id: "entry_gate", level: 0 }];
+
+  while (queue.length > 0) {
+    const current = queue.shift();
+    if (!current || !nodeIds.has(current.id)) continue;
+
+    const existingLevel = levelById.get(current.id);
+    if (existingLevel !== undefined && existingLevel <= current.level) continue;
+    levelById.set(current.id, current.level);
+
+    const node = nodes.find((item) => item.id === current.id);
+    if (!node) continue;
+
+    for (const button of node.buttons) {
+      if (!button.nextNodeId || !nodeIds.has(button.nextNodeId)) continue;
+      queue.push({ id: button.nextNodeId, level: current.level + 1 });
+    }
+  }
+
+  const columns = new Map<number, string[]>();
+  for (const [nodeId, level] of levelById.entries()) {
+    const current = columns.get(level) || [];
+    current.push(nodeId);
+    columns.set(level, sortNodeIds(current));
+  }
+
+  const maxLevel = Math.max(...Array.from(levelById.values()), 0);
+  const unlinkedNodeIds = sortNodeIds(nodes.map((node) => node.id).filter((nodeId) => !levelById.has(nodeId)));
+  if (unlinkedNodeIds.length > 0) {
+    columns.set(maxLevel + 1, unlinkedNodeIds);
+  }
+
+  const positioned = new Map<string, { x: number; y: number }>();
+  for (const [level, nodeIdsAtLevel] of Array.from(columns.entries()).sort((left, right) => left[0] - right[0])) {
+    nodeIdsAtLevel.forEach((nodeId, index) => {
+      positioned.set(nodeId, {
+        x: 40 + level * 340,
+        y: 20 + index * 220,
+      });
+    });
+  }
+
+  return nodes.map((node) => ({
+    ...node,
+    position: positioned.get(node.id) || node.position || { x: 40, y: 20 },
+  }));
 }
 
 export default function BotPanel({
@@ -246,6 +330,27 @@ export default function BotPanel({
     return next;
   }, [agendaOptions, botConfig.actionCatalog]);
 
+  const buttonTargetOptions = useMemo(
+    () => [
+      ...BOT_SCENARIOS.map((scenario) => ({
+        value: scenario.id,
+        label: scenario.label,
+        description: scenario.description,
+      })),
+      {
+        value: "registrationCapture",
+        label: "Captura de cadastro",
+        description: "Coleta rapida de dados do novo cliente antes de seguir o atendimento.",
+      },
+      {
+        value: "agendaDispatch",
+        label: "Despacho para agenda",
+        description: "Encaminha o cliente para a agenda operacional selecionada.",
+      },
+    ],
+    [],
+  );
+
   const studioVariables = useMemo(
     () =>
       botConfig.variableCatalog
@@ -278,20 +383,6 @@ export default function BotPanel({
 
   const flowScenarios = useMemo(
     () => {
-      const positions: Record<string, { x: number; y: number }> = {
-        entry_gate: { x: 40, y: 140 },
-        welcomeMessage: { x: 360, y: 20 },
-        returningCustomerMessage: { x: 360, y: 240 },
-        mainMenuPrompt: { x: 700, y: 20 },
-        recoveryDetectedMessage: { x: 700, y: 240 },
-        postActionPrompt: { x: 1040, y: 20 },
-        registrationCapture: { x: 1040, y: 240 },
-        agendaDispatch: { x: 1380, y: 20 },
-        humanAckMessage: { x: 1380, y: 240 },
-        closeTopicMessage: { x: 1380, y: 440 },
-        blockedMessage: { x: 700, y: 460 },
-      };
-
       const gateNode = {
         id: "entry_gate",
         label: "Entrada do WhatsApp",
@@ -317,7 +408,6 @@ export default function BotPanel({
             nextLabel: "Retomar atendimento do cliente recorrente",
           },
         ],
-        position: positions.entry_gate,
         toneLabel: "Entrada automatica do canal",
       };
 
@@ -339,14 +429,10 @@ export default function BotPanel({
           scenario.supportsButtons && scenario.buttonSection
             ? botConfig[scenario.buttonSection].map((button) => ({
                 ...button,
-                nextNodeId: resolveAtendimentoNextNode(String(button.actionId)),
-                nextLabel:
-                  BOT_SCENARIOS.find((item) => item.id === resolveAtendimentoNextNode(String(button.actionId)))
-                    ?.label ||
-                  (String(button.actionId).startsWith("agenda:") ? "Despacho para agenda operacional" : "Destino do fluxo"),
+                nextNodeId: String(button.nextNodeId || resolveAtendimentoNextNode(String(button.actionId))),
+                nextLabel: getAtendimentoNodeLabel(String(button.nextNodeId || resolveAtendimentoNextNode(String(button.actionId)))),
               }))
             : [],
-        position: positions[scenario.id] || { x: 0, y: 0 },
       }));
 
       const syntheticNodes = [
@@ -360,7 +446,6 @@ export default function BotPanel({
           editable: false,
           messageText: "Acao de cadastro rapido em andamento.",
           buttons: [],
-          position: positions.registrationCapture,
           effectLabel: "Salva cadastro inicial e depois devolve o cliente ao fluxo principal.",
         },
         {
@@ -373,12 +458,11 @@ export default function BotPanel({
           editable: false,
           messageText: "Agenda operacional selecionada.",
           buttons: [],
-          position: positions.agendaDispatch,
           effectLabel: "Abre agenda real e registra o grupo selecionado para o atendimento.",
         },
       ];
 
-      return [gateNode, ...scenarioNodes, ...syntheticNodes];
+      return applyAutoLayout([gateNode, ...scenarioNodes, ...syntheticNodes]);
     },
     [botConfig],
   );
@@ -490,173 +574,308 @@ export default function BotPanel({
   };
 
   return (
-    <section className={styles.stackSection}>
-      <article className={styles.workspaceCard}>
-        <div className={styles.sectionHead}>
+    <div className={recoveryStyles.botStudioStack}>
+      <div className={recoveryStyles.sectionHeader}>
+        <div>
+          <p className={recoveryStyles.sectionEyebrow}>Mensagens do fluxo</p>
+          <h3 className={recoveryStyles.sectionTitle}>Builder conversacional do Atendimento</h3>
           <div>
-            <p className={styles.sectionEyebrow}>Editor premium do bot</p>
-            <h3>Fluxo visual do Atendimento com nos, arestas e preview real</h3>
-            <small>O builder agora separa fluxo, preview, variaveis e acoes sem parecer um painel administrativo hibrido.</small>
+            <p className={recoveryStyles.sectionDescription}>
+              Mesmo padrão do Recovery, com canvas vertical, preview navegável e catálogo operacional limpo.
+            </p>
           </div>
+        </div>
+        <div className={recoveryStyles.headerActions}>
+          <ChatIconButton
+            icon="gear"
+            label="Editor"
+            title="Configurar editor do bot"
+            aria-label="Configurar editor do bot"
+          />
           <button type="button" className="btn btn-primary btn-sm" onClick={onSave} disabled={savingBot || loadingBot}>
             {savingBot ? "Salvando..." : "Salvar editor"}
           </button>
         </div>
+      </div>
 
-        <BotMessageStudio
-          eyebrow="Atendimento"
-          title={selectedScenario?.label || "Entrada do WhatsApp"}
-          description={selectedScenario?.description || "Primeiro no do fluxo do Atendimento."}
-          flowScenarios={flowScenarios}
-          flowEdges={flowEdges}
-          startNodeId="entry_gate"
-          selectedScenarioId={selectedScenarioId}
-          onSelectScenario={(scenarioId) => setSelectedScenarioId(scenarioId)}
-          messageText={selectedScenario ? String(botConfig[selectedScenario.id] || "") : ""}
-          onMessageTextChange={(value) => {
-            if (!selectedScenario) return;
-            onUpdateBotText(selectedScenario.id, value);
-          }}
-          messageType={messageType}
-          onMessageTypeChange={handleMessageTypeChange}
-          buttons={selectedButtons}
-          actionOptions={actionOptions}
-          actionById={actionById}
-          catalogActions={catalogActions}
-          onUpdateButton={(index, field, value) => {
-            if (!selectedScenario?.buttonSection) return;
-            onUpdateButtonSection(selectedScenario.buttonSection, index, field, value);
-          }}
-          onAddButton={() => {
-            if (!selectedScenario?.buttonSection) return;
-            onAddButtonSection(selectedScenario.buttonSection);
-          }}
-          onRemoveButton={(index) => {
-            if (!selectedScenario?.buttonSection) return;
-            onRemoveButtonSection(selectedScenario.buttonSection, index);
-          }}
-          variables={studioVariables}
-          catalogVariables={catalogVariables}
-          onAppendVariable={(variableKey) => {
-            if (!selectedScenario) return;
-            onAppendVariable(selectedScenario.id, variableKey);
-          }}
-          previewText={selectedScenario ? renderPreviewText(String(botConfig[selectedScenario.id] || ""), botConfig) : "Entrada inicial do canal."}
-          previewFooter="Atendimento"
-          previewFallbackText={
-            selectedScenario
-              ? buildFallbackText(renderPreviewText(String(botConfig[selectedScenario.id] || ""), botConfig), selectedButtons)
-              : "Entrada inicial do canal."
-          }
-          previewNote="O fallback textual continua disponivel para canais ou cenarios sem suporte a botoes."
-          publicationChecks={publicationChecks}
-          publicationTitle="Publicacao do fluxo Atendimento"
-          publicationDescription="Revise entrada, menu principal e parede com Recovery antes de salvar o builder."
-          primaryActionLabel={savingBot ? "Salvando..." : "Salvar editor"}
-          onPrimaryAction={onSave}
-          primaryActionDisabled={savingBot || loadingBot}
-          actionsTabExtra={
-            <>
-              <div className={styles.ruleGrid}>
-                <label className={styles.switchCard}>
-                  <input type="checkbox" checked={botConfig.routingRules.checkRecoveryBeforeReply} onChange={(event) => onUpdateRoutingRule("checkRecoveryBeforeReply", event.target.checked)} />
-                  <div><strong>Checar Recovery antes</strong><span>Primeiro passo do Atendimento ao receber qualquer mensagem.</span></div>
+      <BotMessageStudio
+        eyebrow="Atendimento"
+        title={selectedScenario?.label || "Entrada do WhatsApp"}
+        description={selectedScenario?.description || "Primeiro no do fluxo do Atendimento."}
+        flowScenarios={flowScenarios}
+        flowEdges={flowEdges}
+        flowOrientation="vertical"
+        flowLayoutMode="canvas-focus"
+        canvasViewportMaxHeight={1040}
+        startNodeId="entry_gate"
+        selectedScenarioId={selectedScenarioId}
+        onSelectScenario={(scenarioId) => setSelectedScenarioId(scenarioId)}
+        messageText={selectedScenario ? String(botConfig[selectedScenario.id] || "") : ""}
+        onMessageTextChange={(value) => {
+          if (!selectedScenario) return;
+          onUpdateBotText(selectedScenario.id, value);
+        }}
+        messageType={messageType}
+        onMessageTypeChange={handleMessageTypeChange}
+        buttons={selectedButtons}
+        actionOptions={actionOptions}
+        actionById={actionById}
+        catalogActions={catalogActions}
+        onUpdateButton={(index, field, value) => {
+          if (!selectedScenario?.buttonSection) return;
+          onUpdateButtonSection(selectedScenario.buttonSection, index, field, value);
+        }}
+        buttonTargetOptions={buttonTargetOptions}
+        onUpdateButtonTarget={(index, nextNodeId) => {
+          if (!selectedScenario?.buttonSection) return;
+          onUpdateButtonSection(selectedScenario.buttonSection, index, "nextNodeId", nextNodeId);
+        }}
+        onAddButton={() => {
+          if (!selectedScenario?.buttonSection) return;
+          onAddButtonSection(selectedScenario.buttonSection);
+        }}
+        onRemoveButton={(index) => {
+          if (!selectedScenario?.buttonSection) return;
+          onRemoveButtonSection(selectedScenario.buttonSection, index);
+        }}
+        variables={studioVariables}
+        catalogVariables={catalogVariables}
+        onAppendVariable={(variableKey) => {
+          if (!selectedScenario) return;
+          onAppendVariable(selectedScenario.id, variableKey);
+        }}
+        previewText={selectedScenario ? renderPreviewText(String(botConfig[selectedScenario.id] || ""), botConfig) : "Entrada inicial do canal."}
+        previewFooter="HBX Atendimento"
+        previewFallbackText={
+          selectedScenario
+            ? buildFallbackText(renderPreviewText(String(botConfig[selectedScenario.id] || ""), botConfig), selectedButtons)
+            : "Entrada inicial do canal."
+        }
+        previewNote="O fallback textual continua disponivel para canais ou cenarios sem suporte a botoes."
+        publicationChecks={publicationChecks}
+        publicationTitle="Publicacao do fluxo Atendimento"
+        publicationDescription="Revise entrada, menu principal e parede com Recovery antes de salvar o builder."
+        primaryActionLabel={savingBot ? "Salvando..." : "Salvar editor"}
+        onPrimaryAction={onSave}
+        primaryActionDisabled={savingBot || loadingBot}
+        variablesTabExtra={
+          <article className={recoveryStyles.botStepCard}>
+            <div className={recoveryStyles.botStepHeader}>
+              <div>
+                <h4>Variaveis do Atendimento</h4>
+                <p>Catalogo operacional de campos que podem entrar nas mensagens do fluxo.</p>
+              </div>
+            </div>
+            <div className={recoveryStyles.botVariableGrid}>
+              {botConfig.variableCatalog.map((item) => (
+                <div key={item.key} className={recoveryStyles.botVariableCard}>
+                  <div className={recoveryStyles.botVariableHeader}>
+                    <strong>{`{{${item.key}}}`}</strong>
+                    <div className={recoveryStyles.interactionBadgeRow}>
+                      <span className={`${recoveryStyles.stateBadge} ${recoveryStyles.stateBot}`}>
+                        {VARIABLE_SCOPE_LABELS[item.scope]}
+                      </span>
+                      {item.required ? (
+                        <span className={`${recoveryStyles.stateBadge} ${recoveryStyles.statePaid}`}>Obrigatoria</span>
+                      ) : null}
+                    </div>
+                  </div>
+                  <label className={recoveryStyles.fieldBlock}>
+                    <span>Rotulo</span>
+                    <input className="field" value={item.label} readOnly />
+                  </label>
+                  <label className={recoveryStyles.fieldBlock}>
+                    <span>Exemplo</span>
+                    <input className="field" value={item.example} readOnly />
+                  </label>
+                  <label className={recoveryStyles.fieldBlock}>
+                    <span>Descricao</span>
+                    <textarea className="field" value={item.description} readOnly />
+                  </label>
+                </div>
+              ))}
+            </div>
+          </article>
+        }
+        actionsTabExtra={
+          <>
+            <article className={recoveryStyles.botStepCard}>
+              <div className={recoveryStyles.botStepHeader}>
+                <div>
+                  <h4>Roteamento do Atendimento</h4>
+                  <p>Regras de triagem para nao misturar atendimento, agenda e cobranca.</p>
+                </div>
+              </div>
+              <div className={recoveryStyles.botRoutingGrid}>
+                <label className={recoveryStyles.botRoutingToggle}>
+                  <input
+                    type="checkbox"
+                    checked={botConfig.routingRules.checkRecoveryBeforeReply}
+                    onChange={(event) => onUpdateRoutingRule("checkRecoveryBeforeReply", event.target.checked)}
+                  />
+                  <div>
+                    <strong>Checar Recovery antes</strong>
+                    <span>Primeiro passo do Atendimento ao receber qualquer mensagem.</span>
+                  </div>
                 </label>
-                <label className={styles.switchCard}>
-                  <input type="checkbox" checked={botConfig.routingRules.autoRouteDebtorsToRecovery} onChange={(event) => onUpdateRoutingRule("autoRouteDebtorsToRecovery", event.target.checked)} />
-                  <div><strong>Subir devedor para Recovery</strong><span>Clientes inadimplentes nao ficam misturados no Atendimento.</span></div>
+                <label className={recoveryStyles.botRoutingToggle}>
+                  <input
+                    type="checkbox"
+                    checked={botConfig.routingRules.autoRouteDebtorsToRecovery}
+                    onChange={(event) => onUpdateRoutingRule("autoRouteDebtorsToRecovery", event.target.checked)}
+                  />
+                  <div>
+                    <strong>Subir devedor para Recovery</strong>
+                    <span>Clientes inadimplentes nao ficam misturados no Atendimento.</span>
+                  </div>
                 </label>
-                <label className={styles.switchCard}>
-                  <input type="checkbox" checked={botConfig.routingRules.autoReopenClosedConversation} onChange={(event) => onUpdateRoutingRule("autoReopenClosedConversation", event.target.checked)} />
-                  <div><strong>Reabrir conversa encerrada</strong><span>Se o cliente voltar a falar, a conversa volta automaticamente.</span></div>
+                <label className={recoveryStyles.botRoutingToggle}>
+                  <input
+                    type="checkbox"
+                    checked={botConfig.routingRules.autoReopenClosedConversation}
+                    onChange={(event) => onUpdateRoutingRule("autoReopenClosedConversation", event.target.checked)}
+                  />
+                  <div>
+                    <strong>Reabrir conversa encerrada</strong>
+                    <span>Se o cliente voltar a falar, a conversa volta automaticamente.</span>
+                  </div>
                 </label>
-                <label className={styles.switchCard}>
-                  <input type="checkbox" checked={botConfig.routingRules.notifyOnNewInbound} onChange={(event) => onUpdateRoutingRule("notifyOnNewInbound", event.target.checked)} />
-                  <div><strong>Notificar novas mensagens</strong><span>Alimenta o aviso visual do modulo e do topo do sistema.</span></div>
+                <label className={recoveryStyles.botRoutingToggle}>
+                  <input
+                    type="checkbox"
+                    checked={botConfig.routingRules.notifyOnNewInbound}
+                    onChange={(event) => onUpdateRoutingRule("notifyOnNewInbound", event.target.checked)}
+                  />
+                  <div>
+                    <strong>Notificar novas mensagens</strong>
+                    <span>Alimenta o aviso visual do modulo e do topo do sistema.</span>
+                  </div>
                 </label>
               </div>
+            </article>
 
-              <article className={styles.editorCard}>
-                <div className={styles.cardHeader}>
-                  <div>
-                    <strong>Catalogo de acoes</strong>
-                    <small>Base real para os botoes do editor, com rota, tipo e resposta automatica.</small>
-                  </div>
-                  <button type="button" className="btn btn-secondary btn-sm" onClick={onAddCustomAction}>
-                    Nova acao custom
-                  </button>
+            <article className={recoveryStyles.botStepCard}>
+              <div className={recoveryStyles.botStepHeader}>
+                <div>
+                  <h4>Acoes do bot</h4>
+                  <p>Mesma leitura visual do Recovery, com os campos operacionais do Atendimento.</p>
                 </div>
+                <button type="button" className="btn btn-secondary btn-sm" onClick={onAddCustomAction}>
+                  Nova acao custom
+                </button>
+              </div>
 
-                <div className={styles.actionCatalogList}>
-                  {botConfig.actionCatalog.map((action) => (
-                    <div key={action.actionId} className={styles.actionCard}>
-                      <div className={styles.formGrid}>
-                        <label className={styles.fieldBlock}>
-                          <span>Titulo</span>
-                          <input className="field" value={action.title} onChange={(event) => onUpdateActionGuide(action.actionId, "title", event.target.value)} />
-                        </label>
-                        <label className={styles.fieldBlock}>
-                          <span>Tipo</span>
-                          <select className="field" value={action.kind} onChange={(event) => onUpdateActionGuide(action.actionId, "kind", event.target.value)}>
-                            {Object.entries(ACTION_KIND_LABELS).map(([value, label]) => (
-                              <option key={value} value={value}>{label}</option>
-                            ))}
-                          </select>
-                        </label>
-                        <label className={styles.fieldBlock}>
-                          <span>Destino</span>
-                          <select className="field" value={action.route} onChange={(event) => onUpdateActionGuide(action.actionId, "route", event.target.value)}>
-                            {Object.entries(VARIABLE_SCOPE_LABELS).map(([value, label]) => (
-                              <option key={value} value={value}>{label}</option>
-                            ))}
-                          </select>
-                        </label>
-                        <label className={styles.switchRow}>
-                          <input type="checkbox" checked={action.enabled} onChange={(event) => onUpdateActionGuide(action.actionId, "enabled", event.target.checked)} />
-                          <span>Ativa</span>
-                        </label>
-                      </div>
-
-                      <label className={styles.fieldBlock}>
-                        <span>Descricao operacional</span>
-                        <input className="field" value={action.description} onChange={(event) => onUpdateActionGuide(action.actionId, "description", event.target.value)} />
+              <div className={recoveryStyles.botActionGuideList}>
+                {botConfig.actionCatalog.map((action) => (
+                  <div key={action.actionId} className={recoveryStyles.botActionGuideItem}>
+                    <div className={recoveryStyles.botActionGuideEditor}>
+                      <label className={recoveryStyles.fieldBlock}>
+                        <span>Titulo</span>
+                        <input
+                          className="field"
+                          value={action.title}
+                          onChange={(event) => onUpdateActionGuide(action.actionId, "title", event.target.value)}
+                        />
+                      </label>
+                      <label className={recoveryStyles.fieldBlock}>
+                        <span>Descricao</span>
+                        <textarea
+                          className="field"
+                          value={action.description}
+                          onChange={(event) => onUpdateActionGuide(action.actionId, "description", event.target.value)}
+                        />
+                      </label>
+                      <label className={recoveryStyles.fieldBlock}>
+                        <span>Tipo</span>
+                        <select
+                          className="field"
+                          value={action.kind}
+                          onChange={(event) => onUpdateActionGuide(action.actionId, "kind", event.target.value)}
+                        >
+                          {Object.entries(ACTION_KIND_LABELS).map(([value, label]) => (
+                            <option key={value} value={value}>
+                              {label}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <label className={recoveryStyles.fieldBlock}>
+                        <span>Destino</span>
+                        <select
+                          className="field"
+                          value={action.route}
+                          onChange={(event) => onUpdateActionGuide(action.actionId, "route", event.target.value)}
+                        >
+                          {Object.entries(VARIABLE_SCOPE_LABELS).map(([value, label]) => (
+                            <option key={value} value={value}>
+                              {label}
+                            </option>
+                          ))}
+                        </select>
                       </label>
 
                       {action.kind === "agenda" ? (
-                        <label className={styles.fieldBlock}>
+                        <label className={recoveryStyles.fieldBlock}>
                           <span>Agenda vinculada</span>
-                          <select className="field" value={String(action.agendaGroupId || "")} onChange={(event) => onUpdateActionGuide(action.actionId, "agendaGroupId", event.target.value)}>
+                          <select
+                            className="field"
+                            value={String(action.agendaGroupId || "")}
+                            onChange={(event) => onUpdateActionGuide(action.actionId, "agendaGroupId", event.target.value)}
+                          >
                             <option value="">Selecione</option>
                             {agendaOptions.map((group) => (
-                              <option key={group.id} value={group.id}>{group.title}</option>
+                              <option key={group.id} value={group.id}>
+                                {group.title}
+                              </option>
                             ))}
                           </select>
                         </label>
                       ) : null}
 
                       {action.kind === "reply" ? (
-                        <label className={styles.fieldBlock}>
-                          <span>Mensagem da acao</span>
-                          <textarea className="field" rows={3} value={action.responseMessage || ""} onChange={(event) => onUpdateActionGuide(action.actionId, "responseMessage", event.target.value)} />
+                        <label className={recoveryStyles.fieldBlock}>
+                          <span>Resposta automatica</span>
+                          <textarea
+                            className="field"
+                            rows={3}
+                            value={action.responseMessage || ""}
+                            onChange={(event) => onUpdateActionGuide(action.actionId, "responseMessage", event.target.value)}
+                          />
                         </label>
                       ) : null}
-
+                    </div>
+                    <div className={recoveryStyles.interactionBadgeRow}>
+                      <span className={`${recoveryStyles.stateBadge} ${recoveryStyles.stateBot}`}>
+                        {VARIABLE_SCOPE_LABELS[action.route]}
+                      </span>
+                      <span className={`${recoveryStyles.stateBadge} ${recoveryStyles.stateGenerated}`}>
+                        {ACTION_KIND_LABELS[action.kind]}
+                      </span>
+                      <button
+                        type="button"
+                        className={`${recoveryStyles.stateBadge} ${action.enabled ? recoveryStyles.statePaid : recoveryStyles.stateWaiting}`}
+                        onClick={() => onUpdateActionGuide(action.actionId, "enabled", !action.enabled)}
+                      >
+                        {action.enabled ? "Ativa" : "Legada"}
+                      </button>
                       {action.custom ? (
-                        <div className={styles.footerActions}>
-                          <button type="button" className="btn btn-danger btn-sm" onClick={() => onRemoveCustomAction(action.actionId)}>
-                            Excluir acao custom
-                          </button>
-                        </div>
+                        <button
+                          type="button"
+                          className="btn btn-danger btn-sm"
+                          onClick={() => onRemoveCustomAction(action.actionId)}
+                        >
+                          Remover
+                        </button>
                       ) : null}
                     </div>
-                  ))}
-                </div>
-              </article>
-            </>
-          }
-          loading={loadingBot}
-        />
-      </article>
-    </section>
+                  </div>
+                ))}
+              </div>
+            </article>
+          </>
+        }
+        loading={loadingBot}
+      />
+    </div>
   );
 }

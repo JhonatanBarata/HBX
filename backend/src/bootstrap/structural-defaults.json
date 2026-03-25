@@ -3,7 +3,7 @@
     {
       "key": "atendimento",
       "name": "Atendimento",
-      "description": "Central de atendimento da empresa com filas, conversas e operacao diaria.",
+      "description": "Inclui Operacao de atendimento, Respostas automaticas e Mensagens e logs.",
       "monthlyPrice": 0,
       "defaultEnabled": true,
       "companyAssignable": true,

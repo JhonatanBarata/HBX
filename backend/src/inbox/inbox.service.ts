@@ -21,6 +21,8 @@ import {
   normalizeAtendimentoAgendaConfig,
   normalizeAtendimentoBotConfig,
   type AtendimentoAgendaConfig,
+  type AtendimentoAgendaGroup,
+  type AtendimentoAgendaSlot,
   type AtendimentoBotButton,
   type AtendimentoBotConfig,
 } from './atendimento-config';
@@ -63,6 +65,13 @@ export class InboxService {
     const companyId = Number(user?.companyId);
     if (!companyId) throw new ForbiddenException('Company context required');
     return companyId;
+  }
+
+  private assertCanManageAgenda(user: any) {
+    if (Boolean(user?.isSystemMaster)) return;
+    const role = String(user?.role || '').trim().toUpperCase();
+    if (role === 'ADMIN' || role === 'GERENTE') return;
+    throw new ForbiddenException('Somente gerentes ou administradores podem editar a agenda.');
   }
 
   private requireTrimmed(value: string, field: string): string {
@@ -481,6 +490,7 @@ export class InboxService {
   }
 
   async updateAgendaConfig(user: any, payload: unknown) {
+    this.assertCanManageAgenda(user);
     const companyId = this.requireCompanyIdFromUser(user);
     const normalized = normalizeAtendimentoAgendaConfig(payload || {});
     await this.saveConfigRow(
@@ -490,6 +500,275 @@ export class InboxService {
       normalized,
     );
     return normalized;
+  }
+
+  private renderAgendaTemplate(template: string, context: Record<string, string>) {
+    return String(template || '').replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (_, key) => {
+      const token = String(key || '').trim();
+      return context[token] ?? `{{${token}}}`;
+    });
+  }
+
+  private toAgendaIsoDate(date: Date) {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }
+
+  private buildAgendaDate(date: Date, value: string) {
+    const next = new Date(date);
+    const [hours, minutes] = String(value || '00:00').split(':').map(Number);
+    next.setHours(Number.isFinite(hours) ? hours : 0, Number.isFinite(minutes) ? minutes : 0, 0, 0);
+    return next;
+  }
+
+  private buildAgendaSimulationSlots(
+    group: AtendimentoAgendaGroup,
+    holidays: string[],
+    referenceDate: Date,
+  ) {
+    const activeSlots = [...(group.slots || [])]
+      .filter((slot) => slot.enabled)
+      .sort((left, right) => {
+        if (left.dayOfWeek !== right.dayOfWeek) return left.dayOfWeek - right.dayOfWeek;
+        return String(left.startTime || '').localeCompare(String(right.startTime || ''));
+      });
+    const workdays = group.workdays?.length ? group.workdays : [1, 2, 3, 4, 5];
+    const holidaySet = new Set(holidays);
+    const immediate: Array<{
+      slot: AtendimentoAgendaSlot;
+      startDate: Date;
+      endDate: Date;
+      isoDate: string;
+    }> = [];
+    const futureFallback: Array<{
+      slot: AtendimentoAgendaSlot;
+      startDate: Date;
+      endDate: Date;
+      isoDate: string;
+    }> = [];
+    const primaryLimit = Math.max(1, Number(group.suggestedSlotsCount || 3));
+    const fallbackLimit = Math.max(0, Number(group.fallbackFutureSlotsCount || 0));
+    const searchWindowDays = Math.max(1, Number(group.searchWindowDays || group.visibleBusinessDays || 7));
+    const fallbackWindowDays = Math.max(searchWindowDays + 14, searchWindowDays + 1);
+
+    for (let offset = 0; offset <= fallbackWindowDays; offset += 1) {
+      const dayDate = new Date(referenceDate);
+      dayDate.setDate(dayDate.getDate() + offset);
+      dayDate.setHours(0, 0, 0, 0);
+      const dayOfWeek = dayDate.getDay();
+      const isoDate = this.toAgendaIsoDate(dayDate);
+      if (!workdays.includes(dayOfWeek)) continue;
+      if (holidaySet.has(isoDate)) continue;
+
+      const daySlots = activeSlots.filter((slot) => slot.dayOfWeek === dayOfWeek);
+      for (const slot of daySlots) {
+        const startDate = this.buildAgendaDate(dayDate, slot.startTime);
+        const endDate = this.buildAgendaDate(dayDate, slot.endTime);
+        const bucket =
+          offset < searchWindowDays && immediate.length < primaryLimit ? immediate : futureFallback;
+        if (bucket === futureFallback && futureFallback.length >= fallbackLimit) continue;
+        bucket.push({ slot, startDate, endDate, isoDate });
+      }
+
+      if (immediate.length >= primaryLimit && futureFallback.length >= fallbackLimit) {
+        break;
+      }
+    }
+
+    return {
+      immediate,
+      futureFallback,
+      all: [...immediate, ...futureFallback],
+    };
+  }
+
+  async simulateAgendaFlow(user: any, payload: any) {
+    this.assertCanManageAgenda(user);
+    const companyId = this.requireCompanyIdFromUser(user);
+    const config = await this.getAgendaConfigByCompanyId(companyId);
+    const groupId = this.requireTrimmed(String(payload?.groupId || ''), 'groupId');
+    const group = config.groups.find((item) => String(item.id) === groupId);
+    if (!group) {
+      throw new NotFoundException('Guia de agendamento nao encontrada.');
+    }
+
+    const stage =
+      String(payload?.stage || '')
+        .trim()
+        .toLowerCase() || (group.actionType === 'cancelar_agendamento' ? 'cancelar_agendamento' : 'abrir_guia');
+    const referenceDateRaw = String(payload?.referenceDate || '').trim();
+    const referenceDate =
+      referenceDateRaw && Number.isFinite(new Date(referenceDateRaw).getTime())
+        ? new Date(referenceDateRaw)
+        : new Date();
+    referenceDate.setHours(0, 0, 0, 0);
+
+    const customerName = String(payload?.customerName || 'Cliente teste').trim() || 'Cliente teste';
+    const companyName =
+      String(payload?.companyName || user?.company?.name || 'Empresa HBX').trim() || 'Empresa HBX';
+    const attendantName =
+      String(payload?.attendantName || user?.name || user?.username || 'Equipe HBX').trim() || 'Equipe HBX';
+
+    const slotBuckets = this.buildAgendaSimulationSlots(group, config.holidays, referenceDate);
+    const selectedSlot =
+      slotBuckets.all.find((item) => item.slot.id === String(payload?.selectedSlotId || '').trim()) ||
+      slotBuckets.immediate[0] ||
+      slotBuckets.futureFallback[0] ||
+      null;
+    const agendaSlotsLabel = selectedSlot
+      ? `${selectedSlot.startDate.toLocaleDateString('pt-BR', {
+          weekday: 'short',
+          day: '2-digit',
+          month: '2-digit',
+        })} ${selectedSlot.slot.startTime}-${selectedSlot.slot.endTime}`
+      : slotBuckets.immediate
+          .slice(0, Math.max(1, Number(group.suggestedSlotsCount || 3)))
+          .map(
+            (item) =>
+              `${item.startDate.toLocaleDateString('pt-BR', {
+                weekday: 'short',
+                day: '2-digit',
+                month: '2-digit',
+              })} ${item.slot.startTime}-${item.slot.endTime}`,
+          )
+          .join(' | ');
+
+    const context = {
+      cliente: customerName,
+      empresa: companyName,
+      funcionario: attendantName,
+      agenda_nome: group.title,
+      agenda_slots: agendaSlotsLabel,
+    };
+
+    const baseMessages = [
+      {
+        role: 'bot',
+        label: 'Mensagem inicial',
+        text: this.renderAgendaTemplate(
+          `${config.initialMessage.greeting}\n${config.initialMessage.introText}\n${config.initialMessage.fallbackText}`,
+          context,
+        ).trim(),
+      },
+      {
+        role: 'customer',
+        label: 'Clique na guia',
+        text: group.buttonLabel,
+      },
+    ];
+
+    if (stage === 'cancelar_agendamento' || group.actionType === 'cancelar_agendamento') {
+      const hasActiveBooking = Boolean(payload?.hasActiveBooking ?? selectedSlot);
+      const messages = hasActiveBooking
+        ? [
+            ...baseMessages,
+            {
+              role: 'bot',
+              label: 'Confirmacao de cancelamento',
+              text: this.renderAgendaTemplate(config.flowMessages.cancellationPrompt, context),
+            },
+            {
+              role: 'system',
+              label: 'Resultado',
+              text: this.renderAgendaTemplate(config.flowMessages.cancellationSuccess, context),
+            },
+          ]
+        : [
+            ...baseMessages,
+            {
+              role: 'bot',
+              label: 'Sem agendamento encontrado',
+              text: this.renderAgendaTemplate(config.flowMessages.cancellationNotFound, context),
+            },
+          ];
+      return {
+        status: hasActiveBooking ? 'ok' : 'warning',
+        stage: 'cancelar_agendamento',
+        groupId: group.id,
+        groupTitle: group.title,
+        actionType: group.actionType,
+        summary: hasActiveBooking
+          ? 'Simulacao de cancelamento concluida com agendamento localizado.'
+          : 'Simulacao concluida sem agendamento ativo localizado.',
+        messages,
+        suggestedSlots: [],
+        fallbackSlots: [],
+      };
+    }
+
+    const suggestedSlots = slotBuckets.immediate.map((item) => ({
+      id: item.slot.id,
+      label: item.slot.label,
+      dateLabel: item.startDate.toLocaleDateString('pt-BR', {
+        weekday: 'long',
+        day: '2-digit',
+        month: '2-digit',
+      }),
+      startTime: item.slot.startTime,
+      endTime: item.slot.endTime,
+      isoDate: item.isoDate,
+    }));
+    const fallbackSlots = slotBuckets.futureFallback.map((item) => ({
+      id: item.slot.id,
+      label: item.slot.label,
+      dateLabel: item.startDate.toLocaleDateString('pt-BR', {
+        weekday: 'long',
+        day: '2-digit',
+        month: '2-digit',
+      }),
+      startTime: item.slot.startTime,
+      endTime: item.slot.endTime,
+      isoDate: item.isoDate,
+    }));
+
+    const availabilityText =
+      suggestedSlots.length > 0
+        ? this.renderAgendaTemplate(config.flowMessages.availabilityIntro, context)
+        : this.renderAgendaTemplate(
+            group.noImmediateAvailabilityMessage || config.flowMessages.fallbackFutureSlots,
+            context,
+          );
+
+    const messages = [
+      ...baseMessages,
+      {
+        role: 'bot',
+        label: suggestedSlots.length > 0 ? 'Horarios encontrados' : 'Fallback de disponibilidade',
+        text: availabilityText,
+      },
+    ];
+
+    if (stage === 'confirmar_agendamento' && selectedSlot) {
+      messages.push(
+        {
+          role: 'customer',
+          label: 'Escolha de horario',
+          text: selectedSlot.slot.label,
+        },
+        {
+          role: 'system',
+          label: 'Agendamento confirmado',
+          text: this.renderAgendaTemplate(config.flowMessages.confirmationMessage, context),
+        },
+      );
+    }
+
+    return {
+      status: suggestedSlots.length > 0 ? 'ok' : 'warning',
+      stage,
+      groupId: group.id,
+      groupTitle: group.title,
+      actionType: group.actionType,
+      summary:
+        suggestedSlots.length > 0
+          ? 'Simulacao concluida com horarios sugeridos para a guia.'
+          : 'Simulacao concluida sem disponibilidade imediata; fallback futuro aplicado.',
+      messages,
+      suggestedSlots,
+      fallbackSlots,
+    };
   }
 
   async updateConversationStatus(user: any, id: number, status: string) {

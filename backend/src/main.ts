@@ -10,6 +10,13 @@ const DEFAULT_PRODUCTION_ORIGINS = [
   'https://hbxsystem.com.br',
 ];
 
+function normalizeServiceUrl(value: string | null | undefined, fallback: string) {
+  const normalized = String(value || '').trim();
+  if (!normalized) return fallback;
+  if (/^https?:\/\//i.test(normalized)) return normalized;
+  return `http://${normalized}`;
+}
+
 function normalizeOrigin(value: string | null | undefined) {
   return String(value || '').trim().replace(/\/$/, '');
 }
@@ -33,7 +40,10 @@ function isFirebaseHostingOrigin(origin: string) {
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, { rawBody: true });
-  const webscrapingTarget = process.env.WEBSCRAPING_INTERNAL_URL || 'http://localhost:8501';
+  const webscrapingTarget = normalizeServiceUrl(
+    process.env.WEBSCRAPING_INTERNAL_URL,
+    'http://localhost:8501',
+  );
   app.use(
     '/webscraping',
     createProxyMiddleware({

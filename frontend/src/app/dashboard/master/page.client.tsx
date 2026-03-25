@@ -40,12 +40,6 @@ type MasterCompany = {
   trialEndsAt?: string | null;
   subscriptionCurrentPeriodStart?: string | null;
   subscriptionCurrentPeriodEnd?: string | null;
-  websiteEnabled?: boolean;
-  websitePublicUrl?: string | null;
-  websiteAdminUrl?: string | null;
-  websiteProjectId?: string | null;
-  websiteAdminEnabled?: boolean;
-  websiteLaunchMode?: "public" | "admin" | null;
   whatsappNumber?: string | null;
   whatsappPhoneNumberId?: string | null;
   whatsappWabaId?: string | null;
@@ -145,15 +139,6 @@ type CompanyProfileDraft = {
   subscriptionStatus: string;
   billingProvider: string;
   premiumAccess: boolean;
-};
-
-type CompanyWebsiteDraft = {
-  websiteEnabled: boolean;
-  websitePublicUrl: string;
-  websiteAdminUrl: string;
-  websiteProjectId: string;
-  websiteAdminEnabled: boolean;
-  websiteLaunchMode: "public" | "admin";
 };
 
 type UserRole = "USER" | "ADMIN" | "GERENTE";
@@ -312,20 +297,6 @@ function buildCompanyProfileDraftFromCompany(company: MasterCompany): CompanyPro
   };
 }
 
-function buildCompanyWebsiteDraftFromCompany(company: MasterCompany): CompanyWebsiteDraft {
-  return {
-    websiteEnabled: Boolean(company.websiteEnabled),
-    websitePublicUrl: String(company.websitePublicUrl || ""),
-    websiteAdminUrl: String(company.websiteAdminUrl || ""),
-    websiteProjectId: String(company.websiteProjectId || ""),
-    websiteAdminEnabled: Boolean(company.websiteAdminEnabled),
-    websiteLaunchMode:
-      String(company.websiteLaunchMode || "public").trim().toLowerCase() === "admin"
-        ? "admin"
-        : "public",
-  };
-}
-
 function formatTrialCountdown(targetDate?: string | null) {
   const iso = String(targetDate || "").trim();
   if (!iso) return "Trial sem data";
@@ -368,7 +339,6 @@ export default function MasterClientPage() {
   const [error, setError] = useState<string | null>(null);
   const [companies, setCompanies] = useState<MasterCompany[]>([]);
   const [companyProfileDrafts, setCompanyProfileDrafts] = useState<Record<number, CompanyProfileDraft>>({});
-  const [companyWebsiteDrafts, setCompanyWebsiteDrafts] = useState<Record<number, CompanyWebsiteDraft>>({});
   const [whatsAppDrafts, setWhatsAppDrafts] = useState<Record<number, CompanyWhatsAppDraft>>({});
   const [mercadoPagoDrafts, setMercadoPagoDrafts] = useState<
     Record<number, CompanyMercadoPagoDraft>
@@ -403,13 +373,6 @@ export default function MasterClientPage() {
         const next: Record<number, CompanyProfileDraft> = {};
         for (const company of payload || []) {
           next[company.id] = buildCompanyProfileDraftFromCompany(company);
-        }
-        return next;
-      });
-      setCompanyWebsiteDrafts(() => {
-        const next: Record<number, CompanyWebsiteDraft> = {};
-        for (const company of payload || []) {
-          next[company.id] = buildCompanyWebsiteDraftFromCompany(company);
         }
         return next;
       });
@@ -501,27 +464,6 @@ export default function MasterClientPage() {
           subscriptionStatus: "trialing",
           billingProvider: "manual",
           premiumAccess: false,
-        }),
-        [field]: value,
-      },
-    }));
-  }
-
-  function updateCompanyWebsiteDraftField(
-    companyId: number,
-    field: keyof CompanyWebsiteDraft,
-    value: string | boolean,
-  ) {
-    setCompanyWebsiteDrafts((current) => ({
-      ...current,
-      [companyId]: {
-        ...(current[companyId] || {
-          websiteEnabled: false,
-          websitePublicUrl: "",
-          websiteAdminUrl: "",
-          websiteProjectId: "",
-          websiteAdminEnabled: false,
-          websiteLaunchMode: "public",
         }),
         [field]: value,
       },
@@ -809,35 +751,6 @@ export default function MasterClientPage() {
       await load({ background: true });
     } catch (actionError) {
       const message = actionError instanceof Error ? actionError.message : "Falha ao salvar perfil SaaS.";
-      setError(message);
-    } finally {
-      setBusyKey(null);
-    }
-  }
-
-  async function saveCompanyWebsite(companyId: number) {
-    const draft = companyWebsiteDrafts[companyId];
-    if (!draft) return;
-
-    const key = `save-website-${companyId}`;
-    setBusyKey(key);
-    setError(null);
-    try {
-      await apiFetch(`/website/master/company/${companyId}/config`, {
-        method: "PATCH",
-        body: JSON.stringify({
-          websiteEnabled: draft.websiteEnabled,
-          websitePublicUrl: draft.websitePublicUrl.trim() || undefined,
-          websiteAdminUrl: draft.websiteAdminUrl.trim() || undefined,
-          websiteProjectId: draft.websiteProjectId.trim() || undefined,
-          websiteAdminEnabled: draft.websiteAdminEnabled,
-          websiteLaunchMode: draft.websiteLaunchMode,
-        }),
-      });
-      setActionInfo(`Configuracao do website salva para empresa #${companyId}.`);
-      await load({ background: true });
-    } catch (actionError) {
-      const message = actionError instanceof Error ? actionError.message : "Falha ao salvar website.";
       setError(message);
     } finally {
       setBusyKey(null);
@@ -1662,7 +1575,7 @@ export default function MasterClientPage() {
                 </div>
               </div>
 
-              <div className="mt-3 border border-(--line) rounded-xl bg-(--surface-soft) p-3">
+              <div className="mt-3 border border-[var(--line)] rounded-[12px] p-3 bg-[var(--surface-soft)]">
                 <p className="text-sm font-medium">Dados SaaS do cliente</p>
                 <p className="text-xs text-muted mt-1">
                   Cadastro principal, status de assinatura, trial e método de pagamento do cliente.
@@ -1756,7 +1669,7 @@ export default function MasterClientPage() {
                     <option value="apple">apple</option>
                     <option value="google">google</option>
                   </select>
-                  <label className="flex items-center gap-2 rounded-[10px] border border-(--line) px-3 py-2 text-sm">
+                  <label className="flex items-center gap-2 rounded-[10px] border border-[var(--line)] px-3 py-2 text-sm">
                     <input
                       type="checkbox"
                       checked={Boolean(companyProfileDrafts[company.id]?.premiumAccess)}
@@ -1809,127 +1722,6 @@ export default function MasterClientPage() {
                   >
                     Expirar trial
                   </button>
-                </div>
-              </div>
-
-              <div className="mt-3 border border-[var(--line)] rounded-[12px] p-3 bg-[var(--surface-soft)]">
-                <p className="text-sm font-medium">Website da empresa</p>
-                <p className="text-xs text-muted mt-1">
-                  O HBX nao cria mais o site. Ele apenas guarda a configuracao, abre o website correto e
-                  libera o admin com token temporario.
-                </p>
-
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-2 mt-3">
-                  <label className="flex items-center gap-2 rounded-[10px] border border-(--line) px-3 py-2 text-sm">
-                    <input
-                      type="checkbox"
-                      checked={Boolean(companyWebsiteDrafts[company.id]?.websiteEnabled)}
-                      onChange={(event) =>
-                        updateCompanyWebsiteDraftField(
-                          company.id,
-                          "websiteEnabled",
-                          event.target.checked,
-                        )
-                      }
-                    />
-                    Website habilitado
-                  </label>
-
-                  <label className="flex items-center gap-2 rounded-[10px] border border-[var(--line)] px-3 py-2 text-sm">
-                    <input
-                      type="checkbox"
-                      checked={Boolean(companyWebsiteDrafts[company.id]?.websiteAdminEnabled)}
-                      onChange={(event) =>
-                        updateCompanyWebsiteDraftField(
-                          company.id,
-                          "websiteAdminEnabled",
-                          event.target.checked,
-                        )
-                      }
-                    />
-                    Admin do website habilitado
-                  </label>
-
-                  <select
-                    className="field"
-                    value={companyWebsiteDrafts[company.id]?.websiteLaunchMode ?? "public"}
-                    onChange={(event) =>
-                      updateCompanyWebsiteDraftField(
-                        company.id,
-                        "websiteLaunchMode",
-                        event.target.value === "admin" ? "admin" : "public",
-                      )
-                    }
-                  >
-                    <option value="public">Abrir site público</option>
-                    <option value="admin">Abrir admin</option>
-                  </select>
-
-                  <input
-                    className="field md:col-span-2"
-                    placeholder="URL pública do website"
-                    value={companyWebsiteDrafts[company.id]?.websitePublicUrl ?? ""}
-                    onChange={(event) =>
-                      updateCompanyWebsiteDraftField(
-                        company.id,
-                        "websitePublicUrl",
-                        event.target.value,
-                      )
-                    }
-                  />
-
-                  <input
-                    className="field"
-                    placeholder="Project ID / identificador do website"
-                    value={companyWebsiteDrafts[company.id]?.websiteProjectId ?? ""}
-                    onChange={(event) =>
-                      updateCompanyWebsiteDraftField(
-                        company.id,
-                        "websiteProjectId",
-                        event.target.value,
-                      )
-                    }
-                  />
-
-                  <input
-                    className="field md:col-span-3"
-                    placeholder="URL de entrada segura do admin (ex.: https://site.web.app/admin-entry.html)"
-                    value={companyWebsiteDrafts[company.id]?.websiteAdminUrl ?? ""}
-                    onChange={(event) =>
-                      updateCompanyWebsiteDraftField(
-                        company.id,
-                        "websiteAdminUrl",
-                        event.target.value,
-                      )
-                    }
-                  />
-                </div>
-
-                <div className="mt-2 text-xs text-muted">
-                  Launch atual: {companyWebsiteDrafts[company.id]?.websiteLaunchMode === "admin" ? "admin" : "publico"}
-                  {company.websitePublicUrl ? ` | Site atual: ${company.websitePublicUrl}` : ""}
-                  {company.websiteAdminUrl ? ` | Admin atual: ${company.websiteAdminUrl}` : ""}
-                </div>
-
-                <div className="flex gap-2 mt-3 flex-wrap">
-                  <button
-                    type="button"
-                    className="btn btn-primary btn-sm"
-                    onClick={() => saveCompanyWebsite(company.id)}
-                    disabled={busyKey === `save-website-${company.id}`}
-                  >
-                    {busyKey === `save-website-${company.id}` ? "Salvando..." : "Salvar website"}
-                  </button>
-                  {company.websitePublicUrl ? (
-                    <a
-                      className="btn btn-secondary btn-sm"
-                      href={company.websitePublicUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                    >
-                      Abrir site público
-                    </a>
-                  ) : null}
                 </div>
               </div>
 

@@ -6,6 +6,8 @@
 		"start": "node index.js",
 		"up": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/start-all.ps1",
 		"down": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/stop-all.ps1",
+		"backup:local": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/backup-before-format.ps1",
+		"setup:after-format": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/setup-after-format.ps1",
 		"publish": "node ./scripts/publish.js --yes --message \"Automated publish\"",
 		"publish:dry-run": "node ./scripts/publish.js --dry-run",
 		"seed:dev": "node ./backend/scripts/seed-dev.js",

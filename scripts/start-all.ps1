@@ -8,6 +8,16 @@ $backendDir = Join-Path $scriptRoot "..\backend"
 $orchestratorDir = Join-Path $scriptRoot "..\.orchestrator"
 $pidsFile = Join-Path $orchestratorDir "pids.json"
 
+$ErrorActionPreference = 'Stop'
+
+trap {
+	$message = $_.Exception.Message
+	if (-not [string]::IsNullOrWhiteSpace($message)) {
+		Write-Host $message
+	}
+	exit 1
+}
+
 if (!(Test-Path $orchestratorDir)) {
 	New-Item -ItemType Directory -Path $orchestratorDir | Out-Null
 }
@@ -95,6 +105,43 @@ function Wait-HttpOk([string]$url, [int]$retries = 60, [int]$delayMs = 500) {
 	return $false
 }
 
+function Invoke-ExternalOrThrow([string]$filePath, [string[]]$arguments, [string]$failureMessage) {
+	& $filePath @arguments
+	if ($LASTEXITCODE -ne 0) {
+		throw $failureMessage
+	}
+}
+
+function Test-DockerDaemonReady() {
+	try {
+		$previousErrorActionPreference = $ErrorActionPreference
+		$ErrorActionPreference = 'Continue'
+		$null = & docker version --format '{{.Server.APIVersion}}' 2>$null
+		return ($LASTEXITCODE -eq 0)
+	} catch {
+		return $false
+	} finally {
+		$ErrorActionPreference = $previousErrorActionPreference
+	}
+}
+
+function Assert-DockerReady() {
+	if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
+		throw "Docker CLI not found in PATH. Install Docker Desktop and try again."
+	}
+
+	if (Test-DockerDaemonReady) {
+		return
+	}
+
+	$dockerService = Get-Service -Name 'com.docker.service' -ErrorAction SilentlyContinue
+	if ($null -ne $dockerService -and $dockerService.Status -ne 'Running') {
+		throw "Docker Desktop Service is '$($dockerService.Status)'. Start Docker Desktop, wait for the engine to become available, and run npm run up again."
+	}
+
+	throw "Docker daemon is not available for the current context. Verify Docker Desktop is open and the 'desktop-linux' engine is healthy, then try again."
+}
+
 # Stop previously started processes if we have a pid file
 if (Test-Path $pidsFile) {
 	$prev = $null
@@ -111,22 +158,28 @@ if (Test-Path $pidsFile) {
 	}
 }
 
+Assert-DockerReady
+
 Write-Host "1️⃣ Starting backend (docker compose) ..."
-docker compose -f $composeFile up -d --build
+Invoke-ExternalOrThrow -filePath 'docker' -arguments @('compose', '-f', $composeFile, 'up', '-d', '--build') -failureMessage 'Failed to start backend containers with docker compose.'
 
 Write-Host "1.0️⃣ Sync backend deps inside container (npm install) ..."
 try {
-	docker compose -f $composeFile exec -T backend sh -lc "npm install --no-audit --no-fund && npx prisma generate"
+	Invoke-ExternalOrThrow -filePath 'docker' -arguments @('compose', '-f', $composeFile, 'exec', '-T', 'backend', 'sh', '-lc', 'npm install --no-audit --no-fund && npx prisma generate') -failureMessage 'Dependency sync failed in backend container.'
 } catch {
 	Write-Host "Failed to sync backend dependencies inside container. Showing backend logs:"
-	docker compose -f $composeFile logs backend --tail 120
+	if (Test-DockerDaemonReady) {
+		& docker compose -f $composeFile logs backend --tail 120
+	}
 	throw "Dependency sync failed in backend container"
 }
 
 Write-Host "1.1️⃣ Waiting backend health on http://localhost:3000/health ..."
 if (-not (Wait-HttpOk -url 'http://localhost:3000/health' -retries 180 -delayMs 500)) {
     Write-Host "Backend did not become reachable on /health. Showing recent logs:"
-	docker compose -f $composeFile logs backend --tail 120
+	if (Test-DockerDaemonReady) {
+		& docker compose -f $composeFile logs backend --tail 120
+	}
 	throw "Backend not reachable at http://localhost:3000/health"
 }
 

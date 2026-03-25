@@ -1,0 +1,239 @@
+{
+  "version": 3,
+  "pages404": true,
+  "appType": "app",
+  "caseSensitive": false,
+  "basePath": "",
+  "redirects": [
+    {
+      "source": "/:path+/",
+      "destination": "/:path+",
+      "internal": true,
+      "priority": true,
+      "statusCode": 308,
+      "regex": "^(?:/((?:[^/]+?)(?:/(?:[^/]+?))*))/$"
+    }
+  ],
+  "headers": [],
+  "rewrites": {
+    "beforeFiles": [],
+    "afterFiles": [
+      {
+        "source": "/hbx/static/:path*",
+        "destination": "http://localhost:3000/webscraping/static/:path*",
+        "regex": "^/hbx/static(?:/((?:[^/]+?)(?:/(?:[^/]+?))*))?(?:/)?$"
+      },
+      {
+        "source": "/hbx/webscraping/:path*",
+        "destination": "http://localhost:3000/webscraping/:path*",
+        "regex": "^/hbx/webscraping(?:/((?:[^/]+?)(?:/(?:[^/]+?))*))?(?:/)?$"
+      },
+      {
+        "source": "/hbx/webscraping",
+        "destination": "http://localhost:3000/webscraping",
+        "regex": "^/hbx/webscraping(?:/)?$"
+      }
+    ],
+    "fallback": []
+  },
+  "dynamicRoutes": [
+    {
+      "page": "/dashboard/auto-replies/[id]",
+      "regex": "^/dashboard/auto\\-replies/([^/]+?)(?:/)?$",
+      "routeKeys": {
+        "nxtPid": "nxtPid"
+      },
+      "namedRegex": "^/dashboard/auto\\-replies/(?<nxtPid>[^/]+?)(?:/)?$"
+    },
+    {
+      "page": "/dashboard/importacoes/editar/[id]",
+      "regex": "^/dashboard/importacoes/editar/([^/]+?)(?:/)?$",
+      "routeKeys": {
+        "nxtPid": "nxtPid"
+      },
+      "namedRegex": "^/dashboard/importacoes/editar/(?<nxtPid>[^/]+?)(?:/)?$"
+    }
+  ],
+  "staticRoutes": [
+    {
+      "page": "/",
+      "regex": "^/(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/(?:/)?$"
+    },
+    {
+      "page": "/_global-error",
+      "regex": "^/_global\\-error(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/_global\\-error(?:/)?$"
+    },
+    {
+      "page": "/_not-found",
+      "regex": "^/_not\\-found(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/_not\\-found(?:/)?$"
+    },
+    {
+      "page": "/dashboard",
+      "regex": "^/dashboard(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/dashboard(?:/)?$"
+    },
+    {
+      "page": "/dashboard/auto-replies",
+      "regex": "^/dashboard/auto\\-replies(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/dashboard/auto\\-replies(?:/)?$"
+    },
+    {
+      "page": "/dashboard/auto-replies/new",
+      "regex": "^/dashboard/auto\\-replies/new(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/dashboard/auto\\-replies/new(?:/)?$"
+    },
+    {
+      "page": "/dashboard/gerencial",
+      "regex": "^/dashboard/gerencial(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/dashboard/gerencial(?:/)?$"
+    },
+    {
+      "page": "/dashboard/importacoes/cadastros",
+      "regex": "^/dashboard/importacoes/cadastros(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/dashboard/importacoes/cadastros(?:/)?$"
+    },
+    {
+      "page": "/dashboard/importacoes/followup-global",
+      "regex": "^/dashboard/importacoes/followup\\-global(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/dashboard/importacoes/followup\\-global(?:/)?$"
+    },
+    {
+      "page": "/dashboard/importacoes/historico",
+      "regex": "^/dashboard/importacoes/historico(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/dashboard/importacoes/historico(?:/)?$"
+    },
+    {
+      "page": "/dashboard/importacoes/novo",
+      "regex": "^/dashboard/importacoes/novo(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/dashboard/importacoes/novo(?:/)?$"
+    },
+    {
+      "page": "/dashboard/inbox",
+      "regex": "^/dashboard/inbox(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/dashboard/inbox(?:/)?$"
+    },
+    {
+      "page": "/dashboard/layouts",
+      "regex": "^/dashboard/layouts(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/dashboard/layouts(?:/)?$"
+    },
+    {
+      "page": "/dashboard/master",
+      "regex": "^/dashboard/master(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/dashboard/master(?:/)?$"
+    },
+    {
+      "page": "/dashboard/master/assistente-tecnico",
+      "regex": "^/dashboard/master/assistente\\-tecnico(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/dashboard/master/assistente\\-tecnico(?:/)?$"
+    },
+    {
+      "page": "/dashboard/master/exclusoes",
+      "regex": "^/dashboard/master/exclusoes(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/dashboard/master/exclusoes(?:/)?$"
+    },
+    {
+      "page": "/dashboard/messages",
+      "regex": "^/dashboard/messages(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/dashboard/messages(?:/)?$"
+    },
+    {
+      "page": "/dashboard/webscraping",
+      "regex": "^/dashboard/webscraping(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/dashboard/webscraping(?:/)?$"
+    },
+    {
+      "page": "/dashboard/website",
+      "regex": "^/dashboard/website(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/dashboard/website(?:/)?$"
+    },
+    {
+      "page": "/dashboard/whatsapp",
+      "regex": "^/dashboard/whatsapp(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/dashboard/whatsapp(?:/)?$"
+    },
+    {
+      "page": "/favicon.ico",
+      "regex": "^/favicon\\.ico(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/favicon\\.ico(?:/)?$"
+    },
+    {
+      "page": "/hbx-recovery",
+      "regex": "^/hbx\\-recovery(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/hbx\\-recovery(?:/)?$"
+    },
+    {
+      "page": "/login",
+      "regex": "^/login(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/login(?:/)?$"
+    },
+    {
+      "page": "/manifest.webmanifest",
+      "regex": "^/manifest\\.webmanifest(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/manifest\\.webmanifest(?:/)?$"
+    },
+    {
+      "page": "/register",
+      "regex": "^/register(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/register(?:/)?$"
+    },
+    {
+      "page": "/reset-password",
+      "regex": "^/reset\\-password(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/reset\\-password(?:/)?$"
+    },
+    {
+      "page": "/webhooks/whatsapp",
+      "regex": "^/webhooks/whatsapp(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/webhooks/whatsapp(?:/)?$"
+    }
+  ],
+  "dataRoutes": [],
+  "rsc": {
+    "header": "rsc",
+    "varyHeader": "rsc, next-router-state-tree, next-router-prefetch, next-router-segment-prefetch",
+    "prefetchHeader": "next-router-prefetch",
+    "didPostponeHeader": "x-nextjs-postponed",
+    "contentTypeHeader": "text/x-component",
+    "suffix": ".rsc",
+    "prefetchSegmentHeader": "next-router-segment-prefetch",
+    "prefetchSegmentSuffix": ".segment.rsc",
+    "prefetchSegmentDirSuffix": ".segments",
+    "clientParamParsing": false,
+    "dynamicRSCPrerender": false
+  },
+  "rewriteHeaders": {
+    "pathHeader": "x-nextjs-rewritten-path",
+    "queryHeader": "x-nextjs-rewritten-query"
+  }
+}

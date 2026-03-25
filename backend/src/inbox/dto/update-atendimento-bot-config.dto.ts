@@ -11,6 +11,10 @@ class UpdateAtendimentoBotButtonDto {
 
   @IsString()
   title!: string;
+
+  @IsString()
+  @IsOptional()
+  nextNodeId?: string;
 }
 
 class UpdateAtendimentoBotVariableDto {
@@ -124,6 +128,12 @@ export class UpdateAtendimentoBotConfigDto {
   @IsString()
   @IsOptional()
   returningCustomerMessage?: string;
+
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => UpdateAtendimentoBotButtonDto)
+  @IsOptional()
+  returningCustomerButtons?: UpdateAtendimentoBotButtonDto[];
 
   @IsString()
   @IsOptional()
