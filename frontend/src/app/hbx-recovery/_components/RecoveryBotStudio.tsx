@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { ChatIconButton } from "@/components/chat/PremiumChat";
 import BotMessageStudio, {
   type BotStudioTemplateOption,
   type BotStudioTemplateStart,
@@ -206,6 +207,92 @@ function resolveRecoveryNextNodeId(actionId: string) {
   }
 }
 
+function getRecoveryNodeLabel(nodeId: string) {
+  return BOT_SCENARIOS.find((item) => item.id === nodeId)?.label || nodeId;
+}
+
+function sortRecoveryNodeIds(nodeIds: string[]) {
+  const nodeOrder = [
+    "template_start",
+    "mainMenuPrompt",
+    "declineMenuPrompt",
+    "valueMessageTemplate",
+    "followupPrompt",
+    "installmentsPrompt",
+    "cashLinkMessageTemplate",
+    "paidClaimMessage",
+    "installmentConfirmTemplate",
+    "installmentLinkMessageTemplate",
+    "postLinkPrompt",
+    "closeTopicMessage",
+    "humanAckMessage",
+  ];
+
+  return [...nodeIds].sort((left, right) => {
+    const leftIndex = nodeOrder.indexOf(left);
+    const rightIndex = nodeOrder.indexOf(right);
+    const safeLeft = leftIndex === -1 ? Number.MAX_SAFE_INTEGER : leftIndex;
+    const safeRight = rightIndex === -1 ? Number.MAX_SAFE_INTEGER : rightIndex;
+    return safeLeft - safeRight || left.localeCompare(right);
+  });
+}
+
+function applyVerticalAutoLayout<T extends { id: string; buttons: Array<{ nextNodeId?: string }> }>(
+  nodes: T[],
+  rootNodeId: string,
+) {
+  const nodeIds = new Set(nodes.map((node) => node.id));
+  const levelById = new Map<string, number>();
+  const queue = [{ id: rootNodeId, level: 0 }];
+
+  while (queue.length > 0) {
+    const current = queue.shift();
+    if (!current || !nodeIds.has(current.id)) continue;
+
+    const existingLevel = levelById.get(current.id);
+    if (existingLevel !== undefined && existingLevel <= current.level) continue;
+    levelById.set(current.id, current.level);
+
+    const node = nodes.find((item) => item.id === current.id);
+    if (!node) continue;
+
+    for (const button of node.buttons) {
+      if (!button.nextNodeId || !nodeIds.has(button.nextNodeId)) continue;
+      queue.push({ id: button.nextNodeId, level: current.level + 1 });
+    }
+  }
+
+  const rows = new Map<number, string[]>();
+  for (const [nodeId, level] of levelById.entries()) {
+    const current = rows.get(level) || [];
+    current.push(nodeId);
+    rows.set(level, sortRecoveryNodeIds(current));
+  }
+
+  const maxLevel = Math.max(...Array.from(levelById.values()), 0);
+  const unlinkedNodeIds = sortRecoveryNodeIds(nodes.map((node) => node.id).filter((nodeId) => !levelById.has(nodeId)));
+  if (unlinkedNodeIds.length > 0) {
+    rows.set(maxLevel + 1, unlinkedNodeIds);
+  }
+
+  const positioned = new Map<string, { x: number; y: number }>();
+  for (const [level, nodeIdsAtLevel] of Array.from(rows.entries()).sort((left, right) => left[0] - right[0])) {
+    const rowWidth = Math.max(nodeIdsAtLevel.length - 1, 0) * 300;
+    const startX = Math.max(40, 540 - rowWidth / 2);
+    nodeIdsAtLevel.forEach((nodeId, index) => {
+      positioned.set(nodeId, {
+        x: startX + index * 300,
+        y: 24 + level * 220,
+      });
+    });
+  }
+
+  return nodes.map((node) => ({
+    ...node,
+    position: positioned.get(node.id) || { x: 40, y: 24 },
+  }));
+}
+
 type RecoveryBotStudioProps = {
   botConfig: RecoveryBotConfig;
   loadingBotConfig: boolean;
@@ -221,7 +308,7 @@ type RecoveryBotStudioProps = {
   onUpdateButton: (
     section: BotButtonSectionKey,
     index: number,
-    field: "buttonId" | "actionId" | "title",
+    field: "buttonId" | "actionId" | "title" | "nextNodeId",
     value: string,
   ) => void;
   onAddButton: (section: BotButtonSectionKey) => void;
@@ -287,6 +374,16 @@ export default function RecoveryBotStudio({
     return next;
   }, [botConfig.actionCatalog]);
 
+  const buttonTargetOptions = useMemo(
+    () =>
+      BOT_SCENARIOS.map((scenario) => ({
+        value: scenario.id,
+        label: scenario.label,
+        description: scenario.description,
+      })),
+    [],
+  );
+
   const studioVariables = useMemo(
     () =>
       botConfig.variableCatalog
@@ -319,22 +416,6 @@ export default function RecoveryBotStudio({
 
   const flowScenarios = useMemo(
     () => {
-      const positions: Record<string, { x: number; y: number }> = {
-        template_start: { x: 40, y: 120 },
-        mainMenuPrompt: { x: 340, y: 40 },
-        declineMenuPrompt: { x: 340, y: 260 },
-        valueMessageTemplate: { x: 680, y: 0 },
-        followupPrompt: { x: 680, y: 220 },
-        humanAckMessage: { x: 680, y: 440 },
-        installmentsPrompt: { x: 1020, y: 0 },
-        cashLinkMessageTemplate: { x: 1020, y: 220 },
-        paidClaimMessage: { x: 1020, y: 440 },
-        installmentConfirmTemplate: { x: 1360, y: 0 },
-        installmentLinkMessageTemplate: { x: 1360, y: 220 },
-        postLinkPrompt: { x: 1700, y: 120 },
-        closeTopicMessage: { x: 1700, y: 360 },
-      };
-
       const templateNode = {
         id: templateStart?.id || "template_start",
         label: "Template Meta inicial",
@@ -360,7 +441,6 @@ export default function RecoveryBotStudio({
             nextLabel: "Abrir recusa inicial",
           },
         ],
-        position: positions.template_start,
         toneLabel: templateStart?.tone === "warning" ? "Template requer revisao" : "Template aprovado",
       };
 
@@ -382,16 +462,13 @@ export default function RecoveryBotStudio({
           scenario.supportsButtons && scenario.buttonSection
             ? botConfig[scenario.buttonSection].map((button) => ({
                 ...button,
-                nextNodeId: resolveRecoveryNextNodeId(String(button.actionId)),
-                nextLabel:
-                  BOT_SCENARIOS.find((item) => item.id === resolveRecoveryNextNodeId(String(button.actionId)))
-                    ?.label || "Destino complementar do fluxo",
+                nextNodeId: String(button.nextNodeId || resolveRecoveryNextNodeId(String(button.actionId))),
+                nextLabel: getRecoveryNodeLabel(String(button.nextNodeId || resolveRecoveryNextNodeId(String(button.actionId)))),
               }))
             : [],
-        position: positions[scenario.id] || { x: 0, y: 0 },
       }));
 
-      return [templateNode, ...scenarioNodes];
+      return applyVerticalAutoLayout([templateNode, ...scenarioNodes], templateNode.id);
     },
     [botConfig, templateStart],
   );
@@ -502,12 +579,20 @@ export default function RecoveryBotStudio({
           <p className={styles.sectionEyebrow}>Mensagens do fluxo</p>
           <h3 className={styles.sectionTitle}>Builder conversacional do Recovery</h3>
           <p className={styles.sectionDescription}>
-            Fluxo completo, template Meta como primeiro no e navegacao visual por ramos reais do cliente.
+            Mesma casca visual do Atendimento, com canvas vertical, preview navegavel e catalogo operacional limpo.
           </p>
         </div>
-        <button type="button" className="btn btn-primary btn-sm" onClick={onSave} disabled={savingBotConfig || loadingBotConfig}>
-          {savingBotConfig ? "Salvando..." : "Salvar editor"}
-        </button>
+        <div className={styles.headerActions}>
+          <ChatIconButton
+            icon="gear"
+            label="Editor"
+            title="Configurar editor do bot"
+            aria-label="Configurar editor do bot"
+          />
+          <button type="button" className="btn btn-primary btn-sm" onClick={onSave} disabled={savingBotConfig || loadingBotConfig}>
+            {savingBotConfig ? "Salvando..." : "Salvar editor"}
+          </button>
+        </div>
       </div>
 
       <BotMessageStudio
@@ -516,6 +601,9 @@ export default function RecoveryBotStudio({
         description={selectedScenario?.description || "Primeiro no fixo do fluxo de cobranca."}
         flowScenarios={flowScenarios}
         flowEdges={flowEdges}
+        flowOrientation="vertical"
+        flowLayoutMode="canvas-focus"
+        canvasViewportMaxHeight={1040}
         startNodeId={templateStart?.id || "template_start"}
         selectedScenarioId={selectedScenarioId}
         onSelectScenario={(scenarioId) => setSelectedScenarioId(scenarioId)}
@@ -533,6 +621,11 @@ export default function RecoveryBotStudio({
         onUpdateButton={(index, field, value) => {
           if (!selectedScenario?.buttonSection) return;
           onUpdateButton(selectedScenario.buttonSection, index, field, value);
+        }}
+        buttonTargetOptions={buttonTargetOptions}
+        onUpdateButtonTarget={(index, nextNodeId) => {
+          if (!selectedScenario?.buttonSection) return;
+          onUpdateButton(selectedScenario.buttonSection, index, "nextNodeId", nextNodeId);
         }}
         onAddButton={() => {
           if (!selectedScenario?.buttonSection) return;

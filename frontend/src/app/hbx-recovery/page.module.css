@@ -1,3 +1,75 @@
+.workspaceDockShell {
+  min-height: 0;
+}
+
+.workspaceDockPanel {
+  height: 100%;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 0.95rem;
+  padding: 1rem;
+  overflow: hidden;
+}
+
+.workspaceDockPanelHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.workspaceDockPanelHeader strong {
+  display: block;
+  font-size: 1rem;
+  line-height: 1.05;
+  letter-spacing: -0.03em;
+  color: var(--foreground);
+}
+
+.workspaceDockBody {
+  min-height: 0;
+  display: grid;
+  gap: 0.9rem;
+  overflow: auto;
+  padding-right: 0.2rem;
+}
+
+.workspaceDockQueueBody {
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.workspaceDockDetailBody {
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.workspaceDockDetailStack {
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  gap: 0.75rem;
+}
+
+.workspaceDockFinanceBody {
+  align-content: start;
+}
+
+.workspaceDockCounter {
+  min-width: 36px;
+  min-height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 0.7rem;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--line) 88%, white);
+  background: color-mix(in srgb, var(--surface-raised) 94%, white);
+  color: var(--foreground);
+  font-size: 0.74rem;
+  font-weight: 900;
+  box-shadow: var(--shadow-inset), var(--shadow-xs);
+}
+
 .impactGrid {
   display: grid;
   gap: 0.9rem;
@@ -3953,6 +4025,12 @@
   padding-right: 0.35rem;
 }
 
+.workspaceDockPanel .interactionsList {
+  max-height: none;
+  min-height: 0;
+  height: 100%;
+}
+
 .interactionRow {
   border: 1px solid color-mix(in srgb, var(--line) 92%, white);
   border-radius: 16px;
@@ -4091,6 +4169,12 @@
   flex-direction: column;
 }
 
+.workspaceDockPanel .interactionDetail,
+.workspaceDockPanel .interactionChatPanel,
+.workspaceDockPanel .interactionSidePanel {
+  min-height: 0;
+}
+
 .interactionDetailHeader {
   display: flex;
   flex-wrap: wrap;
@@ -4156,16 +4240,20 @@
 
 .interactionMessageList {
   display: grid;
-  gap: 0.7rem;
+  gap: 0.82rem;
   max-height: 620px;
   overflow-y: auto;
-  padding: 0.9rem;
-  padding-right: 0.5rem;
-  border-radius: 18px;
-  border: 1px solid color-mix(in srgb, var(--line) 90%, white);
-  background:
-    radial-gradient(circle at top left, color-mix(in srgb, var(--brand) 7%, white), transparent 42%),
-    linear-gradient(180deg, color-mix(in srgb, #f8fbff 94%, white), color-mix(in srgb, #eef4fb 96%, white));
+  padding: 0;
+  padding-right: 0.22rem;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+}
+
+.workspaceDockPanel .interactionMessageList {
+  max-height: none;
+  min-height: 0;
+  height: 100%;
 }
 
 .interactionMessage {
@@ -4265,6 +4353,24 @@
   border: 1px solid color-mix(in srgb, var(--line) 90%, white);
   background: color-mix(in srgb, var(--surface) 94%, white);
   box-shadow: var(--shadow-xs);
+}
+
+.workspaceDockComposerBody {
+  grid-template-rows: minmax(0, 1fr);
+  align-content: stretch;
+  overflow: hidden;
+}
+
+.workspaceDockComposerBody .interactionComposer {
+  min-height: 0;
+  height: 100%;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+}
+
+.workspaceDockComposerBody .interactionComposer :global(textarea.field) {
+  min-height: clamp(190px, 28vh, 380px);
+  height: 100%;
+  resize: vertical;
 }
 
 .interactionComposerHeader {

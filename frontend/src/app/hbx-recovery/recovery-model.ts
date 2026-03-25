@@ -90,6 +90,7 @@ export type RecoveryBotButton = {
   buttonId: string;
   actionId: RecoveryBotAnyActionId;
   title: string;
+  nextNodeId?: string;
 };
 
 export type RecoveryBotStartTemplate = {

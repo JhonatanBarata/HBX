@@ -108,7 +108,18 @@ export default function LoginPage() {
       });
 
       if (result.state === "success") {
-        const token = (result.data as any)?.token;
+        const payload =
+          result.data && typeof result.data === "object"
+            ? (result.data as {
+                token?: string;
+                access_token?: string;
+                accessToken?: string;
+              })
+            : null;
+        const token =
+          payload?.token ||
+          payload?.access_token ||
+          payload?.accessToken;
         if (!token) {
           setError("Login falhou: token não recebido");
           setLoginState("error");
@@ -163,7 +174,18 @@ export default function LoginPage() {
               });
 
               if (result.state === "success") {
-                const token = (result.data as any)?.token;
+                const payload =
+                  result.data && typeof result.data === "object"
+                    ? (result.data as {
+                        token?: string;
+                        access_token?: string;
+                        accessToken?: string;
+                      })
+                    : null;
+                const token =
+                  payload?.token ||
+                  payload?.access_token ||
+                  payload?.accessToken;
                 if (!token) {
                   setError("Login falhou: token não recebido");
                   setLoginState("error");

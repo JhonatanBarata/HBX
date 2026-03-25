@@ -21,15 +21,9 @@ import { UpdateConversationStatusDto } from './dto/update-conversation-status.dt
 import { SendConversationMessageDto } from './dto/send-conversation-message.dto';
 import { ModuleAccessGuard } from '../modules/module-access.guard';
 import { ModuleAccess } from '../modules/module-feature.decorator';
-import { HbxRecoveryService } from '../hbx-recovery/hbx-recovery.service';
-import {
-  CreateMetaTemplateDto,
-  DeleteMetaTemplateDto,
-  ListMetaTemplatesQueryDto,
-  SetMetaTemplateActivationDto,
-} from '../hbx-recovery/dto/meta-templates.dto';
 import { UpdateAtendimentoBotConfigDto } from './dto/update-atendimento-bot-config.dto';
 import { UpdateAtendimentoAgendaDto } from './dto/update-atendimento-agenda.dto';
+import { SimulateAtendimentoAgendaDto } from './dto/simulate-atendimento-agenda.dto';
 import { BlockConversationDto } from './dto/block-conversation.dto';
 import { CreateAtendimentoCustomerDto } from './dto/create-atendimento-customer.dto';
 import { UpdateAtendimentoCustomerDto } from './dto/update-atendimento-customer.dto';
@@ -39,10 +33,7 @@ import { PromoteToRecoveryDto } from './dto/promote-to-recovery.dto';
 @UseGuards(JwtAuthGuard, ModuleAccessGuard)
 @ModuleAccess('atendimento')
 export class InboxController {
-  constructor(
-    private readonly inboxService: InboxService,
-    private readonly recoveryService: HbxRecoveryService,
-  ) {}
+  constructor(private readonly inboxService: InboxService) {}
 
   @Get('bot-config')
   getBotConfig(@Req() req: any) {
@@ -62,6 +53,11 @@ export class InboxController {
   @Patch('agenda')
   updateAgenda(@Req() req: any, @Body() dto: UpdateAtendimentoAgendaDto) {
     return this.inboxService.updateAgendaConfig(req.user, dto);
+  }
+
+  @Post('agenda/simulate')
+  simulateAgenda(@Req() req: any, @Body() dto: SimulateAtendimentoAgendaDto) {
+    return this.inboxService.simulateAgendaFlow(req.user, dto);
   }
 
   @Get('conversations')
@@ -104,56 +100,6 @@ export class InboxController {
     @Body() dto: SendConversationMessageDto,
   ) {
     return this.inboxService.sendMessage(req.user, id, dto.content);
-  }
-
-  @Get('meta-templates')
-  listMetaTemplates(@Req() req: any, @Query() query: ListMetaTemplatesQueryDto) {
-    return this.recoveryService.listMetaTemplates(req.user, query?.refresh, {
-      moduleKey: 'atendimento',
-    });
-  }
-
-  @Post('meta-templates/sync')
-  syncMetaTemplates(@Req() req: any) {
-    return this.recoveryService.syncMetaTemplates(req.user, { moduleKey: 'atendimento' });
-  }
-
-  @Patch('meta-templates/activation')
-  setMetaTemplateActivation(@Req() req: any, @Body() dto: SetMetaTemplateActivationDto) {
-    return this.recoveryService.setMetaTemplateActivation(req.user, dto, {
-      moduleKey: 'atendimento',
-    });
-  }
-
-  @Post('meta-templates/create')
-  createMetaTemplate(@Req() req: any, @Body() dto: CreateMetaTemplateDto) {
-    return this.recoveryService.createMetaTemplate(req.user, dto, {
-      moduleKey: 'atendimento',
-    });
-  }
-
-  @Delete('meta-templates')
-  deleteMetaTemplate(@Req() req: any, @Body() dto: DeleteMetaTemplateDto) {
-    return this.recoveryService.deleteMetaTemplate(req.user, dto, {
-      moduleKey: 'atendimento',
-    });
-  }
-
-  @Post('meta-templates/upload-header-media')
-  @UseInterceptors(
-    FileInterceptor('file', {
-      storage: memoryStorage(),
-      limits: { fileSize: 5 * 1024 * 1024 },
-    }),
-  )
-  uploadMetaTemplateHeaderMedia(
-    @Req() req: any,
-    @UploadedFile() file?: any,
-    @Body() body?: { templateName?: string; language?: string },
-  ) {
-    return this.recoveryService.uploadMetaTemplateHeaderMedia(req.user, file, body, {
-      moduleKey: 'atendimento',
-    });
   }
 
   // ---------------------------------------------------------------------------

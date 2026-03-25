@@ -42,6 +42,10 @@ class UpdateRecoveryBotButtonDto {
 
   @IsString()
   title!: string;
+
+  @IsString()
+  @IsOptional()
+  nextNodeId?: string;
 }
 
 class UpdateRecoveryBotVariableDto {

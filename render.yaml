@@ -11,6 +11,11 @@ services:
         sync: false
       - key: DIRECT_URL
         sync: false
+      - key: WEBSCRAPING_INTERNAL_URL
+        fromService:
+          name: hbx-webscraping
+          type: pserv
+          property: hostport
       - key: JWT_SECRET
         generateValue: true
       - key: FRONTEND_URL
@@ -21,7 +26,21 @@ services:
         sync: false
       - key: WHATSAPP_VERIFY_TOKEN
         sync: false
+      - key: WEBSCRAPING_URL
+        value: /hbx/webscraping
       - key: BOOTSTRAP_SYSTEM_MASTER
         value: "false"
       - key: NODE_ENV
         value: production
+  - type: pserv
+    name: hbx-webscraping
+    runtime: docker
+    rootDir: webscraping
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    plan: starter
+    envVars:
+      - key: GOOGLE_PLACES_API_KEY
+        sync: false
+      - key: MOCK_MODE
+        value: "0"
