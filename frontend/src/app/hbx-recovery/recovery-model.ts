@@ -410,30 +410,6 @@ export type RecoveryInteractionDetail = {
   messages: RecoveryInteractionMessage[];
 };
 
-export type RecoveryAgendaItem = {
-  conversationId: number;
-  customerId: string;
-  customerName: string;
-  customerWhatsapp: string;
-  openAmount: number;
-  preference: string | null;
-  currentStep: string | null;
-  dueAt: string;
-  lastInteractionAt: string | null;
-  status: "overdue" | "today" | "upcoming";
-  lastMessage: string;
-};
-
-export type RecoveryAgendaSummary = {
-  counters: {
-    total: number;
-    overdue: number;
-    today: number;
-    upcoming: number;
-  };
-  items: RecoveryAgendaItem[];
-};
-
 export type RecoveryOverview = {
   overdueTotal: number;
   dueSoonTotal: number;

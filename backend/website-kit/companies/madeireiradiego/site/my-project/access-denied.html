@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Acesso negado - Madeireira Monteiro</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=Playfair+Display:wght@400;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      color-scheme: dark;
+    }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      background: radial-gradient(circle at top, #2b2013 0%, #120f0a 45%, #0b0b0b 100%);
+      color: #f0e2b8;
+      font-family: 'Playfair Display', serif;
+    }
+    .card {
+      width: min(100%, 720px);
+      border: 1px solid rgba(212, 175, 55, 0.22);
+      border-radius: 28px;
+      background: rgba(22, 17, 11, 0.92);
+      box-shadow: 0 28px 64px rgba(0, 0, 0, 0.45);
+      padding: 40px 32px;
+      text-align: center;
+    }
+    h1 {
+      margin: 0 0 20px;
+      font-family: 'Cinzel', serif;
+      font-size: clamp(2rem, 5vw, 3.5rem);
+      letter-spacing: 0.08em;
+      color: #d4af37;
+    }
+    p {
+      margin: 0 auto;
+      max-width: 620px;
+      font-size: clamp(1rem, 2.2vw, 1.35rem);
+      line-height: 1.7;
+      color: #f0e2b8;
+    }
+    .actions {
+      margin-top: 28px;
+      display: flex;
+      justify-content: center;
+    }
+    .button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 16px 28px;
+      border-radius: 999px;
+      background: linear-gradient(90deg, #d4af37, #f5dc83);
+      color: #2c1f0d;
+      font-weight: 700;
+      text-decoration: none;
+      transition: transform 0.2s ease, box-shadow 0.2s ease;
+      box-shadow: 0 14px 30px rgba(212, 175, 55, 0.25);
+    }
+    .button:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 18px 36px rgba(212, 175, 55, 0.32);
+    }
+    .reason {
+      margin-top: 18px;
+      font-size: 0.95rem;
+      color: rgba(240, 226, 184, 0.72);
+    }
+  </style>
+</head>
+<body>
+  <main class="card">
+    <h1>ACESSO NEGADO</h1>
+    <p>Esta area administrativa so pode ser aberta a partir do fluxo protegido do HBX.</p>
+    <p style="margin-top: 14px;">Se voce recebeu este bloqueio ao tentar entrar no admin, solicite uma nova abertura pelo painel HBX.</p>
+    <div class="actions">
+      <a class="button" href="index.html">Voltar ao site</a>
+    </div>
+    <div class="reason" id="deniedReason"></div>
+  </main>
+  <script>
+    try {
+      const reason = sessionStorage.getItem('hbxWebsiteAdminDeniedReason');
+      if (reason) {
+        document.getElementById('deniedReason').textContent = `Detalhe tecnico: ${reason}`;
+        sessionStorage.removeItem('hbxWebsiteAdminDeniedReason');
+      }
+    } catch {}
+  </script>
+</body>
+</html>

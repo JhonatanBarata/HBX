@@ -20,3 +20,6 @@ const storage = firebase.storage();
 window.firebaseAuth = auth;
 window.firebaseDB = db;
 window.firebaseStorage = storage;
+window.HBXWebsiteAuthConfig = {
+  apiBaseUrl: window.location.hostname === 'localhost' ? 'http://localhost:3000' : 'https://api.hbx.com.br',
+};

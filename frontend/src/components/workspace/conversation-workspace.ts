@@ -1,6 +1,10 @@
 "use client";
 
-import type { WorkspaceCreateDefaultLayout, WorkspacePanelMap } from "./types";
+import type {
+  WorkspaceCreateDefaultLayout,
+  WorkspacePanelDescriptor,
+  WorkspacePanelMap,
+} from "./types";
 
 export const SHARED_CONVERSATION_WORKSPACE_MODULE_KEY = "conversation_workspace";
 
@@ -14,6 +18,82 @@ export const SHARED_CONVERSATION_WORKSPACE_IDS = {
   composerComponent: "conversationComposerPanel",
   contextComponent: "conversationContextPanel",
 } as const;
+
+type SharedConversationPanelAccent = {
+  accent: string;
+};
+
+type SharedConversationPanelInput = {
+  title: string;
+  description: string;
+  accent: string;
+  minimumWidth: number;
+  minimumHeight: number;
+  initialWidth?: number;
+  initialHeight?: number;
+};
+
+type SharedConversationWorkspacePanelsInput = {
+  list: SharedConversationPanelInput;
+  main: SharedConversationPanelInput;
+  composer: SharedConversationPanelInput;
+  context: SharedConversationPanelInput;
+};
+
+export function buildSharedConversationWorkspacePanels(
+  config: SharedConversationWorkspacePanelsInput,
+): WorkspacePanelDescriptor<SharedConversationPanelAccent>[] {
+  return [
+    {
+      id: SHARED_CONVERSATION_WORKSPACE_IDS.listPanel,
+      title: config.list.title,
+      description: config.list.description,
+      component: SHARED_CONVERSATION_WORKSPACE_IDS.listComponent,
+      params: {
+        accent: config.list.accent,
+      },
+      minimumWidth: config.list.minimumWidth,
+      minimumHeight: config.list.minimumHeight,
+      initialWidth: config.list.initialWidth,
+    },
+    {
+      id: SHARED_CONVERSATION_WORKSPACE_IDS.mainPanel,
+      title: config.main.title,
+      description: config.main.description,
+      component: SHARED_CONVERSATION_WORKSPACE_IDS.mainComponent,
+      params: {
+        accent: config.main.accent,
+      },
+      minimumWidth: config.main.minimumWidth,
+      minimumHeight: config.main.minimumHeight,
+      initialWidth: config.main.initialWidth,
+    },
+    {
+      id: SHARED_CONVERSATION_WORKSPACE_IDS.composerPanel,
+      title: config.composer.title,
+      description: config.composer.description,
+      component: SHARED_CONVERSATION_WORKSPACE_IDS.composerComponent,
+      params: {
+        accent: config.composer.accent,
+      },
+      minimumWidth: config.composer.minimumWidth,
+      minimumHeight: config.composer.minimumHeight,
+      initialHeight: config.composer.initialHeight,
+    },
+    {
+      id: SHARED_CONVERSATION_WORKSPACE_IDS.contextPanel,
+      title: config.context.title,
+      description: config.context.description,
+      component: SHARED_CONVERSATION_WORKSPACE_IDS.contextComponent,
+      params: {
+        accent: config.context.accent,
+      },
+      minimumWidth: config.context.minimumWidth,
+      minimumHeight: config.context.minimumHeight,
+      initialWidth: config.context.initialWidth,
+    },
+  ];
+}
 
 function requirePanel(panels: WorkspacePanelMap, panelId: string) {
   const panel = panels[panelId];

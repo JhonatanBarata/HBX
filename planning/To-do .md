@@ -28,66 +28,66 @@
 - [ ] Garantir que o chat do Recovery carregue sempre sem precisar fallback manual do usuario
 - [ ] Garantir que selecionar conversa nunca deixe a tela travada ou cinza
 - [ ] Garantir que o polling nao gere piscada no painel central
-- [ ] Garantir que o WorkspaceShell remonte corretamente quando lista, selecao ou filtros mudarem
-- [ ] Garantir mensagens de erro claras quando endpoint falhar
-- [ ] Exibir diagnostico tecnico controlado quando a fila vier vazia e a API estiver com erro
+- [x] Garantir que o WorkspaceShell remonte corretamente quando lista, selecao ou filtros mudarem
+- [x] Garantir mensagens de erro claras quando endpoint falhar
+- [x] Exibir diagnostico tecnico controlado quando a fila vier vazia e a API estiver com erro
 
 ### 2. Workspace unico de conversas
 
-- [ ] Criar `ConversationWorkspaceShell`
-- [ ] Criar `ConversationListPane`
-- [ ] Criar `ConversationMainPane`
-- [ ] Criar `ConversationContextPanel`
-- [ ] Migrar o `Atendimento` para usar a nova base comum
-- [ ] Migrar o `Recovery` para usar a nova base comum
+- [x] Criar `ConversationWorkspaceShell`
+- [x] Criar `ConversationListPane`
+- [x] Criar `ConversationMainPane`
+- [x] Criar `ConversationContextPanel`
+- [x] Migrar o `Atendimento` para usar a nova base comum
+- [x] Migrar o `Recovery` para usar a nova base comum
 - [ ] Remover duplicacao grosseira de layout entre Atendimento e Recovery
 - [ ] Garantir que a UI principal seja unica
 
 ### 3. Recovery como incremento do Atendimento
 
 - [ ] Tratar Recovery como capability/feature do Atendimento
-- [ ] Quando Recovery estiver ativo, exibir badges de cobranca no Atendimento
-- [ ] Quando Recovery estiver ativo, exibir contexto de cobranca no painel lateral do Atendimento
-- [ ] Quando Recovery estiver ativo, exibir valor em aberto no Atendimento
-- [ ] Quando Recovery estiver ativo, exibir score de risco no Atendimento
-- [ ] Quando Recovery estiver ativo, exibir historico de pagamento no Atendimento
-- [ ] Quando Recovery estiver ativo, exibir eventos do fluxo Recovery no Atendimento
-- [ ] Quando Recovery estiver ativo, exibir acesso a `Templates Meta` dentro da experiencia unificada
-- [ ] Quando Recovery estiver desligado, esconder tudo isso sem quebrar o Atendimento
+- [x] Quando Recovery estiver ativo, exibir badges de cobranca no Atendimento
+- [x] Quando Recovery estiver ativo, exibir contexto de cobranca no painel lateral do Atendimento
+- [x] Quando Recovery estiver ativo, exibir valor em aberto no Atendimento
+- [x] Quando Recovery estiver ativo, exibir score de risco no Atendimento
+- [x] Quando Recovery estiver ativo, exibir historico de pagamento no Atendimento
+- [x] Quando Recovery estiver ativo, exibir eventos do fluxo Recovery no Atendimento
+- [x] Quando Recovery estiver ativo, exibir acesso a `Templates Meta` dentro da experiencia unificada
+- [x] Quando Recovery estiver desligado, esconder tudo isso sem quebrar o Atendimento
 
 ### 4. Adapters por dominio/capability
 
-- [ ] Criar adapter de dados do Atendimento
-- [ ] Criar adapter de dados do Recovery
-- [ ] Criar adapter de acoes do Atendimento
-- [ ] Criar adapter de acoes do Recovery
-- [ ] Criar adapter de badges/indicadores do Atendimento
-- [ ] Criar adapter de badges/indicadores do Recovery
+- [x] Criar adapter de dados do Atendimento
+- [x] Criar adapter de dados do Recovery
+- [x] Criar adapter de acoes do Atendimento
+- [x] Criar adapter de acoes do Recovery
+- [x] Criar adapter de badges/indicadores do Atendimento
+- [x] Criar adapter de badges/indicadores do Recovery
 - [ ] Garantir que a UI consuma adapters e nao logica duplicada espalhada
 
 ### 5. Layout persistente e coerente
 
-- [ ] Salvar layout do workspace de forma unica por modulo/capability
-- [ ] Compartilhar layout salvo entre `Conversas`, `Conversas encerradas` e `Clientes bloqueados`
-- [ ] Garantir que o Recovery espelhe o mesmo padrao de layout do Atendimento
-- [ ] Garantir que troca de filtro nao destrua o layout salvo
-- [ ] Garantir que troca de conversa nao destrua o layout salvo
-- [ ] Garantir que refresh da pagina preserve o layout
+- [x] Salvar layout do workspace de forma unica por modulo/capability
+- [x] Compartilhar layout salvo entre `Conversas`, `Conversas encerradas` e `Clientes bloqueados`
+- [x] Garantir que o Recovery espelhe o mesmo padrao de layout do Atendimento
+- [x] Garantir que troca de filtro nao destrua o layout salvo
+- [x] Garantir que troca de conversa nao destrua o layout salvo
+- [x] Garantir que refresh da pagina preserve o layout
 
 ### 6. Agenda do Recovery
 
-- [ ] Remover rota da agenda do Recovery da experiencia principal
-- [ ] Remover botao da agenda do Recovery
-- [ ] Remover referencias visuais orfas da agenda do Recovery
-- [ ] Remover sujeira de navegacao ligada a agenda do Recovery
-- [ ] Confirmar que nada essencial do Recovery depende dessa agenda antiga
+- [x] Remover rota da agenda do Recovery da experiencia principal
+- [x] Remover botao da agenda do Recovery
+- [x] Remover referencias visuais orfas da agenda do Recovery
+- [x] Remover sujeira de navegacao ligada a agenda do Recovery
+- [x] Confirmar que nada essencial do Recovery depende dessa agenda antiga
 
 ### 7. Tabela e visoes operacionais
 
-- [ ] Aproveitar a melhor UI da tabela do Recovery como base de visao operacional unificada
-- [ ] Encaixar inadimplentes como visao dentro da base operacional
-- [ ] Garantir que Atendimento continue com clientes comuns
-- [ ] Garantir que visao de inadimplentes nao vire um mundo separado
+- [x] Aproveitar a melhor UI da tabela do Recovery como base de visao operacional unificada
+- [x] Encaixar inadimplentes como visao dentro da base operacional
+- [x] Garantir que Atendimento continue com clientes comuns
+- [x] Garantir que visao de inadimplentes nao vire um mundo separado
 
 ### 8. Recovery exclusivo que precisa sobreviver na fusao
 

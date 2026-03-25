@@ -145,7 +145,13 @@
   </style>
 </head>
 
-<body class="bg-pretinho text-gray-200">
+<body class="bg-pretinho text-gray-200" data-hbx-gate="locked">
+  <div id="hbxAdminGuard" style="position: fixed; inset: 0; z-index: 10001; display: flex; align-items: center; justify-content: center; background: rgba(11, 11, 11, 0.96); padding: 24px;">
+    <div style="max-width: 520px; width: 100%; border: 1px solid rgba(212,175,55,0.24); border-radius: 24px; background: linear-gradient(145deg, #16110b, #0b0b0b); box-shadow: 0 24px 60px rgba(0,0,0,0.45); padding: 32px; text-align: center;">
+      <div style="font-family: 'Cinzel', serif; font-size: 2rem; letter-spacing: 0.08em; color: #d4af37; margin-bottom: 16px;">Validando acesso</div>
+      <p id="hbxAdminGuardMessage" style="color: #e7cfa4; line-height: 1.7; font-size: 1rem;">Estamos confirmando a entrada protegida do HBX antes de liberar o admin.</p>
+    </div>
+  </div>
   <div id="page-loader" class="page-loader">
     <div class="loader-ring"></div>
     <div class="loader-text">Carregando...</div>
@@ -525,6 +531,7 @@
   </div>
   
   <!-- Admin Scripts -->
+  <script src="hbx-admin-auth.js"></script>
   <script src="admin-scripts.js"></script>
   <script src="mobile-menu.js"></script>
   <script src="page-transitions.js"></script>

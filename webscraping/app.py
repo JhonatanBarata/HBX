@@ -11,7 +11,12 @@ import streamlit.components.v1 as components
 from dotenv import load_dotenv
 
 from services.cities import load_brazilian_cities
-from services.google_places import get_place_details, search_places
+from services.google_places import (
+    GooglePlacesError,
+    get_place_details,
+    inspect_google_places_runtime,
+    search_places,
+)
 from utils.phone import (
     canonical_br_phone,
     is_likely_valid_br_phone,
@@ -117,6 +122,25 @@ def read_identity_from_query() -> tuple[str, str]:
         return str(value or "").strip()
 
     return read_value("user_name"), read_value("company_name")
+
+
+def render_runtime_banner(payload: dict[str, object]) -> None:
+    code = str(payload.get("code") or "")
+    message = str(payload.get("message") or "")
+
+    if code == "missing_google_api_key":
+        st.error(message)
+        st.caption(
+            "A interface abriu, mas o modulo nao consegue consultar Google Places ate a credencial master ser configurada."
+        )
+        return
+
+    if code == "mock_mode":
+        st.warning(message)
+        st.caption("Os resultados exibidos sao demonstrativos enquanto o servico estiver em MOCK_MODE.")
+        return
+
+    st.success(message)
 
 
 def build_export_dataframe(
@@ -246,10 +270,13 @@ def estimate_company_size(reviews: int) -> str:
 
 def main() -> None:
     st.set_page_config(page_title="Prospeccao Local", layout="wide")
+    runtime_payload = inspect_google_places_runtime()
+
     st.title("Prospeccao Local de Negocios")
     st.caption(
         "Busque negocios por cidade e segmento com telefone valido, nota e provavel WhatsApp."
     )
+    render_runtime_banner(runtime_payload)
 
     with st.expander("Possibilidades e limites", expanded=True):
         st.markdown(
@@ -322,8 +349,7 @@ def main() -> None:
     if not segment or segment == "Outro (digitar)":
         st.warning("Informe um segmento valido.")
         return
-    if not os.getenv("GOOGLE_PLACES_API_KEY"):
-        st.error("Configure GOOGLE_PLACES_API_KEY no ambiente (ou em arquivo .env).")
+    if str(runtime_payload.get("code") or "") == "missing_google_api_key":
         return
 
     with st.spinner("Pesquisando negocios e validando contatos..."):
@@ -336,6 +362,9 @@ def main() -> None:
                 min_reviews=min_reviews,
                 company_size_filter=company_size_filter,
             )
+        except GooglePlacesError as exc:
+            st.error(exc.message)
+            return
         except Exception as exc:
             st.error(f"Erro durante a busca: {exc}")
             return

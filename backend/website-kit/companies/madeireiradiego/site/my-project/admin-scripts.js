@@ -2,6 +2,8 @@
 // AUTENTICAÇÃO
 // ================================
 
+const HBX_ADMIN_SESSION_STORAGE_KEY = 'hbxWebsiteAdminSession';
+
 // Variáveis globais para gerenciamento de fotos
 let arquivosNovasFotos = [];
 let fotosExistentesAtual = [];
@@ -83,6 +85,7 @@ document.getElementById('loginForm').addEventListener('submit', async (e) => {
 document.getElementById('logoutBtn').addEventListener('click', async () => {
   // Hide immediately so it never “sticks” on screen
   setAuthNavVisible(false);
+  sessionStorage.removeItem(HBX_ADMIN_SESSION_STORAGE_KEY);
   try {
     await firebaseAuth.signOut();
   } finally {
@@ -92,6 +95,7 @@ document.getElementById('logoutBtn').addEventListener('click', async () => {
 
 document.getElementById('logoutBtnMobile')?.addEventListener('click', async () => {
   setAuthNavVisible(false);
+  sessionStorage.removeItem(HBX_ADMIN_SESSION_STORAGE_KEY);
   try {
     await firebaseAuth.signOut();
   } finally {

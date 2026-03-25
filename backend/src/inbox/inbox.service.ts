@@ -237,14 +237,58 @@ export class InboxService {
       .toLowerCase();
 
     const recoveryCustomer = metadataCustomerId
-      ? await this.prisma.hbxRecoveryCustomer.findFirst({
-          where: { companyId, id: metadataCustomerId },
-          select: { id: true, name: true, clientName: true, openAmount: true },
-        })
-      : digits
+        ? await this.prisma.hbxRecoveryCustomer.findFirst({
+            where: { companyId, id: metadataCustomerId },
+            select: {
+              id: true,
+              name: true,
+              clientName: true,
+              openAmount: true,
+              paymentHistoryScore: true,
+              totalPaid: true,
+              status: true,
+              payments: {
+                orderBy: { createdAt: 'desc' },
+                take: 3,
+                select: {
+                  id: true,
+                  amount: true,
+                  status: true,
+                  lifecycle: true,
+                  chargeType: true,
+                  createdAt: true,
+                  paidAt: true,
+                  paymentUrl: true,
+                },
+              },
+            },
+          })
+        : digits
         ? await this.prisma.hbxRecoveryCustomer.findFirst({
             where: { companyId, whatsappNumber: { endsWith: digits } },
-            select: { id: true, name: true, clientName: true, openAmount: true },
+            select: {
+              id: true,
+              name: true,
+              clientName: true,
+              openAmount: true,
+              paymentHistoryScore: true,
+              totalPaid: true,
+              status: true,
+              payments: {
+                orderBy: { createdAt: 'desc' },
+                take: 3,
+                select: {
+                  id: true,
+                  amount: true,
+                  status: true,
+                  lifecycle: true,
+                  chargeType: true,
+                  createdAt: true,
+                  paidAt: true,
+                  paymentUrl: true,
+                },
+              },
+            },
           })
         : null;
 
@@ -275,6 +319,25 @@ export class InboxService {
         recoveryCustomer?.clientName || recoveryCustomer?.name || '',
       ).trim() || null,
       recoveryOpenAmount: Number(recoveryCustomer?.openAmount || 0),
+      recoveryRiskScore:
+        recoveryCustomer?.paymentHistoryScore === undefined ||
+        recoveryCustomer?.paymentHistoryScore === null
+          ? null
+          : Number(recoveryCustomer.paymentHistoryScore),
+      recoveryTotalPaid: Number(recoveryCustomer?.totalPaid || 0),
+      recoveryStatus: String(recoveryCustomer?.status || '').trim() || null,
+      recoveryPaymentHistory: Array.isArray(recoveryCustomer?.payments)
+        ? recoveryCustomer.payments.map((payment) => ({
+            id: String(payment.id),
+            amount: Number(payment.amount || 0),
+            status: String(payment.status || '').trim() || null,
+            lifecycle: String(payment.lifecycle || '').trim() || null,
+            chargeType: String(payment.chargeType || '').trim() || null,
+            createdAt: payment.createdAt || null,
+            paidAt: payment.paidAt || null,
+            paymentUrl: String(payment.paymentUrl || '').trim() || null,
+          }))
+        : [],
       recoveryCurrentStep: String(conversation?.currentStep || '').trim() || null,
       recoverySuggestedPath: routeTarget === 'recovery' ? '/hbx-recovery' : '/dashboard/inbox',
       latestSourceModule: latestSourceModule || null,
@@ -297,13 +360,27 @@ export class InboxService {
       id: String(conversation.id),
       status: this.toInboxStatus(conversation),
       assignedTo: conversation.humanAssigned ? 'humano' : null,
+      botActive:
+        conversation?.botActive === undefined || conversation?.botActive === null
+          ? null
+          : Boolean(conversation.botActive),
+      humanAssigned:
+        conversation?.humanAssigned === undefined || conversation?.humanAssigned === null
+          ? null
+          : Boolean(conversation.humanAssigned),
       createdAt: conversation.createdAt,
       updatedAt: conversation.updatedAt,
+      currentFlow: String(conversation?.currentFlow || '').trim() || null,
+      flowResult: String(conversation?.flowResult || '').trim() || null,
       routeTarget: routeContext.routeTarget,
       routeReason: routeContext.routeReason,
       recoveryCustomerId: routeContext.recoveryCustomerId,
       recoveryCustomerName: routeContext.recoveryCustomerName,
       recoveryOpenAmount: routeContext.recoveryOpenAmount,
+      recoveryRiskScore: routeContext.recoveryRiskScore,
+      recoveryTotalPaid: routeContext.recoveryTotalPaid,
+      recoveryStatus: routeContext.recoveryStatus,
+      recoveryPaymentHistory: routeContext.recoveryPaymentHistory,
       recoveryCurrentStep: routeContext.recoveryCurrentStep,
       recoverySuggestedPath: routeContext.recoverySuggestedPath,
       latestSourceModule: routeContext.latestSourceModule,
@@ -944,6 +1021,16 @@ export class InboxService {
       recoveryCustomerId: recoveryData?.id ?? null,
       openAmount: recoveryData?.openAmount ?? null,
       recoveryStatus: recoveryData?.status ?? null,
+      recoveryRiskScore:
+        recoveryData?.paymentHistoryScore === undefined ||
+        recoveryData?.paymentHistoryScore === null
+          ? null
+          : Number(recoveryData.paymentHistoryScore),
+      recoveryTotalPaid: Number(recoveryData?.totalPaid || 0),
+      recoveryAutomationEnabled:
+        recoveryData?.automationEnabled === undefined || recoveryData?.automationEnabled === null
+          ? null
+          : Boolean(recoveryData.automationEnabled),
     };
   }
 
@@ -1019,7 +1106,19 @@ export class InboxService {
     // 2. Fetch all HbxRecoveryCustomer records for this company
     const recoveryRows: any[] = await (this.prisma as any).hbxRecoveryCustomer.findMany({
       where: { companyId },
-      select: { id: true, name: true, clientName: true, whatsappNumber: true, openAmount: true, status: true, createdAt: true, updatedAt: true },
+      select: {
+        id: true,
+        name: true,
+        clientName: true,
+        whatsappNumber: true,
+        openAmount: true,
+        status: true,
+        paymentHistoryScore: true,
+        totalPaid: true,
+        automationEnabled: true,
+        createdAt: true,
+        updatedAt: true,
+      },
     });
 
     // 3. Build phoneNorm → recovery lookup

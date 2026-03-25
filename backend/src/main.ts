@@ -1,21 +1,16 @@
 import 'reflect-metadata';
 import 'dotenv/config';
+import type { Request, Response } from 'express';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { ValidationPipe, BadRequestException } from '@nestjs/common';
 import { createProxyMiddleware } from 'http-proxy-middleware';
+import { resolveWebscrapingTarget } from './modules/webscraping-runtime.util';
 
 const DEFAULT_PRODUCTION_ORIGINS = [
   'https://www.hbxsystem.com.br',
   'https://hbxsystem.com.br',
 ];
-
-function normalizeServiceUrl(value: string | null | undefined, fallback: string) {
-  const normalized = String(value || '').trim();
-  if (!normalized) return fallback;
-  if (/^https?:\/\//i.test(normalized)) return normalized;
-  return `http://${normalized}`;
-}
 
 function normalizeOrigin(value: string | null | undefined) {
   return String(value || '').trim().replace(/\/$/, '');
@@ -40,17 +35,42 @@ function isFirebaseHostingOrigin(origin: string) {
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, { rawBody: true });
-  const webscrapingTarget = normalizeServiceUrl(
-    process.env.WEBSCRAPING_INTERNAL_URL,
-    'http://localhost:8501',
-  );
+  const webscrapingTarget = resolveWebscrapingTarget();
+  app.use('/webscraping', (req: Request, res: Response, next) => {
+    if (!webscrapingTarget.configError) {
+      next();
+      return;
+    }
+
+    res.status(503).json({
+      code: webscrapingTarget.configError.code,
+      message: webscrapingTarget.configError.message,
+      status: 'offline',
+    });
+  });
   app.use(
     '/webscraping',
     createProxyMiddleware({
-      target: webscrapingTarget,
+      target: webscrapingTarget.target,
       changeOrigin: true,
       ws: true,
+      proxyTimeout: 15000,
+      timeout: 15000,
       pathRewrite: { '^/webscraping': '' },
+      on: {
+        error: (error, _req, res) => {
+          const response = res as Response;
+          const isTimeout = error instanceof Error && error.name === 'Error' && /timeout/i.test(error.message);
+          if (response.headersSent) return;
+          response.status(503).json({
+            code: isTimeout ? 'upstream_timeout' : 'upstream_unreachable',
+            status: 'offline',
+            message: isTimeout
+              ? 'O servico webscraping nao respondeu dentro do tempo limite do proxy.'
+              : 'O proxy nao conseguiu alcancar o servico webscraping configurado.',
+          });
+        },
+      },
     }),
   );
   const allowedOrigins = buildAllowedOrigins();

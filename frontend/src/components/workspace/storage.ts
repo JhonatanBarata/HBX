@@ -25,6 +25,7 @@ export function buildWorkspaceStorageKeys(scope: WorkspaceLayoutScope) {
   const userId = normalizeKeyPart(scope.userId);
 
   return {
+    draft: `${STORAGE_NAMESPACE}:draft:${tenantId}:${moduleKey}:${role}:${userId}`,
     globalByRole: `${STORAGE_NAMESPACE}:global:${tenantId}:${moduleKey}:${role}`,
     globalByModule: `${STORAGE_NAMESPACE}:global:${tenantId}:${moduleKey}:all`,
     user: `${STORAGE_NAMESPACE}:user:${tenantId}:${moduleKey}:${role}:${userId}`,
@@ -37,7 +38,7 @@ function isWorkspaceLayoutRecord(value: unknown): value is WorkspaceLayoutRecord
   const candidate = value as Partial<WorkspaceLayoutRecord>;
   return (
     candidate.version === 1 &&
-    (candidate.source === "global" || candidate.source === "user") &&
+    (candidate.source === "draft" || candidate.source === "global" || candidate.source === "user") &&
     typeof candidate.tenantId === "string" &&
     typeof candidate.moduleKey === "string" &&
     typeof candidate.role === "string" &&
@@ -63,6 +64,11 @@ function safeReadRecord(storageKey: string) {
 function safeWriteRecord(storageKey: string, record: WorkspaceLayoutRecord) {
   if (typeof window === "undefined") return;
   window.localStorage.setItem(storageKey, JSON.stringify(record));
+}
+
+function safeRemoveRecord(storageKey: string) {
+  if (typeof window === "undefined") return;
+  window.localStorage.removeItem(storageKey);
 }
 
 function resolveLegacyConversationWorkspaceLayout(scope: WorkspaceLayoutScope) {
@@ -97,6 +103,15 @@ function resolveLegacyConversationWorkspaceLayout(scope: WorkspaceLayoutScope) {
 
 export function resolveStoredWorkspaceLayout(scope: WorkspaceLayoutScope): WorkspaceResolvedLayout {
   const keys = buildWorkspaceStorageKeys(scope);
+  const draftLayout = safeReadRecord(keys.draft);
+  if (draftLayout) {
+    return {
+      source: "draft",
+      record: draftLayout,
+      layout: cloneLayout(draftLayout.layout),
+    };
+  }
+
   const userLayout = safeReadRecord(keys.user);
   if (userLayout) {
     return {
@@ -167,6 +182,15 @@ export function saveUserWorkspaceLayout(
   return record;
 }
 
+export function saveDraftWorkspaceLayout(
+  scope: WorkspaceLayoutScope,
+  layout: SerializedDockview,
+) {
+  const record = buildRecord(scope, "draft", layout);
+  safeWriteRecord(buildWorkspaceStorageKeys(scope).draft, record);
+  return record;
+}
+
 export function saveGlobalWorkspaceLayout(
   scope: WorkspaceLayoutScope,
   layout: SerializedDockview,
@@ -176,4 +200,8 @@ export function saveGlobalWorkspaceLayout(
   safeWriteRecord(keys.globalByRole, record);
   safeWriteRecord(keys.globalByModule, record);
   return record;
+}
+
+export function clearDraftWorkspaceLayout(scope: WorkspaceLayoutScope) {
+  safeRemoveRecord(buildWorkspaceStorageKeys(scope).draft);
 }

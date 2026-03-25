@@ -4,7 +4,9 @@ import type { DockviewApi, DockviewReadyEvent, SerializedDockview } from "dockvi
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   buildWorkspaceStorageKeys,
+  clearDraftWorkspaceLayout,
   resolveStoredWorkspaceLayout,
+  saveDraftWorkspaceLayout,
   saveGlobalWorkspaceLayout,
   saveUserWorkspaceLayout,
 } from "./storage";
@@ -35,6 +37,7 @@ export function useWorkspaceLayoutStore({
   const apiRef = useRef<DockviewApi | null>(null);
   const layoutSubscriptionRef = useRef<{ dispose: () => void } | null>(null);
   const applyingLayoutRef = useRef(false);
+  const draftSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [isEditing, setIsEditing] = useState(false);
   const [isDirty, setIsDirty] = useState(false);
   const [source, setSource] = useState<WorkspaceLayoutSource>("default");
@@ -78,7 +81,20 @@ export function useWorkspaceLayoutStore({
     if (!apiRef.current || applyingLayoutRef.current) return;
     setIsDirty(true);
     setFeedback(null);
-  }, []);
+
+    if (draftSaveTimerRef.current) {
+      clearTimeout(draftSaveTimerRef.current);
+    }
+
+    draftSaveTimerRef.current = setTimeout(() => {
+      if (!apiRef.current || applyingLayoutRef.current) return;
+      try {
+        saveDraftWorkspaceLayout(scope, apiRef.current.toJSON());
+      } catch {
+        // best effort only
+      }
+    }, 180);
+  }, [scope]);
 
   const loadResolvedLayout = useCallback(() => {
     const api = apiRef.current;
@@ -121,13 +137,18 @@ export function useWorkspaceLayoutStore({
     applyDefaultLayout(api);
 
     queueMicrotask(() => {
+      try {
+        saveDraftWorkspaceLayout(scope, api.toJSON());
+      } catch {
+        // best effort only
+      }
       finalizeAppliedLayout("default", null, true);
       setFeedback({
         tone: "info",
         text: "Layout padrão reaplicado. Revise a composição e salve se quiser mantê-la.",
       });
     });
-  }, [applyDefaultLayout, finalizeAppliedLayout]);
+  }, [applyDefaultLayout, finalizeAppliedLayout, scope]);
 
   const saveLocalLayout = useCallback(() => {
     const api = apiRef.current;
@@ -135,6 +156,7 @@ export function useWorkspaceLayoutStore({
 
     try {
       const record = saveUserWorkspaceLayout(scope, api.toJSON());
+      clearDraftWorkspaceLayout(scope);
       setSource("user");
       setLastSavedAt(record.updatedAt);
       setIsDirty(false);
@@ -156,6 +178,7 @@ export function useWorkspaceLayoutStore({
 
     try {
       const record = saveGlobalWorkspaceLayout(scope, api.toJSON());
+      clearDraftWorkspaceLayout(scope);
       setSource("global");
       setLastSavedAt(record.updatedAt);
       setIsDirty(false);
@@ -193,7 +216,7 @@ export function useWorkspaceLayoutStore({
     if (typeof window === "undefined") return;
 
     const keys = buildWorkspaceStorageKeys(scope);
-    const watchedKeys = new Set([keys.user, keys.globalByRole, keys.globalByModule]);
+    const watchedKeys = new Set([keys.draft, keys.user, keys.globalByRole, keys.globalByModule]);
     const handleStorage = (event: StorageEvent) => {
       if (event.storageArea !== window.localStorage || !event.key || !watchedKeys.has(event.key)) {
         return;
@@ -210,6 +233,9 @@ export function useWorkspaceLayoutStore({
 
   useEffect(
     () => () => {
+      if (draftSaveTimerRef.current) {
+        clearTimeout(draftSaveTimerRef.current);
+      }
       layoutSubscriptionRef.current?.dispose();
     },
     [],

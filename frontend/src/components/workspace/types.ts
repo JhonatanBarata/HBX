@@ -8,7 +8,7 @@ import type {
 } from "dockview";
 import type { FunctionComponent } from "react";
 
-export type WorkspaceLayoutSource = "default" | "global" | "user";
+export type WorkspaceLayoutSource = "default" | "draft" | "global" | "user";
 
 export type WorkspaceLayoutScope = {
   tenantId: string;

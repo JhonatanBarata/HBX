@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Entrada protegida - Madeireira Monteiro</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=Playfair+Display:wght@400;600;700&display=swap" rel="stylesheet">
+  <style>
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      background: radial-gradient(circle at top, #2b2013 0%, #120f0a 45%, #0b0b0b 100%);
+      color: #f0e2b8;
+      font-family: 'Playfair Display', serif;
+    }
+    .card {
+      width: min(100%, 640px);
+      border: 1px solid rgba(212, 175, 55, 0.22);
+      border-radius: 28px;
+      background: rgba(22, 17, 11, 0.92);
+      box-shadow: 0 28px 64px rgba(0, 0, 0, 0.45);
+      padding: 40px 32px;
+      text-align: center;
+    }
+    h1 {
+      margin: 0 0 20px;
+      font-family: 'Cinzel', serif;
+      font-size: clamp(2rem, 4vw, 3rem);
+      letter-spacing: 0.08em;
+      color: #d4af37;
+    }
+    p {
+      margin: 0;
+      font-size: 1.1rem;
+      line-height: 1.7;
+    }
+  </style>
+</head>
+<body>
+  <main class="card">
+    <h1>Entrada protegida</h1>
+    <p id="entryStatus">Estamos validando a sua entrada pelo HBX e preparando o admin.</p>
+  </main>
+  <script>
+    const params = window.location.search || '';
+    const next = `admin.html${params}${window.location.hash || ''}`;
+    window.location.replace(next);
+  </script>
+</body>
+</html>

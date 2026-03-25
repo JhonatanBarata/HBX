@@ -49,6 +49,17 @@ type WebsiteProject = {
   } | null;
 };
 
+type WebsitePortalPayload = {
+  configured: boolean;
+  websiteEnabled: boolean;
+  websitePublicUrl?: string | null;
+  websiteAdminUrl?: string | null;
+  adminAllowed: boolean;
+  launchTarget?: "public" | "admin" | null;
+  launchUrl?: string | null;
+  message?: string | null;
+};
+
 function formatSubscriptionLabel(statusRaw?: string | null) {
   const status = String(statusRaw || "").trim().toLowerCase();
   if (status === "trialing") return "trial";
@@ -64,9 +75,13 @@ export default function WebsiteClientPage() {
   const [checkingAccess, setCheckingAccess] = useState(true);
   const [isSystemMaster, setIsSystemMaster] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [launchingPortal, setLaunchingPortal] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [portalMessage, setPortalMessage] = useState<string | null>(null);
+  const [portalPublicUrl, setPortalPublicUrl] = useState<string | null>(null);
+  const [portalAdminUrl, setPortalAdminUrl] = useState<string | null>(null);
 
   const [companies, setCompanies] = useState<MasterCompany[]>([]);
   const [templates, setTemplates] = useState<WebsiteTemplate[]>([]);
@@ -87,6 +102,52 @@ export default function WebsiteClientPage() {
     [templates, templateKey],
   );
 
+  function goToUrl(url: string | null | undefined) {
+    if (!url || !/^https?:\/\//i.test(url)) return false;
+    window.location.assign(url);
+    return true;
+  }
+
+  async function launchCompanyWebsite() {
+    setLaunchingPortal(true);
+    setPortalMessage(null);
+    setPortalPublicUrl(null);
+    setPortalAdminUrl(null);
+
+    try {
+      const preferred = await apiFetch<WebsitePortalPayload>("/website/portal?target=admin");
+      if (goToUrl(preferred?.launchUrl)) {
+        return;
+      }
+
+      const resolved = preferred?.launchUrl
+        ? preferred
+        : await apiFetch<WebsitePortalPayload>("/website/portal?target=auto");
+
+      if (goToUrl(resolved?.launchUrl)) {
+        return;
+      }
+
+      setPortalPublicUrl(String(resolved?.websitePublicUrl || "").trim() || null);
+      setPortalAdminUrl(
+        resolved?.adminAllowed
+          ? String(resolved?.websiteAdminUrl || "").trim() || null
+          : null,
+      );
+      setPortalMessage(
+        String(resolved?.message || "").trim() ||
+          "Nao foi possivel abrir o website automaticamente para este usuario.",
+      );
+    } catch (loadError) {
+      const message =
+        loadError instanceof Error ? loadError.message : "Falha ao abrir website.";
+      setPortalMessage(message);
+      setError(message);
+    } finally {
+      setLaunchingPortal(false);
+    }
+  }
+
   async function loadProject(companyId: number) {
     if (!companyId) {
       setProject(null);
@@ -103,11 +164,7 @@ export default function WebsiteClientPage() {
     setError(null);
 
     try {
-      const [user, companyData, templateData] = await Promise.all([
-        apiFetch<CurrentUser>("/profile/current-user"),
-        apiFetch<MasterCompany[]>("/modules/master/companies"),
-        apiFetch<WebsiteTemplate[]>("/website/templates"),
-      ]);
+      const user = await apiFetch<CurrentUser>("/profile/current-user");
 
       const master = Boolean(user?.isSystemMaster);
       setIsSystemMaster(master);
@@ -117,8 +174,14 @@ export default function WebsiteClientPage() {
         setCompanies([]);
         setTemplates([]);
         setProject(null);
+        await launchCompanyWebsite();
         return;
       }
+
+      const [companyData, templateData] = await Promise.all([
+        apiFetch<MasterCompany[]>("/modules/master/companies"),
+        apiFetch<WebsiteTemplate[]>("/website/templates"),
+      ]);
 
       const companyList = Array.isArray(companyData) ? companyData : [];
       const templateList = Array.isArray(templateData) ? templateData : [];
@@ -245,14 +308,30 @@ export default function WebsiteClientPage() {
     return (
       <DashboardScaffold
         title="Website"
-        description="Área reservada ao MASTER para importar, provisionar e publicar websites."
+        description="Entrada segura para o website configurado na sua empresa."
       >
         <section className="panel p-5">
-          <h2 className="text-lg font-semibold">Acesso exclusivo do MASTER</h2>
+          <h2 className="text-lg font-semibold">Abrindo website</h2>
           <p className="text-sm text-muted mt-2">
-            O módulo Website agora é uma área central de provisionamento por empresa e não fica mais
-            disponível para usuários comuns.
+            {launchingPortal
+              ? "Estamos abrindo o website configurado para a sua empresa."
+              : portalMessage || "Use os atalhos abaixo para abrir o website da sua empresa."}
           </p>
+          <div className="mt-4 flex flex-wrap gap-3">
+            {portalPublicUrl ? (
+              <button type="button" className="btn btn-primary" onClick={() => goToUrl(portalPublicUrl)}>
+                Abrir website
+              </button>
+            ) : null}
+            {portalAdminUrl ? (
+              <button type="button" className="btn btn-secondary" onClick={() => goToUrl(portalAdminUrl)}>
+                Abrir admin
+              </button>
+            ) : null}
+            <button type="button" className="btn btn-ghost" onClick={() => launchCompanyWebsite()} disabled={launchingPortal}>
+              {launchingPortal ? "Abrindo..." : "Tentar novamente"}
+            </button>
+          </div>
         </section>
       </DashboardScaffold>
     );
