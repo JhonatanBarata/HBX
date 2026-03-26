@@ -1716,6 +1716,9 @@ export class HbxRecoveryService {
     opts?: MetaTemplateScopeOptions,
   ) {
     const moduleKey = this.normalizeMetaTemplateModuleKey(opts?.moduleKey);
+    const pendingMediaMap = new Map(
+      (registry?.pendingMedia || []).map((item) => [item.templateKey, item]),
+    );
     const templates = [...(registry?.templates || [])].sort((a, b) => {
       const byName = a.name.localeCompare(b.name);
       if (byName !== 0) return byName;
@@ -1743,10 +1746,29 @@ export class HbxRecoveryService {
       lastSyncAt: registry?.lastSyncAt || null,
       counters,
       templates: templates.map((item) => {
-        const normalized = this.getNormalizedMetaTemplate(item);
-        const resolvedHeaderMediaUrl = this.resolveTemplateHeaderMediaUrl(item, companyId, moduleKey);
+        const templateKey = this.metaTemplateKey(item.name, item.language);
+        const pendingMedia = pendingMediaMap.get(templateKey) || null;
+        const templateWithMedia = pendingMedia
+          ? this.rebuildMetaTemplateRecord({
+              ...item,
+              headerHandle: pendingMedia.headerHandle || item.headerHandle,
+              headerMediaUrl:
+                item.headerMediaUrl ||
+                this.buildTemplateHeaderMediaPublicUrl(companyId, item.name, item.language, moduleKey),
+              headerMediaFileName: pendingMedia.headerMediaFileName || item.headerMediaFileName,
+              headerMediaContentType:
+                pendingMedia.headerMediaContentType || item.headerMediaContentType,
+              headerMediaBase64: pendingMedia.headerMediaBase64 || item.headerMediaBase64,
+            })
+          : item;
+        const normalized = this.getNormalizedMetaTemplate(templateWithMedia);
+        const resolvedHeaderMediaUrl = this.resolveTemplateHeaderMediaUrl(
+          templateWithMedia,
+          companyId,
+          moduleKey,
+        );
         const projected = this.rebuildMetaTemplateRecord({
-          ...item,
+          ...templateWithMedia,
           headerMediaUrl: resolvedHeaderMediaUrl,
         });
         return {
