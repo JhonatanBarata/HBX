@@ -79,12 +79,23 @@ type RecoveryMetaTemplateHistory = {
   reason: string | null;
   changedAt: string;
 };
+type RecoveryPendingMetaTemplateMedia = {
+  templateKey: string;
+  name: string;
+  language: string;
+  headerHandle: string | null;
+  headerMediaFileName: string | null;
+  headerMediaContentType: string | null;
+  headerMediaBase64: string | null;
+  updatedAt: string | null;
+};
 type RecoveryMetaTemplateRegistry = {
   phoneNumberId: string | null;
   wabaId: string | null;
   lastSyncAt: string | null;
   templates: RecoveryMetaTemplate[];
   history: RecoveryMetaTemplateHistory[];
+  pendingMedia: RecoveryPendingMetaTemplateMedia[];
 };
 type MetaUploadSessionResponse = { id?: string; h?: string; error?: any };
 type MetaTemplateScopeOptions = {
@@ -797,6 +808,20 @@ export class HbxRecoveryService {
     }
   }
 
+  private isManagedTemplateMediaUrl(valueRaw: string | null | undefined) {
+    const normalized = String(valueRaw || '').trim();
+    if (!normalized) return false;
+    try {
+      const parsed = new URL(normalized);
+      return (
+        parsed.pathname.startsWith('/uploads/hbx-recovery/meta-templates/') ||
+        parsed.pathname.startsWith('/hbx-recovery/public/meta-template-media/')
+      );
+    } catch {
+      return false;
+    }
+  }
+
   private templateHeaderMediaPublicPath(
     companyId: number,
     templateNameRaw: string,
@@ -867,6 +892,18 @@ export class HbxRecoveryService {
     if (!template) return null;
     const normalized = this.getNormalizedMetaTemplate(template);
     if (!this.isMetaMediaHeaderFormat(normalized.header.format)) return null;
+    if (companyId) {
+      const headerMediaBase64 = String(normalized.header.mediaBase64 || '').trim();
+      const storedUrl = String(normalized.header.mediaUrl || '').trim();
+      if (headerMediaBase64 || this.isManagedTemplateMediaUrl(storedUrl)) {
+        return this.buildTemplateHeaderMediaPublicUrl(
+          companyId,
+          template.name,
+          template.language,
+          moduleKeyRaw,
+        );
+      }
+    }
     const storedUrl = String(normalized.header.mediaUrl || '').trim();
     if (storedUrl && !this.isLocalOnlyUrl(storedUrl)) {
       return this.rebuildTemplateMediaUrlWithCurrentPublicBase(storedUrl);
@@ -1026,12 +1063,16 @@ export class HbxRecoveryService {
       lastSyncAt: null,
       templates: [],
       history: [],
+      pendingMedia: [],
     };
     if (!raw) return fallback;
     try {
       const parsed = JSON.parse(raw) as RecoveryMetaTemplateRegistry;
       const templates = Array.isArray(parsed?.templates) ? parsed.templates : [];
       const history = Array.isArray(parsed?.history) ? parsed.history : [];
+      const pendingMedia = Array.isArray((parsed as any)?.pendingMedia)
+        ? (parsed as any).pendingMedia
+        : [];
       return {
         phoneNumberId: parsed?.phoneNumberId ? String(parsed.phoneNumberId) : null,
         wabaId: parsed?.wabaId ? String(parsed.wabaId) : null,
@@ -1054,6 +1095,33 @@ export class HbxRecoveryService {
             changedAt: String(item?.changedAt || '').trim(),
           }))
           .filter((item) => item.id && item.templateKey && item.changedAt),
+        pendingMedia: pendingMedia
+          .map((item: any) => ({
+            templateKey: String(item?.templateKey || '').trim(),
+            name: this.normalizeTemplateNameForMeta(item?.name || ''),
+            language: String(item?.language || 'pt_BR').trim() || 'pt_BR',
+            headerHandle:
+              item?.headerHandle !== undefined && item?.headerHandle !== null
+                ? String(item.headerHandle).trim() || null
+                : null,
+            headerMediaFileName:
+              item?.headerMediaFileName !== undefined && item?.headerMediaFileName !== null
+                ? String(item.headerMediaFileName).trim() || null
+                : null,
+            headerMediaContentType:
+              item?.headerMediaContentType !== undefined && item?.headerMediaContentType !== null
+                ? String(item.headerMediaContentType).trim() || null
+                : null,
+            headerMediaBase64:
+              item?.headerMediaBase64 !== undefined && item?.headerMediaBase64 !== null
+                ? String(item.headerMediaBase64).trim() || null
+                : null,
+            updatedAt:
+              item?.updatedAt !== undefined && item?.updatedAt !== null
+                ? String(item.updatedAt).trim() || null
+                : null,
+          }))
+          .filter((item: RecoveryPendingMetaTemplateMedia) => item.templateKey && item.name),
       };
     } catch {
       return fallback;
@@ -1115,6 +1183,7 @@ export class HbxRecoveryService {
       history: Array.isArray(registry?.history)
         ? registry.history.slice(0, RECOVERY_META_TEMPLATES_HISTORY_LIMIT)
         : [],
+      pendingMedia: Array.isArray(registry?.pendingMedia) ? registry.pendingMedia : [],
     };
     const payload = {
       companyId,
@@ -1775,6 +1844,7 @@ export class HbxRecoveryService {
       lastSyncAt: nowIso,
       templates,
       history: history.slice(0, RECOVERY_META_TEMPLATES_HISTORY_LIMIT),
+      pendingMedia: Array.isArray(previous.pendingMedia) ? previous.pendingMedia : [],
     };
     const saved = await this.saveMetaTemplateRegistry(companyId, registry, { moduleKey });
     return this.backfillStoredTemplateMediaLinks(companyId, saved, { moduleKey });
@@ -2159,18 +2229,38 @@ export class HbxRecoveryService {
 
     let registry = await this.syncMetaTemplatesByCompanyId(companyId, { moduleKey });
     const createdKey = this.metaTemplateKey(nameRaw, language);
+    const pendingMedia = (registry.pendingMedia || []).find((item) => item.templateKey === createdKey) || null;
     registry.templates = (registry.templates || []).map((item) =>
       this.metaTemplateKey(item.name, item.language) === createdKey
         ? this.rebuildMetaTemplateRecord({
             ...item,
             hbxActive: Boolean(dto?.activateInHbx),
             headerHandle:
-              this.isMetaMediaHeaderFormat(headerFormat) ? headerHandle || item.headerHandle : item.headerHandle,
+              this.isMetaMediaHeaderFormat(headerFormat)
+                ? headerHandle || pendingMedia?.headerHandle || item.headerHandle
+                : item.headerHandle,
             headerMediaUrl:
-              this.isMetaMediaHeaderFormat(headerFormat) ? headerMediaUrl || item.headerMediaUrl : item.headerMediaUrl,
+              this.isMetaMediaHeaderFormat(headerFormat)
+                ? this.buildTemplateHeaderMediaPublicUrl(companyId, nameRaw, language, moduleKey) ||
+                  headerMediaUrl ||
+                  item.headerMediaUrl
+                : item.headerMediaUrl,
+            headerMediaFileName:
+              this.isMetaMediaHeaderFormat(headerFormat)
+                ? pendingMedia?.headerMediaFileName || item.headerMediaFileName
+                : item.headerMediaFileName,
+            headerMediaContentType:
+              this.isMetaMediaHeaderFormat(headerFormat)
+                ? pendingMedia?.headerMediaContentType || item.headerMediaContentType
+                : item.headerMediaContentType,
+            headerMediaBase64:
+              this.isMetaMediaHeaderFormat(headerFormat)
+                ? pendingMedia?.headerMediaBase64 || item.headerMediaBase64
+                : item.headerMediaBase64,
           })
         : item,
     );
+    registry.pendingMedia = (registry.pendingMedia || []).filter((item) => item.templateKey !== createdKey);
     registry = await this.saveMetaTemplateRegistry(companyId, registry, { moduleKey });
 
     return {
@@ -2276,27 +2366,49 @@ export class HbxRecoveryService {
     const { accessToken } = await this.resolveMetaTemplateContext(companyId, { moduleKey });
     const headerHandle = await this.uploadMediaHandleToMeta(accessToken, file);
     const templateName = this.normalizeTemplateNameForMeta(options?.templateName || '');
+    if (!templateName) {
+      throw new BadRequestException(
+        'Informe um nome interno valido antes de enviar a imagem do cabecalho.',
+      );
+    }
     const templateLanguage = String(options?.language || 'pt_BR').trim() || 'pt_BR';
     const stored = this.persistUploadedTemplateMedia(file, {
       templateName,
       language: templateLanguage,
     });
-    const headerMediaUrl =
-      (templateName
-        ? this.buildTemplateHeaderMediaPublicUrl(companyId, templateName, templateLanguage, moduleKey)
-        : null) || `${this.publicApiBaseUrl()}${stored.relativePath}`;
+    const headerMediaUrl = this.buildTemplateHeaderMediaPublicUrl(
+      companyId,
+      templateName,
+      templateLanguage,
+      moduleKey,
+    );
+    if (!headerMediaUrl) {
+      throw new BadRequestException('Nao foi possivel gerar a URL publica da imagem do template.');
+    }
     const headerMediaBase64 = Buffer.from(file.buffer).toString('base64');
+    const templateKey = this.metaTemplateKey(templateName, templateLanguage);
+    const registry = await this.getMetaTemplateRegistry(companyId, { moduleKey });
+    registry.pendingMedia = [
+      {
+        templateKey,
+        name: templateName,
+        language: templateLanguage,
+        headerHandle,
+        headerMediaFileName: stored.fileName,
+        headerMediaContentType: contentType,
+        headerMediaBase64,
+        updatedAt: new Date().toISOString(),
+      },
+      ...(registry.pendingMedia || []).filter((item) => item.templateKey !== templateKey),
+    ];
 
-    if (templateName) {
-      const registry = await this.getMetaTemplateRegistry(companyId, { moduleKey });
-      const templateKey = this.metaTemplateKey(templateName, templateLanguage);
-      const hasMatch = (registry.templates || []).some(
-        (item) => this.metaTemplateKey(item.name, item.language) === templateKey,
-      );
-      if (hasMatch) {
-        const saved = await this.saveMetaTemplateRegistry(companyId, {
-          ...registry,
-          templates: (registry.templates || []).map((item) =>
+    const hasMatch = (registry.templates || []).some(
+      (item) => this.metaTemplateKey(item.name, item.language) === templateKey,
+    );
+    const saved = await this.saveMetaTemplateRegistry(companyId, {
+      ...registry,
+      templates: hasMatch
+        ? (registry.templates || []).map((item) =>
             this.metaTemplateKey(item.name, item.language) === templateKey
               ? this.rebuildMetaTemplateRecord({
                   ...item,
@@ -2307,23 +2419,25 @@ export class HbxRecoveryService {
                   headerMediaBase64,
                 })
               : item,
-          ),
-        }, { moduleKey });
-        return {
-          ok: true,
-          headerHandle,
-          headerMediaUrl,
-          fileName: stored.fileName,
-          contentType,
-          registry: this.buildMetaTemplatesResponse(companyId, saved, { moduleKey }),
-        };
-      }
+          )
+        : registry.templates || [],
+    }, { moduleKey });
+
+    if (hasMatch) {
+      return {
+        ok: true,
+        headerHandle,
+        headerMediaUrl,
+        fileName: stored.fileName,
+        contentType,
+        registry: this.buildMetaTemplatesResponse(companyId, saved, { moduleKey }),
+      };
     }
 
     return {
       ok: true,
       headerHandle,
-      headerMediaUrl: `${this.publicApiBaseUrl()}${stored.relativePath}`,
+      headerMediaUrl,
       fileName: stored.fileName,
       contentType,
     };
@@ -2359,21 +2473,33 @@ export class HbxRecoveryService {
     const selected = (registry.templates || []).find(
       (item) => this.metaTemplateKey(item.name, item.language) === key,
     );
-    if (!selected || !this.isMetaMediaHeaderFormat(selected.headerFormat)) {
+    const pendingMedia = (registry.pendingMedia || []).find((item) => item.templateKey === key) || null;
+    if (!selected && !pendingMedia) {
+      throw new NotFoundException('Midia nao encontrada.');
+    }
+    if (selected && !this.isMetaMediaHeaderFormat(selected.headerFormat) && !pendingMedia) {
       throw new NotFoundException('Midia nao encontrada.');
     }
 
-    const headerMediaBase64 = String(selected.headerMediaBase64 || '').trim();
+    const headerMediaBase64 = String(selected?.headerMediaBase64 || pendingMedia?.headerMediaBase64 || '').trim();
     if (headerMediaBase64) {
       return {
         contentType:
-          String(selected.headerMediaContentType || '').trim() ||
-          this.fileContentTypeFromExtension(selected.headerMediaFileName),
+          String(selected?.headerMediaContentType || pendingMedia?.headerMediaContentType || '').trim() ||
+          this.fileContentTypeFromExtension(selected?.headerMediaFileName || pendingMedia?.headerMediaFileName),
         fileName:
-          String(selected.headerMediaFileName || '').trim() ||
-          `${templateName}${this.fileExtensionFromMime(String(selected.headerMediaContentType || '').trim()) || '.jpg'}`,
+          String(selected?.headerMediaFileName || pendingMedia?.headerMediaFileName || '').trim() ||
+          `${templateName}${
+            this.fileExtensionFromMime(
+              String(selected?.headerMediaContentType || pendingMedia?.headerMediaContentType || '').trim(),
+            ) || '.jpg'
+          }`,
         buffer: Buffer.from(headerMediaBase64, 'base64'),
       };
+    }
+
+    if (!selected || !this.isMetaMediaHeaderFormat(selected.headerFormat)) {
+      throw new NotFoundException('Midia nao encontrada.');
     }
 
     const stored = this.resolveStoredTemplateMediaLink(selected.name, selected.language);
