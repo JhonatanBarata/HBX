@@ -85,7 +85,7 @@ export function resolveWebscrapingTarget(env: NodeJS.ProcessEnv = process.env): 
 			rawUpstreamUrl,
 			rawInternalUrl,
 			target: normalizedTargetUrl,
-			healthUrl: `${normalizedTargetUrl}/healthz`,
+			healthUrl: `${normalizedTargetUrl}/_stcore/health`,
 			usingFallbackInternalUrl: false,
 			configError: null,
 		};
@@ -111,7 +111,7 @@ export function resolveWebscrapingTarget(env: NodeJS.ProcessEnv = process.env): 
 		rawUpstreamUrl,
 		rawInternalUrl,
 		target: DEFAULT_WEBSCRAPING_INTERNAL_URL,
-		healthUrl: `${DEFAULT_WEBSCRAPING_INTERNAL_URL}/healthz`,
+		healthUrl: `${DEFAULT_WEBSCRAPING_INTERNAL_URL}/_stcore/health`,
 		usingFallbackInternalUrl: true,
 		configError: null,
 	};
@@ -169,7 +169,7 @@ export async function probeWebscrapingRuntime(
 			code: resolution.usingFallbackInternalUrl ? 'reachable_via_fallback' : 'ok',
 			message: resolution.usingFallbackInternalUrl
 				? 'Servico webscraping online pela URL local padrao; confirme WEBSCRAPING_INTERNAL_URL no ambiente online.'
-				: 'Servico webscraping online e respondendo ao healthz.',
+				: 'Servico webscraping online e respondendo ao health endpoint do Streamlit.',
 			checkedAt,
 			publicUrl: resolution.publicUrl,
 			internalUrl: resolution.target,

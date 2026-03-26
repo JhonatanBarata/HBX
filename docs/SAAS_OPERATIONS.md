@@ -85,7 +85,7 @@ Regra pratica:
 
 - se a ligacao privada entre `hbx-backend` e `hbx-webscraping` estiver saudavel, mantenha `WEBSCRAPING_INTERNAL_URL`;
 - se o ambiente publicado continuar retornando `503 upstream_unreachable`, configure manualmente `WEBSCRAPING_UPSTREAM_URL` no backend com a URL publica do servico e redeploye o backend;
-- `npm run verify:prod` valida `https://<frontend>/hbx/webscraping/healthz`, entao qualquer quebra desse modulo passa a falhar no pos-deploy.
+- `npm run verify:prod` valida `https://<frontend>/hbx/webscraping/_stcore/health`, entao qualquer quebra desse modulo passa a falhar no pos-deploy.
 
 ## Primeiro Passo Exato de Implementacao
 
