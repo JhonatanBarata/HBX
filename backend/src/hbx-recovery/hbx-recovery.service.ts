@@ -1,5 +1,5 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { randomUUID } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 import { extname, join } from 'path';
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'fs';
 import axios from 'axios';
@@ -822,11 +822,51 @@ export class HbxRecoveryService {
     }
   }
 
+  private normalizeTemplateMediaVersionToken(valueRaw: string | null | undefined) {
+    return String(valueRaw || '')
+      .trim()
+      .replace(/[^a-z0-9_-]+/gi, '')
+      .slice(0, 24);
+  }
+
+  private extractTemplateMediaVersionTokenFromUrl(valueRaw: string | null | undefined) {
+    const normalized = String(valueRaw || '').trim();
+    if (!normalized) return null;
+    try {
+      const parsed = new URL(normalized);
+      return this.normalizeTemplateMediaVersionToken(parsed.searchParams.get('v'));
+    } catch {
+      return null;
+    }
+  }
+
+  private buildTemplateMediaVersionToken(input?: {
+    headerMediaBase64?: string | null;
+    headerMediaFileName?: string | null;
+    updatedAt?: string | null;
+    storedUrl?: string | null;
+  }) {
+    const base64 = String(input?.headerMediaBase64 || '').trim();
+    if (base64) {
+      return createHash('sha1').update(base64).digest('hex').slice(0, 12);
+    }
+    const fileName = String(input?.headerMediaFileName || '').trim();
+    const updatedAt = String(input?.updatedAt || '').trim();
+    if (fileName || updatedAt) {
+      return createHash('sha1')
+        .update(`${fileName}|${updatedAt}`)
+        .digest('hex')
+        .slice(0, 12);
+    }
+    return this.extractTemplateMediaVersionTokenFromUrl(input?.storedUrl);
+  }
+
   private templateHeaderMediaPublicPath(
     companyId: number,
     templateNameRaw: string,
     languageRaw: string | null | undefined,
     moduleKeyRaw?: string | null,
+    versionRaw?: string | null,
   ) {
     const templateName = this.normalizeTemplateNameForMeta(templateNameRaw || '');
     const language = String(languageRaw || 'pt_BR').trim() || 'pt_BR';
@@ -836,6 +876,8 @@ export class HbxRecoveryService {
     if (moduleKey && moduleKey !== 'hbx_recovery') {
       params.set('module', moduleKey);
     }
+    const version = this.normalizeTemplateMediaVersionToken(versionRaw);
+    if (version) params.set('v', version);
     return `/hbx-recovery/public/meta-template-media/${companyId}/${encodeURIComponent(templateName)}?${params.toString()}`;
   }
 
@@ -844,12 +886,14 @@ export class HbxRecoveryService {
     templateNameRaw: string,
     languageRaw: string | null | undefined,
     moduleKeyRaw?: string | null,
+    versionRaw?: string | null,
   ) {
     const relativePath = this.templateHeaderMediaPublicPath(
       companyId,
       templateNameRaw,
       languageRaw,
       moduleKeyRaw,
+      versionRaw,
     );
     if (!relativePath) return null;
     return `${this.publicApiBaseUrl()}${relativePath}`;
@@ -881,7 +925,7 @@ export class HbxRecoveryService {
     if (!publicBase || this.isLocalOnlyUrl(publicBase)) {
       return parsed.toString();
     }
-    return `${publicBase}${parsed.pathname}`;
+    return `${publicBase}${parsed.pathname}${parsed.search}`;
   }
 
   private resolveTemplateHeaderMediaUrl(
@@ -892,6 +936,11 @@ export class HbxRecoveryService {
     if (!template) return null;
     const normalized = this.getNormalizedMetaTemplate(template);
     if (!this.isMetaMediaHeaderFormat(normalized.header.format)) return null;
+    const mediaVersion = this.buildTemplateMediaVersionToken({
+      headerMediaBase64: normalized.header.mediaBase64,
+      headerMediaFileName: normalized.header.mediaFileName,
+      storedUrl: normalized.header.mediaUrl,
+    });
     if (companyId) {
       const headerMediaBase64 = String(normalized.header.mediaBase64 || '').trim();
       const storedUrl = String(normalized.header.mediaUrl || '').trim();
@@ -901,6 +950,7 @@ export class HbxRecoveryService {
           template.name,
           template.language,
           moduleKeyRaw,
+          mediaVersion,
         );
       }
     }
@@ -914,6 +964,7 @@ export class HbxRecoveryService {
         template.name,
         template.language,
         moduleKeyRaw,
+        mediaVersion,
       );
     }
     if (!storedUrl) return null;
@@ -921,33 +972,52 @@ export class HbxRecoveryService {
   }
 
   private getNormalizedMetaTemplate(template?: Partial<RecoveryMetaTemplate> | null) {
-    if (template?.normalized) return template.normalized;
+    const normalizedSource = template?.normalized;
     return buildNormalizedMetaTemplate({
-      name: String(template?.name || '').trim(),
-      language: String(template?.language || 'pt_BR').trim() || 'pt_BR',
-      category: this.normalizeMetaCategory(template?.category),
-      status: this.normalizeMetaStatus(template?.status),
+      name: String(template?.name || normalizedSource?.name || '').trim(),
+      language: String(template?.language || normalizedSource?.language || 'pt_BR').trim() || 'pt_BR',
+      category: this.normalizeMetaCategory(template?.category || normalizedSource?.category),
+      status: this.normalizeMetaStatus(template?.status || normalizedSource?.status),
       qualityScore:
         template?.qualityScore !== undefined && template?.qualityScore !== null
           ? String(template.qualityScore)
+          : normalizedSource?.qualityScore !== undefined && normalizedSource?.qualityScore !== null
+            ? String(normalizedSource.qualityScore)
           : null,
       rejectedReason:
         template?.rejectedReason !== undefined && template?.rejectedReason !== null
           ? String(template.rejectedReason)
+          : normalizedSource?.rejectedReason !== undefined && normalizedSource?.rejectedReason !== null
+            ? String(normalizedSource.rejectedReason)
           : null,
-      components: Array.isArray(template?.components) ? template?.components : [],
+      components: Array.isArray(template?.components)
+        ? template.components
+        : Array.isArray(normalizedSource?.components)
+          ? normalizedSource.components
+          : [],
       fallback: {
-        headerFormat: template?.headerFormat,
-        headerText: template?.headerText,
-        headerHandle: template?.headerHandle,
-        headerMediaUrl: template?.headerMediaUrl,
-        headerMediaFileName: template?.headerMediaFileName,
-        headerMediaContentType: template?.headerMediaContentType,
-        headerMediaBase64: template?.headerMediaBase64,
-        bodyText: template?.bodyText,
-        footerText: template?.footerText,
-        buttonLabels: Array.isArray(template?.buttonLabels) ? template.buttonLabels : [],
-        variableKeys: Array.isArray(template?.variableKeys) ? template.variableKeys : [],
+        headerFormat: template?.headerFormat ?? normalizedSource?.header?.format,
+        headerText: template?.headerText ?? normalizedSource?.header?.text,
+        headerHandle: template?.headerHandle ?? normalizedSource?.header?.exampleHandle,
+        headerMediaUrl: template?.headerMediaUrl ?? normalizedSource?.header?.mediaUrl,
+        headerMediaFileName: template?.headerMediaFileName ?? normalizedSource?.header?.mediaFileName,
+        headerMediaContentType:
+          template?.headerMediaContentType ?? normalizedSource?.header?.mediaContentType,
+        headerMediaBase64: template?.headerMediaBase64 ?? normalizedSource?.header?.mediaBase64,
+        bodyText: template?.bodyText ?? normalizedSource?.body?.text,
+        footerText: template?.footerText ?? normalizedSource?.footer?.text,
+        buttonLabels: Array.isArray(template?.buttonLabels)
+          ? template.buttonLabels
+          : Array.isArray(normalizedSource?.buttons)
+            ? normalizedSource.buttons
+                .map((button) => String(button?.text || ''))
+                .filter((text) => text.length > 0)
+            : [],
+        variableKeys: Array.isArray(template?.variableKeys)
+          ? template.variableKeys
+          : Array.isArray(normalizedSource?.body?.variableOrder)
+            ? normalizedSource.body.variableOrder
+            : [],
       },
     });
   }
@@ -1653,6 +1723,10 @@ export class HbxRecoveryService {
       templateNameRaw,
       languageRaw,
       moduleKeyRaw,
+      this.buildTemplateMediaVersionToken({
+        headerMediaBase64: fileBuffer.toString('base64'),
+        headerMediaFileName: fileName,
+      }),
     );
     if (!publicUrl) {
       throw new BadRequestException('Nao foi possivel gerar a URL publica estavel da imagem do template.');
@@ -2551,16 +2625,20 @@ export class HbxRecoveryService {
       templateName,
       language: templateLanguage,
     });
+    const headerMediaBase64 = Buffer.from(file.buffer).toString('base64');
     const headerMediaUrl = this.buildTemplateHeaderMediaPublicUrl(
       companyId,
       templateName,
       templateLanguage,
       moduleKey,
+      this.buildTemplateMediaVersionToken({
+        headerMediaBase64,
+        headerMediaFileName: stored.fileName,
+      }),
     );
     if (!headerMediaUrl) {
       throw new BadRequestException('Nao foi possivel gerar a URL publica da imagem do template.');
     }
-    const headerMediaBase64 = Buffer.from(file.buffer).toString('base64');
     const templateKey = this.metaTemplateKey(templateName, templateLanguage);
     const registry = await this.getMetaTemplateRegistry(companyId, { moduleKey });
     registry.pendingMedia = [
