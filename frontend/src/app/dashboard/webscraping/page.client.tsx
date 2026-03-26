@@ -36,17 +36,39 @@ function getRuntimeTone(status: RuntimePayload["status"] | null) {
   return "alert-success";
 }
 
-function getRuntimeHint(runtime: RuntimePayload) {
-  if (runtime.code === "missing_internal_url") {
-    return "O deploy publicado esta sem WEBSCRAPING_INTERNAL_URL efetiva no backend/Render.";
+function getRuntimeCopy(runtime: RuntimePayload) {
+  if (runtime.status === "offline") {
+    if (runtime.code === "upstream_timeout" || runtime.code === "upstream_unreachable") {
+      return {
+        title: "Modulo temporariamente indisponivel.",
+        detail: "Nao foi possivel concluir a conexao com o servico agora. Tente novamente em instantes.",
+      };
+    }
+
+    return {
+      title: "Modulo temporariamente indisponivel.",
+      detail: "Este recurso esta em ajuste de disponibilidade e sera liberado apos a normalizacao do servico.",
+    };
   }
+
+  if (runtime.status === "degraded") {
+    return {
+      title: "Modulo com disponibilidade parcial.",
+      detail: "A abertura pode oscilar no momento. Se necessario, tente novamente em alguns segundos.",
+    };
+  }
+
   if (runtime.usingFallbackInternalUrl) {
-    return "Diagnostico via destino local padrao; confirme WEBSCRAPING_INTERNAL_URL no ambiente online.";
+    return {
+      title: "Modulo online.",
+      detail: "O acesso esta disponivel no momento.",
+    };
   }
-  if (runtime.code === "upstream_unreachable") {
-    return "O backend publicado conhece o destino, mas nao conseguiu alcancar o servico webscraping.";
-  }
-  return null;
+
+  return {
+    title: "Modulo online e pronto para uso.",
+    detail: null,
+  };
 }
 
 export default function WebscrapingClientPage() {
@@ -169,6 +191,7 @@ export default function WebscrapingClientPage() {
   if (!hasToken) return null;
 
   const shouldShowRetry = !loading && !entryUrl;
+  const runtimeCopy = runtime ? getRuntimeCopy(runtime) : null;
 
   return (
     <DashboardScaffold
@@ -179,8 +202,8 @@ export default function WebscrapingClientPage() {
       {runtime ? (
         <div className={`alert ${getRuntimeTone(runtime.status)}`}>
           <div className="space-y-1">
-            <div>{runtime.message}</div>
-            {getRuntimeHint(runtime) ? <div className="text-xs opacity-80">{getRuntimeHint(runtime)}</div> : null}
+            <div>{runtimeCopy?.title}</div>
+            {runtimeCopy?.detail ? <div className="text-xs opacity-80">{runtimeCopy.detail}</div> : null}
             {runtime.mockMode ? (
               <div className="text-xs opacity-80">
                 O modulo esta em modo demonstracao controlado.
@@ -206,7 +229,7 @@ export default function WebscrapingClientPage() {
         <section className="panel p-4 text-sm text-muted space-y-3">
           <div>
             {runtime?.status === "offline"
-              ? "Modulo indisponivel por falha de infraestrutura ou configuracao."
+              ? "Modulo indisponivel no momento."
               : "Modulo indisponivel."}
           </div>
           {shouldShowRetry ? (
