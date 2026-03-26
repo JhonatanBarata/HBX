@@ -2,6 +2,11 @@
 
 const { assertNonLocalDatabaseUrl, assertNonLocalHttpUrl, requireEnv, resolveOperationsEnv, run } = require('./lib/runtime');
 
+function isTruthy(value) {
+  const normalized = String(value || '').trim().toLowerCase();
+  return normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on';
+}
+
 async function requestJson(url) {
   const response = await fetch(url, { method: 'GET' });
   if (!response.ok) {
@@ -28,6 +33,9 @@ async function verifyProduction(inputEnv = resolveOperationsEnv()) {
   const backendUrl = String(requireEnv(env, 'PROD_BACKEND_URL')).replace(/\/$/, '');
   const frontendUrl = String(env.PROD_FRONTEND_URL || '').trim().replace(/\/$/, '');
   const databaseUrl = String(env.PROD_DATABASE_URL || '').trim();
+  const verifyWebscrapingRequired = !String(env.PROD_VERIFY_WEBSCRAPING_REQUIRED || '').trim()
+    ? true
+    : isTruthy(env.PROD_VERIFY_WEBSCRAPING_REQUIRED);
 
   assertNonLocalHttpUrl(backendUrl, 'PROD_BACKEND_URL');
   if (frontendUrl) {
@@ -59,16 +67,24 @@ async function verifyProduction(inputEnv = resolveOperationsEnv()) {
       throw new Error(`Frontend check failed with HTTP ${response.status} from ${frontendUrl}`);
     }
 
-    const webscrapingHealthUrl = `${frontendUrl}/hbx/webscraping/healthz`;
-    const webscrapingHealthText = await requestText(webscrapingHealthUrl);
-    if (String(webscrapingHealthText).trim().toLowerCase() !== 'ok') {
-      throw new Error(`Unexpected webscraping health payload from ${webscrapingHealthUrl}: ${webscrapingHealthText}`);
+    if (verifyWebscrapingRequired) {
+      const webscrapingHealthUrl = `${frontendUrl}/hbx/webscraping/healthz`;
+      const webscrapingHealthText = await requestText(webscrapingHealthUrl);
+      if (String(webscrapingHealthText).trim().toLowerCase() !== 'ok') {
+        throw new Error(`Unexpected webscraping health payload from ${webscrapingHealthUrl}: ${webscrapingHealthText}`);
+      }
+      webscrapingHealth = {
+        url: webscrapingHealthUrl,
+        status: 'ok',
+        body: webscrapingHealthText,
+      };
+    } else {
+      webscrapingHealth = {
+        url: `${frontendUrl}/hbx/webscraping/healthz`,
+        status: 'skipped',
+        body: 'skipped by PROD_VERIFY_WEBSCRAPING_REQUIRED=0',
+      };
     }
-    webscrapingHealth = {
-      url: webscrapingHealthUrl,
-      status: 'ok',
-      body: webscrapingHealthText,
-    };
   }
 
   return {
