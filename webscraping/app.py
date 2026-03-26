@@ -130,15 +130,21 @@ def save_search_history(entry: dict[str, object]) -> None:
 
 
 def apply_history_entry(entry: dict[str, object]) -> None:
-        segment = str(entry.get("segment") or "").strip()
-        st.session_state["webscraping_city"] = str(entry.get("city") or "").strip() or None
-        st.session_state["webscraping_segment_choice"] = segment if segment in SEGMENT_OPTIONS else "Outro (digitar)"
-        st.session_state["webscraping_custom_segment"] = "" if segment in SEGMENT_OPTIONS else segment
-        st.session_state["webscraping_quantity"] = int(entry.get("quantity") or 10)
-        st.session_state["webscraping_min_rating"] = float(entry.get("min_rating") or 3.5)
-        st.session_state["webscraping_min_reviews"] = int(entry.get("min_reviews") or 10)
-        st.session_state["webscraping_company_size_filter"] = str(entry.get("company_size_filter") or "Todos")
-        st.session_state["webscraping_script_template"] = str(entry.get("script_template") or DEFAULT_SCRIPT_TEMPLATE)
+    segment = str(entry.get("segment") or "").strip()
+    st.session_state["webscraping_city"] = str(entry.get("city") or "").strip() or None
+    st.session_state["webscraping_segment_choice"] = (
+        segment if segment in SEGMENT_OPTIONS else "Outro (digitar)"
+    )
+    st.session_state["webscraping_custom_segment"] = "" if segment in SEGMENT_OPTIONS else segment
+    st.session_state["webscraping_quantity"] = int(entry.get("quantity") or 10)
+    st.session_state["webscraping_min_rating"] = float(entry.get("min_rating") or 3.5)
+    st.session_state["webscraping_min_reviews"] = int(entry.get("min_reviews") or 10)
+    st.session_state["webscraping_company_size_filter"] = str(
+        entry.get("company_size_filter") or "Todos"
+    )
+    st.session_state["webscraping_script_template"] = str(
+        entry.get("script_template") or DEFAULT_SCRIPT_TEMPLATE
+    )
 
 
 def read_identity_from_query() -> tuple[str, str]:
