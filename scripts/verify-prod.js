@@ -14,6 +14,15 @@ async function requestJson(url) {
   return response.text();
 }
 
+async function requestText(url) {
+  const response = await fetch(url, { method: 'GET' });
+  const text = await response.text();
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status} from ${url}: ${text.slice(0, 400)}`);
+  }
+  return text;
+}
+
 async function verifyProduction(inputEnv = resolveOperationsEnv()) {
   const env = inputEnv;
   const backendUrl = String(requireEnv(env, 'PROD_BACKEND_URL')).replace(/\/$/, '');
@@ -42,12 +51,24 @@ async function verifyProduction(inputEnv = resolveOperationsEnv()) {
   }
 
   let frontendStatus = 'not-configured';
+  let webscrapingHealth = null;
   if (frontendUrl) {
     const response = await fetch(frontendUrl, { method: 'GET' });
     frontendStatus = `${response.status}`;
     if (!response.ok) {
       throw new Error(`Frontend check failed with HTTP ${response.status} from ${frontendUrl}`);
     }
+
+    const webscrapingHealthUrl = `${frontendUrl}/hbx/webscraping/healthz`;
+    const webscrapingHealthText = await requestText(webscrapingHealthUrl);
+    if (String(webscrapingHealthText).trim().toLowerCase() !== 'ok') {
+      throw new Error(`Unexpected webscraping health payload from ${webscrapingHealthUrl}: ${webscrapingHealthText}`);
+    }
+    webscrapingHealth = {
+      url: webscrapingHealthUrl,
+      status: 'ok',
+      body: webscrapingHealthText,
+    };
   }
 
   return {
@@ -56,6 +77,7 @@ async function verifyProduction(inputEnv = resolveOperationsEnv()) {
     backendHealth,
     frontendUrl: frontendUrl || null,
     frontendStatus,
+    webscrapingHealth,
     databaseChecked: Boolean(databaseUrl),
   };
 }
