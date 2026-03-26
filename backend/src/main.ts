@@ -1,5 +1,7 @@
 import 'reflect-metadata';
 import 'dotenv/config';
+import type { Server } from 'http';
+import type { Socket } from 'net';
 import type { Request, Response } from 'express';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
@@ -33,10 +35,23 @@ function isFirebaseHostingOrigin(origin: string) {
   return /^https:\/\/[a-z0-9-]+\.(web\.app|firebaseapp\.com)$/i.test(origin);
 }
 
+function isWebscrapingProxyPath(url: string | undefined) {
+  const pathname = String(url || '').split('?', 1)[0] || '';
+  return pathname === '/webscraping'
+    || pathname.startsWith('/webscraping/')
+    || pathname === '/hbx/webscraping'
+    || pathname.startsWith('/hbx/webscraping/');
+}
+
+function rewriteWebscrapingPath(path: string) {
+  const rewritten = path.replace(/^\/hbx\/webscraping(?=\/|$)/, '').replace(/^\/webscraping(?=\/|$)/, '');
+  return rewritten || '/';
+}
+
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, { rawBody: true });
   const webscrapingTarget = resolveWebscrapingTarget();
-  app.use('/webscraping', (req: Request, res: Response, next) => {
+  const webscrapingGuard = (req: Request, res: Response, next: () => void) => {
     if (!webscrapingTarget.configError) {
       next();
       return;
@@ -47,32 +62,42 @@ async function bootstrap() {
       message: webscrapingTarget.configError.message,
       status: 'offline',
     });
-  });
-  app.use(
-    '/webscraping',
-    createProxyMiddleware({
-      target: webscrapingTarget.target,
-      changeOrigin: true,
-      ws: true,
-      proxyTimeout: 15000,
-      timeout: 15000,
-      pathRewrite: { '^/webscraping': '' },
-      on: {
-        error: (error, _req, res) => {
-          const response = res as Response;
-          const isTimeout = error instanceof Error && error.name === 'Error' && /timeout/i.test(error.message);
-          if (response.headersSent) return;
-          response.status(503).json({
-            code: isTimeout ? 'upstream_timeout' : 'upstream_unreachable',
-            status: 'offline',
-            message: isTimeout
-              ? 'O servico webscraping nao respondeu dentro do tempo limite do proxy.'
-              : 'O proxy nao conseguiu alcancar o servico webscraping configurado.',
-          });
-        },
+  };
+  const webscrapingProxy = createProxyMiddleware({
+    target: webscrapingTarget.target,
+    changeOrigin: true,
+    xfwd: true,
+    ws: true,
+    proxyTimeout: 15000,
+    timeout: 15000,
+    pathRewrite: rewriteWebscrapingPath,
+    on: {
+      proxyReqWs: (proxyReq, req) => {
+        proxyReq.setHeader('Connection', 'Upgrade');
+        proxyReq.setHeader('Upgrade', 'websocket');
+        proxyReq.setHeader('X-Forwarded-Prefix', '/hbx/webscraping');
+        if (req.headers.origin) {
+          proxyReq.setHeader('Origin', webscrapingTarget.target);
+        }
       },
-    }),
-  );
+      error: (error, _req, res) => {
+        const response = res as Response;
+        const isTimeout = error instanceof Error && error.name === 'Error' && /timeout/i.test(error.message);
+        if (response.headersSent) return;
+        response.status(503).json({
+          code: isTimeout ? 'upstream_timeout' : 'upstream_unreachable',
+          status: 'offline',
+          message: isTimeout
+            ? 'O servico webscraping nao respondeu dentro do tempo limite do proxy.'
+            : 'O proxy nao conseguiu alcancar o servico webscraping configurado.',
+        });
+      },
+    },
+  });
+  app.use('/webscraping', webscrapingGuard);
+  app.use('/hbx/webscraping', webscrapingGuard);
+  app.use('/webscraping', webscrapingProxy);
+  app.use('/hbx/webscraping', webscrapingProxy);
   const allowedOrigins = buildAllowedOrigins();
   app.enableCors({
     origin: (origin, callback) => {
@@ -132,6 +157,11 @@ async function bootstrap() {
   );
   const port = Number(process.env.PORT || process.env.APP_PORT || 3000);
   await app.listen(port);
+  const httpServer = app.getHttpServer() as Server;
+  httpServer.on('upgrade', (req, socket, head) => {
+    if (!isWebscrapingProxyPath(req.url)) return;
+    webscrapingProxy.upgrade(req, socket as Socket, head);
+  });
   // eslint-disable-next-line no-console
   console.log(`NestJS fresh app listening on port ${port}`);
 }
