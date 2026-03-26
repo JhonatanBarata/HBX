@@ -192,6 +192,107 @@ test('start-template fails with clear error when template requires unsupported v
   );
 });
 
+test('createMetaTemplate omits deprecated allow_category_change and reuses pending image handle', async () => {
+  const service = createService();
+  let capturedPayload: Record<string, unknown> | null = null;
+
+  service.prisma = {
+    company: {
+      findUnique: async () => ({ name: 'Colsani' }),
+    },
+  };
+  service.getMetaTemplateRegistry = async () => ({
+    phoneNumberId: '123',
+    wabaId: '456',
+    lastSyncAt: null,
+    templates: [],
+    history: [],
+    pendingMedia: [
+      {
+        templateKey: 'colsani_clog3::pt_br',
+        name: 'colsani_clog3',
+        language: 'pt_BR',
+        headerHandle: '4::abc123',
+        headerMediaFileName: 'colsani_clog3_pt_br.jpg',
+        headerMediaContentType: 'image/jpeg',
+        headerMediaBase64: 'base64',
+        updatedAt: '2026-03-26T12:00:00.000Z',
+      },
+    ],
+  });
+  service.getRecoveryOperatorName = async () => 'Brenda';
+  service.resolveMetaTemplateContext = async () => ({
+    accessToken: 'token',
+    templateNodeIds: ['waba-1'],
+  });
+  service.createMetaTemplateOnProvider = async (_templateNodeIds: string[], _accessToken: string, payload: any) => {
+    capturedPayload = payload;
+    return { response: { data: { id: 'tpl-123' } }, usedNodeId: 'waba-1' };
+  };
+  service.syncMetaTemplatesByCompanyId = async () => ({
+    phoneNumberId: '123',
+    wabaId: '456',
+    lastSyncAt: null,
+    templates: [],
+    history: [],
+    pendingMedia: [
+      {
+        templateKey: 'colsani_clog3::pt_br',
+        name: 'colsani_clog3',
+        language: 'pt_BR',
+        headerHandle: '4::abc123',
+        headerMediaFileName: 'colsani_clog3_pt_br.jpg',
+        headerMediaContentType: 'image/jpeg',
+        headerMediaBase64: 'base64',
+        updatedAt: '2026-03-26T12:00:00.000Z',
+      },
+    ],
+  });
+  service.saveMetaTemplateRegistry = async (_companyId: number, registry: any) => registry;
+  service.buildMetaTemplatesResponse = () => ({
+    phoneNumberId: '123',
+    wabaId: '456',
+    lastSyncAt: null,
+    templates: [],
+    history: [],
+    counters: { total: 0, approved: 0, pending: 0, hbxActive: 0, eligible: 0 },
+  });
+
+  const response = await service.createMetaTemplate(
+    { companyId: 7, id: 99 },
+    {
+      name: 'colsani_clog3',
+      category: 'MARKETING',
+      language: 'pt_BR',
+      headerFormat: 'IMAGE',
+      headerHandle: '',
+      headerMediaUrl: '',
+      bodyText:
+        'Ola, tudo bem? Aqui e da {{empresa}}.\nFalo com {{cliente}}?\nTemos um assunto referente ao servico prestado no dia {{data_servico}}, posso continuar?',
+      footerText: 'Recovery Colsani',
+      buttons: ['Sim.', 'Nao, obrigado.', 'Falar com atendente.'],
+      activateInHbx: true,
+      variableExamples: {
+        empresa: 'Colsani',
+        cliente: 'Maria Oliveira',
+        data_servico: '12/03/2026',
+      },
+    },
+    { moduleKey: 'hbx_recovery' },
+  );
+
+  assert.equal(response.ok, true);
+  assert.equal(Boolean(capturedPayload), true);
+  assert.equal(Object.prototype.hasOwnProperty.call(capturedPayload || {}, 'allow_category_change'), false);
+  assert.deepEqual((capturedPayload?.components as any[])[0], {
+    type: 'HEADER',
+    format: 'IMAGE',
+    example: {
+      header_handle: ['4::abc123'],
+    },
+  });
+});
+
 test('human interaction reply uses live conversation contact instead of stale customer phone', async () => {
   const service = createService();
   let queuedPayload: Record<string, unknown> | null = null;
