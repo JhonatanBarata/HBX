@@ -1899,7 +1899,13 @@
 </script>
 </head>
 
-<body class="admin-page">
+<body class="admin-page" data-hbx-gate="locked">
+  <div id="hbxAdminGuard" style="position: fixed; inset: 0; z-index: 10001; display: flex; align-items: center; justify-content: center; background: rgba(214, 223, 235, 0.96); padding: 24px;">
+    <div style="max-width: 520px; width: 100%; border: 1px solid rgba(0, 0, 0, 0.12); border-radius: 24px; background: linear-gradient(145deg, rgba(255,255,255,0.98), rgba(220,229,239,0.94)); box-shadow: 0 24px 60px rgba(2, 6, 23, 0.18); padding: 32px; text-align: center;">
+      <div style="font-family: 'Oswald', sans-serif; font-size: 2rem; letter-spacing: 0.04em; color: #111111; margin-bottom: 16px;">Validando acesso</div>
+      <p id="hbxAdminGuardMessage" style="color: rgba(0, 0, 0, 0.74); line-height: 1.7; font-size: 1rem;">Estamos confirmando a entrada protegida do HBX antes de liberar o admin.</p>
+    </div>
+  </div>
   <div id="page-loader" class="page-loader">
     <div class="loader-ring"></div>
     <div class="loader-text">Carregando...</div>
@@ -1969,7 +1975,7 @@
             <span class="admin-kicker">Acesso restrito</span>
             <h2 class="admin-subtitle">Entrar no admin</h2>
             <p class="admin-copy">
-              Use o email e a senha do Firebase Authentication para abrir o painel.
+              O acesso inicial chega pelo HBX. Depois disso, use o email e a senha do Firebase Authentication para abrir o painel apenas se o fluxo protegido nao validar a sessao automaticamente.
             </p>
 
             <form id="loginForm" class="space-y-4" style="margin-top: 22px;">
@@ -2542,6 +2548,7 @@
     <div class="spinner"></div>
   </div>
 
+  <script src="hbx-admin-auth.js"></script>
   <script src="admin-scripts.js"></script>
   <script src="payment-admin.js"></script>
   <script src="page-transitions.js"></script>
