@@ -113,6 +113,110 @@ test('sync update overwrites stale header instead of keeping previous one', () =
   assert.equal(updated.normalized.header.mediaUrl, null);
 });
 
+test('rebuildMetaTemplateRecord applies top-level media overrides over stale normalized snapshot', () => {
+  const service = createService();
+
+  const current = service.createMetaTemplateRecord({
+    id: 'tpl-3b',
+    name: 'colsani_log4',
+    language: 'pt_BR',
+    category: 'UTILITY',
+    status: 'APPROVED',
+    qualityScore: 'GREEN',
+    rejectedReason: null,
+    components: [
+      {
+        type: 'HEADER',
+        format: 'IMAGE',
+        example: { header_handle: ['4::old-handle'] },
+      },
+      {
+        type: 'BODY',
+        text: 'Mensagem {{1}}',
+        example: { body_text: [['Teste']] },
+      },
+    ],
+    hbxActive: true,
+    lastMetaSyncAt: '2026-03-18T10:00:00.000Z',
+    localMedia: {
+      headerMediaUrl: 'https://cdn.example.com/old.jpg',
+      headerMediaFileName: 'old.jpg',
+      headerMediaContentType: 'image/jpeg',
+      headerMediaBase64: 'old-base64',
+    },
+  });
+
+  const updated = service.rebuildMetaTemplateRecord({
+    ...current,
+    headerMediaUrl: 'https://hbx-1.onrender.com/hbx-recovery/public/meta-template-media/7/colsani_log4?language=pt_BR',
+    headerMediaFileName: 'colsani_log4.jpg',
+    headerMediaContentType: 'image/jpeg',
+    headerMediaBase64: 'new-base64',
+  });
+
+  assert.equal(
+    updated.headerMediaUrl,
+    'https://hbx-1.onrender.com/hbx-recovery/public/meta-template-media/7/colsani_log4?language=pt_BR',
+  );
+  assert.equal(updated.headerMediaFileName, 'colsani_log4.jpg');
+  assert.equal(updated.headerMediaBase64, 'new-base64');
+  assert.equal(
+    updated.normalized.header.mediaUrl,
+    'https://hbx-1.onrender.com/hbx-recovery/public/meta-template-media/7/colsani_log4?language=pt_BR',
+  );
+});
+
+test('resolveTemplateHeaderMediaUrl adds deterministic version token for managed media', () => {
+  const service = createService();
+  const previousPublicBase = process.env.PUBLIC_API_BASE_URL;
+  process.env.PUBLIC_API_BASE_URL = 'https://hbx-1.onrender.com';
+
+  try {
+    const template = service.createMetaTemplateRecord({
+      id: 'tpl-3c',
+      name: 'colsani_log4',
+      language: 'pt_BR',
+      category: 'UTILITY',
+      status: 'APPROVED',
+      qualityScore: 'GREEN',
+      rejectedReason: null,
+      components: [
+        {
+          type: 'HEADER',
+          format: 'IMAGE',
+          example: { header_handle: ['4::current-handle'] },
+        },
+        {
+          type: 'BODY',
+          text: 'Mensagem {{1}}',
+          example: { body_text: [['Teste']] },
+        },
+      ],
+      hbxActive: true,
+      lastMetaSyncAt: '2026-03-18T10:00:00.000Z',
+      localMedia: {
+        headerMediaUrl: 'https://hbx-1.onrender.com/hbx-recovery/public/meta-template-media/7/colsani_log4?language=pt_BR',
+        headerMediaFileName: 'colsani_log4.jpg',
+        headerMediaContentType: 'image/jpeg',
+        headerMediaBase64: 'base64-image-a',
+      },
+    });
+
+    const resolvedUrl = service.resolveTemplateHeaderMediaUrl(template, 7, 'hbx_recovery');
+
+    assert.match(
+      String(resolvedUrl || ''),
+      /^https:\/\/hbx-1\.onrender\.com\/hbx-recovery\/public\/meta-template-media\/7\/colsani_log4\?language=pt_BR&v=[a-f0-9]{12}$/,
+    );
+  } finally {
+    if (previousPublicBase === undefined) {
+      delete process.env.PUBLIC_API_BASE_URL;
+    } else {
+      process.env.PUBLIC_API_BASE_URL = previousPublicBase;
+    }
+  }
+});
+
 test('start-template builds BODY parameters for four Meta variables and no header', () => {
   const service = createService();
   const template = service.createMetaTemplateRecord({
