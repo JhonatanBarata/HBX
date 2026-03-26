@@ -422,26 +422,6 @@ export default function LoginPage() {
               </div>
               <div className="login-card__themeCopy">
                 <p className="login-card__themeLabel">{activeTheme.label}</p>
-                <p className="login-card__themeHint">{activeTheme.personality}</p>
-              </div>
-            </div>
-            <h1 className="login-card__title">Entrar no painel</h1>
-            <p className="login-card__copy">
-              {activeTheme.description} O login acompanha o tema ativo para manter continuidade
-              visual desde o primeiro acesso.
-            </p>
-            <div className="login-card__stats" aria-label="Resumo do tema ativo">
-              <div className="login-card__stat">
-                <span>Tema</span>
-                <strong>{activeTheme.shortLabel}</strong>
-              </div>
-              <div className="login-card__stat">
-                <span>Estrutura</span>
-                <strong>{activeTheme.shellLabel}</strong>
-              </div>
-              <div className="login-card__stat">
-                <span>Leitura</span>
-                <strong>{activeTheme.depthLabel}</strong>
               </div>
             </div>
           </header>
