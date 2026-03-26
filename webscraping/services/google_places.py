@@ -6,6 +6,8 @@ from typing import Any
 import requests
 
 
+PLACES_NEW_TEXT_SEARCH_URL = "https://places.googleapis.com/v1/places:searchText"
+PLACES_NEW_DETAILS_URL = "https://places.googleapis.com/v1/places"
 PLACES_TEXT_SEARCH_URL = "https://maps.googleapis.com/maps/api/place/textsearch/json"
 PLACES_DETAILS_URL = "https://maps.googleapis.com/maps/api/place/details/json"
 
@@ -114,6 +116,91 @@ def _parse_google_response(resp: requests.Response) -> dict[str, Any]:
     return data
 
 
+def _build_new_places_headers(api_key: str, field_mask: str) -> dict[str, str]:
+    return {
+        "Content-Type": "application/json",
+        "X-Goog-Api-Key": api_key,
+        "X-Goog-FieldMask": field_mask,
+    }
+
+
+def _parse_new_places_response(resp: requests.Response) -> dict[str, Any]:
+    data = resp.json()
+    if resp.ok:
+        return data
+
+    error_data = data.get("error") if isinstance(data, dict) else {}
+    message = str((error_data or {}).get("message") or "").strip()
+    status = str((error_data or {}).get("status") or "").strip().upper()
+    legacy_like = {
+        "status": "REQUEST_DENIED" if status in {"PERMISSION_DENIED", "FAILED_PRECONDITION"} else status,
+        "error_message": message,
+    }
+    raise _build_google_api_error(resp.status_code, legacy_like)
+
+
+def _normalize_new_search_result(place: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "place_id": str(place.get("id") or "").strip(),
+        "name": str(((place.get("displayName") or {}).get("text") or "")).strip(),
+    }
+
+
+def _normalize_new_place_details(place: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "name": str(((place.get("displayName") or {}).get("text") or "")).strip(),
+        "international_phone_number": str(place.get("internationalPhoneNumber") or "").strip(),
+        "formatted_phone_number": str(place.get("nationalPhoneNumber") or "").strip(),
+        "website": str(place.get("websiteUri") or "").strip(),
+        "formatted_address": str(place.get("formattedAddress") or "").strip(),
+        "url": str(place.get("googleMapsUri") or "").strip(),
+        "types": place.get("types") or [],
+        "rating": place.get("rating"),
+        "user_ratings_total": place.get("userRatingCount"),
+    }
+
+
+def _search_places_new_api(query: str, limit: int, api_key: str) -> list[dict[str, Any]]:
+    headers = _build_new_places_headers(api_key, "places.id,places.displayName")
+    payload = {
+        "textQuery": query,
+        "languageCode": "pt-BR",
+        "pageSize": max(1, min(int(limit), 20)),
+    }
+    resp = requests.post(PLACES_NEW_TEXT_SEARCH_URL, headers=headers, json=payload, timeout=30)
+    data = _parse_new_places_response(resp)
+    places = data.get("places") or []
+    return [_normalize_new_search_result(place) for place in places][:limit]
+
+
+def _get_place_details_new_api(place_id: str, api_key: str) -> dict[str, Any]:
+    headers = _build_new_places_headers(
+        api_key,
+        ",".join(
+            [
+                "id",
+                "displayName",
+                "nationalPhoneNumber",
+                "internationalPhoneNumber",
+                "websiteUri",
+                "formattedAddress",
+                "googleMapsUri",
+                "types",
+                "rating",
+                "userRatingCount",
+            ]
+        ),
+    )
+    resp = requests.get(
+        f"{PLACES_NEW_DETAILS_URL}/{place_id}",
+        headers=headers,
+        params={"languageCode": "pt-BR"},
+        timeout=30,
+    )
+    data = _parse_new_places_response(resp)
+    return _normalize_new_place_details(data)
+
+
 def get_api_key() -> str:
     runtime = inspect_google_places_runtime()
     if runtime["mockMode"]:
@@ -134,6 +221,12 @@ def search_places(query: str, limit: int = 20) -> list[dict[str, Any]]:
         return sample[:limit]
 
     api_key = get_api_key()
+
+    try:
+        return _search_places_new_api(query=query, limit=limit, api_key=api_key)
+    except GooglePlacesError as error:
+        if error.code not in {"google_api_not_enabled", "google_request_denied", "google_upstream_error"}:
+            raise
 
     params = {"query": query, "key": api_key, "language": "pt-BR"}
     resp = requests.get(PLACES_TEXT_SEARCH_URL, params=params, timeout=30)
@@ -190,6 +283,12 @@ def get_place_details(place_id: str) -> dict[str, Any]:
         return demos.get(place_id, {})
 
     api_key = get_api_key()
+
+    try:
+        return _get_place_details_new_api(place_id=place_id, api_key=api_key)
+    except GooglePlacesError as error:
+        if error.code not in {"google_api_not_enabled", "google_request_denied", "google_upstream_error"}:
+            raise
 
     params = {
         "place_id": place_id,
