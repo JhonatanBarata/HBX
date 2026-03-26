@@ -30,6 +30,16 @@ type WebscrapingTargetResolution = {
 const DEFAULT_WEBSCRAPING_PUBLIC_URL = '/hbx/webscraping';
 const DEFAULT_WEBSCRAPING_INTERNAL_URL = 'http://localhost:8501';
 
+function isTruthyEnv(value: string | null | undefined) {
+  const normalized = String(value || '').trim().toLowerCase();
+  return normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on';
+}
+
+function shouldUseLocalWebscrapingFallback(env: NodeJS.ProcessEnv) {
+  if (isTruthyEnv(env.ALLOW_LOCAL_WEBSCRAPING_FALLBACK)) return true;
+  return String(env.NODE_ENV || '').trim().toLowerCase() !== 'production';
+}
+
 function normalizeServiceUrl(value: string | null | undefined): string | null {
   const normalized = String(value || '').trim();
   if (!normalized) return null;
@@ -71,6 +81,20 @@ export function resolveWebscrapingTarget(env: NodeJS.ProcessEnv = process.env): 
       healthUrl: `${normalizedInternalUrl}/healthz`,
       usingFallbackInternalUrl: false,
       configError: null,
+    };
+  }
+
+  if (!shouldUseLocalWebscrapingFallback(env)) {
+    return {
+      publicUrl,
+      rawInternalUrl,
+      target: DEFAULT_WEBSCRAPING_INTERNAL_URL,
+      healthUrl: null,
+      usingFallbackInternalUrl: false,
+      configError: {
+        code: 'missing_internal_url',
+        message: 'WEBSCRAPING_INTERNAL_URL ausente no ambiente publicado; o backend nao sabe para qual servico webscraping encaminhar.',
+      },
     };
   }
 

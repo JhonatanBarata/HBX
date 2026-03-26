@@ -36,6 +36,19 @@ function getRuntimeTone(status: RuntimePayload["status"] | null) {
   return "alert-success";
 }
 
+function getRuntimeHint(runtime: RuntimePayload) {
+  if (runtime.code === "missing_internal_url") {
+    return "O deploy publicado esta sem WEBSCRAPING_INTERNAL_URL efetiva no backend/Render.";
+  }
+  if (runtime.usingFallbackInternalUrl) {
+    return "Diagnostico via destino local padrao; confirme WEBSCRAPING_INTERNAL_URL no ambiente online.";
+  }
+  if (runtime.code === "upstream_unreachable") {
+    return "O backend publicado conhece o destino, mas nao conseguiu alcancar o servico webscraping.";
+  }
+  return null;
+}
+
 export default function WebscrapingClientPage() {
   const hasToken = useRequireAuth();
   const [loading, setLoading] = useState(true);
@@ -167,11 +180,7 @@ export default function WebscrapingClientPage() {
         <div className={`alert ${getRuntimeTone(runtime.status)}`}>
           <div className="space-y-1">
             <div>{runtime.message}</div>
-            {runtime.usingFallbackInternalUrl ? (
-              <div className="text-xs opacity-80">
-                Diagnostico via destino local padrao; confirme WEBSCRAPING_INTERNAL_URL no ambiente online.
-              </div>
-            ) : null}
+            {getRuntimeHint(runtime) ? <div className="text-xs opacity-80">{getRuntimeHint(runtime)}</div> : null}
             {runtime.mockMode ? (
               <div className="text-xs opacity-80">
                 O modulo esta em modo demonstracao controlado.
