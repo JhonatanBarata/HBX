@@ -1,13 +1,19 @@
 "use client";
 
-import type { CSSProperties } from "react";
-import { useEffect, useState, useRef } from "react";
+import type { CSSProperties, FormEvent } from "react";
+import { useEffect, useEffectEvent, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { setToken } from "../dashboard/_lib/api";
+import { useHbxTheme } from "../../components/ThemeProvider";
 import { useLoginColdStart, type LoginState } from "../../lib/useLoginColdStart";
 import { resolveWebsiteOnlyDestination } from "../../lib/websiteLaunch";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3000";
+const AUTO_LOGIN_STORAGE_KEY = "hbx_auto_login";
+const AUTO_LOGIN_RELOAD_SECONDS = 49;
+const LOGIN_SUCCESS_DELAY_MS = 950;
+const DEFAULT_WAKING_MESSAGE =
+  "Estamos iniciando o ambiente seguro. A primeira conexão pode levar alguns segundos.";
 
 type ApiErrorPayload = {
   message?: string | string[];
@@ -54,8 +60,20 @@ function getErrorMessage(data: unknown) {
   return null;
 }
 
+function getAccessToken(data: unknown) {
+  if (!data || typeof data !== "object") return null;
+  const payload = data as {
+    token?: unknown;
+    access_token?: unknown;
+    accessToken?: unknown;
+  };
+  const token = payload.token ?? payload.access_token ?? payload.accessToken;
+  return typeof token === "string" && token.trim() ? token : null;
+}
+
 export default function LoginPage() {
   const router = useRouter();
+  const { selection, activeTheme } = useHbxTheme();
   const { executeLoginWithRetry, cancel: cancelLogin } = useLoginColdStart({
     apiUrl: API_URL,
     wakingThresholdMs: 3000,
@@ -79,25 +97,50 @@ export default function LoginPage() {
   const countdownRef = useRef<number | null>(null);
   const countdownIntervalRef = useRef<number | null>(null);
 
-  // Helper para traduzir estado de login para UI
   const isSubmitting = loginState === "submitting" || loginState === "waking_server";
   const isWakingServer = loginState === "waking_server";
   const isSuccess = loginState === "success";
+  const themeModeLabel = selection.mode === "dark" ? "Escuro" : "Claro";
 
-  async function handleLogin(event: React.FormEvent) {
-    event.preventDefault();
+  async function completeSuccessfulLogin(token: string) {
+    setToken(token);
+    setLoginState("success");
+
+    let redirected = false;
+
+    try {
+      setPlayingWelcome(true);
+      await new Promise((resolve) => window.setTimeout(resolve, LOGIN_SUCCESS_DELAY_MS));
+      const destination = await resolveWebsiteOnlyDestination();
+
+      if (destination) {
+        redirected = true;
+
+        if (/^https?:\/\//i.test(destination)) {
+          window.location.assign(destination);
+        } else {
+          router.replace(destination);
+        }
+
+        return;
+      }
+    } finally {
+      if (!redirected) {
+        router.replace("/dashboard");
+      }
+    }
+  }
+
+  async function authenticate(nextUsername: string, nextPassword: string) {
     setError(null);
     setInfo(null);
     setWakingMessage(null);
     setLoginState("submitting");
 
     try {
-      const result = await executeLoginWithRetry(username, password, (phase) => {
+      const result = await executeLoginWithRetry(nextUsername, nextPassword, (phase) => {
         if (phase.state === "waking_server") {
-          setWakingMessage(
-            phase.message ??
-              "Estamos iniciando o ambiente seguro. A primeira conexao pode levar alguns segundos."
-          );
+          setWakingMessage(phase.message ?? DEFAULT_WAKING_MESSAGE);
           setLoginState("waking_server");
           return;
         }
@@ -108,197 +151,22 @@ export default function LoginPage() {
       });
 
       if (result.state === "success") {
-        const payload =
-          result.data && typeof result.data === "object"
-            ? (result.data as {
-                token?: string;
-                access_token?: string;
-                accessToken?: string;
-              })
-            : null;
-        const token =
-          payload?.token ||
-          payload?.access_token ||
-          payload?.accessToken;
+        const token = getAccessToken(result.data);
+
         if (!token) {
-          setError("Login falhou: token não recebido");
+          setError("Login falhou: token não recebido.");
           setLoginState("error");
           return;
         }
 
-        setToken(token);
-        setLoginState("success");
+        await completeSuccessfulLogin(token);
+        return;
+      }
 
-        // Play welcome animation
-        let handledRedirect = false;
-        try {
-          setPlayingWelcome(true);
-          await new Promise((res) => setTimeout(res, 900));
-          const destination = await resolveWebsiteOnlyDestination();
-          if (destination) {
-            handledRedirect = true;
-            if (/^https?:\/\//i.test(destination)) {
-              window.location.assign(destination);
-            } else {
-              router.replace(destination);
-            }
-            return;
-          }
-        } finally {
-          if (!handledRedirect) {
-            router.replace("/dashboard");
-          }
-        }
-
-          // Programmatic login routine used after reload/auto-login
-          async function doLoginProgrammatic(u: string, p: string) {
-            setError(null);
-            setInfo(null);
-            setWakingMessage(null);
-            setLoginState("submitting");
-
-            try {
-              const result = await executeLoginWithRetry(u, p, (phase) => {
-                if (phase.state === "waking_server") {
-                  setWakingMessage(
-                    phase.message ??
-                      "Estamos iniciando o ambiente seguro. A primeira conexao pode levar alguns segundos."
-                  );
-                  setLoginState("waking_server");
-                  return;
-                }
-
-                if (phase.state === "submitting") {
-                  setLoginState("submitting");
-                }
-              });
-
-              if (result.state === "success") {
-                const payload =
-                  result.data && typeof result.data === "object"
-                    ? (result.data as {
-                        token?: string;
-                        access_token?: string;
-                        accessToken?: string;
-                      })
-                    : null;
-                const token =
-                  payload?.token ||
-                  payload?.access_token ||
-                  payload?.accessToken;
-                if (!token) {
-                  setError("Login falhou: token não recebido");
-                  setLoginState("error");
-                  return;
-                }
-
-                setToken(token);
-                setLoginState("success");
-                let handledRedirect = false;
-                try {
-                  setPlayingWelcome(true);
-                  await new Promise((res) => setTimeout(res, 900));
-                  const destination = await resolveWebsiteOnlyDestination();
-                  if (destination) {
-                    handledRedirect = true;
-                    if (/^https?:\/\//i.test(destination)) {
-                      window.location.assign(destination);
-                    } else {
-                      router.replace(destination);
-                    }
-                    return;
-                  }
-                } finally {
-                  if (!handledRedirect) {
-                    router.replace("/dashboard");
-                  }
-                }
-              } else if (result.state === "error") {
-                setError(result.message ?? "Erro ao autenticar");
-                setLoginState("error");
-              } else if (result.state === "waking_server") {
-                setWakingMessage(
-                  result.message ??
-                    "Estamos iniciando o ambiente seguro. A primeira conexão pode levar alguns segundos."
-                );
-                setLoginState("waking_server");
-              }
-            } catch (err) {
-              setError("Falha ao conectar no backend");
-              setLoginState("error");
-            }
-          }
-
-          // Inicia contagem regressiva quando detectamos waking_server
-          useEffect(() => {
-            if (loginState !== "waking_server") {
-              // limpar contagem se não estiver em waking
-              if (countdownIntervalRef.current) {
-                window.clearInterval(countdownIntervalRef.current as any);
-                countdownIntervalRef.current = null;
-              }
-              countdownRef.current = null;
-              setCountdown(null);
-              return;
-            }
-
-            // já rodando
-            if (countdownRef.current !== null) return;
-
-            // iniciar 49s
-            countdownRef.current = 49;
-            setCountdown(49);
-            countdownIntervalRef.current = window.setInterval(() => {
-              if (countdownRef.current === null) return;
-              countdownRef.current = countdownRef.current - 1;
-              setCountdown(countdownRef.current);
-              if (countdownRef.current <= 0) {
-                // salvar credenciais temporariamente e recarregar a página para tentar novamente
-                try {
-                  sessionStorage.setItem(
-                    "hbx_auto_login",
-                    JSON.stringify({ username: username || "", password: password || "" })
-                  );
-                } catch {
-                  // ignore
-                }
-                window.location.reload();
-              }
-            }, 1000);
-
-            return () => {
-              if (countdownIntervalRef.current) {
-                window.clearInterval(countdownIntervalRef.current as any);
-                countdownIntervalRef.current = null;
-              }
-            };
-          }, [loginState, password, username]);
-
-          // Ao montar, verificar se tem auto-login pendente (de reload)
-          useEffect(() => {
-            try {
-              const raw = sessionStorage.getItem("hbx_auto_login");
-              if (!raw) return;
-              sessionStorage.removeItem("hbx_auto_login");
-              const parsed = JSON.parse(raw || "{}") as { username?: string; password?: string };
-              if (parsed?.username) {
-                const restoredUsername = parsed.username;
-                setUsername(restoredUsername);
-                setPassword(parsed.password ?? "");
-                // aguardar um tick para o componente estabilizar
-                setTimeout(() => {
-                  doLoginProgrammatic(restoredUsername, parsed.password ?? "");
-                }, 200);
-              }
-            } catch {
-              // ignore parse errors
-            }
-          }, []);
-      } else if (result.state === "error") {
-        setError(result.message ?? "Erro ao autenticar");
+      if (result.state === "error") {
+        setError(result.message ?? "Erro ao autenticar.");
         setLoginState("error");
 
-        // Verificar se precisa de primeiro acesso
         if (
           result.data &&
           typeof result.data === "object" &&
@@ -308,27 +176,124 @@ export default function LoginPage() {
             localStorage.setItem(
               "firstAccess",
               JSON.stringify({
-                username,
+                username: nextUsername,
                 message: result.message ?? "Complete seu cadastro.",
-              })
+              }),
             );
           } catch {
             // ignore localStorage errors
           }
-          setTimeout(() => router.push("/register"), 2000);
+
+          window.setTimeout(() => router.push("/register"), 2000);
         }
-      } else if (result.state === "waking_server") {
-        setWakingMessage(
-          result.message ??
-            "Estamos iniciando o ambiente seguro. A primeira conexão pode levar alguns segundos."
-        );
+
+        return;
+      }
+
+      if (result.state === "waking_server") {
+        setWakingMessage(result.message ?? DEFAULT_WAKING_MESSAGE);
         setLoginState("waking_server");
       }
-    } catch (err) {
-      setError("Falha ao conectar no backend");
+    } catch {
+      setError("Falha ao conectar no backend.");
       setLoginState("error");
     }
   }
+
+  const triggerAutoLogin = useEffectEvent((nextUsername: string, nextPassword: string) => {
+    void authenticate(nextUsername, nextPassword);
+  });
+
+  function handleLogin(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    void authenticate(username, password);
+  }
+
+  useEffect(() => {
+    if (loginState !== "waking_server") {
+      if (countdownIntervalRef.current !== null) {
+        window.clearInterval(countdownIntervalRef.current);
+        countdownIntervalRef.current = null;
+      }
+
+      countdownRef.current = null;
+      setCountdown(null);
+      return;
+    }
+
+    if (countdownRef.current !== null) {
+      return;
+    }
+
+    countdownRef.current = AUTO_LOGIN_RELOAD_SECONDS;
+    setCountdown(AUTO_LOGIN_RELOAD_SECONDS);
+    countdownIntervalRef.current = window.setInterval(() => {
+      if (countdownRef.current === null) {
+        return;
+      }
+
+      countdownRef.current -= 1;
+      setCountdown(countdownRef.current);
+
+      if (countdownRef.current <= 0) {
+        try {
+          sessionStorage.setItem(
+            AUTO_LOGIN_STORAGE_KEY,
+            JSON.stringify({
+              username,
+              password,
+            }),
+          );
+        } catch {
+          // ignore sessionStorage errors
+        }
+
+        window.location.reload();
+      }
+    }, 1000);
+
+    return () => {
+      if (countdownIntervalRef.current !== null) {
+        window.clearInterval(countdownIntervalRef.current);
+        countdownIntervalRef.current = null;
+      }
+    };
+  }, [loginState, password, username]);
+
+  useEffect(() => {
+    let timeoutId: number | null = null;
+
+    try {
+      const raw = sessionStorage.getItem(AUTO_LOGIN_STORAGE_KEY);
+
+      if (!raw) {
+        return;
+      }
+
+      sessionStorage.removeItem(AUTO_LOGIN_STORAGE_KEY);
+      const parsed = JSON.parse(raw) as { username?: string; password?: string };
+
+      if (!parsed.username) {
+        return;
+      }
+
+      const restoredUsername = parsed.username;
+      const restoredPassword = parsed.password ?? "";
+      setUsername(restoredUsername);
+      setPassword(restoredPassword);
+      timeoutId = window.setTimeout(() => {
+        triggerAutoLogin(restoredUsername, restoredPassword);
+      }, 200);
+    } catch {
+      // ignore parse errors
+    }
+
+    return () => {
+      if (timeoutId !== null) {
+        window.clearTimeout(timeoutId);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -339,61 +304,65 @@ export default function LoginPage() {
       return;
     }
 
-    const timeout = setTimeout(async () => {
+    const timeout = window.setTimeout(async () => {
       try {
-        const res = await fetch(
-          `${API_URL}/users/check-username?username=${encodeURIComponent(normalized)}`
+        const response = await fetch(
+          `${API_URL}/users/check-username?username=${encodeURIComponent(normalized)}`,
         );
-        if (!res.ok) {
-          if (!cancelled) setPreRegistered(false);
+
+        if (!response.ok) {
+          if (!cancelled) {
+            setPreRegistered(false);
+          }
+
           return;
         }
 
-        const data: unknown = await res.json().catch(() => null);
+        const data: unknown = await response.json().catch(() => null);
+
         if (!cancelled && data && typeof data === "object") {
           setPreRegistered(Boolean((data as { preRegistered?: boolean }).preRegistered));
         }
       } catch {
-        if (!cancelled) setPreRegistered(false);
+        if (!cancelled) {
+          setPreRegistered(false);
+        }
       }
     }, 300);
 
     return () => {
       cancelled = true;
-      clearTimeout(timeout);
+      window.clearTimeout(timeout);
     };
   }, [username]);
 
   useEffect(() => {
     setMounted(true);
-    // trigger visuals animation when the page first mounts
     setVisualsPlayOnLoad(true);
-    const t = setTimeout(() => setVisualsPlayOnLoad(false), 2200);
-    return () => {
-      clearTimeout(t);
-      setMounted(false);
-      // Cleanup login if component unmounts
-      if (loginState === "submitting" || loginState === "waking_server") {
-        cancelLogin();
-      }
-    };
-  }, [cancelLogin, loginState]);
+    const timeout = window.setTimeout(() => setVisualsPlayOnLoad(false), 2200);
 
-  async function handleRecoverByEmail(event: React.FormEvent) {
+    return () => {
+      window.clearTimeout(timeout);
+      cancelLogin();
+    };
+  }, [cancelLogin]);
+
+  async function handleRecoverByEmail(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(null);
     setInfo(null);
     setLoginState("submitting");
 
     try {
-      const res = await fetch(`${API_URL}/auth/recover-password`, {
+      const response = await fetch(`${API_URL}/auth/recover-password`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email: recoveryEmail }),
       });
 
-      const data: unknown = await res.json().catch(() => null);
-      if (!res.ok) {
+      const data: unknown = await response.json().catch(() => null);
+
+      if (!response.ok) {
         setError(getErrorMessage(data) ?? "Erro na recuperação.");
         setLoginState("error");
         return;
@@ -403,15 +372,19 @@ export default function LoginPage() {
       setLoginState("idle");
       setMode("login");
     } catch {
-      setError("Falha ao conectar no backend");
+      setError("Falha ao conectar no backend.");
       setLoginState("error");
     }
   }
 
   return (
-    <main className="login-stage min-h-screen flex items-center justify-center p-6 relative overflow-hidden">
+    <main className="login-stage" data-login-theme={selection.themeId} data-login-mode={selection.mode}>
+      <div className="login-stage__grid" aria-hidden />
       <div className="login-visuals" aria-hidden>
-        <div className={`login-visuals ${playingWelcome || visualsPlayOnLoad ? "play" : ""}`} aria-hidden>
+        <div
+          className={`login-visuals ${playingWelcome || visualsPlayOnLoad ? "play" : ""}`}
+          aria-hidden
+        >
           <div className="login-drop" />
           <div className="login-drop login-drop-bottom" />
           <div className="login-drop login-drop-left" />
@@ -420,173 +393,238 @@ export default function LoginPage() {
           <span className="login-meteor" style={{ left: "28%", animationDelay: "420ms" }} />
           <span className="login-meteor" style={{ left: "68%", animationDelay: "220ms" }} />
           <span className="login-meteor" style={{ left: "84%", animationDelay: "640ms" }} />
-          {Array.from({ length: 60 }).map((_, i) => (
-            <i key={i} className="login-confetti__piece" style={buildLoginParticleStyle(i)} />
+          {Array.from({ length: 60 }).map((_, index) => (
+            <i
+              key={index}
+              className="login-confetti__piece"
+              style={buildLoginParticleStyle(index)}
+            />
           ))}
         </div>
       </div>
 
-      <div
-          className={`container-sm login-card w-full p-6 card transition-all duration-200 ${
+      <div className="login-shell">
+        <div
+          className={`login-card card transition-all duration-300 ${
             mounted ? "opacity-100 translate-y-0" : "opacity-0 translate-y-3"
           } ${playingWelcome ? "is-exploding" : ""}`}
-      >
-        <div className="mb-2 flex justify-end">
-          <div className="page-overline">Acesso seguro HBX</div>
-        </div>
-        <h1 className="text-2xl font-bold mb-6">Login</h1>
+        >
+          <div className="login-card__chrome" aria-hidden />
 
-        {mode === "login" && (
-          <form onSubmit={handleLogin} className="space-y-4">
-            <div>
-              <label className="text-sm font-medium">Usuário</label>
-              <input
-                className="input mt-1"
-                value={username}
-                onChange={(event) => setUsername(event.target.value)}
-                placeholder="meuusuario"
-                required
-                autoComplete="username"
-              />
+          <header className="login-card__header">
+            <div className="login-card__themeRow">
+              <div className="page-overline login-card__overline">Acesso seguro HBX</div>
+              <span className="login-card__modeBadge">{themeModeLabel}</span>
             </div>
-
-            <div>
-              <label className="text-sm font-medium">Senha</label>
-              <input
-                type="password"
-                className="input mt-1"
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-                placeholder="1234"
-                required
-                autoComplete="current-password"
-              />
-            </div>
-
-            <div className="flex items-center justify-between">
-              <button
-                type="button"
-                className="text-sm underline text-foreground/70"
-                onClick={() => setMode("forgot")}
-              >
-                Esqueci minha senha
-              </button>
-            </div>
-
-            {info ? (
-              <div className="msg-info">
-                <div className="text-sm">{info}</div>
+            <div className="login-card__brandBlock">
+              <div className="login-card__brandMark" aria-hidden>
+                <span className="login-card__brandMarkCore">HBX</span>
               </div>
-            ) : null}
-
-            {error ? (
-              <div className="msg-error">
-                <div className="text-sm">{error}</div>
+              <div className="login-card__themeCopy">
+                <p className="login-card__themeLabel">{activeTheme.label}</p>
+                <p className="login-card__themeHint">{activeTheme.personality}</p>
               </div>
-            ) : null}
+            </div>
+            <h1 className="login-card__title">Entrar no painel</h1>
+            <p className="login-card__copy">
+              {activeTheme.description} O login acompanha o tema ativo para manter continuidade
+              visual desde o primeiro acesso.
+            </p>
+            <div className="login-card__stats" aria-label="Resumo do tema ativo">
+              <div className="login-card__stat">
+                <span>Tema</span>
+                <strong>{activeTheme.shortLabel}</strong>
+              </div>
+              <div className="login-card__stat">
+                <span>Estrutura</span>
+                <strong>{activeTheme.shellLabel}</strong>
+              </div>
+              <div className="login-card__stat">
+                <span>Leitura</span>
+                <strong>{activeTheme.depthLabel}</strong>
+              </div>
+            </div>
+          </header>
 
-            {isWakingServer ? (
-              <div className="msg-waking-server" aria-live="polite">
-                <div className="flex items-center gap-3">
-                  <div className="spinner-waking" aria-hidden />
-                  <div>
-                    <div className="text-sm font-medium">Ambiente em inicialização</div>
-                    <div className="text-xs opacity-75">{wakingMessage}</div>
-                    {countdown !== null ? (
-                      <div className="text-xs opacity-60">Recarregando em {countdown}s</div>
-                    ) : null}
+          {mode === "login" ? (
+            <form onSubmit={handleLogin} className="login-form">
+              <div className="login-field">
+                <label className="login-label" htmlFor="login-username">
+                  Usuário
+                </label>
+                <input
+                  id="login-username"
+                  className="input"
+                  value={username}
+                  onChange={(event) => setUsername(event.target.value)}
+                  placeholder="Digite seu usuário"
+                  required
+                  autoComplete="username"
+                />
+              </div>
+
+              <div className="login-field">
+                <label className="login-label" htmlFor="login-password">
+                  Senha
+                </label>
+                <input
+                  id="login-password"
+                  type="password"
+                  className="input"
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  placeholder="Digite sua senha"
+                  required
+                  autoComplete="current-password"
+                />
+              </div>
+
+              <div className="login-actionsRow">
+                <button
+                  type="button"
+                  className="login-link"
+                  onClick={() => {
+                    setError(null);
+                    setInfo(null);
+                    setMode("forgot");
+                  }}
+                >
+                  Esqueci minha senha
+                </button>
+              </div>
+
+              {info ? (
+                <div className="msg-info">
+                  <div className="text-sm">{info}</div>
+                </div>
+              ) : null}
+
+              {error ? (
+                <div className="msg-error">
+                  <div className="text-sm">{error}</div>
+                </div>
+              ) : null}
+
+              {isWakingServer ? (
+                <div className="msg-waking-server" aria-live="polite">
+                  <div className="flex items-center gap-3">
+                    <div className="spinner-waking" aria-hidden />
+                    <div>
+                      <div className="text-sm font-medium">Ambiente em inicialização</div>
+                      <div className="text-xs opacity-75">{wakingMessage}</div>
+                      {countdown !== null ? (
+                        <div className="text-xs opacity-60">Recarregando em {countdown}s</div>
+                      ) : null}
+                    </div>
                   </div>
                 </div>
-              </div>
-            ) : null}
+              ) : null}
 
-            {preRegistered ? (
-              <div className="msg-info" aria-live="polite">
-                <div className="text-sm">
-                  Encontramos um primeiro acesso pendente para este usuário. Continue em <strong>Registrar</strong> para finalizar seu cadastro sem perder o contexto.
+              {preRegistered ? (
+                <div className="msg-info" aria-live="polite">
+                  <div className="text-sm">
+                    Encontramos um primeiro acesso pendente para este usuário. Continue em{" "}
+                    <strong>Registrar</strong> para finalizar seu cadastro sem perder o contexto.
+                  </div>
                 </div>
-              </div>
-            ) : null}
+              ) : null}
 
-            <button
-              disabled={isSubmitting}
-              type={preRegistered ? "button" : "submit"}
-              onClick={
-                preRegistered
-                  ? () => {
-                      try {
-                        localStorage.setItem(
-                          "firstAccess",
-                          JSON.stringify({
-                            username,
-                            message: "Complete seu registro",
-                          })
-                        );
-                      } catch {
-                        // ignore localStorage errors
+              <button
+                disabled={isSubmitting}
+                type={preRegistered ? "button" : "submit"}
+                onClick={
+                  preRegistered
+                    ? () => {
+                        try {
+                          localStorage.setItem(
+                            "firstAccess",
+                            JSON.stringify({
+                              username,
+                              message: "Complete seu registro.",
+                            }),
+                          );
+                        } catch {
+                          // ignore localStorage errors
+                        }
+
+                        router.push("/register");
                       }
-                      router.push("/register");
-                    }
-                  : undefined
-              }
-              className={`btn ${preRegistered ? "btn-secondary w-full mt-2" : "btn btn-primary w-full mt-2 transition-all duration-300"} ${isWakingServer ? "opacity-75" : ""} ${isSuccess ? "btn-auth-success" : ""}`}
-              aria-live="polite"
-            >
-              {!preRegistered && isSuccess ? (
-                <span className="btn-auth-success__content">
-                  <span className="btn-auth-success__bar" aria-hidden />
-                  <span className="btn-auth-success__label">Autenticado</span>
-                </span>
-              ) : isWakingServer ? (
-                "Iniciando ambiente..."
-              ) : isSubmitting ? (
-                preRegistered ? "Aguarde..." : "Autenticando..."
-              ) : preRegistered ? (
-                "Registrar"
-              ) : (
-                "Entrar"
-              )}
-            </button>
-          </form>
-        )}
+                    : undefined
+                }
+                className={`btn ${
+                  preRegistered ? "btn-secondary" : "btn-primary"
+                } login-button ${isWakingServer ? "opacity-75" : ""} ${
+                  isSuccess && !preRegistered ? "btn-auth-success" : ""
+                }`}
+                aria-live="polite"
+              >
+                {!preRegistered && isSuccess ? (
+                  <span className="btn-auth-success__content">
+                    <span className="btn-auth-success__bar" aria-hidden />
+                    <span className="btn-auth-success__label">Autenticado</span>
+                  </span>
+                ) : isWakingServer ? (
+                  "Iniciando ambiente..."
+                ) : isSubmitting ? (
+                  "Autenticando..."
+                ) : preRegistered ? (
+                  "Registrar"
+                ) : (
+                  "Entrar"
+                )}
+              </button>
+            </form>
+          ) : (
+            <form onSubmit={handleRecoverByEmail} className="login-form">
+              <p className="login-card__copy login-card__copy--compact">
+                Digite seu e-mail para receber o link de redefinição.
+              </p>
 
-        {mode === "forgot" && (
-          <form onSubmit={handleRecoverByEmail} className="space-y-4">
-            <p className="text-sm text-foreground/80">
-              Digite seu e-mail para receber o link de redefinição.
-            </p>
-            <div>
-              <label className="text-sm font-medium">E-mail</label>
-              <input
-                className="input mt-1"
-                value={recoveryEmail}
-                onChange={(event) => setRecoveryEmail(event.target.value)}
-                placeholder="email@exemplo.com"
-                required
-                autoComplete="email"
-              />
-            </div>
-
-            {info ? (
-              <div className="msg-info">
-                <div className="text-sm">{info}</div>
+              <div className="login-field">
+                <label className="login-label" htmlFor="recovery-email">
+                  E-mail
+                </label>
+                <input
+                  id="recovery-email"
+                  className="input"
+                  value={recoveryEmail}
+                  onChange={(event) => setRecoveryEmail(event.target.value)}
+                  placeholder="email@exemplo.com"
+                  required
+                  autoComplete="email"
+                />
               </div>
-            ) : null}
 
-            {error ? (
-              <div className="msg-error">
-                <div className="text-sm">{error}</div>
-              </div>
-            ) : null}
+              {info ? (
+                <div className="msg-info">
+                  <div className="text-sm">{info}</div>
+                </div>
+              ) : null}
 
-              <button disabled={isSubmitting} className="btn btn-primary w-full mt-2">
-              {isSubmitting ? "Enviando..." : "Enviar recuperação"}
-            </button>
-            <button type="button" className="btn w-full mt-2" onClick={() => setMode("login")}>
-              Voltar
-            </button>
-          </form>
-        )}
+              {error ? (
+                <div className="msg-error">
+                  <div className="text-sm">{error}</div>
+                </div>
+              ) : null}
+
+              <button disabled={isSubmitting} className="btn btn-primary login-button">
+                {isSubmitting ? "Enviando..." : "Enviar recuperação"}
+              </button>
+
+              <button
+                type="button"
+                className="btn btn-secondary login-button"
+                onClick={() => {
+                  setError(null);
+                  setInfo(null);
+                  setMode("login");
+                }}
+              >
+                Voltar
+              </button>
+            </form>
+          )}
+        </div>
       </div>
     </main>
   );

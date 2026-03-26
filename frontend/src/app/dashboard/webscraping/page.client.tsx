@@ -39,6 +39,7 @@ function getRuntimeTone(status: RuntimePayload["status"] | null) {
 export default function WebscrapingClientPage() {
   const hasToken = useRequireAuth();
   const [loading, setLoading] = useState(true);
+  const [retryTick, setRetryTick] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [entryUrl, setEntryUrl] = useState<string | null>(null);
   const [runtime, setRuntime] = useState<RuntimePayload | null>(null);
@@ -49,6 +50,7 @@ export default function WebscrapingClientPage() {
     if (hasToken !== true) return;
     setLoading(true);
     setError(null);
+    let cancelled = false;
 
     (async () => {
       try {
@@ -56,6 +58,7 @@ export default function WebscrapingClientPage() {
           apiFetch<EntryPayload>("/modules/webscraping/entry"),
           apiFetch<ProfilePayload>("/profile/current-user"),
         ]);
+        if (cancelled) return;
         setRuntime(payload.runtime);
 
         const userName = (profile.name || profile.username || "").trim();
@@ -70,21 +73,42 @@ export default function WebscrapingClientPage() {
         }
 
         if (payload.runtime.status === "offline") {
+          setError(null);
           setEntryUrl(null);
           return;
         }
 
         setEntryUrl(`${url.pathname}${url.search}${url.hash}`);
       } catch (loadError) {
+        if (cancelled) return;
         const message =
           loadError instanceof Error ? loadError.message : "Falha ao abrir modulo Webscraping.";
         setError(message);
+        setEntryUrl(null);
         setRuntime(null);
       } finally {
-        setLoading(false);
+        if (!cancelled) {
+          setLoading(false);
+        }
       }
     })();
-  }, [hasToken]);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [hasToken, retryTick]);
+
+  useEffect(() => {
+    if (hasToken !== true || loading) return;
+    if (entryUrl) return;
+    if (!runtime && !error) return;
+
+    const retryTimer = window.setTimeout(() => {
+      setRetryTick((current) => current + 1);
+    }, 5000);
+
+    return () => window.clearTimeout(retryTimer);
+  }, [hasToken, loading, entryUrl, runtime, error]);
 
   useEffect(() => {
     if (hasToken !== true) return;
@@ -131,6 +155,8 @@ export default function WebscrapingClientPage() {
 
   if (!hasToken) return null;
 
+  const shouldShowRetry = !loading && !entryUrl;
+
   return (
     <DashboardScaffold
       title="Webscraping"
@@ -168,11 +194,27 @@ export default function WebscrapingClientPage() {
           />
         </section>
       ) : (
-        <div className="panel p-4 text-sm text-muted">
-          {runtime?.status === "offline"
-            ? "Modulo indisponivel por falha de infraestrutura ou configuracao."
-            : "Modulo indisponivel."}
-        </div>
+        <section className="panel p-4 text-sm text-muted space-y-3">
+          <div>
+            {runtime?.status === "offline"
+              ? "Modulo indisponivel por falha de infraestrutura ou configuracao."
+              : "Modulo indisponivel."}
+          </div>
+          {shouldShowRetry ? (
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={() => setRetryTick((current) => current + 1)}
+              >
+                Tentar novamente
+              </button>
+              <span className="text-xs opacity-80">
+                A tela tenta reconectar automaticamente em alguns segundos.
+              </span>
+            </div>
+          ) : null}
+        </section>
       )}
     </DashboardScaffold>
   );
