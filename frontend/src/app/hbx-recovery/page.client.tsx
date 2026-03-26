@@ -2215,11 +2215,12 @@ export default function HbxRecoveryClientPage() {
   );
   const composerBlockingIssues = useMemo(() => {
     const issues: string[] = [];
+    const rawName = String(templateComposer.name || "").trim();
     const bodyText = String(templateComposer.bodyText || "").trim();
     const footerText = String(templateComposer.footerText || "").trim();
     const headerText = String(templateComposer.headerText || "").trim();
 
-    if (!normalizedComposerName) {
+    if (rawName && !normalizedComposerName) {
       issues.push("Nome interno invalido. Use apenas letras minusculas, numeros e underscore.");
     }
     if (!bodyText) {
@@ -3455,6 +3456,10 @@ export default function HbxRecoveryClientPage() {
 
   async function uploadTemplateHeaderMedia(file: File) {
     if (!file) return;
+    if (!normalizedComposerName) {
+      setTemplateComposerError("Informe um nome interno valido antes de enviar a imagem.");
+      return;
+    }
     const isImage = ["image/jpeg", "image/png", "image/webp"].includes(String(file.type || ""));
     if (!isImage) {
       setTemplateComposerError("Use uma imagem JPG, PNG ou WEBP.");
@@ -4518,7 +4523,7 @@ export default function HbxRecoveryClientPage() {
                 type="button"
                 className="btn btn-primary btn-sm"
                 onClick={createMetaTemplate}
-                disabled={metaTemplateBusy === "create" || composerBlockingIssues.length > 0}
+                disabled={metaTemplateBusy === "create" || !normalizedComposerName || composerBlockingIssues.length > 0}
               >
                 {metaTemplateBusy === "create" ? "Criando..." : "Criar template na Meta"}
               </button>
@@ -7669,7 +7674,7 @@ export default function HbxRecoveryClientPage() {
                     type="button"
                     className="btn btn-primary btn-sm"
                     onClick={createMetaTemplate}
-                    disabled={metaTemplateBusy === "create" || composerBlockingIssues.length > 0}
+                    disabled={metaTemplateBusy === "create" || !normalizedComposerName || composerBlockingIssues.length > 0}
                   >
                     {metaTemplateBusy === "create" ? "Criando..." : "Criar template na Meta"}
                   </button>
