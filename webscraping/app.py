@@ -53,80 +53,80 @@ def build_call_script(
     city: str,
     user_name: str = "",
     company_name: str = "",
-        template: str = DEFAULT_SCRIPT_TEMPLATE,
+    template: str = DEFAULT_SCRIPT_TEMPLATE,
 ) -> str:
     speaker = user_name.strip() or "[SEU NOME]"
     company = company_name.strip() or "[SUA EMPRESA]"
-        script_template = template.strip() or DEFAULT_SCRIPT_TEMPLATE
-        try:
-                return script_template.format(
-                        speaker=speaker,
-                        company=company,
-                        name=name,
-                        city=city,
-                        segment=segment.lower(),
-                )
-        except KeyError:
-                return DEFAULT_SCRIPT_TEMPLATE.format(
-                        speaker=speaker,
-                        company=company,
-                        name=name,
-                        city=city,
-                        segment=segment.lower(),
-                )
+    script_template = template.strip() or DEFAULT_SCRIPT_TEMPLATE
+    try:
+        return script_template.format(
+            speaker=speaker,
+            company=company,
+            name=name,
+            city=city,
+            segment=segment.lower(),
+        )
+    except KeyError:
+        return DEFAULT_SCRIPT_TEMPLATE.format(
+            speaker=speaker,
+            company=company,
+            name=name,
+            city=city,
+            segment=segment.lower(),
+        )
 
 
 def build_whatsapp_url(phone_number: str, message_text: str) -> str:
-        digits = canonical_br_phone(phone_number)
-        if not digits:
-                return ""
-        return f"https://wa.me/55{digits}?text={quote(str(message_text or ''), safe='')}"
+    digits = canonical_br_phone(phone_number)
+    if not digits:
+        return ""
+    return f"https://wa.me/55{digits}?text={quote(str(message_text or ''), safe='')}"
 
 
 def build_call_url(phone_number: str) -> str:
-        digits = canonical_br_phone(phone_number)
-        if not digits:
-                return ""
-        return f"tel:+55{digits}"
+    digits = canonical_br_phone(phone_number)
+    if not digits:
+        return ""
+    return f"tel:+55{digits}"
 
 
 @st.cache_data(ttl=60 * 60 * 12, show_spinner=False)
 def cached_search_places(query: str, limit: int) -> list[dict[str, object]]:
-        return search_places(query=query, limit=limit)
+    return search_places(query=query, limit=limit)
 
 
 @st.cache_data(ttl=60 * 60 * 12, show_spinner=False)
 def cached_place_details(place_id: str) -> dict[str, object]:
-        return get_place_details(place_id)
+    return get_place_details(place_id)
 
 
 def get_search_history() -> list[dict[str, object]]:
-        return list(st.session_state.get(SEARCH_HISTORY_KEY, []))
+    return list(st.session_state.get(SEARCH_HISTORY_KEY, []))
 
 
 def save_search_history(entry: dict[str, object]) -> None:
-        current = get_search_history()
-        signature = (
-                str(entry.get("city") or "").strip().lower(),
-                str(entry.get("segment") or "").strip().lower(),
-                int(entry.get("quantity") or 0),
-                float(entry.get("min_rating") or 0),
-                int(entry.get("min_reviews") or 0),
-                str(entry.get("company_size_filter") or "").strip().lower(),
+    current = get_search_history()
+    signature = (
+        str(entry.get("city") or "").strip().lower(),
+        str(entry.get("segment") or "").strip().lower(),
+        int(entry.get("quantity") or 0),
+        float(entry.get("min_rating") or 0),
+        int(entry.get("min_reviews") or 0),
+        str(entry.get("company_size_filter") or "").strip().lower(),
+    )
+    filtered = []
+    for item in current:
+        item_signature = (
+            str(item.get("city") or "").strip().lower(),
+            str(item.get("segment") or "").strip().lower(),
+            int(item.get("quantity") or 0),
+            float(item.get("min_rating") or 0),
+            int(item.get("min_reviews") or 0),
+            str(item.get("company_size_filter") or "").strip().lower(),
         )
-        filtered = []
-        for item in current:
-                item_signature = (
-                        str(item.get("city") or "").strip().lower(),
-                        str(item.get("segment") or "").strip().lower(),
-                        int(item.get("quantity") or 0),
-                        float(item.get("min_rating") or 0),
-                        int(item.get("min_reviews") or 0),
-                        str(item.get("company_size_filter") or "").strip().lower(),
-                )
-                if item_signature != signature:
-                        filtered.append(item)
-        st.session_state[SEARCH_HISTORY_KEY] = [entry, *filtered][:SEARCH_HISTORY_LIMIT]
+        if item_signature != signature:
+            filtered.append(item)
+    st.session_state[SEARCH_HISTORY_KEY] = [entry, *filtered][:SEARCH_HISTORY_LIMIT]
 
 
 def apply_history_entry(entry: dict[str, object]) -> None:

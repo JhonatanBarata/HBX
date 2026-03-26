@@ -16,16 +16,46 @@ function createProductionBackup(inputEnv = resolveOperationsEnv()) {
 
   fs.mkdirSync(backupDir, { recursive: true });
 
-  run('docker', [
-    'run',
-    '--rm',
-    '-v',
-    `${backupDir}:/backup`,
-    'postgres:17-alpine',
-    'sh',
-    '-lc',
-    `pg_dump --clean --if-exists --no-owner --no-privileges '${databaseUrl}' -f /backup/${dumpFileName}`,
-  ]);
+  try {
+    run('docker', [
+      'run',
+      '--rm',
+      '-v',
+      `${backupDir}:/backup`,
+      'postgres:17-alpine',
+      'sh',
+      '-lc',
+      `pg_dump --clean --if-exists --no-owner --no-privileges '${databaseUrl}' -f /backup/${dumpFileName}`,
+    ]);
+  } catch (error) {
+    const reason = error && error.message ? error.message : String(error || 'docker unavailable');
+    fs.writeFileSync(
+      path.join(backupDir, manifestFileName),
+      JSON.stringify(
+        {
+          status: 'skipped',
+          createdAt: new Date().toISOString(),
+          databaseHost: parsed.host,
+          databaseName: parsed.databaseName,
+          dumpFile: null,
+          dumpBytes: 0,
+          reason,
+        },
+        null,
+        2,
+      ),
+      'utf8',
+    );
+
+    return {
+      ok: false,
+      backupSkipped: true,
+      reason,
+      backupDir,
+      dumpFile: null,
+      dumpBytes: 0,
+    };
+  }
 
   const dumpPath = path.join(backupDir, dumpFileName);
   const dumpStats = fs.statSync(dumpPath);
