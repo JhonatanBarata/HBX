@@ -272,8 +272,8 @@ async function main() {
   const changedFiles = String(status.stdout || '').trim();
 
   if (!changedFiles && !isDryRun) {
-    console.log('No local changes to publish. Publish skipped.');
-    return;
+    console.error('No local changes to publish.');
+    process.exit(1);
   }
 
   if (changedFiles) {
