@@ -1,21 +1,10 @@
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
-const http = require('http');
-const httpProxy = require('http-proxy');
 require('dotenv').config();
 
 const app = express();
 const PORT = process.env.FRONTEND_PORT || 3001;
-
-// Create proxy for WebSocket
-const proxy = httpProxy.createProxyServer({
-  target: process.env.BACKEND_URL || 'http://localhost:3000',
-  changeOrigin: true,
-  ws: true,
-  proxyTimeout: 15000,
-  timeout: 15000,
-});
 
 // Allow requests from frontend to backend based on BACKEND_URL env
 app.use(
@@ -25,22 +14,7 @@ app.use(
   })
 );
 app.use(express.json());
-
-// Serve Next.js static files and public directory
 app.use(express.static('public'));
-app.use(express.static('.next/standalone/public'));
-
-// Proxy for /hbx/webscraping (HTTP and WebSocket) BEFORE Next.js (important!)
-app.use('/hbx/webscraping', (req, res) => {
-  proxy.web(req, res, (err) => {
-    if (res.headersSent) return;
-    console.error('[frontend-proxy] Proxy error:', err?.message || err);
-    res.status(503).json({
-      code: 'proxy_error',
-      message: 'Erro ao conectar ao serviço backend.',
-    });
-  });
-});
 
 // WhatsApp webhook proxy (optional): receives Meta payload and forwards a neutral payload to the backend.
 // Never sends companyId; the backend resolves tenant via whatsappPhoneNumberId.
@@ -151,17 +125,6 @@ app.get('/pedir', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'pedir.html'));
 });
 
-// Create HTTP server to handle WebSocket upgrades
-const server = http.createServer(app);
-server.on('upgrade', (req, socket, head) => {
-  if (req.url.startsWith('/hbx/webscraping')) {
-    proxy.ws(req, socket, head, (err) => {
-      console.error('[frontend-proxy] WebSocket upgrade error:', err?.message || err);
-      socket.destroy();
-    });
-  }
-});
-
-server.listen(PORT, '0.0.0.0', () => {
+app.listen(PORT, '0.0.0.0', () => {
   console.log(`✅ Frontend rodando em http://localhost:${PORT}`);
 });
