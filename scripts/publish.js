@@ -248,6 +248,19 @@ function requiresBackendPreflight(changedFiles) {
   ));
 }
 
+function applyPublishVerifyDefaults(targetEnv, options = {}) {
+  const env = targetEnv;
+  const shouldRunStrictInfraVerify = Boolean(options.shouldRunStrictInfraVerify);
+  const current = String(env.PROD_VERIFY_WEBSCRAPING_REQUIRED || '').trim();
+
+  if (!current && !shouldRunStrictInfraVerify) {
+    env.PROD_VERIFY_WEBSCRAPING_REQUIRED = '0';
+    console.log('Frontend-only publish detected; webscraping verification will be optional for this run.');
+  }
+
+  return env;
+}
+
 async function main() {
   logStage('Preflight Validation');
   validateFileExpectations();
@@ -304,7 +317,9 @@ async function main() {
 
   const publishRemote = process.env.PUBLISH_REMOTE || 'origin';
   const publishBranch = process.env.PUBLISH_BRANCH || 'master';
-  const operationsEnv = resolveOperationsEnv();
+  const operationsEnv = applyPublishVerifyDefaults(resolveOperationsEnv(), {
+    shouldRunStrictInfraVerify: shouldRunBackendPreflight,
+  });
 
   logStage('Production Backup');
   const previousBackups = listProdBackupDirs();
