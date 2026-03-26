@@ -70,6 +70,7 @@ export default function WebscrapingClientPage() {
   const [error, setError] = useState<string | null>(null);
   const [entryUrl, setEntryUrl] = useState<string | null>(null);
   const [directUrl, setDirectUrl] = useState<string | null>(null);
+  const [fullscreenOpen, setFullscreenOpen] = useState(false);
   const [runtime, setRuntime] = useState<RuntimePayload | null>(null);
   const [sendInfo, setSendInfo] = useState<string | null>(null);
   const [sendError, setSendError] = useState<string | null>(null);
@@ -150,6 +151,15 @@ export default function WebscrapingClientPage() {
 
     return () => window.clearTimeout(retryTimer);
   }, [hasToken, loading, entryUrl, runtime, error]);
+
+  useEffect(() => {
+    if (!fullscreenOpen) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [fullscreenOpen]);
 
   useEffect(() => {
     if (hasToken !== true) return;
@@ -237,16 +247,25 @@ export default function WebscrapingClientPage() {
       {directUrl ? (
         <section className="panel p-4 mb-4 flex items-center justify-between gap-3">
           <div className="text-sm text-muted">
-            Se a area incorporada travar, abra o webscraping direto em uma nova aba.
+            Abra o webscraping em tela cheia. Se precisar, tambem da para abrir direto em outra aba.
           </div>
-          <a
-            href={directUrl}
-            target="_blank"
-            rel="noreferrer"
-            className="btn btn-primary"
-          >
-            Abrir Webscraping Direto
-          </a>
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={() => setFullscreenOpen(true)}
+            >
+              Abrir Webscraping em Tela Cheia
+            </button>
+            <a
+              href={directUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="btn btn-secondary"
+            >
+              Abrir Direto em Nova Aba
+            </a>
+          </div>
         </section>
       ) : null}
 
@@ -283,6 +302,45 @@ export default function WebscrapingClientPage() {
           ) : null}
         </section>
       )}
+
+      {fullscreenOpen && entryUrl ? (
+        <div className="fixed inset-0 z-100 bg-black/75 p-4 sm:p-6">
+          <div className="flex h-full flex-col rounded-2xl bg-white shadow-2xl overflow-hidden">
+            <div className="flex items-center justify-between border-b border-black/10 px-4 py-3">
+              <div>
+                <div className="text-base font-semibold text-slate-900">Webscraping em Tela Cheia</div>
+                <div className="text-xs text-slate-500">Modo temporario direto no servico publicado</div>
+              </div>
+              <div className="flex items-center gap-3">
+                {directUrl ? (
+                  <a
+                    href={directUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="btn btn-secondary"
+                  >
+                    Nova Aba
+                  </a>
+                ) : null}
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={() => setFullscreenOpen(false)}
+                >
+                  Fechar
+                </button>
+              </div>
+            </div>
+            <div className="min-h-0 flex-1 bg-slate-100">
+              <iframe
+                title="Modulo Webscraping Tela Cheia"
+                src={entryUrl}
+                className="h-full w-full border-0"
+              />
+            </div>
+          </div>
+        </div>
+      ) : null}
     </DashboardScaffold>
   );
 }
