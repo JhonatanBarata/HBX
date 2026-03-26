@@ -4,6 +4,7 @@ node_modules/
 **/dist/
 dist_electron/
 **/coverage/
+**/.firebase/
 postgres-data/
 .orchestrator/
 .vscode/
