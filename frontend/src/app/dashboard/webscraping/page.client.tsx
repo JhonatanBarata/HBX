@@ -30,6 +30,17 @@ type ProfilePayload = {
   company?: { name?: string | null } | null;
 };
 
+function resolveDirectWebscrapingUrl(healthUrl: string | null) {
+  if (!healthUrl) return null;
+  try {
+    const url = new URL(healthUrl);
+    if (!/^https?:$/.test(url.protocol)) return null;
+    return `${url.origin}/`;
+  } catch {
+    return null;
+  }
+}
+
 function getRuntimeTone(status: RuntimePayload["status"] | null) {
   if (status === "offline") return "alert-error";
   if (status === "degraded") return "alert-warning";
@@ -58,6 +69,7 @@ export default function WebscrapingClientPage() {
   const [retryTick, setRetryTick] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [entryUrl, setEntryUrl] = useState<string | null>(null);
+  const [directUrl, setDirectUrl] = useState<string | null>(null);
   const [runtime, setRuntime] = useState<RuntimePayload | null>(null);
   const [sendInfo, setSendInfo] = useState<string | null>(null);
   const [sendError, setSendError] = useState<string | null>(null);
@@ -80,27 +92,40 @@ export default function WebscrapingClientPage() {
         const userName = (profile.name || profile.username || "").trim();
         const companyName = (profile.company?.name || "").trim();
 
-        const url = new URL(payload.url, window.location.origin);
+        const proxyUrl = new URL(payload.url, window.location.origin);
+        const directBaseUrl = resolveDirectWebscrapingUrl(payload.runtime.healthUrl);
+        const directRuntimeUrl = directBaseUrl ? new URL(directBaseUrl) : null;
         if (userName) {
-          url.searchParams.set("user_name", userName);
+          proxyUrl.searchParams.set("user_name", userName);
+          directRuntimeUrl?.searchParams.set("user_name", userName);
         }
         if (companyName) {
-          url.searchParams.set("company_name", companyName);
+          proxyUrl.searchParams.set("company_name", companyName);
+          directRuntimeUrl?.searchParams.set("company_name", companyName);
         }
 
         if (payload.runtime.status === "offline") {
           setError(null);
           setEntryUrl(null);
+          setDirectUrl(null);
           return;
         }
 
-        setEntryUrl(`${url.pathname}${url.search}${url.hash}`);
+        const nextDirectUrl = directRuntimeUrl?.toString() || null;
+        const shouldUseDirect = Boolean(nextDirectUrl && directRuntimeUrl?.origin !== window.location.origin);
+        setDirectUrl(nextDirectUrl);
+        setEntryUrl(
+          shouldUseDirect
+            ? nextDirectUrl
+            : `${proxyUrl.pathname}${proxyUrl.search}${proxyUrl.hash}`,
+        );
       } catch (loadError) {
         if (cancelled) return;
         const message =
           loadError instanceof Error ? loadError.message : "Falha ao abrir modulo Webscraping.";
         setError(message);
         setEntryUrl(null);
+        setDirectUrl(null);
         setRuntime(null);
       } finally {
         if (!cancelled) {
@@ -130,7 +155,15 @@ export default function WebscrapingClientPage() {
     if (hasToken !== true) return;
 
     async function handleBridgeMessage(event: MessageEvent) {
-      if (event.origin !== window.location.origin) return;
+      const allowedOrigins = new Set<string>([window.location.origin]);
+      if (directUrl) {
+        try {
+          allowedOrigins.add(new URL(directUrl).origin);
+        } catch {
+          // ignore malformed direct URL
+        }
+      }
+      if (!allowedOrigins.has(event.origin)) return;
       const data = event.data as { type?: string; payload?: { to?: string; body?: string } } | null;
       if (!data || data.type !== "HBX_SEND_WHATSAPP") return;
 
@@ -157,7 +190,7 @@ export default function WebscrapingClientPage() {
 
     window.addEventListener("message", handleBridgeMessage);
     return () => window.removeEventListener("message", handleBridgeMessage);
-  }, [hasToken]);
+  }, [directUrl, hasToken]);
 
   if (hasToken === null) {
     return (
@@ -172,6 +205,7 @@ export default function WebscrapingClientPage() {
   if (!hasToken) return null;
 
   const shouldShowRetry = !loading && !entryUrl;
+  const usingDirectFallback = Boolean(entryUrl && directUrl && entryUrl === directUrl);
 
   return (
     <DashboardScaffold
@@ -189,11 +223,32 @@ export default function WebscrapingClientPage() {
                 O modulo esta em modo demonstracao controlado.
               </div>
             ) : null}
+            {usingDirectFallback ? (
+              <div className="text-xs opacity-80">
+                Modo temporario ativo: o HBX esta abrindo o servico direto publicado porque a integracao por proxy ainda esta falhando no WebSocket.
+              </div>
+            ) : null}
           </div>
         </div>
       ) : null}
       {sendInfo ? <div className="alert alert-success">{sendInfo}</div> : null}
       {sendError ? <div className="alert alert-error">{sendError}</div> : null}
+
+      {directUrl ? (
+        <section className="panel p-4 mb-4 flex items-center justify-between gap-3">
+          <div className="text-sm text-muted">
+            Se a area incorporada travar, abra o webscraping direto em uma nova aba.
+          </div>
+          <a
+            href={directUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="btn btn-primary"
+          >
+            Abrir Webscraping Direto
+          </a>
+        </section>
+      ) : null}
 
       {loading ? (
         <div className="panel p-4 text-sm text-muted">Carregando módulo...</div>
