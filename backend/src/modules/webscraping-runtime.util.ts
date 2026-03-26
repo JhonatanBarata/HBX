@@ -41,18 +41,12 @@ function shouldUseLocalWebscrapingFallback(env: NodeJS.ProcessEnv) {
   return String(env.NODE_ENV || '').trim().toLowerCase() !== 'production';
 }
 
-function isRenderHostedEnvironment(env: NodeJS.ProcessEnv) {
-  return Boolean(
-    String(env.RENDER_EXTERNAL_HOSTNAME || '').trim() ||
-      String(env.RENDER_SERVICE_ID || '').trim() ||
-      String(env.RENDER_INSTANCE_ID || '').trim(),
-  );
-}
-
 function resolveHostedWebscrapingFallback(env: NodeJS.ProcessEnv) {
   const configuredFallback = normalizeServiceUrl(env.WEBSCRAPING_INTERNAL_FALLBACK_URL);
   if (configuredFallback) return configuredFallback;
-  if (isRenderHostedEnvironment(env)) return DEFAULT_RENDER_WEBSCRAPING_INTERNAL_URL;
+  if (String(env.NODE_ENV || '').trim().toLowerCase() === 'production') {
+    return DEFAULT_RENDER_WEBSCRAPING_INTERNAL_URL;
+  }
   return null;
 }
 
