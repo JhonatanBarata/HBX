@@ -81,7 +81,6 @@ export default function WebsiteClientPage() {
   const [success, setSuccess] = useState<string | null>(null);
   const [portalMessage, setPortalMessage] = useState<string | null>(null);
   const [portalPublicUrl, setPortalPublicUrl] = useState<string | null>(null);
-  const [portalAdminUrl, setPortalAdminUrl] = useState<string | null>(null);
 
   const [companies, setCompanies] = useState<MasterCompany[]>([]);
   const [templates, setTemplates] = useState<WebsiteTemplate[]>([]);
@@ -112,7 +111,6 @@ export default function WebsiteClientPage() {
     setLaunchingPortal(true);
     setPortalMessage(null);
     setPortalPublicUrl(null);
-    setPortalAdminUrl(null);
 
     try {
       const preferred = await apiFetch<WebsitePortalPayload>("/website/portal?target=admin");
@@ -129,14 +127,9 @@ export default function WebsiteClientPage() {
       }
 
       setPortalPublicUrl(String(resolved?.websitePublicUrl || "").trim() || null);
-      setPortalAdminUrl(
-        resolved?.adminAllowed
-          ? String(resolved?.websiteAdminUrl || "").trim() || null
-          : null,
-      );
       setPortalMessage(
         String(resolved?.message || "").trim() ||
-          "Nao foi possivel abrir o website automaticamente para este usuario.",
+          "Nao foi possivel abrir o admin automaticamente. Tente novamente para gerar uma nova abertura protegida pelo HBX.",
       );
     } catch (loadError) {
       const message =
@@ -321,11 +314,6 @@ export default function WebsiteClientPage() {
             {portalPublicUrl ? (
               <button type="button" className="btn btn-primary" onClick={() => goToUrl(portalPublicUrl)}>
                 Abrir website
-              </button>
-            ) : null}
-            {portalAdminUrl ? (
-              <button type="button" className="btn btn-secondary" onClick={() => goToUrl(portalAdminUrl)}>
-                Abrir admin
               </button>
             ) : null}
             <button type="button" className="btn btn-ghost" onClick={() => launchCompanyWebsite()} disabled={launchingPortal}>
