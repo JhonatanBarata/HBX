@@ -71,9 +71,8 @@ export default function WebscrapingClientPage() {
   const [entryUrl, setEntryUrl] = useState<string | null>(null);
   const [directUrl, setDirectUrl] = useState<string | null>(null);
   const [fullscreenOpen, setFullscreenOpen] = useState(false);
+  const [didAutoOpen, setDidAutoOpen] = useState(false);
   const [runtime, setRuntime] = useState<RuntimePayload | null>(null);
-  const [sendInfo, setSendInfo] = useState<string | null>(null);
-  const [sendError, setSendError] = useState<string | null>(null);
 
   useEffect(() => {
     if (hasToken !== true) return;
@@ -162,45 +161,10 @@ export default function WebscrapingClientPage() {
   }, [fullscreenOpen]);
 
   useEffect(() => {
-    if (hasToken !== true) return;
-
-    async function handleBridgeMessage(event: MessageEvent) {
-      const allowedOrigins = new Set<string>([window.location.origin]);
-      if (directUrl) {
-        try {
-          allowedOrigins.add(new URL(directUrl).origin);
-        } catch {
-          // ignore malformed direct URL
-        }
-      }
-      if (!allowedOrigins.has(event.origin)) return;
-      const data = event.data as { type?: string; payload?: { to?: string; body?: string } } | null;
-      if (!data || data.type !== "HBX_SEND_WHATSAPP") return;
-
-      const to = String(data.payload?.to || "").trim();
-      const body = String(data.payload?.body || "").trim();
-      if (!to || !body) return;
-
-      try {
-        await apiFetch("/whatsapp/send", {
-          method: "POST",
-          body: JSON.stringify({ to, body, messageType: "text", sourceModule: "webscraping" }),
-        });
-        setSendError(null);
-        setSendInfo(`Mensagem enfileirada para ${to}.`);
-      } catch (sendError) {
-        const message =
-          sendError instanceof Error
-            ? sendError.message
-            : "Falha ao enfileirar mensagem do Webscraping.";
-        setSendInfo(null);
-        setSendError(message);
-      }
-    }
-
-    window.addEventListener("message", handleBridgeMessage);
-    return () => window.removeEventListener("message", handleBridgeMessage);
-  }, [directUrl, hasToken]);
+    if (!entryUrl || didAutoOpen) return;
+    setFullscreenOpen(true);
+    setDidAutoOpen(true);
+  }, [didAutoOpen, entryUrl]);
 
   if (hasToken === null) {
     return (
@@ -241,8 +205,6 @@ export default function WebscrapingClientPage() {
           </div>
         </div>
       ) : null}
-      {sendInfo ? <div className="alert alert-success">{sendInfo}</div> : null}
-      {sendError ? <div className="alert alert-error">{sendError}</div> : null}
 
       {directUrl ? (
         <section className="panel p-4 mb-4 flex items-center justify-between gap-3">
@@ -272,12 +234,29 @@ export default function WebscrapingClientPage() {
       {loading ? (
         <div className="panel p-4 text-sm text-muted">Carregando módulo...</div>
       ) : entryUrl ? (
-        <section className="panel p-2">
-          <iframe
-            title="Modulo Webscraping"
-            src={entryUrl}
-            className="w-full min-h-[78vh] rounded-xl"
-          />
+        <section className="panel p-5 text-sm text-muted space-y-3">
+          <div>
+            O modulo abre em tela cheia dentro do sistema para evitar o embed comprimido.
+          </div>
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={() => setFullscreenOpen(true)}
+            >
+              Abrir Webscraping Agora
+            </button>
+            {directUrl ? (
+              <a
+                href={directUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="btn btn-secondary"
+              >
+                Abrir em Nova Aba
+              </a>
+            ) : null}
+          </div>
         </section>
       ) : (
         <section className="panel p-4 text-sm text-muted space-y-3">
@@ -304,8 +283,8 @@ export default function WebscrapingClientPage() {
       )}
 
       {fullscreenOpen && entryUrl ? (
-        <div className="fixed inset-0 z-100 bg-black/75 p-4 sm:p-6">
-          <div className="flex h-full flex-col rounded-2xl bg-white shadow-2xl overflow-hidden">
+        <div className="fixed inset-0 z-100 bg-slate-950/80 p-0 sm:p-3">
+          <div className="flex h-full flex-col bg-white shadow-2xl overflow-hidden sm:rounded-2xl">
             <div className="flex items-center justify-between border-b border-black/10 px-4 py-3">
               <div>
                 <div className="text-base font-semibold text-slate-900">Webscraping em Tela Cheia</div>
@@ -336,6 +315,7 @@ export default function WebscrapingClientPage() {
                 title="Modulo Webscraping Tela Cheia"
                 src={entryUrl}
                 className="h-full w-full border-0"
+                referrerPolicy="strict-origin-when-cross-origin"
               />
             </div>
           </div>
