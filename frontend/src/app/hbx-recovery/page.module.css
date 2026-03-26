@@ -2633,6 +2633,79 @@
   color: var(--muted);
 }
 
+.templateBodyHeaderRow {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.7rem;
+}
+
+.templateVariablePickerTrigger {
+  flex-shrink: 0;
+}
+
+.templateVariablePicker {
+  position: absolute;
+  top: calc(100% + 0.45rem);
+  right: 0;
+  z-index: 8;
+  width: min(360px, 100%);
+  display: grid;
+  gap: 0.8rem;
+  padding: 0.95rem;
+  border-radius: 18px;
+  border: 1px solid color-mix(in srgb, var(--line) 88%, white);
+  background:
+    radial-gradient(circle at top right, rgba(15, 118, 110, 0.08), transparent 38%),
+    linear-gradient(180deg, #ffffff, #f7f9fc 70%, #f2f4f8);
+  box-shadow: 0 24px 34px -28px rgba(15, 23, 42, 0.45);
+}
+
+.templateVariablePickerSection {
+  display: grid;
+  gap: 0.6rem;
+}
+
+.templateVariablePickerSection strong {
+  font-size: 0.78rem;
+  color: var(--foreground);
+}
+
+.templateVariablePickerGrid {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.templateVariablePickerButton {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.7rem;
+  width: 100%;
+  border-radius: 14px;
+  border: 1px solid color-mix(in srgb, var(--line) 86%, white);
+  background: color-mix(in srgb, var(--surface) 94%, white);
+  padding: 0.7rem 0.8rem;
+  text-align: left;
+  color: var(--foreground);
+}
+
+.templateVariablePickerButton span {
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.templateVariablePickerButton small {
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+
+.templateVariablePickerButton:hover {
+  border-color: color-mix(in srgb, var(--brand) 26%, var(--line));
+  background: color-mix(in srgb, var(--brand) 8%, var(--surface));
+}
+
 .templateVariableMap {
   display: grid;
   gap: 0.65rem;
@@ -2718,6 +2791,13 @@
   flex-wrap: wrap;
   align-items: center;
   gap: 0.55rem;
+}
+
+@media (max-width: 720px) {
+  .templateVariablePicker {
+    position: static;
+    width: 100%;
+  }
 }
 
 .templateMetaIssueList {

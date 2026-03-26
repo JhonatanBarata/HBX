@@ -111,6 +111,19 @@ export function extractNumericTemplateVariablesInOrder(textRaw: string | null | 
   return variables;
 }
 
+function extractTemplateVariablesInOrder(textRaw: string | null | undefined) {
+  const variables: string[] = [];
+  const pattern = /\{\{\s*([\p{L}\p{N}_]+)\s*\}\}/gu;
+  let match: RegExpExecArray | null = null;
+  while (true) {
+    match = pattern.exec(String(textRaw || ''));
+    if (!match?.[1]) break;
+    const key = String(match[1]).trim();
+    if (key && !variables.includes(key)) variables.push(key);
+  }
+  return variables;
+}
+
 function cloneComponent(component: unknown) {
   if (!component || typeof component !== 'object' || Array.isArray(component)) {
     return {} as Record<string, unknown>;
@@ -160,14 +173,19 @@ export function buildNormalizedMetaTemplate(
   const headerFormat = headerComponent
     ? normalizeMetaTemplateHeaderFormat(String(headerComponent.format || ''))
     : normalizeMetaTemplateHeaderFormat(fallback.headerFormat);
-  const bodyText = bodyComponent
-    ? String(bodyComponent.text ?? '')
-    : String(fallback.bodyText ?? '');
-  const variableOrder = bodyComponent
-    ? extractNumericTemplateVariablesInOrder(bodyText)
-    : Array.isArray(fallback.variableKeys)
-      ? fallback.variableKeys.map((item) => String(item || '').trim()).filter((item) => item.length > 0)
-      : extractNumericTemplateVariablesInOrder(bodyText);
+  const fallbackBodyText =
+    fallback.bodyText !== undefined && fallback.bodyText !== null
+      ? String(fallback.bodyText)
+      : '';
+  const bodyText = fallbackBodyText || (bodyComponent ? String(bodyComponent.text ?? '') : '');
+  const fallbackVariableKeys = Array.isArray(fallback.variableKeys)
+    ? fallback.variableKeys.map((item) => String(item || '').trim()).filter((item) => item.length > 0)
+    : [];
+  const variableOrder = fallbackVariableKeys.length
+    ? fallbackVariableKeys
+    : bodyComponent
+      ? extractNumericTemplateVariablesInOrder(String(bodyComponent.text ?? ''))
+      : extractTemplateVariablesInOrder(bodyText);
   const buttons = buttonComponents.flatMap((component) => {
     const entries = Array.isArray(component.buttons) ? component.buttons : [];
     return entries

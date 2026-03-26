@@ -969,6 +969,13 @@ export class HbxRecoveryService {
       headerMediaContentType: string | null;
       headerMediaBase64: string | null;
     };
+    localTemplate?: {
+      headerText: string | null;
+      bodyText: string | null;
+      footerText: string | null;
+      buttonLabels: string[];
+      variableKeys: string[];
+    };
   }): RecoveryMetaTemplate {
     const normalized = buildNormalizedMetaTemplate({
       name: input.name,
@@ -979,10 +986,15 @@ export class HbxRecoveryService {
       rejectedReason: input.rejectedReason,
       components: input.components,
       fallback: {
+        headerText: input.localTemplate?.headerText || null,
         headerMediaUrl: input.localMedia?.headerMediaUrl || null,
         headerMediaFileName: input.localMedia?.headerMediaFileName || null,
         headerMediaContentType: input.localMedia?.headerMediaContentType || null,
         headerMediaBase64: input.localMedia?.headerMediaBase64 || null,
+        bodyText: input.localTemplate?.bodyText || null,
+        footerText: input.localTemplate?.footerText || null,
+        buttonLabels: input.localTemplate?.buttonLabels || [],
+        variableKeys: input.localTemplate?.variableKeys || [],
       },
     });
     return {
@@ -1039,6 +1051,15 @@ export class HbxRecoveryService {
         headerMediaFileName: normalized.header.mediaFileName,
         headerMediaContentType: normalized.header.mediaContentType,
         headerMediaBase64: normalized.header.mediaBase64,
+      },
+      localTemplate: {
+        headerText: normalized.header.text,
+        bodyText: normalized.body.text,
+        footerText: normalized.footer.text,
+        buttonLabels: normalized.buttons
+          .map((button) => String(button.text || ''))
+          .filter((button) => button.length > 0),
+        variableKeys: normalized.body.variableOrder,
       },
     });
   }
@@ -1590,6 +1611,61 @@ export class HbxRecoveryService {
     };
   }
 
+  private async persistTemplateMediaFromPublicUrl(
+    sourceUrl: string,
+    companyId: number,
+    templateNameRaw: string,
+    languageRaw: string | null | undefined,
+    moduleKeyRaw?: string | null,
+  ) {
+    const response = await axios.get<ArrayBuffer>(sourceUrl, {
+      responseType: 'arraybuffer',
+      timeout: 30000,
+      maxRedirects: 5,
+      validateStatus: (status) => status >= 200 && status < 400,
+    });
+    const contentType = String(response.headers['content-type'] || '').trim().toLowerCase();
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(contentType)) {
+      throw new BadRequestException(
+        'A URL informada nao retornou uma imagem JPG, PNG ou WEBP valida para o template.',
+      );
+    }
+
+    const fileBuffer = Buffer.from(response.data);
+    if (!fileBuffer.length) {
+      throw new BadRequestException('A URL informada nao retornou uma imagem valida para o template.');
+    }
+
+    const extension =
+      this.fileExtensionFromMime(contentType) ||
+      extname(new URL(sourceUrl).pathname).toLowerCase() ||
+      '.jpg';
+    const aliasBaseName =
+      this.templateMediaAliasBaseName(templateNameRaw, languageRaw) ||
+      `${Date.now()}-${randomUUID().slice(0, 8)}`;
+    const fileName = `${aliasBaseName}${extension}`;
+    const uploadDir = this.metaTemplateUploadDir();
+    mkdirSync(uploadDir, { recursive: true });
+    writeFileSync(join(uploadDir, fileName), fileBuffer);
+
+    const publicUrl = this.buildTemplateHeaderMediaPublicUrl(
+      companyId,
+      templateNameRaw,
+      languageRaw,
+      moduleKeyRaw,
+    );
+    if (!publicUrl) {
+      throw new BadRequestException('Nao foi possivel gerar a URL publica estavel da imagem do template.');
+    }
+
+    return {
+      headerMediaUrl: publicUrl,
+      headerMediaFileName: fileName,
+      headerMediaContentType: contentType,
+      headerMediaBase64: fileBuffer.toString('base64'),
+    };
+  }
+
   private metaTemplateUploadDir() {
     return join(process.cwd(), 'public', 'uploads', 'hbx-recovery', 'meta-templates');
   }
@@ -1856,6 +1932,15 @@ export class HbxRecoveryService {
                 headerMediaBase64: previousTemplate?.headerMediaBase64 || null,
               }
             : undefined,
+          localTemplate: previousTemplate
+            ? {
+                headerText: previousTemplate.headerText || null,
+                bodyText: previousTemplate.bodyText || null,
+                footerText: previousTemplate.footerText || null,
+                buttonLabels: previousTemplate.buttonLabels || [],
+                variableKeys: previousTemplate.variableKeys || [],
+              }
+            : undefined,
         }),
       );
     }
@@ -2093,6 +2178,32 @@ export class HbxRecoveryService {
       registry = await this.syncMetaTemplatesByCompanyId(companyId, { moduleKey });
     }
     const key = this.metaTemplateKey(name, language);
+    let importedMedia:
+      | {
+          headerMediaUrl: string;
+          headerMediaFileName: string;
+          headerMediaContentType: string;
+          headerMediaBase64: string;
+        }
+      | null = null;
+    const selectedTemplate = (registry.templates || []).find(
+      (item) => this.metaTemplateKey(item.name, item.language) === key,
+    );
+    if (selectedTemplate && hasHeaderMediaUrl) {
+      const normalized = this.getNormalizedMetaTemplate(selectedTemplate);
+      if (
+        headerMediaUrl &&
+        normalizeMetaTemplateHeaderFormat(normalized.header.format) === 'IMAGE'
+      ) {
+        importedMedia = await this.persistTemplateMediaFromPublicUrl(
+          headerMediaUrl,
+          companyId,
+          name,
+          language,
+          moduleKey,
+        );
+      }
+    }
     let changed = false;
     registry.templates = (registry.templates || []).map((item) => {
       if (this.metaTemplateKey(item.name, item.language) !== key) return item;
@@ -2100,15 +2211,21 @@ export class HbxRecoveryService {
       const normalized = this.getNormalizedMetaTemplate(item);
       const nextHeaderMediaUrl =
         hasHeaderMediaUrl && this.isMetaMediaHeaderFormat(normalized.header.format)
-          ? headerMediaUrl
+          ? importedMedia?.headerMediaUrl || headerMediaUrl
           : item.headerMediaUrl;
       return this.rebuildMetaTemplateRecord({
         ...item,
         hbxActive: Boolean(dto?.active),
         headerMediaUrl: nextHeaderMediaUrl,
-        headerMediaFileName: hasHeaderMediaUrl ? null : item.headerMediaFileName,
-        headerMediaContentType: hasHeaderMediaUrl ? null : item.headerMediaContentType,
-        headerMediaBase64: hasHeaderMediaUrl ? null : item.headerMediaBase64,
+        headerMediaFileName: hasHeaderMediaUrl
+          ? importedMedia?.headerMediaFileName || null
+          : item.headerMediaFileName,
+        headerMediaContentType: hasHeaderMediaUrl
+          ? importedMedia?.headerMediaContentType || null
+          : item.headerMediaContentType,
+        headerMediaBase64: hasHeaderMediaUrl
+          ? importedMedia?.headerMediaBase64 || null
+          : item.headerMediaBase64,
       });
     });
     if (!changed) {
@@ -2252,11 +2369,26 @@ export class HbxRecoveryService {
     let registry = await this.syncMetaTemplatesByCompanyId(companyId, { moduleKey });
     const createdKey = this.metaTemplateKey(nameRaw, language);
     const pendingMedia = (registry.pendingMedia || []).find((item) => item.templateKey === createdKey) || null;
+    const importedMedia =
+      this.isMetaMediaHeaderFormat(headerFormat) && headerMediaUrl && !pendingMedia && headerFormat === 'IMAGE'
+        ? await this.persistTemplateMediaFromPublicUrl(
+            headerMediaUrl,
+            companyId,
+            nameRaw,
+            language,
+            moduleKey,
+          )
+        : null;
     registry.templates = (registry.templates || []).map((item) =>
       this.metaTemplateKey(item.name, item.language) === createdKey
         ? this.rebuildMetaTemplateRecord({
             ...item,
             hbxActive: Boolean(dto?.activateInHbx),
+            headerText: headerFormat === 'TEXT' ? headerText || item.headerText : item.headerText,
+            bodyText: bodyTemplate.friendlyText || item.bodyText,
+            footerText: footerText || item.footerText,
+            buttonLabels: buttonLabels.length ? buttonLabels : item.buttonLabels,
+            variableKeys: bodyTemplate.variableKeys.length ? bodyTemplate.variableKeys : item.variableKeys,
             headerHandle:
               this.isMetaMediaHeaderFormat(headerFormat)
                 ? headerHandle || pendingMedia?.headerHandle || item.headerHandle
@@ -2264,20 +2396,27 @@ export class HbxRecoveryService {
             headerMediaUrl:
               this.isMetaMediaHeaderFormat(headerFormat)
                 ? this.buildTemplateHeaderMediaPublicUrl(companyId, nameRaw, language, moduleKey) ||
+                  importedMedia?.headerMediaUrl ||
                   headerMediaUrl ||
                   item.headerMediaUrl
                 : item.headerMediaUrl,
             headerMediaFileName:
               this.isMetaMediaHeaderFormat(headerFormat)
-                ? pendingMedia?.headerMediaFileName || item.headerMediaFileName
+                ? pendingMedia?.headerMediaFileName ||
+                  importedMedia?.headerMediaFileName ||
+                  item.headerMediaFileName
                 : item.headerMediaFileName,
             headerMediaContentType:
               this.isMetaMediaHeaderFormat(headerFormat)
-                ? pendingMedia?.headerMediaContentType || item.headerMediaContentType
+                ? pendingMedia?.headerMediaContentType ||
+                  importedMedia?.headerMediaContentType ||
+                  item.headerMediaContentType
                 : item.headerMediaContentType,
             headerMediaBase64:
               this.isMetaMediaHeaderFormat(headerFormat)
-                ? pendingMedia?.headerMediaBase64 || item.headerMediaBase64
+                ? pendingMedia?.headerMediaBase64 ||
+                  importedMedia?.headerMediaBase64 ||
+                  item.headerMediaBase64
                 : item.headerMediaBase64,
           })
         : item,
