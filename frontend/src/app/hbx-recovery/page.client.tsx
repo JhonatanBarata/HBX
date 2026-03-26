@@ -608,6 +608,10 @@ function renderTemplatePreviewText(text: string, samples: Record<string, string>
   });
 }
 
+function buildTemplateVariableToken(variableKey: string) {
+  return `{{${normalizeTemplateVariableKey(variableKey)}}}`;
+}
+
 function loadImageElement(file: Blob) {
   return new Promise<HTMLImageElement>((resolve, reject) => {
     const objectUrl = URL.createObjectURL(file);
@@ -1713,6 +1717,7 @@ export default function HbxRecoveryClientPage() {
   );
   const [templateComposerError, setTemplateComposerError] = useState<string | null>(null);
   const [templateComposerPreviewVisible, setTemplateComposerPreviewVisible] = useState(false);
+  const [templateVariablePickerOpen, setTemplateVariablePickerOpen] = useState(false);
   const [templatePreviewRendered, setTemplatePreviewRendered] = useState(false);
   const [templatePreviewTransitionStage, setTemplatePreviewTransitionStage] = useState<
     "idle" | "exit" | "enter"
@@ -1955,6 +1960,9 @@ export default function HbxRecoveryClientPage() {
   const registrationDatePickerRef = useRef<HTMLInputElement | null>(null);
   const excelInputRef = useRef<HTMLInputElement | null>(null);
   const templateHeaderFileInputRef = useRef<HTMLInputElement | null>(null);
+  const templateBodyFieldRef = useRef<HTMLDivElement | null>(null);
+  const templateBodyTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const templateBodySelectionRef = useRef<{ start: number; end: number }>({ start: 0, end: 0 });
 
   const customers: CustomerRow[] = customerSource.map((customer) => ({
     ...customer,
@@ -2162,6 +2170,14 @@ export default function HbxRecoveryClientPage() {
     () => extractTemplateVariablesInOrder(templateComposer.bodyText),
     [templateComposer.bodyText],
   );
+  const composerNamedVariables = useMemo(
+    () => composerOrderedVariables.filter((item) => !isNumericTemplateVariableKey(item)),
+    [composerOrderedVariables],
+  );
+  const composerNumericVariables = useMemo(
+    () => composerOrderedVariables.filter((item) => isNumericTemplateVariableKey(item)),
+    [composerOrderedVariables],
+  );
   const composerPreviewButtons = useMemo(
     () => parseTemplateButtonLines(previewComposer.buttonsText),
     [previewComposer.buttonsText],
@@ -2186,12 +2202,8 @@ export default function HbxRecoveryClientPage() {
     const required = ["empresa", "cliente", "data_servico"];
     return required.filter((item) => !composerVariables.includes(item));
   }, [composerVariables]);
-  const composerVariableMap = useMemo(
-    () =>
-      composerOrderedVariables.map((key, index) => ({
-        friendly: `{{${key}}}`,
-        meta: `{{${index + 1}}}`,
-      })),
+  const composerVariableTokens = useMemo(
+    () => composerOrderedVariables.map((key) => buildTemplateVariableToken(key)),
     [composerOrderedVariables],
   );
   const composerVariableExamples = useMemo(
@@ -2203,6 +2215,43 @@ export default function HbxRecoveryClientPage() {
       ),
     [composerOrderedVariables, previewTemplateSamples, templateComposer.variableExamples],
   );
+  const availableNamedTemplateVariables = useMemo(() => {
+    const variables = new Map<string, RecoveryBotVariableDefinition>();
+    for (const item of DEFAULT_BOT_VARIABLE_CATALOG) {
+      variables.set(item.key, item);
+    }
+    for (const item of botConfig.variableCatalog || []) {
+      const key = normalizeTemplateVariableKey(String(item?.key || ""));
+      if (!key) continue;
+      variables.set(key, {
+        key,
+        label: String(item?.label || variables.get(key)?.label || key).trim(),
+        example: String(item?.example || variables.get(key)?.example || "").trim(),
+        description: String(item?.description || variables.get(key)?.description || "").trim(),
+        scope: (["shared", "recovery", "atendimento"] as const).includes(item?.scope)
+          ? item.scope
+          : (variables.get(key)?.scope || "shared"),
+        required: item?.required ?? variables.get(key)?.required ?? false,
+      });
+    }
+    for (const key of composerNamedVariables) {
+      if (variables.has(key)) continue;
+      variables.set(key, {
+        key,
+        label: key.replace(/_/g, " "),
+        example: previewTemplateSamples[key] || "",
+        description: "Variavel nomeada detectada no BODY atual.",
+        scope: "shared",
+        required: false,
+      });
+    }
+    return Array.from(variables.values()).sort((left, right) => left.key.localeCompare(right.key));
+  }, [botConfig.variableCatalog, composerNamedVariables, previewTemplateSamples]);
+  const availableNumericTemplateVariables = useMemo(() => {
+    const values = new Set<string>(composerNumericVariables);
+    Array.from({ length: 10 }, (_value, index) => String(index + 1)).forEach((item) => values.add(item));
+    return Array.from(values).sort((left, right) => Number(left) - Number(right));
+  }, [composerNumericVariables]);
   const normalizedComposerName = useMemo(
     () =>
       String(templateComposer.name || "")
@@ -2329,8 +2378,8 @@ export default function HbxRecoveryClientPage() {
       {
         label: "Variaveis",
         detail:
-          composerVariableMap.length > 0
-            ? composerVariableMap.map((item) => `${item.friendly} -> ${item.meta}`).join(" | ")
+          composerVariableTokens.length > 0
+            ? composerVariableTokens.join(" | ")
             : templateComposer.variableMode === "NAME"
               ? "Use nomes como {{empresa}} e {{funcionario}}"
               : "Use numeros como {{1}} e {{2}}",
@@ -2387,7 +2436,7 @@ export default function HbxRecoveryClientPage() {
       composerButtonLines,
       composerUsesNamedVariables,
       composerUsesNumericVariables,
-      composerVariableMap,
+      composerVariableTokens,
       missingRecoveryVars.length,
       normalizedComposerName,
       templateComposer.bodyText,
@@ -2399,6 +2448,46 @@ export default function HbxRecoveryClientPage() {
       templateComposer.variableMode,
     ],
   );
+  const syncTemplateBodySelection = () => {
+    const textarea = templateBodyTextareaRef.current;
+    if (!textarea) return;
+    templateBodySelectionRef.current = {
+      start: textarea.selectionStart ?? 0,
+      end: textarea.selectionEnd ?? textarea.selectionStart ?? 0,
+    };
+  };
+
+  const insertTemplateVariableAtCursor = (variableKey: string) => {
+    const token = buildTemplateVariableToken(variableKey);
+    const textarea = templateBodyTextareaRef.current;
+    const text = String(templateComposer.bodyText || "");
+    const start = textarea ? textarea.selectionStart ?? 0 : templateBodySelectionRef.current.start;
+    const end = textarea ? textarea.selectionEnd ?? start : templateBodySelectionRef.current.end;
+    const nextText = `${text.slice(0, start)}${token}${text.slice(end)}`;
+    const nextCaret = start + token.length;
+    updateTemplateComposer((current) => ({
+      ...current,
+      bodyText: nextText,
+    }));
+    templateBodySelectionRef.current = { start: nextCaret, end: nextCaret };
+    window.requestAnimationFrame(() => {
+      const activeTextarea = templateBodyTextareaRef.current;
+      if (!activeTextarea) return;
+      activeTextarea.focus();
+      activeTextarea.setSelectionRange(nextCaret, nextCaret);
+    });
+  };
+
+  useEffect(() => {
+    if (!templateVariablePickerOpen) return;
+    const handlePointerDown = (event: MouseEvent) => {
+      if (!templateBodyFieldRef.current?.contains(event.target as Node)) {
+        setTemplateVariablePickerOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handlePointerDown);
+    return () => document.removeEventListener("mousedown", handlePointerDown);
+  }, [templateVariablePickerOpen]);
   const previewHeaderText = useMemo(
     () => renderTemplatePreviewText(previewComposer.headerText, previewTemplateSamples),
     [previewComposer.headerText, previewTemplateSamples],
@@ -4366,16 +4455,67 @@ export default function HbxRecoveryClientPage() {
               </>
             ) : null}
 
-            <label className={styles.fieldBlock}>
-              <span>Mensagem (BODY)</span>
+            <div className={styles.fieldBlock} ref={templateBodyFieldRef}>
+              <div className={styles.templateBodyHeaderRow}>
+                <span>Mensagem (BODY)</span>
+                <button
+                  type="button"
+                  className={`btn btn-secondary btn-sm ${styles.templateVariablePickerTrigger}`}
+                  onClick={() => setTemplateVariablePickerOpen((current) => !current)}
+                >
+                  Variaveis
+                </button>
+              </div>
+              {templateVariablePickerOpen ? (
+                <div className={styles.templateVariablePicker}>
+                  <div className={styles.templateVariablePickerSection}>
+                    <strong>Variaveis por nome</strong>
+                    <div className={styles.templateVariablePickerGrid}>
+                      {availableNamedTemplateVariables.map((item) => (
+                        <button
+                          key={`named-variable-${item.key}`}
+                          type="button"
+                          className={styles.templateVariablePickerButton}
+                          onMouseDown={(event) => event.preventDefault()}
+                          onClick={() => insertTemplateVariableAtCursor(item.key)}
+                        >
+                          <span>{buildTemplateVariableToken(item.key)}</span>
+                          <small>{item.label}</small>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className={styles.templateVariablePickerSection}>
+                    <strong>Variaveis por numero</strong>
+                    <div className={styles.templateVariablePickerGrid}>
+                      {availableNumericTemplateVariables.map((item) => (
+                        <button
+                          key={`numeric-variable-${item}`}
+                          type="button"
+                          className={styles.templateVariablePickerButton}
+                          onMouseDown={(event) => event.preventDefault()}
+                          onClick={() => insertTemplateVariableAtCursor(item)}
+                        >
+                          <span>{buildTemplateVariableToken(item)}</span>
+                          <small>Parametro numerico</small>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              ) : null}
               <textarea
+                ref={templateBodyTextareaRef}
                 className="field"
                 value={templateComposer.bodyText}
+                onClick={syncTemplateBodySelection}
                 onChange={(event) =>
                   updateTemplateComposer((current) => ({ ...current, bodyText: event.target.value }))
                 }
+                onKeyUp={syncTemplateBodySelection}
+                onSelect={syncTemplateBodySelection}
               />
-            </label>
+            </div>
             <label className={styles.fieldBlock}>
               <span>Rodape (opcional)</span>
               <input
@@ -4409,14 +4549,19 @@ export default function HbxRecoveryClientPage() {
               <div className={styles.templateVariableGuide}>
                 <div className={styles.templateVariableGuideHeader}>
                   <div className={styles.templateVariableGuideHeaderRow}>
-                    <strong>Parametros detectados no body</strong>
+                    <strong>
+                      {templateComposer.variableMode === "NUMBER"
+                        ? "Parametros numericos detectados no body"
+                        : "Variaveis detectadas no body"}
+                    </strong>
                     <span className={`${styles.stateBadge} ${styles.stateBot}`}>
                       {`${composerOrderedVariables.length} parametro${composerOrderedVariables.length > 1 ? "s" : ""}`}
                     </span>
                   </div>
                   <p>
-                    A Meta transforma cada placeholder em um parametro numerado. Defina abaixo o
-                    exemplo que vai junto para aprovacao.
+                    {templateComposer.variableMode === "NUMBER"
+                      ? "Defina abaixo o valor manual de exemplo para cada parametro numerico."
+                      : "Os placeholders abaixo permanecem nomeados e sao preservados exatamente como escritos no HBX."}
                   </p>
                 </div>
                 <div className={styles.templateVariableGuideGrid}>
@@ -4429,11 +4574,17 @@ export default function HbxRecoveryClientPage() {
                             {`{{${variable}}}`}
                           </span>
                           <span className={`${styles.stateBadge} ${styles.stateBot}`}>
-                            {`Parametro {{${index + 1}}}`}
+                            {isNumericTemplateVariableKey(variable)
+                              ? "Variavel numerica"
+                              : "Variavel nomeada"}
                           </span>
                         </div>
                         <label className={styles.fieldBlock}>
-                          <span>Exemplo enviado para a Meta</span>
+                          <span>
+                            {isNumericTemplateVariableKey(variable)
+                              ? "Exemplo manual do parametro"
+                              : "Exemplo da variavel"}
+                          </span>
                           <input
                             className="field"
                             value={composerVariableExamples[normalizedKey] || ""}
@@ -4442,31 +4593,14 @@ export default function HbxRecoveryClientPage() {
                             }
                           />
                           <small className={styles.templateFieldMeta}>
-                            Esse valor entra como sample no pedido de aprovacao do template.
+                            {isNumericTemplateVariableKey(variable)
+                              ? "Informe manualmente o valor de exemplo desse parametro numerico."
+                              : "Esse valor e usado como exemplo do placeholder sem renomear a variavel."}
                           </small>
                         </label>
                       </div>
                     );
                   })}
-                </div>
-              </div>
-            ) : null}
-
-            {composerVariableMap.length > 0 ? (
-              <div className={styles.templateVariableMap}>
-                <strong>
-                  {templateComposer.variableMode === "NAME"
-                    ? "Como a Meta vai numerar os parametros"
-                    : "Parametros detectados no body"}
-                </strong>
-                <div className={styles.templateVariableMapGrid}>
-                  {composerVariableMap.map((item) => (
-                    <span key={`${item.friendly}-${item.meta}`} className={styles.templateVariableMapItem}>
-                      {templateComposer.variableMode === "NAME"
-                        ? `${item.friendly} -> ${item.meta}`
-                        : `Parametro ${item.meta}`}
-                    </span>
-                  ))}
                 </div>
               </div>
             ) : null}
@@ -7564,16 +7698,67 @@ export default function HbxRecoveryClientPage() {
                   </>
                 ) : null}
 
-                <label className={styles.fieldBlock}>
-                  <span>Mensagem (BODY)</span>
+                <div className={styles.fieldBlock} ref={templateBodyFieldRef}>
+                  <div className={styles.templateBodyHeaderRow}>
+                    <span>Mensagem (BODY)</span>
+                    <button
+                      type="button"
+                      className={`btn btn-secondary btn-sm ${styles.templateVariablePickerTrigger}`}
+                      onClick={() => setTemplateVariablePickerOpen((current) => !current)}
+                    >
+                      Variaveis
+                    </button>
+                  </div>
+                  {templateVariablePickerOpen ? (
+                    <div className={styles.templateVariablePicker}>
+                      <div className={styles.templateVariablePickerSection}>
+                        <strong>Variaveis por nome</strong>
+                        <div className={styles.templateVariablePickerGrid}>
+                          {availableNamedTemplateVariables.map((item) => (
+                            <button
+                              key={`deck-named-variable-${item.key}`}
+                              type="button"
+                              className={styles.templateVariablePickerButton}
+                              onMouseDown={(event) => event.preventDefault()}
+                              onClick={() => insertTemplateVariableAtCursor(item.key)}
+                            >
+                              <span>{buildTemplateVariableToken(item.key)}</span>
+                              <small>{item.label}</small>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      <div className={styles.templateVariablePickerSection}>
+                        <strong>Variaveis por numero</strong>
+                        <div className={styles.templateVariablePickerGrid}>
+                          {availableNumericTemplateVariables.map((item) => (
+                            <button
+                              key={`deck-numeric-variable-${item}`}
+                              type="button"
+                              className={styles.templateVariablePickerButton}
+                              onMouseDown={(event) => event.preventDefault()}
+                              onClick={() => insertTemplateVariableAtCursor(item)}
+                            >
+                              <span>{buildTemplateVariableToken(item)}</span>
+                              <small>Parametro numerico</small>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  ) : null}
                   <textarea
+                    ref={templateBodyTextareaRef}
                     className="field"
                     value={templateComposer.bodyText}
+                    onClick={syncTemplateBodySelection}
                     onChange={(event) =>
                       updateTemplateComposer((current) => ({ ...current, bodyText: event.target.value }))
                     }
+                    onKeyUp={syncTemplateBodySelection}
+                    onSelect={syncTemplateBodySelection}
                   />
-                </label>
+                </div>
                 <label className={styles.fieldBlock}>
                   <span>Rodape (opcional)</span>
                   <input
@@ -7603,21 +7788,62 @@ export default function HbxRecoveryClientPage() {
                   ))}
                 </div>
 
-                {composerVariableMap.length > 0 ? (
-                  <div className={styles.templateVariableMap}>
-                    <strong>
-                      {templateComposer.variableMode === "NAME"
-                        ? "Mapa de variaveis HBX -> Meta"
-                        : "Variaveis detectadas no body"}
-                    </strong>
-                    <div className={styles.templateVariableMapGrid}>
-                      {composerVariableMap.map((item) => (
-                        <span key={`${item.friendly}-${item.meta}`} className={styles.templateVariableMapItem}>
-                          {templateComposer.variableMode === "NAME"
-                            ? `${item.friendly} = ${item.meta}`
-                            : item.meta}
+                {composerOrderedVariables.length > 0 ? (
+                  <div className={styles.templateVariableGuide}>
+                    <div className={styles.templateVariableGuideHeader}>
+                      <div className={styles.templateVariableGuideHeaderRow}>
+                        <strong>
+                          {templateComposer.variableMode === "NUMBER"
+                            ? "Parametros numericos detectados no body"
+                            : "Variaveis detectadas no body"}
+                        </strong>
+                        <span className={`${styles.stateBadge} ${styles.stateBot}`}>
+                          {`${composerOrderedVariables.length} parametro${composerOrderedVariables.length > 1 ? "s" : ""}`}
                         </span>
-                      ))}
+                      </div>
+                      <p>
+                        {templateComposer.variableMode === "NUMBER"
+                          ? "Defina abaixo o valor manual de exemplo para cada parametro numerico."
+                          : "Os placeholders abaixo permanecem nomeados e sao preservados exatamente como escritos no HBX."}
+                      </p>
+                    </div>
+                    <div className={styles.templateVariableGuideGrid}>
+                      {composerOrderedVariables.map((variable) => {
+                        const normalizedKey = normalizeTemplateVariableKey(variable);
+                        return (
+                          <div key={`deck-composer-variable-guide-${normalizedKey}`} className={styles.templateVariableGuideRow}>
+                            <div className={styles.templateVariableGuideMeta}>
+                              <span className={`${styles.stateBadge} ${styles.stateWaiting}`}>
+                                {`{{${variable}}}`}
+                              </span>
+                              <span className={`${styles.stateBadge} ${styles.stateBot}`}>
+                                {isNumericTemplateVariableKey(variable)
+                                  ? "Variavel numerica"
+                                  : "Variavel nomeada"}
+                              </span>
+                            </div>
+                            <label className={styles.fieldBlock}>
+                              <span>
+                                {isNumericTemplateVariableKey(variable)
+                                  ? "Exemplo manual do parametro"
+                                  : "Exemplo da variavel"}
+                              </span>
+                              <input
+                                className="field"
+                                value={composerVariableExamples[normalizedKey] || ""}
+                                onChange={(event) =>
+                                  updateTemplateComposerVariableExample(variable, event.target.value)
+                                }
+                              />
+                              <small className={styles.templateFieldMeta}>
+                                {isNumericTemplateVariableKey(variable)
+                                  ? "Informe manualmente o valor de exemplo desse parametro numerico."
+                                  : "Esse valor e usado como exemplo do placeholder sem renomear a variavel."}
+                              </small>
+                            </label>
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
                 ) : null}
