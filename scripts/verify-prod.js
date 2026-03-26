@@ -68,7 +68,7 @@ async function verifyProduction(inputEnv = resolveOperationsEnv()) {
     }
 
     if (verifyWebscrapingRequired) {
-      const webscrapingHealthUrl = `${frontendUrl}/hbx/webscraping/healthz`;
+      const webscrapingHealthUrl = `${frontendUrl}/hbx/webscraping/_stcore/health`;
       const webscrapingHealthText = await requestText(webscrapingHealthUrl);
       if (String(webscrapingHealthText).trim().toLowerCase() !== 'ok') {
         throw new Error(`Unexpected webscraping health payload from ${webscrapingHealthUrl}: ${webscrapingHealthText}`);
@@ -80,7 +80,7 @@ async function verifyProduction(inputEnv = resolveOperationsEnv()) {
       };
     } else {
       webscrapingHealth = {
-        url: `${frontendUrl}/hbx/webscraping/healthz`,
+        url: `${frontendUrl}/hbx/webscraping/_stcore/health`,
         status: 'skipped',
         body: 'skipped by PROD_VERIFY_WEBSCRAPING_REQUIRED=0',
       };
