@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type {
   ChangeEvent as ReactChangeEvent,
   CSSProperties,
@@ -764,6 +764,39 @@ type NewDebtorForm = {
 };
 
 type RecoveryTab = "recovery" | "register" | "payments" | "messages" | "templates" | "bot";
+
+type HbxRecoveryClientPageProps = {
+  embedded?: boolean;
+};
+
+type RecoveryShellProps = {
+  embedded: boolean;
+  actions: ReactNode;
+  children: ReactNode;
+};
+
+function RecoveryShell({ embedded, actions, children }: RecoveryShellProps) {
+  if (embedded) {
+    return (
+      <>
+        {actions}
+        {children}
+      </>
+    );
+  }
+
+  return (
+    <DashboardScaffold
+      title="Atendimento"
+      description="Subarea de inadimplencia com score de risco, cobrança automatizada e leitura clara do impacto financeiro."
+      showDashboardShortcut={false}
+      layoutMode="workspace"
+      actions={actions}
+    >
+      {children}
+    </DashboardScaffold>
+  );
+}
 
 function normalizeRecoveryTab(value: string | null | undefined): RecoveryTab | null {
   const normalized = String(value || "").trim().toLowerCase();
@@ -1690,14 +1723,19 @@ function syncBotConfigWithMetaTemplates(
   });
 }
 
-export default function HbxRecoveryClientPage() {
+export default function HbxRecoveryClientPage({ embedded = false }: HbxRecoveryClientPageProps = {}) {
   const hasToken = useRequireAuth();
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const recoveryTabParamName = embedded ? "recoveryTab" : "tab";
   const requestedTab = useMemo(
-    () => normalizeRecoveryTab(searchParams?.get("tab")) || "messages",
-    [searchParams],
+    () => {
+      const nextTab = normalizeRecoveryTab(searchParams?.get(recoveryTabParamName)) || "messages";
+      if (embedded && nextTab === "register") return "messages";
+      return nextTab;
+    },
+    [embedded, recoveryTabParamName, searchParams],
   );
   const [drawerCustomerId, setDrawerCustomerId] = useState<string | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -1848,8 +1886,8 @@ export default function HbxRecoveryClientPage() {
     window.dispatchEvent(
       new CustomEvent("hbx-tech-assistant:page-context", {
         detail: {
-          moduleKey: "hbx_recovery",
-          route: "/hbx-recovery",
+          moduleKey: "atendimento",
+          route: "/dashboard/inbox/recovery",
           summary: summaryParts.join(", "),
           tags: [
             activeTab,
@@ -5580,9 +5618,9 @@ export default function HbxRecoveryClientPage() {
     if (!pathname) return;
     const params = new URLSearchParams(searchParams?.toString() || "");
     if (nextTab === "messages") {
-      params.delete("tab");
+      params.delete(recoveryTabParamName);
     } else {
-      params.set("tab", nextTab);
+      params.set(recoveryTabParamName, nextTab);
     }
     const nextUrl = params.toString() ? `${pathname}?${params.toString()}` : pathname;
     router.replace(nextUrl, { scroll: false });
@@ -6620,14 +6658,22 @@ export default function HbxRecoveryClientPage() {
         </div>
       ) : null}
 
-      <DashboardScaffold
-        title="Recovery"
-        description="Gestão inteligente de inadimplência com score de risco, cobrança automatizada e leitura clara do impacto financeiro."
-        showDashboardShortcut={false}
-        layoutMode="workspace"
+      <RecoveryShell
+        embedded={embedded}
         actions={
           <div className={styles.heroActions}>
-              <div className={styles.heroTabGroup} role="tablist" aria-label="Guias do Recovery">
+              <div className={styles.heroTabGroup} role="tablist" aria-label="Guias da inadimplencia">
+              {!embedded ? (
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={false}
+                  className={styles.heroTab}
+                  onClick={() => window.location.assign("/dashboard/inbox")}
+                >
+                  Atendimento
+                </button>
+              ) : null}
               <button
                 type="button"
                 role="tab"
@@ -6635,7 +6681,7 @@ export default function HbxRecoveryClientPage() {
                 className={activeTab === "recovery" ? styles.heroTabActive : styles.heroTab}
                 onClick={() => handleTabChange("recovery")}
               >
-                Recovery
+                Inadimplencia
               </button>
               <button
                 type="button"
@@ -6643,6 +6689,7 @@ export default function HbxRecoveryClientPage() {
                 aria-selected={activeTab === "register"}
                 className={activeTab === "register" ? styles.heroTabActive : styles.heroTab}
                 onClick={() => handleTabChange("register")}
+                style={embedded ? { display: "none" } : undefined}
               >
                 Tabela de inadimplentes
               </button>
@@ -6673,16 +6720,27 @@ export default function HbxRecoveryClientPage() {
               >
                 Templates Meta
               </button>
-              <button
-                type="button"
-                role="tab"
-                aria-selected={activeTab === "bot"}
-                className={activeTab === "bot" ? styles.heroTabActive : styles.heroTab}
-                onClick={() => handleTabChange("bot")}
-              >
-                Editor do bot
-              </button>
+              {!embedded ? (
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={activeTab === "bot"}
+                  className={activeTab === "bot" ? styles.heroTabActive : styles.heroTab}
+                  onClick={() => handleTabChange("bot")}
+                >
+                  Editor do bot
+                </button>
+              ) : null}
             </div>
+            {embedded ? (
+              <ChatIconButton
+                icon="gear"
+                label="Editor"
+                title="Configurar editor do bot"
+                aria-label="Configurar editor do bot"
+                onClick={() => handleTabChange("bot")}
+              />
+            ) : null}
           </div>
         }
       >
@@ -6695,7 +6753,7 @@ export default function HbxRecoveryClientPage() {
                 : ""
           }`}
         >
-        {renderedTab === "register" ? (
+        {renderedTab === "register" && !embedded ? (
           <section className={`panel ${styles.sectionCard} ${styles.registerPanel}`}>
             <div className={styles.sectionHeader}>
               <div>
@@ -9462,7 +9520,7 @@ export default function HbxRecoveryClientPage() {
         */}
         </div>
 
-      </DashboardScaffold>
+      </RecoveryShell>
 
       <ClientDrawer
         open={drawerOpen}

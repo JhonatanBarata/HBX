@@ -11,6 +11,7 @@ import {
 import {
   ChatActionGrid,
   ChatAvatar,
+  ChatBadge,
   ChatComposer,
   ChatDockPanel,
   ChatEmptyState,
@@ -360,6 +361,7 @@ export default function InboxClientPage() {
   const [sending, setSending] = useState(false);
   const [botStudioOpen, setBotStudioOpen] = useState(false);
   const [agendaStudioOpen, setAgendaStudioOpen] = useState(false);
+  const [contextTab, setContextTab] = useState<"conversa" | "financeiro" | "agenda" | "automacao">("conversa");
   const [botConfig, setBotConfig] = useState<AtendimentoBotConfig>(DEFAULT_ATENDIMENTO_BOT_CONFIG);
   const [agendaConfig, setAgendaConfig] = useState<AtendimentoAgendaConfig>(
     DEFAULT_ATENDIMENTO_AGENDA_CONFIG,
@@ -1310,109 +1312,159 @@ export default function InboxClientPage() {
           {!selectedConversation ? (
             <ChatEmptyState title="Sem contexto ativo">Abra uma conversa para liberar os atalhos operacionais.</ChatEmptyState>
           ) : (
-            <ChatSideGrid>
-              <ChatInfoCard
-                title="Resumo do cliente"
-                meta={
-                  hasRecoveryCapability
-                    ? selectedConversation.routeTarget || "atendimento"
-                    : "atendimento"
-                }
-              >
-                {buildAtendimentoContextSummary({
-                  conversation: selectedConversation,
-                  displayName: selectedConversationDisplayName,
-                  statusLabel: selectedConversationStatusMeta?.label ?? "-",
-                  updatedAtLabel: formatDateLabel(selectedConversation.updatedAt, mounted),
-                  blockedAtLabel: selectedBlocked
-                    ? formatDateLabel(selectedConversation.blockedAt, mounted)
-                    : null,
-                  formatCurrency,
-                  allowRecoveryCapability: hasRecoveryCapability,
-                }).map((item) => (
-                  <p key={item.label}>
-                    <strong>{item.label}:</strong> {item.value}
-                  </p>
-                ))}
-              </ChatInfoCard>
-
-              <ChatInfoCard title="Acoes rapidas" meta="Operacao">
-                <ChatActionGrid>
-                  <ConversationActionList
-                    actions={buildAtendimentoContextActions({
-                      conversation: selectedConversation,
-                      selectedStatus,
-                      selectedBlocked,
-                      allowRecoveryCapability: hasRecoveryCapability,
-                      openAutomation: () => setBotStudioOpen(true),
-                      openAgenda: () => {
-                        setActiveTab("agenda");
-                        setAgendaStudioOpen(true);
-                        setBotStudioOpen(false);
-                      },
-                      updateStatus,
-                      blockConversation,
-                      unblockConversation,
-                    })}
+            <>
+              <div className={styles.sectionHead}>
+                <div className={recoveryStyles.heroTabGroup} role="tablist" aria-label="Contexto do cliente">
+                  <button
+                    type="button"
+                    className={contextTab === "conversa" ? recoveryStyles.heroTabActive : recoveryStyles.heroTab}
+                    onClick={() => setContextTab("conversa")}
+                  >
+                    Conversa
+                  </button>
+                  <button
+                    type="button"
+                    className={contextTab === "financeiro" ? recoveryStyles.heroTabActive : recoveryStyles.heroTab}
+                    onClick={() => setContextTab("financeiro")}
+                  >
+                    Financeiro
+                  </button>
+                  <button
+                    type="button"
+                    className={contextTab === "agenda" ? recoveryStyles.heroTabActive : recoveryStyles.heroTab}
+                    onClick={() => setContextTab("agenda")}
+                  >
+                    Agenda
+                  </button>
+                  <button
+                    type="button"
+                    className={contextTab === "automacao" ? recoveryStyles.heroTabActive : recoveryStyles.heroTab}
+                    onClick={() => setContextTab("automacao")}
+                  >
+                    Automação
+                  </button>
+                </div>
+                <div className={styles.headerActions}>
+                  {selectedConversation.routeTarget === "recovery" ? (
+                    <ChatBadge tone="warning">Recovery</ChatBadge>
+                  ) : null}
+                  <ChatIconButton
+                    icon="gear"
+                    label="Editor"
+                    onClick={() => setBotStudioOpen(true)}
+                    title="Abrir editor do bot"
                   />
-                </ChatActionGrid>
-              </ChatInfoCard>
+                </div>
+              </div>
 
-              {hasRecoveryCapability && selectedConversation.recoveryCustomerId ? (
-                <ChatInfoCard
-                  title="Recovery"
-                  meta={selectedConversation.recoveryStatus || "cobranca"}
-                >
-                  {buildAtendimentoRecoverySummary({
-                    conversation: selectedConversation,
-                    formatCurrency,
-                  }).map((item) => (
-                    <p key={item.label}>
-                      <strong>{item.label}:</strong> {item.value}
-                    </p>
-                  ))}
+              {contextTab === "conversa" ? (
+                <ChatSideGrid>
+                  <ChatInfoCard
+                    title="Resumo do cliente"
+                    meta={
+                      hasRecoveryCapability
+                        ? selectedConversation.routeTarget || "atendimento"
+                        : "atendimento"
+                    }
+                  >
+                    {buildAtendimentoContextSummary({
+                      conversation: selectedConversation,
+                      displayName: selectedConversationDisplayName,
+                      statusLabel: selectedConversationStatusMeta?.label ?? "-",
+                      updatedAtLabel: formatDateLabel(selectedConversation.updatedAt, mounted),
+                      blockedAtLabel: selectedBlocked
+                        ? formatDateLabel(selectedConversation.blockedAt, mounted)
+                        : null,
+                      formatCurrency,
+                      allowRecoveryCapability: hasRecoveryCapability,
+                    }).map((item) => (
+                      <p key={item.label}>
+                        <strong>{item.label}:</strong> {item.value}
+                      </p>
+                    ))}
+                  </ChatInfoCard>
 
-                  {buildAtendimentoRecoveryPaymentHistory(selectedConversation).length > 0 ? (
-                    <>
-                      <ChatFieldNote>Ultimos pagamentos e links desta cobranca.</ChatFieldNote>
-                      <div className={styles.recoveryPaymentHistory}>
-                        {buildAtendimentoRecoveryPaymentHistory(selectedConversation).map((payment) => (
-                          <article key={payment.id} className={styles.recoveryPaymentRow}>
-                            <div>
-                              <strong>{formatCurrency(payment.amount)}</strong>
-                              <p>
-                                {formatAtendimentoRecoveryPaymentStatusLabel(payment.status)}
-                                {payment.chargeType
-                                  ? ` • ${payment.chargeType === "parcelado" ? "Parcelado" : "A vista"}`
-                                  : ""}
-                              </p>
-                              <p>
-                                {formatDateLabel(
-                                  getAtendimentoRecoveryPaymentDate(payment),
-                                  mounted,
-                                )}
-                              </p>
-                            </div>
-                            {payment.paymentUrl ? (
-                              <a
-                                href={payment.paymentUrl}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="btn btn-secondary btn-sm"
-                              >
-                                Abrir link
-                              </a>
-                            ) : null}
-                          </article>
-                        ))}
-                      </div>
-                    </>
-                  ) : (
-                    <ChatFieldNote>Nenhum pagamento recente vinculado a esta cobranca.</ChatFieldNote>
-                  )}
+                  <ChatInfoCard title="Acoes rapidas" meta="Operacao">
+                    <ChatActionGrid>
+                      <ConversationActionList
+                        actions={buildAtendimentoContextActions({
+                          conversation: selectedConversation,
+                          selectedStatus,
+                          selectedBlocked,
+                          allowRecoveryCapability: hasRecoveryCapability,
+                          openAutomation: () => setBotStudioOpen(true),
+                          openAgenda: () => {
+                            setActiveTab("agenda");
+                            setAgendaStudioOpen(true);
+                            setBotStudioOpen(false);
+                          },
+                          updateStatus,
+                          blockConversation,
+                          unblockConversation,
+                        })}
+                      />
+                    </ChatActionGrid>
+                  </ChatInfoCard>
+                </ChatSideGrid>
+              ) : null}
+
+              {contextTab === "financeiro" ? (
+                hasRecoveryCapability && selectedConversation.recoveryCustomerId ? (
+                  <ChatInfoCard title="Recovery" meta={selectedConversation.recoveryStatus || "cobranca"}>
+                    {buildAtendimentoRecoverySummary({
+                      conversation: selectedConversation,
+                      formatCurrency,
+                    }).map((item) => (
+                      <p key={item.label}>
+                        <strong>{item.label}:</strong> {item.value}
+                      </p>
+                    ))}
+
+                    {buildAtendimentoRecoveryPaymentHistory(selectedConversation).length > 0 ? (
+                      <>
+                        <ChatFieldNote>Ultimos pagamentos e links desta cobranca.</ChatFieldNote>
+                        <div className={styles.recoveryPaymentHistory}>
+                          {buildAtendimentoRecoveryPaymentHistory(selectedConversation).map((payment) => (
+                            <article key={payment.id} className={styles.recoveryPaymentRow}>
+                              <div>
+                                <strong>{formatCurrency(payment.amount)}</strong>
+                                <p>
+                                  {formatAtendimentoRecoveryPaymentStatusLabel(payment.status)}
+                                  {payment.chargeType
+                                    ? ` • ${payment.chargeType === "parcelado" ? "Parcelado" : "A vista"}`
+                                    : ""}
+                                </p>
+                                <p>{formatDateLabel(getAtendimentoRecoveryPaymentDate(payment), mounted)}</p>
+                              </div>
+                              {payment.paymentUrl ? (
+                                <a href={payment.paymentUrl} target="_blank" rel="noreferrer" className="btn btn-secondary btn-sm">
+                                  Abrir link
+                                </a>
+                              ) : null}
+                            </article>
+                          ))}
+                        </div>
+                      </>
+                    ) : (
+                      <ChatFieldNote>Nenhum pagamento recente vinculado a esta cobranca.</ChatFieldNote>
+                    )}
+                  </ChatInfoCard>
+                ) : (
+                  <ChatEmptyState title="Sem dados financeiros">Nenhum dado de cobrança disponível para este cliente.</ChatEmptyState>
+                )
+              ) : null}
+
+              {contextTab === "agenda" ? <div>{renderAgendaPanel()}</div> : null}
+
+              {contextTab === "automacao" ? (
+                <ChatInfoCard title="Automação" meta="Editor">
+                  <p>Abra o editor do bot para ajustar regras e respostas.</p>
+                  <div className={styles.headerActions}>
+                    <ChatIconButton icon="gear" onClick={() => setBotStudioOpen(true)} title="Abrir editor" />
+                  </div>
                 </ChatInfoCard>
               ) : null}
-            </ChatSideGrid>
+            </>
           )}
         </ConversationContextPanel>
       ),
