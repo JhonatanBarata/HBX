@@ -5,6 +5,8 @@ import DashboardScaffold from "@/components/DashboardScaffold";
 import { apiFetch } from "../_lib/api";
 import { useRequireAuth } from "../_lib/useRequireAuth";
 
+const BACKEND_PUBLIC_URL = (process.env.NEXT_PUBLIC_API_URL ?? "").replace(/\/$/, "");
+
 type RuntimePayload = {
   status: "online" | "degraded" | "offline";
   code: string;
@@ -80,7 +82,10 @@ export default function WebscrapingClientPage() {
         const userName = (profile.name || profile.username || "").trim();
         const companyName = (profile.company?.name || "").trim();
 
-        const url = new URL(payload.url, window.location.origin);
+        const url = new URL(
+          payload.url,
+          BACKEND_PUBLIC_URL || window.location.origin,
+        );
         if (userName) {
           url.searchParams.set("user_name", userName);
         }
@@ -94,7 +99,7 @@ export default function WebscrapingClientPage() {
           return;
         }
 
-        setEntryUrl(`${url.pathname}${url.search}${url.hash}`);
+        setEntryUrl(url.toString());
       } catch (loadError) {
         if (cancelled) return;
         const message =
@@ -130,7 +135,15 @@ export default function WebscrapingClientPage() {
     if (hasToken !== true) return;
 
     async function handleBridgeMessage(event: MessageEvent) {
-      if (event.origin !== window.location.origin) return;
+      const allowedOrigins = new Set<string>([window.location.origin]);
+      if (entryUrl) {
+        try {
+          allowedOrigins.add(new URL(entryUrl, window.location.origin).origin);
+        } catch {
+          // ignore malformed runtime URL
+        }
+      }
+      if (!allowedOrigins.has(event.origin)) return;
       const data = event.data as { type?: string; payload?: { to?: string; body?: string } } | null;
       if (!data || data.type !== "HBX_SEND_WHATSAPP") return;
 
@@ -157,7 +170,7 @@ export default function WebscrapingClientPage() {
 
     window.addEventListener("message", handleBridgeMessage);
     return () => window.removeEventListener("message", handleBridgeMessage);
-  }, [hasToken]);
+  }, [entryUrl, hasToken]);
 
   if (hasToken === null) {
     return (

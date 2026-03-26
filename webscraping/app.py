@@ -101,7 +101,15 @@ def render_send_via_hbx_button(phone_number: str, message_text: str, key: str) -
       const sendBtn = document.getElementById("btn-send-{safe_key}");
       if (sendBtn) {{
         sendBtn.onclick = () => {{
-          window.parent.postMessage({payload}, window.location.origin);
+                    let targetOrigin = "*";
+                    try {{
+                        if (document.referrer) {{
+                            targetOrigin = new URL(document.referrer).origin;
+                        }}
+                    }} catch (e) {{
+                        targetOrigin = "*";
+                    }}
+                    window.parent.postMessage({payload}, targetOrigin);
           const old = sendBtn.innerText;
           sendBtn.innerText = "Enfileirada";
           setTimeout(() => sendBtn.innerText = old, 1200);
