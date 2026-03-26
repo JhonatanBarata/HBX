@@ -29,6 +29,7 @@ type WebscrapingTargetResolution = {
 
 const DEFAULT_WEBSCRAPING_PUBLIC_URL = '/hbx/webscraping';
 const DEFAULT_WEBSCRAPING_INTERNAL_URL = 'http://localhost:8501';
+const DEFAULT_RENDER_WEBSCRAPING_INTERNAL_URL = 'http://hbx-webscraping:8501';
 
 function isTruthyEnv(value: string | null | undefined) {
   const normalized = String(value || '').trim().toLowerCase();
@@ -38,6 +39,21 @@ function isTruthyEnv(value: string | null | undefined) {
 function shouldUseLocalWebscrapingFallback(env: NodeJS.ProcessEnv) {
   if (isTruthyEnv(env.ALLOW_LOCAL_WEBSCRAPING_FALLBACK)) return true;
   return String(env.NODE_ENV || '').trim().toLowerCase() !== 'production';
+}
+
+function isRenderHostedEnvironment(env: NodeJS.ProcessEnv) {
+  return Boolean(
+    String(env.RENDER_EXTERNAL_HOSTNAME || '').trim() ||
+      String(env.RENDER_SERVICE_ID || '').trim() ||
+      String(env.RENDER_INSTANCE_ID || '').trim(),
+  );
+}
+
+function resolveHostedWebscrapingFallback(env: NodeJS.ProcessEnv) {
+  const configuredFallback = normalizeServiceUrl(env.WEBSCRAPING_INTERNAL_FALLBACK_URL);
+  if (configuredFallback) return configuredFallback;
+  if (isRenderHostedEnvironment(env)) return DEFAULT_RENDER_WEBSCRAPING_INTERNAL_URL;
+  return null;
 }
 
 function normalizeServiceUrl(value: string | null | undefined): string | null {
@@ -57,6 +73,7 @@ function normalizeServiceUrl(value: string | null | undefined): string | null {
 export function resolveWebscrapingTarget(env: NodeJS.ProcessEnv = process.env): WebscrapingTargetResolution {
   const publicUrl = String(env.WEBSCRAPING_URL || DEFAULT_WEBSCRAPING_PUBLIC_URL).trim() || DEFAULT_WEBSCRAPING_PUBLIC_URL;
   const rawInternalUrl = String(env.WEBSCRAPING_INTERNAL_URL || '').trim();
+  const hostedFallbackUrl = resolveHostedWebscrapingFallback(env);
 
   if (rawInternalUrl) {
     const normalizedInternalUrl = normalizeServiceUrl(rawInternalUrl);
@@ -85,6 +102,17 @@ export function resolveWebscrapingTarget(env: NodeJS.ProcessEnv = process.env): 
   }
 
   if (!shouldUseLocalWebscrapingFallback(env)) {
+    if (hostedFallbackUrl) {
+      return {
+        publicUrl,
+        rawInternalUrl,
+        target: hostedFallbackUrl,
+        healthUrl: `${hostedFallbackUrl}/healthz`,
+        usingFallbackInternalUrl: true,
+        configError: null,
+      };
+    }
+
     return {
       publicUrl,
       rawInternalUrl,
