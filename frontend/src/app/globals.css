@@ -725,11 +725,21 @@ html[data-popup-open="true"] .app-topbar::after {
 }
 
 /* Login visuals and narrower card */
+.login-stage {
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding: clamp(1.5rem, 3vw, 2.5rem);
+  position: relative;
+  isolation: isolate;
+}
+
 .login-card {
-  /* make the login card narrower and centered */
+  /* keep the login card visually centered regardless of global wrappers */
   max-width: 322px; /* reduced 30% from 460px */
   width: 62%; /* reduced ~30% from 88% */
-  margin: 0 auto;
+  margin: auto;
+  align-self: center;
   position: relative;
   z-index: 120; /* above visuals */
   padding-top: 42px !important; /* increase vertical space ~70% */

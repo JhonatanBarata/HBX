@@ -409,7 +409,7 @@ export default function LoginPage() {
   }
 
   return (
-    <main className="min-h-screen flex items-center justify-center p-6 relative overflow-hidden">
+    <main className="login-stage min-h-screen flex items-center justify-center p-6 relative overflow-hidden">
       <div className="login-visuals" aria-hidden>
         <div className={`login-visuals ${playingWelcome || visualsPlayOnLoad ? "play" : ""}`} aria-hidden>
           <div className="login-drop" />
