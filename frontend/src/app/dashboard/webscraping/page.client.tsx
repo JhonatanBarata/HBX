@@ -36,39 +36,20 @@ function getRuntimeTone(status: RuntimePayload["status"] | null) {
   return "alert-success";
 }
 
-function getRuntimeCopy(runtime: RuntimePayload) {
-  if (runtime.status === "offline") {
-    if (runtime.code === "upstream_timeout" || runtime.code === "upstream_unreachable") {
-      return {
-        title: "Modulo temporariamente indisponivel.",
-        detail: "Nao foi possivel concluir a conexao com o servico agora. Tente novamente em instantes.",
-      };
-    }
-
-    return {
-      title: "Modulo temporariamente indisponivel.",
-      detail: "Este recurso esta em ajuste de disponibilidade e sera liberado apos a normalizacao do servico.",
-    };
+function getRuntimeHint(runtime: RuntimePayload) {
+  if (runtime.code === "missing_upstream_url") {
+    return "Defina WEBSCRAPING_UPSTREAM_URL com a URL publica do servico ou restaure WEBSCRAPING_INTERNAL_URL funcional no Render.";
   }
-
-  if (runtime.status === "degraded") {
-    return {
-      title: "Modulo com disponibilidade parcial.",
-      detail: "A abertura pode oscilar no momento. Se necessario, tente novamente em alguns segundos.",
-    };
+  if (runtime.code === "invalid_upstream_url") {
+    return "WEBSCRAPING_UPSTREAM_URL esta preenchida no backend publicado, mas o valor nao e uma URL valida.";
   }
-
   if (runtime.usingFallbackInternalUrl) {
-    return {
-      title: "Modulo online.",
-      detail: "O acesso esta disponivel no momento.",
-    };
+    return "Diagnostico via destino local padrao; confirme WEBSCRAPING_INTERNAL_URL no ambiente online.";
   }
-
-  return {
-    title: "Modulo online e pronto para uso.",
-    detail: null,
-  };
+  if (runtime.code === "upstream_unreachable") {
+    return "O backend publicado conhece o destino, mas nao conseguiu alcancar o servico webscraping. Se estiver no Free, prefira WEBSCRAPING_UPSTREAM_URL com a URL publica do servico.";
+  }
+  return null;
 }
 
 export default function WebscrapingClientPage() {
@@ -191,7 +172,6 @@ export default function WebscrapingClientPage() {
   if (!hasToken) return null;
 
   const shouldShowRetry = !loading && !entryUrl;
-  const runtimeCopy = runtime ? getRuntimeCopy(runtime) : null;
 
   return (
     <DashboardScaffold
@@ -202,9 +182,8 @@ export default function WebscrapingClientPage() {
       {runtime ? (
         <div className={`alert ${getRuntimeTone(runtime.status)}`}>
           <div className="space-y-1">
-            <div>{runtimeCopy?.title}</div>
-            {runtime.message ? <div className="text-xs opacity-80">{runtime.message}</div> : null}
-            {runtimeCopy?.detail ? <div className="text-xs opacity-80">{runtimeCopy.detail}</div> : null}
+            <div>{runtime.message}</div>
+            {getRuntimeHint(runtime) ? <div className="text-xs opacity-80">{getRuntimeHint(runtime)}</div> : null}
             {runtime.mockMode ? (
               <div className="text-xs opacity-80">
                 O modulo esta em modo demonstracao controlado.
@@ -230,7 +209,7 @@ export default function WebscrapingClientPage() {
         <section className="panel p-4 text-sm text-muted space-y-3">
           <div>
             {runtime?.status === "offline"
-              ? "Modulo indisponivel no momento."
+              ? "Modulo indisponivel por falha de infraestrutura ou configuracao."
               : "Modulo indisponivel."}
           </div>
           {shouldShowRetry ? (
