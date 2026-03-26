@@ -203,6 +203,7 @@ export default function WebscrapingClientPage() {
         <div className={`alert ${getRuntimeTone(runtime.status)}`}>
           <div className="space-y-1">
             <div>{runtimeCopy?.title}</div>
+            {runtime.message ? <div className="text-xs opacity-80">{runtime.message}</div> : null}
             {runtimeCopy?.detail ? <div className="text-xs opacity-80">{runtimeCopy.detail}</div> : null}
             {runtime.mockMode ? (
               <div className="text-xs opacity-80">
