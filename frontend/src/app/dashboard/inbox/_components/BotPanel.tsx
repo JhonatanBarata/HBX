@@ -1,12 +1,13 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { ChatIconButton } from "@/components/chat/PremiumChat";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import BotMessageStudio from "@/components/bot-editor/BotMessageStudio";
 import recoveryStyles from "@/app/hbx-recovery/page.module.css";
 import {
   buildAgendaActionId,
+  createCustomAction,
   type AtendimentoBotActionKind,
+  type AtendimentoBotButton,
   type AtendimentoBotConfig,
   type AtendimentoBotVariableScope,
 } from "../inbox-model";
@@ -14,13 +15,13 @@ import {
 const VARIABLE_SCOPE_LABELS: Record<AtendimentoBotVariableScope, string> = {
   shared: "Compartilhado",
   atendimento: "Atendimento",
-  recovery: "Recovery",
+  recovery: "Financeiro",
 };
 
 const ACTION_KIND_LABELS: Record<AtendimentoBotActionKind, string> = {
   reply: "Resposta",
-  human_handoff: "Fila humana",
-  recovery_handoff: "Ir para Recovery",
+  human_handoff: "Humano",
+  recovery_handoff: "Financeiro",
   close: "Encerrar",
   show_menu: "Mostrar menu",
   agenda: "Agenda",
@@ -55,53 +56,53 @@ type ScenarioDef = {
 const BOT_SCENARIOS: ScenarioDef[] = [
   {
     id: "welcomeMessage",
-    label: "Mensagem para cliente novo",
-    description: "Primeira resposta para quem ainda nao tem historico de conversa.",
-    badge: "Entrada",
+    label: "Cliente novo identificado",
+    description: "Confirma o cadastro inicial e conduz o cliente de volta para o fluxo principal.",
+    badge: "Cadastro",
     supportsButtons: true,
     buttonSection: "welcomeButtons" as const,
     scopes: ["shared", "atendimento"] as AtendimentoBotVariableScope[],
   },
   {
     id: "returningCustomerMessage",
-    label: "Mensagem para cliente recorrente",
-    description: "Resposta curta para retomar o atendimento de quem voltou a falar.",
-    badge: "Retorno",
+    label: "Cliente encontrado",
+    description: "Retoma a conversa quando o cliente ja existe e pode seguir pela triagem principal.",
+    badge: "Cliente",
     supportsButtons: true,
     buttonSection: "returningCustomerButtons" as const,
     scopes: ["shared", "atendimento"] as AtendimentoBotVariableScope[],
   },
   {
     id: "mainMenuPrompt",
-    label: "Menu principal",
-    description: "Mensagem central com as opcoes principais do Atendimento.",
-    badge: "Interativo",
+    label: "Triagem de atendimento",
+    description: "Decisao principal do Atendimento com suporte, agenda, financeiro ou fila humana.",
+    badge: "Decisao",
     supportsButtons: true,
     buttonSection: "mainMenuButtons" as const,
     scopes: ["shared", "atendimento"] as AtendimentoBotVariableScope[],
   },
   {
     id: "recoveryDetectedMessage",
-    label: "Parede com Recovery",
-    description: "Mensagem quando o cliente tem debito e precisa ser encaminhado com clareza.",
-    badge: "Recovery",
+    label: "Resumo financeiro",
+    description: "Ramo financeiro dentro do Atendimento com leitura de valor pendente, status e proximos passos.",
+    badge: "Financeiro",
     supportsButtons: true,
     buttonSection: "recoveryDetectedButtons" as const,
     scopes: ["shared", "recovery"] as AtendimentoBotVariableScope[],
   },
   {
     id: "postActionPrompt",
-    label: "Mensagem apos acoes",
-    description: "Continua o fluxo depois de agenda ou resposta custom.",
-    badge: "Continuidade",
+    label: "Continuidade",
+    description: "Retoma o Atendimento depois de acoes operacionais, financeiras ou de agenda.",
+    badge: "Retorno",
     supportsButtons: true,
     buttonSection: "postActionButtons" as const,
     scopes: ["shared", "atendimento"] as AtendimentoBotVariableScope[],
   },
   {
     id: "humanAckMessage",
-    label: "Confirmacao de humano",
-    description: "Mensagem enviada quando a conversa sai do bot e entra na fila humana.",
+    label: "Transferencia para humano",
+    description: "Confirma a passagem para atendimento humano, tanto no fluxo comum quanto no financeiro.",
     badge: "Humano",
     supportsButtons: false,
     scopes: ["shared", "atendimento"] as AtendimentoBotVariableScope[],
@@ -125,47 +126,36 @@ const BOT_SCENARIOS: ScenarioDef[] = [
 ] as const;
 type ActionOption = { value: string; label: string };
 
+const SYNTHETIC_NODE_LABELS: Record<string, string> = {
+  entry_gate: "Entrada WhatsApp",
+  identify_customer: "Identificar cliente",
+  customer_found_gate: "Cliente encontrado?",
+  debt_open_gate: "Possui debito aberto?",
+  registrationCapture: "Captura de cadastro",
+  agendaDispatch: "Despachar para agenda",
+  paymentHistory: "Historico de pagamentos",
+  paymentAction: "Gerar link ou registrar acao",
+  negotiationAction: "Negociar",
+};
+
 type BotPanelProps = {
   botConfig: AtendimentoBotConfig;
   loadingBot: boolean;
   savingBot: boolean;
   actionOptions: ActionOption[];
   agendaOptions: Array<{ id: string; title: string }>;
-  onSave: () => void;
-  onUpdateRoutingRule: (field: keyof AtendimentoBotConfig["routingRules"], value: boolean) => void;
-  onAppendVariable: (field: keyof AtendimentoBotConfig, variableKey: string) => void;
-  onUpdateBotText: (
-    field:
-      | "welcomeMessage"
-      | "returningCustomerMessage"
-      | "mainMenuPrompt"
-      | "recoveryDetectedMessage"
-      | "postActionPrompt"
-      | "humanAckMessage"
-      | "closeTopicMessage"
-      | "blockedMessage",
-    value: string,
-  ) => void;
-  onUpdateButtonSection: (
-    section: ButtonSection,
-    index: number,
-    field: "buttonId" | "actionId" | "title" | "nextNodeId",
-    value: string,
-  ) => void;
-  onAddButtonSection: (section: ButtonSection) => void;
-  onRemoveButtonSection: (section: ButtonSection, index: number) => void;
-  onUpdateActionGuide: (
-    actionId: string,
-    field: "title" | "description" | "route" | "kind" | "enabled" | "responseMessage" | "agendaGroupId",
-    value: string | boolean,
-  ) => void;
-  onAddCustomAction: () => void;
-  onRemoveCustomAction: (actionId: string) => void;
+  onSave: (config: AtendimentoBotConfig) => void;
+  onConfigChange: (config: AtendimentoBotConfig) => void;
+  onOpenSettings?: () => void;
 };
 
 function buildFallbackText(message: string, buttons: Array<{ title: string }>) {
   const lines = buttons.map((button, index) => `${index + 1}. ${button.title}`).join("\n");
   return lines ? `${message}\n\n${lines}`.trim() : message;
+}
+
+function makeClientId(prefix: string) {
+  return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
 function renderPreviewText(message: string, botConfig: AtendimentoBotConfig) {
@@ -189,91 +179,72 @@ function resolveAtendimentoNextNode(actionId: string) {
       return "recoveryDetectedMessage";
     case "start_quick_registration":
       return "registrationCapture";
+    case "view_payments":
+      return "paymentHistory";
+    case "pay_now":
+      return "paymentAction";
+    case "negotiate_debt":
+      return "negotiationAction";
+    case "continue_attendance":
+      return "mainMenuPrompt";
+    case "continue_journey":
+      return "debt_open_gate";
+    case "schedule_service":
+      return "agendaDispatch";
     default:
       if (actionId.startsWith("agenda:")) return "agendaDispatch";
       return "postActionPrompt";
   }
 }
 
+function normalizeButtonId(value: string) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "_")
+    .replace(/[^a-z0-9_:-]/g, "")
+    .slice(0, 80);
+}
+
+function normalizeAtendimentoNextNodeId(value: string | null | undefined, actionId: string) {
+  const normalized = String(value || "")
+    .trim()
+    .replace(/[^a-zA-Z0-9_:-]/g, "")
+    .slice(0, 80);
+  return normalized || resolveAtendimentoNextNode(actionId);
+}
+
 function getAtendimentoNodeLabel(nodeId: string) {
-  return BOT_SCENARIOS.find((item) => item.id === nodeId)?.label || nodeId;
+  return (
+    BOT_SCENARIOS.find((item) => item.id === nodeId)?.label ||
+    SYNTHETIC_NODE_LABELS[nodeId] ||
+    nodeId
+  );
 }
 
-function sortNodeIds(nodeIds: string[]) {
-  const nodeOrder = [
-    "entry_gate",
-    "welcomeMessage",
-    "returningCustomerMessage",
-    "mainMenuPrompt",
-    "recoveryDetectedMessage",
-    "postActionPrompt",
-    "registrationCapture",
-    "agendaDispatch",
-    "humanAckMessage",
-    "closeTopicMessage",
-    "blockedMessage",
-  ];
-
-  return [...nodeIds].sort((left, right) => {
-    const leftIndex = nodeOrder.indexOf(left);
-    const rightIndex = nodeOrder.indexOf(right);
-    const safeLeft = leftIndex === -1 ? Number.MAX_SAFE_INTEGER : leftIndex;
-    const safeRight = rightIndex === -1 ? Number.MAX_SAFE_INTEGER : rightIndex;
-    return safeLeft - safeRight || left.localeCompare(right);
-  });
-}
-
-function applyAutoLayout<T extends { id: string; buttons: Array<{ nextNodeId?: string }>; position?: { x: number; y: number } }>(
-  nodes: T[],
+function replaceButtonInConfig(
+  config: AtendimentoBotConfig,
+  section: ButtonSection,
+  index: number,
+  updater: (button: AtendimentoBotButton) => AtendimentoBotButton,
 ) {
-  const nodeIds = new Set(nodes.map((node) => node.id));
-  const levelById = new Map<string, number>();
-  const queue = [{ id: "entry_gate", level: 0 }];
+  return {
+    ...config,
+    [section]: config[section].map((button, buttonIndex) =>
+      buttonIndex === index ? updater(button) : button,
+    ),
+  };
+}
 
-  while (queue.length > 0) {
-    const current = queue.shift();
-    if (!current || !nodeIds.has(current.id)) continue;
-
-    const existingLevel = levelById.get(current.id);
-    if (existingLevel !== undefined && existingLevel <= current.level) continue;
-    levelById.set(current.id, current.level);
-
-    const node = nodes.find((item) => item.id === current.id);
-    if (!node) continue;
-
-    for (const button of node.buttons) {
-      if (!button.nextNodeId || !nodeIds.has(button.nextNodeId)) continue;
-      queue.push({ id: button.nextNodeId, level: current.level + 1 });
-    }
-  }
-
-  const columns = new Map<number, string[]>();
-  for (const [nodeId, level] of levelById.entries()) {
-    const current = columns.get(level) || [];
-    current.push(nodeId);
-    columns.set(level, sortNodeIds(current));
-  }
-
-  const maxLevel = Math.max(...Array.from(levelById.values()), 0);
-  const unlinkedNodeIds = sortNodeIds(nodes.map((node) => node.id).filter((nodeId) => !levelById.has(nodeId)));
-  if (unlinkedNodeIds.length > 0) {
-    columns.set(maxLevel + 1, unlinkedNodeIds);
-  }
-
-  const positioned = new Map<string, { x: number; y: number }>();
-  for (const [level, nodeIdsAtLevel] of Array.from(columns.entries()).sort((left, right) => left[0] - right[0])) {
-    nodeIdsAtLevel.forEach((nodeId, index) => {
-      positioned.set(nodeId, {
-        x: 40 + level * 340,
-        y: 20 + index * 220,
-      });
-    });
-  }
-
-  return nodes.map((node) => ({
-    ...node,
-    position: positioned.get(node.id) || node.position || { x: 40, y: 20 },
-  }));
+function removeButtonFromSections(config: AtendimentoBotConfig, actionId: string): AtendimentoBotConfig {
+  return {
+    ...config,
+    welcomeButtons: config.welcomeButtons.filter((button) => button.actionId !== actionId),
+    returningCustomerButtons: config.returningCustomerButtons.filter((button) => button.actionId !== actionId),
+    mainMenuButtons: config.mainMenuButtons.filter((button) => button.actionId !== actionId),
+    recoveryDetectedButtons: config.recoveryDetectedButtons.filter((button) => button.actionId !== actionId),
+    postActionButtons: config.postActionButtons.filter((button) => button.actionId !== actionId),
+  };
 }
 
 export default function BotPanel({
@@ -283,30 +254,75 @@ export default function BotPanel({
   actionOptions,
   agendaOptions,
   onSave,
-  onUpdateRoutingRule,
-  onAppendVariable,
-  onUpdateBotText,
-  onUpdateButtonSection,
-  onAddButtonSection,
-  onRemoveButtonSection,
-  onUpdateActionGuide,
-  onAddCustomAction,
-  onRemoveCustomAction,
+  onConfigChange,
+  onOpenSettings,
 }: BotPanelProps) {
   const [selectedScenarioId, setSelectedScenarioId] = useState<string>("entry_gate");
+  const propConfigSignature = useMemo(() => JSON.stringify(botConfig), [botConfig]);
+  const [draftState, setDraftState] = useState(() => ({
+    sourceSignature: propConfigSignature,
+    config: botConfig,
+  }));
+  const effectiveDraftState =
+    draftState.sourceSignature === propConfigSignature
+      ? draftState
+      : {
+          sourceSignature: propConfigSignature,
+          config: botConfig,
+        };
+  const draftConfig = effectiveDraftState.config;
+  const draftConfigSignature = useMemo(() => JSON.stringify(draftConfig), [draftConfig]);
+
+  const updateDraftConfig = useCallback(
+    (updater: AtendimentoBotConfig | ((current: AtendimentoBotConfig) => AtendimentoBotConfig)) => {
+      setDraftState((current) => {
+        const baseConfig =
+          current.sourceSignature === propConfigSignature ? current.config : botConfig;
+        const nextConfig =
+          typeof updater === "function"
+            ? (updater as (current: AtendimentoBotConfig) => AtendimentoBotConfig)(baseConfig)
+            : updater;
+
+        return {
+          sourceSignature: propConfigSignature,
+          config: nextConfig,
+        };
+      });
+    },
+    [botConfig, propConfigSignature],
+  );
+
+  useEffect(() => {
+    if (draftConfigSignature === propConfigSignature) {
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      onConfigChange(draftConfig);
+    }, 220);
+
+    return () => window.clearTimeout(timer);
+  }, [draftConfig, draftConfigSignature, onConfigChange, propConfigSignature]);
+
+  const flushDraftConfig = useCallback(() => {
+    if (draftConfigSignature !== propConfigSignature) {
+      onConfigChange(draftConfig);
+    }
+    return draftConfig;
+  }, [draftConfig, draftConfigSignature, onConfigChange, propConfigSignature]);
 
   const selectedScenario =
     BOT_SCENARIOS.find((scenario) => scenario.id === selectedScenarioId) || null;
   const selectedButtons =
     selectedScenario?.supportsButtons && selectedScenario.buttonSection
-      ? botConfig[selectedScenario.buttonSection]
+      ? draftConfig[selectedScenario.buttonSection]
       : [];
   const messageType =
     selectedScenario?.supportsButtons && selectedButtons.length > 0 ? "buttons" : "simple";
 
   const actionById = useMemo(() => {
     const next: Record<string, { actionId: string; title: string; description: string; routeLabel: string; typeLabel: string; enabled: boolean }> = {};
-    for (const action of botConfig.actionCatalog) {
+    for (const action of draftConfig.actionCatalog) {
       next[action.actionId] = {
         actionId: action.actionId,
         title: action.title,
@@ -328,7 +344,7 @@ export default function BotPanel({
       };
     }
     return next;
-  }, [agendaOptions, botConfig.actionCatalog]);
+  }, [agendaOptions, draftConfig.actionCatalog]);
 
   const buttonTargetOptions = useMemo(
     () => [
@@ -337,6 +353,16 @@ export default function BotPanel({
         label: scenario.label,
         description: scenario.description,
       })),
+      {
+        value: "customer_found_gate",
+        label: "Cliente encontrado?",
+        description: "Decisao entre capturar cadastro rapido ou continuar com o cliente identificado.",
+      },
+      {
+        value: "debt_open_gate",
+        label: "Possui debito aberto?",
+        description: "Le o contexto financeiro antes de decidir entre financeiro e atendimento.",
+      },
       {
         value: "registrationCapture",
         label: "Captura de cadastro",
@@ -347,13 +373,28 @@ export default function BotPanel({
         label: "Despacho para agenda",
         description: "Encaminha o cliente para a agenda operacional selecionada.",
       },
+      {
+        value: "paymentHistory",
+        label: "Historico de pagamentos",
+        description: "Consulta pagamentos aprovados, pendentes e comprovacoes recentes.",
+      },
+      {
+        value: "paymentAction",
+        label: "Gerar link ou registrar acao",
+        description: "Executa pagar agora, registrar promessa ou outra acao financeira.",
+      },
+      {
+        value: "negotiationAction",
+        label: "Negociar",
+        description: "Registra negociacao financeira e devolve o cliente ao mesmo fluxo.",
+      },
     ],
     [],
   );
 
   const studioVariables = useMemo(
     () =>
-      botConfig.variableCatalog
+      draftConfig.variableCatalog
         .filter((item) => !selectedScenario || selectedScenario.scopes.includes(item.scope) || item.scope === "shared")
         .map((item) => ({
           key: item.key,
@@ -366,7 +407,7 @@ export default function BotPanel({
               : item.key === "cliente"
                 ? "Cliente"
                 : item.scope === "recovery"
-                  ? "Recovery"
+                  ? "Financeiro"
                   : item.scope === "atendimento"
                     ? "Atendimento"
                     : "Sistema",
@@ -374,42 +415,244 @@ export default function BotPanel({
             item.scope === "shared"
               ? "Contexto automatico da empresa logada"
               : item.scope === "recovery"
-                ? "Parede com Recovery e debitos"
+                ? "Contexto financeiro com valor em aberto e historico de cobranca"
                 : "Dados operacionais do Atendimento",
           required: item.required,
         })),
-    [botConfig.variableCatalog, selectedScenario],
+    [draftConfig.variableCatalog, selectedScenario],
   );
 
   const flowScenarios = useMemo(
     () => {
+      const nodePositions: Record<string, { x: number; y: number }> = {
+        entry_gate: { x: 420, y: 28 },
+        identify_customer: { x: 420, y: 190 },
+        customer_found_gate: { x: 420, y: 352 },
+        registrationCapture: { x: 78, y: 540 },
+        welcomeMessage: { x: 78, y: 724 },
+        returningCustomerMessage: { x: 420, y: 540 },
+        debt_open_gate: { x: 420, y: 724 },
+        mainMenuPrompt: { x: 420, y: 912 },
+        recoveryDetectedMessage: { x: 762, y: 912 },
+        agendaDispatch: { x: 78, y: 1112 },
+        postActionPrompt: { x: 420, y: 1112 },
+        paymentHistory: { x: 762, y: 1112 },
+        paymentAction: { x: 1104, y: 1112 },
+        closeTopicMessage: { x: 420, y: 1302 },
+        negotiationAction: { x: 762, y: 1302 },
+        humanAckMessage: { x: 1104, y: 1302 },
+        blockedMessage: { x: 1104, y: 1490 },
+      };
+
       const gateNode = {
         id: "entry_gate",
-        label: "Entrada do WhatsApp",
-        description: "Primeiro no do Atendimento apos a mensagem inbound do cliente.",
+        label: "Entrada WhatsApp",
+        description: "Ponto inicial do canal antes da leitura de cadastro e contexto financeiro.",
         badge: "Entrada",
         nodeKind: "template" as const,
-        supportsButtons: true,
+        supportsButtons: false,
         editable: false,
-        messageText: "Primeira triagem automatica do Atendimento.",
+        messageText: "Mensagem inbound recebida no Atendimento.",
         buttons: [
           {
-            buttonId: "new_customer",
-            actionId: "entry_new_customer",
-            title: "Cliente novo",
-            nextNodeId: "welcomeMessage",
-            nextLabel: "Abrir mensagem para cliente novo",
-          },
-          {
-            buttonId: "returning_customer",
-            actionId: "entry_returning_customer",
-            title: "Cliente recorrente",
-            nextNodeId: "returningCustomerMessage",
-            nextLabel: "Retomar atendimento do cliente recorrente",
+            buttonId: "start_lookup",
+            actionId: "start_lookup",
+            title: "Iniciar leitura",
+            nextNodeId: "identify_customer",
+            nextLabel: "Identificar cliente",
           },
         ],
-        toneLabel: "Entrada automatica do canal",
+        toneLabel: "Tronco principal do Atendimento",
+        position: nodePositions.entry_gate,
       };
+
+      const decisionNodes = [
+        {
+          id: "identify_customer",
+          label: "Identificar cliente",
+          description: "Consulta cadastro, historico e sinais financeiros antes de seguir para o Atendimento.",
+          badge: "Leitura",
+          nodeKind: "action" as const,
+          supportsButtons: false,
+          editable: false,
+          messageText: "Consulta automatica de cliente em andamento.",
+          buttons: [
+            {
+              buttonId: "customer_lookup_done",
+              actionId: "customer_lookup_done",
+              title: "Leitura concluida",
+              nextNodeId: "customer_found_gate",
+              nextLabel: "Cliente encontrado?",
+            },
+          ],
+          effectLabel: "Consolida cliente, cadastro, historico e contexto financeiro antes da triagem.",
+          position: nodePositions.identify_customer,
+        },
+        {
+          id: "customer_found_gate",
+          label: "Cliente encontrado?",
+          description: "Decide se o fluxo segue com cadastro rapido ou com o cliente ja identificado.",
+          badge: "Decisao",
+          nodeKind: "decision" as const,
+          supportsButtons: false,
+          editable: false,
+          messageText: "Verificacao automatica de cadastro.",
+          buttons: [
+            {
+              buttonId: "customer_not_found",
+              actionId: "customer_not_found",
+              title: "Nao encontrado",
+              nextNodeId: "registrationCapture",
+              nextLabel: "Captura de cadastro",
+            },
+            {
+              buttonId: "customer_found",
+              actionId: "customer_found",
+              title: "Encontrado",
+              nextNodeId: "returningCustomerMessage",
+              nextLabel: "Cliente encontrado",
+            },
+          ],
+          toneLabel: "Escolhe se precisa captar cadastro",
+          position: nodePositions.customer_found_gate,
+        },
+        {
+          id: "debt_open_gate",
+          label: "Possui debito aberto?",
+          description: "Abre o ramo financeiro sem sequestrar o restante do Atendimento.",
+          badge: "Decisao",
+          nodeKind: "decision" as const,
+          supportsButtons: false,
+          editable: false,
+          messageText: "Leitura de divida e contexto financeiro.",
+          buttons: [
+            {
+              buttonId: "debt_detected",
+              actionId: "debt_detected",
+              title: "Com debito",
+              nextNodeId: "recoveryDetectedMessage",
+              nextLabel: "Resumo financeiro",
+            },
+            {
+              buttonId: "no_debt",
+              actionId: "no_debt",
+              title: "Sem debito",
+              nextNodeId: "mainMenuPrompt",
+              nextLabel: "Triagem de atendimento",
+            },
+          ],
+          toneLabel: "Financial branch como contexto condicional",
+          position: nodePositions.debt_open_gate,
+        },
+      ];
+
+      const syntheticActionNodes = [
+        {
+          id: "registrationCapture",
+          label: "Captura de cadastro",
+          description: "Coleta nome e dados basicos antes de devolver o cliente para o fluxo principal.",
+          badge: "Acao",
+          nodeKind: "action" as const,
+          supportsButtons: false,
+          editable: false,
+          messageText: "Cadastro rapido em andamento.",
+          buttons: [
+            {
+              buttonId: "registration_done",
+              actionId: "registration_done",
+              title: "Cadastro concluido",
+              nextNodeId: "welcomeMessage",
+              nextLabel: "Cliente novo identificado",
+            },
+          ],
+          effectLabel: "Captura cadastro e devolve o cliente para a leitura principal do Atendimento.",
+          position: nodePositions.registrationCapture,
+        },
+        {
+          id: "agendaDispatch",
+          label: "Despachar para agenda",
+          description: "Encaminha para a agenda operacional mantendo o fluxo do Atendimento integrado.",
+          badge: "Agenda",
+          nodeKind: "action" as const,
+          supportsButtons: false,
+          editable: false,
+          messageText: "Agenda operacional selecionada.",
+          buttons: [
+            {
+              buttonId: "agenda_done",
+              actionId: "agenda_done",
+              title: "Retomar fluxo",
+              nextNodeId: "postActionPrompt",
+              nextLabel: "Continuidade",
+            },
+          ],
+          effectLabel: "Dispara a agenda operacional e depois devolve o cliente para a continuidade do Atendimento.",
+          position: nodePositions.agendaDispatch,
+        },
+        {
+          id: "paymentHistory",
+          label: "Historico de pagamentos",
+          description: "Mostra pagamentos recentes, liberacoes e comprovacoes ligadas ao cliente.",
+          badge: "Financeiro",
+          nodeKind: "action" as const,
+          supportsButtons: false,
+          editable: false,
+          messageText: "Consulta de pagamentos em andamento.",
+          buttons: [
+            {
+              buttonId: "history_done",
+              actionId: "history_done",
+              title: "Continuar atendimento",
+              nextNodeId: "mainMenuPrompt",
+              nextLabel: "Triagem de atendimento",
+            },
+          ],
+          effectLabel: "Consulta pagamentos e permite continuar o Atendimento sem sair da mesma jornada.",
+          position: nodePositions.paymentHistory,
+        },
+        {
+          id: "paymentAction",
+          label: "Gerar link ou registrar acao",
+          description: "Centraliza pagar agora, registrar promessa e outras acoes financeiras compartilhadas.",
+          badge: "Acao",
+          nodeKind: "action" as const,
+          supportsButtons: false,
+          editable: false,
+          messageText: "Acao financeira em andamento.",
+          buttons: [
+            {
+              buttonId: "payment_action_done",
+              actionId: "payment_action_done",
+              title: "Confirmar ou encerrar",
+              nextNodeId: "postActionPrompt",
+              nextLabel: "Continuidade",
+            },
+          ],
+          effectLabel: "Gera link, registra acao ou confirma um proximo passo financeiro dentro do Atendimento.",
+          position: nodePositions.paymentAction,
+        },
+        {
+          id: "negotiationAction",
+          label: "Negociar",
+          description: "Registra negociacao e devolve o cliente ao contexto financeiro ou humano quando necessario.",
+          badge: "Negociacao",
+          nodeKind: "action" as const,
+          supportsButtons: false,
+          editable: false,
+          messageText: "Negociacao financeira em andamento.",
+          buttons: [
+            {
+              buttonId: "negotiation_done",
+              actionId: "negotiation_done",
+              title: "Voltar ao financeiro",
+              nextNodeId: "recoveryDetectedMessage",
+              nextLabel: "Resumo financeiro",
+            },
+          ],
+          effectLabel: "Registra negociacao financeira sem quebrar a continuidade do atendimento principal.",
+          position: nodePositions.negotiationAction,
+        },
+      ];
 
       const scenarioNodes = BOT_SCENARIOS.map((scenario) => ({
         id: scenario.id,
@@ -421,55 +664,37 @@ export default function BotPanel({
             ? ("human_handoff" as const)
             : scenario.id === "closeTopicMessage"
               ? ("end" as const)
-              : ("message" as const),
+              : scenario.id === "mainMenuPrompt" || scenario.id === "recoveryDetectedMessage"
+                ? ("decision" as const)
+                : ("message" as const),
         supportsButtons: scenario.supportsButtons,
         editable: true,
-        messageText: String(botConfig[scenario.id] || ""),
+        messageText: String(draftConfig[scenario.id] || ""),
         buttons:
           scenario.supportsButtons && scenario.buttonSection
-            ? botConfig[scenario.buttonSection].map((button) => ({
+            ? draftConfig[scenario.buttonSection].map((button) => ({
                 ...button,
                 nextNodeId: String(button.nextNodeId || resolveAtendimentoNextNode(String(button.actionId))),
                 nextLabel: getAtendimentoNodeLabel(String(button.nextNodeId || resolveAtendimentoNextNode(String(button.actionId)))),
               }))
             : [],
+        toneLabel:
+          scenario.id === "mainMenuPrompt"
+            ? "Escolhe o proximo ramo do Atendimento"
+            : scenario.id === "recoveryDetectedMessage"
+              ? "Resumo financeiro dentro do Atendimento"
+              : undefined,
+        position: nodePositions[scenario.id],
       }));
 
-      const syntheticNodes = [
-        {
-          id: "registrationCapture",
-          label: "Captura de cadastro",
-          description: "Coleta rapida de dados do novo cliente antes de continuar o atendimento.",
-          badge: "Acao",
-          nodeKind: "action" as const,
-          supportsButtons: false,
-          editable: false,
-          messageText: "Acao de cadastro rapido em andamento.",
-          buttons: [],
-          effectLabel: "Salva cadastro inicial e depois devolve o cliente ao fluxo principal.",
-        },
-        {
-          id: "agendaDispatch",
-          label: "Despacho para agenda",
-          description: "Envia o cliente para a agenda operacional selecionada.",
-          badge: "Agenda",
-          nodeKind: "action" as const,
-          supportsButtons: false,
-          editable: false,
-          messageText: "Agenda operacional selecionada.",
-          buttons: [],
-          effectLabel: "Abre agenda real e registra o grupo selecionado para o atendimento.",
-        },
-      ];
-
-      return applyAutoLayout([gateNode, ...scenarioNodes, ...syntheticNodes]);
+      return [gateNode, ...decisionNodes, ...scenarioNodes, ...syntheticActionNodes];
     },
-    [botConfig],
+    [draftConfig],
   );
 
   const catalogVariables = useMemo(
     () =>
-      botConfig.variableCatalog.map((item) => ({
+      draftConfig.variableCatalog.map((item) => ({
         key: item.key,
         label: item.label,
         example: item.example,
@@ -480,7 +705,7 @@ export default function BotPanel({
             : item.key === "cliente"
               ? "Cliente"
               : item.scope === "recovery"
-                ? "Recovery"
+                ? "Financeiro"
                 : item.scope === "atendimento"
                   ? "Atendimento"
                   : "Sistema",
@@ -488,11 +713,11 @@ export default function BotPanel({
           item.scope === "shared"
             ? "Contexto automatico da empresa logada"
             : item.scope === "recovery"
-              ? "Parede com Recovery e debitos"
+              ? "Contexto financeiro com debito, status e historico"
               : "Dados operacionais do Atendimento",
         required: item.required,
       })),
-    [botConfig.variableCatalog],
+    [draftConfig.variableCatalog],
   );
 
   const flowEdges = useMemo(
@@ -511,7 +736,7 @@ export default function BotPanel({
   );
 
   const catalogActions = useMemo(() => {
-    const base = botConfig.actionCatalog.map((action) => ({
+    const base = draftConfig.actionCatalog.map((action) => ({
       actionId: action.actionId,
       title: action.title,
       description: action.description,
@@ -528,80 +753,198 @@ export default function BotPanel({
       enabled: true,
     }));
     return [...base, ...agendas];
-  }, [agendaOptions, botConfig.actionCatalog]);
+  }, [agendaOptions, draftConfig.actionCatalog]);
 
   const publicationChecks = useMemo(
     () => [
       {
-        id: "welcome",
-        label: "Boas-vindas",
-        description: "O primeiro contato precisa ter uma mensagem clara para cliente novo.",
-        ok: String(botConfig.welcomeMessage || "").trim().length > 0,
+        id: "entry",
+        label: "Entrada principal",
+        description: "Cliente novo e cliente encontrado precisam conseguir seguir pela mesma arvore principal.",
+        ok: String(draftConfig.welcomeMessage || "").trim().length > 0,
       },
       {
-        id: "main_menu",
-        label: "Menu principal",
-        description: "O fluxo principal do Atendimento precisa ter pelo menos uma rota clicavel.",
-        ok: botConfig.mainMenuButtons.length > 0,
+        id: "service_branch",
+        label: "Triagem de atendimento",
+        description: "O ramo principal precisa manter saidas claras para suporte, agenda, financeiro ou humano.",
+        ok: draftConfig.mainMenuButtons.length > 0,
       },
       {
-        id: "active_actions",
-        label: "Acoes operacionais",
-        description: "Pelo menos uma acao do catalogo precisa estar ativa e pronta para uso.",
-        ok: botConfig.actionCatalog.some((action) => action.enabled),
+        id: "financial_branch",
+        label: "Ramo financeiro",
+        description: "O contexto financeiro precisa continuar disponivel sem virar um builder paralelo.",
+        ok: draftConfig.recoveryDetectedButtons.length > 0,
       },
       {
-        id: "routing",
-        label: "Parede com Recovery",
-        description: "As regras de triagem precisam continuar ativas para nao misturar cobranca com atendimento.",
-        ok: botConfig.routingRules.checkRecoveryBeforeReply || botConfig.routingRules.autoRouteDebtorsToRecovery,
+        id: "shared_actions",
+        label: "Acoes compartilhadas",
+        description: "Humano, agenda e encerramento precisam continuar acessiveis nos dois caminhos.",
+        ok: draftConfig.actionCatalog.some((action) => action.enabled),
       },
     ],
-    [botConfig.actionCatalog, botConfig.mainMenuButtons.length, botConfig.routingRules, botConfig.welcomeMessage],
+    [
+      draftConfig.actionCatalog,
+      draftConfig.mainMenuButtons.length,
+      draftConfig.recoveryDetectedButtons.length,
+      draftConfig.welcomeMessage,
+    ],
   );
+
+  const updateRoutingRule = useCallback(
+    (field: keyof AtendimentoBotConfig["routingRules"], value: boolean) => {
+      updateDraftConfig((current) => ({
+        ...current,
+        routingRules: {
+          ...current.routingRules,
+          [field]: value,
+        },
+      }));
+    },
+    [updateDraftConfig],
+  );
+
+  const appendVariable = useCallback((field: BotTextField, variableKey: string) => {
+    updateDraftConfig((current) => {
+      const currentValue = String(current[field] || "");
+      const suffix = currentValue && !currentValue.endsWith(" ") && !currentValue.endsWith("\n") ? " " : "";
+      return {
+        ...current,
+        [field]: `${currentValue}${suffix}{{${variableKey}}}`,
+      };
+    });
+  }, [updateDraftConfig]);
+
+  const updateBotText = useCallback((field: BotTextField, value: string) => {
+    updateDraftConfig((current) => ({
+      ...current,
+      [field]: value,
+    }));
+  }, [updateDraftConfig]);
+
+  const updateButtonSection = useCallback(
+    (section: ButtonSection, index: number, field: keyof AtendimentoBotButton, value: string) => {
+      updateDraftConfig((current) =>
+        replaceButtonInConfig(current, section, index, (button) => {
+          const currentActionId = field === "actionId" ? String(value || "") : String(button.actionId || "");
+          const nextNodeId =
+            field === "actionId"
+              ? resolveAtendimentoNextNode(value)
+              : field === "nextNodeId"
+                ? normalizeAtendimentoNextNodeId(value, currentActionId)
+                : normalizeAtendimentoNextNodeId(String(button.nextNodeId || ""), currentActionId);
+
+          return {
+            ...button,
+            [field]:
+              field === "buttonId"
+                ? normalizeButtonId(value)
+                : field === "nextNodeId"
+                  ? normalizeAtendimentoNextNodeId(value, currentActionId)
+                  : value,
+            nextNodeId,
+          };
+        }),
+      );
+    },
+    [updateDraftConfig],
+  );
+
+  const addButtonSection = useCallback(
+    (section: ButtonSection) => {
+      const fallback = actionOptions[0] || { value: "talk_human", label: "Falar com atendente" };
+      updateDraftConfig((current) => ({
+        ...current,
+        [section]: [
+          ...current[section],
+          {
+            buttonId: makeClientId(`${section}_button`),
+            actionId: fallback.value,
+            title: fallback.label.split(" • ")[0],
+            nextNodeId: resolveAtendimentoNextNode(fallback.value),
+          },
+        ],
+      }));
+    },
+    [actionOptions, updateDraftConfig],
+  );
+
+  const removeButtonSection = useCallback((section: ButtonSection, index: number) => {
+    updateDraftConfig((current) => ({
+      ...current,
+      [section]: current[section].filter((_, buttonIndex) => buttonIndex !== index),
+    }));
+  }, [updateDraftConfig]);
+
+  const updateActionGuide = useCallback(
+    (
+      actionId: string,
+      field: "title" | "description" | "route" | "kind" | "enabled" | "responseMessage" | "agendaGroupId",
+      value: string | boolean,
+    ) => {
+      updateDraftConfig((current) => ({
+        ...current,
+        actionCatalog: current.actionCatalog.map((action) => {
+          if (action.actionId !== actionId) return action;
+          if (field === "enabled") return { ...action, enabled: Boolean(value) };
+          if (field === "route") return { ...action, route: value as AtendimentoBotVariableScope };
+          if (field === "kind") {
+            const nextKind = value as AtendimentoBotActionKind;
+            return {
+              ...action,
+              kind: nextKind,
+              agendaGroupId: nextKind === "agenda" ? action.agendaGroupId || null : null,
+              responseMessage: nextKind === "reply" ? action.responseMessage || "" : "",
+            };
+          }
+          if (field === "agendaGroupId") {
+            return { ...action, agendaGroupId: String(value || "").trim() || null };
+          }
+          if (field === "responseMessage") {
+            return { ...action, responseMessage: String(value || "") };
+          }
+          return { ...action, [field]: String(value || "") };
+        }),
+      }));
+    },
+    [updateDraftConfig],
+  );
+
+  const addCustomAction = useCallback(() => {
+    updateDraftConfig((current) => ({
+      ...current,
+      actionCatalog: [...current.actionCatalog, createCustomAction(current)],
+    }));
+  }, [updateDraftConfig]);
+
+  const removeCustomAction = useCallback((actionId: string) => {
+    updateDraftConfig((current) => {
+      const next = removeButtonFromSections(current, actionId);
+      return {
+        ...next,
+        actionCatalog: next.actionCatalog.filter((action) => action.actionId !== actionId),
+      };
+    });
+  }, [updateDraftConfig]);
 
   const handleMessageTypeChange = (nextType: "simple" | "buttons") => {
     if (!selectedScenario?.supportsButtons || !selectedScenario.buttonSection) return;
     if (nextType === "simple") {
       for (let index = selectedButtons.length - 1; index >= 0; index -= 1) {
-        onRemoveButtonSection(selectedScenario.buttonSection, index);
+        removeButtonSection(selectedScenario.buttonSection, index);
       }
       return;
     }
     if (selectedButtons.length === 0) {
-      onAddButtonSection(selectedScenario.buttonSection);
+      addButtonSection(selectedScenario.buttonSection);
     }
   };
 
   return (
     <div className={recoveryStyles.botStudioStack}>
-      <div className={recoveryStyles.sectionHeader}>
-        <div>
-          <p className={recoveryStyles.sectionEyebrow}>Mensagens do fluxo</p>
-          <h3 className={recoveryStyles.sectionTitle}>Builder conversacional do Atendimento</h3>
-          <div>
-            <p className={recoveryStyles.sectionDescription}>
-              Mesmo padrão do Recovery, com canvas vertical, preview navegável e catálogo operacional limpo.
-            </p>
-          </div>
-        </div>
-        <div className={recoveryStyles.headerActions}>
-          <ChatIconButton
-            icon="gear"
-            label="Editor"
-            title="Configurar editor do bot"
-            aria-label="Configurar editor do bot"
-          />
-          <button type="button" className="btn btn-primary btn-sm" onClick={onSave} disabled={savingBot || loadingBot}>
-            {savingBot ? "Salvando..." : "Salvar editor"}
-          </button>
-        </div>
-      </div>
-
       <BotMessageStudio
         eyebrow="Atendimento"
-        title={selectedScenario?.label || "Entrada do WhatsApp"}
-        description={selectedScenario?.description || "Primeiro no do fluxo do Atendimento."}
+        title="Fluxo principal"
+        description="Atendimento com ramo financeiro condicional na mesma arvore."
         flowScenarios={flowScenarios}
         flowEdges={flowEdges}
         flowOrientation="vertical"
@@ -610,10 +953,10 @@ export default function BotPanel({
         startNodeId="entry_gate"
         selectedScenarioId={selectedScenarioId}
         onSelectScenario={(scenarioId) => setSelectedScenarioId(scenarioId)}
-        messageText={selectedScenario ? String(botConfig[selectedScenario.id] || "") : ""}
+        messageText={selectedScenario ? String(draftConfig[selectedScenario.id] || "") : ""}
         onMessageTextChange={(value) => {
           if (!selectedScenario) return;
-          onUpdateBotText(selectedScenario.id, value);
+          updateBotText(selectedScenario.id, value);
         }}
         messageType={messageType}
         onMessageTypeChange={handleMessageTypeChange}
@@ -623,41 +966,43 @@ export default function BotPanel({
         catalogActions={catalogActions}
         onUpdateButton={(index, field, value) => {
           if (!selectedScenario?.buttonSection) return;
-          onUpdateButtonSection(selectedScenario.buttonSection, index, field, value);
+          updateButtonSection(selectedScenario.buttonSection, index, field, value);
         }}
         buttonTargetOptions={buttonTargetOptions}
         onUpdateButtonTarget={(index, nextNodeId) => {
           if (!selectedScenario?.buttonSection) return;
-          onUpdateButtonSection(selectedScenario.buttonSection, index, "nextNodeId", nextNodeId);
+          updateButtonSection(selectedScenario.buttonSection, index, "nextNodeId", nextNodeId);
         }}
         onAddButton={() => {
           if (!selectedScenario?.buttonSection) return;
-          onAddButtonSection(selectedScenario.buttonSection);
+          addButtonSection(selectedScenario.buttonSection);
         }}
         onRemoveButton={(index) => {
           if (!selectedScenario?.buttonSection) return;
-          onRemoveButtonSection(selectedScenario.buttonSection, index);
+          removeButtonSection(selectedScenario.buttonSection, index);
         }}
         variables={studioVariables}
         catalogVariables={catalogVariables}
         onAppendVariable={(variableKey) => {
           if (!selectedScenario) return;
-          onAppendVariable(selectedScenario.id, variableKey);
+          appendVariable(selectedScenario.id, variableKey);
         }}
-        previewText={selectedScenario ? renderPreviewText(String(botConfig[selectedScenario.id] || ""), botConfig) : "Entrada inicial do canal."}
+        previewText={selectedScenario ? renderPreviewText(String(draftConfig[selectedScenario.id] || ""), draftConfig) : "Entrada inicial do canal."}
         previewFooter="HBX Atendimento"
         previewFallbackText={
           selectedScenario
-            ? buildFallbackText(renderPreviewText(String(botConfig[selectedScenario.id] || ""), botConfig), selectedButtons)
+            ? buildFallbackText(renderPreviewText(String(draftConfig[selectedScenario.id] || ""), draftConfig), selectedButtons)
             : "Entrada inicial do canal."
         }
         previewNote="O fallback textual continua disponivel para canais ou cenarios sem suporte a botoes."
         publicationChecks={publicationChecks}
-        publicationTitle="Publicacao do fluxo Atendimento"
-        publicationDescription="Revise entrada, menu principal e parede com Recovery antes de salvar o builder."
+        publicationTitle="Publicacao do fluxo principal"
+        publicationDescription="Valide o tronco principal, o ramo financeiro e as saidas compartilhadas antes de salvar."
         primaryActionLabel={savingBot ? "Salvando..." : "Salvar editor"}
-        onPrimaryAction={onSave}
+        onPrimaryAction={() => onSave(flushDraftConfig())}
         primaryActionDisabled={savingBot || loadingBot}
+        secondaryActionLabel={onOpenSettings ? "Configuracoes" : undefined}
+        onSecondaryAction={onOpenSettings}
         variablesTabExtra={
           <article className={recoveryStyles.botStepCard}>
             <div className={recoveryStyles.botStepHeader}>
@@ -667,7 +1012,7 @@ export default function BotPanel({
               </div>
             </div>
             <div className={recoveryStyles.botVariableGrid}>
-              {botConfig.variableCatalog.map((item) => (
+              {draftConfig.variableCatalog.map((item) => (
                 <div key={item.key} className={recoveryStyles.botVariableCard}>
                   <div className={recoveryStyles.botVariableHeader}>
                     <strong>{`{{${item.key}}}`}</strong>
@@ -702,38 +1047,38 @@ export default function BotPanel({
             <article className={recoveryStyles.botStepCard}>
               <div className={recoveryStyles.botStepHeader}>
                 <div>
-                  <h4>Roteamento do Atendimento</h4>
-                  <p>Regras de triagem para nao misturar atendimento, agenda e cobranca.</p>
+                  <h4>Regras do fluxo</h4>
+                  <p>Controles de triagem para manter atendimento, agenda e financeiro no mesmo produto.</p>
                 </div>
               </div>
               <div className={recoveryStyles.botRoutingGrid}>
                 <label className={recoveryStyles.botRoutingToggle}>
                   <input
                     type="checkbox"
-                    checked={botConfig.routingRules.checkRecoveryBeforeReply}
-                    onChange={(event) => onUpdateRoutingRule("checkRecoveryBeforeReply", event.target.checked)}
+                    checked={draftConfig.routingRules.checkRecoveryBeforeReply}
+                    onChange={(event) => updateRoutingRule("checkRecoveryBeforeReply", event.target.checked)}
                   />
                   <div>
-                    <strong>Checar Recovery antes</strong>
-                    <span>Primeiro passo do Atendimento ao receber qualquer mensagem.</span>
+                    <strong>Ler contexto financeiro antes</strong>
+                    <span>Consulta debito e status antes da triagem principal do Atendimento.</span>
                   </div>
                 </label>
                 <label className={recoveryStyles.botRoutingToggle}>
                   <input
                     type="checkbox"
-                    checked={botConfig.routingRules.autoRouteDebtorsToRecovery}
-                    onChange={(event) => onUpdateRoutingRule("autoRouteDebtorsToRecovery", event.target.checked)}
+                    checked={draftConfig.routingRules.autoRouteDebtorsToRecovery}
+                    onChange={(event) => updateRoutingRule("autoRouteDebtorsToRecovery", event.target.checked)}
                   />
                   <div>
-                    <strong>Subir devedor para Recovery</strong>
-                    <span>Clientes inadimplentes nao ficam misturados no Atendimento.</span>
+                    <strong>Priorizar ramo financeiro</strong>
+                    <span>Quando houver debito, o fluxo pode abrir o resumo financeiro sem sequestrar a conversa.</span>
                   </div>
                 </label>
                 <label className={recoveryStyles.botRoutingToggle}>
                   <input
                     type="checkbox"
-                    checked={botConfig.routingRules.autoReopenClosedConversation}
-                    onChange={(event) => onUpdateRoutingRule("autoReopenClosedConversation", event.target.checked)}
+                    checked={draftConfig.routingRules.autoReopenClosedConversation}
+                    onChange={(event) => updateRoutingRule("autoReopenClosedConversation", event.target.checked)}
                   />
                   <div>
                     <strong>Reabrir conversa encerrada</strong>
@@ -743,8 +1088,8 @@ export default function BotPanel({
                 <label className={recoveryStyles.botRoutingToggle}>
                   <input
                     type="checkbox"
-                    checked={botConfig.routingRules.notifyOnNewInbound}
-                    onChange={(event) => onUpdateRoutingRule("notifyOnNewInbound", event.target.checked)}
+                    checked={draftConfig.routingRules.notifyOnNewInbound}
+                    onChange={(event) => updateRoutingRule("notifyOnNewInbound", event.target.checked)}
                   />
                   <div>
                     <strong>Notificar novas mensagens</strong>
@@ -758,15 +1103,15 @@ export default function BotPanel({
               <div className={recoveryStyles.botStepHeader}>
                 <div>
                   <h4>Acoes do bot</h4>
-                  <p>Mesma leitura visual do Recovery, com os campos operacionais do Atendimento.</p>
+                  <p>Catalogo unico de acoes compartilhadas entre atendimento, financeiro, agenda e humano.</p>
                 </div>
-                <button type="button" className="btn btn-secondary btn-sm" onClick={onAddCustomAction}>
+                <button type="button" className="btn btn-secondary btn-sm" onClick={addCustomAction}>
                   Nova acao custom
                 </button>
               </div>
 
               <div className={recoveryStyles.botActionGuideList}>
-                {botConfig.actionCatalog.map((action) => (
+                {draftConfig.actionCatalog.map((action) => (
                   <div key={action.actionId} className={recoveryStyles.botActionGuideItem}>
                     <div className={recoveryStyles.botActionGuideEditor}>
                       <label className={recoveryStyles.fieldBlock}>
@@ -774,7 +1119,7 @@ export default function BotPanel({
                         <input
                           className="field"
                           value={action.title}
-                          onChange={(event) => onUpdateActionGuide(action.actionId, "title", event.target.value)}
+                          onChange={(event) => updateActionGuide(action.actionId, "title", event.target.value)}
                         />
                       </label>
                       <label className={recoveryStyles.fieldBlock}>
@@ -782,7 +1127,7 @@ export default function BotPanel({
                         <textarea
                           className="field"
                           value={action.description}
-                          onChange={(event) => onUpdateActionGuide(action.actionId, "description", event.target.value)}
+                          onChange={(event) => updateActionGuide(action.actionId, "description", event.target.value)}
                         />
                       </label>
                       <label className={recoveryStyles.fieldBlock}>
@@ -790,7 +1135,7 @@ export default function BotPanel({
                         <select
                           className="field"
                           value={action.kind}
-                          onChange={(event) => onUpdateActionGuide(action.actionId, "kind", event.target.value)}
+                          onChange={(event) => updateActionGuide(action.actionId, "kind", event.target.value)}
                         >
                           {Object.entries(ACTION_KIND_LABELS).map(([value, label]) => (
                             <option key={value} value={value}>
@@ -804,7 +1149,7 @@ export default function BotPanel({
                         <select
                           className="field"
                           value={action.route}
-                          onChange={(event) => onUpdateActionGuide(action.actionId, "route", event.target.value)}
+                          onChange={(event) => updateActionGuide(action.actionId, "route", event.target.value)}
                         >
                           {Object.entries(VARIABLE_SCOPE_LABELS).map(([value, label]) => (
                             <option key={value} value={value}>
@@ -820,7 +1165,7 @@ export default function BotPanel({
                           <select
                             className="field"
                             value={String(action.agendaGroupId || "")}
-                            onChange={(event) => onUpdateActionGuide(action.actionId, "agendaGroupId", event.target.value)}
+                            onChange={(event) => updateActionGuide(action.actionId, "agendaGroupId", event.target.value)}
                           >
                             <option value="">Selecione</option>
                             {agendaOptions.map((group) => (
@@ -839,7 +1184,7 @@ export default function BotPanel({
                             className="field"
                             rows={3}
                             value={action.responseMessage || ""}
-                            onChange={(event) => onUpdateActionGuide(action.actionId, "responseMessage", event.target.value)}
+                            onChange={(event) => updateActionGuide(action.actionId, "responseMessage", event.target.value)}
                           />
                         </label>
                       ) : null}
@@ -854,7 +1199,7 @@ export default function BotPanel({
                       <button
                         type="button"
                         className={`${recoveryStyles.stateBadge} ${action.enabled ? recoveryStyles.statePaid : recoveryStyles.stateWaiting}`}
-                        onClick={() => onUpdateActionGuide(action.actionId, "enabled", !action.enabled)}
+                        onClick={() => updateActionGuide(action.actionId, "enabled", !action.enabled)}
                       >
                         {action.enabled ? "Ativa" : "Legada"}
                       </button>
@@ -862,7 +1207,7 @@ export default function BotPanel({
                         <button
                           type="button"
                           className="btn btn-danger btn-sm"
-                          onClick={() => onRemoveCustomAction(action.actionId)}
+                          onClick={() => removeCustomAction(action.actionId)}
                         >
                           Remover
                         </button>

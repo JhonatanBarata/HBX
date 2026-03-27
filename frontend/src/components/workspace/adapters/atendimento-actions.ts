@@ -1,35 +1,23 @@
 import type { InboxConversation } from "@/app/dashboard/inbox/inbox-model";
+import { hasAtendimentoRecoveryContext } from "./atendimento-data";
 import type { WorkspaceActionDescriptor } from "./types";
 
 type AtendimentoMutableStatus = "new" | "open" | "closed";
 
 export function buildAtendimentoRecoveryLinks(
   conversation: InboxConversation,
+  openFinance: () => void,
   allowRecoveryCapability = true,
 ): WorkspaceActionDescriptor[] {
-  if (!allowRecoveryCapability || conversation.routeTarget !== "recovery") return [];
+  if (!allowRecoveryCapability || !hasAtendimentoRecoveryContext(conversation)) return [];
 
   return [
     {
       id: "atendimento-open-recovery",
-      kind: "link",
-      label: "Abrir Recovery",
-      href: "/hbx-recovery?tab=messages",
+      kind: "button",
+      label: "Financeiro",
+      onClick: openFinance,
       tone: "primary",
-    },
-    {
-      id: "atendimento-open-payments",
-      kind: "link",
-      label: "Ver pagamentos",
-      href: "/hbx-recovery?tab=payments",
-      tone: "secondary",
-    },
-    {
-      id: "atendimento-open-templates",
-      kind: "link",
-      label: "Templates Meta",
-      href: "/hbx-recovery?tab=templates",
-      tone: "secondary",
     },
   ];
 }
@@ -39,6 +27,7 @@ export function buildAtendimentoContextActions(input: {
   selectedStatus: AtendimentoMutableStatus | "blocked" | string;
   selectedBlocked: boolean;
   allowRecoveryCapability?: boolean;
+  openFinance: () => void;
   openAutomation: () => void;
   openAgenda: () => void;
   updateStatus: (nextStatus: AtendimentoMutableStatus) => void | Promise<void>;
@@ -50,6 +39,7 @@ export function buildAtendimentoContextActions(input: {
     selectedStatus,
     selectedBlocked,
     allowRecoveryCapability = true,
+    openFinance,
     openAutomation,
     openAgenda,
     updateStatus,
@@ -58,18 +48,18 @@ export function buildAtendimentoContextActions(input: {
   } = input;
 
   const actions: WorkspaceActionDescriptor[] = [
-    ...buildAtendimentoRecoveryLinks(conversation, allowRecoveryCapability),
+    ...buildAtendimentoRecoveryLinks(conversation, openFinance, allowRecoveryCapability),
     {
       id: "atendimento-open-automation",
       kind: "button",
-      label: "Abrir automacao",
+      label: "Automacao",
       tone: "secondary",
       onClick: openAutomation,
     },
     {
       id: "atendimento-open-agenda",
       kind: "button",
-      label: "Abrir agenda",
+      label: "Agenda",
       tone: "secondary",
       onClick: openAgenda,
     },
@@ -80,21 +70,21 @@ export function buildAtendimentoContextActions(input: {
       {
         id: "atendimento-assign-human",
         kind: "button",
-        label: "Assumir humano",
+        label: "Assumir",
         tone: selectedStatus === "open" ? "primary" : "secondary",
         onClick: () => updateStatus("open"),
       },
       {
         id: "atendimento-resume-bot",
         kind: "button",
-        label: "Voltar ao bot",
+        label: "BOT",
         tone: selectedStatus === "new" ? "primary" : "secondary",
         onClick: () => updateStatus("new"),
       },
       {
         id: "atendimento-close-conversation",
         kind: "button",
-        label: "Encerrar conversa",
+        label: "Encerrar",
         tone: selectedStatus === "closed" ? "primary" : "secondary",
         onClick: () => updateStatus("closed"),
       },
@@ -106,14 +96,14 @@ export function buildAtendimentoContextActions(input: {
       ? {
           id: "atendimento-unblock-conversation",
           kind: "button",
-          label: "Desbloquear contato",
+          label: "Desbloquear",
           tone: "secondary",
           onClick: unblockConversation,
         }
       : {
           id: "atendimento-block-conversation",
           kind: "button",
-          label: "Bloquear contato",
+          label: "Bloquear",
           tone: "danger",
           onClick: blockConversation,
         },

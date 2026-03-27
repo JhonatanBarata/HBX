@@ -40,6 +40,7 @@ import {
   applyMasterWhatsAppCredentials,
   resolveCompanyMercadoPagoAccess,
 } from '../modules/master-global-integrations.util';
+import { CadastrosService } from '../cadastros/cadastros.service';
 
 type RecoveryPaymentRecord = { id: string; label: string; date: string; amount: number; status: string };
 type RecoveryDelayRecord = { id: string; period: string; daysLate: number; outcome: string };
@@ -127,6 +128,7 @@ export class HbxRecoveryService {
     private readonly prisma: PrismaService,
     private readonly conversations: ConversationsService,
     private readonly mercadoPagoClient: MercadoPagoClientService,
+    private readonly cadastrosService: CadastrosService,
   ) {}
 
   private requireCompanyIdFromUser(user: any) {
@@ -221,12 +223,13 @@ export class HbxRecoveryService {
 
   private toCustomerResponse(row: any) {
     const createdAt = row?.createdAt ? new Date(row.createdAt) : new Date();
+    const customerRegistry = row?.customerRegistry || null;
     return {
       id: String(row.id),
       contactId: String(row.id),
-      name: String(row.name || ''),
-      clientName: String(row.clientName || ''),
-      whatsappNumber: String(row.whatsappNumber || ''),
+      name: String(row.name || customerRegistry?.name || ''),
+      clientName: String(customerRegistry?.name || row.clientName || ''),
+      whatsappNumber: String(customerRegistry?.phone || row.whatsappNumber || ''),
       registrationDate: this.isoDateOnly(createdAt),
       openAmount: Number(row.openAmount || 0),
       workdaySaleDay: Number(row.workdaySaleDay || 1),
@@ -290,10 +293,16 @@ export class HbxRecoveryService {
     };
   }
 
+  private async attachCustomerRegistry(companyId: number, row: any) {
+    if (!row) return row;
+    const customerRegistry = await this.cadastrosService.findCustomerRegistryByPhone(companyId, row.whatsappNumber);
+    return customerRegistry ? { ...row, customerRegistry } : row;
+  }
+
   private async findCustomer(companyId: number, customerId: string) {
     const row = await this.prisma.hbxRecoveryCustomer.findFirst({ where: { id: String(customerId), companyId } });
     if (!row) throw new NotFoundException('Cadastro de Recovery nao encontrado');
-    return row;
+    return this.attachCustomerRegistry(companyId, row);
   }
 
   private async resolveRecoveryCustomerForConversation(conversation: any, companyId: number) {
@@ -2883,7 +2892,7 @@ export class HbxRecoveryService {
         lastContact: `Pagamento em ${this.dateLabelPtBR(now)}`, status: this.toDbStatus(nextOpen > 0 ? 'overdue' : 'paid'), paymentHistory: this.json(history), delayHistory: this.json(delays),
       },
     });
-    return { changed: true, amount: applied, customer: updated };
+    return { changed: true, amount: applied, customer: await this.attachCustomerRegistry(companyId, updated) };
   }
 
   private async reversePayment(companyId: number, customerId: string, amountRaw: number, label: string, when?: Date) {
@@ -2904,7 +2913,7 @@ export class HbxRecoveryService {
         lastContact: `Estorno em ${this.dateLabelPtBR(now)}`, status: this.toDbStatus(nextOpen > 0 ? 'overdue' : 'paid'), paymentHistory: this.json(history), delayHistory: this.json(delays),
       },
     });
-    return { changed: true, amount, customer: updated };
+    return { changed: true, amount, customer: await this.attachCustomerRegistry(companyId, updated) };
   }
 
   private approvedPaymentCustomerMessage(customer: any) {
@@ -3025,7 +3034,19 @@ export class HbxRecoveryService {
   async listCustomers(user: any) {
     const companyId = this.requireCompanyIdFromUser(user);
     const rows = await this.prisma.hbxRecoveryCustomer.findMany({ where: { companyId }, orderBy: [{ openAmount: 'desc' }, { updatedAt: 'desc' }] });
-    return rows.map((row) => this.toCustomerResponse(row));
+    const registryRows = await Promise.all(rows.map((row) => this.cadastrosService.syncCustomerRegistryFromRecovery(companyId, row)));
+    const registryByPhone = new Map<string, any>();
+    for (const registryRow of registryRows) {
+      if (!registryRow) continue;
+      const key = this.normalizeDigits(registryRow.phoneNormalized || registryRow.phone);
+      if (key) registryByPhone.set(key, registryRow);
+    }
+    return rows.map((row) =>
+      this.toCustomerResponse({
+        ...row,
+        customerRegistry: registryByPhone.get(this.normalizeDigits(row.whatsappNumber)) ?? null,
+      }),
+    );
   }
 
   async listFlowStages(user: any) {
@@ -3214,7 +3235,8 @@ export class HbxRecoveryService {
         createdAt: registrationDate,
       },
     });
-    return this.toCustomerResponse(created);
+    const customerRegistry = await this.cadastrosService.syncCustomerRegistryFromRecovery(companyId, created);
+    return this.toCustomerResponse({ ...created, customerRegistry });
   }
 
   async importCustomers(user: any, rows: Array<Record<string, any>> | undefined) {

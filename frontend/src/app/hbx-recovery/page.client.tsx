@@ -6194,6 +6194,10 @@ export default function HbxRecoveryClientPage({ embedded = false }: HbxRecoveryC
         customerWhatsapp: interactionDetail.customer.whatsappNumber,
       })
     : "-";
+  const selectedInteractionWhatsappHref = (() => {
+    const normalized = normalizeWhatsAppNumber(selectedInteractionPhone).replace(/\D/g, "");
+    return normalized ? `https://wa.me/${normalized}` : null;
+  })();
   const getMetaStatusBadgeClass = (statusRaw: string) => {
     const normalized = String(statusRaw || "").trim().toUpperCase();
     if (normalized === "APPROVED") return styles.statePaid;
@@ -6469,8 +6473,27 @@ export default function HbxRecoveryClientPage({ embedded = false }: HbxRecoveryC
               description="Mensagem humana enviada para este WhatsApp."
               toolbar={
                 <>
-                  <ChatIconButton icon="phone" title="Canal WhatsApp" aria-label="Canal WhatsApp" />
-                  <ChatIconButton icon="send" title="Pronto para enviar" aria-label="Pronto para enviar" />
+                  <ChatIconButton
+                    icon="phone"
+                    title="Abrir WhatsApp desta conversa"
+                    aria-label="Abrir WhatsApp desta conversa"
+                    onClick={() => {
+                      if (!selectedInteractionWhatsappHref) return;
+                      window.open(selectedInteractionWhatsappHref, "_blank", "noopener,noreferrer");
+                    }}
+                    disabled={!selectedInteractionWhatsappHref}
+                  />
+                  <ChatIconButton
+                    icon="send"
+                    title="Enviar resposta agora"
+                    aria-label="Enviar resposta agora"
+                    onClick={() => sendInteractionReply(interactionDetail.conversationId)}
+                    disabled={
+                      !interactionReplyDraft.trim() ||
+                      isInteractionBusy(interactionDetail.conversationId, "send_message") ||
+                      Boolean(interactionDetail.isBlocked)
+                    }
+                  />
                 </>
               }
               footer={
@@ -6485,6 +6508,7 @@ export default function HbxRecoveryClientPage({ embedded = false }: HbxRecoveryC
                     className="btn btn-primary btn-sm"
                     onClick={() => sendInteractionReply(interactionDetail.conversationId)}
                     disabled={
+                      !interactionReplyDraft.trim() ||
                       isInteractionBusy(interactionDetail.conversationId, "send_message") ||
                       Boolean(interactionDetail.isBlocked)
                     }
@@ -8785,7 +8809,11 @@ export default function HbxRecoveryClientPage({ embedded = false }: HbxRecoveryC
             toolbarSlot={
               <ConversationQueueFilterBar
                 value={interactionsQueue}
-                onChange={setInteractionsQueue}
+                onChange={(value) => {
+                  if (value === "all" || value === "blocked" || value === "closed") {
+                    setInteractionsQueue(value);
+                  }
+                }}
               />
             }
           />

@@ -306,6 +306,18 @@ function resolveDefaultAtendimentoNextNodeId(actionIdRaw: string | null | undefi
       return "recoveryDetectedMessage";
     case "start_quick_registration":
       return "registrationCapture";
+    case "view_payments":
+      return "paymentHistory";
+    case "pay_now":
+      return "paymentAction";
+    case "negotiate_debt":
+      return "negotiationAction";
+    case "continue_attendance":
+      return "mainMenuPrompt";
+    case "continue_journey":
+      return "debt_open_gate";
+    case "schedule_service":
+      return "agendaDispatch";
     default:
       if (actionId.startsWith("agenda:")) return "agendaDispatch";
       return "postActionPrompt";
@@ -409,8 +421,8 @@ export const DEFAULT_ATENDIMENTO_BOT_CONFIG: AtendimentoBotConfig = {
     },
     {
       actionId: "enter_recovery",
-      title: "Falar sobre o debito",
-      description: "Entrega a conversa para o menu do Recovery quando houver inadimplencia.",
+      title: "Abrir contexto financeiro",
+      description: "Leva o cliente para o resumo financeiro dentro do fluxo principal do Atendimento.",
       route: "recovery",
       kind: "recovery_handoff",
       enabled: true,
@@ -423,6 +435,50 @@ export const DEFAULT_ATENDIMENTO_BOT_CONFIG: AtendimentoBotConfig = {
       kind: "show_menu",
       enabled: true,
     },
+    {
+      actionId: "view_payments",
+      title: "Ver pagamentos",
+      description: "Mostra pagamentos recentes e historico financeiro do cliente.",
+      route: "recovery",
+      kind: "reply",
+      enabled: true,
+      responseMessage: "Vou abrir o historico de pagamentos e continuar por aqui com voce.",
+    },
+    {
+      actionId: "pay_now",
+      title: "Pagar agora",
+      description: "Gera link ou dispara a proxima acao financeira imediata.",
+      route: "recovery",
+      kind: "reply",
+      enabled: true,
+      responseMessage: "Perfeito. Vou gerar a acao financeira para voce seguir agora.",
+    },
+    {
+      actionId: "negotiate_debt",
+      title: "Negociar",
+      description: "Registra uma negociacao sem tirar o cliente do fluxo principal.",
+      route: "recovery",
+      kind: "reply",
+      enabled: true,
+      responseMessage: "Vamos registrar uma negociacao e seguir pelo melhor caminho para o seu caso.",
+    },
+    {
+      actionId: "continue_attendance",
+      title: "Continuar atendimento",
+      description: "Sai do contexto financeiro e devolve a conversa para a triagem principal.",
+      route: "atendimento",
+      kind: "show_menu",
+      enabled: true,
+    },
+    {
+      actionId: "schedule_service",
+      title: "Agendar",
+      description: "Despacha o cliente para a agenda operacional configurada.",
+      route: "atendimento",
+      kind: "agenda",
+      enabled: true,
+      agendaGroupId: null,
+    },
   ],
   routingRules: {
     checkRecoveryBeforeReply: true,
@@ -431,26 +487,35 @@ export const DEFAULT_ATENDIMENTO_BOT_CONFIG: AtendimentoBotConfig = {
     notifyOnNewInbound: true,
   },
   welcomeMessage:
-    "Ola, tudo bem?\nEu sou o atendimento digital da {{empresa}}. Nao localizamos em nosso cadastro seu telefone.",
+    "Ola, tudo bem?\nSou o atendimento da {{empresa}} e vou concluir seu cadastro rapido antes de seguir com a triagem principal.",
   welcomeButtons: [
-    makeDefaultButton("welcome_message", "start_quick_registration", "Fazer cadastro rapido", 0),
+    makeDefaultButton("welcome_message", "continue_journey", "Continuar atendimento", 0),
     makeDefaultButton("welcome_message", "talk_human", "Falar com atendente", 1),
   ],
   returningCustomerButtons: [
-    makeDefaultButton("returning_customer", "show_main_menu", "Ver opcoes", 0),
+    makeDefaultButton("returning_customer", "continue_journey", "Continuar", 0),
     makeDefaultButton("returning_customer", "talk_human", "Falar com atendente", 1),
   ],
-  mainMenuPrompt: "Escolha abaixo como deseja continuar:",
-  mainMenuButtons: [makeDefaultButton("main_menu", "talk_human", "Falar com atendente", 0)],
-  returningCustomerMessage:
-    "Que bom te ver de novo, {{cliente}}. Vou continuar daqui e te mostrar as opcoes disponiveis.",
-  recoveryDetectedMessage:
-    "Localizei um cadastro com valor em aberto de {{valor_formatado}} no Recovery. Podemos conversar sobre isso agora ou prefere falar com um atendente?",
-  recoveryDetectedButtons: [
-    makeDefaultButton("recovery_detected", "enter_recovery", "Falar sobre o debito", 0),
-    makeDefaultButton("recovery_detected", "talk_human", "Falar com atendente", 1),
+  mainMenuPrompt: "Escolha abaixo como deseja continuar no Atendimento:",
+  mainMenuButtons: [
+    makeDefaultButton("main_menu", "show_main_menu", "Suporte", 0),
+    makeDefaultButton("main_menu", "schedule_service", "Agendar", 1),
+    makeDefaultButton("main_menu", "enter_recovery", "Financeiro", 2),
+    makeDefaultButton("main_menu", "talk_human", "Falar com atendente", 3),
   ],
-  postActionPrompt: "Se precisar de mais alguma coisa, posso continuar por aqui.",
+  returningCustomerMessage:
+    "Que bom te ver de novo, {{cliente}}. Vou continuar daqui e te mostrar o melhor caminho no Atendimento.",
+  recoveryDetectedMessage:
+    "Encontrei um valor pendente de {{valor_formatado}}. Posso te mostrar pagamentos, seguir com uma acao financeira ou continuar no Atendimento sem perder o contexto.",
+  recoveryDetectedButtons: [
+    makeDefaultButton("recovery_detected", "view_payments", "Ver pagamentos", 0),
+    makeDefaultButton("recovery_detected", "pay_now", "Pagar agora", 1),
+    makeDefaultButton("recovery_detected", "negotiate_debt", "Negociar", 2),
+    makeDefaultButton("recovery_detected", "continue_attendance", "Continuar atendimento", 3),
+    makeDefaultButton("recovery_detected", "talk_human", "Falar com atendente", 4),
+    makeDefaultButton("recovery_detected", "schedule_service", "Agendar", 5),
+  ],
+  postActionPrompt: "Se precisar, posso continuar pelo Atendimento, voltar ao financeiro ou encaminhar para agenda e humano.",
   postActionButtons: [
     makeDefaultButton("post_action", "show_main_menu", "Voltar ao menu", 0),
     makeDefaultButton("post_action", "talk_human", "Atendimento humano", 1),

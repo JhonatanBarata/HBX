@@ -7,6 +7,7 @@ const ENTER_READY_DELAY_MS = 24;
 const EXIT_DURATION_MS = 2200;
 const ROW_SNAP_PX = 18;
 const SHUTDOWN_PARTICLE_COUNT = 72;
+const NO_REVEAL_SELECTOR = '[data-ui-no-reveal="true"]';
 
 const REVEAL_TARGET_SELECTOR = [
   ".app-topbar__summary",
@@ -108,6 +109,12 @@ function compareByVisualOrder(left: RevealCandidate, right: RevealCandidate) {
   return left.index - right.index;
 }
 
+function isInsideNoRevealBoundary(node: Node | null) {
+  if (!node) return false;
+  const element = node instanceof Element ? node : node.parentElement;
+  return Boolean(element?.closest(NO_REVEAL_SELECTOR));
+}
+
 export function InterfaceTransitionProvider({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const rootRef = React.useRef<HTMLDivElement | null>(null);
@@ -121,7 +128,7 @@ export function InterfaceTransitionProvider({ children }: { children: React.Reac
     if (!root) return;
 
     const targets = Array.from(root.querySelectorAll<HTMLElement>(REVEAL_TARGET_SELECTOR))
-      .filter((element) => isVisibleElement(element))
+      .filter((element) => isVisibleElement(element) && !isInsideNoRevealBoundary(element))
       .map<RevealCandidate>((element, index) => {
         const rect = element.getBoundingClientRect();
         return {
@@ -191,7 +198,21 @@ export function InterfaceTransitionProvider({ children }: { children: React.Reac
     const root = rootRef.current;
     if (!root) return undefined;
 
-    const observer = new MutationObserver(() => {
+    const observer = new MutationObserver((records) => {
+      const shouldRefreshReveal = records.some((record) => {
+        if (!isInsideNoRevealBoundary(record.target)) {
+          return true;
+        }
+
+        return [...record.addedNodes, ...record.removedNodes].some(
+          (node) => !isInsideNoRevealBoundary(node),
+        );
+      });
+
+      if (!shouldRefreshReveal) {
+        return;
+      }
+
       scheduleRevealMap();
     });
 

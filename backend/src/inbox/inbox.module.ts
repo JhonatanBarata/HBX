@@ -5,9 +5,10 @@ import { PrismaModule } from '../prisma/prisma.module';
 import { ModulesAccessModule } from '../modules/modules.module';
 import { MessagingModule } from '../messaging/messaging.module';
 import { HbxRecoveryModule } from '../hbx-recovery/hbx-recovery.module';
+import { CadastrosModule } from '../cadastros/cadastros.module';
 
 @Module({
-  imports: [PrismaModule, ModulesAccessModule, MessagingModule, HbxRecoveryModule],
+  imports: [PrismaModule, ModulesAccessModule, MessagingModule, HbxRecoveryModule, CadastrosModule],
   controllers: [InboxController],
   providers: [InboxService],
 })

@@ -50,6 +50,7 @@ import {
   normalizeWhatsAppPhone,
   type WhatsAppInboundNormalized,
 } from './whatsapp-channel';
+import { CadastrosService } from '../cadastros/cadastros.service';
 
 function clamp(n: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, n));
@@ -149,6 +150,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     private readonly conversations: ConversationsService,
     private readonly whatsappAudit: WhatsAppAuditService,
     private readonly mercadoPagoClient: MercadoPagoClientService,
+    private readonly cadastrosService: CadastrosService,
   ) {}
 
   onModuleInit() {
@@ -658,46 +660,12 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     registrationStatus?: string;
     conversationId?: number | null;
   }): Promise<void> {
-    const phoneNorm = this.normalizePhoneForCustomer(input.phone);
-    if (!phoneNorm || phoneNorm.length < 8) return;
-    const now = new Date();
     try {
-      const existing = await (this.prisma as any).atendimentoCustomer.findUnique({
-        where: {
-          companyId_phoneNormalized: { companyId: input.companyId, phoneNormalized: phoneNorm },
-        },
+      await this.cadastrosService.upsertCustomerRegistry({
+        ...input,
+        route: 'atendimento',
+        lastMessageAt: new Date(),
       });
-      if (existing) {
-        const shouldUpdateName = !existing.name && !!input.name;
-        await (this.prisma as any).atendimentoCustomer.update({
-          where: { id: existing.id },
-          data: {
-            ...(shouldUpdateName
-              ? { name: input.name, registrationStatus: input.registrationStatus ?? existing.registrationStatus }
-              : {}),
-            ...(input.registrationStatus && input.registrationStatus !== 'pending_confirmation'
-              ? { registrationStatus: input.registrationStatus }
-              : {}),
-            ...(input.conversationId ? { conversationId: input.conversationId } : {}),
-            lastMessageAt: now,
-            updatedAt: now,
-          },
-        });
-      } else {
-        await (this.prisma as any).atendimentoCustomer.create({
-          data: {
-            companyId: input.companyId,
-            phone: input.phone,
-            phoneNormalized: phoneNorm,
-            name: input.name ?? null,
-            registrationOrigin: input.registrationOrigin ?? 'whatsapp_bot',
-            registrationStatus: input.registrationStatus ?? 'pending_confirmation',
-            route: 'atendimento',
-            conversationId: input.conversationId ?? null,
-            lastMessageAt: now,
-          },
-        });
-      }
     } catch (err) {
       this.logger.warn(`upsertAtendimentoCustomerLocal failed: ${(err as any)?.message}`);
     }

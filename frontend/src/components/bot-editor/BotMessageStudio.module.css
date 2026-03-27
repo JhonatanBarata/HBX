@@ -1,6 +1,6 @@
 .studio {
   display: grid;
-  gap: 1rem;
+  gap: 0.72rem;
 }
 
 .panel,
@@ -16,7 +16,7 @@
   box-shadow: 0 22px 48px rgba(15, 23, 42, 0.08);
 }
 
-.hero,
+.topbar,
 .card,
 .metricCard,
 .catalogCard,
@@ -25,12 +25,12 @@
 .libraryPanel,
 .canvasPanel,
 .inspectorPanel {
-  padding: 1rem;
+  padding: 0.82rem;
   display: grid;
-  gap: 0.9rem;
+  gap: 0.72rem;
 }
 
-.hero,
+.topbar,
 .panelHeader,
 .cardHeader,
 .actionItemHeader {
@@ -42,7 +42,7 @@
 
 .eyebrow {
   margin: 0;
-  font-size: 0.72rem;
+  font-size: 0.64rem;
   font-weight: 800;
   letter-spacing: 0.14em;
   text-transform: uppercase;
@@ -50,8 +50,8 @@
 }
 
 .title {
-  margin: 0.35rem 0 0;
-  font-size: clamp(1.15rem, 1.9vw, 1.6rem);
+  margin: 0;
+  font-size: clamp(1.05rem, 1.5vw, 1.28rem);
   line-height: 1.04;
   letter-spacing: -0.03em;
   color: #102033;
@@ -71,7 +71,8 @@
   line-height: 1.55;
 }
 
-.heroMeta,
+.topbarTitleRow,
+.topbarActions,
 .scenarioMeta,
 .nodeBadgeRow,
 .canvasStatus,
@@ -84,40 +85,69 @@
   align-items: center;
 }
 
-.tabRow {
+.topbar {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+}
+
+.topbarMain {
+  min-width: 0;
   display: grid;
-  gap: 0.75rem;
-  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 0.28rem;
+}
+
+.topbarTitleRow {
+  justify-content: flex-start;
+}
+
+.topbarActions {
+  justify-content: flex-end;
+}
+
+.toolbarButton {
+  min-height: 32px;
+  padding: 0.38rem 0.8rem;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--brand) 10%, #dbe7f1);
+  background: rgba(255, 255, 255, 0.88);
+  color: #17324a;
+  font-size: 0.76rem;
+  font-weight: 800;
+}
+
+.toolbarButtonActive {
+  border-color: color-mix(in srgb, var(--brand) 30%, #102033);
+  background: color-mix(in srgb, var(--brand) 10%, white);
+  color: color-mix(in srgb, var(--brand) 82%, #17324a);
+}
+
+.tabRow {
+  display: flex;
+  gap: 0.45rem;
+  overflow: auto;
+  padding-bottom: 0.04rem;
 }
 
 .tabButton {
-  display: grid;
-  gap: 0.2rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.48rem;
   justify-items: start;
-  min-height: 62px;
-  padding: 0.82rem 0.95rem;
-  border-radius: 18px;
+  min-height: 38px;
+  padding: 0.52rem 0.76rem;
+  border-radius: 12px;
   border: 1px solid color-mix(in srgb, var(--brand) 10%, #dbe7f1);
   background: rgba(255, 255, 255, 0.82);
-  transition:
-    transform 160ms ease,
-    border-color 160ms ease,
-    box-shadow 160ms ease;
-}
-
-.tabButton:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 12px 22px rgba(15, 23, 42, 0.07);
 }
 
 .tabButton strong {
   color: #102033;
-  font-size: 0.9rem;
+  font-size: 0.82rem;
 }
 
 .tabButton span {
   color: var(--muted);
-  font-size: 0.76rem;
+  font-size: 0.7rem;
   font-weight: 700;
 }
 
@@ -131,12 +161,12 @@
 
 .flowLayout {
   display: grid;
-  gap: 1rem;
-  grid-template-columns: minmax(240px, 280px) minmax(0, 1fr) minmax(320px, 380px);
+  gap: 0.82rem;
+  grid-template-columns: minmax(220px, 248px) minmax(0, 1fr) minmax(306px, 352px);
 }
 
 .flowLayoutCanvasFocus {
-  grid-template-columns: minmax(0, 1fr) minmax(320px, 380px);
+  grid-template-columns: minmax(0, 1fr) minmax(306px, 352px);
   grid-template-areas:
     "canvas canvas"
     "library inspector";
@@ -281,7 +311,7 @@
 .buttonList,
 .actionList {
   display: grid;
-  gap: 0.75rem;
+  gap: 0.62rem;
 }
 
 .scenarioItem,
@@ -297,7 +327,7 @@
 .flowIndexItem {
   width: 100%;
   text-align: left;
-  padding: 0.95rem 1rem;
+  padding: 0.8rem 0.9rem;
   transition:
     transform 160ms ease,
     border-color 160ms ease,
@@ -338,9 +368,9 @@
 
 .canvasSurface {
   display: grid;
-  gap: 1rem;
-  padding: 1rem;
-  border-radius: 24px;
+  gap: 0.82rem;
+  padding: 0.82rem;
+  border-radius: 18px;
   border: 1px dashed color-mix(in srgb, var(--brand) 16%, #dbe7f1);
   background:
     radial-gradient(circle at top, rgba(255, 255, 255, 0.92), rgba(255, 255, 255, 0.76)),
@@ -488,11 +518,45 @@
   position: absolute;
   width: 248px;
   text-align: left;
-  padding: 0.95rem 1rem;
-  border-radius: 20px;
+  padding: 0.82rem 0.92rem;
+  border-radius: 16px;
   border: 1px solid color-mix(in srgb, var(--brand) 12%, #dbe7f1);
   background: rgba(255, 255, 255, 0.94);
   box-shadow: 0 18px 26px rgba(15, 23, 42, 0.08);
+}
+
+.flowCanvasNodeTemplate {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(240, 248, 246, 0.96)),
+    rgba(255, 255, 255, 0.96);
+}
+
+.flowCanvasNodeDecision {
+  border-color: rgba(245, 158, 11, 0.22);
+  background:
+    linear-gradient(180deg, rgba(255, 251, 235, 0.98), rgba(255, 245, 228, 0.96)),
+    rgba(255, 255, 255, 0.96);
+}
+
+.flowCanvasNodeAction {
+  border-color: rgba(14, 116, 144, 0.18);
+  background:
+    linear-gradient(180deg, rgba(240, 249, 255, 0.98), rgba(232, 246, 252, 0.96)),
+    rgba(255, 255, 255, 0.96);
+}
+
+.flowCanvasNodeHuman {
+  border-color: rgba(16, 185, 129, 0.2);
+  background:
+    linear-gradient(180deg, rgba(236, 253, 245, 0.98), rgba(226, 250, 240, 0.96)),
+    rgba(255, 255, 255, 0.96);
+}
+
+.flowCanvasNodeEnd {
+  border-color: rgba(100, 116, 139, 0.24);
+  background:
+    linear-gradient(180deg, rgba(248, 250, 252, 0.98), rgba(241, 245, 249, 0.96)),
+    rgba(255, 255, 255, 0.96);
 }
 
 .flowCanvasNodeActive {
@@ -543,9 +607,9 @@
 
 .toggleCard {
   text-align: left;
-  min-height: 84px;
-  padding: 0.95rem 1rem;
-  border-radius: 18px;
+  min-height: 68px;
+  padding: 0.78rem 0.82rem;
+  border-radius: 14px;
   border: 1px solid color-mix(in srgb, var(--brand) 10%, #dbe7f1);
   background: rgba(248, 250, 252, 0.96);
   transition:
@@ -572,9 +636,9 @@
 
 .buttonRow,
 .actionItem {
-  padding: 0.95rem;
+  padding: 0.8rem;
   display: grid;
-  gap: 0.8rem;
+  gap: 0.68rem;
 }
 
 .buttonGrid {
@@ -594,6 +658,11 @@
 
 .fieldBlock :global(.field) {
   width: 100%;
+}
+
+.messageEditor {
+  min-height: 184px;
+  resize: vertical;
 }
 
 .buttonMeta {
@@ -882,6 +951,80 @@
   gap: 0.9rem;
 }
 
+.inspectorPanel {
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
+}
+
+.inspectorHeader {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.72rem;
+  padding-bottom: 0.08rem;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(255, 255, 255, 0.92));
+}
+
+.inspectorBody {
+  min-height: 0;
+  overflow: auto;
+  display: grid;
+  gap: 0.52rem;
+  padding-right: 0.1rem;
+}
+
+.inspectorSection {
+  border-radius: 16px;
+  border: 1px solid color-mix(in srgb, var(--brand) 10%, #dbe7f1);
+  background: rgba(255, 255, 255, 0.78);
+}
+
+.inspectorSectionOpen {
+  box-shadow: 0 14px 24px rgba(15, 23, 42, 0.05);
+}
+
+.inspectorSectionDisabled {
+  opacity: 0.68;
+}
+
+.inspectorSectionTrigger {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  padding: 0.74rem 0.82rem;
+  background: transparent;
+  border: none;
+  color: #102033;
+  font-size: 0.8rem;
+  font-weight: 800;
+  text-align: left;
+}
+
+.inspectorSectionMeta {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.32rem;
+  flex-wrap: wrap;
+}
+
+.inspectorSectionBody {
+  display: grid;
+  gap: 0.72rem;
+  padding: 0 0.82rem 0.82rem;
+}
+
+.inspectorActionRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.55rem;
+}
+
 .templateOption {
   display: flex;
   align-items: flex-start;
@@ -900,6 +1043,7 @@
 
 .statusBadge {
   justify-self: end;
+  min-height: 28px;
 }
 
 .statusDot {
@@ -937,7 +1081,7 @@
   }
 
   .tabRow {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    flex-wrap: wrap;
   }
 
   .canvasPreviewDock {
@@ -954,7 +1098,7 @@
 }
 
 @media (max-width: 760px) {
-  .hero,
+  .topbar,
   .card,
   .metricCard,
   .catalogCard,
@@ -967,7 +1111,6 @@
     border-radius: 18px;
   }
 
-  .tabRow,
   .catalogSummary,
   .catalogGrid,
   .checkGrid,
@@ -994,5 +1137,13 @@
 
   .messageBubble {
     max-width: 94%;
+  }
+
+  .topbar {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .topbarActions {
+    justify-content: flex-start;
   }
 }

@@ -52,7 +52,7 @@ function createService(overrides?: Partial<Record<string, any>>) {
     ...(overrides?.audit || {}),
   } as any;
 
-  const service = new InboxService(prisma, conversations, audit);
+  const service = new InboxService(prisma, conversations, audit, {} as any);
   return { service, prisma, conversations, auditCalls, queueCalls };
 }
 

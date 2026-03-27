@@ -12,9 +12,10 @@ import { WhatsAppStatusService } from './whatsapp-status.service';
 import { ModulesAccessModule } from '../modules/modules.module';
 import { WhatsAppAuditService } from './whatsapp-audit.service';
 import { PaymentsModule } from '../payments/payments.module';
+import { CadastrosModule } from '../cadastros/cadastros.module';
 
 @Module({
-  imports: [PrismaModule, ModulesAccessModule, PaymentsModule],
+  imports: [PrismaModule, ModulesAccessModule, PaymentsModule, CadastrosModule],
   providers: [MessagingService, ConversationSessionsService, MessageOrchestratorService, OrderDraftsService, ConversationsService, WhatsAppStatusService, WhatsAppAuditService],
   controllers: [MessagingController, ConversationsController, WhatsAppController],
   exports: [WhatsAppStatusService, ConversationsService, WhatsAppAuditService],

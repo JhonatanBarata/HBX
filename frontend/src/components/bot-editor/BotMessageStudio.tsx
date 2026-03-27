@@ -36,7 +36,7 @@ export type BotStudioFlowScenario = {
   label: string;
   description: string;
   badge?: string;
-  nodeKind?: "template" | "message" | "action" | "human_handoff" | "end";
+  nodeKind?: "template" | "message" | "action" | "decision" | "human_handoff" | "end";
   supportsButtons?: boolean;
   editable?: boolean;
   messageText: string;
@@ -133,6 +133,8 @@ type BotMessageStudioProps = {
   primaryActionLabel?: string;
   onPrimaryAction?: () => void;
   primaryActionDisabled?: boolean;
+  secondaryActionLabel?: string;
+  onSecondaryAction?: () => void;
   variablesTabExtra?: ReactNode;
   actionsTabExtra?: ReactNode;
   publicationTabExtra?: ReactNode;
@@ -140,6 +142,7 @@ type BotMessageStudioProps = {
 };
 
 type StudioTab = "flow" | "variables" | "actions" | "publication";
+type InspectorSectionId = "content" | "variables" | "buttons" | "capture" | "advanced";
 
 const FLOW_NODE_WIDTH = 248;
 const FLOW_NODE_HEIGHT = 110;
@@ -160,6 +163,8 @@ function getNodeKindLabel(kind?: BotStudioFlowScenario["nodeKind"]) {
   switch (kind) {
     case "template":
       return "Template";
+    case "decision":
+      return "Decisao";
     case "action":
       return "Acao";
     case "human_handoff":
@@ -172,7 +177,21 @@ function getNodeKindLabel(kind?: BotStudioFlowScenario["nodeKind"]) {
 }
 
 function isEditableNode(node: BotStudioFlowScenario | null) {
-  return Boolean(node && node.editable !== false && node.nodeKind !== "template" && node.nodeKind !== "action");
+  return Boolean(
+    node &&
+      node.editable !== false &&
+      node.nodeKind !== "template" &&
+      node.nodeKind !== "action",
+  );
+}
+
+function getDefaultInspectorSections(node: BotStudioFlowScenario | null): InspectorSectionId[] {
+  if (!node) return ["content"];
+  if (node.nodeKind === "template") return ["content", "advanced"];
+  if (node.nodeKind === "action") return ["capture", "advanced"];
+  if (node.nodeKind === "decision") return node.supportsButtons === false ? ["content", "advanced"] : ["content", "buttons"];
+  if (isEditableNode(node) && node.supportsButtons !== false) return ["content", "buttons"];
+  return ["content", "advanced"];
 }
 
 export default function BotMessageStudio(props: BotMessageStudioProps) {
@@ -215,6 +234,8 @@ export default function BotMessageStudio(props: BotMessageStudioProps) {
     primaryActionLabel = "Salvar editor",
     onPrimaryAction,
     primaryActionDisabled = false,
+    secondaryActionLabel,
+    onSecondaryAction,
     variablesTabExtra,
     actionsTabExtra,
     publicationTabExtra,
@@ -226,6 +247,13 @@ export default function BotMessageStudio(props: BotMessageStudioProps) {
   const [pan, setPan] = useState({ x: 24, y: 24 });
   const [previewTrail, setPreviewTrail] = useState<string[]>([startNodeId || selectedScenarioId]);
   const [previewModalOpen, setPreviewModalOpen] = useState(false);
+  const [inspectorState, setInspectorState] = useState<{
+    nodeId: string | null;
+    sections: InspectorSectionId[];
+  }>({
+    nodeId: selectedScenarioId || null,
+    sections: ["content", "buttons"],
+  });
   const dragStateRef = useRef<{ pointerId: number; x: number; y: number } | null>(null);
 
   const selectedScenario =
@@ -335,6 +363,10 @@ export default function BotMessageStudio(props: BotMessageStudioProps) {
   const publicationReady = publicationChecks.length > 0 && publicationChecks.every((item) => item.ok);
   const computedPublicationStatus =
     publicationStatusLabel || (publicationReady ? "Fluxo pronto para salvar" : "Rascunho com pontos para revisar");
+  const activeInspectorSections =
+    inspectorState.nodeId === (selectedNode?.id || null)
+      ? inspectorState.sections
+      : getDefaultInspectorSections(selectedNode);
 
   useEffect(() => {
     if (!previewModalOpen) return;
@@ -409,6 +441,61 @@ export default function BotMessageStudio(props: BotMessageStudioProps) {
     if (!button.nextNodeId || !nodeById.has(button.nextNodeId)) return;
     onSelectScenario(button.nextNodeId);
     setPreviewTrail((current) => [...current, button.nextNodeId as string]);
+  }
+
+  function openPreviewFromCurrentSelection() {
+    setPreviewTrail(getPreviewPath(selectedScenarioId));
+    setPreviewModalOpen(true);
+  }
+
+  function toggleInspectorSection(sectionId: InspectorSectionId) {
+    const nodeId = selectedNode?.id || null;
+    setInspectorState((current) => {
+      const baselineSections =
+        current.nodeId === nodeId ? current.sections : getDefaultInspectorSections(selectedNode);
+      if (baselineSections.includes(sectionId)) {
+        return {
+          nodeId,
+          sections: baselineSections.filter((item) => item !== sectionId),
+        };
+      }
+      return {
+        nodeId,
+        sections: [...baselineSections.slice(-1), sectionId],
+      };
+    });
+  }
+
+  function renderInspectorSection(
+    sectionId: InspectorSectionId,
+    title: string,
+    content: ReactNode,
+    options?: { meta?: ReactNode; disabled?: boolean },
+  ) {
+    const open = activeInspectorSections.includes(sectionId) && !options?.disabled;
+
+    return (
+      <section
+        className={`${styles.inspectorSection} ${open ? styles.inspectorSectionOpen : ""} ${
+          options?.disabled ? styles.inspectorSectionDisabled : ""
+        }`}
+      >
+        <button
+          type="button"
+          className={styles.inspectorSectionTrigger}
+          onClick={() => toggleInspectorSection(sectionId)}
+          disabled={options?.disabled}
+          aria-expanded={open}
+        >
+          <span>{title}</span>
+          <div className={styles.inspectorSectionMeta}>
+            {options?.meta ? <span className={styles.badge}>{options.meta}</span> : null}
+            <span className={`${styles.badge} ${styles.badgeMuted}`}>{open ? "Aberto" : "Fechado"}</span>
+          </div>
+        </button>
+        {open ? <div className={styles.inspectorSectionBody}>{content}</div> : null}
+      </section>
+    );
   }
 
   function renderConversationPreview() {
@@ -496,12 +583,10 @@ export default function BotMessageStudio(props: BotMessageStudioProps) {
         <aside className={`${styles.panel} ${styles.libraryPanel} ${styles.flowLibraryRegion}`}>
           <div className={styles.panelHeader}>
             <div>
-              <strong>Biblioteca do fluxo</strong>
-           
+              <strong>Mapa do fluxo</strong>
+              <p>Tronco principal, ramos e saidas compartilhadas.</p>
             </div>
           </div>
-
-         
 
           <div className={styles.scenarioList}>
             {flowScenarios.map((scenario) => (
@@ -525,8 +610,8 @@ export default function BotMessageStudio(props: BotMessageStudioProps) {
         <section className={`${styles.panel} ${styles.canvasPanel} ${styles.flowCanvasRegion}`}>
           <div className={styles.panelHeader}>
             <div>
-              <strong>Organograma automatico</strong>
-              <p>O fluxo se reorganiza sozinho conforme os botoes e respostas configurados em cada bloco.</p>
+              <strong>Canvas unificado</strong>
+              <p>Leitura principal do fluxo com atendimento e financeiro na mesma arvore.</p>
             </div>
             <div className={styles.canvasStatus}>
               <button type="button" className="btn btn-secondary btn-sm" onClick={() => setZoom((current) => Math.max(0.72, Number((current - 0.12).toFixed(2))))}>-</button>
@@ -597,11 +682,23 @@ export default function BotMessageStudio(props: BotMessageStudioProps) {
                   const position = node.position || { x: 0, y: 0 };
                   const active = node.id === selectedScenarioId;
                   const connected = relatedNodeIds.has(node.id);
+                  const nodeKindClass =
+                    node.nodeKind === "template"
+                      ? styles.flowCanvasNodeTemplate
+                      : node.nodeKind === "decision"
+                        ? styles.flowCanvasNodeDecision
+                        : node.nodeKind === "action"
+                          ? styles.flowCanvasNodeAction
+                          : node.nodeKind === "human_handoff"
+                            ? styles.flowCanvasNodeHuman
+                            : node.nodeKind === "end"
+                              ? styles.flowCanvasNodeEnd
+                              : "";
                   return (
                     <button
                       key={node.id}
                       type="button"
-                      className={`${styles.flowCanvasNode} ${active ? styles.flowCanvasNodeActive : ""} ${!active && connected ? styles.flowCanvasNodeConnected : ""} ${!connected ? styles.flowCanvasNodeMuted : ""}`}
+                      className={`${styles.flowCanvasNode} ${nodeKindClass} ${active ? styles.flowCanvasNodeActive : ""} ${!active && connected ? styles.flowCanvasNodeConnected : ""} ${!connected ? styles.flowCanvasNodeMuted : ""}`}
                       style={{ left: position.x - graphBounds.minX, top: position.y - graphBounds.minY }}
                       onClick={() => handleSelectNode(node.id, { openPreview: true })}
                     >
@@ -622,227 +719,255 @@ export default function BotMessageStudio(props: BotMessageStudioProps) {
         </section>
 
         <aside className={`${styles.panel} ${styles.inspectorPanel} ${styles.flowInspectorRegion}`}>
-          <div className={styles.panelHeader}>
+          <div className={styles.inspectorHeader}>
             <div>
-              <strong>Inspector contextual</strong>
-              <p>So o que importa para o tipo de no selecionado.</p>
+              <span className={styles.metaLabel}>Bloco selecionado</span>
+              <strong>{selectedNode?.label || "Sem no selecionado"}</strong>
+              <p>{selectedNode?.description || "Edite apenas o que impacta este ponto do fluxo."}</p>
             </div>
+            <span className={`${styles.badge} ${styles.badgeMuted}`}>{getNodeKindLabel(selectedNode?.nodeKind)}</span>
           </div>
-
-          <article className={styles.card}>
-            <div className={styles.cardHeader}>
-              <div>
-                <strong>{selectedNode?.label || "Sem no selecionado"}</strong>
-              </div>
-              <span className={`${styles.badge} ${styles.badgeMuted}`}>{getNodeKindLabel(selectedNode?.nodeKind)}</span>
-            </div>
-
-            {selectedNode?.nodeKind === "template" ? (
-              <div className={styles.templateInspector}>
-                {templateOptions.length > 0 ? (
-                  templateOptions.map((option) => (
-                    <button
-                      key={option.id}
-                      type="button"
-                      className={`${styles.templateOption} ${option.selected ? styles.templateOptionActive : ""}`}
-                      onClick={() => {
-                        onSelectTemplateOption?.(option.id);
-                        setPreviewTrail([startNode?.id || selectedScenarioId]);
-                      }}
-                    >
-                      <div>
-                        <strong>{option.title}</strong>
-                        {option.subtitle ? <p>{option.subtitle}</p> : null}
-                      </div>
-                      <div className={styles.scenarioMeta}>
-                        <span className={`${styles.badge} ${option.ready === false ? styles.badgeWarning : styles.badgeAccent}`}>
-                          {option.ready === false ? "Revisar" : "Pronto"}
-                        </span>
-                        {option.selected ? <span className={styles.badge}>Ativo</span> : null}
-                      </div>
-                    </button>
-                  ))
-                ) : (
-                  <div className={styles.emptyState}>Nenhum template ativo para ser usado como primeiro no.</div>
-                )}
-              </div>
-            ) : null}
-
-            {isEditableNode(selectedNode) ? (
-              <>
-                <div className={styles.fieldBlock}>
-                  <span>Nome interno</span>
-                  <input className="field" value={selectedNode?.id || ""} disabled />
-                </div>
-                <article className={styles.card}>
-                  <div className={styles.cardHeader}>
-                    <div>
-                      <strong>Tipo de mensagem</strong>
-                      <p>Escolha se esta etapa usa apenas texto ou ramificacoes por botoes.</p>
-                    </div>
-                  </div>
-                  <div className={styles.toggleGrid}>
-                    <button
-                      type="button"
-                      className={`${styles.toggleCard} ${messageType === "simple" ? styles.toggleCardActive : ""}`}
-                      onClick={() => onMessageTypeChange("simple")}
-                    >
-                      <strong>Simples</strong>
-                      <p>Resposta direta sem clique visual.</p>
-                    </button>
-                    <button
-                      type="button"
-                      disabled={!supportsButtons}
-                      className={`${styles.toggleCard} ${messageType === "buttons" ? styles.toggleCardActive : ""}`}
-                      onClick={() => onMessageTypeChange("buttons")}
-                    >
-                      <strong>Com botoes</strong>
-                      <p>Navega por nos estaveis do fluxo.</p>
-                    </button>
-                  </div>
-                </article>
-
-                <div className={styles.fieldBlock}>
-                  <span>Texto</span>
-                  <textarea
-                    className="field"
-                    rows={7}
-                    value={messageText}
-                    onChange={(event) => onMessageTextChange(event.target.value)}
-                  />
-                </div>
-
-                <div className={styles.fieldBlock}>
-                  <span>Variaveis usadas</span>
-                  <div className={styles.chipList}>
-                    {variables.map((variable) => (
-                      <button
-                        key={variable.key}
-                        type="button"
-                        className={styles.chip}
-                        onClick={() => onAppendVariable(variable.key)}
-                      >
-                        <strong>{`{{${variable.key}}}`}</strong>
-                        <small>{variable.scopeLabel}</small>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <article className={styles.card}>
-                  <div className={styles.cardHeader}>
-                    <div>
-                      <strong>Botoes</strong>
-                      <p>Cada botao define a resposta clicavel e o proximo bloco esperado no fluxo.</p>
-                    </div>
-                    {supportsButtons && messageType === "buttons" ? (
-                      <button type="button" className="btn btn-secondary btn-sm" onClick={onAddButton}>
-                        Adicionar botao
-                      </button>
-                    ) : null}
-                  </div>
-
-                  {!supportsButtons || messageType === "simple" ? (
-                    <div className={styles.emptyState}>Esse no esta em modo simples.</div>
-                  ) : buttons.length ? (
-                    <div className={styles.buttonList}>
-                      {buttons.map((button, index) => {
-                        const action = actionById[button.actionId];
-                        return (
-                          <div key={`${button.buttonId}-${index}`} className={styles.buttonRow}>
-                            <div className={styles.buttonGrid}>
-                              <label className={styles.fieldBlock}>
-                                <span>Label</span>
-                                <input
-                                  className="field"
-                                  value={button.title}
-                                  onChange={(event) => onUpdateButton(index, "title", event.target.value)}
-                                />
-                              </label>
-                              <label className={styles.fieldBlock}>
-                                <span>ID</span>
-                                <input
-                                  className="field"
-                                  value={button.buttonId}
-                                  onChange={(event) => onUpdateButton(index, "buttonId", event.target.value)}
-                                />
-                              </label>
-                              <label className={styles.fieldBlock}>
-                                <span>Resposta/acao</span>
-                                <select
-                                  className="field"
-                                  value={button.actionId}
-                                  onChange={(event) => onUpdateButton(index, "actionId", event.target.value)}
-                                >
-                                  {actionOptions.map((option) => (
-                                    <option key={option.value} value={option.value}>
-                                      {option.label}
-                                    </option>
-                                  ))}
-                                </select>
-                              </label>
-                              {buttonTargetOptions.length > 0 ? (
-                                <label className={styles.fieldBlock}>
-                                  <span>Proximo bloco</span>
-                                  <select
-                                    className="field"
-                                    value={button.nextNodeId || ""}
-                                    onChange={(event) => onUpdateButtonTarget?.(index, event.target.value)}
-                                  >
-                                    {buttonTargetOptions.map((option) => (
-                                      <option key={option.value} value={option.value}>
-                                        {option.label}
-                                      </option>
-                                    ))}
-                                  </select>
-                                </label>
-                              ) : null}
-                            </div>
-                            <div className={styles.buttonMeta}>
-                              <strong>
-                                {buttonTargetById.get(String(button.nextNodeId || ""))?.label ||
-                                  button.nextLabel ||
-                                  "Proximo bloco ainda indefinido"}
-                              </strong>
-                              <p>
-                                {buttonTargetById.get(String(button.nextNodeId || ""))?.description ||
-                                  (button.nextNodeId
-                                    ? `ID interno do destino: ${button.nextNodeId}`
-                                    : "Defina uma resposta/acao para o sistema encaixar o proximo passo.")}
-                              </p>
-                              {action ? <p>{`Acao complementar: ${action.title}`}</p> : null}
-                            </div>
-                            <div className={styles.buttonActions}>
-                              <button type="button" className="btn btn-danger btn-sm" onClick={() => onRemoveButton(index)}>
-                                Remover
-                              </button>
-                            </div>
+          <div className={styles.inspectorBody}>
+            {selectedNode?.nodeKind === "template"
+              ? renderInspectorSection(
+                  "content",
+                  "Conteudo",
+                  <div className={styles.templateInspector}>
+                    {templateOptions.length > 0 ? (
+                      templateOptions.map((option) => (
+                        <button
+                          key={option.id}
+                          type="button"
+                          className={`${styles.templateOption} ${option.selected ? styles.templateOptionActive : ""}`}
+                          onClick={() => {
+                            onSelectTemplateOption?.(option.id);
+                            setPreviewTrail([startNode?.id || selectedScenarioId]);
+                          }}
+                        >
+                          <div>
+                            <strong>{option.title}</strong>
+                            {option.subtitle ? <p>{option.subtitle}</p> : null}
                           </div>
-                        );
-                      })}
+                          <div className={styles.scenarioMeta}>
+                            <span className={`${styles.badge} ${option.ready === false ? styles.badgeWarning : styles.badgeAccent}`}>
+                              {option.ready === false ? "Revisar" : "Pronto"}
+                            </span>
+                            {option.selected ? <span className={styles.badge}>Ativo</span> : null}
+                          </div>
+                        </button>
+                      ))
+                    ) : (
+                      <div className={styles.emptyState}>Nenhum template ativo para ser usado como primeiro no.</div>
+                    )}
+                  </div>,
+                  { meta: `${templateOptions.length} templates` },
+                )
+              : null}
+
+            {isEditableNode(selectedNode)
+              ? renderInspectorSection(
+                  "content",
+                  "Conteudo",
+                  <>
+                    <div className={styles.toggleGrid}>
+                      <button
+                        type="button"
+                        className={`${styles.toggleCard} ${messageType === "simple" ? styles.toggleCardActive : ""}`}
+                        onClick={() => onMessageTypeChange("simple")}
+                      >
+                        <strong>Simples</strong>
+                        <p>Texto direto.</p>
+                      </button>
+                      <button
+                        type="button"
+                        disabled={!supportsButtons}
+                        className={`${styles.toggleCard} ${messageType === "buttons" ? styles.toggleCardActive : ""}`}
+                        onClick={() => onMessageTypeChange("buttons")}
+                      >
+                        <strong>Com botoes</strong>
+                        <p>Ramifica o fluxo.</p>
+                      </button>
+                    </div>
+
+                    <label className={styles.fieldBlock}>
+                      <span>Mensagem</span>
+                      <textarea
+                        className={`field ${styles.messageEditor}`}
+                        rows={8}
+                        value={messageText}
+                        onChange={(event) => onMessageTextChange(event.target.value)}
+                      />
+                    </label>
+                  </>,
+                )
+              : null}
+
+            {isEditableNode(selectedNode)
+              ? renderInspectorSection(
+                  "variables",
+                  "Variaveis",
+                  variables.length > 0 ? (
+                    <div className={styles.chipList}>
+                      {variables.map((variable) => (
+                        <button
+                          key={variable.key}
+                          type="button"
+                          className={styles.chip}
+                          onClick={() => onAppendVariable(variable.key)}
+                        >
+                          <strong>{`{{${variable.key}}}`}</strong>
+                          <small>{variable.scopeLabel}</small>
+                        </button>
+                      ))}
                     </div>
                   ) : (
-                    <div className={styles.emptyState}>Nenhum botao configurado neste no ainda.</div>
-                  )}
-                </article>
-              </>
-            ) : selectedNode ? (
-              <div className={styles.readonlyInspector}>
-                <div className={styles.fieldBlock}>
-                  <span>ID tecnico</span>
-                  <input className="field" value={selectedNode.id} disabled />
-                </div>
-                <div className={styles.fieldBlock}>
-                  <span>Efeito esperado</span>
-                  <textarea className="field" rows={4} value={selectedNode.effectLabel || selectedNode.description} disabled />
-                </div>
-                <div className={styles.scenarioMeta}>
-                  {selectedNode.toneLabel ? <span className={styles.badge}>{selectedNode.toneLabel}</span> : null}
-                  {selectedNode.badge ? <span className={`${styles.badge} ${styles.badgeMuted}`}>{selectedNode.badge}</span> : null}
-                </div>
-              </div>
-            ) : null}
-          </article>
+                    <div className={styles.emptyState}>Nenhuma variavel disponivel para este bloco.</div>
+                  ),
+                  { meta: `${variables.length} itens` },
+                )
+              : null}
+
+            {isEditableNode(selectedNode)
+              ? renderInspectorSection(
+                  "buttons",
+                  "Botoes",
+                  !supportsButtons || messageType === "simple" ? (
+                    <div className={styles.emptyState}>Esse bloco esta em modo simples.</div>
+                  ) : (
+                    <>
+                      <div className={styles.inspectorActionRow}>
+                        <span className={styles.metaLabel}>Saidas do bloco</span>
+                        <button type="button" className="btn btn-secondary btn-sm" onClick={onAddButton}>
+                          Adicionar
+                        </button>
+                      </div>
+                      {buttons.length > 0 ? (
+                        <div className={styles.buttonList}>
+                          {buttons.map((button, index) => {
+                            const action = actionById[button.actionId];
+                            return (
+                              <div key={`${button.buttonId}-${index}`} className={styles.buttonRow}>
+                                <div className={styles.buttonGrid}>
+                                  <label className={styles.fieldBlock}>
+                                    <span>Label</span>
+                                    <input
+                                      className="field"
+                                      value={button.title}
+                                      onChange={(event) => onUpdateButton(index, "title", event.target.value)}
+                                    />
+                                  </label>
+                                  <label className={styles.fieldBlock}>
+                                    <span>ID</span>
+                                    <input
+                                      className="field"
+                                      value={button.buttonId}
+                                      onChange={(event) => onUpdateButton(index, "buttonId", event.target.value)}
+                                    />
+                                  </label>
+                                  <label className={styles.fieldBlock}>
+                                    <span>Acao</span>
+                                    <select
+                                      className="field"
+                                      value={button.actionId}
+                                      onChange={(event) => onUpdateButton(index, "actionId", event.target.value)}
+                                    >
+                                      {actionOptions.map((option) => (
+                                        <option key={option.value} value={option.value}>
+                                          {option.label}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  </label>
+                                  {buttonTargetOptions.length > 0 ? (
+                                    <label className={styles.fieldBlock}>
+                                      <span>Destino</span>
+                                      <select
+                                        className="field"
+                                        value={button.nextNodeId || ""}
+                                        onChange={(event) => onUpdateButtonTarget?.(index, event.target.value)}
+                                      >
+                                        {buttonTargetOptions.map((option) => (
+                                          <option key={option.value} value={option.value}>
+                                            {option.label}
+                                          </option>
+                                        ))}
+                                      </select>
+                                    </label>
+                                  ) : null}
+                                </div>
+                                <div className={styles.buttonMeta}>
+                                  <strong>
+                                    {buttonTargetById.get(String(button.nextNodeId || ""))?.label ||
+                                      button.nextLabel ||
+                                      "Destino indefinido"}
+                                  </strong>
+                                  <p>
+                                    {buttonTargetById.get(String(button.nextNodeId || ""))?.description ||
+                                      (button.nextNodeId
+                                        ? `ID interno: ${button.nextNodeId}`
+                                        : "Defina a acao para encaixar o proximo passo.")}
+                                  </p>
+                                  {action ? <p>{`Acao complementar: ${action.title}`}</p> : null}
+                                </div>
+                                <div className={styles.buttonActions}>
+                                  <button type="button" className="btn btn-danger btn-sm" onClick={() => onRemoveButton(index)}>
+                                    Remover
+                                  </button>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <div className={styles.emptyState}>Nenhum botao configurado neste bloco.</div>
+                      )}
+                    </>
+                  ),
+                  { meta: `${buttons.length} saidas` },
+                )
+              : null}
+
+            {!isEditableNode(selectedNode) && selectedNode?.nodeKind === "action"
+              ? renderInspectorSection(
+                  "capture",
+                  "Captura",
+                  <div className={styles.readonlyInspector}>
+                    <div className={styles.fieldBlock}>
+                      <span>Acao do fluxo</span>
+                      <textarea className="field" rows={4} value={selectedNode.effectLabel || selectedNode.description} disabled />
+                    </div>
+                  </div>,
+                )
+              : null}
+
+            {selectedNode
+              ? renderInspectorSection(
+                  "advanced",
+                  "Avancado",
+                  <div className={styles.readonlyInspector}>
+                    <div className={styles.fieldBlock}>
+                      <span>ID interno</span>
+                      <input className="field" value={selectedNode.id} disabled />
+                    </div>
+                    {selectedNode.effectLabel || selectedNode.description ? (
+                      <div className={styles.fieldBlock}>
+                        <span>Leitura operacional</span>
+                        <textarea
+                          className="field"
+                          rows={4}
+                          value={selectedNode.effectLabel || selectedNode.description}
+                          disabled
+                        />
+                      </div>
+                    ) : null}
+                    <div className={styles.scenarioMeta}>
+                      {selectedNode.toneLabel ? <span className={styles.badge}>{selectedNode.toneLabel}</span> : null}
+                      {selectedNode.badge ? <span className={`${styles.badge} ${styles.badgeMuted}`}>{selectedNode.badge}</span> : null}
+                    </div>
+                  </div>,
+                )
+              : null}
+          </div>
         </aside>
       </div>
     );
@@ -1064,16 +1189,36 @@ export default function BotMessageStudio(props: BotMessageStudioProps) {
 
   return (
     <section className={styles.studio}>
-      <header className={`${styles.panel} ${styles.hero}`}>
-        <div>
+      <header className={`${styles.panel} ${styles.topbar}`}>
+        <div className={styles.topbarMain}>
           <p className={styles.eyebrow}>{eyebrow}</p>
-          <h3 className={styles.title}>{title}</h3>
-          <p className={styles.description}>{description}</p>
+          <div className={styles.topbarTitleRow}>
+            <h3 className={styles.title}>{title}</h3>
+            <span className={`${styles.statusBadge} ${publicationReady ? styles.statusReady : styles.statusDraft}`}>
+              {computedPublicationStatus}
+            </span>
+          </div>
+          {description ? <p className={styles.description}>{description}</p> : null}
         </div>
-        <div className={styles.heroMeta}>
-          <span className={`${styles.badge} ${styles.badgeAccent}`}>{flowScenarios.length} blocos visuais</span>
-          <span className={`${styles.badge} ${styles.badgeMuted}`}>{catalogVariables.length} variaveis</span>
-          <span className={`${styles.badge} ${styles.badgeMuted}`}>{catalogActions.length} acoes</span>
+        <div className={styles.topbarActions}>
+          {onSecondaryAction && secondaryActionLabel ? (
+            <button type="button" className={styles.toolbarButton} onClick={onSecondaryAction}>
+              {secondaryActionLabel}
+            </button>
+          ) : null}
+          <button type="button" className={styles.toolbarButton} onClick={openPreviewFromCurrentSelection}>
+            Preview
+          </button>
+          {onPrimaryAction ? (
+            <button
+              type="button"
+              className="btn btn-primary btn-sm"
+              onClick={onPrimaryAction}
+              disabled={primaryActionDisabled}
+            >
+              {primaryActionLabel}
+            </button>
+          ) : null}
         </div>
       </header>
 

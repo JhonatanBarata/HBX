@@ -35,6 +35,7 @@ const NAV_ITEMS: NavItem[] = [
     description: "Inbox, agenda conectada e bot do atendimento.",
     matcher: (route) =>
       route.startsWith("/dashboard/inbox") ||
+      route.startsWith("/hbx-recovery") ||
       route.startsWith("/dashboard/auto-replies") ||
       route.startsWith("/dashboard/messages"),
     moduleKey: "atendimento",
@@ -47,14 +48,6 @@ const NAV_ITEMS: NavItem[] = [
     matcher: (route) => route.startsWith("/dashboard/gerencial"),
     adminOnly: true,
     moduleKey: "gerencial",
-  },
-  {
-    href: "/hbx-recovery",
-    label: "Recovery",
-    shortLabel: "RC",
-    description: "Cobrança, negociação e console de recuperação.",
-    matcher: (route) => route.startsWith("/hbx-recovery"),
-    moduleKey: "hbx_recovery",
   },
   {
     href: "/dashboard/webscraping",
@@ -85,11 +78,10 @@ const NAV_ITEMS: NavItem[] = [
   },
   {
     href: "/dashboard/importacoes/cadastros",
-    label: "Cadastros",
+    label: "Cadastro",
     shortLabel: "CD",
-    description: "Tabelas operacionais e base de fornecedores.",
+    description: "Base obrigatoria de clientes e tabelas operacionais do sistema.",
     matcher: (route) => route.startsWith("/dashboard/importacoes/cadastros"),
-    moduleKey: "cadastros",
   },
   {
     href: "/dashboard/master",
@@ -173,10 +165,13 @@ export default function ModuleNav({
     };
   }, [authenticated]);
 
-  const accessibleModules = useMemo(
-    () => new Set((modules || []).filter((module) => module.accessible).map((module) => module.key)),
-    [modules],
-  );
+  const accessibleModules = useMemo(() => {
+    const keys = new Set((modules || []).filter((module) => module.accessible).map((module) => module.key));
+    if (keys.has("hbx_recovery")) {
+      keys.add("atendimento");
+    }
+    return keys;
+  }, [modules]);
 
   const navItems = useMemo(() => {
     return NAV_ITEMS.filter((item) => {

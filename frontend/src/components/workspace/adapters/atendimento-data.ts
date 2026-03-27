@@ -22,30 +22,88 @@ export type AtendimentoConversationStatusMeta = {
   tone: AtendimentoConversationStatusTone;
 };
 
+const ATENDIMENTO_FINANCIAL_HINTS = [
+  "recovery",
+  "cobranca",
+  "cobrança",
+  "financeiro",
+  "inadimpl",
+  "debito",
+  "débito",
+  "pagamento",
+  "negociacao",
+  "negociação",
+];
+
+function getAtendimentoFinancialHaystack(conversation: InboxConversation) {
+  return [
+    conversation.currentFlow,
+    conversation.flowResult,
+    conversation.routeReason,
+    conversation.latestSourceModule,
+  ]
+    .map((value) => String(value || "").trim().toLowerCase())
+    .join(" ");
+}
+
+function hasAtendimentoFinancialFlowSignal(conversation: InboxConversation) {
+  const haystack = getAtendimentoFinancialHaystack(conversation);
+  return ATENDIMENTO_FINANCIAL_HINTS.some((hint) => haystack.includes(hint));
+}
+
+export function hasAtendimentoOpenDebt(conversation: InboxConversation) {
+  return Number(conversation.recoveryOpenAmount || 0) > 0;
+}
+
+export function hasAtendimentoRecoveryContext(conversation: InboxConversation) {
+  return (
+    Boolean(conversation.recoveryCustomerId) ||
+    hasAtendimentoOpenDebt(conversation) ||
+    Boolean(String(conversation.recoveryStatus || "").trim()) ||
+    hasAtendimentoFinancialFlowSignal(conversation)
+  );
+}
+
+export function isAtendimentoRecoveryPrimary(conversation: InboxConversation) {
+  return (
+    conversation.routeTarget === "recovery" ||
+    (hasAtendimentoOpenDebt(conversation) && hasAtendimentoFinancialFlowSignal(conversation))
+  );
+}
+
 export function isAtendimentoRecoveryConversation(
   conversation: InboxConversation,
   allowRecoveryCapability = true,
 ) {
-  return allowRecoveryCapability && conversation.routeTarget === "recovery";
+  return allowRecoveryCapability && isAtendimentoRecoveryPrimary(conversation);
+}
+
+export function isAtendimentoAgendaConversation(conversation: InboxConversation) {
+  const haystack = getAtendimentoFinancialHaystack(conversation);
+
+  return haystack.includes("agenda") || haystack.includes("agendado");
 }
 
 export function getAtendimentoConversationStatusMeta(
   conversation: InboxConversation,
   allowRecoveryCapability = true,
 ): AtendimentoConversationStatusMeta {
+  const isRecoveryPrimary =
+    allowRecoveryCapability && isAtendimentoRecoveryPrimary(conversation);
+
   if (conversation.status === "blocked" || conversation.isBlocked) {
     return { label: "Bloqueado", shortLabel: "BLQ", tone: "blocked" };
   }
-  if (isAtendimentoRecoveryConversation(conversation, allowRecoveryCapability)) {
+  if (isRecoveryPrimary) {
     return { label: "Recovery", shortLabel: "REC", tone: "recovery" };
   }
   if (conversation.status === "open") {
     return { label: "Humano", shortLabel: "HUM", tone: "human" };
   }
   if (conversation.status === "closed") {
-    return { label: "Resolvido", shortLabel: "OK", tone: "closed" };
+    return { label: "Encerrado", shortLabel: "OK", tone: "closed" };
   }
-  return { label: "No bot", shortLabel: "BOT", tone: "bot" };
+  return { label: "BOT", shortLabel: "BOT", tone: "bot" };
 }
 
 export function mapAtendimentoConversationToneToQueueTone(
@@ -123,30 +181,43 @@ export function buildAtendimentoQueueBadges(
   allowRecoveryCapability = true,
 ): WorkspaceBadgeDescriptor[] {
   const statusMeta = getAtendimentoConversationStatusMeta(conversation, allowRecoveryCapability);
-  const badges: WorkspaceBadgeDescriptor[] = [
-    { label: statusMeta.label, tone: mapAtendimentoStatusMetaToBadgeTone(statusMeta) },
-  ];
+  const hasRecoveryContext =
+    allowRecoveryCapability && hasAtendimentoRecoveryContext(conversation);
+  const hasOpenDebt = allowRecoveryCapability && hasAtendimentoOpenDebt(conversation);
+  const isRecoveryPrimary =
+    allowRecoveryCapability && isAtendimentoRecoveryPrimary(conversation);
+  const badges: WorkspaceBadgeDescriptor[] = [];
 
-  if (
-    isAtendimentoRecoveryConversation(conversation, allowRecoveryCapability) &&
-    statusMeta.tone !== "recovery"
-  ) {
+  if (isRecoveryPrimary) {
     badges.push({ label: "Recovery", tone: "warning" });
+  } else if (hasRecoveryContext) {
+    badges.push({ label: "Financeiro", tone: "warning" });
   }
 
-  if (allowRecoveryCapability && isAtendimentoRecoveryConversation(conversation, allowRecoveryCapability)) {
-    if (conversation.humanAssigned) {
-      badges.push({ label: "Fila humana", tone: "success" });
-    } else if (conversation.botActive === true) {
-      badges.push({ label: "BOT ativo", tone: "neutral" });
-    }
+  if (hasOpenDebt) {
+    badges.push({ label: "Em aberto", tone: "brand" });
   }
 
-  if (
-    (conversation.status === "blocked" || conversation.isBlocked) &&
-    statusMeta.tone !== "blocked"
-  ) {
+  if (isAtendimentoAgendaConversation(conversation)) {
+    badges.push({ label: "Agenda", tone: "teal" });
+  }
+
+  if (conversation.status === "open" || conversation.humanAssigned) {
+    badges.push({ label: "Humano", tone: "success" });
+  } else if (conversation.status !== "closed" && !conversation.isBlocked) {
+    badges.push({ label: "BOT", tone: "neutral" });
+  }
+
+  if (conversation.status === "blocked" || conversation.isBlocked) {
     badges.push({ label: "Bloqueado", tone: "danger" });
+  }
+
+  if (conversation.status === "closed") {
+    badges.push({ label: "Encerrado", tone: "neutral" });
+  }
+
+  if (badges.length === 0) {
+    badges.push({ label: statusMeta.label, tone: mapAtendimentoStatusMetaToBadgeTone(statusMeta) });
   }
 
   return badges;
@@ -157,30 +228,29 @@ export function buildAtendimentoThreadBadges(
   formatCurrency: (value: number) => string,
   allowRecoveryCapability = true,
 ): WorkspaceBadgeDescriptor[] {
-  const statusMeta = getAtendimentoConversationStatusMeta(conversation, allowRecoveryCapability);
-  const badges: WorkspaceBadgeDescriptor[] = [
-    { label: statusMeta.label, tone: mapAtendimentoStatusMetaToBadgeTone(statusMeta) },
-  ];
+  const hasRecoveryContext =
+    allowRecoveryCapability && hasAtendimentoRecoveryContext(conversation);
+  const hasOpenDebt = allowRecoveryCapability && hasAtendimentoOpenDebt(conversation);
+  const badges: WorkspaceBadgeDescriptor[] = buildAtendimentoQueueBadges(
+    conversation,
+    allowRecoveryCapability,
+  );
 
-  if (isAtendimentoRecoveryConversation(conversation, allowRecoveryCapability)) {
-    badges.push({ label: "Rota recovery", tone: "warning" });
-  }
-
-  if (allowRecoveryCapability && conversation.recoveryCurrentStep) {
+  if (hasRecoveryContext && conversation.recoveryCurrentStep) {
     badges.push({
       label: mapRecoveryFlowStepLabel(conversation.recoveryCurrentStep),
       tone: "neutral",
     });
   }
 
-  if (allowRecoveryCapability && isAtendimentoRecoveryConversation(conversation, allowRecoveryCapability)) {
+  if (hasRecoveryContext) {
     badges.push({
       label: formatAtendimentoRecoveryOperationLabel(conversation),
       tone: conversation.humanAssigned ? "success" : "neutral",
     });
   }
 
-  if (allowRecoveryCapability && conversation.recoveryOpenAmount > 0) {
+  if (hasOpenDebt) {
     badges.push({ label: formatCurrency(conversation.recoveryOpenAmount), tone: "brand" });
   }
 
@@ -205,16 +275,31 @@ export function buildAtendimentoContextSummary(input: {
     formatCurrency,
     allowRecoveryCapability = true,
   } = input;
+  const hasRecoveryContext =
+    allowRecoveryCapability && hasAtendimentoRecoveryContext(conversation);
+  const hasOpenDebt = allowRecoveryCapability && hasAtendimentoOpenDebt(conversation);
+  const isRecoveryPrimary =
+    allowRecoveryCapability && isAtendimentoRecoveryPrimary(conversation);
 
   const summary: WorkspaceSummaryDescriptor[] = [
     { label: "Cliente", value: displayName },
     { label: "Telefone", value: conversation.customer.phone },
     { label: "Status", value: statusLabel || "-" },
+    {
+      label: "Contexto",
+      value: isRecoveryPrimary
+        ? "Financeiro como frente principal"
+        : hasRecoveryContext
+          ? "Atendimento com contexto financeiro"
+        : isAtendimentoAgendaConversation(conversation)
+          ? "Atendimento com agenda ativa"
+          : "Atendimento padrao",
+    },
     { label: "Motivo", value: conversation.routeReason || "-" },
     { label: "Atualizado", value: updatedAtLabel },
   ];
 
-  if (allowRecoveryCapability && conversation.recoveryCurrentStep) {
+  if (hasRecoveryContext && conversation.recoveryCurrentStep) {
     summary.push({
       label: "Etapa recovery",
       value: mapRecoveryFlowStepLabel(conversation.recoveryCurrentStep),
@@ -228,9 +313,9 @@ export function buildAtendimentoContextSummary(input: {
     });
   }
 
-  if (allowRecoveryCapability && conversation.recoveryOpenAmount > 0) {
+  if (hasOpenDebt) {
     summary.push({
-      label: "Recovery",
+      label: "Divida em aberto",
       value: formatCurrency(conversation.recoveryOpenAmount),
     });
   }
@@ -251,8 +336,14 @@ export function getAtendimentoComposerHint(
   conversation: InboxConversation,
   allowRecoveryCapability = true,
 ) {
-  return isAtendimentoRecoveryConversation(conversation, allowRecoveryCapability)
-    ? "Esta conversa tambem aparece no Recovery."
+  const hasRecoveryContext =
+    allowRecoveryCapability && hasAtendimentoRecoveryContext(conversation);
+  const hasOpenDebt = allowRecoveryCapability && hasAtendimentoOpenDebt(conversation);
+
+  return hasOpenDebt
+    ? "A conversa segue no Atendimento com divida aberta e contexto financeiro ativo."
+    : hasRecoveryContext
+      ? "Ha contexto financeiro disponivel sem tirar o foco do Atendimento."
     : "O bot pode retomar a conversa depois do encerramento.";
 }
 
