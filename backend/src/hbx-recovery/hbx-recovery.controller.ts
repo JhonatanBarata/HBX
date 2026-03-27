@@ -51,7 +51,7 @@ import {
 
 @Controller('hbx-recovery')
 @UseGuards(JwtAuthGuard, ModuleAccessGuard)
-@ModuleAccess('hbx_recovery')
+@ModuleAccess('atendimento')
 export class HbxRecoveryController {
   constructor(private readonly recoveryService: HbxRecoveryService) {}
 

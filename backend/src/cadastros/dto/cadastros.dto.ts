@@ -1,4 +1,4 @@
-import { IsInt, IsOptional, IsString, Max, Min, MinLength } from 'class-validator';
+import { IsInt, IsOptional, IsString, Max, MaxLength, Min, MinLength } from 'class-validator';
 
 export class CreateFornecedorDto {
   @IsString()
@@ -45,4 +45,48 @@ export class UpsertTransitTimeDto {
   @Min(1)
   @Max(365)
   dias!: number;
+}
+
+export class CreateCadastroClienteDto {
+  @IsString()
+  @MinLength(8)
+  @MaxLength(30)
+  phone!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(160)
+  name?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(40)
+  route?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  notes?: string;
+}
+
+export class UpdateCadastroClienteDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(160)
+  name?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(40)
+  route?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  notes?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(40)
+  registrationStatus?: string;
 }

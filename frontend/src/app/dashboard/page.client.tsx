@@ -23,6 +23,12 @@ type ModuleCard = {
   badge?: string;
 };
 
+const CADASTRO_AREA: ModuleCard = {
+  title: "Cadastro",
+  description: "Area obrigatoria para manter a base central de clientes e tabelas operacionais.",
+  href: "/dashboard/importacoes/cadastros",
+};
+
 type UserModule = {
   key: string;
   name: string;
@@ -71,23 +77,32 @@ export default function DashboardClientPage() {
     const moduleRoutes: Record<string, string> = {
       atendimento: "/dashboard/inbox",
       gerencial: "/dashboard/gerencial",
-      hbx_recovery: "/hbx-recovery",
       webscraping: "/dashboard/webscraping",
       website: "/dashboard/website",
       follow_up_internacional: "/dashboard/importacoes/followup-global",
-      cadastros: "/dashboard/importacoes/cadastros",
       master: "/dashboard/master",
     };
 
-    const base: ModuleCard[] = modules
-      .filter((item) => item.accessible)
-      .filter((item) => (item.key === 'gerencial' ? isAdmin : true))
-      .map((item) => ({
-        title: item.name,
-        description: item.description || "Módulo disponível para seu usuário.",
-        href: moduleRoutes[item.key] || "/dashboard",
-        badge: item.key === "gerencial" || item.key === "master" ? "ADMIN" : undefined,
-      }));
+    const merged = new Map<string, ModuleCard>();
+    for (const item of modules) {
+      if (!item.accessible) continue;
+
+      const normalizedKey = item.key === "hbx_recovery" ? "atendimento" : item.key;
+      if (normalizedKey === "gerencial" && !isAdmin) continue;
+      if (merged.has(normalizedKey)) continue;
+
+      merged.set(normalizedKey, {
+        title: normalizedKey === "atendimento" ? "Atendimento" : item.name,
+        description:
+          normalizedKey === "atendimento" && item.key === "hbx_recovery"
+            ? "Atendimento, mensagens e cobrança com clientes inadimplentes."
+            : item.description || "Módulo disponível para seu usuário.",
+        href: moduleRoutes[normalizedKey] || "/dashboard",
+        badge: normalizedKey === "gerencial" || normalizedKey === "master" ? "ADMIN" : undefined,
+      });
+    }
+
+    const base = Array.from(merged.values());
 
     if (isSystemMaster && !base.some((item) => item.href === "/dashboard/master")) {
       base.push({
@@ -96,6 +111,10 @@ export default function DashboardClientPage() {
         href: "/dashboard/master",
         badge: "ADMIN",
       });
+    }
+
+    if (!base.some((item) => item.href === CADASTRO_AREA.href)) {
+      base.unshift(CADASTRO_AREA);
     }
 
     return base;
@@ -174,7 +193,7 @@ export default function DashboardClientPage() {
             <p className="stat-card__value text-[1.1rem] leading-tight">{roleLabel}</p>
           </article>
           <article className="stat-card">
-            <p className="stat-card__label">Módulos ativos</p>
+            <p className="stat-card__label">Areas ativas</p>
             <p className="stat-card__value">{moduleCards.length}</p>
           </article>
         </section>
@@ -193,7 +212,7 @@ export default function DashboardClientPage() {
                   {item.badge ? <span className="badge badge-brand">{item.badge}</span> : null}
                 </div>
                 <div className="mt-5 inline-flex items-center gap-2 text-sm font-semibold text-(--brand)">
-                  Acessar módulo
+                  Acessar area
                   <span aria-hidden="true">{"->"}</span>
                 </div>
               </Link>

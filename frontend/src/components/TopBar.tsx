@@ -451,7 +451,7 @@ export default function TopBar() {
     const pollIncomingAlerts = async () => {
       const popupCandidates: TopBarIncomingPopup[] = [];
 
-      if (accessibleModules.has("hbx_recovery")) {
+      if (accessibleModules.has("atendimento")) {
         try {
           const payload = await apiFetch<RecoveryAlertSummary>("/hbx-recovery/interactions?queue=all");
           if (cancelled) return;
@@ -489,17 +489,17 @@ export default function TopBar() {
             ) {
               popupCandidates.push({
                 id: `recovery:${item.conversationId}:${item.lastAt}:${becameHumanQueue ? "human_queue" : "new_message"}`,
-                moduleLabel: "Recovery",
+                moduleLabel: "Atendimento / Cobranca",
                 attentionLabel: becameHumanQueue ? "Fila humana" : "Nova mensagem",
-                customerLabel: item.customerName || item.customerWhatsapp || "Cliente Recovery",
+                customerLabel: item.customerName || item.customerWhatsapp || "Cliente em cobranca",
                 contactPhone: item.customerWhatsapp || item.conversationWhatsapp || "-",
                 entryNumberLabel: extractEntryNumberLabel(item.metadata),
                 preview:
                   String(item.lastMessage || "").trim() ||
                   (becameHumanQueue
                     ? "Cliente solicitou atendimento humano."
-                    : "Nova mensagem aguardando resposta no Recovery."),
-                href: "/hbx-recovery",
+                    : "Nova mensagem aguardando resposta na cobranca."),
+                href: "/dashboard/inbox/recovery",
                 lastAt: item.lastAt,
               });
             }
@@ -716,7 +716,7 @@ export default function TopBar() {
       options?.dismissPopup &&
       incomingPopup &&
       ((moduleKey === "atendimento" && incomingPopup.href === "/dashboard/inbox") ||
-        (moduleKey === "recovery" && incomingPopup.href === "/hbx-recovery"))
+        (moduleKey === "recovery" && incomingPopup.href === "/dashboard/inbox/recovery"))
     ) {
       setIncomingPopup(null);
     }
@@ -724,7 +724,7 @@ export default function TopBar() {
 
   function handleQueueShortcut(moduleKey: "atendimento" | "recovery") {
     clearQueueBadge(moduleKey, { dismissPopup: true });
-    router.push(moduleKey === "atendimento" ? "/dashboard/inbox" : "/hbx-recovery");
+    router.push(moduleKey === "atendimento" ? "/dashboard/inbox" : "/dashboard/inbox/recovery");
   }
 
   async function openMasterContextModal() {
@@ -844,7 +844,7 @@ export default function TopBar() {
   const pendingHumanCount = recoveryPendingHumanCount + atendimentoPendingHumanCount;
   const queueLabel =
     pendingHumanCount > 0
-      ? `Atendimento: ${atendimentoPendingHumanCount} | Recovery: ${recoveryPendingHumanCount}`
+      ? `Atendimento: ${atendimentoPendingHumanCount} | Cobranca: ${recoveryPendingHumanCount}`
       : null;
   const accountContext = authenticated
     ? user?.isSystemMaster
@@ -901,8 +901,8 @@ export default function TopBar() {
                 >
                   <span
                     className={`wa-health wa-health--${whatsAppHealth}`}
-                    title={`${whatsAppHealthLabel} · Recovery: ${recoveryPendingHumanCount}`}
-                    aria-label={`${whatsAppHealthLabel} · Recovery: ${recoveryPendingHumanCount}`}
+                    title={`${whatsAppHealthLabel} · Cobranca: ${recoveryPendingHumanCount}`}
+                    aria-label={`${whatsAppHealthLabel} · Cobranca: ${recoveryPendingHumanCount}`}
                   >
                     <svg viewBox="0 0 24 24" aria-hidden="true">
                       <path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm1 14.5V18h-2v-1.5A4 4 0 1 1 13 16.5z" />
@@ -1040,50 +1040,7 @@ export default function TopBar() {
         {/* dock removed: counter is shown on individual icons (wa-health__queue-badge) */}
       </div>
 
-      {incomingPopup ? (
-        <div className="incoming-alert">
-          <div className="incoming-alert__header">
-            <div>
-              <p className="incoming-alert__eyebrow">{incomingPopup.moduleLabel}</p>
-              <p className="incoming-alert__title">{incomingPopup.attentionLabel}</p>
-              <p className="incoming-alert__customer">{incomingPopup.customerLabel}</p>
-            </div>
-            <button
-              type="button"
-              className="btn btn-secondary btn-sm"
-              onClick={() => setIncomingPopup(null)}
-            >
-              Fechar
-            </button>
-          </div>
-
-          <div className="incoming-alert__meta">
-            <p>Contato: {incomingPopup.contactPhone}</p>
-            {incomingPopup.entryNumberLabel ? (
-              <p>Recebido em: {incomingPopup.entryNumberLabel}</p>
-            ) : null}
-          </div>
-
-          <p className="incoming-alert__preview">{incomingPopup.preview}</p>
-
-          <div className="incoming-alert__actions">
-            <Link
-              href={incomingPopup.href}
-              className="btn btn-primary btn-sm"
-              onClick={() => setIncomingPopup(null)}
-            >
-              Abrir módulo
-            </Link>
-            <button
-              type="button"
-              className="btn btn-secondary btn-sm"
-              onClick={() => setIncomingPopup(null)}
-            >
-              Dispensar
-            </button>
-          </div>
-        </div>
-      ) : null}
+      {/* incomingPopup UI removed — notifications are disabled for now */}
 
       {masterContextToast ? (
         <div

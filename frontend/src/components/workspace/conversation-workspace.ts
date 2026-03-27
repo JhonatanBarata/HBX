@@ -36,14 +36,14 @@ type SharedConversationPanelInput = {
 type SharedConversationWorkspacePanelsInput = {
   list: SharedConversationPanelInput;
   main: SharedConversationPanelInput;
-  composer: SharedConversationPanelInput;
+  composer?: SharedConversationPanelInput;
   context: SharedConversationPanelInput;
 };
 
 export function buildSharedConversationWorkspacePanels(
   config: SharedConversationWorkspacePanelsInput,
 ): WorkspacePanelDescriptor<SharedConversationPanelAccent>[] {
-  return [
+  const descriptors: WorkspacePanelDescriptor<SharedConversationPanelAccent>[] = [
     {
       id: SHARED_CONVERSATION_WORKSPACE_IDS.listPanel,
       title: config.list.title,
@@ -69,18 +69,6 @@ export function buildSharedConversationWorkspacePanels(
       initialWidth: config.main.initialWidth,
     },
     {
-      id: SHARED_CONVERSATION_WORKSPACE_IDS.composerPanel,
-      title: config.composer.title,
-      description: config.composer.description,
-      component: SHARED_CONVERSATION_WORKSPACE_IDS.composerComponent,
-      params: {
-        accent: config.composer.accent,
-      },
-      minimumWidth: config.composer.minimumWidth,
-      minimumHeight: config.composer.minimumHeight,
-      initialHeight: config.composer.initialHeight,
-    },
-    {
       id: SHARED_CONVERSATION_WORKSPACE_IDS.contextPanel,
       title: config.context.title,
       description: config.context.description,
@@ -93,6 +81,23 @@ export function buildSharedConversationWorkspacePanels(
       initialWidth: config.context.initialWidth,
     },
   ];
+
+  if (config.composer) {
+    descriptors.splice(2, 0, {
+      id: SHARED_CONVERSATION_WORKSPACE_IDS.composerPanel,
+      title: config.composer.title,
+      description: config.composer.description,
+      component: SHARED_CONVERSATION_WORKSPACE_IDS.composerComponent,
+      params: {
+        accent: config.composer.accent,
+      },
+      minimumWidth: config.composer.minimumWidth,
+      minimumHeight: config.composer.minimumHeight,
+      initialHeight: config.composer.initialHeight,
+    });
+  }
+
+  return descriptors;
 }
 
 function requirePanel(panels: WorkspacePanelMap, panelId: string) {
@@ -106,7 +111,7 @@ function requirePanel(panels: WorkspacePanelMap, panelId: string) {
 export const createSharedConversationWorkspaceLayout: WorkspaceCreateDefaultLayout = (api, panels) => {
   const listPanel = requirePanel(panels, SHARED_CONVERSATION_WORKSPACE_IDS.listPanel);
   const mainPanel = requirePanel(panels, SHARED_CONVERSATION_WORKSPACE_IDS.mainPanel);
-  const composerPanel = requirePanel(panels, SHARED_CONVERSATION_WORKSPACE_IDS.composerPanel);
+  const composerPanel = panels[SHARED_CONVERSATION_WORKSPACE_IDS.composerPanel];
   const contextPanel = requirePanel(panels, SHARED_CONVERSATION_WORKSPACE_IDS.contextPanel);
 
   api.addPanel({
@@ -143,15 +148,17 @@ export const createSharedConversationWorkspaceLayout: WorkspaceCreateDefaultLayo
     floating: false,
   });
 
-  api.addPanel({
-    id: composerPanel.id,
-    title: composerPanel.title,
-    component: composerPanel.component,
-    params: composerPanel.params,
-    minimumWidth: composerPanel.minimumWidth,
-    minimumHeight: composerPanel.minimumHeight,
-    initialHeight: composerPanel.initialHeight,
-    position: { referencePanel: mainPanel.id, direction: "below" },
-    floating: false,
-  });
+  if (composerPanel) {
+    api.addPanel({
+      id: composerPanel.id,
+      title: composerPanel.title,
+      component: composerPanel.component,
+      params: composerPanel.params,
+      minimumWidth: composerPanel.minimumWidth,
+      minimumHeight: composerPanel.minimumHeight,
+      initialHeight: composerPanel.initialHeight,
+      position: { referencePanel: mainPanel.id, direction: "below" },
+      floating: false,
+    });
+  }
 };

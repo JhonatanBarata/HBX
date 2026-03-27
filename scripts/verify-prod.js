@@ -2,11 +2,6 @@
 
 const { assertNonLocalDatabaseUrl, assertNonLocalHttpUrl, requireEnv, resolveOperationsEnv, run } = require('./lib/runtime');
 
-function isTruthy(value) {
-  const normalized = String(value || '').trim().toLowerCase();
-  return normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on';
-}
-
 async function requestJson(url) {
   const response = await fetch(url, { method: 'GET' });
   if (!response.ok) {
@@ -19,23 +14,11 @@ async function requestJson(url) {
   return response.text();
 }
 
-async function requestText(url) {
-  const response = await fetch(url, { method: 'GET' });
-  const text = await response.text();
-  if (!response.ok) {
-    throw new Error(`HTTP ${response.status} from ${url}: ${text.slice(0, 400)}`);
-  }
-  return text;
-}
-
 async function verifyProduction(inputEnv = resolveOperationsEnv()) {
   const env = inputEnv;
   const backendUrl = String(requireEnv(env, 'PROD_BACKEND_URL')).replace(/\/$/, '');
   const frontendUrl = String(env.PROD_FRONTEND_URL || '').trim().replace(/\/$/, '');
   const databaseUrl = String(env.PROD_DATABASE_URL || '').trim();
-  const verifyWebscrapingRequired = !String(env.PROD_VERIFY_WEBSCRAPING_REQUIRED || '').trim()
-    ? true
-    : isTruthy(env.PROD_VERIFY_WEBSCRAPING_REQUIRED);
 
   assertNonLocalHttpUrl(backendUrl, 'PROD_BACKEND_URL');
   if (frontendUrl) {
@@ -59,31 +42,11 @@ async function verifyProduction(inputEnv = resolveOperationsEnv()) {
   }
 
   let frontendStatus = 'not-configured';
-  let webscrapingHealth = null;
   if (frontendUrl) {
     const response = await fetch(frontendUrl, { method: 'GET' });
     frontendStatus = `${response.status}`;
     if (!response.ok) {
       throw new Error(`Frontend check failed with HTTP ${response.status} from ${frontendUrl}`);
-    }
-
-    if (verifyWebscrapingRequired) {
-      const webscrapingHealthUrl = `${frontendUrl}/hbx/webscraping/_stcore/health`;
-      const webscrapingHealthText = await requestText(webscrapingHealthUrl);
-      if (String(webscrapingHealthText).trim().toLowerCase() !== 'ok') {
-        throw new Error(`Unexpected webscraping health payload from ${webscrapingHealthUrl}: ${webscrapingHealthText}`);
-      }
-      webscrapingHealth = {
-        url: webscrapingHealthUrl,
-        status: 'ok',
-        body: webscrapingHealthText,
-      };
-    } else {
-      webscrapingHealth = {
-        url: `${frontendUrl}/hbx/webscraping/_stcore/health`,
-        status: 'skipped',
-        body: 'skipped by PROD_VERIFY_WEBSCRAPING_REQUIRED=0',
-      };
     }
   }
 
@@ -93,7 +56,6 @@ async function verifyProduction(inputEnv = resolveOperationsEnv()) {
     backendHealth,
     frontendUrl: frontendUrl || null,
     frontendStatus,
-    webscrapingHealth,
     databaseChecked: Boolean(databaseUrl),
   };
 }

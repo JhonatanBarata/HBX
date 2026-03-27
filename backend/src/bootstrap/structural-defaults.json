@@ -28,15 +28,6 @@
       "serviceUrl": "/hbx/webscraping"
     },
     {
-      "key": "hbx_recovery",
-      "name": "HBX Recovery",
-      "description": "Recuperacao de inadimplencia com score, historico e automacao de cobranca.",
-      "monthlyPrice": 0,
-      "defaultEnabled": true,
-      "companyAssignable": true,
-      "serviceUrl": "/hbx-recovery"
-    },
-    {
       "key": "website",
       "name": "Website",
       "description": "Acesso ao site da empresa e entrada segura no admin do website.",
@@ -53,15 +44,6 @@
       "defaultEnabled": false,
       "companyAssignable": true,
       "serviceUrl": "/dashboard/importacoes/followup-global"
-    },
-    {
-      "key": "cadastros",
-      "name": "Cadastros",
-      "description": "Cadastros de fornecedor, pais, portos e transit time.",
-      "monthlyPrice": 0,
-      "defaultEnabled": true,
-      "companyAssignable": true,
-      "serviceUrl": "/dashboard/importacoes/cadastros"
     },
     {
       "key": "master",
@@ -86,6 +68,11 @@
     "inbox",
     "auto_replies",
     "messages"
+  ],
+  "retiredModuleKeys": [
+    "hbx_music",
+    "cadastros",
+    "hbx_recovery"
   ],
   "featureDefinitions": [
     {

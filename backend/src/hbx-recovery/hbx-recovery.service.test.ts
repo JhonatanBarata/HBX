@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { HbxRecoveryService } from './hbx-recovery.service';
 
 function createService() {
-  return new HbxRecoveryService({} as any, {} as any, {} as any) as any;
+  return new HbxRecoveryService({} as any, {} as any, {} as any, {} as any) as any;
 }
 
 test('sync with header NONE removes stale local media', () => {

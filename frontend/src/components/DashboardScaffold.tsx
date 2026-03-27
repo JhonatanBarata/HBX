@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState, type CSSProperties, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import ModuleNav from "./ModuleNav";
 import { apiFetch, getToken } from "../app/dashboard/_lib/api";
 import { MASTER_CONTEXT_CHANGED_EVENT } from "../lib/masterContextEvents";
@@ -15,6 +15,7 @@ import {
   type PresentationModuleOverride,
 } from "../lib/presentation-config";
 import { dispatchWorkspaceEditToggle } from "../lib/workspace-edit-events";
+import styles from "./DashboardScaffold.module.css";
 
 type DashboardScaffoldProps = {
   title: string;
@@ -23,6 +24,7 @@ type DashboardScaffoldProps = {
   actions?: ReactNode;
   showDashboardShortcut?: boolean;
   hideHeader?: boolean;
+  hideNavigationRail?: boolean;
   layoutMode?: "default" | "workspace";
 };
 
@@ -44,17 +46,38 @@ export default function DashboardScaffold({
   actions,
   showDashboardShortcut = true,
   hideHeader = false,
+  hideNavigationRail = false,
   layoutMode = "default",
 }: DashboardScaffoldProps) {
+  const navPeekCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pathname = usePathname();
   const isRootDashboard = pathname === "/dashboard";
-  const defaultSectionLabel = pathname.startsWith("/hbx-recovery") ? "HBX Recovery" : "HBX Workspace";
+  const defaultSectionLabel =
+    pathname.startsWith("/hbx-recovery") || pathname.startsWith("/dashboard/inbox/recovery")
+      ? "Atendimento"
+      : "HBX Workspace";
   const pageKey = buildPageKey(pathname);
   const isWorkspaceMode = layoutMode === "workspace";
+  const shouldShowHoverModules = hideNavigationRail && isWorkspaceMode;
   const authenticated = Boolean(getToken());
   const [presentationProfile, setPresentationProfile] = useState<PresentationProfile | null>(null);
   const [presentationConfig, setPresentationConfig] = useState<PresentationConfig | null>(null);
   const [presentationEditing, setPresentationEditing] = useState(false);
+  const [navPeekOpen, setNavPeekOpen] = useState(false);
+
+  const cancelNavPeekClose = useCallback(() => {
+    if (!navPeekCloseTimerRef.current) return;
+    clearTimeout(navPeekCloseTimerRef.current);
+    navPeekCloseTimerRef.current = null;
+  }, []);
+
+  const scheduleNavPeekClose = useCallback((delay = 420) => {
+    cancelNavPeekClose();
+    navPeekCloseTimerRef.current = setTimeout(() => {
+      setNavPeekOpen(false);
+      navPeekCloseTimerRef.current = null;
+    }, delay);
+  }, [cancelNavPeekClose]);
 
   const loadPresentationProfile = useCallback(async () => {
     if (!authenticated) {
@@ -87,7 +110,9 @@ export default function DashboardScaffold({
   }, [authenticated]);
 
   useEffect(() => {
-    void loadPresentationProfile();
+    const loadTimer = window.setTimeout(() => {
+      void loadPresentationProfile();
+    }, 0);
 
     const handleMasterContextChanged = () => {
       void loadPresentationProfile();
@@ -95,6 +120,7 @@ export default function DashboardScaffold({
 
     window.addEventListener(MASTER_CONTEXT_CHANGED_EVENT, handleMasterContextChanged);
     return () => {
+      window.clearTimeout(loadTimer);
       window.removeEventListener(MASTER_CONTEXT_CHANGED_EVENT, handleMasterContextChanged);
     };
   }, [loadPresentationProfile]);
@@ -123,6 +149,13 @@ export default function DashboardScaffold({
     dispatchWorkspaceEditToggle({ active: presentationEditing });
   }, [canEditPresentation, isWorkspaceMode, presentationEditing]);
 
+  useEffect(
+    () => () => {
+      cancelNavPeekClose();
+    },
+    [cancelNavPeekClose],
+  );
+
   const updatePresentationConfig = useCallback(
     (updater: (current: PresentationConfig) => PresentationConfig) => {
       if (!presentationProfile?.tenantId) return;
@@ -137,7 +170,7 @@ export default function DashboardScaffold({
         });
       });
     },
-    [presentationProfile?.tenantId, presentationProfile?.userId],
+    [presentationProfile],
   );
 
   const pageOverride = presentationConfig?.pages?.[pageKey];
@@ -200,7 +233,7 @@ export default function DashboardScaffold({
     if (!presentationProfile?.tenantId) return;
     clearPresentationConfig(presentationProfile.tenantId);
     setPresentationConfig(createDefaultPresentationConfig(presentationProfile.tenantId));
-  }, [presentationProfile?.tenantId]);
+  }, [presentationProfile]);
 
   return (
     <main
@@ -211,23 +244,83 @@ export default function DashboardScaffold({
         className={`app-container ${isWorkspaceMode ? "app-container--workspace" : ""}`}
         style={shellStyle}
       >
-        <div className={`workspace-shell ${isWorkspaceMode ? "workspace-shell--workspace" : ""}`}>
-          <aside className="workspace-rail">
-            <section className="shell-card shell-card--nav">
-              <div className="shell-card__header">
-                <div>
-                  <p className="shell-card__eyebrow">{resolvedNavEyebrow}</p>
-                  <strong className="shell-card__title">{resolvedNavTitle}</strong>
+        <div
+          className={`workspace-shell ${isWorkspaceMode ? "workspace-shell--workspace" : ""}`}
+          style={hideNavigationRail ? { gridTemplateColumns: "minmax(0, 1fr)" } : undefined}
+        >
+          {shouldShowHoverModules ? (
+            <div
+              className={styles.navPeek}
+              data-open={navPeekOpen ? "true" : "false"}
+              onMouseEnter={() => {
+                cancelNavPeekClose();
+                setNavPeekOpen(true);
+              }}
+              onMouseLeave={() => scheduleNavPeekClose()}
+              onFocusCapture={() => {
+                cancelNavPeekClose();
+                setNavPeekOpen(true);
+              }}
+              onBlurCapture={(event) => {
+                const nextTarget = event.relatedTarget as Node | null;
+                if (!event.currentTarget.contains(nextTarget)) {
+                  scheduleNavPeekClose(260);
+                }
+              }}
+            >
+              <button
+                type="button"
+                className={styles.navPeekHandle}
+                onClick={() => {
+                  cancelNavPeekClose();
+                  setNavPeekOpen((current) => !current);
+                }}
+                aria-expanded={navPeekOpen}
+                aria-controls="workspace-hover-module-nav"
+              >
+                <span className={styles.navPeekHandleEdge} aria-hidden="true" />
+                <span className={styles.navPeekHandleLabel}>Modulos</span>
+              </button>
+
+              {navPeekOpen ? (
+                <aside id="workspace-hover-module-nav" className={styles.navPeekPanel}>
+                  <section className="shell-card shell-card--nav">
+                    <div className="shell-card__header">
+                      <div>
+                        <p className="shell-card__eyebrow">{resolvedNavEyebrow}</p>
+                        <strong className="shell-card__title">{resolvedNavTitle}</strong>
+                      </div>
+                    </div>
+                    <ModuleNav
+                      presentationEditing={presentationEditing}
+                      canEditPresentation={canEditPresentation}
+                      presentationConfig={presentationConfig}
+                      onUpdateModulePresentation={updateModulePresentation}
+                    />
+                  </section>
+                </aside>
+              ) : null}
+            </div>
+          ) : null}
+
+          {!hideNavigationRail ? (
+            <aside className="workspace-rail">
+              <section className="shell-card shell-card--nav">
+                <div className="shell-card__header">
+                  <div>
+                    <p className="shell-card__eyebrow">{resolvedNavEyebrow}</p>
+                    <strong className="shell-card__title">{resolvedNavTitle}</strong>
+                  </div>
                 </div>
-              </div>
-              <ModuleNav
-                presentationEditing={presentationEditing}
-                canEditPresentation={canEditPresentation}
-                presentationConfig={presentationConfig}
-                onUpdateModulePresentation={updateModulePresentation}
-              />
-            </section>
-          </aside>
+                <ModuleNav
+                  presentationEditing={presentationEditing}
+                  canEditPresentation={canEditPresentation}
+                  presentationConfig={presentationConfig}
+                  onUpdateModulePresentation={updateModulePresentation}
+                />
+              </section>
+            </aside>
+          ) : null}
 
           <section className={`workspace-main ${isWorkspaceMode ? "workspace-main--workspace" : ""}`}>
             <section

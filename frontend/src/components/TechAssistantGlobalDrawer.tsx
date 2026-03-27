@@ -104,7 +104,7 @@ function deriveModuleFromPath(pathname: string) {
   if (pathname.startsWith("/dashboard/webscraping")) return "webscraping";
   if (pathname.startsWith("/dashboard/gerencial")) return "gerencial";
   if (pathname.startsWith("/dashboard/importacoes")) return "follow_up_internacional";
-  if (pathname.startsWith("/hbx-recovery")) return "hbx_recovery";
+  if (pathname.startsWith("/hbx-recovery")) return "atendimento";
   if (pathname.startsWith("/dashboard")) return "dashboard";
   return "fora_dashboard";
 }

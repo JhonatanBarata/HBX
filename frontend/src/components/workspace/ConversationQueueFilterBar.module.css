@@ -1,0 +1,88 @@
+.filterBar {
+  display: grid;
+  gap: 0.4rem;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  padding: 0.08rem 0 0;
+}
+
+.primaryRow {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.28rem;
+  align-items: center;
+  width: fit-content;
+  max-width: 100%;
+  padding: 0.2rem;
+  border-radius: 16px;
+  border: 1px solid color-mix(in srgb, var(--line) 88%, white);
+  background: color-mix(in srgb, var(--surface-raised) 88%, white);
+}
+
+.secondaryRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.32rem;
+  align-items: center;
+}
+
+.primaryButton,
+.primaryButtonActive,
+.secondaryButton,
+.secondaryButtonActive {
+  min-height: 29px;
+  flex: 0 0 auto;
+  max-width: 100%;
+  padding: 0.3rem 0.66rem;
+  border: none;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  transition:
+    background-color var(--motion-fast),
+    color var(--motion-fast),
+    box-shadow var(--motion-fast),
+    transform var(--motion-fast);
+}
+
+.primaryButton:hover,
+.primaryButtonActive:hover,
+.secondaryButton:hover,
+.secondaryButtonActive:hover {
+  transform: translateY(-1px);
+}
+
+.primaryButtonActive {
+  color: var(--foreground);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--surface) 98%, white),
+    color-mix(in srgb, var(--surface-raised) 94%, white)
+  );
+  box-shadow: var(--shadow-inset), var(--shadow-xs);
+}
+
+.primaryButton {
+  color: color-mix(in srgb, var(--foreground) 88%, var(--muted));
+}
+
+.secondaryButton,
+.secondaryButtonActive {
+  min-height: 26px;
+  padding: 0.18rem 0.58rem;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--line) 88%, white);
+  font-size: 0.66rem;
+}
+
+.secondaryButtonActive {
+  color: color-mix(in srgb, var(--foreground) 92%, var(--brand));
+  background: color-mix(in srgb, var(--brand) 8%, white);
+  border-color: color-mix(in srgb, var(--brand) 18%, var(--line));
+  box-shadow: var(--shadow-inset), var(--shadow-xs);
+}

@@ -26,6 +26,7 @@ function createService(overrides?: Partial<Record<string, any>>) {
     (overrides?.conversations || {}) as any,
     ({ log: async () => undefined, ...(overrides?.audit || {}) } as any),
     (overrides?.mercadoPagoClient || {}) as any,
+    (overrides?.cadastrosService || {}) as any,
   );
 
   return { service, prisma };

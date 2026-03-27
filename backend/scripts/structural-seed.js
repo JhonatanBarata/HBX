@@ -78,6 +78,12 @@ function normalizeCurrencyAmount(value) {
   return Number(numeric.toFixed(2));
 }
 
+function normalizeRetiredModuleKeys() {
+  return Array.isArray(structuralDefaults.retiredModuleKeys)
+    ? structuralDefaults.retiredModuleKeys.map((key) => String(key || '').trim()).filter(Boolean)
+    : [];
+}
+
 async function ensureMasterRuntimeColumns(prisma) {
   await prisma.$executeRawUnsafe(`
     ALTER TABLE "SystemModule"
@@ -86,6 +92,8 @@ async function ensureMasterRuntimeColumns(prisma) {
 }
 
 async function ensureSystemModules(prisma, mode, summary) {
+  const retiredModuleKeys = normalizeRetiredModuleKeys();
+
   for (const moduleDef of structuralDefaults.systemModules) {
     const existing = await prisma.systemModule.findUnique({ where: { key: moduleDef.key } });
     const expected = {
@@ -127,11 +135,38 @@ async function ensureSystemModules(prisma, mode, summary) {
     summary.systemModules += 1;
   }
 
+  if (mode === 'check' && retiredModuleKeys.length) {
+    const existingRetiredModules = await prisma.systemModule.findMany({
+      where: { key: { in: retiredModuleKeys } },
+      select: { key: true },
+    });
+    if (existingRetiredModules.length > 0) {
+      summary.errors.push(
+        `Retired system modules still present: ${existingRetiredModules.map((item) => item.key).join(', ')}`,
+      );
+    }
+  }
+
   if (mode === 'apply') {
     await prisma.systemModule.updateMany({
       where: { key: { in: structuralDefaults.legacyModuleKeys } },
       data: { companyAssignable: false, defaultEnabled: false },
     });
+
+    if (retiredModuleKeys.length) {
+      const retiredModules = await prisma.systemModule.findMany({
+        where: { key: { in: retiredModuleKeys } },
+        select: { id: true },
+      });
+      if (retiredModules.length) {
+        const retiredModuleIds = retiredModules.map((item) => item.id);
+        await prisma.$transaction([
+          prisma.userModuleAccess.deleteMany({ where: { moduleId: { in: retiredModuleIds } } }),
+          prisma.companyModule.deleteMany({ where: { moduleId: { in: retiredModuleIds } } }),
+          prisma.systemModule.deleteMany({ where: { id: { in: retiredModuleIds } } }),
+        ]);
+      }
+    }
   }
 }
 

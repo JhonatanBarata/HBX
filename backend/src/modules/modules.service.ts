@@ -33,7 +33,9 @@ const DEFAULT_MODULES: DefaultModuleDef[] = (structuralDefaults.systemModules as
 }));
 
 const LEGACY_MODULE_KEYS = structuralDefaults.legacyModuleKeys as string[];
-const RETIRED_MODULE_KEYS = ['hbx_music'];
+const RETIRED_MODULE_KEYS = Array.isArray((structuralDefaults as any).retiredModuleKeys)
+  ? ((structuralDefaults as any).retiredModuleKeys as string[])
+  : [];
 
 type BillingLedgerEntryRow = {
   id: string;
@@ -364,6 +366,11 @@ export class ModulesService implements OnModuleInit {
     await this.ensureDefaultSystemModules();
 
     const modules = await this.prisma.systemModule.findMany({
+      where: {
+        key: {
+          notIn: RETIRED_MODULE_KEYS,
+        },
+      },
       orderBy: [{ companyAssignable: 'desc' }, { name: 'asc' }, { id: 'asc' }],
     });
 
@@ -773,6 +780,23 @@ export class ModulesService implements OnModuleInit {
     return String(key || '').trim().toLowerCase();
   }
 
+  private getModuleCandidateKeys(moduleKey: string) {
+    const key = this.normalizeKey(moduleKey);
+    if (key === 'atendimento' || key === 'hbx_recovery') {
+      return ['atendimento', 'hbx_recovery'];
+    }
+    return [key];
+  }
+
+  private isRetiredModuleKey(moduleKey: string) {
+    return RETIRED_MODULE_KEYS.includes(this.normalizeKey(moduleKey));
+  }
+
+  private normalizeRequestedModuleKey(moduleKey: string) {
+    const key = this.normalizeKey(moduleKey);
+    return key === 'hbx_recovery' ? 'atendimento' : key;
+  }
+
   private async resolveUserContext(userId: number) {
     const user = await this.usersService.findById(Number(userId));
     if (!user) throw new ForbiddenException('Usuario nao encontrado');
@@ -950,34 +974,53 @@ export class ModulesService implements OnModuleInit {
     await this.ensureDefaultSystemModules();
     const { companyId, isSystemMaster } = await this.resolveUserContext(userId);
 
-    const key = this.normalizeKey(moduleKey);
+    const key = this.normalizeRequestedModuleKey(moduleKey);
     if (key === 'master' || key === 'exclusoes') return isSystemMaster;
     if (!companyId) return false;
 
-    const moduleItem = await this.prisma.systemModule.findUnique({ where: { key } });
-    if (!moduleItem || !moduleItem.companyAssignable) return false;
+    const candidateKeys = this.getModuleCandidateKeys(key);
+    const moduleItems = await this.prisma.systemModule.findMany({
+      where: {
+        key: { in: candidateKeys },
+      },
+    });
+    const moduleMap = new Map(moduleItems.map((moduleItem) => [moduleItem.key, moduleItem]));
+    const orderedModules = candidateKeys
+      .map((candidateKey) => moduleMap.get(candidateKey))
+      .filter((moduleItem): moduleItem is NonNullable<typeof moduleItem> => Boolean(moduleItem?.companyAssignable));
+    if (!orderedModules.length) return false;
 
     const status = await this.evaluateCompanyStatus(companyId);
     if (!status.active) return false;
 
-    const companyEnabled = await this.isCompanyModuleEnabled(companyId, moduleItem.id);
-    if (!companyEnabled) return false;
-
     if (isSystemMaster) {
-      return true;
+      for (const moduleItem of orderedModules) {
+        if (await this.isCompanyModuleEnabled(companyId, moduleItem.id)) {
+          return true;
+        }
+      }
+      return false;
     }
 
-    const userAccess = await this.prisma.userModuleAccess.findUnique({
-      where: {
-        userId_moduleId: {
-          userId: Number(userId),
-          moduleId: moduleItem.id,
-        },
-      },
-    });
+    for (const moduleItem of orderedModules) {
+      const companyEnabled = await this.isCompanyModuleEnabled(companyId, moduleItem.id);
+      if (!companyEnabled) continue;
 
-    if (!userAccess) return true;
-    return Boolean(userAccess.allowed);
+      const userAccess = await this.prisma.userModuleAccess.findUnique({
+        where: {
+          userId_moduleId: {
+            userId: Number(userId),
+            moduleId: moduleItem.id,
+          },
+        },
+      });
+
+      if (!userAccess || Boolean(userAccess.allowed)) {
+        return true;
+      }
+    }
+
+    return false;
   }
 
   async listMyModules(userId: number) {
@@ -1033,7 +1076,7 @@ export class ModulesService implements OnModuleInit {
     }
 
     const companyModules = rows
-      .filter((row) => row.systemModule.companyAssignable)
+      .filter((row) => row.systemModule.companyAssignable && !this.isRetiredModuleKey(row.systemModule.key))
       .map((row) => ({
         key: row.systemModule.key,
         name: row.systemModule.name,
@@ -1075,7 +1118,10 @@ export class ModulesService implements OnModuleInit {
 
     const [users, modules] = await Promise.all([
       this.usersService.listByCompany(companyId),
-      this.prisma.systemModule.findMany({ where: { companyAssignable: true }, orderBy: { name: 'asc' } }),
+      this.prisma.systemModule.findMany({
+        where: { companyAssignable: true, key: { notIn: RETIRED_MODULE_KEYS } },
+        orderBy: { name: 'asc' },
+      }),
     ]);
 
     const companyModuleRows = await this.prisma.companyModule.findMany({ where: { companyId } });
@@ -1127,12 +1173,14 @@ export class ModulesService implements OnModuleInit {
     if (!target) throw new BadRequestException('Usuario alvo nao encontrado');
     if (Number(target.companyId || 0) !== companyId) throw new ForbiddenException('Usuario fora da sua empresa');
 
-    const modules = await this.prisma.systemModule.findMany({ where: { companyAssignable: true } });
+    const modules = await this.prisma.systemModule.findMany({
+      where: { companyAssignable: true, key: { notIn: RETIRED_MODULE_KEYS } },
+    });
     const byKey = new Map(modules.map((m) => [m.key, m]));
 
     await this.prisma.$transaction(async (tx) => {
       for (const permission of modulePermissions || []) {
-        const moduleItem = byKey.get(this.normalizeKey(permission.key));
+        const moduleItem = byKey.get(this.normalizeRequestedModuleKey(permission.key));
         if (!moduleItem) continue;
 
         await tx.userModuleAccess.upsert({
