@@ -1,0 +1,202 @@
+.shell {
+  min-height: 100%;
+  color: var(--foreground);
+}
+
+.page {
+  display: grid;
+  gap: 1rem;
+}
+
+.topbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem 1.25rem;
+  border: 1px solid color-mix(in srgb, var(--line) 88%, white);
+  border-radius: calc(var(--panel-radius) - 4px);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--surface) 96%, white),
+    color-mix(in srgb, var(--surface-raised) 92%, var(--background))
+  );
+  box-shadow: var(--shadow-inset), var(--shadow-xs);
+}
+
+.topbarMain {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.eyebrow {
+  margin: 0;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  font-size: 0.72rem;
+  font-weight: 800;
+  color: var(--muted);
+}
+
+.titleRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.title {
+  margin: 0;
+  font-size: clamp(1.7rem, 2vw, 2.4rem);
+  line-height: 1;
+  letter-spacing: -0.05em;
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0.2rem 0.65rem;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--brand) 18%, white);
+  background: color-mix(in srgb, var(--brand) 10%, white);
+  color: var(--foreground);
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.toolbarActions {
+  display: flex;
+  align-items: center;
+}
+
+.sectionNav {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.sectionButton {
+  min-height: 38px;
+  padding: 0.55rem 0.9rem;
+  border: 1px solid color-mix(in srgb, var(--line) 88%, white);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface-soft) 94%, white);
+  color: var(--muted);
+  cursor: pointer;
+  transition: border-color var(--motion-fast), background-color var(--motion-fast), color var(--motion-fast);
+}
+
+.sectionButton:hover {
+  border-color: color-mix(in srgb, var(--brand) 24%, white);
+  color: var(--foreground);
+}
+
+.sectionButtonActive {
+  border-color: color-mix(in srgb, var(--brand) 28%, white);
+  background: color-mix(in srgb, var(--brand) 12%, white);
+  color: var(--foreground);
+}
+
+.workspaceStage {
+  position: relative;
+}
+
+.stage {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.workspaceOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  display: flex;
+  align-items: stretch;
+  justify-content: flex-end;
+  pointer-events: none;
+}
+
+.workspaceOverlayActive {
+  pointer-events: auto;
+}
+
+.workspaceOverlayScrim {
+  position: absolute;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.28);
+}
+
+.workspaceOverlayCard {
+  position: relative;
+  z-index: 1;
+  width: min(540px, 100%);
+  height: 100%;
+  display: grid;
+  grid-template-rows: auto 1fr;
+  background: var(--surface);
+  transform: translateX(100%);
+  transition: transform var(--motion-base);
+  box-shadow: var(--shadow-lg);
+}
+
+.workspaceOverlayCardActive {
+  transform: translateX(0);
+}
+
+.workspaceOverlayHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 88%, white);
+}
+
+.paneTitle {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.paneTitle strong {
+  font-size: 1rem;
+}
+
+.paneTitle span {
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.buttonGhost {
+  min-height: 36px;
+  padding: 0.45rem 0.75rem;
+  border: 1px solid color-mix(in srgb, var(--line) 88%, white);
+  border-radius: 999px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.workspaceOverlayBody {
+  overflow: auto;
+  padding: 1rem 1.25rem 1.25rem;
+}
+
+@media (max-width: 900px) {
+  .topbar {
+    align-items: stretch;
+  }
+
+  .toolbarActions {
+    width: 100%;
+  }
+
+  .sectionNav {
+    width: 100%;
+  }
+
+  .sectionButton {
+    flex: 1 1 140px;
+  }
+}

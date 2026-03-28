@@ -5,13 +5,29 @@ type UserModule = {
   accessible: boolean;
 };
 
-type WebsitePortalResponse = {
+export type WebsitePortalResponse = {
+  companyId?: number | null;
+  companyName?: string | null;
+  companySlug?: string | null;
   configured: boolean;
+  websiteEnabled?: boolean;
+  websitePublicUrl?: string | null;
+  websiteAdminUrl?: string | null;
+  websiteProjectId?: string | null;
+  websiteAdminEnabled?: boolean;
+  websiteLaunchMode?: 'public' | 'admin';
+  adminAllowed?: boolean;
+  launchTarget?: 'public' | 'admin' | null;
   launchUrl?: string | null;
+  message?: string | null;
 };
 
+export async function getWebsitePortal(target: 'auto' | 'public' | 'admin' = 'auto') {
+  return apiFetch<WebsitePortalResponse>(`/website/portal?target=${target}`);
+}
+
 export async function resolveWebsiteLaunchUrl(target: 'auto' | 'public' | 'admin' = 'auto') {
-  const payload = await apiFetch<WebsitePortalResponse>(`/website/portal?target=${target}`);
+  const payload = await getWebsitePortal(target);
   return String(payload?.launchUrl || '').trim() || null;
 }
 
