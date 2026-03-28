@@ -76,6 +76,10 @@ model Company {
   hbxRecoveryCustomers HbxRecoveryCustomer[]
   hbxRecoveryFlowStages HbxRecoveryFlowStage[]
   hbxRecoveryPayments  HbxRecoveryPayment[]
+  customerProfiles     CustomerProfile[]
+  debtCases            DebtCase[]
+  integrationConnections IntegrationConnection[]
+  integrationSyncRuns  IntegrationSyncRun[]
   whatsappEndpoints    CompanyWhatsAppEndpoint[]
   techAssistantInteractions TechAssistantInteraction[]
   masterAssumedContextSessions MasterAssumedContextSession[]
@@ -112,6 +116,8 @@ model HbxRecoveryCustomer {
   id                  String   @id @default(cuid())
   company             Company  @relation(fields: [companyId], references: [id])
   companyId           Int
+  customerProfile     CustomerProfile? @relation(fields: [customerProfileId], references: [id])
+  customerProfileId   String?
   name                String
   clientName          String?
   whatsappNumber      String
@@ -132,6 +138,7 @@ model HbxRecoveryCustomer {
 
   @@index([companyId, status])
   @@index([companyId, openAmount])
+  @@index([customerProfileId])
 }
 
 model HbxRecoveryPayment {
@@ -140,6 +147,8 @@ model HbxRecoveryPayment {
   companyId              Int
   customer               HbxRecoveryCustomer @relation(fields: [customerId], references: [id])
   customerId             String
+  debtCase               DebtCase? @relation(fields: [debtCaseId], references: [id])
+  debtCaseId             String?
   conversationId         Int?
   amount                 Float
   currency               String   @default("BRL")
@@ -172,6 +181,7 @@ model HbxRecoveryPayment {
   @@index([companyId, lifecycle, createdAt])
   @@index([companyId, customerId, createdAt])
   @@index([companyId, conversationId, createdAt])
+  @@index([debtCaseId, createdAt])
   @@index([externalReference])
 }
 
@@ -264,6 +274,8 @@ model AtendimentoCustomer {
   id                  String   @id @default(cuid())
   company             Company  @relation(fields: [companyId], references: [id])
   companyId           Int
+  customerProfile     CustomerProfile? @relation(fields: [customerProfileId], references: [id])
+  customerProfileId   String?
   name                String?
   phone               String
   phoneNormalized     String
@@ -280,6 +292,104 @@ model AtendimentoCustomer {
   @@index([companyId, registrationStatus])
   @@index([companyId, registrationOrigin])
   @@index([companyId, updatedAt])
+  @@index([customerProfileId])
+}
+
+model CustomerProfile {
+  id                   String   @id @default(cuid())
+  company              Company  @relation(fields: [companyId], references: [id])
+  companyId            Int
+  sourceConnection     IntegrationConnection? @relation(fields: [sourceConnectionId], references: [id])
+  sourceConnectionId   String?
+  name                 String?
+  phone                String?
+  phoneNormalized      String?
+  email                String?
+  document             String?
+  externalSource       String?
+  externalCustomerId   String?
+  status               String   @default("active")
+  notes                String?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+  atendimentoCustomers AtendimentoCustomer[]
+  hbxRecoveryCustomers HbxRecoveryCustomer[]
+  debtCases            DebtCase[]
+
+  @@index([companyId, phoneNormalized])
+  @@index([companyId, document])
+  @@index([sourceConnectionId, externalCustomerId])
+  @@index([companyId, status])
+}
+
+model DebtCase {
+  id                 String   @id @default(cuid())
+  company            Company  @relation(fields: [companyId], references: [id])
+  companyId          Int
+  customerProfile    CustomerProfile @relation(fields: [customerProfileId], references: [id])
+  customerProfileId  String
+  sourceConnection   IntegrationConnection? @relation(fields: [sourceConnectionId], references: [id])
+  sourceConnectionId String?
+  sourceProvider     String
+  externalDebtId     String?
+  amount             Float    @default(0)
+  dueDate            DateTime?
+  paidAt             DateTime?
+  status             String   @default("open")
+  rawPayloadJson     String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  payments           HbxRecoveryPayment[]
+
+  @@index([companyId, customerProfileId])
+  @@index([companyId, status])
+  @@index([sourceConnectionId, externalDebtId])
+}
+
+model IntegrationConnection {
+  id                 String   @id @default(cuid())
+  company            Company  @relation(fields: [companyId], references: [id])
+  companyId          Int
+  provider           String
+  instanceName       String
+  secretCiphertext   String?
+  secretPreview      String?
+  status             String   @default("DISCONNECTED")
+  lastTestedAt       DateTime?
+  lastSyncAt         DateTime?
+  lastSuccessAt      DateTime?
+  lastError          String?
+  isActive           Boolean  @default(true)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  customerProfiles   CustomerProfile[]
+  debtCases          DebtCase[]
+  syncRuns           IntegrationSyncRun[]
+
+  @@index([companyId, provider, isActive])
+  @@index([companyId, status, lastSyncAt])
+}
+
+model IntegrationSyncRun {
+  id                String   @id @default(cuid())
+  company           Company  @relation(fields: [companyId], references: [id])
+  companyId         Int
+  connection        IntegrationConnection @relation(fields: [connectionId], references: [id])
+  connectionId      String
+  type              String
+  startedAt         DateTime @default(now())
+  finishedAt        DateTime?
+  status            String   @default("running")
+  importedCount     Int      @default(0)
+  updatedCount      Int      @default(0)
+  failedCount       Int      @default(0)
+  checkpoint        String?
+  errorLog          String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([companyId, status, startedAt])
+  @@index([connectionId, startedAt])
 }
 
 model Conversation {
