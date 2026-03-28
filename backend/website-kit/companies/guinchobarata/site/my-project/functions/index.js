@@ -1,5 +1,7 @@
 const flow = require("./mercadopago-flow");
+const hbxAuthFlow = require("./hbx-auth-flow");
 
+exports.createHbxAdminFirebaseToken = hbxAuthFlow.createHbxAdminFirebaseToken;
 exports.createMercadoPagoPreference = flow.createMercadoPagoPreference;
 exports.manageMercadoPagoToken = flow.manageMercadoPagoToken;
 exports.getMercadoPagoQuote = flow.getMercadoPagoQuote;

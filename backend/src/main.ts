@@ -37,6 +37,15 @@ function isFirebaseHostingOrigin(origin: string) {
 
 function isWebscrapingProxyPath(url: string | undefined) {
   const pathname = String(url || '').split('?', 1)[0] || '';
+
+  // Native API routes should not be proxied (handled by NestJS controllers)
+  if (pathname === '/webscraping/runtime' || pathname === '/webscraping/search') {
+    return false;
+  }
+  if (pathname === '/hbx/webscraping/runtime' || pathname === '/hbx/webscraping/search') {
+    return false;
+  }
+
   return pathname === '/webscraping'
     || pathname.startsWith('/webscraping/')
     || pathname === '/hbx/webscraping'
@@ -94,10 +103,30 @@ async function bootstrap() {
       },
     },
   });
-  app.use('/webscraping', webscrapingGuard);
-  app.use('/hbx/webscraping', webscrapingGuard);
-  app.use('/webscraping', webscrapingProxy);
-  app.use('/hbx/webscraping', webscrapingProxy);
+
+  // Conditional middleware: only proxy if it's not a native API route
+  const webscrapingConditionalProxy = (req: Request, res: Response, next: () => void) => {
+    if (webscrapingTarget.configError) {
+      res.status(503).json({
+        code: webscrapingTarget.configError.code,
+        message: webscrapingTarget.configError.message,
+        status: 'offline',
+      });
+      return;
+    }
+
+    // Check if this is a native API route - if so, skip proxy and let NestJS handle it
+    if (!isWebscrapingProxyPath(req.path)) {
+      next();
+      return;
+    }
+
+    // Otherwise, proxy to the legacy service
+    webscrapingProxy(req, res, next);
+  };
+
+  app.use('/webscraping', webscrapingConditionalProxy);
+  app.use('/hbx/webscraping', webscrapingConditionalProxy);
   const allowedOrigins = buildAllowedOrigins();
   app.enableCors({
     origin: (origin, callback) => {

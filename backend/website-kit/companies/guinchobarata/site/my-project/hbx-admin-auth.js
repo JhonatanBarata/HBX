@@ -1,6 +1,29 @@
 (function () {
   const SESSION_STORAGE_KEY = 'hbxWebsiteAdminSession';
   const ACCESS_DENIED_PATH = 'access-denied.html';
+  const PUBLIC_HOME_PATH = 'index.html';
+  const DEBUG_PREFIX = '[HBX Admin Gate]';
+
+  function logStep(step, details = {}) {
+    try {
+      console.info(`${DEBUG_PREFIX} ${step}`, details);
+    } catch {}
+  }
+
+  function getStorage() {
+    try {
+      return window.sessionStorage;
+    } catch (error) {
+      console.error('[HBX Website] SessionStorage indisponivel:', error);
+      return null;
+    }
+  }
+
+  function buildTokenPreview(token) {
+    const raw = String(token || '').trim();
+    if (!raw) return null;
+    return `${raw.slice(0, 8)}...${raw.slice(-6)}`;
+  }
 
   function getApiBaseUrl() {
     const configured = window.HBXWebsiteAuthConfig?.apiBaseUrl;
@@ -27,66 +50,152 @@
     }
   }
 
+  function clearStoredSession() {
+    const storage = getStorage();
+    if (storage) {
+      storage.removeItem(SESSION_STORAGE_KEY);
+    }
+  }
+
   function redirectToAccessDenied(reason) {
+    logStep('redirect_to_access_denied', { reason: String(reason || 'Acesso negado.') });
     try {
-      sessionStorage.setItem('hbxWebsiteAdminDeniedReason', String(reason || 'Acesso negado.'));
+      getStorage()?.setItem('hbxWebsiteAdminDeniedReason', String(reason || 'Acesso negado.'));
     } catch {}
     window.location.replace(ACCESS_DENIED_PATH);
   }
 
+  function redirectToPublicHome() {
+    window.location.replace(PUBLIC_HOME_PATH);
+  }
+
   async function postJson(path, payload) {
-    const response = await fetch(`${getApiBaseUrl()}${path}`, {
+    const apiBaseUrl = getApiBaseUrl();
+    logStep('post_json_request', {
+      apiBaseUrl,
+      path,
+      payloadKeys: Object.keys(payload || {}),
+    });
+
+    const response = await fetch(`${apiBaseUrl}${path}`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        Accept: 'application/json',
       },
+      cache: 'no-store',
       body: JSON.stringify(payload),
     });
 
     const text = await response.text();
-    const data = text ? JSON.parse(text) : null;
+    let data = null;
+
+    try {
+      data = text ? JSON.parse(text) : null;
+    } catch (error) {
+      logStep('post_json_non_json_response', {
+        path,
+        status: response.status,
+        textPreview: text.slice(0, 200),
+      });
+    }
+
     if (!response.ok) {
       const message = data?.message || data?.error || `HTTP ${response.status}`;
+      logStep('post_json_failed', {
+        path,
+        status: response.status,
+        message,
+      });
       throw new Error(String(message));
     }
+
+    logStep('post_json_succeeded', {
+      path,
+      status: response.status,
+      hasData: Boolean(data),
+    });
 
     return data;
   }
 
   function readStoredSession() {
-    const raw = sessionStorage.getItem(SESSION_STORAGE_KEY);
+    const storage = getStorage();
+    if (!storage) return null;
+
+    const raw = storage.getItem(SESSION_STORAGE_KEY);
     if (!raw) return null;
 
     try {
       return JSON.parse(raw);
     } catch {
-      sessionStorage.removeItem(SESSION_STORAGE_KEY);
+      storage.removeItem(SESSION_STORAGE_KEY);
       return null;
     }
   }
 
+  function writeStoredSession(payload) {
+    const storage = getStorage();
+    if (!storage) {
+      throw new Error('SessionStorage indisponivel.');
+    }
+
+    storage.setItem(SESSION_STORAGE_KEY, JSON.stringify(payload));
+  }
+
   function storeSession(payload) {
-    sessionStorage.setItem(
-      SESSION_STORAGE_KEY,
-      JSON.stringify({
-        sessionToken: payload?.sessionToken,
-        expiresAt: payload?.expiresAt || null,
-        company: payload?.company || null,
-        website: payload?.website || null,
-        user: payload?.user || null,
-      }),
-    );
+    const current = readStoredSession() || {};
+    const normalized = typeof payload === 'string'
+      ? {
+          ...current,
+          sessionToken: payload,
+        }
+      : {
+          sessionToken: payload?.sessionToken || current.sessionToken || '',
+          expiresAt: payload?.expiresAt || current.expiresAt || null,
+          company: payload?.company || current.company || null,
+          website: payload?.website || current.website || null,
+          user: payload?.user || current.user || null,
+        };
+
+    writeStoredSession(normalized);
+    logStep('session_stored', {
+      hasSessionToken: Boolean(normalized.sessionToken),
+      expiresAt: normalized.expiresAt || null,
+      companyId: normalized.company?.id || null,
+      websiteProjectId: normalized.website?.projectId || null,
+    });
+    return normalized;
   }
 
   async function exchangeEntryToken(entryToken) {
+    if (!entryToken) {
+      throw new Error('Parametro hbx_entry ausente.');
+    }
+
+    logStep('entry_token_received', {
+      entryTokenPreview: buildTokenPreview(entryToken),
+    });
     setGuardMessage('Recebemos a entrada do HBX. Validando o token temporario...');
     const exchanged = await postJson('/website/admin/exchange', { entryToken });
-    storeSession(exchanged);
+    const stored = storeSession(exchanged);
+    logStep('entry_token_exchanged', {
+      companyId: stored.company?.id || null,
+      userId: stored.user?.id || null,
+      websiteProjectId: stored.website?.projectId || null,
+      expiresAt: stored.expiresAt || null,
+    });
     return exchanged;
   }
 
   async function verifyStoredSession() {
     const storedSession = readStoredSession();
+    logStep('verify_session_start', {
+      hasStoredSession: Boolean(storedSession?.sessionToken),
+      expiresAt: storedSession?.expiresAt || null,
+      websiteProjectId: storedSession?.website?.projectId || null,
+    });
+
     if (!storedSession?.sessionToken) {
       throw new Error('Sessao do admin ausente.');
     }
@@ -101,14 +210,27 @@
       verified,
     };
     window.hbxAdminAccessGranted = true;
+    window.__HBX_ADMIN_VERIFIED__ = verified;
+    window.dispatchEvent(new CustomEvent('hbx-admin-auth-ready', { detail: window.hbxAdminSession }));
     window.dispatchEvent(new CustomEvent('hbx-admin-access-granted', { detail: window.hbxAdminSession }));
     setGateReady();
+    logStep('session_verified', {
+      companyId: verified?.company?.id || storedSession?.company?.id || null,
+      userId: verified?.user?.id || storedSession?.user?.id || null,
+      websiteProjectId: verified?.website?.projectId || storedSession?.website?.projectId || null,
+    });
     return verified;
   }
 
   async function bootstrap() {
     const params = new URLSearchParams(window.location.search);
     const entryToken = String(params.get('hbx_entry') || '').trim();
+    logStep('bootstrap_start', {
+      path: window.location.pathname,
+      hasEntryToken: Boolean(entryToken),
+      queryKeys: Array.from(params.keys()),
+      hasStoredSession: Boolean(readStoredSession()?.sessionToken),
+    });
 
     if (entryToken) {
       await exchangeEntryToken(entryToken);
@@ -116,19 +238,42 @@
       const nextQuery = params.toString();
       const nextUrl = `${window.location.pathname}${nextQuery ? `?${nextQuery}` : ''}${window.location.hash || ''}`;
       window.history.replaceState({}, document.title, nextUrl);
+      logStep('entry_token_removed_from_url', { nextUrl });
     }
 
-    await verifyStoredSession();
+    return verifyStoredSession();
   }
 
-  window.hbxAdminAuth = {
+  const api = {
     sessionStorageKey: SESSION_STORAGE_KEY,
     bootstrap,
+    getStoredSession: readStoredSession,
+    getSessionToken() {
+      return readStoredSession()?.sessionToken || '';
+    },
+    saveSession(payload) {
+      return storeSession(payload);
+    },
+    clearSession() {
+      clearStoredSession();
+    },
+    redirectToAccessDenied,
+    redirectToPublicHome,
+    getDeniedUrl() {
+      return ACCESS_DENIED_PATH;
+    },
+    getPublicHomeUrl() {
+      return PUBLIC_HOME_PATH;
+    },
   };
 
-  bootstrap().catch((error) => {
+  window.hbxAdminAuth = api;
+  window.HBXAdminAuth = api;
+  window.__HBX_ADMIN_GUARD__ = bootstrap();
+
+  window.__HBX_ADMIN_GUARD__.catch((error) => {
     console.error('[HBX Website] Acesso ao admin negado:', error);
-    sessionStorage.removeItem(SESSION_STORAGE_KEY);
+    clearStoredSession();
     redirectToAccessDenied(error instanceof Error ? error.message : 'Acesso negado pelo HBX.');
   });
 })();
