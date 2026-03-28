@@ -1,4 +1,4 @@
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException, OnModuleInit } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException, OnModuleInit } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
@@ -38,6 +38,8 @@ type WebsitePortalPayload = {
 
 @Injectable()
 export class WebsiteService implements OnModuleInit {
+  private readonly logger = new Logger(WebsiteService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly jwtService: JwtService,
@@ -49,12 +51,44 @@ export class WebsiteService implements OnModuleInit {
     await ensureWebsiteRuntimeSchema(this.prisma);
   }
 
+  private requireWebsiteSecret(primary: unknown, fallback: unknown, primaryName: string, fallbackName: string) {
+    const primarySecret = String(primary || '').trim();
+    if (primarySecret) return primarySecret;
+
+    const fallbackSecret = String(fallback || '').trim();
+    if (fallbackSecret) return fallbackSecret;
+
+    throw new Error(`${primaryName} or ${fallbackName} must be configured`);
+  }
+
   private websiteEntrySecret() {
-    return String(process.env.WEBSITE_ENTRY_TOKEN_SECRET || process.env.JWT_SECRET || 'secretKey');
+    return this.requireWebsiteSecret(
+      process.env.WEBSITE_ENTRY_TOKEN_SECRET,
+      process.env.JWT_SECRET,
+      'WEBSITE_ENTRY_TOKEN_SECRET',
+      'JWT_SECRET',
+    );
+  }
+
+  private websiteEntrySecretSource() {
+    if (process.env.WEBSITE_ENTRY_TOKEN_SECRET) return 'WEBSITE_ENTRY_TOKEN_SECRET';
+    if (process.env.JWT_SECRET) return 'JWT_SECRET';
+    return 'unconfigured';
   }
 
   private websiteSessionSecret() {
-    return String(process.env.WEBSITE_ADMIN_SESSION_SECRET || process.env.JWT_SECRET || 'secretKey');
+    return this.requireWebsiteSecret(
+      process.env.WEBSITE_ADMIN_SESSION_SECRET,
+      process.env.JWT_SECRET,
+      'WEBSITE_ADMIN_SESSION_SECRET',
+      'JWT_SECRET',
+    );
+  }
+
+  private websiteSessionSecretSource() {
+    if (process.env.WEBSITE_ADMIN_SESSION_SECRET) return 'WEBSITE_ADMIN_SESSION_SECRET';
+    if (process.env.JWT_SECRET) return 'JWT_SECRET';
+    return 'unconfigured';
   }
 
   private websiteEntryTtlSeconds() {
@@ -101,6 +135,14 @@ export class WebsiteService implements OnModuleInit {
     const parsed = new URL(url);
     parsed.searchParams.set(key, value);
     return parsed.toString();
+  }
+
+  private websiteLog(event: string, payload: Record<string, unknown>) {
+    this.logger.log(`${event} ${JSON.stringify(payload)}`);
+  }
+
+  private websiteWarn(event: string, payload: Record<string, unknown>) {
+    this.logger.warn(`${event} ${JSON.stringify(payload)}`);
   }
 
   private async canUserOpenWebsiteAdmin(user: any, companyId: number) {
@@ -221,6 +263,19 @@ export class WebsiteService implements OnModuleInit {
         jwtid: entryId,
       },
     );
+
+    this.websiteLog('WEBSITE_ADMIN_LAUNCH_URL_GENERATED', {
+      companyId: company.id,
+      companySlug: company.slug || null,
+      userId: Number(user?.id || 0),
+      websiteProjectId: config.websiteProjectId,
+      websiteAdminUrl: config.websiteAdminUrl,
+      entryId,
+      entryTtlSeconds: this.websiteEntryTtlSeconds(),
+      entrySecretSource: this.websiteEntrySecretSource(),
+      transport: 'query+hbxSessionStorage',
+      cookieBypassUsed: false,
+    });
 
     return this.appendQueryValue(config.websiteAdminUrl, 'hbx_entry', entryToken);
   }
@@ -435,8 +490,21 @@ export class WebsiteService implements OnModuleInit {
   async exchangeAdminEntry(dto: WebsiteAdminExchangeDto, ip?: string) {
     const entryToken = String(dto?.entryToken || '').trim();
     if (!entryToken) {
+      this.websiteWarn('WEBSITE_ADMIN_ENTRY_EXCHANGE_REJECTED', {
+        reason: 'missing_entry_token',
+        ip: ip || null,
+      });
       throw new BadRequestException('entryToken e obrigatorio.');
     }
+
+    this.websiteLog('WEBSITE_ADMIN_ENTRY_EXCHANGE_RECEIVED', {
+      hasEntryToken: true,
+      entryTokenPreview: `${entryToken.slice(0, 8)}...${entryToken.slice(-6)}`,
+      ip: ip || null,
+      entrySecretSource: this.websiteEntrySecretSource(),
+      entryTtlSeconds: this.websiteEntryTtlSeconds(),
+      transport: 'query+hbxSessionStorage',
+    });
 
     let claims: any;
     try {
@@ -445,17 +513,36 @@ export class WebsiteService implements OnModuleInit {
         issuer: 'hbx-website',
         audience: 'hbx-website-admin-entry',
       });
-    } catch {
+    } catch (error: any) {
+      this.websiteWarn('WEBSITE_ADMIN_ENTRY_EXCHANGE_REJECTED', {
+        reason: 'entry_token_verify_failed',
+        ip: ip || null,
+        errorName: error?.name || 'UnknownError',
+        errorMessage: error?.message || 'unknown',
+        entrySecretSource: this.websiteEntrySecretSource(),
+      });
       throw new ForbiddenException('Token temporario do admin invalido ou expirado.');
     }
 
     const entryId = String(claims?.jti || '');
     if (!entryId) {
+      this.websiteWarn('WEBSITE_ADMIN_ENTRY_EXCHANGE_REJECTED', {
+        reason: 'entry_token_missing_jti',
+        ip: ip || null,
+      });
       throw new ForbiddenException('Token temporario sem identificador.');
     }
 
     const entryRecord = await getWebsiteAdminEntryTokenRecord(this.prisma, entryId);
     if (!entryRecord || entryRecord.usedAt || entryRecord.expiresAt.getTime() <= Date.now()) {
+      this.websiteWarn('WEBSITE_ADMIN_ENTRY_EXCHANGE_REJECTED', {
+        reason: 'entry_token_record_unavailable',
+        entryId,
+        ip: ip || null,
+        entryRecordFound: Boolean(entryRecord),
+        entryRecordUsedAt: entryRecord?.usedAt?.toISOString() || null,
+        entryRecordExpiresAt: entryRecord?.expiresAt?.toISOString() || null,
+      });
       throw new ForbiddenException('Token temporario indisponivel para uso.');
     }
 
@@ -467,6 +554,17 @@ export class WebsiteService implements OnModuleInit {
       userId !== entryRecord.userId ||
       websiteProjectId !== entryRecord.websiteProjectId
     ) {
+      this.websiteWarn('WEBSITE_ADMIN_ENTRY_EXCHANGE_REJECTED', {
+        reason: 'entry_token_record_mismatch',
+        entryId,
+        ip: ip || null,
+        companyId,
+        userId,
+        websiteProjectId,
+        recordCompanyId: entryRecord.companyId,
+        recordUserId: entryRecord.userId,
+        recordWebsiteProjectId: entryRecord.websiteProjectId,
+      });
       throw new ForbiddenException('Token temporario inconsistente.');
     }
 
@@ -478,15 +576,35 @@ export class WebsiteService implements OnModuleInit {
 
     const config = await getCompanyWebsiteConfig(this.prisma, companyId);
     if (!config?.websiteEnabled || !config.websiteAdminEnabled || !config.websiteAdminUrl || !config.websiteProjectId) {
+      this.websiteWarn('WEBSITE_ADMIN_ENTRY_EXCHANGE_REJECTED', {
+        reason: 'website_admin_not_configured',
+        entryId,
+        companyId,
+        websiteProjectId,
+      });
       throw new ForbiddenException('Admin do website nao esta configurado para esta empresa.');
     }
     if (config.websiteProjectId !== websiteProjectId) {
+      this.websiteWarn('WEBSITE_ADMIN_ENTRY_EXCHANGE_REJECTED', {
+        reason: 'website_project_id_mismatch',
+        entryId,
+        companyId,
+        claimedWebsiteProjectId: websiteProjectId,
+        configuredWebsiteProjectId: config.websiteProjectId,
+      });
       throw new ForbiddenException('Projeto do website divergente da configuracao atual.');
     }
 
     const user = await this.assertWebsiteAdminAccess(userId, companyId);
     const consumed = await consumeWebsiteAdminEntryTokenRecord(this.prisma, entryId, ip);
     if (!consumed) {
+      this.websiteWarn('WEBSITE_ADMIN_ENTRY_EXCHANGE_REJECTED', {
+        reason: 'entry_token_already_used',
+        entryId,
+        companyId,
+        userId,
+        ip: ip || null,
+      });
       throw new ForbiddenException('Token temporario ja foi utilizado.');
     }
 
@@ -507,6 +625,16 @@ export class WebsiteService implements OnModuleInit {
         jwtid: randomUUID(),
       },
     );
+
+    this.websiteLog('WEBSITE_ADMIN_ENTRY_EXCHANGE_ACCEPTED', {
+      entryId,
+      companyId: company.id,
+      userId: user.id,
+      websiteProjectId: config.websiteProjectId,
+      sessionTtlSeconds: sessionExpiresIn,
+      sessionSecretSource: this.websiteSessionSecretSource(),
+      ip: ip || null,
+    });
 
     return {
       ok: true,
@@ -534,8 +662,21 @@ export class WebsiteService implements OnModuleInit {
   async verifyAdminSession(dto: WebsiteAdminVerifyDto, _ip?: string) {
     const sessionToken = String(dto?.sessionToken || '').trim();
     if (!sessionToken) {
+      this.websiteWarn('WEBSITE_ADMIN_SESSION_VERIFY_REJECTED', {
+        reason: 'missing_session_token',
+        ip: _ip || null,
+      });
       throw new BadRequestException('sessionToken e obrigatorio.');
     }
+
+    this.websiteLog('WEBSITE_ADMIN_SESSION_VERIFY_RECEIVED', {
+      hasSessionToken: true,
+      sessionTokenPreview: `${sessionToken.slice(0, 8)}...${sessionToken.slice(-6)}`,
+      ip: _ip || null,
+      sessionSecretSource: this.websiteSessionSecretSource(),
+      sessionTtlSeconds: this.websiteSessionTtlSeconds(),
+      transport: 'query+hbxSessionStorage',
+    });
 
     let claims: any;
     try {
@@ -544,7 +685,14 @@ export class WebsiteService implements OnModuleInit {
         issuer: 'hbx-website',
         audience: 'hbx-website-admin-session',
       });
-    } catch {
+    } catch (error: any) {
+      this.websiteWarn('WEBSITE_ADMIN_SESSION_VERIFY_REJECTED', {
+        reason: 'session_token_verify_failed',
+        ip: _ip || null,
+        errorName: error?.name || 'UnknownError',
+        errorMessage: error?.message || 'unknown',
+        sessionSecretSource: this.websiteSessionSecretSource(),
+      });
       throw new ForbiddenException('Sessao do admin invalida ou expirada.');
     }
 
@@ -552,6 +700,13 @@ export class WebsiteService implements OnModuleInit {
     const userId = Number(claims?.sub || 0);
     const websiteProjectId = String(claims?.websiteProjectId || '');
     if (!companyId || !userId || !websiteProjectId) {
+      this.websiteWarn('WEBSITE_ADMIN_SESSION_VERIFY_REJECTED', {
+        reason: 'session_token_incomplete_claims',
+        ip: _ip || null,
+        companyId,
+        userId,
+        websiteProjectId,
+      });
       throw new ForbiddenException('Sessao do admin incompleta.');
     }
 
@@ -563,10 +718,26 @@ export class WebsiteService implements OnModuleInit {
 
     const config = await getCompanyWebsiteConfig(this.prisma, companyId);
     if (!config?.websiteEnabled || !config.websiteAdminEnabled || config.websiteProjectId !== websiteProjectId) {
+      this.websiteWarn('WEBSITE_ADMIN_SESSION_VERIFY_REJECTED', {
+        reason: 'website_config_mismatch',
+        ip: _ip || null,
+        companyId,
+        userId,
+        claimedWebsiteProjectId: websiteProjectId,
+        configuredWebsiteProjectId: config?.websiteProjectId || null,
+        websiteEnabled: Boolean(config?.websiteEnabled),
+        websiteAdminEnabled: Boolean(config?.websiteAdminEnabled),
+      });
       throw new ForbiddenException('Configuracao atual do website nao permite esta sessao.');
     }
 
     const user = await this.assertWebsiteAdminAccess(userId, companyId);
+    this.websiteLog('WEBSITE_ADMIN_SESSION_VERIFY_ACCEPTED', {
+      companyId,
+      userId,
+      websiteProjectId,
+      ip: _ip || null,
+    });
     return {
       ok: true,
       company: {

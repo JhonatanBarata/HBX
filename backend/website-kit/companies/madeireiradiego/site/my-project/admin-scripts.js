@@ -59,66 +59,302 @@ function setAuthNavVisible(isVisible) {
 // Default: hide auth-only controls until we confirm auth state
 setAuthNavVisible(false);
 
-document.getElementById('loginForm').addEventListener('submit', async (e) => {
+const loginScreen = document.getElementById('loginScreen');
+const adminPanel = document.getElementById('adminPanel');
+const userEmailElement = document.getElementById('userEmail');
+const loginForm = document.getElementById('loginForm');
+const loginError = document.getElementById('loginError');
+const HBX_FIREBASE_AUTH_BRIDGE_PATH = '/api/admin/hbx-auth';
+let isAdminBootstrapPending = true;
+let hasLoadedInitialAdminData = false;
+
+function logAdminAuth(step, details = {}) {
+  console.info('[HBX Admin] ' + step, details);
+}
+
+function getHbxAdminAuth() {
+  return window.hbxAdminAuth || window.HBXAdminAuth || null;
+}
+
+function setAdminScreenState(state) {
+  const showLogin = state === 'login';
+  const showPanel = state === 'panel';
+
+  if (loginScreen) {
+    loginScreen.style.display = showLogin ? 'flex' : 'none';
+  }
+
+  if (adminPanel) {
+    adminPanel.style.display = showPanel ? 'block' : 'none';
+  }
+}
+
+function loadInitialAdminData() {
+  if (hasLoadedInitialAdminData) {
+    return;
+  }
+
+  hasLoadedInitialAdminData = true;
+  loadMesas();
+  loadTipos();
+}
+
+function applyAuthenticatedAdminState(user) {
+  setAdminScreenState('panel');
+
+  if (userEmailElement) {
+    userEmailElement.textContent = user?.email || 'Acesso HBX';
+  }
+
+  setAuthNavVisible(true);
+  loadInitialAdminData();
+  logAdminAuth('panel_opened', {
+    uid: user?.uid || null,
+    email: user?.email || null,
+  });
+}
+
+function applySignedOutAdminState(reason = 'manual_fallback_unspecified') {
+  if (isAdminBootstrapPending) {
+    setAdminScreenState('bootstrap');
+    return;
+  }
+
+  setAdminScreenState('login');
+
+  if (userEmailElement) {
+    userEmailElement.textContent = '';
+  }
+
+  hasLoadedInitialAdminData = false;
+  setAuthNavVisible(false);
+  logAdminAuth('manual_fallback_enabled', { reason });
+}
+
+function clearAdminWebsiteSession() {
+  const hbxAdminAuth = getHbxAdminAuth();
+  if (hbxAdminAuth && typeof hbxAdminAuth.clearSession === 'function') {
+    hbxAdminAuth.clearSession();
+    return;
+  }
+
+  try {
+    window.sessionStorage.removeItem(HBX_ADMIN_SESSION_STORAGE_KEY);
+  } catch (error) {
+    console.error('Nao foi possivel limpar a sessao HBX:', error);
+  }
+}
+
+function redirectAfterAdminLogout() {
+  const hbxAdminAuth = getHbxAdminAuth();
+  if (hbxAdminAuth && typeof hbxAdminAuth.redirectToPublicHome === 'function') {
+    hbxAdminAuth.redirectToPublicHome();
+    return;
+  }
+
+  window.location.replace('index.html');
+}
+
+async function ensureFirebasePersistence() {
+  if (!firebaseAuth?.setPersistence || !window.firebase?.auth?.Auth?.Persistence?.LOCAL) {
+    return;
+  }
+
+  await firebaseAuth.setPersistence(window.firebase.auth.Auth.Persistence.LOCAL);
+}
+
+function waitForInitialAuthState() {
+  return new Promise((resolve) => {
+    const unsubscribe = firebaseAuth.onAuthStateChanged((user) => {
+      unsubscribe();
+      resolve(user);
+    });
+  });
+}
+
+async function signInFirebaseFromHbxSession() {
+  const hbxAdminAuth = getHbxAdminAuth();
+  if (!hbxAdminAuth || typeof hbxAdminAuth.getSessionToken !== 'function') {
+    logAdminAuth('bridge_skipped_no_hbx_admin_auth');
+    return false;
+  }
+
+  if (!firebaseAuth?.signInWithCustomToken) {
+    logAdminAuth('bridge_skipped_no_sign_in_with_custom_token', {
+      firebaseProjectId: firebase.app?.().options?.projectId || null,
+    });
+    return false;
+  }
+
+  const sessionToken = hbxAdminAuth.getSessionToken();
+  if (!sessionToken) {
+    logAdminAuth('bridge_skipped_no_session_token');
+    return false;
+  }
+
+  logAdminAuth('bridge_request_start', {
+    firebaseProjectId: firebase.app?.().options?.projectId || null,
+    authDomain: firebase.app?.().options?.authDomain || null,
+  });
+
+  const response = await fetch(HBX_FIREBASE_AUTH_BRIDGE_PATH, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+    },
+    cache: 'no-store',
+    body: JSON.stringify({ sessionToken }),
+  });
+
+  const data = await response.json().catch(() => ({}));
+  logAdminAuth('bridge_response_received', {
+    status: response.status,
+    ok: response.ok,
+    hasFirebaseCustomToken: Boolean(data?.firebaseCustomToken),
+    error: data?.error || data?.message || null,
+  });
+  if (!response.ok || !data.ok || !data.firebaseCustomToken) {
+    throw new Error(data.error || data.message || 'Nao foi possivel abrir o admin automaticamente.');
+  }
+
+  if (data.sessionToken && typeof hbxAdminAuth.saveSession === 'function') {
+    const currentSession = typeof hbxAdminAuth.getStoredSession === 'function'
+      ? hbxAdminAuth.getStoredSession()
+      : null;
+    hbxAdminAuth.saveSession({
+      ...(currentSession || {}),
+      sessionToken: data.sessionToken,
+    });
+  }
+
+  logAdminAuth('bridge_custom_token_received', {
+    hasFirebaseCustomToken: Boolean(data.firebaseCustomToken),
+    websiteProjectId: data?.verified?.website?.projectId || null,
+  });
+
+  logAdminAuth('firebase_sign_in_with_custom_token_start');
+  await firebaseAuth.signInWithCustomToken(data.firebaseCustomToken);
+  logAdminAuth('firebase_sign_in_with_custom_token_succeeded', {
+    uid: firebaseAuth.currentUser?.uid || null,
+  });
+  return true;
+}
+
+async function initializeAdminAccess() {
+  setAdminScreenState('bootstrap');
+  logAdminAuth('bootstrap_start', {
+    hasGuardPromise: Boolean(window.__HBX_ADMIN_GUARD__),
+    firebaseProjectId: firebase.app?.().options?.projectId || null,
+  });
+
+  try {
+    await Promise.resolve(window.__HBX_ADMIN_GUARD__);
+    logAdminAuth('hbx_guard_verified', {
+      websiteProjectId: window.__HBX_ADMIN_VERIFIED__?.website?.projectId || window.hbxAdminSession?.website?.projectId || null,
+    });
+  } catch (error) {
+    logAdminAuth('hbx_guard_failed', {
+      message: error?.message || String(error),
+    });
+    isAdminBootstrapPending = false;
+    return;
+  }
+
+  try {
+    await ensureFirebasePersistence();
+    logAdminAuth('firebase_persistence_ready');
+  } catch (error) {
+    console.error('Nao foi possivel configurar a persistencia do Firebase:', error);
+    logAdminAuth('firebase_persistence_failed', {
+      message: error?.message || String(error),
+    });
+  }
+
+  const restoredUser = await waitForInitialAuthState();
+  logAdminAuth('firebase_initial_auth_state', {
+    hasUser: Boolean(restoredUser || firebaseAuth.currentUser),
+    uid: restoredUser?.uid || firebaseAuth.currentUser?.uid || null,
+  });
+
+  if (!restoredUser && !firebaseAuth.currentUser) {
+    try {
+      await signInFirebaseFromHbxSession();
+      if (loginError) {
+        loginError.classList.add('hidden');
+      }
+    } catch (error) {
+      console.error('Falha ao abrir o admin direto pela sessao HBX:', error);
+      logAdminAuth('firebase_bridge_failed', {
+        message: error?.message || String(error),
+      });
+      if (loginError) {
+        loginError.textContent = 'A sessao HBX foi validada, mas nao foi possivel abrir o painel automaticamente. Entre com email e senha.';
+        loginError.classList.remove('hidden');
+      }
+    }
+  }
+
+  isAdminBootstrapPending = false;
+
+  if (!firebaseAuth.currentUser) {
+    applySignedOutAdminState('no_firebase_user_after_hbx_bootstrap');
+  }
+}
+
+loginForm.addEventListener('submit', async (e) => {
   e.preventDefault();
   
   const email = document.getElementById('loginEmail').value;
   const password = document.getElementById('loginPassword').value;
-  const errorDiv = document.getElementById('loginError');
   
   try {
+    await ensureFirebasePersistence();
+    logAdminAuth('manual_login_submit', { email });
     await firebaseAuth.signInWithEmailAndPassword(email, password);
-    document.getElementById('loginScreen').style.display = 'none';
-    document.getElementById('adminPanel').style.display = 'block';
-    document.getElementById('userEmail').textContent = email;
-    setAuthNavVisible(true);
-    
-    // Carregar dados iniciais
-    loadMesas();
-    loadTipos();
+    if (loginError) {
+      loginError.classList.add('hidden');
+    }
   } catch (error) {
-    errorDiv.textContent = 'Email ou senha incorretos';
-    errorDiv.classList.remove('hidden');
+    if (loginError) {
+      loginError.textContent = getFriendlyAuthError(error);
+      loginError.classList.remove('hidden');
+    }
   }
 });
 
 document.getElementById('logoutBtn').addEventListener('click', async () => {
-  // Hide immediately so it never “sticks” on screen
   setAuthNavVisible(false);
-  sessionStorage.removeItem(HBX_ADMIN_SESSION_STORAGE_KEY);
   try {
     await firebaseAuth.signOut();
   } finally {
-    location.reload();
+    clearAdminWebsiteSession();
+    redirectAfterAdminLogout();
   }
 });
 
 document.getElementById('logoutBtnMobile')?.addEventListener('click', async () => {
   setAuthNavVisible(false);
-  sessionStorage.removeItem(HBX_ADMIN_SESSION_STORAGE_KEY);
   try {
     await firebaseAuth.signOut();
   } finally {
-    location.reload();
+    clearAdminWebsiteSession();
+    redirectAfterAdminLogout();
   }
 });
 
-// Verificar se já está logado
 firebaseAuth.onAuthStateChanged((user) => {
   if (user) {
-    document.getElementById('loginScreen').style.display = 'none';
-    document.getElementById('adminPanel').style.display = 'block';
-    document.getElementById('userEmail').textContent = user.email;
-    setAuthNavVisible(true);
-    loadMesas();
-    loadTipos();
+    if (loginError) {
+      loginError.classList.add('hidden');
+    }
+    applyAuthenticatedAdminState(user);
   } else {
-    document.getElementById('loginScreen').style.display = 'flex';
-    document.getElementById('adminPanel').style.display = 'none';
-    document.getElementById('userEmail').textContent = '';
-    setAuthNavVisible(false);
+    applySignedOutAdminState();
   }
 });
+
+initializeAdminAccess();
 
 // ================================
 // TABS

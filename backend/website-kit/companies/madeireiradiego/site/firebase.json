@@ -1,16 +1,29 @@
 {
+  "functions": {
+    "source": "my-project/functions"
+  },
   "hosting": {
     "public": "my-project",
     "ignore": [
       "firebase.json",
       "**/.*",
-      "**/node_modules/**"
+      "**/node_modules/**",
+      "functions/**"
     ],
     "redirects": [
       {
         "source": "/favicon.ico",
         "destination": "/favicon.svg",
         "type": 302
+      }
+    ],
+    "rewrites": [
+      {
+        "source": "/api/admin/hbx-auth",
+        "function": {
+          "functionId": "createHbxAdminFirebaseToken",
+          "region": "southamerica-east1"
+        }
       }
     ]
   }

@@ -19,6 +19,13 @@
     ],
     "rewrites": [
       {
+        "source": "/api/admin/hbx-auth",
+        "function": {
+          "functionId": "createHbxAdminFirebaseToken",
+          "region": "southamerica-east1"
+        }
+      },
+      {
         "source": "/api/mercadopago/create-preference",
         "function": {
           "functionId": "createMercadoPagoPreference",
