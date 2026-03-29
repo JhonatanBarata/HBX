@@ -160,10 +160,10 @@ if (Test-Path $pidsFile) {
 
 Assert-DockerReady
 
-Write-Host "1️⃣ Starting backend (docker compose) ..."
+Write-Host "1) Starting backend (docker compose) ..."
 Invoke-ExternalOrThrow -filePath 'docker' -arguments @('compose', '-f', $composeFile, 'up', '-d', '--build') -failureMessage 'Failed to start backend containers with docker compose.'
 
-Write-Host "1.0️⃣ Sync backend deps inside container (npm install) ..."
+Write-Host "1.0) Sync backend deps inside container (npm install) ..."
 try {
 	Invoke-ExternalOrThrow -filePath 'docker' -arguments @('compose', '-f', $composeFile, 'exec', '-T', 'backend', 'sh', '-lc', 'npm install --no-audit --no-fund && npx prisma generate') -failureMessage 'Dependency sync failed in backend container.'
 } catch {
@@ -174,7 +174,7 @@ try {
 	throw "Dependency sync failed in backend container"
 }
 
-Write-Host "1.1️⃣ Waiting backend health on http://localhost:3000/health ..."
+Write-Host "1.1) Waiting backend health on http://localhost:3000/health ..."
 if (-not (Wait-HttpOk -url 'http://localhost:3000/health' -retries 180 -delayMs 500)) {
     Write-Host "Backend did not become reachable on /health. Showing recent logs:"
 	if (Test-DockerDaemonReady) {
@@ -183,12 +183,12 @@ if (-not (Wait-HttpOk -url 'http://localhost:3000/health' -retries 180 -delayMs 
 	throw "Backend not reachable at http://localhost:3000/health"
 }
 
-Write-Host "2️⃣ Ensuring frontend deps (npm install) ..."
+Write-Host "2) Ensuring frontend deps (npm install) ..."
 Push-Location $frontendDir
 if (!(Test-Path node_modules)) { npm install }
 Pop-Location
 
-Write-Host "3️⃣ Starting frontend (Next) on port 3001 ..."
+Write-Host "3) Starting frontend (Next) on port 3001 ..."
 $nextCli = Join-Path $frontendDir 'node_modules\next\dist\bin\next'
 if (!(Test-Path -LiteralPath $nextCli)) {
 	throw "Frontend CLI not found at $nextCli. Run npm install in frontend first."
@@ -220,44 +220,63 @@ $frontendPidToTrack = $frontendProc.Id
 if ($listenerPid -gt 0) { $frontendPidToTrack = $listenerPid }
 Write-Host "Frontend listener pid=$frontendPidToTrack (wrapper=$($frontendProc.Id))"
 
-Write-Host "4️⃣ Starting Prisma Studio on port 5555 ..."
-# Start Prisma Studio as the actual Node process so the tracked PID owns port 5555.
-Import-DotEnv (Join-Path $backendDir '.env')
-if (!$env:DATABASE_URL) {
-	Write-Host "ERROR: backend/.env does not define DATABASE_URL"
-	throw "Missing DATABASE_URL in backend/.env"
+Write-Host "3.1) Waiting frontend response on http://localhost:3001 ..."
+if (-not (Wait-HttpOk -url 'http://localhost:3001' -retries 120 -delayMs 500)) {
+	Write-Host "Frontend did not answer HTTP requests on port 3001."
+	Stop-IfRunning -processId ([int]$frontendPidToTrack) -name 'frontend'
+	if ($frontendProc.Id -ne $frontendPidToTrack) {
+		Stop-IfRunning -processId ([int]$frontendProc.Id) -name 'frontend-wrapper'
+	}
+	throw "Frontend not reachable at http://localhost:3001"
 }
-$env:DATABASE_URL = Normalize-DatabaseUrlForHost $env:DATABASE_URL
-Assert-LocalDatabaseUrl -databaseUrl $env:DATABASE_URL -sourceLabel 'backend/.env'
-if (!$env:DIRECT_URL) {
-	$env:DIRECT_URL = $env:DATABASE_URL
+
+Write-Host "4) Starting Prisma Studio on port 5555 ..."
+$studioPidToTrack = 0
+$backendEnvPath = Join-Path $backendDir '.env'
+if (Test-Path -LiteralPath $backendEnvPath) {
+	try {
+		# Start Prisma Studio as the actual Node process so the tracked PID owns port 5555.
+		Import-DotEnv $backendEnvPath
+		if (!$env:DATABASE_URL) {
+			throw "backend/.env does not define DATABASE_URL"
+		}
+		$env:DATABASE_URL = Normalize-DatabaseUrlForHost $env:DATABASE_URL
+		Assert-LocalDatabaseUrl -databaseUrl $env:DATABASE_URL -sourceLabel 'backend/.env'
+		if (!$env:DIRECT_URL) {
+			$env:DIRECT_URL = $env:DATABASE_URL
+		} else {
+			$env:DIRECT_URL = Normalize-DatabaseUrlForHost $env:DIRECT_URL
+			Assert-LocalDatabaseUrl -databaseUrl $env:DIRECT_URL -sourceLabel 'backend/.env'
+		}
+
+		$studioArgs = @(
+			"node_modules/prisma/build/index.js",
+			"studio",
+			"--schema", "prisma/schema.prisma",
+			"--port", "5555"
+		)
+
+		$studioProc = Start-Process -FilePath "node" -WorkingDirectory $backendDir -ArgumentList $studioArgs -PassThru -WindowStyle Hidden
+		Start-Sleep -Milliseconds 600
+		$listenerPid = 0
+		for ($i = 0; $i -lt 20; $i++) {
+			$listenerPid = Get-ListenerPid -port 5555
+			if ($listenerPid -gt 0) { break }
+			Start-Sleep -Milliseconds 250
+		}
+
+		$studioPidToTrack = $studioProc.Id
+		if ($listenerPid -gt 0) {
+			$studioPidToTrack = $listenerPid
+		}
+
+		Write-Host "Started prisma studio pid=$studioPidToTrack (listener)"
+	} catch {
+		Write-Host "Skipping Prisma Studio: $($_.Exception.Message)"
+	}
 } else {
-	$env:DIRECT_URL = Normalize-DatabaseUrlForHost $env:DIRECT_URL
-	Assert-LocalDatabaseUrl -databaseUrl $env:DIRECT_URL -sourceLabel 'backend/.env'
+	Write-Host "Skipping Prisma Studio: backend/.env not found."
 }
-
-$studioArgs = @(
-	"node_modules/prisma/build/index.js",
-	"studio",
-	"--schema", "prisma/schema.prisma",
-	"--port", "5555"
-)
-
-$studioProc = Start-Process -FilePath "node" -WorkingDirectory $backendDir -ArgumentList $studioArgs -PassThru -WindowStyle Hidden
-Start-Sleep -Milliseconds 600
-$listenerPid = 0
-for ($i = 0; $i -lt 20; $i++) {
-	$listenerPid = Get-ListenerPid -port 5555
-	if ($listenerPid -gt 0) { break }
-	Start-Sleep -Milliseconds 250
-}
-
-$studioPidToTrack = $studioProc.Id
-if ($listenerPid -gt 0) {
-	$studioPidToTrack = $listenerPid
-}
-
-Write-Host "Started prisma studio pid=$studioPidToTrack (listener)"
 
 $tmpPidsFile = "${pidsFile}.tmp"
 @{
@@ -266,4 +285,5 @@ $tmpPidsFile = "${pidsFile}.tmp"
 } | ConvertTo-Json | Set-Content -Path $tmpPidsFile -Encoding UTF8
 Move-Item -Force $tmpPidsFile $pidsFile
 
-Write-Host "✅ All processes started. Backend: http://localhost:3000, Frontend: http://localhost:3001, Prisma Studio: http://localhost:5555"
+$studioStatus = if ($studioPidToTrack -gt 0) { 'Prisma Studio: http://localhost:5555' } else { 'Prisma Studio: skipped' }
+Write-Host "OK. All processes started. Backend: http://localhost:3000, Frontend: http://localhost:3001, $studioStatus"

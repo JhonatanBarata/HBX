@@ -1,56 +1,20 @@
-**Electron packaging (WhatsApp Dashboard)**
+**Electron shell status**
 
 Overview
-- The Electron app simply opens the frontend at `http://localhost:3001`.
-- Backend remains fully separate; Electron does not include or run backend code.
+- The Electron shell in `electron/main.js` only opens the frontend URL, defaulting to `http://localhost:3001`.
+- Backend and publish stay in the official root workflow: `npm run up`, `npm run down`, `npm run commit`, `npm run publish`.
+- Electron is not part of the official local/publish flow today and should never point outside the main `APP` root.
 
-Files
-- `electron/main.js` — Electron main process, opens the frontend URL.
-- `electron/icon.ico` — placeholder icon (replace before building installer).
-- `package.json` — scripts added to help dev, build frontend and package .exe.
+Current repository state
+- The maintained root path is `C:\Users\Jhonatan\Desktop\App`.
+- Any future Electron packaging flow must start from that same root.
+- There are currently no official Electron scripts in the root `package.json`.
 
-Scripts
-- `npm run electron:dev` — waits for `http://localhost:3001` (uses `wait-on`) then starts Electron (development use).
-- `npm run electron:build-frontend` — runs `npm --prefix frontend run build` to build the Next frontend.
-- `npm run electron:package` — builds the frontend and then runs `electron-builder` to generate a Windows installer (.exe).
-
-How to edit and test
-1) Develop frontend
-
-```powershell
-cd c:\Users\Jhonatan\Desktop\App\Jhonatan123\frontend
-npm install
-npm run dev
-```
-
-2) Develop backend
-
-```powershell
-cd c:\Users\Jhonatan\Desktop\App\backend
-npm install
-npx prisma generate
-npx prisma migrate dev
-npm run start:dev
-```
-
-3) Run Electron in dev (after frontend is serving at :3001)
-
-```powershell
-cd c:\Users\Jhonatan\Desktop\App\Jhonatan123
-npm install  # installs electron, electron-builder, wait-on
-npm run electron:dev
-```
-
-Build installer (.exe)
-1) Replace `electron/icon.ico` with a real icon file.
-2) Run:
-
-```powershell
-cd c:\Users\Jhonatan\Desktop\App\Jhonatan123
-npm install
-npm run electron:package
-```
+Manual testing baseline
+1. Start the official local stack from the root with `npm run up`.
+2. Confirm the frontend is available at `http://localhost:3001`.
+3. Only then launch the Electron shell with your local Electron tooling if you still need this wrapper.
 
 Notes
-- The packaged app will still expect the frontend to be available at `http://localhost:3001`. You can set `ELECTRON_APP_URL` env var to point the packaged app to a different host.
-- If you want to embed the frontend inside Electron (no external server), we can add a tiny static server or build an exportable static frontend, but that requires changes to the frontend build and is out of scope for this task.
+- If Electron is reactivated later, keep it as a thin shell over the same frontend served by the main root workflow.
+- Do not create a parallel frontend path or alternate app root for Electron.

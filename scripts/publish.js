@@ -1,31 +1,14 @@
 'use strict';
 
 const path = require('path');
-const readline = require('readline');
 const fs = require('fs');
 const { isLocalDatabaseUrl, parseEnvFile, repoRoot, resolveOperationsEnv, run } = require('./lib/runtime');
 const { createProductionBackup } = require('./backup-prod');
 const { verifyProduction } = require('./verify-prod');
 
 const isDryRun = process.argv.includes('--dry-run');
-const args = process.argv.slice(2);
-
-function readArgValue(flagName) {
-  const direct = args.find((arg) => arg.startsWith(`${flagName}=`));
-  if (direct) {
-    return direct.split('=', 2)[1] || '';
-  }
-
-  const index = args.indexOf(flagName);
-  if (index >= 0 && args[index + 1]) {
-    return args[index + 1];
-  }
-
-  return '';
-}
-
-const commitMessageArg = readArgValue('--message');
-const skipPrompt = args.includes('--yes') || args.includes('--confirm');
+const publishRemote = 'origin';
+const publishBranch = 'master';
 
 function logStage(title) {
   console.log(`\n=== ${title} ===`);
@@ -154,14 +137,66 @@ function runStep(command, commandArgs, options = {}) {
   }
 }
 
-function ask(question) {
-  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-  return new Promise((resolve) => {
-    rl.question(question, (answer) => {
-      rl.close();
-      resolve(String(answer || '').trim());
-    });
+function getCurrentBranch() {
+  const result = run('git', ['branch', '--show-current'], {
+    cwd: repoRoot,
+    captureOutput: true,
   });
+
+  return String(result.stdout || '').trim();
+}
+
+function ensureMasterBranch() {
+  const currentBranch = getCurrentBranch();
+  if (currentBranch !== publishBranch) {
+    throw new Error(`Publish only runs from ${publishBranch}. Current branch: ${currentBranch || '(detached HEAD)'}`);
+  }
+}
+
+function ensureCleanWorkingTree() {
+  const status = run('git', ['status', '--short'], {
+    cwd: repoRoot,
+    captureOutput: true,
+  });
+  const changedFiles = String(status.stdout || '').trim();
+
+  if (changedFiles) {
+    throw new Error(`Publish requires a clean working tree. Run npm run commit first and retry.\n${changedFiles}`);
+  }
+}
+
+function fetchPublishBase() {
+  if (isDryRun) {
+    console.log('Dry run: keeping the local origin/master ref as-is.');
+    return;
+  }
+
+  runStep('git', ['fetch', publishRemote, publishBranch, '--quiet']);
+}
+
+function getCommittedPublishChanges() {
+  const remoteRef = `refs/remotes/${publishRemote}/${publishBranch}`;
+  const remoteCheck = run('git', ['rev-parse', '--verify', remoteRef], {
+    cwd: repoRoot,
+    captureOutput: true,
+    allowFailure: true,
+  });
+
+  if (remoteCheck.status !== 0) {
+    if (isDryRun) {
+      console.log(`Dry run: ${publishRemote}/${publishBranch} is not available locally; skipping unpublished diff inspection.`);
+      return '';
+    }
+
+    throw new Error(`Missing ${publishRemote}/${publishBranch}. Run git fetch ${publishRemote} ${publishBranch} and retry.`);
+  }
+
+  const diffResult = run('git', ['diff', '--name-only', `${remoteRef}..HEAD`], {
+    cwd: repoRoot,
+    captureOutput: true,
+  });
+
+  return String(diffResult.stdout || '').trim();
 }
 
 function validateBackendEnvironment() {
@@ -231,100 +266,41 @@ function validateChangedFiles(changedFiles) {
   }
 }
 
-function normalizeChangedFiles(changedFiles) {
-  return changedFiles
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .map((line) => line.replace(/^\?\?\s+/, '').replace(/^[A-Z]{1,2}\s+/, ''));
-}
-
-function requiresBackendPreflight(changedFiles) {
-  const files = normalizeChangedFiles(changedFiles);
-  if (files.length === 0) {
-    return false;
-  }
-
-  return files.some((filePath) => (
-    filePath.startsWith('backend/') ||
-    filePath === 'docker-compose.yml' ||
-    filePath === 'Dockerfile' ||
-    filePath === 'render.yaml'
-  ));
-}
-
-function applyPublishVerifyDefaults(targetEnv, options = {}) {
-  const env = targetEnv;
-  const shouldRunStrictInfraVerify = Boolean(options.shouldRunStrictInfraVerify);
-  const current = String(env.PROD_VERIFY_WEBSCRAPING_REQUIRED || '').trim();
-
-  if (!current && !shouldRunStrictInfraVerify) {
-    env.PROD_VERIFY_WEBSCRAPING_REQUIRED = '0';
-    console.log('Frontend-only publish detected; webscraping verification will be optional for this run.');
-  }
-
-  return env;
-}
-
 async function main() {
   logStage('Preflight Validation');
   validateFileExpectations();
 
   runStep('git', ['rev-parse', '--is-inside-work-tree']);
   runStep('git', ['diff', '--check']);
+  ensureMasterBranch();
+  ensureCleanWorkingTree();
+  fetchPublishBase();
 
-  const status = runStep('git', ['status', '--short'], { captureOutput: true });
-  const changedFiles = String(status.stdout || '').trim();
-
-  if (!changedFiles && !isDryRun) {
-    console.error('No local changes to publish.');
-    process.exit(1);
-  }
-
-  if (changedFiles) {
-    console.log('\nChanged files:');
-    console.log(changedFiles);
-    validateChangedFiles(changedFiles);
-  }
-
-  const shouldRunBackendPreflight = requiresBackendPreflight(changedFiles);
-  if (shouldRunBackendPreflight) {
-    const backendEnv = validateBackendEnvironment();
-    runStep('npm', ['--prefix', 'backend', 'run', 'prisma:generate'], { env: backendEnv });
-    runStep('npm', ['--prefix', 'backend', 'run', 'prisma:validate'], { env: backendEnv });
-    runStep('npm', ['--prefix', 'backend', 'run', 'prisma:migrate:status'], { env: backendEnv });
-    runStep('node', ['backend/scripts/structural-seed.js', '--check'], { env: backendEnv });
-    runStep('node', ['backend/node_modules/typescript/bin/tsc', '-p', 'backend/tsconfig.json']);
+  const committedChanges = getCommittedPublishChanges();
+  if (committedChanges) {
+    console.log('\nCommits ahead of origin/master include:');
+    console.log(committedChanges);
+    validateChangedFiles(committedChanges);
+  } else if (!isDryRun) {
+    throw new Error(`No commits ahead of ${publishRemote}/${publishBranch} to publish.`);
   } else {
-    console.log('\nNo backend or deployment-sensitive files changed; skipping local Prisma/database preflight.');
+    console.log('\nDry run without unpublished commits: validating the current master structure only.');
   }
 
+  const backendEnv = validateBackendEnvironment();
+  runStep('npm', ['--prefix', 'backend', 'run', 'prisma:generate'], { env: backendEnv });
+  runStep('npm', ['--prefix', 'backend', 'run', 'prisma:validate'], { env: backendEnv });
+  runStep('npm', ['--prefix', 'backend', 'run', 'prisma:migrate:status'], { env: backendEnv });
+  runStep('node', ['backend/scripts/structural-seed.js', '--check'], { env: backendEnv });
+  runStep('node', ['backend/node_modules/typescript/bin/tsc', '-p', 'backend/tsconfig.json']);
   runStep('npm', ['--prefix', 'frontend', 'run', 'build']);
 
   if (isDryRun) {
-    console.log('\nDry run completed. No commit or push executed.');
+    console.log('\nDry run completed. The current master structure validated without committing or pushing.');
     return;
   }
 
-  if (!skipPrompt) {
-    const confirmation = await ask('Type PUBLISH to commit and push: ');
-    if (confirmation !== 'PUBLISH') {
-      console.error('Publish cancelled.');
-      process.exit(1);
-    }
-  }
-
-  const commitMessage = String(commitMessageArg || await ask('Commit message: ')).trim();
-  if (!commitMessage) {
-    console.error('Publish cancelled: commit message is required.');
-    process.exit(1);
-  }
-
-  const publishRemote = process.env.PUBLISH_REMOTE || 'origin';
-  const publishBranch = process.env.PUBLISH_BRANCH || 'master';
-  const operationsEnv = applyPublishVerifyDefaults(resolveOperationsEnv(), {
-    shouldRunStrictInfraVerify: shouldRunBackendPreflight,
-  });
+  const operationsEnv = resolveOperationsEnv();
 
   logStage('Production Backup');
   const previousBackups = listProdBackupDirs();
@@ -335,17 +311,6 @@ async function main() {
   console.log(JSON.stringify(backupResult, null, 2));
 
   logStage('Git Publish');
-  runStep('git', ['add', '-A']);
-  const commitResult = runStep('git', ['commit', '-m', commitMessage], { captureOutput: true, allowFailure: true });
-  if (commitResult.status !== 0) {
-    const stdout = String(commitResult.stdout || '');
-    const stderr = String(commitResult.stderr || '');
-    if (/nothing to commit/i.test(stdout) || /nothing to commit/i.test(stderr) || /nothing added to commit/i.test(stdout)) {
-      console.log('No changes to commit; continuing publish.');
-    } else {
-      throw new Error(`git commit failed: ${stdout || stderr}`);
-    }
-  }
   runStep('git', ['push', publishRemote, `HEAD:${publishBranch}`]);
 
   logStage('Production Database Migrate');
@@ -369,12 +334,12 @@ async function main() {
     markBackupStatus(backupResult.backupDir, 'publish-failed-verification', {
       verifyError: error && error.message ? error.message : String(error),
     });
-    console.error('\nPublish finished pushing code, but post-deploy verification failed.');
+    console.error('\nPublish pushed the current master state, but post-deploy verification failed.');
     console.error('Older backups were preserved for rollback safety.');
     throw error;
   }
 
-  console.log('\nPublish completed. Backup created, code pushed, deploy verified, and old production backups rotated.');
+  console.log('\nPublish completed. Backup created, current master pushed, deploy verified, and old production backups rotated.');
 }
 
 main().catch((error) => {
