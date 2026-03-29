@@ -21,6 +21,9 @@ function createService(overrides?: Partial<Record<string, any>>) {
   };
 
   const prisma = {
+    atendimentoCustomer: {
+      findMany: async () => [],
+    },
     companyConversation: {
       findFirst: async ({ where }: any) => {
         if (Number(where?.id || 42) === 42 && Number(where?.companyId || 7) === 7) return { ...baseConversation };
@@ -141,6 +144,55 @@ test('updateConversationStatus maps open and closed to real conversation flags',
   assert.equal(auditCalls.length, 2);
   assert.equal(auditCalls[0].event, 'conversation_status_updated');
   assert.equal(auditCalls[1].event, 'conversation_status_updated');
+});
+
+test('getConversationById exposes customer identity fields from AtendimentoCustomer and CustomerProfile', async () => {
+  const { service } = createService({
+    prisma: {
+      atendimentoCustomer: {
+        findMany: async () => [
+          {
+            id: 'atc-42',
+            companyId: 7,
+            customerProfileId: 'profile-42',
+            name: 'Carlos Atendimento',
+            phone: '+5519998877766',
+            phoneNormalized: '5519998877766',
+            registrationOrigin: 'whatsapp_bot',
+            registrationStatus: 'pending_confirmation',
+            route: 'atendimento',
+            customerProfile: {
+              id: 'profile-42',
+              name: 'Carlos Eduardo',
+              email: 'carlos@example.com',
+              document: '12345678900',
+              externalSource: 'manual',
+              status: 'active',
+              sourceConnectionId: 'conn-1',
+            },
+          },
+        ],
+      },
+      hbxRecoveryFlowStage: {
+        findFirst: async () => null,
+      },
+      hbxRecoveryCustomer: {
+        findFirst: async () => null,
+      },
+    },
+  });
+
+  const conversation = await service.getConversationById({ companyId: 7 }, 42);
+
+  assert.equal(conversation.customer.id, 'atc-42');
+  assert.equal(conversation.customer.name, 'Carlos Atendimento');
+  assert.equal(conversation.customer.customerProfileId, 'profile-42');
+  assert.equal(conversation.customer.email, 'carlos@example.com');
+  assert.equal(conversation.customer.document, '12345678900');
+  assert.equal(conversation.customer.customerProfileStatus, 'active');
+  assert.equal(conversation.customer.customerProfileSource, 'manual');
+  assert.equal(conversation.customer.registrationOrigin, 'whatsapp_bot');
+  assert.equal(conversation.customer.registrationStatus, 'pending_confirmation');
 });
 
 test('promoteToRecovery propagates customerProfileId into recovery customer', async () => {

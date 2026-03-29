@@ -93,6 +93,8 @@ Status em 2026-03-28:
 - Criacao de perfil `provisional` para numero novo.
 - Fallback para manter o sync de `AtendimentoCustomer` mesmo se a camada central falhar.
 - Testes cobrindo reuso, criacao provisoria e regressao do inbox/messaging validados.
+- `InboxService` agora expoe campos minimos de identidade central na conversa (`customerProfileId`, status do perfil, e-mail, documento e origem).
+- Frontend do Inbox passou a consumir esses campos no contexto do cliente sem alterar o fluxo operacional nem abrir refactor de UI.
 
 ## Sprint 6 - Recovery
 

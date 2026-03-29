@@ -176,6 +176,23 @@ function formatAtendimentoRecoveryOperationLabel(conversation: InboxConversation
   return "Operacao sem status";
 }
 
+function formatIdentityStatusLabel(valueRaw: string | null | undefined) {
+  const value = String(valueRaw || "").trim().toLowerCase();
+  if (!value) return "-";
+
+  const labels: Record<string, string> = {
+    provisional: "Provisorio",
+    active: "Ativo",
+    pending_confirmation: "Pendente de confirmacao",
+    confirmed: "Confirmado",
+    manual: "Manual",
+    whatsapp_bot: "WhatsApp BOT",
+    recovery: "Recovery",
+  };
+
+  return labels[value] || value.replace(/[_-]+/g, " ");
+}
+
 export function buildAtendimentoQueueBadges(
   conversation: InboxConversation,
   allowRecoveryCapability = true,
@@ -284,7 +301,17 @@ export function buildAtendimentoContextSummary(input: {
   const summary: WorkspaceSummaryDescriptor[] = [
     { label: "Cliente", value: displayName },
     { label: "Telefone", value: conversation.customer.phone },
+    {
+      label: "Perfil central",
+      value: conversation.customer.customerProfileId
+        ? `${formatIdentityStatusLabel(conversation.customer.customerProfileStatus)} • ${conversation.customer.customerProfileId}`
+        : "Nao vinculado",
+    },
     { label: "Status", value: statusLabel || "-" },
+    {
+      label: "Cadastro",
+      value: formatIdentityStatusLabel(conversation.customer.registrationStatus),
+    },
     {
       label: "Contexto",
       value: isRecoveryPrimary
@@ -298,6 +325,21 @@ export function buildAtendimentoContextSummary(input: {
     { label: "Motivo", value: conversation.routeReason || "-" },
     { label: "Atualizado", value: updatedAtLabel },
   ];
+
+  if (conversation.customer.document) {
+    summary.push({ label: "Documento", value: conversation.customer.document });
+  }
+
+  if (conversation.customer.email) {
+    summary.push({ label: "Email", value: conversation.customer.email });
+  }
+
+  if (conversation.customer.customerProfileSource) {
+    summary.push({
+      label: "Origem do perfil",
+      value: formatIdentityStatusLabel(conversation.customer.customerProfileSource),
+    });
+  }
 
   if (hasRecoveryContext && conversation.recoveryCurrentStep) {
     summary.push({

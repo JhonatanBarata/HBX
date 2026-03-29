@@ -317,6 +317,11 @@ function didInboxConversationViewChange(
 
   if (String(current.customer?.name || "") !== String(next.customer?.name || "")) return true;
   if (String(current.customer?.phone || "") !== String(next.customer?.phone || "")) return true;
+  if (String(current.customer?.customerProfileId || "") !== String(next.customer?.customerProfileId || "")) return true;
+  if (String(current.customer?.email || "") !== String(next.customer?.email || "")) return true;
+  if (String(current.customer?.document || "") !== String(next.customer?.document || "")) return true;
+  if (String(current.customer?.customerProfileStatus || "") !== String(next.customer?.customerProfileStatus || "")) return true;
+  if (String(current.customer?.registrationStatus || "") !== String(next.customer?.registrationStatus || "")) return true;
 
   return !areInboxMessageListsEquivalent(current.messages, next.messages);
 }
@@ -1060,6 +1065,7 @@ export default function InboxClientPage() {
             selectedConversationId: selectedId || null,
             selectedConversationName: selectedConversation?.customer?.name || null,
             selectedConversationPhone: selectedConversation?.customer?.phone || null,
+            selectedCustomerProfileId: selectedConversation?.customer?.customerProfileId || null,
             selectedStatus,
             selectedRoute: selectedConversation?.routeTarget || null,
             selectedBlocked,

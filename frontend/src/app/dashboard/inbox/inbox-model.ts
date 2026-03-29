@@ -5,6 +5,14 @@ export type Customer = {
   id: string;
   phone: string;
   name: string | null;
+  customerProfileId?: string | null;
+  email?: string | null;
+  document?: string | null;
+  customerProfileStatus?: string | null;
+  customerProfileSource?: string | null;
+  sourceConnectionId?: string | null;
+  registrationOrigin?: string | null;
+  registrationStatus?: string | null;
 };
 
 export type AtendimentoCustomer = {
