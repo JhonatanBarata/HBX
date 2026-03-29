@@ -276,7 +276,7 @@ export class HbxRecoveryService {
     const status = String(row?.status || 'pending');
     const lifecycle = String(row?.lifecycle || this.normalizeLifecycle(status));
     return {
-      id: String(row.id), customerId: String(row.customerId), customerName: String(row.customer?.name || ''), customerWhatsapp: String(row.customer?.whatsappNumber || ''),
+      id: String(row.id), customerId: String(row.customerId), debtCaseId: row?.debtCaseId ? String(row.debtCaseId) : null, customerName: String(row.customer?.name || ''), customerWhatsapp: String(row.customer?.whatsappNumber || ''),
       amount: Number(row.amount || 0), currency: String(row.currency || 'BRL'), description: String(row.description || ''),
       status, statusLabel: this.statusLabel(status), lifecycle,
       chargeType: String(row.chargeType || 'avista'),
@@ -303,6 +303,40 @@ export class HbxRecoveryService {
     const row = await this.prisma.hbxRecoveryCustomer.findFirst({ where: { id: String(customerId), companyId } });
     if (!row) throw new NotFoundException('Cadastro de Recovery nao encontrado');
     return this.attachCustomerRegistry(companyId, row);
+  }
+
+  private async resolveOpenDebtCaseIdForCustomer(companyId: number, customer: any) {
+    const customerProfileId = String(customer?.customerProfileId || '').trim();
+    if (!customerProfileId) return null;
+
+    const existing = await this.prisma.debtCase.findFirst({
+      where: {
+        companyId,
+        customerProfileId,
+        sourceProvider: 'HBX_RECOVERY',
+        status: 'open',
+      },
+      orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
+      select: { id: true },
+    });
+    if (existing?.id) return String(existing.id);
+
+    const created = await this.prisma.debtCase.create({
+      data: {
+        companyId,
+        customerProfileId,
+        sourceProvider: 'HBX_RECOVERY',
+        amount: Number(customer?.openAmount || 0),
+        dueDate: customer?.createdAt ? new Date(customer.createdAt) : null,
+        status: 'open',
+        rawPayloadJson: this.json({
+          source: 'hbx-recovery.sendPaymentLink',
+          recoveryCustomerId: String(customer?.id || ''),
+        }),
+      },
+      select: { id: true },
+    });
+    return String(created.id);
   }
 
   private async resolveRecoveryCustomerForConversation(conversation: any, companyId: number) {
@@ -3358,11 +3392,13 @@ export class HbxRecoveryService {
     const { accessToken, company } = await this.mercadoPagoCredentials(companyId);
     const notificationUrl = `${this.publicApiBaseUrl()}/webhooks/mercadopago?company_id=${companyId}`;
     const externalReference = `hbx-recovery-${companyId}-${customer.id}-${Date.now()}`;
+    const debtCaseId = await this.resolveOpenDebtCaseIdForCustomer(companyId, customer);
 
     const payment = await this.prisma.hbxRecoveryPayment.create({
       data: {
         companyId,
         customerId: customer.id,
+        debtCaseId,
         conversationId: null,
         amount,
         currency: 'BRL',

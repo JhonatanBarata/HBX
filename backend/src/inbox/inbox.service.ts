@@ -82,6 +82,10 @@ export class InboxService {
     return normalized;
   }
 
+  private isUniqueConstraintError(error: unknown) {
+    return Boolean(error) && typeof error === 'object' && (error as any).code === 'P2002';
+  }
+
   private parseConversationMetadata(raw: string | null | undefined): Record<string, any> {
     if (!raw) return {};
     try {
@@ -1086,6 +1090,118 @@ export class InboxService {
     return String(raw || '').replace(/\D/g, '').slice(-13);
   }
 
+  private async ensureRecoveryCustomerProfileTx(tx: any, input: {
+    companyId: number;
+    customerProfileId?: string | null;
+    phone: string;
+    phoneNormalized: string;
+    name?: string | null;
+  }) {
+    const explicitProfileId = String(input.customerProfileId || '').trim();
+    if (explicitProfileId) {
+      const explicit = await tx.customerProfile.findFirst({
+        where: { id: explicitProfileId, companyId: input.companyId },
+      });
+      if (explicit) {
+        if (String(explicit.status || '').trim().toLowerCase() === 'provisional') {
+          return tx.customerProfile.update({
+            where: { id: explicit.id },
+            data: {
+              status: 'active',
+              ...(input.name && !explicit.name ? { name: input.name } : {}),
+            },
+          });
+        }
+        return explicit;
+      }
+    }
+
+    const existing = await tx.customerProfile.findFirst({
+      where: {
+        companyId: input.companyId,
+        phoneNormalized: input.phoneNormalized,
+      },
+      orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
+    });
+
+    if (existing) {
+      const patch: Record<string, unknown> = {};
+      if (input.name && !existing.name) patch.name = input.name;
+      if (String(existing.status || '').trim().toLowerCase() === 'provisional') patch.status = 'active';
+      if (Object.keys(patch).length) {
+        return tx.customerProfile.update({ where: { id: existing.id }, data: patch });
+      }
+      return existing;
+    }
+
+    try {
+      return await tx.customerProfile.create({
+        data: {
+          companyId: input.companyId,
+          phone: input.phone,
+          phoneNormalized: input.phoneNormalized,
+          name: input.name || null,
+          externalSource: 'recovery',
+          status: 'active',
+        },
+      });
+    } catch (error) {
+      if (!this.isUniqueConstraintError(error)) throw error;
+      const winner = await tx.customerProfile.findFirst({
+        where: {
+          companyId: input.companyId,
+          phoneNormalized: input.phoneNormalized,
+        },
+        orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
+      });
+      if (winner) return winner;
+      throw error;
+    }
+  }
+
+  private async upsertRecoveryDebtCaseTx(tx: any, input: {
+    companyId: number;
+    customerProfileId: string;
+    amount: number;
+    dueDate?: Date | null;
+    rawPayloadJson?: string | null;
+  }) {
+    const existing = await tx.debtCase.findFirst({
+      where: {
+        companyId: input.companyId,
+        customerProfileId: input.customerProfileId,
+        sourceProvider: 'HBX_RECOVERY',
+        status: 'open',
+      },
+      orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
+    });
+
+    if (existing) {
+      return tx.debtCase.update({
+        where: { id: existing.id },
+        data: {
+          amount: input.amount,
+          dueDate: input.dueDate ?? null,
+          paidAt: null,
+          status: 'open',
+          rawPayloadJson: input.rawPayloadJson ?? existing.rawPayloadJson ?? null,
+        },
+      });
+    }
+
+    return tx.debtCase.create({
+      data: {
+        companyId: input.companyId,
+        customerProfileId: input.customerProfileId,
+        sourceProvider: 'HBX_RECOVERY',
+        amount: input.amount,
+        dueDate: input.dueDate ?? null,
+        status: 'open',
+        rawPayloadJson: input.rawPayloadJson ?? null,
+      },
+    });
+  }
+
   private buildCustomerRecord(row: any, recoveryData?: any) {
     return {
       id: String(row.id),
@@ -1147,43 +1263,117 @@ export class InboxService {
     dto: { openAmount: number; saleDate?: string | null; companyName?: string | null },
   ) {
     const companyId = this.requireCompanyIdFromUser(user);
-    const customer = await this.cadastrosService.findCustomerRegistryRecordById(companyId, customerId);
+    const result = await this.prisma.$transaction(async (tx) => {
+      const customer = await tx.atendimentoCustomer.findFirst({
+        where: { id: customerId, companyId },
+      });
+      if (!customer) throw new NotFoundException('Cliente nao encontrado.');
 
-    // Check if already in recovery
-    const tail9 = customer.phoneNormalized.slice(-9);
-    const existingRec = await (this.prisma as any).hbxRecoveryCustomer.findFirst({
-      where: { companyId, whatsappNumber: { endsWith: tail9 } },
-    });
-    if (existingRec) throw new BadRequestException('Este cliente ja esta cadastrado no HBX Recovery.');
+      const phoneNormalized = String(customer.phoneNormalized || '').trim();
+      if (!phoneNormalized) throw new BadRequestException('Cliente sem telefone normalizado para promover ao Recovery.');
 
-    const saleDay = dto.saleDate ? new Date(dto.saleDate).getDate() : new Date().getDate();
-    const rawPhone = String(customer.phone);
-    const waNumber = rawPhone.startsWith('+') ? rawPhone : `+${rawPhone}`;
-    const displayName = customer.name || rawPhone;
-    const companyName = String(dto.companyName || '').trim() || displayName;
-
-    await (this.prisma as any).hbxRecoveryCustomer.create({
-      data: {
+      const saleDate = dto.saleDate ? new Date(dto.saleDate) : null;
+      const saleDay = saleDate ? saleDate.getDate() : new Date().getDate();
+      const rawPhone = String(customer.phone || '').trim();
+      const waNumber = rawPhone.startsWith('+') ? rawPhone : `+${rawPhone}`;
+      const displayName = String(customer.name || rawPhone).trim() || rawPhone;
+      const companyName = String(dto.companyName || '').trim() || displayName;
+      const profile = await this.ensureRecoveryCustomerProfileTx(tx, {
         companyId,
         customerProfileId: customer.customerProfileId ? String(customer.customerProfileId) : null,
-        name: companyName,
-        clientName: displayName,
-        whatsappNumber: waNumber,
-        openAmount: Number(dto.openAmount),
-        workdaySaleDay: saleDay,
-        status: 'OVERDUE',
-      },
+        phone: rawPhone,
+        phoneNormalized,
+        name: displayName,
+      });
+
+      const debtCase = await this.upsertRecoveryDebtCaseTx(tx, {
+        companyId,
+        customerProfileId: String(profile.id),
+        amount: Number(dto.openAmount),
+        dueDate: saleDate,
+        rawPayloadJson: JSON.stringify({
+          source: 'inbox.promoteToRecovery',
+          atendimentoCustomerId: String(customer.id),
+          saleDate: saleDate ? saleDate.toISOString() : null,
+          companyName,
+        }),
+      });
+
+      const tail9 = phoneNormalized.slice(-9);
+      const existingRec = await tx.hbxRecoveryCustomer.findFirst({
+        where: {
+          companyId,
+          OR: [
+            { customerProfileId: String(profile.id) },
+            { whatsappNumber: { endsWith: tail9 } },
+          ],
+        },
+        orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
+      });
+
+      const recoveryCustomer = existingRec
+        ? await tx.hbxRecoveryCustomer.update({
+            where: { id: existingRec.id },
+            data: {
+              customerProfileId: String(profile.id),
+              name: companyName,
+              clientName: displayName,
+              whatsappNumber: waNumber,
+              openAmount: Number(dto.openAmount),
+              workdaySaleDay: saleDay,
+              status: 'OVERDUE',
+              automationEnabled: true,
+            },
+          })
+        : await tx.hbxRecoveryCustomer.create({
+            data: {
+              companyId,
+              customerProfileId: String(profile.id),
+              name: companyName,
+              clientName: displayName,
+              whatsappNumber: waNumber,
+              openAmount: Number(dto.openAmount),
+              workdaySaleDay: saleDay,
+              status: 'OVERDUE',
+            },
+          });
+
+      await tx.atendimentoCustomer.update({
+        where: { id: String(customer.id) },
+        data: {
+          customerProfileId: String(profile.id),
+          route: 'recovery',
+          updatedAt: new Date(),
+        },
+      });
+
+      return {
+        recoveryCustomerId: String(recoveryCustomer.id),
+        debtCaseId: String(debtCase.id),
+        customerProfileId: String(profile.id),
+        waNumber,
+        displayName,
+        companyName,
+        customerCreatedAt: customer.createdAt,
+      };
     });
 
-    await this.cadastrosService.syncCustomerRegistryFromRecovery(companyId, {
-      whatsappNumber: waNumber,
-      clientName: displayName,
-      name: companyName,
-      updatedAt: new Date(),
-      createdAt: customer.createdAt,
-    });
+    await this.cadastrosService
+      .syncCustomerRegistryFromRecovery?.(companyId, {
+        whatsappNumber: result.waNumber,
+        clientName: result.displayName,
+        name: result.companyName,
+        updatedAt: new Date(),
+        createdAt: result.customerCreatedAt,
+      })
+      ?.catch(() => undefined);
 
-    return { ok: true };
+    return {
+      ok: true,
+      recoveryCustomerId: result.recoveryCustomerId,
+      debtCaseId: result.debtCaseId,
+      customerProfileId: result.customerProfileId,
+    };
   }
 
   async createAtendimentoCustomer(user: any, dto: { phone: string; name?: string; route?: string; notes?: string }) {
