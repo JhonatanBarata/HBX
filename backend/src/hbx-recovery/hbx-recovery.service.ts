@@ -143,6 +143,10 @@ export class HbxRecoveryService {
     return normalized;
   }
 
+  private isUniqueConstraintError(error: unknown) {
+    return Boolean(error) && typeof error === 'object' && (error as any).code === 'P2002';
+  }
+
   private normalizeWhatsAppNumber(raw: string) {
     const digits = String(raw || '').replace(/\D/g, '');
     if (digits.length < 10 || digits.length > 15) throw new BadRequestException('Telefone invalido. Use formato internacional com DDI.');
@@ -303,6 +307,134 @@ export class HbxRecoveryService {
     const row = await this.prisma.hbxRecoveryCustomer.findFirst({ where: { id: String(customerId), companyId } });
     if (!row) throw new NotFoundException('Cadastro de Recovery nao encontrado');
     return this.attachCustomerRegistry(companyId, row);
+  }
+
+  private async ensureRecoveryCustomerProfileTx(tx: any, input: {
+    companyId: number;
+    whatsappNumber: string;
+    name: string;
+    clientName?: string | null;
+  }) {
+    const phoneNormalized = this.normalizeDigits(input.whatsappNumber);
+    const profileName = String(input.clientName || input.name || '').trim() || null;
+    const existing = await tx.customerProfile.findFirst({
+      where: {
+        companyId: input.companyId,
+        phoneNormalized,
+      },
+      orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
+    });
+
+    if (existing) {
+      const patch: Record<string, unknown> = {};
+      if (!existing.phone) patch.phone = input.whatsappNumber;
+      if (!existing.phoneNormalized) patch.phoneNormalized = phoneNormalized;
+      if (profileName && !existing.name) patch.name = profileName;
+      if (String(existing.status || '').trim().toLowerCase() === 'provisional') patch.status = 'active';
+      if (Object.keys(patch).length) {
+        return tx.customerProfile.update({ where: { id: existing.id }, data: patch });
+      }
+      return existing;
+    }
+
+    try {
+      return await tx.customerProfile.create({
+        data: {
+          companyId: input.companyId,
+          name: profileName,
+          phone: input.whatsappNumber,
+          phoneNormalized,
+          externalSource: 'recovery',
+          status: 'active',
+        },
+      });
+    } catch (error) {
+      if (!this.isUniqueConstraintError(error)) throw error;
+      const winner = await tx.customerProfile.findFirst({
+        where: {
+          companyId: input.companyId,
+          phoneNormalized,
+        },
+        orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
+      });
+      if (winner) return winner;
+      throw error;
+    }
+  }
+
+  private async syncRecoveryDebtCaseRecord(store: any, input: {
+    companyId: number;
+    customerProfileId?: string | null;
+    amount: number;
+    dueDate?: Date | null;
+    paidAt?: Date | null;
+    rawPayloadJson?: string | null;
+  }) {
+    const customerProfileId = String(input.customerProfileId || '').trim();
+    if (!customerProfileId) return null;
+
+    const normalizedAmount = Number(Math.max(0, Number(input.amount || 0)).toFixed(2));
+    const openCase = await store.debtCase.findFirst({
+      where: {
+        companyId: input.companyId,
+        customerProfileId,
+        sourceProvider: 'HBX_RECOVERY',
+        status: 'open',
+      },
+      orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
+    });
+    const latestCase = openCase
+      ? openCase
+      : await store.debtCase.findFirst({
+          where: {
+            companyId: input.companyId,
+            customerProfileId,
+            sourceProvider: 'HBX_RECOVERY',
+          },
+          orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
+        });
+
+    if (latestCase) {
+      return store.debtCase.update({
+        where: { id: latestCase.id },
+        data: {
+          amount: normalizedAmount,
+          dueDate: input.dueDate ?? latestCase.dueDate ?? null,
+          status: normalizedAmount > 0 ? 'open' : 'paid',
+          paidAt: normalizedAmount > 0 ? null : input.paidAt ?? latestCase.paidAt ?? new Date(),
+          rawPayloadJson: input.rawPayloadJson ?? latestCase.rawPayloadJson ?? null,
+        },
+      });
+    }
+
+    if (normalizedAmount <= 0) return null;
+
+    return store.debtCase.create({
+      data: {
+        companyId: input.companyId,
+        customerProfileId,
+        sourceProvider: 'HBX_RECOVERY',
+        amount: normalizedAmount,
+        dueDate: input.dueDate ?? null,
+        status: 'open',
+        paidAt: null,
+        rawPayloadJson: input.rawPayloadJson ?? null,
+      },
+    });
+  }
+
+  private async syncRecoveryDebtCaseBalance(companyId: number, customer: any, nextOpenAmount: number, when: Date) {
+    return this.syncRecoveryDebtCaseRecord(this.prisma, {
+      companyId,
+      customerProfileId: customer?.customerProfileId,
+      amount: nextOpenAmount,
+      dueDate: customer?.createdAt ? new Date(customer.createdAt) : null,
+      paidAt: nextOpenAmount <= 0 ? when : null,
+      rawPayloadJson: this.json({
+        source: 'hbx-recovery.balance-sync',
+        recoveryCustomerId: String(customer?.id || ''),
+      }),
+    });
   }
 
   private async resolveOpenDebtCaseIdForCustomer(companyId: number, customer: any) {
@@ -2926,6 +3058,7 @@ export class HbxRecoveryService {
         lastContact: `Pagamento em ${this.dateLabelPtBR(now)}`, status: this.toDbStatus(nextOpen > 0 ? 'overdue' : 'paid'), paymentHistory: this.json(history), delayHistory: this.json(delays),
       },
     });
+    await this.syncRecoveryDebtCaseBalance(companyId, row, nextOpen, now);
     return { changed: true, amount: applied, customer: await this.attachCustomerRegistry(companyId, updated) };
   }
 
@@ -2947,6 +3080,7 @@ export class HbxRecoveryService {
         lastContact: `Estorno em ${this.dateLabelPtBR(now)}`, status: this.toDbStatus(nextOpen > 0 ? 'overdue' : 'paid'), paymentHistory: this.json(history), delayHistory: this.json(delays),
       },
     });
+    await this.syncRecoveryDebtCaseBalance(companyId, row, nextOpen, now);
     return { changed: true, amount, customer: await this.attachCustomerRegistry(companyId, updated) };
   }
 
@@ -3249,25 +3383,50 @@ export class HbxRecoveryService {
     const recurringDelaysRaw = Number(dto.recurringDelays || 0);
     const recurringDelays = Number.isFinite(recurringDelaysRaw) ? Math.max(0, recurringDelaysRaw) : 0;
     if (workdaySaleDay < 1 || workdaySaleDay > 31) throw new BadRequestException('Dia do registro deve estar entre 1 e 31.');
-    const created = await this.prisma.hbxRecoveryCustomer.create({
-      data: {
+    const created = await this.prisma.$transaction(async (tx) => {
+      const profile = await this.ensureRecoveryCustomerProfileTx(tx, {
         companyId,
-        name,
-        clientName: clientName || null,
         whatsappNumber,
-        openAmount,
-        workdaySaleDay,
-        recurringDelays,
-        paymentHistoryScore: typeof dto.paymentHistoryScore === 'number' ? Math.max(1, Math.min(10, Math.round(dto.paymentHistoryScore))) : Math.max(1, Math.min(10, 8 - recurringDelays)),
-        totalPaid: typeof dto.totalPaid === 'number' ? Math.max(0, dto.totalPaid) : 0,
-        averageDelay: typeof dto.averageDelay === 'number' ? Math.max(0, dto.averageDelay) : Math.max(1, Number((workdaySaleDay / 2).toFixed(1))),
-        automationEnabled: true,
-        lastContact: String(dto.lastContact || '').trim() || 'Nunca',
-        status: this.toDbStatus(openAmount > 0 ? 'overdue' : 'paid'),
-        paymentHistory: this.json([]),
-        delayHistory: this.json([{ id: `delay-${Date.now().toString(36)}`, period: 'Atual', daysLate: 0, outcome: 'Cadastro manual' }]),
-        createdAt: registrationDate,
-      },
+        name,
+        clientName,
+      });
+
+      const recoveryCustomer = await tx.hbxRecoveryCustomer.create({
+        data: {
+          companyId,
+          customerProfileId: String(profile.id),
+          name,
+          clientName: clientName || null,
+          whatsappNumber,
+          openAmount,
+          workdaySaleDay,
+          recurringDelays,
+          paymentHistoryScore: typeof dto.paymentHistoryScore === 'number' ? Math.max(1, Math.min(10, Math.round(dto.paymentHistoryScore))) : Math.max(1, Math.min(10, 8 - recurringDelays)),
+          totalPaid: typeof dto.totalPaid === 'number' ? Math.max(0, dto.totalPaid) : 0,
+          averageDelay: typeof dto.averageDelay === 'number' ? Math.max(0, dto.averageDelay) : Math.max(1, Number((workdaySaleDay / 2).toFixed(1))),
+          automationEnabled: true,
+          lastContact: String(dto.lastContact || '').trim() || 'Nunca',
+          status: this.toDbStatus(openAmount > 0 ? 'overdue' : 'paid'),
+          paymentHistory: this.json([]),
+          delayHistory: this.json([{ id: `delay-${Date.now().toString(36)}`, period: 'Atual', daysLate: 0, outcome: 'Cadastro manual' }]),
+          createdAt: registrationDate,
+        },
+      });
+
+      if (openAmount > 0) {
+        await this.syncRecoveryDebtCaseRecord(tx, {
+          companyId,
+          customerProfileId: String(profile.id),
+          amount: openAmount,
+          dueDate: registrationDate,
+          rawPayloadJson: this.json({
+            source: 'hbx-recovery.createCustomer',
+            recoveryCustomerId: String(recoveryCustomer.id),
+          }),
+        });
+      }
+
+      return recoveryCustomer;
     });
     const customerRegistry = await this.cadastrosService.syncCustomerRegistryFromRecovery(companyId, created);
     return this.toCustomerResponse({ ...created, customerRegistry });
