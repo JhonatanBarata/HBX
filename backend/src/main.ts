@@ -7,6 +7,7 @@ import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { ValidationPipe, BadRequestException } from '@nestjs/common';
 import { createProxyMiddleware } from 'http-proxy-middleware';
+import { assertIntegrationSecretKeyConfigured } from './integrations/integration-secrets.service';
 import { resolveWebscrapingTarget } from './modules/webscraping-runtime.util';
 
 const DEFAULT_PRODUCTION_ORIGINS = [
@@ -58,6 +59,7 @@ function rewriteWebscrapingPath(path: string) {
 }
 
 async function bootstrap() {
+  assertIntegrationSecretKeyConfigured({ allowMissingInTest: true });
   const app = await NestFactory.create(AppModule, { rawBody: true });
   const webscrapingTarget = resolveWebscrapingTarget();
   const webscrapingGuard = (req: Request, res: Response, next: () => void) => {

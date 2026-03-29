@@ -32,6 +32,7 @@ function createService(overrides?: Partial<Record<string, any>>) {
     },
     hbxRecoveryCustomer: {
       findFirst: async () => ({ clientName: 'Carlos', name: 'Carlos' }),
+      create: async ({ data }: any) => ({ id: 'rec-1', ...data }),
     },
     ...(overrides?.prisma || {}),
   } as any;
@@ -52,8 +53,12 @@ function createService(overrides?: Partial<Record<string, any>>) {
     ...(overrides?.audit || {}),
   } as any;
 
-  const service = new InboxService(prisma, conversations, audit, {} as any);
-  return { service, prisma, conversations, auditCalls, queueCalls };
+  const cadastrosService = {
+    ...(overrides?.cadastrosService || {}),
+  } as any;
+
+  const service = new InboxService(prisma, conversations, audit, cadastrosService);
+  return { service, prisma, conversations, auditCalls, queueCalls, cadastrosService };
 }
 
 test('sendMessage queues outbound on the real conversation with human flow state', async () => {
@@ -136,4 +141,48 @@ test('updateConversationStatus maps open and closed to real conversation flags',
   assert.equal(auditCalls.length, 2);
   assert.equal(auditCalls[0].event, 'conversation_status_updated');
   assert.equal(auditCalls[1].event, 'conversation_status_updated');
+});
+
+test('promoteToRecovery propagates customerProfileId into recovery customer', async () => {
+  const createCalls: Array<Record<string, unknown>> = [];
+  const syncCalls: Array<Record<string, unknown>> = [];
+  const { service } = createService({
+    prisma: {
+      hbxRecoveryCustomer: {
+        findFirst: async () => null,
+        create: async ({ data }: any) => {
+          createCalls.push(data);
+          return { id: 'rec-77', ...data };
+        },
+      },
+    },
+    cadastrosService: {
+      findCustomerRegistryRecordById: async () => ({
+        id: 'atc-1',
+        companyId: 7,
+        customerProfileId: 'profile-77',
+        phone: '+5519998877766',
+        phoneNormalized: '5519998877766',
+        name: 'Carlos',
+        createdAt: new Date('2026-03-18T10:00:00.000Z'),
+      }),
+      syncCustomerRegistryFromRecovery: async (companyId: number, payload: Record<string, unknown>) => {
+        syncCalls.push({ companyId, payload });
+        return { ok: true };
+      },
+    },
+  });
+
+  const result = await service.promoteToRecovery(
+    { companyId: 7 },
+    'atc-1',
+    { openAmount: 123.45, saleDate: '2026-03-28', companyName: 'HBX Cliente' },
+  );
+
+  assert.deepEqual(result, { ok: true });
+  assert.equal(createCalls.length, 1);
+  assert.equal(createCalls[0].customerProfileId, 'profile-77');
+  assert.equal(createCalls[0].name, 'HBX Cliente');
+  assert.equal(syncCalls.length, 1);
+  assert.equal(syncCalls[0].companyId, 7);
 });

@@ -1,10 +1,22 @@
 import { Injectable } from '@nestjs/common';
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'crypto';
 
+const INTEGRATION_SECRET_KEY_ENV = 'INTEGRATION_SECRET_KEY';
+
+export function assertIntegrationSecretKeyConfigured(opts?: { allowMissingInTest?: boolean }) {
+  const source = String(process.env.INTEGRATION_SECRET_KEY || '').trim();
+  if (source) return source;
+
+  const nodeEnv = String(process.env.NODE_ENV || '').trim().toLowerCase();
+  if (opts?.allowMissingInTest && nodeEnv === 'test') return null;
+
+  throw new Error(`${INTEGRATION_SECRET_KEY_ENV} is required to encrypt integration secrets.`);
+}
+
 @Injectable()
 export class IntegrationSecretsService {
   private deriveKey() {
-    const source = String(process.env.INTEGRATION_SECRET_KEY || process.env.JWT_SECRET || 'hbx-local-secret').trim();
+    const source = assertIntegrationSecretKeyConfigured();
     return createHash('sha256').update(source).digest();
   }
 
