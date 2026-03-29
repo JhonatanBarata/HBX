@@ -1083,6 +1083,7 @@ export class InboxService {
     await (this.prisma as any).hbxRecoveryCustomer.create({
       data: {
         companyId,
+        customerProfileId: customer.customerProfileId ? String(customer.customerProfileId) : null,
         name: companyName,
         clientName: displayName,
         whatsappNumber: waNumber,

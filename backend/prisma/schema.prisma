@@ -316,7 +316,7 @@ model CustomerProfile {
   hbxRecoveryCustomers HbxRecoveryCustomer[]
   debtCases            DebtCase[]
 
-  @@index([companyId, phoneNormalized])
+  @@unique([companyId, phoneNormalized])
   @@index([companyId, document])
   @@index([sourceConnectionId, externalCustomerId])
   @@index([companyId, status])

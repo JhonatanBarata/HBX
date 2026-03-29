@@ -18,6 +18,10 @@ type CustomerProfileInput = {
 export class CustomerProfileService {
   constructor(private readonly prisma: PrismaService) {}
 
+  private isUniqueConstraintError(error: unknown) {
+    return Boolean(error) && typeof error === 'object' && (error as any).code === 'P2002';
+  }
+
   private normalizeText(value: unknown) {
     const normalized = String(value || '').trim();
     return normalized || null;
@@ -90,6 +94,25 @@ export class CustomerProfileService {
       },
       orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
     });
+  }
+
+  private async createProfileConflictSafe(payload: any) {
+    try {
+      const row = await this.prisma.customerProfile.create({ data: payload });
+      return this.buildProfileRecord(row);
+    } catch (error) {
+      if (!this.isUniqueConstraintError(error)) throw error;
+
+      const existing = await this.findPreferredProfileByFilters({
+        companyId: Number(payload.companyId),
+        phoneNormalized: payload.phoneNormalized,
+        document: payload.document,
+        sourceConnectionId: payload.sourceConnectionId,
+        externalCustomerId: payload.externalCustomerId,
+      });
+      if (existing) return existing;
+      throw error;
+    }
   }
 
   async findProfileByIdOrNull(companyId: number, profileId: string | null | undefined) {
@@ -186,8 +209,7 @@ export class CustomerProfileService {
 
   async createProfile(companyId: number, input: Omit<CustomerProfileInput, 'companyId'>) {
     const payload = this.normalizeProfilePayload({ ...input, companyId }) as any;
-    const row = await this.prisma.customerProfile.create({ data: payload });
-    return this.buildProfileRecord(row);
+    return this.createProfileConflictSafe(payload);
   }
 
   async updateProfile(companyId: number, profileId: string, input: Omit<CustomerProfileInput, 'companyId'>) {
@@ -229,8 +251,7 @@ export class CustomerProfileService {
       return this.buildProfileRecord(row);
     }
 
-    const row = await this.prisma.customerProfile.create({ data: payload });
-    return this.buildProfileRecord(row);
+    return this.createProfileConflictSafe(payload);
   }
 
   private normalizeProfilePayload(input: CustomerProfileInput, opts?: { allowEmpty?: boolean; partial?: boolean }) {
