@@ -918,17 +918,42 @@
 }
 
 .contextTabs {
+  position: relative;
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 0.28rem;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.22rem;
   padding: 0.14rem;
-  border-radius: 14px;
-  border: 1px solid color-mix(in srgb, var(--line) 88%, white);
-  background: color-mix(in srgb, var(--surface-raised) 84%, white);
+  border-radius: 16px;
+  border: 1px solid color-mix(in srgb, var(--line) 84%, white);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.34), rgba(255, 255, 255, 0.18)),
+    color-mix(in srgb, var(--surface-raised) 84%, white);
+  backdrop-filter: blur(18px) saturate(170%);
+  overflow: hidden;
+}
+
+.contextTabHighlight {
+  position: absolute;
+  top: 0.14rem;
+  bottom: 0.14rem;
+  width: calc((100% - 0.28rem) / var(--segment-count));
+  transform: translateX(calc(var(--segment-index) * 100%));
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.48);
+  background:
+    radial-gradient(circle at top left, rgba(255, 255, 255, 0.68), transparent 42%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.54), rgba(255, 255, 255, 0.18));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.94),
+    0 8px 22px rgba(15, 23, 42, 0.08);
+  transition: transform var(--motion-base);
+  pointer-events: none;
 }
 
 .contextTab,
 .contextTabActive {
+  position: relative;
+  z-index: 1;
   min-height: 31px;
   padding: 0.34rem 0.48rem;
   border-radius: 12px;
@@ -937,12 +962,16 @@
   color: var(--foreground-soft);
   font-size: 0.71rem;
   font-weight: 800;
+  transition: color var(--motion-fast), transform var(--motion-fast);
 }
 
 .contextTabActive {
-  background: linear-gradient(145deg, color-mix(in srgb, var(--brand) 16%, white), color-mix(in srgb, var(--brand-soft) 52%, white));
   color: var(--foreground);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.92), var(--shadow-xs);
+}
+
+.contextTab:hover,
+.contextTabActive:hover {
+  transform: translateY(-1px);
 }
 
 .contextGrid {
@@ -965,6 +994,11 @@
   display: flex;
   flex-wrap: wrap;
   gap: 0.42rem;
+}
+
+.quickActionsGrid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.72rem;
 }
 
 .automationShell {

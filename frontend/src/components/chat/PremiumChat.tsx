@@ -442,10 +442,12 @@ export function ChatInfoCard({
 
 export function ChatActionGrid({
   children,
+  className,
 }: {
   children: ReactNode;
+  className?: string;
 }) {
-  return <div className={styles.actionGrid}>{children}</div>;
+  return <div className={cx(styles.actionGrid, className)}>{children}</div>;
 }
 
 export function ChatActionButton({

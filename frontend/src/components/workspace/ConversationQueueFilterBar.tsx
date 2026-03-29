@@ -1,5 +1,6 @@
 "use client";
 
+import WorkspaceSegmentedControl from "./WorkspaceSegmentedControl";
 import styles from "./ConversationQueueFilterBar.module.css";
 
 type ConversationQueueFilterValue = "all" | "recovery" | "scheduled" | "bot" | "closed" | "blocked";
@@ -22,6 +23,16 @@ const SECONDARY_OPTIONS: Array<{ value: Exclude<ConversationQueueFilterValue, "c
   { value: "bot", label: "BOT" },
 ];
 
+const PRIMARY_SEGMENTS = PRIMARY_OPTIONS.map((option) => ({
+  id: option.value,
+  label: option.label,
+}));
+
+const SECONDARY_SEGMENTS = SECONDARY_OPTIONS.map((option) => ({
+  id: option.value,
+  label: option.label,
+}));
+
 export default function ConversationQueueFilterBar({
   value,
   onChange,
@@ -31,48 +42,32 @@ export default function ConversationQueueFilterBar({
 
   return (
     <div className={styles.filterBar}>
-      <div className={styles.primaryRow} role="tablist" aria-label="Visao principal da fila">
-        {PRIMARY_OPTIONS.map((option) => {
-          const active =
-            option.value === "closed"
-              ? value === "closed"
-              : option.value === "blocked"
-                ? value === "blocked"
-                : !closedView;
-          return (
-            <button
-              key={option.value}
-              type="button"
-              role="tab"
-              aria-selected={active}
-              className={active ? styles.primaryButtonActive : styles.primaryButton}
-              onClick={() => onChange(option.value)}
-            >
-              {option.label}
-            </button>
-          );
-        })}
-      </div>
+      <WorkspaceSegmentedControl
+        items={PRIMARY_SEGMENTS}
+        value={value === "closed" || value === "blocked" ? value : "all"}
+        onChange={(nextValue) => onChange(nextValue as ConversationQueueFilterValue)}
+        className={styles.primaryRow}
+        highlightClassName={styles.primaryHighlight}
+        buttonClassName={styles.primaryButton}
+        activeButtonClassName={styles.primaryButtonActive}
+        role="tablist"
+        buttonRole="tab"
+        ariaLabel="Visao principal da fila"
+      />
 
       {!closedView ? (
-        <div className={styles.secondaryRow} role="tablist" aria-label="Filtros secundarios do chat">
-          {SECONDARY_OPTIONS.map((option) => (
-            <button
-              key={option.value}
-              type="button"
-              role="tab"
-              aria-selected={activeSecondaryValue === option.value}
-              className={
-                activeSecondaryValue === option.value
-                  ? styles.secondaryButtonActive
-                  : styles.secondaryButton
-              }
-              onClick={() => onChange(option.value)}
-            >
-              {option.label}
-            </button>
-          ))}
-        </div>
+        <WorkspaceSegmentedControl
+          items={SECONDARY_SEGMENTS}
+          value={activeSecondaryValue}
+          onChange={(nextValue) => onChange(nextValue as ConversationQueueFilterValue)}
+          className={styles.secondaryRow}
+          highlightClassName={styles.secondaryHighlight}
+          buttonClassName={styles.secondaryButton}
+          activeButtonClassName={styles.secondaryButtonActive}
+          role="tablist"
+          buttonRole="tab"
+          ariaLabel="Filtros secundarios do chat"
+        />
       ) : null}
     </div>
   );
