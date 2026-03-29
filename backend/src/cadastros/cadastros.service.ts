@@ -2,16 +2,22 @@ import { BadRequestException, ForbiddenException, Injectable, NotFoundException 
 import { PrismaService } from '../prisma/prisma.service';
 import {
   CreateCadastroClienteDto,
+  CreateCustomerProfileDto,
   CreateFornecedorDto,
   CreatePaisDto,
   CreatePortoDto,
   UpdateCadastroClienteDto,
+  UpdateCustomerProfileDto,
   UpsertTransitTimeDto,
 } from './dto/cadastros.dto';
+import { CustomerProfileService } from '../customer-profile/customer-profile.service';
 
 @Injectable()
 export class CadastrosService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly customerProfileService: CustomerProfileService,
+  ) {}
 
   private ensureCompanyIdFromUser(user: any): number {
     const companyId = Number(user?.companyId);
@@ -27,13 +33,20 @@ export class CadastrosService {
     return String(raw || '').replace(/\D/g, '').slice(-13);
   }
 
-  private buildCustomerRecord(row: any, recoveryData?: any) {
+  private buildCustomerRecord(row: any, recoveryData?: any, profileData?: any) {
     return {
       id: String(row.id),
       companyId: Number(row.companyId),
+      customerProfileId: row.customerProfileId ? String(row.customerProfileId) : profileData?.id ?? null,
       name: row.name ? String(row.name) : null,
       phone: String(row.phone),
       phoneNormalized: String(row.phoneNormalized),
+      email: profileData?.email ?? null,
+      document: profileData?.document ?? null,
+      externalSource: profileData?.externalSource ?? null,
+      externalCustomerId: profileData?.externalCustomerId ?? null,
+      customerProfileStatus: profileData?.status ?? null,
+      sourceConnectionId: profileData?.sourceConnectionId ?? null,
       registrationOrigin: String(row.registrationOrigin || 'whatsapp_bot'),
       registrationStatus: String(row.registrationStatus || 'pending_confirmation'),
       route: String(row.route || 'atendimento'),
@@ -56,6 +69,44 @@ export class CadastrosService {
           ? null
           : Boolean(recoveryData.automationEnabled),
     };
+  }
+
+  private async ensureCustomerProfile(input: {
+    companyId: number;
+    phone?: string | null;
+    name?: string | null;
+    notes?: string | null;
+    externalSource?: string | null;
+    status?: string | null;
+  }) {
+    const phoneNormalized = this.customerProfileService.normalizePhone(input.phone);
+    if (!phoneNormalized && !this.cleanName(input.name || '')) return null;
+
+    return this.customerProfileService.upsertProfile({
+      companyId: input.companyId,
+      phone: input.phone || null,
+      name: input.name || null,
+      notes: input.notes || null,
+      externalSource: input.externalSource || null,
+      status: input.status || 'active',
+    });
+  }
+
+  private async loadProfileMap(companyId: number, rows: any[]) {
+    const profiles = await this.customerProfileService.findProfilesForRegistry(companyId, {
+      profileIds: rows.map((row) => row.customerProfileId).filter(Boolean),
+      phoneNormalizeds: rows.map((row) => row.phoneNormalized).filter(Boolean),
+    });
+
+    const byId = new Map<string, any>();
+    const byPhone = new Map<string, any>();
+    for (const profile of profiles) {
+      if (profile.id) byId.set(String(profile.id), profile);
+      if (profile.phoneNormalized && !byPhone.has(String(profile.phoneNormalized))) {
+        byPhone.set(String(profile.phoneNormalized), profile);
+      }
+    }
+    return { byId, byPhone };
   }
 
   async listRawCustomerRegistry(companyId: number) {
@@ -87,6 +138,13 @@ export class CadastrosService {
     if (!phoneNorm) return null;
 
     const fallbackName = this.cleanName(recoveryRow?.clientName || recoveryRow?.name || '');
+    const profile = await this.ensureCustomerProfile({
+      companyId,
+      phone: rawPhone || phoneNorm,
+      name: fallbackName || null,
+      externalSource: 'recovery',
+      status: 'active',
+    });
     const existing = await this.prisma.atendimentoCustomer.findUnique({
       where: { companyId_phoneNormalized: { companyId, phoneNormalized: phoneNorm } },
     });
@@ -99,6 +157,7 @@ export class CadastrosService {
         data: {
           ...(fallbackName && !existing.name ? { name: fallbackName } : {}),
           ...(existing.phone ? {} : { phone: rawPhone || existing.phoneNormalized }),
+          ...(profile?.id ? { customerProfileId: String(profile.id) } : {}),
           registrationOrigin: existing.registrationOrigin === 'manual' ? existing.registrationOrigin : 'recovery',
           registrationStatus: existing.registrationStatus === 'manual' ? existing.registrationStatus : 'confirmed',
           route: 'recovery',
@@ -110,6 +169,7 @@ export class CadastrosService {
     return this.prisma.atendimentoCustomer.create({
       data: {
         companyId,
+        customerProfileId: profile?.id ? String(profile.id) : null,
         phone: rawPhone || phoneNorm,
         phoneNormalized: phoneNorm,
         name: fallbackName || null,
@@ -125,6 +185,7 @@ export class CadastrosService {
   async upsertCustomerRegistry(input: {
     companyId: number;
     phone: string;
+    customerProfileId?: string | null;
     name?: string | null;
     registrationOrigin?: string;
     registrationStatus?: string;
@@ -137,6 +198,17 @@ export class CadastrosService {
     if (!phoneNorm || phoneNorm.length < 8) return null;
 
     const now = input.lastMessageAt ?? new Date();
+    const profileId = String(input.customerProfileId || '').trim() || null;
+    const profile = profileId
+      ? { id: profileId }
+      : await this.ensureCustomerProfile({
+          companyId: input.companyId,
+          phone: input.phone,
+          name: input.name || null,
+          notes: input.notes || null,
+          externalSource: input.registrationOrigin || 'atendimento',
+          status: 'active',
+        });
     const existing = await this.prisma.atendimentoCustomer.findUnique({
       where: { companyId_phoneNormalized: { companyId: input.companyId, phoneNormalized: phoneNorm } },
     });
@@ -159,6 +231,7 @@ export class CadastrosService {
           ...(input.notes !== undefined ? { notes: input.notes ? String(input.notes).trim() || null : null } : {}),
           ...(input.conversationId ? { conversationId: input.conversationId } : {}),
           ...(existing.phone ? {} : { phone: input.phone }),
+          ...(profile?.id ? { customerProfileId: String(profile.id) } : {}),
           lastMessageAt: now,
           updatedAt: now,
         },
@@ -168,6 +241,7 @@ export class CadastrosService {
     return this.prisma.atendimentoCustomer.create({
       data: {
         companyId: input.companyId,
+        customerProfileId: profile?.id ? String(profile.id) : null,
         phone: input.phone,
         phoneNormalized: phoneNorm,
         name: input.name || null,
@@ -231,7 +305,16 @@ export class CadastrosService {
     }
 
     registryRows.sort((left: any, right: any) => new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime());
-    return registryRows.map((row) => this.buildCustomerRecord(row, recoveryByPhone.get(row.phoneNormalized) ?? null));
+    const profileMap = await this.loadProfileMap(companyId, registryRows);
+    return registryRows.map((row) =>
+      this.buildCustomerRecord(
+        row,
+        recoveryByPhone.get(row.phoneNormalized) ?? null,
+        row.customerProfileId
+          ? profileMap.byId.get(String(row.customerProfileId)) ?? null
+          : profileMap.byPhone.get(String(row.phoneNormalized)) ?? null,
+      ),
+    );
   }
 
   async createCustomerRegistry(companyId: number, dto: CreateCadastroClienteDto) {
@@ -249,9 +332,18 @@ export class CadastrosService {
     }
 
     const now = new Date();
+    const profile = await this.ensureCustomerProfile({
+      companyId,
+      phone,
+      name: dto.name ? this.cleanName(dto.name) || null : null,
+      notes: dto.notes ? this.cleanName(dto.notes) || null : null,
+      externalSource: 'manual',
+      status: 'active',
+    });
     const created = await this.prisma.atendimentoCustomer.create({
       data: {
         companyId,
+        customerProfileId: profile?.id ? String(profile.id) : null,
         phone,
         phoneNormalized: phoneNorm,
         name: dto.name ? this.cleanName(dto.name) || null : null,
@@ -263,14 +355,23 @@ export class CadastrosService {
         updatedAt: now,
       },
     });
-    return this.buildCustomerRecord(created);
+    return this.buildCustomerRecord(created, null, profile);
   }
 
   async updateCustomerRegistry(companyId: number, customerId: string, dto: UpdateCadastroClienteDto) {
     const existing = await this.findCustomerRegistryRecordById(companyId, customerId);
+    const profile = await this.customerProfileService.upsertProfile({
+      companyId,
+      phone: existing.phone,
+      name: dto.name !== undefined ? (dto.name ? this.cleanName(dto.name) || null : null) : existing.name || null,
+      notes: dto.notes !== undefined ? (dto.notes ? this.cleanName(dto.notes) || null : null) : existing.notes || null,
+      externalSource: existing.registrationOrigin || 'atendimento',
+      status: 'active',
+    });
     const updated = await this.prisma.atendimentoCustomer.update({
       where: { id: existing.id },
       data: {
+        ...(profile?.id ? { customerProfileId: String(profile.id) } : {}),
         ...(dto.name !== undefined ? { name: dto.name ? this.cleanName(dto.name) || null : null } : {}),
         ...(dto.route !== undefined ? { route: dto.route ? this.cleanName(dto.route) || 'atendimento' : 'atendimento' } : {}),
         ...(dto.notes !== undefined ? { notes: dto.notes ? this.cleanName(dto.notes) || null : null } : {}),
@@ -290,7 +391,7 @@ export class CadastrosService {
         automationEnabled: true,
       },
     });
-    return this.buildCustomerRecord(updated, recoveryData);
+    return this.buildCustomerRecord(updated, recoveryData, profile);
   }
 
   async getCustomerRegistryByPhone(companyId: number, phone: string) {
@@ -301,6 +402,10 @@ export class CadastrosService {
       where: { companyId_phoneNormalized: { companyId, phoneNormalized: phoneNorm } },
     });
     if (!row) throw new NotFoundException('Cliente nao encontrado.');
+
+    const profile = row.customerProfileId
+      ? await this.customerProfileService.findProfileByIdOrNull(companyId, row.customerProfileId)
+      : await this.customerProfileService.findPreferredProfileByPhoneNormalized(companyId, phoneNorm);
 
     const recoveryData = await this.prisma.hbxRecoveryCustomer.findFirst({
       where: { companyId, whatsappNumber: { endsWith: phoneNorm.slice(-9) } },
@@ -313,7 +418,7 @@ export class CadastrosService {
         automationEnabled: true,
       },
     });
-    return this.buildCustomerRecord(row, recoveryData);
+    return this.buildCustomerRecord(row, recoveryData, profile);
   }
 
   async listCustomerRegistryByUser(user: any, phoneFilter?: string) {
@@ -326,6 +431,26 @@ export class CadastrosService {
 
   async updateCustomerRegistryByUser(user: any, customerId: string, dto: UpdateCadastroClienteDto) {
     return this.updateCustomerRegistry(this.ensureCompanyIdFromUser(user), customerId, dto);
+  }
+
+  async listCustomerProfilesByUser(user: any, filters?: { phone?: string; document?: string }) {
+    return this.customerProfileService.listProfiles(this.ensureCompanyIdFromUser(user), filters);
+  }
+
+  async createCustomerProfileByUser(user: any, dto: CreateCustomerProfileDto) {
+    return this.customerProfileService.createProfile(this.ensureCompanyIdFromUser(user), dto);
+  }
+
+  async updateCustomerProfileByUser(user: any, profileId: string, dto: UpdateCustomerProfileDto) {
+    return this.customerProfileService.updateProfile(this.ensureCompanyIdFromUser(user), profileId, dto);
+  }
+
+  async getCustomerProfileByPhone(user: any, phone: string) {
+    return this.customerProfileService.getProfileByPhone(this.ensureCompanyIdFromUser(user), phone);
+  }
+
+  async getCustomerProfileByDocument(user: any, document: string) {
+    return this.customerProfileService.getProfileByDocument(this.ensureCompanyIdFromUser(user), document);
   }
 
   async getOptions(user: any) {

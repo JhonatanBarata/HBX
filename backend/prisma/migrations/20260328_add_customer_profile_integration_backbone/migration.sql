@@ -2,16 +2,16 @@
 -- This migration intentionally avoids drops, renames and backfill.
 
 -- AlterTable
-ALTER TABLE "AtendimentoCustomer" ADD COLUMN "customerProfileId" TEXT;
+ALTER TABLE "AtendimentoCustomer" ADD COLUMN IF NOT EXISTS "customerProfileId" TEXT;
 
 -- AlterTable
-ALTER TABLE "HbxRecoveryCustomer" ADD COLUMN "customerProfileId" TEXT;
+ALTER TABLE "HbxRecoveryCustomer" ADD COLUMN IF NOT EXISTS "customerProfileId" TEXT;
 
 -- AlterTable
-ALTER TABLE "HbxRecoveryPayment" ADD COLUMN "debtCaseId" TEXT;
+ALTER TABLE "HbxRecoveryPayment" ADD COLUMN IF NOT EXISTS "debtCaseId" TEXT;
 
 -- CreateTable
-CREATE TABLE "IntegrationConnection" (
+CREATE TABLE IF NOT EXISTS "IntegrationConnection" (
     "id" TEXT NOT NULL,
     "companyId" INTEGER NOT NULL,
     "provider" TEXT NOT NULL,
@@ -31,7 +31,7 @@ CREATE TABLE "IntegrationConnection" (
 );
 
 -- CreateTable
-CREATE TABLE "CustomerProfile" (
+CREATE TABLE IF NOT EXISTS "CustomerProfile" (
     "id" TEXT NOT NULL,
     "companyId" INTEGER NOT NULL,
     "sourceConnectionId" TEXT,
@@ -51,7 +51,7 @@ CREATE TABLE "CustomerProfile" (
 );
 
 -- CreateTable
-CREATE TABLE "DebtCase" (
+CREATE TABLE IF NOT EXISTS "DebtCase" (
     "id" TEXT NOT NULL,
     "companyId" INTEGER NOT NULL,
     "customerProfileId" TEXT NOT NULL,
@@ -70,7 +70,7 @@ CREATE TABLE "DebtCase" (
 );
 
 -- CreateTable
-CREATE TABLE "IntegrationSyncRun" (
+CREATE TABLE IF NOT EXISTS "IntegrationSyncRun" (
     "id" TEXT NOT NULL,
     "companyId" INTEGER NOT NULL,
     "connectionId" TEXT NOT NULL,
@@ -90,76 +90,131 @@ CREATE TABLE "IntegrationSyncRun" (
 );
 
 -- CreateIndex
-CREATE INDEX "AtendimentoCustomer_customerProfileId_idx" ON "AtendimentoCustomer"("customerProfileId");
+CREATE INDEX IF NOT EXISTS "AtendimentoCustomer_customerProfileId_idx" ON "AtendimentoCustomer"("customerProfileId");
 
 -- CreateIndex
-CREATE INDEX "HbxRecoveryCustomer_customerProfileId_idx" ON "HbxRecoveryCustomer"("customerProfileId");
+CREATE INDEX IF NOT EXISTS "HbxRecoveryCustomer_customerProfileId_idx" ON "HbxRecoveryCustomer"("customerProfileId");
 
 -- CreateIndex
-CREATE INDEX "HbxRecoveryPayment_debtCaseId_createdAt_idx" ON "HbxRecoveryPayment"("debtCaseId", "createdAt");
+CREATE INDEX IF NOT EXISTS "HbxRecoveryPayment_debtCaseId_createdAt_idx" ON "HbxRecoveryPayment"("debtCaseId", "createdAt");
 
 -- CreateIndex
-CREATE INDEX "CustomerProfile_companyId_phoneNormalized_idx" ON "CustomerProfile"("companyId", "phoneNormalized");
+CREATE INDEX IF NOT EXISTS "CustomerProfile_companyId_phoneNormalized_idx" ON "CustomerProfile"("companyId", "phoneNormalized");
 
 -- CreateIndex
-CREATE INDEX "CustomerProfile_companyId_document_idx" ON "CustomerProfile"("companyId", "document");
+CREATE INDEX IF NOT EXISTS "CustomerProfile_companyId_document_idx" ON "CustomerProfile"("companyId", "document");
 
 -- CreateIndex
-CREATE INDEX "CustomerProfile_sourceConnectionId_externalCustomerId_idx" ON "CustomerProfile"("sourceConnectionId", "externalCustomerId");
+CREATE INDEX IF NOT EXISTS "CustomerProfile_sourceConnectionId_externalCustomerId_idx" ON "CustomerProfile"("sourceConnectionId", "externalCustomerId");
 
 -- CreateIndex
-CREATE INDEX "CustomerProfile_companyId_status_idx" ON "CustomerProfile"("companyId", "status");
+CREATE INDEX IF NOT EXISTS "CustomerProfile_companyId_status_idx" ON "CustomerProfile"("companyId", "status");
 
 -- CreateIndex
-CREATE INDEX "DebtCase_companyId_customerProfileId_idx" ON "DebtCase"("companyId", "customerProfileId");
+CREATE INDEX IF NOT EXISTS "DebtCase_companyId_customerProfileId_idx" ON "DebtCase"("companyId", "customerProfileId");
 
 -- CreateIndex
-CREATE INDEX "DebtCase_companyId_status_idx" ON "DebtCase"("companyId", "status");
+CREATE INDEX IF NOT EXISTS "DebtCase_companyId_status_idx" ON "DebtCase"("companyId", "status");
 
 -- CreateIndex
-CREATE INDEX "DebtCase_sourceConnectionId_externalDebtId_idx" ON "DebtCase"("sourceConnectionId", "externalDebtId");
+CREATE INDEX IF NOT EXISTS "DebtCase_sourceConnectionId_externalDebtId_idx" ON "DebtCase"("sourceConnectionId", "externalDebtId");
 
 -- CreateIndex
-CREATE INDEX "IntegrationConnection_companyId_provider_isActive_idx" ON "IntegrationConnection"("companyId", "provider", "isActive");
+CREATE INDEX IF NOT EXISTS "IntegrationConnection_companyId_provider_isActive_idx" ON "IntegrationConnection"("companyId", "provider", "isActive");
 
 -- CreateIndex
-CREATE INDEX "IntegrationConnection_companyId_status_lastSyncAt_idx" ON "IntegrationConnection"("companyId", "status", "lastSyncAt");
+CREATE INDEX IF NOT EXISTS "IntegrationConnection_companyId_status_lastSyncAt_idx" ON "IntegrationConnection"("companyId", "status", "lastSyncAt");
 
 -- CreateIndex
-CREATE INDEX "IntegrationSyncRun_companyId_status_startedAt_idx" ON "IntegrationSyncRun"("companyId", "status", "startedAt");
+CREATE INDEX IF NOT EXISTS "IntegrationSyncRun_companyId_status_startedAt_idx" ON "IntegrationSyncRun"("companyId", "status", "startedAt");
 
 -- CreateIndex
-CREATE INDEX "IntegrationSyncRun_connectionId_startedAt_idx" ON "IntegrationSyncRun"("connectionId", "startedAt");
+CREATE INDEX IF NOT EXISTS "IntegrationSyncRun_connectionId_startedAt_idx" ON "IntegrationSyncRun"("connectionId", "startedAt");
 
 -- AddForeignKey
-ALTER TABLE "IntegrationConnection" ADD CONSTRAINT "IntegrationConnection_companyId_fkey" FOREIGN KEY ("companyId") REFERENCES "Company"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'IntegrationConnection_companyId_fkey') THEN
+        ALTER TABLE "IntegrationConnection" ADD CONSTRAINT "IntegrationConnection_companyId_fkey" FOREIGN KEY ("companyId") REFERENCES "Company"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+    END IF;
+END $$;
 
 -- AddForeignKey
-ALTER TABLE "CustomerProfile" ADD CONSTRAINT "CustomerProfile_companyId_fkey" FOREIGN KEY ("companyId") REFERENCES "Company"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'CustomerProfile_companyId_fkey') THEN
+        ALTER TABLE "CustomerProfile" ADD CONSTRAINT "CustomerProfile_companyId_fkey" FOREIGN KEY ("companyId") REFERENCES "Company"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+    END IF;
+END $$;
 
 -- AddForeignKey
-ALTER TABLE "CustomerProfile" ADD CONSTRAINT "CustomerProfile_sourceConnectionId_fkey" FOREIGN KEY ("sourceConnectionId") REFERENCES "IntegrationConnection"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'CustomerProfile_sourceConnectionId_fkey') THEN
+        ALTER TABLE "CustomerProfile" ADD CONSTRAINT "CustomerProfile_sourceConnectionId_fkey" FOREIGN KEY ("sourceConnectionId") REFERENCES "IntegrationConnection"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+    END IF;
+END $$;
 
 -- AddForeignKey
-ALTER TABLE "DebtCase" ADD CONSTRAINT "DebtCase_companyId_fkey" FOREIGN KEY ("companyId") REFERENCES "Company"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'DebtCase_companyId_fkey') THEN
+        ALTER TABLE "DebtCase" ADD CONSTRAINT "DebtCase_companyId_fkey" FOREIGN KEY ("companyId") REFERENCES "Company"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+    END IF;
+END $$;
 
 -- AddForeignKey
-ALTER TABLE "DebtCase" ADD CONSTRAINT "DebtCase_customerProfileId_fkey" FOREIGN KEY ("customerProfileId") REFERENCES "CustomerProfile"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'DebtCase_customerProfileId_fkey') THEN
+        ALTER TABLE "DebtCase" ADD CONSTRAINT "DebtCase_customerProfileId_fkey" FOREIGN KEY ("customerProfileId") REFERENCES "CustomerProfile"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+    END IF;
+END $$;
 
 -- AddForeignKey
-ALTER TABLE "DebtCase" ADD CONSTRAINT "DebtCase_sourceConnectionId_fkey" FOREIGN KEY ("sourceConnectionId") REFERENCES "IntegrationConnection"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'DebtCase_sourceConnectionId_fkey') THEN
+        ALTER TABLE "DebtCase" ADD CONSTRAINT "DebtCase_sourceConnectionId_fkey" FOREIGN KEY ("sourceConnectionId") REFERENCES "IntegrationConnection"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+    END IF;
+END $$;
 
 -- AddForeignKey
-ALTER TABLE "IntegrationSyncRun" ADD CONSTRAINT "IntegrationSyncRun_companyId_fkey" FOREIGN KEY ("companyId") REFERENCES "Company"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'IntegrationSyncRun_companyId_fkey') THEN
+        ALTER TABLE "IntegrationSyncRun" ADD CONSTRAINT "IntegrationSyncRun_companyId_fkey" FOREIGN KEY ("companyId") REFERENCES "Company"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+    END IF;
+END $$;
 
 -- AddForeignKey
-ALTER TABLE "IntegrationSyncRun" ADD CONSTRAINT "IntegrationSyncRun_connectionId_fkey" FOREIGN KEY ("connectionId") REFERENCES "IntegrationConnection"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'IntegrationSyncRun_connectionId_fkey') THEN
+        ALTER TABLE "IntegrationSyncRun" ADD CONSTRAINT "IntegrationSyncRun_connectionId_fkey" FOREIGN KEY ("connectionId") REFERENCES "IntegrationConnection"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+    END IF;
+END $$;
 
 -- AddForeignKey
-ALTER TABLE "AtendimentoCustomer" ADD CONSTRAINT "AtendimentoCustomer_customerProfileId_fkey" FOREIGN KEY ("customerProfileId") REFERENCES "CustomerProfile"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'AtendimentoCustomer_customerProfileId_fkey') THEN
+        ALTER TABLE "AtendimentoCustomer" ADD CONSTRAINT "AtendimentoCustomer_customerProfileId_fkey" FOREIGN KEY ("customerProfileId") REFERENCES "CustomerProfile"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+    END IF;
+END $$;
 
 -- AddForeignKey
-ALTER TABLE "HbxRecoveryCustomer" ADD CONSTRAINT "HbxRecoveryCustomer_customerProfileId_fkey" FOREIGN KEY ("customerProfileId") REFERENCES "CustomerProfile"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'HbxRecoveryCustomer_customerProfileId_fkey') THEN
+        ALTER TABLE "HbxRecoveryCustomer" ADD CONSTRAINT "HbxRecoveryCustomer_customerProfileId_fkey" FOREIGN KEY ("customerProfileId") REFERENCES "CustomerProfile"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+    END IF;
+END $$;
 
 -- AddForeignKey
-ALTER TABLE "HbxRecoveryPayment" ADD CONSTRAINT "HbxRecoveryPayment_debtCaseId_fkey" FOREIGN KEY ("debtCaseId") REFERENCES "DebtCase"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'HbxRecoveryPayment_debtCaseId_fkey') THEN
+        ALTER TABLE "HbxRecoveryPayment" ADD CONSTRAINT "HbxRecoveryPayment_debtCaseId_fkey" FOREIGN KEY ("debtCaseId") REFERENCES "DebtCase"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+    END IF;
+END $$;

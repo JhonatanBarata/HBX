@@ -11,6 +11,14 @@
 - Migration so estrutural.
 - Backfill separado da migration.
 
+## Ressalvas registradas
+
+- `IntegrationConnection` esta suficiente para Sprint 1, mas ainda nao esta madura para integracao real.
+- A evolucao prevista para Sprint 6 ou 8 deve considerar pelo menos: `authMode`, `baseUrl`, `externalAccountId` e suporte a credencial dupla, como `appKey + token`.
+- Ainda falta uma trava operacional mais forte para evitar conexoes duplicadas equivalentes na mesma empresa. Candidata futura: regra sobre `companyId + provider + instanceName` normalizado, sem forcar isso no Sprint 1.
+- O backfill esta propositalmente conservador. Se houver muita duplicidade por telefone, o volume de `ambiguous` pode ser alto e vai exigir revisao manual.
+- A seguranca de segredo ainda esta apenas estrutural no schema. Sprint 2 precisa obrigatoriamente fechar politica real de write/read seguro em service/controller.
+
 ## Sprint 1 - Schema backbone
 
 - Criar `CustomerProfile`.
@@ -39,6 +47,8 @@
 - Nunca retornar token puro em leitura.
 - So aceitar token puro em `create/update`.
 - Reaproveitar o padrao ja usado no MASTER para credenciais.
+- Implementar isso de verdade em service/controller, nao apenas no schema.
+- Definir mascaramento consistente em respostas e logs.
 
 ## Sprint 3 - Backfill
 
@@ -52,6 +62,14 @@
   - ambiguos
   - ignorados
   - erros
+- Aceitar que bases com muita duplicidade por telefone podem concentrar bastante coisa em `ambiguous`.
+- Backfill apply aprovado apenas para casos claros.
+- Caso ambiguo mantido fora:
+  - `companyId 7`
+  - `Colsani`
+  - `phone +5519997024884`
+- Motivo: nomes conflitantes entre Atendimento e Recovery.
+- Acao futura: saneamento manual antes de qualquer vinculo em `CustomerProfile`.
 
 ## Sprint 4 - CustomerProfileService
 
@@ -68,6 +86,13 @@
 - Depois sincroniza `AtendimentoCustomer` como projecao operacional.
 - Nao trocar o fluxo externo do Inbox.
 - No frontend, mexer so nos pontos de identidade.
+
+Status em 2026-03-28:
+- Backend inbound do WhatsApp implementado em `MessagingService` com resolucao `CustomerProfile` antes do sync operacional.
+- Reuso de perfil conhecido por telefone normalizado.
+- Criacao de perfil `provisional` para numero novo.
+- Fallback para manter o sync de `AtendimentoCustomer` mesmo se a camada central falhar.
+- Testes cobrindo reuso, criacao provisoria e regressao do inbox/messaging validados.
 
 ## Sprint 6 - Recovery
 
@@ -106,6 +131,11 @@
 - Tudo com interface/mock.
 - Nada de endpoint real chutado.
 - Cada sync gera `IntegrationSyncRun`.
+- Evoluir `IntegrationConnection` para suportar maturidade real da AUVO quando necessario:
+  - `authMode`
+  - `baseUrl`
+  - `externalAccountId`
+  - credencial dupla como `appKey + token`
 
 ## Checklist de validacao
 
@@ -158,6 +188,7 @@
   - aceitar segredo puro apenas em create/update
 - `backend/src/.../controller|service`
   - nunca retornar token puro em leitura
+  - aplicar mascaramento consistente em payloads, respostas e logs
 
 ### Sprint 3 - Backfill
 
@@ -167,6 +198,7 @@
   - casar por `phoneNormalized`
   - nao mesclar ambiguos
   - gerar relatorio de vinculados, ambiguos, ignorados e erros
+  - assumir revisao manual quando houver alta duplicidade por telefone
 
 ### Sprint 4 - CustomerProfileService
 
@@ -224,3 +256,6 @@
   - tudo com interface/mock
   - nada de endpoint real chutado
   - cada sync gera `IntegrationSyncRun`
+- `backend/prisma/schema.prisma`
+  - avaliar evolucao controlada de `IntegrationConnection` com `authMode`, `baseUrl`, `externalAccountId` e credencial dupla
+  - avaliar trava operacional mais forte contra duplicidade equivalente por empresa

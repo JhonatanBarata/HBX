@@ -90,3 +90,97 @@ export class UpdateCadastroClienteDto {
   @MaxLength(40)
   registrationStatus?: string;
 }
+
+export class CreateCustomerProfileDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(160)
+  name?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(30)
+  phone?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(160)
+  email?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(40)
+  document?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  externalSource?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  externalCustomerId?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(40)
+  status?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  notes?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  sourceConnectionId?: string;
+}
+
+export class UpdateCustomerProfileDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(160)
+  name?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(30)
+  phone?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(160)
+  email?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(40)
+  document?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  externalSource?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  externalCustomerId?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(40)
+  status?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  notes?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  sourceConnectionId?: string;
+}

@@ -25,6 +25,7 @@ import { HbxRecoveryModule } from './hbx-recovery/hbx-recovery.module';
 import { TechAssistantModule } from './tech-assistant/tech-assistant.module';
 import { MasterContextModule } from './master-context/master-context.module';
 import { WebscrapingModule } from './webscraping/webscraping.module';
+import { IntegrationsModule } from './integrations/integrations.module';
 
 @Module({
   imports: [
@@ -58,6 +59,7 @@ import { WebscrapingModule } from './webscraping/webscraping.module';
     TechAssistantModule,
     MasterContextModule,
     WebscrapingModule,
+    IntegrationsModule,
   ],
   controllers: [AppController],
   providers: [
