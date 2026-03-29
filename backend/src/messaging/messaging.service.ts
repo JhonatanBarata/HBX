@@ -318,6 +318,40 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  private async resolveRecoveryDebtCaseId(companyId: number, customer: any) {
+    const customerProfileId = String(customer?.customerProfileId || '').trim();
+    if (!customerProfileId) return null;
+
+    const existing = await this.prisma.debtCase.findFirst({
+      where: {
+        companyId,
+        customerProfileId,
+        sourceProvider: 'HBX_RECOVERY',
+        status: 'open',
+      },
+      orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
+      select: { id: true },
+    });
+    if (existing?.id) return String(existing.id);
+
+    const created = await this.prisma.debtCase.create({
+      data: {
+        companyId,
+        customerProfileId,
+        sourceProvider: 'HBX_RECOVERY',
+        amount: Number(customer?.openAmount || 0),
+        dueDate: customer?.createdAt ? new Date(customer.createdAt) : null,
+        status: 'open',
+        rawPayloadJson: JSON.stringify({
+          source: 'messaging.recovery.autoPayment',
+          recoveryCustomerId: String(customer?.id || ''),
+        }),
+      },
+      select: { id: true },
+    });
+    return String(created.id);
+  }
+
   private formatCurrencyBRL(value: number) {
     return Number(value || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
   }
@@ -1493,11 +1527,13 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
 
     const notificationUrl = `${this.getPublicApiBaseUrl()}/webhooks/mercadopago?company_id=${companyId}`;
     const externalReference = `hbx-recovery-auto-${companyId}-${customer.id}-${Date.now()}`;
+    const debtCaseId = await this.resolveRecoveryDebtCaseId(companyId, customer);
 
     const payment = await this.prisma.hbxRecoveryPayment.create({
       data: {
         companyId,
         customerId: customer.id,
+        debtCaseId,
         conversationId: opts?.conversationId ? Number(opts.conversationId) : null,
         amount: totalAmount,
         currency: 'BRL',

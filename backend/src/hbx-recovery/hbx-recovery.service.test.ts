@@ -437,6 +437,54 @@ test('human interaction reply uses live conversation contact instead of stale cu
   });
 });
 
+test('resolveOpenDebtCaseIdForCustomer reuses existing open debt case for recovery profile', async () => {
+  const service = createService();
+  let createCalled = false;
+
+  service.prisma = {
+    debtCase: {
+      findFirst: async () => ({ id: 'debt-existing' }),
+      create: async () => {
+        createCalled = true;
+        return { id: 'debt-created' };
+      },
+    },
+  };
+
+  const debtCaseId = await service.resolveOpenDebtCaseIdForCustomer(7, {
+    id: 'rec-1',
+    customerProfileId: 'profile-1',
+    openAmount: 321,
+    createdAt: new Date('2026-03-28T10:00:00.000Z'),
+  });
+
+  assert.equal(debtCaseId, 'debt-existing');
+  assert.equal(createCalled, false);
+});
+
+test('toPaymentItem exposes debtCaseId without breaking customer-based payload', () => {
+  const service = createService();
+
+  const item = service.toPaymentItem({
+    id: 'pay-1',
+    customerId: 'rec-1',
+    debtCaseId: 'debt-1',
+    customer: {
+      name: 'HBX Cliente',
+      whatsappNumber: '+5519998877766',
+    },
+    amount: 123.45,
+    currency: 'BRL',
+    description: 'Teste',
+    status: 'pending',
+  });
+
+  assert.equal(item.customerId, 'rec-1');
+  assert.equal(item.debtCaseId, 'debt-1');
+  assert.equal(item.customerName, 'HBX Cliente');
+  assert.equal(item.status, 'pending');
+});
+
 test('recovery customer resolution falls back to recovery message contactId when phone changed', async () => {
   const service = createService();
   service.prisma = {

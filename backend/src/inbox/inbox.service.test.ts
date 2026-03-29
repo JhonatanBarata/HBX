@@ -23,6 +23,18 @@ function createService(overrides?: Partial<Record<string, any>>) {
   const prisma = {
     atendimentoCustomer: {
       findMany: async () => [],
+      findFirst: async () => null,
+      update: async ({ where, data }: any) => ({ id: where.id, ...data }),
+    },
+    customerProfile: {
+      findFirst: async () => null,
+      create: async ({ data }: any) => ({ id: 'profile-new', ...data }),
+      update: async ({ where, data }: any) => ({ id: where.id, ...data }),
+    },
+    debtCase: {
+      findFirst: async () => null,
+      create: async ({ data }: any) => ({ id: 'debt-1', ...data }),
+      update: async ({ where, data }: any) => ({ id: where.id, ...data }),
     },
     companyConversation: {
       findFirst: async ({ where }: any) => {
@@ -36,7 +48,9 @@ function createService(overrides?: Partial<Record<string, any>>) {
     hbxRecoveryCustomer: {
       findFirst: async () => ({ clientName: 'Carlos', name: 'Carlos' }),
       create: async ({ data }: any) => ({ id: 'rec-1', ...data }),
+      update: async ({ where, data }: any) => ({ id: where.id, ...data }),
     },
+    $transaction: async (callback: (tx: any) => Promise<unknown>) => callback(prisma),
     ...(overrides?.prisma || {}),
   } as any;
 
@@ -195,11 +209,46 @@ test('getConversationById exposes customer identity fields from AtendimentoCusto
   assert.equal(conversation.customer.registrationStatus, 'pending_confirmation');
 });
 
-test('promoteToRecovery propagates customerProfileId into recovery customer', async () => {
+test('promoteToRecovery creates debt case and propagates customerProfileId into recovery customer', async () => {
   const createCalls: Array<Record<string, unknown>> = [];
+  const debtCaseCalls: Array<Record<string, unknown>> = [];
+  const atendimentoUpdates: Array<Record<string, unknown>> = [];
   const syncCalls: Array<Record<string, unknown>> = [];
   const { service } = createService({
     prisma: {
+      atendimentoCustomer: {
+        findMany: async () => [],
+        findFirst: async () => ({
+          id: 'atc-1',
+          companyId: 7,
+          customerProfileId: 'profile-77',
+          phone: '+5519998877766',
+          phoneNormalized: '5519998877766',
+          name: 'Carlos',
+          createdAt: new Date('2026-03-18T10:00:00.000Z'),
+        }),
+        update: async (input: Record<string, unknown>) => {
+          atendimentoUpdates.push(input);
+          return input;
+        },
+      },
+      customerProfile: {
+        findFirst: async () => ({
+          id: 'profile-77',
+          companyId: 7,
+          phone: '+5519998877766',
+          phoneNormalized: '5519998877766',
+          name: 'Carlos',
+          status: 'active',
+        }),
+      },
+      debtCase: {
+        findFirst: async () => null,
+        create: async ({ data }: any) => {
+          debtCaseCalls.push(data);
+          return { id: 'debt-77', ...data };
+        },
+      },
       hbxRecoveryCustomer: {
         findFirst: async () => null,
         create: async ({ data }: any) => {
@@ -209,15 +258,6 @@ test('promoteToRecovery propagates customerProfileId into recovery customer', as
       },
     },
     cadastrosService: {
-      findCustomerRegistryRecordById: async () => ({
-        id: 'atc-1',
-        companyId: 7,
-        customerProfileId: 'profile-77',
-        phone: '+5519998877766',
-        phoneNormalized: '5519998877766',
-        name: 'Carlos',
-        createdAt: new Date('2026-03-18T10:00:00.000Z'),
-      }),
       syncCustomerRegistryFromRecovery: async (companyId: number, payload: Record<string, unknown>) => {
         syncCalls.push({ companyId, payload });
         return { ok: true };
@@ -231,10 +271,28 @@ test('promoteToRecovery propagates customerProfileId into recovery customer', as
     { openAmount: 123.45, saleDate: '2026-03-28', companyName: 'HBX Cliente' },
   );
 
-  assert.deepEqual(result, { ok: true });
+  assert.deepEqual(result, {
+    ok: true,
+    recoveryCustomerId: 'rec-77',
+    debtCaseId: 'debt-77',
+    customerProfileId: 'profile-77',
+  });
+  assert.equal(debtCaseCalls.length, 1);
+  assert.equal(debtCaseCalls[0].customerProfileId, 'profile-77');
+  assert.equal(Number(debtCaseCalls[0].amount), 123.45);
   assert.equal(createCalls.length, 1);
   assert.equal(createCalls[0].customerProfileId, 'profile-77');
   assert.equal(createCalls[0].name, 'HBX Cliente');
+  assert.equal(atendimentoUpdates.length, 1);
+  const atendimentoUpdate = atendimentoUpdates[0] as any;
+  assert.deepEqual(atendimentoUpdates[0], {
+    where: { id: 'atc-1' },
+    data: {
+      customerProfileId: 'profile-77',
+      route: 'recovery',
+      updatedAt: atendimentoUpdate.data.updatedAt,
+    },
+  });
   assert.equal(syncCalls.length, 1);
   assert.equal(syncCalls[0].companyId, 7);
 });

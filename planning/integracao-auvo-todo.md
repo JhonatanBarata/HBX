@@ -105,6 +105,9 @@ Status em 2026-03-28:
 - Colocar isso em transacao.
 - `HbxRecoveryPayment` passa a aceitar `debtCaseId`.
 - Manter compatibilidade transitoria com `customerId`.
+- Status: concluido em 2026-03-28.
+- Validacao: `npm run build` e `npm run test:whatsapp-hotfix` com 35/35 testes passando.
+- Implementacao fechada sem quebrar o fluxo legado: pagamentos continuam indexados por `customerId`, mas agora carregam `debtCaseId` quando houver `CustomerProfile` associado.
 
 ## Sprint 7 - MASTER
 
@@ -234,6 +237,8 @@ Status em 2026-03-28:
   - criar `DebtCase` no fluxo de promocao
 - `backend/src/hbx-recovery/hbx-recovery.service.ts`
   - aceitar `debtCaseId` preservando compatibilidade com `customerId`
+- `backend/src/messaging/messaging.service.ts`
+  - anexar `debtCaseId` tambem no fluxo automatico de cobranca
 - `backend/prisma/schema.prisma`
   - manter relacao transitoria de `HbxRecoveryPayment` com `customerId`
 
