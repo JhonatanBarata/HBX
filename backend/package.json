@@ -14,6 +14,7 @@
     "test:meta-templates": "npm run build && node --test dist/hbx-recovery/hbx-recovery.service.test.js",
     "test:whatsapp-channel": "npm run build && node --test dist/messaging/whatsapp-channel.test.js",
     "test:whatsapp-hotfix": "npm run build && node --test dist/hbx-recovery/hbx-recovery.service.test.js dist/messaging/whatsapp-channel.test.js dist/inbox/inbox.service.test.js dist/messaging/messaging.service.test.js",
+    "smoke:integration-connections": "npm run build && node ./scripts/integration-connections-smoke.js",
     "prisma:migrate": "prisma migrate dev --name init --schema=./prisma/schema.prisma",
     "prisma:migrate:deploy": "prisma migrate deploy --schema=./prisma/schema.prisma",
     "prisma:migrate:status": "prisma migrate status --schema=./prisma/schema.prisma",

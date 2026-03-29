@@ -51,6 +51,7 @@ import {
   type WhatsAppInboundNormalized,
 } from './whatsapp-channel';
 import { CadastrosService } from '../cadastros/cadastros.service';
+import { CustomerProfileService } from '../customer-profile/customer-profile.service';
 
 function clamp(n: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, n));
@@ -151,6 +152,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     private readonly whatsappAudit: WhatsAppAuditService,
     private readonly mercadoPagoClient: MercadoPagoClientService,
     private readonly cadastrosService: CadastrosService,
+    private readonly customerProfileService: CustomerProfileService,
   ) {}
 
   onModuleInit() {
@@ -652,6 +654,57 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     return String(raw || '').replace(/\D/g, '').slice(-13);
   }
 
+  private normalizeCustomerProfileName(raw: string | null | undefined) {
+    const normalized = String(raw || '').trim();
+    return normalized ? normalized.slice(0, 120) : null;
+  }
+
+  private shouldPromoteAtendimentoProfile(registrationStatus?: string | null) {
+    const normalized = String(registrationStatus || '').trim().toLowerCase();
+    return normalized === 'confirmed' || normalized === 'manual';
+  }
+
+  private async resolveAtendimentoCustomerProfile(input: {
+    companyId: number;
+    phone: string;
+    name?: string | null;
+    registrationOrigin?: string;
+    registrationStatus?: string;
+  }) {
+    const phoneNormalized = this.customerProfileService.normalizePhone(input.phone);
+    if (!phoneNormalized) return null;
+
+    const normalizedName = this.normalizeCustomerProfileName(input.name);
+    const existing = await this.customerProfileService.findPreferredProfileByPhoneNormalized(
+      input.companyId,
+      phoneNormalized,
+    );
+
+    if (existing) {
+      const patch: Record<string, string> = {};
+      if (normalizedName && !existing.name) {
+        patch.name = normalizedName;
+      }
+      if (
+        this.shouldPromoteAtendimentoProfile(input.registrationStatus) &&
+        String(existing.status || '').trim().toLowerCase() === 'provisional'
+      ) {
+        patch.status = 'active';
+      }
+      if (Object.keys(patch).length) {
+        return this.customerProfileService.updateProfile(input.companyId, existing.id, patch);
+      }
+      return existing;
+    }
+
+    return this.customerProfileService.createProfile(input.companyId, {
+      phone: input.phone,
+      name: normalizedName,
+      externalSource: input.registrationOrigin || 'whatsapp_bot',
+      status: this.shouldPromoteAtendimentoProfile(input.registrationStatus) ? 'active' : 'provisional',
+    });
+  }
+
   private async upsertAtendimentoCustomerLocal(input: {
     companyId: number;
     phone: string;
@@ -660,9 +713,19 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     registrationStatus?: string;
     conversationId?: number | null;
   }): Promise<void> {
+    let customerProfileId: string | null = null;
+
+    try {
+      const profile = await this.resolveAtendimentoCustomerProfile(input);
+      customerProfileId = profile?.id ? String(profile.id) : null;
+    } catch (err) {
+      this.logger.warn(`resolveAtendimentoCustomerProfile failed: ${(err as any)?.message}`);
+    }
+
     try {
       await this.cadastrosService.upsertCustomerRegistry({
         ...input,
+        customerProfileId,
         route: 'atendimento',
         lastMessageAt: new Date(),
       });

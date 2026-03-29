@@ -3,10 +3,12 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CadastrosService } from './cadastros.service';
 import {
   CreateCadastroClienteDto,
+  CreateCustomerProfileDto,
   CreateFornecedorDto,
   CreatePaisDto,
   CreatePortoDto,
   UpdateCadastroClienteDto,
+  UpdateCustomerProfileDto,
   UpsertTransitTimeDto,
 } from './dto/cadastros.dto';
 
@@ -33,6 +35,35 @@ export class CadastrosController {
   @Patch('customers/:id')
   updateCustomer(@Req() req: any, @Param('id') id: string, @Body() dto: UpdateCadastroClienteDto) {
     return this.service.updateCustomerRegistryByUser(req.user, id, dto);
+  }
+
+  @Get('customer-profiles')
+  listCustomerProfiles(
+    @Req() req: any,
+    @Query('phone') phone?: string,
+    @Query('document') document?: string,
+  ) {
+    return this.service.listCustomerProfilesByUser(req.user, { phone, document });
+  }
+
+  @Post('customer-profiles')
+  createCustomerProfile(@Req() req: any, @Body() dto: CreateCustomerProfileDto) {
+    return this.service.createCustomerProfileByUser(req.user, dto);
+  }
+
+  @Patch('customer-profiles/:id')
+  updateCustomerProfile(@Req() req: any, @Param('id') id: string, @Body() dto: UpdateCustomerProfileDto) {
+    return this.service.updateCustomerProfileByUser(req.user, id, dto);
+  }
+
+  @Get('customer-profiles/by-phone')
+  getCustomerProfileByPhone(@Req() req: any, @Query('phone') phone: string) {
+    return this.service.getCustomerProfileByPhone(req.user, phone);
+  }
+
+  @Get('customer-profiles/by-document')
+  getCustomerProfileByDocument(@Req() req: any, @Query('document') document: string) {
+    return this.service.getCustomerProfileByDocument(req.user, document);
   }
 
   @Post('fornecedores')
