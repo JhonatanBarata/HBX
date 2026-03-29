@@ -1,15 +1,18 @@
 "use client";
 
+import type { CSSProperties } from "react";
+
 type SegmentedItem = {
   id: string;
   label: string;
 };
 
-type InboxV2SegmentedControlProps = {
+type WorkspaceSegmentedControlProps = {
   items: readonly SegmentedItem[];
   value: string;
   onChange: (nextValue: string) => void;
   className?: string;
+  highlightClassName?: string;
   buttonClassName?: string;
   activeButtonClassName?: string;
   role?: string;
@@ -17,19 +20,31 @@ type InboxV2SegmentedControlProps = {
   ariaLabel?: string;
 };
 
-export default function InboxV2SegmentedControl({
+export default function WorkspaceSegmentedControl({
   items,
   value,
   onChange,
   className,
+  highlightClassName,
   buttonClassName,
   activeButtonClassName,
   role,
   buttonRole,
   ariaLabel,
-}: InboxV2SegmentedControlProps) {
+}: WorkspaceSegmentedControlProps) {
+  const activeIndex = Math.max(
+    0,
+    items.findIndex((item) => item.id === value),
+  );
+
+  const trackStyle = {
+    "--segment-count": String(Math.max(items.length, 1)),
+    "--segment-index": String(activeIndex),
+  } as CSSProperties;
+
   return (
-    <div className={className} role={role} aria-label={ariaLabel}>
+    <div className={className} role={role} aria-label={ariaLabel} style={trackStyle}>
+      {highlightClassName ? <div className={highlightClassName} aria-hidden="true" /> : null}
       {items.map((item) => {
         const active = item.id === value;
         const nextClassName = active

@@ -28,6 +28,7 @@ import ConversationBadgeList from "@/components/workspace/ConversationBadgeList"
 import ConversationContextPanel from "@/components/workspace/ConversationContextPanel";
 import ConversationListPane from "@/components/workspace/ConversationListPane";
 import ConversationQueueFilterBar from "@/components/workspace/ConversationQueueFilterBar";
+import WorkspaceSegmentedControl from "@/components/workspace/WorkspaceSegmentedControl";
 import ConversationWorkspaceStatus from "@/components/workspace/ConversationWorkspaceStatus";
 import {
   buildAtendimentoContextActions,
@@ -51,6 +52,11 @@ import { startSmartPolling } from "../_lib/polling";
 import { useRequireAuth } from "../_lib/useRequireAuth";
 import AgendaPanel from "./_components/AgendaPanel";
 import BotPanel from "./_components/BotPanel";
+import TemplatesPanel, { type TemplateComposer } from "./_components/TemplatesPanel";
+import type {
+  RecoveryMetaTemplateItem,
+  RecoveryMetaTemplatesPayload,
+} from "../../hbx-recovery/recovery-model";
 import {
   ATENDIMENTO_QUEUE_EVENT,
   DEFAULT_ATENDIMENTO_AGENDA_CONFIG,
@@ -131,6 +137,37 @@ type UserModule = {
 };
 
 const ATENDIMENTO_PENDING_STORAGE_KEY = "atendimentoPendingHumanCount";
+const DEFAULT_META_TEMPLATES_PAYLOAD: RecoveryMetaTemplatesPayload = {
+  phoneNumberId: null,
+  wabaId: null,
+  lastSyncAt: null,
+  syncError: null,
+  counters: {
+    total: 0,
+    approved: 0,
+    pending: 0,
+    rejected: 0,
+    hbxActive: 0,
+    eligible: 0,
+  },
+  templates: [],
+  history: [],
+};
+
+const DEFAULT_TEMPLATE_COMPOSER: TemplateComposer = {
+  name: "",
+  category: "UTILITY",
+  language: "pt_BR",
+  bodyText:
+    "Olá, tudo bem? Aqui é da {{empresa}}.\nFalo com {{cliente}}?\nTemos um assunto financeiro pendente referente ao serviço realizado em {{data_servico}}.\nEu poderia te mostrar opções de pagamentos?",
+  footerText: "Recovery",
+  buttonsText: "Sim\nNão, obrigado",
+  activateInHbx: true,
+  headerFormat: "NONE",
+  headerText: "",
+  headerHandle: "",
+  headerMediaUrl: "",
+};
 
 const CONTEXT_TAB_ITEMS: Array<{ id: ContextTab; label: string }> = [
   { id: "conversa", label: "Conversa" },
@@ -228,6 +265,73 @@ function getInboxConversationFreshness(conversation?: Pick<InboxConversation, "u
   const messages = Array.isArray(conversation?.messages) ? conversation.messages : [];
   const newestMessage = messages.length <= 1 ? messages[0] : messages[messages.length - 1];
   return String(newestMessage?.createdAt || conversation?.updatedAt || "").trim();
+}
+
+function parseTemplateButtonLines(value: string) {
+  return String(value || "")
+    .split(/\r?\n/)
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .slice(0, 3);
+}
+
+function normalizeMetaTemplatesPayload(
+  payload: RecoveryMetaTemplatesPayload | null | undefined,
+): RecoveryMetaTemplatesPayload {
+  const counters = payload?.counters;
+  return {
+    ...DEFAULT_META_TEMPLATES_PAYLOAD,
+    ...(payload || {}),
+    syncError:
+      payload?.syncError !== undefined && payload?.syncError !== null
+        ? String(payload.syncError)
+        : null,
+    counters: {
+      total: Number(counters?.total || 0),
+      approved: Number(counters?.approved || 0),
+      pending: Number(counters?.pending || 0),
+      rejected: Number(counters?.rejected || 0),
+      hbxActive: Number(counters?.hbxActive || 0),
+      eligible: Number(counters?.eligible || 0),
+    },
+    templates: Array.isArray(payload?.templates) ? payload.templates : [],
+    history: Array.isArray(payload?.history) ? payload.history : [],
+  };
+}
+
+function fillTemplateComposerFromTemplate(template: RecoveryMetaTemplateItem): TemplateComposer {
+  const normalized = template.normalized;
+  const buttons =
+    Array.isArray(normalized?.buttons) && normalized.buttons.length > 0
+      ? normalized.buttons.map((button) => String(button.text || "").trim()).filter(Boolean)
+      : Array.isArray(template.buttonLabels)
+        ? template.buttonLabels
+        : [];
+
+  return {
+    name: String(template.name || ""),
+    category:
+      String(template.category || "").toUpperCase() === "MARKETING"
+        ? "MARKETING"
+        : String(template.category || "").toUpperCase() === "AUTHENTICATION"
+          ? "AUTHENTICATION"
+          : "UTILITY",
+    language: String(template.language || "pt_BR"),
+    bodyText: String(normalized?.body?.text ?? template.bodyText ?? ""),
+    footerText: String(normalized?.footer?.text ?? template.footerText ?? ""),
+    buttonsText: buttons.join("\n"),
+    activateInHbx: Boolean(template.hbxActive),
+    headerFormat:
+      normalized?.header?.format === "TEXT" ||
+      normalized?.header?.format === "IMAGE" ||
+      normalized?.header?.format === "DOCUMENT" ||
+      normalized?.header?.format === "VIDEO"
+        ? normalized.header.format
+        : "NONE",
+    headerText: String(normalized?.header?.text ?? template.headerText ?? ""),
+    headerHandle: String(normalized?.header?.exampleHandle ?? template.headerHandle ?? ""),
+    headerMediaUrl: String(normalized?.header?.mediaUrl ?? template.headerMediaUrl ?? ""),
+  };
 }
 
 function shouldReloadInboxConversation(
@@ -437,11 +541,25 @@ export default function InboxClientPage() {
   const [sendText, setSendText] = useState("");
   const [sending, setSending] = useState(false);
   const [agendaStudioOpen, setAgendaStudioOpen] = useState(false);
+  const [automationStudioOpen, setAutomationStudioOpen] = useState(false);
+  const [templatesStudioOpen, setTemplatesStudioOpen] = useState(false);
+  const [overlayVisible, setOverlayVisible] = useState(false);
   const [contextTab, setContextTab] = useState<ContextTab>("conversa");
   const [internalNote, setInternalNote] = useState("");
   const [botConfig, setBotConfig] = useState<AtendimentoBotConfig>(DEFAULT_ATENDIMENTO_BOT_CONFIG);
   const [agendaConfig, setAgendaConfig] = useState<AtendimentoAgendaConfig>(
     DEFAULT_ATENDIMENTO_AGENDA_CONFIG,
+  );
+  const [metaTemplates, setMetaTemplates] = useState<RecoveryMetaTemplatesPayload>(
+    DEFAULT_META_TEMPLATES_PAYLOAD,
+  );
+  const [loadingTemplates, setLoadingTemplates] = useState(false);
+  const [syncingTemplates, setSyncingTemplates] = useState(false);
+  const [creatingTemplate, setCreatingTemplate] = useState(false);
+  const [deletingTemplateId, setDeletingTemplateId] = useState<string | null>(null);
+  const [editingTemplateLabel, setEditingTemplateLabel] = useState<string | null>(null);
+  const [templateComposer, setTemplateComposer] = useState<TemplateComposer>(
+    DEFAULT_TEMPLATE_COMPOSER,
   );
   const [currentUserProfile, setCurrentUserProfile] = useState<CurrentUserProfile | null>(null);
   const [userModules, setUserModules] = useState<UserModule[]>([]);
@@ -467,19 +585,32 @@ export default function InboxClientPage() {
 
 
   useEffect(() => {
-    if (requestedTab === activeTab) return;
-    setActiveTab(requestedTab);
-  }, [activeTab, requestedTab]);
+    if (requestedTab !== "automation" || automationStudioOpen) return;
+    setAutomationStudioOpen(true);
+    setAgendaStudioOpen(false);
+    setTemplatesStudioOpen(false);
+    setActiveTab("messages");
+  }, [automationStudioOpen, requestedTab]);
 
   useEffect(() => {
     setMounted(true);
   }, []);
 
   useEffect(() => {
-    if (!agendaStudioOpen) return;
+    if (!agendaStudioOpen && !automationStudioOpen && !templatesStudioOpen) return;
     const releaseTopbarLock = acquirePopupTopbarLock();
     return releaseTopbarLock;
-  }, [agendaStudioOpen]);
+  }, [agendaStudioOpen, automationStudioOpen, templatesStudioOpen]);
+
+  useEffect(() => {
+    if (!agendaStudioOpen && !automationStudioOpen && !templatesStudioOpen) {
+      setOverlayVisible(false);
+      return;
+    }
+    const frame = window.requestAnimationFrame(() => setOverlayVisible(true));
+    return () => window.cancelAnimationFrame(frame);
+  }, [agendaStudioOpen, automationStudioOpen, templatesStudioOpen]);
+
 
   useEffect(() => {
     conversationsRef.current = conversations;
@@ -1104,10 +1235,22 @@ export default function InboxClientPage() {
   const handleSectionChange = useCallback((nextSection: AtendimentoSection) => {
     const params = new URLSearchParams(searchParams?.toString() || "");
     if (nextSection === "automacao") {
-      setActiveTab("automation");
-      params.set("atendimentoTab", "automation");
-    } else {
       setActiveTab("messages");
+      setAutomationStudioOpen(true);
+      setTemplatesStudioOpen(false);
+      setAgendaStudioOpen(false);
+      params.set("atendimentoTab", "automation");
+    } else if (nextSection === "agenda") {
+      setActiveTab("messages");
+      setAgendaStudioOpen(true);
+      setAutomationStudioOpen(false);
+      setTemplatesStudioOpen(false);
+      setContextTab("agenda");
+      params.delete("atendimentoTab");
+    } else {
+      setAutomationStudioOpen(false);
+      setTemplatesStudioOpen(false);
+      setAgendaStudioOpen(false);
       setContextTab(nextSection);
       params.delete("atendimentoTab");
     }
@@ -1115,9 +1258,181 @@ export default function InboxClientPage() {
     router.replace(nextUrl, { scroll: false });
   }, [pathname, router, searchParams]);
 
+  const resetTemplateComposer = useCallback(() => {
+    setTemplateComposer(DEFAULT_TEMPLATE_COMPOSER);
+    setEditingTemplateLabel(null);
+  }, []);
+
+  const loadMetaTemplates = useCallback(async (refresh = false) => {
+    setLoadingTemplates(true);
+    try {
+      const query = refresh ? "?refresh=true" : "";
+      const payload = await apiFetch<RecoveryMetaTemplatesPayload>(`/hbx-recovery/meta-templates${query}`);
+      const safePayload = normalizeMetaTemplatesPayload(payload);
+      setMetaTemplates(safePayload);
+      if (safePayload.syncError) {
+        setNotice({ tone: "error", text: `Falha ao carregar templates Meta: ${safePayload.syncError}` });
+      }
+    } catch (loadError) {
+      const message =
+        loadError instanceof Error ? loadError.message : "Falha ao carregar templates Meta.";
+      setNotice({ tone: "error", text: message });
+    } finally {
+      setLoadingTemplates(false);
+    }
+  }, []);
+
+  const syncMetaTemplatesNow = useCallback(async () => {
+    setSyncingTemplates(true);
+    try {
+      const payload = await apiFetch<RecoveryMetaTemplatesPayload>("/hbx-recovery/meta-templates/sync", {
+        method: "POST",
+        body: JSON.stringify({}),
+      });
+      const safePayload = normalizeMetaTemplatesPayload(payload);
+      setMetaTemplates(safePayload);
+      setNotice({
+        tone: safePayload.syncError ? "error" : "success",
+        text: safePayload.syncError || "Templates Meta sincronizados com sucesso.",
+      });
+    } catch (syncError) {
+      const message =
+        syncError instanceof Error ? syncError.message : "Falha ao sincronizar templates Meta.";
+      setNotice({ tone: "error", text: message });
+    } finally {
+      setSyncingTemplates(false);
+    }
+  }, []);
+
   const openTemplatesSettings = useCallback(() => {
-    router.push("/hbx-recovery?tab=templates");
-  }, [router]);
+    setAutomationStudioOpen(false);
+    setAgendaStudioOpen(false);
+    setTemplatesStudioOpen(true);
+    void loadMetaTemplates();
+  }, [loadMetaTemplates]);
+
+  const closeAutomationExperience = useCallback(() => {
+    setAutomationStudioOpen(false);
+    setTemplatesStudioOpen(false);
+    const params = new URLSearchParams(searchParams?.toString() || "");
+    params.delete("atendimentoTab");
+    const nextUrl = params.toString() ? `${pathname}?${params.toString()}` : pathname;
+    router.replace(nextUrl, { scroll: false });
+  }, [pathname, router, searchParams]);
+
+  const editMetaTemplate = useCallback((template: RecoveryMetaTemplateItem) => {
+    setTemplateComposer(fillTemplateComposerFromTemplate(template));
+    setEditingTemplateLabel(`${template.name} • ${template.language}`);
+  }, []);
+
+  const toggleTemplateActivation = useCallback(
+    async (template: RecoveryMetaTemplateItem, active: boolean) => {
+      try {
+        const payload = await apiFetch<RecoveryMetaTemplatesPayload>(
+          "/hbx-recovery/meta-templates/activation",
+          {
+            method: "PATCH",
+            body: JSON.stringify({
+              name: template.name,
+              language: template.language,
+              active,
+            }),
+          },
+        );
+        setMetaTemplates(normalizeMetaTemplatesPayload(payload));
+        setNotice({
+          tone: "success",
+          text: active
+            ? `Template ${template.name} ativado no HBX.`
+            : `Template ${template.name} ocultado no HBX.`,
+        });
+      } catch (updateError) {
+        const message =
+          updateError instanceof Error ? updateError.message : "Falha ao atualizar template.";
+        setNotice({ tone: "error", text: message });
+      }
+    },
+    [],
+  );
+
+  const deleteMetaTemplate = useCallback(async (template: RecoveryMetaTemplateItem) => {
+    const deletingKey = `${template.name}:${template.language}`;
+    setDeletingTemplateId(deletingKey);
+    try {
+      const payload = await apiFetch<RecoveryMetaTemplatesPayload>("/hbx-recovery/meta-templates", {
+        method: "DELETE",
+        body: JSON.stringify({
+          id: template.id,
+          name: template.name,
+          language: template.language,
+        }),
+      });
+      setMetaTemplates(normalizeMetaTemplatesPayload(payload));
+      setNotice({ tone: "success", text: `Template ${template.name} excluido com sucesso.` });
+      if (editingTemplateLabel?.startsWith(template.name)) {
+        resetTemplateComposer();
+      }
+    } catch (deleteError) {
+      const message =
+        deleteError instanceof Error ? deleteError.message : "Falha ao excluir template.";
+      setNotice({ tone: "error", text: message });
+    } finally {
+      setDeletingTemplateId(null);
+    }
+  }, [editingTemplateLabel, resetTemplateComposer]);
+
+  const createMetaTemplate = useCallback(async () => {
+    const normalizedName = String(templateComposer.name || "")
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, "_")
+      .replace(/[^a-z0-9_]/g, "");
+    const bodyText = String(templateComposer.bodyText || "").trim();
+    if (!normalizedName) {
+      setNotice({ tone: "error", text: "Informe um nome interno valido para o template." });
+      return;
+    }
+    if (bodyText.length < 10) {
+      setNotice({ tone: "error", text: "O corpo do template ainda esta muito curto." });
+      return;
+    }
+    setCreatingTemplate(true);
+    try {
+      const payload = await apiFetch<RecoveryMetaTemplatesPayload>("/hbx-recovery/meta-templates/create", {
+        method: "POST",
+        body: JSON.stringify({
+          name: normalizedName,
+          category: templateComposer.category,
+          language: templateComposer.language || "pt_BR",
+          headerFormat:
+            templateComposer.headerFormat === "NONE" ? undefined : templateComposer.headerFormat,
+          headerText: templateComposer.headerText || "",
+          headerHandle: templateComposer.headerHandle || "",
+          headerMediaUrl: templateComposer.headerMediaUrl || "",
+          bodyText,
+          footerText: templateComposer.footerText || "",
+          buttons: parseTemplateButtonLines(templateComposer.buttonsText),
+          variableExamples: {},
+          activateInHbx: templateComposer.activateInHbx,
+        }),
+      });
+      setMetaTemplates(normalizeMetaTemplatesPayload(payload));
+      setNotice({ tone: "success", text: `Template ${normalizedName} enviado para aprovacao.` });
+      resetTemplateComposer();
+    } catch (createError) {
+      const message =
+        createError instanceof Error ? createError.message : "Falha ao criar template.";
+      setNotice({ tone: "error", text: message });
+    } finally {
+      setCreatingTemplate(false);
+    }
+  }, [resetTemplateComposer, templateComposer]);
+
+  useEffect(() => {
+    if (!templatesStudioOpen) return;
+    if (metaTemplates.templates.length > 0) return;
+    void loadMetaTemplates();
+  }, [loadMetaTemplates, metaTemplates.templates.length, templatesStudioOpen]);
 
   const renderAgendaPanel = () => (
     <AgendaPanel
@@ -2087,24 +2402,24 @@ export default function InboxClientPage() {
         hideNavigationRail={true}
         layoutMode="workspace"
         actions={
-          <div className={styles.moduleTabs} role="tablist" aria-label="Navegacao principal do Atendimento">
-            {ATENDIMENTO_SECTION_ITEMS.map((section) => {
-              const activeSection: AtendimentoSection =
-                activeTab === "automation" ? "automacao" : contextTab;
-              return (
-                <button
-                  key={section.id}
-                  type="button"
-                  role="tab"
-                  aria-selected={section.id === activeSection}
-                  className={section.id === activeSection ? styles.moduleTabActive : styles.moduleTab}
-                  onClick={() => handleSectionChange(section.id)}
-                >
-                  {section.label}
-                </button>
-              );
-            })}
-          </div>
+          <WorkspaceSegmentedControl
+            items={ATENDIMENTO_SECTION_ITEMS}
+            value={
+              templatesStudioOpen || automationStudioOpen
+                ? "automacao"
+                : agendaStudioOpen
+                  ? "agenda"
+                  : contextTab
+            }
+            onChange={(nextSection) => handleSectionChange(nextSection as AtendimentoSection)}
+            className={styles.moduleTabs}
+            highlightClassName={styles.moduleTabHighlight}
+            buttonClassName={styles.moduleTab}
+            activeButtonClassName={styles.moduleTabActive}
+            role="tablist"
+            buttonRole="tab"
+            ariaLabel="Navegacao principal do Atendimento"
+          />
         }
       >
         {error ? <div className="alert alert-error">{error}</div> : null}
@@ -2122,24 +2437,6 @@ export default function InboxClientPage() {
                 <InboxContextPanel />
               </div>
             </section>
-          </section>
-        ) : null}
-
-        {activeTab === "automation" ? (
-          <section className={styles.automationShell}>
-            <BotPanel
-              botConfig={botConfig}
-              loadingBot={loadingBot}
-              savingBot={savingBot}
-              actionOptions={actionOptions}
-              agendaOptions={agendaOptions}
-              onSave={(nextConfig) => {
-                setNotice(null);
-                void saveBot(nextConfig);
-              }}
-              onConfigChange={syncBotConfig}
-              onOpenSettings={openTemplatesSettings}
-            />
           </section>
         ) : null}
 
@@ -2272,8 +2569,8 @@ export default function InboxClientPage() {
       </DashboardScaffold>
 
       {agendaStudioOpen ? (
-        <div className={styles.botStudioOverlay}>
-          <div className={styles.botStudioFrame}>
+        <div className={`${styles.botStudioOverlay} ${overlayVisible ? styles.botStudioOverlayActive : ""}`}>
+          <div className={`${styles.botStudioFrame} ${overlayVisible ? styles.botStudioFrameActive : ""}`}>
             <div className={styles.botStudioChrome}>
               <div>
                 <p className={styles.botStudioChromeEyebrow}>Atendimento</p>
@@ -2287,6 +2584,93 @@ export default function InboxClientPage() {
               </div>
             </div>
             <div className={styles.botStudioBody}>{renderAgendaPanel()}</div>
+          </div>
+        </div>
+      ) : null}
+
+      {automationStudioOpen ? (
+        <div className={`${styles.botStudioOverlay} ${overlayVisible ? styles.botStudioOverlayActive : ""}`}>
+          <div className={`${styles.botStudioFrame} ${overlayVisible ? styles.botStudioFrameActive : ""}`}>
+            <div className={styles.botStudioChrome}>
+              <div>
+                <p className={styles.botStudioChromeEyebrow}>Atendimento</p>
+                <strong>Automacao</strong>
+              </div>
+              <div className={styles.headerActions}>
+                <span className={styles.metaBadge}>Fluxo principal</span>
+                <button type="button" className="btn btn-secondary btn-sm" onClick={openTemplatesSettings}>
+                  Configuracoes
+                </button>
+                <button type="button" className="btn btn-secondary btn-sm" onClick={closeAutomationExperience}>
+                  Fechar
+                </button>
+              </div>
+            </div>
+            <div className={styles.botStudioBody}>
+              <BotPanel
+                botConfig={botConfig}
+                loadingBot={loadingBot}
+                savingBot={savingBot}
+                actionOptions={actionOptions}
+                agendaOptions={agendaOptions}
+                onSave={(nextConfig) => {
+                  setNotice(null);
+                  void saveBot(nextConfig);
+                }}
+                onConfigChange={syncBotConfig}
+                onOpenSettings={openTemplatesSettings}
+              />
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {templatesStudioOpen ? (
+        <div className={`${styles.botStudioOverlay} ${overlayVisible ? styles.botStudioOverlayActive : ""}`}>
+          <div className={`${styles.botStudioFrame} ${overlayVisible ? styles.botStudioFrameActive : ""}`}>
+            <div className={styles.botStudioChrome}>
+              <div>
+                <p className={styles.botStudioChromeEyebrow}>Automacao</p>
+                <strong>Templates Meta</strong>
+              </div>
+              <div className={styles.headerActions}>
+                <button type="button" className="btn btn-secondary btn-sm" onClick={() => void loadMetaTemplates(true)}>
+                  Recarregar
+                </button>
+                <button type="button" className="btn btn-primary btn-sm" onClick={syncMetaTemplatesNow} disabled={syncingTemplates}>
+                  {syncingTemplates ? "Sincronizando..." : "Sincronizar"}
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => {
+                    setTemplatesStudioOpen(false);
+                    setAutomationStudioOpen(true);
+                  }}
+                >
+                  Fechar configuracoes
+                </button>
+              </div>
+            </div>
+            <div className={styles.botStudioBody}>
+              <TemplatesPanel
+                loadingTemplates={loadingTemplates}
+                syncingTemplates={syncingTemplates}
+                metaTemplates={metaTemplates}
+                templateComposer={templateComposer}
+                creatingTemplate={creatingTemplate}
+                deletingTemplateId={deletingTemplateId}
+                editingTemplateLabel={editingTemplateLabel}
+                onReload={() => void loadMetaTemplates(true)}
+                onSync={() => void syncMetaTemplatesNow()}
+                onToggleActivation={(template, active) => void toggleTemplateActivation(template, active)}
+                onComposerChange={(updater) => setTemplateComposer((current) => updater(current))}
+                onCreateTemplate={() => void createMetaTemplate()}
+                onDeleteTemplate={(template) => void deleteMetaTemplate(template)}
+                onEditTemplate={editMetaTemplate}
+                onResetComposer={resetTemplateComposer}
+              />
+            </div>
           </div>
         </div>
       ) : null}
