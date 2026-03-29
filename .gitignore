@@ -23,3 +23,9 @@ systeminfo.txt
 msinfo-completo.txt
 processos-top.txt
 windus.txt
+.venv/
+**/.venv/
+backend/tmp/
+tmp/
+__pycache__/
+*.pyc

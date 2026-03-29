@@ -216,6 +216,11 @@ function validateChangedFiles(changedFiles) {
     /(^|\/)\.env\.(local|production\.local|ops\.local|operations\.local)$/i,
     /^backups\//i,
     /^postgres-data\//i,
+    /(^|\/)\.venv(\/|$)/i,
+    /(^|\/)tmp(\/|$)/i,
+    /(^|\/)backend\/tmp(\/|$)/i,
+    /(^|\/)__pycache__(\/|$)/i,
+    /\.pyc$/i,
   ];
 
   for (const line of lines) {
