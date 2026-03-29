@@ -1752,6 +1752,22 @@ export default function InboxClientPage() {
           title="Cliente"
           description={undefined}
           count={selectedConversation ? CONTEXT_TAB_ITEMS.find((item) => item.id === contextTab)?.label : "--"}
+          actions={
+            selectedConversation ? (
+              <WorkspaceSegmentedControl
+                items={CONTEXT_TAB_ITEMS}
+                value={contextTab}
+                onChange={(nextValue) => setContextTab(nextValue as ContextTab)}
+                className={styles.contextTabs}
+                highlightClassName={styles.contextTabHighlight}
+                buttonClassName={styles.contextTab}
+                activeButtonClassName={styles.contextTabActive}
+                role="tablist"
+                buttonRole="tab"
+                ariaLabel="Abas de contexto do cliente"
+              />
+            ) : undefined
+          }
           className={`${styles.workspaceDockPanel} ${styles.inboxContextPanel}`}
           bodyClassName={`${styles.workspaceDockBody} ${styles.inboxContextBody}`}
         >
@@ -1789,7 +1805,7 @@ export default function InboxClientPage() {
                   </ChatInfoCard>
 
                   <ChatInfoCard title="Acoes rapidas" meta="Operacao">
-                    <ChatActionGrid>
+                    <ChatActionGrid className={styles.quickActionsGrid}>
                       <ConversationActionList
                         actions={buildAtendimentoContextActions({
                           conversation: selectedConversation,
