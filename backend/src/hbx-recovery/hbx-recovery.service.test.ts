@@ -485,6 +485,205 @@ test('toPaymentItem exposes debtCaseId without breaking customer-based payload',
   assert.equal(item.status, 'pending');
 });
 
+test('full payment closes linked debt case and saves paidAt', async () => {
+  const service = createService();
+  const debtUpdates: any[] = [];
+
+  service.findCustomer = async () => ({
+    id: 'rec-1',
+    customerProfileId: 'profile-1',
+    openAmount: 100,
+    totalPaid: 0,
+    recurringDelays: 2,
+    paymentHistoryScore: 5,
+    averageDelay: 10,
+    paymentHistory: '[]',
+    delayHistory: '[]',
+    createdAt: new Date('2026-03-01T12:00:00.000Z'),
+  });
+  service.attachCustomerRegistry = async (_companyId: number, row: any) => row;
+  service.prisma = {
+    hbxRecoveryCustomer: {
+      update: async ({ data }: any) => ({
+        id: 'rec-1',
+        customerProfileId: 'profile-1',
+        createdAt: new Date('2026-03-01T12:00:00.000Z'),
+        ...data,
+      }),
+    },
+    debtCase: {
+      findFirst: async ({ where }: any) => {
+        if (where?.status === 'open') {
+          return { id: 'debt-1', dueDate: new Date('2026-03-01T12:00:00.000Z'), rawPayloadJson: '{"x":1}' };
+        }
+        return { id: 'debt-1', dueDate: new Date('2026-03-01T12:00:00.000Z'), rawPayloadJson: '{"x":1}', paidAt: null };
+      },
+      update: async (input: any) => {
+        debtUpdates.push(input);
+        return { id: 'debt-1', ...input.data };
+      },
+    },
+  };
+
+  const when = new Date('2026-03-28T15:00:00.000Z');
+  const result = await service.applyPayment(7, 'rec-1', 100, 'Quitacao total', when);
+
+  assert.equal(result.changed, true);
+  assert.equal(debtUpdates.length, 1);
+  assert.equal(debtUpdates[0].data.status, 'paid');
+  assert.equal(debtUpdates[0].data.amount, 0);
+  assert.equal(new Date(debtUpdates[0].data.paidAt).toISOString(), when.toISOString());
+});
+
+test('partial payment keeps linked debt case open', async () => {
+  const service = createService();
+  const debtUpdates: any[] = [];
+
+  service.findCustomer = async () => ({
+    id: 'rec-1',
+    customerProfileId: 'profile-1',
+    openAmount: 100,
+    totalPaid: 0,
+    recurringDelays: 2,
+    paymentHistoryScore: 5,
+    averageDelay: 10,
+    paymentHistory: '[]',
+    delayHistory: '[]',
+    createdAt: new Date('2026-03-01T12:00:00.000Z'),
+  });
+  service.attachCustomerRegistry = async (_companyId: number, row: any) => row;
+  service.prisma = {
+    hbxRecoveryCustomer: {
+      update: async ({ data }: any) => ({
+        id: 'rec-1',
+        customerProfileId: 'profile-1',
+        createdAt: new Date('2026-03-01T12:00:00.000Z'),
+        ...data,
+      }),
+    },
+    debtCase: {
+      findFirst: async ({ where }: any) => {
+        if (where?.status === 'open') {
+          return { id: 'debt-1', dueDate: new Date('2026-03-01T12:00:00.000Z'), rawPayloadJson: '{"x":1}' };
+        }
+        return { id: 'debt-1', dueDate: new Date('2026-03-01T12:00:00.000Z'), rawPayloadJson: '{"x":1}', paidAt: null };
+      },
+      update: async (input: any) => {
+        debtUpdates.push(input);
+        return { id: 'debt-1', ...input.data };
+      },
+    },
+  };
+
+  const result = await service.applyPayment(7, 'rec-1', 40, 'Pagamento parcial');
+
+  assert.equal(result.changed, true);
+  assert.equal(debtUpdates.length, 1);
+  assert.equal(debtUpdates[0].data.status, 'open');
+  assert.equal(debtUpdates[0].data.amount, 60);
+  assert.equal(debtUpdates[0].data.paidAt, null);
+});
+
+test('manual Recovery creation reuses existing CustomerProfile and links customerProfileId', async () => {
+  const service = createService();
+  const createCalls: any[] = [];
+
+  service.cadastrosService = {
+    syncCustomerRegistryFromRecovery: async (_companyId: number, row: any) => ({ ...row, phone: row.whatsappNumber }),
+  };
+  service.prisma = {
+    $transaction: async (callback: (tx: any) => Promise<unknown>) =>
+      callback({
+        customerProfile: {
+          findFirst: async () => ({
+            id: 'profile-existing',
+            companyId: 7,
+            phone: '+551199998888',
+            phoneNormalized: '551199998888',
+            name: 'Cliente Central',
+            status: 'active',
+          }),
+          update: async ({ where, data }: any) => ({ id: where.id, ...data }),
+        },
+        hbxRecoveryCustomer: {
+          create: async ({ data }: any) => {
+            createCalls.push(data);
+            return { id: 'rec-created', ...data };
+          },
+        },
+        debtCase: {
+          findFirst: async () => null,
+          create: async ({ data }: any) => ({ id: 'debt-created', ...data }),
+        },
+      }),
+  };
+
+  const created = await service.createCustomer(
+    { companyId: 7 },
+    {
+      name: 'Empresa Teste',
+      clientName: 'Cliente Central',
+      whatsappNumber: '+55 11 9999-8888',
+      openAmount: 0,
+    },
+  );
+
+  assert.equal(created.id, 'rec-created');
+  assert.equal(createCalls.length, 1);
+  assert.equal(createCalls[0].customerProfileId, 'profile-existing');
+});
+
+test('manual Recovery creation creates CustomerProfile and DebtCase when open amount exists', async () => {
+  const service = createService();
+  const profileCreates: any[] = [];
+  const debtCreates: any[] = [];
+
+  service.cadastrosService = {
+    syncCustomerRegistryFromRecovery: async (_companyId: number, row: any) => ({ ...row, phone: row.whatsappNumber }),
+  };
+  service.prisma = {
+    $transaction: async (callback: (tx: any) => Promise<unknown>) =>
+      callback({
+        customerProfile: {
+          findFirst: async () => null,
+          create: async ({ data }: any) => {
+            profileCreates.push(data);
+            return { id: 'profile-new', ...data };
+          },
+        },
+        hbxRecoveryCustomer: {
+          create: async ({ data }: any) => ({ id: 'rec-created', ...data }),
+        },
+        debtCase: {
+          findFirst: async () => null,
+          create: async ({ data }: any) => {
+            debtCreates.push(data);
+            return { id: 'debt-created', ...data };
+          },
+        },
+      }),
+  };
+
+  const created = await service.createCustomer(
+    { companyId: 7 },
+    {
+      name: 'Empresa Teste',
+      clientName: 'Cliente Final',
+      whatsappNumber: '+55 11 98888-7777',
+      openAmount: 250.5,
+      registrationDate: '2026-03-20',
+    },
+  );
+
+  assert.equal(created.id, 'rec-created');
+  assert.equal(profileCreates.length, 1);
+  assert.equal(profileCreates[0].phoneNormalized, '5511988887777');
+  assert.equal(debtCreates.length, 1);
+  assert.equal(debtCreates[0].customerProfileId, 'profile-new');
+  assert.equal(debtCreates[0].status, 'open');
+  assert.equal(Number(debtCreates[0].amount), 250.5);
+});
+
 test('recovery customer resolution falls back to recovery message contactId when phone changed', async () => {
   const service = createService();
   service.prisma = {
