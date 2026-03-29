@@ -149,6 +149,57 @@ export class InboxService {
     return String(customer?.clientName || customer?.name || '').trim() || null;
   }
 
+  private normalizeConversationPhone(contact: string | null | undefined) {
+    return String(contact || '').replace(/\D/g, '').slice(-13) || null;
+  }
+
+  private async loadAtendimentoIdentityMap(companyId: number, contacts: Array<string | null | undefined>) {
+    const phoneNormalizeds = Array.from(
+      new Set(contacts.map((contact) => this.normalizeConversationPhone(contact)).filter(Boolean)),
+    ) as string[];
+
+    if (!phoneNormalizeds.length) return new Map<string, any>();
+
+    const rows = await this.prisma.atendimentoCustomer.findMany({
+      where: {
+        companyId,
+        phoneNormalized: { in: phoneNormalizeds },
+      },
+      select: {
+        id: true,
+        companyId: true,
+        customerProfileId: true,
+        name: true,
+        phone: true,
+        phoneNormalized: true,
+        registrationOrigin: true,
+        registrationStatus: true,
+        route: true,
+        customerProfile: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            document: true,
+            externalSource: true,
+            status: true,
+            sourceConnectionId: true,
+          },
+        },
+      },
+      orderBy: { updatedAt: 'desc' },
+    });
+
+    const byPhone = new Map<string, any>();
+    for (const row of rows) {
+      const phoneNormalized = String(row.phoneNormalized || '').trim();
+      if (phoneNormalized && !byPhone.has(phoneNormalized)) {
+        byPhone.set(phoneNormalized, row);
+      }
+    }
+    return byPhone;
+  }
+
   private async getConfigRow(companyId: number, channel: string, title: string) {
     return this.prisma.hbxRecoveryFlowStage.findFirst({
       where: { companyId, channel, title },
@@ -350,6 +401,7 @@ export class InboxService {
     companyId: number,
     conversation: any,
     routingRules: RecoveryRoutingRules,
+    identityRow?: any,
   ) {
     const displayName = await this.resolveConversationDisplayName(
       companyId,
@@ -358,6 +410,9 @@ export class InboxService {
     );
     const routeContext = await this.resolveRecoveryRoutingContext(companyId, conversation, routingRules);
     const blockedState = this.getAtendimentoBlockedState(conversation.metadata);
+    const profile = identityRow?.customerProfile || null;
+    const customerName =
+      String(identityRow?.name || profile?.name || displayName || '').trim() || null;
     return {
       id: String(conversation.id),
       status: this.toInboxStatus(conversation),
@@ -391,9 +446,17 @@ export class InboxService {
       blockedReason: blockedState.blockedReason,
       metadata: this.parseConversationMetadata(conversation.metadata),
       customer: {
-        id: String(conversation.id),
-        phone: String(conversation.contact || ''),
-        name: displayName,
+        id: String(identityRow?.id || conversation.id),
+        phone: String(identityRow?.phone || conversation.contact || ''),
+        name: customerName,
+        customerProfileId: profile?.id ? String(profile.id) : identityRow?.customerProfileId ? String(identityRow.customerProfileId) : null,
+        email: profile?.email ? String(profile.email) : null,
+        document: profile?.document ? String(profile.document) : null,
+        customerProfileStatus: profile?.status ? String(profile.status) : null,
+        customerProfileSource: profile?.externalSource ? String(profile.externalSource) : null,
+        sourceConnectionId: profile?.sourceConnectionId ? String(profile.sourceConnectionId) : null,
+        registrationOrigin: identityRow?.registrationOrigin ? String(identityRow.registrationOrigin) : null,
+        registrationStatus: identityRow?.registrationStatus ? String(identityRow.registrationStatus) : null,
       },
       messages: (conversation.messages || []).map((message: any) => ({
         id: String(message.id),
@@ -465,7 +528,20 @@ export class InboxService {
         },
       },
     });
-    return Promise.all(rows.map((row) => this.mapConversation(companyId, row, routingRules)));
+    const identityMap = await this.loadAtendimentoIdentityMap(
+      companyId,
+      rows.map((row) => String(row.contact || '')),
+    );
+    return Promise.all(
+      rows.map((row) =>
+        this.mapConversation(
+          companyId,
+          row,
+          routingRules,
+          identityMap.get(this.normalizeConversationPhone(String(row.contact || '')) || ''),
+        ),
+      ),
+    );
   }
 
   private async getConversationByIdForCompany(companyId: number, id: number) {
@@ -477,7 +553,13 @@ export class InboxService {
       },
     });
     if (!conversation) throw new NotFoundException('Conversation not found');
-    return this.mapConversation(companyId, conversation, routingRules);
+    const identityMap = await this.loadAtendimentoIdentityMap(companyId, [String(conversation.contact || '')]);
+    return this.mapConversation(
+      companyId,
+      conversation,
+      routingRules,
+      identityMap.get(this.normalizeConversationPhone(String(conversation.contact || '')) || ''),
+    );
   }
 
   async getConversationById(user: any, id: number) {
