@@ -1,14 +1,14 @@
 .actionButton {
-  min-height: 74px !important;
+  min-height: 70px !important;
   justify-content: flex-start !important;
-  padding: 0.8rem 0.9rem !important;
+  padding: 0.78rem 0.82rem !important;
   border-radius: 22px !important;
   text-align: left;
   display: grid !important;
-  grid-template-columns: 42px minmax(0, 1fr);
-  gap: 0.75rem;
+  grid-template-columns: 38px minmax(0, 1fr);
+  gap: 0.58rem;
   align-items: center;
-  white-space: normal;
+  white-space: nowrap;
 }
 
 .actionButtonDanger {
@@ -19,9 +19,9 @@
 }
 
 .actionIcon {
-  width: 42px;
-  height: 42px;
-  border-radius: 16px;
+  width: 38px;
+  height: 38px;
+  border-radius: 14px;
   display: grid;
   place-items: center;
   border: 1px solid rgba(255, 255, 255, 0.54);
@@ -38,16 +38,17 @@
 }
 
 .actionIcon svg {
-  width: 18px;
-  height: 18px;
+  width: 16px;
+  height: 16px;
 }
 
 .actionLabel {
   min-width: 0;
   color: inherit;
-  font-size: 0.74rem;
+  font-size: 0.66rem;
   font-weight: 900;
-  line-height: 1.18;
-  word-break: keep-all;
-  overflow-wrap: anywhere;
+  line-height: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }

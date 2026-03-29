@@ -146,6 +146,7 @@
     border-color var(--motion-fast),
     box-shadow var(--motion-fast),
     background-color var(--motion-fast);
+  animation: premium-chat-rise 180ms ease both;
 }
 
 .queueItem::before {
@@ -494,6 +495,7 @@
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.9),
     0 10px 22px rgba(15, 23, 42, 0.055);
+  animation: premium-chat-bubble-in 220ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
 }
 
 .bubbleHeader {
@@ -752,6 +754,30 @@
   font-size: 0.72rem;
   line-height: 1.42;
   color: var(--muted);
+}
+
+@keyframes premium-chat-rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes premium-chat-bubble-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.985);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }
 
 @media (max-width: 900px) {
