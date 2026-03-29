@@ -18,6 +18,102 @@ type CustomerProfileInput = {
 export class CustomerProfileService {
   constructor(private readonly prisma: PrismaService) {}
 
+  private normalizeSource(value: unknown) {
+    return String(value || '').trim().toLowerCase() || null;
+  }
+
+  private normalizeStatus(value: unknown) {
+    return String(value || '').trim().toLowerCase() || null;
+  }
+
+  private sourcePriority(value: unknown) {
+    switch (this.normalizeSource(value)) {
+      case 'manual':
+        return 400;
+      case 'recovery':
+        return 350;
+      case 'atendimento':
+        return 300;
+      case 'whatsapp_bot':
+        return 100;
+      default:
+        return 200;
+    }
+  }
+
+  private scoreNameQuality(value: unknown) {
+    const normalized = this.normalizeText(value);
+    if (!normalized) return 0;
+
+    const compact = normalized
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase();
+    const tokens = compact.split(/\s+/).filter(Boolean);
+    const lettersOnly = compact.replace(/[^a-z]/g, '');
+
+    if (!lettersOnly) return 0;
+    if (/^(oi|ola|ol[áa]|teste|test|cliente|contato|user|usuario|unknown|semnome|sem nome|whatsapp)$/.test(compact)) {
+      return 1;
+    }
+
+    let score = 1;
+    if (lettersOnly.length >= 3) score += 1;
+    if (lettersOnly.length >= 6) score += 1;
+    if (tokens.length >= 2) score += 1;
+    if (!/\d/.test(compact)) score += 1;
+    return score;
+  }
+
+  private sanitizeNameForPolicy(name: string | null, source: string | null, status: string | null) {
+    if (!name) return null;
+    const sourcePriority = this.sourcePriority(source);
+    const statusNormalized = this.normalizeStatus(status);
+    const quality = this.scoreNameQuality(name);
+
+    if (sourcePriority <= 100 && statusNormalized === 'provisional' && quality < 3) {
+      return null;
+    }
+
+    return name;
+  }
+
+  private shouldReplaceName(existing: any, payload: any) {
+    if (!payload.name) return false;
+    if (!existing.name) return true;
+
+    const existingName = this.normalizeText(existing.name);
+    const incomingName = this.normalizeText(payload.name);
+    if (!existingName || !incomingName) return Boolean(incomingName && !existingName);
+    if (existingName.localeCompare(incomingName, 'pt-BR', { sensitivity: 'base' }) === 0) return false;
+
+    const existingScore = this.scoreNameQuality(existingName);
+    const incomingScore = this.scoreNameQuality(incomingName);
+    const existingStatus = this.normalizeStatus(existing.status);
+    const existingSourcePriority = this.sourcePriority(existing.externalSource);
+    const incomingSourcePriority = this.sourcePriority(payload.externalSource);
+
+    if (incomingScore <= existingScore) return false;
+    if (existingStatus === 'provisional') return true;
+    return incomingSourcePriority > existingSourcePriority;
+  }
+
+  private mergeStatus(existingStatus: unknown, incomingStatus: unknown) {
+    const current = this.normalizeStatus(existingStatus);
+    const next = this.normalizeStatus(incomingStatus);
+    if (!next) return current;
+    if (!current) return next;
+    if (current === 'active') return current;
+    if (current === 'provisional' && next === 'active') return next;
+    return current;
+  }
+
+  private shouldReplaceExternalSource(existing: any, payload: any) {
+    if (!payload.externalSource) return false;
+    if (!existing.externalSource) return true;
+    return this.sourcePriority(payload.externalSource) > this.sourcePriority(existing.externalSource);
+  }
+
   private isUniqueConstraintError(error: unknown) {
     return Boolean(error) && typeof error === 'object' && (error as any).code === 'P2002';
   }
@@ -233,20 +329,27 @@ export class CustomerProfileService {
     });
 
     if (existing) {
+      const mergedStatus = this.mergeStatus(existing.status, payload.status);
+      const updateData = {
+        ...(this.shouldReplaceName(existing, payload) ? { name: payload.name } : {}),
+        ...(payload.phone && !existing.phone ? { phone: payload.phone } : {}),
+        ...(payload.phoneNormalized && !existing.phoneNormalized ? { phoneNormalized: payload.phoneNormalized } : {}),
+        ...(payload.email && !existing.email ? { email: payload.email } : {}),
+        ...(payload.document && !existing.document ? { document: payload.document } : {}),
+        ...(this.shouldReplaceExternalSource(existing, payload) ? { externalSource: payload.externalSource } : {}),
+        ...(payload.externalCustomerId && !existing.externalCustomerId ? { externalCustomerId: payload.externalCustomerId } : {}),
+        ...(payload.sourceConnectionId && !existing.sourceConnectionId ? { sourceConnectionId: payload.sourceConnectionId } : {}),
+        ...(payload.notes !== null && payload.notes !== undefined ? { notes: payload.notes } : {}),
+        ...(mergedStatus && mergedStatus !== this.normalizeStatus(existing.status) ? { status: mergedStatus } : {}),
+      };
+
+      if (!Object.keys(updateData).length) {
+        return existing;
+      }
+
       const row = await this.prisma.customerProfile.update({
         where: { id: existing.id },
-        data: {
-          ...(payload.name && !existing.name ? { name: payload.name } : {}),
-          ...(payload.phone && !existing.phone ? { phone: payload.phone } : {}),
-          ...(payload.phoneNormalized && !existing.phoneNormalized ? { phoneNormalized: payload.phoneNormalized } : {}),
-          ...(payload.email && !existing.email ? { email: payload.email } : {}),
-          ...(payload.document && !existing.document ? { document: payload.document } : {}),
-          ...(payload.externalSource && !existing.externalSource ? { externalSource: payload.externalSource } : {}),
-          ...(payload.externalCustomerId && !existing.externalCustomerId ? { externalCustomerId: payload.externalCustomerId } : {}),
-          ...(payload.sourceConnectionId && !existing.sourceConnectionId ? { sourceConnectionId: payload.sourceConnectionId } : {}),
-          ...(payload.notes !== null && payload.notes !== undefined ? { notes: payload.notes } : {}),
-          ...(payload.status ? { status: payload.status } : {}),
-        },
+        data: updateData,
       });
       return this.buildProfileRecord(row);
     }
@@ -255,17 +358,20 @@ export class CustomerProfileService {
   }
 
   private normalizeProfilePayload(input: CustomerProfileInput, opts?: { allowEmpty?: boolean; partial?: boolean }) {
+    const normalizedStatus = this.normalizeText(input.status) || 'active';
+    const normalizedSource = this.normalizeText(input.externalSource);
+    const normalizedName = this.sanitizeNameForPolicy(this.normalizeText(input.name), normalizedSource, normalizedStatus);
     const payload = {
       companyId: Number(input.companyId),
       sourceConnectionId: this.normalizeText(input.sourceConnectionId),
-      name: this.normalizeText(input.name),
+      name: normalizedName,
       phone: this.normalizeText(input.phone),
       phoneNormalized: this.normalizePhone(input.phone),
       email: this.normalizeEmail(input.email),
       document: this.normalizeDocument(input.document),
-      externalSource: this.normalizeText(input.externalSource),
+      externalSource: normalizedSource,
       externalCustomerId: this.normalizeText(input.externalCustomerId),
-      status: this.normalizeText(input.status) || 'active',
+      status: normalizedStatus,
       notes: this.normalizeText(input.notes),
     };
 

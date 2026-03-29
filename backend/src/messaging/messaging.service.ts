@@ -674,32 +674,10 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     const phoneNormalized = this.customerProfileService.normalizePhone(input.phone);
     if (!phoneNormalized) return null;
 
-    const normalizedName = this.normalizeCustomerProfileName(input.name);
-    const existing = await this.customerProfileService.findPreferredProfileByPhoneNormalized(
-      input.companyId,
-      phoneNormalized,
-    );
-
-    if (existing) {
-      const patch: Record<string, string> = {};
-      if (normalizedName && !existing.name) {
-        patch.name = normalizedName;
-      }
-      if (
-        this.shouldPromoteAtendimentoProfile(input.registrationStatus) &&
-        String(existing.status || '').trim().toLowerCase() === 'provisional'
-      ) {
-        patch.status = 'active';
-      }
-      if (Object.keys(patch).length) {
-        return this.customerProfileService.updateProfile(input.companyId, existing.id, patch);
-      }
-      return existing;
-    }
-
-    return this.customerProfileService.createProfile(input.companyId, {
+    return this.customerProfileService.upsertProfile({
+      companyId: input.companyId,
       phone: input.phone,
-      name: normalizedName,
+      name: this.normalizeCustomerProfileName(input.name),
       externalSource: input.registrationOrigin || 'whatsapp_bot',
       status: this.shouldPromoteAtendimentoProfile(input.registrationStatus) ? 'active' : 'provisional',
     });

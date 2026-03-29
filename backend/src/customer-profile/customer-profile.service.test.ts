@@ -79,3 +79,101 @@ test('upsertProfile retries read after P2002 when concurrent create wins', async
   assert.equal(result.id, 'profile-2');
   assert.equal(findFirstCalls, 2);
 });
+
+test('createProfile drops weak provisional whatsapp names instead of freezing them', async () => {
+  const createCalls: Array<Record<string, unknown>> = [];
+  const prisma = {
+    customerProfile: {
+      create: async ({ data }: any) => {
+        createCalls.push(data);
+        return buildProfileRow({
+          id: 'profile-weak',
+          name: data.name ?? null,
+          status: data.status,
+          externalSource: data.externalSource,
+        });
+      },
+    },
+  } as any;
+
+  const service = new CustomerProfileService(prisma);
+  const result = await service.createProfile(7, {
+    phone: '+55 19 99887-7766',
+    name: 'Oi',
+    externalSource: 'whatsapp_bot',
+    status: 'provisional',
+  });
+
+  assert.equal(createCalls.length, 1);
+  assert.equal(createCalls[0].name, null);
+  assert.equal(result.name, null);
+});
+
+test('upsertProfile retifies provisional whatsapp name when a better name arrives', async () => {
+  const updateCalls: Array<Record<string, unknown>> = [];
+  const existingRow = buildProfileRow({
+    id: 'profile-provisional',
+    name: 'Cliente',
+    status: 'provisional',
+    externalSource: 'whatsapp_bot',
+  });
+  const prisma = {
+    customerProfile: {
+      findFirst: async () => existingRow,
+      update: async ({ data }: any) => {
+        updateCalls.push(data);
+        return buildProfileRow({
+          ...existingRow,
+          ...data,
+        });
+      },
+    },
+  } as any;
+
+  const service = new CustomerProfileService(prisma);
+  const result = await service.upsertProfile({
+    companyId: 7,
+    phone: '+55 19 99887-7766',
+    name: 'Carlos Eduardo',
+    externalSource: 'recovery',
+    status: 'active',
+  });
+
+  assert.equal(updateCalls.length, 1);
+  assert.equal(updateCalls[0].name, 'Carlos Eduardo');
+  assert.equal(updateCalls[0].externalSource, 'recovery');
+  assert.equal(updateCalls[0].status, 'active');
+  assert.equal(result.name, 'Carlos Eduardo');
+});
+
+test('upsertProfile does not downgrade a strong active name with weak whatsapp input', async () => {
+  let updateCalled = false;
+  const existingRow = buildProfileRow({
+    id: 'profile-active',
+    name: 'Carlos Eduardo',
+    status: 'active',
+    externalSource: 'manual',
+  });
+  const prisma = {
+    customerProfile: {
+      findFirst: async () => existingRow,
+      update: async () => {
+        updateCalled = true;
+        return existingRow;
+      },
+    },
+  } as any;
+
+  const service = new CustomerProfileService(prisma);
+  const result = await service.upsertProfile({
+    companyId: 7,
+    phone: '+55 19 99887-7766',
+    name: 'Oi',
+    externalSource: 'whatsapp_bot',
+    status: 'provisional',
+  });
+
+  assert.equal(updateCalled, false);
+  assert.equal(result.name, 'Carlos Eduardo');
+  assert.equal(result.status, 'active');
+});
