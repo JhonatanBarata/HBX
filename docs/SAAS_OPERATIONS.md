@@ -24,17 +24,20 @@ O projeto passa a operar com separacao explicita entre estrutura e operacao:
 1. Suba o ambiente local com `npm run up`.
 2. Se precisar de base limpa e previsivel para desenvolvimento, rode `npm run seed:dev`.
 3. Desenvolva localmente, teste, refatore e descarte dados locais sem medo.
-4. Antes de publicar, rode `npm run publish -- --dry-run` se quiser validar sem commit/push.
-5. Quando o codigo estiver pronto, rode `npm run publish`.
-6. O proprio `publish` cria um backup novo do banco remoto, publica o codigo e espera a verificacao pos-deploy.
-7. Se a verificacao passar, o fluxo remove backups remotos anteriores e mantem apenas o backup mais recente.
-8. Se a verificacao falhar, os backups anteriores sao preservados para rollback.
+4. Quando quiser consolidar alteracoes, rode `npm run commit -- "mensagem aqui"` no `master`.
+5. Antes de publicar, rode `npm run publish -- --dry-run` se quiser validar a estrutura atual sem push.
+6. Quando o codigo ja estiver commitado no `master`, rode `npm run publish`.
+7. O `publish` cria um backup novo do banco remoto, publica o `HEAD` atual do `master` e espera a verificacao pos-deploy.
+8. Se a verificacao passar, o fluxo remove backups remotos anteriores e mantem apenas o backup mais recente.
+9. Se a verificacao falhar, os backups anteriores sao preservados para rollback.
 
 ## Scripts Finais
 
-- `npm run up`: sobe backend local em Docker, frontend local e Prisma Studio com protecao contra banco remoto no host.
+- `npm run up`: sobe backend local em Docker, frontend local e valida `http://localhost:3000/health` e `http://localhost:3001`; Prisma Studio sobe somente quando `backend/.env` estiver pronto para uso local no host.
 - `npm run down`: derruba o ambiente local.
-- `npm run publish`: valida repo, ambiente local, Prisma, seed estrutural e builds; cria backup remoto; faz commit/push; verifica o deploy; e rotaciona backups antigos apenas em caso de sucesso.
+- `npm run build`: executa build de backend e frontend a partir da raiz.
+- `npm run commit`: faz `git add -A` na estrutura principal e cria um commit unico no `master`, sem push automatico.
+- `npm run publish`: valida repo limpo no `master`, ambiente local, Prisma, seed estrutural e builds; cria backup remoto; faz push do `HEAD` atual; verifica o deploy; e rotaciona backups antigos apenas em caso de sucesso.
 - `npm run seed:dev`: aplica seed estrutural no banco local e cria um sandbox de desenvolvimento previsivel.
 - `npm run backup:prod`: gera dump SQL do banco remoto em `backups/prod/<timestamp>/` e recusa localhost por seguranca.
 - `npm run verify:prod`: verifica health endpoint, status de migrations e coerencia estrutural do banco de producao, sempre contra URLs remotas.
@@ -71,8 +74,8 @@ Crie um arquivo local baseado em [.env.production.example](.env.production.examp
 - `PROD_BACKEND_URL`: URL publica do backend para healthcheck.
 - `PROD_FRONTEND_URL`: URL publica do frontend para validacao simples.
 - `PROD_DATABASE_URL`: conexao do banco remoto para backup e verificacao.
-- `PUBLISH_REMOTE`: remoto git do publish, padrao `origin`.
-- `PUBLISH_BRANCH`: branch de destino do publish, padrao `master`.
+
+O fluxo oficial de publicacao assume `origin/master` como destino unico.
 
 ## Webscraping no Render
 
@@ -95,4 +98,4 @@ O primeiro passo operacional, daqui para frente, e criar seu arquivo local de op
 npm run publish -- --dry-run
 ```
 
-Esse comando valida que o fluxo novo esta coerente sem publicar nada.
+Esse comando valida que o fluxo novo esta coerente sem push e sem alterar o historico git.

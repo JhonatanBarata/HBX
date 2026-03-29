@@ -80,6 +80,7 @@ model Company {
   debtCases            DebtCase[]
   integrationConnections IntegrationConnection[]
   integrationSyncRuns  IntegrationSyncRun[]
+  auvoExternalRecords  AuvoExternalRecord[]
   whatsappEndpoints    CompanyWhatsAppEndpoint[]
   techAssistantInteractions TechAssistantInteraction[]
   masterAssumedContextSessions MasterAssumedContextSession[]
@@ -356,6 +357,8 @@ model IntegrationConnection {
   secretPreview      String?
   status             String   @default("DISCONNECTED")
   lastTestedAt       DateTime?
+  lastTestStatus     String?
+  lastTestMessage    String?
   lastSyncAt         DateTime?
   lastSuccessAt      DateTime?
   lastError          String?
@@ -365,6 +368,7 @@ model IntegrationConnection {
   customerProfiles   CustomerProfile[]
   debtCases          DebtCase[]
   syncRuns           IntegrationSyncRun[]
+  auvoExternalRecords AuvoExternalRecord[]
 
   @@index([companyId, provider, isActive])
   @@index([companyId, status, lastSyncAt])
@@ -376,20 +380,50 @@ model IntegrationSyncRun {
   companyId         Int
   connection        IntegrationConnection @relation(fields: [connectionId], references: [id])
   connectionId      String
+  provider          String?
   type              String
+  triggerType       String?
+  triggeredByUserId Int?
   startedAt         DateTime @default(now())
   finishedAt        DateTime?
-  status            String   @default("running")
+  status            String   @default("RUNNING")
   importedCount     Int      @default(0)
   updatedCount      Int      @default(0)
+  skippedCount      Int      @default(0)
+  errorCount        Int      @default(0)
   failedCount       Int      @default(0)
   checkpoint        String?
   errorLog          String?
+  errorSummary      String?
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
   @@index([companyId, status, startedAt])
   @@index([connectionId, startedAt])
+}
+
+model AuvoExternalRecord {
+  id                 String   @id @default(cuid())
+  company            Company  @relation(fields: [companyId], references: [id])
+  companyId          Int
+  connection         IntegrationConnection @relation(fields: [connectionId], references: [id])
+  connectionId       String
+  externalId         String
+  title              String?
+  status             String?
+  scheduledStart     DateTime?
+  scheduledEnd       DateTime?
+  technicianName     String?
+  customerName       String?
+  sourceUpdatedAt    DateTime?
+  rawPayloadJson     String?
+  rawPayloadSummaryJson String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@unique([companyId, externalId])
+  @@index([connectionId, sourceUpdatedAt])
+  @@index([companyId, status])
 }
 
 model Conversation {

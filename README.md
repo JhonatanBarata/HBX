@@ -6,12 +6,16 @@ Aplicação SaaS multi-tenant com backend NestJS, frontend Next.js, Prisma e Pos
 
 - Desenvolvimento local: `npm run up`
 - Encerramento local: `npm run down`
+- Build integrado: `npm run build`
+- Commit unico no master: `npm run commit -- "mensagem aqui"`
 - Seed local controlado: `npm run seed:dev`
 - Publicação de código: `npm run publish`
 - Backup do banco de produção: `npm run backup:prod`
 - Verificação pós-deploy: `npm run verify:prod`
 
-`npm run publish` valida o projeto, cria backup do banco remoto, publica o código, verifica o deploy e mantém apenas o backup remoto mais recente quando tudo termina bem. Ele não sincroniza automaticamente o banco local para produção.
+`npm run commit` faz `git add -A` na estrutura principal e cria um commit unico no `master`, sem push automatico.
+
+`npm run publish` publica somente o `HEAD` ja commitado no `master`. O script falha se houver working tree sujo, valida o projeto, cria backup do banco remoto, faz push do `master`, verifica o deploy e mantém apenas o backup remoto mais recente quando tudo termina bem. Ele não sincroniza automaticamente o banco local para produção.
 
 ## Ambientes
 
@@ -38,10 +42,9 @@ Para salvar o projeto antes de formatar a maquina e reconstruir o ambiente depoi
 ## Observações
 
 - `npm run up` recusa `backend/.env` apontando para banco remoto no host, para evitar abrir Prisma Studio ou ferramentas locais contra produção por engano.
-- `npm run publish` roda preflight de Prisma, build e coerência estrutural antes de qualquer commit/push.
+- `npm run up` valida backend em `http://localhost:3000/health` e frontend em `http://localhost:3001`; Prisma Studio vira opcional se `backend/.env` nao estiver pronto para o host.
+- `npm run publish` roda preflight de Prisma, build e coerência estrutural antes de qualquer push.
 - `npm run publish` também faz backup remoto antes do push e só rota backups antigos quando a verificação pós-deploy passa.
 - `npm run backup:prod` e `npm run verify:prod` recusam targets locais e só aceitam URLs remotas de produção.
 - O bootstrap do usuário master é controlado por ambiente; em produção o padrão oficial continua sendo `BOOTSTRAP_SYSTEM_MASTER=false`.
 - Os comandos operacionais de produção usam variáveis documentadas em [.env.production.example](.env.production.example).
-
-<!-- automated publish trigger: noop change to allow publish script to run -->
