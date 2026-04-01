@@ -449,6 +449,9 @@ type ConfirmActionState = {
   description: string;
   confirmLabel: string;
   tone: "primary" | "danger";
+  details?: string[];
+  confirmationKeyword?: string;
+  confirmationInputLabel?: string;
   run: () => Promise<void>;
 };
 
@@ -459,7 +462,8 @@ type DrawerTab =
   | "modules"
   | "website"
   | "integrations"
-  | "audit";
+  | "audit"
+  | "danger";
 
 const FILTERS = [
   { id: "all", label: "Todos" },
@@ -474,12 +478,13 @@ const FILTERS = [
 
 const TABS: Array<{ id: DrawerTab; label: string }> = [
   { id: "summary", label: "Resumo" },
-  { id: "finance", label: "Financeiro" },
+  { id: "finance", label: "Cobrança" },
   { id: "users", label: "Usuários" },
   { id: "modules", label: "Módulos" },
   { id: "website", label: "Website" },
   { id: "integrations", label: "Integrações" },
   { id: "audit", label: "Auditoria" },
+  { id: "danger", label: "Perigo" },
 ];
 
 function formatCurrency(value?: number | null) {
@@ -621,6 +626,86 @@ function statusTone(bucket: StatusBucket) {
   if (bucket === "TRIAL" || bucket === "TRIAL_ENDING") return "warning";
   if (bucket === "OVERDUE" || bucket === "SUSPENDED" || bucket === "NO_METHOD") return "danger";
   return "neutral";
+}
+
+function formatDayCount(value?: number | null) {
+  if (value == null || !Number.isFinite(value)) return "-";
+  const amount = Math.abs(Math.trunc(value));
+  return `${amount} ${amount === 1 ? "dia" : "dias"}`;
+}
+
+function buildOperationalRule(company: CompanySummary) {
+  const subscriptionStatus = String(company.subscriptionStatus || "").trim().toLowerCase();
+  const paymentStatus = String(company.paymentStatus || "").trim().toUpperCase();
+  const accessLimit =
+    paymentStatus === "PAID" || subscriptionStatus === "active"
+      ? company.subscriptionCurrentPeriodEnd || company.nextDueAt
+      : paymentStatus === "TRIAL" || subscriptionStatus === "trialing"
+        ? company.trialEndsAt
+        : company.nextDueAt || company.subscriptionCurrentPeriodEnd || company.trialEndsAt;
+
+  if (!company.isActive) {
+    if (paymentStatus === "DISABLED") {
+      return "Empresa arquivada ou suspensa. O acesso operacional permanece bloqueado até nova ação administrativa.";
+    }
+    if (company.daysOverdue > 0 && accessLimit) {
+      return `Acesso bloqueado. O vencimento passou em ${formatDayCount(company.daysOverdue)} desde ${formatDate(accessLimit)}.`;
+    }
+    if (accessLimit) {
+      return `Acesso bloqueado. A última janela operacional válida foi até ${formatDate(accessLimit)}.`;
+    }
+    return "Acesso bloqueado até nova ação administrativa.";
+  }
+
+  if (paymentStatus === "TRIAL" || subscriptionStatus === "trialing") {
+    if (company.trialRemainingDays != null && company.trialRemainingDays >= 0) {
+      return `Se não pagar, perde acesso em ${formatDayCount(company.trialRemainingDays)}.`;
+    }
+    if (company.trialEndsAt) {
+      return `Trial em curso até ${formatDate(company.trialEndsAt)}.`;
+    }
+    return "Trial ativo sem data final definida.";
+  }
+
+  if (paymentStatus === "PAID" || subscriptionStatus === "active") {
+    if (accessLimit) {
+      return `Acesso liberado até ${formatDate(accessLimit)}.`;
+    }
+    return "Acesso liberado enquanto a cobrança permanecer regular.";
+  }
+
+  if (company.daysOverdue > 0) {
+    if (accessLimit) {
+      return `Se não regularizar, o acesso fica comprometido desde ${formatDate(accessLimit)}.`;
+    }
+    return `Empresa em atraso há ${formatDayCount(company.daysOverdue)}.`;
+  }
+
+  if (accessLimit) {
+    return `Se não pagar, perde acesso em ${formatDate(accessLimit)}.`;
+  }
+
+  return "Status operacional depende da próxima ação financeira.";
+}
+
+function buildStatusExplanation(company: CompanySummary) {
+  if (company.paymentStatus === "PAID") {
+    return "Cobrança operacional marcada como paga. Isso não significa, por si só, que existe ledger financeiro lançado.";
+  }
+  if (company.paymentStatus === "TRIAL") {
+    return "Cliente em trial. Sem lançamento financeiro automático até que você registre cobrança manual ou adote outra régua.";
+  }
+  if (company.paymentStatus === "OVERDUE" || company.paymentStatus === "PENDING") {
+    return "Cliente com cobrança pendente. O ledger real só existe quando um lançamento manual é registrado.";
+  }
+  if (company.paymentStatus === "DISABLED" || company.paymentStatus === "EXPIRED") {
+    return "Acesso bloqueado por regra operacional. Esse estado não cria cobrança automática nem lança financeiro.";
+  }
+  return company.financialSituation || "Sem leitura financeira consolidada.";
+}
+
+function isArchivedOrSuspended(company: CompanySummary) {
+  return !company.isActive && String(company.paymentStatus || "").trim().toUpperCase() === "DISABLED";
 }
 
 function initials(label?: string | null) {
@@ -1039,6 +1124,7 @@ export default function MasterPremiumPage() {
   const [userModal, setUserModal] = useState<UserModalState | null>(null);
   const [manualPaymentModal, setManualPaymentModal] = useState<ManualPaymentState | null>(null);
   const [confirmAction, setConfirmAction] = useState<ConfirmActionState | null>(null);
+  const [confirmActionInput, setConfirmActionInput] = useState("");
   const deferredSearch = useDeferredValue(search);
   const commercialModuleDrafts = useMemo(
     () =>
@@ -1137,6 +1223,12 @@ export default function MasterPremiumPage() {
     if (integrationsLoadedCompanyId === companyId) return;
     void loadCompanyIntegrations(companyId);
   }, [drawerOpen, drawerTab, detail?.company?.id, integrationsLoadedCompanyId]);
+
+  useEffect(() => {
+    if (confirmAction) {
+      setConfirmActionInput("");
+    }
+  }, [confirmAction]);
 
   useEffect(() => {
     const anyModalOpen =
@@ -1514,6 +1606,23 @@ export default function MasterPremiumPage() {
     }
   }
 
+  async function archiveCompany(companyId: number, reason: string) {
+    setBusyAction(`archive-${companyId}`);
+    setError(null);
+    try {
+      await apiFetch(`/companies/master/${companyId}/archive`, {
+        method: "POST",
+        body: JSON.stringify({ reason }),
+      });
+      setMessage("Empresa arquivada com sucesso. O acesso foi bloqueado e o histórico foi preservado.");
+      await refreshAll(companyId);
+    } catch (actionError) {
+      setError(actionError instanceof Error ? actionError.message : "Falha ao arquivar empresa.");
+    } finally {
+      setBusyAction(null);
+    }
+  }
+
   function openManualPayment(company: CompanySummary) {
     setManualPaymentModal({
       companyId: company.id,
@@ -1655,7 +1764,7 @@ export default function MasterPremiumPage() {
           premiumAccess: profileDraft.premiumAccess,
         }),
       });
-      setMessage("Perfil financeiro salvo.");
+      setMessage("Resumo da empresa salvo.");
       await refreshAll(activeCompany.id);
     } catch (actionError) {
       setError(actionError instanceof Error ? actionError.message : "Falha ao salvar perfil.");
@@ -2240,6 +2349,68 @@ export default function MasterPremiumPage() {
                 ) : null}
               </div>
 
+              <section className={styles.statusStrip}>
+                <div className={styles.statusStripHeader}>
+                  <div>
+                    <p className={styles.sectionEyebrow}>Faixa de status</p>
+                    <h3>Operação, trial e cobrança em leitura separada</h3>
+                    <p className={styles.statusRule}>{buildOperationalRule(activeCompany)}</p>
+                  </div>
+                  <div className={styles.modulePills}>
+                    <span className={badgeClass(statusTone(activeCompany.statusBucket))}>{bucketLabel(activeCompany.statusBucket)}</span>
+                    <span className="badge">{paymentStatusLabel(activeCompany.paymentStatus)}</span>
+                    <span className="badge">{subscriptionLabel(activeCompany.subscriptionStatus)}</span>
+                    <span className="badge">{paymentMethodLabel(activeCompany.paymentMethod)}</span>
+                  </div>
+                </div>
+
+                <div className={styles.statusStripGrid}>
+                  <article className={styles.statusMetricCard}>
+                    <span className={styles.statusMetricLabel}>Trial começa</span>
+                    <strong className={styles.statusMetricValue}>{formatDate(activeCompany.trialStartsAt)}</strong>
+                  </article>
+                  <article className={styles.statusMetricCard}>
+                    <span className={styles.statusMetricLabel}>Trial termina</span>
+                    <strong className={styles.statusMetricValue}>{formatDate(activeCompany.trialEndsAt)}</strong>
+                  </article>
+                  <article className={styles.statusMetricCard}>
+                    <span className={styles.statusMetricLabel}>Faltam de trial</span>
+                    <strong className={styles.statusMetricValue}>{formatDayCount(activeCompany.trialRemainingDays)}</strong>
+                  </article>
+                  <article className={styles.statusMetricCard}>
+                    <span className={styles.statusMetricLabel}>Próximo vencimento</span>
+                    <strong className={styles.statusMetricValue}>{formatDate(activeCompany.nextDueAt)}</strong>
+                  </article>
+                  <article className={styles.statusMetricCard}>
+                    <span className={styles.statusMetricLabel}>Dias em atraso</span>
+                    <strong className={styles.statusMetricValue}>{formatDayCount(activeCompany.daysOverdue)}</strong>
+                  </article>
+                  <article className={styles.statusMetricCard}>
+                    <span className={styles.statusMetricLabel}>Valor em aberto</span>
+                    <strong className={styles.statusMetricValue}>{formatCurrency(activeCompany.currentOutstandingValue)}</strong>
+                  </article>
+                  <article className={styles.statusMetricCard}>
+                    <span className={styles.statusMetricLabel}>Último pagamento</span>
+                    <strong className={styles.statusMetricValue}>{activeCompany.lastPayment ? formatDate(activeCompany.lastPayment.paidAt) : "Sem histórico"}</strong>
+                  </article>
+                  <article className={styles.statusMetricCard}>
+                    <span className={styles.statusMetricLabel}>Cobrança real</span>
+                    <strong className={styles.statusMetricValue}>{activeCompany.lastPayment ? "Com ledger" : "Sem ledger"}</strong>
+                  </article>
+                </div>
+
+                <div className={styles.noticeGrid}>
+                  <article className={styles.noticeCard}>
+                    <strong>Leitura financeira</strong>
+                    <p>{buildStatusExplanation(activeCompany)}</p>
+                  </article>
+                  <article className={styles.noticeCard}>
+                    <strong>Regra de negócio</strong>
+                    <p>Encerrar trial e marcar pago alteram o estado operacional. Ledger financeiro real nasce apenas por lançamento manual.</p>
+                  </article>
+                </div>
+              </section>
+
               <nav className={styles.drawerTabs}>
                 {TABS.map((tab) => (
                   <button key={tab.id} type="button" className={drawerTab === tab.id ? styles.drawerTabActive : styles.drawerTab} onClick={() => setDrawerTab(tab.id)}>
@@ -2249,128 +2420,228 @@ export default function MasterPremiumPage() {
               </nav>
 
               <div className={styles.drawerBody}>
-                {drawerTab === "finance" ? (
-                <section className={styles.summaryCard}>
-                  <div className={styles.summaryStats}>
-                    <div><span>Mensalidade</span><strong>{formatCurrency(activeCompany.monthlyValue)}</strong></div>
-                    <div><span>Próxima cobrança</span><strong>{formatDate(activeCompany.nextDueAt)}</strong></div>
-                    <div><span>Último pagamento</span><strong>{activeCompany.lastPayment ? formatDate(activeCompany.lastPayment.paidAt) : "Sem histórico"}</strong></div>
-                    <div><span>Dias em atraso</span><strong>{activeCompany.daysOverdue}</strong></div>
-                  </div>
-                  <div className={styles.drawerQuickActions}>
-                    <button type="button" className="btn btn-primary btn-sm" onClick={() => openManualPayment(activeCompany)}>Lançar pagamento manual</button>
-                    <input className="field" type="number" min="1" max="365" value={trialDaysDraft} onChange={(event) => setTrialDaysDraft(event.target.value)} />
-                    <button type="button" className="btn btn-secondary btn-sm" disabled={!Number(trialDaysDraft)} onClick={() => runTrialAction(activeCompany.id, { action: "extend", days: Number(trialDaysDraft) }, `Trial prorrogado em ${trialDaysDraft} dias.`)}>Aplicar dias</button>
-                    <input className="field" type="date" value={trialDateDraft} onChange={(event) => setTrialDateDraft(event.target.value)} />
-                    <button type="button" className="btn btn-secondary btn-sm" disabled={!trialDateDraft} onClick={() => runTrialAction(activeCompany.id, { action: "set_date", endsAt: `${trialDateDraft}T12:00:00` }, "Data do trial atualizada.")}>Definir data</button>
-                    <button type="button" className="btn btn-secondary btn-sm" onClick={() => setPaymentStatus(activeCompany.id, "PAID", "Cliente marcado como pago.")}>Marcar pago</button>
-                    <button type="button" className="btn btn-danger btn-sm" onClick={() => setConfirmAction({
-                      title: "Suspender cliente",
-                      description: `Isso vai suspender ${activeCompany.name} e desativar seus módulos.`,
-                      confirmLabel: "Suspender cliente",
-                      tone: "danger",
-                      run: async () => {
-                        setConfirmAction(null);
-                        await setPaymentStatus(activeCompany.id, "DISABLED", "Cliente suspenso.");
-                      },
-                    })}>Suspender</button>
-                  </div>
-                </section>
-                ) : null}
-
                 {drawerTab === "summary" ? (
-                  <section className={styles.summaryCard}>
-                    <div className={styles.panelCardHeader}>
-                      <div>
-                        <p className={styles.sectionEyebrow}>Resumo operacional</p>
-                        <h3>Contexto completo da empresa ativa</h3>
+                  <>
+                    <section className={styles.summaryCard}>
+                      <div className={styles.panelCardHeader}>
+                        <div>
+                          <p className={styles.sectionEyebrow}>Resumo</p>
+                          <h3>Identidade da empresa e contexto operacional</h3>
+                        </div>
+                        <div className={styles.rowActions}>
+                          <button type="button" className="btn btn-primary btn-sm" onClick={saveProfile}>
+                            Salvar resumo
+                          </button>
+                          <button type="button" className="btn btn-secondary btn-sm" onClick={() => openCompany(activeCompany.id, "finance")}>
+                            Ver cobrança
+                          </button>
+                          <button type="button" className="btn btn-secondary btn-sm" onClick={() => setDrawerTab("audit")}>
+                            Ver auditoria
+                          </button>
+                        </div>
                       </div>
-                      <div className={styles.rowActions}>
-                        <button type="button" className="btn btn-secondary btn-sm" onClick={() => openCompany(activeCompany.id, "finance")}>
-                          Ver pagamentos
-                        </button>
-                        <button type="button" className="btn btn-secondary btn-sm" onClick={() => setDrawerTab("audit")}>
-                          Ver auditoria
-                        </button>
+                      <div className={styles.formGrid}>
+                        <input className="field" placeholder="Nome da empresa" value={profileDraft?.name || ""} onChange={(event) => setProfileDraft((current) => current ? { ...current, name: event.target.value } : current)} />
+                        <input className="field" placeholder="Responsável" value={profileDraft?.primaryContactName || ""} onChange={(event) => setProfileDraft((current) => current ? { ...current, primaryContactName: event.target.value } : current)} />
+                        <input className="field" placeholder="E-mail principal" value={profileDraft?.contactEmail || ""} onChange={(event) => setProfileDraft((current) => current ? { ...current, contactEmail: event.target.value } : current)} />
+                        <input className="field" placeholder="Telefone principal" value={profileDraft?.contactPhone || ""} onChange={(event) => setProfileDraft((current) => current ? { ...current, contactPhone: event.target.value } : current)} />
+                        <input className="field" placeholder="CPF/CNPJ" value={profileDraft?.taxDocument || ""} onChange={(event) => setProfileDraft((current) => current ? { ...current, taxDocument: event.target.value } : current)} />
+                        <select className="field" value={profileDraft?.paymentMethod || "NONE"} onChange={(event) => setProfileDraft((current) => current ? { ...current, paymentMethod: event.target.value } : current)}>
+                          <option value="NONE">Sem método</option>
+                          <option value="CARD">Cartão</option>
+                          <option value="PIX">Pix</option>
+                          <option value="BOLETO">Boleto</option>
+                          <option value="MANUAL">Manual</option>
+                        </select>
+                        <select className="field" value={profileDraft?.subscriptionStatus || "trialing"} onChange={(event) => setProfileDraft((current) => current ? { ...current, subscriptionStatus: event.target.value } : current)}>
+                          <option value="trialing">Trial</option>
+                          <option value="active">Ativa</option>
+                          <option value="past_due">Em atraso</option>
+                          <option value="canceled">Cancelada</option>
+                          <option value="expired">Expirada</option>
+                        </select>
+                        <select className="field" value={profileDraft?.billingProvider || "manual"} onChange={(event) => setProfileDraft((current) => current ? { ...current, billingProvider: event.target.value } : current)}>
+                          <option value="manual">manual</option>
+                          <option value="mercadopago">mercadopago</option>
+                          <option value="stripe">stripe</option>
+                          <option value="apple">apple</option>
+                          <option value="google">google</option>
+                        </select>
+                        <label className={styles.checkboxCard}>
+                          <input type="checkbox" checked={Boolean(profileDraft?.premiumAccess)} onChange={(event) => setProfileDraft((current) => current ? { ...current, premiumAccess: event.target.checked } : current)} />
+                          Liberar acesso operacional manualmente
+                        </label>
                       </div>
-                    </div>
-                    <div className={styles.summaryMeta}>
-                      <p>Responsável: {activeCompany.primaryContactName || "Não definido"}</p>
-                      <p>Contato: {activeCompany.contactEmail || activeCompany.contactPhone || "Sem contato principal"}</p>
-                      <p>Plano: {activeCompany.plan?.name || "Sem plano"} • {formatCurrency(activeCompany.monthlyValue)}</p>
-                      <p>Cobrança: {subscriptionLabel(activeCompany.subscriptionStatus)} • {paymentMethodLabel(activeCompany.paymentMethod)}</p>
-                      <p>Website: {activeCompany.website.enabled ? "Habilitado" : "Desligado"} • {activeCompany.website.configured ? "Configurado" : "Pendente"}</p>
-                      <p>Módulos ativos: {activeCompany.modules.filter((module) => module.enabled).map((module) => module.name).join(", ") || "Nenhum módulo ativo"}</p>
-                    </div>
-                    <div className={styles.summaryStats}>
-                      <div><span>Trial inicia</span><strong>{formatDate(activeCompany.trialStartsAt)}</strong></div>
-                      <div><span>Trial termina</span><strong>{formatDate(activeCompany.trialEndsAt)}</strong></div>
-                      <div><span>Trial restante</span><strong>{activeCompany.trialRemainingDays != null ? `${activeCompany.trialRemainingDays} dia(s)` : "-"}</strong></div>
-                      <div><span>Valor em aberto</span><strong>{formatCurrency(activeCompany.currentOutstandingValue)}</strong></div>
-                    </div>
-                    <div className={styles.rowActions}>
-                      <button
-                        type="button"
-                        className="btn btn-secondary btn-sm"
-                        onClick={() => runTrialAction(activeCompany.id, { action: "reactivate", days: 7 }, "Trial reativado por 7 dias.")}
-                      >
-                        Reativar trial
-                      </button>
-                      <button
-                        type="button"
-                        className="btn btn-secondary btn-sm"
-                        onClick={() => setConfirmAction({
-                          title: "Encerrar trial",
-                          description: `O trial de ${activeCompany.name} será encerrado agora.`,
-                          confirmLabel: "Encerrar trial",
-                          tone: "danger",
-                          run: async () => {
-                            setConfirmAction(null);
-                            await runTrialAction(activeCompany.id, { action: "end" }, "Trial encerrado.");
-                          },
-                        })}
-                      >
-                        Encerrar trial
-                      </button>
-                      <button type="button" className="btn btn-secondary btn-sm" onClick={() => launchWebsite(activeCompany.id, "public")}>
-                        Abrir website
-                      </button>
-                      <button type="button" className="btn btn-secondary btn-sm" onClick={() => launchWebsite(activeCompany.id, "admin")}>
-                        Abrir admin
-                      </button>
-                    </div>
-                    <div className={styles.timeline}>
-                      {activeCompany.trialHistory.length ? (
-                        activeCompany.trialHistory.map((entry) => (
-                          <article key={entry.id} className={styles.timelineItem}>
-                            <div className={styles.timelineDot} />
-                            <div>
-                              <div className={styles.timelineTopline}>
-                                <strong>{entry.action}</strong>
-                                <span>{formatDateTime(entry.createdAt)}</span>
+                    </section>
+
+                    <section className={styles.summaryCard}>
+                      <div className={styles.panelCardHeader}>
+                        <div>
+                          <p className={styles.sectionEyebrow}>Panorama</p>
+                          <h3>Operação, website e módulos</h3>
+                        </div>
+                        <div className={styles.rowActions}>
+                          <button type="button" className="btn btn-secondary btn-sm" onClick={() => launchWebsite(activeCompany.id, "public")}>
+                            Abrir website
+                          </button>
+                          <button type="button" className="btn btn-secondary btn-sm" onClick={() => launchWebsite(activeCompany.id, "admin")}>
+                            Abrir admin
+                          </button>
+                        </div>
+                      </div>
+                      <div className={styles.summaryMeta}>
+                        <p>Plano atual: {activeCompany.plan?.name || "Sem plano"} • {formatCurrency(activeCompany.monthlyValue)}</p>
+                        <p>Cobrança operacional: {paymentStatusLabel(activeCompany.paymentStatus)} • {subscriptionLabel(activeCompany.subscriptionStatus)}</p>
+                        <p>Forma de pagamento: {paymentMethodLabel(activeCompany.paymentMethod)} • Provider: {activeCompany.billingProvider || "manual"}</p>
+                        <p>Website: {activeCompany.website.enabled ? "Habilitado" : "Desligado"} • {activeCompany.website.configured ? "Configurado" : "Pendente"}</p>
+                        <p>Módulos ativos: {activeCompany.modules.filter((module) => module.enabled).map((module) => module.name).join(", ") || "Nenhum módulo ativo"}</p>
+                        <p>Situação financeira: {buildStatusExplanation(activeCompany)}</p>
+                      </div>
+                    </section>
+
+                    <section className={styles.summaryCard}>
+                      <div className={styles.panelCardHeader}>
+                        <div>
+                          <p className={styles.sectionEyebrow}>Histórico de trial</p>
+                          <h3>Linha do tempo operacional</h3>
+                        </div>
+                      </div>
+                      <div className={styles.timeline}>
+                        {activeCompany.trialHistory.length ? (
+                          activeCompany.trialHistory.map((entry) => (
+                            <article key={entry.id} className={styles.timelineItem}>
+                              <div className={styles.timelineDot} />
+                              <div>
+                                <div className={styles.timelineTopline}>
+                                  <strong>{entry.action}</strong>
+                                  <span>{formatDateTime(entry.createdAt)}</span>
+                                </div>
+                                <p>{entry.scope}</p>
                               </div>
-                              <p>{entry.scope}</p>
-                            </div>
-                          </article>
-                        ))
-                      ) : (
-                        <div className={styles.emptyPanel}>Nenhum histórico de trial para esta empresa.</div>
-                      )}
-                    </div>
-                  </section>
+                            </article>
+                          ))
+                        ) : (
+                          <div className={styles.emptyPanel}>Nenhum histórico de trial para esta empresa.</div>
+                        )}
+                      </div>
+                    </section>
+                  </>
                 ) : null}
 
                 {drawerTab === "finance" ? (
-                  <section className={styles.summaryCard}>
-                    <div className={styles.panelCardHeader}>
-                      <div>
-                        <p className={styles.sectionEyebrow}>Financeiro</p>
-                        <h3>Configuração financeira e histórico</h3>
+                  <>
+                    <section className={styles.summaryCard}>
+                      <div className={styles.panelCardHeader}>
+                        <div>
+                          <p className={styles.sectionEyebrow}>Status atual</p>
+                          <h3>Operação e cobrança lidas separadamente</h3>
+                        </div>
                       </div>
-                      <div className={styles.rowActions}>
-                        <button type="button" className="btn btn-primary btn-sm" onClick={saveProfile}>
-                          Salvar financeiro
+                      <div className={styles.summaryMeta}>
+                        <p>paymentStatus: {paymentStatusLabel(activeCompany.paymentStatus)}</p>
+                        <p>subscriptionStatus: {subscriptionLabel(activeCompany.subscriptionStatus)}</p>
+                        <p>paymentMethod: {paymentMethodLabel(activeCompany.paymentMethod)}</p>
+                        <p>billingProvider: {activeCompany.billingProvider || "manual"}</p>
+                        <p>trialStartsAt: {formatDate(activeCompany.trialStartsAt)}</p>
+                        <p>trialEndsAt: {formatDate(activeCompany.trialEndsAt)}</p>
+                        <p>trialRemainingDays: {formatDayCount(activeCompany.trialRemainingDays)}</p>
+                        <p>nextDueAt: {formatDate(activeCompany.nextDueAt)}</p>
+                        <p>daysOverdue: {formatDayCount(activeCompany.daysOverdue)}</p>
+                        <p>currentOutstandingValue: {formatCurrency(activeCompany.currentOutstandingValue)}</p>
+                        <p>manualPaymentPending: {activeCompany.manualPaymentPending ? "Sim" : "Não"}</p>
+                        <p>recentCardFailure: {activeCompany.recentCardFailure ? "Sim" : "Não"}</p>
+                        <p>lastPayment: {activeCompany.lastPayment ? `${formatDateTime(activeCompany.lastPayment.paidAt)} • ${formatCurrency(activeCompany.lastPayment.amount)}` : "Sem histórico"}</p>
+                        <p>lastFailure: {activeCompany.lastFailure ? `${formatDateTime(activeCompany.lastFailure.createdAt)} • ${activeCompany.lastFailure.status}` : "Sem falha recente"}</p>
+                      </div>
+                      <div className={styles.noticeGrid}>
+                        <article className={styles.noticeCard}>
+                          <strong>Encerrar trial</strong>
+                          <p>Encerrar trial só bloqueia acesso, marca expirado e desativa módulos. Não gera cobrança automática.</p>
+                        </article>
+                        <article className={styles.noticeCard}>
+                          <strong>Marcar pago</strong>
+                          <p>Marcar pago sem ledger é apenas mudança operacional. Para financeiro real, use lançamento manual.</p>
+                        </article>
+                      </div>
+                    </section>
+
+                    <section className={styles.summaryCard}>
+                      <div className={styles.panelCardHeader}>
+                        <div>
+                          <p className={styles.sectionEyebrow}>Trial</p>
+                          <h3>Vigência, extensão e bloqueio de acesso</h3>
+                        </div>
+                      </div>
+                      <div className={styles.summaryStats}>
+                        <div><span>Começa em</span><strong>{formatDate(activeCompany.trialStartsAt)}</strong></div>
+                        <div><span>Termina em</span><strong>{formatDate(activeCompany.trialEndsAt)}</strong></div>
+                        <div><span>Faltam</span><strong>{formatDayCount(activeCompany.trialRemainingDays)}</strong></div>
+                        <div><span>Regra operacional</span><strong>{buildOperationalRule(activeCompany)}</strong></div>
+                      </div>
+                      <div className={styles.drawerQuickActions}>
+                        <input className="field" type="number" min="1" max="365" value={trialDaysDraft} onChange={(event) => setTrialDaysDraft(event.target.value)} />
+                        <button type="button" className="btn btn-secondary btn-sm" disabled={!Number(trialDaysDraft)} onClick={() => runTrialAction(activeCompany.id, { action: "extend", days: Number(trialDaysDraft) }, `Trial prorrogado em ${trialDaysDraft} dias.`)}>
+                          Prorrogar trial
                         </button>
+                        <button type="button" className="btn btn-secondary btn-sm" onClick={() => runTrialAction(activeCompany.id, { action: "reactivate", days: 7 }, "Trial reativado por 7 dias.")}>
+                          Reativar trial
+                        </button>
+                        <input className="field" type="date" value={trialDateDraft} onChange={(event) => setTrialDateDraft(event.target.value)} />
+                        <button type="button" className="btn btn-secondary btn-sm" disabled={!trialDateDraft} onClick={() => runTrialAction(activeCompany.id, { action: "set_date", endsAt: `${trialDateDraft}T12:00:00` }, "Data do trial atualizada.")}>
+                          Definir data final
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-danger btn-sm"
+                          onClick={() => setConfirmAction({
+                            title: "Encerrar trial",
+                            description: `O trial de ${activeCompany.name} será encerrado agora.`,
+                            confirmLabel: "Encerrar trial",
+                            tone: "danger",
+                            details: [
+                              "Desativa a empresa imediatamente.",
+                              "Desativa todos os módulos liberados para a empresa.",
+                              "Marca o cliente como expirado no plano operacional.",
+                              "Não cria cobrança automática nem gera ledger financeiro.",
+                            ],
+                            run: async () => {
+                              setConfirmAction(null);
+                              await runTrialAction(activeCompany.id, { action: "end" }, "Trial encerrado.");
+                            },
+                          })}
+                        >
+                          Encerrar trial
+                        </button>
+                      </div>
+                    </section>
+
+                    <section className={styles.summaryCard}>
+                      <div className={styles.panelCardHeader}>
+                        <div>
+                          <p className={styles.sectionEyebrow}>Cobrança</p>
+                          <h3>Cobrança operacional, provider e eventos recentes</h3>
+                        </div>
+                      </div>
+                      <div className={styles.summaryStats}>
+                        <div><span>Forma de pagamento</span><strong>{paymentMethodLabel(activeCompany.paymentMethod)}</strong></div>
+                        <div><span>Provider</span><strong>{activeCompany.billingProvider || "manual"}</strong></div>
+                        <div><span>Valor em aberto</span><strong>{formatCurrency(activeCompany.currentOutstandingValue)}</strong></div>
+                        <div><span>Mensalidade</span><strong>{formatCurrency(activeCompany.monthlyValue)}</strong></div>
+                      </div>
+                      <div className={styles.summaryMeta}>
+                        <p>Último pagamento: {activeCompany.lastPayment ? `${formatDateTime(activeCompany.lastPayment.paidAt)} • ${formatCurrency(activeCompany.lastPayment.amount)}` : "Sem histórico"}</p>
+                        <p>Última falha: {activeCompany.lastFailure ? `${formatDateTime(activeCompany.lastFailure.createdAt)} • ${activeCompany.lastFailure.status}` : "Sem falha recente"}</p>
+                        <p>Pagamento manual pendente: {activeCompany.manualPaymentPending ? "Sim" : "Não"}</p>
+                        <p>Falha recente em cartão: {activeCompany.recentCardFailure ? "Sim" : "Não"}</p>
+                      </div>
+                    </section>
+
+                    <section className={styles.summaryCard}>
+                      <div className={styles.panelCardHeader}>
+                        <div>
+                          <p className={styles.sectionEyebrow}>Histórico financeiro</p>
+                          <h3>Ledger real e lançamentos manuais</h3>
+                        </div>
                         <button
                           type="button"
                           className="btn btn-secondary btn-sm"
@@ -2390,40 +2661,7 @@ export default function MasterPremiumPage() {
                           Exportar histórico
                         </button>
                       </div>
-                    </div>
-                    <div className={styles.formGrid}>
-                      <input className="field" placeholder="Nome da empresa" value={profileDraft?.name || ""} onChange={(event) => setProfileDraft((current) => current ? { ...current, name: event.target.value } : current)} />
-                      <input className="field" placeholder="Responsável" value={profileDraft?.primaryContactName || ""} onChange={(event) => setProfileDraft((current) => current ? { ...current, primaryContactName: event.target.value } : current)} />
-                      <input className="field" placeholder="E-mail" value={profileDraft?.contactEmail || ""} onChange={(event) => setProfileDraft((current) => current ? { ...current, contactEmail: event.target.value } : current)} />
-                      <input className="field" placeholder="Telefone" value={profileDraft?.contactPhone || ""} onChange={(event) => setProfileDraft((current) => current ? { ...current, contactPhone: event.target.value } : current)} />
-                      <input className="field" placeholder="CPF/CNPJ" value={profileDraft?.taxDocument || ""} onChange={(event) => setProfileDraft((current) => current ? { ...current, taxDocument: event.target.value } : current)} />
-                      <select className="field" value={profileDraft?.paymentMethod || "NONE"} onChange={(event) => setProfileDraft((current) => current ? { ...current, paymentMethod: event.target.value } : current)}>
-                        <option value="NONE">Sem método</option>
-                        <option value="CARD">Cartão</option>
-                        <option value="PIX">Pix</option>
-                        <option value="BOLETO">Boleto</option>
-                        <option value="MANUAL">Manual</option>
-                      </select>
-                      <select className="field" value={profileDraft?.subscriptionStatus || "trialing"} onChange={(event) => setProfileDraft((current) => current ? { ...current, subscriptionStatus: event.target.value } : current)}>
-                        <option value="trialing">Trial</option>
-                        <option value="active">Ativa</option>
-                        <option value="past_due">Em atraso</option>
-                        <option value="canceled">Cancelada</option>
-                        <option value="expired">Expirada</option>
-                      </select>
-                      <select className="field" value={profileDraft?.billingProvider || "manual"} onChange={(event) => setProfileDraft((current) => current ? { ...current, billingProvider: event.target.value } : current)}>
-                        <option value="manual">manual</option>
-                        <option value="mercadopago">mercadopago</option>
-                        <option value="stripe">stripe</option>
-                        <option value="apple">apple</option>
-                        <option value="google">google</option>
-                      </select>
-                      <label className={styles.checkboxCard}>
-                        <input type="checkbox" checked={Boolean(profileDraft?.premiumAccess)} onChange={(event) => setProfileDraft((current) => current ? { ...current, premiumAccess: event.target.checked } : current)} />
-                        Liberar acesso operacional mesmo fora da régua automática
-                      </label>
-                    </div>
-                    <div className={styles.historyTableWrap}>
+                      <div className={styles.historyTableWrap}>
                       <table className={styles.historyTable}>
                         <thead>
                           <tr>
@@ -2477,8 +2715,75 @@ export default function MasterPremiumPage() {
                           ))}
                         </tbody>
                       </table>
-                    </div>
-                  </section>
+                      </div>
+                    </section>
+
+                    <section className={styles.summaryCard}>
+                      <div className={styles.panelCardHeader}>
+                        <div>
+                          <p className={styles.sectionEyebrow}>Ações rápidas</p>
+                          <h3>Ações operacionais sem confundir com financeiro real</h3>
+                        </div>
+                      </div>
+                      <div className={styles.noticeGrid}>
+                        <article className={styles.noticeCard}>
+                          <strong>Lançar financeiro manual</strong>
+                          <p>Cria ledger de verdade, pode regularizar a empresa e documenta o histórico financeiro.</p>
+                        </article>
+                        <article className={styles.noticeCard}>
+                          <strong>Marcar pago / suspender</strong>
+                          <p>São ações operacionais. Ajustam acesso e status, mas não substituem um lançamento manual.</p>
+                        </article>
+                      </div>
+                      <div className={styles.rowActions}>
+                        <button type="button" className="btn btn-primary btn-sm" onClick={() => openManualPayment(activeCompany)}>
+                          Lançar financeiro manual
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-secondary btn-sm"
+                          onClick={() => setConfirmAction({
+                            title: "Marcar pago sem ledger",
+                            description: `${activeCompany.name} será marcada como paga apenas no plano operacional.`,
+                            confirmLabel: "Marcar pago",
+                            tone: "primary",
+                            details: [
+                              "Libera acesso e ajusta a janela operacional atual.",
+                              "Não cria lançamento financeiro no ledger.",
+                              "Use 'Lançar financeiro manual' se precisar de cobrança real.",
+                            ],
+                            run: async () => {
+                              setConfirmAction(null);
+                              await setPaymentStatus(activeCompany.id, "PAID", "Cliente marcado como pago no plano operacional.");
+                            },
+                          })}
+                        >
+                          Marcar pago
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-danger btn-sm"
+                          onClick={() => setConfirmAction({
+                            title: "Suspender acesso",
+                            description: `${activeCompany.name} será suspensa agora.`,
+                            confirmLabel: "Suspender empresa",
+                            tone: "danger",
+                            details: [
+                              "Desativa a empresa e todos os módulos.",
+                              "Atualiza paymentStatus para DISABLED.",
+                              "Não cria cobrança automática nem ledger financeiro.",
+                            ],
+                            run: async () => {
+                              setConfirmAction(null);
+                              await setPaymentStatus(activeCompany.id, "DISABLED", "Empresa suspensa no plano operacional.");
+                            },
+                          })}
+                        >
+                          Suspender acesso
+                        </button>
+                      </div>
+                    </section>
+                  </>
                 ) : null}
 
                 {drawerTab === "users" ? (
@@ -3105,6 +3410,95 @@ export default function MasterPremiumPage() {
                     </div>
                   </section>
                 ) : null}
+
+                {drawerTab === "danger" ? (
+                  <section className={styles.summaryCard}>
+                    <div className={styles.panelCardHeader}>
+                      <div>
+                        <p className={styles.sectionEyebrow}>Perigo</p>
+                        <h3>Arquivamento seguro e exclusão permanente bloqueada</h3>
+                      </div>
+                    </div>
+
+                    <div className={styles.contextBannerStrong}>
+                      <strong>Zona sensível</strong>
+                      <span>Arquivar bloqueia o acesso e preserva histórico. Exclusão permanente continua fora deste drawer até revisão estrutural do hard delete.</span>
+                    </div>
+
+                    <div className={styles.dangerGrid}>
+                      <article className={styles.dangerCard}>
+                        <div>
+                          <p className={styles.sectionEyebrow}>Arquivar empresa</p>
+                          <h3>Bloquear operação sem apagar dados</h3>
+                        </div>
+                        <div className={styles.summaryMeta}>
+                          <p>Desativa a empresa e os módulos.</p>
+                          <p>Preserva auditoria, histórico financeiro, integrações e configuração.</p>
+                          <p>Não executa hard delete e não remove registros operacionais.</p>
+                        </div>
+                        <div className={styles.rowActions}>
+                          <button
+                            type="button"
+                            className="btn btn-danger btn-sm"
+                            disabled={busyAction === `archive-${activeCompany.id}` || isArchivedOrSuspended(activeCompany)}
+                            onClick={() => setConfirmAction({
+                              title: "Arquivar empresa",
+                              description: `${activeCompany.name} terá o acesso bloqueado, os módulos serão desligados e os dados serão preservados.`,
+                              confirmLabel: "Arquivar empresa",
+                              tone: "danger",
+                              details: [
+                                "Desativa a empresa imediatamente.",
+                                "Desativa todos os módulos da empresa.",
+                                "Mantém histórico, auditoria, website, integrações e ledger.",
+                                "Não chama o hard delete atual.",
+                              ],
+                              run: async () => {
+                                setConfirmAction(null);
+                                await archiveCompany(activeCompany.id, "Arquivada pelo drawer premium do MASTER");
+                              },
+                            })}
+                          >
+                            {isArchivedOrSuspended(activeCompany) ? "Empresa já arquivada/suspensa" : "Arquivar empresa"}
+                          </button>
+                        </div>
+                      </article>
+
+                      <article className={styles.dangerCard}>
+                        <div>
+                          <p className={styles.sectionEyebrow}>Excluir permanentemente</p>
+                          <h3>Hard delete bloqueado por segurança</h3>
+                        </div>
+                        <div className={styles.summaryMeta}>
+                          <p>O método removeByMaster() ainda não cobre todas as relações mais novas do schema atual.</p>
+                          <p>Por isso esta tela não conecta exclusão permanente diretamente ao backend legado.</p>
+                          <p>{`Quando esse fluxo for revisado, a confirmação esperada será EXCLUIR ${activeCompany.name}.`}</p>
+                        </div>
+                        <div className={styles.rowActions}>
+                          <button
+                            type="button"
+                            className="btn btn-secondary btn-sm"
+                            onClick={() => setConfirmAction({
+                              title: "Exclusão permanente bloqueada",
+                              description: `A exclusão permanente de ${activeCompany.name} continua desabilitada nesta tela por segurança.`,
+                              confirmLabel: "Entendi",
+                              tone: "primary",
+                              details: [
+                                "O hard delete atual foi revisado e continua com cobertura estrutural incompleta.",
+                                "O caminho seguro entregue aqui é arquivamento, não remoção física.",
+                                "Antes de religar o hard delete, o backend precisa cobrir todas as relações novas do schema.",
+                              ],
+                              run: async () => {
+                                setConfirmAction(null);
+                              },
+                            })}
+                          >
+                            Excluir permanentemente
+                          </button>
+                        </div>
+                      </article>
+                    </div>
+                  </section>
+                ) : null}
               </div>
             </>
           ) : !detailLoading ? (
@@ -3360,9 +3754,34 @@ export default function MasterPremiumPage() {
       <ModalShell open={Boolean(confirmAction)} onClose={() => setConfirmAction(null)} title={confirmAction?.title || "Confirmar operação"} subtitle={confirmAction?.description || ""}>
         {confirmAction ? (
           <div className={styles.modalBody}>
+            {confirmAction.details?.length ? (
+              <div className={styles.noticeGrid}>
+                {confirmAction.details.map((detail, index) => (
+                  <article key={`${confirmAction.title}-${index}`} className={styles.noticeCard}>
+                    <p>{detail}</p>
+                  </article>
+                ))}
+              </div>
+            ) : null}
+            {confirmAction.confirmationKeyword ? (
+              <div className={styles.modalConfirmBlock}>
+                <label className={styles.sectionEyebrow}>{confirmAction.confirmationInputLabel || "Confirmação digitada"}</label>
+                <input
+                  className="field"
+                  value={confirmActionInput}
+                  onChange={(event) => setConfirmActionInput(event.target.value)}
+                  placeholder={confirmAction.confirmationKeyword}
+                />
+              </div>
+            ) : null}
             <div className={styles.modalActions}>
               <button type="button" className="btn btn-secondary btn-sm" onClick={() => setConfirmAction(null)}>Cancelar</button>
-              <button type="button" className={confirmAction.tone === "danger" ? "btn btn-danger btn-sm" : "btn btn-primary btn-sm"} onClick={() => void confirmAction.run()}>
+              <button
+                type="button"
+                className={confirmAction.tone === "danger" ? "btn btn-danger btn-sm" : "btn btn-primary btn-sm"}
+                onClick={() => void confirmAction.run()}
+                disabled={Boolean(confirmAction.confirmationKeyword) && confirmActionInput.trim() !== confirmAction.confirmationKeyword}
+              >
                 {confirmAction.confirmLabel}
               </button>
             </div>
