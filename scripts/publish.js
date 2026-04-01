@@ -305,7 +305,7 @@ async function main() {
     console.log(committedChanges);
     validateChangedFiles(committedChanges);
   } else if (!isDryRun) {
-    throw new Error(`No commits ahead of ${publishRemote}/${publishBranch} to publish.`);
+    throw new Error(`No commits ahead of ${publishRemote}/${publishBranch} to publish. Commit on local master and run npm run publish before pushing manually.`);
   } else {
     console.log('\nDry run without unpublished commits: validating the current master structure only.');
   }
