@@ -226,13 +226,36 @@ function validateFileExpectations() {
   const renderYamlPath = path.join(repoRoot, 'render.yaml');
   const renderYaml = fs.readFileSync(renderYamlPath, 'utf8');
   const requiredRenderKeys = ['DATABASE_URL', 'DIRECT_URL', 'FRONTEND_URL', 'CORS_ALLOWED_ORIGINS', 'BOOTSTRAP_SYSTEM_MASTER'];
+  const requiredRenderDockerEntries = [
+    'name: hbx-backend',
+    'dockerfilePath: backend/Dockerfile',
+    'dockerContext: backend',
+    'name: hbx-webscraping',
+    'dockerfilePath: webscraping/Dockerfile',
+    'dockerContext: webscraping',
+  ];
   for (const key of requiredRenderKeys) {
     if (!renderYaml.includes(`key: ${key}`)) {
       throw new Error(`render.yaml is missing required env key ${key}`);
     }
   }
+  for (const entry of requiredRenderDockerEntries) {
+    if (!renderYaml.includes(entry)) {
+      throw new Error(`render.yaml is missing required Docker entry: ${entry}`);
+    }
+  }
   if (!renderYaml.includes('value: "false"')) {
     throw new Error('render.yaml must keep BOOTSTRAP_SYSTEM_MASTER=false in production');
+  }
+
+  const requiredDockerfiles = [
+    path.join(repoRoot, 'backend', 'Dockerfile'),
+    path.join(repoRoot, 'webscraping', 'Dockerfile'),
+  ];
+  for (const dockerfilePath of requiredDockerfiles) {
+    if (!fs.existsSync(dockerfilePath)) {
+      throw new Error(`Missing Dockerfile required by render.yaml: ${path.relative(repoRoot, dockerfilePath)}`);
+    }
   }
 
   const frontendExamplePath = path.join(repoRoot, 'frontend', '.env.example');
