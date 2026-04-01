@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { usePathname } from "next/navigation";
 import { apiFetch, getToken } from "../app/dashboard/_lib/api";
 import { MASTER_CONTEXT_CHANGED_EVENT } from "../lib/masterContextEvents";
@@ -101,6 +101,27 @@ type ModuleNavProps = {
   onUpdateModulePresentation?: (href: string, patch: Partial<PresentationModuleOverride>) => void;
 };
 
+function subscribeAuth(callback: () => void) {
+  if (typeof window === "undefined") {
+    return () => {};
+  }
+
+  window.addEventListener("auth-change", callback);
+  window.addEventListener("storage", callback);
+  return () => {
+    window.removeEventListener("auth-change", callback);
+    window.removeEventListener("storage", callback);
+  };
+}
+
+function getAuthSnapshot() {
+  return Boolean(getToken());
+}
+
+function getAuthServerSnapshot() {
+  return false;
+}
+
 export default function ModuleNav({
   presentationEditing = false,
   canEditPresentation = false,
@@ -108,7 +129,7 @@ export default function ModuleNav({
   onUpdateModulePresentation,
 }: ModuleNavProps) {
   const pathname = usePathname();
-  const authenticated = Boolean(getToken());
+  const authenticated = useSyncExternalStore(subscribeAuth, getAuthSnapshot, getAuthServerSnapshot);
   const [modules, setModules] = useState<UserModule[]>([]);
   const [userRole, setUserRole] = useState<string | null>(null);
   const [isSystemMaster, setIsSystemMaster] = useState(false);
