@@ -21,11 +21,15 @@ services:
         generateValue: true
       - key: INTEGRATION_SECRET_KEY
         generateValue: true
+      - key: INTERNAL_SECRET
+        sync: false
       - key: FRONTEND_URL
         sync: false
       - key: PUBLIC_API_BASE_URL
         sync: false
       - key: CORS_ALLOWED_ORIGINS
+        sync: false
+      - key: SYSTEM_MASTER_PASSWORD
         sync: false
       - key: WHATSAPP_VERIFY_TOKEN
         sync: false
