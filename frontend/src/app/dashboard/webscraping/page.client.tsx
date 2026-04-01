@@ -126,11 +126,18 @@ function buildSpeakerName(currentUser: CurrentUser | null) {
   return String(currentUser?.name || currentUser?.username || "").trim();
 }
 
-function buildScriptText(result: SearchResult, city: string, segment: string, currentUser: CurrentUser | null) {
-  const speaker = buildSpeakerName(currentUser) || "[SEU NOME]";
-  const company = buildCompanyName(currentUser) || "[SUA EMPRESA]";
+function buildDefaultScriptVariables(currentUser: CurrentUser | null) {
+  return {
+    speaker: buildSpeakerName(currentUser) || "Julia",
+    company: buildCompanyName(currentUser) || "HBX",
+  };
+}
+
+function buildScriptText(result: SearchResult, city: string, segment: string, speaker: string, company: string) {
+  const safeSpeaker = speaker.trim() || "[SEU NOME]";
+  const safeCompany = company.trim() || "[SUA EMPRESA]";
   return [
-    `Oi, tudo bem? Aqui e ${speaker} da ${company}.`,
+    `Oi, tudo bem? Aqui e ${safeSpeaker} da ${safeCompany}.`,
     `Vi a ${result.name} em ${city} e trabalho com solucao para ${segment.toLowerCase()}.`,
     "Posso te explicar em 1 minuto e ver se faz sentido para voces?",
   ].join(" ");
@@ -233,6 +240,11 @@ export default function WebscrapingClientPage() {
   const [feedback, setFeedback] = useState<string | null>(null);
   const [hasSearched, setHasSearched] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [scriptSenderDraft, setScriptSenderDraft] = useState("");
+  const [scriptCompanyDraft, setScriptCompanyDraft] = useState("");
+  const [appliedScriptSender, setAppliedScriptSender] = useState("");
+  const [appliedScriptCompany, setAppliedScriptCompany] = useState("");
+  const [scriptPresetHydrated, setScriptPresetHydrated] = useState(false);
 
   const canSeeDiagnostics = useMemo(
     () => Boolean(currentUser?.isSystemMaster) || String(currentUser?.role || "").toUpperCase() === "ADMIN",
@@ -240,6 +252,37 @@ export default function WebscrapingClientPage() {
   );
   const runtimeReady = runtime?.native.status === "online";
   const configurationPending = runtime?.native.code === "configuration_pending";
+  const defaultScriptVariables = useMemo(() => buildDefaultScriptVariables(currentUser), [currentUser]);
+  const scriptGuidePreview = useMemo(() => {
+    const previewResult: SearchResult = {
+      name: results[0]?.name || "Big Hugo Lanchonete",
+      phone: "",
+      phoneDigits: "",
+      probableWhatsApp: true,
+      rating: null,
+      reviews: 0,
+      address: "",
+      website: "",
+      googleMapsUrl: "",
+    };
+    return buildScriptText(
+      previewResult,
+      (activeQuery?.city || city || "Rio Claro").trim(),
+      (activeQuery?.segment || segment || "Lanchonetes").trim(),
+      appliedScriptSender || defaultScriptVariables.speaker,
+      appliedScriptCompany || defaultScriptVariables.company,
+    );
+  }, [
+    activeQuery?.city,
+    activeQuery?.segment,
+    appliedScriptCompany,
+    appliedScriptSender,
+    city,
+    defaultScriptVariables.company,
+    defaultScriptVariables.speaker,
+    results,
+    segment,
+  ]);
 
   useEffect(() => {
     if (hasToken !== true) return;
@@ -279,6 +322,15 @@ export default function WebscrapingClientPage() {
     const timer = window.setTimeout(() => setFeedback(null), 2200);
     return () => window.clearTimeout(timer);
   }, [feedback]);
+
+  useEffect(() => {
+    if (scriptPresetHydrated) return;
+    setScriptSenderDraft(defaultScriptVariables.speaker);
+    setScriptCompanyDraft(defaultScriptVariables.company);
+    setAppliedScriptSender(defaultScriptVariables.speaker);
+    setAppliedScriptCompany(defaultScriptVariables.company);
+    setScriptPresetHydrated(true);
+  }, [defaultScriptVariables.company, defaultScriptVariables.speaker, scriptPresetHydrated]);
 
   function buildPayload() {
     return {
@@ -402,6 +454,22 @@ export default function WebscrapingClientPage() {
     } finally {
       setExporting(false);
     }
+  }
+
+  function handleApplyScriptPreset() {
+    const nextSender = scriptSenderDraft.trim() || defaultScriptVariables.speaker;
+    const nextCompany = scriptCompanyDraft.trim() || defaultScriptVariables.company;
+    setAppliedScriptSender(nextSender);
+    setAppliedScriptCompany(nextCompany);
+    setFeedback("Roteiro atualizado para todos os contatos carregados.");
+  }
+
+  function handleResetScriptPreset() {
+    setScriptSenderDraft(defaultScriptVariables.speaker);
+    setScriptCompanyDraft(defaultScriptVariables.company);
+    setAppliedScriptSender(defaultScriptVariables.speaker);
+    setAppliedScriptCompany(defaultScriptVariables.company);
+    setFeedback("Roteiro resetado para o padrao.");
   }
 
   if (hasToken === null) {
@@ -648,6 +716,55 @@ export default function WebscrapingClientPage() {
           </div>
         </section>
 
+        <section className={styles.scriptGuideCard}>
+          <div className={styles.sectionHeader}>
+            <div>
+              <strong>Guia do roteiro</strong>
+              <p className={styles.helperText}>
+                Ajuste o nome e a empresa padrao para atualizar todas as frases carregadas com um clique.
+              </p>
+            </div>
+          </div>
+
+          <div className={styles.scriptGuideGrid}>
+            <div className={styles.scriptGuidePreview}>
+              <span className={styles.scriptLabel}>Frase padrao</span>
+              <p className={styles.scriptText}>{scriptGuidePreview}</p>
+            </div>
+
+            <div className={styles.scriptGuideControls}>
+              <label className={styles.field}>
+                <span className={styles.fieldLabel}>Nome de quem envia</span>
+                <input
+                  className={styles.fieldInput}
+                  value={scriptSenderDraft}
+                  onChange={(event) => setScriptSenderDraft(event.target.value)}
+                  placeholder="Ex: Pedro"
+                />
+              </label>
+
+              <label className={styles.field}>
+                <span className={styles.fieldLabel}>Empresa / marca</span>
+                <input
+                  className={styles.fieldInput}
+                  value={scriptCompanyDraft}
+                  onChange={(event) => setScriptCompanyDraft(event.target.value)}
+                  placeholder="Ex: HBX"
+                />
+              </label>
+
+              <div className={styles.actionRow}>
+                <button type="button" className="btn btn-primary" onClick={handleApplyScriptPreset}>
+                  Atualizar roteiro
+                </button>
+                <button type="button" className="btn btn-secondary" onClick={handleResetScriptPreset}>
+                  Resetar roteiro
+                </button>
+              </div>
+            </div>
+          </div>
+        </section>
+
         <section className={styles.historyCard}>
           <div className={styles.sectionHeader}>
             <div>
@@ -753,7 +870,13 @@ export default function WebscrapingClientPage() {
               {results.map((result) => {
                 const queryCity = activeQuery?.city || city;
                 const querySegment = activeQuery?.segment || segment;
-                const scriptText = buildScriptText(result, queryCity, querySegment, currentUser);
+                const scriptText = buildScriptText(
+                  result,
+                  queryCity,
+                  querySegment,
+                  appliedScriptSender || defaultScriptVariables.speaker,
+                  appliedScriptCompany || defaultScriptVariables.company,
+                );
                 const whatsappUrl = buildWhatsAppUrl(result, scriptText);
                 const callUrl = buildCallUrl(result);
 
