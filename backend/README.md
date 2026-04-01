@@ -57,6 +57,8 @@ Variáveis mínimas esperadas no Render:
 - `FRONTEND_URL`
 - `NODE_ENV=production`
 
+Se `INTEGRATION_SECRET_KEY` estiver ausente, o backend ainda sobe, mas os fluxos de conexao e sincronizacao de integracoes permanecem bloqueados ate a variavel ser configurada no ambiente.
+
 Se AUVO ou TagPlus forem usados com chamadas HTTP reais, configure tambem as variaveis do contrato adotado no ambiente:
 
 - AUVO: `AUVO_API_BASE_URL`, `AUVO_TEST_PATH` e `AUVO_TASKS_PATH`; adicione `AUVO_CUSTOMERS_PATH` se houver endpoint dedicado de clientes.

@@ -19,6 +19,8 @@ services:
           property: hostport
       - key: JWT_SECRET
         generateValue: true
+      - key: INTEGRATION_SECRET_KEY
+        generateValue: true
       - key: FRONTEND_URL
         sync: false
       - key: PUBLIC_API_BASE_URL

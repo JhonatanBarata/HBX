@@ -65,8 +65,18 @@ function rewriteWebscrapingPath(path: string) {
   return rewritten || '/';
 }
 
+function warnIfIntegrationSecretKeyMissing() {
+  try {
+    assertIntegrationSecretKeyConfigured({ allowMissingInTest: true });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'INTEGRATION_SECRET_KEY ausente.';
+    // eslint-disable-next-line no-console
+    console.warn(`[integrations] ${message} O backend continua subindo, mas operacoes de conexao AUVO/TagPlus ficam indisponiveis ate a variavel ser configurada.`);
+  }
+}
+
 async function bootstrap() {
-  assertIntegrationSecretKeyConfigured({ allowMissingInTest: true });
+  warnIfIntegrationSecretKeyMissing();
   const app = await NestFactory.create(AppModule, { rawBody: true });
   const webscrapingTarget = resolveWebscrapingTarget();
   const webscrapingGuard = (req: Request, res: Response, next: () => void) => {
