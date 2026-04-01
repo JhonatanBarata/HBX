@@ -622,7 +622,9 @@ export default function WebscrapingClientPage() {
 
           <div className={styles.searchActions}>
             <p className={styles.helperText}>
-              O modulo prioriza reaproveitamento do historico e so complementa a busca quando realmente precisa.
+              {configurationPending
+                ? "As novas consultas ficam liberadas assim que a configuracao do modulo for concluida."
+                : "O modulo prioriza reaproveitamento do historico e so complementa a busca quando realmente precisa."}
             </p>
             <div className={styles.actionRow}>
               <button
@@ -630,8 +632,9 @@ export default function WebscrapingClientPage() {
                 className="btn btn-primary"
                 onClick={() => void handleSearch()}
                 disabled={loadingBootstrap || searching || configurationPending}
+                title={configurationPending ? "Modulo temporariamente em configuracao." : undefined}
               >
-                {searching ? "Buscando..." : "Buscar contatos"}
+                {searching ? "Buscando..." : configurationPending ? "Modulo em configuracao" : "Buscar contatos"}
               </button>
               <button
                 type="button"

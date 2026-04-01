@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from "react";
 import ModuleNav from "./ModuleNav";
 import { apiFetch, getToken } from "../app/dashboard/_lib/api";
 import { MASTER_CONTEXT_CHANGED_EVENT } from "../lib/masterContextEvents";
@@ -39,6 +39,27 @@ type PresentationProfile = {
   isSystemMaster: boolean;
 };
 
+function subscribeAuth(callback: () => void) {
+  if (typeof window === "undefined") {
+    return () => {};
+  }
+
+  window.addEventListener("auth-change", callback);
+  window.addEventListener("storage", callback);
+  return () => {
+    window.removeEventListener("auth-change", callback);
+    window.removeEventListener("storage", callback);
+  };
+}
+
+function getAuthSnapshot() {
+  return Boolean(getToken());
+}
+
+function getAuthServerSnapshot() {
+  return false;
+}
+
 export default function DashboardScaffold({
   title,
   description,
@@ -59,7 +80,7 @@ export default function DashboardScaffold({
   const pageKey = buildPageKey(pathname);
   const isWorkspaceMode = layoutMode === "workspace";
   const shouldShowHoverModules = hideNavigationRail && isWorkspaceMode;
-  const authenticated = Boolean(getToken());
+  const authenticated = useSyncExternalStore(subscribeAuth, getAuthSnapshot, getAuthServerSnapshot);
   const [presentationProfile, setPresentationProfile] = useState<PresentationProfile | null>(null);
   const [presentationConfig, setPresentationConfig] = useState<PresentationConfig | null>(null);
   const [presentationEditing, setPresentationEditing] = useState(false);
