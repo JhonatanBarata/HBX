@@ -80,6 +80,8 @@ No backend publicado, valide tambem as variaveis de runtime abaixo:
 - `JWT_SECRET`: assinatura dos access tokens.
 - `INTEGRATION_SECRET_KEY`: obrigatoria para criptografar e descriptografar credenciais de `IntegrationConnection` sem expor segredo puro no banco ou na API.
 
+Sem `INTEGRATION_SECRET_KEY`, o backend ainda consegue subir, mas os fluxos de conexao e sync de integracoes ficam indisponiveis ate a variavel ser configurada no ambiente publicado.
+
 Regra pratica para `INTEGRATION_SECRET_KEY`:
 
 - gere um valor forte e estavel por ambiente;
