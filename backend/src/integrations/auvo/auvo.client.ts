@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { IntegrationHttpService } from '../integration-http.service';
 import {
   AuvoConnectionCredentials,
   AuvoConnectionTestResult,
@@ -6,9 +7,12 @@ import {
   AuvoListRecordsResult,
   AuvoRemoteRecord,
 } from './auvo.types';
+import { resolveAuvoRuntime } from './auvo.runtime';
 
 @Injectable()
 export class AuvoClient {
+  constructor(private readonly integrationHttp: IntegrationHttpService) {}
+
   private isRecord(value: unknown): value is Record<string, unknown> {
     return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
   }
@@ -141,36 +145,153 @@ export class AuvoClient {
     };
   }
 
-  async testConnection(credentials: AuvoConnectionCredentials): Promise<AuvoConnectionTestResult> {
-    const secret = String(credentials?.secret || '').trim();
-    if (!secret) {
+  private buildAuth(runtime: ReturnType<typeof resolveAuvoRuntime>) {
+    if (!runtime.token) {
+      throw new Error('Token AUVO nao configurado.');
+    }
+
+    if (runtime.authMode === 'app_key_token_query') {
+      if (!runtime.appKey) {
+        throw new Error('App Key AUVO obrigatoria para authMode=app_key_token_query.');
+      }
+
       return {
-        ok: false,
-        status: 'ERROR',
-        message: 'Segredo AUVO nao configurado.',
+        headers: {},
+        params: {
+          token: runtime.token,
+          appKey: runtime.appKey,
+        },
       };
     }
 
     return {
-      ok: true,
-      status: 'CONNECTED',
-      message: 'Scaffold AUVO validado localmente. Endpoint remoto ainda nao foi configurado nesta sprint.',
+      headers: {
+        Authorization: `Bearer ${runtime.token}`,
+      },
+      params: {},
     };
+  }
+
+  private buildBaseParams(runtime: ReturnType<typeof resolveAuvoRuntime>, input?: AuvoListRecordsInput, page?: number) {
+    const auth = this.buildAuth(runtime);
+    return {
+      headers: auth.headers,
+      params: {
+        ...auth.params,
+        ...(runtime.externalAccountId ? { externalAccountId: runtime.externalAccountId } : {}),
+        ...(input?.updatedSince ? { [runtime.updatedSinceParam]: input.updatedSince } : {}),
+        ...(page ? { [runtime.pageParam]: page } : {}),
+        ...(runtime.pageSize > 0 ? { [runtime.pageSizeParam]: input?.limit || runtime.pageSize } : {}),
+      },
+    };
+  }
+
+  private async requestList(path: string, runtime: ReturnType<typeof resolveAuvoRuntime>, input: AuvoListRecordsInput, purpose: string, paramsPatch?: Record<string, unknown>) {
+    if (!runtime.baseUrl) {
+      throw new Error('AUVO_API_BASE_URL nao configurada e baseUrl nao foi informada na conexao.');
+    }
+
+    const pageSize = input.limit || runtime.pageSize;
+    const result = await this.integrationHttp.paginate<unknown, AuvoRemoteRecord>({
+      provider: 'AUVO',
+      purpose,
+      pageSize,
+      requestPage: async (page) => {
+        const request = this.buildBaseParams(runtime, input, page);
+        const response = await this.integrationHttp.requestJson<unknown>({
+          provider: 'AUVO',
+          purpose,
+          method: 'GET',
+          baseUrl: runtime.baseUrl,
+          path,
+          headers: request.headers,
+          params: {
+            ...request.params,
+            ...(paramsPatch || {}),
+          },
+          timeoutMs: runtime.timeoutMs,
+          retryAttempts: runtime.retryAttempts,
+          backoffMs: runtime.backoffMs,
+        });
+        return response.data;
+      },
+      extractItems: (payload) => this.normalizeListPayload(payload, 'remote').items,
+    });
+
+    return {
+      items: result.items,
+      source: 'remote' as const,
+      note: result.hasMore
+        ? 'Paginacao AUVO interrompida no limite configurado; ajuste page size ou max pages para homologacao completa.'
+        : null,
+      rawShape: null,
+    };
+  }
+
+  async listCustomers(
+    credentials: AuvoConnectionCredentials,
+    input: AuvoListRecordsInput = {},
+  ): Promise<AuvoListRecordsResult> {
+    const runtime = resolveAuvoRuntime(credentials);
+    if (!runtime.customersPath) {
+      return {
+        items: [],
+        source: 'remote',
+        note: 'AUVO customers endpoint nao configurado; sync de clientes dedicados foi ignorado.',
+        rawShape: null,
+      };
+    }
+
+    return this.requestList(runtime.customersPath, runtime, input, 'listCustomers');
+  }
+
+  async testConnection(credentials: AuvoConnectionCredentials): Promise<AuvoConnectionTestResult> {
+    const runtime = resolveAuvoRuntime(credentials);
+    if (!runtime.token) {
+      return {
+        ok: false,
+        status: 'DISCONNECTED',
+        message: 'Token AUVO nao configurado.',
+      };
+    }
+
+    try {
+      const testPath = runtime.testPath || runtime.tasksPath || runtime.customersPath;
+      if (!testPath) {
+        return {
+          ok: false,
+          status: 'DISCONNECTED',
+          message: 'Contrato AUVO incompleto: configure AUVO_TEST_PATH, AUVO_TASKS_PATH ou AUVO_CUSTOMERS_PATH.',
+        };
+      }
+
+      await this.requestList(testPath, runtime, { limit: 1 }, 'testConnection');
+      return {
+        ok: true,
+        status: 'CONNECTED',
+        message: 'Conexao AUVO validada via chamada HTTP real.',
+      };
+    } catch (error) {
+      return {
+        ok: false,
+        status: 'ERROR',
+        message: error instanceof Error ? error.message : 'Falha ao validar conexao AUVO.',
+      };
+    }
   }
 
   async listRecords(
     credentials: AuvoConnectionCredentials,
     input: AuvoListRecordsInput,
   ): Promise<AuvoListRecordsResult> {
-    const secret = String(credentials?.secret || '').trim();
-    if (!secret) {
-      throw new Error('Segredo AUVO nao configurado.');
+    const runtime = resolveAuvoRuntime(credentials);
+    if (!runtime.tasksPath) {
+      throw new Error('Contrato AUVO incompleto: configure AUVO_TASKS_PATH para sincronizar tarefas/OS.');
     }
 
-    const response = this.normalizeListPayload({ items: [] }, 'scaffold');
-    return {
-      ...response,
-      note: this.buildScaffoldNote(input),
-    };
+    const pendingPatch = runtime.pendingStatusValues.length
+      ? { [runtime.pendingStatusParam]: runtime.pendingStatusValues.join(',') }
+      : undefined;
+    return this.requestList(runtime.tasksPath, runtime, input, 'listTasks', pendingPatch);
   }
 }

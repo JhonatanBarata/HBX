@@ -1,3 +1,5 @@
+require('dotenv/config');
+
 const { PrismaService } = require('../dist/prisma/prisma.service');
 const { IntegrationSecretsService } = require('../dist/integrations/integration-secrets.service');
 const { IntegrationConnectionsService } = require('../dist/integrations/integration-connections.service');
@@ -27,7 +29,18 @@ async function main() {
   }
 
   const integrationSecrets = new IntegrationSecretsService();
-  const service = new IntegrationConnectionsService(prisma, integrationSecrets);
+  const service = new IntegrationConnectionsService(
+    prisma,
+    integrationSecrets,
+    {
+      testConnection: async () => ({ ok: true, status: 'CONNECTED', message: 'AUVO smoke stub' }),
+      syncNow: async () => ({ ok: true, importedCount: 0, updatedCount: 0, failedCount: 0 }),
+    },
+    {
+      testConnection: async () => ({ ok: true, status: 'CONNECTED', message: 'TagPlus smoke stub' }),
+      syncNow: async () => ({ ok: true, importedCount: 0, updatedCount: 0, failedCount: 0 }),
+    },
+  );
   const user = { companyId };
   const stamp = Date.now();
   const provider = 'AUVO';
@@ -46,7 +59,7 @@ async function main() {
     createdIds.push(created.id);
 
     assert(created.secretConfigured === true, 'create deve marcar secretConfigured');
-    assert(created.secretPreview === `***${secret.slice(-6)}`, 'create deve mascarar preview');
+    assert(created.secretPreview === `token: ***${secret.slice(-6)}`, 'create deve mascarar preview');
     assert(!('secret' in created), 'create nao deve retornar segredo puro');
     assert(!('secretCiphertext' in created), 'create nao deve retornar ciphertext');
 
@@ -89,7 +102,7 @@ async function main() {
     const updated = await service.updateByUser(user, created.id, {
       secret: updatedSecret,
     });
-    assert(updated.secretPreview === `***${updatedSecret.slice(-6)}`, 'update deve renovar preview mascarado');
+    assert(updated.secretPreview === `token: ***${updatedSecret.slice(-6)}`, 'update deve renovar preview mascarado');
 
     const decryptedAfterUpdate = await service.resolveSecretByCompany(companyId, created.id);
     assert(decryptedAfterUpdate === updatedSecret, 'update deve substituir o segredo criptografado');

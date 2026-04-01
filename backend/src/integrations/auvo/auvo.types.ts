@@ -1,5 +1,9 @@
 export type AuvoConnectionCredentials = {
-  secret: string;
+  token: string;
+  appKey?: string | null;
+  authMode?: string | null;
+  baseUrl?: string | null;
+  externalAccountId?: string | null;
 };
 
 export type AuvoNamedReference = {
@@ -53,7 +57,7 @@ export type AuvoRemoteRecord = {
 
 export type AuvoConnectionTestResult = {
   ok: boolean;
-  status: 'CONNECTED' | 'ERROR';
+  status: 'CONNECTED' | 'DISCONNECTED' | 'ERROR';
   message: string;
 };
 
@@ -66,7 +70,7 @@ export type AuvoListRecordsInput = {
 
 export type AuvoListRecordsResult = {
   items: AuvoRemoteRecord[];
-  source: 'scaffold' | 'normalized';
+  source: 'scaffold' | 'normalized' | 'remote';
   note?: string | null;
   rawShape?: string | null;
 };
@@ -79,6 +83,14 @@ export type AuvoMappedRecord = {
   scheduledEnd: Date | null;
   technicianName: string | null;
   customerName: string | null;
+  customerPhone: string | null;
+  customerEmail: string | null;
+  customerDocument: string | null;
+  externalCustomerId: string | null;
+  externalDebtId: string | null;
+  debtAmount: number | null;
+  debtDueDate: Date | null;
+  debtStatus: string | null;
   sourceUpdatedAt: Date | null;
   rawPayloadSummaryJson: string | null;
 };

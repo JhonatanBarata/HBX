@@ -1,18 +1,18 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
-import { IntegrationSecretsService } from '../integration-secrets.service';
 import { parseIntegrationCredentialEnvelope } from '../integration-credentials.util';
-import { AuvoClient } from './auvo.client';
-import { AuvoSyncRequest } from './auvo.types';
-import { AuvoSyncService } from './auvo.sync.service';
+import { IntegrationSecretsService } from '../integration-secrets.service';
+import { TagPlusClient } from './tagplus.client';
+import { TagPlusSyncService } from './tagplus.sync.service';
+import { TagPlusSyncRequest } from './tagplus.types';
 
 @Injectable()
-export class AuvoIntegrationService {
+export class TagPlusIntegrationService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly integrationSecrets: IntegrationSecretsService,
-    private readonly auvoClient: AuvoClient,
-    private readonly auvoSyncService: AuvoSyncService,
+    private readonly tagPlusClient: TagPlusClient,
+    private readonly tagPlusSyncService: TagPlusSyncService,
   ) {}
 
   private async getConnection(companyId: number, integrationId: string) {
@@ -20,12 +20,12 @@ export class AuvoIntegrationService {
       where: {
         id: String(integrationId),
         companyId,
-        provider: 'AUVO',
+        provider: 'TAGPLUS',
       },
     });
 
     if (!row) {
-      throw new NotFoundException('Conexao AUVO nao encontrada.');
+      throw new NotFoundException('Conexao TagPlus nao encontrada.');
     }
 
     return row;
@@ -34,10 +34,9 @@ export class AuvoIntegrationService {
   async testConnection(companyId: number, input: { integrationId: string }) {
     const connection = await this.getConnection(companyId, input.integrationId);
     const decrypted = this.integrationSecrets.decryptSecret(connection.secretCiphertext);
-    const envelope = parseIntegrationCredentialEnvelope('AUVO', decrypted);
-    const result = await this.auvoClient.testConnection({
+    const envelope = parseIntegrationCredentialEnvelope('TAGPLUS', decrypted);
+    const result = await this.tagPlusClient.testConnection({
       token: envelope?.credentials?.token || '',
-      appKey: envelope?.credentials?.appKey || null,
       authMode: envelope?.config?.authMode || null,
       baseUrl: envelope?.config?.baseUrl || null,
       externalAccountId: envelope?.config?.externalAccountId || null,
@@ -59,11 +58,7 @@ export class AuvoIntegrationService {
     return result;
   }
 
-  async syncNow(request: AuvoSyncRequest) {
-    return this.auvoSyncService.syncNow(request);
-  }
-
-  async syncIncremental(request: AuvoSyncRequest) {
-    return this.auvoSyncService.syncIncremental(request);
+  async syncNow(request: TagPlusSyncRequest) {
+    return this.tagPlusSyncService.syncNow(request);
   }
 }

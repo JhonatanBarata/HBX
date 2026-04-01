@@ -3,6 +3,7 @@ import { Admin } from '../auth/admin.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { CreateIntegrationConnectionDto, UpdateIntegrationConnectionDto } from './dto/integration-connection.dto';
+import { IntegrationSyncDto } from './dto/integration-sync.dto';
 import { IntegrationConnectionsService } from './integration-connections.service';
 
 @Controller('integrations/connections')
@@ -32,5 +33,17 @@ export class IntegrationConnectionsController {
   @Admin()
   update(@Req() req: any, @Param('id') id: string, @Body() dto: UpdateIntegrationConnectionDto) {
     return this.service.updateByUser(req.user, id, dto);
+  }
+
+  @Post(':id/test')
+  @Admin()
+  testConnection(@Req() req: any, @Param('id') id: string) {
+    return this.service.testByUser(req.user, id);
+  }
+
+  @Post(':id/sync')
+  @Admin()
+  syncNow(@Req() req: any, @Param('id') id: string, @Body() dto: IntegrationSyncDto) {
+    return this.service.syncNowByUser(req.user, id, dto || {});
   }
 }

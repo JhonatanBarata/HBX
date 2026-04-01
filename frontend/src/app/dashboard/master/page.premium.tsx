@@ -340,6 +340,85 @@ type ModuleCatalogDraft = {
 
 type MasterIntegrationsDraft = WorkspacePayload["masterIntegrations"];
 
+type IntegrationProviderId = "AUVO" | "TAGPLUS";
+
+type IntegrationProviderModel = {
+  id: IntegrationProviderId;
+  label: string;
+  category: string;
+  adapterMode: "scaffold" | "real-http";
+  syncTargets: string[];
+  credentialFields: Array<{
+    key: string;
+    label: string;
+    required: boolean;
+    secret: boolean;
+  }>;
+  notes: string[];
+};
+
+type IntegrationCredentialSummary = {
+  configured: boolean;
+  fields: Array<{
+    key: string;
+    label: string;
+    configured: boolean;
+  }>;
+};
+
+type IntegrationConnectionConfigSummary = {
+  authMode?: string | null;
+  baseUrl?: string | null;
+  externalAccountId?: string | null;
+};
+
+type CompanyIntegrationSyncRun = {
+  id: string;
+  status: string;
+  importedCount: number;
+  updatedCount: number;
+  failedCount: number;
+  startedAt?: string | null;
+  finishedAt?: string | null;
+  errorSummary?: string | null;
+};
+
+type CompanyIntegrationConnection = {
+  id: string;
+  companyId: number;
+  provider: IntegrationProviderId;
+  providerModel?: IntegrationProviderModel | null;
+  instanceName: string;
+  status: string;
+  lastTestedAt?: string | null;
+  lastTestStatus?: string | null;
+  lastTestMessage?: string | null;
+  lastSyncAt?: string | null;
+  lastSuccessAt?: string | null;
+  lastError?: string | null;
+  isActive: boolean;
+  secretConfigured: boolean;
+  secretPreview?: string | null;
+  credentialSummary?: IntegrationCredentialSummary | null;
+  connectionConfig?: IntegrationConnectionConfigSummary | null;
+  lastSyncRun?: CompanyIntegrationSyncRun | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+};
+
+type IntegrationEditorState = {
+  mode: "create" | "edit";
+  connectionId?: string;
+  provider: IntegrationProviderId;
+  instanceName: string;
+  secret: string;
+  appKey: string;
+  baseUrl: string;
+  authMode: string;
+  externalAccountId: string;
+  isActive: boolean;
+};
+
 type UserModalState = {
   mode: "create" | "edit" | "reset";
   companyId: number;
@@ -504,6 +583,38 @@ function badgeClass(tone: string) {
   if (tone === "warning" || tone === "brand") return "badge badge-brand";
   return "badge";
 }
+
+function integrationStatusTone(status?: string | null) {
+  const normalized = String(status || "").trim().toUpperCase();
+  if (normalized === "CONNECTED" || normalized === "SUCCESS") return "success";
+  if (normalized === "ERROR" || normalized === "FAILED") return "danger";
+  if (normalized === "DISCONNECTED" || normalized === "PARTIAL") return "warning";
+  return "neutral";
+}
+
+function buildIntegrationEditor(connection?: CompanyIntegrationConnection | null): IntegrationEditorState {
+  return {
+    mode: connection ? "edit" : "create",
+    connectionId: connection?.id,
+    provider: connection?.provider || "AUVO",
+    instanceName: connection?.instanceName || "",
+    secret: "",
+    appKey: "",
+    baseUrl: connection?.connectionConfig?.baseUrl || "",
+    authMode: connection?.connectionConfig?.authMode || "",
+    externalAccountId: connection?.connectionConfig?.externalAccountId || "",
+    isActive: connection?.isActive ?? true,
+  };
+}
+
+const INTEGRATION_PROVIDER_OPTIONS: Array<{
+  id: IntegrationProviderId;
+  label: string;
+  secretLabel: string;
+}> = [
+  { id: "AUVO", label: "AUVO", secretLabel: "Token AUVO" },
+  { id: "TAGPLUS", label: "TagPlus", secretLabel: "Token TagPlus" },
+];
 
 function statusTone(bucket: StatusBucket) {
   if (bucket === "PAYING") return "success";
@@ -920,6 +1031,10 @@ export default function MasterPremiumPage() {
     mercadoPagoLibrary: [],
     whatsappLibrary: [],
   });
+  const [companyIntegrations, setCompanyIntegrations] = useState<CompanyIntegrationConnection[]>([]);
+  const [integrationsLoading, setIntegrationsLoading] = useState(false);
+  const [integrationsLoadedCompanyId, setIntegrationsLoadedCompanyId] = useState<number | null>(null);
+  const [integrationEditor, setIntegrationEditor] = useState<IntegrationEditorState | null>(null);
   const [integrationVisibility, setIntegrationVisibility] = useState<Record<string, boolean>>({});
   const [userModal, setUserModal] = useState<UserModalState | null>(null);
   const [manualPaymentModal, setManualPaymentModal] = useState<ManualPaymentState | null>(null);
@@ -989,11 +1104,39 @@ export default function MasterPremiumPage() {
     }
   }
 
+  async function loadCompanyIntegrations(companyId: number) {
+    setIntegrationsLoading(true);
+    setError(null);
+    try {
+      const payload = await apiFetch<CompanyIntegrationConnection[]>(`/modules/master/company/${companyId}/integrations`);
+      setCompanyIntegrations(payload);
+      setIntegrationsLoadedCompanyId(companyId);
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : "Falha ao carregar integrações da empresa.");
+    } finally {
+      setIntegrationsLoading(false);
+    }
+  }
+
   useEffect(() => {
     if (hasToken !== true) return;
     loadWorkspace();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hasToken]);
+
+  useEffect(() => {
+    setIntegrationEditor(null);
+    setCompanyIntegrations([]);
+    setIntegrationsLoadedCompanyId(null);
+  }, [detail?.company?.id]);
+
+  useEffect(() => {
+    if (!drawerOpen || drawerTab !== "integrations") return;
+    const companyId = detail?.company?.id;
+    if (!companyId) return;
+    if (integrationsLoadedCompanyId === companyId) return;
+    void loadCompanyIntegrations(companyId);
+  }, [drawerOpen, drawerTab, detail?.company?.id, integrationsLoadedCompanyId]);
 
   useEffect(() => {
     const anyModalOpen =
@@ -1651,6 +1794,110 @@ export default function MasterPremiumPage() {
       window.open(launchUrl, "_blank", "noopener,noreferrer");
     } catch (actionError) {
       setError(actionError instanceof Error ? actionError.message : "Falha ao abrir website.");
+    } finally {
+      setBusyAction(null);
+    }
+  }
+
+  async function saveCompanyIntegration() {
+    if (!activeCompany || !integrationEditor) return;
+
+    const instanceName = integrationEditor.instanceName.trim();
+    const secret = integrationEditor.secret.trim();
+    const appKey = integrationEditor.appKey.trim();
+    const baseUrl = integrationEditor.baseUrl.trim();
+    const authMode = integrationEditor.authMode.trim();
+    const externalAccountId = integrationEditor.externalAccountId.trim();
+
+    if (!instanceName) {
+      setError("Informe o nome da instância da integração.");
+      return;
+    }
+
+    if (integrationEditor.mode === "create" && !secret) {
+      setError("Informe a credencial inicial da integração.");
+      return;
+    }
+
+    setBusyAction(`integration-save-${activeCompany.id}`);
+    setError(null);
+    try {
+      const payload = {
+        provider: integrationEditor.provider,
+        instanceName,
+        isActive: integrationEditor.isActive,
+        ...(secret ? { secret } : {}),
+        ...(appKey ? { appKey } : {}),
+        baseUrl,
+        authMode,
+        externalAccountId,
+      };
+
+      if (integrationEditor.mode === "create") {
+        await apiFetch(`/modules/master/company/${activeCompany.id}/integrations`, {
+          method: "POST",
+          body: JSON.stringify(payload),
+        });
+        setMessage("Conexão de integração criada.");
+      } else {
+        await apiFetch(`/modules/master/company/${activeCompany.id}/integrations/${integrationEditor.connectionId}`, {
+          method: "PATCH",
+          body: JSON.stringify(payload),
+        });
+        setMessage("Conexão de integração atualizada.");
+      }
+
+      setIntegrationEditor(null);
+      await loadCompanyIntegrations(activeCompany.id);
+    } catch (actionError) {
+      setError(actionError instanceof Error ? actionError.message : "Falha ao salvar conexão de integração.");
+    } finally {
+      setBusyAction(null);
+    }
+  }
+
+  async function testCompanyIntegration(connectionId: string) {
+    if (!activeCompany) return;
+
+    setBusyAction(`integration-test-${connectionId}`);
+    setError(null);
+    try {
+      const payload = await apiFetch<{ ok: boolean; status: string; message?: string | null }>(
+        `/modules/master/company/${activeCompany.id}/integrations/${connectionId}/test`,
+        { method: "POST" },
+      );
+      setMessage(payload.message || `Teste concluído com status ${payload.status}.`);
+      await loadCompanyIntegrations(activeCompany.id);
+    } catch (actionError) {
+      setError(actionError instanceof Error ? actionError.message : "Falha ao testar conexão.");
+    } finally {
+      setBusyAction(null);
+    }
+  }
+
+  async function syncCompanyIntegration(connectionId: string) {
+    if (!activeCompany) return;
+
+    setBusyAction(`integration-sync-${connectionId}`);
+    setError(null);
+    try {
+      const payload = await apiFetch<{
+        ok: boolean;
+        importedCount?: number;
+        updatedCount?: number;
+        failedCount?: number;
+        note?: string | null;
+      }>(`/modules/master/company/${activeCompany.id}/integrations/${connectionId}/sync`, {
+        method: "POST",
+        body: JSON.stringify({}),
+      });
+      setMessage(
+        payload.note ||
+          `Sync concluído. Importados: ${payload.importedCount || 0}, atualizados: ${payload.updatedCount || 0}, falhas: ${payload.failedCount || 0}.`,
+      );
+      await loadCompanyIntegrations(activeCompany.id);
+    } catch (actionError) {
+      setError(actionError instanceof Error ? actionError.message : "Falha ao sincronizar integração.");
     } finally {
       setBusyAction(null);
     }
@@ -2406,12 +2653,244 @@ export default function MasterPremiumPage() {
                     <div className={styles.panelCardHeader}>
                       <div>
                         <p className={styles.sectionEyebrow}>Integrações</p>
-                        <h3>Mercado Pago e WhatsApp com credenciais MASTER</h3>
+                        <h3>Operação por empresa e credenciais MASTER</h3>
                       </div>
-                      <button type="button" className="btn btn-secondary btn-sm" onClick={() => setMasterIntegrationsOpen(true)}>
-                        Editar credenciais MASTER
-                      </button>
+                      <div className={styles.rowActions}>
+                        <button type="button" className="btn btn-secondary btn-sm" onClick={() => setIntegrationEditor(buildIntegrationEditor())}>
+                          Nova conexão
+                        </button>
+                        <button type="button" className="btn btn-secondary btn-sm" onClick={() => setMasterIntegrationsOpen(true)}>
+                          Editar credenciais MASTER
+                        </button>
+                      </div>
                     </div>
+                    <div className={styles.summaryMeta}>
+                      <p>AUVO e TagPlus usam provider explícito, segredo mascarado, teste manual e sincronização controlada por empresa.</p>
+                      <p>As credenciais nunca voltam em texto puro; apenas o preview mascarado e o resumo operacional ficam visíveis.</p>
+                    </div>
+
+                    {integrationEditor ? (
+                      <article className={styles.userCard}>
+                        <div className={styles.panelCardHeader}>
+                          <div>
+                            <strong>{integrationEditor.mode === "create" ? "Nova conexão operacional" : "Editar conexão operacional"}</strong>
+                            <p>Cadastre AUVO ou TagPlus sem expor o segredo salvo. Em edição, deixe token e App Key em branco para preservar os segredos atuais.</p>
+                          </div>
+                          <div className={styles.rowActions}>
+                            <button type="button" className="btn btn-secondary btn-sm" onClick={() => setIntegrationEditor(null)}>
+                              Cancelar
+                            </button>
+                            <button type="button" className="btn btn-primary btn-sm" onClick={saveCompanyIntegration} disabled={busyAction === `integration-save-${activeCompany.id}`}>
+                              {busyAction === `integration-save-${activeCompany.id}` ? "Salvando..." : integrationEditor.mode === "create" ? "Criar conexão" : "Salvar conexão"}
+                            </button>
+                          </div>
+                        </div>
+                        <div className={styles.formGrid}>
+                          <select
+                            className="field"
+                            value={integrationEditor.provider}
+                            onChange={(event) =>
+                              setIntegrationEditor((current) =>
+                                current
+                                  ? {
+                                      ...current,
+                                      provider: event.target.value === "TAGPLUS" ? "TAGPLUS" : "AUVO",
+                                    }
+                                  : current,
+                              )
+                            }
+                            disabled={integrationEditor.mode === "edit"}
+                          >
+                            {INTEGRATION_PROVIDER_OPTIONS.map((providerOption) => (
+                              <option key={providerOption.id} value={providerOption.id}>
+                                {providerOption.label}
+                              </option>
+                            ))}
+                          </select>
+                          <input
+                            className="field"
+                            placeholder="Nome da instância"
+                            value={integrationEditor.instanceName}
+                            onChange={(event) =>
+                              setIntegrationEditor((current) =>
+                                current ? { ...current, instanceName: event.target.value } : current,
+                              )
+                            }
+                          />
+                          <input
+                            className="field"
+                            placeholder={
+                              INTEGRATION_PROVIDER_OPTIONS.find((providerOption) => providerOption.id === integrationEditor.provider)?.secretLabel || "Token da integração"
+                            }
+                            value={integrationEditor.secret}
+                            onChange={(event) =>
+                              setIntegrationEditor((current) =>
+                                current ? { ...current, secret: event.target.value } : current,
+                              )
+                            }
+                          />
+                          {integrationEditor.provider === "AUVO" ? (
+                            <input
+                              className="field"
+                              placeholder="App Key AUVO opcional"
+                              value={integrationEditor.appKey}
+                              onChange={(event) =>
+                                setIntegrationEditor((current) =>
+                                  current ? { ...current, appKey: event.target.value } : current,
+                                )
+                              }
+                            />
+                          ) : null}
+                          <input
+                            className="field"
+                            placeholder="Base URL override opcional"
+                            value={integrationEditor.baseUrl}
+                            onChange={(event) =>
+                              setIntegrationEditor((current) =>
+                                current ? { ...current, baseUrl: event.target.value } : current,
+                              )
+                            }
+                          />
+                          <input
+                            className="field"
+                            placeholder={integrationEditor.provider === "AUVO" ? "Auth mode AUVO opcional" : "Auth mode TagPlus opcional"}
+                            value={integrationEditor.authMode}
+                            onChange={(event) =>
+                              setIntegrationEditor((current) =>
+                                current ? { ...current, authMode: event.target.value } : current,
+                              )
+                            }
+                          />
+                          <input
+                            className="field"
+                            placeholder="External account ID opcional"
+                            value={integrationEditor.externalAccountId}
+                            onChange={(event) =>
+                              setIntegrationEditor((current) =>
+                                current ? { ...current, externalAccountId: event.target.value } : current,
+                              )
+                            }
+                          />
+                          <label className={styles.checkboxCard}>
+                            <input
+                              type="checkbox"
+                              checked={integrationEditor.isActive}
+                              onChange={(event) =>
+                                setIntegrationEditor((current) =>
+                                  current ? { ...current, isActive: event.target.checked } : current,
+                                )
+                              }
+                            />
+                            Conexão ativa
+                          </label>
+                        </div>
+                        <div className={styles.summaryMeta}>
+                          <p>Deixe `baseUrl`, `authMode` e `externalAccountId` vazios para usar o runtime padrão do ambiente. Preencha apenas quando o contrato homologado do cliente exigir override por conexão.</p>
+                        </div>
+                      </article>
+                    ) : null}
+
+                    <article className={styles.userCard}>
+                      <div className={styles.panelCardHeader}>
+                        <div>
+                          <strong>AUVO e TagPlus por empresa</strong>
+                          <p>Teste a conexão, acompanhe o último erro e rode sincronização manual para projetar `CustomerProfile` e `DebtCase`.</p>
+                        </div>
+                        <button
+                          type="button"
+                          className="btn btn-secondary btn-sm"
+                          onClick={() => activeCompany && loadCompanyIntegrations(activeCompany.id)}
+                          disabled={integrationsLoading}
+                        >
+                          {integrationsLoading ? "Atualizando..." : "Atualizar lista"}
+                        </button>
+                      </div>
+                      {integrationsLoading ? <div className={styles.emptyPanel}>Carregando integrações...</div> : null}
+                      {!integrationsLoading && !companyIntegrations.length ? (
+                        <div className={styles.emptyPanel}>Nenhuma conexão operacional cadastrada para esta empresa.</div>
+                      ) : null}
+                      <div className={styles.userList}>
+                        {companyIntegrations.map((connection) => (
+                          <article key={connection.id} className={styles.userCard}>
+                            <div className={styles.panelCardHeader}>
+                              <div>
+                                <strong>{connection.providerModel?.label || connection.provider} • {connection.instanceName}</strong>
+                                <p>
+                                  {connection.providerModel?.adapterMode === "scaffold" ? "Modo scaffold honesto" : "Modo operacional"}
+                                  {connection.providerModel?.syncTargets?.length ? ` • ${connection.providerModel.syncTargets.join(" + ")}` : ""}
+                                </p>
+                              </div>
+                              <div className={styles.rowActions}>
+                                <button type="button" className="btn btn-secondary btn-sm" onClick={() => setIntegrationEditor(buildIntegrationEditor(connection))}>
+                                  Editar
+                                </button>
+                                <button
+                                  type="button"
+                                  className="btn btn-secondary btn-sm"
+                                  onClick={() => testCompanyIntegration(connection.id)}
+                                  disabled={busyAction === `integration-test-${connection.id}`}
+                                >
+                                  {busyAction === `integration-test-${connection.id}` ? "Testando..." : "Testar conexão"}
+                                </button>
+                                <button
+                                  type="button"
+                                  className="btn btn-primary btn-sm"
+                                  onClick={() => syncCompanyIntegration(connection.id)}
+                                  disabled={busyAction === `integration-sync-${connection.id}` || !connection.isActive}
+                                >
+                                  {busyAction === `integration-sync-${connection.id}` ? "Sincronizando..." : "Sincronizar agora"}
+                                </button>
+                              </div>
+                            </div>
+                            <div className={styles.modulePills}>
+                              <span className={badgeClass(integrationStatusTone(connection.status))}>{connection.status}</span>
+                              <span className={badgeClass(connection.isActive ? "success" : "warning")}>
+                                {connection.isActive ? "Ativa" : "Inativa"}
+                              </span>
+                              <span className={badgeClass(connection.secretConfigured ? "success" : "danger")}>
+                                {connection.secretConfigured ? "Credencial pronta" : "Sem credencial"}
+                              </span>
+                            </div>
+                            <div className={styles.summaryMeta}>
+                              <p>Preview da credencial: {connection.secretPreview || "Não configurado"}</p>
+                              <p>Último teste: {formatDateTime(connection.lastTestedAt)} • Resultado: {connection.lastTestStatus || "-"}</p>
+                              <p>Último sucesso: {formatDateTime(connection.lastSuccessAt)} • Último sync: {formatDateTime(connection.lastSyncAt)}</p>
+                              <p>Última mensagem de teste: {connection.lastTestMessage || "-"}</p>
+                              <p>Último erro: {connection.lastError || "-"}</p>
+                              <p>Base URL override: {connection.connectionConfig?.baseUrl || "usando runtime do ambiente"}</p>
+                              <p>Auth mode: {connection.connectionConfig?.authMode || "usando runtime do ambiente"}</p>
+                              <p>Conta externa: {connection.connectionConfig?.externalAccountId || "não configurada"}</p>
+                            </div>
+                            {connection.credentialSummary?.fields?.length ? (
+                              <div className={styles.modulePills}>
+                                {connection.credentialSummary.fields.map((field) => (
+                                  <span key={field.key} className={badgeClass(field.configured ? "success" : "warning")}>
+                                    {field.label}: {field.configured ? "OK" : "Pendente"}
+                                  </span>
+                                ))}
+                              </div>
+                            ) : null}
+                            {connection.providerModel?.notes?.length ? (
+                              <div className={styles.summaryMeta}>
+                                {connection.providerModel.notes.map((note, index) => (
+                                  <p key={`${connection.id}-note-${index}`}>{note}</p>
+                                ))}
+                              </div>
+                            ) : null}
+                            {connection.lastSyncRun ? (
+                              <div className="msg-info">
+                                <div className="text-sm">
+                                  Última execução: {connection.lastSyncRun.status} • importados {connection.lastSyncRun.importedCount} • atualizados {connection.lastSyncRun.updatedCount} • falhas {connection.lastSyncRun.failedCount}
+                                  {connection.lastSyncRun.finishedAt ? ` • concluído em ${formatDateTime(connection.lastSyncRun.finishedAt)}` : ""}
+                                  {connection.lastSyncRun.errorSummary ? ` • ${connection.lastSyncRun.errorSummary}` : ""}
+                                </div>
+                              </div>
+                            ) : null}
+                          </article>
+                        ))}
+                      </div>
+                    </article>
+
                     <div className={styles.summaryMeta}>
                       <p>Mercado Pago: {mercadoPagoDraft?.status || activeCompany.mercadoPago.status || "Sem status"}</p>
                       <p>Conta MP: {mercadoPagoDraft?.accountEmail || activeCompany.mercadoPago.accountEmail || "-"}</p>

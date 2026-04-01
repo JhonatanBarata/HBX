@@ -39,11 +39,18 @@ function isFirebaseHostingOrigin(origin: string) {
 function isWebscrapingProxyPath(url: string | undefined) {
   const pathname = String(url || '').split('?', 1)[0] || '';
 
-  // Native API routes should not be proxied (handled by NestJS controllers)
-  if (pathname === '/webscraping/runtime' || pathname === '/webscraping/search') {
-    return false;
-  }
-  if (pathname === '/hbx/webscraping/runtime' || pathname === '/hbx/webscraping/search') {
+  const nativeApiPrefixes = [
+    '/webscraping/runtime',
+    '/webscraping/search',
+    '/webscraping/history',
+    '/webscraping/export',
+    '/hbx/webscraping/runtime',
+    '/hbx/webscraping/search',
+    '/hbx/webscraping/history',
+    '/hbx/webscraping/export',
+  ];
+
+  if (nativeApiPrefixes.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`))) {
     return false;
   }
 

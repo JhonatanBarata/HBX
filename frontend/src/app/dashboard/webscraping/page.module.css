@@ -4,190 +4,303 @@
 }
 
 .hero,
-.formCard,
+.searchCard,
+.historyCard,
 .resultsCard,
-.fallbackCard,
-.emptyCard {
-  padding: 1rem;
-  border-radius: 24px;
-  border: 1px solid color-mix(in srgb, var(--line) 82%, white);
+.statusCard,
+.errorCard,
+.successCard,
+.diagnosticCard,
+.loadingCard {
+  border-radius: 28px;
+  border: 1px solid color-mix(in srgb, var(--line) 84%, white);
   background:
-    radial-gradient(circle at top right, color-mix(in srgb, var(--brand) 10%, transparent), transparent 36%),
+    radial-gradient(circle at top right, color-mix(in srgb, var(--brand) 10%, transparent), transparent 34%),
     linear-gradient(180deg, color-mix(in srgb, var(--surface) 98%, white), color-mix(in srgb, var(--surface-soft) 94%, var(--background)));
   box-shadow: var(--shadow-inset), var(--shadow-xs);
 }
 
-.hero {
-  display: grid;
-  gap: 0.75rem;
+.hero,
+.statusCard,
+.errorCard,
+.successCard,
+.diagnosticCard,
+.loadingCard,
+.searchCard,
+.historyCard,
+.resultsCard {
+  padding: 1.1rem;
 }
 
-.heroTop {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
+.hero {
+  display: grid;
   gap: 1rem;
-  flex-wrap: wrap;
+}
+
+.heroCopy {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.eyebrow {
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--muted);
+  font-weight: 800;
 }
 
 .heroTitle {
   margin: 0;
-  font-size: clamp(1.6rem, 2.6vw, 2.2rem);
-  line-height: 0.96;
+  font-size: clamp(1.8rem, 3vw, 2.55rem);
+  line-height: 0.98;
 }
 
 .heroText,
 .helperText,
-.resultMeta,
-.scriptText,
+.statusText,
+.historyFilter,
+.historyPreview,
 .emptyText,
-.modalMeta {
+.diagnosticText,
+.resultMeta,
+.scriptText {
   margin: 0;
   color: var(--foreground-soft);
 }
 
-.heroMetrics,
-.runtimeBadges,
-.segmentChips,
+.heroStats,
+.searchTop,
+.searchActions,
+.sectionHeader,
+.resultHeader,
 .cardActions,
-.modalActions,
-.headerActions,
-.resultHeader {
+.resultLinks,
+.metaPills,
+.historyTop,
+.diagnosticHeader,
+.actionRow,
+.segmentChips {
   display: flex;
-  gap: 0.55rem;
-  flex-wrap: wrap;
+  gap: 0.7rem;
   align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
 }
 
-.metric {
-  min-width: 150px;
-  padding: 0.8rem 0.9rem;
-  border-radius: 18px;
+.heroStats {
+  align-items: stretch;
+}
+
+.metricCard {
+  flex: 1 1 180px;
+  min-width: 170px;
+  padding: 0.95rem 1rem;
+  border-radius: 20px;
   border: 1px solid color-mix(in srgb, var(--brand) 18%, var(--line));
-  background: color-mix(in srgb, var(--surface-raised) 86%, white);
+  background: color-mix(in srgb, var(--surface-raised) 88%, white);
 }
 
-.metricLabel {
+.metricLabel,
+.fieldLabel,
+.scriptLabel,
+.diagnosticLabel {
   display: block;
-  font-size: 0.7rem;
+  font-size: 0.74rem;
   text-transform: uppercase;
   letter-spacing: 0.08em;
+  font-weight: 800;
   color: var(--muted);
 }
 
-.metricValue {
+.metricValue,
+.statusTitle {
   display: block;
-  margin-top: 0.2rem;
-  font-size: 1rem;
-  font-weight: 800;
   color: var(--foreground);
 }
 
-.runtimeBadge,
-.runtimeBadgeOk,
-.runtimeBadgeWarn,
-.runtimeBadgeOff,
+.metricValue {
+  margin-top: 0.25rem;
+  font-size: 1rem;
+}
+
+.statusCard,
+.errorCard,
+.successCard {
+  display: flex;
+  gap: 0.9rem;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.statusPill,
+.metaPill,
+.resultPill,
+.resultPillOk,
+.historyStamp,
+.diagnosticStamp,
 .segmentChip,
 .segmentChipActive {
-  min-height: 32px;
-  padding: 0.35rem 0.75rem;
+  min-height: 34px;
+  padding: 0.42rem 0.8rem;
   border-radius: 999px;
   border: 1px solid color-mix(in srgb, var(--line) 84%, white);
-  background: rgba(255, 255, 255, 0.66);
+  background: rgba(255, 255, 255, 0.72);
   font-size: 0.76rem;
   font-weight: 800;
 }
 
-.runtimeBadgeOk {
-  color: #0f766e;
-  border-color: color-mix(in srgb, #0f766e 30%, white);
-  background: color-mix(in srgb, #d1fae5 78%, white);
+.statusPill,
+.metaPill,
+.historyStamp,
+.diagnosticStamp,
+.segmentChip {
+  color: var(--foreground-soft);
 }
 
-.runtimeBadgeWarn,
-.segmentChipActive {
+.segmentChip {
+  cursor: pointer;
+}
+
+.segmentChipActive,
+.resultPillOk {
+  color: #0f766e;
+  border-color: color-mix(in srgb, #10b981 32%, white);
+  background: color-mix(in srgb, #d1fae5 82%, white);
+}
+
+.resultPill {
   color: #92400e;
   border-color: color-mix(in srgb, #f59e0b 32%, white);
   background: color-mix(in srgb, #fef3c7 84%, white);
 }
 
-.runtimeBadgeOff {
-  color: #b91c1c;
-  border-color: color-mix(in srgb, #ef4444 30%, white);
-  background: color-mix(in srgb, #fee2e2 84%, white);
+.formGrid,
+.advancedGrid {
+  display: grid;
+  gap: 0.8rem;
 }
 
 .formGrid {
-  display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0.8rem;
+}
+
+.advancedGrid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: 0.8rem;
 }
 
 .field {
   display: grid;
-  gap: 0.4rem;
-}
-
-.fieldLabel {
-  font-size: 0.78rem;
-  font-weight: 800;
-  color: var(--foreground);
+  gap: 0.45rem;
 }
 
 .fieldInput,
 .fieldSelect {
-  min-height: 46px;
+  min-height: 48px;
   width: 100%;
   border-radius: 16px;
   border: 1px solid color-mix(in srgb, var(--line) 82%, white);
   background: color-mix(in srgb, var(--field-surface) 94%, white);
   color: var(--foreground);
-  padding: 0.72rem 0.9rem;
+  padding: 0.76rem 0.92rem;
 }
 
 .fieldInput:focus,
 .fieldSelect:focus {
   outline: 2px solid color-mix(in srgb, var(--brand) 20%, transparent);
-  border-color: color-mix(in srgb, var(--brand) 40%, var(--line));
+  border-color: color-mix(in srgb, var(--brand) 38%, var(--line));
 }
 
-.formFooter,
-.resultsTop,
-.fallbackTop,
-.modalHeader {
+.advancedWrap {
+  padding-top: 0.4rem;
+  border-top: 1px solid color-mix(in srgb, var(--line) 78%, white);
+}
+
+.advancedToggle {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  padding: 0;
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  gap: 0.75rem;
-  flex-wrap: wrap;
+  justify-content: space-between;
+  color: var(--foreground);
+  font-weight: 800;
+  cursor: pointer;
 }
 
+.checkboxField {
+  min-height: 48px;
+  display: flex;
+  gap: 0.6rem;
+  align-items: center;
+  padding: 0.75rem 0.9rem;
+  border-radius: 16px;
+  border: 1px solid color-mix(in srgb, var(--line) 82%, white);
+  background: color-mix(in srgb, var(--field-surface) 94%, white);
+  color: var(--foreground);
+}
+
+.checkboxField input {
+  width: 16px;
+  height: 16px;
+}
+
+.historyGrid,
+.resultsGrid,
+.skeletonGrid {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.historyGrid,
 .resultsGrid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-  gap: 0.8rem;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
 }
 
-.resultCard {
-  display: grid;
-  gap: 0.7rem;
-  padding: 0.9rem;
-  border-radius: 20px;
+.skeletonGrid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.historyItem,
+.resultCard,
+.resultSkeleton {
+  border-radius: 22px;
   border: 1px solid color-mix(in srgb, var(--line) 84%, white);
   background: color-mix(in srgb, var(--surface) 98%, white);
+  padding: 0.95rem;
 }
 
+.historyItem,
+.resultCard,
+.resultSkeleton,
+.emptyState {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.historyTitle,
 .resultName {
   margin: 0;
   font-size: 1rem;
   line-height: 1.15;
 }
 
+.historyMeta,
+.resultMeta {
+  margin-top: 0.18rem;
+}
+
+.historyPreview {
+  font-size: 0.92rem;
+}
+
 .phoneRow {
   display: flex;
+  gap: 0.75rem;
   align-items: center;
   justify-content: space-between;
-  gap: 0.75rem;
   flex-wrap: wrap;
 }
 
@@ -198,71 +311,93 @@
 }
 
 .scriptBox {
-  padding: 0.75rem;
-  border-radius: 16px;
-  background: color-mix(in srgb, var(--surface-soft) 90%, white);
+  padding: 0.8rem;
+  border-radius: 18px;
   border: 1px solid color-mix(in srgb, var(--line) 84%, white);
+  background: color-mix(in srgb, var(--surface-soft) 90%, white);
 }
 
-.scriptLabel {
-  display: block;
-  margin-bottom: 0.35rem;
-  font-size: 0.72rem;
-  font-weight: 800;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--muted);
+.emptyState {
+  padding: 1.1rem;
+  border-radius: 22px;
+  border: 1px dashed color-mix(in srgb, var(--line) 86%, white);
+  background: color-mix(in srgb, var(--surface-soft) 88%, white);
 }
 
-.resultLinks {
-  display: flex;
-  gap: 0.5rem;
-  flex-wrap: wrap;
-}
-
-.modalBackdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 100;
-  background: rgba(15, 23, 42, 0.7);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 1rem;
-}
-
-.modal {
-  width: min(1440px, 100%);
-  height: min(88vh, 960px);
+.diagnosticGrid {
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
-  border-radius: 24px;
-  background: white;
-  overflow: hidden;
-  box-shadow: 0 28px 72px rgba(15, 23, 42, 0.35);
+  gap: 0.9rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
-.modalBody {
-  min-height: 0;
-  background: #f8fafc;
+.skeletonTitle,
+.skeletonLine,
+.skeletonLineShort,
+.skeletonField {
+  border-radius: 999px;
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--surface-soft) 92%, white),
+    color-mix(in srgb, var(--brand) 12%, white),
+    color-mix(in srgb, var(--surface-soft) 92%, white)
+  );
+  background-size: 220% 100%;
+  animation: shimmer 1.5s linear infinite;
 }
 
-.modalFrame {
-  width: 100%;
-  height: 100%;
-  border: 0;
+.skeletonTitle {
+  height: 18px;
+  width: 42%;
 }
 
-@media (max-width: 980px) {
-  .formGrid {
-    grid-template-columns: 1fr;
+.skeletonLine {
+  height: 14px;
+  width: 78%;
+}
+
+.skeletonLineShort {
+  height: 14px;
+  width: 58%;
+}
+
+.skeletonField {
+  height: 48px;
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: 200% 0;
   }
 
+  100% {
+    background-position: -40% 0;
+  }
+}
+
+@media (max-width: 1024px) {
+  .formGrid,
+  .advancedGrid,
+  .diagnosticGrid,
+  .skeletonGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 720px) {
+  .hero,
+  .searchCard,
+  .historyCard,
+  .resultsCard,
+  .statusCard,
+  .errorCard,
+  .successCard,
+  .diagnosticCard,
+  .loadingCard {
+    padding: 0.95rem;
+  }
+
+  .historyGrid,
   .resultsGrid {
     grid-template-columns: 1fr;
-  }
-
-  .modal {
-    height: 92vh;
   }
 }
