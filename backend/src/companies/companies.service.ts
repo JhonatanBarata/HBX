@@ -4,6 +4,10 @@ import { CreateCompanyDto } from './dto/create-company.dto';
 import { UpdateCompanyDto } from './dto/update-company.dto';
 import { buildImportacaoPermissaoRows } from '../bootstrap/company-structural-defaults';
 
+export const MASTER_HARD_DELETE_CONFIRM_TEXT = 'EXCLUIR EMPRESA';
+export const MASTER_HARD_DELETE_DISABLED_MESSAGE = 'Hard delete de empresa esta desativado nesta publicacao. Use archive no Master ou habilite ALLOW_MASTER_HARD_DELETE=true apenas em manutencao controlada.';
+export const MASTER_HARD_DELETE_CONFIRMATION_INVALID_MESSAGE = 'Confirmacao invalida para hard delete.';
+
 @Injectable()
 export class CompaniesService {
   constructor(private readonly prisma: PrismaService) {}
@@ -433,11 +437,20 @@ export class CompaniesService {
     return this.sanitizeCompany(updated);
   }
 
-  async removeByMaster(masterUserId: number, companyId: number) {
+  async removeByMaster(masterUserId: number, companyId: number, input?: { confirmText?: string | null }) {
     await this.assertMasterUser(masterUserId);
 
     const id = Number(companyId);
     if (!id) throw new BadRequestException('Empresa invalida');
+
+    // Keep legacy hard delete behind an explicit maintenance gate.
+    if (String(process.env.ALLOW_MASTER_HARD_DELETE || '').trim().toLowerCase() !== 'true') {
+      throw new ForbiddenException(MASTER_HARD_DELETE_DISABLED_MESSAGE);
+    }
+
+    if ((input?.confirmText ?? '') !== MASTER_HARD_DELETE_CONFIRM_TEXT) {
+      throw new BadRequestException(MASTER_HARD_DELETE_CONFIRMATION_INVALID_MESSAGE);
+    }
 
     const company = await this.prisma.company.findUnique({
       where: { id },
@@ -554,6 +567,70 @@ export class CompaniesService {
         id: company.id,
         name: company.name,
         slug: company.slug || null,
+      },
+    };
+  }
+
+  async archiveByMaster(masterUserId: number, companyId: number, input?: { reason?: string | null }) {
+    await this.assertMasterUser(masterUserId);
+
+    const id = Number(companyId);
+    if (!id) throw new BadRequestException('Empresa invalida');
+
+    const company = await this.prisma.company.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        name: true,
+        slug: true,
+        isActive: true,
+        paymentStatus: true,
+        subscriptionStatus: true,
+        premiumAccess: true,
+        deactivatedAt: true,
+      },
+    });
+    if (!company) throw new NotFoundException('Company not found');
+
+    const now = new Date();
+    const reason = String(input?.reason || '').trim() || null;
+    const archived = await this.prisma.$transaction(async (tx) => {
+      await tx.companyModule.updateMany({ where: { companyId: id }, data: { enabled: false } });
+      return tx.company.update({
+        where: { id },
+        data: {
+          isActive: false,
+          paymentStatus: 'DISABLED',
+          subscriptionStatus: 'canceled',
+          premiumAccess: false,
+          deactivatedAt: now,
+        },
+      });
+    });
+
+    return {
+      ok: true,
+      archivedCompany: {
+        id: archived.id,
+        name: archived.name,
+        slug: archived.slug || null,
+      },
+      archive: {
+        previousState: {
+          isActive: Boolean(company.isActive),
+          paymentStatus: company.paymentStatus,
+          subscriptionStatus: company.subscriptionStatus,
+          premiumAccess: Boolean(company.premiumAccess),
+          deactivatedAt: company.deactivatedAt ? company.deactivatedAt.toISOString() : null,
+        },
+        currentState: {
+          isActive: Boolean(archived.isActive),
+          paymentStatus: archived.paymentStatus,
+          subscriptionStatus: archived.subscriptionStatus,
+          premiumAccess: Boolean(archived.premiumAccess),
+          deactivatedAt: archived.deactivatedAt ? archived.deactivatedAt.toISOString() : null,
+        },
+        reason,
       },
     };
   }

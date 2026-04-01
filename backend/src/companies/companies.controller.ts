@@ -1,5 +1,4 @@
 import { Body, Controller, Delete, Get, Param, ParseIntPipe, Patch, Post, Put, Query, Req, UseGuards } from '@nestjs/common';
-import { CompaniesService } from './companies.service';
 import { CreateCompanyDto } from './dto/create-company.dto';
 import { UpdateCompanyDto } from './dto/update-company.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -14,6 +13,11 @@ import { IsArray, IsBoolean, IsNotEmpty, IsOptional, IsString, ValidateNested } 
 import { Type } from 'class-transformer';
 import { MercadoPagoClientService } from '../payments/mercado-pago-client.service';
 import { MasterContextService } from '../master-context/master-context.service';
+import {
+  CompaniesService,
+  MASTER_HARD_DELETE_CONFIRMATION_INVALID_MESSAGE,
+  MASTER_HARD_DELETE_DISABLED_MESSAGE,
+} from './companies.service';
 
 class MasterCreateCompanyDto {
   @IsString()
@@ -96,6 +100,18 @@ class MasterUpdateCompanyMercadoPagoDto {
   mercadoPagoAccessToken?: string;
 }
 
+class MasterArchiveCompanyDto {
+  @IsOptional()
+  @IsString()
+  reason?: string;
+}
+
+class MasterHardDeleteCompanyDto {
+  @IsOptional()
+  @IsString()
+  confirmText?: string;
+}
+
 @Controller('companies')
 export class CompaniesController {
   constructor(
@@ -172,16 +188,56 @@ export class CompaniesController {
 
   @Delete('master/:id')
   @UseGuards(JwtAuthGuard, MasterGuard)
-  async removeByMaster(@Req() req: any, @Param('id', ParseIntPipe) id: number) {
-    const payload = await this.companiesService.removeByMaster(Number(req.user?.id), id);
+  async removeByMaster(@Req() req: any, @Param('id', ParseIntPipe) id: number, @Body() dto: MasterHardDeleteCompanyDto) {
+    try {
+      const payload = await this.companiesService.removeByMaster(Number(req.user?.id), id, dto || {});
+      await this.masterContextService.registerSupportAction({
+        masterUserId: Number(req.user?.id),
+        companyId: Number(id),
+        scope: 'master_company',
+        action: 'COMPANY_DELETED',
+        severity: 'WARN',
+        metadata: {
+          deletedCompany: payload?.deletedCompany || null,
+        },
+      });
+      return payload;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '';
+      if (message === MASTER_HARD_DELETE_DISABLED_MESSAGE || message === MASTER_HARD_DELETE_CONFIRMATION_INVALID_MESSAGE) {
+        await this.masterContextService.registerSupportAction({
+          masterUserId: Number(req.user?.id),
+          companyId: Number(id),
+          scope: 'master_company',
+          action: 'COMPANY_HARD_DELETE_BLOCKED',
+          severity: 'WARN',
+          metadata: {
+            reason: message,
+            confirmTextProvided: dto?.confirmText || null,
+          },
+        });
+      }
+      throw error;
+    }
+  }
+
+  @Post('master/:id/archive')
+  @UseGuards(JwtAuthGuard, MasterGuard)
+  async archiveByMaster(
+    @Req() req: any,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: MasterArchiveCompanyDto,
+  ) {
+    const payload = await this.companiesService.archiveByMaster(Number(req.user?.id), id, dto || {});
     await this.masterContextService.registerSupportAction({
       masterUserId: Number(req.user?.id),
       companyId: Number(id),
       scope: 'master_company',
-      action: 'COMPANY_DELETED',
+      action: 'COMPANY_ARCHIVED',
       severity: 'WARN',
       metadata: {
-        deletedCompany: payload?.deletedCompany || null,
+        archivedCompany: payload?.archivedCompany || null,
+        archive: payload?.archive || null,
       },
     });
     return payload;
