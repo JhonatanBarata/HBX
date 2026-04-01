@@ -33,6 +33,31 @@ function createConnectionRow(extra?: Record<string, unknown>) {
   };
 }
 
+function createProjectionStub() {
+  return {
+    upsertCustomerProfile: async () => ({ action: 'imported', row: { id: 'profile-1' } }),
+    upsertDebtCase: async () => ({ action: 'imported', row: { id: 'debt-1' } }),
+  } as any;
+}
+
+function createAuvoClientStub(overrides?: Record<string, unknown>) {
+  return {
+    listCustomers: async () => ({
+      source: 'remote',
+      items: [],
+      note: 'AUVO customers endpoint nao configurado; sync de clientes dedicados foi ignorado.',
+      rawShape: null,
+    }),
+    listRecords: async () => ({
+      source: 'scaffold',
+      items: [],
+      note: null,
+      rawShape: null,
+    }),
+    ...overrides,
+  } as any;
+}
+
 test('testConnection updates AUVO connection test metadata', async () => {
   const previousKey = process.env.INTEGRATION_SECRET_KEY;
   process.env.INTEGRATION_SECRET_KEY = 'integration-test-secret-key';
@@ -116,7 +141,8 @@ test('syncNow creates execution log and stores compact raw payload summary', asy
         },
       } as any,
       new IntegrationSecretsService(),
-      {
+      createProjectionStub(),
+      createAuvoClientStub({
         listRecords: async () => ({
           source: 'scaffold',
           items: [
@@ -134,7 +160,7 @@ test('syncNow creates execution log and stores compact raw payload summary', asy
           ],
           note: 'Sync scaffold executado.',
         }),
-      } as any,
+      }),
       new AuvoMapper(),
     );
 
@@ -189,7 +215,8 @@ test('syncNow maps realistic AUVO payload aliases and nested fields', async () =
         },
       } as any,
       new IntegrationSecretsService(),
-      {
+      createProjectionStub(),
+      createAuvoClientStub({
         listRecords: async () => ({
           source: 'normalized',
           items: [
@@ -205,7 +232,7 @@ test('syncNow maps realistic AUVO payload aliases and nested fields', async () =
             },
           ],
         }),
-      } as any,
+      }),
       new AuvoMapper(),
     );
 
@@ -259,7 +286,8 @@ test('syncNow dedupes the same payload when externalId aliases resolve to the sa
         },
       } as any,
       new IntegrationSecretsService(),
-      {
+      createProjectionStub(),
+      createAuvoClientStub({
         listRecords: async () => ({
           source: 'normalized',
           items: [
@@ -267,7 +295,7 @@ test('syncNow dedupes the same payload when externalId aliases resolve to the sa
             { externalId: '44', orientation: 'OS alias 2', lastUpdate: '2026-03-29T08:05:00.000Z' },
           ],
         }),
-      } as any,
+      }),
       new AuvoMapper(),
     );
 
@@ -321,7 +349,8 @@ test('syncNow counts updates correctly when realistic payload uses alias taskID'
         },
       } as any,
       new IntegrationSecretsService(),
-      {
+      createProjectionStub(),
+      createAuvoClientStub({
         listRecords: async () => ({
           source: 'normalized',
           items: [
@@ -333,7 +362,7 @@ test('syncNow counts updates correctly when realistic payload uses alias taskID'
             },
           ],
         }),
-      } as any,
+      }),
       new AuvoMapper(),
     );
 
@@ -371,7 +400,8 @@ test('syncNow blocks concurrent AUVO runs through running lock', async () => {
         },
       } as any,
       new IntegrationSecretsService(),
-      { listRecords: async () => ({ source: 'scaffold', items: [] }) } as any,
+      createProjectionStub(),
+      createAuvoClientStub({ listRecords: async () => ({ source: 'scaffold', items: [] }) }),
       new AuvoMapper(),
     );
 
@@ -425,7 +455,8 @@ test('syncNow dedupes by companyId and externalId when existing record is newer'
         },
       } as any,
       new IntegrationSecretsService(),
-      {
+      createProjectionStub(),
+      createAuvoClientStub({
         listRecords: async () => ({
           source: 'scaffold',
           items: [
@@ -437,7 +468,7 @@ test('syncNow dedupes by companyId and externalId when existing record is newer'
             },
           ],
         }),
-      } as any,
+      }),
       new AuvoMapper(),
     );
 
@@ -481,12 +512,13 @@ test('syncIncremental uses connection lastSyncAt as updatedSince cursor', async 
         },
       } as any,
       new IntegrationSecretsService(),
-      {
+      createProjectionStub(),
+      createAuvoClientStub({
         listRecords: async (_credentials: any, input: any) => {
           capturedInputs.push(input);
           return { source: 'scaffold', items: [] };
         },
-      } as any,
+      }),
       new AuvoMapper(),
     );
 

@@ -86,6 +86,7 @@ model Company {
   masterAssumedContextSessions MasterAssumedContextSession[]
   masterSupportAuditLogs MasterSupportAuditLog[]
   atendimentoCustomers AtendimentoCustomer[]
+  webscrapingSearchHistories WebscrapingSearchHistory[]
 }
 
 model CompanyWhatsAppEndpoint {
@@ -519,6 +520,53 @@ model User {
   masterContextSessions MasterAssumedContextSession[] @relation("MasterAssumedContextUser")
   masterContextEndedSessions MasterAssumedContextSession[] @relation("MasterAssumedContextEndedByUser")
   masterSupportAuditLogs MasterSupportAuditLog[] @relation("MasterSupportAuditLogUser")
+  webscrapingSearchHistories WebscrapingSearchHistory[]
+}
+
+model WebscrapingSearchHistory {
+  id              String   @id @default(cuid())
+  company         Company  @relation(fields: [companyId], references: [id])
+  companyId       Int
+  user            User     @relation(fields: [userId], references: [id])
+  userId          Int
+  city            String
+  segment         String
+  quantity        Int
+  filtersJson     String
+  searchSignature String
+  resultCount     Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  lastUsedAt      DateTime @default(now())
+  places          WebscrapingSearchPlace[]
+
+  @@unique([companyId, searchSignature])
+  @@index([companyId, lastUsedAt])
+  @@index([companyId, createdAt])
+  @@index([userId, lastUsedAt])
+}
+
+model WebscrapingSearchPlace {
+  id               String   @id @default(cuid())
+  searchHistory    WebscrapingSearchHistory @relation(fields: [searchHistoryId], references: [id], onDelete: Cascade)
+  searchHistoryId  String
+  placeId          String
+  rank             Int
+  name             String
+  phone            String
+  phoneDigits      String
+  probableWhatsApp Boolean  @default(false)
+  rating           Float?
+  reviews          Int      @default(0)
+  address          String
+  website          String
+  googleMapsUrl    String
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@unique([searchHistoryId, placeId])
+  @@index([searchHistoryId, rank])
+  @@index([searchHistoryId, phoneDigits])
 }
 
 model TechAssistantInteraction {

@@ -1,6 +1,9 @@
 import { BadRequestException, ForbiddenException, Injectable, OnModuleInit } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { randomUUID } from 'crypto';
+import { CreateIntegrationConnectionDto, UpdateIntegrationConnectionDto } from '../integrations/dto/integration-connection.dto';
+import { IntegrationSyncDto } from '../integrations/dto/integration-sync.dto';
+import { IntegrationConnectionsService } from '../integrations/integration-connections.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { UsersService } from '../users/users.service';
 import structuralDefaults from '../bootstrap/structural-defaults.json';
@@ -62,6 +65,7 @@ type BillingLedgerEntryRow = {
 export class ModulesService implements OnModuleInit {
   constructor(
     private readonly prisma: PrismaService,
+    private readonly integrationConnectionsService: IntegrationConnectionsService,
     private readonly usersService: UsersService,
     private readonly masterContextService: MasterContextService,
   ) {}
@@ -495,6 +499,50 @@ export class ModulesService implements OnModuleInit {
     return serializeMasterGlobalIntegrationConfig(updated);
   }
 
+  async listMasterCompanyIntegrations(masterUserId: number, companyId: number, provider?: string) {
+    await this.assertMasterUser(masterUserId);
+    await this.assertCompanyExists(companyId);
+    return this.integrationConnectionsService.listByCompanyId(companyId, provider);
+  }
+
+  async createMasterCompanyIntegration(
+    masterUserId: number,
+    companyId: number,
+    dto: CreateIntegrationConnectionDto,
+  ) {
+    await this.assertMasterUser(masterUserId);
+    await this.assertCompanyExists(companyId);
+    return this.integrationConnectionsService.createByCompanyId(companyId, dto);
+  }
+
+  async updateMasterCompanyIntegration(
+    masterUserId: number,
+    companyId: number,
+    connectionId: string,
+    dto: UpdateIntegrationConnectionDto,
+  ) {
+    await this.assertMasterUser(masterUserId);
+    await this.assertCompanyExists(companyId);
+    return this.integrationConnectionsService.updateByCompanyId(companyId, connectionId, dto);
+  }
+
+  async testMasterCompanyIntegration(masterUserId: number, companyId: number, connectionId: string) {
+    await this.assertMasterUser(masterUserId);
+    await this.assertCompanyExists(companyId);
+    return this.integrationConnectionsService.testByCompanyId(companyId, connectionId);
+  }
+
+  async syncMasterCompanyIntegration(
+    masterUserId: number,
+    companyId: number,
+    connectionId: string,
+    dto?: IntegrationSyncDto,
+  ) {
+    await this.assertMasterUser(masterUserId);
+    await this.assertCompanyExists(companyId);
+    return this.integrationConnectionsService.syncNowByCompanyId(companyId, connectionId, dto || {});
+  }
+
   async updateCompanyMasterTokenUsage(
     masterUserId: number,
     companyId: number,
@@ -811,6 +859,14 @@ export class ModulesService implements OnModuleInit {
   private async assertMasterUser(masterUserId: number) {
     const { isSystemMaster } = await this.resolveUserContext(masterUserId);
     if (!isSystemMaster) throw new ForbiddenException('Acesso exclusivo do usuario MASTER');
+  }
+
+  private async assertCompanyExists(companyId: number) {
+    const company = await this.prisma.company.findUnique({
+      where: { id: Number(companyId) },
+      select: { id: true },
+    });
+    if (!company) throw new BadRequestException('Empresa nao encontrada');
   }
 
   private async ensureDatabaseAutomation() {

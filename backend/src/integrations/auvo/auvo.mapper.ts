@@ -8,6 +8,14 @@ const START_PATHS = ['scheduledStart', 'startDate', 'taskDate', 'date', 'initial
 const END_PATHS = ['scheduledEnd', 'endDate', 'finalDate', 'finishDate', 'end_at', 'checkOutDate', 'end.date', 'dates.end'];
 const TECHNICIAN_PATHS = ['technicianName', 'technician', 'technician.name', 'userName', 'user', 'user.name', 'userTo', 'userTo.name', 'assignedTo', 'assignedTo.name'];
 const CUSTOMER_PATHS = ['customerName', 'customerDescription', 'customer', 'customer.name', 'clientName', 'client', 'client.name', 'deal.customer.name', 'deal.customerName'];
+const CUSTOMER_PHONE_PATHS = ['phone', 'mobile', 'whatsapp', 'customer.phone', 'customer.mobile', 'customer.whatsapp', 'client.phone', 'client.mobile', 'contact.phone', 'contact.mobile'];
+const CUSTOMER_EMAIL_PATHS = ['email', 'customer.email', 'client.email', 'contact.email'];
+const CUSTOMER_DOCUMENT_PATHS = ['document', 'cpfCnpj', 'customer.document', 'customer.cpfCnpj', 'client.document', 'client.cpfCnpj'];
+const EXTERNAL_CUSTOMER_ID_PATHS = ['customerId', 'clientId', 'externalCustomerId', 'customer.id', 'customer.customerId', 'client.id', 'client.customerId'];
+const EXTERNAL_DEBT_ID_PATHS = ['deal.id', 'deal.debtId', 'financial.id', 'charge.id', 'invoice.id'];
+const DEBT_AMOUNT_PATHS = ['deal.amount', 'financial.amount', 'charge.amount', 'invoice.amount', 'openAmount', 'amount'];
+const DEBT_DUE_DATE_PATHS = ['deal.dueDate', 'financial.dueDate', 'charge.dueDate', 'invoice.dueDate', 'dueDate'];
+const DEBT_STATUS_PATHS = ['deal.status', 'financial.status', 'charge.status', 'invoice.status', 'paymentStatus'];
 const UPDATED_AT_PATHS = ['updatedAt', 'updated_at', 'lastUpdate', 'lastUpdatedAt', 'modifiedAt', 'lastModified', 'updateDate', 'updated.date', 'dates.updatedAt'];
 
 @Injectable()
@@ -139,6 +147,14 @@ export class AuvoMapper {
     return Number.isNaN(parsed.getTime()) ? null : parsed;
   }
 
+  private parseNumber(value: unknown) {
+    if (value == null || value === '') return null;
+    if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+    const normalized = String(value).replace(/\./g, '').replace(',', '.');
+    const parsed = Number(normalized);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
   private normalizeStatus(value: unknown) {
     const normalized = this.normalizeText(value);
     if (!normalized) return null;
@@ -220,8 +236,31 @@ export class AuvoMapper {
       scheduledEnd: this.parseDate(this.pickFirstValue(sources, END_PATHS)),
       technicianName: this.pickFirstText(sources, TECHNICIAN_PATHS),
       customerName: this.pickFirstText(sources, CUSTOMER_PATHS),
+      customerPhone: this.pickFirstText(sources, CUSTOMER_PHONE_PATHS),
+      customerEmail: this.pickFirstText(sources, CUSTOMER_EMAIL_PATHS),
+      customerDocument: this.pickFirstText(sources, CUSTOMER_DOCUMENT_PATHS),
+      externalCustomerId: this.pickFirstIdentifier(sources, EXTERNAL_CUSTOMER_ID_PATHS),
+      externalDebtId: this.pickFirstIdentifier(sources, EXTERNAL_DEBT_ID_PATHS),
+      debtAmount: this.parseNumber(this.pickFirstValue(sources, DEBT_AMOUNT_PATHS)),
+      debtDueDate: this.parseDate(this.pickFirstValue(sources, DEBT_DUE_DATE_PATHS)),
+      debtStatus: this.normalizeStatus(this.pickFirstValue(sources, DEBT_STATUS_PATHS)),
       sourceUpdatedAt: this.parseDate(this.pickFirstValue(sources, UPDATED_AT_PATHS)),
       rawPayloadSummaryJson: this.buildRawPayloadSummary(record),
+    };
+  }
+
+  toCustomerProjection(record: AuvoRemoteRecord) {
+    const sources = this.getSources(record);
+    return {
+      externalCustomerId:
+        this.pickFirstIdentifier(sources, EXTERNAL_CUSTOMER_ID_PATHS) ||
+        this.pickFirstIdentifier(sources, EXTERNAL_ID_PATHS),
+      name: this.pickFirstText(sources, [...CUSTOMER_PATHS, ...TITLE_PATHS]),
+      phone: this.pickFirstText(sources, CUSTOMER_PHONE_PATHS),
+      email: this.pickFirstText(sources, CUSTOMER_EMAIL_PATHS),
+      document: this.pickFirstText(sources, CUSTOMER_DOCUMENT_PATHS),
+      notes: this.pickFirstText(sources, ['notes', 'observation', 'description']),
+      sourceUpdatedAt: this.parseDate(this.pickFirstValue(sources, UPDATED_AT_PATHS)),
     };
   }
 }

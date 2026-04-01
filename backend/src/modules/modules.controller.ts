@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, ParseIntPipe, Post, Put, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, ParseIntPipe, Patch, Post, Put, Query, Req, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { ModulesService } from './modules.service';
 import { ModuleAccessGuard } from './module-access.guard';
@@ -7,6 +7,8 @@ import { IsBoolean, IsInt, IsNumber, IsOptional, IsString, Max, Min } from 'clas
 import { MasterGuard } from '../auth/guards/master.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { Admin } from '../auth/admin.decorator';
+import { CreateIntegrationConnectionDto, UpdateIntegrationConnectionDto } from '../integrations/dto/integration-connection.dto';
+import { IntegrationSyncDto } from '../integrations/dto/integration-sync.dto';
 import { IsArray, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
 import { probeWebscrapingRuntime } from './webscraping-runtime.util';
@@ -305,6 +307,58 @@ export class ModulesController {
     @Param('companyId', ParseIntPipe) companyId: number,
   ) {
     return this.modulesService.getMasterCompanyDetail(Number(req.user?.id), companyId);
+  }
+
+  @Get('master/company/:companyId/integrations')
+  @UseGuards(JwtAuthGuard, MasterGuard)
+  listMasterCompanyIntegrations(
+    @Req() req: any,
+    @Param('companyId', ParseIntPipe) companyId: number,
+    @Query('provider') provider?: string,
+  ) {
+    return this.modulesService.listMasterCompanyIntegrations(Number(req.user?.id), companyId, provider);
+  }
+
+  @Post('master/company/:companyId/integrations')
+  @UseGuards(JwtAuthGuard, MasterGuard)
+  createMasterCompanyIntegration(
+    @Req() req: any,
+    @Param('companyId', ParseIntPipe) companyId: number,
+    @Body() dto: CreateIntegrationConnectionDto,
+  ) {
+    return this.modulesService.createMasterCompanyIntegration(Number(req.user?.id), companyId, dto);
+  }
+
+  @Patch('master/company/:companyId/integrations/:connectionId')
+  @UseGuards(JwtAuthGuard, MasterGuard)
+  updateMasterCompanyIntegration(
+    @Req() req: any,
+    @Param('companyId', ParseIntPipe) companyId: number,
+    @Param('connectionId') connectionId: string,
+    @Body() dto: UpdateIntegrationConnectionDto,
+  ) {
+    return this.modulesService.updateMasterCompanyIntegration(Number(req.user?.id), companyId, connectionId, dto);
+  }
+
+  @Post('master/company/:companyId/integrations/:connectionId/test')
+  @UseGuards(JwtAuthGuard, MasterGuard)
+  testMasterCompanyIntegration(
+    @Req() req: any,
+    @Param('companyId', ParseIntPipe) companyId: number,
+    @Param('connectionId') connectionId: string,
+  ) {
+    return this.modulesService.testMasterCompanyIntegration(Number(req.user?.id), companyId, connectionId);
+  }
+
+  @Post('master/company/:companyId/integrations/:connectionId/sync')
+  @UseGuards(JwtAuthGuard, MasterGuard)
+  syncMasterCompanyIntegration(
+    @Req() req: any,
+    @Param('companyId', ParseIntPipe) companyId: number,
+    @Param('connectionId') connectionId: string,
+    @Body() dto: IntegrationSyncDto,
+  ) {
+    return this.modulesService.syncMasterCompanyIntegration(Number(req.user?.id), companyId, connectionId, dto || {});
   }
 
   @Put('master/company/:companyId')

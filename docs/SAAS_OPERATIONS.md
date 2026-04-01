@@ -75,6 +75,52 @@ Crie um arquivo local baseado em [.env.production.example](.env.production.examp
 - `PROD_FRONTEND_URL`: URL publica do frontend para validacao simples.
 - `PROD_DATABASE_URL`: conexao do banco remoto para backup e verificacao.
 
+No backend publicado, valide tambem as variaveis de runtime abaixo:
+
+- `JWT_SECRET`: assinatura dos access tokens.
+- `INTEGRATION_SECRET_KEY`: obrigatoria para criptografar e descriptografar credenciais de `IntegrationConnection` sem expor segredo puro no banco ou na API.
+
+Regra pratica para `INTEGRATION_SECRET_KEY`:
+
+- gere um valor forte e estavel por ambiente;
+- nao troque esse valor sem plano de rotacao, porque conexoes AUVO e TAGPLUS persistidas deixam de ser descriptografaveis;
+- trate essa variavel como segredo operacional, nunca como dado versionado.
+
+## Integracoes AUVO e TagPlus
+
+O backend agora suporta adapters HTTP reais para AUVO e TagPlus, mas a homologacao continua dependente do contrato efetivo liberado por cada fornecedor.
+
+Variaveis de runtime do backend para AUVO:
+
+- `AUVO_API_BASE_URL`: base URL do tenant ou ambiente AUVO.
+- `AUVO_AUTH_MODE`: `app_key_token_query` por padrao; use `bearer_token` apenas se seu contrato oficial exigir.
+- `AUVO_APP_KEY`: obrigatoria quando `AUVO_AUTH_MODE=app_key_token_query`.
+- `AUVO_EXTERNAL_ACCOUNT_ID`: opcional; enviado quando o contrato exigir identificacao extra da conta.
+- `AUVO_TEST_PATH`: endpoint minimo para teste de conexao real.
+- `AUVO_CUSTOMERS_PATH`: endpoint dedicado de clientes, se existir.
+- `AUVO_TASKS_PATH`: endpoint de tarefas/OS usado para sync principal.
+- `AUVO_UPDATED_SINCE_PARAM`, `AUVO_PAGE_PARAM`, `AUVO_PAGE_SIZE_PARAM`, `AUVO_PAGE_SIZE`: controles de incremental e paginacao.
+- `AUVO_PENDING_STATUS_PARAM`, `AUVO_PENDING_STATUS_VALUES`: filtros operacionais para backlog aberto quando o contrato suportar.
+- `AUVO_TIMEOUT_MS`, `AUVO_RETRY_ATTEMPTS`, `AUVO_RETRY_BACKOFF_MS`: timeout, retry limitado e backoff simples.
+
+Variaveis de runtime do backend para TagPlus:
+
+- `TAGPLUS_API_BASE_URL`: base URL do ambiente TagPlus.
+- `TAGPLUS_AUTH_MODE`: `bearer_token` por padrao; use `query_token` apenas se o contrato oficial exigir.
+- `TAGPLUS_EXTERNAL_ACCOUNT_ID`: opcional; enviado quando necessario.
+- `TAGPLUS_TEST_PATH`: endpoint minimo para teste de conexao real.
+- `TAGPLUS_CUSTOMERS_PATH`: endpoint dedicado de clientes, se existir.
+- `TAGPLUS_RECEIVABLES_PATH`: endpoint de titulos/cobrancas usado no sync principal.
+- `TAGPLUS_UPDATED_SINCE_PARAM`, `TAGPLUS_PAGE_PARAM`, `TAGPLUS_PAGE_SIZE_PARAM`, `TAGPLUS_PAGE_SIZE`: controles de incremental e paginacao.
+- `TAGPLUS_TIMEOUT_MS`, `TAGPLUS_RETRY_ATTEMPTS`, `TAGPLUS_RETRY_BACKOFF_MS`: timeout, retry limitado e backoff simples.
+
+Regras praticas para homologacao:
+
+- nao esconder endpoint assumido no codigo; declare tudo por variavel de ambiente ou override na conexao;
+- use `baseUrl`, `authMode`, `externalAccountId` e, no caso da AUVO, `appKey`, somente quando o contrato real do cliente pedir;
+- se `*_CUSTOMERS_PATH` nao estiver configurado, o sync de clientes dedicados e ignorado de forma explicita;
+- se `AUVO_TASKS_PATH` ou `TAGPLUS_RECEIVABLES_PATH` nao estiver configurado, o sync real nao deve ser tratado como homologado.
+
 O fluxo oficial de publicacao assume `origin/master` como destino unico.
 
 ## Webscraping no Render

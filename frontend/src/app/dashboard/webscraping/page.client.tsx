@@ -2,11 +2,11 @@
 
 import { useEffect, useMemo, useState } from "react";
 import DashboardScaffold from "@/components/DashboardScaffold";
-import { apiFetch } from "../_lib/api";
+import { apiFetch, getToken } from "../_lib/api";
 import { useRequireAuth } from "../_lib/useRequireAuth";
 import styles from "./page.module.css";
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "";
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3000";
 const SEGMENT_SUGGESTIONS = [
   "Lanchonetes",
   "Oficinas",
@@ -18,13 +18,23 @@ const SEGMENT_SUGGESTIONS = [
 const QUANTITY_OPTIONS = [5, 10, 15, 20];
 
 type CurrentUser = {
+  id?: number | null;
   username?: string | null;
   name?: string | null;
+  role?: string | null;
+  isSystemMaster?: boolean;
   company?: { name?: string | null } | null;
   masterContext?: {
     active?: boolean;
     companyName?: string | null;
   } | null;
+};
+
+type SearchFilters = {
+  minRating: number | null;
+  minReviews: number | null;
+  onlyProbableWhatsApp: boolean;
+  onlyWithWebsite: boolean;
 };
 
 type NativeRuntime = {
@@ -34,16 +44,21 @@ type NativeRuntime = {
   googleApiKeyConfigured: boolean;
 };
 
-type LegacyRuntime = {
-  status: "online" | "degraded" | "offline";
-  code: string;
-  message: string;
-  publicUrl: string;
-};
-
 type RuntimeResponse = {
   native: NativeRuntime;
-  legacy: LegacyRuntime;
+  diagnostics?: {
+    checkedAt: string;
+    nativeTechnicalMessage: string;
+    legacy?: {
+      status: "online" | "degraded" | "offline";
+      code: string;
+      message: string;
+      publicUrl?: string | null;
+      internalUrl?: string | null;
+      healthUrl?: string | null;
+      httpStatus?: number | null;
+    } | null;
+  };
 };
 
 type SearchResult = {
@@ -63,8 +78,32 @@ type SearchResponse = {
     city: string;
     segment: string;
     quantity: number;
+    filters: SearchFilters;
+  };
+  meta: {
+    historyId: string | null;
+    source: "history" | "google" | "hybrid";
+    reusedCount: number;
+    fetchedCount: number;
   };
   results: SearchResult[];
+};
+
+type SearchHistoryItem = {
+  id: string;
+  city: string;
+  segment: string;
+  quantity: number;
+  resultCount: number;
+  filters: SearchFilters;
+  createdAt: string;
+  updatedAt: string;
+  lastUsedAt: string;
+  preview: string[];
+};
+
+type HistoryResponse = {
+  items: SearchHistoryItem[];
 };
 
 function normalizePhoneDigits(raw: string) {
@@ -109,42 +148,98 @@ function buildCallUrl(result: SearchResult) {
   return `tel:+55${digits}`;
 }
 
-function buildLegacyEntryUrl(runtime: RuntimeResponse | null, currentUser: CurrentUser | null) {
-  const publicUrl = runtime?.legacy?.publicUrl;
-  if (!publicUrl || runtime?.legacy?.status === "offline") return null;
-
+function formatDateTime(value: string) {
   try {
-    const targetUrl = new URL(publicUrl, API_BASE_URL || window.location.origin);
-    const userName = buildSpeakerName(currentUser);
-    const companyName = buildCompanyName(currentUser);
-
-    if (userName) targetUrl.searchParams.set("user_name", userName);
-    if (companyName) targetUrl.searchParams.set("company_name", companyName);
-
-    return targetUrl.toString();
+    return new Intl.DateTimeFormat("pt-BR", {
+      day: "2-digit",
+      month: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+    }).format(new Date(value));
   } catch {
-    return null;
+    return value;
   }
+}
+
+function buildFilterSummary(filters: SearchFilters) {
+  const parts: string[] = [];
+  if (filters.minRating != null) parts.push(`nota >= ${filters.minRating.toFixed(1)}`);
+  if (filters.minReviews != null) parts.push(`${filters.minReviews}+ avaliacoes`);
+  if (filters.onlyProbableWhatsApp) parts.push("WhatsApp provavel");
+  if (filters.onlyWithWebsite) parts.push("com site");
+  return parts.length ? parts.join(" • ") : "Sem filtros avancados";
 }
 
 async function copyText(value: string) {
   await navigator.clipboard.writeText(value);
 }
 
+async function downloadExcel(body: Record<string, unknown>) {
+  const token = getToken();
+  const response = await fetch(`${API_BASE_URL}/webscraping/export`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!response.ok) {
+    const payload = await response.text();
+    try {
+      const parsed = JSON.parse(payload) as { message?: string };
+      throw new Error(parsed?.message || "Falha ao exportar Excel.");
+    } catch {
+      throw new Error(payload || "Falha ao exportar Excel.");
+    }
+  }
+
+  const blob = await response.blob();
+  const header = response.headers.get("Content-Disposition") || "";
+  const match = header.match(/filename="([^"]+)"/i);
+  const fileName = match?.[1] || "prospeccao.xlsx";
+  const objectUrl = window.URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = objectUrl;
+  link.download = fileName;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.URL.revokeObjectURL(objectUrl);
+}
+
 export default function WebscrapingClientPage() {
   const hasToken = useRequireAuth();
   const [runtime, setRuntime] = useState<RuntimeResponse | null>(null);
   const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
+  const [historyItems, setHistoryItems] = useState<SearchHistoryItem[]>([]);
   const [city, setCity] = useState("");
   const [segment, setSegment] = useState("Lanchonetes");
   const [quantity, setQuantity] = useState(10);
+  const [minRating, setMinRating] = useState("");
+  const [minReviews, setMinReviews] = useState("");
+  const [onlyProbableWhatsApp, setOnlyProbableWhatsApp] = useState(false);
+  const [onlyWithWebsite, setOnlyWithWebsite] = useState(false);
   const [results, setResults] = useState<SearchResult[]>([]);
+  const [activeQuery, setActiveQuery] = useState<SearchResponse["query"] | null>(null);
+  const [searchMeta, setSearchMeta] = useState<SearchResponse["meta"] | null>(null);
   const [loadingBootstrap, setLoadingBootstrap] = useState(true);
   const [searching, setSearching] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [historyBusyId, setHistoryBusyId] = useState<string | null>(null);
   const [pageError, setPageError] = useState<string | null>(null);
   const [searchError, setSearchError] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
-  const [legacyOpen, setLegacyOpen] = useState(false);
+  const [hasSearched, setHasSearched] = useState(false);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+
+  const canSeeDiagnostics = useMemo(
+    () => Boolean(currentUser?.isSystemMaster) || String(currentUser?.role || "").toUpperCase() === "ADMIN",
+    [currentUser?.isSystemMaster, currentUser?.role],
+  );
+  const runtimeReady = runtime?.native.status === "online";
+  const configurationPending = runtime?.native.code === "configuration_pending";
 
   useEffect(() => {
     if (hasToken !== true) return;
@@ -154,13 +249,15 @@ export default function WebscrapingClientPage() {
     (async () => {
       setLoadingBootstrap(true);
       try {
-        const [runtimePayload, profilePayload] = await Promise.all([
+        const [runtimePayload, profilePayload, historyPayload] = await Promise.all([
           apiFetch<RuntimeResponse>("/webscraping/runtime"),
           apiFetch<CurrentUser>("/profile/current-user"),
+          apiFetch<HistoryResponse>("/webscraping/history?limit=8"),
         ]);
         if (cancelled) return;
         setRuntime(runtimePayload);
         setCurrentUser(profilePayload);
+        setHistoryItems(historyPayload.items || []);
         setPageError(null);
       } catch (error) {
         if (cancelled) return;
@@ -179,13 +276,30 @@ export default function WebscrapingClientPage() {
 
   useEffect(() => {
     if (!feedback) return;
-    const timer = window.setTimeout(() => setFeedback(null), 2000);
+    const timer = window.setTimeout(() => setFeedback(null), 2200);
     return () => window.clearTimeout(timer);
   }, [feedback]);
 
-  const legacyUrl = useMemo(() => buildLegacyEntryUrl(runtime, currentUser), [runtime, currentUser]);
-  const nativeReady = runtime?.native.status === "online";
-  const legacyAvailable = Boolean(legacyUrl);
+  function buildPayload() {
+    return {
+      city: city.trim(),
+      segment: segment.trim(),
+      quantity,
+      minRating: minRating ? Number(minRating) : undefined,
+      minReviews: minReviews ? Number(minReviews) : undefined,
+      onlyProbableWhatsApp,
+      onlyWithWebsite,
+    };
+  }
+
+  async function refreshHistory() {
+    try {
+      const payload = await apiFetch<HistoryResponse>("/webscraping/history?limit=8");
+      setHistoryItems(payload.items || []);
+    } catch {
+      // no-op
+    }
+  }
 
   async function handleSearch() {
     setSearchError(null);
@@ -205,25 +319,99 @@ export default function WebscrapingClientPage() {
     try {
       const payload = await apiFetch<SearchResponse>("/webscraping/search", {
         method: "POST",
-        body: JSON.stringify({
-          city: city.trim(),
-          segment: segment.trim(),
-          quantity,
-        }),
+        body: JSON.stringify(buildPayload()),
       });
       setResults(payload.results || []);
+      setActiveQuery(payload.query);
+      setSearchMeta(payload.meta);
+      setHasSearched(true);
+      await refreshHistory();
     } catch (error) {
       setResults([]);
+      setActiveQuery(null);
+      setSearchMeta(null);
+      setHasSearched(true);
       setSearchError(error instanceof Error ? error.message : "Falha ao buscar contatos.");
     } finally {
       setSearching(false);
     }
   }
 
+  async function handleReuseHistory(item: SearchHistoryItem) {
+    setSearchError(null);
+    setFeedback(null);
+    setHistoryBusyId(item.id);
+    try {
+      const payload = await apiFetch<SearchResponse>(`/webscraping/history/${item.id}/reuse`, {
+        method: "POST",
+      });
+      setCity(payload.query.city);
+      setSegment(payload.query.segment);
+      setQuantity(payload.query.quantity);
+      setMinRating(payload.query.filters.minRating == null ? "" : String(payload.query.filters.minRating));
+      setMinReviews(payload.query.filters.minReviews == null ? "" : String(payload.query.filters.minReviews));
+      setOnlyProbableWhatsApp(Boolean(payload.query.filters.onlyProbableWhatsApp));
+      setOnlyWithWebsite(Boolean(payload.query.filters.onlyWithWebsite));
+      setResults(payload.results || []);
+      setActiveQuery(payload.query);
+      setSearchMeta(payload.meta);
+      setHasSearched(true);
+      setFeedback(`Pesquisa reaproveitada: ${payload.query.segment} em ${payload.query.city}.`);
+      await refreshHistory();
+    } catch (error) {
+      setSearchError(error instanceof Error ? error.message : "Falha ao reaproveitar pesquisa.");
+    } finally {
+      setHistoryBusyId(null);
+    }
+  }
+
+  async function handleExport() {
+    const query = activeQuery || {
+      city,
+      segment,
+      quantity,
+      filters: {
+        minRating: minRating ? Number(minRating) : null,
+        minReviews: minReviews ? Number(minReviews) : null,
+        onlyProbableWhatsApp,
+        onlyWithWebsite,
+      },
+    };
+
+    if (!query.city.trim() || !query.segment.trim()) {
+      setSearchError("Preencha cidade e segmento antes de exportar.");
+      return;
+    }
+
+    setExporting(true);
+    setSearchError(null);
+    try {
+      await downloadExcel({
+        city: query.city,
+        segment: query.segment,
+        quantity: query.quantity,
+        minRating: query.filters.minRating ?? undefined,
+        minReviews: query.filters.minReviews ?? undefined,
+        onlyProbableWhatsApp: query.filters.onlyProbableWhatsApp,
+        onlyWithWebsite: query.filters.onlyWithWebsite,
+      });
+      setFeedback("Excel gerado com sucesso.");
+      await refreshHistory();
+    } catch (error) {
+      setSearchError(error instanceof Error ? error.message : "Falha ao exportar Excel.");
+    } finally {
+      setExporting(false);
+    }
+  }
+
   if (hasToken === null) {
     return (
-      <DashboardScaffold title="Prospeccao" description="Buscando sessao do usuario.">
-        <section className={styles.emptyCard}>Carregando modulo...</section>
+      <DashboardScaffold title="Prospeccao" description="Carregando sessao do usuario.">
+        <section className={styles.loadingCard}>
+          <div className={styles.skeletonTitle} />
+          <div className={styles.skeletonLine} />
+          <div className={styles.skeletonLineShort} />
+        </section>
       </DashboardScaffold>
     );
   }
@@ -233,59 +421,93 @@ export default function WebscrapingClientPage() {
   return (
     <DashboardScaffold
       title="Prospeccao"
-      description="Buscar empresas por cidade e segmento com foco em telefone e acao rapida."
+      description="Prospecao local nativa, com historico persistente e exportacao direta para Excel."
     >
       <div className={styles.page}>
         <section className={styles.hero}>
-          <div className={styles.heroTop}>
-            <div>
-              <h1 className={styles.heroTitle}>Buscar contatos com foco em telefone</h1>
-              <p className={styles.heroText}>
-                Cidade, segmento e quantidade entram primeiro. O resultado principal sai como nome da empresa, telefone e acoes operacionais rapidas.
-              </p>
-            </div>
-            <div className={styles.runtimeBadges}>
-              <span className={nativeReady ? styles.runtimeBadgeOk : styles.runtimeBadgeWarn}>
-                {runtime?.native.message || "Runtime nativo"}
-              </span>
-              <span
-                className={
-                  runtime?.legacy.status === "online"
-                    ? styles.runtimeBadgeOk
-                    : runtime?.legacy.status === "offline"
-                      ? styles.runtimeBadgeOff
-                      : styles.runtimeBadgeWarn
-                }
-              >
-                {runtime?.legacy.message || "Fallback legado"}
-              </span>
-            </div>
+          <div className={styles.heroCopy}>
+            <span className={styles.eyebrow}>HBX prospeccao local</span>
+            <h1 className={styles.heroTitle}>Cidade e segmento primeiro. O resto entra para acelerar.</h1>
+            <p className={styles.heroText}>
+              Busque contatos operacionais, reaproveite pesquisas recentes e exporte uma planilha pronta para abordagem.
+            </p>
           </div>
-          <div className={styles.heroMetrics}>
-            <div className={styles.metric}>
-              <span className={styles.metricLabel}>Motor principal</span>
-              <span className={styles.metricValue}>Tela nativa HBX</span>
+
+          <div className={styles.heroStats}>
+            <div className={styles.metricCard}>
+              <span className={styles.metricLabel}>Motor</span>
+              <strong className={styles.metricValue}>Nativo HBX</strong>
             </div>
-            <div className={styles.metric}>
-              <span className={styles.metricLabel}>Fallback</span>
-              <span className={styles.metricValue}>{legacyAvailable ? "Motor legado disponivel" : "Sem fallback remoto"}</span>
+            <div className={styles.metricCard}>
+              <span className={styles.metricLabel}>Historico</span>
+              <strong className={styles.metricValue}>{historyItems.length} pesquisas recentes</strong>
             </div>
-            <div className={styles.metric}>
+            <div className={styles.metricCard}>
               <span className={styles.metricLabel}>Roteiro</span>
-              <span className={styles.metricValue}>{buildCompanyName(currentUser) || "Personalizado pelo usuario"}</span>
+              <strong className={styles.metricValue}>{buildCompanyName(currentUser) || "Personalizado"}</strong>
             </div>
           </div>
         </section>
 
-        {pageError ? <div className="alert alert-error">{pageError}</div> : null}
-        {searchError ? <div className="alert alert-error">{searchError}</div> : null}
-        {feedback ? <div className="alert alert-success">{feedback}</div> : null}
+        {loadingBootstrap ? (
+          <section className={styles.loadingCard}>
+            <div className={styles.skeletonTitle} />
+            <div className={styles.skeletonLine} />
+            <div className={styles.skeletonGrid}>
+              <div className={styles.skeletonField} />
+              <div className={styles.skeletonField} />
+              <div className={styles.skeletonField} />
+            </div>
+          </section>
+        ) : null}
 
-        <section className={styles.formCard}>
-          <div className={styles.formFooter}>
+        {!loadingBootstrap && configurationPending ? (
+          <section className={styles.statusCard}>
+            <div>
+              <strong className={styles.statusTitle}>Modulo temporariamente em configuracao</strong>
+              <p className={styles.statusText}>
+                A interface segue disponivel para consulta do historico e o restante da experiencia permanece limpo enquanto a configuracao final e concluida.
+              </p>
+            </div>
+            <span className={styles.statusPill}>Configuracao em andamento</span>
+          </section>
+        ) : null}
+
+        {pageError ? (
+          <section className={styles.errorCard}>
+            <strong className={styles.statusTitle}>Nao foi possivel carregar o modulo</strong>
+            <p className={styles.statusText}>{pageError}</p>
+          </section>
+        ) : null}
+
+        {canSeeDiagnostics && runtime?.diagnostics ? (
+          <section className={styles.diagnosticCard}>
+            <div className={styles.diagnosticHeader}>
+              <strong>Diagnostico discreto</strong>
+              <span className={styles.diagnosticStamp}>{formatDateTime(runtime.diagnostics.checkedAt)}</span>
+            </div>
+            <div className={styles.diagnosticGrid}>
+              <div>
+                <span className={styles.diagnosticLabel}>Nativo</span>
+                <p className={styles.diagnosticText}>{runtime.diagnostics.nativeTechnicalMessage}</p>
+              </div>
+              <div>
+                <span className={styles.diagnosticLabel}>Legado interno</span>
+                <p className={styles.diagnosticText}>
+                  {runtime.diagnostics.legacy
+                    ? `${runtime.diagnostics.legacy.status} • ${runtime.diagnostics.legacy.code}`
+                    : "Sem diagnostico do legado"}
+                </p>
+              </div>
+            </div>
+          </section>
+        ) : null}
+
+        <section className={styles.searchCard}>
+          <div className={styles.searchTop}>
             <div>
               <strong>Consulta principal</strong>
-              <p className={styles.helperText}>Sem filtros secundarios como eixo central. O modulo prioriza velocidade operacional.</p>
+              <p className={styles.helperText}>A entrada principal continua simples: cidade, tipo de negocio e quantidade.</p>
             </div>
             <div className={styles.segmentChips}>
               {SEGMENT_SUGGESTIONS.map((option) => (
@@ -313,7 +535,7 @@ export default function WebscrapingClientPage() {
             </label>
 
             <label className={styles.field}>
-              <span className={styles.fieldLabel}>Segmento</span>
+              <span className={styles.fieldLabel}>Segmento / tipo de negocio</span>
               <input
                 className={styles.fieldInput}
                 value={segment}
@@ -338,67 +560,197 @@ export default function WebscrapingClientPage() {
             </label>
           </div>
 
-          <div className={styles.formFooter}>
+          <div className={styles.advancedWrap}>
+            <button
+              type="button"
+              className={styles.advancedToggle}
+              onClick={() => setAdvancedOpen((value) => !value)}
+            >
+              <span>Filtros avancados</span>
+              <span>{advancedOpen ? "Ocultar" : "Mostrar"}</span>
+            </button>
+
+            {advancedOpen ? (
+              <div className={styles.advancedGrid}>
+                <label className={styles.field}>
+                  <span className={styles.fieldLabel}>Nota minima</span>
+                  <input
+                    className={styles.fieldInput}
+                    type="number"
+                    min="0"
+                    max="5"
+                    step="0.1"
+                    value={minRating}
+                    onChange={(event) => setMinRating(event.target.value)}
+                    placeholder="Opcional"
+                  />
+                </label>
+
+                <label className={styles.field}>
+                  <span className={styles.fieldLabel}>Minimo de avaliacoes</span>
+                  <input
+                    className={styles.fieldInput}
+                    type="number"
+                    min="0"
+                    step="1"
+                    value={minReviews}
+                    onChange={(event) => setMinReviews(event.target.value)}
+                    placeholder="Opcional"
+                  />
+                </label>
+
+                <label className={styles.checkboxField}>
+                  <input
+                    type="checkbox"
+                    checked={onlyProbableWhatsApp}
+                    onChange={(event) => setOnlyProbableWhatsApp(event.target.checked)}
+                  />
+                  <span>Somente provavel WhatsApp</span>
+                </label>
+
+                <label className={styles.checkboxField}>
+                  <input
+                    type="checkbox"
+                    checked={onlyWithWebsite}
+                    onChange={(event) => setOnlyWithWebsite(event.target.checked)}
+                  />
+                  <span>Somente com site</span>
+                </label>
+              </div>
+            ) : null}
+          </div>
+
+          <div className={styles.searchActions}>
             <p className={styles.helperText}>
-              O backend nativo consulta Google Places e devolve contatos telefonicos deduplicados, ordenados por relevancia operacional.
+              O modulo prioriza reaproveitamento do historico e so complementa a busca quando realmente precisa.
             </p>
-            <div className={styles.headerActions}>
-              {legacyAvailable ? (
-                <button type="button" className="btn btn-secondary" onClick={() => setLegacyOpen(true)}>
-                  Abrir modo legado
-                </button>
-              ) : null}
+            <div className={styles.actionRow}>
               <button
                 type="button"
                 className="btn btn-primary"
                 onClick={() => void handleSearch()}
-                disabled={loadingBootstrap || searching || !nativeReady}
+                disabled={loadingBootstrap || searching || configurationPending}
               >
                 {searching ? "Buscando..." : "Buscar contatos"}
+              </button>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={() => void handleExport()}
+                disabled={exporting || searching || (!activeQuery && !results.length && !city.trim())}
+              >
+                {exporting ? "Gerando Excel..." : "Exportar Excel"}
               </button>
             </div>
           </div>
         </section>
 
-        {(!nativeReady || searchError) && legacyAvailable ? (
-          <section className={styles.fallbackCard}>
-            <div className={styles.fallbackTop}>
-              <div>
-                <strong>Fallback controlado</strong>
-                <p className={styles.helperText}>
-                  O motor legado continua disponivel, mas encapsulado no HBX. Ele entra como contingencia quando a busca nativa nao estiver pronta ou falhar no ambiente atual.
-                </p>
-              </div>
-              <div className={styles.modalActions}>
-                <button type="button" className="btn btn-secondary" onClick={() => setLegacyOpen(true)}>
-                  Abrir no HBX
-                </button>
-                <a className="btn btn-secondary" href={legacyUrl || undefined} target="_blank" rel="noreferrer">
-                  Nova aba
-                </a>
-              </div>
+        <section className={styles.historyCard}>
+          <div className={styles.sectionHeader}>
+            <div>
+              <strong>Pesquisas recentes</strong>
+              <p className={styles.helperText}>Reaproveite uma pesquisa pronta sem refazer trabalho desnecessario.</p>
             </div>
+          </div>
+
+          {historyItems.length === 0 ? (
+            <div className={styles.emptyState}>
+              <strong>Nenhuma pesquisa salva ainda</strong>
+              <p className={styles.emptyText}>Assim que voce fizer a primeira busca, ela passa a ficar disponivel aqui para reaproveitamento rapido.</p>
+            </div>
+          ) : (
+            <div className={styles.historyGrid}>
+              {historyItems.map((item) => (
+                <article key={item.id} className={styles.historyItem}>
+                  <div className={styles.historyTop}>
+                    <div>
+                      <h2 className={styles.historyTitle}>{item.segment}</h2>
+                      <p className={styles.historyMeta}>{item.city} • {item.resultCount} contatos</p>
+                    </div>
+                    <span className={styles.historyStamp}>{formatDateTime(item.lastUsedAt)}</span>
+                  </div>
+                  <p className={styles.historyFilter}>{buildFilterSummary(item.filters)}</p>
+                  <p className={styles.historyPreview}>
+                    {item.preview.length > 0 ? item.preview.join(" • ") : "Sem preview salvo"}
+                  </p>
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    onClick={() => void handleReuseHistory(item)}
+                    disabled={historyBusyId === item.id}
+                  >
+                    {historyBusyId === item.id ? "Carregando..." : "Reaproveitar pesquisa"}
+                  </button>
+                </article>
+              ))}
+            </div>
+          )}
+        </section>
+
+        {searchError ? (
+          <section className={styles.errorCard}>
+            <strong className={styles.statusTitle}>Nao foi possivel concluir a busca</strong>
+            <p className={styles.statusText}>{searchError}</p>
+          </section>
+        ) : null}
+
+        {feedback ? (
+          <section className={styles.successCard}>
+            <strong className={styles.statusTitle}>Tudo certo</strong>
+            <p className={styles.statusText}>{feedback}</p>
           </section>
         ) : null}
 
         <section className={styles.resultsCard}>
-          <div className={styles.resultsTop}>
+          <div className={styles.sectionHeader}>
             <div>
-              <strong>Resultados principais</strong>
+              <strong>Resultados</strong>
               <p className={styles.helperText}>
-                {results.length > 0
-                  ? `${results.length} contatos retornados para ${segment} em ${city}.`
-                  : "Os resultados vao aparecer aqui com nome, telefone e acoes rapidas."}
+                {searchMeta && activeQuery
+                  ? `${results.length} contatos para ${activeQuery.segment} em ${activeQuery.city}. Fonte: ${searchMeta.source}.`
+                  : "Os contatos qualificados vao aparecer aqui com acoes rapidas e roteiro pronto."}
               </p>
             </div>
+            {searchMeta ? (
+              <div className={styles.metaPills}>
+                <span className={styles.metaPill}>Reaproveitados: {searchMeta.reusedCount}</span>
+                <span className={styles.metaPill}>Novos: {searchMeta.fetchedCount}</span>
+              </div>
+            ) : null}
           </div>
 
-          {results.length === 0 ? (
-            <div className={styles.emptyText}>Nenhum contato carregado ainda.</div>
-          ) : (
+          {searching ? (
+            <div className={styles.resultsGrid}>
+              {Array.from({ length: 3 }).map((_, index) => (
+                <div key={index} className={styles.resultSkeleton}>
+                  <div className={styles.skeletonTitle} />
+                  <div className={styles.skeletonLine} />
+                  <div className={styles.skeletonLineShort} />
+                </div>
+              ))}
+            </div>
+          ) : null}
+
+          {!searching && results.length === 0 && hasSearched ? (
+            <div className={styles.emptyState}>
+              <strong>Nenhum contato encontrado</strong>
+              <p className={styles.emptyText}>Tente ajustar a cidade, relaxar um filtro avancado ou buscar outro segmento.</p>
+            </div>
+          ) : null}
+
+          {!searching && results.length === 0 && !hasSearched ? (
+            <div className={styles.emptyState}>
+              <strong>Pronto para sua proxima busca</strong>
+              <p className={styles.emptyText}>Informe cidade, segmento e quantidade para carregar os primeiros contatos deduplicados.</p>
+            </div>
+          ) : null}
+
+          {!searching && results.length > 0 ? (
             <div className={styles.resultsGrid}>
               {results.map((result) => {
-                const scriptText = buildScriptText(result, city, segment, currentUser);
+                const queryCity = activeQuery?.city || city;
+                const querySegment = activeQuery?.segment || segment;
+                const scriptText = buildScriptText(result, queryCity, querySegment, currentUser);
                 const whatsappUrl = buildWhatsAppUrl(result, scriptText);
                 const callUrl = buildCallUrl(result);
 
@@ -409,8 +761,8 @@ export default function WebscrapingClientPage() {
                         <h2 className={styles.resultName}>{result.name || "Empresa sem nome"}</h2>
                         <p className={styles.resultMeta}>{result.address || "Endereco nao informado"}</p>
                       </div>
-                      <span className={result.probableWhatsApp ? styles.runtimeBadgeOk : styles.runtimeBadge}>
-                        {result.probableWhatsApp ? "WhatsApp provavel" : "Telefone"}
+                      <span className={result.probableWhatsApp ? styles.resultPillOk : styles.resultPill}>
+                        {result.probableWhatsApp ? "WhatsApp provavel" : "Contato telefonico"}
                       </span>
                     </div>
 
@@ -473,35 +825,9 @@ export default function WebscrapingClientPage() {
                 );
               })}
             </div>
-          )}
+          ) : null}
         </section>
       </div>
-
-      {legacyOpen && legacyUrl ? (
-        <div className={styles.modalBackdrop}>
-          <div className={styles.modal}>
-            <div className={styles.modalHeader}>
-              <div>
-                <strong>Modo legado controlado</strong>
-                <p className={styles.modalMeta}>
-                  Shell interna do HBX para contingencia operacional. Continua secundaria em relacao a tela nativa.
-                </p>
-              </div>
-              <div className={styles.modalActions}>
-                <a className="btn btn-secondary" href={legacyUrl} target="_blank" rel="noreferrer">
-                  Nova aba
-                </a>
-                <button type="button" className="btn btn-primary" onClick={() => setLegacyOpen(false)}>
-                  Fechar
-                </button>
-              </div>
-            </div>
-            <div className={styles.modalBody}>
-              <iframe title="Motor legado de webscraping" src={legacyUrl} className={styles.modalFrame} />
-            </div>
-          </div>
-        </div>
-      ) : null}
     </DashboardScaffold>
   );
 }

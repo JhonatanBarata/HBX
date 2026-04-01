@@ -53,8 +53,16 @@ Variáveis mínimas esperadas no Render:
 - `DATABASE_URL`
 - `DIRECT_URL`
 - `JWT_SECRET`
+- `INTEGRATION_SECRET_KEY`
 - `FRONTEND_URL`
 - `NODE_ENV=production`
+
+Se AUVO ou TagPlus forem usados com chamadas HTTP reais, configure tambem as variaveis do contrato adotado no ambiente:
+
+- AUVO: `AUVO_API_BASE_URL`, `AUVO_TEST_PATH` e `AUVO_TASKS_PATH`; adicione `AUVO_CUSTOMERS_PATH` se houver endpoint dedicado de clientes.
+- AUVO: `AUVO_AUTH_MODE`, `AUVO_APP_KEY`, `AUVO_EXTERNAL_ACCOUNT_ID`, `AUVO_TIMEOUT_MS`, `AUVO_RETRY_ATTEMPTS`, `AUVO_RETRY_BACKOFF_MS` conforme o contrato homologado.
+- TagPlus: `TAGPLUS_API_BASE_URL`, `TAGPLUS_TEST_PATH` e `TAGPLUS_RECEIVABLES_PATH`; adicione `TAGPLUS_CUSTOMERS_PATH` se houver endpoint dedicado de clientes.
+- TagPlus: `TAGPLUS_AUTH_MODE`, `TAGPLUS_EXTERNAL_ACCOUNT_ID`, `TAGPLUS_TIMEOUT_MS`, `TAGPLUS_RETRY_ATTEMPTS`, `TAGPLUS_RETRY_BACKOFF_MS` conforme o contrato homologado.
 
 Para Supabase no Render:
 
