@@ -445,6 +445,17 @@ export class WebscrapingService {
 
     response.results.forEach((result, index) => {
       const rowIndex = index + 2;
+      const scriptText = this.buildScriptText(result, response.query.city, response.query.segment, user);
+      const whatsappTarget = this.buildWhatsAppTarget(result.phoneDigits || result.phone, scriptText);
+
+      if (whatsappTarget) {
+        const cell = worksheet[`B${rowIndex}`] || { t: 's', v: result.phone };
+        cell.t = 's';
+        cell.v = result.phone;
+        cell.l = { Target: whatsappTarget, Tooltip: 'Abrir conversa no WhatsApp' };
+        worksheet[`B${rowIndex}`] = cell;
+      }
+
       if (result.website) {
         const cell = worksheet[`G${rowIndex}`] || { t: 's', v: 'Abrir site' };
         cell.t = 's';
@@ -801,6 +812,12 @@ export class WebscrapingService {
       normalizeLookupValue(value).replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
     const date = new Date().toISOString().slice(0, 10);
     return `prospeccao-${normalize(segment)}-${normalize(city)}-${date}.xlsx`;
+  }
+
+  private buildWhatsAppTarget(phone: string, scriptText: string) {
+    const digits = normalizePhoneDigits(phone);
+    if (!digits) return '';
+    return `https://wa.me/55${digits}?text=${encodeURIComponent(scriptText)}`;
   }
 
   private getApiKey(required = true) {

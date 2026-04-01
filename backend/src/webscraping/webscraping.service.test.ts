@@ -259,6 +259,7 @@ test('exportacao XLSX nativa gera arquivo com colunas esperadas', async () => {
     assert.equal(Boolean(worksheet), true);
     assert.equal(worksheet.A2?.v, 'Oficina Centro');
     assert.equal(worksheet.B2?.v, '+55 19 99888-7766');
+    assert.match(String(worksheet.B2?.l?.Target || ''), /^https:\/\/wa\.me\/5519998887766\?text=/);
     assert.equal(worksheet.G2?.v, 'Abrir site');
     assert.equal(worksheet.H2?.v, 'Abrir mapa');
     assert.match(exported.filename, /^prospeccao-/);
