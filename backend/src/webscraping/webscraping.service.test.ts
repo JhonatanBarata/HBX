@@ -20,6 +20,14 @@ function createResponse(status: number, body: any): FetchResponseLike {
 function createPrisma(overrides?: Record<string, any>) {
   return {
     hasTable: async () => true,
+    company: {
+      findUnique: async () => ({
+        id: 7,
+        onboardingStatus: 'active_paid',
+        paymentStatus: 'PAID',
+        subscriptionStatus: 'active',
+      }),
+    },
     webscrapingSearchHistory: {
       findFirst: async () => null,
       findUnique: async () => null,
@@ -27,6 +35,10 @@ function createPrisma(overrides?: Record<string, any>) {
       update: async ({ where, data }: any) => ({ id: where.id, ...data }),
       upsert: async () => ({ id: 'history-1' }),
       delete: async () => null,
+    },
+    webscrapingUsageLog: {
+      count: async () => 0,
+      create: async () => ({ id: 'usage-1' }),
     },
     ...(overrides || {}),
   } as any;
@@ -194,6 +206,51 @@ test('pesquisa repetida reaproveita historico sem chamar Google novamente', asyn
     assert.equal(fetchSpy.length, 0);
   } finally {
     global.fetch = previousFetch;
+    if (previousGoogleKey === undefined) delete process.env.GOOGLE_PLACES_API_KEY;
+    else process.env.GOOGLE_PLACES_API_KEY = previousGoogleKey;
+  }
+});
+
+test('trial bloqueia segunda busca do dia e registra tentativa bloqueada', async () => {
+  const previousGoogleKey = process.env.GOOGLE_PLACES_API_KEY;
+  delete process.env.GOOGLE_PLACES_API_KEY;
+
+  const createdLogs: Array<Record<string, unknown>> = [];
+  const service = new WebscrapingService(createPrisma({
+    company: {
+      findUnique: async () => ({
+        id: 7,
+        onboardingStatus: 'active_trial',
+        paymentStatus: 'TRIAL',
+        subscriptionStatus: 'trialing',
+      }),
+    },
+    webscrapingUsageLog: {
+      count: async () => 1,
+      create: async (input: Record<string, unknown>) => {
+        createdLogs.push(input);
+        return { id: 'usage-blocked-1' };
+      },
+    },
+  }));
+
+  try {
+    await assert.rejects(
+      () =>
+        service.searchContactsForUser(createUser(), {
+          city: 'Sao Paulo - SP',
+          segment: 'Clinicas',
+          quantity: 1,
+        }),
+      (error: any) => {
+        assert.equal(error?.response?.code, 'trial_daily_limit_reached');
+        assert.match(String(error?.response?.message || ''), /1 busca por dia/i);
+        return true;
+      },
+    );
+
+    assert.equal(createdLogs.length, 1);
+  } finally {
     if (previousGoogleKey === undefined) delete process.env.GOOGLE_PLACES_API_KEY;
     else process.env.GOOGLE_PLACES_API_KEY = previousGoogleKey;
   }

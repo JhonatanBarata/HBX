@@ -10,6 +10,15 @@
       "serviceUrl": null
     },
     {
+      "key": "vendas",
+      "name": "Vendas",
+      "description": "CRM agenda viva para prospecção, retornos e fechamento comercial.",
+      "monthlyPrice": 0,
+      "defaultEnabled": true,
+      "companyAssignable": true,
+      "serviceUrl": "/dashboard/vendas"
+    },
+    {
       "key": "gerencial",
       "name": "Gerencial",
       "description": "Indicadores e administracao da empresa.",
@@ -26,6 +35,15 @@
       "defaultEnabled": true,
       "companyAssignable": true,
       "serviceUrl": "/hbx/webscraping"
+    },
+    {
+      "key": "financeiro",
+      "name": "Financeiro",
+      "description": "Autoatendimento de plano, pagamento, descontos e leitura financeira da conta.",
+      "monthlyPrice": 0,
+      "defaultEnabled": true,
+      "companyAssignable": true,
+      "serviceUrl": "/dashboard/financeiro"
     },
     {
       "key": "website",

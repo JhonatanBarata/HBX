@@ -8,6 +8,51 @@ export async function ensureMasterBillingRuntimeSchema(prisma: PrismaService) {
 
   await prisma.$executeRawUnsafe(`
     ALTER TABLE "Company"
+    ADD COLUMN IF NOT EXISTS "billingCycle" TEXT NOT NULL DEFAULT 'MONTHLY'
+  `);
+
+  await prisma.$executeRawUnsafe(`
+    ALTER TABLE "Company"
+    ADD COLUMN IF NOT EXISTS "billingCardBrand" TEXT
+  `);
+
+  await prisma.$executeRawUnsafe(`
+    ALTER TABLE "Company"
+    ADD COLUMN IF NOT EXISTS "billingCardLast4" TEXT
+  `);
+
+  await prisma.$executeRawUnsafe(`
+    ALTER TABLE "Company"
+    ADD COLUMN IF NOT EXISTS "billingCardHolderName" TEXT
+  `);
+
+  await prisma.$executeRawUnsafe(`
+    ALTER TABLE "Company"
+    ADD COLUMN IF NOT EXISTS "billingCardExpMonth" INTEGER
+  `);
+
+  await prisma.$executeRawUnsafe(`
+    ALTER TABLE "Company"
+    ADD COLUMN IF NOT EXISTS "billingCardExpYear" INTEGER
+  `);
+
+  await prisma.$executeRawUnsafe(`
+    ALTER TABLE "Company"
+    ADD COLUMN IF NOT EXISTS "billingCardUpdatedAt" TIMESTAMP(3)
+  `);
+
+  await prisma.$executeRawUnsafe(`
+    ALTER TABLE "Company"
+    ADD COLUMN IF NOT EXISTS "manualDiscountPercent" DOUBLE PRECISION NOT NULL DEFAULT 0
+  `);
+
+  await prisma.$executeRawUnsafe(`
+    ALTER TABLE "Company"
+    ADD COLUMN IF NOT EXISTS "freeMonths" INTEGER NOT NULL DEFAULT 0
+  `);
+
+  await prisma.$executeRawUnsafe(`
+    ALTER TABLE "Company"
     ADD COLUMN IF NOT EXISTS "useMasterWhatsAppToken" BOOLEAN NOT NULL DEFAULT false
   `);
 
@@ -19,6 +64,31 @@ export async function ensureMasterBillingRuntimeSchema(prisma: PrismaService) {
   await prisma.$executeRawUnsafe(`
     ALTER TABLE "Company"
     ADD COLUMN IF NOT EXISTS "masterWhatsAppCredentialKey" TEXT
+  `);
+
+  await prisma.$executeRawUnsafe(`
+    ALTER TABLE "Company"
+    ADD COLUMN IF NOT EXISTS "whatsappConnectionMode" TEXT NOT NULL DEFAULT 'NONE'
+  `);
+
+  await prisma.$executeRawUnsafe(`
+    ALTER TABLE "Company"
+    ADD COLUMN IF NOT EXISTS "whatsappTemporaryStatus" TEXT NOT NULL DEFAULT 'NOT_CONNECTED'
+  `);
+
+  await prisma.$executeRawUnsafe(`
+    ALTER TABLE "Company"
+    ADD COLUMN IF NOT EXISTS "whatsappMigrationInterestStatus" TEXT NOT NULL DEFAULT 'NONE'
+  `);
+
+  await prisma.$executeRawUnsafe(`
+    ALTER TABLE "Company"
+    ADD COLUMN IF NOT EXISTS "whatsappMigrationInterestAt" TIMESTAMP(3)
+  `);
+
+  await prisma.$executeRawUnsafe(`
+    ALTER TABLE "Company"
+    ADD COLUMN IF NOT EXISTS "whatsappMigrationInterestSource" TEXT
   `);
 
   await prisma.$executeRawUnsafe(`
@@ -50,6 +120,11 @@ export async function ensureMasterBillingRuntimeSchema(prisma: PrismaService) {
   await prisma.$executeRawUnsafe(`
     ALTER TABLE "MasterGlobalIntegrationConfig"
     ADD COLUMN IF NOT EXISTS "whatsappLibrary" TEXT
+  `);
+
+  await prisma.$executeRawUnsafe(`
+    ALTER TABLE "MasterGlobalIntegrationConfig"
+    ADD COLUMN IF NOT EXISTS "annualPlanDiscountPercent" DOUBLE PRECISION NOT NULL DEFAULT 0
   `);
 
   await prisma.$executeRawUnsafe(`
@@ -86,5 +161,54 @@ export async function ensureMasterBillingRuntimeSchema(prisma: PrismaService) {
   );
   await prisma.$executeRawUnsafe(
     'CREATE INDEX IF NOT EXISTS "MasterBillingLedgerEntry_entryGroup_status_createdAt_idx" ON "MasterBillingLedgerEntry"("entryGroup", "status", "createdAt")',
+  );
+
+  await prisma.$executeRawUnsafe(`
+    CREATE TABLE IF NOT EXISTS "FinanceiroCharge" (
+      "id" TEXT PRIMARY KEY,
+      "companyId" INTEGER NOT NULL REFERENCES "Company"("id") ON DELETE CASCADE,
+      "amount" DOUBLE PRECISION NOT NULL,
+      "currency" TEXT NOT NULL DEFAULT 'BRL',
+      "description" TEXT NOT NULL,
+      "billingCycle" TEXT NOT NULL DEFAULT 'MONTHLY',
+      "paymentMethod" TEXT NOT NULL DEFAULT 'PIX',
+      "status" TEXT NOT NULL DEFAULT 'pending',
+      "lifecycle" TEXT NOT NULL DEFAULT 'in_progress',
+      "competence" TEXT,
+      "externalReference" TEXT,
+      "mpPreferenceId" TEXT,
+      "mpPaymentId" TEXT,
+      "mpMerchantOrderId" TEXT,
+      "notificationUrl" TEXT,
+      "paymentUrl" TEXT,
+      "pixQrCode" TEXT,
+      "pixQrCodeBase64" TEXT,
+      "pixTicketUrl" TEXT,
+      "ledgerEntryId" TEXT,
+      "paidAt" TIMESTAMP(3),
+      "refundedAt" TIMESTAMP(3),
+      "refundAmount" DOUBLE PRECISION NOT NULL DEFAULT 0,
+      "providerPayload" TEXT,
+      "lastWebhookAt" TIMESTAMP(3),
+      "lastWebhookPayload" TEXT,
+      "createdByUserId" INTEGER,
+      "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+  await prisma.$executeRawUnsafe(
+    'CREATE UNIQUE INDEX IF NOT EXISTS "FinanceiroCharge_externalReference_key" ON "FinanceiroCharge"("externalReference")',
+  );
+  await prisma.$executeRawUnsafe(
+    'CREATE UNIQUE INDEX IF NOT EXISTS "FinanceiroCharge_mpPaymentId_key" ON "FinanceiroCharge"("mpPaymentId")',
+  );
+  await prisma.$executeRawUnsafe(
+    'CREATE INDEX IF NOT EXISTS "FinanceiroCharge_companyId_createdAt_idx" ON "FinanceiroCharge"("companyId", "createdAt")',
+  );
+  await prisma.$executeRawUnsafe(
+    'CREATE INDEX IF NOT EXISTS "FinanceiroCharge_companyId_lifecycle_createdAt_idx" ON "FinanceiroCharge"("companyId", "lifecycle", "createdAt")',
+  );
+  await prisma.$executeRawUnsafe(
+    'CREATE INDEX IF NOT EXISTS "FinanceiroCharge_companyId_status_createdAt_idx" ON "FinanceiroCharge"("companyId", "status", "createdAt")',
   );
 }

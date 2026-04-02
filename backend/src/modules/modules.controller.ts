@@ -66,6 +66,13 @@ class UpdateMasterGlobalIntegrationsDto {
   whatsappLibrary?: any[];
 }
 
+class UpdateMasterBillingPolicyDto {
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  annualPlanDiscountPercent?: number;
+}
+
 class UpdateCompanyMasterTokenUsageDto {
   @IsOptional()
   @Type(() => Boolean)
@@ -198,6 +205,24 @@ class UpdateMasterCompanyProfileDto {
   premiumAccess?: boolean;
 }
 
+class UpdateMasterCompanyFinanceSettingsDto {
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  manualDiscountPercent?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(24)
+  freeMonths?: number;
+
+  @IsOptional()
+  @IsString()
+  billingCycle?: string;
+}
+
 class PermanentDeleteDto {
   @IsOptional()
   @IsString()
@@ -298,6 +323,12 @@ export class ModulesController {
   @UseGuards(JwtAuthGuard, MasterGuard)
   updateMasterGlobalIntegrations(@Req() req: any, @Body() dto: UpdateMasterGlobalIntegrationsDto) {
     return this.modulesService.updateMasterGlobalIntegrations(Number(req.user?.id), dto || {});
+  }
+
+  @Put('master/billing-policy')
+  @UseGuards(JwtAuthGuard, MasterGuard)
+  updateMasterBillingPolicy(@Req() req: any, @Body() dto: UpdateMasterBillingPolicyDto) {
+    return this.modulesService.updateMasterBillingPolicy(Number(req.user?.id), dto || {});
   }
 
   @Get('master/company/:companyId/detail')
@@ -440,6 +471,16 @@ export class ModulesController {
     @Body() dto: UpdateMasterCompanyProfileDto,
   ) {
     return this.modulesService.updateCompanyProfileByMaster(Number(req.user?.id), companyId, dto || {});
+  }
+
+  @Put('master/company/:companyId/finance-settings')
+  @UseGuards(JwtAuthGuard, MasterGuard)
+  updateCompanyFinanceSettings(
+    @Req() req: any,
+    @Param('companyId', ParseIntPipe) companyId: number,
+    @Body() dto: UpdateMasterCompanyFinanceSettingsDto,
+  ) {
+    return this.modulesService.updateCompanyFinanceSettingsByMaster(Number(req.user?.id), companyId, dto || {});
   }
 
   @Get('master/exclusoes')

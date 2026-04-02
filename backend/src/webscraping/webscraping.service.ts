@@ -130,6 +130,8 @@ type SearchExecutionOptions = {
   historyIdHint?: string;
 };
 
+type UsageEventType = 'EXECUTED' | 'BLOCKED_DAILY_LIMIT';
+
 type SearchHistoryRow = {
   id: string;
   userId: number;
@@ -275,6 +277,7 @@ export class WebscrapingService {
   ): Promise<WebscrapingSearchResponse> {
     const context = this.resolveContext(user);
     const normalized = this.normalizeSearchInput(input);
+    await this.assertTrialDailyLimit(context, normalized);
     const historyEnabled = await this.supportsHistoryPersistence();
     const existingHistory = historyEnabled
       ? await this.findHistoryBySignature(context.companyId, normalized.searchSignature, options.historyIdHint)
@@ -285,24 +288,28 @@ export class WebscrapingService {
       if (existingHistory) {
         await this.touchHistory(existingHistory.id, context.userId);
       }
-      return this.buildSearchResponse(normalized, storedResults.slice(0, normalized.quantity), {
+      const response = this.buildSearchResponse(normalized, storedResults.slice(0, normalized.quantity), {
         historyId: existingHistory?.id || null,
         source: 'history',
         reusedCount: Math.min(storedResults.length, normalized.quantity),
         fetchedCount: 0,
       });
+      await this.recordUsageLog(context, normalized, 'EXECUTED', response.results.length);
+      return response;
     }
 
     const apiKey = this.getApiKey(storedResults.length === 0);
     if (!apiKey) {
       if (existingHistory && storedResults.length > 0) {
         await this.touchHistory(existingHistory.id, context.userId);
-        return this.buildSearchResponse(normalized, storedResults.slice(0, normalized.quantity), {
+        const response = this.buildSearchResponse(normalized, storedResults.slice(0, normalized.quantity), {
           historyId: existingHistory.id,
           source: 'history',
           reusedCount: Math.min(storedResults.length, normalized.quantity),
           fetchedCount: 0,
         });
+        await this.recordUsageLog(context, normalized, 'EXECUTED', response.results.length);
+        return response;
       }
       throw this.buildConfigurationUnavailableError();
     }
@@ -338,12 +345,14 @@ export class WebscrapingService {
       ? await this.persistHistory(context, normalized, orderedResults, existingHistory?.id || null)
       : null;
 
-    return this.buildSearchResponse(normalized, orderedResults, {
+    const response = this.buildSearchResponse(normalized, orderedResults, {
       historyId,
       source: storedResults.length > 0 ? 'hybrid' : 'google',
       reusedCount: storedResults.length,
       fetchedCount,
     });
+    await this.recordUsageLog(context, normalized, 'EXECUTED', response.results.length);
+    return response;
   }
 
   async listRecentHistoryForUser(user: any, limit = 8) {
@@ -497,6 +506,98 @@ export class WebscrapingService {
   private canSeeDiagnostics(user: any) {
     const role = String(user?.role || '').trim().toUpperCase();
     return Boolean(user?.isSystemMaster) || role === 'ADMIN';
+  }
+
+  private startOfToday(date = new Date()) {
+    return new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0, 0);
+  }
+
+  private startOfTomorrow(date = new Date()) {
+    return new Date(date.getFullYear(), date.getMonth(), date.getDate() + 1, 0, 0, 0, 0);
+  }
+
+  private isTrialDailyLimitedCompany(company: any) {
+    const onboardingStatus = String(company?.onboardingStatus || '').trim().toLowerCase();
+    const paymentStatus = String(company?.paymentStatus || '').trim().toUpperCase();
+    const subscriptionStatus = String(company?.subscriptionStatus || '').trim().toLowerCase();
+    return (
+      onboardingStatus === 'active_trial' ||
+      onboardingStatus === 'pending_email_confirmation' ||
+      paymentStatus === 'TRIAL' ||
+      subscriptionStatus === 'trialing'
+    );
+  }
+
+  private async supportsUsageLogPersistence() {
+    return this.prisma.hasTable('WebscrapingUsageLog');
+  }
+
+  private async assertTrialDailyLimit(context: SearchExecutionContext, input: NormalizedSearchInput) {
+    const usageLogEnabled = await this.supportsUsageLogPersistence();
+    if (!usageLogEnabled) return;
+
+    const company = await this.prisma.company.findUnique({
+      where: { id: context.companyId },
+      select: {
+        id: true,
+        onboardingStatus: true,
+        paymentStatus: true,
+        subscriptionStatus: true,
+      },
+    });
+
+    if (!company || !this.isTrialDailyLimitedCompany(company)) {
+      return;
+    }
+
+    const dayStart = this.startOfToday();
+    const nextDayStart = this.startOfTomorrow();
+    const todayExecutions = await this.prisma.webscrapingUsageLog.count({
+      where: {
+        companyId: context.companyId,
+        eventType: 'EXECUTED',
+        createdAt: {
+          gte: dayStart,
+          lt: nextDayStart,
+        },
+      },
+    });
+
+    if (todayExecutions < 1) {
+      return;
+    }
+
+    const message = 'No free trial, o webscraping permite 1 busca por dia. Volte amanhã ou ative uma conta paga.';
+    await this.recordUsageLog(context, input, 'BLOCKED_DAILY_LIMIT', 0, message);
+    throw new ForbiddenException({
+      code: 'trial_daily_limit_reached',
+      message,
+    });
+  }
+
+  private async recordUsageLog(
+    context: SearchExecutionContext,
+    input: NormalizedSearchInput,
+    eventType: UsageEventType,
+    resultCount: number,
+    message?: string | null,
+  ) {
+    const usageLogEnabled = await this.supportsUsageLogPersistence();
+    if (!usageLogEnabled) return;
+
+    await this.prisma.webscrapingUsageLog.create({
+      data: {
+        companyId: context.companyId,
+        userId: context.userId,
+        eventType,
+        city: input.city,
+        segment: input.segment,
+        quantity: input.quantity,
+        resultCount: Math.max(0, Math.trunc(resultCount || 0)),
+        searchSignature: input.searchSignature,
+        message: String(message || '').trim() || null,
+      },
+    }).catch(() => null);
   }
 
   private buildNativeTechnicalMessage(runtime: NativeRuntimeDiagnostic) {

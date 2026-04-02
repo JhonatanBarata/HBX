@@ -113,6 +113,7 @@ type CompanySummary = {
   monthlyValue: number;
   paymentStatus: string;
   paymentMethod?: string | null;
+  billingCycle?: "MONTHLY" | "ANNUAL" | string | null;
   subscriptionStatus?: string | null;
   billingProvider?: string | null;
   premiumAccess?: boolean;
@@ -132,6 +133,35 @@ type CompanySummary = {
   manualPaymentPending?: boolean;
   recentCardFailure?: boolean;
   websiteNeedsAttention?: boolean;
+  whatsappCenter: {
+    mode: "NONE" | "TEMPORARY" | "OFFICIAL";
+    status: "NOT_CONNECTED" | "TEMPORARY" | "OFFICIAL" | "ATTENTION";
+    statusLabel: string;
+    statusHint: string;
+    temporary: {
+      selected: boolean;
+      status: "NOT_CONNECTED" | "TEMPORARY" | "ATTENTION";
+      available: boolean;
+      note: string;
+    };
+    official: {
+      selected: boolean;
+      configured: boolean;
+      connected: boolean;
+      status?: string | null;
+      displayNumber?: string | null;
+      usingMasterToken: boolean;
+      credentialLabel?: string | null;
+      phoneNumberId?: string | null;
+      wabaId?: string | null;
+    };
+    migration: {
+      interestRequested: boolean;
+      status: "NONE" | "REQUESTED" | "CONTACTED" | "RESOLVED";
+      requestedAt?: string | null;
+      source?: string | null;
+    };
+  };
   website: {
     enabled: boolean;
     configured: boolean;
@@ -149,6 +179,26 @@ type CompanySummary = {
     usingMasterToken?: boolean;
     masterCredentialKey?: string | null;
     masterCredentialLabel?: string | null;
+  };
+  finance: {
+    billingCycle: "MONTHLY" | "ANNUAL";
+    annualPlanDiscountPercent: number;
+    annualDiscountValue: number;
+    manualDiscountPercent: number;
+    manualDiscountValue: number;
+    freeMonths: number;
+    cardConfigured: boolean;
+    cardBrand?: string | null;
+    cardLast4?: string | null;
+    cardUpdatedAt?: string | null;
+    pixAvailable: boolean;
+    baseCycleAmount: number;
+    finalCycleAmount: number;
+    pendingCount: number;
+    failedCount: number;
+    refundCount: number;
+    refundAmount: number;
+    hasPendingIssues: boolean;
   };
   modules: Array<{
     key: string;
@@ -216,6 +266,7 @@ type WorkspacePayload = {
   masterIntegrations: {
     mercadoPagoConfigured: boolean;
     whatsappConfigured: boolean;
+    annualPlanDiscountPercent: number;
     mercadoPagoLibrary: MasterMercadoPagoCredential[];
     whatsappLibrary: MasterWhatsAppCredential[];
   };
@@ -339,6 +390,12 @@ type ModuleCatalogDraft = {
 };
 
 type MasterIntegrationsDraft = WorkspacePayload["masterIntegrations"];
+
+type FinanceSettingsDraft = {
+  billingCycle: "MONTHLY" | "ANNUAL";
+  manualDiscountPercent: string;
+  freeMonths: string;
+};
 
 type IntegrationProviderId = "AUVO" | "TAGPLUS";
 
@@ -805,8 +862,17 @@ function buildMasterIntegrationsDraft(workspace?: WorkspacePayload | null): Mast
   return {
     mercadoPagoConfigured: Boolean(workspace?.masterIntegrations?.mercadoPagoConfigured),
     whatsappConfigured: Boolean(workspace?.masterIntegrations?.whatsappConfigured),
+    annualPlanDiscountPercent: Number(workspace?.masterIntegrations?.annualPlanDiscountPercent || 0) || 0,
     mercadoPagoLibrary: [...(workspace?.masterIntegrations?.mercadoPagoLibrary || [])],
     whatsappLibrary: [...(workspace?.masterIntegrations?.whatsappLibrary || [])],
+  };
+}
+
+function buildFinanceSettingsDraft(company: CompanyDetailPayload["company"]): FinanceSettingsDraft {
+  return {
+    billingCycle: company.finance?.billingCycle === "ANNUAL" ? "ANNUAL" : "MONTHLY",
+    manualDiscountPercent: String(company.finance?.manualDiscountPercent ?? 0),
+    freeMonths: String(company.finance?.freeMonths ?? 0),
   };
 }
 
@@ -1107,12 +1173,14 @@ export default function MasterPremiumPage() {
   const [profileDraft, setProfileDraft] = useState<ProfileDraft | null>(null);
   const [websiteDraft, setWebsiteDraft] = useState<WebsiteDraft | null>(null);
   const [mercadoPagoDraft, setMercadoPagoDraft] = useState<MercadoPagoDraft | null>(null);
+  const [financeSettingsDraft, setFinanceSettingsDraft] = useState<FinanceSettingsDraft | null>(null);
   const [trialDateDraft, setTrialDateDraft] = useState("");
   const [trialDaysDraft, setTrialDaysDraft] = useState("7");
   const [moduleCatalogDrafts, setModuleCatalogDrafts] = useState<Record<string, ModuleCatalogDraft>>({});
   const [masterIntegrationsDraft, setMasterIntegrationsDraft] = useState<MasterIntegrationsDraft>({
     mercadoPagoConfigured: false,
     whatsappConfigured: false,
+    annualPlanDiscountPercent: 0,
     mercadoPagoLibrary: [],
     whatsappLibrary: [],
   });
@@ -1173,6 +1241,7 @@ export default function MasterPremiumPage() {
       setProfileDraft(buildProfileDraft(payload.company));
       setWebsiteDraft(buildWebsiteDraft(payload.company));
       setMercadoPagoDraft(buildMercadoPagoDraft(payload.company));
+      setFinanceSettingsDraft(buildFinanceSettingsDraft(payload.company));
       setTrialDateDraft(toDateInputValue(payload.company.trialEndsAt));
       if (preferredTab) setDrawerTab(preferredTab);
       setDrawerOpen(true);
@@ -1325,6 +1394,23 @@ export default function MasterPremiumPage() {
     return filtered;
   }, [workspace?.companies, deferredSearch, filterId, sortId]);
 
+  const financeMasterOverview = useMemo(() => {
+    const companies = workspace?.companies || [];
+    return {
+      discountedCompanies: companies.filter(
+        (company) =>
+          company.finance.annualPlanDiscountPercent > 0 ||
+          company.finance.manualDiscountPercent > 0 ||
+          company.finance.freeMonths > 0,
+      ).length,
+      pendingCompanies: companies.filter((company) => company.finance.pendingCount > 0).length,
+      failedCompanies: companies.filter((company) => company.finance.failedCount > 0).length,
+      refundCompanies: companies.filter((company) => company.finance.refundCount > 0).length,
+      refundAmount: companies.reduce((total, company) => total + Number(company.finance.refundAmount || 0), 0),
+      freeMonths: companies.reduce((total, company) => total + Number(company.finance.freeMonths || 0), 0),
+    };
+  }, [workspace?.companies]);
+
   const activeCompany = detail?.company || null;
   const activeContextCompanyId = currentUser?.masterContext?.active ? currentUser.masterContext.companyId : null;
   const quickCompanyTarget = workspace?.companies.find((company) => String(company.id) === quickCompanyId) || null;
@@ -1409,6 +1495,28 @@ export default function MasterPremiumPage() {
       }
     } catch (actionError) {
       setError(actionError instanceof Error ? actionError.message : "Falha ao salvar os tokens globais do MASTER.");
+    } finally {
+      setBusyAction(null);
+    }
+  }
+
+  async function saveMasterBillingPolicy() {
+    setBusyAction("master-billing-policy-save");
+    setError(null);
+    try {
+      await apiFetch("/modules/master/billing-policy", {
+        method: "PUT",
+        body: JSON.stringify({
+          annualPlanDiscountPercent: Number(masterIntegrationsDraft.annualPlanDiscountPercent || 0),
+        }),
+      });
+      setMessage("Política global de desconto anual atualizada.");
+      await loadWorkspace(true);
+      if (activeCompany) {
+        await loadDetail(activeCompany.id, drawerTab);
+      }
+    } catch (actionError) {
+      setError(actionError instanceof Error ? actionError.message : "Falha ao salvar política financeira do MASTER.");
     } finally {
       setBusyAction(null);
     }
@@ -1768,6 +1876,28 @@ export default function MasterPremiumPage() {
       await refreshAll(activeCompany.id);
     } catch (actionError) {
       setError(actionError instanceof Error ? actionError.message : "Falha ao salvar perfil.");
+    } finally {
+      setBusyAction(null);
+    }
+  }
+
+  async function saveCompanyFinanceSettings() {
+    if (!activeCompany || !financeSettingsDraft) return;
+    setBusyAction(`finance-settings-${activeCompany.id}`);
+    setError(null);
+    try {
+      await apiFetch(`/modules/master/company/${activeCompany.id}/finance-settings`, {
+        method: "PUT",
+        body: JSON.stringify({
+          billingCycle: financeSettingsDraft.billingCycle,
+          manualDiscountPercent: Number(financeSettingsDraft.manualDiscountPercent || 0),
+          freeMonths: Number(financeSettingsDraft.freeMonths || 0),
+        }),
+      });
+      setMessage(`Configuração financeira de ${activeCompany.name} atualizada.`);
+      await refreshAll(activeCompany.id);
+    } catch (actionError) {
+      setError(actionError instanceof Error ? actionError.message : "Falha ao salvar desconto e ciclo da empresa.");
     } finally {
       setBusyAction(null);
     }
@@ -2164,6 +2294,76 @@ export default function MasterPremiumPage() {
             <section className={styles.attentionSection}>
               <div className={styles.sectionHeader}>
                 <div>
+                  <p className={styles.sectionEyebrow}>Financeiro MASTER</p>
+                  <h2>Trials, descontos e pressão de cobrança</h2>
+                </div>
+                <div className={styles.rowActions}>
+                  <button type="button" className="btn btn-secondary btn-sm" onClick={() => setMasterIntegrationsOpen(true)}>
+                    Tokens globais
+                  </button>
+                </div>
+              </div>
+              <div className={styles.attentionGrid}>
+                <article className={styles.summaryCard}>
+                  <div className={styles.panelCardHeader}>
+                    <div>
+                      <p className={styles.sectionEyebrow}>Política anual</p>
+                      <h3>Desconto global configurável</h3>
+                    </div>
+                    <button
+                      type="button"
+                      className="btn btn-primary btn-sm"
+                      onClick={saveMasterBillingPolicy}
+                      disabled={busyAction === "master-billing-policy-save"}
+                    >
+                      {busyAction === "master-billing-policy-save" ? "Salvando..." : "Salvar política"}
+                    </button>
+                  </div>
+                  <div className={styles.formGrid}>
+                    <input
+                      className="field"
+                      inputMode="decimal"
+                      placeholder="0"
+                      value={String(masterIntegrationsDraft.annualPlanDiscountPercent ?? 0)}
+                      onChange={(event) =>
+                        setMasterIntegrationsDraft((current) => ({
+                          ...current,
+                          annualPlanDiscountPercent: Number(event.target.value || 0),
+                        }))
+                      }
+                    />
+                  </div>
+                  <div className={styles.summaryMeta}>
+                    <p>Esse percentual entra apenas quando a empresa estiver no ciclo anual.</p>
+                    <p>Hoje: {Number(masterIntegrationsDraft.annualPlanDiscountPercent || 0)}% de desconto global.</p>
+                  </div>
+                </article>
+
+                <article className={styles.summaryCard}>
+                  <div className={styles.panelCardHeader}>
+                    <div>
+                      <p className={styles.sectionEyebrow}>Leitura rápida</p>
+                      <h3>Saúde financeira da base</h3>
+                    </div>
+                  </div>
+                  <div className={styles.summaryStats}>
+                    <div><span>Trials</span><strong>{summary.activeTrials?.value?.toLocaleString("pt-BR") || "0"}</strong></div>
+                    <div><span>Pendências</span><strong>{financeMasterOverview.pendingCompanies}</strong></div>
+                    <div><span>Falhas</span><strong>{financeMasterOverview.failedCompanies}</strong></div>
+                    <div><span>Com desconto</span><strong>{financeMasterOverview.discountedCompanies}</strong></div>
+                  </div>
+                  <div className={styles.summaryMeta}>
+                    <p>Meses grátis ativos na base: {financeMasterOverview.freeMonths}</p>
+                    <p>Empresas com estorno: {financeMasterOverview.refundCompanies}</p>
+                    <p>Valor total estornado: {formatCurrency(financeMasterOverview.refundAmount)}</p>
+                  </div>
+                </article>
+              </div>
+            </section>
+
+            <section className={styles.attentionSection}>
+              <div className={styles.sectionHeader}>
+                <div>
                   <p className={styles.sectionEyebrow}>Ação imediata</p>
                   <h2>Precisa da sua atenção agora</h2>
                 </div>
@@ -2254,6 +2454,7 @@ export default function MasterPremiumPage() {
                           <button type="button" className={styles.companyCell} onClick={() => openCompany(company.id)}>
                             <strong>{company.name}</strong>
                             <span>#{company.id}{company.slug ? ` • ${company.slug}` : ""}</span>
+                            <span>{`WhatsApp • ${company.whatsappCenter?.statusLabel || "Não conectado"}`}</span>
                           </button>
                         </td>
                         <td>
@@ -2271,14 +2472,35 @@ export default function MasterPremiumPage() {
                         <td>
                           <div className={styles.secondaryCell}>
                             <strong>{company.plan?.name || "Sem plano"}</strong>
-                            <span>{formatCurrency(company.monthlyValue)}</span>
+                            <span>
+                              {formatCurrency(company.finance.finalCycleAmount)} •{" "}
+                              {company.finance.billingCycle === "ANNUAL" ? "ciclo anual" : "ciclo mensal"}
+                            </span>
                           </div>
                         </td>
                         <td>{company.trialRemainingDays != null ? `${company.trialRemainingDays} dia(s)` : "-"}</td>
                         <td>{formatDate(company.nextDueAt)}</td>
                         <td>{company.lastPayment ? formatDate(company.lastPayment.paidAt) : "Sem histórico"}</td>
                         <td>{paymentMethodLabel(company.paymentMethod)}</td>
-                        <td>{company.financialSituation}</td>
+                        <td>
+                          <div className={styles.secondaryCell}>
+                            <strong>{company.financialSituation}</strong>
+                            <span>
+                              {company.finance.pendingCount} pend. • {company.finance.failedCount} falha(s) •{" "}
+                              {company.finance.refundCount} estorno(s)
+                            </span>
+                            <span>
+                              {company.whatsappCenter?.migration.interestRequested
+                                ? "Migração técnica solicitada"
+                                : company.whatsappCenter?.statusHint || "Sem leitura de vínculo"}
+                            </span>
+                            <span>
+                              Desc.: {company.finance.annualPlanDiscountPercent}% anual / {company.finance.manualDiscountPercent}% manual
+                              {" • "}
+                              {company.finance.freeMonths} mês(es) grátis
+                            </span>
+                          </div>
+                        </td>
                         <td>
                           <span className={badgeClass(company.website.configured ? "success" : company.websiteNeedsAttention ? "danger" : "neutral")}>
                             {company.website.configured ? "Configurado" : "Pendente"}
@@ -2348,68 +2570,6 @@ export default function MasterPremiumPage() {
                   </button>
                 ) : null}
               </div>
-
-              <section className={styles.statusStrip}>
-                <div className={styles.statusStripHeader}>
-                  <div>
-                    <p className={styles.sectionEyebrow}>Faixa de status</p>
-                    <h3>Operação, trial e cobrança em leitura separada</h3>
-                    <p className={styles.statusRule}>{buildOperationalRule(activeCompany)}</p>
-                  </div>
-                  <div className={styles.modulePills}>
-                    <span className={badgeClass(statusTone(activeCompany.statusBucket))}>{bucketLabel(activeCompany.statusBucket)}</span>
-                    <span className="badge">{paymentStatusLabel(activeCompany.paymentStatus)}</span>
-                    <span className="badge">{subscriptionLabel(activeCompany.subscriptionStatus)}</span>
-                    <span className="badge">{paymentMethodLabel(activeCompany.paymentMethod)}</span>
-                  </div>
-                </div>
-
-                <div className={styles.statusStripGrid}>
-                  <article className={styles.statusMetricCard}>
-                    <span className={styles.statusMetricLabel}>Trial começa</span>
-                    <strong className={styles.statusMetricValue}>{formatDate(activeCompany.trialStartsAt)}</strong>
-                  </article>
-                  <article className={styles.statusMetricCard}>
-                    <span className={styles.statusMetricLabel}>Trial termina</span>
-                    <strong className={styles.statusMetricValue}>{formatDate(activeCompany.trialEndsAt)}</strong>
-                  </article>
-                  <article className={styles.statusMetricCard}>
-                    <span className={styles.statusMetricLabel}>Faltam de trial</span>
-                    <strong className={styles.statusMetricValue}>{formatDayCount(activeCompany.trialRemainingDays)}</strong>
-                  </article>
-                  <article className={styles.statusMetricCard}>
-                    <span className={styles.statusMetricLabel}>Próximo vencimento</span>
-                    <strong className={styles.statusMetricValue}>{formatDate(activeCompany.nextDueAt)}</strong>
-                  </article>
-                  <article className={styles.statusMetricCard}>
-                    <span className={styles.statusMetricLabel}>Dias em atraso</span>
-                    <strong className={styles.statusMetricValue}>{formatDayCount(activeCompany.daysOverdue)}</strong>
-                  </article>
-                  <article className={styles.statusMetricCard}>
-                    <span className={styles.statusMetricLabel}>Valor em aberto</span>
-                    <strong className={styles.statusMetricValue}>{formatCurrency(activeCompany.currentOutstandingValue)}</strong>
-                  </article>
-                  <article className={styles.statusMetricCard}>
-                    <span className={styles.statusMetricLabel}>Último pagamento</span>
-                    <strong className={styles.statusMetricValue}>{activeCompany.lastPayment ? formatDate(activeCompany.lastPayment.paidAt) : "Sem histórico"}</strong>
-                  </article>
-                  <article className={styles.statusMetricCard}>
-                    <span className={styles.statusMetricLabel}>Cobrança real</span>
-                    <strong className={styles.statusMetricValue}>{activeCompany.lastPayment ? "Com ledger" : "Sem ledger"}</strong>
-                  </article>
-                </div>
-
-                <div className={styles.noticeGrid}>
-                  <article className={styles.noticeCard}>
-                    <strong>Leitura financeira</strong>
-                    <p>{buildStatusExplanation(activeCompany)}</p>
-                  </article>
-                  <article className={styles.noticeCard}>
-                    <strong>Regra de negócio</strong>
-                    <p>Encerrar trial e marcar pago alteram o estado operacional. Ledger financeiro real nasce apenas por lançamento manual.</p>
-                  </article>
-                </div>
-              </section>
 
               <nav className={styles.drawerTabs}>
                 {TABS.map((tab) => (
@@ -2548,6 +2708,11 @@ export default function MasterPremiumPage() {
                         <p>nextDueAt: {formatDate(activeCompany.nextDueAt)}</p>
                         <p>daysOverdue: {formatDayCount(activeCompany.daysOverdue)}</p>
                         <p>currentOutstandingValue: {formatCurrency(activeCompany.currentOutstandingValue)}</p>
+                        <p>billingCycle: {activeCompany.finance.billingCycle === "ANNUAL" ? "Anual" : "Mensal"}</p>
+                        <p>finalCycleAmount: {formatCurrency(activeCompany.finance.finalCycleAmount)}</p>
+                        <p>pendingCount: {activeCompany.finance.pendingCount}</p>
+                        <p>failedCount: {activeCompany.finance.failedCount}</p>
+                        <p>refundCount: {activeCompany.finance.refundCount}</p>
                         <p>manualPaymentPending: {activeCompany.manualPaymentPending ? "Sim" : "Não"}</p>
                         <p>recentCardFailure: {activeCompany.recentCardFailure ? "Sim" : "Não"}</p>
                         <p>lastPayment: {activeCompany.lastPayment ? `${formatDateTime(activeCompany.lastPayment.paidAt)} • ${formatCurrency(activeCompany.lastPayment.amount)}` : "Sem histórico"}</p>
@@ -2619,20 +2784,87 @@ export default function MasterPremiumPage() {
                       <div className={styles.panelCardHeader}>
                         <div>
                           <p className={styles.sectionEyebrow}>Cobrança</p>
-                          <h3>Cobrança operacional, provider e eventos recentes</h3>
+                          <h3>Cobrança operacional, descontos e leitura do cliente</h3>
                         </div>
                       </div>
                       <div className={styles.summaryStats}>
                         <div><span>Forma de pagamento</span><strong>{paymentMethodLabel(activeCompany.paymentMethod)}</strong></div>
                         <div><span>Provider</span><strong>{activeCompany.billingProvider || "manual"}</strong></div>
-                        <div><span>Valor em aberto</span><strong>{formatCurrency(activeCompany.currentOutstandingValue)}</strong></div>
-                        <div><span>Mensalidade</span><strong>{formatCurrency(activeCompany.monthlyValue)}</strong></div>
+                        <div><span>Ciclo</span><strong>{activeCompany.finance.billingCycle === "ANNUAL" ? "Anual" : "Mensal"}</strong></div>
+                        <div><span>Valor base</span><strong>{formatCurrency(activeCompany.finance.baseCycleAmount)}</strong></div>
+                        <div><span>Valor final</span><strong>{formatCurrency(activeCompany.finance.finalCycleAmount)}</strong></div>
+                        <div><span>Desc. anual</span><strong>{activeCompany.finance.annualPlanDiscountPercent}%</strong></div>
+                        <div><span>Desc. manual</span><strong>{activeCompany.finance.manualDiscountPercent}%</strong></div>
+                        <div><span>Meses grátis</span><strong>{activeCompany.finance.freeMonths}</strong></div>
+                        <div><span>Pendências</span><strong>{activeCompany.finance.pendingCount}</strong></div>
+                        <div><span>Falhas</span><strong>{activeCompany.finance.failedCount}</strong></div>
+                        <div><span>Estornos</span><strong>{activeCompany.finance.refundCount}</strong></div>
+                        <div><span>Valor estornado</span><strong>{formatCurrency(activeCompany.finance.refundAmount)}</strong></div>
                       </div>
                       <div className={styles.summaryMeta}>
                         <p>Último pagamento: {activeCompany.lastPayment ? `${formatDateTime(activeCompany.lastPayment.paidAt)} • ${formatCurrency(activeCompany.lastPayment.amount)}` : "Sem histórico"}</p>
                         <p>Última falha: {activeCompany.lastFailure ? `${formatDateTime(activeCompany.lastFailure.createdAt)} • ${activeCompany.lastFailure.status}` : "Sem falha recente"}</p>
                         <p>Pagamento manual pendente: {activeCompany.manualPaymentPending ? "Sim" : "Não"}</p>
                         <p>Falha recente em cartão: {activeCompany.recentCardFailure ? "Sim" : "Não"}</p>
+                        <p>Cartão cadastrado: {activeCompany.finance.cardConfigured ? `${activeCompany.finance.cardBrand || "Cartão"} • **** ${activeCompany.finance.cardLast4 || "----"}` : "Não"}</p>
+                        <p>Pix disponível: {activeCompany.finance.pixAvailable ? "Sim" : "Não"}</p>
+                      </div>
+                    </section>
+
+                    <section className={styles.summaryCard}>
+                      <div className={styles.panelCardHeader}>
+                        <div>
+                          <p className={styles.sectionEyebrow}>Descontos e ciclo</p>
+                          <h3>Configuração financeira por empresa</h3>
+                        </div>
+                        <button
+                          type="button"
+                          className="btn btn-primary btn-sm"
+                          onClick={saveCompanyFinanceSettings}
+                          disabled={!financeSettingsDraft || busyAction === `finance-settings-${activeCompany.id}`}
+                        >
+                          {busyAction === `finance-settings-${activeCompany.id}` ? "Salvando..." : "Salvar ajustes"}
+                        </button>
+                      </div>
+                      <div className={styles.formGrid}>
+                        <select
+                          className="field"
+                          value={financeSettingsDraft?.billingCycle || "MONTHLY"}
+                          onChange={(event) =>
+                            setFinanceSettingsDraft((current) =>
+                              current ? { ...current, billingCycle: event.target.value === "ANNUAL" ? "ANNUAL" : "MONTHLY" } : current,
+                            )
+                          }
+                        >
+                          <option value="MONTHLY">Mensal</option>
+                          <option value="ANNUAL">Anual</option>
+                        </select>
+                        <input
+                          className="field"
+                          inputMode="decimal"
+                          placeholder="Desconto manual (%)"
+                          value={financeSettingsDraft?.manualDiscountPercent || "0"}
+                          onChange={(event) =>
+                            setFinanceSettingsDraft((current) =>
+                              current ? { ...current, manualDiscountPercent: event.target.value } : current,
+                            )
+                          }
+                        />
+                        <input
+                          className="field"
+                          inputMode="numeric"
+                          placeholder="Meses grátis"
+                          value={financeSettingsDraft?.freeMonths || "0"}
+                          onChange={(event) =>
+                            setFinanceSettingsDraft((current) =>
+                              current ? { ...current, freeMonths: event.target.value } : current,
+                            )
+                          }
+                        />
+                      </div>
+                      <div className={styles.summaryMeta}>
+                        <p>Desconto anual global em vigor: {activeCompany.finance.annualPlanDiscountPercent}%.</p>
+                        <p>Use este bloco para ajustar manualmente cada cliente sem quebrar a lógica atual de billing.</p>
                       </div>
                     </section>
 
@@ -3323,6 +3555,18 @@ export default function MasterPremiumPage() {
                         <span className="badge">
                           {activeCompany.whatsapp.masterCredentialLabel || "Nenhuma credencial selecionada"}
                         </span>
+                        <span className={badgeClass(activeCompany.whatsappCenter?.status === "OFFICIAL" ? "success" : activeCompany.whatsappCenter?.status === "TEMPORARY" ? "brand" : activeCompany.whatsappCenter?.status === "ATTENTION" ? "danger" : "neutral")}>
+                          {activeCompany.whatsappCenter?.statusLabel || "Não conectado"}
+                        </span>
+                      </div>
+                      <div className={styles.summaryMeta}>
+                        <p>{activeCompany.whatsappCenter?.statusHint || "Sem leitura de produto para o vínculo do WhatsApp."}</p>
+                        <p>
+                          Migração técnica:{" "}
+                          {activeCompany.whatsappCenter?.migration.interestRequested
+                            ? `${activeCompany.whatsappCenter?.migration.requestedAt ? formatDateTime(activeCompany.whatsappCenter.migration.requestedAt) : "solicitada"} • ${activeCompany.whatsappCenter?.migration.source || "central_whatsapp"}`
+                            : "não solicitada"}
+                        </p>
                       </div>
                       <select
                         className="field"

@@ -10,6 +10,42 @@ export class UsersService {
     return this.prisma.user.create({ data });
   }
 
+  async getCompanyTrialSeatUsage(companyId: number) {
+    const [company, activeUsers] = await Promise.all([
+      this.prisma.company.findUnique({
+        where: { id: companyId },
+        select: {
+          id: true,
+          onboardingStatus: true,
+          paymentStatus: true,
+          subscriptionStatus: true,
+        },
+      }),
+      this.prisma.user.count({
+        where: {
+          companyId,
+          isActive: true,
+        },
+      }),
+    ]);
+
+    const onboardingStatus = String(company?.onboardingStatus || '').trim().toLowerCase();
+    const paymentStatus = String(company?.paymentStatus || '').trim().toUpperCase();
+    const subscriptionStatus = String(company?.subscriptionStatus || '').trim().toLowerCase();
+    const isTrial =
+      onboardingStatus === 'pending_email_confirmation' ||
+      onboardingStatus === 'active_trial' ||
+      paymentStatus === 'TRIAL' ||
+      subscriptionStatus === 'trialing';
+
+    return {
+      company,
+      activeUsers,
+      isTrial,
+      maxUsers: 2,
+    };
+  }
+
   async findByUsername(username: string): Promise<User | null> {
     return this.prisma.user.findUnique({ where: { username }, include: { company: { include: { plan: { include: { features: true } } } } } });
   }

@@ -106,6 +106,18 @@ class MasterArchiveCompanyDto {
   reason?: string;
 }
 
+class UpdateMyWhatsAppCenterDto {
+  @IsString()
+  @IsNotEmpty()
+  mode!: string;
+}
+
+class RegisterWhatsAppMigrationInterestDto {
+  @IsOptional()
+  @IsString()
+  source?: string;
+}
+
 class MasterHardDeleteCompanyDto {
   @IsOptional()
   @IsString()
@@ -373,6 +385,27 @@ export class CompaniesController {
       displayNumber: st.displayNumber,
       status: st.status,
     };
+  }
+
+  @Get('me/whatsapp-center')
+  @UseGuards(JwtAuthGuard)
+  async getMyWhatsAppCenter(@Req() req: any) {
+    return this.companiesService.getWhatsAppCenterForCompany(Number(req.user?.companyId));
+  }
+
+  @Patch('me/whatsapp-center')
+  @UseGuards(JwtAuthGuard)
+  async updateMyWhatsAppCenter(@Req() req: any, @Body() dto: UpdateMyWhatsAppCenterDto) {
+    return this.companiesService.updateWhatsAppCenterForCompany(Number(req.user?.companyId), dto || {});
+  }
+
+  @Post('me/whatsapp-center/migration-interest')
+  @UseGuards(JwtAuthGuard)
+  async registerMyWhatsAppMigrationInterest(
+    @Req() req: any,
+    @Body() dto: RegisterWhatsAppMigrationInterestDto,
+  ) {
+    return this.companiesService.registerWhatsAppMigrationInterest(Number(req.user?.companyId), dto || {});
   }
 
   @Get(':id')

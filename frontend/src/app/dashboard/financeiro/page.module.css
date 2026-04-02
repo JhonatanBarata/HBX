@@ -1,0 +1,295 @@
+.page {
+  display: grid;
+  gap: 1rem;
+}
+
+.hero,
+.panelCard,
+.errorCard,
+.successCard,
+.loadingCard {
+  border-radius: 28px;
+  border: 1px solid color-mix(in srgb, var(--line) 84%, white);
+  background:
+    radial-gradient(circle at top right, color-mix(in srgb, #0f766e 10%, transparent), transparent 34%),
+    linear-gradient(180deg, color-mix(in srgb, var(--surface) 98%, white), color-mix(in srgb, var(--surface-soft) 94%, var(--background)));
+  box-shadow: var(--shadow-inset), var(--shadow-xs);
+  padding: 1.1rem;
+}
+
+.hero {
+  display: grid;
+  gap: 1rem;
+}
+
+.heroCopy,
+.heroPanel,
+.historyList,
+.summaryStack,
+.checkoutGrid,
+.checkoutCard,
+.chargePanel,
+.pixPanel {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.eyebrow,
+.metricLabel,
+.fieldLabel {
+  display: block;
+  font-size: 0.74rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-weight: 800;
+  color: var(--muted);
+}
+
+.heroTitle {
+  margin: 0;
+  font-size: clamp(1.9rem, 3vw, 2.85rem);
+  line-height: 1;
+}
+
+.heroText,
+.heroHint,
+.helperText,
+.metricNote,
+.summaryStack p,
+.historyItem p,
+.historyRight span {
+  margin: 0;
+  color: var(--foreground-soft);
+}
+
+.heroPanel {
+  padding: 1rem 1.05rem;
+  border-radius: 24px;
+  border: 1px solid color-mix(in srgb, #0f766e 18%, var(--line));
+  background:
+    radial-gradient(circle at top right, color-mix(in srgb, #34d399 14%, transparent), transparent 48%),
+    color-mix(in srgb, var(--surface-raised) 92%, white);
+}
+
+.heroValue,
+.metricValue {
+  color: var(--foreground);
+}
+
+.heroValue {
+  font-size: clamp(1.5rem, 2vw, 2.1rem);
+}
+
+.metricsGrid,
+.grid,
+.infoGrid,
+.formGrid {
+  display: grid;
+  gap: 0.9rem;
+}
+
+.metricsGrid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.metricCard,
+.historyItem,
+.moduleChip,
+.statusPill,
+.mutedPill {
+  border-radius: 22px;
+}
+
+.metricCard {
+  padding: 0.95rem 1rem;
+  border: 1px solid color-mix(in srgb, var(--line) 84%, white);
+  background: color-mix(in srgb, var(--surface-raised) 94%, white);
+}
+
+.metricValue {
+  display: block;
+  margin-top: 0.3rem;
+  font-size: 1.24rem;
+}
+
+.sectionHeader,
+.formActions,
+.historyItem {
+  display: flex;
+  gap: 0.75rem;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.infoGrid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.infoGrid > div {
+  display: grid;
+  gap: 0.3rem;
+  padding: 0.92rem 0.96rem;
+  border-radius: 18px;
+  border: 1px solid color-mix(in srgb, var(--line) 84%, white);
+  background: color-mix(in srgb, var(--surface-raised) 94%, white);
+}
+
+.infoGrid span {
+  color: var(--foreground-soft);
+  font-size: 0.83rem;
+}
+
+.infoGrid strong,
+.historyItem strong {
+  color: var(--foreground);
+}
+
+.moduleRail {
+  display: flex;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  margin-top: 0.9rem;
+}
+
+.moduleChip,
+.statusPill,
+.mutedPill {
+  min-height: 34px;
+  padding: 0.42rem 0.8rem;
+  border: 1px solid color-mix(in srgb, var(--line) 84%, white);
+  background: rgba(255, 255, 255, 0.74);
+  font-size: 0.76rem;
+  font-weight: 800;
+}
+
+.statusPill {
+  color: #065f46;
+  border-color: color-mix(in srgb, #10b981 30%, white);
+  background: color-mix(in srgb, #d1fae5 82%, white);
+}
+
+.mutedPill,
+.moduleChip {
+  color: var(--foreground-soft);
+}
+
+.formGrid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: 0.85rem;
+}
+
+.field,
+.fieldWide {
+  display: grid;
+  gap: 0.42rem;
+}
+
+.fieldWide {
+  grid-column: span 2;
+}
+
+.fieldInput {
+  width: 100%;
+  min-height: 48px;
+  border-radius: 16px;
+  border: 1px solid color-mix(in srgb, var(--line) 82%, white);
+  background: color-mix(in srgb, var(--field-surface) 94%, white);
+  color: var(--foreground);
+  padding: 0.76rem 0.92rem;
+}
+
+.fieldInput:focus {
+  outline: 2px solid color-mix(in srgb, var(--brand) 20%, transparent);
+  border-color: color-mix(in srgb, var(--brand) 38%, var(--line));
+}
+
+.historyList {
+  margin-top: 0.5rem;
+}
+
+.checkoutGrid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: 0.8rem;
+}
+
+.checkoutCard,
+.chargePanel,
+.pixPanel {
+  padding: 0.95rem 1rem;
+  border: 1px solid color-mix(in srgb, var(--line) 84%, white);
+  background: color-mix(in srgb, var(--surface-raised) 94%, white);
+  border-radius: 22px;
+}
+
+.checkoutHeader {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
+
+.chargePanel {
+  margin-top: 0.9rem;
+}
+
+.pixPanel {
+  margin-top: 0.85rem;
+}
+
+.qrImage {
+  width: min(100%, 240px);
+  border-radius: 20px;
+  border: 1px solid color-mix(in srgb, var(--line) 84%, white);
+  background: white;
+  padding: 0.8rem;
+}
+
+.historyItem {
+  padding: 0.95rem 1rem;
+  border: 1px solid color-mix(in srgb, var(--line) 84%, white);
+  background: color-mix(in srgb, var(--surface-raised) 94%, white);
+}
+
+.historyRight {
+  display: grid;
+  gap: 0.2rem;
+  text-align: right;
+}
+
+.emptyState,
+.errorCard,
+.successCard,
+.loadingCard {
+  color: var(--foreground-soft);
+}
+
+@media (max-width: 1100px) {
+  .metricsGrid,
+  .grid,
+  .infoGrid,
+  .formGrid,
+  .checkoutGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .fieldWide {
+    grid-column: span 1;
+  }
+}
+
+@media (max-width: 640px) {
+  .hero,
+  .panelCard,
+  .errorCard,
+  .successCard,
+  .loadingCard {
+    padding: 0.95rem;
+    border-radius: 22px;
+  }
+}

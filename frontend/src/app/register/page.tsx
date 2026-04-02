@@ -11,6 +11,58 @@ type ApiErrorPayload = {
   error?: string;
 };
 
+type SignupResponse = {
+  access_token?: string;
+  accessToken?: string;
+  token?: string;
+  status?: string;
+  message?: string;
+  email?: string;
+  entityType?: "PF" | "PJ";
+  companyName?: string;
+  trialModuleSelection?: "vendas" | "recovery";
+  warnings?: string[];
+  delivery?: {
+    previewUrl?: string | null;
+    confirmUrl?: string | null;
+  } | null;
+};
+
+type ConfirmationPendingState = {
+  email: string;
+  message: string;
+  entityType: "PF" | "PJ" | null;
+  companyName: string | null;
+  trialModuleSelection: "vendas" | "recovery" | null;
+  warnings: string[];
+  previewUrl: string | null;
+  confirmUrl: string | null;
+};
+
+const PUBLIC_EMAIL_DOMAINS = new Set([
+  "gmail.com",
+  "googlemail.com",
+  "hotmail.com",
+  "outlook.com",
+  "outlook.com.br",
+  "live.com",
+  "live.com.br",
+  "msn.com",
+  "icloud.com",
+  "me.com",
+  "mac.com",
+  "yahoo.com",
+  "yahoo.com.br",
+  "bol.com.br",
+  "uol.com.br",
+  "terra.com.br",
+  "ig.com.br",
+  "proton.me",
+  "protonmail.com",
+  "aol.com",
+  "mail.com",
+]);
+
 function getErrorMessage(data: unknown) {
   if (!data || typeof data !== "object") return null;
   const payload = data as ApiErrorPayload;
@@ -22,6 +74,10 @@ function getErrorMessage(data: unknown) {
 
 export default function RegisterPage() {
   const router = useRouter();
+  const [entityType, setEntityType] = useState<"PF" | "PJ">("PJ");
+  const [companyName, setCompanyName] = useState("");
+  const [name, setName] = useState("");
+  const [trialModuleSelection, setTrialModuleSelection] = useState<"vendas" | "recovery">("vendas");
   const [username, setUsername] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -29,6 +85,7 @@ export default function RegisterPage() {
   const [loading, setLoading] = useState(false);
   const [firstAccessInfo, setFirstAccessInfo] = useState<string | null>(null);
   const [mounted, setMounted] = useState(false);
+  const [confirmationPending, setConfirmationPending] = useState<ConfirmationPendingState | null>(null);
 
   useEffect(() => {
     try {
@@ -49,16 +106,29 @@ export default function RegisterPage() {
     return () => setMounted(false);
   }, []);
 
+  const isPj = entityType === "PJ";
+  const emailDomain = email.includes("@") ? email.split("@")[1]?.trim().toLowerCase() : "";
+  const usesPublicEmail = isPj && Boolean(emailDomain) && PUBLIC_EMAIL_DOMAINS.has(emailDomain);
+
   async function handleRegister(event: React.FormEvent) {
     event.preventDefault();
     setError(null);
     setLoading(true);
+    setConfirmationPending(null);
 
     try {
       const signupRes = await fetch(`${API_URL}/auth/signup`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username, email, password }),
+        body: JSON.stringify({
+          entityType,
+          companyName,
+          name,
+          trialModuleSelection,
+          username,
+          email,
+          password,
+        }),
       });
       const signupData: unknown = await signupRes.json().catch(() => null);
 
@@ -67,19 +137,46 @@ export default function RegisterPage() {
         return;
       }
 
-      const payload = (signupData as Record<string, unknown> | null) ?? null;
+      const payload = (signupData as SignupResponse | null) ?? null;
       const token =
         (typeof payload?.access_token === "string" && payload.access_token) ||
         (typeof payload?.accessToken === "string" && payload.accessToken) ||
         (typeof payload?.token === "string" && payload.token);
 
-      if (!token) {
-        setError(getErrorMessage(signupData) ?? "Registro não retornou token.");
+      if (token) {
+        setToken(token);
+        router.push("/dashboard");
         return;
       }
 
-      setToken(token);
-      router.push("/dashboard");
+      if (payload?.status === "pending_email_confirmation") {
+        setConfirmationPending({
+          email: String(payload.email || email),
+          message:
+            String(payload.message || "").trim() ||
+            "Cadastro criado. Confirme seu e-mail para liberar o trial.",
+          entityType: payload.entityType === "PF" || payload.entityType === "PJ" ? payload.entityType : entityType,
+          companyName: payload.companyName ? String(payload.companyName) : null,
+          trialModuleSelection:
+            payload.trialModuleSelection === "vendas" || payload.trialModuleSelection === "recovery"
+              ? payload.trialModuleSelection
+              : trialModuleSelection,
+          warnings: Array.isArray(payload.warnings)
+            ? payload.warnings.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+            : [],
+          previewUrl:
+            payload.delivery?.previewUrl && String(payload.delivery.previewUrl).trim()
+              ? String(payload.delivery.previewUrl)
+              : null,
+          confirmUrl:
+            payload.delivery?.confirmUrl && String(payload.delivery.confirmUrl).trim()
+              ? String(payload.delivery.confirmUrl)
+              : null,
+        });
+        return;
+      }
+
+      setError(getErrorMessage(signupData) ?? "Registro não retornou um próximo passo válido.");
     } catch {
       setError("Falha ao conectar no backend");
     } finally {
@@ -88,81 +185,212 @@ export default function RegisterPage() {
   }
 
   return (
-    <main className="min-h-screen flex items-center justify-center p-6">
-      <div
-        className={`max-w-md w-full p-6 border border-foreground/10 rounded-2xl bg-background shadow-sm transition-all duration-300 ${
-          mounted ? "opacity-100 translate-y-0" : "opacity-0 translate-y-3"
-        }`}
-      >
-        <h1 className="text-2xl font-bold mb-6">Registro</h1>
+    <main className="login-stage" data-login-theme>
+      <div className="login-stage__grid" aria-hidden />
+      <div className="login-visuals" aria-hidden>
+        <div className={`login-visuals`} aria-hidden>
+          <div className="login-drop" />
+          <div className="login-drop login-drop-bottom" />
+          <div className="login-drop login-drop-left" />
+          <div className="login-drop login-drop-right" />
+        </div>
+      </div>
 
-        <form onSubmit={handleRegister} className="space-y-4">
-          <div>
-            <label className="text-sm font-medium">Usuário</label>
-            <input
-              className="w-full mt-1 p-2 border border-foreground/10 rounded-xl bg-background"
-              value={username}
-              onChange={(event) => setUsername(event.target.value)}
-              placeholder="meuusuario"
-              required
-              autoComplete="username"
-            />
-          </div>
+      <div className="login-shell">
+        <div
+          className={`login-card card transition-all duration-300 max-w-md w-full p-6 ${
+            mounted ? "opacity-100 translate-y-0" : "opacity-0 translate-y-3"
+          }`}
+        >
+          <div className="login-card__chrome" aria-hidden />
 
-          <div>
-            <label className="text-sm font-medium">E-mail</label>
-            <input
-              className="w-full mt-1 p-2 border border-foreground/10 rounded-xl bg-background"
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-              placeholder="email@exemplo.com"
-              required
-              autoComplete="email"
-            />
-          </div>
-
-          <div>
-            <label className="text-sm font-medium">Senha</label>
-            <input
-              type="password"
-              className="w-full mt-1 p-2 border border-foreground/10 rounded-xl bg-background"
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              placeholder="min. 4 caracteres"
-              required
-              autoComplete="new-password"
-            />
-            <p className="text-xs text-foreground/60 mt-1">Mínimo de 4 caracteres.</p>
-          </div>
-
-          {error ? (
-            <p className="text-sm border border-foreground/10 bg-background p-2 rounded-xl">{error}</p>
-          ) : null}
-
-          {firstAccessInfo ? (
-            <div className="border-l-4 border-primary/80 bg-primary/5 p-3 rounded-md">
-              <p className="text-sm font-semibold">Primeiro acesso</p>
-              <p className="text-sm text-foreground/80 mt-1">{firstAccessInfo}</p>
-              <p className="text-xs text-foreground/60 mt-2">
-                Preencha seu e-mail e senha para ativar a conta e continuar.
-              </p>
+          <header className="login-card__header">
+            <div className="login-card__themeRow">
+              <div className="page-overline login-card__overline">Criar conta HBX</div>
             </div>
-          ) : null}
+            <div className="login-card__brandBlock">
+              <div className="login-card__brandMark" aria-hidden>
+                <span className="login-card__brandMarkCore">HBX</span>
+              </div>
+              <div className="login-card__themeCopy">
+                <p className="login-card__themeLabel">Registre-se e experimente o HBX</p>
+              </div>
+            </div>
+          </header>
 
-          <button
-            disabled={loading}
-            className="w-full py-2 rounded-xl bg-secondary text-foreground hover:opacity-90 disabled:opacity-50"
-          >
-            {loading ? "Criando..." : "Criar conta"}
-          </button>
-        </form>
+          {confirmationPending ? (
+            <div className="space-y-4">
+              <div className="border border-foreground/10 bg-background p-4 rounded-xl shadow-sm">
+                <p className="text-sm font-semibold">Confirmação pendente</p>
+                <p className="text-sm text-foreground/80 mt-2">{confirmationPending.message}</p>
+                <p className="text-sm text-foreground/80 mt-2">
+                  E-mail enviado para <strong>{confirmationPending.email}</strong>
+                  {confirmationPending.companyName ? ` na conta ${confirmationPending.companyName}.` : "."}
+                </p>
+              </div>
 
-        <p className="text-sm text-foreground/70 mt-4">
-          Já tem conta?{" "}
-          <a className="underline" href="/login">
-            Login
-          </a>
-        </p>
+              <div className="flex flex-col gap-3">
+                {confirmationPending.confirmUrl ? (
+                  <a
+                    className="w-full inline-flex items-center justify-center py-3 rounded-xl bg-secondary text-foreground font-medium hover:opacity-95"
+                    href={confirmationPending.confirmUrl}
+                  >
+                    Confirmar agora
+                  </a>
+                ) : null}
+
+                {confirmationPending.previewUrl ? (
+                  <a
+                    className="w-full inline-flex items-center justify-center py-3 rounded-xl border border-foreground/10 hover:bg-foreground/5"
+                    href={confirmationPending.previewUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    Abrir preview do e-mail
+                  </a>
+                ) : null}
+
+                <button
+                  type="button"
+                  className="w-full py-3 rounded-xl border border-foreground/10 hover:bg-foreground/5"
+                  onClick={() => router.push("/login")}
+                >
+                  Ir para login
+                </button>
+              </div>
+            </div>
+          ) : (
+            <form onSubmit={handleRegister} className="space-y-4">
+              <div className="grid grid-cols-1 gap-4">
+                {!firstAccessInfo ? (
+                  <>
+                    <div className="login-field">
+                      <label className="login-label">Tipo de cadastro</label>
+                      <select
+                        className="input mt-1"
+                        value={entityType}
+                        onChange={(event) => setEntityType(event.target.value === "PF" ? "PF" : "PJ")}
+                      >
+                        <option value="PJ">Pessoa jurídica</option>
+                        <option value="PF">Pessoa física</option>
+                      </select>
+                    </div>
+
+                    <div className="login-field">
+                      <label className="login-label">Módulo inicial do trial</label>
+                      <select
+                        className="input mt-1"
+                        value={trialModuleSelection}
+                        onChange={(event) =>
+                          setTrialModuleSelection(event.target.value === "recovery" ? "recovery" : "vendas")
+                        }
+                      >
+                        <option value="vendas">Vendas</option>
+                        <option value="recovery">Recovery</option>
+                      </select>
+                    </div>
+                  </>
+                ) : null}
+
+                <div className="login-field">
+                  <label className="login-label">{isPj ? "Nome da empresa" : "Nome da pessoa"}</label>
+                  <input
+                    className="input mt-1"
+                    value={companyName}
+                    onChange={(event) => setCompanyName(event.target.value)}
+                    placeholder={isPj ? "Nome da empresa" : "Nome da pessoa"}
+                    required={!firstAccessInfo && isPj}
+                    autoComplete="organization"
+                  />
+                  {!isPj ? (
+                    <p className="text-xs text-foreground/60 mt-1">Para PF, o nome da empresa não é obrigatório.</p>
+                  ) : null}
+                </div>
+
+                <div className="login-field">
+                  <label className="login-label">Nome</label>
+                  <input
+                    className="input mt-1"
+                    value={name}
+                    onChange={(event) => setName(event.target.value)}
+                    placeholder="Seu nome"
+                    required
+                    autoComplete="name"
+                  />
+                </div>
+
+                <div className="login-field">
+                  <label className="login-label">Usuário</label>
+                  <input
+                    className="input mt-1"
+                    value={username}
+                    onChange={(event) => setUsername(event.target.value)}
+                    placeholder="meuusuario"
+                    required
+                    autoComplete="username"
+                  />
+                </div>
+
+                <div className="login-field">
+                  <label className="login-label">E-mail</label>
+                  <input
+                    className="input mt-1"
+                    value={email}
+                    onChange={(event) => setEmail(event.target.value)}
+                    placeholder="email@exemplo.com"
+                    required
+                    autoComplete="email"
+                  />
+                  {usesPublicEmail ? (
+                    <p className="text-xs border border-amber-400/30 bg-amber-500/10 text-foreground/80 p-2 rounded-lg mt-2">
+                      Conta PJ com e-mail público. Recomendamos usar um domínio corporativo.
+                    </p>
+                  ) : null}
+                </div>
+
+                <div className="login-field">
+                  <label className="login-label">Senha</label>
+                  <input
+                    type="password"
+                    className="input mt-1"
+                    value={password}
+                    onChange={(event) => setPassword(event.target.value)}
+                    placeholder="min. 4 caracteres"
+                    required
+                    autoComplete="new-password"
+                  />
+                  <p className="text-xs text-foreground/60 mt-1">Mínimo de 4 caracteres.</p>
+                </div>
+
+                {error ? <p className="text-sm border border-foreground/10 bg-background p-2 rounded-xl">{error}</p> : null}
+
+                {firstAccessInfo ? (
+                  <div className="border-l-4 border-primary/80 bg-primary/5 p-3 rounded-md">
+                    <p className="text-sm font-semibold">Primeiro acesso</p>
+                    <p className="text-sm text-foreground/80 mt-1">{firstAccessInfo}</p>
+                    <p className="text-xs text-foreground/60 mt-2">Preencha seus dados para ativar a conta e continuar.</p>
+                  </div>
+                ) : null}
+              </div>
+
+              <div className="flex flex-col gap-3">
+                <button
+                  disabled={loading}
+                  className="btn btn-primary login-button py-3 rounded-xl w-full shadow-md disabled:opacity-50"
+                >
+                  {loading ? "Criando..." : "Criar conta"}
+                </button>
+
+                <div className="text-sm text-foreground/70 text-center">
+                  Já tem conta?{" "}
+                  <a className="login-link font-medium ml-1" href="/login">
+                    Login
+                  </a>
+                </div>
+              </div>
+            </form>
+          )}
+        </div>
       </div>
     </main>
   );

@@ -471,6 +471,14 @@ export default function LoginPage() {
                 >
                   Esqueci minha senha
                 </button>
+                <button
+                  type="button"
+                  className="btn btn-secondary login-cta"
+                  onClick={() => router.push("/register")}
+                  style={{ marginLeft: 12 }}
+                >
+                  Criar conta grátis
+                </button>
               </div>
 
               {info ? (

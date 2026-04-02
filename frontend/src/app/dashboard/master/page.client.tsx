@@ -22,6 +22,18 @@ type CompanyModule = {
   enabled: boolean;
 };
 
+type CompanyWebscrapingUsage = {
+  searchesToday: number;
+  blockedToday: number;
+  lastAttemptAt?: string | null;
+  lastAttemptMessage?: string | null;
+  lastSearchAt?: string | null;
+  lastSearchLabel?: string | null;
+  lastSearchUser?: string | null;
+  lastResultCount: number;
+  hasBlockedAttempts: boolean;
+};
+
 type MasterCompany = {
   id: number;
   name: string;
@@ -56,6 +68,7 @@ type MasterCompany = {
   mercadoPagoUserId?: string | null;
   mercadoPagoTokenConfigured?: boolean;
   mercadoPagoTokenPreview?: string | null;
+  webscrapingUsage?: CompanyWebscrapingUsage;
   users: CompanyUser[];
   modules: CompanyModule[];
   whatsappEndpoints?: MasterCompanyWhatsAppEndpoint[];
@@ -330,6 +343,14 @@ function mapPaymentMethodLabel(methodRaw?: string | null) {
   if (method === "BOLETO") return "Boleto";
   if (method === "MANUAL") return "Manual";
   return "Nao definido";
+}
+
+function formatDateTime(value?: string | null) {
+  const iso = String(value || "").trim();
+  if (!iso) return "-";
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "-";
+  return date.toLocaleString("pt-BR");
 }
 
 export default function MasterClientPage() {
@@ -1517,6 +1538,9 @@ export default function MasterClientPage() {
         <section className="space-y-3">
           {companies.map((company) => (
             <article key={company.id} className="panel p-4">
+              {(() => {
+                const usage = company.webscrapingUsage;
+                return (
               <div className="flex items-center justify-between flex-wrap gap-2">
                 <div>
                   <h2 className="text-lg font-semibold">#{company.id} - {company.name}</h2>
@@ -1528,6 +1552,20 @@ export default function MasterClientPage() {
                   <p className="text-xs text-muted mt-1">
                     {formatTrialCountdown(company.trialEndsAt)} | Método: {mapPaymentMethodLabel(company.paymentMethod)} | Premium:{" "}
                     {company.premiumAccess ? "SIM" : "NAO"}
+                  </p>
+                  <p className="text-xs text-muted mt-1">
+                    Webscraping hoje: {usage?.searchesToday ?? 0} busca(s)
+                    {usage?.blockedToday ? ` | Bloqueios hoje: ${usage.blockedToday}` : ""}
+                    {usage?.lastSearchAt ? ` | Ultima busca: ${formatDateTime(usage.lastSearchAt)}` : " | Ultima busca: -"}
+                  </p>
+                  <p className="text-xs text-muted mt-1">
+                    {usage?.lastSearchUser ? `Usuario: ${usage.lastSearchUser}` : "Usuario: -"}
+                    {usage?.lastSearchLabel ? ` | Consulta: ${usage.lastSearchLabel}` : ""}
+                    {" | "}
+                    Resultados: {usage?.lastResultCount ?? 0}
+                    {usage?.hasBlockedAttempts && usage?.lastAttemptMessage
+                      ? ` | Alerta: ${usage.lastAttemptMessage}`
+                      : ""}
                   </p>
                 </div>
 
@@ -1574,6 +1612,8 @@ export default function MasterClientPage() {
                   </button>
                 </div>
               </div>
+                );
+              })()}
 
               <div className="mt-3 border border-[var(--line)] rounded-[12px] p-3 bg-[var(--surface-soft)]">
                 <p className="text-sm font-medium">Dados SaaS do cliente</p>

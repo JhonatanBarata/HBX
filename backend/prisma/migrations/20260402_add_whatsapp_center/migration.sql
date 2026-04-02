@@ -1,0 +1,14 @@
+ALTER TABLE "Company"
+ADD COLUMN IF NOT EXISTS "whatsappConnectionMode" TEXT NOT NULL DEFAULT 'NONE';
+
+ALTER TABLE "Company"
+ADD COLUMN IF NOT EXISTS "whatsappTemporaryStatus" TEXT NOT NULL DEFAULT 'NOT_CONNECTED';
+
+ALTER TABLE "Company"
+ADD COLUMN IF NOT EXISTS "whatsappMigrationInterestStatus" TEXT NOT NULL DEFAULT 'NONE';
+
+ALTER TABLE "Company"
+ADD COLUMN IF NOT EXISTS "whatsappMigrationInterestAt" TIMESTAMP(3);
+
+ALTER TABLE "Company"
+ADD COLUMN IF NOT EXISTS "whatsappMigrationInterestSource" TEXT;

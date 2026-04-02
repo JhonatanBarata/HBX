@@ -7,13 +7,35 @@ import DashboardScaffold from "@/components/DashboardScaffold";
 import { apiFetch } from "./_lib/api";
 import { useRequireAuth } from "./_lib/useRequireAuth";
 import { resolveWebsiteOnlyDestination } from "@/lib/websiteLaunch";
+import styles from "./page.module.css";
 
 type CurrentUser = {
   id: number;
+  name?: string | null;
   username?: string | null;
   role?: string | null;
   isSystemMaster?: boolean;
-  company?: { id: number; name?: string | null } | null;
+  company?: {
+    id: number;
+    name?: string | null;
+    slug?: string | null;
+    onboardingStatus?: string | null;
+    paymentStatus?: string | null;
+    subscriptionStatus?: string | null;
+    premiumAccess?: boolean;
+    trialStartsAt?: string | null;
+    trialEndsAt?: string | null;
+    trialModuleSelection?: "vendas" | "recovery" | null;
+    whatsappConnectionMode?: string | null;
+    whatsappTemporaryStatus?: string | null;
+    whatsappMigrationInterestStatus?: string | null;
+    whatsappMigrationInterestAt?: string | null;
+    plan?: {
+      id: number;
+      name?: string | null;
+      price?: number | null;
+    } | null;
+  } | null;
 };
 
 type ModuleCard = {
@@ -37,6 +59,53 @@ type UserModule = {
   accessible: boolean;
 };
 
+function formatDate(value?: string | null) {
+  const iso = String(value || "").trim();
+  if (!iso) return "-";
+  const parsed = new Date(iso);
+  if (Number.isNaN(parsed.getTime())) return "-";
+  return parsed.toLocaleDateString("pt-BR");
+}
+
+function computeTrialRemainingDays(value?: string | null) {
+  const iso = String(value || "").trim();
+  if (!iso) return null;
+  const parsed = new Date(iso);
+  if (Number.isNaN(parsed.getTime())) return null;
+  const diff = parsed.getTime() - Date.now();
+  if (diff <= 0) return 0;
+  return Math.max(0, Math.ceil(diff / (24 * 60 * 60 * 1000)));
+}
+
+function resolveTrialModuleEntry(moduleSelection?: "vendas" | "recovery" | null) {
+  if (moduleSelection === "recovery") {
+    return {
+      href: "/dashboard/inbox?atendimentoTab=recovery",
+      title: "Entrar em Recovery",
+      subtitle: "Abrir a operação inicial de cobrança e atendimento assistido.",
+      label: "Recovery",
+    };
+  }
+
+  return {
+    href: "/dashboard/vendas",
+    title: "Entrar em Vendas/CRM",
+    subtitle: "Abrir o CRM agenda viva para começar a prospecção com rotina, retornos e próximos passos.",
+    label: "Vendas",
+  };
+}
+
+function resolveWhatsAppCentralStatus(company?: CurrentUser["company"]) {
+  const mode = String(company?.whatsappConnectionMode || "").trim().toUpperCase();
+  const migrationStatus = String(company?.whatsappMigrationInterestStatus || "").trim().toUpperCase();
+  if (migrationStatus === "REQUESTED" || migrationStatus === "CONTACTED") {
+    return "Atenção / pendente";
+  }
+  if (mode === "OFFICIAL") return "Oficial / Meta";
+  if (mode === "TEMPORARY") return "Temporário";
+  return "Não conectado";
+}
+
 export default function DashboardClientPage() {
   const router = useRouter();
   const hasToken = useRequireAuth();
@@ -45,6 +114,7 @@ export default function DashboardClientPage() {
   const [user, setUser] = useState<CurrentUser | null>(null);
   const [modules, setModules] = useState<UserModule[]>([]);
   const [redirectingToWebsite, setRedirectingToWebsite] = useState(false);
+  const [showPremiumOnboarding, setShowPremiumOnboarding] = useState(false);
 
   useEffect(() => {
     if (hasToken !== true) return;
@@ -72,12 +142,30 @@ export default function DashboardClientPage() {
   const isAdmin = String(user?.role ?? "").toUpperCase() === "ADMIN";
   const roleLabel = String(user?.role ?? "").toUpperCase() || "USUÁRIO";
   const isSystemMaster = Boolean(user?.isSystemMaster);
+  const trialModuleSelection =
+    user?.company?.trialModuleSelection === "recovery" ? "recovery" : "vendas";
+  const trialEntry = resolveTrialModuleEntry(user?.company?.trialModuleSelection as "vendas" | "recovery" | null);
+  const whatsappCentralStatus = resolveWhatsAppCentralStatus(user?.company);
+  const trialRemainingDays = computeTrialRemainingDays(user?.company?.trialEndsAt);
+  const currentPlanLabel =
+    String(user?.company?.plan?.name || "").trim() || "Free Trial";
+  const onboardingKey =
+    user?.company?.id && user?.company?.trialStartsAt
+      ? `hbx.premium-onboarding:${user.company.id}:${user.company.trialStartsAt}`
+      : null;
+  const trialOnboardingEligible =
+    !isSystemMaster &&
+    String(user?.company?.subscriptionStatus || "").trim().toLowerCase() === "trialing" &&
+    String(user?.company?.onboardingStatus || "").trim().toLowerCase() === "active_trial" &&
+    Boolean(onboardingKey);
 
   const moduleCards = useMemo<ModuleCard[]>(() => {
     const moduleRoutes: Record<string, string> = {
       atendimento: "/dashboard/inbox",
+      vendas: "/dashboard/vendas",
       gerencial: "/dashboard/gerencial",
       webscraping: "/dashboard/webscraping",
+      financeiro: "/dashboard/financeiro",
       website: "/dashboard/website",
       follow_up_internacional: "/dashboard/importacoes/followup-global",
       master: "/dashboard/master",
@@ -117,8 +205,33 @@ export default function DashboardClientPage() {
       base.unshift(CADASTRO_AREA);
     }
 
+    if (!isSystemMaster && user?.company?.id && !base.some((item) => item.href === "/dashboard/whatsapp")) {
+      base.splice(Math.min(2, base.length), 0, {
+        title: "Central WhatsApp",
+        description: "Escolha entre conexão rápida para testar ou rota oficial pela Meta com clareza de produto.",
+        href: "/dashboard/whatsapp",
+        badge: whatsappCentralStatus,
+      });
+    }
+
     return base;
-  }, [isAdmin, isSystemMaster, modules]);
+  }, [isAdmin, isSystemMaster, modules, user?.company?.id, whatsappCentralStatus]);
+
+  useEffect(() => {
+    if (!trialOnboardingEligible || typeof window === "undefined" || !onboardingKey) {
+      setShowPremiumOnboarding(false);
+      return;
+    }
+
+    const alreadySeen = window.localStorage.getItem(onboardingKey) === "seen";
+    if (alreadySeen) {
+      setShowPremiumOnboarding(false);
+      return;
+    }
+
+    window.localStorage.setItem(onboardingKey, "seen");
+    setShowPremiumOnboarding(true);
+  }, [onboardingKey, trialOnboardingEligible]);
 
   useEffect(() => {
     if (hasToken !== true || loading || redirectingToWebsite) return;
@@ -176,6 +289,120 @@ export default function DashboardClientPage() {
     <DashboardScaffold title="Dashboard">
       <div className="dashboard-home">
         {error ? <div className="alert alert-error">{error}</div> : null}
+
+        {showPremiumOnboarding ? (
+          <section className={styles.welcomeShell}>
+            <article className={styles.welcomeHero}>
+              <div className={styles.welcomeHeroTop}>
+                <p className={styles.welcomeEyebrow}>Onboarding ativo</p>
+                <h2 className={styles.welcomeTitle}>
+                  {`Bem-vindo${user?.name ? `, ${user.name}` : ""}.`}
+                </h2>
+                <p className={styles.welcomeLead}>
+                  Sua empresa acabou de entrar no HBX com acesso liberado para operar desde já. O foco agora é
+                  começar pelo módulo que você escolheu no cadastro, com clareza do que está ativo e do próximo passo.
+                </p>
+              </div>
+
+              <div className={styles.welcomeStats}>
+                <div className={styles.welcomeStat}>
+                  <span>Plano atual</span>
+                  <strong>{currentPlanLabel}</strong>
+                </div>
+                <div className={styles.welcomeStat}>
+                  <span>Status</span>
+                  <strong>{user?.company?.paymentStatus === "TRIAL" ? "Free trial ativo" : "Conta ativa"}</strong>
+                </div>
+                <div className={styles.welcomeStat}>
+                  <span>Dias restantes</span>
+                  <strong>
+                    {trialRemainingDays === null
+                      ? "-"
+                      : `${trialRemainingDays} dia${trialRemainingDays === 1 ? "" : "s"}`}
+                  </strong>
+                </div>
+                <div className={styles.welcomeStat}>
+                  <span>Módulo inicial</span>
+                  <strong>{trialModuleSelection === "recovery" ? "Recovery" : "Vendas"}</strong>
+                </div>
+              </div>
+
+              <div className={styles.welcomeGrid}>
+                <section className={styles.welcomePanel}>
+                  <h3 className={styles.panelTitle}>O que já está liberado agora</h3>
+                  <p className={styles.panelText}>
+                    Seu acesso está ativo em trial, com os módulos disponíveis para a sua empresa e uma trilha inicial
+                    pronta para começar a operar sem pressão de upgrade.
+                  </p>
+                  <div className={styles.moduleChips}>
+                    {moduleCards.map((item) => (
+                      <span key={item.href} className={styles.moduleChip}>
+                        {item.title}
+                      </span>
+                    ))}
+                  </div>
+                  <div className={styles.welcomeActions}>
+                    <Link href={trialEntry.href} className="btn btn-primary btn-sm">
+                      {trialEntry.title}
+                    </Link>
+                    <Link href="/dashboard/whatsapp" className="btn btn-secondary btn-sm">
+                      Central WhatsApp
+                    </Link>
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-sm"
+                      onClick={() => setShowPremiumOnboarding(false)}
+                    >
+                      Ver painel completo
+                    </button>
+                  </div>
+                  <p className={styles.welcomeNote}>{trialEntry.subtitle}</p>
+                </section>
+
+                <aside className={styles.welcomeAside}>
+                  <h3 className={styles.panelTitle}>Próximos passos</h3>
+                  <div className={styles.steps}>
+                    <div className={styles.step}>
+                      <span className={styles.stepDot} aria-hidden="true" />
+                      <div>
+                        <strong>E-mail confirmado e conta ativada</strong>
+                        <p>Seu acesso já está validado e o ambiente da empresa foi liberado.</p>
+                      </div>
+                    </div>
+                    <div className={styles.step}>
+                      <span className={styles.stepDot} aria-hidden="true" />
+                      <div>
+                        <strong>Trial em andamento até {formatDate(user?.company?.trialEndsAt)}</strong>
+                        <p>Você está operando com status premium ativo, sem cobrança nesta fase inicial.</p>
+                      </div>
+                    </div>
+                    <div className={styles.step}>
+                      <span className={styles.stepDotActive} aria-hidden="true" />
+                      <div>
+                        <strong>Começar por {trialEntry.label}</strong>
+                        <p>Esse é o melhor ponto de entrada para transformar o trial em operação real.</p>
+                      </div>
+                    </div>
+                    <div className={styles.step}>
+                      <span className={styles.stepDotSoon} aria-hidden="true" />
+                      <div>
+                        <strong>Definir o vínculo do WhatsApp</strong>
+                        <p>Escolha entre o caminho rápido para testar ou a rota oficial pela Meta sem misturar os dois.</p>
+                      </div>
+                    </div>
+                    <div className={styles.step}>
+                      <span className={styles.stepDotSoon} aria-hidden="true" />
+                      <div>
+                        <strong>Organizar a rotina inicial</strong>
+                        <p>Depois do primeiro uso, siga para os módulos liberados e consolide a operação do dia.</p>
+                      </div>
+                    </div>
+                  </div>
+                </aside>
+              </div>
+            </article>
+          </section>
+        ) : null}
 
         <section className="metrics-grid">
           <article className="stat-card">

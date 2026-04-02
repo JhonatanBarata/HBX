@@ -13,7 +13,10 @@ generator client {
 model Company {
   id                      Int       @id @default(autoincrement())
   name                    String
+  entityType              String    @default("PJ") // PF | PJ
   slug                    String?   @unique
+  trialModuleSelection    String? // vendas | recovery
+  signupUsesPublicEmail   Boolean   @default(false)
   primaryContactName      String?
   contactEmail            String?
   contactPhone            String?
@@ -26,6 +29,11 @@ model Company {
   whatsappStatus          String? // CONNECTED | DISCONNECTED | ERROR
   whatsappStatusError     String?
   whatsappStatusUpdatedAt DateTime?
+  whatsappConnectionMode  String    @default("NONE") // NONE | TEMPORARY | OFFICIAL
+  whatsappTemporaryStatus String    @default("NOT_CONNECTED") // NOT_CONNECTED | TEMPORARY | ATTENTION
+  whatsappMigrationInterestStatus String @default("NONE") // NONE | REQUESTED | CONTACTED | RESOLVED
+  whatsappMigrationInterestAt DateTime?
+  whatsappMigrationInterestSource String?
   mercadoPagoAccessToken    String?
   mercadoPagoStatus         String? // CONNECTED | DISCONNECTED | ERROR
   mercadoPagoStatusError    String?
@@ -37,12 +45,22 @@ model Company {
   masterMercadoPagoCredentialKey String?
   masterWhatsAppCredentialKey    String?
   timezone                String?   @default("America/Sao_Paulo")
+  onboardingStatus        String    @default("active_paid") // pending_email_confirmation | active_trial | active_paid | suspended
   isActive                Boolean   @default(true)
   paymentStatus           String    @default("PENDING") // PENDING | TRIAL | PAID | OVERDUE | EXPIRED | DISABLED
   paymentMethod           String    @default("NONE") // NONE | CARD | PIX | BOLETO | MANUAL
+  billingCycle           String    @default("MONTHLY") // MONTHLY | ANNUAL
   subscriptionStatus      String    @default("trialing") // trialing | active | past_due | canceled | expired
   billingProvider         String    @default("manual") // manual | mercadopago | stripe | apple | google
   premiumAccess           Boolean   @default(false)
+  billingCardBrand        String?
+  billingCardLast4        String?
+  billingCardHolderName   String?
+  billingCardExpMonth     Int?
+  billingCardExpYear      Int?
+  billingCardUpdatedAt    DateTime?
+  manualDiscountPercent   Float     @default(0)
+  freeMonths              Int       @default(0)
   trialStartsAt           DateTime?
   trialEndsAt             DateTime?
   subscriptionCurrentPeriodStart DateTime?
@@ -76,6 +94,7 @@ model Company {
   hbxRecoveryCustomers HbxRecoveryCustomer[]
   hbxRecoveryFlowStages HbxRecoveryFlowStage[]
   hbxRecoveryPayments  HbxRecoveryPayment[]
+  financeiroCharges    FinanceiroCharge[]
   customerProfiles     CustomerProfile[]
   debtCases            DebtCase[]
   integrationConnections IntegrationConnection[]
@@ -87,6 +106,8 @@ model Company {
   masterSupportAuditLogs MasterSupportAuditLog[]
   atendimentoCustomers AtendimentoCustomer[]
   webscrapingSearchHistories WebscrapingSearchHistory[]
+  webscrapingUsageLogs WebscrapingUsageLog[]
+  vendasLeads         VendasLead[]
 }
 
 model CompanyWhatsAppEndpoint {
@@ -185,6 +206,43 @@ model HbxRecoveryPayment {
   @@index([companyId, conversationId, createdAt])
   @@index([debtCaseId, createdAt])
   @@index([externalReference])
+}
+
+model FinanceiroCharge {
+  id                String   @id @default(cuid())
+  company           Company  @relation(fields: [companyId], references: [id])
+  companyId         Int
+  amount            Float
+  currency          String   @default("BRL")
+  description       String
+  billingCycle      String   @default("MONTHLY") // MONTHLY | ANNUAL
+  paymentMethod     String   @default("PIX") // PIX | CARD | BONUS
+  status            String   @default("pending") // pending | approved | cancelled | failed | refunded | partially_refunded
+  lifecycle         String   @default("in_progress") // in_progress | paid | cancelled | finalized
+  competence        String?
+  externalReference String?  @unique
+  mpPreferenceId    String?
+  mpPaymentId       String?  @unique
+  mpMerchantOrderId String?
+  notificationUrl   String?
+  paymentUrl        String?
+  pixQrCode         String?
+  pixQrCodeBase64   String?
+  pixTicketUrl      String?
+  ledgerEntryId     String?
+  paidAt            DateTime?
+  refundedAt        DateTime?
+  refundAmount      Float    @default(0)
+  providerPayload   String?
+  lastWebhookAt     DateTime?
+  lastWebhookPayload String?
+  createdByUserId   Int?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([companyId, createdAt])
+  @@index([companyId, lifecycle, createdAt])
+  @@index([companyId, status, createdAt])
 }
 
 model HbxRecoveryFlowStage {
@@ -317,6 +375,7 @@ model CustomerProfile {
   atendimentoCustomers AtendimentoCustomer[]
   hbxRecoveryCustomers HbxRecoveryCustomer[]
   debtCases            DebtCase[]
+  vendasLeads          VendasLead[]
 
   @@unique([companyId, phoneNormalized])
   @@index([companyId, document])
@@ -499,6 +558,10 @@ model User {
   id              Int              @id @default(autoincrement())
   username        String?          @unique
   email           String?          @unique
+  emailConfirmedAt DateTime?
+  emailConfirmationToken String?   @unique
+  emailConfirmationSentAt DateTime?
+  emailConfirmationExpiresAt DateTime?
   password        String
   name            String?
   company         Company?         @relation(fields: [companyId], references: [id])
@@ -521,6 +584,7 @@ model User {
   masterContextEndedSessions MasterAssumedContextSession[] @relation("MasterAssumedContextEndedByUser")
   masterSupportAuditLogs MasterSupportAuditLog[] @relation("MasterSupportAuditLogUser")
   webscrapingSearchHistories WebscrapingSearchHistory[]
+  webscrapingUsageLogs WebscrapingUsageLog[]
 }
 
 model WebscrapingSearchHistory {
@@ -567,6 +631,81 @@ model WebscrapingSearchPlace {
   @@unique([searchHistoryId, placeId])
   @@index([searchHistoryId, rank])
   @@index([searchHistoryId, phoneDigits])
+}
+
+model WebscrapingUsageLog {
+  id              String   @id @default(cuid())
+  company         Company  @relation(fields: [companyId], references: [id])
+  companyId       Int
+  user            User     @relation(fields: [userId], references: [id])
+  userId          Int
+  eventType       String   @default("EXECUTED") // EXECUTED | BLOCKED_DAILY_LIMIT
+  city            String?
+  segment         String?
+  quantity        Int?
+  resultCount     Int      @default(0)
+  searchSignature String?
+  message         String?
+  createdAt       DateTime @default(now())
+
+  @@index([companyId, createdAt])
+  @@index([companyId, eventType, createdAt])
+  @@index([userId, createdAt])
+}
+
+model VendasLead {
+  id                String   @id @default(cuid())
+  company           Company  @relation(fields: [companyId], references: [id])
+  companyId         Int
+  customerProfile   CustomerProfile? @relation(fields: [customerProfileId], references: [id])
+  customerProfileId String?
+  sourceType        String   @default("manual") // manual | webscraping
+  primarySource     String   @default("manual")
+  sourceHistoryId   String?
+  sourceSignature   String?
+  timesSeen         Int      @default(1)
+  name              String?
+  phone             String?
+  phoneNormalized   String?
+  email             String?
+  city              String?
+  segment           String?
+  status            String   @default("novo") // novo | contato | retorno | qualificado | encerrado
+  nextAction        String?
+  returnAt          DateTime?
+  shortNote         String?
+  lastContactAt     DateTime?
+  attemptCount      Int      @default(0)
+  lastResult        String?
+  wasClosedBefore   Boolean  @default(false)
+  closedAt          DateTime?
+  createdByUserId   Int?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  timelineEvents    VendasLeadTimelineEvent[]
+
+  @@unique([companyId, phoneNormalized])
+  @@index([companyId, status, returnAt])
+  @@index([companyId, updatedAt])
+  @@index([customerProfileId])
+}
+
+model VendasLeadTimelineEvent {
+  id              String     @id @default(cuid())
+  lead            VendasLead @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  leadId          String
+  eventType       String
+  title           String
+  description     String?
+  sourceType      String?
+  statusFrom      String?
+  statusTo        String?
+  resultLabel     String?
+  returnAt        DateTime?
+  createdByUserId Int?
+  createdAt       DateTime   @default(now())
+
+  @@index([leadId, createdAt])
 }
 
 model TechAssistantInteraction {
@@ -646,6 +785,7 @@ model MasterGlobalIntegrationConfig {
   whatsappDisplayNumber    String?
   mercadoPagoLibrary       String?
   whatsappLibrary          String?
+  annualPlanDiscountPercent Float   @default(0)
   createdAt                DateTime @default(now())
   updatedAt                DateTime @updatedAt
 }

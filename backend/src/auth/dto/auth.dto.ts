@@ -1,6 +1,22 @@
-import { IsEmail, IsNotEmpty, IsOptional, MinLength } from 'class-validator';
+import { IsEmail, IsIn, IsNotEmpty, IsOptional, MinLength } from 'class-validator';
 
 export class SignupDto {
+  @IsOptional()
+  @IsIn(['PF', 'PJ'])
+  entityType?: 'PF' | 'PJ';
+
+  @IsOptional()
+  @IsNotEmpty()
+  companyName?: string;
+
+  @IsOptional()
+  @IsNotEmpty()
+  name?: string;
+
+  @IsOptional()
+  @IsIn(['vendas', 'recovery'])
+  trialModuleSelection?: 'vendas' | 'recovery';
+
   @IsNotEmpty()
   username: string;
 
@@ -10,9 +26,6 @@ export class SignupDto {
   @IsNotEmpty()
   @MinLength(4)
   password: string;
-
-  @IsOptional()
-  name?: string;
 }
 
 export class LoginDto {
@@ -35,4 +48,9 @@ export class ResetPasswordDto {
   @IsNotEmpty()
   @MinLength(4)
   password: string;
+}
+
+export class ConfirmEmailDto {
+  @IsNotEmpty()
+  token: string;
 }

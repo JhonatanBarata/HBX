@@ -10,6 +10,13 @@ export type MercadoPagoUserProfile = {
 export type MercadoPagoPreferencePayload = {
   external_reference?: string;
   notification_url?: string;
+  back_urls?: {
+    success?: string;
+    failure?: string;
+    pending?: string;
+  };
+  auto_return?: string;
+  payment_methods?: Record<string, unknown>;
   payer?: {
     name?: string;
     email?: string;
@@ -57,6 +64,13 @@ export type MercadoPagoPaymentResponse = {
       number?: string;
     };
   };
+  point_of_interaction?: {
+    transaction_data?: {
+      qr_code?: string;
+      qr_code_base64?: string;
+      ticket_url?: string;
+    };
+  };
 };
 
 export type MercadoPagoRefundResponse = {
@@ -64,6 +78,20 @@ export type MercadoPagoRefundResponse = {
   payment_id?: number | string;
   amount?: number;
   status?: string;
+};
+
+export type MercadoPagoCreatePaymentPayload = {
+  transaction_amount: number;
+  description: string;
+  payment_method_id: string;
+  notification_url?: string;
+  external_reference?: string;
+  metadata?: Record<string, unknown>;
+  payer: {
+    email: string;
+    first_name?: string;
+    last_name?: string;
+  };
 };
 
 @Injectable()
@@ -140,6 +168,29 @@ export class MercadoPagoClientService {
     }
   }
 
+  async createPayment(
+    accessTokenRaw: string,
+    payload: MercadoPagoCreatePaymentPayload,
+    idempotencyKey: string,
+  ): Promise<MercadoPagoPaymentResponse> {
+    const accessToken = this.normalizeAccessToken(accessTokenRaw);
+    if (!accessToken) throw new Error('Access token do Mercado Pago nao informado.');
+
+    try {
+      const response = await axios.post<MercadoPagoPaymentResponse>(
+        `${this.apiBase}/v1/payments`,
+        payload,
+        {
+          headers: this.buildHeaders(accessToken, idempotencyKey),
+          timeout: 20000,
+        },
+      );
+      return response.data || {};
+    } catch (error: any) {
+      throw new Error(this.parseApiError(error, 'Falha ao criar pagamento no Mercado Pago.'));
+    }
+  }
+
   async getPayment(accessTokenRaw: string, paymentIdRaw: string | number): Promise<MercadoPagoPaymentResponse> {
     const accessToken = this.normalizeAccessToken(accessTokenRaw);
     const paymentId = String(paymentIdRaw || '').trim();
@@ -185,4 +236,3 @@ export class MercadoPagoClientService {
     }
   }
 }
-

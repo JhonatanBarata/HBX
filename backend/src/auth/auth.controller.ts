@@ -1,6 +1,6 @@
 import { Body, Controller, Post } from '@nestjs/common';
 import { AuthService } from './auth.service';
-import { LoginDto, RecoverPasswordDto, ResetPasswordDto, SignupDto } from './dto/auth.dto';
+import { ConfirmEmailDto, LoginDto, RecoverPasswordDto, ResetPasswordDto, SignupDto } from './dto/auth.dto';
 import { Throttle } from '@nestjs/throttler';
 
 @Controller('auth')
@@ -11,6 +11,12 @@ export class AuthController {
   @Throttle({ default: { limit: 5, ttl: 60 } })
   signup(@Body() dto: SignupDto) {
     return this.authService.signup(dto);
+  }
+
+  @Post('confirm-email')
+  @Throttle({ default: { limit: 10, ttl: 60 } })
+  confirmEmail(@Body() dto: ConfirmEmailDto) {
+    return this.authService.confirmEmail(dto.token);
   }
 
   @Post('login')

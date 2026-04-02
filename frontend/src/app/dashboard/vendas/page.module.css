@@ -1,0 +1,807 @@
+.page {
+  display: grid;
+  gap: 1rem;
+}
+
+.hero,
+.manualCard,
+.blockCard,
+.errorCard,
+.successCard,
+.loadingCard {
+  border-radius: 28px;
+  border: 1px solid color-mix(in srgb, var(--line) 84%, white);
+  background:
+    radial-gradient(circle at top right, color-mix(in srgb, var(--brand) 10%, transparent), transparent 34%),
+    linear-gradient(180deg, color-mix(in srgb, var(--surface) 98%, white), color-mix(in srgb, var(--surface-soft) 94%, var(--background)));
+  box-shadow: var(--shadow-inset), var(--shadow-xs);
+  padding: 1.1rem;
+}
+
+.hero {
+  display: grid;
+  gap: 1rem;
+}
+
+.heroCopy {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.eyebrow,
+.metricLabel,
+.fieldLabel,
+.focusLabel,
+.summaryLabel {
+  display: block;
+  font-size: 0.74rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-weight: 800;
+  color: var(--muted);
+}
+
+.heroTitle {
+  margin: 0;
+  font-size: clamp(1.95rem, 3vw, 2.9rem);
+  line-height: 0.98;
+}
+
+.heroText,
+.helperText,
+.statusText,
+.emptyText,
+.leadMeta,
+.focusText,
+.metricHint {
+  margin: 0;
+  color: var(--foreground-soft);
+}
+
+.heroStats,
+.sectionHeader,
+.formActions,
+.cardActions,
+.cardMetaRow,
+.editorHeader,
+.editorActions,
+.sectionActions {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
+
+.heroStats {
+  align-items: stretch;
+}
+
+.metricCard {
+  flex: 1 1 220px;
+  min-width: 220px;
+  padding: 1rem 1.05rem;
+  border-radius: 22px;
+  border: 1px solid color-mix(in srgb, var(--brand) 18%, var(--line));
+  background: color-mix(in srgb, var(--surface-raised) 88%, white);
+}
+
+.metricCard[data-tone="primary"] {
+  background:
+    radial-gradient(circle at top right, color-mix(in srgb, var(--brand) 14%, transparent), transparent 48%),
+    color-mix(in srgb, var(--surface-raised) 92%, white);
+}
+
+.metricCard[data-tone="webscraping"] {
+  border-color: color-mix(in srgb, #0891b2 26%, var(--line));
+  background:
+    radial-gradient(circle at top right, color-mix(in srgb, #22d3ee 16%, transparent), transparent 46%),
+    color-mix(in srgb, var(--surface-raised) 92%, white);
+}
+
+.metricValue,
+.statusTitle,
+.focusValue,
+.summaryValue {
+  display: block;
+  color: var(--foreground);
+}
+
+.metricValue {
+  margin-top: 0.25rem;
+  font-size: 1.1rem;
+}
+
+.focusGrid,
+.formGrid,
+.cardGrid,
+.leadsGrid,
+.skeletonGrid,
+.quickSummaryGrid,
+.statusBoard,
+.statusColumnCards {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.focusGrid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.focusCard {
+  padding: 0.95rem 1rem;
+  border-radius: 22px;
+  border: 1px solid color-mix(in srgb, var(--line) 84%, white);
+  background: color-mix(in srgb, var(--surface-raised) 94%, white);
+}
+
+.focusCard[data-tone="critical"] {
+  border-color: color-mix(in srgb, #ef4444 28%, var(--line));
+  background:
+    radial-gradient(circle at top right, color-mix(in srgb, #f87171 18%, transparent), transparent 50%),
+    color-mix(in srgb, #fff5f5 82%, white);
+}
+
+.focusCard[data-tone="active"] {
+  border-color: color-mix(in srgb, #0f766e 26%, var(--line));
+  background:
+    radial-gradient(circle at top right, color-mix(in srgb, #34d399 16%, transparent), transparent 50%),
+    color-mix(in srgb, #ecfdf5 82%, white);
+}
+
+.focusCard[data-tone="future"] {
+  border-color: color-mix(in srgb, #1d4ed8 24%, var(--line));
+  background:
+    radial-gradient(circle at top right, color-mix(in srgb, #60a5fa 16%, transparent), transparent 50%),
+    color-mix(in srgb, #eff6ff 82%, white);
+}
+
+.focusValue {
+  margin-top: 0.3rem;
+  font-size: clamp(1.3rem, 2vw, 1.85rem);
+}
+
+.statusPill,
+.metaPill,
+.mutedPill,
+.sourceBadge,
+.statusBadge,
+.returnBadge,
+.memoryChip {
+  min-height: 34px;
+  padding: 0.42rem 0.8rem;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--line) 84%, white);
+  background: rgba(255, 255, 255, 0.72);
+  font-size: 0.76rem;
+  font-weight: 800;
+}
+
+.statusPill,
+.metaPill,
+.mutedPill,
+.memoryChip {
+  color: var(--foreground-soft);
+}
+
+.formGrid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-top: 0.95rem;
+}
+
+.cardGrid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.leadsGrid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: 0.95rem;
+}
+
+.quickSummaryGrid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.statusBoard {
+  grid-template-columns: repeat(5, minmax(260px, 1fr));
+  align-items: start;
+  margin-top: 0.95rem;
+  overflow-x: auto;
+  padding-bottom: 0.2rem;
+}
+
+.statusColumn {
+  display: grid;
+  gap: 0.8rem;
+  min-height: 320px;
+  padding: 0.95rem;
+  border-radius: 24px;
+  border: 1px solid color-mix(in srgb, var(--line) 82%, white);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--surface-raised) 94%, white), color-mix(in srgb, var(--surface) 98%, white));
+  transition: border-color 140ms ease, transform 140ms ease, box-shadow 140ms ease, background 140ms ease;
+}
+
+.statusColumn[data-status="novo"] {
+  border-color: color-mix(in srgb, #34d399 24%, var(--line));
+}
+
+.statusColumn[data-status="contato"] {
+  border-color: color-mix(in srgb, #60a5fa 24%, var(--line));
+}
+
+.statusColumn[data-status="retorno"] {
+  border-color: color-mix(in srgb, #a78bfa 24%, var(--line));
+}
+
+.statusColumn[data-status="qualificado"] {
+  border-color: color-mix(in srgb, #f59e0b 24%, var(--line));
+}
+
+.statusColumn[data-status="encerrado"] {
+  border-style: dashed;
+  border-color: color-mix(in srgb, #f59e0b 28%, var(--line));
+  background:
+    radial-gradient(circle at top right, color-mix(in srgb, #fbbf24 10%, transparent), transparent 48%),
+    color-mix(in srgb, #fffbeb 76%, white);
+}
+
+.statusColumn[data-dragover="true"] {
+  transform: translateY(-2px);
+  border-color: color-mix(in srgb, var(--brand) 42%, var(--line));
+  box-shadow: 0 18px 36px rgba(15, 23, 42, 0.08);
+  background:
+    radial-gradient(circle at top right, color-mix(in srgb, var(--brand) 12%, transparent), transparent 44%),
+    color-mix(in srgb, var(--surface-raised) 96%, white);
+}
+
+.statusColumnHeader {
+  display: flex;
+  gap: 0.75rem;
+  justify-content: space-between;
+  align-items: start;
+}
+
+.statusColumnTitle {
+  display: block;
+  color: var(--foreground);
+}
+
+.statusColumnText {
+  margin: 0.24rem 0 0;
+  color: var(--foreground-soft);
+  font-size: 0.92rem;
+  line-height: 1.35;
+}
+
+.statusColumnCards {
+  align-content: start;
+}
+
+.statusDropHint {
+  display: grid;
+  gap: 0.35rem;
+  min-height: 140px;
+  align-content: center;
+  padding: 0.95rem 1rem;
+  border-radius: 20px;
+  border: 1px dashed color-mix(in srgb, var(--line) 78%, white);
+  background: color-mix(in srgb, var(--surface) 96%, white);
+}
+
+.field,
+.fieldWide {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.fieldWide {
+  grid-column: span 2;
+}
+
+.fieldInput,
+.fieldSelect,
+.fieldTextarea {
+  width: 100%;
+  border-radius: 16px;
+  border: 1px solid color-mix(in srgb, var(--line) 82%, white);
+  background: color-mix(in srgb, var(--field-surface) 94%, white);
+  color: var(--foreground);
+  padding: 0.76rem 0.92rem;
+}
+
+.fieldInput,
+.fieldSelect {
+  min-height: 48px;
+}
+
+.fieldTextarea {
+  resize: vertical;
+  min-height: 104px;
+}
+
+.fieldInput:focus,
+.fieldSelect:focus,
+.fieldTextarea:focus {
+  outline: 2px solid color-mix(in srgb, var(--brand) 20%, transparent);
+  border-color: color-mix(in srgb, var(--brand) 38%, var(--line));
+}
+
+.blockCard[data-block="overdue"] {
+  border-color: color-mix(in srgb, #ef4444 28%, var(--line));
+}
+
+.blockCard[data-block="today"] {
+  border-color: color-mix(in srgb, #0f766e 24%, var(--line));
+}
+
+.blockCard[data-block="scheduled"] {
+  border-color: color-mix(in srgb, #1d4ed8 24%, var(--line));
+}
+
+.leadCard {
+  position: relative;
+  display: grid;
+  gap: 0.9rem;
+  padding: 1rem;
+  border-radius: 24px;
+  border: 1px solid color-mix(in srgb, var(--line) 84%, white);
+  background: color-mix(in srgb, var(--surface) 98%, white);
+  box-shadow: var(--shadow-inset), var(--shadow-xs);
+  overflow: hidden;
+  cursor: grab;
+}
+
+.leadCard[data-dragging="true"] {
+  opacity: 0.72;
+  transform: rotate(1deg) scale(0.99);
+  box-shadow: 0 18px 36px rgba(15, 23, 42, 0.12);
+}
+
+.leadAccent {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 5px;
+  background: color-mix(in srgb, var(--brand) 32%, white);
+}
+
+.leadCard[data-tone="overdue"] .leadAccent {
+  background: linear-gradient(180deg, #ef4444, #f97316);
+}
+
+.leadCard[data-tone="today"] .leadAccent {
+  background: linear-gradient(180deg, #0f766e, #10b981);
+}
+
+.leadCard[data-tone="webscraping"] .leadAccent {
+  background: linear-gradient(180deg, #0891b2, #22d3ee);
+}
+
+.leadCard[data-tone="scheduled"] .leadAccent {
+  background: linear-gradient(180deg, #2563eb, #60a5fa);
+}
+
+.leadCard[data-tone="closed"] .leadAccent {
+  background: linear-gradient(180deg, #a16207, #f59e0b);
+}
+
+.leadHeader,
+.leadHeadline,
+.leadBadges,
+.memoryRail {
+  display: flex;
+  gap: 0.7rem;
+  flex-wrap: wrap;
+}
+
+.leadHeader {
+  align-items: start;
+  justify-content: space-between;
+}
+
+.leadIdentity {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.leadHeadline {
+  align-items: center;
+}
+
+.leadTitle {
+  margin: 0;
+  font-size: 1.15rem;
+  line-height: 1.08;
+}
+
+.sourceBadge[data-source="webscraping"] {
+  color: #075985;
+  border-color: color-mix(in srgb, #22d3ee 36%, white);
+  background: color-mix(in srgb, #cffafe 82%, white);
+}
+
+.sourceBadge[data-source="manual"] {
+  color: #374151;
+}
+
+.statusBadge[data-status="novo"] {
+  color: #0f766e;
+  border-color: color-mix(in srgb, #34d399 34%, white);
+  background: color-mix(in srgb, #d1fae5 82%, white);
+}
+
+.statusBadge[data-status="contato"] {
+  color: #1d4ed8;
+  border-color: color-mix(in srgb, #60a5fa 34%, white);
+  background: color-mix(in srgb, #dbeafe 82%, white);
+}
+
+.statusBadge[data-status="retorno"] {
+  color: #7c3aed;
+  border-color: color-mix(in srgb, #a78bfa 34%, white);
+  background: color-mix(in srgb, #ede9fe 82%, white);
+}
+
+.statusBadge[data-status="qualificado"] {
+  color: #92400e;
+  border-color: color-mix(in srgb, #f59e0b 34%, white);
+  background: color-mix(in srgb, #fef3c7 84%, white);
+}
+
+.statusBadge[data-status="encerrado"] {
+  color: #6b7280;
+  border-color: color-mix(in srgb, #cbd5e1 34%, white);
+  background: color-mix(in srgb, #f8fafc 84%, white);
+}
+
+.returnBadge[data-tone="overdue"] {
+  color: #991b1b;
+  border-color: color-mix(in srgb, #ef4444 34%, white);
+  background: color-mix(in srgb, #fee2e2 84%, white);
+}
+
+.returnBadge[data-tone="today"] {
+  color: #065f46;
+  border-color: color-mix(in srgb, #10b981 34%, white);
+  background: color-mix(in srgb, #d1fae5 84%, white);
+}
+
+.returnBadge[data-tone="scheduled"] {
+  color: #1d4ed8;
+  border-color: color-mix(in srgb, #60a5fa 34%, white);
+  background: color-mix(in srgb, #dbeafe 84%, white);
+}
+
+.returnBadge[data-tone="closed"] {
+  color: #92400e;
+  border-color: color-mix(in srgb, #f59e0b 34%, white);
+  background: color-mix(in srgb, #fef3c7 84%, white);
+}
+
+.summaryBox {
+  display: grid;
+  gap: 0.35rem;
+  min-height: 96px;
+  padding: 0.95rem 1rem;
+  border-radius: 20px;
+  border: 1px solid color-mix(in srgb, var(--line) 84%, white);
+  background: color-mix(in srgb, var(--surface-raised) 94%, white);
+}
+
+.summaryBox[data-type="next"] {
+  border-color: color-mix(in srgb, var(--brand) 24%, var(--line));
+  background:
+    radial-gradient(circle at top right, color-mix(in srgb, var(--brand) 12%, transparent), transparent 48%),
+    color-mix(in srgb, var(--surface-raised) 94%, white);
+}
+
+.summaryBox[data-type="note"] {
+  background: color-mix(in srgb, #f8fafc 88%, white);
+}
+
+.summaryValue {
+  font-size: 0.98rem;
+  line-height: 1.35;
+}
+
+.memoryRail {
+  align-items: center;
+}
+
+.memoryChip[data-tone="ready"] {
+  color: #0f766e;
+  border-color: color-mix(in srgb, #10b981 30%, white);
+  background: color-mix(in srgb, #d1fae5 82%, white);
+}
+
+.memoryChip[data-tone="existing"] {
+  color: #1d4ed8;
+  border-color: color-mix(in srgb, #60a5fa 30%, white);
+  background: color-mix(in srgb, #dbeafe 82%, white);
+}
+
+.memoryChip[data-tone="webscraping"] {
+  color: #075985;
+  border-color: color-mix(in srgb, #22d3ee 30%, white);
+  background: color-mix(in srgb, #cffafe 82%, white);
+}
+
+.memoryChip[data-tone="contact"] {
+  color: #7c3aed;
+  border-color: color-mix(in srgb, #a78bfa 30%, white);
+  background: color-mix(in srgb, #ede9fe 82%, white);
+}
+
+.memoryChip[data-tone="closed-before"] {
+  color: #92400e;
+  border-color: color-mix(in srgb, #f59e0b 30%, white);
+  background: color-mix(in srgb, #fef3c7 82%, white);
+}
+
+.quickEditor {
+  display: grid;
+  gap: 0.9rem;
+  padding: 1rem;
+  border-radius: 22px;
+  border: 1px solid color-mix(in srgb, var(--brand) 22%, var(--line));
+  background:
+    radial-gradient(circle at top right, color-mix(in srgb, var(--brand) 10%, transparent), transparent 48%),
+    color-mix(in srgb, var(--surface-raised) 94%, white);
+}
+
+.expandedGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.02fr) minmax(0, 1.18fr);
+  gap: 0.9rem;
+}
+
+.timelinePanel,
+.editorPanel {
+  display: grid;
+  gap: 0.8rem;
+}
+
+.timelinePanel {
+  align-content: start;
+}
+
+.timelineHeader,
+.timelineTopline {
+  display: flex;
+  gap: 0.6rem;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
+
+.timelineList {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.timelineItem {
+  position: relative;
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr);
+  gap: 0.7rem;
+  padding: 0.9rem 0.95rem;
+  border-radius: 20px;
+  border: 1px solid color-mix(in srgb, var(--line) 84%, white);
+  background: color-mix(in srgb, var(--surface) 97%, white);
+}
+
+.timelineItem[data-tone="contact"] {
+  border-color: color-mix(in srgb, #a78bfa 28%, var(--line));
+  background:
+    radial-gradient(circle at top right, color-mix(in srgb, #c4b5fd 12%, transparent), transparent 48%),
+    color-mix(in srgb, #f5f3ff 86%, white);
+}
+
+.timelineItem[data-tone="scheduled"] {
+  border-color: color-mix(in srgb, #60a5fa 28%, var(--line));
+  background:
+    radial-gradient(circle at top right, color-mix(in srgb, #93c5fd 12%, transparent), transparent 48%),
+    color-mix(in srgb, #eff6ff 86%, white);
+}
+
+.timelineItem[data-tone="closed"] {
+  border-color: color-mix(in srgb, #f59e0b 28%, var(--line));
+  background:
+    radial-gradient(circle at top right, color-mix(in srgb, #fbbf24 12%, transparent), transparent 48%),
+    color-mix(in srgb, #fffbeb 86%, white);
+}
+
+.timelineItem[data-tone="origin"] {
+  border-color: color-mix(in srgb, #22d3ee 28%, var(--line));
+  background:
+    radial-gradient(circle at top right, color-mix(in srgb, #67e8f9 12%, transparent), transparent 48%),
+    color-mix(in srgb, #ecfeff 86%, white);
+}
+
+.timelineItem[data-tone="existing"] {
+  border-color: color-mix(in srgb, #60a5fa 28%, var(--line));
+  background:
+    radial-gradient(circle at top right, color-mix(in srgb, #93c5fd 12%, transparent), transparent 48%),
+    color-mix(in srgb, #eff6ff 86%, white);
+}
+
+.timelineDot {
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  margin-top: 0.2rem;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--brand) 74%, white), var(--brand));
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--brand) 10%, transparent);
+}
+
+.timelineItem[data-tone="contact"] .timelineDot {
+  background: linear-gradient(180deg, #8b5cf6, #7c3aed);
+  box-shadow: 0 0 0 4px color-mix(in srgb, #8b5cf6 14%, transparent);
+}
+
+.timelineItem[data-tone="scheduled"] .timelineDot {
+  background: linear-gradient(180deg, #60a5fa, #2563eb);
+  box-shadow: 0 0 0 4px color-mix(in srgb, #60a5fa 14%, transparent);
+}
+
+.timelineItem[data-tone="closed"] .timelineDot {
+  background: linear-gradient(180deg, #f59e0b, #b45309);
+  box-shadow: 0 0 0 4px color-mix(in srgb, #f59e0b 14%, transparent);
+}
+
+.timelineItem[data-tone="origin"] .timelineDot {
+  background: linear-gradient(180deg, #22d3ee, #0891b2);
+  box-shadow: 0 0 0 4px color-mix(in srgb, #22d3ee 14%, transparent);
+}
+
+.timelineItem[data-tone="existing"] .timelineDot {
+  background: linear-gradient(180deg, #60a5fa, #1d4ed8);
+  box-shadow: 0 0 0 4px color-mix(in srgb, #60a5fa 14%, transparent);
+}
+
+.timelineBody {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.timelineTitle {
+  color: var(--foreground);
+}
+
+.timelineMeta {
+  font-size: 0.76rem;
+  font-weight: 800;
+  color: var(--foreground-soft);
+}
+
+.timelineText {
+  margin: 0;
+  color: var(--foreground-soft);
+  line-height: 1.45;
+}
+
+.timelineEmpty {
+  display: grid;
+  gap: 0.35rem;
+  padding: 0.95rem 1rem;
+  border-radius: 20px;
+  border: 1px dashed color-mix(in srgb, var(--line) 78%, white);
+  background: color-mix(in srgb, var(--surface) 96%, white);
+}
+
+.emptyState {
+  display: grid;
+  gap: 0.35rem;
+  padding: 1rem;
+  border-radius: 22px;
+  border: 1px dashed color-mix(in srgb, var(--line) 78%, white);
+  background: color-mix(in srgb, var(--surface) 96%, white);
+  margin-top: 0.9rem;
+}
+
+.errorCard,
+.successCard {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.loadingCard {
+  min-height: 170px;
+}
+
+.resultSkeleton {
+  min-height: 220px;
+  border-radius: 24px;
+  background:
+    linear-gradient(
+      90deg,
+      color-mix(in srgb, var(--surface) 90%, white) 0%,
+      color-mix(in srgb, var(--surface-raised) 98%, white) 50%,
+      color-mix(in srgb, var(--surface) 90%, white) 100%
+    );
+  background-size: 220% 100%;
+  animation: shimmer 1.3s linear infinite;
+}
+
+.skeletonTitle,
+.skeletonLine,
+.skeletonLineShort {
+  border-radius: 999px;
+  background:
+    linear-gradient(
+      90deg,
+      color-mix(in srgb, var(--surface) 90%, white) 0%,
+      color-mix(in srgb, var(--surface-raised) 98%, white) 50%,
+      color-mix(in srgb, var(--surface) 90%, white) 100%
+    );
+  background-size: 220% 100%;
+  animation: shimmer 1.3s linear infinite;
+}
+
+.skeletonTitle {
+  width: 42%;
+  height: 18px;
+}
+
+.skeletonLine {
+  width: 78%;
+  height: 12px;
+}
+
+.skeletonLineShort {
+  width: 54%;
+  height: 12px;
+}
+
+@keyframes shimmer {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+
+@media (max-width: 1100px) {
+  .focusGrid,
+  .leadsGrid,
+  .formGrid,
+  .cardGrid,
+  .quickSummaryGrid,
+  .expandedGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .statusBoard {
+    grid-template-columns: 1fr;
+  }
+
+  .fieldWide {
+    grid-column: span 1;
+  }
+}
+
+@media (max-width: 640px) {
+  .hero,
+  .manualCard,
+  .blockCard,
+  .errorCard,
+  .successCard,
+  .loadingCard {
+    padding: 0.95rem;
+    border-radius: 22px;
+  }
+
+  .leadCard,
+  .quickEditor {
+    border-radius: 20px;
+  }
+
+  .leadHeader {
+    flex-direction: column;
+  }
+
+  .leadBadges {
+    width: 100%;
+  }
+}
