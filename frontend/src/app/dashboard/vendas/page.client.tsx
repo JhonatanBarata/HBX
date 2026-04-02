@@ -33,6 +33,34 @@ type LeadTimelineEvent = {
   createdAt?: string | null;
 };
 
+type SharedProfileSummary = {
+  profileId?: string | null;
+  displayName?: string | null;
+  phone?: string | null;
+  phoneNormalized?: string | null;
+  email?: string | null;
+  document?: string | null;
+  origin?: string | null;
+  lastContactAt?: string | null;
+  currentContext?: "vendas" | "atendimento" | "recovery" | "neutro" | string | null;
+  presence?: {
+    vendas?: {
+      present?: boolean;
+      status?: string | null;
+    };
+    atendimento?: {
+      present?: boolean;
+      route?: string | null;
+      lastContactAt?: string | null;
+    };
+    recovery?: {
+      present?: boolean;
+      status?: string | null;
+      openAmount?: number | null;
+    };
+  };
+};
+
 type LeadItem = {
   id: string;
   customerProfileId?: string | null;
@@ -62,6 +90,7 @@ type LeadItem = {
     hadPreviousContact: boolean;
     wasClosedBefore: boolean;
   };
+  sharedProfile?: SharedProfileSummary | null;
   timeline?: LeadTimelineEvent[];
   quickActions: string[];
 };
@@ -217,6 +246,14 @@ function webscrapingSourceLabel(value?: string | null) {
   if (normalized === "webscraping") return "Webscraping";
   if (normalized === "manual") return "Manual";
   return normalized || "Sem origem";
+}
+
+function formatSharedContextLabel(value?: string | null) {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (normalized === "vendas") return "Vendas";
+  if (normalized === "atendimento") return "Atendimento";
+  if (normalized === "recovery") return "Recovery";
+  return "Neutro";
 }
 
 function createDraft(lead: LeadItem): LeadDraft {
@@ -708,6 +745,14 @@ export default function VendasClientPage() {
       lead.lastContactAt,
     );
     const visualTone = getLeadIntensity(blockKey, lead.sourceType);
+    const sharedProfile = lead.sharedProfile || null;
+    const inAtendimento = Boolean(sharedProfile?.presence?.atendimento?.present);
+    const inRecovery = Boolean(sharedProfile?.presence?.recovery?.present);
+    const sharedLastContact =
+      sharedProfile?.lastContactAt ||
+      sharedProfile?.presence?.atendimento?.lastContactAt ||
+      lead.lastContactAt ||
+      null;
     const signals = lead.signals || {
       alreadyExisted: Boolean((lead.timesSeen || 0) > 1),
       cameFromWebscraping:
@@ -842,6 +887,21 @@ export default function VendasClientPage() {
           {lead.primarySource ? (
             <span className={styles.memoryChip}>Origem principal {lead.primarySource}</span>
           ) : null}
+          {inAtendimento ? (
+            <span className={styles.memoryChip} data-tone="shared">
+              Também em Atendimento
+            </span>
+          ) : null}
+          {inRecovery ? (
+            <span className={styles.memoryChip} data-tone="shared-recovery">
+              Também em Recovery
+            </span>
+          ) : null}
+          {sharedProfile?.currentContext && sharedProfile.currentContext !== "vendas" ? (
+            <span className={styles.memoryChip} data-tone="shared">
+              Contexto atual {formatSharedContextLabel(sharedProfile.currentContext)}
+            </span>
+          ) : null}
           {lead.timesSeen && lead.timesSeen > 1 ? (
             <span className={styles.memoryChip}>Reapareceu {lead.timesSeen}x</span>
           ) : null}
@@ -961,6 +1021,56 @@ export default function VendasClientPage() {
               </section>
 
               <div className={styles.editorPanel}>
+                {sharedProfile ? (
+                  <section className={styles.sharedProfileCard}>
+                    <div className={styles.sectionHeader}>
+                      <div>
+                        <strong>Perfil unificado</strong>
+                        <p className={styles.helperText}>
+                          O mesmo contato pode atravessar Vendas, Atendimento e Recovery sem abrir cadastros paralelos.
+                        </p>
+                      </div>
+                      <span className={styles.metaPill}>
+                        {formatSharedContextLabel(sharedProfile.currentContext)}
+                      </span>
+                    </div>
+                    <div className={styles.sharedProfileGrid}>
+                      <div className={styles.summaryBox} data-type="next">
+                        <span className={styles.summaryLabel}>Origem central</span>
+                        <strong className={styles.summaryValue}>
+                          {sharedProfile.origin || lead.primarySource || "Sem origem dominante"}
+                        </strong>
+                      </div>
+                      <div className={styles.summaryBox} data-type="note">
+                        <span className={styles.summaryLabel}>Último toque geral</span>
+                        <strong className={styles.summaryValue}>
+                          {sharedLastContact ? formatDateTime(sharedLastContact) : "Ainda sem histórico consolidado"}
+                        </strong>
+                      </div>
+                    </div>
+                    <div className={styles.sharedPresenceRow}>
+                      <span className={styles.memoryChip} data-tone={sharedProfile?.presence?.vendas?.present ? "ready" : undefined}>
+                        Vendas {sharedProfile?.presence?.vendas?.present ? "presente" : "fora"}
+                      </span>
+                      <span className={styles.memoryChip} data-tone={inAtendimento ? "shared" : undefined}>
+                        Atendimento {inAtendimento ? "presente" : "fora"}
+                      </span>
+                      <span className={styles.memoryChip} data-tone={inRecovery ? "shared-recovery" : undefined}>
+                        Recovery {inRecovery ? "presente" : "fora"}
+                      </span>
+                      {sharedProfile?.presence?.recovery?.present &&
+                      Number(sharedProfile?.presence?.recovery?.openAmount || 0) > 0 ? (
+                        <span className={styles.memoryChip} data-tone="shared-recovery">
+                          Em aberto {Number(sharedProfile.presence?.recovery?.openAmount || 0).toLocaleString("pt-BR", {
+                            style: "currency",
+                            currency: "BRL",
+                          })}
+                        </span>
+                      ) : null}
+                    </div>
+                  </section>
+                ) : null}
+
                 <div className={styles.cardGrid}>
                   <label className={styles.field}>
                     <span className={styles.fieldLabel}>Status</span>

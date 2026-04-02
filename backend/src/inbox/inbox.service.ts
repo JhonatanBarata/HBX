@@ -27,6 +27,7 @@ import {
   type AtendimentoBotConfig,
 } from './atendimento-config';
 import { CadastrosService } from '../cadastros/cadastros.service';
+import { CustomerProfileService } from '../customer-profile/customer-profile.service';
 
 @Injectable()
 export class InboxService {
@@ -35,6 +36,7 @@ export class InboxService {
     private readonly conversations: ConversationsService,
     private readonly whatsappAudit: WhatsAppAuditService,
     private readonly cadastrosService: CadastrosService,
+    private readonly customerProfileService: CustomerProfileService,
   ) {}
 
   private async logInboxEvent(input: {
@@ -202,6 +204,29 @@ export class InboxService {
       }
     }
     return byPhone;
+  }
+
+  private async loadSharedProfileMap(
+    companyId: number,
+    contacts: Array<string | null | undefined>,
+    identityMap?: Map<string, any>,
+  ) {
+    const phoneNormalizeds = Array.from(
+      new Set(contacts.map((contact) => this.normalizeConversationPhone(contact)).filter(Boolean)),
+    ) as string[];
+    const profileIds = identityMap
+      ? Array.from(
+          new Set(
+            Array.from(identityMap.values())
+              .map((row) => row?.customerProfileId || row?.customerProfile?.id)
+              .filter(Boolean),
+          ),
+        ).map((value) => String(value))
+      : [];
+    return this.customerProfileService.buildSharedContextRegistry(companyId, {
+      profileIds,
+      phoneNormalizeds,
+    });
   }
 
   private async getConfigRow(companyId: number, channel: string, title: string) {
@@ -406,6 +431,7 @@ export class InboxService {
     conversation: any,
     routingRules: RecoveryRoutingRules,
     identityRow?: any,
+    sharedProfile?: any,
   ) {
     const displayName = await this.resolveConversationDisplayName(
       companyId,
@@ -461,6 +487,7 @@ export class InboxService {
         sourceConnectionId: profile?.sourceConnectionId ? String(profile.sourceConnectionId) : null,
         registrationOrigin: identityRow?.registrationOrigin ? String(identityRow.registrationOrigin) : null,
         registrationStatus: identityRow?.registrationStatus ? String(identityRow.registrationStatus) : null,
+        sharedProfile: sharedProfile || null,
       },
       messages: (conversation.messages || []).map((message: any) => ({
         id: String(message.id),
@@ -536,15 +563,28 @@ export class InboxService {
       companyId,
       rows.map((row) => String(row.contact || '')),
     );
+    const sharedMap = await this.loadSharedProfileMap(
+      companyId,
+      rows.map((row) => String(row.contact || '')),
+      identityMap,
+    );
     return Promise.all(
-      rows.map((row) =>
+      rows.map((row) => {
+        const phoneNormalized = this.normalizeConversationPhone(String(row.contact || '')) || '';
+        const identityRow = identityMap.get(phoneNormalized);
+        const sharedProfile = identityRow?.customerProfileId
+          ? sharedMap.byProfileId.get(String(identityRow.customerProfileId)) ?? null
+          : sharedMap.byPhoneNormalized.get(phoneNormalized) ?? null;
+        return (
         this.mapConversation(
           companyId,
           row,
           routingRules,
-          identityMap.get(this.normalizeConversationPhone(String(row.contact || '')) || ''),
-        ),
-      ),
+            identityRow,
+            sharedProfile,
+          )
+        );
+      }),
     );
   }
 
@@ -558,11 +598,17 @@ export class InboxService {
     });
     if (!conversation) throw new NotFoundException('Conversation not found');
     const identityMap = await this.loadAtendimentoIdentityMap(companyId, [String(conversation.contact || '')]);
+    const phoneNormalized = this.normalizeConversationPhone(String(conversation.contact || '')) || '';
+    const identityRow = identityMap.get(phoneNormalized);
+    const sharedMap = await this.loadSharedProfileMap(companyId, [String(conversation.contact || '')], identityMap);
     return this.mapConversation(
       companyId,
       conversation,
       routingRules,
-      identityMap.get(this.normalizeConversationPhone(String(conversation.contact || '')) || ''),
+      identityRow,
+      identityRow?.customerProfileId
+        ? sharedMap.byProfileId.get(String(identityRow.customerProfileId)) ?? null
+        : sharedMap.byPhoneNormalized.get(phoneNormalized) ?? null,
     );
   }
 

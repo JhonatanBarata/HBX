@@ -246,6 +246,7 @@ export class HbxRecoveryService {
       status: this.fromDbStatus(row.status),
       paymentHistory: this.parseList<RecoveryPaymentRecord>(row.paymentHistory, []),
       delayHistory: this.parseList<RecoveryDelayRecord>(row.delayHistory, []),
+      sharedProfile: customerRegistry?.sharedProfile || null,
     };
   }
 
@@ -299,7 +300,10 @@ export class HbxRecoveryService {
 
   private async attachCustomerRegistry(companyId: number, row: any) {
     if (!row) return row;
-    const customerRegistry = await this.cadastrosService.findCustomerRegistryByPhone(companyId, row.whatsappNumber);
+    await this.cadastrosService.syncCustomerRegistryFromRecovery(companyId, row).catch(() => null);
+    const customerRegistry = await this.cadastrosService
+      .getCustomerRegistryByPhone(companyId, row.whatsappNumber)
+      .catch(() => null);
     return customerRegistry ? { ...row, customerRegistry } : row;
   }
 
@@ -3202,7 +3206,8 @@ export class HbxRecoveryService {
   async listCustomers(user: any) {
     const companyId = this.requireCompanyIdFromUser(user);
     const rows = await this.prisma.hbxRecoveryCustomer.findMany({ where: { companyId }, orderBy: [{ openAmount: 'desc' }, { updatedAt: 'desc' }] });
-    const registryRows = await Promise.all(rows.map((row) => this.cadastrosService.syncCustomerRegistryFromRecovery(companyId, row)));
+    await Promise.all(rows.map((row) => this.cadastrosService.syncCustomerRegistryFromRecovery(companyId, row)));
+    const registryRows = await this.cadastrosService.listCustomerRegistry(companyId);
     const registryByPhone = new Map<string, any>();
     for (const registryRow of registryRows) {
       if (!registryRow) continue;
@@ -3428,7 +3433,7 @@ export class HbxRecoveryService {
 
       return recoveryCustomer;
     });
-    const customerRegistry = await this.cadastrosService.syncCustomerRegistryFromRecovery(companyId, created);
+    const customerRegistry = await this.attachCustomerRegistry(companyId, created).then((row) => row?.customerRegistry || null);
     return this.toCustomerResponse({ ...created, customerRegistry });
   }
 

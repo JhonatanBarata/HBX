@@ -135,6 +135,14 @@ type CrmPreviewItem = {
   timesSeen?: number;
   sourceType?: string | null;
   primarySource?: string | null;
+  sharedProfile?: {
+    currentContext?: string | null;
+    presence?: {
+      vendas?: { present?: boolean };
+      atendimento?: { present?: boolean };
+      recovery?: { present?: boolean };
+    };
+  } | null;
 };
 
 type CrmPreviewResponse = {
@@ -182,6 +190,14 @@ function buildWhatsAppUrl(result: SearchResult, scriptText: string) {
   const digits = normalizePhoneDigits(result.phoneDigits || result.phone);
   if (!digits) return "";
   return `https://wa.me/55${digits}?text=${encodeURIComponent(scriptText)}`;
+}
+
+function formatSharedContextLabel(value?: string | null) {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (normalized === "vendas") return "Vendas";
+  if (normalized === "atendimento") return "Atendimento";
+  if (normalized === "recovery") return "Recovery";
+  return "Neutro";
 }
 
 function buildCallUrl(result: SearchResult) {
@@ -1077,6 +1093,18 @@ export default function WebscrapingClientPage() {
                         ) : null}
                         {crmPreview?.signals?.wasClosedBefore ? (
                           <span className={styles.metaPill}>Encerrado antes</span>
+                        ) : null}
+                        {crmPreview?.sharedProfile?.presence?.atendimento?.present ? (
+                          <span className={styles.metaPill}>Em Atendimento</span>
+                        ) : null}
+                        {crmPreview?.sharedProfile?.presence?.recovery?.present ? (
+                          <span className={styles.metaPill}>Em Recovery</span>
+                        ) : null}
+                        {crmPreview?.sharedProfile?.currentContext &&
+                        crmPreview.sharedProfile.currentContext !== "neutro" ? (
+                          <span className={styles.metaPill}>
+                            Contexto {formatSharedContextLabel(crmPreview.sharedProfile.currentContext)}
+                          </span>
                         ) : null}
                       </div>
                     </div>

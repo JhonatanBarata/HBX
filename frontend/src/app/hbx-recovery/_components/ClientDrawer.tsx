@@ -59,6 +59,8 @@ export default function ClientDrawer({
     return null;
   }
 
+  const sharedProfile = customer.sharedProfile || null;
+
   return (
     <div className={styles.drawerRoot} data-open={open}>
       <button
@@ -82,6 +84,12 @@ export default function ClientDrawer({
             <p className={styles.drawerSubtitle}>
               Cobranca automatica: {customer.automationEnabled ? "Ativa" : "Pausada"}
             </p>
+            {sharedProfile?.presence?.vendas?.present ? (
+              <p className={styles.drawerSubtitle}>Também presente em Vendas</p>
+            ) : null}
+            {sharedProfile?.presence?.atendimento?.present ? (
+              <p className={styles.drawerSubtitle}>Também presente em Atendimento</p>
+            ) : null}
           </div>
 
           <button type="button" className="btn btn-secondary btn-sm" onClick={onClose}>
@@ -107,6 +115,31 @@ export default function ClientDrawer({
             <strong>{customer.recurringDelays}</strong>
           </article>
         </div>
+
+        <section className={styles.drawerSection}>
+          <div className={styles.drawerSectionHeader}>
+            <h4>Perfil compartilhado</h4>
+            <span className="badge">
+              {String(sharedProfile?.currentContext || "recovery").trim().toLowerCase() === "atendimento"
+                ? "Atendimento"
+                : String(sharedProfile?.currentContext || "recovery").trim().toLowerCase() === "vendas"
+                  ? "Vendas"
+                  : "Recovery"}
+            </span>
+          </div>
+
+          <div className={styles.historyList}>
+            <div className={styles.historyCard}>
+              <div>
+                <p className={styles.historyTitle}>Origem geral</p>
+                <p className={styles.historyMeta}>{sharedProfile?.origin || "Sem origem dominante"}</p>
+              </div>
+              <div className={styles.historyAside}>
+                <strong>{sharedProfile?.lastContactAt ? "Com histórico" : "Sem histórico"}</strong>
+              </div>
+            </div>
+          </div>
+        </section>
 
         <section className={styles.drawerSection}>
           <div className={styles.drawerSectionHeader}>
