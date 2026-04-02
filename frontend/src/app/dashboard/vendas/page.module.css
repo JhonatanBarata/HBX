@@ -6,6 +6,7 @@
 .hero,
 .manualCard,
 .blockCard,
+.toolbelt,
 .errorCard,
 .successCard,
 .loadingCard {
@@ -21,6 +22,11 @@
 .hero {
   display: grid;
   gap: 1rem;
+}
+
+.toolbelt {
+  display: grid;
+  gap: 0.9rem;
 }
 
 .heroCopy {
@@ -65,7 +71,13 @@
 .cardMetaRow,
 .editorHeader,
 .editorActions,
-.sectionActions {
+.sectionActions,
+.viewSwitch,
+.commandHeader,
+.commandActions,
+.commandRow,
+.feedTopline,
+.agendaColumnHeader {
   display: flex;
   gap: 0.75rem;
   align-items: center;
@@ -167,7 +179,10 @@
 .sourceBadge,
 .statusBadge,
 .returnBadge,
-.memoryChip {
+.memoryChip,
+.viewButton,
+.viewButtonActive,
+.commandLink {
   min-height: 34px;
   padding: 0.42rem 0.8rem;
   border-radius: 999px;
@@ -180,8 +195,25 @@
 .statusPill,
 .metaPill,
 .mutedPill,
-.memoryChip {
+.memoryChip,
+.viewButton,
+.viewButtonActive,
+.commandLink {
   color: var(--foreground-soft);
+}
+
+.viewButton,
+.viewButtonActive,
+.commandLink {
+  cursor: pointer;
+  font-size: 0.76rem;
+  font-weight: 800;
+}
+
+.viewButtonActive {
+  background: linear-gradient(135deg, color-mix(in srgb, var(--brand) 92%, #111827), color-mix(in srgb, var(--brand) 76%, #0f172a));
+  color: white;
+  border-color: color-mix(in srgb, var(--brand) 46%, white);
 }
 
 .formGrid {
@@ -196,6 +228,18 @@
 .leadsGrid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   margin-top: 0.95rem;
+}
+
+.listView,
+.agendaView,
+.feedList {
+  display: grid;
+  gap: 0.8rem;
+  margin-top: 0.95rem;
+}
+
+.agendaView {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
 .quickSummaryGrid {
@@ -388,7 +432,8 @@
 .leadHeader,
 .leadHeadline,
 .leadBadges,
-.memoryRail {
+.memoryRail,
+.commandMain {
   display: flex;
   gap: 0.7rem;
   flex-wrap: wrap;
@@ -397,6 +442,57 @@
 .leadHeader {
   align-items: start;
   justify-content: space-between;
+}
+
+.leadBadges {
+  position: relative;
+  align-items: start;
+}
+
+.cardMenuWrap {
+  position: relative;
+}
+
+.cardMenuButton {
+  min-height: 34px;
+  padding: 0.42rem 0.8rem;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--line) 84%, white);
+  background: rgba(255, 255, 255, 0.82);
+  color: var(--foreground-soft);
+  font-size: 0.76rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.cardMenu {
+  position: absolute;
+  top: calc(100% + 0.45rem);
+  right: 0;
+  z-index: 20;
+  min-width: 190px;
+  display: grid;
+  gap: 0.25rem;
+  padding: 0.45rem;
+  border-radius: 18px;
+  border: 1px solid color-mix(in srgb, var(--line) 84%, white);
+  background: color-mix(in srgb, var(--surface) 96%, white);
+  box-shadow: 0 18px 36px rgba(15, 23, 42, 0.12);
+}
+
+.cardMenu button {
+  text-align: left;
+  border: 0;
+  background: transparent;
+  padding: 0.65rem 0.7rem;
+  border-radius: 14px;
+  color: var(--foreground);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.cardMenu button:hover {
+  background: color-mix(in srgb, var(--surface-raised) 84%, white);
 }
 
 .leadIdentity {
@@ -689,6 +785,131 @@
   background: color-mix(in srgb, var(--surface) 96%, white);
 }
 
+.commandPalette {
+  width: min(880px, calc(100vw - 2rem));
+  max-height: min(82vh, 860px);
+  display: grid;
+  gap: 0.9rem;
+  padding: 1.1rem;
+  border-radius: 28px;
+  border: 1px solid color-mix(in srgb, var(--line) 84%, white);
+  background:
+    radial-gradient(circle at top right, color-mix(in srgb, var(--brand) 10%, transparent), transparent 36%),
+    linear-gradient(180deg, color-mix(in srgb, var(--surface) 98%, white), color-mix(in srgb, var(--surface-soft) 94%, var(--background)));
+  box-shadow: 0 32px 64px rgba(15, 23, 42, 0.24);
+}
+
+.commandInput {
+  width: 100%;
+  min-height: 54px;
+  padding: 0.9rem 1rem;
+  border-radius: 20px;
+  border: 1px solid color-mix(in srgb, var(--line) 84%, white);
+  background: color-mix(in srgb, var(--field-surface) 94%, white);
+}
+
+.commandList {
+  display: grid;
+  gap: 0.75rem;
+  overflow: auto;
+}
+
+.commandRow,
+.listRow,
+.agendaRow,
+.feedItem {
+  padding: 0.9rem 1rem;
+  border-radius: 22px;
+  border: 1px solid color-mix(in srgb, var(--line) 84%, white);
+  background: color-mix(in srgb, var(--surface-raised) 92%, white);
+}
+
+.commandRow {
+  align-items: center;
+}
+
+.commandMain,
+.listRow,
+.agendaRow {
+  border: 0;
+  background: transparent;
+  color: var(--foreground);
+  text-align: left;
+  cursor: pointer;
+}
+
+.commandMain {
+  display: grid;
+  gap: 0.2rem;
+  flex: 1;
+  min-width: 0;
+}
+
+.listRow,
+.agendaRow {
+  width: 100%;
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.listMain,
+.feedBody,
+.agendaList {
+  display: grid;
+  gap: 0.3rem;
+}
+
+.agendaColumn {
+  display: grid;
+  gap: 0.8rem;
+  align-content: start;
+  padding: 0.95rem;
+  border-radius: 22px;
+  border: 1px solid color-mix(in srgb, var(--line) 84%, white);
+  background: color-mix(in srgb, var(--surface-raised) 92%, white);
+}
+
+.feedItem {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.85rem;
+}
+
+.feedDot {
+  width: 0.95rem;
+  height: 0.95rem;
+  border-radius: 999px;
+  margin-top: 0.35rem;
+  background: color-mix(in srgb, var(--brand) 46%, white);
+}
+
+.feedDot[data-tone="contact"] {
+  background: linear-gradient(180deg, #0f766e, #10b981);
+}
+
+.feedDot[data-tone="scheduled"] {
+  background: linear-gradient(180deg, #1d4ed8, #60a5fa);
+}
+
+.feedDot[data-tone="closed"] {
+  background: linear-gradient(180deg, #a16207, #f59e0b);
+}
+
+.feedDot[data-tone="existing"] {
+  background: linear-gradient(180deg, #7c3aed, #a78bfa);
+}
+
+.feedDot[data-tone="origin"] {
+  background: linear-gradient(180deg, #0891b2, #22d3ee);
+}
+
+.feedTitle,
+.feedText {
+  margin: 0;
+}
+
 .emptyState {
   display: grid;
   gap: 0.35rem;
@@ -765,6 +986,7 @@
 @media (max-width: 1100px) {
   .focusGrid,
   .leadsGrid,
+  .agendaView,
   .formGrid,
   .cardGrid,
   .quickSummaryGrid,
@@ -783,6 +1005,7 @@
 
 @media (max-width: 640px) {
   .hero,
+  .toolbelt,
   .manualCard,
   .blockCard,
   .errorCard,
@@ -803,5 +1026,9 @@
 
   .leadBadges {
     width: 100%;
+  }
+
+  .commandRow {
+    align-items: stretch;
   }
 }
