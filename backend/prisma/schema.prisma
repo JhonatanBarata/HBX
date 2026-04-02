@@ -641,6 +641,47 @@ model WebscrapingSearchPlace {
   @@index([searchHistoryId, phoneDigits])
 }
 
+model WebscrapingGlobalCacheEntry {
+  id              String   @id @default(cuid())
+  cacheSignature  String   @unique
+  normalizedCity  String
+  normalizedSegment String
+  filtersJson     String
+  resultCount     Int      @default(0)
+  cacheValidUntil DateTime
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  lastFetchedAt   DateTime @default(now())
+  lastServedAt    DateTime @default(now())
+  places          WebscrapingGlobalCachePlace[]
+
+  @@index([normalizedCity, normalizedSegment, cacheValidUntil])
+  @@index([lastServedAt])
+}
+
+model WebscrapingGlobalCachePlace {
+  id               String   @id @default(cuid())
+  cacheEntry       WebscrapingGlobalCacheEntry @relation(fields: [cacheEntryId], references: [id], onDelete: Cascade)
+  cacheEntryId     String
+  placeId          String
+  rank             Int
+  name             String
+  phone            String
+  phoneDigits      String
+  probableWhatsApp Boolean  @default(false)
+  rating           Float?
+  reviews          Int      @default(0)
+  address          String
+  website          String
+  googleMapsUrl    String
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@unique([cacheEntryId, placeId])
+  @@index([cacheEntryId, rank])
+  @@index([cacheEntryId, phoneDigits])
+}
+
 model WebscrapingUsageLog {
   id              String   @id @default(cuid())
   company         Company  @relation(fields: [companyId], references: [id])

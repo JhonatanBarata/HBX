@@ -14,9 +14,10 @@ const PLACES_NEW_DETAILS_URL = 'https://places.googleapis.com/v1/places';
 const PLACES_TEXT_SEARCH_URL = 'https://maps.googleapis.com/maps/api/place/textsearch/json';
 const PLACES_DETAILS_URL = 'https://maps.googleapis.com/maps/api/place/details/json';
 const MAX_QUANTITY = 20;
+const GLOBAL_CACHE_TTL_HOURS = 24;
 
 type RuntimeStatus = 'online' | 'degraded';
-type SearchSource = 'history' | 'google' | 'hybrid';
+type SearchSource = 'history' | 'google' | 'hybrid' | 'global_cache';
 
 export type NativeRuntimeDiagnostic = {
   status: RuntimeStatus;
@@ -66,6 +67,9 @@ export type WebscrapingSearchResponse = {
     source: SearchSource;
     reusedCount: number;
     fetchedCount: number;
+    technicalCacheUsed: boolean;
+    technicalCacheReusedCount: number;
+    technicalCacheValidUntil: string | null;
   };
   results: Array<Omit<WebscrapingContactResult, 'placeId'>>;
 };
@@ -122,6 +126,7 @@ type NormalizedSearchInput = {
   filters: WebscrapingSearchFilters;
   filtersJson: string;
   searchSignature: string;
+  cacheSignature: string;
   normalizedCity: string;
   normalizedSegment: string;
 };
@@ -144,6 +149,34 @@ type SearchHistoryRow = {
   createdAt: Date;
   updatedAt: Date;
   lastUsedAt: Date;
+  places: Array<{
+    id: string;
+    placeId: string;
+    rank: number;
+    name: string;
+    phone: string;
+    phoneDigits: string;
+    probableWhatsApp: boolean;
+    rating: number | null;
+    reviews: number;
+    address: string;
+    website: string;
+    googleMapsUrl: string;
+  }>;
+};
+
+type GlobalCacheRow = {
+  id: string;
+  cacheSignature: string;
+  normalizedCity: string;
+  normalizedSegment: string;
+  filtersJson: string;
+  resultCount: number;
+  cacheValidUntil: Date;
+  createdAt: Date;
+  updatedAt: Date;
+  lastFetchedAt: Date;
+  lastServedAt: Date;
   places: Array<{
     id: string;
     placeId: string;
@@ -283,6 +316,11 @@ export class WebscrapingService {
       ? await this.findHistoryBySignature(context.companyId, normalized.searchSignature, options.historyIdHint)
       : null;
     const storedResults = this.sortContacts(this.restoreStoredResults(existingHistory));
+    const globalCacheEnabled = await this.supportsGlobalCachePersistence();
+    const globalCacheEntry = globalCacheEnabled
+      ? await this.findGlobalCacheBySignature(normalized.cacheSignature)
+      : null;
+    const cachedPublicResults = this.sortContacts(this.restoreGlobalCacheResults(globalCacheEntry));
 
     if (storedResults.length >= normalized.quantity) {
       if (existingHistory) {
@@ -293,31 +331,85 @@ export class WebscrapingService {
         source: 'history',
         reusedCount: Math.min(storedResults.length, normalized.quantity),
         fetchedCount: 0,
+        technicalCacheUsed: false,
+        technicalCacheReusedCount: 0,
+        technicalCacheValidUntil: null,
       });
       await this.recordUsageLog(context, normalized, 'EXECUTED', response.results.length);
       return response;
-    }
-
-    const apiKey = this.getApiKey(storedResults.length === 0);
-    if (!apiKey) {
-      if (existingHistory && storedResults.length > 0) {
-        await this.touchHistory(existingHistory.id, context.userId);
-        const response = this.buildSearchResponse(normalized, storedResults.slice(0, normalized.quantity), {
-          historyId: existingHistory.id,
-          source: 'history',
-          reusedCount: Math.min(storedResults.length, normalized.quantity),
-          fetchedCount: 0,
-        });
-        await this.recordUsageLog(context, normalized, 'EXECUTED', response.results.length);
-        return response;
-      }
-      throw this.buildConfigurationUnavailableError();
     }
 
     const results = [...storedResults];
     const seenPhones = new Set(results.map((item) => item.phoneDigits).filter(Boolean));
     const seenPlaces = new Set(results.map((item) => item.placeId).filter(Boolean));
     let fetchedCount = 0;
+    let technicalCacheReusedCount = 0;
+
+    if (cachedPublicResults.length > 0) {
+      for (const cached of cachedPublicResults) {
+        if (results.length >= normalized.quantity) break;
+        if (!cached.placeId || seenPlaces.has(cached.placeId)) continue;
+        if (!cached.phoneDigits || seenPhones.has(cached.phoneDigits)) continue;
+        if (!this.matchesFilters(cached, normalized.filters)) continue;
+
+        seenPlaces.add(cached.placeId);
+        seenPhones.add(cached.phoneDigits);
+        results.push(cached);
+        technicalCacheReusedCount += 1;
+      }
+    }
+
+    if (technicalCacheReusedCount > 0 && globalCacheEntry) {
+      await this.touchGlobalCache(globalCacheEntry.id);
+    }
+
+    if (results.length >= normalized.quantity) {
+      const orderedCachedResults = this.sortContacts(results).slice(0, normalized.quantity);
+      const historyId = historyEnabled
+        ? await this.persistHistory(context, normalized, orderedCachedResults, existingHistory?.id || null)
+        : existingHistory?.id || null;
+      const source: SearchSource = storedResults.length > 0 ? 'hybrid' : 'global_cache';
+      const response = this.buildSearchResponse(normalized, orderedCachedResults, {
+        historyId,
+        source,
+        reusedCount: Math.min(storedResults.length + technicalCacheReusedCount, normalized.quantity),
+        fetchedCount: 0,
+        technicalCacheUsed: technicalCacheReusedCount > 0,
+        technicalCacheReusedCount,
+        technicalCacheValidUntil:
+          globalCacheEntry?.cacheValidUntil instanceof Date ? globalCacheEntry.cacheValidUntil.toISOString() : null,
+      });
+      await this.recordUsageLog(context, normalized, 'EXECUTED', response.results.length);
+      return response;
+    }
+
+    const apiKey = this.getApiKey(results.length === 0);
+    if (!apiKey) {
+      const orderedCachedResults = this.sortContacts(results).slice(0, normalized.quantity);
+      const historyId = historyEnabled && orderedCachedResults.length > 0
+        ? await this.persistHistory(context, normalized, orderedCachedResults, existingHistory?.id || null)
+        : existingHistory?.id || null;
+      if (orderedCachedResults.length > 0) {
+        const source: SearchSource = technicalCacheReusedCount > 0
+          ? storedResults.length > 0
+            ? 'hybrid'
+            : 'global_cache'
+          : 'history';
+        const response = this.buildSearchResponse(normalized, orderedCachedResults, {
+          historyId,
+          source,
+          reusedCount: Math.min(storedResults.length + technicalCacheReusedCount, normalized.quantity),
+          fetchedCount: 0,
+          technicalCacheUsed: technicalCacheReusedCount > 0,
+          technicalCacheReusedCount,
+          technicalCacheValidUntil:
+            globalCacheEntry?.cacheValidUntil instanceof Date ? globalCacheEntry.cacheValidUntil.toISOString() : null,
+        });
+        await this.recordUsageLog(context, normalized, 'EXECUTED', response.results.length);
+        return response;
+      }
+      throw this.buildConfigurationUnavailableError();
+    }
 
     for (const candidateLimit of this.buildCandidateSteps(normalized.quantity)) {
       if (results.length >= normalized.quantity) break;
@@ -341,15 +433,32 @@ export class WebscrapingService {
     }
 
     const orderedResults = this.sortContacts(results).slice(0, normalized.quantity);
+    if (globalCacheEnabled && (fetchedCount > 0 || (!globalCacheEntry && orderedResults.length > 0))) {
+      await this.persistGlobalCache(normalized, orderedResults, globalCacheEntry?.id || null);
+    }
     const historyId = historyEnabled
       ? await this.persistHistory(context, normalized, orderedResults, existingHistory?.id || null)
       : null;
+    const source: SearchSource =
+      storedResults.length > 0 || (technicalCacheReusedCount > 0 && fetchedCount > 0)
+        ? 'hybrid'
+        : technicalCacheReusedCount > 0
+          ? 'global_cache'
+          : 'google';
 
     const response = this.buildSearchResponse(normalized, orderedResults, {
       historyId,
-      source: storedResults.length > 0 ? 'hybrid' : 'google',
-      reusedCount: storedResults.length,
+      source,
+      reusedCount: Math.min(storedResults.length + technicalCacheReusedCount, normalized.quantity),
       fetchedCount,
+      technicalCacheUsed: technicalCacheReusedCount > 0,
+      technicalCacheReusedCount,
+      technicalCacheValidUntil:
+        globalCacheEntry?.cacheValidUntil instanceof Date
+          ? globalCacheEntry.cacheValidUntil.toISOString()
+          : fetchedCount > 0 || (!globalCacheEntry && orderedResults.length > 0)
+            ? this.buildGlobalCacheValidUntil().toISOString()
+            : null,
     });
     await this.recordUsageLog(context, normalized, 'EXECUTED', response.results.length);
     return response;
@@ -643,6 +752,11 @@ export class WebscrapingService {
       quantity,
       filters,
       filtersJson,
+      cacheSignature: [
+        `city:${normalizedCity}`,
+        `segment:${normalizedSegment}`,
+        `filters:${filtersJson}`,
+      ].join('|'),
       searchSignature: [
         `city:${normalizedCity}`,
         `segment:${normalizedSegment}`,
@@ -693,6 +807,9 @@ export class WebscrapingService {
       source: SearchSource;
       reusedCount: number;
       fetchedCount: number;
+      technicalCacheUsed: boolean;
+      technicalCacheReusedCount: number;
+      technicalCacheValidUntil: string | null;
     },
   ): WebscrapingSearchResponse {
     return {
@@ -710,6 +827,22 @@ export class WebscrapingService {
   private restoreStoredResults(history: SearchHistoryRow | null): WebscrapingContactResult[] {
     if (!history?.places?.length) return [];
     return history.places.map((place) => ({
+      placeId: place.placeId,
+      name: place.name,
+      phone: place.phone,
+      phoneDigits: place.phoneDigits,
+      probableWhatsApp: Boolean(place.probableWhatsApp),
+      rating: place.rating == null ? null : Number(place.rating),
+      reviews: Math.max(0, Math.trunc(place.reviews || 0)),
+      address: place.address || '',
+      website: place.website || '',
+      googleMapsUrl: place.googleMapsUrl || '',
+    }));
+  }
+
+  private restoreGlobalCacheResults(entry: GlobalCacheRow | null): WebscrapingContactResult[] {
+    if (!entry?.places?.length) return [];
+    return entry.places.map((place) => ({
       placeId: place.placeId,
       name: place.name,
       phone: place.phone,
@@ -772,6 +905,18 @@ export class WebscrapingService {
     return historyTable && placeTable;
   }
 
+  private async supportsGlobalCachePersistence() {
+    const [cacheTable, placeTable] = await Promise.all([
+      this.prisma.hasTable('WebscrapingGlobalCacheEntry'),
+      this.prisma.hasTable('WebscrapingGlobalCachePlace'),
+    ]);
+    return cacheTable && placeTable;
+  }
+
+  private buildGlobalCacheValidUntil(date = new Date()) {
+    return new Date(date.getTime() + GLOBAL_CACHE_TTL_HOURS * 60 * 60 * 1000);
+  }
+
   private async findHistoryBySignature(companyId: number, searchSignature: string, historyIdHint?: string): Promise<SearchHistoryRow | null> {
     if (historyIdHint) {
       const hinted = await this.prisma.webscrapingSearchHistory.findFirst({
@@ -804,12 +949,40 @@ export class WebscrapingService {
     return (row as SearchHistoryRow | null) || null;
   }
 
+  private async findGlobalCacheBySignature(cacheSignature: string): Promise<GlobalCacheRow | null> {
+    const row = await this.prisma.webscrapingGlobalCacheEntry.findUnique({
+      where: {
+        cacheSignature: String(cacheSignature || '').trim(),
+      },
+      include: {
+        places: {
+          orderBy: [{ rank: 'asc' }],
+        },
+      },
+    });
+
+    if (!row) return null;
+    if (!(row.cacheValidUntil instanceof Date) || row.cacheValidUntil.getTime() <= Date.now()) {
+      return null;
+    }
+    return row as GlobalCacheRow;
+  }
+
   private async touchHistory(historyId: string, userId: number) {
     await this.prisma.webscrapingSearchHistory.update({
       where: { id: historyId },
       data: {
         userId,
         lastUsedAt: new Date(),
+      },
+    }).catch(() => null);
+  }
+
+  private async touchGlobalCache(cacheId: string) {
+    await this.prisma.webscrapingGlobalCacheEntry.update({
+      where: { id: cacheId },
+      data: {
+        lastServedAt: new Date(),
       },
     }).catch(() => null);
   }
@@ -877,6 +1050,71 @@ export class WebscrapingService {
     if (existingHistoryId && existingHistoryId !== saved.id) {
       await this.prisma.webscrapingSearchHistory.delete({
         where: { id: existingHistoryId },
+      }).catch(() => null);
+    }
+
+    return saved.id;
+  }
+
+  private async persistGlobalCache(
+    input: NormalizedSearchInput,
+    results: WebscrapingContactResult[],
+    existingCacheId: string | null,
+  ) {
+    const now = new Date();
+    const cacheValidUntil = this.buildGlobalCacheValidUntil(now);
+    const placeRows = results.map((result, index) => ({
+      placeId: result.placeId,
+      rank: index + 1,
+      name: result.name,
+      phone: result.phone,
+      phoneDigits: result.phoneDigits,
+      probableWhatsApp: result.probableWhatsApp,
+      rating: result.rating,
+      reviews: result.reviews,
+      address: result.address,
+      website: result.website,
+      googleMapsUrl: result.googleMapsUrl,
+    }));
+
+    const saved = await this.prisma.webscrapingGlobalCacheEntry.upsert({
+      where: {
+        cacheSignature: input.cacheSignature,
+      },
+      create: {
+        cacheSignature: input.cacheSignature,
+        normalizedCity: input.normalizedCity,
+        normalizedSegment: input.normalizedSegment,
+        filtersJson: input.filtersJson,
+        resultCount: results.length,
+        cacheValidUntil,
+        lastFetchedAt: now,
+        lastServedAt: now,
+        places: {
+          create: placeRows,
+        },
+      },
+      update: {
+        normalizedCity: input.normalizedCity,
+        normalizedSegment: input.normalizedSegment,
+        filtersJson: input.filtersJson,
+        resultCount: results.length,
+        cacheValidUntil,
+        lastFetchedAt: now,
+        lastServedAt: now,
+        places: {
+          deleteMany: {},
+          create: placeRows,
+        },
+      },
+      select: {
+        id: true,
+      },
+    });
+
+    if (existingCacheId && existingCacheId !== saved.id) {
+      await this.prisma.webscrapingGlobalCacheEntry.delete({
+        where: { id: existingCacheId },
       }).catch(() => null);
     }
 

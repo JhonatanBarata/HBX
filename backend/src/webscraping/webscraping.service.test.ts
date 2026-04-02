@@ -40,6 +40,12 @@ function createPrisma(overrides?: Record<string, any>) {
       count: async () => 0,
       create: async () => ({ id: 'usage-1' }),
     },
+    webscrapingGlobalCacheEntry: {
+      findUnique: async () => null,
+      update: async ({ where, data }: any) => ({ id: where.id, ...data }),
+      upsert: async () => ({ id: 'global-cache-1' }),
+      delete: async () => null,
+    },
     ...(overrides || {}),
   } as any;
 }
@@ -130,6 +136,7 @@ test('busca valida retorna contatos e persiste historico nativo', async () => {
     assert.equal(response.results[0].name, 'Clinica Centro');
     assert.equal(response.results[0].website, 'https://clinica.example.com');
     assert.equal(response.meta.source, 'google');
+    assert.equal(response.meta.technicalCacheUsed, false);
     assert.equal(upsertCalls.length, 1);
     assert.equal(fetchCalls.length >= 2, true);
   } finally {
@@ -202,6 +209,79 @@ test('pesquisa repetida reaproveita historico sem chamar Google novamente', asyn
     });
 
     assert.equal(response.meta.source, 'history');
+    assert.equal(response.results.length, 1);
+    assert.equal(response.meta.technicalCacheUsed, false);
+    assert.equal(fetchSpy.length, 0);
+  } finally {
+    global.fetch = previousFetch;
+    if (previousGoogleKey === undefined) delete process.env.GOOGLE_PLACES_API_KEY;
+    else process.env.GOOGLE_PLACES_API_KEY = previousGoogleKey;
+  }
+});
+
+test('cache tecnico global reaproveita busca publica entre empresas sem chamar Google', async () => {
+  const previousGoogleKey = process.env.GOOGLE_PLACES_API_KEY;
+  delete process.env.GOOGLE_PLACES_API_KEY;
+
+  const previousFetch = global.fetch;
+  const fetchSpy: string[] = [];
+  global.fetch = (async () => {
+    fetchSpy.push('called');
+    return createResponse(500, {}) as any;
+  }) as any;
+
+  const service = new WebscrapingService(createPrisma({
+    webscrapingGlobalCacheEntry: {
+      findUnique: async () => ({
+        id: 'global-cache-1',
+        cacheSignature: 'cache-signature',
+        normalizedCity: 'sao paulo - sp',
+        normalizedSegment: 'clinicas',
+        filtersJson: JSON.stringify({
+          minRating: null,
+          minReviews: null,
+          onlyProbableWhatsApp: false,
+          onlyWithWebsite: false,
+        }),
+        resultCount: 1,
+        cacheValidUntil: new Date(Date.now() + 60 * 60 * 1000),
+        createdAt: new Date('2026-04-01T12:00:00.000Z'),
+        updatedAt: new Date('2026-04-01T12:00:00.000Z'),
+        lastFetchedAt: new Date('2026-04-01T12:00:00.000Z'),
+        lastServedAt: new Date('2026-04-01T12:00:00.000Z'),
+        places: [
+          {
+            id: 'global-place-1',
+            placeId: 'place-1',
+            rank: 1,
+            name: 'Clinica Centro',
+            phone: '+55 11 99888-7766',
+            phoneDigits: '11998887766',
+            probableWhatsApp: true,
+            rating: 4.7,
+            reviews: 142,
+            address: 'Rua Central, 100',
+            website: 'https://clinica.example.com',
+            googleMapsUrl: 'https://maps.google.com/?q=clinica',
+          },
+        ],
+      }),
+      update: async ({ where, data }: any) => ({ id: where.id, ...data }),
+      upsert: async () => ({ id: 'global-cache-1' }),
+      delete: async () => null,
+    },
+  }));
+
+  try {
+    const response = await service.searchContactsForUser(createUser(), {
+      city: 'Sao Paulo - SP',
+      segment: 'Clinicas',
+      quantity: 1,
+    });
+
+    assert.equal(response.meta.source, 'global_cache');
+    assert.equal(response.meta.technicalCacheUsed, true);
+    assert.equal(response.meta.technicalCacheReusedCount, 1);
     assert.equal(response.results.length, 1);
     assert.equal(fetchSpy.length, 0);
   } finally {
