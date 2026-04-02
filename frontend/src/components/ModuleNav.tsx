@@ -17,6 +17,7 @@ type NavItem = {
   description: string;
   matcher: (pathname: string) => boolean;
   adminOnly?: boolean;
+  companyOnly?: boolean;
   moduleKey?: string;
 };
 
@@ -41,6 +42,14 @@ const NAV_ITEMS: NavItem[] = [
     moduleKey: "atendimento",
   },
   {
+    href: "/dashboard/vendas",
+    label: "Vendas",
+    shortLabel: "VD",
+    description: "CRM agenda viva com leads, retornos e próximos passos.",
+    matcher: (route) => route.startsWith("/dashboard/vendas"),
+    moduleKey: "vendas",
+  },
+  {
     href: "/dashboard/gerencial",
     label: "Gerencial",
     shortLabel: "GE",
@@ -56,6 +65,22 @@ const NAV_ITEMS: NavItem[] = [
     description: "Prospecção local integrada ao workspace.",
     matcher: (route) => route.startsWith("/dashboard/webscraping"),
     moduleKey: "webscraping",
+  },
+  {
+    href: "/dashboard/financeiro",
+    label: "Financeiro",
+    shortLabel: "FN",
+    description: "Plano, cobrança, descontos e autoatendimento da conta.",
+    matcher: (route) => route.startsWith("/dashboard/financeiro"),
+    moduleKey: "financeiro",
+  },
+  {
+    href: "/dashboard/whatsapp",
+    label: "WhatsApp",
+    shortLabel: "WA",
+    description: "Central de vínculo com trilha rápida para teste e rota oficial pela Meta.",
+    matcher: (route) => route.startsWith("/dashboard/whatsapp"),
+    companyOnly: true,
   },
   {
     href: "/dashboard/website",
@@ -133,6 +158,7 @@ export default function ModuleNav({
   const [modules, setModules] = useState<UserModule[]>([]);
   const [userRole, setUserRole] = useState<string | null>(null);
   const [isSystemMaster, setIsSystemMaster] = useState(false);
+  const [hasCompany, setHasCompany] = useState(false);
   const [loading, setLoading] = useState(authenticated);
 
   useEffect(() => {
@@ -144,6 +170,7 @@ export default function ModuleNav({
         setModules([]);
         setUserRole(null);
         setIsSystemMaster(false);
+        setHasCompany(false);
         setLoading(false);
         return;
       }
@@ -152,7 +179,7 @@ export default function ModuleNav({
       try {
         const [myModules, profile] = await Promise.all([
           apiFetch<UserModule[]>("/modules/me"),
-          apiFetch<{ role?: string | null; isSystemMaster?: boolean }>("/profile/current-user").catch(
+          apiFetch<{ role?: string | null; isSystemMaster?: boolean; company?: { id?: number | null } | null }>("/profile/current-user").catch(
             () => null,
           ),
         ]);
@@ -160,11 +187,13 @@ export default function ModuleNav({
         setModules(myModules || []);
         setUserRole(String(profile?.role || null));
         setIsSystemMaster(Boolean(profile?.isSystemMaster));
+        setHasCompany(Boolean(profile?.company?.id));
       } catch {
         if (!mounted) return;
         setModules([]);
         setUserRole(null);
         setIsSystemMaster(false);
+        setHasCompany(false);
       } finally {
         if (mounted) {
           setLoading(false);
@@ -198,12 +227,13 @@ export default function ModuleNav({
     return NAV_ITEMS.filter((item) => {
       if (item.href === "/dashboard") return true;
       if (loading) return false;
+      if (item.companyOnly && !hasCompany) return false;
       if (item.moduleKey && !accessibleModules.has(item.moduleKey)) return false;
       if (!item.adminOnly) return true;
       if (item.href === "/dashboard/master") return isSystemMaster;
       return String(userRole || "").toUpperCase() === "ADMIN";
     });
-  }, [accessibleModules, isSystemMaster, loading, userRole]);
+  }, [accessibleModules, hasCompany, isSystemMaster, loading, userRole]);
 
   return (
     <nav className={styles.moduleNavWrap} aria-label="Navegação de módulos">

@@ -32,6 +32,17 @@ function sanitizeUser(user: any, masterContext?: any) {
           id: user.company.id,
           name: user.company.name,
           slug: user.company.slug ?? null,
+          onboardingStatus: user.company.onboardingStatus ?? null,
+          paymentStatus: user.company.paymentStatus ?? null,
+          subscriptionStatus: user.company.subscriptionStatus ?? null,
+          premiumAccess: Boolean(user.company.premiumAccess),
+          trialStartsAt: user.company.trialStartsAt ?? null,
+          trialEndsAt: user.company.trialEndsAt ?? null,
+          trialModuleSelection: user.company.trialModuleSelection ?? null,
+          whatsappConnectionMode: user.company.whatsappConnectionMode ?? null,
+          whatsappTemporaryStatus: user.company.whatsappTemporaryStatus ?? null,
+          whatsappMigrationInterestStatus: user.company.whatsappMigrationInterestStatus ?? null,
+          whatsappMigrationInterestAt: user.company.whatsappMigrationInterestAt ?? null,
           plan: user.company.plan
             ? {
                 id: user.company.plan.id,

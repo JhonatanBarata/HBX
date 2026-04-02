@@ -26,6 +26,8 @@ import { TechAssistantModule } from './tech-assistant/tech-assistant.module';
 import { MasterContextModule } from './master-context/master-context.module';
 import { WebscrapingModule } from './webscraping/webscraping.module';
 import { IntegrationsModule } from './integrations/integrations.module';
+import { VendasModule } from './vendas/vendas.module';
+import { FinanceiroModule } from './financeiro/financeiro.module';
 
 @Module({
   imports: [
@@ -60,6 +62,8 @@ import { IntegrationsModule } from './integrations/integrations.module';
     MasterContextModule,
     WebscrapingModule,
     IntegrationsModule,
+    VendasModule,
+    FinanceiroModule,
   ],
   controllers: [AppController],
   providers: [

@@ -1,0 +1,132 @@
+import { Type } from 'class-transformer';
+import {
+  ArrayMaxSize,
+  IsArray,
+  IsEmail,
+  IsIn,
+  IsOptional,
+  IsString,
+  MaxLength,
+  ValidateNested,
+} from 'class-validator';
+
+const LEAD_STATUSES = ['novo', 'contato', 'retorno', 'qualificado', 'encerrado'] as const;
+
+export class CreateManualVendasLeadDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  name?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(24)
+  phone?: string;
+
+  @IsOptional()
+  @IsEmail()
+  email?: string;
+
+  @IsOptional()
+  @IsIn(LEAD_STATUSES)
+  status?: (typeof LEAD_STATUSES)[number];
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(140)
+  nextAction?: string;
+
+  @IsOptional()
+  @IsString()
+  returnAt?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(280)
+  shortNote?: string;
+}
+
+export class UpdateVendasLeadDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  name?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(24)
+  phone?: string;
+
+  @IsOptional()
+  @IsEmail()
+  email?: string;
+
+  @IsOptional()
+  @IsIn(LEAD_STATUSES)
+  status?: (typeof LEAD_STATUSES)[number];
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(140)
+  nextAction?: string;
+
+  @IsOptional()
+  @IsString()
+  returnAt?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(280)
+  shortNote?: string;
+}
+
+export class ImportWebscrapingLeadItemDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  name?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(24)
+  phone?: string;
+
+  @IsOptional()
+  @IsString()
+  phoneDigits?: string;
+
+  @IsOptional()
+  @IsEmail()
+  email?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  city?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  segment?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(280)
+  shortNote?: string;
+
+  @IsOptional()
+  @IsString()
+  sourceHistoryId?: string;
+}
+
+export class ImportWebscrapingLeadsDto {
+  @IsOptional()
+  @IsString()
+  sourceHistoryId?: string;
+
+  @IsArray()
+  @ArrayMaxSize(20)
+  @ValidateNested({ each: true })
+  @Type(() => ImportWebscrapingLeadItemDto)
+  leads!: ImportWebscrapingLeadItemDto[];
+}

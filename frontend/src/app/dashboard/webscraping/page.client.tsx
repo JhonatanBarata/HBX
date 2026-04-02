@@ -106,6 +106,38 @@ type HistoryResponse = {
   items: SearchHistoryItem[];
 };
 
+type ImportToVendasResponse = {
+  ok: boolean;
+  createdCount: number;
+  updatedCount: number;
+  message?: string;
+};
+
+type CrmPreviewItem = {
+  phoneDigits: string;
+  existsInCrm: boolean;
+  leadId?: string | null;
+  leadName?: string | null;
+  status?: string | null;
+  statusLabel?: string | null;
+  signals?: {
+    alreadyExisted: boolean;
+    cameFromWebscraping: boolean;
+    hadPreviousContact: boolean;
+    wasClosedBefore: boolean;
+  };
+  attemptCount?: number;
+  lastContactAt?: string | null;
+  lastResult?: string | null;
+  timesSeen?: number;
+  sourceType?: string | null;
+  primarySource?: string | null;
+};
+
+type CrmPreviewResponse = {
+  items: CrmPreviewItem[];
+};
+
 function normalizePhoneDigits(raw: string) {
   let digits = String(raw || "").replace(/\D/g, "");
   if (digits.startsWith("55") && digits.length > 11) {
@@ -234,6 +266,8 @@ export default function WebscrapingClientPage() {
   const [loadingBootstrap, setLoadingBootstrap] = useState(true);
   const [searching, setSearching] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [importingToVendas, setImportingToVendas] = useState(false);
+  const [crmPreviewByPhone, setCrmPreviewByPhone] = useState<Record<string, CrmPreviewItem>>({});
   const [historyBusyId, setHistoryBusyId] = useState<string | null>(null);
   const [pageError, setPageError] = useState<string | null>(null);
   const [searchError, setSearchError] = useState<string | null>(null);
@@ -253,6 +287,14 @@ export default function WebscrapingClientPage() {
   const runtimeReady = runtime?.native.status === "online";
   const configurationPending = runtime?.native.code === "configuration_pending";
   const defaultScriptVariables = useMemo(() => buildDefaultScriptVariables(currentUser), [currentUser]);
+  const crmPreviewSummary = useMemo(() => {
+    const items = Object.values(crmPreviewByPhone);
+    return {
+      existing: items.filter((item) => item.existsInCrm).length,
+      previousContact: items.filter((item) => item.signals?.hadPreviousContact).length,
+      previouslyClosed: items.filter((item) => item.signals?.wasClosedBefore).length,
+    };
+  }, [crmPreviewByPhone]);
   const scriptGuidePreview = useMemo(() => {
     const previewResult: SearchResult = {
       name: results[0]?.name || "Big Hugo Lanchonete",
@@ -322,6 +364,50 @@ export default function WebscrapingClientPage() {
     const timer = window.setTimeout(() => setFeedback(null), 2200);
     return () => window.clearTimeout(timer);
   }, [feedback]);
+
+  useEffect(() => {
+    const query = activeQuery || (city.trim() && segment.trim() ? { city, segment } : null);
+    if (!results.length || !query) {
+      setCrmPreviewByPhone({});
+      return;
+    }
+
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const payload = await apiFetch<CrmPreviewResponse>("/vendas/import/webscraping/preview", {
+          method: "POST",
+          body: JSON.stringify({
+            sourceHistoryId: searchMeta?.historyId || undefined,
+            leads: results.map((result) => ({
+              name: result.name,
+              phone: result.phone,
+              phoneDigits: result.phoneDigits,
+              city: query.city,
+              segment: query.segment,
+            })),
+          }),
+        });
+        if (cancelled) return;
+        const next: Record<string, CrmPreviewItem> = {};
+        for (const item of payload.items || []) {
+          const key = String(item.phoneDigits || "").trim();
+          if (!key) continue;
+          next[key] = item;
+        }
+        setCrmPreviewByPhone(next);
+      } catch {
+        if (!cancelled) {
+          setCrmPreviewByPhone({});
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeQuery, city, results, searchMeta?.historyId, segment]);
 
   useEffect(() => {
     if (scriptPresetHydrated) return;
@@ -453,6 +539,44 @@ export default function WebscrapingClientPage() {
       setSearchError(error instanceof Error ? error.message : "Falha ao exportar Excel.");
     } finally {
       setExporting(false);
+    }
+  }
+
+  async function handleSendResultsToVendas() {
+    const query = activeQuery || {
+      city,
+      segment,
+    };
+
+    if (!results.length || !query.city.trim() || !query.segment.trim()) {
+      setSearchError("Faça uma busca antes de enviar leads para Vendas.");
+      return;
+    }
+
+    setImportingToVendas(true);
+    setSearchError(null);
+    try {
+      const payload = await apiFetch<ImportToVendasResponse>("/vendas/import/webscraping", {
+        method: "POST",
+        body: JSON.stringify({
+          sourceHistoryId: searchMeta?.historyId || undefined,
+          leads: results.map((result) => ({
+            name: result.name,
+            phone: result.phone,
+            phoneDigits: result.phoneDigits,
+            city: query.city,
+            segment: query.segment,
+            shortNote: [result.address, `Nota ${result.rating ?? "-"}`, `${result.reviews} avaliações`]
+              .filter(Boolean)
+              .join(" • "),
+          })),
+        }),
+      });
+      setFeedback(payload.message || "Leads enviados para o CRM de Vendas.");
+    } catch (error) {
+      setSearchError(error instanceof Error ? error.message : "Falha ao enviar leads para Vendas.");
+    } finally {
+      setImportingToVendas(false);
     }
   }
 
@@ -821,6 +945,28 @@ export default function WebscrapingClientPage() {
           </section>
         ) : null}
 
+        {!searching && results.length > 0 ? (
+          <section className={styles.statusCard}>
+            <div>
+              <strong className={styles.statusTitle}>Pronto para entrar no CRM agenda viva</strong>
+              <p className={styles.statusText}>
+                Os contatos desta busca podem virar cards de Vendas agora, já marcados como origem de webscraping e com reaproveitamento seguro quando o número já existe no CRM.
+              </p>
+              <p className={styles.statusText}>
+                {crmPreviewSummary.existing} já existe(m) no CRM, {crmPreviewSummary.previousContact} já teve(ram) contato e {crmPreviewSummary.previouslyClosed} já foi(ram) encerrado(s) antes.
+              </p>
+            </div>
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={() => void handleSendResultsToVendas()}
+              disabled={importingToVendas || !results.length}
+            >
+              {importingToVendas ? "Enviando..." : `Enviar ${results.length} lead(s) ao CRM`}
+            </button>
+          </section>
+        ) : null}
+
         <section className={styles.resultsCard}>
           <div className={styles.sectionHeader}>
             <div>
@@ -835,6 +981,14 @@ export default function WebscrapingClientPage() {
               <div className={styles.metaPills}>
                 <span className={styles.metaPill}>Reaproveitados: {searchMeta.reusedCount}</span>
                 <span className={styles.metaPill}>Novos: {searchMeta.fetchedCount}</span>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={() => void handleSendResultsToVendas()}
+                  disabled={importingToVendas || !results.length}
+                >
+                  {importingToVendas ? "Enviando..." : "Herdar no CRM"}
+                </button>
               </div>
             ) : null}
           </div>
@@ -870,6 +1024,7 @@ export default function WebscrapingClientPage() {
               {results.map((result) => {
                 const queryCity = activeQuery?.city || city;
                 const querySegment = activeQuery?.segment || segment;
+                const crmPreview = crmPreviewByPhone[String(result.phoneDigits || "").trim()] || null;
                 const scriptText = buildScriptText(
                   result,
                   queryCity,
@@ -886,10 +1041,28 @@ export default function WebscrapingClientPage() {
                       <div>
                         <h2 className={styles.resultName}>{result.name || "Empresa sem nome"}</h2>
                         <p className={styles.resultMeta}>{result.address || "Endereco nao informado"}</p>
+                        {crmPreview?.existsInCrm ? (
+                          <p className={styles.resultMeta}>
+                            Já existe no CRM
+                            {crmPreview.leadName ? ` • ${crmPreview.leadName}` : ""}
+                            {crmPreview.statusLabel ? ` • ${crmPreview.statusLabel}` : ""}
+                          </p>
+                        ) : null}
                       </div>
-                      <span className={result.probableWhatsApp ? styles.resultPillOk : styles.resultPill}>
-                        {result.probableWhatsApp ? "WhatsApp provavel" : "Contato telefonico"}
-                      </span>
+                      <div className={styles.metaPills}>
+                        <span className={result.probableWhatsApp ? styles.resultPillOk : styles.resultPill}>
+                          {result.probableWhatsApp ? "WhatsApp provavel" : "Contato telefonico"}
+                        </span>
+                        {crmPreview?.existsInCrm ? (
+                          <span className={styles.metaPill}>Já existe</span>
+                        ) : null}
+                        {crmPreview?.signals?.hadPreviousContact ? (
+                          <span className={styles.metaPill}>Já teve contato</span>
+                        ) : null}
+                        {crmPreview?.signals?.wasClosedBefore ? (
+                          <span className={styles.metaPill}>Encerrado antes</span>
+                        ) : null}
+                      </div>
                     </div>
 
                     <div className={styles.phoneRow}>

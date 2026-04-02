@@ -52,6 +52,138 @@ export class AuthService implements OnModuleInit {
     return String(raw).trim().toLowerCase() === 'true';
   }
 
+  private companyDisplayName(companyName: string | undefined, username: string) {
+    const normalized = String(companyName || '').trim();
+    return normalized || username;
+  }
+
+  private addDays(date: Date, days: number) {
+    return new Date(date.getTime() + days * 24 * 60 * 60 * 1000);
+  }
+
+  private normalizeEntityType(value: string | undefined) {
+    const normalized = String(value || '').trim().toUpperCase();
+    return normalized === 'PF' ? 'PF' : normalized === 'PJ' ? 'PJ' : null;
+  }
+
+  private normalizeTrialModuleSelection(value: string | undefined) {
+    const normalized = String(value || '').trim().toLowerCase();
+    return normalized === 'vendas' || normalized === 'recovery' ? normalized : null;
+  }
+
+  private isPublicEmailDomain(email: string) {
+    const normalized = String(email || '').trim().toLowerCase();
+    const domain = normalized.split('@')[1] || '';
+    const publicDomains = new Set([
+      'gmail.com',
+      'googlemail.com',
+      'hotmail.com',
+      'outlook.com',
+      'outlook.com.br',
+      'live.com',
+      'live.com.br',
+      'msn.com',
+      'icloud.com',
+      'me.com',
+      'mac.com',
+      'yahoo.com',
+      'yahoo.com.br',
+      'bol.com.br',
+      'uol.com.br',
+      'terra.com.br',
+      'ig.com.br',
+      'proton.me',
+      'protonmail.com',
+      'aol.com',
+      'mail.com',
+    ]);
+    return publicDomains.has(domain);
+  }
+
+  private buildAppUrl() {
+    return String(process.env.APP_URL || process.env.FRONTEND_URL || 'http://localhost:3001').replace(/\/$/, '');
+  }
+
+  private buildEmailConfirmationLink(rawToken: string) {
+    return `${this.buildAppUrl()}/confirm-email?token=${encodeURIComponent(rawToken)}`;
+  }
+
+  private shouldExposeEmailConfirmationDebugLink() {
+    const debugEnabled = String(process.env.AUTH_DEBUG_CONFIRMATION_LINK || '').trim().toLowerCase() === 'true';
+    const isProd = String(process.env.NODE_ENV || '').trim().toLowerCase() === 'production';
+    return debugEnabled && !isProd;
+  }
+
+  private async seedDefaultCompanyModulesTx(tx: any, companyId: number) {
+    const moduleRows = await tx.systemModule.findMany({
+      where: { companyAssignable: true },
+      select: { id: true, defaultEnabled: true },
+    });
+
+    if (!moduleRows.length) return;
+
+    await tx.companyModule.createMany({
+      data: moduleRows.map((moduleRow: { id: number; defaultEnabled: boolean }) => ({
+        companyId,
+        moduleId: moduleRow.id,
+        enabled: Boolean(moduleRow.defaultEnabled),
+      })),
+      skipDuplicates: true,
+    });
+  }
+
+  private async activateConfirmedTrialTx(tx: any, companyId: number, activatedAt: Date) {
+    const trialEndsAt = this.addDays(activatedAt, 30);
+    await tx.company.update({
+      where: { id: companyId },
+      data: {
+        onboardingStatus: 'active_trial',
+        isActive: true,
+        paymentStatus: 'TRIAL',
+        subscriptionStatus: 'trialing',
+        premiumAccess: true,
+        trialStartsAt: activatedAt,
+        trialEndsAt,
+        subscriptionCurrentPeriodStart: null,
+        subscriptionCurrentPeriodEnd: null,
+        deactivatedAt: null,
+      },
+    });
+    await tx.companyModule.updateMany({
+      where: { companyId },
+      data: { enabled: true },
+    });
+    return trialEndsAt;
+  }
+
+  private async sendEmailConfirmationMail(input: {
+    to: string;
+    username: string;
+    companyName: string;
+    rawToken: string;
+  }) {
+    const confirmationLink = this.buildEmailConfirmationLink(input.rawToken);
+    const mailResult = await this.mail.sendMail({
+      to: input.to,
+      subject: 'Confirme seu e-mail para ativar o trial HBX',
+      text: [
+        `Olá, ${input.username}!`,
+        '',
+        `Seu cadastro da ${input.companyName} foi criado no HBX.`,
+        'Confirme seu e-mail no link abaixo para ativar o free trial de 30 dias:',
+        confirmationLink,
+        '',
+        'Enquanto o e-mail não for confirmado, o acesso continua bloqueado.',
+        'Se você não solicitou esse cadastro, ignore esta mensagem.',
+      ].join('\n'),
+    });
+
+    return {
+      previewUrl: mailResult?.previewUrl || null,
+      confirmUrl: this.shouldExposeEmailConfirmationDebugLink() ? confirmationLink : null,
+    };
+  }
+
   private async ensureSystemMasterUser() {
     if (!this.shouldBootstrapSystemMaster()) {
       return;
@@ -131,6 +263,14 @@ export class AuthService implements OnModuleInit {
       throw new UnauthorizedException('Usuário temporáriamente desativado - Contate seu Administrador');
     }
 
+    const onboardingStatus = String(user?.company?.onboardingStatus || '').trim().toLowerCase();
+    if (!Boolean(user?.isSystemMaster) && onboardingStatus === 'pending_email_confirmation') {
+      throw new UnauthorizedException({
+        needsEmailConfirmation: true,
+        message: 'Confirme seu e-mail antes de entrar.',
+      });
+    }
+
     // If account exists but has no email and no password, prompt to complete registration
     if ((!user.email || user.email.length === 0) && (!user.password || user.password.length === 0)) {
       throw new BadRequestException({ needsRegistration: true, username: normalized, message: 'Conta necessita completar registro' });
@@ -158,7 +298,15 @@ export class AuthService implements OnModuleInit {
   // Decision: for this product we auto-create a dedicated Company per signup.
   // Rationale: prevents exposing competitor tenants and avoids "choose company" flows.
   // Future: if you need onboarding into an existing Company, implement a real invite-token flow.
-  async signup(data: { username: string; email: string; password: string; name?: string }) {
+  async signup(data: {
+    entityType?: 'PF' | 'PJ';
+    companyName?: string;
+    name?: string;
+    trialModuleSelection?: 'vendas' | 'recovery';
+    username: string;
+    email: string;
+    password: string;
+  }) {
     const username = String(data.username || '').trim();
     if (!username) throw new BadRequestException('O campo Usuário é obrigatório.');
 
@@ -182,7 +330,29 @@ export class AuthService implements OnModuleInit {
     const password = String(data.password || '');
     assertPasswordPolicy(password);
 
+    const name = String(data.name || '').trim();
+    if (!name) {
+      throw new BadRequestException('O campo Nome é obrigatório.');
+    }
+
     const hashed = await bcrypt.hash(password, 12);
+    const entityType = this.normalizeEntityType(data.entityType);
+    const normalizedCompanyName = String(data.companyName || '').trim();
+    const trialModuleSelection = this.normalizeTrialModuleSelection(data.trialModuleSelection);
+    const usesPublicEmail = entityType === 'PJ' ? this.isPublicEmailDomain(email) : false;
+    if (!existingUsername?.companyId && !entityType) {
+      throw new BadRequestException('Selecione PF ou PJ.');
+    }
+    if (!existingUsername?.companyId && !trialModuleSelection) {
+      throw new BadRequestException('Selecione o módulo inicial do trial.');
+    }
+    if (!existingUsername?.companyId && entityType === 'PJ' && !normalizedCompanyName) {
+      throw new BadRequestException('O campo Empresa é obrigatório.');
+    }
+    const displayName = entityType === 'PF' ? normalizedCompanyName || name : this.companyDisplayName(normalizedCompanyName, username);
+    const warnings = usesPublicEmail
+      ? ['Conta PJ cadastrada com e-mail público. Recomendamos usar um domínio corporativo.']
+      : [];
 
     // Create a non-guessable slug to avoid tenant enumeration.
     const slug = `co_${crypto.randomBytes(9).toString('hex')}`;
@@ -190,34 +360,112 @@ export class AuthService implements OnModuleInit {
     if (existingUsername) {
       // existing user without email: update with provided email/password
       // If they already belong to a company, keep it. Otherwise create a new company.
-      const companyId = existingUsername.companyId
-        ? Number(existingUsername.companyId)
-        : (
-            await this.prisma.$transaction(async (tx) => {
-              const company = await tx.company.create({
-                data: { slug, name: String(data.name || username).trim() || username },
-              });
-              await tx.importacaoPermissao.createMany({
-                data: buildImportacaoPermissaoRows(company.id),
-                skipDuplicates: true,
-              });
-              return company;
-            })
-          ).id;
+      if (existingUsername.companyId) {
+        const companyId = Number(existingUsername.companyId);
+        const updated = await this.prisma.user.update({
+          where: { id: existingUsername.id },
+          data: {
+            email,
+            password: hashed,
+            name,
+            emailConfirmedAt: existingUsername.emailConfirmedAt || new Date(),
+            emailConfirmationToken: null,
+            emailConfirmationSentAt: null,
+            emailConfirmationExpiresAt: null,
+            companyId,
+          },
+        });
+        return this.login(updated, { companyId });
+      }
 
-      const updated = await this.prisma.user.update({
-        where: { id: existingUsername.id },
-        data: { email, password: hashed, name: data.name, companyId },
+      const rawToken = crypto.randomBytes(32).toString('hex');
+      const tokenHash = this.sha256(rawToken);
+      const confirmationExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+      const createdPending = await this.prisma.$transaction(async (tx) => {
+        const company = await tx.company.create({
+          data: {
+            slug,
+            name: displayName,
+            entityType: entityType || 'PJ',
+            trialModuleSelection,
+            signupUsesPublicEmail: usesPublicEmail,
+            primaryContactName: name,
+            contactEmail: email,
+            onboardingStatus: 'pending_email_confirmation',
+            isActive: false,
+            paymentStatus: 'PENDING',
+            subscriptionStatus: 'canceled',
+            premiumAccess: false,
+            trialStartsAt: null,
+            trialEndsAt: null,
+            deactivatedAt: new Date(),
+          },
+        });
+        await tx.importacaoPermissao.createMany({
+          data: buildImportacaoPermissaoRows(company.id),
+          skipDuplicates: true,
+        });
+        await this.seedDefaultCompanyModulesTx(tx, company.id);
+        await tx.user.update({
+          where: { id: existingUsername.id },
+          data: {
+            email,
+            password: hashed,
+            name,
+            companyId: company.id,
+            emailConfirmedAt: null,
+            emailConfirmationToken: tokenHash,
+            emailConfirmationSentAt: new Date(),
+            emailConfirmationExpiresAt: confirmationExpiresAt,
+          },
+        });
+        return { companyName: company.name };
       });
-      return this.login(updated, { companyId });
+
+      const delivery = await this.sendEmailConfirmationMail({
+        to: email,
+        username,
+        companyName: createdPending.companyName,
+        rawToken,
+      });
+
+      return {
+        ok: true,
+        status: 'pending_email_confirmation',
+        message: 'Cadastro criado. Confirme seu e-mail para liberar o trial.',
+        email,
+        username,
+        companyName: createdPending.companyName,
+        entityType,
+        trialModuleSelection,
+        warnings,
+        delivery,
+      };
     }
 
     // New account: create company + user atomically.
+    const rawToken = crypto.randomBytes(32).toString('hex');
+    const tokenHash = this.sha256(rawToken);
+    const confirmationExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+
     const created = await this.prisma.$transaction(async (tx) => {
       const company = await tx.company.create({
         data: {
           slug,
-          name: String(data.name || username).trim() || username,
+          name: displayName,
+          entityType: entityType || 'PJ',
+          trialModuleSelection,
+          signupUsesPublicEmail: usesPublicEmail,
+          primaryContactName: name,
+          contactEmail: email,
+          onboardingStatus: 'pending_email_confirmation',
+          isActive: false,
+          paymentStatus: 'PENDING',
+          subscriptionStatus: 'canceled',
+          premiumAccess: false,
+          trialStartsAt: null,
+          trialEndsAt: null,
+          deactivatedAt: new Date(),
         },
       });
 
@@ -225,21 +473,101 @@ export class AuthService implements OnModuleInit {
         data: buildImportacaoPermissaoRows(company.id),
         skipDuplicates: true,
       });
+      await this.seedDefaultCompanyModulesTx(tx, company.id);
 
       const user = await tx.user.create({
         data: {
           username,
           email,
           password: hashed,
-          name: data.name,
+          name,
           companyId: company.id,
+          emailConfirmedAt: null,
+          emailConfirmationToken: tokenHash,
+          emailConfirmationSentAt: new Date(),
+          emailConfirmationExpiresAt: confirmationExpiresAt,
         },
       });
 
-      return { user, companyId: company.id };
+      return { companyName: company.name };
     });
 
-    return this.login(created.user, { companyId: created.companyId });
+    const delivery = await this.sendEmailConfirmationMail({
+      to: email,
+      username,
+      companyName: created.companyName,
+      rawToken,
+    });
+
+    return {
+      ok: true,
+      status: 'pending_email_confirmation',
+      message: 'Cadastro criado. Confirme seu e-mail para liberar o trial.',
+      email,
+      username,
+      companyName: created.companyName,
+      entityType,
+      trialModuleSelection,
+      warnings,
+      delivery,
+    };
+  }
+
+  async confirmEmail(token: string) {
+    const rawToken = String(token || '').trim();
+    if (!rawToken) {
+      throw new BadRequestException('Token de confirmação inválido.');
+    }
+
+    const tokenHash = this.sha256(rawToken);
+    const user = await this.prisma.user.findFirst({
+      where: { emailConfirmationToken: tokenHash },
+      select: {
+        id: true,
+        username: true,
+        email: true,
+        companyId: true,
+        emailConfirmationExpiresAt: true,
+      },
+    });
+
+    if (!user) {
+      throw new BadRequestException('Link de confirmação inválido ou já utilizado.');
+    }
+
+    if (!user.emailConfirmationExpiresAt || user.emailConfirmationExpiresAt.getTime() < Date.now()) {
+      throw new BadRequestException('Link de confirmação expirado. Solicite um novo cadastro.');
+    }
+
+    const confirmedAt = new Date();
+    let trialEndsAt: Date | null = null;
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.user.update({
+        where: { id: user.id },
+        data: {
+          emailConfirmedAt: confirmedAt,
+          emailConfirmationToken: null,
+          emailConfirmationSentAt: null,
+          emailConfirmationExpiresAt: null,
+        },
+      });
+
+      if (user.companyId) {
+        trialEndsAt = await this.activateConfirmedTrialTx(tx, Number(user.companyId), confirmedAt);
+      }
+    });
+
+    return {
+      ok: true,
+      status: user.companyId ? 'active_trial' : 'confirmed',
+      message: user.companyId
+        ? 'E-mail confirmado. O free trial de 30 dias já está ativo.'
+        : 'E-mail confirmado com sucesso.',
+      trialStartsAt: user.companyId ? confirmedAt.toISOString() : null,
+      trialEndsAt: trialEndsAt ? trialEndsAt.toISOString() : null,
+      next: '/login',
+    };
   }
 
   private sha256(input: string) {

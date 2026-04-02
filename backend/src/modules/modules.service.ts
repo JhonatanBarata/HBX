@@ -10,6 +10,7 @@ import structuralDefaults from '../bootstrap/structural-defaults.json';
 import { MasterContextService } from '../master-context/master-context.service';
 import { ensureWebsiteRuntimeSchema, listCompanyWebsiteConfigs } from '../website/website-runtime';
 import { ensureMasterBillingRuntimeSchema } from './master-runtime';
+import { buildWhatsAppCenterSnapshot } from '../companies/whatsapp-center.util';
 import {
   getMasterGlobalIntegrationConfig,
   pickMasterMercadoPagoCredential,
@@ -59,6 +60,20 @@ type BillingLedgerEntryRow = {
   createdByUserId: number | null;
   createdAt: Date;
   updatedAt: Date;
+};
+
+type WebscrapingLatestUsageRow = {
+  companyId: number;
+  userId: number;
+  eventType: string;
+  resultCount: number;
+  createdAt: Date;
+  city: string | null;
+  segment: string | null;
+  message: string | null;
+  userName: string | null;
+  userUsername: string | null;
+  userEmail: string | null;
 };
 
 @Injectable()
@@ -167,6 +182,14 @@ export class ModulesService implements OnModuleInit {
     return new Date(date.getFullYear(), date.getMonth() + 1, 1, 0, 0, 0, 0);
   }
 
+  private startOfToday(date = new Date()) {
+    return new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0, 0);
+  }
+
+  private startOfTomorrow(date = new Date()) {
+    return new Date(date.getFullYear(), date.getMonth(), date.getDate() + 1, 0, 0, 0, 0);
+  }
+
   private addDays(date: Date, days: number) {
     return new Date(date.getTime() + days * 24 * 60 * 60 * 1000);
   }
@@ -183,6 +206,10 @@ export class ModulesService implements OnModuleInit {
     const numeric = Number(value || 0);
     if (!Number.isFinite(numeric)) return 0;
     return Number(numeric.toFixed(2));
+  }
+
+  private normalizePercentValue(value: unknown) {
+    return Math.max(0, this.normalizeCurrencyAmount(value || 0));
   }
 
   private safeJsonParse(value: unknown) {
@@ -210,6 +237,62 @@ export class ModulesService implements OnModuleInit {
       return this.normalizeCurrencyAmount(enabledModuleTotal);
     }
     return this.normalizeCurrencyAmount(company?.plan?.price || 0);
+  }
+
+  private normalizeBillingCycle(value: unknown) {
+    return String(value || '').trim().toUpperCase() === 'ANNUAL' ? 'ANNUAL' : 'MONTHLY';
+  }
+
+  private buildCompanyFinanceSnapshot(company: any, companyLedgerRows: BillingLedgerEntryRow[], annualPlanDiscountPercentRaw: unknown) {
+    const monthlyValue = this.resolveCompanyMonthlyValue(company);
+    const billingCycle = this.normalizeBillingCycle(company?.billingCycle);
+    const annualPlanDiscountPercent = this.normalizePercentValue(annualPlanDiscountPercentRaw);
+    const manualDiscountPercent = this.normalizePercentValue(company?.manualDiscountPercent || 0);
+    const freeMonths = Math.max(0, Math.trunc(Number(company?.freeMonths || 0) || 0));
+    const baseCycleAmount =
+      billingCycle === 'ANNUAL'
+        ? this.normalizeCurrencyAmount(monthlyValue * 12)
+        : monthlyValue;
+    const annualDiscountValue =
+      billingCycle === 'ANNUAL'
+        ? this.normalizeCurrencyAmount(baseCycleAmount * (annualPlanDiscountPercent / 100))
+        : 0;
+    const subtotalAfterAnnual = this.normalizeCurrencyAmount(baseCycleAmount - annualDiscountValue);
+    const manualDiscountValue = this.normalizeCurrencyAmount(
+      subtotalAfterAnnual * (manualDiscountPercent / 100),
+    );
+    const finalCycleAmount = Math.max(0, this.normalizeCurrencyAmount(subtotalAfterAnnual - manualDiscountValue));
+    const failedRows = companyLedgerRows.filter((row) =>
+      ['FAILED', 'CANCELLED'].includes(String(row.status || '').toUpperCase()),
+    );
+    const refundRows = companyLedgerRows.filter((row) =>
+      ['REFUNDED', 'PARTIALLY_REFUNDED'].includes(String(row.status || '').toUpperCase()),
+    );
+    const pendingRows = companyLedgerRows.filter((row) => String(row.status || '').toUpperCase() === 'PENDING');
+
+    return {
+      billingCycle,
+      annualPlanDiscountPercent,
+      annualDiscountValue,
+      manualDiscountPercent,
+      manualDiscountValue,
+      freeMonths,
+      cardConfigured: Boolean(company?.billingCardLast4),
+      cardBrand: company?.billingCardBrand || null,
+      cardLast4: company?.billingCardLast4 || null,
+      cardUpdatedAt:
+        company?.billingCardUpdatedAt instanceof Date ? company.billingCardUpdatedAt.toISOString() : null,
+      pixAvailable: true,
+      baseCycleAmount,
+      finalCycleAmount,
+      pendingCount: pendingRows.length,
+      failedCount: failedRows.length,
+      refundCount: refundRows.length,
+      refundAmount: this.normalizeCurrencyAmount(
+        refundRows.reduce((total, row) => total + this.normalizeCurrencyAmount(row.amount), 0),
+      ),
+      hasPendingIssues: pendingRows.length > 0 || failedRows.length > 0,
+    };
   }
 
   private normalizeLedgerEntryRow(row: BillingLedgerEntryRow) {
@@ -247,6 +330,133 @@ export class ModulesService implements OnModuleInit {
       masterUserId: Number(row?.masterUserId || 0) || null,
       createdAt: row?.createdAt instanceof Date ? row.createdAt.toISOString() : String(row?.createdAt || ''),
     };
+  }
+
+  private buildWebscrapingUserLabel(row: {
+    userName?: string | null;
+    userUsername?: string | null;
+    userEmail?: string | null;
+    userId?: number | null;
+  }) {
+    const name = String(row?.userName || '').trim();
+    if (name) return name;
+    const username = String(row?.userUsername || '').trim();
+    if (username) return username;
+    const email = String(row?.userEmail || '').trim();
+    if (email) return email;
+    return row?.userId ? `User #${Number(row.userId)}` : null;
+  }
+
+  private buildDefaultWebscrapingUsageSummary() {
+    return {
+      searchesToday: 0,
+      blockedToday: 0,
+      lastAttemptAt: null as string | null,
+      lastAttemptMessage: null as string | null,
+      lastSearchAt: null as string | null,
+      lastSearchLabel: null as string | null,
+      lastSearchUser: null as string | null,
+      lastResultCount: 0,
+      hasBlockedAttempts: false,
+    };
+  }
+
+  private async listWebscrapingUsageSummaryByCompanyIds(companyIds: number[]) {
+    const summaries = new Map<number, ReturnType<ModulesService['buildDefaultWebscrapingUsageSummary']>>();
+    if (!companyIds.length) return summaries;
+
+    const usageLogEnabled = await this.prisma.hasTable('WebscrapingUsageLog');
+    if (!usageLogEnabled) return summaries;
+
+    const dayStart = this.startOfToday();
+    const nextDayStart = this.startOfTomorrow();
+
+    const [todayLogs, latestExecutedRows] = await Promise.all([
+      this.prisma.webscrapingUsageLog.findMany({
+        where: {
+          companyId: { in: companyIds },
+          createdAt: {
+            gte: dayStart,
+            lt: nextDayStart,
+          },
+        },
+        orderBy: [{ companyId: 'asc' }, { createdAt: 'desc' }],
+        select: {
+          companyId: true,
+          userId: true,
+          eventType: true,
+          resultCount: true,
+          createdAt: true,
+          city: true,
+          segment: true,
+          message: true,
+          user: {
+            select: {
+              name: true,
+              username: true,
+              email: true,
+            },
+          },
+        },
+      }),
+      this.prisma.$queryRaw<WebscrapingLatestUsageRow[]>(
+        Prisma.sql`
+          SELECT DISTINCT ON (l."companyId")
+            l."companyId",
+            l."userId",
+            l."eventType",
+            l."resultCount",
+            l."createdAt",
+            l."city",
+            l."segment",
+            l."message",
+            u."name" AS "userName",
+            u."username" AS "userUsername",
+            u."email" AS "userEmail"
+          FROM "WebscrapingUsageLog" l
+          LEFT JOIN "User" u ON u."id" = l."userId"
+          WHERE l."companyId" IN (${Prisma.join(companyIds.map((id) => Number(id)))})
+            AND l."eventType" = 'EXECUTED'
+          ORDER BY l."companyId", l."createdAt" DESC
+        `,
+      ),
+    ]);
+
+    for (const log of todayLogs || []) {
+      const companyId = Number(log.companyId || 0);
+      if (!companyId) continue;
+      const current = summaries.get(companyId) || this.buildDefaultWebscrapingUsageSummary();
+      const eventType = String(log.eventType || '').trim().toUpperCase();
+      if (eventType === 'EXECUTED') {
+        current.searchesToday += 1;
+      }
+      if (eventType === 'BLOCKED_DAILY_LIMIT') {
+        current.blockedToday += 1;
+        current.hasBlockedAttempts = true;
+      }
+      const createdAtIso = log.createdAt instanceof Date ? log.createdAt.toISOString() : null;
+      if (createdAtIso && !current.lastAttemptAt) {
+        current.lastAttemptAt = createdAtIso;
+        current.lastAttemptMessage = log.message ? String(log.message) : null;
+      }
+      summaries.set(companyId, current);
+    }
+
+    for (const row of latestExecutedRows || []) {
+      const companyId = Number(row.companyId || 0);
+      if (!companyId) continue;
+      const current = summaries.get(companyId) || this.buildDefaultWebscrapingUsageSummary();
+      current.lastSearchAt = row.createdAt instanceof Date ? row.createdAt.toISOString() : null;
+      current.lastSearchLabel =
+        row.city || row.segment
+          ? [String(row.segment || '').trim(), String(row.city || '').trim()].filter(Boolean).join(' em ')
+          : null;
+      current.lastSearchUser = this.buildWebscrapingUserLabel(row);
+      current.lastResultCount = Math.max(0, Math.trunc(Number(row.resultCount || 0)));
+      summaries.set(companyId, current);
+    }
+
+    return summaries;
   }
 
   private companyStatusBucket(company: any) {
@@ -493,6 +703,39 @@ export class ModulesService implements OnModuleInit {
       metadata: {
         mercadoPagoCredentials: serializedLibraries.mercadoPagoLibrary.length,
         whatsappCredentials: serializedLibraries.whatsappLibrary.length,
+      },
+    });
+
+    return serializeMasterGlobalIntegrationConfig(updated);
+  }
+
+  async updateMasterBillingPolicy(
+    masterUserId: number,
+    input: {
+      annualPlanDiscountPercent?: number;
+    },
+  ) {
+    await this.assertMasterUser(masterUserId);
+    await ensureMasterBillingRuntimeSchema(this.prisma);
+    const current = await getMasterGlobalIntegrationConfig(this.prisma);
+    const annualPlanDiscountPercent =
+      input?.annualPlanDiscountPercent !== undefined
+        ? this.normalizePercentValue(input.annualPlanDiscountPercent)
+        : this.normalizePercentValue((current as any)?.annualPlanDiscountPercent || 0);
+
+    const updated = await this.prisma.masterGlobalIntegrationConfig.update({
+      where: { key: current.key },
+      data: {
+        annualPlanDiscountPercent,
+      },
+    });
+
+    await this.masterContextService.registerSupportAction({
+      masterUserId,
+      scope: 'master_billing',
+      action: 'MASTER_BILLING_POLICY_UPDATED',
+      metadata: {
+        annualPlanDiscountPercent,
       },
     });
 
@@ -1026,6 +1269,10 @@ export class ModulesService implements OnModuleInit {
     return Boolean(row?.enabled);
   }
 
+  private isFinanceModuleKey(moduleKey: string) {
+    return this.normalizeRequestedModuleKey(moduleKey) === 'financeiro';
+  }
+
   async canUserAccessModule(userId: number, moduleKey: string) {
     await this.ensureDefaultSystemModules();
     const { companyId, isSystemMaster } = await this.resolveUserContext(userId);
@@ -1047,7 +1294,9 @@ export class ModulesService implements OnModuleInit {
     if (!orderedModules.length) return false;
 
     const status = await this.evaluateCompanyStatus(companyId);
-    if (!status.active) return false;
+    if (!status.active) {
+      return this.isFinanceModuleKey(key);
+    }
 
     if (isSystemMaster) {
       for (const moduleItem of orderedModules) {
@@ -1103,15 +1352,33 @@ export class ModulesService implements OnModuleInit {
 
     const status = await this.evaluateCompanyStatus(companyId);
     if (!status.active) {
-      return systemMasterModules.map((moduleItem) => ({
-        key: moduleItem.key,
-        name: moduleItem.name,
-        description: moduleItem.description,
-        serviceUrl: moduleItem.serviceUrl,
-        companyEnabled: true,
-        userAllowed: true,
-        accessible: true,
-      }));
+      const financeiroModule = await this.prisma.systemModule.findFirst({
+        where: { key: 'financeiro', companyAssignable: true },
+      });
+      const financeAccess = financeiroModule
+        ? [{
+            key: financeiroModule.key,
+            name: financeiroModule.name,
+            description: financeiroModule.description,
+            serviceUrl: financeiroModule.serviceUrl,
+            companyEnabled: true,
+            userAllowed: true,
+            accessible: true,
+          }]
+        : [];
+
+      return [
+        ...financeAccess,
+        ...systemMasterModules.map((moduleItem) => ({
+          key: moduleItem.key,
+          name: moduleItem.name,
+          description: moduleItem.description,
+          serviceUrl: moduleItem.serviceUrl,
+          companyEnabled: true,
+          userAllowed: true,
+          accessible: true,
+        })),
+      ];
     }
 
     const rows = await this.prisma.companyModule.findMany({
@@ -1274,6 +1541,11 @@ export class ModulesService implements OnModuleInit {
       ? pickMasterWhatsAppCredential(masterIntegrations, company?.masterWhatsAppCredentialKey)
       : null;
     const monthlyValue = this.resolveCompanyMonthlyValue(company);
+    const finance = this.buildCompanyFinanceSnapshot(
+      company,
+      companyLedgerRows,
+      (masterIntegrations as any)?.annualPlanDiscountPercent,
+    );
     const statusBucket = this.companyStatusBucket({
       ...company,
       isActive: active,
@@ -1360,8 +1632,10 @@ export class ModulesService implements OnModuleInit {
           }
         : null,
       monthlyValue,
+      finance,
       paymentStatus: company.paymentStatus,
       paymentMethod: company.paymentMethod,
+      billingCycle: finance.billingCycle,
       subscriptionStatus: company.subscriptionStatus,
       billingProvider: company.billingProvider,
       premiumAccess: Boolean(company.premiumAccess),
@@ -1416,6 +1690,11 @@ export class ModulesService implements OnModuleInit {
         masterCredentialKey: selectedWhatsAppCredential?.key || company?.masterWhatsAppCredentialKey || null,
         masterCredentialLabel: selectedWhatsAppCredential?.label || null,
       },
+      whatsappCenter: buildWhatsAppCenterSnapshot({
+        company,
+        credential: selectedWhatsAppCredential,
+        effectiveConfig: effectiveWhatsApp,
+      }),
       mercadoPago: {
         status: company.mercadoPagoStatus || null,
         accountEmail: company.mercadoPagoAccountEmail || null,
@@ -2062,6 +2341,9 @@ export class ModulesService implements OnModuleInit {
       this.prisma,
       companies.map((company) => Number(company.id)),
     );
+    const webscrapingUsageByCompany = await this.listWebscrapingUsageSummaryByCompanyIds(
+      companies.map((company) => Number(company.id)),
+    );
 
     const result: any[] = [];
     for (const company of companies) {
@@ -2128,6 +2410,8 @@ export class ModulesService implements OnModuleInit {
         mercadoPagoTokenPreview: company.mercadoPagoAccessToken
           ? `***${String(company.mercadoPagoAccessToken).slice(-6)}`
           : null,
+        webscrapingUsage:
+          webscrapingUsageByCompany.get(Number(company.id)) || this.buildDefaultWebscrapingUsageSummary(),
         users: company.users,
         modules: company.companyModules
           .filter((row) => row.systemModule.companyAssignable)
@@ -2701,6 +2985,56 @@ export class ModulesService implements OnModuleInit {
     });
 
     return { ok: true, companyId };
+  }
+
+  async updateCompanyFinanceSettingsByMaster(
+    masterUserId: number,
+    companyId: number,
+    dto: {
+      manualDiscountPercent?: number;
+      freeMonths?: number;
+      billingCycle?: string;
+    },
+  ) {
+    await this.assertMasterUser(masterUserId);
+    await ensureMasterBillingRuntimeSchema(this.prisma);
+    const company = await this.prisma.company.findUnique({ where: { id: companyId } });
+    if (!company) throw new BadRequestException('Empresa nao encontrada');
+
+    const billingCycle = dto?.billingCycle !== undefined
+      ? this.normalizeBillingCycle(dto.billingCycle)
+      : this.normalizeBillingCycle(company.billingCycle);
+    const manualDiscountPercent =
+      dto?.manualDiscountPercent !== undefined
+        ? this.normalizePercentValue(dto.manualDiscountPercent)
+        : this.normalizePercentValue(company.manualDiscountPercent || 0);
+    const freeMonths =
+      dto?.freeMonths !== undefined
+        ? Math.max(0, Math.trunc(Number(dto.freeMonths || 0) || 0))
+        : Math.max(0, Math.trunc(Number(company.freeMonths || 0) || 0));
+
+    await this.prisma.company.update({
+      where: { id: companyId },
+      data: {
+        billingCycle,
+        manualDiscountPercent,
+        freeMonths,
+      },
+    });
+
+    await this.masterContextService.registerSupportAction({
+      masterUserId,
+      companyId,
+      scope: 'master_billing',
+      action: 'COMPANY_FINANCE_SETTINGS_UPDATED',
+      metadata: {
+        billingCycle,
+        manualDiscountPercent,
+        freeMonths,
+      },
+    });
+
+    return { ok: true, companyId, billingCycle, manualDiscountPercent, freeMonths };
   }
 
   async listMasterExclusoes(

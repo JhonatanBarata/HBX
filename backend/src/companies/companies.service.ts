@@ -3,6 +3,9 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CreateCompanyDto } from './dto/create-company.dto';
 import { UpdateCompanyDto } from './dto/update-company.dto';
 import { buildImportacaoPermissaoRows } from '../bootstrap/company-structural-defaults';
+import { getMasterGlobalIntegrationConfig, pickMasterWhatsAppCredential } from '../modules/master-global-integrations.util';
+import { ensureMasterBillingRuntimeSchema } from '../modules/master-runtime';
+import { buildWhatsAppCenterSnapshot } from './whatsapp-center.util';
 
 export const MASTER_HARD_DELETE_CONFIRM_TEXT = 'EXCLUIR EMPRESA';
 export const MASTER_HARD_DELETE_DISABLED_MESSAGE = 'Hard delete de empresa esta desativado nesta publicacao. Use archive no Master ou habilite ALLOW_MASTER_HARD_DELETE=true apenas em manutencao controlada.';
@@ -12,7 +15,13 @@ export const MASTER_HARD_DELETE_CONFIRMATION_INVALID_MESSAGE = 'Confirmacao inva
 export class CompaniesService {
   constructor(private readonly prisma: PrismaService) {}
 
+  private normalizeOptionalString(value: unknown) {
+    const normalized = String(value || '').trim();
+    return normalized || null;
+  }
+
   private async supportsWhatsAppEndpointTable() {
+    await ensureMasterBillingRuntimeSchema(this.prisma);
     return this.prisma.hasTable('CompanyWhatsAppEndpoint');
   }
 
@@ -143,6 +152,7 @@ export class CompaniesService {
   }
 
   async findByIdForMaster(companyId: number) {
+    await ensureMasterBillingRuntimeSchema(this.prisma);
     const id = Number(companyId);
     if (!id) throw new NotFoundException('Company not found');
     const supportsEndpointTable = await this.supportsWhatsAppEndpointTable();
@@ -166,6 +176,7 @@ export class CompaniesService {
   }
 
   private async listEnabledModuleKeys(companyId: number) {
+    await ensureMasterBillingRuntimeSchema(this.prisma);
     const rows = await this.prisma.companyModule.findMany({
       where: { companyId, enabled: true, systemModule: { companyAssignable: true } },
       include: { systemModule: true },
@@ -180,6 +191,103 @@ export class CompaniesService {
   async listWhatsAppEndpointsByMaster(companyId: number) {
     const company = await this.findByIdForMaster(companyId);
     return (this.sanitizeCompany(company) as any)?.whatsappEndpoints || [];
+  }
+
+  async getWhatsAppCenterForCompany(companyId: number) {
+    await ensureMasterBillingRuntimeSchema(this.prisma);
+    const company = await this.findByIdForMaster(companyId);
+    const masterConfig = await getMasterGlobalIntegrationConfig(this.prisma);
+    const selectedCredential = Boolean((company as any)?.useMasterWhatsAppToken)
+      ? pickMasterWhatsAppCredential(masterConfig, (company as any)?.masterWhatsAppCredentialKey)
+      : null;
+    const effectiveConfig = Boolean((company as any)?.useMasterWhatsAppToken)
+      ? {
+          accessToken: this.normalizeOptionalString(selectedCredential?.accessToken),
+          phoneNumberId: this.normalizeOptionalString(selectedCredential?.phoneNumberId),
+          wabaId: this.normalizeOptionalString(selectedCredential?.wabaId),
+          whatsappNumber: this.normalizeOptionalString(selectedCredential?.whatsappNumber),
+          displayNumber:
+            this.normalizeOptionalString(selectedCredential?.displayNumber) ||
+            this.normalizeOptionalString(selectedCredential?.whatsappNumber),
+        }
+      : {
+          accessToken: this.normalizeOptionalString((company as any)?.whatsappAccessToken),
+          phoneNumberId: this.normalizeOptionalString((company as any)?.whatsappPhoneNumberId),
+          wabaId: this.normalizeOptionalString((company as any)?.whatsappWabaId),
+          whatsappNumber: this.normalizeOptionalString((company as any)?.whatsappNumber),
+          displayNumber:
+            this.normalizeOptionalString((company as any)?.whatsappDisplayNumber) ||
+            this.normalizeOptionalString((company as any)?.whatsappNumber),
+        };
+
+    return {
+      generatedAt: new Date().toISOString(),
+      company: {
+        id: Number((company as any)?.id || 0),
+        name: this.normalizeOptionalString((company as any)?.name),
+        onboardingStatus: this.normalizeOptionalString((company as any)?.onboardingStatus),
+        paymentStatus: this.normalizeOptionalString((company as any)?.paymentStatus),
+        subscriptionStatus: this.normalizeOptionalString((company as any)?.subscriptionStatus),
+        premiumAccess: Boolean((company as any)?.premiumAccess),
+        trialModuleSelection: this.normalizeOptionalString((company as any)?.trialModuleSelection),
+        whatsappConnectionMode: this.normalizeOptionalString((company as any)?.whatsappConnectionMode) || 'NONE',
+        whatsappTemporaryStatus:
+          this.normalizeOptionalString((company as any)?.whatsappTemporaryStatus) || 'NOT_CONNECTED',
+      },
+      center: buildWhatsAppCenterSnapshot({
+        company,
+        credential: selectedCredential,
+        effectiveConfig,
+      }),
+    };
+  }
+
+  async updateWhatsAppCenterForCompany(
+    companyId: number,
+    input: {
+      mode?: string;
+    },
+  ) {
+    await ensureMasterBillingRuntimeSchema(this.prisma);
+    const company = await this.findByIdForMaster(companyId);
+    const requestedMode = String(input?.mode || '').trim().toUpperCase();
+    if (!['TEMPORARY', 'OFFICIAL', 'NONE'].includes(requestedMode)) {
+      throw new BadRequestException('Modo de vínculo inválido.');
+    }
+
+    const updated = await this.prisma.company.update({
+      where: { id: Number(companyId) },
+      data: {
+        whatsappConnectionMode: requestedMode,
+        whatsappTemporaryStatus:
+          requestedMode === 'TEMPORARY'
+            ? 'TEMPORARY'
+            : requestedMode === 'NONE'
+              ? 'NOT_CONNECTED'
+              : (company as any)?.whatsappTemporaryStatus || 'NOT_CONNECTED',
+      },
+    });
+
+    return this.getWhatsAppCenterForCompany(updated.id);
+  }
+
+  async registerWhatsAppMigrationInterest(
+    companyId: number,
+    input?: {
+      source?: string;
+    },
+  ) {
+    await ensureMasterBillingRuntimeSchema(this.prisma);
+    const source = this.normalizeOptionalString(input?.source) || 'central_whatsapp';
+    const updated = await this.prisma.company.update({
+      where: { id: Number(companyId) },
+      data: {
+        whatsappMigrationInterestStatus: 'REQUESTED',
+        whatsappMigrationInterestAt: new Date(),
+        whatsappMigrationInterestSource: source,
+      },
+    });
+    return this.getWhatsAppCenterForCompany(updated.id);
   }
 
   async replaceWhatsAppEndpointsByMaster(

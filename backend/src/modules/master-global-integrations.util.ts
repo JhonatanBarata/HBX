@@ -209,6 +209,7 @@ export function serializeMasterGlobalIntegrationConfig(config: any) {
     whatsappConfigured: normalized.whatsappLibrary.some(
       (entry) => Boolean(normalize(entry.accessToken) && normalize(entry.phoneNumberId)),
     ),
+    annualPlanDiscountPercent: Number(config?.annualPlanDiscountPercent || 0) || 0,
     mercadoPagoLibrary: normalized.mercadoPagoLibrary.map((entry) => ({
       ...entry,
       accessTokenPreview: previewSecret(entry.accessToken),

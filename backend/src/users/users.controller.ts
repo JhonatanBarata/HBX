@@ -193,6 +193,12 @@ export class UsersController {
 		const companyId = Number(req?.user?.companyId);
 		if (!companyId) throw new ForbiddenException('Company context required');
 
+		const seatUsage = await this.usersService.getCompanyTrialSeatUsage(companyId);
+		if (!seatUsage.company) throw new NotFoundException('Empresa não encontrada');
+		if (seatUsage.isTrial && seatUsage.activeUsers >= seatUsage.maxUsers) {
+			throw new BadRequestException('O free trial permite no máximo 2 usuários ativos por empresa.');
+		}
+
 		const email = String(dto?.email || '').trim().toLowerCase();
 		if (!email) throw new BadRequestException('email is required');
 
@@ -254,6 +260,12 @@ export class UsersController {
 		@Param('companyId', ParseIntPipe) companyId: number,
 		@Body() dto: MasterCreateUserDto,
 	) {
+		const seatUsage = await this.usersService.getCompanyTrialSeatUsage(companyId);
+		if (!seatUsage.company) throw new NotFoundException('Empresa não encontrada');
+		if (seatUsage.isTrial && seatUsage.activeUsers >= seatUsage.maxUsers) {
+			throw new BadRequestException('O free trial permite no máximo 2 usuários ativos por empresa.');
+		}
+
 		const email = String(dto?.email || '').trim().toLowerCase();
 		if (!email) throw new BadRequestException('email is required');
 

@@ -1,5 +1,7 @@
-﻿import WhatsAppConfigClientPage from './page.client';
+export const dynamic = "force-dynamic";
 
-export default function WhatsAppConfigPage() {
-  return <WhatsAppConfigClientPage />;
+import WhatsAppCenterClientPage from "./page.client";
+
+export default function Page() {
+  return <WhatsAppCenterClientPage />;
 }
