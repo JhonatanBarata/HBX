@@ -8,6 +8,7 @@ import styles from "./page.module.css";
 
 type LeadStatus = "novo" | "contato" | "retorno" | "qualificado" | "encerrado";
 type LeadBlockKey = "today" | "overdue" | "scheduled" | "closed";
+type ViewMode = "kanban" | "list" | "agenda" | "timeline";
 type LeadTimelineEventType =
   | "lead_created"
   | "origin_registered"
@@ -141,6 +142,13 @@ const BLOCKS: Array<{
   },
 ];
 
+const VIEW_OPTIONS: Array<{ value: ViewMode; label: string; hint: string }> = [
+  { value: "kanban", label: "Cards", hint: "Pipeline visual e arraste rápido." },
+  { value: "list", label: "Lista", hint: "Leitura compacta para bater o olho." },
+  { value: "agenda", label: "Agenda", hint: "Hoje, atrasados e próximos retornos." },
+  { value: "timeline", label: "Timeline", hint: "Memória comercial cronológica." },
+];
+
 function formatDateTime(value?: string | null) {
   const iso = String(value || "").trim();
   if (!iso) return "-";
@@ -202,6 +210,13 @@ function buildWhatsAppUrl(phone?: string | null, leadName?: string | null) {
     ? `Olá, ${leadName}. Estou retomando nosso contato pelo HBX.`
     : "Olá. Estou retomando nosso contato pelo HBX.";
   return `https://wa.me/55${digits}?text=${encodeURIComponent(message)}`;
+}
+
+function webscrapingSourceLabel(value?: string | null) {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (normalized === "webscraping") return "Webscraping";
+  if (normalized === "manual") return "Manual";
+  return normalized || "Sem origem";
 }
 
 function createDraft(lead: LeadItem): LeadDraft {
@@ -291,6 +306,10 @@ export default function VendasClientPage() {
   const [showClosed, setShowClosed] = useState(false);
   const [draggedLeadId, setDraggedLeadId] = useState<string | null>(null);
   const [dragOverColumnId, setDragOverColumnId] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<ViewMode>("kanban");
+  const [commandOpen, setCommandOpen] = useState(false);
+  const [commandQuery, setCommandQuery] = useState("");
+  const [actionMenuLeadId, setActionMenuLeadId] = useState<string | null>(null);
   const [manualLead, setManualLead] = useState({
     name: "",
     phone: "",
@@ -324,6 +343,24 @@ export default function VendasClientPage() {
     return () => window.clearTimeout(timer);
   }, [feedback]);
 
+  useEffect(() => {
+    function handleKeyboardShortcut(event: KeyboardEvent) {
+      const isShortcut = (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k";
+      if (isShortcut) {
+        event.preventDefault();
+        setCommandOpen(true);
+        return;
+      }
+      if (event.key === "Escape") {
+        setCommandOpen(false);
+        setActionMenuLeadId(null);
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyboardShortcut);
+    return () => window.removeEventListener("keydown", handleKeyboardShortcut);
+  }, []);
+
   const totalActive = useMemo(() => {
     if (!board) return 0;
     return board.summary.today + board.summary.overdue + board.summary.scheduled;
@@ -339,6 +376,66 @@ export default function VendasClientPage() {
     }
     return map;
   }, [board]);
+
+  const allLeads = useMemo(() => {
+    const items: Array<{ lead: LeadItem; block: LeadBlockKey }> = [];
+    if (!board) return items;
+    for (const block of BLOCKS) {
+      for (const lead of board.blocks[block.key] || []) {
+        items.push({ lead, block: block.key });
+      }
+    }
+    const orderWeight: Record<LeadBlockKey, number> = {
+      overdue: 0,
+      today: 1,
+      scheduled: 2,
+      closed: 3,
+    };
+    return items.sort((left, right) => {
+      const blockDiff = orderWeight[left.block] - orderWeight[right.block];
+      if (blockDiff !== 0) return blockDiff;
+      return new Date(right.lead.updatedAt || 0).getTime() - new Date(left.lead.updatedAt || 0).getTime();
+    });
+  }, [board]);
+
+  const timelineFeed = useMemo(() => {
+    return allLeads
+      .flatMap(({ lead, block }) =>
+        (lead.timeline || []).map((event) => ({
+          event,
+          lead,
+          block,
+        })),
+      )
+      .sort(
+        (left, right) =>
+          new Date(right.event.createdAt || 0).getTime() - new Date(left.event.createdAt || 0).getTime(),
+      );
+  }, [allLeads]);
+
+  const commandResults = useMemo(() => {
+    const normalized = commandQuery.trim().toLowerCase();
+    const items = allLeads.slice(0, 18);
+    if (!normalized) return items;
+    return items.filter(({ lead, block }) =>
+      [
+        lead.name,
+        lead.phone,
+        lead.email,
+        lead.city,
+        lead.segment,
+        lead.nextAction,
+        lead.shortNote,
+        lead.lastResult,
+        lead.primarySource,
+        block,
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase()
+        .includes(normalized),
+    );
+  }, [allLeads, commandQuery]);
 
   const focusMetrics = useMemo(
     () => [
@@ -471,6 +568,7 @@ export default function VendasClientPage() {
   }
 
   async function runQuickAction(lead: LeadItem, action: string) {
+    setActionMenuLeadId(null);
     const currentDraft = drafts[lead.id] || createDraft(lead);
 
     if (action === "hoje") {
@@ -507,6 +605,21 @@ export default function VendasClientPage() {
         returnAt: plusDaysDatetimeLocal(1),
       });
     }
+  }
+
+  function focusLead(leadId: string) {
+    setExpandedLeadIds((prev) => ({
+      ...prev,
+      [leadId]: true,
+    }));
+    setCommandOpen(false);
+    setActionMenuLeadId(null);
+    window.setTimeout(() => {
+      document.querySelector<HTMLElement>(`[data-lead-id="${leadId}"]`)?.scrollIntoView({
+        behavior: "smooth",
+        block: "center",
+      });
+    }, 80);
   }
 
   async function moveLeadToStatus(leadId: string, nextStatus: LeadStatus, blockKey: LeadBlockKey) {
@@ -607,6 +720,7 @@ export default function VendasClientPage() {
       <article
         key={lead.id}
         className={styles.leadCard}
+        data-lead-id={lead.id}
         data-tone={visualTone}
         data-expanded={isExpanded ? "true" : "false"}
         data-dragging={draggedLeadId === lead.id ? "true" : "false"}
@@ -637,6 +751,40 @@ export default function VendasClientPage() {
             <span className={styles.returnBadge} data-tone={returnMeta.tone}>
               {returnMeta.label}
             </span>
+            <div className={styles.cardMenuWrap}>
+              <button
+                type="button"
+                className={styles.cardMenuButton}
+                onClick={() =>
+                  setActionMenuLeadId((current) => (current === lead.id ? null : lead.id))
+                }
+              >
+                Ações
+              </button>
+              {actionMenuLeadId === lead.id ? (
+                <div className={styles.cardMenu}>
+                  <button type="button" onClick={() => focusLead(lead.id)}>
+                    Abrir detalhe
+                  </button>
+                  <button type="button" onClick={() => void runQuickAction(lead, "hoje")}>
+                    Jogar para hoje
+                  </button>
+                  <button type="button" onClick={() => void runQuickAction(lead, "amanha")}>
+                    Agendar amanhã
+                  </button>
+                  {lead.quickActions.includes("encerrar") ? (
+                    <button type="button" onClick={() => void runQuickAction(lead, "encerrar")}>
+                      Encerrar
+                    </button>
+                  ) : null}
+                  {lead.quickActions.includes("reabrir") ? (
+                    <button type="button" onClick={() => void runQuickAction(lead, "reabrir")}>
+                      Reabrir
+                    </button>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
           </div>
         </div>
 
@@ -901,6 +1049,257 @@ export default function VendasClientPage() {
     );
   }
 
+  function renderListView() {
+    if (!allLeads.length) {
+      return (
+        <section className={styles.blockCard}>
+          <div className={styles.emptyState}>
+            <strong>Nenhum lead disponível</strong>
+            <p className={styles.emptyText}>Quando o CRM receber movimentos, a lista vai resumir o que está quente, atrasado e pendente.</p>
+          </div>
+        </section>
+      );
+    }
+
+    return (
+      <section className={styles.blockCard}>
+        <div className={styles.sectionHeader}>
+          <div>
+            <strong>Lista operacional</strong>
+            <p className={styles.helperText}>Leitura enxuta para bater o olho e abrir só o que importa.</p>
+          </div>
+          <span className={styles.metaPill}>{allLeads.length} lead(s)</span>
+        </div>
+        <div className={styles.listView}>
+          {allLeads.map(({ lead, block }) => (
+            <button
+              key={`list-${lead.id}`}
+              type="button"
+              className={styles.listRow}
+              onClick={() => focusLead(lead.id)}
+            >
+              <div className={styles.listMain}>
+                <strong>{lead.name || "Lead sem nome"}</strong>
+                <span>{lead.city || "Cidade não informada"} • {lead.segment || "Sem segmento"}</span>
+              </div>
+              <span className={styles.memoryChip}>{lead.statusLabel}</span>
+              <span className={styles.memoryChip}>{lead.nextAction || "Sem próxima ação"}</span>
+              <span className={styles.memoryChip}>{getReturnMeta(lead, drafts[lead.id] || createDraft(lead), block).label}</span>
+              <span className={styles.memoryChip}>{webscrapingSourceLabel(lead.primarySource || lead.sourceType)}</span>
+            </button>
+          ))}
+        </div>
+      </section>
+    );
+  }
+
+  function renderAgendaView() {
+    return (
+      <section className={styles.blockCard}>
+        <div className={styles.sectionHeader}>
+          <div>
+            <strong>Agenda viva</strong>
+            <p className={styles.helperText}>Blocos operacionais para saber quem precisa de ação agora, depois e o que já saiu do radar ativo.</p>
+          </div>
+        </div>
+        <div className={styles.agendaView}>
+          {BLOCKS.map((block) => {
+            const leads = board?.blocks[block.key] || [];
+            if (block.key === "closed" && !showClosed) return null;
+            return (
+              <article key={`agenda-${block.key}`} className={styles.agendaColumn} data-block={block.key}>
+                <div className={styles.agendaColumnHeader}>
+                  <strong>{block.title}</strong>
+                  <span className={styles.metaPill}>{leads.length}</span>
+                </div>
+                {leads.length ? (
+                  <div className={styles.agendaList}>
+                    {leads.map((lead) => (
+                      <button
+                        key={`agenda-row-${lead.id}`}
+                        type="button"
+                        className={styles.agendaRow}
+                        onClick={() => focusLead(lead.id)}
+                      >
+                        <div>
+                          <strong>{lead.name || "Lead sem nome"}</strong>
+                          <span>{lead.nextAction || "Sem próxima ação"}</span>
+                        </div>
+                        <span>{formatDateTime(lead.returnAt || lead.updatedAt)}</span>
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <div className={styles.emptyState}>
+                    <strong>Sem cards neste bloco</strong>
+                    <p className={styles.emptyText}>A agenda vai preencher esse grupo automaticamente quando a operação gerar movimento.</p>
+                  </div>
+                )}
+              </article>
+            );
+          })}
+        </div>
+      </section>
+    );
+  }
+
+  function renderTimelineView() {
+    return (
+      <section className={styles.blockCard}>
+        <div className={styles.sectionHeader}>
+          <div>
+            <strong>Timeline da operação</strong>
+            <p className={styles.helperText}>Visão cronológica para entender o que aconteceu sem abrir cada card manualmente.</p>
+          </div>
+          <span className={styles.metaPill}>{timelineFeed.length} evento(s)</span>
+        </div>
+        {timelineFeed.length ? (
+          <div className={styles.feedList}>
+            {timelineFeed.map(({ event, lead, block }) => (
+              <article key={`feed-${event.id}`} className={styles.feedItem}>
+                <div className={styles.feedDot} data-tone={getTimelineEventTone(event.eventType)} />
+                <div className={styles.feedBody}>
+                  <div className={styles.feedTopline}>
+                    <strong>{lead.name || "Lead sem nome"}</strong>
+                    <span>{formatDateTime(event.createdAt)}</span>
+                  </div>
+                  <p className={styles.feedTitle}>{event.title}</p>
+                  <p className={styles.feedText}>
+                    {event.description || "Movimento comercial registrado."}
+                  </p>
+                  <div className={styles.memoryRail}>
+                    <span className={styles.memoryChip}>{lead.statusLabel}</span>
+                    <span className={styles.memoryChip}>{BLOCKS.find((item) => item.key === block)?.title || block}</span>
+                    <span className={styles.memoryChip}>{getTimelineEventMeta(event)}</span>
+                    <button type="button" className={styles.commandLink} onClick={() => focusLead(lead.id)}>
+                      Abrir card
+                    </button>
+                  </div>
+                </div>
+              </article>
+            ))}
+          </div>
+        ) : (
+          <div className={styles.emptyState}>
+            <strong>Nenhum evento ainda</strong>
+            <p className={styles.emptyText}>Quando os cards forem sendo trabalhados, a timeline geral aparece aqui para leitura rápida.</p>
+          </div>
+        )}
+      </section>
+    );
+  }
+
+  function renderKanbanView() {
+    return BLOCKS.map((block) => {
+      const leads = board?.blocks[block.key] || [];
+      const isClosedBlock = block.key === "closed";
+      const groupedByStatus = STATUS_COLUMNS.reduce<Record<LeadStatus, LeadItem[]>>(
+        (accumulator, column) => {
+          accumulator[column.value] = [];
+          return accumulator;
+        },
+        {
+          novo: [],
+          contato: [],
+          retorno: [],
+          qualificado: [],
+          encerrado: [],
+        },
+      );
+
+      for (const lead of leads) {
+        groupedByStatus[lead.status].push(lead);
+      }
+
+      if (isClosedBlock && !showClosed && leads.length === 0) {
+        return null;
+      }
+
+      return (
+        <section key={block.key} className={styles.blockCard} data-block={block.key} data-accent={block.accent}>
+          <div className={styles.sectionHeader}>
+            <div>
+              <strong>{block.title}</strong>
+              <p className={styles.helperText}>{block.description}</p>
+            </div>
+            <div className={styles.sectionActions}>
+              <span className={styles.metaPill}>{leads.length} card(s)</span>
+              {!isClosedBlock ? <span className={styles.mutedPill}>Arraste entre colunas para mover status</span> : null}
+              {isClosedBlock ? (
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => setShowClosed((current) => !current)}
+                >
+                  {showClosed ? "Ocultar encerrados" : "Mostrar encerrados"}
+                </button>
+              ) : null}
+            </div>
+          </div>
+
+          {isClosedBlock && !showClosed ? (
+            <div className={styles.emptyState}>
+              <strong>Encerrados fora do foco principal</strong>
+              <p className={styles.emptyText}>Eles continuam guardados, mas não dominam a agenda ativa enquanto você está operando o dia.</p>
+            </div>
+          ) : leads.length === 0 ? (
+            <div className={styles.emptyState}>
+              <strong>Nenhum card neste bloco</strong>
+              <p className={styles.emptyText}>Assim que a rotina gerar movimentos aqui, os cards vão aparecer com destaque operacional.</p>
+            </div>
+          ) : !isClosedBlock ? (
+            <div className={styles.statusBoard}>
+              {STATUS_COLUMNS.map((column) => {
+                const columnId = `${block.key}:${column.value}`;
+                const columnLeads = column.dropOnly ? [] : groupedByStatus[column.value];
+                const isDragTarget = dragOverColumnId === columnId;
+                return (
+                  <section
+                    key={columnId}
+                    className={styles.statusColumn}
+                    data-status={column.value}
+                    data-drop-only={column.dropOnly ? "true" : "false"}
+                    data-dragover={isDragTarget ? "true" : "false"}
+                    onDragOver={(event) => handleColumnDragOver(event, columnId)}
+                    onDragLeave={() => handleColumnDragLeave(columnId)}
+                    onDrop={(event) => void handleColumnDrop(event, block.key, column.value)}
+                  >
+                    <div className={styles.statusColumnHeader}>
+                      <div>
+                        <strong className={styles.statusColumnTitle}>{column.label}</strong>
+                        <p className={styles.statusColumnText}>{column.hint}</p>
+                      </div>
+                      <span className={styles.metaPill}>{columnLeads.length}</span>
+                    </div>
+
+                    {columnLeads.length ? (
+                      <div className={styles.statusColumnCards}>
+                        {columnLeads.map((lead) => renderLeadCard(lead, block.key))}
+                      </div>
+                    ) : (
+                      <div className={styles.statusDropHint}>
+                        <strong>{column.dropOnly ? "Solte aqui para encerrar" : "Coluna pronta para receber"}</strong>
+                        <p className={styles.emptyText}>
+                          {column.dropOnly
+                            ? "O card sai da agenda ativa e vai para encerrados, sem dominar o dia."
+                            : "Arraste um card para reorganizar o status sem perder retorno, origem e próxima ação."}
+                        </p>
+                      </div>
+                    )}
+                  </section>
+                );
+              })}
+            </div>
+          ) : (
+            <div className={styles.leadsGrid} data-block={block.key}>
+              {leads.map((lead) => renderLeadCard(lead, block.key))}
+            </div>
+          )}
+        </section>
+      );
+    });
+  }
+
   if (hasToken === null) {
     return (
       <DashboardScaffold title="Vendas" description="Carregando sessão do CRM comercial.">
@@ -952,6 +1351,31 @@ export default function VendasClientPage() {
               </article>
             ))}
           </div>
+        </section>
+
+        <section className={styles.toolbelt}>
+          <div>
+            <strong>Views operacionais</strong>
+            <p className={styles.helperText}>
+              A mesma base de leads agora pode ser lida como cards, lista, agenda ou timeline sem refazer a estrutura.
+            </p>
+          </div>
+          <div className={styles.viewSwitch}>
+            {VIEW_OPTIONS.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                className={viewMode === option.value ? styles.viewButtonActive : styles.viewButton}
+                onClick={() => setViewMode(option.value)}
+                title={option.hint}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+          <button type="button" className="btn btn-secondary" onClick={() => setCommandOpen(true)}>
+            Abrir command palette
+          </button>
         </section>
 
         <section className={styles.manualCard}>
@@ -1058,116 +1482,71 @@ export default function VendasClientPage() {
             </div>
           </section>
         ) : (
-          BLOCKS.map((block) => {
-            const leads = board?.blocks[block.key] || [];
-            const isClosedBlock = block.key === "closed";
-            const groupedByStatus = STATUS_COLUMNS.reduce<Record<LeadStatus, LeadItem[]>>(
-              (accumulator, column) => {
-                accumulator[column.value] = [];
-                return accumulator;
-              },
-              {
-                novo: [],
-                contato: [],
-                retorno: [],
-                qualificado: [],
-                encerrado: [],
-              },
-            );
-
-            for (const lead of leads) {
-              groupedByStatus[lead.status].push(lead);
-            }
-
-            if (isClosedBlock && !showClosed && leads.length === 0) {
-              return null;
-            }
-
-            return (
-              <section key={block.key} className={styles.blockCard} data-block={block.key} data-accent={block.accent}>
-                  <div className={styles.sectionHeader}>
-                    <div>
-                      <strong>{block.title}</strong>
-                      <p className={styles.helperText}>{block.description}</p>
-                    </div>
-                  <div className={styles.sectionActions}>
-                    <span className={styles.metaPill}>{leads.length} card(s)</span>
-                    {!isClosedBlock ? <span className={styles.mutedPill}>Arraste entre colunas para mover status</span> : null}
-                    {isClosedBlock ? (
-                      <button
-                        type="button"
-                        className="btn btn-secondary btn-sm"
-                        onClick={() => setShowClosed((current) => !current)}
-                      >
-                        {showClosed ? "Ocultar encerrados" : "Mostrar encerrados"}
-                      </button>
-                    ) : null}
-                  </div>
-                </div>
-
-                {isClosedBlock && !showClosed ? (
-                  <div className={styles.emptyState}>
-                    <strong>Encerrados fora do foco principal</strong>
-                    <p className={styles.emptyText}>Eles continuam guardados, mas não dominam a agenda ativa enquanto você está operando o dia.</p>
-                  </div>
-                ) : leads.length === 0 ? (
-                  <div className={styles.emptyState}>
-                    <strong>Nenhum card neste bloco</strong>
-                    <p className={styles.emptyText}>Assim que a rotina gerar movimentos aqui, os cards vão aparecer com destaque operacional.</p>
-                  </div>
-                ) : !isClosedBlock ? (
-                  <div className={styles.statusBoard}>
-                    {STATUS_COLUMNS.map((column) => {
-                      const columnId = `${block.key}:${column.value}`;
-                      const columnLeads = column.dropOnly ? [] : groupedByStatus[column.value];
-                      const isDragTarget = dragOverColumnId === columnId;
-                      return (
-                        <section
-                          key={columnId}
-                          className={styles.statusColumn}
-                          data-status={column.value}
-                          data-drop-only={column.dropOnly ? "true" : "false"}
-                          data-dragover={isDragTarget ? "true" : "false"}
-                          onDragOver={(event) => handleColumnDragOver(event, columnId)}
-                          onDragLeave={() => handleColumnDragLeave(columnId)}
-                          onDrop={(event) => void handleColumnDrop(event, block.key, column.value)}
-                        >
-                          <div className={styles.statusColumnHeader}>
-                            <div>
-                              <strong className={styles.statusColumnTitle}>{column.label}</strong>
-                              <p className={styles.statusColumnText}>{column.hint}</p>
-                            </div>
-                            <span className={styles.metaPill}>{columnLeads.length}</span>
-                          </div>
-
-                          {columnLeads.length ? (
-                            <div className={styles.statusColumnCards}>
-                              {columnLeads.map((lead) => renderLeadCard(lead, block.key))}
-                            </div>
-                          ) : (
-                            <div className={styles.statusDropHint}>
-                              <strong>{column.dropOnly ? "Solte aqui para encerrar" : "Coluna pronta para receber"}</strong>
-                              <p className={styles.emptyText}>
-                                {column.dropOnly
-                                  ? "O card sai da agenda ativa e vai para encerrados, sem dominar o dia."
-                                  : "Arraste um card para reorganizar o status sem perder retorno, origem e próxima ação."}
-                              </p>
-                            </div>
-                          )}
-                        </section>
-                      );
-                    })}
-                  </div>
-                ) : (
-                  <div className={styles.leadsGrid} data-block={block.key}>
-                    {leads.map((lead) => renderLeadCard(lead, block.key))}
-                  </div>
-                )}
-              </section>
-            );
-          })
+          <>
+            {viewMode === "kanban" ? renderKanbanView() : null}
+            {viewMode === "list" ? renderListView() : null}
+            {viewMode === "agenda" ? renderAgendaView() : null}
+            {viewMode === "timeline" ? renderTimelineView() : null}
+          </>
         )}
       </div>
+
+      {commandOpen ? (
+        <div className="ui-popup-backdrop" onClick={() => setCommandOpen(false)}>
+          <div className={styles.commandPalette} onClick={(event) => event.stopPropagation()}>
+            <div className={styles.commandHeader}>
+              <div>
+                <strong>Command palette de Vendas</strong>
+                <p className={styles.helperText}>
+                  Busque lead, abra card, ligue, puxe WhatsApp ou navegue pela operação com menos atrito.
+                </p>
+              </div>
+              <button type="button" className="btn btn-secondary btn-sm" onClick={() => setCommandOpen(false)}>
+                Fechar
+              </button>
+            </div>
+            <input
+              className={styles.commandInput}
+              placeholder="Buscar lead, cidade, ação, resultado ou origem..."
+              value={commandQuery}
+              onChange={(event) => setCommandQuery(event.target.value)}
+              autoFocus
+            />
+            <div className={styles.commandList}>
+              {commandResults.length ? (
+                commandResults.map(({ lead, block }) => (
+                  <article key={`command-${lead.id}`} className={styles.commandRow}>
+                    <button type="button" className={styles.commandMain} onClick={() => focusLead(lead.id)}>
+                      <strong>{lead.name || "Lead sem nome"}</strong>
+                      <span>
+                        {BLOCKS.find((item) => item.key === block)?.title || block} • {lead.statusLabel} • {lead.nextAction || "Sem próxima ação"}
+                      </span>
+                    </button>
+                    <div className={styles.commandActions}>
+                      <a className="btn btn-secondary btn-sm" href={buildCallUrl(lead.phone) || undefined}>
+                        Ligar
+                      </a>
+                      <a
+                        className="btn btn-secondary btn-sm"
+                        href={buildWhatsAppUrl(lead.phone, lead.name) || undefined}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        WhatsApp
+                      </a>
+                    </div>
+                  </article>
+                ))
+              ) : (
+                <div className={styles.emptyState}>
+                  <strong>Nenhum resultado</strong>
+                  <p className={styles.emptyText}>Tente nome, telefone, cidade, status ou próxima ação.</p>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      ) : null}
     </DashboardScaffold>
   );
 }
