@@ -82,9 +82,12 @@ type SearchResponse = {
   };
   meta: {
     historyId: string | null;
-    source: "history" | "google" | "hybrid";
+    source: "history" | "google" | "hybrid" | "global_cache";
     reusedCount: number;
     fetchedCount: number;
+    technicalCacheUsed: boolean;
+    technicalCacheReusedCount: number;
+    technicalCacheValidUntil: string | null;
   };
   results: SearchResult[];
 };
@@ -198,6 +201,13 @@ function formatDateTime(value: string) {
   } catch {
     return value;
   }
+}
+
+function searchSourceLabel(source?: SearchResponse["meta"]["source"]) {
+  if (source === "history") return "histórico privado";
+  if (source === "global_cache") return "cache técnico global";
+  if (source === "hybrid") return "histórico + cache/google";
+  return "google";
 }
 
 function buildFilterSummary(filters: SearchFilters) {
@@ -973,7 +983,7 @@ export default function WebscrapingClientPage() {
               <strong>Resultados</strong>
               <p className={styles.helperText}>
                 {searchMeta && activeQuery
-                  ? `${results.length} contatos para ${activeQuery.segment} em ${activeQuery.city}. Fonte: ${searchMeta.source}.`
+                  ? `${results.length} contatos para ${activeQuery.segment} em ${activeQuery.city}. Fonte: ${searchSourceLabel(searchMeta.source)}.`
                   : "Os contatos qualificados vao aparecer aqui com acoes rapidas e roteiro pronto."}
               </p>
             </div>
@@ -981,6 +991,12 @@ export default function WebscrapingClientPage() {
               <div className={styles.metaPills}>
                 <span className={styles.metaPill}>Reaproveitados: {searchMeta.reusedCount}</span>
                 <span className={styles.metaPill}>Novos: {searchMeta.fetchedCount}</span>
+                {searchMeta.technicalCacheUsed ? (
+                  <span className={styles.metaPill}>
+                    Cache global: {searchMeta.technicalCacheReusedCount}
+                    {searchMeta.technicalCacheValidUntil ? ` • válido até ${formatDateTime(searchMeta.technicalCacheValidUntil)}` : ""}
+                  </span>
+                ) : null}
                 <button
                   type="button"
                   className="btn btn-secondary"
