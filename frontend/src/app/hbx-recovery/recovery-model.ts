@@ -35,6 +35,28 @@ export type RecoveryCustomer = {
   status: RecoveryCustomerStatus;
   paymentHistory: RecoveryPaymentRecord[];
   delayHistory: RecoveryDelayRecord[];
+  sharedProfile?: {
+    profileId?: string | null;
+    displayName?: string | null;
+    origin?: string | null;
+    lastContactAt?: string | null;
+    currentContext?: string | null;
+    presence?: {
+      vendas?: {
+        present?: boolean;
+        status?: string | null;
+      };
+      atendimento?: {
+        present?: boolean;
+        route?: string | null;
+      };
+      recovery?: {
+        present?: boolean;
+        status?: string | null;
+        openAmount?: number | null;
+      };
+    };
+  } | null;
 };
 
 export type RecoveryRiskScore = {

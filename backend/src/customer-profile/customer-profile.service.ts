@@ -14,6 +14,35 @@ type CustomerProfileInput = {
   notes?: string | null;
 };
 
+type SharedProfilePresenceRecord = {
+  present: boolean;
+  customerId?: string | null;
+  leadId?: string | null;
+  status?: string | null;
+  route?: string | null;
+  updatedAt?: string | null;
+  lastContactAt?: string | null;
+  lastMessageAt?: string | null;
+  openAmount?: number | null;
+};
+
+type SharedProfileContextRecord = {
+  profileId: string | null;
+  displayName: string | null;
+  phone: string | null;
+  phoneNormalized: string | null;
+  email: string | null;
+  document: string | null;
+  origin: string | null;
+  lastContactAt: string | null;
+  currentContext: 'vendas' | 'atendimento' | 'recovery' | 'neutro';
+  presence: {
+    vendas: SharedProfilePresenceRecord;
+    atendimento: SharedProfilePresenceRecord;
+    recovery: SharedProfilePresenceRecord;
+  };
+};
+
 @Injectable()
 export class CustomerProfileService {
   constructor(private readonly prisma: PrismaService) {}
@@ -155,6 +184,338 @@ export class CustomerProfileService {
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
     };
+  }
+
+  private toIsoDate(value: unknown) {
+    if (!value) return null;
+    if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value.toISOString();
+    const parsed = new Date(String(value));
+    return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
+  }
+
+  private pickLatestIso(values: Array<unknown>) {
+    let winner: string | null = null;
+    for (const value of values) {
+      const iso = this.toIsoDate(value);
+      if (!iso) continue;
+      if (!winner || new Date(iso).getTime() > new Date(winner).getTime()) {
+        winner = iso;
+      }
+    }
+    return winner;
+  }
+
+  private pickSharedOrigin(input: {
+    profile?: any;
+    vendas?: SharedProfilePresenceRecord;
+    atendimento?: SharedProfilePresenceRecord;
+    recovery?: SharedProfilePresenceRecord;
+  }) {
+    const profileOrigin = this.normalizeText(input.profile?.externalSource);
+    if (profileOrigin) return profileOrigin;
+    if (input.vendas?.present) return 'vendas';
+    if (input.atendimento?.present) return this.normalizeText(input.atendimento.route) || 'atendimento';
+    if (input.recovery?.present) return 'recovery';
+    return null;
+  }
+
+  private pickSharedContext(input: {
+    vendas: SharedProfilePresenceRecord;
+    atendimento: SharedProfilePresenceRecord;
+    recovery: SharedProfilePresenceRecord;
+  }): SharedProfileContextRecord['currentContext'] {
+    if (input.recovery.present && Number(input.recovery.openAmount || 0) > 0) return 'recovery';
+    if (input.vendas.present && String(input.vendas.status || '').trim().toLowerCase() !== 'encerrado') return 'vendas';
+    if (input.atendimento.present && String(input.atendimento.route || '').trim().toLowerCase() === 'recovery') return 'recovery';
+    if (input.atendimento.present) return 'atendimento';
+    if (input.vendas.present) return 'vendas';
+    if (input.recovery.present) return 'recovery';
+    return 'neutro';
+  }
+
+  async buildSharedContextRegistry(
+    companyId: number,
+    input: { profileIds?: string[]; phoneNormalizeds?: string[] },
+  ) {
+    const profileIds = (Array.isArray(input.profileIds) ? input.profileIds : [])
+      .map((value) => this.normalizeText(value))
+      .filter(Boolean) as string[];
+    const phoneNormalizeds = (Array.isArray(input.phoneNormalizeds) ? input.phoneNormalizeds : [])
+      .map((value) => this.normalizePhone(value))
+      .filter(Boolean) as string[];
+
+    const byProfileId = new Map<string, SharedProfileContextRecord>();
+    const byPhoneNormalized = new Map<string, SharedProfileContextRecord>();
+    if (!profileIds.length && !phoneNormalizeds.length) {
+      return { byProfileId, byPhoneNormalized };
+    }
+
+    const profileRows = await this.prisma.customerProfile.findMany({
+      where: {
+        companyId,
+        OR: [
+          profileIds.length ? { id: { in: profileIds } } : undefined,
+          phoneNormalizeds.length ? { phoneNormalized: { in: phoneNormalizeds } } : undefined,
+        ].filter(Boolean) as any,
+      },
+      orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
+    });
+
+    const allProfileIds = Array.from(
+      new Set([
+        ...profileIds,
+        ...profileRows.map((row) => this.normalizeText(row.id)).filter(Boolean),
+      ]),
+    ) as string[];
+    const allPhoneNormalizeds = Array.from(
+      new Set([
+        ...phoneNormalizeds,
+        ...profileRows.map((row) => this.normalizePhone(row.phoneNormalized || row.phone)).filter(Boolean),
+      ]),
+    ) as string[];
+    const recoveryPhoneSuffixes = allPhoneNormalizeds.map((value) => String(value).slice(-9)).filter(Boolean);
+
+    const [vendasRows, atendimentoRows, recoveryRows] = await Promise.all([
+      allProfileIds.length || allPhoneNormalizeds.length
+        ? this.prisma.vendasLead.findMany({
+            where: {
+              companyId,
+              OR: [
+                allProfileIds.length ? { customerProfileId: { in: allProfileIds } } : undefined,
+                allPhoneNormalizeds.length ? { phoneNormalized: { in: allPhoneNormalizeds } } : undefined,
+              ].filter(Boolean) as any,
+            },
+            select: {
+              id: true,
+              customerProfileId: true,
+              phoneNormalized: true,
+              primarySource: true,
+              sourceType: true,
+              status: true,
+              lastContactAt: true,
+              updatedAt: true,
+            },
+            orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
+          })
+        : [],
+      allProfileIds.length || allPhoneNormalizeds.length
+        ? this.prisma.atendimentoCustomer.findMany({
+            where: {
+              companyId,
+              OR: [
+                allProfileIds.length ? { customerProfileId: { in: allProfileIds } } : undefined,
+                allPhoneNormalizeds.length ? { phoneNormalized: { in: allPhoneNormalizeds } } : undefined,
+              ].filter(Boolean) as any,
+            },
+            select: {
+              id: true,
+              customerProfileId: true,
+              phoneNormalized: true,
+              registrationOrigin: true,
+              route: true,
+              lastMessageAt: true,
+              updatedAt: true,
+            },
+            orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
+          })
+        : [],
+      allProfileIds.length || recoveryPhoneSuffixes.length
+        ? this.prisma.hbxRecoveryCustomer.findMany({
+            where: {
+              companyId,
+              OR: [
+                allProfileIds.length ? { customerProfileId: { in: allProfileIds } } : undefined,
+                recoveryPhoneSuffixes.length
+                  ? {
+                      OR: recoveryPhoneSuffixes.map((suffix) => ({
+                        whatsappNumber: { endsWith: suffix },
+                      })),
+                    }
+                  : undefined,
+              ].filter(Boolean) as any,
+            },
+            select: {
+              id: true,
+              customerProfileId: true,
+              whatsappNumber: true,
+              openAmount: true,
+              status: true,
+              updatedAt: true,
+            },
+            orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
+          })
+        : [],
+    ]);
+
+    const profileKeyByPhone = new Map<string, string>();
+    const entryMap = new Map<
+      string,
+      {
+        profile: any | null;
+        phoneNormalized: string | null;
+        vendas: SharedProfilePresenceRecord;
+        atendimento: SharedProfilePresenceRecord;
+        recovery: SharedProfilePresenceRecord;
+      }
+    >();
+
+    const ensureEntry = (key: string, seed?: { profile?: any | null; phoneNormalized?: string | null }) => {
+      const existing = entryMap.get(key);
+      if (existing) {
+        if (!existing.profile && seed?.profile) existing.profile = seed.profile;
+        if (!existing.phoneNormalized && seed?.phoneNormalized) existing.phoneNormalized = seed.phoneNormalized;
+        return existing;
+      }
+      const created = {
+        profile: seed?.profile || null,
+        phoneNormalized: seed?.phoneNormalized || null,
+        vendas: { present: false } as SharedProfilePresenceRecord,
+        atendimento: { present: false } as SharedProfilePresenceRecord,
+        recovery: { present: false } as SharedProfilePresenceRecord,
+      };
+      entryMap.set(key, created);
+      return created;
+    };
+
+    for (const row of profileRows) {
+      const profileId = this.normalizeText(row.id) as string;
+      const phoneNormalized = this.normalizePhone(row.phoneNormalized || row.phone);
+      const key = `profile:${profileId}`;
+      ensureEntry(key, { profile: row, phoneNormalized });
+      if (phoneNormalized) profileKeyByPhone.set(phoneNormalized, key);
+    }
+
+    for (const phoneNormalized of allPhoneNormalizeds) {
+      if (!profileKeyByPhone.has(phoneNormalized)) {
+        ensureEntry(`phone:${phoneNormalized}`, { phoneNormalized });
+      }
+    }
+
+    const resolveEntryKey = (profileIdRaw?: unknown, phoneRaw?: unknown) => {
+      const profileId = this.normalizeText(profileIdRaw);
+      if (profileId) return `profile:${profileId}`;
+      const phoneNormalized = this.normalizePhone(phoneRaw);
+      if (phoneNormalized && profileKeyByPhone.has(phoneNormalized)) {
+        return profileKeyByPhone.get(phoneNormalized) as string;
+      }
+      return phoneNormalized ? `phone:${phoneNormalized}` : null;
+    };
+
+    for (const row of vendasRows) {
+      const key = resolveEntryKey(row.customerProfileId, row.phoneNormalized);
+      if (!key) continue;
+      const entry = ensureEntry(key, { phoneNormalized: this.normalizePhone(row.phoneNormalized) });
+      if (
+        !entry.vendas.present ||
+        new Date(this.toIsoDate(row.updatedAt) || 0).getTime() >
+          new Date(entry.vendas.updatedAt || 0).getTime()
+      ) {
+        entry.vendas = {
+          present: true,
+          leadId: String(row.id),
+          status: this.normalizeText(row.status),
+          updatedAt: this.toIsoDate(row.updatedAt),
+          lastContactAt: this.pickLatestIso([row.lastContactAt, row.updatedAt]),
+        };
+      }
+      if (!entry.profile && this.normalizePhone(row.phoneNormalized)) {
+        entry.phoneNormalized = this.normalizePhone(row.phoneNormalized);
+      }
+    }
+
+    for (const row of atendimentoRows) {
+      const key = resolveEntryKey(row.customerProfileId, row.phoneNormalized);
+      if (!key) continue;
+      const entry = ensureEntry(key, { phoneNormalized: this.normalizePhone(row.phoneNormalized) });
+      if (
+        !entry.atendimento.present ||
+        new Date(this.toIsoDate(row.updatedAt) || 0).getTime() >
+          new Date(entry.atendimento.updatedAt || 0).getTime()
+      ) {
+        entry.atendimento = {
+          present: true,
+          customerId: String(row.id),
+          route: this.normalizeText(row.route),
+          updatedAt: this.toIsoDate(row.updatedAt),
+          lastMessageAt: this.pickLatestIso([row.lastMessageAt, row.updatedAt]),
+          lastContactAt: this.pickLatestIso([row.lastMessageAt, row.updatedAt]),
+          status: this.normalizeText(row.registrationOrigin),
+        };
+      }
+      if (!entry.profile && this.normalizePhone(row.phoneNormalized)) {
+        entry.phoneNormalized = this.normalizePhone(row.phoneNormalized);
+      }
+    }
+
+    for (const row of recoveryRows) {
+      const normalizedPhone = this.normalizePhone(row.whatsappNumber);
+      const key = resolveEntryKey(row.customerProfileId, normalizedPhone);
+      if (!key) continue;
+      const entry = ensureEntry(key, { phoneNormalized: normalizedPhone });
+      if (
+        !entry.recovery.present ||
+        new Date(this.toIsoDate(row.updatedAt) || 0).getTime() >
+          new Date(entry.recovery.updatedAt || 0).getTime()
+      ) {
+        entry.recovery = {
+          present: true,
+          customerId: String(row.id),
+          status: this.normalizeText(row.status),
+          updatedAt: this.toIsoDate(row.updatedAt),
+          lastContactAt: this.toIsoDate(row.updatedAt),
+          openAmount: Number(row.openAmount || 0),
+        };
+      }
+      if (!entry.profile && normalizedPhone) {
+        entry.phoneNormalized = normalizedPhone;
+      }
+    }
+
+    for (const entry of entryMap.values()) {
+      const phoneNormalized =
+        this.normalizePhone(entry.profile?.phoneNormalized || entry.profile?.phone) ||
+        entry.phoneNormalized ||
+        null;
+      const sharedContext: SharedProfileContextRecord = {
+        profileId: entry.profile?.id ? String(entry.profile.id) : null,
+        displayName: this.normalizeText(entry.profile?.name) || null,
+        phone: this.normalizeText(entry.profile?.phone) || null,
+        phoneNormalized,
+        email: this.normalizeEmail(entry.profile?.email) || null,
+        document: this.normalizeDocument(entry.profile?.document) || null,
+        origin: this.pickSharedOrigin({
+          profile: entry.profile,
+          vendas: entry.vendas,
+          atendimento: entry.atendimento,
+          recovery: entry.recovery,
+        }),
+        lastContactAt: this.pickLatestIso([
+          entry.vendas.lastContactAt,
+          entry.atendimento.lastContactAt,
+          entry.recovery.lastContactAt,
+          entry.profile?.updatedAt,
+        ]),
+        currentContext: this.pickSharedContext({
+          vendas: entry.vendas,
+          atendimento: entry.atendimento,
+          recovery: entry.recovery,
+        }),
+        presence: {
+          vendas: entry.vendas,
+          atendimento: entry.atendimento,
+          recovery: entry.recovery,
+        },
+      };
+
+      if (sharedContext.profileId) {
+        byProfileId.set(sharedContext.profileId, sharedContext);
+      }
+      if (sharedContext.phoneNormalized) {
+        byPhoneNormalized.set(sharedContext.phoneNormalized, sharedContext);
+      }
+    }
+
+    return { byProfileId, byPhoneNormalized };
   }
 
   private async findPreferredProfileByFilters(input: {

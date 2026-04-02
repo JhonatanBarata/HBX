@@ -74,7 +74,15 @@ function createService(overrides?: Partial<Record<string, any>>) {
     ...(overrides?.cadastrosService || {}),
   } as any;
 
-  const service = new InboxService(prisma, conversations, audit, cadastrosService);
+  const customerProfileService = {
+    buildSharedContextRegistry: async () => ({
+      byProfileId: new Map(),
+      byPhoneNormalized: new Map(),
+    }),
+    ...(overrides?.customerProfileService || {}),
+  } as any;
+
+  const service = new InboxService(prisma, conversations, audit, cadastrosService, customerProfileService);
   return { service, prisma, conversations, auditCalls, queueCalls, cadastrosService };
 }
 

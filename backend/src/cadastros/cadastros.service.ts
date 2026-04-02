@@ -33,7 +33,7 @@ export class CadastrosService {
     return String(raw || '').replace(/\D/g, '').slice(-13);
   }
 
-  private buildCustomerRecord(row: any, recoveryData?: any, profileData?: any) {
+  private buildCustomerRecord(row: any, recoveryData?: any, profileData?: any, sharedProfile?: any) {
     return {
       id: String(row.id),
       companyId: Number(row.companyId),
@@ -68,6 +68,7 @@ export class CadastrosService {
         recoveryData?.automationEnabled === undefined || recoveryData?.automationEnabled === null
           ? null
           : Boolean(recoveryData.automationEnabled),
+      sharedProfile: sharedProfile || null,
     };
   }
 
@@ -107,6 +108,13 @@ export class CadastrosService {
       }
     }
     return { byId, byPhone };
+  }
+
+  private async loadSharedProfileMap(companyId: number, rows: any[]) {
+    return this.customerProfileService.buildSharedContextRegistry(companyId, {
+      profileIds: rows.map((row) => row.customerProfileId).filter(Boolean),
+      phoneNormalizeds: rows.map((row) => row.phoneNormalized || row.phone).filter(Boolean),
+    });
   }
 
   async listRawCustomerRegistry(companyId: number) {
@@ -305,7 +313,10 @@ export class CadastrosService {
     }
 
     registryRows.sort((left: any, right: any) => new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime());
-    const profileMap = await this.loadProfileMap(companyId, registryRows);
+    const [profileMap, sharedMap] = await Promise.all([
+      this.loadProfileMap(companyId, registryRows),
+      this.loadSharedProfileMap(companyId, registryRows),
+    ]);
     return registryRows.map((row) =>
       this.buildCustomerRecord(
         row,
@@ -313,6 +324,9 @@ export class CadastrosService {
         row.customerProfileId
           ? profileMap.byId.get(String(row.customerProfileId)) ?? null
           : profileMap.byPhone.get(String(row.phoneNormalized)) ?? null,
+        row.customerProfileId
+          ? sharedMap.byProfileId.get(String(row.customerProfileId)) ?? null
+          : sharedMap.byPhoneNormalized.get(String(row.phoneNormalized)) ?? null,
       ),
     );
   }
@@ -355,7 +369,18 @@ export class CadastrosService {
         updatedAt: now,
       },
     });
-    return this.buildCustomerRecord(created, null, profile);
+    const sharedMap = await this.customerProfileService.buildSharedContextRegistry(companyId, {
+      profileIds: profile?.id ? [String(profile.id)] : [],
+      phoneNormalizeds: [phoneNorm],
+    });
+    return this.buildCustomerRecord(
+      created,
+      null,
+      profile,
+      profile?.id
+        ? sharedMap.byProfileId.get(String(profile.id)) ?? null
+        : sharedMap.byPhoneNormalized.get(String(phoneNorm)) ?? null,
+    );
   }
 
   async updateCustomerRegistry(companyId: number, customerId: string, dto: UpdateCadastroClienteDto) {
@@ -391,7 +416,18 @@ export class CadastrosService {
         automationEnabled: true,
       },
     });
-    return this.buildCustomerRecord(updated, recoveryData, profile);
+    const sharedMap = await this.customerProfileService.buildSharedContextRegistry(companyId, {
+      profileIds: [String(profile?.id || updated.customerProfileId || '')].filter(Boolean),
+      phoneNormalizeds: [String(updated.phoneNormalized || updated.phone || '')].filter(Boolean),
+    });
+    return this.buildCustomerRecord(
+      updated,
+      recoveryData,
+      profile,
+      profile?.id
+        ? sharedMap.byProfileId.get(String(profile.id)) ?? null
+        : sharedMap.byPhoneNormalized.get(String(updated.phoneNormalized || '')) ?? null,
+    );
   }
 
   async getCustomerRegistryByPhone(companyId: number, phone: string) {
@@ -418,7 +454,18 @@ export class CadastrosService {
         automationEnabled: true,
       },
     });
-    return this.buildCustomerRecord(row, recoveryData, profile);
+    const sharedMap = await this.customerProfileService.buildSharedContextRegistry(companyId, {
+      profileIds: [String(profile?.id || row.customerProfileId || '')].filter(Boolean),
+      phoneNormalizeds: [String(row.phoneNormalized || row.phone || '')].filter(Boolean),
+    });
+    return this.buildCustomerRecord(
+      row,
+      recoveryData,
+      profile,
+      profile?.id
+        ? sharedMap.byProfileId.get(String(profile.id)) ?? null
+        : sharedMap.byPhoneNormalized.get(String(row.phoneNormalized || '')) ?? null,
+    );
   }
 
   async listCustomerRegistryByUser(user: any, phoneFilter?: string) {

@@ -634,6 +634,18 @@
   background: color-mix(in srgb, #fef3c7 82%, white);
 }
 
+.memoryChip[data-tone="shared"] {
+  color: #4338ca;
+  border-color: color-mix(in srgb, #818cf8 30%, white);
+  background: color-mix(in srgb, #e0e7ff 84%, white);
+}
+
+.memoryChip[data-tone="shared-recovery"] {
+  color: #9a3412;
+  border-color: color-mix(in srgb, #fb923c 30%, white);
+  background: color-mix(in srgb, #ffedd5 84%, white);
+}
+
 .quickEditor {
   display: grid;
   gap: 0.9rem;
@@ -655,6 +667,30 @@
 .editorPanel {
   display: grid;
   gap: 0.8rem;
+}
+
+.sharedProfileCard {
+  display: grid;
+  gap: 0.85rem;
+  padding: 0.95rem;
+  border-radius: 20px;
+  border: 1px solid color-mix(in srgb, var(--brand) 18%, var(--line));
+  background:
+    radial-gradient(circle at top right, color-mix(in srgb, var(--brand) 10%, transparent), transparent 46%),
+    color-mix(in srgb, var(--surface) 97%, white);
+}
+
+.sharedProfileGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.sharedPresenceRow {
+  display: flex;
+  gap: 0.55rem;
+  flex-wrap: wrap;
+  align-items: center;
 }
 
 .timelinePanel {

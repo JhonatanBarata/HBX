@@ -775,6 +775,14 @@ type RecoveryShellProps = {
   children: ReactNode;
 };
 
+function formatSharedModuleLabel(value?: string | null) {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (normalized === "vendas") return "Vendas";
+  if (normalized === "atendimento") return "Atendimento";
+  if (normalized === "recovery") return "Recovery";
+  return "Neutro";
+}
+
 function RecoveryShell({ embedded, actions, children }: RecoveryShellProps) {
   if (embedded) {
     return (
@@ -7100,6 +7108,22 @@ export default function HbxRecoveryClientPage({ embedded = false }: HbxRecoveryC
                             <strong>{customer.name}</strong>
                             <span>Cliente: {customer.clientName || "-"}</span>
                             <span>{customer.lastContact}</span>
+                            {customer.sharedProfile?.presence?.vendas?.present ? (
+                              <span>
+                                Também em Vendas
+                                {customer.sharedProfile.presence.vendas.status
+                                  ? ` • ${customer.sharedProfile.presence.vendas.status}`
+                                  : ""}
+                              </span>
+                            ) : null}
+                            {customer.sharedProfile?.presence?.atendimento?.present ? (
+                              <span>Também em Atendimento</span>
+                            ) : null}
+                            {customer.sharedProfile?.currentContext ? (
+                              <span>
+                                Contexto geral: {formatSharedModuleLabel(customer.sharedProfile.currentContext)}
+                              </span>
+                            ) : null}
                           </div>
                         </td>
                         <td className={styles.monoCell}>{formatCurrency(customer.openAmount)}</td>
@@ -9561,4 +9585,3 @@ export default function HbxRecoveryClientPage({ embedded = false }: HbxRecoveryC
     </>
   );
 }
-

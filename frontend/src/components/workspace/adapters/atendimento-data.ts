@@ -51,6 +51,19 @@ function hasAtendimentoFinancialFlowSignal(conversation: InboxConversation) {
   return ATENDIMENTO_FINANCIAL_HINTS.some((hint) => haystack.includes(hint));
 }
 
+function formatSharedDateLabel(valueRaw: string | null | undefined) {
+  const normalized = String(valueRaw || "").trim();
+  if (!normalized) return "-";
+  const parsed = new Date(normalized);
+  if (Number.isNaN(parsed.getTime())) return normalized;
+  return parsed.toLocaleString("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 export function hasAtendimentoOpenDebt(conversation: InboxConversation) {
   return Number(conversation.recoveryOpenAmount || 0) > 0;
 }
@@ -215,6 +228,10 @@ export function buildAtendimentoQueueBadges(
     badges.push({ label: "Em aberto", tone: "brand" });
   }
 
+  if (conversation.customer.sharedProfile?.presence?.vendas?.present) {
+    badges.push({ label: "Vendas", tone: "brand" });
+  }
+
   if (isAtendimentoAgendaConversation(conversation)) {
     badges.push({ label: "Agenda", tone: "teal" });
   }
@@ -341,6 +358,30 @@ export function buildAtendimentoContextSummary(input: {
     });
   }
 
+  if (conversation.customer.sharedProfile?.origin) {
+    summary.push({
+      label: "Origem geral",
+      value: formatIdentityStatusLabel(conversation.customer.sharedProfile.origin),
+    });
+  }
+
+  if (conversation.customer.sharedProfile?.currentContext) {
+    summary.push({
+      label: "Contexto geral",
+      value: formatIdentityStatusLabel(conversation.customer.sharedProfile.currentContext),
+    });
+  }
+
+  if (conversation.customer.sharedProfile?.presence?.vendas?.present) {
+    summary.push({
+      label: "Presença em vendas",
+      value:
+        conversation.customer.sharedProfile.presence.vendas.status
+          ? formatIdentityStatusLabel(conversation.customer.sharedProfile.presence.vendas.status)
+          : "Ativo no funil comercial",
+    });
+  }
+
   if (hasRecoveryContext && conversation.recoveryCurrentStep) {
     summary.push({
       label: "Etapa recovery",
@@ -368,6 +409,13 @@ export function buildAtendimentoContextSummary(input: {
       value: conversation.blockedReason
         ? `${blockedAtLabel} - ${conversation.blockedReason}`
         : blockedAtLabel,
+    });
+  }
+
+  if (conversation.customer.sharedProfile?.lastContactAt) {
+    summary.push({
+      label: "Ultimo toque geral",
+      value: formatSharedDateLabel(conversation.customer.sharedProfile.lastContactAt),
     });
   }
 

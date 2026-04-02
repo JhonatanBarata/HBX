@@ -133,7 +133,7 @@ export class VendasService {
     };
   }
 
-  private buildLeadPayload(row: any) {
+  private buildLeadPayload(row: any, sharedProfile?: any) {
     const status = this.normalizeStatus(row?.status);
     const block = this.classifyLeadBlock(row);
     const primarySource = String(row?.primarySource || row?.sourceType || 'manual');
@@ -180,6 +180,7 @@ export class VendasService {
       updatedAt: row?.updatedAt instanceof Date ? row.updatedAt.toISOString() : null,
       signals,
       timeline,
+      sharedProfile: sharedProfile || null,
       block,
       quickActions:
         block === 'closed'
@@ -249,8 +250,8 @@ export class VendasService {
     };
   }
 
-  private buildImportPreviewPayload(row: any, phoneDigits: string) {
-    const payload = row ? this.buildLeadPayload(row) : null;
+  private buildImportPreviewPayload(row: any, phoneDigits: string, sharedProfile?: any) {
+    const payload = row ? this.buildLeadPayload(row, sharedProfile) : null;
     return {
       phoneDigits,
       existsInCrm: Boolean(payload),
@@ -270,6 +271,7 @@ export class VendasService {
       timesSeen: payload?.timesSeen || 0,
       sourceType: payload?.sourceType || null,
       primarySource: payload?.primarySource || null,
+      sharedProfile: payload?.sharedProfile || sharedProfile || null,
     };
   }
 
@@ -496,10 +498,20 @@ export class VendasService {
       byPhone.set(key, row);
     }
 
+    const sharedMap = await this.customerProfileService.buildSharedContextRegistry(context.companyId, {
+      profileIds: rows.map((row) => row.customerProfileId).filter(Boolean),
+      phoneNormalizeds,
+    });
+
     return {
-      items: phoneNormalizeds.map((phoneDigits) =>
-        this.buildImportPreviewPayload(byPhone.get(phoneDigits) || null, phoneDigits),
-      ),
+      items: phoneNormalizeds.map((phoneDigits) => {
+        const row = byPhone.get(phoneDigits) || null;
+        const sharedProfile =
+          row?.customerProfileId
+            ? sharedMap.byProfileId.get(String(row.customerProfileId)) ?? null
+            : sharedMap.byPhoneNormalized.get(String(phoneDigits)) ?? null;
+        return this.buildImportPreviewPayload(row, phoneDigits, sharedProfile);
+      }),
     };
   }
 
@@ -517,6 +529,11 @@ export class VendasService {
       },
     });
 
+    const sharedMap = await this.customerProfileService.buildSharedContextRegistry(context.companyId, {
+      profileIds: rows.map((row) => row.customerProfileId).filter(Boolean),
+      phoneNormalizeds: rows.map((row) => row.phoneNormalized || row.phone).filter(Boolean),
+    });
+
     const blocks = {
       today: [] as any[],
       overdue: [] as any[],
@@ -525,7 +542,11 @@ export class VendasService {
     };
 
     for (const row of rows) {
-      const payload = this.buildLeadPayload(row);
+      const sharedProfile =
+        row?.customerProfileId
+          ? sharedMap.byProfileId.get(String(row.customerProfileId)) ?? null
+          : sharedMap.byPhoneNormalized.get(String(row.phoneNormalized || '')) ?? null;
+      const payload = this.buildLeadPayload(row, sharedProfile);
       blocks[payload.block].push(payload);
     }
 
