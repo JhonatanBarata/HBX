@@ -66,7 +66,12 @@ type WebscrapingLatestUsageRow = {
   companyId: number;
   userId: number;
   eventType: string;
+  source: string | null;
   resultCount: number;
+  reusedCount: number;
+  fetchedCount: number;
+  technicalCacheUsed: boolean;
+  technicalCacheReusedCount: number;
   createdAt: Date;
   city: string | null;
   segment: string | null;
@@ -75,6 +80,15 @@ type WebscrapingLatestUsageRow = {
   userUsername: string | null;
   userEmail: string | null;
 };
+
+type UserConfirmationSummary = {
+  confirmed: boolean;
+  confirmedUsersCount: number;
+  pendingUsersCount: number;
+  lastConfirmedAt: string | null;
+};
+
+type WebscrapingUsageSummary = ReturnType<ModulesService['buildDefaultWebscrapingUsageSummary']>;
 
 @Injectable()
 export class ModulesService implements OnModuleInit {
@@ -401,18 +415,67 @@ export class ModulesService implements OnModuleInit {
     return {
       searchesToday: 0,
       blockedToday: 0,
+      totalReusedToday: 0,
+      fetchedToday: 0,
+      globalCacheHitsToday: 0,
+      globalCacheReusedToday: 0,
+      globalCacheReuseRate: 0,
       lastAttemptAt: null as string | null,
       lastAttemptMessage: null as string | null,
       lastSearchAt: null as string | null,
       lastSearchLabel: null as string | null,
       lastSearchUser: null as string | null,
       lastResultCount: 0,
+      lastSearchSource: null as string | null,
+      lastTechnicalCacheUsed: false,
+      lastTechnicalCacheReusedCount: 0,
       hasBlockedAttempts: false,
     };
   }
 
+  private buildDefaultUserConfirmationSummary(): UserConfirmationSummary {
+    return {
+      confirmed: false,
+      confirmedUsersCount: 0,
+      pendingUsersCount: 0,
+      lastConfirmedAt: null,
+    };
+  }
+
+  private async listUserConfirmationSummaryByCompanyIds(companyIds: number[]) {
+    const summaries = new Map<number, UserConfirmationSummary>();
+    if (!companyIds.length) return summaries;
+
+    const users = await this.prisma.user.findMany({
+      where: { companyId: { in: companyIds } },
+      select: {
+        companyId: true,
+        emailConfirmedAt: true,
+      },
+      orderBy: [{ companyId: 'asc' }, { emailConfirmedAt: 'desc' }],
+    });
+
+    for (const user of users) {
+      const companyId = Number(user.companyId || 0);
+      if (!companyId) continue;
+      const current = summaries.get(companyId) || this.buildDefaultUserConfirmationSummary();
+      if (user.emailConfirmedAt instanceof Date) {
+        current.confirmed = true;
+        current.confirmedUsersCount += 1;
+        if (!current.lastConfirmedAt) {
+          current.lastConfirmedAt = user.emailConfirmedAt.toISOString();
+        }
+      } else {
+        current.pendingUsersCount += 1;
+      }
+      summaries.set(companyId, current);
+    }
+
+    return summaries;
+  }
+
   private async listWebscrapingUsageSummaryByCompanyIds(companyIds: number[]) {
-    const summaries = new Map<number, ReturnType<ModulesService['buildDefaultWebscrapingUsageSummary']>>();
+    const summaries = new Map<number, WebscrapingUsageSummary>();
     if (!companyIds.length) return summaries;
 
     const usageLogEnabled = await this.prisma.hasTable('WebscrapingUsageLog');
@@ -435,7 +498,12 @@ export class ModulesService implements OnModuleInit {
           companyId: true,
           userId: true,
           eventType: true,
+          source: true,
           resultCount: true,
+          reusedCount: true,
+          fetchedCount: true,
+          technicalCacheUsed: true,
+          technicalCacheReusedCount: true,
           createdAt: true,
           city: true,
           segment: true,
@@ -455,7 +523,12 @@ export class ModulesService implements OnModuleInit {
             l."companyId",
             l."userId",
             l."eventType",
+            l."source",
             l."resultCount",
+            l."reusedCount",
+            l."fetchedCount",
+            l."technicalCacheUsed",
+            l."technicalCacheReusedCount",
             l."createdAt",
             l."city",
             l."segment",
@@ -479,6 +552,15 @@ export class ModulesService implements OnModuleInit {
       const eventType = String(log.eventType || '').trim().toUpperCase();
       if (eventType === 'EXECUTED') {
         current.searchesToday += 1;
+        current.totalReusedToday += Math.max(0, Math.trunc(Number(log.reusedCount || 0)));
+        current.fetchedToday += Math.max(0, Math.trunc(Number(log.fetchedCount || 0)));
+        if (Boolean(log.technicalCacheUsed) || String(log.source || '').trim().toLowerCase() === 'global_cache') {
+          current.globalCacheHitsToday += 1;
+          current.globalCacheReusedToday += Math.max(
+            0,
+            Math.trunc(Number(log.technicalCacheReusedCount || 0)),
+          );
+        }
       }
       if (eventType === 'BLOCKED_DAILY_LIMIT') {
         current.blockedToday += 1;
@@ -503,7 +585,20 @@ export class ModulesService implements OnModuleInit {
           : null;
       current.lastSearchUser = this.buildWebscrapingUserLabel(row);
       current.lastResultCount = Math.max(0, Math.trunc(Number(row.resultCount || 0)));
+      current.lastSearchSource = row.source ? String(row.source) : null;
+      current.lastTechnicalCacheUsed = Boolean(row.technicalCacheUsed);
+      current.lastTechnicalCacheReusedCount = Math.max(
+        0,
+        Math.trunc(Number(row.technicalCacheReusedCount || 0)),
+      );
       summaries.set(companyId, current);
+    }
+
+    for (const [companyId, summary] of summaries.entries()) {
+      const denominator = summary.totalReusedToday + summary.fetchedToday;
+      summary.globalCacheReuseRate =
+        denominator > 0 ? Number(((summary.globalCacheReusedToday / denominator) * 100).toFixed(1)) : 0;
+      summaries.set(companyId, summary);
     }
 
     return summaries;
@@ -1605,6 +1700,8 @@ export class ModulesService implements OnModuleInit {
     companyLedgerRows: BillingLedgerEntryRow[],
     companyAuditRows: Array<any>,
     active: boolean,
+    userConfirmation: UserConfirmationSummary,
+    webscrapingUsage: WebscrapingUsageSummary,
     masterIntegrations?: any,
   ) {
     const selectedMercadoPagoCredential = company?.useMasterMercadoPagoToken
@@ -1678,6 +1775,38 @@ export class ModulesService implements OnModuleInit {
     );
     const effectiveMercadoPagoToken = this.effectiveMercadoPagoAccessToken(company, masterIntegrations);
     const effectiveWhatsApp = this.effectiveWhatsAppConfig(company, masterIntegrations);
+    const onboardingStatus = String(company?.onboardingStatus || '').trim().toLowerCase() || 'active_paid';
+    const trialModuleSelection = this.normalizeOptionalString(company?.trialModuleSelection);
+    const hasOperationalWebscraping = Boolean(webscrapingUsage?.lastSearchAt);
+    const whatsappMigrationPending = Boolean(
+      company?.whatsappMigrationInterestStatus &&
+        ['REQUESTED', 'CONTACTED'].includes(String(company.whatsappMigrationInterestStatus).trim().toUpperCase()),
+    );
+    const hasWhatsAppSignal = Boolean(
+      String(company?.whatsappConnectionMode || '').trim().toUpperCase() !== 'NONE' || whatsappMigrationPending,
+    );
+    const activationNeedsAttention = Boolean(
+      ['active_trial', 'active_paid'].includes(onboardingStatus) &&
+        active &&
+        !hasOperationalWebscraping &&
+        !hasWhatsAppSignal,
+    );
+    const activationStatus =
+      onboardingStatus === 'pending_email_confirmation'
+        ? 'pending_email_confirmation'
+        : activationNeedsAttention
+          ? 'needs_activation'
+          : hasOperationalWebscraping || hasWhatsAppSignal
+            ? 'operating'
+            : 'basic_access';
+    const onboardingLabel =
+      onboardingStatus === 'pending_email_confirmation'
+        ? 'Pendente de confirmação'
+        : onboardingStatus === 'active_trial'
+          ? 'Trial ativo'
+          : onboardingStatus === 'suspended'
+            ? 'Suspenso'
+            : 'Ativo pago';
 
     let riskLevel: 'stable' | 'warning' | 'critical' = 'stable';
     if (['OVERDUE', 'NO_METHOD', 'SUSPENDED'].includes(statusBucket) || recentCardFailure) {
@@ -1691,6 +1820,12 @@ export class ModulesService implements OnModuleInit {
       name: company.name,
       slug: company.slug || null,
       createdAt: company?.createdAt instanceof Date ? company.createdAt.toISOString() : null,
+      onboardingStatus,
+      onboardingLabel,
+      trialModuleSelection,
+      emailConfirmation: userConfirmation,
+      activationStatus,
+      activationNeedsAttention,
       primaryContactName: company.primaryContactName || null,
       contactEmail: company.contactEmail || null,
       contactPhone: company.contactPhone || null,
@@ -1773,6 +1908,7 @@ export class ModulesService implements OnModuleInit {
         effectiveConfig: effectiveWhatsApp,
         includeInternal: true,
       }),
+      webscrapingUsage,
       mercadoPago: {
         status: company.mercadoPagoStatus || null,
         accountEmail: company.mercadoPagoAccountEmail || null,
@@ -1820,7 +1956,15 @@ export class ModulesService implements OnModuleInit {
     });
 
     const companyIds = companies.map((company) => Number(company.id));
-    const [websiteConfigs, ledgerRows, auditRows, systemModules, masterIntegrationConfig] = await Promise.all([
+    const [
+      websiteConfigs,
+      ledgerRows,
+      auditRows,
+      systemModules,
+      masterIntegrationConfig,
+      userConfirmationByCompany,
+      webscrapingUsageByCompany,
+    ] = await Promise.all([
       listCompanyWebsiteConfigs(this.prisma, companyIds),
       this.listBillingLedgerEntriesByCompanyIds(companyIds, 2400),
       this.listCompanyAuditRows(companyIds, 600),
@@ -1828,6 +1972,8 @@ export class ModulesService implements OnModuleInit {
         orderBy: [{ companyAssignable: 'desc' }, { name: 'asc' }, { id: 'asc' }],
       }),
       getMasterGlobalIntegrationConfig(this.prisma),
+      this.listUserConfirmationSummaryByCompanyIds(companyIds),
+      this.listWebscrapingUsageSummaryByCompanyIds(companyIds),
     ]);
 
     const ledgerByCompany = new Map<number, BillingLedgerEntryRow[]>();
@@ -1856,6 +2002,8 @@ export class ModulesService implements OnModuleInit {
           ledgerByCompany.get(Number(company.id)) || [],
           auditByCompany.get(Number(company.id)) || [],
           status.active,
+          userConfirmationByCompany.get(Number(company.id)) || this.buildDefaultUserConfirmationSummary(),
+          webscrapingUsageByCompany.get(Number(company.id)) || this.buildDefaultWebscrapingUsageSummary(),
           masterIntegrationConfig,
         ),
       );
@@ -2063,6 +2211,40 @@ export class ModulesService implements OnModuleInit {
         severity: 'danger',
         companies: companySummaries.filter((company) => company.recentCardFailure),
       },
+      {
+        id: 'whatsapp_migration_pending',
+        title: 'Migração WhatsApp pendente',
+        severity: 'warning',
+        companies: companySummaries.filter((company) =>
+          ['REQUESTED', 'CONTACTED'].includes(
+            String(company.whatsappCenter?.migration?.workflowStatus || '').trim().toUpperCase(),
+          ),
+        ),
+      },
+      {
+        id: 'webscraping_trial_blocked',
+        title: 'Trial com bloqueio de scraping hoje',
+        severity: 'warning',
+        companies: companySummaries.filter((company) => Number(company.webscrapingUsage?.blockedToday || 0) > 0),
+      },
+      {
+        id: 'webscraping_heavy_usage',
+        title: 'Uso forte de webscraping',
+        severity: 'info',
+        companies: companySummaries.filter((company) => Number(company.webscrapingUsage?.searchesToday || 0) >= 3),
+      },
+      {
+        id: 'activation_needs_attention',
+        title: 'Ativação ainda fraca',
+        severity: 'info',
+        companies: companySummaries.filter((company) => Boolean(company.activationNeedsAttention)),
+      },
+      {
+        id: 'email_pending',
+        title: 'E-mail ainda não confirmado',
+        severity: 'danger',
+        companies: companySummaries.filter((company) => !Boolean(company.emailConfirmation?.confirmed)),
+      },
     ]
       .filter((item) => item.companies.length > 0)
       .map((item) => ({
@@ -2249,11 +2431,13 @@ export class ModulesService implements OnModuleInit {
 
     if (!company) throw new BadRequestException('Empresa nao encontrada');
 
-    const [websiteConfigs, ledgerRows, auditRows, masterIntegrationConfig] = await Promise.all([
+    const [websiteConfigs, ledgerRows, auditRows, masterIntegrationConfig, userConfirmationByCompany, webscrapingUsageByCompany] = await Promise.all([
       listCompanyWebsiteConfigs(this.prisma, [Number(companyId)]),
       this.listBillingLedgerEntriesByCompanyIds([Number(companyId)], 240),
       this.listCompanyAuditRows([Number(companyId)], 240),
       getMasterGlobalIntegrationConfig(this.prisma),
+      this.listUserConfirmationSummaryByCompanyIds([Number(companyId)]),
+      this.listWebscrapingUsageSummaryByCompanyIds([Number(companyId)]),
     ]);
     const serializedMasterIntegrations = serializeMasterGlobalIntegrationConfig(masterIntegrationConfig);
     const selectedWhatsAppCredential = pickMasterWhatsAppCredential(
@@ -2272,6 +2456,8 @@ export class ModulesService implements OnModuleInit {
       ledgerRows,
       auditRows,
       status.active,
+      userConfirmationByCompany.get(Number(company.id)) || this.buildDefaultUserConfirmationSummary(),
+      webscrapingUsageByCompany.get(Number(company.id)) || this.buildDefaultWebscrapingUsageSummary(),
       masterIntegrationConfig,
     );
 

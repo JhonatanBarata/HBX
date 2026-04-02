@@ -137,6 +137,14 @@ type SearchExecutionOptions = {
 
 type UsageEventType = 'EXECUTED' | 'BLOCKED_DAILY_LIMIT';
 
+type UsageExecutionMeta = {
+  source?: SearchSource;
+  reusedCount?: number;
+  fetchedCount?: number;
+  technicalCacheUsed?: boolean;
+  technicalCacheReusedCount?: number;
+};
+
 type SearchHistoryRow = {
   id: string;
   userId: number;
@@ -335,7 +343,7 @@ export class WebscrapingService {
         technicalCacheReusedCount: 0,
         technicalCacheValidUntil: null,
       });
-      await this.recordUsageLog(context, normalized, 'EXECUTED', response.results.length);
+      await this.recordUsageLog(context, normalized, 'EXECUTED', response.results.length, null, response.meta);
       return response;
     }
 
@@ -379,7 +387,7 @@ export class WebscrapingService {
         technicalCacheValidUntil:
           globalCacheEntry?.cacheValidUntil instanceof Date ? globalCacheEntry.cacheValidUntil.toISOString() : null,
       });
-      await this.recordUsageLog(context, normalized, 'EXECUTED', response.results.length);
+      await this.recordUsageLog(context, normalized, 'EXECUTED', response.results.length, null, response.meta);
       return response;
     }
 
@@ -405,7 +413,7 @@ export class WebscrapingService {
           technicalCacheValidUntil:
             globalCacheEntry?.cacheValidUntil instanceof Date ? globalCacheEntry.cacheValidUntil.toISOString() : null,
         });
-        await this.recordUsageLog(context, normalized, 'EXECUTED', response.results.length);
+        await this.recordUsageLog(context, normalized, 'EXECUTED', response.results.length, null, response.meta);
         return response;
       }
       throw this.buildConfigurationUnavailableError();
@@ -460,7 +468,7 @@ export class WebscrapingService {
             ? this.buildGlobalCacheValidUntil().toISOString()
             : null,
     });
-    await this.recordUsageLog(context, normalized, 'EXECUTED', response.results.length);
+    await this.recordUsageLog(context, normalized, 'EXECUTED', response.results.length, null, response.meta);
     return response;
   }
 
@@ -690,6 +698,7 @@ export class WebscrapingService {
     eventType: UsageEventType,
     resultCount: number,
     message?: string | null,
+    executionMeta?: UsageExecutionMeta | null,
   ) {
     const usageLogEnabled = await this.supportsUsageLogPersistence();
     if (!usageLogEnabled) return;
@@ -703,6 +712,16 @@ export class WebscrapingService {
         segment: input.segment,
         quantity: input.quantity,
         resultCount: Math.max(0, Math.trunc(resultCount || 0)),
+        source: eventType === 'EXECUTED' ? executionMeta?.source || null : null,
+        reusedCount:
+          eventType === 'EXECUTED' ? Math.max(0, Math.trunc(executionMeta?.reusedCount || 0)) : 0,
+        fetchedCount:
+          eventType === 'EXECUTED' ? Math.max(0, Math.trunc(executionMeta?.fetchedCount || 0)) : 0,
+        technicalCacheUsed: eventType === 'EXECUTED' ? Boolean(executionMeta?.technicalCacheUsed) : false,
+        technicalCacheReusedCount:
+          eventType === 'EXECUTED'
+            ? Math.max(0, Math.trunc(executionMeta?.technicalCacheReusedCount || 0))
+            : 0,
         searchSignature: input.searchSignature,
         message: String(message || '').trim() || null,
       },

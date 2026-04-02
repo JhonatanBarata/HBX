@@ -100,6 +100,18 @@ type CompanySummary = {
   id: number;
   name: string;
   slug?: string | null;
+  createdAt?: string | null;
+  onboardingStatus?: string | null;
+  onboardingLabel?: string | null;
+  trialModuleSelection?: "vendas" | "recovery" | string | null;
+  emailConfirmation: {
+    confirmed: boolean;
+    confirmedUsersCount: number;
+    pendingUsersCount: number;
+    lastConfirmedAt?: string | null;
+  };
+  activationStatus?: "pending_email_confirmation" | "needs_activation" | "operating" | "basic_access" | string | null;
+  activationNeedsAttention?: boolean;
   primaryContactName?: string | null;
   contactEmail?: string | null;
   contactPhone?: string | null;
@@ -216,6 +228,25 @@ type CompanySummary = {
     refundCount: number;
     refundAmount: number;
     hasPendingIssues: boolean;
+  };
+  webscrapingUsage: {
+    searchesToday: number;
+    blockedToday: number;
+    totalReusedToday: number;
+    fetchedToday: number;
+    globalCacheHitsToday: number;
+    globalCacheReusedToday: number;
+    globalCacheReuseRate: number;
+    lastAttemptAt?: string | null;
+    lastAttemptMessage?: string | null;
+    lastSearchAt?: string | null;
+    lastSearchLabel?: string | null;
+    lastSearchUser?: string | null;
+    lastResultCount: number;
+    lastSearchSource?: "history" | "google" | "hybrid" | "global_cache" | string | null;
+    lastTechnicalCacheUsed: boolean;
+    lastTechnicalCacheReusedCount: number;
+    hasBlockedAttempts: boolean;
   };
   modules: Array<{
     key: string;
@@ -556,6 +587,11 @@ type DrawerTab =
 
 const FILTERS = [
   { id: "all", label: "Todos" },
+  { id: "trial_ending", label: "Trial acabando" },
+  { id: "whatsapp_migration_pending", label: "WhatsApp pendente" },
+  { id: "payment_attention", label: "Pagamento em atenção" },
+  { id: "high_scraping", label: "Scraping forte" },
+  { id: "low_activation", label: "Ativação fraca" },
   { id: "PAYING", label: "Pagando" },
   { id: "TRIAL", label: "Trial" },
   { id: "TRIAL_ENDING", label: "Trial vencendo" },
@@ -663,6 +699,40 @@ function acquisitionSourceLabel(value?: string | null) {
   if (source === "parceiro") return "Parceiro";
   if (source === "outro") return "Outro";
   return "Não informado";
+}
+
+function onboardingStatusLabel(value?: string | null) {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (normalized === "pending_email_confirmation") return "E-mail pendente";
+  if (normalized === "active_trial") return "Trial ativo";
+  if (normalized === "active_paid") return "Ativo pago";
+  if (normalized === "suspended") return "Suspenso";
+  return "Sem leitura";
+}
+
+function trialModuleLabel(value?: string | null) {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (normalized === "recovery") return "Recovery";
+  if (normalized === "vendas") return "Vendas";
+  return "Não definido";
+}
+
+function activationStatusLabel(value?: string | null) {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (normalized === "pending_email_confirmation") return "Aguardando confirmação";
+  if (normalized === "needs_activation") return "Ativação fraca";
+  if (normalized === "operating") return "Operando";
+  if (normalized === "basic_access") return "Acesso básico";
+  return "Sem leitura";
+}
+
+function webscrapingSourceLabel(value?: string | null) {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (normalized === "global_cache") return "Cache global";
+  if (normalized === "history") return "Histórico";
+  if (normalized === "hybrid") return "Híbrido";
+  if (normalized === "google") return "Google";
+  return "Sem busca";
 }
 
 function referralModeLabel(value?: string | null) {
@@ -1460,6 +1530,23 @@ export default function MasterPremiumPage() {
     if (filterId !== "all") {
       filtered = filtered.filter((company) => {
         if (filterId === "manual") return Boolean(company.manualPaymentPending);
+        if (filterId === "trial_ending") {
+          return company.statusBucket === "TRIAL_ENDING" || ((company.trialRemainingDays || 99) >= 0 && (company.trialRemainingDays || 99) <= 3);
+        }
+        if (filterId === "whatsapp_migration_pending") {
+          return ["REQUESTED", "CONTACTED"].includes(
+            String(company.whatsappCenter?.migration?.workflowStatus || "").trim().toUpperCase(),
+          );
+        }
+        if (filterId === "payment_attention") {
+          return company.finance.pendingCount > 0 || company.finance.failedCount > 0 || company.statusBucket === "OVERDUE";
+        }
+        if (filterId === "high_scraping") {
+          return Number(company.webscrapingUsage?.searchesToday || 0) >= 3;
+        }
+        if (filterId === "low_activation") {
+          return Boolean(company.activationNeedsAttention) || !Boolean(company.emailConfirmation?.confirmed);
+        }
         return company.statusBucket === filterId;
       });
     }
@@ -1510,6 +1597,49 @@ export default function MasterPremiumPage() {
         (total, company) => total + Number(company.finance.referralDiscountValue || 0),
         0,
       ),
+    };
+  }, [workspace?.companies]);
+
+  const controlTowerOverview = useMemo(() => {
+    const companies = workspace?.companies || [];
+    const pendingEmail = companies.filter((company) => !company.emailConfirmation?.confirmed).length;
+    const trialEnding = companies.filter(
+      (company) => company.statusBucket === "TRIAL_ENDING" || ((company.trialRemainingDays || 99) >= 0 && (company.trialRemainingDays || 99) <= 3),
+    ).length;
+    const lowActivation = companies.filter((company) => company.activationNeedsAttention).length;
+    const whatsappPending = companies.filter((company) =>
+      ["REQUESTED", "CONTACTED"].includes(String(company.whatsappCenter?.migration?.workflowStatus || "").trim().toUpperCase()),
+    ).length;
+    const paymentAttention = companies.filter(
+      (company) => company.finance.pendingCount > 0 || company.finance.failedCount > 0 || company.statusBucket === "OVERDUE",
+    ).length;
+    const scrapingHeavy = companies.filter((company) => Number(company.webscrapingUsage?.searchesToday || 0) >= 3).length;
+    const trialBlocked = companies.filter((company) => Number(company.webscrapingUsage?.blockedToday || 0) > 0).length;
+    const cacheHits = companies.reduce(
+      (total, company) => total + Number(company.webscrapingUsage?.globalCacheHitsToday || 0),
+      0,
+    );
+    const avgCacheReuseRate =
+      companies.length > 0
+        ? Number(
+            (
+              companies.reduce(
+                (total, company) => total + Number(company.webscrapingUsage?.globalCacheReuseRate || 0),
+                0,
+              ) / companies.length
+            ).toFixed(1),
+          )
+        : 0;
+    return {
+      pendingEmail,
+      trialEnding,
+      lowActivation,
+      whatsappPending,
+      paymentAttention,
+      scrapingHeavy,
+      trialBlocked,
+      cacheHits,
+      avgCacheReuseRate,
     };
   }, [workspace?.companies]);
 
@@ -2430,6 +2560,79 @@ export default function MasterPremiumPage() {
             <section className={styles.attentionSection}>
               <div className={styles.sectionHeader}>
                 <div>
+                  <p className={styles.sectionEyebrow}>Torre de controle</p>
+                  <h2>Ativação real da base</h2>
+                </div>
+              </div>
+              <div className={styles.controlTowerGrid}>
+                <article className={styles.summaryCard}>
+                  <div className={styles.panelCardHeader}>
+                    <div>
+                      <p className={styles.sectionEyebrow}>Onboarding</p>
+                      <h3>Confirmação e início de operação</h3>
+                    </div>
+                    <span className={badgeClass(controlTowerOverview.pendingEmail > 0 ? "danger" : "success")}>
+                      {controlTowerOverview.pendingEmail} pendente(s)
+                    </span>
+                  </div>
+                  <div className={styles.controlKpiGrid}>
+                    <div className={styles.kpiMini}><span>E-mail pendente</span><strong>{controlTowerOverview.pendingEmail}</strong></div>
+                    <div className={styles.kpiMini}><span>Trial acabando</span><strong>{controlTowerOverview.trialEnding}</strong></div>
+                    <div className={styles.kpiMini}><span>Ativação fraca</span><strong>{controlTowerOverview.lowActivation}</strong></div>
+                    <div className={styles.kpiMini}><span>Migração WhatsApp</span><strong>{controlTowerOverview.whatsappPending}</strong></div>
+                  </div>
+                  <div className={styles.summaryMeta}>
+                    <p>Olhe primeiro empresas sem confirmação, trials vencendo e contas com acesso liberado mas baixa ativação.</p>
+                  </div>
+                </article>
+
+                <article className={styles.summaryCard}>
+                  <div className={styles.panelCardHeader}>
+                    <div>
+                      <p className={styles.sectionEyebrow}>Webscraping</p>
+                      <h3>Uso, bloqueios e economia de custo</h3>
+                    </div>
+                    <span className={badgeClass(controlTowerOverview.cacheHits > 0 ? "success" : "neutral")}>
+                      {controlTowerOverview.cacheHits} hit(s) de cache
+                    </span>
+                  </div>
+                  <div className={styles.controlKpiGrid}>
+                    <div className={styles.kpiMini}><span>Uso forte</span><strong>{controlTowerOverview.scrapingHeavy}</strong></div>
+                    <div className={styles.kpiMini}><span>Bloqueio trial</span><strong>{controlTowerOverview.trialBlocked}</strong></div>
+                    <div className={styles.kpiMini}><span>Cache global</span><strong>{controlTowerOverview.cacheHits}</strong></div>
+                    <div className={styles.kpiMini}><span>Reuso médio</span><strong>{controlTowerOverview.avgCacheReuseRate}%</strong></div>
+                  </div>
+                  <div className={styles.summaryMeta}>
+                    <p>O histórico privado segue isolado. Aqui você enxerga só sinais técnicos de reaproveitamento público entre empresas.</p>
+                  </div>
+                </article>
+
+                <article className={styles.summaryCard}>
+                  <div className={styles.panelCardHeader}>
+                    <div>
+                      <p className={styles.sectionEyebrow}>Financeiro + WhatsApp</p>
+                      <h3>Pendências que travam ativação</h3>
+                    </div>
+                    <span className={badgeClass(controlTowerOverview.paymentAttention > 0 ? "danger" : "success")}>
+                      {controlTowerOverview.paymentAttention} em atenção
+                    </span>
+                  </div>
+                  <div className={styles.controlKpiGrid}>
+                    <div className={styles.kpiMini}><span>Pagamento</span><strong>{controlTowerOverview.paymentAttention}</strong></div>
+                    <div className={styles.kpiMini}><span>WhatsApp pend.</span><strong>{controlTowerOverview.whatsappPending}</strong></div>
+                    <div className={styles.kpiMini}><span>Trials</span><strong>{summary.activeTrials?.value?.toLocaleString("pt-BR") || "0"}</strong></div>
+                    <div className={styles.kpiMini}><span>Pagantes</span><strong>{summary.payingClients?.value?.toLocaleString("pt-BR") || "0"}</strong></div>
+                  </div>
+                  <div className={styles.summaryMeta}>
+                    <p>O objetivo aqui é enxergar quem já pode crescer, quem precisa de cobrança e quem ainda depende de ajuda técnica.</p>
+                  </div>
+                </article>
+              </div>
+            </section>
+
+            <section className={styles.attentionSection}>
+              <div className={styles.sectionHeader}>
+                <div>
                   <p className={styles.sectionEyebrow}>Financeiro MASTER</p>
                   <h2>Trials, descontos e pressão de cobrança</h2>
                 </div>
@@ -2618,15 +2821,11 @@ export default function MasterPremiumPage() {
                   <thead>
                     <tr>
                       <th>Empresa</th>
-                      <th>Responsável</th>
-                      <th>Status</th>
-                      <th>Plano</th>
+                      <th>Onboarding</th>
                       <th>Trial</th>
-                      <th>Próx. vencimento</th>
-                      <th>Último pagamento</th>
-                      <th>Método</th>
-                      <th>Situação</th>
-                      <th>Website</th>
+                      <th>Webscraping</th>
+                      <th>Financeiro</th>
+                      <th>WhatsApp</th>
                       <th>Módulos</th>
                       <th>Ações</th>
                     </tr>
@@ -2638,34 +2837,44 @@ export default function MasterPremiumPage() {
                           <button type="button" className={styles.companyCell} onClick={() => openCompany(company.id)}>
                             <strong>{company.name}</strong>
                             <span>#{company.id}{company.slug ? ` • ${company.slug}` : ""}</span>
+                            <span>{company.primaryContactName || company.contactEmail || "Sem contato principal"}</span>
                             <span>{`WhatsApp • ${company.whatsappCenter?.statusLabel || "Não conectado"}`}</span>
                           </button>
                         </td>
                         <td>
                           <div className={styles.secondaryCell}>
-                            <strong>{company.primaryContactName || "-"}</strong>
-                            <span>{company.contactEmail || company.contactPhone || "Sem contato principal"}</span>
-                          </div>
-                        </td>
-                        <td>
-                          <div className={styles.statusStack}>
-                            <span className={badgeClass(statusTone(company.statusBucket))}>{bucketLabel(company.statusBucket)}</span>
-                            <span>{paymentStatusLabel(company.paymentStatus)}</span>
+                            <strong>{company.onboardingLabel || onboardingStatusLabel(company.onboardingStatus)}</strong>
+                            <span>
+                              {company.emailConfirmation?.confirmed
+                                ? `E-mail confirmado • ${company.emailConfirmation.confirmedUsersCount} usuário(s)`
+                                : "E-mail ainda não confirmado"}
+                            </span>
+                            <span>Módulo inicial: {trialModuleLabel(company.trialModuleSelection)}</span>
+                            <span>Ativação: {activationStatusLabel(company.activationStatus)}</span>
                           </div>
                         </td>
                         <td>
                           <div className={styles.secondaryCell}>
-                            <strong>{company.plan?.name || "Sem plano"}</strong>
+                            <strong>{company.trialRemainingDays != null ? `${company.trialRemainingDays} dia(s)` : "-"}</strong>
+                            <span>{bucketLabel(company.statusBucket)} • {paymentStatusLabel(company.paymentStatus)}</span>
+                            <span>{company.plan?.name || "Sem plano"} • {company.finance.billingCycle === "ANNUAL" ? "anual" : "mensal"}</span>
+                            <span>Próx. vencimento: {formatDate(company.nextDueAt)}</span>
+                          </div>
+                        </td>
+                        <td>
+                          <div className={styles.secondaryCell}>
+                            <strong>{company.webscrapingUsage.lastSearchAt ? webscrapingSourceLabel(company.webscrapingUsage.lastSearchSource) : "Sem uso recente"}</strong>
                             <span>
-                              {formatCurrency(company.finance.finalCycleAmount)} •{" "}
-                              {company.finance.billingCycle === "ANNUAL" ? "ciclo anual" : "ciclo mensal"}
+                              Hoje: {company.webscrapingUsage.searchesToday} busca(s) • bloqueios {company.webscrapingUsage.blockedToday}
+                            </span>
+                            <span>
+                              Última: {company.webscrapingUsage.lastSearchAt ? `${formatDateTime(company.webscrapingUsage.lastSearchAt)} • ${company.webscrapingUsage.lastSearchUser || "sem usuário"}` : "nenhuma"}
+                            </span>
+                            <span>
+                              Cache global: {company.webscrapingUsage.globalCacheHitsToday} hit(s) • reuso {company.webscrapingUsage.globalCacheReuseRate}%
                             </span>
                           </div>
                         </td>
-                        <td>{company.trialRemainingDays != null ? `${company.trialRemainingDays} dia(s)` : "-"}</td>
-                        <td>{formatDate(company.nextDueAt)}</td>
-                        <td>{company.lastPayment ? formatDate(company.lastPayment.paidAt) : "Sem histórico"}</td>
-                        <td>{paymentMethodLabel(company.paymentMethod)}</td>
                         <td>
                           <div className={styles.secondaryCell}>
                             <strong>{company.financialSituation}</strong>
@@ -2674,22 +2883,14 @@ export default function MasterPremiumPage() {
                               {company.finance.refundCount} estorno(s)
                             </span>
                             <span>
-                              {company.whatsappCenter?.migration.interestRequested
-                                ? `Migração técnica • ${company.whatsappCenter?.migration.workflowStatus || "REQUESTED"}`
-                                : company.whatsappCenter?.statusHint || "Sem leitura de vínculo"}
+                              {formatCurrency(company.finance.finalCycleAmount)} • {paymentMethodLabel(company.paymentMethod)}
                             </span>
                             <span>
-                              Último contato técnico: {formatDateTime(company.whatsappCenter?.migration.lastContactAt)}
-                            </span>
-                            <span>
-                              Desc.: {company.finance.annualPlanDiscountPercent}% anual / {company.finance.manualDiscountPercent}% manual
-                              {" • "}
-                              {company.finance.freeMonths} mês(es) grátis
+                              Desc.: {company.finance.annualPlanDiscountPercent}% anual / {company.finance.manualDiscountPercent}% manual / {company.finance.freeMonths} mês(es) grátis
                             </span>
                             <span>
                               Origem: {acquisitionSourceLabel(company.acquisitionSource)}
-                              {company.referralReferrerName ? ` • Indicador: ${company.referralReferrerName}` : ""}
-                              {!company.referralReferrerName && company.referralCode ? ` • Código: ${company.referralCode}` : ""}
+                              {company.referralReferrerName ? ` • Indicador: ${company.referralReferrerName}` : company.referralCode ? ` • Código: ${company.referralCode}` : ""}
                             </span>
                             {company.finance.isReferral ? (
                               <span>
@@ -2705,16 +2906,24 @@ export default function MasterPremiumPage() {
                           </div>
                         </td>
                         <td>
-                          <span className={badgeClass(company.website.configured ? "success" : company.websiteNeedsAttention ? "danger" : "neutral")}>
-                            {company.website.configured ? "Configurado" : "Pendente"}
-                          </span>
+                          <div className={styles.modulePills}>
+                            <span className={badgeClass(company.whatsappCenter?.status === "OFFICIAL" ? "success" : company.whatsappCenter?.status === "TEMPORARY" ? "brand" : company.whatsappCenter?.status === "ATTENTION" ? "danger" : "neutral")}>
+                              {company.whatsappCenter?.statusLabel || "Não conectado"}
+                            </span>
+                            <span className={badgeClass(["REQUESTED", "CONTACTED"].includes(String(company.whatsappCenter?.migration?.workflowStatus || "").trim().toUpperCase()) ? "brand" : "neutral")}>
+                              Migração {company.whatsappCenter?.migration?.workflowStatus || "NONE"}
+                            </span>
+                            <span className="badge">
+                              Último contato: {formatDateTime(company.whatsappCenter?.migration?.lastContactAt)}
+                            </span>
+                          </div>
                         </td>
                         <td>
                           <div className={styles.modulePills}>
-                            {company.modules.slice(0, 2).map((module) => (
+                            {company.modules.slice(0, 3).map((module) => (
                               <span key={module.key} className="badge">{module.name}</span>
                             ))}
-                            {company.modules.length > 2 ? <span className="badge">+{company.modules.length - 2}</span> : null}
+                            {company.modules.length > 3 ? <span className="badge">+{company.modules.length - 3}</span> : null}
                           </div>
                         </td>
                         <td>
@@ -2859,6 +3068,28 @@ export default function MasterPremiumPage() {
                         <p>Website: {activeCompany.website.enabled ? "Habilitado" : "Desligado"} • {activeCompany.website.configured ? "Configurado" : "Pendente"}</p>
                         <p>Módulos ativos: {activeCompany.modules.filter((module) => module.enabled).map((module) => module.name).join(", ") || "Nenhum módulo ativo"}</p>
                         <p>Situação financeira: {buildStatusExplanation(activeCompany)}</p>
+                      </div>
+                    </section>
+
+                    <section className={styles.summaryCard}>
+                      <div className={styles.panelCardHeader}>
+                        <div>
+                          <p className={styles.sectionEyebrow}>Ativação real</p>
+                          <h3>Onboarding, trial, scraping e vínculo</h3>
+                        </div>
+                      </div>
+                      <div className={styles.summaryStats}>
+                        <div><span>Onboarding</span><strong>{activeCompany.onboardingLabel || onboardingStatusLabel(activeCompany.onboardingStatus)}</strong></div>
+                        <div><span>E-mail</span><strong>{activeCompany.emailConfirmation?.confirmed ? "Confirmado" : "Pendente"}</strong></div>
+                        <div><span>Módulo inicial</span><strong>{trialModuleLabel(activeCompany.trialModuleSelection)}</strong></div>
+                        <div><span>Ativação</span><strong>{activationStatusLabel(activeCompany.activationStatus)}</strong></div>
+                      </div>
+                      <div className={styles.summaryMeta}>
+                        <p>Busca recente: {activeCompany.webscrapingUsage.lastSearchAt ? `${formatDateTime(activeCompany.webscrapingUsage.lastSearchAt)} • ${activeCompany.webscrapingUsage.lastSearchUser || "sem usuário"}` : "nenhuma ainda"}</p>
+                        <p>Hoje no scraping: {activeCompany.webscrapingUsage.searchesToday} busca(s) • {activeCompany.webscrapingUsage.blockedToday} bloqueio(s)</p>
+                        <p>Cache global: {activeCompany.webscrapingUsage.globalCacheHitsToday} hit(s) • reuso {activeCompany.webscrapingUsage.globalCacheReuseRate}%</p>
+                        <p>Última origem de scraping: {webscrapingSourceLabel(activeCompany.webscrapingUsage.lastSearchSource)}</p>
+                        <p>Central WhatsApp: {activeCompany.whatsappCenter?.statusLabel || "Não conectado"} • migração {activeCompany.whatsappCenter?.migration?.workflowStatus || "NONE"}</p>
                       </div>
                     </section>
 
