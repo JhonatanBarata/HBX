@@ -425,14 +425,29 @@ export class CompaniesController {
 
   @Get('me/whatsapp-center')
   @UseGuards(JwtAuthGuard)
-  async getMyWhatsAppCenter(@Req() req: any) {
-    return this.companiesService.getWhatsAppCenterForCompany(Number(req.user?.companyId));
+  async getMyWhatsAppCenter(@Req() req: any, @Query('refresh') refresh?: string) {
+    const refreshTemporary = String(refresh || '').trim().toLowerCase() === 'true';
+    return this.companiesService.getWhatsAppCenterForCompany(Number(req.user?.companyId), {
+      refreshTemporary,
+    });
   }
 
   @Patch('me/whatsapp-center')
   @UseGuards(JwtAuthGuard)
   async updateMyWhatsAppCenter(@Req() req: any, @Body() dto: UpdateMyWhatsAppCenterDto) {
     return this.companiesService.updateWhatsAppCenterForCompany(Number(req.user?.companyId), dto || {});
+  }
+
+  @Post('me/whatsapp-center/temporary/connect')
+  @UseGuards(JwtAuthGuard)
+  async startMyWhatsAppTemporaryConnection(@Req() req: any) {
+    return this.companiesService.startWhatsAppTemporaryConnection(Number(req.user?.companyId));
+  }
+
+  @Post('me/whatsapp-center/temporary/disconnect')
+  @UseGuards(JwtAuthGuard)
+  async disconnectMyWhatsAppTemporaryConnection(@Req() req: any) {
+    return this.companiesService.disconnectWhatsAppTemporaryConnection(Number(req.user?.companyId));
   }
 
   @Post('me/whatsapp-center/migration-interest')

@@ -96,11 +96,14 @@ function resolveTrialModuleEntry(moduleSelection?: "vendas" | "recovery" | null)
 
 function resolveWhatsAppCentralStatus(company?: CurrentUser["company"]) {
   const mode = String(company?.whatsappConnectionMode || "").trim().toUpperCase();
+  const temporaryStatus = String(company?.whatsappTemporaryStatus || "").trim().toUpperCase();
   if (company?.whatsappMigrationInterestAt) {
     return "Atenção / pendente";
   }
   if (mode === "OFFICIAL") return "Oficial / Meta";
-  if (mode === "TEMPORARY") return "Temporário";
+  if (mode === "TEMPORARY") {
+    return temporaryStatus === "TEMPORARY" ? "Temporário" : "Atenção / pendente";
+  }
   return "Não conectado";
 }
 

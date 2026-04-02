@@ -1907,6 +1907,10 @@ export class ModulesService implements OnModuleInit {
         credential: selectedWhatsAppCredential,
         effectiveConfig: effectiveWhatsApp,
         includeInternal: true,
+        temporaryAvailable: Boolean(
+          String(process.env.WHATSAPP_TEMPORARY_API_URL || '').trim()
+          && String(process.env.WHATSAPP_TEMPORARY_API_KEY || '').trim(),
+        ),
       }),
       webscrapingUsage,
       mercadoPago: {

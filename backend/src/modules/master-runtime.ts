@@ -103,6 +103,46 @@ export async function ensureMasterBillingRuntimeSchema(prisma: PrismaService) {
 
   await prisma.$executeRawUnsafe(`
     ALTER TABLE "Company"
+    ADD COLUMN IF NOT EXISTS "whatsappTemporaryInstanceKey" TEXT
+  `);
+
+  await prisma.$executeRawUnsafe(`
+    ALTER TABLE "Company"
+    ADD COLUMN IF NOT EXISTS "whatsappTemporaryProvider" TEXT
+  `);
+
+  await prisma.$executeRawUnsafe(`
+    ALTER TABLE "Company"
+    ADD COLUMN IF NOT EXISTS "whatsappTemporaryPairingCode" TEXT
+  `);
+
+  await prisma.$executeRawUnsafe(`
+    ALTER TABLE "Company"
+    ADD COLUMN IF NOT EXISTS "whatsappTemporaryQrCodeData" TEXT
+  `);
+
+  await prisma.$executeRawUnsafe(`
+    ALTER TABLE "Company"
+    ADD COLUMN IF NOT EXISTS "whatsappTemporaryDisplayNumber" TEXT
+  `);
+
+  await prisma.$executeRawUnsafe(`
+    ALTER TABLE "Company"
+    ADD COLUMN IF NOT EXISTS "whatsappTemporaryLastSyncAt" TIMESTAMP(3)
+  `);
+
+  await prisma.$executeRawUnsafe(`
+    ALTER TABLE "Company"
+    ADD COLUMN IF NOT EXISTS "whatsappTemporaryConnectedAt" TIMESTAMP(3)
+  `);
+
+  await prisma.$executeRawUnsafe(`
+    ALTER TABLE "Company"
+    ADD COLUMN IF NOT EXISTS "whatsappTemporaryStatusError" TEXT
+  `);
+
+  await prisma.$executeRawUnsafe(`
+    ALTER TABLE "Company"
     ADD COLUMN IF NOT EXISTS "whatsappMigrationInterestStatus" TEXT NOT NULL DEFAULT 'NONE'
   `);
 
