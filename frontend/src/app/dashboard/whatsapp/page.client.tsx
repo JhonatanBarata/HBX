@@ -30,6 +30,15 @@ type WhatsAppCenterPayload = {
       status: "NOT_CONNECTED" | "TEMPORARY" | "ATTENTION";
       available: boolean;
       note: string;
+      liveStatus: "idle" | "qr_ready" | "connected" | "error";
+      provider?: string | null;
+      instanceKey?: string | null;
+      pairingCode?: string | null;
+      qrCodeDataUrl?: string | null;
+      displayNumber?: string | null;
+      connectedAt?: string | null;
+      lastSyncAt?: string | null;
+      errorMessage?: string | null;
     };
     official: {
       selected: boolean;
@@ -68,6 +77,14 @@ function trialModuleLabel(value?: string | null) {
   return String(value || "").trim().toLowerCase() === "recovery" ? "Recovery" : "Vendas";
 }
 
+function temporaryLiveLabel(value?: string | null) {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (normalized === "connected") return "Conectado por QR";
+  if (normalized === "qr_ready") return "QR aguardando leitura";
+  if (normalized === "error") return "Atenção técnica";
+  return "Aguardando ativação";
+}
+
 export default function WhatsAppCenterClientPage() {
   const hasToken = useRequireAuth();
   const [loading, setLoading] = useState(true);
@@ -76,11 +93,12 @@ export default function WhatsAppCenterClientPage() {
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
 
-  async function loadCenter(background = false) {
+  async function loadCenter(background = false, refreshTemporary = false) {
     if (!background) setLoading(true);
     setError(null);
     try {
-      const data = await apiFetch<WhatsAppCenterPayload>("/companies/me/whatsapp-center");
+      const suffix = refreshTemporary ? "?refresh=true" : "";
+      const data = await apiFetch<WhatsAppCenterPayload>(`/companies/me/whatsapp-center${suffix}`);
       setPayload(data);
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Falha ao carregar a central WhatsApp.");
@@ -99,6 +117,18 @@ export default function WhatsAppCenterClientPage() {
     const timer = window.setTimeout(() => setMessage(null), 2800);
     return () => window.clearTimeout(timer);
   }, [message]);
+
+  useEffect(() => {
+    if (!payload?.center.temporary.selected) return;
+    const liveStatus = payload.center.temporary.liveStatus;
+    if (liveStatus !== "qr_ready" && liveStatus !== "connected") return;
+
+    const interval = window.setInterval(() => {
+      void loadCenter(true, true);
+    }, liveStatus === "connected" ? 20000 : 9000);
+
+    return () => window.clearInterval(interval);
+  }, [payload?.center.temporary.liveStatus, payload?.center.temporary.selected]);
 
   async function chooseMode(mode: "TEMPORARY" | "OFFICIAL") {
     setSaving(mode);
@@ -133,6 +163,38 @@ export default function WhatsAppCenterClientPage() {
       setMessage("Aceite registrado. O MASTER já consegue visualizar o interesse desta empresa.");
     } catch (actionError) {
       setError(actionError instanceof Error ? actionError.message : "Falha ao registrar o interesse.");
+    } finally {
+      setSaving(null);
+    }
+  }
+
+  async function startTemporaryConnection() {
+    setSaving("temporary-connect");
+    setError(null);
+    try {
+      const next = await apiFetch<WhatsAppCenterPayload>("/companies/me/whatsapp-center/temporary/connect", {
+        method: "POST",
+      });
+      setPayload(next);
+      setMessage("QR gerado. Faça a leitura no WhatsApp para concluir o vínculo rápido.");
+    } catch (actionError) {
+      setError(actionError instanceof Error ? actionError.message : "Falha ao iniciar o vínculo rápido por QR.");
+    } finally {
+      setSaving(null);
+    }
+  }
+
+  async function disconnectTemporaryConnection() {
+    setSaving("temporary-disconnect");
+    setError(null);
+    try {
+      const next = await apiFetch<WhatsAppCenterPayload>("/companies/me/whatsapp-center/temporary/disconnect", {
+        method: "POST",
+      });
+      setPayload(next);
+      setMessage("Vínculo rápido desconectado.");
+    } catch (actionError) {
+      setError(actionError instanceof Error ? actionError.message : "Falha ao desconectar o vínculo rápido.");
     } finally {
       setSaving(null);
     }
@@ -221,17 +283,58 @@ export default function WhatsAppCenterClientPage() {
                   </span>
                 </div>
                 <p className={styles.pathText}>
-                  Essa trilha é a mais leve para começar, provar uso e tirar a empresa da inércia. Hoje a camada técnica real ainda está em preparação, então o HBX registra a escolha com honestidade e prepara o caminho sem fingir uma conexão pronta.
+                  Essa trilha é a mais leve para começar, provar uso e tirar a empresa da inércia. Agora ela já pode funcionar por QR sem misturar a operação temporária com a rota oficial da Meta.
                 </p>
                 <div className={styles.featureList}>
                   <span className={styles.featureChip}>Bom para teste</span>
                   <span className={styles.featureChip}>Baixa fricção comercial</span>
-                  <span className={styles.featureChip}>Estrutura pronta para evoluir depois</span>
+                  <span className={styles.featureChip}>Conexão real por QR</span>
                 </div>
                 <div className={styles.metaBox}>
-                  <strong>Status do trilho rápido</strong>
+                  <strong>{temporaryLiveLabel(payload.center.temporary.liveStatus)}</strong>
                   <p>{payload.center.temporary.note}</p>
                 </div>
+                <div className={styles.infoGrid}>
+                  <div>
+                    <span>Estado do vínculo</span>
+                    <strong>{temporaryLiveLabel(payload.center.temporary.liveStatus)}</strong>
+                  </div>
+                  <div>
+                    <span>Número temporário</span>
+                    <strong>{payload.center.temporary.displayNumber || "-"}</strong>
+                  </div>
+                  <div>
+                    <span>Última sincronização</span>
+                    <strong>{formatDateTime(payload.center.temporary.lastSyncAt)}</strong>
+                  </div>
+                </div>
+                {payload.center.temporary.errorMessage ? (
+                  <div className={styles.errorInline}>
+                    <strong>Atenção</strong>
+                    <p>{payload.center.temporary.errorMessage}</p>
+                  </div>
+                ) : null}
+                {payload.center.temporary.qrCodeDataUrl ? (
+                  <div className={styles.qrPanel}>
+                    <div className={styles.qrPanelCopy}>
+                      <strong>Escaneie o QR com o WhatsApp</strong>
+                      <p>
+                        Abra o WhatsApp no celular, vá em aparelhos conectados e leia o QR abaixo para concluir o vínculo rápido.
+                      </p>
+                      <div className={styles.summaryStack}>
+                        <p>Pairing code: {payload.center.temporary.pairingCode || "-"}</p>
+                        <p>Instância técnica: {payload.center.temporary.instanceKey || "-"}</p>
+                      </div>
+                    </div>
+                    <div className={styles.qrFrame}>
+                      <img
+                        src={payload.center.temporary.qrCodeDataUrl}
+                        alt="QR Code para conectar o WhatsApp temporário"
+                        className={styles.qrImage}
+                      />
+                    </div>
+                  </div>
+                ) : null}
                 <div className={styles.pathActions}>
                   <button
                     type="button"
@@ -240,6 +343,37 @@ export default function WhatsAppCenterClientPage() {
                     disabled={saving !== null}
                   >
                     {saving === "TEMPORARY" ? "Salvando..." : "Quero testar primeiro"}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    onClick={() => void startTemporaryConnection()}
+                    disabled={saving !== null || !payload.center.temporary.available}
+                  >
+                    {saving === "temporary-connect"
+                      ? "Gerando QR..."
+                      : payload.center.temporary.liveStatus === "connected"
+                        ? "Atualizar status"
+                        : "Conectar por QR"}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    onClick={() => void loadCenter(true, true)}
+                    disabled={saving !== null || !payload.center.temporary.available}
+                  >
+                    Atualizar leitura
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    onClick={() => void disconnectTemporaryConnection()}
+                    disabled={
+                      saving !== null
+                      || (!payload.center.temporary.instanceKey && payload.center.temporary.liveStatus !== "connected")
+                    }
+                  >
+                    {saving === "temporary-disconnect" ? "Desconectando..." : "Desconectar temporário"}
                   </button>
                 </div>
               </article>

@@ -36,6 +36,14 @@ model Company {
   whatsappStatusUpdatedAt DateTime?
   whatsappConnectionMode  String    @default("NONE") // NONE | TEMPORARY | OFFICIAL
   whatsappTemporaryStatus String    @default("NOT_CONNECTED") // NOT_CONNECTED | TEMPORARY | ATTENTION
+  whatsappTemporaryInstanceKey String?
+  whatsappTemporaryProvider String?
+  whatsappTemporaryPairingCode String?
+  whatsappTemporaryQrCodeData String?
+  whatsappTemporaryDisplayNumber String?
+  whatsappTemporaryLastSyncAt DateTime?
+  whatsappTemporaryConnectedAt DateTime?
+  whatsappTemporaryStatusError String?
   whatsappMigrationInterestStatus String @default("NONE") // NONE | REQUESTED | CONTACTED | RESOLVED
   whatsappMigrationInterestAt DateTime?
   whatsappMigrationInterestSource String?

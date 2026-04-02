@@ -6,6 +6,7 @@ import { buildImportacaoPermissaoRows } from '../bootstrap/company-structural-de
 import { getMasterGlobalIntegrationConfig, pickMasterWhatsAppCredential } from '../modules/master-global-integrations.util';
 import { ensureMasterBillingRuntimeSchema } from '../modules/master-runtime';
 import { buildWhatsAppCenterSnapshot } from './whatsapp-center.util';
+import { WhatsAppTemporaryConnectionService } from './whatsapp-temporary-connection.service';
 
 export const MASTER_HARD_DELETE_CONFIRM_TEXT = 'EXCLUIR EMPRESA';
 export const MASTER_HARD_DELETE_DISABLED_MESSAGE = 'Hard delete de empresa esta desativado nesta publicacao. Use archive no Master ou habilite ALLOW_MASTER_HARD_DELETE=true apenas em manutencao controlada.';
@@ -13,7 +14,10 @@ export const MASTER_HARD_DELETE_CONFIRMATION_INVALID_MESSAGE = 'Confirmacao inva
 
 @Injectable()
 export class CompaniesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly whatsappTemporaryConnection: WhatsAppTemporaryConnectionService,
+  ) {}
 
   private normalizeOptionalString(value: unknown) {
     const normalized = String(value || '').trim();
@@ -193,8 +197,14 @@ export class CompaniesService {
     return (this.sanitizeCompany(company) as any)?.whatsappEndpoints || [];
   }
 
-  async getWhatsAppCenterForCompany(companyId: number) {
+  async getWhatsAppCenterForCompany(companyId: number, options?: { refreshTemporary?: boolean }) {
     await ensureMasterBillingRuntimeSchema(this.prisma);
+    if (options?.refreshTemporary) {
+      await this.whatsappTemporaryConnection.syncCompanyTemporaryConnection(companyId, {
+        requestQr: false,
+      });
+    }
+
     const company = await this.findByIdForMaster(companyId);
     const masterConfig = await getMasterGlobalIntegrationConfig(this.prisma);
     const selectedCredential = Boolean((company as any)?.useMasterWhatsAppToken)
@@ -239,6 +249,7 @@ export class CompaniesService {
         credential: selectedCredential,
         effectiveConfig,
         includeInternal: false,
+        temporaryAvailable: this.whatsappTemporaryConnection.getAvailability().configured,
       }),
     };
   }
@@ -262,7 +273,7 @@ export class CompaniesService {
         whatsappConnectionMode: requestedMode,
         whatsappTemporaryStatus:
           requestedMode === 'TEMPORARY'
-            ? 'TEMPORARY'
+            ? ((company as any)?.whatsappTemporaryStatus === 'TEMPORARY' ? 'TEMPORARY' : 'ATTENTION')
             : requestedMode === 'NONE'
               ? 'NOT_CONNECTED'
               : (company as any)?.whatsappTemporaryStatus || 'NOT_CONNECTED',
@@ -270,6 +281,33 @@ export class CompaniesService {
     });
 
     return this.getWhatsAppCenterForCompany(updated.id);
+  }
+
+  async startWhatsAppTemporaryConnection(companyId: number) {
+    await ensureMasterBillingRuntimeSchema(this.prisma);
+    const company = await this.findByIdForMaster(companyId);
+    const requestedMode = String((company as any)?.whatsappConnectionMode || '').trim().toUpperCase();
+    if (requestedMode !== 'TEMPORARY') {
+      await this.prisma.company.update({
+        where: { id: Number(companyId) },
+        data: {
+          whatsappConnectionMode: 'TEMPORARY',
+          whatsappTemporaryStatus:
+            String((company as any)?.whatsappTemporaryStatus || '').trim().toUpperCase() === 'TEMPORARY'
+              ? 'TEMPORARY'
+              : 'ATTENTION',
+        },
+      });
+    }
+
+    await this.whatsappTemporaryConnection.startTemporaryConnection(companyId);
+    return this.getWhatsAppCenterForCompany(companyId);
+  }
+
+  async disconnectWhatsAppTemporaryConnection(companyId: number) {
+    await ensureMasterBillingRuntimeSchema(this.prisma);
+    await this.whatsappTemporaryConnection.disconnectTemporaryConnection(companyId);
+    return this.getWhatsAppCenterForCompany(companyId);
   }
 
   async registerWhatsAppMigrationInterest(

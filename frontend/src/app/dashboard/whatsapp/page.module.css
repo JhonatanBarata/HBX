@@ -36,7 +36,8 @@
 .infoGrid,
 .featureList,
 .stepList,
-.summaryStack {
+.summaryStack,
+.qrPanel {
   display: grid;
   gap: 0.9rem;
 }
@@ -52,7 +53,9 @@
 .metaBox,
 .sectionHeader,
 .step,
-.pathActions {
+.pathActions,
+.qrPanelCopy,
+.errorInline {
   display: grid;
   gap: 0.55rem;
 }
@@ -237,8 +240,51 @@
 }
 
 .pathActions {
-  grid-template-columns: repeat(2, max-content);
+  grid-template-columns: repeat(2, minmax(0, max-content));
   align-items: center;
+  flex-wrap: wrap;
+}
+
+.qrPanel {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  padding: 0.92rem 0.96rem;
+  border-radius: 22px;
+  border: 1px solid color-mix(in srgb, #0f766e 18%, var(--line));
+  background:
+    radial-gradient(circle at top right, color-mix(in srgb, #34d399 12%, transparent), transparent 52%),
+    color-mix(in srgb, var(--surface-raised) 94%, white);
+}
+
+.qrFrame {
+  display: grid;
+  place-items: center;
+  width: 208px;
+  min-height: 208px;
+  padding: 0.7rem;
+  border-radius: 24px;
+  background: white;
+  border: 1px solid color-mix(in srgb, var(--line) 88%, white);
+  box-shadow: var(--shadow-inset), var(--shadow-xs);
+}
+
+.qrImage {
+  width: 100%;
+  height: auto;
+  object-fit: contain;
+}
+
+.errorInline {
+  padding: 0.85rem 0.95rem;
+  border-radius: 18px;
+  border: 1px solid color-mix(in srgb, #dc2626 18%, white);
+  background: color-mix(in srgb, #fee2e2 90%, white);
+}
+
+.errorInline p,
+.errorInline strong {
+  margin: 0;
+  color: #991b1b;
 }
 
 .step {
@@ -289,7 +335,8 @@
 @media (max-width: 1080px) {
   .hero,
   .pathGrid,
-  .grid {
+  .grid,
+  .qrPanel {
     grid-template-columns: 1fr;
   }
 

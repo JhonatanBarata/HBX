@@ -7,10 +7,11 @@ import { UsersModule } from '../users/users.module';
 import { PlansModule } from '../plans/plans.module';
 import { WhatsAppStatusService } from '../messaging/whatsapp-status.service';
 import { PaymentsModule } from '../payments/payments.module';
+import { WhatsAppTemporaryConnectionService } from './whatsapp-temporary-connection.service';
 
 @Module({
   imports: [PrismaModule, UsersModule, PlansModule, PaymentsModule, MasterContextModule],
-  providers: [CompaniesService, WhatsAppStatusService],
+  providers: [CompaniesService, WhatsAppStatusService, WhatsAppTemporaryConnectionService],
   controllers: [CompaniesController],
   exports: [CompaniesService],
 })
