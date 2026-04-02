@@ -1,0 +1,6 @@
+ALTER TABLE "WebscrapingUsageLog"
+ADD COLUMN "source" TEXT,
+ADD COLUMN "reusedCount" INTEGER NOT NULL DEFAULT 0,
+ADD COLUMN "fetchedCount" INTEGER NOT NULL DEFAULT 0,
+ADD COLUMN "technicalCacheUsed" BOOLEAN NOT NULL DEFAULT false,
+ADD COLUMN "technicalCacheReusedCount" INTEGER NOT NULL DEFAULT 0;

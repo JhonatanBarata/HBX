@@ -689,10 +689,15 @@ model WebscrapingUsageLog {
   user            User     @relation(fields: [userId], references: [id])
   userId          Int
   eventType       String   @default("EXECUTED") // EXECUTED | BLOCKED_DAILY_LIMIT
+  source          String? // history | google | hybrid | global_cache
   city            String?
   segment         String?
   quantity        Int?
   resultCount     Int      @default(0)
+  reusedCount     Int      @default(0)
+  fetchedCount    Int      @default(0)
+  technicalCacheUsed Boolean @default(false)
+  technicalCacheReusedCount Int @default(0)
   searchSignature String?
   message         String?
   createdAt       DateTime @default(now())

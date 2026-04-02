@@ -487,6 +487,12 @@
   gap: 1rem;
 }
 
+.controlTowerGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1rem;
+}
+
 .attentionGrid {
   grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
 }
@@ -609,6 +615,34 @@
 .statusStack {
   display: grid;
   gap: 0.35rem;
+}
+
+.controlKpiGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.85rem;
+}
+
+.kpiMini {
+  display: grid;
+  gap: 0.2rem;
+  padding: 0.9rem 0.95rem;
+  border-radius: 18px;
+  background: rgba(24, 49, 83, 0.05);
+  border: 1px solid rgba(24, 49, 83, 0.08);
+}
+
+.kpiMini span {
+  font-size: 0.76rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--master-text-soft);
+}
+
+.kpiMini strong {
+  font-size: 1.25rem;
+  line-height: 1.1;
 }
 
 .emptyPanel,
@@ -994,6 +1028,10 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .controlTowerGrid {
+    grid-template-columns: 1fr;
+  }
+
   .noticeGrid,
   .dangerGrid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1012,6 +1050,7 @@
 
   .commandBar,
   .chartsGrid,
+  .controlTowerGrid,
   .noticeGrid,
   .dangerGrid,
   .summaryMeta,
@@ -1043,6 +1082,10 @@
   }
 
   .summaryStats {
+    grid-template-columns: 1fr;
+  }
+
+  .controlKpiGrid {
     grid-template-columns: 1fr;
   }
 
