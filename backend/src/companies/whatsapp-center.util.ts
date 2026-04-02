@@ -61,9 +61,11 @@ export type WhatsAppCenterSnapshot = {
   };
   migration: {
     interestRequested: boolean;
-    status: 'NONE' | 'REQUESTED' | 'CONTACTED' | 'RESOLVED';
     requestedAt: string | null;
-    source: string | null;
+    workflowStatus?: 'NONE' | 'REQUESTED' | 'CONTACTED' | 'RESOLVED';
+    source?: string | null;
+    lastContactAt?: string | null;
+    internalNote?: string | null;
   };
 };
 
@@ -77,14 +79,17 @@ export function buildWhatsAppCenterSnapshot(input: {
     displayNumber?: NullableText;
     whatsappNumber?: NullableText;
   } | null;
+  includeInternal?: boolean;
 }): WhatsAppCenterSnapshot {
   const company = input.company || {};
   const credential = input.credential || null;
   const effectiveConfig = input.effectiveConfig || null;
+  const includeInternal = Boolean(input.includeInternal);
 
   const mode = normalizeMode(company.whatsappConnectionMode);
   const temporaryStatus = normalizeTemporaryStatus(company.whatsappTemporaryStatus);
   const migrationStatus = normalizeMigrationStatus(company.whatsappMigrationInterestStatus);
+  const workflowStatus = normalizeMigrationStatus(company.whatsappMigrationWorkflowStatus);
   const officialStatus = normalizeText(company.whatsappStatus)?.toUpperCase() || null;
   const effectivePhoneNumberId =
     normalizeText(effectiveConfig?.phoneNumberId) || normalizeText(company.whatsappPhoneNumberId);
@@ -101,7 +106,10 @@ export function buildWhatsAppCenterSnapshot(input: {
     normalizeText(company.whatsappNumber);
   const officialConfigured = Boolean(effectiveAccessToken && effectivePhoneNumberId);
   const officialConnected = officialStatus === 'CONNECTED';
-  const migrationRequested = migrationStatus === 'REQUESTED' || migrationStatus === 'CONTACTED';
+  const migrationRequested =
+    workflowStatus !== 'NONE'
+      ? workflowStatus === 'REQUESTED' || workflowStatus === 'CONTACTED'
+      : migrationStatus === 'REQUESTED' || migrationStatus === 'CONTACTED';
 
   let status: WhatsAppCenterSnapshot['status'] = 'NOT_CONNECTED';
   let statusLabel = 'Não conectado';
@@ -150,9 +158,15 @@ export function buildWhatsAppCenterSnapshot(input: {
     },
     migration: {
       interestRequested: migrationRequested,
-      status: migrationStatus,
       requestedAt: normalizeDate(company.whatsappMigrationInterestAt),
-      source: normalizeText(company.whatsappMigrationInterestSource),
+      ...(includeInternal
+        ? {
+            workflowStatus,
+            source: normalizeText(company.whatsappMigrationInterestSource),
+            lastContactAt: normalizeDate(company.whatsappMigrationLastContactAt),
+            internalNote: normalizeText(company.whatsappMigrationInternalNote),
+          }
+        : {}),
     },
   };
 }

@@ -53,6 +53,31 @@ export async function ensureMasterBillingRuntimeSchema(prisma: PrismaService) {
 
   await prisma.$executeRawUnsafe(`
     ALTER TABLE "Company"
+    ADD COLUMN IF NOT EXISTS "acquisitionSource" TEXT
+  `);
+
+  await prisma.$executeRawUnsafe(`
+    ALTER TABLE "Company"
+    ADD COLUMN IF NOT EXISTS "acquisitionSourceDetail" TEXT
+  `);
+
+  await prisma.$executeRawUnsafe(`
+    ALTER TABLE "Company"
+    ADD COLUMN IF NOT EXISTS "referralReferrerName" TEXT
+  `);
+
+  await prisma.$executeRawUnsafe(`
+    ALTER TABLE "Company"
+    ADD COLUMN IF NOT EXISTS "referralCode" TEXT
+  `);
+
+  await prisma.$executeRawUnsafe(`
+    ALTER TABLE "Company"
+    ADD COLUMN IF NOT EXISTS "referralDiscountConsumedAt" TIMESTAMP(3)
+  `);
+
+  await prisma.$executeRawUnsafe(`
+    ALTER TABLE "Company"
     ADD COLUMN IF NOT EXISTS "useMasterWhatsAppToken" BOOLEAN NOT NULL DEFAULT false
   `);
 
@@ -92,6 +117,21 @@ export async function ensureMasterBillingRuntimeSchema(prisma: PrismaService) {
   `);
 
   await prisma.$executeRawUnsafe(`
+    ALTER TABLE "Company"
+    ADD COLUMN IF NOT EXISTS "whatsappMigrationWorkflowStatus" TEXT NOT NULL DEFAULT 'NONE'
+  `);
+
+  await prisma.$executeRawUnsafe(`
+    ALTER TABLE "Company"
+    ADD COLUMN IF NOT EXISTS "whatsappMigrationLastContactAt" TIMESTAMP(3)
+  `);
+
+  await prisma.$executeRawUnsafe(`
+    ALTER TABLE "Company"
+    ADD COLUMN IF NOT EXISTS "whatsappMigrationInternalNote" TEXT
+  `);
+
+  await prisma.$executeRawUnsafe(`
     ALTER TABLE "SystemModule"
     ADD COLUMN IF NOT EXISTS "monthlyPrice" DOUBLE PRECISION NOT NULL DEFAULT 0
   `);
@@ -125,6 +165,21 @@ export async function ensureMasterBillingRuntimeSchema(prisma: PrismaService) {
   await prisma.$executeRawUnsafe(`
     ALTER TABLE "MasterGlobalIntegrationConfig"
     ADD COLUMN IF NOT EXISTS "annualPlanDiscountPercent" DOUBLE PRECISION NOT NULL DEFAULT 0
+  `);
+
+  await prisma.$executeRawUnsafe(`
+    ALTER TABLE "MasterGlobalIntegrationConfig"
+    ADD COLUMN IF NOT EXISTS "referralDiscountActive" BOOLEAN NOT NULL DEFAULT false
+  `);
+
+  await prisma.$executeRawUnsafe(`
+    ALTER TABLE "MasterGlobalIntegrationConfig"
+    ADD COLUMN IF NOT EXISTS "referralDiscountPercent" DOUBLE PRECISION NOT NULL DEFAULT 0
+  `);
+
+  await prisma.$executeRawUnsafe(`
+    ALTER TABLE "MasterGlobalIntegrationConfig"
+    ADD COLUMN IF NOT EXISTS "referralDiscountMode" TEXT NOT NULL DEFAULT 'ONCE'
   `);
 
   await prisma.$executeRawUnsafe(`

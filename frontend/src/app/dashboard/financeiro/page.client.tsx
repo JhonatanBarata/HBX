@@ -22,6 +22,10 @@ type FinanceiroOverview = {
     trialEndsAt?: string | null;
     trialRemainingDays?: number | null;
     isActive: boolean;
+    acquisitionSource?: string | null;
+    acquisitionSourceDetail?: string | null;
+    referralReferrerName?: string | null;
+    referralCode?: string | null;
     plan?: { id: number; name: string; price: number } | null;
   };
   modules: Array<{ key: string; name: string; monthlyPrice?: number }>;
@@ -32,6 +36,17 @@ type FinanceiroOverview = {
     annualDiscountValue: number;
     manualDiscountPercent: number;
     manualDiscountValue: number;
+    referralDiscountPercent: number;
+    referralDiscountMode: "ONCE" | "RECURRING";
+    referralDiscountValue: number;
+    referralDiscountEligible: boolean;
+    referralDiscountAppliedNow: boolean;
+    referralDiscountConsumedAt?: string | null;
+    acquisitionSource?: string | null;
+    acquisitionSourceDetail?: string | null;
+    referralReferrerName?: string | null;
+    referralCode?: string | null;
+    isReferral?: boolean;
     freeMonths: number;
     baseCycleAmount: number;
     finalCycleAmount: number;
@@ -161,6 +176,21 @@ function chargeStatusLabel(value?: string | null) {
   if (normalized === "refunded") return "Estornado";
   if (normalized === "partially_refunded") return "Estorno parcial";
   return normalized || "-";
+}
+
+function acquisitionSourceLabel(value?: string | null) {
+  const source = String(value || "").trim().toLowerCase();
+  if (source === "google") return "Google";
+  if (source === "instagram") return "Instagram";
+  if (source === "youtube") return "YouTube";
+  if (source === "indicacao") return "Indicação";
+  if (source === "parceiro") return "Parceiro";
+  if (source === "outro") return "Outro";
+  return "Não informado";
+}
+
+function referralModeLabel(value?: string | null) {
+  return String(value || "").trim().toUpperCase() === "RECURRING" ? "recorrente" : "único";
 }
 
 export default function FinanceiroClientPage() {
@@ -296,8 +326,12 @@ export default function FinanceiroClientPage() {
       },
       {
         label: "Descontos ativos",
-        value: formatCurrency(overview.pricing.annualDiscountValue + overview.pricing.manualDiscountValue),
-        note: "anual + manual",
+        value: formatCurrency(
+          overview.pricing.annualDiscountValue +
+            overview.pricing.manualDiscountValue +
+            overview.pricing.referralDiscountValue,
+        ),
+        note: overview.pricing.referralDiscountValue > 0 ? "anual + manual + indicação" : "anual + manual",
       },
       {
         label: "Valor atual",
@@ -438,6 +472,8 @@ export default function FinanceiroClientPage() {
                   <div><span>Provider</span><strong>{overview.company.billingProvider || "manual"}</strong></div>
                   <div><span>Trial</span><strong>{overview.company.trialRemainingDays != null ? `${overview.company.trialRemainingDays} dia(s)` : "Não ativo"}</strong></div>
                   <div><span>Próximo marco</span><strong>{formatDate(overview.accountStatus.nextDueAt)}</strong></div>
+                  <div><span>Origem</span><strong>{acquisitionSourceLabel(overview.company.acquisitionSource)}</strong></div>
+                  <div><span>Indicação</span><strong>{overview.company.referralReferrerName || overview.company.referralCode || "Sem indicação"}</strong></div>
                 </div>
                 <div className={styles.moduleRail}>
                   {overview.modules.map((item) => (
@@ -457,14 +493,34 @@ export default function FinanceiroClientPage() {
                   <div><span>Ciclo</span><strong>{overview.pricing.billingCycle === "ANNUAL" ? "Anual" : "Mensal"}</strong></div>
                   <div><span>Desconto anual</span><strong>{overview.pricing.annualPlanDiscountPercent}%</strong></div>
                   <div><span>Desconto manual</span><strong>{overview.pricing.manualDiscountPercent}%</strong></div>
+                  <div><span>Desconto indicação</span><strong>{overview.pricing.referralDiscountPercent}%</strong></div>
                   <div><span>Meses grátis</span><strong>{overview.pricing.freeMonths}</strong></div>
                   <div><span>Estornos</span><strong>{overview.pricing.refundCount}</strong></div>
                   <div><span>Valor estornado</span><strong>{formatCurrency(overview.pricing.refundAmount)}</strong></div>
+                  <div><span>Política de indicação</span><strong>{referralModeLabel(overview.pricing.referralDiscountMode)}</strong></div>
+                  <div><span>Status da indicação</span><strong>{overview.pricing.isReferral ? "Elegível" : "Não aplicável"}</strong></div>
                 </div>
                 <div className={styles.summaryStack}>
                   <p>Base do ciclo: {formatCurrency(overview.pricing.baseCycleAmount)}</p>
                   <p>Desconto anual aplicado: {formatCurrency(overview.pricing.annualDiscountValue)}</p>
                   <p>Desconto manual aplicado: {formatCurrency(overview.pricing.manualDiscountValue)}</p>
+                  <p>Desconto por indicação: {formatCurrency(overview.pricing.referralDiscountValue)}</p>
+                  <p>
+                    Origem comercial: {acquisitionSourceLabel(overview.pricing.acquisitionSource)}
+                    {overview.pricing.acquisitionSourceDetail ? ` • ${overview.pricing.acquisitionSourceDetail}` : ""}
+                  </p>
+                  <p>
+                    Quem indicou: {overview.pricing.referralReferrerName || overview.pricing.referralCode || "Não informado"}
+                  </p>
+                  {overview.pricing.isReferral ? (
+                    <p>
+                      Situação da indicação: {overview.pricing.referralDiscountAppliedNow
+                        ? `abatimento atual de ${formatCurrency(overview.pricing.referralDiscountValue)}`
+                        : overview.pricing.referralDiscountConsumedAt
+                          ? `já consumido em ${formatDate(overview.pricing.referralDiscountConsumedAt)}`
+                          : "pronto para entrar na próxima cobrança válida"}
+                    </p>
+                  ) : null}
                 </div>
               </article>
             </section>

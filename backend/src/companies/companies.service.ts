@@ -238,6 +238,7 @@ export class CompaniesService {
         company,
         credential: selectedCredential,
         effectiveConfig,
+        includeInternal: false,
       }),
     };
   }
@@ -285,9 +286,47 @@ export class CompaniesService {
         whatsappMigrationInterestStatus: 'REQUESTED',
         whatsappMigrationInterestAt: new Date(),
         whatsappMigrationInterestSource: source,
+        whatsappMigrationWorkflowStatus: 'REQUESTED',
       },
     });
     return this.getWhatsAppCenterForCompany(updated.id);
+  }
+
+  async updateWhatsAppMigrationWorkflowByMaster(
+    masterUserId: number,
+    companyId: number,
+    input: {
+      status?: string;
+      internalNote?: string;
+      lastContactAt?: string | null;
+    },
+  ) {
+    await ensureMasterBillingRuntimeSchema(this.prisma);
+    await this.assertMasterUser(masterUserId);
+    const existing = await this.findByIdForMaster(companyId);
+    const status = String(input?.status || '').trim().toUpperCase();
+    if (!['REQUESTED', 'CONTACTED', 'RESOLVED'].includes(status)) {
+      throw new BadRequestException('Status interno da migração do WhatsApp inválido.');
+    }
+
+    const normalizedNote = this.normalizeOptionalString(input?.internalNote);
+    const normalizedLastContact = this.normalizeOptionalString(input?.lastContactAt);
+    const lastContactAt = normalizedLastContact ? new Date(normalizedLastContact) : null;
+    if (normalizedLastContact && Number.isNaN(lastContactAt?.getTime())) {
+      throw new BadRequestException('Data do último contato técnico inválida.');
+    }
+
+    await this.prisma.company.update({
+      where: { id: Number(companyId) },
+      data: {
+        whatsappMigrationWorkflowStatus: status,
+        whatsappMigrationInternalNote: normalizedNote,
+        whatsappMigrationLastContactAt:
+          normalizedLastContact !== null ? lastContactAt : (existing as any)?.whatsappMigrationLastContactAt || null,
+      },
+    });
+
+    return this.findByIdForMaster(companyId);
   }
 
   async replaceWhatsAppEndpointsByMaster(

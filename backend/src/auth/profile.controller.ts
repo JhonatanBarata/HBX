@@ -41,7 +41,6 @@ function sanitizeUser(user: any, masterContext?: any) {
           trialModuleSelection: user.company.trialModuleSelection ?? null,
           whatsappConnectionMode: user.company.whatsappConnectionMode ?? null,
           whatsappTemporaryStatus: user.company.whatsappTemporaryStatus ?? null,
-          whatsappMigrationInterestStatus: user.company.whatsappMigrationInterestStatus ?? null,
           whatsappMigrationInterestAt: user.company.whatsappMigrationInterestAt ?? null,
           plan: user.company.plan
             ? {

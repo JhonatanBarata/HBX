@@ -71,6 +71,13 @@ export class AuthService implements OnModuleInit {
     return normalized === 'vendas' || normalized === 'recovery' ? normalized : null;
   }
 
+  private normalizeAcquisitionSource(value: string | undefined) {
+    const normalized = String(value || '').trim().toLowerCase();
+    return ['google', 'instagram', 'youtube', 'indicacao', 'parceiro', 'outro'].includes(normalized)
+      ? normalized
+      : null;
+  }
+
   private isPublicEmailDomain(email: string) {
     const normalized = String(email || '').trim().toLowerCase();
     const domain = normalized.split('@')[1] || '';
@@ -303,6 +310,10 @@ export class AuthService implements OnModuleInit {
     companyName?: string;
     name?: string;
     trialModuleSelection?: 'vendas' | 'recovery';
+    acquisitionSource?: 'google' | 'instagram' | 'youtube' | 'indicacao' | 'parceiro' | 'outro';
+    acquisitionSourceDetail?: string;
+    referralReferrerName?: string;
+    referralCode?: string;
     username: string;
     email: string;
     password: string;
@@ -339,12 +350,19 @@ export class AuthService implements OnModuleInit {
     const entityType = this.normalizeEntityType(data.entityType);
     const normalizedCompanyName = String(data.companyName || '').trim();
     const trialModuleSelection = this.normalizeTrialModuleSelection(data.trialModuleSelection);
+    const acquisitionSource = this.normalizeAcquisitionSource(data.acquisitionSource);
+    const acquisitionSourceDetail = String(data.acquisitionSourceDetail || '').trim() || null;
+    const referralReferrerName = String(data.referralReferrerName || '').trim() || null;
+    const referralCode = String(data.referralCode || '').trim() || null;
     const usesPublicEmail = entityType === 'PJ' ? this.isPublicEmailDomain(email) : false;
     if (!existingUsername?.companyId && !entityType) {
       throw new BadRequestException('Selecione PF ou PJ.');
     }
     if (!existingUsername?.companyId && !trialModuleSelection) {
       throw new BadRequestException('Selecione o módulo inicial do trial.');
+    }
+    if (acquisitionSource === 'indicacao' && !referralReferrerName && !referralCode) {
+      throw new BadRequestException('Informe quem indicou ou o código de indicação.');
     }
     if (!existingUsername?.companyId && entityType === 'PJ' && !normalizedCompanyName) {
       throw new BadRequestException('O campo Empresa é obrigatório.');
@@ -389,6 +407,10 @@ export class AuthService implements OnModuleInit {
             entityType: entityType || 'PJ',
             trialModuleSelection,
             signupUsesPublicEmail: usesPublicEmail,
+            acquisitionSource,
+            acquisitionSourceDetail,
+            referralReferrerName,
+            referralCode,
             primaryContactName: name,
             contactEmail: email,
             onboardingStatus: 'pending_email_confirmation',
@@ -438,6 +460,7 @@ export class AuthService implements OnModuleInit {
         companyName: createdPending.companyName,
         entityType,
         trialModuleSelection,
+        acquisitionSource,
         warnings,
         delivery,
       };
@@ -456,6 +479,10 @@ export class AuthService implements OnModuleInit {
           entityType: entityType || 'PJ',
           trialModuleSelection,
           signupUsesPublicEmail: usesPublicEmail,
+          acquisitionSource,
+          acquisitionSourceDetail,
+          referralReferrerName,
+          referralCode,
           primaryContactName: name,
           contactEmail: email,
           onboardingStatus: 'pending_email_confirmation',
@@ -508,6 +535,7 @@ export class AuthService implements OnModuleInit {
       companyName: created.companyName,
       entityType,
       trialModuleSelection,
+      acquisitionSource,
       warnings,
       delivery,
     };

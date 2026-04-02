@@ -17,6 +17,11 @@ model Company {
   slug                    String?   @unique
   trialModuleSelection    String? // vendas | recovery
   signupUsesPublicEmail   Boolean   @default(false)
+  acquisitionSource       String?
+  acquisitionSourceDetail String?
+  referralReferrerName    String?
+  referralCode            String?
+  referralDiscountConsumedAt DateTime?
   primaryContactName      String?
   contactEmail            String?
   contactPhone            String?
@@ -34,6 +39,9 @@ model Company {
   whatsappMigrationInterestStatus String @default("NONE") // NONE | REQUESTED | CONTACTED | RESOLVED
   whatsappMigrationInterestAt DateTime?
   whatsappMigrationInterestSource String?
+  whatsappMigrationWorkflowStatus String @default("NONE") // NONE | REQUESTED | CONTACTED | RESOLVED
+  whatsappMigrationLastContactAt DateTime?
+  whatsappMigrationInternalNote String?
   mercadoPagoAccessToken    String?
   mercadoPagoStatus         String? // CONNECTED | DISCONNECTED | ERROR
   mercadoPagoStatusError    String?
@@ -786,6 +794,9 @@ model MasterGlobalIntegrationConfig {
   mercadoPagoLibrary       String?
   whatsappLibrary          String?
   annualPlanDiscountPercent Float   @default(0)
+  referralDiscountActive   Boolean  @default(false)
+  referralDiscountPercent  Float    @default(0)
+  referralDiscountMode     String   @default("ONCE") // ONCE | RECURRING
   createdAt                DateTime @default(now())
   updatedAt                DateTime @updatedAt
 }

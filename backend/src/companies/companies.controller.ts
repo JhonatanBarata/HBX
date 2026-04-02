@@ -118,6 +118,20 @@ class RegisterWhatsAppMigrationInterestDto {
   source?: string;
 }
 
+class UpdateMasterWhatsAppMigrationWorkflowDto {
+  @IsString()
+  @IsNotEmpty()
+  status!: string;
+
+  @IsOptional()
+  @IsString()
+  internalNote?: string;
+
+  @IsOptional()
+  @IsString()
+  lastContactAt?: string;
+}
+
 class MasterHardDeleteCompanyDto {
   @IsOptional()
   @IsString()
@@ -311,6 +325,28 @@ export class CompaniesController {
     await this.whatsappStatus.getStatusForCompanyEndpoint(endpointId, { refresh: true });
     const endpoints = await this.companiesService.listWhatsAppEndpointsByMaster(companyId);
     return { companyId, endpoints };
+  }
+
+  @Patch('master/:id/whatsapp-migration-workflow')
+  @UseGuards(JwtAuthGuard, MasterGuard)
+  async updateWhatsAppMigrationWorkflowForMaster(
+    @Req() req: any,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: UpdateMasterWhatsAppMigrationWorkflowDto,
+  ) {
+    await this.companiesService.updateWhatsAppMigrationWorkflowByMaster(Number(req.user?.id), id, dto || {});
+    await this.masterContextService.registerSupportAction({
+      masterUserId: Number(req.user?.id),
+      companyId: Number(id),
+      scope: 'master_whatsapp_center',
+      action: 'WHATSAPP_MIGRATION_WORKFLOW_UPDATED',
+      metadata: {
+        status: String(dto?.status || '').trim().toUpperCase() || null,
+        internalNote: dto?.internalNote ? String(dto.internalNote).slice(0, 240) : null,
+        lastContactAt: dto?.lastContactAt || null,
+      },
+    });
+    return this.companiesService.findByIdForMaster(id);
   }
 
   @Get('master/:id/mercadopago')

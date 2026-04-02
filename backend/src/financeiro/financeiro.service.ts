@@ -149,6 +149,44 @@ export class FinanceiroService {
     return this.addDays(start, billingCycle === 'ANNUAL' ? 365 : 30);
   }
 
+  private buildReferralSnapshot(company: any, referralPolicy?: any) {
+    const acquisitionSource = String(company?.acquisitionSource || '').trim().toLowerCase();
+    const referrerName = this.normalizeOptionalString(company?.referralReferrerName);
+    const referralCode = this.normalizeOptionalString(company?.referralCode);
+    const isReferral = acquisitionSource === 'indicacao' && Boolean(referrerName || referralCode);
+    const referralDiscountActive = Boolean(referralPolicy?.referralDiscountActive);
+    const referralDiscountPercent = Math.max(
+      0,
+      this.normalizeCurrencyAmount(referralPolicy?.referralDiscountPercent || 0),
+    );
+    const referralDiscountMode =
+      String(referralPolicy?.referralDiscountMode || '').trim().toUpperCase() === 'RECURRING'
+        ? 'RECURRING'
+        : 'ONCE';
+    const referralDiscountConsumedAt =
+      company?.referralDiscountConsumedAt instanceof Date
+        ? company.referralDiscountConsumedAt.toISOString()
+        : null;
+    const referralDiscountEligible = isReferral && referralDiscountActive && referralDiscountPercent > 0;
+    const referralDiscountAppliesNow =
+      referralDiscountEligible &&
+      (referralDiscountMode === 'RECURRING' || !referralDiscountConsumedAt);
+
+    return {
+      acquisitionSource: acquisitionSource || null,
+      acquisitionSourceDetail: this.normalizeOptionalString(company?.acquisitionSourceDetail),
+      isReferral,
+      referrerName,
+      referralCode,
+      referralDiscountActive,
+      referralDiscountPercent,
+      referralDiscountMode,
+      referralDiscountEligible,
+      referralDiscountAppliesNow,
+      referralDiscountConsumedAt,
+    };
+  }
+
   private extractPaymentId(query: Record<string, any>, body: any): string | null {
     const candidate = query?.['data.id'] || body?.data?.id || body?.id || query?.id;
     if (candidate !== undefined && candidate !== null && String(candidate).trim()) return String(candidate).trim();
@@ -204,11 +242,15 @@ export class FinanceiroService {
     };
   }
 
-  private buildPricing(company: any, annualDiscountPercentRaw: unknown, ledgerRows: BillingLedgerEntryRow[]) {
+  private buildPricing(company: any, pricingPolicy: any, ledgerRows: BillingLedgerEntryRow[]) {
     const monthlyValue = this.resolveCompanyMonthlyValue(company);
     const billingCycle = this.normalizeBillingCycle(company?.billingCycle);
-    const annualPlanDiscountPercent = Math.max(0, this.normalizeCurrencyAmount(annualDiscountPercentRaw));
+    const annualPlanDiscountPercent = Math.max(
+      0,
+      this.normalizeCurrencyAmount(pricingPolicy?.annualPlanDiscountPercent || 0),
+    );
     const manualDiscountPercent = Math.max(0, this.normalizeCurrencyAmount(company?.manualDiscountPercent || 0));
+    const referral = this.buildReferralSnapshot(company, pricingPolicy);
     const freeMonths = Math.max(0, Math.trunc(Number(company?.freeMonths || 0) || 0));
     const baseCycleAmount =
       billingCycle === 'ANNUAL'
@@ -222,7 +264,14 @@ export class FinanceiroService {
     const manualDiscountValue = this.normalizeCurrencyAmount(
       subtotalAfterAnnual * (manualDiscountPercent / 100),
     );
-    const discountedAmount = Math.max(0, this.normalizeCurrencyAmount(subtotalAfterAnnual - manualDiscountValue));
+    const subtotalAfterManual = Math.max(0, this.normalizeCurrencyAmount(subtotalAfterAnnual - manualDiscountValue));
+    const referralDiscountValue = referral.referralDiscountAppliesNow
+      ? this.normalizeCurrencyAmount(subtotalAfterManual * (referral.referralDiscountPercent / 100))
+      : 0;
+    const discountedAmount = Math.max(
+      0,
+      this.normalizeCurrencyAmount(subtotalAfterManual - referralDiscountValue),
+    );
     const finalCycleAmount = freeMonths > 0 ? 0 : discountedAmount;
     const failedStatuses = ['FAILED', 'CANCELLED'];
     const refundStatuses = ['REFUNDED', 'PARTIALLY_REFUNDED'];
@@ -239,8 +288,19 @@ export class FinanceiroService {
       annualDiscountValue,
       manualDiscountPercent,
       manualDiscountValue,
+      referralDiscountPercent: referral.referralDiscountPercent,
+      referralDiscountMode: referral.referralDiscountMode,
+      referralDiscountValue,
+      referralDiscountEligible: referral.referralDiscountEligible,
+      referralDiscountAppliedNow: referral.referralDiscountAppliesNow,
+      referralDiscountConsumedAt: referral.referralDiscountConsumedAt,
       freeMonths,
       freeCycleApplied: freeMonths > 0,
+      acquisitionSource: referral.acquisitionSource,
+      acquisitionSourceDetail: referral.acquisitionSourceDetail,
+      referralReferrerName: referral.referrerName,
+      referralCode: referral.referralCode,
+      isReferral: referral.isReferral,
       baseCycleAmount,
       finalCycleAmount,
       pendingCount,
@@ -393,8 +453,13 @@ export class FinanceiroService {
   }
 
   private async activateCompanyFromCharge(companyId: number, charge: any, paidAt: Date) {
+    const [company, masterConfig] = await Promise.all([
+      this.prisma.company.findUnique({ where: { id: companyId } }),
+      getMasterGlobalIntegrationConfig(this.prisma),
+    ]);
     const billingCycle = this.normalizeBillingCycle(charge?.billingCycle);
     const periodEnd = this.computePeriodEnd(paidAt, billingCycle);
+    const referral = this.buildReferralSnapshot(company, masterConfig);
     await this.prisma.$transaction([
       this.prisma.company.update({
         where: { id: companyId },
@@ -408,6 +473,10 @@ export class FinanceiroService {
           premiumAccess: true,
           subscriptionCurrentPeriodStart: paidAt,
           subscriptionCurrentPeriodEnd: periodEnd,
+          referralDiscountConsumedAt:
+            referral.referralDiscountAppliesNow && referral.referralDiscountMode === 'ONCE'
+              ? paidAt
+              : company?.referralDiscountConsumedAt || null,
           deactivatedAt: null,
         },
       }),
@@ -419,7 +488,8 @@ export class FinanceiroService {
   }
 
   private async settleComplimentaryCycle(companyId: number, userId: number) {
-    const company = await this.prisma.company.findUnique({
+    const [company, masterConfig] = await Promise.all([
+      this.prisma.company.findUnique({
       where: { id: companyId },
       include: {
         plan: {
@@ -433,9 +503,11 @@ export class FinanceiroService {
           include: { systemModule: true },
         },
       },
-    });
+      }),
+      getMasterGlobalIntegrationConfig(this.prisma),
+    ]);
     if (!company) throw new BadRequestException('Empresa nao encontrada.');
-    const pricing = this.buildPricing(company, 0, []);
+    const pricing = this.buildPricing(company, masterConfig, []);
     const now = new Date();
     const charge = await this.prisma.financeiroCharge.create({
       data: {
@@ -596,7 +668,7 @@ export class FinanceiroService {
 
     if (!company) throw new BadRequestException('Empresa nao encontrada.');
 
-    const pricing = this.buildPricing(company, (masterConfig as any)?.annualPlanDiscountPercent, ledgerRows);
+    const pricing = this.buildPricing(company, masterConfig, ledgerRows);
     const activeModules = (company.companyModules || [])
       .filter((row: any) => row?.enabled && row?.systemModule?.companyAssignable)
       .map((row: any) => ({
@@ -624,6 +696,10 @@ export class FinanceiroService {
         trialEndsAt: company.trialEndsAt instanceof Date ? company.trialEndsAt.toISOString() : null,
         trialRemainingDays: this.computeTrialRemainingDays(company.trialEndsAt),
         isActive: Boolean(company.isActive),
+        acquisitionSource: this.normalizeOptionalString(company.acquisitionSource),
+        acquisitionSourceDetail: this.normalizeOptionalString(company.acquisitionSourceDetail),
+        referralReferrerName: this.normalizeOptionalString(company.referralReferrerName),
+        referralCode: this.normalizeOptionalString(company.referralCode),
         plan: company.plan
           ? {
               id: company.plan.id,
@@ -792,7 +868,7 @@ export class FinanceiroService {
     });
     if (!company) throw new BadRequestException('Empresa nao encontrada.');
     const masterConfig = await getMasterGlobalIntegrationConfig(this.prisma);
-    const pricing = this.buildPricing(company, (masterConfig as any)?.annualPlanDiscountPercent, []);
+    const pricing = this.buildPricing(company, masterConfig, []);
 
     if (pricing.freeMonths > 0) {
       const complimentary = await this.settleComplimentaryCycle(context.companyId, context.userId);

@@ -103,6 +103,10 @@ type CompanySummary = {
   primaryContactName?: string | null;
   contactEmail?: string | null;
   contactPhone?: string | null;
+  acquisitionSource?: string | null;
+  acquisitionSourceDetail?: string | null;
+  referralReferrerName?: string | null;
+  referralCode?: string | null;
   isActive: boolean;
   userCount: number;
   plan?: {
@@ -157,9 +161,11 @@ type CompanySummary = {
     };
     migration: {
       interestRequested: boolean;
-      status: "NONE" | "REQUESTED" | "CONTACTED" | "RESOLVED";
       requestedAt?: string | null;
+      workflowStatus?: "NONE" | "REQUESTED" | "CONTACTED" | "RESOLVED";
       source?: string | null;
+      lastContactAt?: string | null;
+      internalNote?: string | null;
     };
   };
   website: {
@@ -186,7 +192,18 @@ type CompanySummary = {
     annualDiscountValue: number;
     manualDiscountPercent: number;
     manualDiscountValue: number;
+    referralDiscountPercent: number;
+    referralDiscountMode: "ONCE" | "RECURRING" | string;
+    referralDiscountValue: number;
+    referralDiscountEligible: boolean;
+    referralDiscountAppliedNow: boolean;
+    referralDiscountConsumedAt?: string | null;
     freeMonths: number;
+    acquisitionSource?: string | null;
+    acquisitionSourceDetail?: string | null;
+    referralReferrerName?: string | null;
+    referralCode?: string | null;
+    isReferral?: boolean;
     cardConfigured: boolean;
     cardBrand?: string | null;
     cardLast4?: string | null;
@@ -267,6 +284,9 @@ type WorkspacePayload = {
     mercadoPagoConfigured: boolean;
     whatsappConfigured: boolean;
     annualPlanDiscountPercent: number;
+    referralDiscountActive: boolean;
+    referralDiscountPercent: number;
+    referralDiscountMode: "ONCE" | "RECURRING" | string;
     mercadoPagoLibrary: MasterMercadoPagoCredential[];
     whatsappLibrary: MasterWhatsAppCredential[];
   };
@@ -395,6 +415,18 @@ type FinanceSettingsDraft = {
   billingCycle: "MONTHLY" | "ANNUAL";
   manualDiscountPercent: string;
   freeMonths: string;
+};
+
+type ReferralPolicyDraft = {
+  active: boolean;
+  percent: string;
+  mode: "ONCE" | "RECURRING";
+};
+
+type WhatsAppMigrationWorkflowDraft = {
+  status: "REQUESTED" | "CONTACTED" | "RESOLVED";
+  internalNote: string;
+  lastContactAt: string;
 };
 
 type IntegrationProviderId = "AUVO" | "TAGPLUS";
@@ -620,6 +652,21 @@ function paymentStatusLabel(value?: string | null) {
   if (status === "EXPIRED") return "Expirado";
   if (status === "DISABLED") return "Suspenso";
   return status || "-";
+}
+
+function acquisitionSourceLabel(value?: string | null) {
+  const source = String(value || "").trim().toLowerCase();
+  if (source === "google") return "Google";
+  if (source === "instagram") return "Instagram";
+  if (source === "youtube") return "YouTube";
+  if (source === "indicacao") return "Indicação";
+  if (source === "parceiro") return "Parceiro";
+  if (source === "outro") return "Outro";
+  return "Não informado";
+}
+
+function referralModeLabel(value?: string | null) {
+  return String(value || "").trim().toUpperCase() === "RECURRING" ? "Recorrente" : "Único";
 }
 
 function companyHasOperationalAccess(company?: Pick<CompanySummary, "isActive" | "paymentStatus" | "subscriptionStatus"> | null) {
@@ -863,6 +910,12 @@ function buildMasterIntegrationsDraft(workspace?: WorkspacePayload | null): Mast
     mercadoPagoConfigured: Boolean(workspace?.masterIntegrations?.mercadoPagoConfigured),
     whatsappConfigured: Boolean(workspace?.masterIntegrations?.whatsappConfigured),
     annualPlanDiscountPercent: Number(workspace?.masterIntegrations?.annualPlanDiscountPercent || 0) || 0,
+    referralDiscountActive: Boolean(workspace?.masterIntegrations?.referralDiscountActive),
+    referralDiscountPercent: Number(workspace?.masterIntegrations?.referralDiscountPercent || 0) || 0,
+    referralDiscountMode:
+      String(workspace?.masterIntegrations?.referralDiscountMode || "").trim().toUpperCase() === "RECURRING"
+        ? "RECURRING"
+        : "ONCE",
     mercadoPagoLibrary: [...(workspace?.masterIntegrations?.mercadoPagoLibrary || [])],
     whatsappLibrary: [...(workspace?.masterIntegrations?.whatsappLibrary || [])],
   };
@@ -873,6 +926,33 @@ function buildFinanceSettingsDraft(company: CompanyDetailPayload["company"]): Fi
     billingCycle: company.finance?.billingCycle === "ANNUAL" ? "ANNUAL" : "MONTHLY",
     manualDiscountPercent: String(company.finance?.manualDiscountPercent ?? 0),
     freeMonths: String(company.finance?.freeMonths ?? 0),
+  };
+}
+
+function buildWhatsAppMigrationWorkflowDraft(
+  company: CompanyDetailPayload["company"],
+): WhatsAppMigrationWorkflowDraft {
+  const workflowStatus = String(company.whatsappCenter?.migration?.workflowStatus || "").trim().toUpperCase();
+  return {
+    status:
+      workflowStatus === "CONTACTED" || workflowStatus === "RESOLVED"
+        ? (workflowStatus as "CONTACTED" | "RESOLVED")
+        : "REQUESTED",
+    internalNote: company.whatsappCenter?.migration?.internalNote || "",
+    lastContactAt: company.whatsappCenter?.migration?.lastContactAt
+      ? toDatetimeLocalValue(company.whatsappCenter.migration.lastContactAt)
+      : "",
+  };
+}
+
+function buildReferralPolicyDraft(workspace?: WorkspacePayload | null): ReferralPolicyDraft {
+  return {
+    active: Boolean(workspace?.masterIntegrations?.referralDiscountActive),
+    percent: String(Number(workspace?.masterIntegrations?.referralDiscountPercent || 0) || 0),
+    mode:
+      String(workspace?.masterIntegrations?.referralDiscountMode || "").trim().toUpperCase() === "RECURRING"
+        ? "RECURRING"
+        : "ONCE",
   };
 }
 
@@ -1174,6 +1254,7 @@ export default function MasterPremiumPage() {
   const [websiteDraft, setWebsiteDraft] = useState<WebsiteDraft | null>(null);
   const [mercadoPagoDraft, setMercadoPagoDraft] = useState<MercadoPagoDraft | null>(null);
   const [financeSettingsDraft, setFinanceSettingsDraft] = useState<FinanceSettingsDraft | null>(null);
+  const [whatsAppMigrationWorkflowDraft, setWhatsAppMigrationWorkflowDraft] = useState<WhatsAppMigrationWorkflowDraft | null>(null);
   const [trialDateDraft, setTrialDateDraft] = useState("");
   const [trialDaysDraft, setTrialDaysDraft] = useState("7");
   const [moduleCatalogDrafts, setModuleCatalogDrafts] = useState<Record<string, ModuleCatalogDraft>>({});
@@ -1181,6 +1262,9 @@ export default function MasterPremiumPage() {
     mercadoPagoConfigured: false,
     whatsappConfigured: false,
     annualPlanDiscountPercent: 0,
+    referralDiscountActive: false,
+    referralDiscountPercent: 0,
+    referralDiscountMode: "ONCE",
     mercadoPagoLibrary: [],
     whatsappLibrary: [],
   });
@@ -1242,6 +1326,7 @@ export default function MasterPremiumPage() {
       setWebsiteDraft(buildWebsiteDraft(payload.company));
       setMercadoPagoDraft(buildMercadoPagoDraft(payload.company));
       setFinanceSettingsDraft(buildFinanceSettingsDraft(payload.company));
+      setWhatsAppMigrationWorkflowDraft(buildWhatsAppMigrationWorkflowDraft(payload.company));
       setTrialDateDraft(toDateInputValue(payload.company.trialEndsAt));
       if (preferredTab) setDrawerTab(preferredTab);
       setDrawerOpen(true);
@@ -1396,11 +1481,17 @@ export default function MasterPremiumPage() {
 
   const financeMasterOverview = useMemo(() => {
     const companies = workspace?.companies || [];
+    const referredCompanies = companies.filter(
+      (company) =>
+        Boolean(company.finance.isReferral) ||
+        String(company.acquisitionSource || "").trim().toLowerCase() === "indicacao",
+    );
     return {
       discountedCompanies: companies.filter(
         (company) =>
           company.finance.annualPlanDiscountPercent > 0 ||
           company.finance.manualDiscountPercent > 0 ||
+          company.finance.referralDiscountValue > 0 ||
           company.finance.freeMonths > 0,
       ).length,
       pendingCompanies: companies.filter((company) => company.finance.pendingCount > 0).length,
@@ -1408,6 +1499,17 @@ export default function MasterPremiumPage() {
       refundCompanies: companies.filter((company) => company.finance.refundCount > 0).length,
       refundAmount: companies.reduce((total, company) => total + Number(company.finance.refundAmount || 0), 0),
       freeMonths: companies.reduce((total, company) => total + Number(company.finance.freeMonths || 0), 0),
+      referredCompanies: referredCompanies.length,
+      convertedReferrals: referredCompanies.filter((company) =>
+        companyHasOperationalAccess(company),
+      ).length,
+      referralDiscountCompanies: companies.filter(
+        (company) => company.finance.referralDiscountAppliedNow || Boolean(company.finance.referralDiscountConsumedAt),
+      ).length,
+      referralDiscountAmount: companies.reduce(
+        (total, company) => total + Number(company.finance.referralDiscountValue || 0),
+        0,
+      ),
     };
   }, [workspace?.companies]);
 
@@ -1508,9 +1610,15 @@ export default function MasterPremiumPage() {
         method: "PUT",
         body: JSON.stringify({
           annualPlanDiscountPercent: Number(masterIntegrationsDraft.annualPlanDiscountPercent || 0),
+          referralDiscountActive: Boolean(masterIntegrationsDraft.referralDiscountActive),
+          referralDiscountPercent: Number(masterIntegrationsDraft.referralDiscountPercent || 0),
+          referralDiscountMode:
+            String(masterIntegrationsDraft.referralDiscountMode || "").trim().toUpperCase() === "RECURRING"
+              ? "RECURRING"
+              : "ONCE",
         }),
       });
-      setMessage("Política global de desconto anual atualizada.");
+      setMessage("Política financeira global atualizada.");
       await loadWorkspace(true);
       if (activeCompany) {
         await loadDetail(activeCompany.id, drawerTab);
@@ -1540,6 +1648,34 @@ export default function MasterPremiumPage() {
       await refreshAll(activeCompany.id);
     } catch (actionError) {
       setError(actionError instanceof Error ? actionError.message : "Falha ao atualizar o vínculo com o token MASTER.");
+    } finally {
+      setBusyAction(null);
+    }
+  }
+
+  async function saveWhatsAppMigrationWorkflow() {
+    if (!activeCompany || !whatsAppMigrationWorkflowDraft) return;
+    setBusyAction(`whatsapp-migration-${activeCompany.id}`);
+    setError(null);
+    try {
+      await apiFetch(`/companies/master/${activeCompany.id}/whatsapp-migration-workflow`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          status: whatsAppMigrationWorkflowDraft.status,
+          internalNote: whatsAppMigrationWorkflowDraft.internalNote.trim() || undefined,
+          lastContactAt: whatsAppMigrationWorkflowDraft.lastContactAt
+            ? new Date(whatsAppMigrationWorkflowDraft.lastContactAt).toISOString()
+            : undefined,
+        }),
+      });
+      setMessage("Workflow interno da Central WhatsApp atualizado.");
+      await refreshAll(activeCompany.id);
+    } catch (actionError) {
+      setError(
+        actionError instanceof Error
+          ? actionError.message
+          : "Falha ao salvar o workflow interno da Central WhatsApp.",
+      );
     } finally {
       setBusyAction(null);
     }
@@ -2307,8 +2443,8 @@ export default function MasterPremiumPage() {
                 <article className={styles.summaryCard}>
                   <div className={styles.panelCardHeader}>
                     <div>
-                      <p className={styles.sectionEyebrow}>Política anual</p>
-                      <h3>Desconto global configurável</h3>
+                      <p className={styles.sectionEyebrow}>Política comercial</p>
+                      <h3>Descontos globais sem hardcode</h3>
                     </div>
                     <button
                       type="button"
@@ -2323,7 +2459,7 @@ export default function MasterPremiumPage() {
                     <input
                       className="field"
                       inputMode="decimal"
-                      placeholder="0"
+                      placeholder="Desconto anual (%)"
                       value={String(masterIntegrationsDraft.annualPlanDiscountPercent ?? 0)}
                       onChange={(event) =>
                         setMasterIntegrationsDraft((current) => ({
@@ -2332,10 +2468,54 @@ export default function MasterPremiumPage() {
                         }))
                       }
                     />
+                    <input
+                      className="field"
+                      inputMode="decimal"
+                      placeholder="Desconto por indicação (%)"
+                      value={String(masterIntegrationsDraft.referralDiscountPercent ?? 0)}
+                      onChange={(event) =>
+                        setMasterIntegrationsDraft((current) => ({
+                          ...current,
+                          referralDiscountPercent: Number(event.target.value || 0),
+                        }))
+                      }
+                    />
+                    <select
+                      className="field"
+                      value={masterIntegrationsDraft.referralDiscountMode || "ONCE"}
+                      onChange={(event) =>
+                        setMasterIntegrationsDraft((current) => ({
+                          ...current,
+                          referralDiscountMode: event.target.value === "RECURRING" ? "RECURRING" : "ONCE",
+                        }))
+                      }
+                    >
+                      <option value="ONCE">Indicação única</option>
+                      <option value="RECURRING">Indicação recorrente</option>
+                    </select>
+                    <label className={styles.inlineCheck}>
+                      <input
+                        type="checkbox"
+                        checked={Boolean(masterIntegrationsDraft.referralDiscountActive)}
+                        onChange={(event) =>
+                          setMasterIntegrationsDraft((current) => ({
+                            ...current,
+                            referralDiscountActive: event.target.checked,
+                          }))
+                        }
+                      />
+                      Ativar desconto por indicação
+                    </label>
                   </div>
                   <div className={styles.summaryMeta}>
                     <p>Esse percentual entra apenas quando a empresa estiver no ciclo anual.</p>
                     <p>Hoje: {Number(masterIntegrationsDraft.annualPlanDiscountPercent || 0)}% de desconto global.</p>
+                    <p>
+                      Indicação: {Boolean(masterIntegrationsDraft.referralDiscountActive) ? "ativa" : "inativa"} •{" "}
+                      {Number(masterIntegrationsDraft.referralDiscountPercent || 0)}% •{" "}
+                      {referralModeLabel(masterIntegrationsDraft.referralDiscountMode)}
+                    </p>
+                    <p>Use indicação como alavanca comercial leve, sem burocratizar o cadastro.</p>
                   </div>
                 </article>
 
@@ -2356,6 +2536,10 @@ export default function MasterPremiumPage() {
                     <p>Meses grátis ativos na base: {financeMasterOverview.freeMonths}</p>
                     <p>Empresas com estorno: {financeMasterOverview.refundCompanies}</p>
                     <p>Valor total estornado: {formatCurrency(financeMasterOverview.refundAmount)}</p>
+                    <p>Clientes por indicação: {financeMasterOverview.referredCompanies}</p>
+                    <p>Indicações convertidas: {financeMasterOverview.convertedReferrals}</p>
+                    <p>Descontos por indicação concedidos: {financeMasterOverview.referralDiscountCompanies}</p>
+                    <p>Valor atual em indicação: {formatCurrency(financeMasterOverview.referralDiscountAmount)}</p>
                   </div>
                 </article>
               </div>
@@ -2491,14 +2675,33 @@ export default function MasterPremiumPage() {
                             </span>
                             <span>
                               {company.whatsappCenter?.migration.interestRequested
-                                ? "Migração técnica solicitada"
+                                ? `Migração técnica • ${company.whatsappCenter?.migration.workflowStatus || "REQUESTED"}`
                                 : company.whatsappCenter?.statusHint || "Sem leitura de vínculo"}
+                            </span>
+                            <span>
+                              Último contato técnico: {formatDateTime(company.whatsappCenter?.migration.lastContactAt)}
                             </span>
                             <span>
                               Desc.: {company.finance.annualPlanDiscountPercent}% anual / {company.finance.manualDiscountPercent}% manual
                               {" • "}
                               {company.finance.freeMonths} mês(es) grátis
                             </span>
+                            <span>
+                              Origem: {acquisitionSourceLabel(company.acquisitionSource)}
+                              {company.referralReferrerName ? ` • Indicador: ${company.referralReferrerName}` : ""}
+                              {!company.referralReferrerName && company.referralCode ? ` • Código: ${company.referralCode}` : ""}
+                            </span>
+                            {company.finance.isReferral ? (
+                              <span>
+                                Indicação convertida • {company.finance.referralDiscountPercent}%{" "}
+                                {referralModeLabel(company.finance.referralDiscountMode)}
+                                {company.finance.referralDiscountAppliedNow
+                                  ? ` • abatimento atual ${formatCurrency(company.finance.referralDiscountValue)}`
+                                  : company.finance.referralDiscountConsumedAt
+                                    ? ` • consumido em ${formatDate(company.finance.referralDiscountConsumedAt)}`
+                                    : " • aguardando primeira cobrança"}
+                              </span>
+                            ) : null}
                           </div>
                         </td>
                         <td>
@@ -2795,6 +2998,7 @@ export default function MasterPremiumPage() {
                         <div><span>Valor final</span><strong>{formatCurrency(activeCompany.finance.finalCycleAmount)}</strong></div>
                         <div><span>Desc. anual</span><strong>{activeCompany.finance.annualPlanDiscountPercent}%</strong></div>
                         <div><span>Desc. manual</span><strong>{activeCompany.finance.manualDiscountPercent}%</strong></div>
+                        <div><span>Desc. indicação</span><strong>{activeCompany.finance.referralDiscountPercent}%</strong></div>
                         <div><span>Meses grátis</span><strong>{activeCompany.finance.freeMonths}</strong></div>
                         <div><span>Pendências</span><strong>{activeCompany.finance.pendingCount}</strong></div>
                         <div><span>Falhas</span><strong>{activeCompany.finance.failedCount}</strong></div>
@@ -2808,6 +3012,25 @@ export default function MasterPremiumPage() {
                         <p>Falha recente em cartão: {activeCompany.recentCardFailure ? "Sim" : "Não"}</p>
                         <p>Cartão cadastrado: {activeCompany.finance.cardConfigured ? `${activeCompany.finance.cardBrand || "Cartão"} • **** ${activeCompany.finance.cardLast4 || "----"}` : "Não"}</p>
                         <p>Pix disponível: {activeCompany.finance.pixAvailable ? "Sim" : "Não"}</p>
+                        <p>
+                          Origem comercial: {acquisitionSourceLabel(activeCompany.acquisitionSource)}
+                          {activeCompany.acquisitionSourceDetail ? ` • ${activeCompany.acquisitionSourceDetail}` : ""}
+                        </p>
+                        <p>
+                          Quem indicou: {activeCompany.referralReferrerName || activeCompany.referralCode || "Não informado"}
+                        </p>
+                        <p>
+                          Desconto por indicação: {activeCompany.finance.isReferral ? `${activeCompany.finance.referralDiscountPercent}% • ${referralModeLabel(activeCompany.finance.referralDiscountMode)}` : "Não aplicável"}
+                        </p>
+                        <p>
+                          Situação da indicação: {activeCompany.finance.referralDiscountAppliedNow
+                            ? `abatimento atual de ${formatCurrency(activeCompany.finance.referralDiscountValue)}`
+                            : activeCompany.finance.referralDiscountConsumedAt
+                              ? `já consumido em ${formatDate(activeCompany.finance.referralDiscountConsumedAt)}`
+                              : activeCompany.finance.isReferral
+                                ? "apto para validação na cobrança"
+                                : "sem indicação"}
+                        </p>
                       </div>
                     </section>
 
@@ -2864,6 +3087,11 @@ export default function MasterPremiumPage() {
                       </div>
                       <div className={styles.summaryMeta}>
                         <p>Desconto anual global em vigor: {activeCompany.finance.annualPlanDiscountPercent}%.</p>
+                        <p>
+                          Indicação desta conta: {activeCompany.finance.isReferral ? "Sim" : "Não"} •{" "}
+                          política {activeCompany.finance.referralDiscountPercent}%{" "}
+                          {referralModeLabel(activeCompany.finance.referralDiscountMode)}
+                        </p>
                         <p>Use este bloco para ajustar manualmente cada cliente sem quebrar a lógica atual de billing.</p>
                       </div>
                     </section>
@@ -3564,9 +3792,72 @@ export default function MasterPremiumPage() {
                         <p>
                           Migração técnica:{" "}
                           {activeCompany.whatsappCenter?.migration.interestRequested
-                            ? `${activeCompany.whatsappCenter?.migration.requestedAt ? formatDateTime(activeCompany.whatsappCenter.migration.requestedAt) : "solicitada"} • ${activeCompany.whatsappCenter?.migration.source || "central_whatsapp"}`
+                            ? `${activeCompany.whatsappCenter?.migration.workflowStatus || "REQUESTED"} • ${activeCompany.whatsappCenter?.migration.requestedAt ? formatDateTime(activeCompany.whatsappCenter.migration.requestedAt) : "solicitada"}`
                             : "não solicitada"}
                         </p>
+                        <p>
+                          Último contato técnico: {formatDateTime(activeCompany.whatsappCenter?.migration.lastContactAt)}
+                        </p>
+                      </div>
+                      <div className={styles.formGrid}>
+                        <label>
+                          <span className={styles.sectionEyebrow}>Workflow interno</span>
+                          <select
+                            className="field"
+                            value={whatsAppMigrationWorkflowDraft?.status || "REQUESTED"}
+                            onChange={(event) =>
+                              setWhatsAppMigrationWorkflowDraft((current) =>
+                                current
+                                  ? {
+                                      ...current,
+                                      status: event.target.value as "REQUESTED" | "CONTACTED" | "RESOLVED",
+                                    }
+                                  : current,
+                              )
+                            }
+                          >
+                            <option value="REQUESTED">REQUESTED</option>
+                            <option value="CONTACTED">CONTACTED</option>
+                            <option value="RESOLVED">RESOLVED</option>
+                          </select>
+                        </label>
+                        <label>
+                          <span className={styles.sectionEyebrow}>Último contato técnico</span>
+                          <input
+                            className="field"
+                            type="datetime-local"
+                            value={whatsAppMigrationWorkflowDraft?.lastContactAt || ""}
+                            onChange={(event) =>
+                              setWhatsAppMigrationWorkflowDraft((current) =>
+                                current ? { ...current, lastContactAt: event.target.value } : current,
+                              )
+                            }
+                          />
+                        </label>
+                        <label className={styles.formSpanFull}>
+                          <span className={styles.sectionEyebrow}>Observação interna</span>
+                          <textarea
+                            className="field"
+                            rows={3}
+                            placeholder="Ex: cliente pediu retorno amanhã às 14h, prefere seguir pela Meta oficial."
+                            value={whatsAppMigrationWorkflowDraft?.internalNote || ""}
+                            onChange={(event) =>
+                              setWhatsAppMigrationWorkflowDraft((current) =>
+                                current ? { ...current, internalNote: event.target.value } : current,
+                              )
+                            }
+                          />
+                        </label>
+                      </div>
+                      <div className={styles.rowActions}>
+                        <button
+                          type="button"
+                          className="btn btn-primary btn-sm"
+                          onClick={saveWhatsAppMigrationWorkflow}
+                          disabled={!activeCompany.whatsappCenter?.migration.interestRequested || busyAction === `whatsapp-migration-${activeCompany.id}`}
+                        >
+                          {busyAction === `whatsapp-migration-${activeCompany.id}` ? "Salvando..." : "Salvar workflow interno"}
+                        </button>
                       </div>
                       <select
                         className="field"
