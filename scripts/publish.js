@@ -98,21 +98,41 @@ async function verifyWithRetry(env) {
   throw lastError || new Error(`Production verify timed out after ${timeoutSeconds} seconds`);
 }
 
-function applyProductionMigrations(env) {
+function buildProductionDatabaseEnv(env) {
   const databaseUrl = String(env.PROD_DATABASE_URL || '').trim();
-  if (!databaseUrl) {
-    console.log('PROD_DATABASE_URL not configured; skipping explicit production migration deploy.');
-    return;
-  }
 
-  const prismaEnv = {
+  return databaseUrl
+    ? {
     ...process.env,
     ...env,
     DATABASE_URL: databaseUrl,
     DIRECT_URL: String(env.PROD_DIRECT_URL || databaseUrl).trim(),
-  };
+    }
+    : null;
+}
+
+function applyProductionMigrations(env) {
+  const prismaEnv = buildProductionDatabaseEnv(env);
+  if (!prismaEnv) {
+    console.log('PROD_DATABASE_URL not configured; skipping explicit production migration deploy.');
+    return;
+  }
 
   runStep('npm', ['--prefix', 'backend', 'run', 'prisma:migrate:deploy'], { env: prismaEnv });
+}
+
+function applyProductionStructuralSeed(env) {
+  const prismaEnv = buildProductionDatabaseEnv(env);
+  if (!prismaEnv) {
+    console.log('PROD_DATABASE_URL not configured; skipping structural seed apply.');
+    return;
+  }
+
+  runStep(
+    'node',
+    ['backend/scripts/structural-seed.js', '--apply', '--database-url', prismaEnv.DATABASE_URL],
+    { env: prismaEnv },
+  );
 }
 
 function runStep(command, commandArgs, options = {}) {
@@ -338,6 +358,9 @@ async function main() {
 
   logStage('Production Database Migrate');
   applyProductionMigrations(operationsEnv);
+
+  logStage('Production Structural Seed');
+  applyProductionStructuralSeed(operationsEnv);
 
   logStage('Post-Deploy Verify');
   try {
