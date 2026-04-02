@@ -71,6 +71,20 @@ class UpdateMasterBillingPolicyDto {
   @Type(() => Number)
   @IsNumber({ maxDecimalPlaces: 2 })
   annualPlanDiscountPercent?: number;
+
+  @IsOptional()
+  @Type(() => Boolean)
+  @IsBoolean()
+  referralDiscountActive?: boolean;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  referralDiscountPercent?: number;
+
+  @IsOptional()
+  @IsString()
+  referralDiscountMode?: string;
 }
 
 class UpdateCompanyMasterTokenUsageDto {

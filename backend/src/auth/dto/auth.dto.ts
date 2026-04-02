@@ -17,6 +17,22 @@ export class SignupDto {
   @IsIn(['vendas', 'recovery'])
   trialModuleSelection?: 'vendas' | 'recovery';
 
+  @IsOptional()
+  @IsIn(['google', 'instagram', 'youtube', 'indicacao', 'parceiro', 'outro'])
+  acquisitionSource?: 'google' | 'instagram' | 'youtube' | 'indicacao' | 'parceiro' | 'outro';
+
+  @IsOptional()
+  @IsNotEmpty()
+  acquisitionSourceDetail?: string;
+
+  @IsOptional()
+  @IsNotEmpty()
+  referralReferrerName?: string;
+
+  @IsOptional()
+  @IsNotEmpty()
+  referralCode?: string;
+
   @IsNotEmpty()
   username: string;
 

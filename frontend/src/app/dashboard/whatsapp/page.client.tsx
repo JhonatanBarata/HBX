@@ -44,9 +44,7 @@ type WhatsAppCenterPayload = {
     };
     migration: {
       interestRequested: boolean;
-      status: "NONE" | "REQUESTED" | "CONTACTED" | "RESOLVED";
       requestedAt?: string | null;
-      source?: string | null;
     };
   };
 };
@@ -332,7 +330,7 @@ export default function WhatsAppCenterClientPage() {
                   <p>
                     Interesse técnico:{" "}
                     {payload.center.migration.interestRequested
-                      ? `${formatDateTime(payload.center.migration.requestedAt)} • ${payload.center.migration.source || "central"}`
+                      ? `${formatDateTime(payload.center.migration.requestedAt)}`
                       : "Nenhum aceite registrado ainda."}
                   </p>
                 </div>

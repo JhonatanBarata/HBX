@@ -28,7 +28,6 @@ type CurrentUser = {
     trialModuleSelection?: "vendas" | "recovery" | null;
     whatsappConnectionMode?: string | null;
     whatsappTemporaryStatus?: string | null;
-    whatsappMigrationInterestStatus?: string | null;
     whatsappMigrationInterestAt?: string | null;
     plan?: {
       id: number;
@@ -97,8 +96,7 @@ function resolveTrialModuleEntry(moduleSelection?: "vendas" | "recovery" | null)
 
 function resolveWhatsAppCentralStatus(company?: CurrentUser["company"]) {
   const mode = String(company?.whatsappConnectionMode || "").trim().toUpperCase();
-  const migrationStatus = String(company?.whatsappMigrationInterestStatus || "").trim().toUpperCase();
-  if (migrationStatus === "REQUESTED" || migrationStatus === "CONTACTED") {
+  if (company?.whatsappMigrationInterestAt) {
     return "Atenção / pendente";
   }
   if (mode === "OFFICIAL") return "Oficial / Meta";

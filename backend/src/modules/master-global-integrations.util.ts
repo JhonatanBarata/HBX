@@ -210,6 +210,12 @@ export function serializeMasterGlobalIntegrationConfig(config: any) {
       (entry) => Boolean(normalize(entry.accessToken) && normalize(entry.phoneNumberId)),
     ),
     annualPlanDiscountPercent: Number(config?.annualPlanDiscountPercent || 0) || 0,
+    referralDiscountActive: Boolean(config?.referralDiscountActive),
+    referralDiscountPercent: Number(config?.referralDiscountPercent || 0) || 0,
+    referralDiscountMode:
+      String(config?.referralDiscountMode || '').trim().toUpperCase() === 'RECURRING'
+        ? 'RECURRING'
+        : 'ONCE',
     mercadoPagoLibrary: normalized.mercadoPagoLibrary.map((entry) => ({
       ...entry,
       accessTokenPreview: previewSecret(entry.accessToken),

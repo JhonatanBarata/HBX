@@ -21,6 +21,7 @@ type SignupResponse = {
   entityType?: "PF" | "PJ";
   companyName?: string;
   trialModuleSelection?: "vendas" | "recovery";
+  acquisitionSource?: string;
   warnings?: string[];
   delivery?: {
     previewUrl?: string | null;
@@ -78,6 +79,10 @@ export default function RegisterPage() {
   const [companyName, setCompanyName] = useState("");
   const [name, setName] = useState("");
   const [trialModuleSelection, setTrialModuleSelection] = useState<"vendas" | "recovery">("vendas");
+  const [acquisitionSource, setAcquisitionSource] = useState("");
+  const [acquisitionSourceDetail, setAcquisitionSourceDetail] = useState("");
+  const [referralReferrerName, setReferralReferrerName] = useState("");
+  const [referralCode, setReferralCode] = useState("");
   const [username, setUsername] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -109,6 +114,8 @@ export default function RegisterPage() {
   const isPj = entityType === "PJ";
   const emailDomain = email.includes("@") ? email.split("@")[1]?.trim().toLowerCase() : "";
   const usesPublicEmail = isPj && Boolean(emailDomain) && PUBLIC_EMAIL_DOMAINS.has(emailDomain);
+  const isReferral = acquisitionSource === "indicacao";
+  const needsSourceDetail = acquisitionSource === "outro" || acquisitionSource === "parceiro";
 
   async function handleRegister(event: React.FormEvent) {
     event.preventDefault();
@@ -125,6 +132,10 @@ export default function RegisterPage() {
           companyName,
           name,
           trialModuleSelection,
+          acquisitionSource,
+          acquisitionSourceDetail,
+          referralReferrerName,
+          referralCode,
           username,
           email,
           password,
@@ -287,7 +298,63 @@ export default function RegisterPage() {
                       >
                         <option value="vendas">Vendas</option>
                         <option value="recovery">Recovery</option>
+                        </select>
+                      </div>
+
+                    <div className="login-field">
+                      <label className="login-label">De onde você ouviu falar da HBX?</label>
+                      <select
+                        className="input mt-1"
+                        value={acquisitionSource}
+                        onChange={(event) => setAcquisitionSource(event.target.value)}
+                      >
+                        <option value="">Prefiro não informar agora</option>
+                        <option value="google">Google</option>
+                        <option value="instagram">Instagram</option>
+                        <option value="youtube">YouTube</option>
+                        <option value="indicacao">Indicação</option>
+                        <option value="parceiro">Parceiro</option>
+                        <option value="outro">Outro</option>
                       </select>
+                    </div>
+                  </>
+                ) : null}
+
+                {needsSourceDetail ? (
+                  <div className="login-field">
+                    <label className="login-label">Detalhe da origem</label>
+                    <input
+                      className="input mt-1"
+                      value={acquisitionSourceDetail}
+                      onChange={(event) => setAcquisitionSourceDetail(event.target.value)}
+                      placeholder="Ex: agência parceira, evento, comunidade"
+                    />
+                  </div>
+                ) : null}
+
+                {isReferral ? (
+                  <>
+                    <div className="login-field">
+                      <label className="login-label">Quem indicou?</label>
+                      <input
+                        className="input mt-1"
+                        value={referralReferrerName}
+                        onChange={(event) => setReferralReferrerName(event.target.value)}
+                        placeholder="Nome da pessoa ou empresa"
+                      />
+                    </div>
+
+                    <div className="login-field">
+                      <label className="login-label">Código de indicação</label>
+                      <input
+                        className="input mt-1"
+                        value={referralCode}
+                        onChange={(event) => setReferralCode(event.target.value)}
+                        placeholder="Opcional, se você recebeu um código"
+                      />
+                      <p className="text-xs text-foreground/60 mt-1">
+                        Basta informar quem indicou ou o código. Não é obrigatório preencher os dois.
+                      </p>
                     </div>
                   </>
                 ) : null}

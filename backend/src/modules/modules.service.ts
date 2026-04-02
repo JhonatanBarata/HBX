@@ -243,11 +243,43 @@ export class ModulesService implements OnModuleInit {
     return String(value || '').trim().toUpperCase() === 'ANNUAL' ? 'ANNUAL' : 'MONTHLY';
   }
 
-  private buildCompanyFinanceSnapshot(company: any, companyLedgerRows: BillingLedgerEntryRow[], annualPlanDiscountPercentRaw: unknown) {
+  private buildReferralSnapshot(company: any, referralPolicy?: any) {
+    const acquisitionSource = String(company?.acquisitionSource || '').trim().toLowerCase();
+    const referrerName = this.normalizeOptionalString(company?.referralReferrerName);
+    const referralCode = this.normalizeOptionalString(company?.referralCode);
+    const referred = acquisitionSource === 'indicacao' && Boolean(referrerName || referralCode);
+    const discountActive = Boolean(referralPolicy?.referralDiscountActive);
+    const referralDiscountPercent = this.normalizePercentValue(referralPolicy?.referralDiscountPercent || 0);
+    const referralDiscountMode =
+      String(referralPolicy?.referralDiscountMode || '').trim().toUpperCase() === 'RECURRING'
+        ? 'RECURRING'
+        : 'ONCE';
+    const consumedAt =
+      company?.referralDiscountConsumedAt instanceof Date ? company.referralDiscountConsumedAt.toISOString() : null;
+    const eligible = referred && discountActive && referralDiscountPercent > 0;
+    const appliesNow = eligible && (referralDiscountMode === 'RECURRING' || !consumedAt);
+
+    return {
+      acquisitionSource: acquisitionSource || null,
+      acquisitionSourceDetail: this.normalizeOptionalString(company?.acquisitionSourceDetail),
+      isReferral: referred,
+      referrerName,
+      referralCode,
+      referralDiscountActive: discountActive,
+      referralDiscountPercent,
+      referralDiscountMode,
+      referralDiscountEligible: eligible,
+      referralDiscountAppliesNow: appliesNow,
+      referralDiscountConsumedAt: consumedAt,
+    };
+  }
+
+  private buildCompanyFinanceSnapshot(company: any, companyLedgerRows: BillingLedgerEntryRow[], pricingPolicy?: any) {
     const monthlyValue = this.resolveCompanyMonthlyValue(company);
     const billingCycle = this.normalizeBillingCycle(company?.billingCycle);
-    const annualPlanDiscountPercent = this.normalizePercentValue(annualPlanDiscountPercentRaw);
+    const annualPlanDiscountPercent = this.normalizePercentValue(pricingPolicy?.annualPlanDiscountPercent || 0);
     const manualDiscountPercent = this.normalizePercentValue(company?.manualDiscountPercent || 0);
+    const referral = this.buildReferralSnapshot(company, pricingPolicy);
     const freeMonths = Math.max(0, Math.trunc(Number(company?.freeMonths || 0) || 0));
     const baseCycleAmount =
       billingCycle === 'ANNUAL'
@@ -261,7 +293,14 @@ export class ModulesService implements OnModuleInit {
     const manualDiscountValue = this.normalizeCurrencyAmount(
       subtotalAfterAnnual * (manualDiscountPercent / 100),
     );
-    const finalCycleAmount = Math.max(0, this.normalizeCurrencyAmount(subtotalAfterAnnual - manualDiscountValue));
+    const subtotalAfterManual = Math.max(0, this.normalizeCurrencyAmount(subtotalAfterAnnual - manualDiscountValue));
+    const referralDiscountValue = referral.referralDiscountAppliesNow
+      ? this.normalizeCurrencyAmount(subtotalAfterManual * (referral.referralDiscountPercent / 100))
+      : 0;
+    const finalCycleAmount = Math.max(
+      0,
+      this.normalizeCurrencyAmount(subtotalAfterManual - referralDiscountValue),
+    );
     const failedRows = companyLedgerRows.filter((row) =>
       ['FAILED', 'CANCELLED'].includes(String(row.status || '').toUpperCase()),
     );
@@ -276,7 +315,18 @@ export class ModulesService implements OnModuleInit {
       annualDiscountValue,
       manualDiscountPercent,
       manualDiscountValue,
+      referralDiscountPercent: referral.referralDiscountPercent,
+      referralDiscountMode: referral.referralDiscountMode,
+      referralDiscountValue,
+      referralDiscountEligible: referral.referralDiscountEligible,
+      referralDiscountAppliedNow: referral.referralDiscountAppliesNow,
+      referralDiscountConsumedAt: referral.referralDiscountConsumedAt,
       freeMonths,
+      acquisitionSource: referral.acquisitionSource,
+      acquisitionSourceDetail: referral.acquisitionSourceDetail,
+      referralReferrerName: referral.referrerName,
+      referralCode: referral.referralCode,
+      isReferral: referral.isReferral,
       cardConfigured: Boolean(company?.billingCardLast4),
       cardBrand: company?.billingCardBrand || null,
       cardLast4: company?.billingCardLast4 || null,
@@ -713,6 +763,9 @@ export class ModulesService implements OnModuleInit {
     masterUserId: number,
     input: {
       annualPlanDiscountPercent?: number;
+      referralDiscountActive?: boolean;
+      referralDiscountPercent?: number;
+      referralDiscountMode?: string;
     },
   ) {
     await this.assertMasterUser(masterUserId);
@@ -722,11 +775,28 @@ export class ModulesService implements OnModuleInit {
       input?.annualPlanDiscountPercent !== undefined
         ? this.normalizePercentValue(input.annualPlanDiscountPercent)
         : this.normalizePercentValue((current as any)?.annualPlanDiscountPercent || 0);
+    const referralDiscountActive =
+      input?.referralDiscountActive !== undefined
+        ? Boolean(input.referralDiscountActive)
+        : Boolean((current as any)?.referralDiscountActive);
+    const referralDiscountPercent =
+      input?.referralDiscountPercent !== undefined
+        ? this.normalizePercentValue(input.referralDiscountPercent)
+        : this.normalizePercentValue((current as any)?.referralDiscountPercent || 0);
+    const referralDiscountMode =
+      String(input?.referralDiscountMode ?? ((current as any)?.referralDiscountMode || ''))
+        .trim()
+        .toUpperCase() === 'RECURRING'
+        ? 'RECURRING'
+        : 'ONCE';
 
     const updated = await this.prisma.masterGlobalIntegrationConfig.update({
       where: { key: current.key },
       data: {
         annualPlanDiscountPercent,
+        referralDiscountActive,
+        referralDiscountPercent,
+        referralDiscountMode,
       },
     });
 
@@ -736,6 +806,9 @@ export class ModulesService implements OnModuleInit {
       action: 'MASTER_BILLING_POLICY_UPDATED',
       metadata: {
         annualPlanDiscountPercent,
+        referralDiscountActive,
+        referralDiscountPercent,
+        referralDiscountMode,
       },
     });
 
@@ -1544,7 +1617,7 @@ export class ModulesService implements OnModuleInit {
     const finance = this.buildCompanyFinanceSnapshot(
       company,
       companyLedgerRows,
-      (masterIntegrations as any)?.annualPlanDiscountPercent,
+      masterIntegrations,
     );
     const statusBucket = this.companyStatusBucket({
       ...company,
@@ -1621,6 +1694,10 @@ export class ModulesService implements OnModuleInit {
       primaryContactName: company.primaryContactName || null,
       contactEmail: company.contactEmail || null,
       contactPhone: company.contactPhone || null,
+      acquisitionSource: company.acquisitionSource || null,
+      acquisitionSourceDetail: company.acquisitionSourceDetail || null,
+      referralReferrerName: company.referralReferrerName || null,
+      referralCode: company.referralCode || null,
       taxDocument: company.taxDocument || null,
       isActive: active,
       userCount: Number(company?._count?.users || 0),
@@ -1694,6 +1771,7 @@ export class ModulesService implements OnModuleInit {
         company,
         credential: selectedWhatsAppCredential,
         effectiveConfig: effectiveWhatsApp,
+        includeInternal: true,
       }),
       mercadoPago: {
         status: company.mercadoPagoStatus || null,
