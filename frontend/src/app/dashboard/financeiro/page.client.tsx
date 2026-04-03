@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import DashboardScaffold from "@/components/DashboardScaffold";
 import { apiFetch } from "../_lib/api";
 import { useRequireAuth } from "../_lib/useRequireAuth";
@@ -195,6 +196,7 @@ function referralModeLabel(value?: string | null) {
 
 export default function FinanceiroClientPage() {
   const hasToken = useRequireAuth();
+  const searchParams = useSearchParams();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -315,6 +317,27 @@ export default function FinanceiroClientPage() {
     if (!chargeId || !paymentId) return;
     void refreshLatestCharge(paymentId, chargeId);
   }, []);
+
+  useEffect(() => {
+    if (!overview || typeof window === "undefined") return;
+    const focus = String(searchParams.get("focus") || "").trim().toLowerCase();
+    const focusTargetByKey: Record<string, string> = {
+      access: "financeiro-access",
+      preferences: "financeiro-preferences",
+      payment: "financeiro-payment",
+    };
+    const targetId = focusTargetByKey[focus];
+    if (!targetId) return;
+    const target = document.getElementById(targetId);
+    if (!target) return;
+
+    const topbarOffset = Number.parseInt(
+      window.getComputedStyle(document.documentElement).getPropertyValue("--topbar-total-height"),
+      10,
+    );
+    const nextTop = target.getBoundingClientRect().top + window.scrollY - (Number.isFinite(topbarOffset) ? topbarOffset + 16 : 92);
+    window.scrollTo({ top: Math.max(0, nextTop), behavior: "smooth" });
+  }, [overview, searchParams]);
 
   const pricingHighlights = useMemo(() => {
     if (!overview) return [];
@@ -458,7 +481,7 @@ export default function FinanceiroClientPage() {
         ) : (
           <>
             <section className={styles.grid}>
-              <article className={styles.panelCard}>
+              <article id="financeiro-access" className={styles.panelCard}>
                 <div className={styles.sectionHeader}>
                   <div>
                     <strong>Conta atual</strong>
@@ -545,7 +568,7 @@ export default function FinanceiroClientPage() {
             </section>
 
             <section className={styles.grid}>
-              <form className={styles.panelCard} onSubmit={savePreferences}>
+              <form id="financeiro-preferences" className={styles.panelCard} onSubmit={savePreferences}>
                 <div className={styles.sectionHeader}>
                   <div>
                     <strong>Preferência de pagamento</strong>
@@ -636,7 +659,7 @@ export default function FinanceiroClientPage() {
             </section>
 
             <section className={styles.grid}>
-              <article className={styles.panelCard}>
+              <article id="financeiro-payment" className={styles.panelCard}>
                 <div className={styles.sectionHeader}>
                   <div>
                     <strong>Pagamento em tempo real</strong>
