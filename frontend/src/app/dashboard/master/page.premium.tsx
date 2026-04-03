@@ -1884,6 +1884,11 @@ export default function MasterPremiumPage() {
     return current === operationalNavigationBusyKey(companyId, actionId);
   }
 
+  function isOperationalContextBusy(companyId: number) {
+    const current = operationalActionLockRef.current || operationalBusyAction || "";
+    return current === operationalContextBusyKey(companyId);
+  }
+
   function hasOperationalActionPending() {
     return Boolean(operationalActionLockRef.current || operationalBusyAction);
   }
@@ -3237,19 +3242,21 @@ export default function MasterPremiumPage() {
                           <div className={styles.rowActions}>
                             <button
                               type="button"
-                              className="btn btn-secondary btn-sm"
+                              className={`btn btn-secondary btn-sm ${styles.operationalActionButton}`}
                               onClick={() => assumeContext(company)}
                               disabled={companyHasActiveMasterContext(company.id) || hasOperationalActionPending()}
                             >
                               {companyHasActiveMasterContext(company.id)
                                 ? "Contexto ativo"
-                                : hasOperationalActionPending()
+                                : isOperationalContextBusy(company.id)
+                                  ? "Assumindo..."
+                                  : hasOperationalActionPending()
                                   ? "Processando..."
                                   : "Assumir contexto"}
                             </button>
                             <button
                               type="button"
-                              className="btn btn-secondary btn-sm"
+                              className={`btn btn-secondary btn-sm ${styles.operationalActionButton}`}
                               onClick={() => void navigateOperational(company, { kind: "whatsapp" })}
                               disabled={hasOperationalActionPending()}
                             >
@@ -3257,7 +3264,7 @@ export default function MasterPremiumPage() {
                             </button>
                             <button
                               type="button"
-                              className="btn btn-secondary btn-sm"
+                              className={`btn btn-secondary btn-sm ${styles.operationalActionButton}`}
                               onClick={() => void navigateOperational(company, { kind: "finance" })}
                               disabled={hasOperationalActionPending()}
                             >
@@ -3305,11 +3312,15 @@ export default function MasterPremiumPage() {
                 {activeContextCompanyId !== activeCompany.id ? (
                   <button
                     type="button"
-                    className="btn btn-primary btn-sm"
+                    className={`btn btn-primary btn-sm ${styles.operationalActionButton}`}
                     onClick={() => assumeContext(activeCompany)}
                     disabled={hasOperationalActionPending()}
                   >
-                    {hasOperationalActionPending() ? "Assumindo..." : "Assumir contexto"}
+                    {isOperationalContextBusy(activeCompany.id)
+                      ? "Assumindo..."
+                      : hasOperationalActionPending()
+                        ? "Processando..."
+                        : "Assumir contexto"}
                   </button>
                 ) : null}
               </div>
@@ -3405,19 +3416,21 @@ export default function MasterPremiumPage() {
                         <div className={styles.drawerQuickActions}>
                           <button
                             type="button"
-                            className="btn btn-primary btn-sm"
+                            className={`btn btn-primary btn-sm ${styles.operationalActionButton}`}
                             onClick={() => assumeContext(activeCompany)}
                             disabled={activeCompanyInContext || hasOperationalActionPending()}
                           >
                             {activeCompanyInContext
                               ? "Contexto ativo"
-                              : hasOperationalActionPending()
+                              : isOperationalContextBusy(activeCompany.id)
                                 ? "Assumindo..."
+                                : hasOperationalActionPending()
+                                  ? "Processando..."
                                 : "Assumir contexto"}
                           </button>
                           <button
                             type="button"
-                            className="btn btn-secondary btn-sm"
+                            className={`btn btn-secondary btn-sm ${styles.operationalActionButton}`}
                             onClick={() => void navigateOperational(activeCompany, { kind: "whatsapp" })}
                             disabled={hasOperationalActionPending()}
                           >
@@ -3425,7 +3438,7 @@ export default function MasterPremiumPage() {
                           </button>
                           <button
                             type="button"
-                            className="btn btn-secondary btn-sm"
+                            className={`btn btn-secondary btn-sm ${styles.operationalActionButton}`}
                             onClick={() => void navigateOperational(activeCompany, { kind: "finance" })}
                             disabled={hasOperationalActionPending()}
                           >
