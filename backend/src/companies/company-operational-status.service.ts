@@ -38,7 +38,7 @@ export type CompanyOperationalStatus = {
   paymentActive: boolean;
   accessActive: boolean;
   accessReason: string | null;
-  accessSource: 'paid' | 'trial' | 'blocked';
+  accessSource: 'paid' | 'trial' | 'manual' | 'blocked';
   overallHealth: OperationalTone;
   overallHint: string;
   overallLabel: string;
@@ -503,7 +503,7 @@ export class CompanyOperationalStatusService {
     let accessValue = 'Bloq.';
     let accessDetail = 'A empresa está sem acesso operacional liberado.';
     let accessHint = 'Acesso bloqueado.';
-    let accessSource: 'paid' | 'trial' | 'blocked' = 'blocked';
+    let accessSource: 'paid' | 'trial' | 'manual' | 'blocked' = 'blocked';
     let accessHref = '/dashboard/financeiro?focus=payment';
 
     if (Boolean(company?.isActive) && (paymentStatus === 'PAID' || subscriptionStatus === 'active')) {
@@ -529,6 +529,13 @@ export class CompanyOperationalStatusService {
           ? 'Trial ativo.'
           : `Trial com ${trialRemainingDays} dia(s).`;
       accessSource = 'trial';
+      accessHref = '/dashboard/financeiro?focus=access';
+    } else if (Boolean(company?.isActive) && (paymentStatus === 'MANUAL' || subscriptionStatus === 'manual')) {
+      accessTone = 'yellow';
+      accessValue = 'Manual';
+      accessDetail = 'Acesso premium liberado manualmente pelo MASTER, sem cobrança real gerada.';
+      accessHint = 'Acesso administrativo excepcional.';
+      accessSource = 'manual';
       accessHref = '/dashboard/financeiro?focus=access';
     } else if (paymentStatus === 'OVERDUE' || paymentStatus === 'PENDING' || subscriptionStatus === 'past_due') {
       accessTone = 'red';

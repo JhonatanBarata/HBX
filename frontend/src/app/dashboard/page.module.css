@@ -84,6 +84,12 @@
   line-height: 1.55;
 }
 
+.blockedActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+}
+
 .blockedTop {
   display: flex;
   flex-wrap: wrap;

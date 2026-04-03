@@ -4,6 +4,12 @@ import React from "react";
 import { useInterfaceTransition } from "@/components/InterfaceTransitionProvider";
 import { useHbxTheme } from "@/components/ThemeProvider";
 import { HBX_THEME_PALETTES, HBX_THEME_IDS, type HbxThemeId } from "@/lib/theme-palettes";
+import LiquidGlassSegmentedControl from "./LiquidGlassSegmentedControl";
+
+const THEME_MODE_OPTIONS = [
+  { id: "light", label: "Claro" },
+  { id: "dark", label: "Escuro" },
+] as const;
 
 export default function ThemeSwitcher() {
   const rootRef = React.useRef<HTMLDivElement | null>(null);
@@ -69,27 +75,16 @@ export default function ThemeSwitcher() {
               <p className="theme-switcher__eyebrow">5 temas HBX</p>
               <strong className="theme-switcher__title">Escolha a experiência visual</strong>
             </div>
-            <div className="theme-switcher__modeRow" role="group" aria-label="Modo de tema">
-              <button
-                type="button"
-                className={`theme-mode-chip ${selection.mode === "light" ? "is-selected" : ""}`}
-                onClick={() => {
-                  setMode("light");
+            <div className="theme-switcher__modeRow">
+              <LiquidGlassSegmentedControl
+                items={THEME_MODE_OPTIONS}
+                value={selection.mode}
+                ariaLabel="Modo de tema"
+                onChange={(mode) => {
+                  setMode(mode);
                   replayGlobalTransition();
                 }}
-              >
-                Claro
-              </button>
-              <button
-                type="button"
-                className={`theme-mode-chip ${selection.mode === "dark" ? "is-selected" : ""}`}
-                onClick={() => {
-                  setMode("dark");
-                  replayGlobalTransition();
-                }}
-              >
-                Escuro
-              </button>
+              />
             </div>
           </div>
 

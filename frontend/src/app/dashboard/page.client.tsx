@@ -9,10 +9,13 @@ import { useRequireAuth } from "./_lib/useRequireAuth";
 import { resolveWebsiteOnlyDestination } from "@/lib/websiteLaunch";
 import {
   compareUserModules,
+  formatCriticalEngineLabel,
   getFirstOperationalModule,
   isCommercialEntryCandidate,
   isModuleBlocked,
   normalizeUserModuleKey,
+  resolveModuleBlockedActionLabel,
+  resolveModuleBlockedHref,
   resolveModuleHref,
   type UserModule,
 } from "@/lib/hbx-modules";
@@ -255,10 +258,15 @@ export default function DashboardClientPage() {
                 <div className={styles.blockedTop}>
                   <strong>{moduleItem.name}</strong>
                   <span className={styles.blockedPill}>
-                    {moduleItem.criticalEngine ? `Motor: ${moduleItem.criticalEngine}` : "Bloqueado"}
+                    {moduleItem.criticalEngine ? `Motor: ${formatCriticalEngineLabel(moduleItem.criticalEngine)}` : "Bloqueado"}
                   </span>
                 </div>
                 <p>{moduleItem.blockedReason || "Módulo indisponível no momento."}</p>
+                <div className={styles.blockedActions}>
+                  <Link href={resolveModuleBlockedHref(moduleItem)} className="btn btn-secondary btn-sm">
+                    {resolveModuleBlockedActionLabel(moduleItem)}
+                  </Link>
+                </div>
               </article>
             ))}
           </section>

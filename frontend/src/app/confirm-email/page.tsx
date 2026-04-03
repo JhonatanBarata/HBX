@@ -8,11 +8,24 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3000";
 type ApiErrorPayload = {
   message?: string | string[];
   error?: string;
+  code?: string;
+  delivery?: {
+    previewUrl?: string | null;
+    confirmUrl?: string | null;
+  } | null;
 };
 
 type ConfirmEmailResponse = {
   message?: string;
   trialEndsAt?: string | null;
+};
+
+type ResendConfirmationResponse = {
+  message?: string;
+  delivery?: {
+    previewUrl?: string | null;
+    confirmUrl?: string | null;
+  } | null;
 };
 
 function getErrorMessage(data: unknown) {
@@ -39,11 +52,25 @@ function ConfirmEmailInner() {
     const value = searchParams?.get("token");
     return typeof value === "string" ? value.trim() : "";
   }, [searchParams]);
+  const emailFromQuery = useMemo(() => {
+    const value = searchParams?.get("email");
+    return typeof value === "string" ? value.trim() : "";
+  }, [searchParams]);
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [errorCode, setErrorCode] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
   const [trialEndsAt, setTrialEndsAt] = useState<string | null>(null);
+  const [resendEmail, setResendEmail] = useState("");
+  const [resendBusy, setResendBusy] = useState(false);
+  const [resendInfo, setResendInfo] = useState<string | null>(null);
+  const [resendPreviewUrl, setResendPreviewUrl] = useState<string | null>(null);
+  const [resendConfirmUrl, setResendConfirmUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    setResendEmail(emailFromQuery);
+  }, [emailFromQuery]);
 
   useEffect(() => {
     let cancelled = false;
@@ -65,6 +92,8 @@ function ConfirmEmailInner() {
 
         if (!response.ok) {
           if (!cancelled) {
+            const payload = data && typeof data === "object" ? (data as ApiErrorPayload) : null;
+            setErrorCode(typeof payload?.code === "string" ? payload.code : null);
             setError(getErrorMessage(data) ?? "Não foi possível confirmar seu e-mail.");
           }
           return;
@@ -76,10 +105,12 @@ function ConfirmEmailInner() {
             String(payload?.message || "").trim() ||
               "E-mail confirmado com sucesso. Seu acesso já pode ser liberado no login.",
           );
+          setErrorCode(null);
           setTrialEndsAt(payload?.trialEndsAt ? String(payload.trialEndsAt) : null);
         }
       } catch {
         if (!cancelled) {
+          setErrorCode(null);
           setError("Falha ao conectar no backend.");
         }
       } finally {
@@ -95,6 +126,48 @@ function ConfirmEmailInner() {
     };
   }, [token]);
 
+  async function handleResend(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setResendInfo(null);
+    setResendPreviewUrl(null);
+    setResendConfirmUrl(null);
+    setResendBusy(true);
+
+    try {
+      const response = await fetch(`${API_URL}/auth/resend-confirmation`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: resendEmail }),
+      });
+      const data: unknown = await response.json().catch(() => null);
+
+      if (!response.ok) {
+        setResendInfo(getErrorMessage(data) ?? "Não foi possível reenviar a confirmação agora.");
+        return;
+      }
+
+      const payload = (data as ResendConfirmationResponse | null) ?? null;
+      setResendInfo(
+        String(payload?.message || "").trim() ||
+          "Se existir uma conta com confirmação pendente, enviaremos um novo link em instantes.",
+      );
+      setResendPreviewUrl(
+        payload?.delivery?.previewUrl && String(payload.delivery.previewUrl).trim()
+          ? String(payload.delivery.previewUrl)
+          : null,
+      );
+      setResendConfirmUrl(
+        payload?.delivery?.confirmUrl && String(payload.delivery.confirmUrl).trim()
+          ? String(payload.delivery.confirmUrl)
+          : null,
+      );
+    } catch {
+      setResendInfo("Falha ao conectar no backend.");
+    } finally {
+      setResendBusy(false);
+    }
+  }
+
   return (
     <main className="min-h-screen flex items-center justify-center p-6">
       <div className="max-w-md w-full p-6 border border-foreground/10 rounded-2xl bg-background shadow-sm space-y-4">
@@ -105,6 +178,11 @@ function ConfirmEmailInner() {
         {!loading && error ? (
           <div className="text-sm border border-foreground/10 bg-background p-3 rounded-xl">
             {error}
+            {errorCode === "EMAIL_CONFIRMATION_EXPIRED" ? (
+              <p className="text-xs text-foreground/60 mt-2">
+                O link venceu. Informe o e-mail da conta abaixo para gerar um novo envio.
+              </p>
+            ) : null}
           </div>
         ) : null}
 
@@ -117,6 +195,59 @@ function ConfirmEmailInner() {
               </p>
             ) : null}
           </div>
+        ) : null}
+
+        {!loading && error ? (
+          <form onSubmit={handleResend} className="space-y-3 border border-foreground/10 bg-background p-4 rounded-xl">
+            <div>
+              <p className="text-sm font-medium">Reenviar confirmação</p>
+              <p className="text-xs text-foreground/60 mt-1">
+                {errorCode === "EMAIL_CONFIRMATION_EXPIRED"
+                  ? "Use o e-mail do cadastro para receber um novo link válido."
+                  : "Se a conta ainda estiver pendente, enviaremos um novo link de confirmação."}
+              </p>
+            </div>
+
+            <div>
+              <label className="text-sm font-medium">E-mail</label>
+              <input
+                type="email"
+                className="w-full mt-1 p-2 border border-foreground/10 rounded-xl bg-background"
+                value={resendEmail}
+                onChange={(event) => setResendEmail(event.target.value)}
+                placeholder="email@exemplo.com"
+                required
+                autoComplete="email"
+              />
+            </div>
+
+            {resendInfo ? <p className="text-xs text-foreground/70">{resendInfo}</p> : null}
+
+            {resendConfirmUrl ? (
+              <a className="w-full inline-flex items-center justify-center py-2 rounded-xl bg-secondary text-foreground hover:opacity-90" href={resendConfirmUrl}>
+                Abrir novo link
+              </a>
+            ) : null}
+
+            {resendPreviewUrl ? (
+              <a
+                className="w-full inline-flex items-center justify-center py-2 rounded-xl border border-foreground/10 hover:bg-foreground/5"
+                href={resendPreviewUrl}
+                target="_blank"
+                rel="noreferrer"
+              >
+                Abrir preview do e-mail
+              </a>
+            ) : null}
+
+            <button
+              type="submit"
+              className="w-full py-2 rounded-xl border border-foreground/10 hover:bg-foreground/5"
+              disabled={resendBusy}
+            >
+              {resendBusy ? "Reenviando..." : "Reenviar confirmação"}
+            </button>
+          </form>
         ) : null}
 
         <div className="flex flex-col gap-2">

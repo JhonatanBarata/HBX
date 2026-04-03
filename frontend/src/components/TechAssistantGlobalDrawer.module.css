@@ -80,7 +80,7 @@
   margin: 0.2rem 0 0;
   font-size: 1.1rem;
   line-height: 1.15;
-  color: #102033;
+  color: var(--foreground);
 }
 
 .headerMeta,
@@ -120,21 +120,21 @@
 }
 
 .scoresuccess {
-  color: #166534;
-  border-color: rgba(34, 197, 94, 0.2);
-  background: rgba(240, 253, 244, 0.92);
+  color: color-mix(in srgb, var(--success) 82%, var(--foreground));
+  border-color: color-mix(in srgb, var(--success) 26%, var(--line));
+  background: color-mix(in srgb, var(--success) 12%, var(--surface));
 }
 
 .scorewarning {
-  color: #b45309;
-  border-color: rgba(245, 158, 11, 0.2);
-  background: rgba(255, 247, 237, 0.92);
+  color: color-mix(in srgb, var(--warning) 86%, var(--foreground));
+  border-color: color-mix(in srgb, var(--warning) 26%, var(--line));
+  background: color-mix(in srgb, var(--warning) 12%, var(--surface));
 }
 
 .scoredanger {
-  color: #b42318;
-  border-color: rgba(239, 68, 68, 0.2);
-  background: rgba(254, 242, 242, 0.95);
+  color: color-mix(in srgb, var(--danger) 84%, var(--foreground));
+  border-color: color-mix(in srgb, var(--danger) 24%, var(--line));
+  background: color-mix(in srgb, var(--danger) 12%, var(--surface));
 }
 
 .missingBox,
@@ -143,12 +143,12 @@
   padding: 0.85rem;
   border-radius: 14px;
   border: 1px solid var(--line);
-  background: rgba(248, 250, 252, 0.78);
+  background: color-mix(in srgb, var(--surface-soft) 90%, white);
 }
 
 .warningBox {
-  border-color: rgba(245, 158, 11, 0.24);
-  background: rgba(255, 247, 237, 0.96);
+  border-color: color-mix(in srgb, var(--warning) 24%, var(--line));
+  background: color-mix(in srgb, var(--warning) 10%, var(--surface));
 }
 
 .missingBox strong,
@@ -156,7 +156,7 @@
 .questionBox strong,
 .listBlock strong {
   display: block;
-  color: #102033;
+  color: var(--foreground);
 }
 
 .missingBox ul,
@@ -167,7 +167,7 @@
   padding-left: 1rem;
   display: grid;
   gap: 0.25rem;
-  color: #1e3347;
+  color: var(--foreground-soft);
   font-size: 0.82rem;
 }
 
@@ -181,9 +181,9 @@
   margin: 0;
   padding: 0.9rem;
   border-radius: 16px;
-  border: 1px dashed color-mix(in srgb, var(--brand) 16%, #dbe7f1);
-  background: rgba(255, 255, 255, 0.86);
-  color: #183449;
+  border: 1px dashed color-mix(in srgb, var(--brand) 18%, var(--line));
+  background: color-mix(in srgb, var(--surface) 90%, white);
+  color: var(--foreground-soft);
   font-size: 0.79rem;
   line-height: 1.6;
   white-space: pre-wrap;
@@ -197,16 +197,16 @@
   padding: 0.35rem 0.72rem;
   border-radius: 999px;
   border: 1px solid var(--line);
-  background: rgba(255, 255, 255, 0.76);
+  background: color-mix(in srgb, var(--surface) 88%, white);
   font-size: 0.76rem;
   font-weight: 800;
-  color: #34495e;
+  color: var(--foreground-soft);
 }
 
 .providerTabActive {
-  border-color: color-mix(in srgb, var(--brand) 28%, #0f172a);
-  background: color-mix(in srgb, var(--brand) 14%, white);
-  color: color-mix(in srgb, var(--brand) 86%, #102033);
+  border-color: color-mix(in srgb, var(--brand) 28%, var(--line));
+  background: color-mix(in srgb, var(--brand) 14%, var(--surface));
+  color: color-mix(in srgb, var(--brand) 86%, var(--foreground));
 }
 
 .historyList {
@@ -220,13 +220,13 @@
   padding: 0.85rem 0.9rem;
   border-radius: 14px;
   border: 1px solid var(--line);
-  background: rgba(255, 255, 255, 0.84);
+  background: color-mix(in srgb, var(--surface) 88%, white);
   display: grid;
   gap: 0.2rem;
 }
 
 .historyButton strong {
-  color: #102033;
+  color: var(--foreground);
 }
 
 .historyButton span {

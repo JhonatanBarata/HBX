@@ -186,6 +186,78 @@ export class CompaniesController {
     };
   }
 
+  private maskCredentialPreview(value: unknown) {
+    const normalized = String(value || '').trim();
+    return normalized ? `***${normalized.slice(-6)}` : null;
+  }
+
+  private async buildWhatsAppAuditSnapshot(companyId: number) {
+    const company: any = await this.companiesService.findByIdForMaster(companyId);
+    return {
+      companyId,
+      whatsappNumber: company?.whatsappNumber || null,
+      whatsappPhoneNumberId: company?.whatsappPhoneNumberId || null,
+      whatsappWabaId: company?.whatsappWabaId || null,
+      accessTokenConfigured: Boolean(company?.whatsappAccessToken),
+      accessTokenPreview: this.maskCredentialPreview(company?.whatsappAccessToken),
+      status: String(company?.whatsappStatus || 'DISCONNECTED'),
+      statusError: company?.whatsappStatusError || null,
+      lastValidatedAt: company?.whatsappStatusUpdatedAt || null,
+    };
+  }
+
+  private async buildWhatsAppEndpointsAuditSnapshot(companyId: number) {
+    const endpoints: any[] = await this.companiesService.listWhatsAppEndpointsByMaster(companyId);
+    return endpoints.map((endpoint) => ({
+      id: endpoint.id,
+      label: endpoint.label || null,
+      moduleKey: endpoint.moduleKey || null,
+      whatsappNumber: endpoint.whatsappNumber || null,
+      whatsappPhoneNumberId: endpoint.whatsappPhoneNumberId || null,
+      whatsappWabaId: endpoint.whatsappWabaId || null,
+      accessTokenConfigured: Boolean(endpoint.whatsappAccessToken),
+      accessTokenPreview: this.maskCredentialPreview(endpoint.whatsappAccessToken),
+      status: endpoint.whatsappStatus || null,
+      statusError: endpoint.whatsappStatusError || null,
+      isActive: endpoint.isActive !== false,
+      isPrimary: Boolean(endpoint.isPrimary),
+      sortOrder: Number(endpoint.sortOrder || 0),
+    }));
+  }
+
+  private async buildWhatsAppEndpointAuditSnapshot(companyId: number, endpointId: string) {
+    const endpoints = await this.buildWhatsAppEndpointsAuditSnapshot(companyId);
+    return endpoints.find((endpoint) => String(endpoint.id) === String(endpointId)) || null;
+  }
+
+  private async buildWhatsAppMigrationAuditSnapshot(companyId: number) {
+    const company: any = await this.companiesService.findByIdForMaster(companyId);
+    return {
+      interestRequested: Boolean(company?.whatsappCenter?.migration?.interestRequested),
+      requestedAt: company?.whatsappCenter?.migration?.requestedAt || null,
+      workflowStatus: company?.whatsappCenter?.migration?.workflowStatus || 'NONE',
+      source: company?.whatsappCenter?.migration?.source || null,
+      lastContactAt: company?.whatsappCenter?.migration?.lastContactAt || null,
+      internalNote: company?.whatsappCenter?.migration?.internalNote || null,
+      centerStatus: company?.whatsappCenter?.status || 'NOT_CONNECTED',
+      centerMode: company?.whatsappCenter?.mode || 'NONE',
+    };
+  }
+
+  private async buildMercadoPagoAuditSnapshot(companyId: number) {
+    const company: any = await this.companiesService.findByIdForMaster(companyId);
+    return {
+      companyId,
+      accessTokenConfigured: Boolean(company?.mercadoPagoAccessToken),
+      accessTokenPreview: this.maskCredentialPreview(company?.mercadoPagoAccessToken),
+      status: String(company?.mercadoPagoStatus || 'DISCONNECTED'),
+      statusError: company?.mercadoPagoStatusError || null,
+      accountEmail: company?.mercadoPagoAccountEmail || null,
+      accountUserId: company?.mercadoPagoUserId || null,
+      lastValidatedAt: company?.mercadoPagoStatusUpdatedAt || null,
+    };
+  }
+
   private async resolveOperationalContext(req: any) {
     const runtimeContext = await this.masterContextService.resolveRuntimeContext(req.user);
     const effectiveCompanyId = runtimeContext.effectiveCompanyId || Number(req.user?.companyId || 0) || null;
@@ -313,17 +385,41 @@ export class CompaniesController {
   @Patch('master/:id/whatsapp')
   @UseGuards(JwtAuthGuard, MasterGuard)
   async updateWhatsAppForMaster(
+    @Req() req: any,
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: MasterUpdateCompanyWhatsAppDto,
   ) {
+    const previousState = await this.buildWhatsAppAuditSnapshot(id);
     await this.companiesService.updateWhatsAppByMaster(id, dto);
+    await this.masterContextService.registerSupportAction({
+      masterUserId: Number(req.user?.id),
+      companyId: Number(id),
+      scope: 'master_whatsapp_center',
+      action: 'WHATSAPP_ROOT_CREDENTIALS_UPDATED',
+      metadata: {
+        previousState,
+        currentState: await this.buildWhatsAppAuditSnapshot(id),
+      },
+    });
     return this.buildWhatsAppPayloadForMaster(id, { refresh: false });
   }
 
   @Post('master/:id/whatsapp/validate')
   @UseGuards(JwtAuthGuard, MasterGuard)
-  async validateWhatsAppForMaster(@Param('id', ParseIntPipe) id: number) {
+  async validateWhatsAppForMaster(@Req() req: any, @Param('id', ParseIntPipe) id: number) {
+    const previousState = await this.buildWhatsAppAuditSnapshot(id);
     await this.whatsappStatus.getStatusForCompany(id, { refresh: true });
+    const currentState = await this.buildWhatsAppAuditSnapshot(id);
+    await this.masterContextService.registerSupportAction({
+      masterUserId: Number(req.user?.id),
+      companyId: Number(id),
+      scope: 'master_whatsapp_center',
+      action: 'WHATSAPP_ROOT_VALIDATED',
+      metadata: {
+        previousState,
+        currentState,
+      },
+    });
     return this.buildWhatsAppPayloadForMaster(id, { refresh: false });
   }
 
@@ -337,23 +433,49 @@ export class CompaniesController {
   @Put('master/:id/whatsapp-endpoints')
   @UseGuards(JwtAuthGuard, MasterGuard)
   async replaceWhatsAppEndpointsForMaster(
+    @Req() req: any,
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: ReplaceMasterCompanyWhatsAppEndpointsDto,
   ) {
+    const previousState = await this.buildWhatsAppEndpointsAuditSnapshot(id);
     const company = await this.companiesService.replaceWhatsAppEndpointsByMaster(
       id,
       dto?.endpoints || [],
     );
+    await this.masterContextService.registerSupportAction({
+      masterUserId: Number(req.user?.id),
+      companyId: Number(id),
+      scope: 'master_whatsapp_center',
+      action: 'WHATSAPP_ENDPOINTS_REPLACED',
+      metadata: {
+        previousState,
+        currentState: await this.buildWhatsAppEndpointsAuditSnapshot(id),
+      },
+    });
     return { companyId: id, endpoints: (company as any)?.whatsappEndpoints || [] };
   }
 
   @Post('master/:companyId/whatsapp-endpoints/:endpointId/validate')
   @UseGuards(JwtAuthGuard, MasterGuard)
   async validateWhatsAppEndpointForMaster(
+    @Req() req: any,
     @Param('companyId', ParseIntPipe) companyId: number,
     @Param('endpointId') endpointId: string,
   ) {
+    const previousState = await this.buildWhatsAppEndpointAuditSnapshot(companyId, endpointId);
     await this.whatsappStatus.getStatusForCompanyEndpoint(endpointId, { refresh: true });
+    const currentState = await this.buildWhatsAppEndpointAuditSnapshot(companyId, endpointId);
+    await this.masterContextService.registerSupportAction({
+      masterUserId: Number(req.user?.id),
+      companyId: Number(companyId),
+      scope: 'master_whatsapp_center',
+      action: 'WHATSAPP_ENDPOINT_VALIDATED',
+      metadata: {
+        endpointId,
+        previousState,
+        currentState,
+      },
+    });
     const endpoints = await this.companiesService.listWhatsAppEndpointsByMaster(companyId);
     return { companyId, endpoints };
   }
@@ -365,6 +487,7 @@ export class CompaniesController {
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: UpdateMasterWhatsAppMigrationWorkflowDto,
   ) {
+    const previousState = await this.buildWhatsAppMigrationAuditSnapshot(id);
     await this.companiesService.updateWhatsAppMigrationWorkflowByMaster(Number(req.user?.id), id, dto || {});
     await this.masterContextService.registerSupportAction({
       masterUserId: Number(req.user?.id),
@@ -372,9 +495,8 @@ export class CompaniesController {
       scope: 'master_whatsapp_center',
       action: 'WHATSAPP_MIGRATION_WORKFLOW_UPDATED',
       metadata: {
-        status: String(dto?.status || '').trim().toUpperCase() || null,
-        internalNote: dto?.internalNote ? String(dto.internalNote).slice(0, 240) : null,
-        lastContactAt: dto?.lastContactAt || null,
+        previousState,
+        currentState: await this.buildWhatsAppMigrationAuditSnapshot(id),
       },
     });
     return this.companiesService.findByIdForMaster(id);
@@ -389,9 +511,11 @@ export class CompaniesController {
   @Patch('master/:id/mercadopago')
   @UseGuards(JwtAuthGuard, MasterGuard)
   async updateMercadoPagoForMaster(
+    @Req() req: any,
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: MasterUpdateCompanyMercadoPagoDto,
   ) {
+    const previousState = await this.buildMercadoPagoAuditSnapshot(id);
     await this.companiesService.updateMercadoPagoByMaster(id, {
       mercadoPagoAccessToken:
         dto?.mercadoPagoAccessToken !== undefined ? String(dto.mercadoPagoAccessToken || '').trim() : undefined,
@@ -400,18 +524,39 @@ export class CompaniesController {
       mercadoPagoAccountEmail: null,
       mercadoPagoUserId: null,
     });
+    await this.masterContextService.registerSupportAction({
+      masterUserId: Number(req.user?.id),
+      companyId: Number(id),
+      scope: 'master_global_integrations',
+      action: 'MERCADOPAGO_CREDENTIALS_UPDATED',
+      metadata: {
+        previousState,
+        currentState: await this.buildMercadoPagoAuditSnapshot(id),
+      },
+    });
     return this.buildMercadoPagoPayloadForMaster(id);
   }
 
   @Post('master/:id/mercadopago/validate')
   @UseGuards(JwtAuthGuard, MasterGuard)
-  async validateMercadoPagoForMaster(@Param('id', ParseIntPipe) id: number) {
+  async validateMercadoPagoForMaster(@Req() req: any, @Param('id', ParseIntPipe) id: number) {
+    const previousState = await this.buildMercadoPagoAuditSnapshot(id);
     const company: any = await this.companiesService.findByIdForMaster(id);
     const accessToken = String(company?.mercadoPagoAccessToken || '').trim();
     if (!accessToken) {
       await this.companiesService.updateMercadoPagoByMaster(id, {
         mercadoPagoStatus: 'DISCONNECTED',
         mercadoPagoStatusError: 'Token Mercado Pago nao configurado.',
+      });
+      await this.masterContextService.registerSupportAction({
+        masterUserId: Number(req.user?.id),
+        companyId: Number(id),
+        scope: 'master_global_integrations',
+        action: 'MERCADOPAGO_VALIDATED',
+        metadata: {
+          previousState,
+          currentState: await this.buildMercadoPagoAuditSnapshot(id),
+        },
       });
       return this.buildMercadoPagoPayloadForMaster(id);
     }
@@ -431,6 +576,17 @@ export class CompaniesController {
         mercadoPagoStatusError: String(error?.message || 'Falha ao validar token Mercado Pago'),
       });
     }
+
+    await this.masterContextService.registerSupportAction({
+      masterUserId: Number(req.user?.id),
+      companyId: Number(id),
+      scope: 'master_global_integrations',
+      action: 'MERCADOPAGO_VALIDATED',
+      metadata: {
+        previousState,
+        currentState: await this.buildMercadoPagoAuditSnapshot(id),
+      },
+    });
 
     return this.buildMercadoPagoPayloadForMaster(id);
   }

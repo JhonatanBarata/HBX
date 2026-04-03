@@ -18,6 +18,7 @@ type SignupResponse = {
   status?: string;
   message?: string;
   email?: string;
+  canResendConfirmation?: boolean;
   entityType?: "PF" | "PJ";
   companyName?: string;
   trialModuleSelection?: "vendas" | "recovery";
@@ -26,12 +27,15 @@ type SignupResponse = {
   delivery?: {
     previewUrl?: string | null;
     confirmUrl?: string | null;
+    failed?: boolean;
   } | null;
 };
 
 type ConfirmationPendingState = {
   email: string;
   message: string;
+  canResendConfirmation: boolean;
+  deliveryFailed: boolean;
   entityType: "PF" | "PJ" | null;
   companyName: string | null;
   trialModuleSelection: "vendas" | "recovery" | null;
@@ -91,6 +95,8 @@ export default function RegisterPage() {
   const [firstAccessInfo, setFirstAccessInfo] = useState<string | null>(null);
   const [mounted, setMounted] = useState(false);
   const [confirmationPending, setConfirmationPending] = useState<ConfirmationPendingState | null>(null);
+  const [resendingConfirmation, setResendingConfirmation] = useState(false);
+  const [confirmationActionMessage, setConfirmationActionMessage] = useState<string | null>(null);
 
   useEffect(() => {
     try {
@@ -117,11 +123,60 @@ export default function RegisterPage() {
   const isReferral = acquisitionSource === "indicacao";
   const needsSourceDetail = acquisitionSource === "outro" || acquisitionSource === "parceiro";
 
+  async function resendConfirmation(targetEmail: string) {
+    setConfirmationActionMessage(null);
+    setResendingConfirmation(true);
+
+    try {
+      const response = await fetch(`${API_URL}/auth/resend-confirmation`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: targetEmail }),
+      });
+      const data: unknown = await response.json().catch(() => null);
+
+      if (!response.ok) {
+        setConfirmationActionMessage(getErrorMessage(data) ?? "Não foi possível reenviar a confirmação agora.");
+        return;
+      }
+
+      const payload = (data as SignupResponse | null) ?? null;
+      setConfirmationPending((current) =>
+        current
+          ? {
+              ...current,
+              previewUrl:
+                payload?.delivery?.previewUrl && String(payload.delivery.previewUrl).trim()
+                  ? String(payload.delivery.previewUrl)
+                  : current.previewUrl,
+              confirmUrl:
+                payload?.delivery?.confirmUrl && String(payload.delivery.confirmUrl).trim()
+                  ? String(payload.delivery.confirmUrl)
+                  : current.confirmUrl,
+              deliveryFailed: Boolean(payload?.delivery?.failed),
+              message:
+                String(payload?.message || "").trim() ||
+                current.message,
+            }
+          : current,
+      );
+      setConfirmationActionMessage(
+        String(payload?.message || "").trim() ||
+          "Se existir uma conta com confirmação pendente, enviaremos um novo link em instantes.",
+      );
+    } catch {
+      setConfirmationActionMessage("Falha ao conectar no backend.");
+    } finally {
+      setResendingConfirmation(false);
+    }
+  }
+
   async function handleRegister(event: React.FormEvent) {
     event.preventDefault();
     setError(null);
     setLoading(true);
     setConfirmationPending(null);
+    setConfirmationActionMessage(null);
 
     try {
       const signupRes = await fetch(`${API_URL}/auth/signup`, {
@@ -166,6 +221,8 @@ export default function RegisterPage() {
           message:
             String(payload.message || "").trim() ||
             "Cadastro criado. Confirme seu e-mail para liberar o trial.",
+          canResendConfirmation: Boolean(payload.canResendConfirmation),
+          deliveryFailed: Boolean(payload.delivery?.failed),
           entityType: payload.entityType === "PF" || payload.entityType === "PJ" ? payload.entityType : entityType,
           companyName: payload.companyName ? String(payload.companyName) : null,
           trialModuleSelection:
@@ -235,9 +292,17 @@ export default function RegisterPage() {
                 <p className="text-sm font-semibold">Confirmação pendente</p>
                 <p className="text-sm text-foreground/80 mt-2">{confirmationPending.message}</p>
                 <p className="text-sm text-foreground/80 mt-2">
-                  E-mail enviado para <strong>{confirmationPending.email}</strong>
+                  {confirmationPending.deliveryFailed ? "Tentativa de envio para" : "E-mail preparado para"} <strong>{confirmationPending.email}</strong>
                   {confirmationPending.companyName ? ` na conta ${confirmationPending.companyName}.` : "."}
                 </p>
+                {confirmationPending.deliveryFailed ? (
+                  <p className="text-xs text-amber-700 mt-3">
+                    O cadastro foi salvo, mas a entrega falhou neste momento. Reenvie a confirmação antes de tentar entrar.
+                  </p>
+                ) : null}
+                {confirmationActionMessage ? (
+                  <p className="text-xs text-foreground/70 mt-3">{confirmationActionMessage}</p>
+                ) : null}
               </div>
 
               <div className="flex flex-col gap-3">
@@ -259,6 +324,17 @@ export default function RegisterPage() {
                   >
                     Abrir preview do e-mail
                   </a>
+                ) : null}
+
+                {confirmationPending.canResendConfirmation ? (
+                  <button
+                    type="button"
+                    className="w-full py-3 rounded-xl border border-foreground/10 hover:bg-foreground/5"
+                    onClick={() => void resendConfirmation(confirmationPending.email)}
+                    disabled={resendingConfirmation}
+                  >
+                    {resendingConfirmation ? "Reenviando confirmação..." : "Reenviar confirmação"}
+                  </button>
                 ) : null}
 
                 <button

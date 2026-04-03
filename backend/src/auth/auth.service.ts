@@ -1,4 +1,13 @@
-import { Injectable, UnauthorizedException, BadRequestException, ConflictException, NotFoundException, OnModuleInit } from '@nestjs/common';
+import {
+  Injectable,
+  UnauthorizedException,
+  BadRequestException,
+  ConflictException,
+  NotFoundException,
+  OnModuleInit,
+  ServiceUnavailableException,
+  Logger,
+} from '@nestjs/common';
 import { UsersService } from '../users/users.service';
 import * as bcrypt from 'bcryptjs';
 import { JwtService } from '@nestjs/jwt';
@@ -10,6 +19,8 @@ import { buildImportacaoPermissaoRows } from '../bootstrap/company-structural-de
 
 @Injectable()
 export class AuthService implements OnModuleInit {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     private usersService: UsersService,
     private jwtService: JwtService,
@@ -115,10 +126,100 @@ export class AuthService implements OnModuleInit {
     return `${this.buildAppUrl()}/confirm-email?token=${encodeURIComponent(rawToken)}`;
   }
 
+  private isProduction() {
+    return String(process.env.NODE_ENV || '').trim().toLowerCase() === 'production';
+  }
+
+  private useEtherealAuto() {
+    return String(process.env.ETHEREAL_AUTO || '').trim().toLowerCase() === 'true';
+  }
+
+  private hasConfiguredTransactionalMailTransport() {
+    const smtpHost = String(process.env.SMTP_HOST || '').trim();
+    if (!smtpHost) {
+      return false;
+    }
+
+    if (!this.isProduction()) {
+      return true;
+    }
+
+    return Boolean(
+      smtpHost &&
+        String(process.env.SMTP_PORT || '').trim() &&
+        String(process.env.SMTP_USER || '').trim() &&
+        String(process.env.SMTP_PASS || '').trim() &&
+        String(process.env.MAIL_FROM || '').trim(),
+    );
+  }
+
   private shouldExposeEmailConfirmationDebugLink() {
     const debugEnabled = String(process.env.AUTH_DEBUG_CONFIRMATION_LINK || '').trim().toLowerCase() === 'true';
-    const isProd = String(process.env.NODE_ENV || '').trim().toLowerCase() === 'production';
-    return debugEnabled && !isProd;
+    return debugEnabled && !this.isProduction();
+  }
+
+  private shouldExposePasswordResetDebugLink() {
+    const debugEnabled = String(process.env.AUTH_DEBUG_RESET_LINK || '').trim().toLowerCase() === 'true';
+    return debugEnabled && !this.isProduction();
+  }
+
+  private canDeliverEmailConfirmation() {
+    return this.hasConfiguredTransactionalMailTransport() || this.useEtherealAuto() || this.shouldExposeEmailConfirmationDebugLink();
+  }
+
+  private canDeliverPasswordReset() {
+    return this.hasConfiguredTransactionalMailTransport() || this.useEtherealAuto() || this.shouldExposePasswordResetDebugLink();
+  }
+
+  private ensureEmailConfirmationDeliveryAvailable() {
+    if (!this.canDeliverEmailConfirmation()) {
+      throw new ServiceUnavailableException({
+        code: 'EMAIL_CONFIRMATION_UNAVAILABLE',
+        message: 'Cadastro temporariamente indisponível. O envio de confirmação por e-mail não está operacional.',
+      });
+    }
+  }
+
+  private ensurePasswordResetDeliveryAvailable() {
+    if (!this.canDeliverPasswordReset()) {
+      throw new ServiceUnavailableException({
+        code: 'PASSWORD_RESET_UNAVAILABLE',
+        message: 'Recuperação de senha temporariamente indisponível. Tente novamente em alguns minutos.',
+      });
+    }
+  }
+
+  private buildPendingEmailConfirmationResponse(input: {
+    email: string;
+    username: string;
+    companyName: string;
+    entityType: 'PF' | 'PJ' | null;
+    trialModuleSelection: 'vendas' | 'recovery' | null;
+    acquisitionSource: string | null;
+    warnings: string[];
+    message?: string;
+    previewUrl?: string | null;
+    confirmUrl?: string | null;
+    deliveryFailed?: boolean;
+  }) {
+    return {
+      ok: true,
+      status: 'pending_email_confirmation',
+      message: input.message || 'Cadastro criado. Confirme seu e-mail para liberar o trial.',
+      email: input.email,
+      username: input.username,
+      companyName: input.companyName,
+      entityType: input.entityType,
+      trialModuleSelection: input.trialModuleSelection,
+      acquisitionSource: input.acquisitionSource,
+      warnings: input.warnings,
+      canResendConfirmation: true,
+      delivery: {
+        previewUrl: input.previewUrl || null,
+        confirmUrl: input.confirmUrl || null,
+        failed: Boolean(input.deliveryFailed),
+      },
+    };
   }
 
   private async seedDefaultCompanyModulesTx(tx: any, companyId: number) {
@@ -188,7 +289,33 @@ export class AuthService implements OnModuleInit {
     return {
       previewUrl: mailResult?.previewUrl || null,
       confirmUrl: this.shouldExposeEmailConfirmationDebugLink() ? confirmationLink : null,
+      failed: false,
     };
+  }
+
+  private async dispatchEmailConfirmation(input: {
+    email: string;
+    username: string;
+    companyName: string;
+    rawToken: string;
+  }) {
+    try {
+      return await this.sendEmailConfirmationMail({
+        to: input.email,
+        username: input.username,
+        companyName: input.companyName,
+        rawToken: input.rawToken,
+      });
+    } catch (error) {
+      this.logger.error(`Failed to send confirmation email to ${input.email}`, error instanceof Error ? error.stack : undefined);
+      return {
+        previewUrl: null,
+        confirmUrl: this.shouldExposeEmailConfirmationDebugLink()
+          ? this.buildEmailConfirmationLink(input.rawToken)
+          : null,
+        failed: true,
+      };
+    }
   }
 
   private async ensureSystemMasterUser() {
@@ -273,7 +400,9 @@ export class AuthService implements OnModuleInit {
     const onboardingStatus = String(user?.company?.onboardingStatus || '').trim().toLowerCase();
     if (!Boolean(user?.isSystemMaster) && onboardingStatus === 'pending_email_confirmation') {
       throw new UnauthorizedException({
+        code: 'EMAIL_CONFIRMATION_REQUIRED',
         needsEmailConfirmation: true,
+        email: user.email || null,
         message: 'Confirme seu e-mail antes de entrar.',
       });
     }
@@ -320,6 +449,8 @@ export class AuthService implements OnModuleInit {
   }) {
     const username = String(data.username || '').trim();
     if (!username) throw new BadRequestException('O campo Usuário é obrigatório.');
+
+    this.ensureEmailConfirmationDeliveryAvailable();
 
     const existingUsername = await this.usersService.findByUsername(username);
     // If username exists, allow completing registration only when there is no email yet.
@@ -444,17 +575,14 @@ export class AuthService implements OnModuleInit {
         return { companyName: company.name };
       });
 
-      const delivery = await this.sendEmailConfirmationMail({
-        to: email,
+      const delivery = await this.dispatchEmailConfirmation({
+        email,
         username,
         companyName: createdPending.companyName,
         rawToken,
       });
 
-      return {
-        ok: true,
-        status: 'pending_email_confirmation',
-        message: 'Cadastro criado. Confirme seu e-mail para liberar o trial.',
+      return this.buildPendingEmailConfirmationResponse({
         email,
         username,
         companyName: createdPending.companyName,
@@ -462,8 +590,13 @@ export class AuthService implements OnModuleInit {
         trialModuleSelection,
         acquisitionSource,
         warnings,
-        delivery,
-      };
+        message: delivery.failed
+          ? 'Cadastro criado, mas o envio do e-mail falhou agora. Reenvie a confirmação para liberar o trial.'
+          : 'Cadastro criado. Confirme seu e-mail para liberar o trial.',
+        previewUrl: delivery.previewUrl,
+        confirmUrl: delivery.confirmUrl,
+        deliveryFailed: delivery.failed,
+      });
     }
 
     // New account: create company + user atomically.
@@ -519,17 +652,14 @@ export class AuthService implements OnModuleInit {
       return { companyName: company.name };
     });
 
-    const delivery = await this.sendEmailConfirmationMail({
-      to: email,
+    const delivery = await this.dispatchEmailConfirmation({
+      email,
       username,
       companyName: created.companyName,
       rawToken,
     });
 
-    return {
-      ok: true,
-      status: 'pending_email_confirmation',
-      message: 'Cadastro criado. Confirme seu e-mail para liberar o trial.',
+    return this.buildPendingEmailConfirmationResponse({
       email,
       username,
       companyName: created.companyName,
@@ -537,14 +667,19 @@ export class AuthService implements OnModuleInit {
       trialModuleSelection,
       acquisitionSource,
       warnings,
-      delivery,
-    };
+      message: delivery.failed
+        ? 'Cadastro criado, mas o envio do e-mail falhou agora. Reenvie a confirmação para liberar o trial.'
+        : 'Cadastro criado. Confirme seu e-mail para liberar o trial.',
+      previewUrl: delivery.previewUrl,
+      confirmUrl: delivery.confirmUrl,
+      deliveryFailed: delivery.failed,
+    });
   }
 
   async confirmEmail(token: string) {
     const rawToken = String(token || '').trim();
     if (!rawToken) {
-      throw new BadRequestException('Token de confirmação inválido.');
+      throw new BadRequestException({ code: 'EMAIL_CONFIRMATION_INVALID', message: 'Token de confirmação inválido.' });
     }
 
     const tokenHash = this.sha256(rawToken);
@@ -560,11 +695,17 @@ export class AuthService implements OnModuleInit {
     });
 
     if (!user) {
-      throw new BadRequestException('Link de confirmação inválido ou já utilizado.');
+      throw new BadRequestException({
+        code: 'EMAIL_CONFIRMATION_INVALID',
+        message: 'Link de confirmação inválido ou já utilizado.',
+      });
     }
 
     if (!user.emailConfirmationExpiresAt || user.emailConfirmationExpiresAt.getTime() < Date.now()) {
-      throw new BadRequestException('Link de confirmação expirado. Solicite um novo cadastro.');
+      throw new BadRequestException({
+        code: 'EMAIL_CONFIRMATION_EXPIRED',
+        message: 'Link de confirmação expirado. Solicite um novo envio para continuar.',
+      });
     }
 
     const confirmedAt = new Date();
@@ -598,6 +739,79 @@ export class AuthService implements OnModuleInit {
     };
   }
 
+  async resendEmailConfirmation(email: string) {
+    this.ensureEmailConfirmationDeliveryAvailable();
+
+    const normalizedEmail = String(email || '').trim().toLowerCase();
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!normalizedEmail || !emailRegex.test(normalizedEmail)) {
+      throw new BadRequestException('Informe um e-mail válido para reenviar a confirmação.');
+    }
+
+    const user = await this.prisma.user.findFirst({
+      where: { email: normalizedEmail },
+      select: {
+        id: true,
+        username: true,
+        email: true,
+        emailConfirmedAt: true,
+        companyId: true,
+        company: {
+          select: {
+            name: true,
+            onboardingStatus: true,
+            entityType: true,
+            trialModuleSelection: true,
+            acquisitionSource: true,
+          },
+        },
+      },
+    });
+
+    if (!user || user.emailConfirmedAt || String(user.company?.onboardingStatus || '').trim().toLowerCase() !== 'pending_email_confirmation') {
+      return {
+        ok: true,
+        status: 'confirmation_resent_if_pending',
+        message: 'Se existir uma conta com confirmação pendente, enviaremos um novo link em instantes.',
+      };
+    }
+
+    const rawToken = crypto.randomBytes(32).toString('hex');
+    const tokenHash = this.sha256(rawToken);
+    const confirmationExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: {
+        emailConfirmationToken: tokenHash,
+        emailConfirmationSentAt: new Date(),
+        emailConfirmationExpiresAt: confirmationExpiresAt,
+      },
+    });
+
+    const delivery = await this.dispatchEmailConfirmation({
+      email: normalizedEmail,
+      username: user.username || normalizedEmail,
+      companyName: user.company?.name || user.username || normalizedEmail,
+      rawToken,
+    });
+
+    return {
+      ok: true,
+      status: 'pending_email_confirmation',
+      message: delivery.failed
+        ? 'Conta localizada, mas o envio do e-mail falhou agora. Tente reenviar novamente em alguns minutos.'
+        : 'Novo link de confirmação enviado. Verifique sua caixa de entrada.',
+      email: normalizedEmail,
+      canResendConfirmation: true,
+      delivery: {
+        previewUrl: delivery.previewUrl || null,
+        confirmUrl: delivery.confirmUrl || null,
+        failed: Boolean(delivery.failed),
+      },
+    };
+  }
+
   private sha256(input: string) {
     return crypto.createHash('sha256').update(input).digest('hex');
   }
@@ -606,6 +820,8 @@ export class AuthService implements OnModuleInit {
   // - User provides email (not username) to avoid linking login identifier to recovery.
   // - We do not leak whether the email exists.
   async requestPasswordResetLinkByEmail(email: string) {
+    this.ensurePasswordResetDeliveryAvailable();
+
     const normalizedEmail = String(email || '').trim().toLowerCase();
     if (!normalizedEmail) return { ok: true };
 
@@ -646,10 +862,8 @@ export class AuthService implements OnModuleInit {
       ].join('\n'),
     });
 
-    const debugEnabled = String(process.env.AUTH_DEBUG_RESET_LINK || '').toLowerCase() === 'true';
-    const isProd = String(process.env.NODE_ENV || '').toLowerCase() === 'production';
-      if (!isProd && debugEnabled) {
-        return { ok: true, previewLink: link, mailPreviewUrl: mailResult?.previewUrl || null };
+    if (this.shouldExposePasswordResetDebugLink()) {
+      return { ok: true, previewLink: link, mailPreviewUrl: mailResult?.previewUrl || null };
     }
 
     return { ok: true };

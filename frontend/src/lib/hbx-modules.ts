@@ -90,6 +90,43 @@ export function isModuleBlocked(module: UserModule) {
   return isModuleVisible(module) && !module.accessible && Boolean(module.blockedByEngine || module.blockedReason);
 }
 
+export function formatCriticalEngineLabel(value?: string | null) {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (normalized === "whatsapp") return "WhatsApp";
+  if (normalized === "webscraping") return "Webscraping";
+  if (normalized === "payment") return "Pagamento";
+  return normalized ? normalized.charAt(0).toUpperCase() + normalized.slice(1) : "Motor";
+}
+
+export function resolveModuleBlockedHref(module: Pick<UserModule, "key" | "criticalEngine" | "blockedCode">) {
+  const blockedCode = String(module.blockedCode || "").trim().toLowerCase();
+  const criticalEngine = String(module.criticalEngine || "").trim().toLowerCase();
+  const normalizedKey = normalizeUserModuleKey(module.key);
+
+  if (criticalEngine === "whatsapp") {
+    if (blockedCode === "whatsapp_missing") return "/dashboard/whatsapp?focus=official";
+    return "/dashboard/whatsapp?focus=status";
+  }
+
+  if (criticalEngine === "payment") {
+    return "/dashboard/financeiro?focus=payment";
+  }
+
+  if (criticalEngine === "webscraping") {
+    return "/dashboard/webscraping";
+  }
+
+  return resolveModuleHref(normalizedKey);
+}
+
+export function resolveModuleBlockedActionLabel(module: Pick<UserModule, "criticalEngine">) {
+  const criticalEngine = String(module.criticalEngine || "").trim().toLowerCase();
+  if (criticalEngine === "whatsapp") return "Corrigir motor";
+  if (criticalEngine === "payment") return "Regularizar";
+  if (criticalEngine === "webscraping") return "Ver runtime";
+  return "Resolver";
+}
+
 export function getFirstOperationalModule(modules: UserModule[]) {
   return [...modules]
     .filter((module) => module.accessible && isCommercialEntryCandidate(module))

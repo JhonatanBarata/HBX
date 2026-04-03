@@ -1201,6 +1201,81 @@
   padding: 0.2rem 0;
 }
 
+.auditEntryBody {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.auditEntryMeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+  color: var(--master-text-soft);
+  font-size: 0.82rem;
+}
+
+.auditMetaGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.65rem;
+}
+
+.auditMetaItem,
+.auditChangeRow {
+  padding: 0.8rem 0.9rem;
+  border-radius: 16px;
+  border: 1px solid rgba(24, 49, 83, 0.08);
+  background: rgba(24, 49, 83, 0.04);
+}
+
+.auditMetaItem {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.auditMetaItem span,
+.auditChangeLabel {
+  font-size: 0.74rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--master-text-soft);
+}
+
+.auditMetaItem strong,
+.auditChangeValues strong {
+  font-size: 0.9rem;
+  color: var(--master-text);
+}
+
+.auditChangeList {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.auditChangeRow {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.auditChangeValues {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  gap: 0.55rem;
+  align-items: center;
+}
+
+.auditChangeValues span,
+.auditChangeValues strong {
+  overflow-wrap: anywhere;
+}
+
+.auditChangeArrow {
+  color: var(--master-text-soft);
+  font-weight: 800;
+}
+
 .timelineDot {
   width: 0.9rem;
   height: 0.9rem;
@@ -1364,6 +1439,11 @@
   }
 
   .moduleToggle {
+    grid-template-columns: 1fr;
+  }
+
+  .auditMetaGrid,
+  .auditChangeValues {
     grid-template-columns: 1fr;
   }
 }

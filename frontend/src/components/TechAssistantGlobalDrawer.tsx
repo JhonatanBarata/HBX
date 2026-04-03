@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { apiFetch } from "../app/dashboard/_lib/api";
+import LiquidGlassSegmentedControl from "./LiquidGlassSegmentedControl";
 import styles from "./TechAssistantGlobalDrawer.module.css";
 
 type MasterContextInfo = {
@@ -62,6 +63,12 @@ type Props = {
 };
 
 type PromptTarget = "chatgpt" | "gemini" | "codex";
+
+const PROMPT_TARGET_OPTIONS = [
+  { id: "chatgpt", label: "ChatGPT" },
+  { id: "gemini", label: "Gemini" },
+  { id: "codex", label: "Codex" },
+] as const;
 
 type GuideDefinition = {
   title: string;
@@ -1185,27 +1192,12 @@ export default function TechAssistantGlobalDrawer({ isSystemMaster, masterContex
                     <strong>Pacote local para {promptPreviewLabel}</strong>
                   </div>
                   <div className={styles.providerTabs}>
-                    <button
-                      type="button"
-                      className={promptTarget === "chatgpt" ? styles.providerTabActive : styles.providerTab}
-                      onClick={() => setPromptTarget("chatgpt")}
-                    >
-                      ChatGPT
-                    </button>
-                    <button
-                      type="button"
-                      className={promptTarget === "gemini" ? styles.providerTabActive : styles.providerTab}
-                      onClick={() => setPromptTarget("gemini")}
-                    >
-                      Gemini
-                    </button>
-                    <button
-                      type="button"
-                      className={promptTarget === "codex" ? styles.providerTabActive : styles.providerTab}
-                      onClick={() => setPromptTarget("codex")}
-                    >
-                      Codex
-                    </button>
+                    <LiquidGlassSegmentedControl
+                      items={PROMPT_TARGET_OPTIONS}
+                      value={promptTarget}
+                      ariaLabel="Destino do prompt externo"
+                      onChange={(value) => setPromptTarget(value as PromptTarget)}
+                    />
                   </div>
                 </div>
 

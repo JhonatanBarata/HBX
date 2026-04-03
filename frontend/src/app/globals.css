@@ -1143,6 +1143,79 @@ html[data-popup-open="true"] .app-topbar::after {
   display: block;
 }
 
+.login-core {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: min(72vw, 760px);
+  height: min(72vw, 760px);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+.login-core__halo,
+.login-core__pulse,
+.login-core__ring,
+.login-core__beam {
+  position: absolute;
+  inset: 0;
+}
+
+.login-core__halo {
+  inset: 14%;
+  border-radius: 999px;
+  background:
+    radial-gradient(circle at center, color-mix(in srgb, var(--login-accent) 30%, transparent), transparent 42%),
+    radial-gradient(circle at 50% 50%, color-mix(in srgb, var(--login-accent-alt) 18%, transparent), transparent 62%);
+  filter: blur(26px) saturate(1.15);
+  opacity: 0.72;
+  animation: login-core-breathe 7.8s ease-in-out infinite;
+}
+
+.login-core__pulse {
+  inset: 26%;
+  border-radius: 999px;
+  background:
+    radial-gradient(circle at center, color-mix(in srgb, white 24%, transparent), transparent 26%),
+    radial-gradient(circle at center, color-mix(in srgb, var(--login-accent-alt) 22%, transparent), transparent 58%);
+  filter: blur(8px);
+  opacity: 0.66;
+  animation: login-core-pulse 4.8s cubic-bezier(0.2, 0.9, 0.2, 1) infinite;
+}
+
+.login-core__ring {
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--brand) 20%, white);
+  opacity: 0.34;
+}
+
+.login-core__ring--outer {
+  inset: 9%;
+  animation: login-ring-rotate 16s linear infinite;
+}
+
+.login-core__ring--mid {
+  inset: 20%;
+  border-style: dashed;
+  animation: login-ring-rotate-reverse 10s linear infinite;
+}
+
+.login-core__beam {
+  inset: 20% 49%;
+  border-radius: 999px;
+  background: linear-gradient(180deg, transparent, color-mix(in srgb, var(--login-accent) 20%, white), transparent);
+  filter: blur(1px);
+  opacity: 0.28;
+}
+
+.login-core__beam--left {
+  transform: rotate(30deg);
+}
+
+.login-core__beam--right {
+  transform: rotate(-30deg);
+}
+
 .login-drop {
   position: absolute;
   left: 50%;
@@ -1172,6 +1245,52 @@ html[data-popup-open="true"] .app-topbar::after {
     transform: translateX(-50%) translateY(0) scale(1);
     opacity: 1;
     border-radius: 24px;
+  }
+}
+
+@keyframes login-core-breathe {
+  0%,
+  100% {
+    transform: scale(0.94);
+    opacity: 0.58;
+  }
+  50% {
+    transform: scale(1.05);
+    opacity: 0.82;
+  }
+}
+
+@keyframes login-core-pulse {
+  0%,
+  100% {
+    transform: scale(0.92);
+    opacity: 0.34;
+  }
+  45% {
+    transform: scale(1.08);
+    opacity: 0.74;
+  }
+  70% {
+    transform: scale(0.98);
+    opacity: 0.52;
+  }
+}
+
+@keyframes login-ring-rotate {
+  from {
+    transform: rotate(0deg) scale(0.98);
+  }
+  to {
+    transform: rotate(360deg) scale(1.03);
+  }
+}
+
+@keyframes login-ring-rotate-reverse {
+  from {
+    transform: rotate(360deg) scale(1.01);
+  }
+  to {
+    transform: rotate(0deg) scale(0.97);
   }
 }
 
@@ -1293,6 +1412,10 @@ html[data-popup-open="true"] .app-topbar::after {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .login-core__halo,
+  .login-core__pulse,
+  .login-core__ring,
+  .login-core__beam,
   .login-drop,
   .login-meteor {
     animation: none !important;
@@ -1322,6 +1445,40 @@ html[data-popup-open="true"] .app-topbar::after {
   /* match shutdown timing/dynamics and increase dramatic stagger */
   animation: confetti-implode 2200ms cubic-bezier(0.2,0.8,0.2,1) both;
   animation-delay: calc((60 - var(--i)) * 12ms);
+}
+
+.login-stage[data-login-state="waking_server"] .login-core__pulse,
+.login-stage[data-login-state="waking_server"] .login-core__halo {
+  animation-duration: 2.8s;
+  opacity: 0.84;
+}
+
+.login-stage[data-login-state="waking_server"] .login-core__beam {
+  opacity: 0.42;
+}
+
+.login-stage[data-login-state="success"] .login-core__halo,
+.login-visuals.play .login-core__halo {
+  animation-duration: 1.9s;
+  opacity: 0.98;
+  filter: blur(34px) saturate(1.24);
+}
+
+.login-stage[data-login-state="success"] .login-core__pulse,
+.login-visuals.play .login-core__pulse {
+  animation-duration: 1.45s;
+  opacity: 1;
+  transform: scale(1.12);
+}
+
+.login-stage[data-login-state="success"] .login-core__ring,
+.login-visuals.play .login-core__ring {
+  opacity: 0.58;
+}
+
+.login-stage[data-login-state="success"] .login-core__beam,
+.login-visuals.play .login-core__beam {
+  opacity: 0.56;
 }
 
 @keyframes confetti-implode {
@@ -1374,6 +1531,20 @@ html[data-popup-open="true"] .app-topbar::after {
   opacity: 0.96;
   transition: transform 1.1s cubic-bezier(0.2, 0.9, 0.2, 1), opacity 1.1s;
   pointer-events: none;
+}
+
+.login-card.is-exploding .login-card__brandMark {
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, white 24%, transparent),
+    0 34px 64px -28px color-mix(in srgb, var(--login-accent) 58%, transparent),
+    0 0 56px color-mix(in srgb, var(--login-accent-alt) 28%, transparent);
+  transform: scale(1.08);
+  transition: transform 900ms cubic-bezier(0.2, 0.9, 0.2, 1), box-shadow 900ms cubic-bezier(0.2, 0.9, 0.2, 1);
+}
+
+.login-card.is-exploding .login-card__chrome {
+  opacity: 1;
+  filter: saturate(1.25) blur(0px);
 }
 
 html[data-theme-mode="dark"] .login-stage {
@@ -1485,6 +1656,7 @@ html[data-theme="tabler"] .login-card__stat {
 
 /* ensure visuals hidden on small screens to avoid heavy animation */
 @media (max-width: 720px) {
+  .login-core,
   .login-confetti__piece { display: none; }
   .login-stage {
     padding: 1.2rem;
