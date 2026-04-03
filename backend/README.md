@@ -55,7 +55,20 @@ Variáveis mínimas esperadas no Render:
 - `JWT_SECRET`
 - `INTEGRATION_SECRET_KEY`
 - `FRONTEND_URL`
+- `SMTP_HOST`
+- `SMTP_PORT`
+- `SMTP_USER`
+- `SMTP_PASS`
+- `MAIL_FROM` (ou `MAIL_FROM_NAME` com `SMTP_USER`)
 - `NODE_ENV=production`
+
+Sem SMTP real em producao, o cadastro pode ate ser salvo em `pending_email_confirmation`, mas o e-mail nao sera entregue e o trial ficara bloqueado ate a confirmacao.
+
+Se quiser endurecer a verificacao de deploy, defina tambem no ambiente operacional local:
+
+- `PROD_INTERNAL_SECRET` com o mesmo valor de `INTERNAL_SECRET` do backend publicado.
+
+Assim o `scripts/verify-prod.js` consegue consultar o endpoint interno protegido e falhar o publish quando o SMTP de producao nao estiver pronto.
 
 Se `INTEGRATION_SECRET_KEY` estiver ausente, o backend ainda sobe, mas os fluxos de conexao e sincronizacao de integracoes permanecem bloqueados ate a variavel ser configurada no ambiente.
 
