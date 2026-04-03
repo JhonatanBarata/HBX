@@ -13,12 +13,7 @@ import { IsArray, IsBoolean, IsNotEmpty, IsOptional, IsString, ValidateNested } 
 import { Type } from 'class-transformer';
 import { MercadoPagoClientService } from '../payments/mercado-pago-client.service';
 import { MasterContextService } from '../master-context/master-context.service';
-import { PrismaService } from '../prisma/prisma.service';
-import {
-  getMasterGlobalIntegrationConfig,
-  pickMasterMercadoPagoCredential,
-  pickMasterWhatsAppCredential,
-} from '../modules/master-global-integrations.util';
+import { CompanyOperationalStatusService } from './company-operational-status.service';
 import {
   CompaniesService,
   MASTER_HARD_DELETE_CONFIRMATION_INVALID_MESSAGE,
@@ -144,21 +139,6 @@ class MasterHardDeleteCompanyDto {
   confirmText?: string;
 }
 
-type OperationalTone = 'green' | 'yellow' | 'red';
-
-type OperationalStatusChip = {
-  key: 'token' | 'meta' | 'webwhats' | 'payment' | 'access';
-  label: string;
-  shortLabel: string;
-  tone: OperationalTone;
-  value: string;
-  detail: string;
-  href: string;
-  quality: 'real' | 'partial';
-  source: string[];
-  updatedAt: string | null;
-};
-
 @Controller('companies')
 export class CompaniesController {
   constructor(
@@ -167,7 +147,7 @@ export class CompaniesController {
     private readonly whatsappStatus: WhatsAppStatusService,
     private readonly mercadoPagoClient: MercadoPagoClientService,
     private readonly masterContextService: MasterContextService,
-    private readonly prisma: PrismaService,
+    private readonly companyOperationalStatus: CompanyOperationalStatusService,
   ) {}
 
   // NOTE: We intentionally do not provide a public company lookup endpoint.
@@ -206,19 +186,6 @@ export class CompaniesController {
     };
   }
 
-  private mapTrialRemainingDays(trialEndsAt?: Date | string | null) {
-    if (!trialEndsAt) return null;
-    const parsed = trialEndsAt instanceof Date ? trialEndsAt : new Date(String(trialEndsAt));
-    if (Number.isNaN(parsed.getTime())) return null;
-    return Math.ceil((parsed.getTime() - Date.now()) / (24 * 60 * 60 * 1000));
-  }
-
-  private buildOperationalChip(
-    input: OperationalStatusChip,
-  ): OperationalStatusChip {
-    return input;
-  }
-
   private async resolveOperationalContext(req: any) {
     const runtimeContext = await this.masterContextService.resolveRuntimeContext(req.user);
     const effectiveCompanyId = runtimeContext.effectiveCompanyId || Number(req.user?.companyId || 0) || null;
@@ -246,361 +213,6 @@ export class CompaniesController {
       throw new BadRequestException('Nenhuma empresa operacional selecionada para este contexto.');
     }
     return companyId;
-  }
-
-  private async buildOperationalStatusPayload(req: any, opts?: { refresh?: boolean }) {
-    const context = await this.resolveOperationalContext(req);
-    if (!context.effectiveCompanyId || !context.company) {
-      return {
-        generatedAt: new Date().toISOString(),
-        context: {
-          available: false,
-          companyId: null,
-          companyName: null,
-          mode:
-            req?.user?.isSystemMaster && !context.masterContext?.active
-              ? 'master_puro'
-              : 'sem_empresa',
-          masterContext: context.masterContext,
-        },
-        statuses: [] as OperationalStatusChip[],
-      };
-    }
-
-    const companyId = Number(context.effectiveCompanyId);
-    const company: any = context.company;
-    const refresh = Boolean(opts?.refresh);
-    if (refresh) {
-      await this.whatsappStatus.getStatusForCompany(companyId, { refresh: true });
-    }
-
-    const freshCompany: any = await this.companiesService.findByIdForMaster(companyId);
-    const masterConfig =
-      freshCompany?.useMasterMercadoPagoToken || freshCompany?.useMasterWhatsAppToken
-        ? await getMasterGlobalIntegrationConfig(this.prisma)
-        : null;
-    const selectedWhatsAppCredential = freshCompany?.useMasterWhatsAppToken
-      ? pickMasterWhatsAppCredential(masterConfig, freshCompany?.masterWhatsAppCredentialKey)
-      : null;
-    const selectedMercadoPagoCredential = freshCompany?.useMasterMercadoPagoToken
-      ? pickMasterMercadoPagoCredential(masterConfig, freshCompany?.masterMercadoPagoCredentialKey)
-      : null;
-    const whatsappCenter = await this.companiesService.getWhatsAppCenterForCompany(companyId, {
-      refreshTemporary: refresh,
-    });
-
-    const officialConfigured = Boolean(whatsappCenter?.center?.official?.configured);
-    const officialConnected = Boolean(whatsappCenter?.center?.official?.connected);
-    const officialStatus = String(whatsappCenter?.center?.official?.status || '').trim().toUpperCase();
-    const temporaryAvailable = Boolean(whatsappCenter?.center?.temporary?.available);
-    const temporaryLiveStatus = String(whatsappCenter?.center?.temporary?.liveStatus || '').trim().toLowerCase();
-    const temporaryStatus = String(whatsappCenter?.center?.temporary?.status || '').trim().toUpperCase();
-
-    const tokenChip = officialConnected
-      ? this.buildOperationalChip({
-          key: 'token',
-          label: 'Token ativo',
-          shortLabel: 'Token',
-          tone: 'green',
-          value: 'Ativo',
-          detail: 'Token oficial validado com phone number pronto para operar na Meta.',
-          href: '/dashboard/whatsapp?focus=official',
-          quality: 'real',
-          source: freshCompany?.useMasterWhatsAppToken
-            ? ['master.whatsappCredential', 'company.whatsappStatus']
-            : ['company.whatsappAccessToken', 'company.whatsappPhoneNumberId', 'company.whatsappStatus'],
-          updatedAt:
-            freshCompany?.whatsappStatusUpdatedAt instanceof Date
-              ? freshCompany.whatsappStatusUpdatedAt.toISOString()
-              : null,
-        })
-      : officialConfigured
-        ? this.buildOperationalChip({
-            key: 'token',
-            label: 'Token ativo',
-            shortLabel: 'Token',
-            tone: officialStatus === 'ERROR' ? 'red' : 'yellow',
-            value: officialStatus === 'ERROR' ? 'Falha' : 'Pendente',
-            detail:
-              officialStatus === 'ERROR'
-                ? String(freshCompany?.whatsappStatusError || 'Falha ao validar o token oficial da Meta.')
-                : 'Credencial oficial configurada, mas ainda sem operação confirmada na Meta.',
-            href: '/dashboard/whatsapp?focus=official',
-            quality: officialStatus === 'ERROR' ? 'real' : 'partial',
-            source: freshCompany?.useMasterWhatsAppToken
-              ? ['master.whatsappCredential', 'company.whatsappStatus']
-              : ['company.whatsappAccessToken', 'company.whatsappPhoneNumberId', 'company.whatsappStatus'],
-            updatedAt:
-              freshCompany?.whatsappStatusUpdatedAt instanceof Date
-                ? freshCompany.whatsappStatusUpdatedAt.toISOString()
-                : null,
-          })
-        : this.buildOperationalChip({
-            key: 'token',
-            label: 'Token ativo',
-            shortLabel: 'Token',
-            tone: 'red',
-            value: 'Ausente',
-            detail: 'Falta token oficial e/ou phone number ID para operar pela Meta.',
-            href: '/dashboard/whatsapp?focus=official',
-            quality: 'real',
-            source: freshCompany?.useMasterWhatsAppToken
-              ? ['master.whatsappCredential']
-              : ['company.whatsappAccessToken', 'company.whatsappPhoneNumberId'],
-            updatedAt: null,
-          });
-
-    const metaChip = officialConnected
-      ? this.buildOperationalChip({
-          key: 'meta',
-          label: 'Meta ativo',
-          shortLabel: 'Meta',
-          tone: 'green',
-          value: 'Online',
-          detail: 'Integração oficial da Meta conectada e pronta para operação.',
-          href: '/dashboard/whatsapp?focus=official',
-          quality: 'real',
-          source: ['company.whatsappStatus', 'company.whatsappDisplayNumber'],
-          updatedAt:
-            freshCompany?.whatsappStatusUpdatedAt instanceof Date
-              ? freshCompany.whatsappStatusUpdatedAt.toISOString()
-              : null,
-        })
-      : officialConfigured
-        ? this.buildOperationalChip({
-            key: 'meta',
-            label: 'Meta ativo',
-            shortLabel: 'Meta',
-            tone: officialStatus === 'ERROR' ? 'red' : 'yellow',
-            value: officialStatus === 'ERROR' ? 'Falha' : 'Pendente',
-            detail:
-              officialStatus === 'ERROR'
-                ? String(freshCompany?.whatsappStatusError || 'Integração oficial com falha.')
-                : 'Integração oficial configurada, mas ainda sem conexão operacional completa.',
-            href: '/dashboard/whatsapp?focus=official',
-            quality: officialStatus === 'ERROR' ? 'real' : 'partial',
-            source: ['company.whatsappStatus', 'company.whatsappStatusError'],
-            updatedAt:
-              freshCompany?.whatsappStatusUpdatedAt instanceof Date
-                ? freshCompany.whatsappStatusUpdatedAt.toISOString()
-                : null,
-          })
-        : this.buildOperationalChip({
-            key: 'meta',
-            label: 'Meta ativo',
-            shortLabel: 'Meta',
-            tone: 'red',
-            value: 'Off',
-            detail: 'A trilha oficial da Meta ainda não foi configurada.',
-            href: '/dashboard/whatsapp?focus=official',
-            quality: 'real',
-            source: ['company.whatsappAccessToken', 'company.whatsappPhoneNumberId'],
-            updatedAt: null,
-          });
-
-    const webWhatsChip =
-      temporaryAvailable && temporaryLiveStatus === 'connected'
-        ? this.buildOperationalChip({
-            key: 'webwhats',
-            label: 'WebWhats ativo',
-            shortLabel: 'WebWhats',
-            tone: 'green',
-            value: 'Conect.',
-            detail: 'Conexão temporária ativa e operando via WebWhats.',
-            href: '/dashboard/whatsapp?focus=temporary',
-            quality: 'real',
-            source: ['company.whatsappTemporaryStatus', 'company.whatsappTemporaryConnectedAt'],
-            updatedAt:
-              freshCompany?.whatsappTemporaryLastSyncAt instanceof Date
-                ? freshCompany.whatsappTemporaryLastSyncAt.toISOString()
-                : null,
-          })
-        : temporaryAvailable && (temporaryLiveStatus === 'qr_ready' || temporaryStatus === 'ATTENTION')
-          ? this.buildOperationalChip({
-              key: 'webwhats',
-              label: 'WebWhats ativo',
-              shortLabel: 'WebWhats',
-              tone: 'yellow',
-              value: temporaryLiveStatus === 'qr_ready' ? 'QR' : 'Atenção',
-              detail:
-                temporaryLiveStatus === 'qr_ready'
-                  ? 'QR disponível para concluir a conexão temporária.'
-                  : String(whatsappCenter?.center?.temporary?.errorMessage || 'Conexão temporária precisa de atenção.'),
-              href: '/dashboard/whatsapp?focus=temporary',
-              quality: 'real',
-              source: ['company.whatsappTemporaryStatus', 'company.whatsappTemporaryPairingCode'],
-              updatedAt:
-                freshCompany?.whatsappTemporaryLastSyncAt instanceof Date
-                  ? freshCompany.whatsappTemporaryLastSyncAt.toISOString()
-                  : null,
-            })
-          : temporaryAvailable
-            ? this.buildOperationalChip({
-                key: 'webwhats',
-                label: 'WebWhats ativo',
-                shortLabel: 'WebWhats',
-                tone: 'red',
-                value: 'Off',
-                detail: 'A trilha temporária está disponível, mas ainda não foi conectada.',
-                href: '/dashboard/whatsapp?focus=temporary',
-                quality: 'real',
-                source: ['company.whatsappTemporaryStatus'],
-                updatedAt:
-                  freshCompany?.whatsappTemporaryLastSyncAt instanceof Date
-                    ? freshCompany.whatsappTemporaryLastSyncAt.toISOString()
-                    : null,
-              })
-            : this.buildOperationalChip({
-                key: 'webwhats',
-                label: 'WebWhats ativo',
-                shortLabel: 'WebWhats',
-                tone: 'red',
-                value: 'Indisp.',
-                detail: 'O motor temporário/WebWhats não está configurado neste ambiente.',
-                href: '/dashboard/whatsapp?focus=temporary',
-                quality: 'real',
-                source: ['env.WHATSAPP_TEMPORARY_API_URL', 'env.WHATSAPP_TEMPORARY_API_KEY'],
-                updatedAt: null,
-              });
-
-    const effectiveMercadoPagoToken = freshCompany?.useMasterMercadoPagoToken
-      ? String(selectedMercadoPagoCredential?.accessToken || '').trim()
-      : String(freshCompany?.mercadoPagoAccessToken || '').trim();
-    let paymentHref = '/dashboard/financeiro?focus=preferences';
-    let paymentTone: OperationalTone = 'red';
-    let paymentValue = 'Ausente';
-    let paymentDetail = freshCompany?.useMasterMercadoPagoToken
-      ? 'Nenhuma credencial MASTER de pagamento foi selecionada para a empresa.'
-      : 'Token do Mercado Pago não configurado para esta empresa.';
-    let paymentQuality: 'real' | 'partial' = 'real';
-    let paymentUpdatedAt =
-      freshCompany?.mercadoPagoStatusUpdatedAt instanceof Date
-        ? freshCompany.mercadoPagoStatusUpdatedAt.toISOString()
-        : null;
-
-    if (effectiveMercadoPagoToken) {
-      if (refresh) {
-        try {
-          const paymentProfile = await this.mercadoPagoClient.validateAccessToken(effectiveMercadoPagoToken);
-          paymentTone = 'green';
-          paymentValue = 'Ativo';
-          paymentHref = '/dashboard/financeiro?focus=payment';
-          paymentDetail = freshCompany?.useMasterMercadoPagoToken
-            ? `Credencial MASTER validada${paymentProfile?.email ? ` para ${String(paymentProfile.email)}` : ''}.`
-            : `Motor de pagamento validado${paymentProfile?.email ? ` para ${String(paymentProfile.email)}` : ''}.`;
-          paymentQuality = 'real';
-          paymentUpdatedAt = new Date().toISOString();
-        } catch (error: any) {
-          paymentTone = 'red';
-          paymentValue = 'Falha';
-          paymentDetail = String(error?.message || 'Falha ao validar o token de pagamento.');
-          paymentQuality = 'real';
-          paymentUpdatedAt = new Date().toISOString();
-        }
-      } else {
-        const mercadoPagoStatus = String(freshCompany?.mercadoPagoStatus || '').trim().toUpperCase();
-        if (mercadoPagoStatus === 'CONNECTED') {
-          paymentTone = 'green';
-          paymentValue = 'Ativo';
-          paymentHref = '/dashboard/financeiro?focus=payment';
-          paymentDetail = 'Última validação do motor de pagamento está saudável.';
-          paymentQuality = 'real';
-        } else if (mercadoPagoStatus === 'ERROR') {
-          paymentTone = 'red';
-          paymentValue = 'Falha';
-          paymentHref = '/dashboard/financeiro?focus=preferences';
-          paymentDetail = String(freshCompany?.mercadoPagoStatusError || 'Falha no motor de pagamento.');
-          paymentQuality = 'real';
-        } else {
-          paymentTone = 'yellow';
-          paymentValue = freshCompany?.useMasterMercadoPagoToken ? 'Master' : 'Pendente';
-          paymentHref = '/dashboard/financeiro?focus=preferences';
-          paymentDetail = freshCompany?.useMasterMercadoPagoToken
-            ? 'Credencial MASTER configurada. Validação operacional ao vivo ainda pendente.'
-            : 'Token configurado, mas sem validação operacional recente.';
-          paymentQuality = 'partial';
-        }
-      }
-    }
-
-    const paymentChip = this.buildOperationalChip({
-      key: 'payment',
-      label: 'Pagamento ativo',
-      shortLabel: 'Pagamento',
-      tone: paymentTone,
-      value: paymentValue,
-      detail: paymentDetail,
-      href: paymentHref,
-      quality: paymentQuality,
-      source: freshCompany?.useMasterMercadoPagoToken
-        ? ['master.mercadoPagoCredential', 'mercadopago.validateAccessToken']
-        : ['company.mercadoPagoAccessToken', 'company.mercadoPagoStatus'],
-      updatedAt: paymentUpdatedAt,
-    });
-
-    const paymentStatus = String(freshCompany?.paymentStatus || '').trim().toUpperCase();
-    const subscriptionStatus = String(freshCompany?.subscriptionStatus || '').trim().toLowerCase();
-    const trialRemainingDays = this.mapTrialRemainingDays(freshCompany?.trialEndsAt);
-    let accessTone: OperationalTone = 'red';
-    let accessValue = 'Bloq.';
-    let accessDetail = 'A empresa está sem acesso operacional liberado.';
-    let accessHref = '/dashboard/financeiro?focus=payment';
-    if (Boolean(freshCompany?.isActive) && (paymentStatus === 'PAID' || subscriptionStatus === 'active')) {
-      accessTone = 'green';
-      accessValue = 'Pago';
-      accessDetail = 'Acesso pago ativo e liberado para operação.';
-      accessHref = '/dashboard/financeiro?focus=access';
-    } else if (
-      Boolean(freshCompany?.isActive)
-      && (paymentStatus === 'TRIAL' || subscriptionStatus === 'trialing')
-      && (trialRemainingDays === null || trialRemainingDays >= 0)
-    ) {
-      accessTone = 'yellow';
-      accessValue = trialRemainingDays === null ? 'Trial' : `Trial ${trialRemainingDays}d`;
-      accessDetail =
-        trialRemainingDays === null
-          ? 'Free trial ativo.'
-          : trialRemainingDays <= 3
-            ? `Free trial ativo com ${trialRemainingDays} dia(s) restante(s).`
-            : `Free trial ativo com ${trialRemainingDays} dia(s) restante(s).`;
-      accessHref = '/dashboard/financeiro?focus=access';
-    } else if (paymentStatus === 'OVERDUE' || paymentStatus === 'PENDING' || subscriptionStatus === 'past_due') {
-      accessTone = 'red';
-      accessValue = 'Atraso';
-      accessDetail = 'A cobrança está pendente ou em atraso, então o acesso comercial está bloqueado.';
-    } else if (paymentStatus === 'EXPIRED' || paymentStatus === 'DISABLED' || subscriptionStatus === 'expired' || subscriptionStatus === 'canceled') {
-      accessTone = 'red';
-      accessValue = 'Sem acesso';
-      accessDetail = 'O trial expirou ou a empresa foi desativada.';
-    }
-
-    const accessChip = this.buildOperationalChip({
-      key: 'access',
-      label: 'Trial/Acesso',
-      shortLabel: 'Acesso',
-      tone: accessTone,
-      value: accessValue,
-      detail: accessDetail,
-      href: accessHref,
-      quality: 'real',
-      source: ['company.isActive', 'company.paymentStatus', 'company.subscriptionStatus', 'company.trialEndsAt'],
-      updatedAt:
-        freshCompany?.trialEndsAt instanceof Date
-          ? freshCompany.trialEndsAt.toISOString()
-          : null,
-    });
-
-    return {
-      generatedAt: new Date().toISOString(),
-      context: {
-        available: true,
-        companyId,
-        companyName: String(freshCompany?.name || '').trim() || null,
-        mode: context.masterContext?.active ? 'master_assumido' : 'empresa',
-        masterContext: context.masterContext,
-      },
-      statuses: [tokenChip, metaChip, webWhatsChip, paymentChip, accessChip],
-    };
   }
 
   @Post()
@@ -855,8 +467,56 @@ export class CompaniesController {
   @Get('me/operational-status')
   @UseGuards(JwtAuthGuard)
   async getMyOperationalStatus(@Req() req: any, @Query('refresh') refresh?: string) {
+    const context = await this.resolveOperationalContext(req);
     const doRefresh = String(refresh || '').trim().toLowerCase() === 'true';
-    return this.buildOperationalStatusPayload(req, { refresh: doRefresh });
+    if (!context.effectiveCompanyId || !context.company) {
+      return {
+        generatedAt: new Date().toISOString(),
+        context: {
+          available: false,
+          companyId: null,
+          companyName: null,
+          mode:
+            req?.user?.isSystemMaster && !context.masterContext?.active
+              ? 'master_puro'
+              : 'sem_empresa',
+          masterContext: context.masterContext,
+        },
+        statuses: [],
+      };
+    }
+
+    const payload = await this.companyOperationalStatus.getOperationalStatusForCompany(
+      Number(context.effectiveCompanyId),
+      { refresh: doRefresh },
+    );
+
+    return {
+      generatedAt: new Date().toISOString(),
+      context: {
+        available: true,
+        companyId: Number(context.effectiveCompanyId),
+        companyName: String(context.company?.name || '').trim() || null,
+        mode: context.masterContext?.active ? 'master_assumido' : 'empresa',
+        masterContext: context.masterContext,
+      },
+      statuses: payload?.statuses || [],
+      summary: payload || null,
+    };
+  }
+
+  @Get('master/operational-status')
+  @UseGuards(JwtAuthGuard, MasterGuard)
+  async getOperationalStatusForMaster(
+    @Query('companyIds') companyIdsRaw?: string,
+  ) {
+    const companyIds = String(companyIdsRaw || '')
+      .split(',')
+      .map((value) => Number(String(value || '').trim()))
+      .filter((value) => value > 0);
+    return this.companyOperationalStatus.getOperationalStatusForCompanies(companyIds, {
+      validatePayments: true,
+    });
   }
 
   @Patch('me/whatsapp-center')

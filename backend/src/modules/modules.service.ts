@@ -8,6 +8,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { UsersService } from '../users/users.service';
 import structuralDefaults from '../bootstrap/structural-defaults.json';
 import { MasterContextService } from '../master-context/master-context.service';
+import { CompanyOperationalStatusService } from '../companies/company-operational-status.service';
 import { ensureWebsiteRuntimeSchema, listCompanyWebsiteConfigs } from '../website/website-runtime';
 import { ensureMasterBillingRuntimeSchema } from './master-runtime';
 import { probeWebscrapingRuntime, type WebscrapingRuntimeDiagnostic } from './webscraping-runtime.util';
@@ -124,6 +125,7 @@ export class ModulesService implements OnModuleInit {
     private readonly integrationConnectionsService: IntegrationConnectionsService,
     private readonly usersService: UsersService,
     private readonly masterContextService: MasterContextService,
+    private readonly companyOperationalStatus: CompanyOperationalStatusService,
   ) {}
 
   private async supportsWhatsAppEndpointTable() {
@@ -2226,6 +2228,17 @@ export class ModulesService implements OnModuleInit {
       );
     }
 
+    const operationalStatuses = await this.companyOperationalStatus.getOperationalStatusForCompanies(
+      companyIds,
+      { validatePayments: true },
+    );
+    const operationalStatusByCompanyId = new Map(
+      operationalStatuses.map((item) => [Number(item.companyId), item]),
+    );
+    for (const summary of companySummaries) {
+      summary.operationalStatus = operationalStatusByCompanyId.get(Number(summary.id)) || null;
+    }
+
     const now = new Date();
     const currentMonthStart = this.startOfMonth(now);
     const nextMonthStart = this.startOfNextMonth(now);
@@ -2677,6 +2690,10 @@ export class ModulesService implements OnModuleInit {
       webscrapingUsageByCompany.get(Number(company.id)) || this.buildDefaultWebscrapingUsageSummary(),
       masterIntegrationConfig,
     );
+    const operationalStatus = await this.companyOperationalStatus.getOperationalStatusForCompany(
+      Number(company.id),
+      { refresh: false },
+    );
 
     const auditTimeline = (auditRows || []).map((row) => this.normalizeAuditRow(row));
     const trialHistory = auditTimeline.filter((row) => String(row.action || '').toUpperCase().startsWith('TRIAL_'));
@@ -2685,6 +2702,7 @@ export class ModulesService implements OnModuleInit {
       generatedAt: new Date().toISOString(),
       company: {
         ...summary,
+        operationalStatus,
         users: company.users.map((user) => ({
           id: user.id,
           username: user.username || null,
@@ -2825,6 +2843,13 @@ export class ModulesService implements OnModuleInit {
     const webscrapingUsageByCompany = await this.listWebscrapingUsageSummaryByCompanyIds(
       companies.map((company) => Number(company.id)),
     );
+    const operationalStatuses = await this.companyOperationalStatus.getOperationalStatusForCompanies(
+      companies.map((company) => Number(company.id)),
+      { validatePayments: true },
+    );
+    const operationalStatusByCompanyId = new Map(
+      operationalStatuses.map((item) => [Number(item.companyId), item]),
+    );
 
     const result: any[] = [];
     for (const company of companies) {
@@ -2893,6 +2918,7 @@ export class ModulesService implements OnModuleInit {
           : null,
         webscrapingUsage:
           webscrapingUsageByCompany.get(Number(company.id)) || this.buildDefaultWebscrapingUsageSummary(),
+        operationalStatus: operationalStatusByCompanyId.get(Number(company.id)) || null,
         users: company.users,
         modules: company.companyModules
           .filter((row) => row.systemModule.companyAssignable)

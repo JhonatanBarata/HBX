@@ -8,6 +8,7 @@ import {
   useMemo,
   useState,
 } from "react";
+import { useRouter } from "next/navigation";
 import DashboardScaffold from "@/components/DashboardScaffold";
 import { apiFetch } from "../_lib/api";
 import { useRequireAuth } from "../_lib/useRequireAuth";
@@ -94,6 +95,21 @@ type LedgerEntry = {
   referenceLabel?: string | null;
   observation?: string | null;
   createdAt?: string | null;
+};
+
+type OperationalTone = "green" | "yellow" | "red";
+
+type OperationalStatusChip = {
+  key: "token" | "meta" | "webwhats" | "payment" | "access";
+  label: string;
+  shortLabel: string;
+  tone: OperationalTone;
+  value: string;
+  detail: string;
+  hint: string;
+  href: string;
+  active: boolean;
+  updatedAt?: string | null;
 };
 
 type CompanySummary = {
@@ -255,6 +271,22 @@ type CompanySummary = {
     monthlyPrice?: number;
   }>;
   modulesTotalMonthlyValue?: number;
+  operationalStatus?: {
+    companyId: number;
+    companyName?: string | null;
+    statuses: OperationalStatusChip[];
+    tokenActive: boolean;
+    metaActive: boolean;
+    webWhatsActive: boolean;
+    paymentActive: boolean;
+    accessActive: boolean;
+    accessReason?: string | null;
+    accessSource?: "paid" | "trial" | "blocked";
+    overallHealth: OperationalTone;
+    overallHint: string;
+    overallLabel: string;
+    lastCheckedAt?: string | null;
+  } | null;
 };
 
 type MasterMercadoPagoCredential = {
@@ -448,12 +480,6 @@ type FinanceSettingsDraft = {
   freeMonths: string;
 };
 
-type ReferralPolicyDraft = {
-  active: boolean;
-  percent: string;
-  mode: "ONCE" | "RECURRING";
-};
-
 type WhatsAppMigrationWorkflowDraft = {
   status: "REQUESTED" | "CONTACTED" | "RESOLVED";
   internalNote: string;
@@ -587,6 +613,10 @@ type DrawerTab =
 
 const FILTERS = [
   { id: "all", label: "Todos" },
+  { id: "operational_error", label: "Com erro" },
+  { id: "operational_attention", label: "Em atenção" },
+  { id: "operational_no_payment", label: "Sem pagamento" },
+  { id: "operational_no_access", label: "Sem acesso" },
   { id: "trial_ending", label: "Trial acabando" },
   { id: "whatsapp_migration_pending", label: "WhatsApp pendente" },
   { id: "payment_attention", label: "Pagamento em atenção" },
@@ -761,6 +791,43 @@ function badgeClass(tone: string) {
   if (tone === "danger") return "badge badge-danger";
   if (tone === "warning" || tone === "brand") return "badge badge-brand";
   return "badge";
+}
+
+function operationalBadgeClass(tone?: OperationalTone | null) {
+  if (tone === "green") return "badge badge-success";
+  if (tone === "red") return "badge badge-danger";
+  if (tone === "yellow") return "badge badge-brand";
+  return "badge";
+}
+
+function companyOperationalChip(company: CompanySummary, key: OperationalStatusChip["key"]) {
+  return company.operationalStatus?.statuses.find((chip) => chip.key === key) || null;
+}
+
+function resolveMasterWhatsAppHref(company: CompanySummary) {
+  const tokenChip = companyOperationalChip(company, "token");
+  const metaChip = companyOperationalChip(company, "meta");
+  const webWhatsChip = companyOperationalChip(company, "webwhats");
+  const officialNeedsAttention = [tokenChip, metaChip].some((chip) => chip && chip.tone !== "green");
+  if (officialNeedsAttention) {
+    return tokenChip?.href || metaChip?.href || "/dashboard/whatsapp?focus=official";
+  }
+  if (webWhatsChip?.tone === "yellow") {
+    return webWhatsChip.href;
+  }
+  return "/dashboard/whatsapp?focus=status";
+}
+
+function resolveMasterFinanceiroHref(company: CompanySummary) {
+  const accessChip = companyOperationalChip(company, "access");
+  const paymentChip = companyOperationalChip(company, "payment");
+  if (accessChip && accessChip.tone !== "green") {
+    return accessChip.href;
+  }
+  if (paymentChip && paymentChip.tone !== "green") {
+    return paymentChip.href;
+  }
+  return "/dashboard/financeiro?focus=access";
 }
 
 function integrationStatusTone(status?: string | null) {
@@ -1012,17 +1079,6 @@ function buildWhatsAppMigrationWorkflowDraft(
     lastContactAt: company.whatsappCenter?.migration?.lastContactAt
       ? toDatetimeLocalValue(company.whatsappCenter.migration.lastContactAt)
       : "",
-  };
-}
-
-function buildReferralPolicyDraft(workspace?: WorkspacePayload | null): ReferralPolicyDraft {
-  return {
-    active: Boolean(workspace?.masterIntegrations?.referralDiscountActive),
-    percent: String(Number(workspace?.masterIntegrations?.referralDiscountPercent || 0) || 0),
-    mode:
-      String(workspace?.masterIntegrations?.referralDiscountMode || "").trim().toUpperCase() === "RECURRING"
-        ? "RECURRING"
-        : "ONCE",
   };
 }
 
@@ -1299,6 +1355,7 @@ function ModalShell({
 
 export default function MasterPremiumPage() {
   const hasToken = useRequireAuth();
+  const router = useRouter();
   const [workspace, setWorkspace] = useState<WorkspacePayload | null>(null);
   const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
   const [loading, setLoading] = useState(true);
@@ -1529,6 +1586,18 @@ export default function MasterPremiumPage() {
 
     if (filterId !== "all") {
       filtered = filtered.filter((company) => {
+        if (filterId === "operational_error") {
+          return company.operationalStatus?.overallHealth === "red";
+        }
+        if (filterId === "operational_attention") {
+          return company.operationalStatus?.overallHealth === "yellow";
+        }
+        if (filterId === "operational_no_payment") {
+          return !company.operationalStatus?.paymentActive;
+        }
+        if (filterId === "operational_no_access") {
+          return !company.operationalStatus?.accessActive;
+        }
         if (filterId === "manual") return Boolean(company.manualPaymentPending);
         if (filterId === "trial_ending") {
           return company.statusBucket === "TRIAL_ENDING" || ((company.trialRemainingDays || 99) >= 0 && (company.trialRemainingDays || 99) <= 3);
@@ -1918,6 +1987,40 @@ export default function MasterPremiumPage() {
       dispatchMasterContextChanged({ mode: "assumed", companyName: company.name });
     } catch (actionError) {
       setError(actionError instanceof Error ? actionError.message : "Falha ao assumir contexto.");
+    } finally {
+      setBusyAction(null);
+    }
+  }
+
+  async function assumeContextAndOpen(company: CompanySummary, href: string) {
+    if (currentUser?.masterContext?.active && currentUser.masterContext.companyId === company.id) {
+      router.push(href);
+      return;
+    }
+    setBusyAction(`context-open-${company.id}`);
+    setError(null);
+    try {
+      await apiFetch("/master-context/assume", {
+        method: "POST",
+        headers: { "x-master-route": "/dashboard/master" },
+        body: JSON.stringify({ companyId: company.id, reason: `Diagnostico operacional: ${company.name}` }),
+      });
+      setCurrentUser((current) =>
+        current
+          ? {
+              ...current,
+              masterContext: {
+                active: true,
+                companyId: company.id,
+                companyName: company.name,
+              },
+            }
+          : current,
+      );
+      dispatchMasterContextChanged({ mode: "assumed", companyName: company.name });
+      router.push(href);
+    } catch (actionError) {
+      setError(actionError instanceof Error ? actionError.message : "Falha ao abrir o contexto operacional.");
     } finally {
       setBusyAction(null);
     }
@@ -2825,7 +2928,7 @@ export default function MasterPremiumPage() {
                       <th>Trial</th>
                       <th>Webscraping</th>
                       <th>Financeiro</th>
-                      <th>WhatsApp</th>
+                      <th>Operacional</th>
                       <th>Módulos</th>
                       <th>Ações</th>
                     </tr>
@@ -2906,16 +3009,29 @@ export default function MasterPremiumPage() {
                           </div>
                         </td>
                         <td>
-                          <div className={styles.modulePills}>
-                            <span className={badgeClass(company.whatsappCenter?.status === "OFFICIAL" ? "success" : company.whatsappCenter?.status === "TEMPORARY" ? "brand" : company.whatsappCenter?.status === "ATTENTION" ? "danger" : "neutral")}>
-                              {company.whatsappCenter?.statusLabel || "Não conectado"}
-                            </span>
-                            <span className={badgeClass(["REQUESTED", "CONTACTED"].includes(String(company.whatsappCenter?.migration?.workflowStatus || "").trim().toUpperCase()) ? "brand" : "neutral")}>
-                              Migração {company.whatsappCenter?.migration?.workflowStatus || "NONE"}
-                            </span>
-                            <span className="badge">
-                              Último contato: {formatDateTime(company.whatsappCenter?.migration?.lastContactAt)}
-                            </span>
+                          <div className={styles.secondaryCell}>
+                            <strong>
+                              <span className={operationalBadgeClass(company.operationalStatus?.overallHealth)}>
+                                {company.operationalStatus?.overallLabel || "Sem leitura"}
+                              </span>
+                            </strong>
+                            <div className={styles.operationalRail}>
+                              {(company.operationalStatus?.statuses || []).map((chip) => (
+                                <button
+                                  key={chip.key}
+                                  type="button"
+                                  className={styles.operationalChip}
+                                  data-tone={chip.tone}
+                                  title={chip.hint || chip.detail}
+                                  onClick={() => void assumeContextAndOpen(company, chip.href)}
+                                >
+                                  <span>{chip.shortLabel}</span>
+                                  <strong>{chip.value}</strong>
+                                </button>
+                              ))}
+                            </div>
+                            <span>{company.operationalStatus?.overallHint || "Sem hint operacional."}</span>
+                            <span>Última leitura: {formatDateTime(company.operationalStatus?.lastCheckedAt)}</span>
                           </div>
                         </td>
                         <td>
@@ -2928,14 +3044,22 @@ export default function MasterPremiumPage() {
                         </td>
                         <td>
                           <div className={styles.rowActions}>
-                            <button type="button" className="btn btn-secondary btn-sm" onClick={() => openCompany(company.id)}>
-                              Abrir
-                            </button>
-                            <button type="button" className="btn btn-secondary btn-sm" onClick={() => openManualPayment(company)}>
-                              Manual
-                            </button>
                             <button type="button" className="btn btn-secondary btn-sm" onClick={() => assumeContext(company)}>
-                              Contexto
+                              Assumir contexto
+                            </button>
+                            <button
+                              type="button"
+                              className="btn btn-secondary btn-sm"
+                              onClick={() => void assumeContextAndOpen(company, resolveMasterWhatsAppHref(company))}
+                            >
+                              Abrir WhatsApp
+                            </button>
+                            <button
+                              type="button"
+                              className="btn btn-secondary btn-sm"
+                              onClick={() => void assumeContextAndOpen(company, resolveMasterFinanceiroHref(company))}
+                            >
+                              Abrir Financeiro
                             </button>
                           </div>
                         </td>

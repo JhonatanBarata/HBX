@@ -179,6 +179,40 @@ export class CompaniesService {
     return company;
   }
 
+  async listByIdsForMaster(companyIds: number[]) {
+    await ensureMasterBillingRuntimeSchema(this.prisma);
+    const normalizedIds = Array.from(
+      new Set(companyIds.map((companyId) => Number(companyId || 0)).filter((companyId) => companyId > 0)),
+    );
+    if (!normalizedIds.length) return [];
+
+    const supportsEndpointTable = await this.supportsWhatsAppEndpointTable();
+    const companies = supportsEndpointTable
+      ? await this.prisma.company.findMany({
+          where: { id: { in: normalizedIds } },
+          include: {
+            whatsappEndpoints: {
+              orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+            },
+          },
+        })
+      : await this.prisma.company.findMany({
+          where: { id: { in: normalizedIds } },
+        });
+
+    const ordered = normalizedIds
+      .map((companyId) => companies.find((company) => Number(company.id) === companyId) || null)
+      .filter(Boolean) as any[];
+
+    if (!supportsEndpointTable) {
+      for (const company of ordered) {
+        (company as any).whatsappEndpoints = this.buildLegacyEndpointSnapshot(company);
+      }
+    }
+
+    return ordered;
+  }
+
   private async listEnabledModuleKeys(companyId: number) {
     await ensureMasterBillingRuntimeSchema(this.prisma);
     const rows = await this.prisma.companyModule.findMany({
