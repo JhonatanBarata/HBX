@@ -135,22 +135,12 @@ export class AuthService implements OnModuleInit {
   }
 
   private hasConfiguredTransactionalMailTransport() {
-    const smtpHost = String(process.env.SMTP_HOST || '').trim();
-    if (!smtpHost) {
-      return false;
-    }
+    return this.mail.getConfigurationSummary().smtpReady;
+  }
 
-    if (!this.isProduction()) {
-      return true;
-    }
-
-    return Boolean(
-      smtpHost &&
-        String(process.env.SMTP_PORT || '').trim() &&
-        String(process.env.SMTP_USER || '').trim() &&
-        String(process.env.SMTP_PASS || '').trim() &&
-        String(process.env.MAIL_FROM || '').trim(),
-    );
+  private canUseLocalEmailConfirmationFallback() {
+    const summary = this.mail.getConfigurationSummary();
+    return !this.isProduction() && summary.mode === 'log';
   }
 
   private shouldExposeEmailConfirmationDebugLink() {
@@ -164,7 +154,10 @@ export class AuthService implements OnModuleInit {
   }
 
   private canDeliverEmailConfirmation() {
-    return this.hasConfiguredTransactionalMailTransport() || this.useEtherealAuto() || this.shouldExposeEmailConfirmationDebugLink();
+    return this.hasConfiguredTransactionalMailTransport()
+      || this.useEtherealAuto()
+      || this.shouldExposeEmailConfirmationDebugLink()
+      || this.canUseLocalEmailConfirmationFallback();
   }
 
   private canDeliverPasswordReset() {
@@ -189,6 +182,22 @@ export class AuthService implements OnModuleInit {
     }
   }
 
+  private emailConfirmationDeliveryFailureMessage() {
+    return 'Cadastro criado, mas não conseguimos enviar o e-mail de confirmação agora. Reenvie a confirmação para liberar o trial.';
+  }
+
+  private resendConfirmationDeliveryFailureMessage() {
+    return 'Conta localizada, mas não conseguimos enviar o novo e-mail de confirmação agora. Tente reenviar novamente em alguns minutos.';
+  }
+
+  private passwordResetQueuedMessage() {
+    return 'Se o e-mail existir, enviaremos um link de redefinição.';
+  }
+
+  private passwordResetDeliveryDelayedMessage() {
+    return 'Se o e-mail existir, tentaremos reenviar o link assim que o serviço de e-mail estabilizar.';
+  }
+
   private buildPendingEmailConfirmationResponse(input: {
     email: string;
     username: string;
@@ -201,6 +210,8 @@ export class AuthService implements OnModuleInit {
     previewUrl?: string | null;
     confirmUrl?: string | null;
     deliveryFailed?: boolean;
+    deliveryErrorCode?: string | null;
+    deliveryErrorMessage?: string | null;
   }) {
     return {
       ok: true,
@@ -218,6 +229,8 @@ export class AuthService implements OnModuleInit {
         previewUrl: input.previewUrl || null,
         confirmUrl: input.confirmUrl || null,
         failed: Boolean(input.deliveryFailed),
+        errorCode: input.deliveryErrorCode || null,
+        errorMessage: input.deliveryErrorMessage || null,
       },
     };
   }
@@ -289,7 +302,9 @@ export class AuthService implements OnModuleInit {
     return {
       previewUrl: mailResult?.previewUrl || null,
       confirmUrl: this.shouldExposeEmailConfirmationDebugLink() ? confirmationLink : null,
-      failed: false,
+      failed: !mailResult.ok,
+      errorCode: mailResult.errorCode || null,
+      errorMessage: mailResult.errorMessage || null,
     };
   }
 
@@ -314,6 +329,8 @@ export class AuthService implements OnModuleInit {
           ? this.buildEmailConfirmationLink(input.rawToken)
           : null,
         failed: true,
+        errorCode: 'EMAIL_CONFIRMATION_DELIVERY_FAILED',
+        errorMessage: error instanceof Error ? error.message : 'Falha no envio do e-mail de confirmação.',
       };
     }
   }
@@ -492,9 +509,6 @@ export class AuthService implements OnModuleInit {
     if (!existingUsername?.companyId && !trialModuleSelection) {
       throw new BadRequestException('Selecione o módulo inicial do trial.');
     }
-    if (acquisitionSource === 'indicacao' && !referralReferrerName && !referralCode) {
-      throw new BadRequestException('Informe quem indicou ou o código de indicação.');
-    }
     if (!existingUsername?.companyId && entityType === 'PJ' && !normalizedCompanyName) {
       throw new BadRequestException('O campo Empresa é obrigatório.');
     }
@@ -591,11 +605,13 @@ export class AuthService implements OnModuleInit {
         acquisitionSource,
         warnings,
         message: delivery.failed
-          ? 'Cadastro criado, mas o envio do e-mail falhou agora. Reenvie a confirmação para liberar o trial.'
+          ? this.emailConfirmationDeliveryFailureMessage()
           : 'Cadastro criado. Confirme seu e-mail para liberar o trial.',
         previewUrl: delivery.previewUrl,
         confirmUrl: delivery.confirmUrl,
         deliveryFailed: delivery.failed,
+        deliveryErrorCode: delivery.errorCode,
+        deliveryErrorMessage: delivery.errorMessage,
       });
     }
 
@@ -668,11 +684,13 @@ export class AuthService implements OnModuleInit {
       acquisitionSource,
       warnings,
       message: delivery.failed
-        ? 'Cadastro criado, mas o envio do e-mail falhou agora. Reenvie a confirmação para liberar o trial.'
+        ? this.emailConfirmationDeliveryFailureMessage()
         : 'Cadastro criado. Confirme seu e-mail para liberar o trial.',
       previewUrl: delivery.previewUrl,
       confirmUrl: delivery.confirmUrl,
       deliveryFailed: delivery.failed,
+      deliveryErrorCode: delivery.errorCode,
+      deliveryErrorMessage: delivery.errorMessage,
     });
   }
 
@@ -800,7 +818,7 @@ export class AuthService implements OnModuleInit {
       ok: true,
       status: 'pending_email_confirmation',
       message: delivery.failed
-        ? 'Conta localizada, mas o envio do e-mail falhou agora. Tente reenviar novamente em alguns minutos.'
+        ? this.resendConfirmationDeliveryFailureMessage()
         : 'Novo link de confirmação enviado. Verifique sua caixa de entrada.',
       email: normalizedEmail,
       canResendConfirmation: true,
@@ -808,6 +826,8 @@ export class AuthService implements OnModuleInit {
         previewUrl: delivery.previewUrl || null,
         confirmUrl: delivery.confirmUrl || null,
         failed: Boolean(delivery.failed),
+        errorCode: delivery.errorCode || null,
+        errorMessage: delivery.errorMessage || null,
       },
     };
   }
@@ -823,10 +843,10 @@ export class AuthService implements OnModuleInit {
     this.ensurePasswordResetDeliveryAvailable();
 
     const normalizedEmail = String(email || '').trim().toLowerCase();
-    if (!normalizedEmail) return { ok: true };
+    if (!normalizedEmail) return { ok: true, message: this.passwordResetQueuedMessage() };
 
     const user = await this.usersService.findByEmail(normalizedEmail);
-    if (!user) return { ok: true };
+    if (!user) return { ok: true, message: this.passwordResetQueuedMessage() };
 
     const rawToken = crypto.randomBytes(32).toString('hex');
     const tokenHash = this.sha256(rawToken);
@@ -850,23 +870,53 @@ export class AuthService implements OnModuleInit {
     const appUrl = String(process.env.APP_URL || process.env.FRONTEND_URL || 'http://localhost:3001').replace(/\/$/, '');
     const link = `${appUrl}/reset-password?token=${encodeURIComponent(rawToken)}`;
 
-    const mailResult = await this.mail.sendMail({
-      to: user.email,
-      subject: 'Redefinição de senha',
-      text: [
-        `Olá!`,
-        `Recebemos uma solicitação para redefinir sua senha.`,
-        `Abra o link abaixo para criar uma nova senha:`,
-        link,
-        `Se você não solicitou isso, pode ignorar este e-mail.`,
-      ].join('\n'),
-    });
+    try {
+      const mailResult = await this.mail.sendMail({
+        to: user.email,
+        subject: 'Redefinição de senha',
+        text: [
+          `Olá!`,
+          `Recebemos uma solicitação para redefinir sua senha.`,
+          `Abra o link abaixo para criar uma nova senha:`,
+          link,
+          `Se você não solicitou isso, pode ignorar este e-mail.`,
+        ].join('\n'),
+      });
 
-    if (this.shouldExposePasswordResetDebugLink()) {
-      return { ok: true, previewLink: link, mailPreviewUrl: mailResult?.previewUrl || null };
+      if (this.shouldExposePasswordResetDebugLink()) {
+        return {
+          ok: true,
+          message: mailResult.ok
+            ? 'Link de redefinição gerado para este ambiente de teste.'
+            : this.passwordResetDeliveryDelayedMessage(),
+          previewLink: link,
+          mailPreviewUrl: mailResult?.previewUrl || null,
+        };
+      }
+
+      return {
+        ok: true,
+        message: mailResult.ok
+          ? this.passwordResetQueuedMessage()
+          : this.passwordResetDeliveryDelayedMessage(),
+      };
+    } catch (error) {
+      this.logger.error(`Failed to send password reset email to ${user.email}`, error instanceof Error ? error.stack : undefined);
+
+      if (this.shouldExposePasswordResetDebugLink()) {
+        return {
+          ok: true,
+          message: 'Link de redefinição gerado, mas o envio real falhou neste ambiente.',
+          previewLink: link,
+          mailPreviewUrl: null,
+        };
+      }
+
+      return {
+        ok: true,
+        message: this.passwordResetDeliveryDelayedMessage(),
+      };
     }
-
-    return { ok: true };
   }
 
   async resetPasswordWithToken(token: string, newPassword: string) {

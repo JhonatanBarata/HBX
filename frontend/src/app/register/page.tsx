@@ -179,16 +179,27 @@ export default function RegisterPage() {
     setConfirmationActionMessage(null);
 
     try {
-      const bodyPayload: any = {
+      const bodyPayload: {
+        entityType: "PF" | "PJ";
+        companyName: string;
+        name: string;
+        trialModuleSelection: "vendas" | "recovery";
+        acquisitionSource?: string;
+        acquisitionSourceDetail?: string;
+        referralReferrerName?: string;
+        referralCode?: string;
+        username: string;
+        email: string;
+        password: string;
+      } = {
         entityType,
+        companyName: isPj ? companyName : "",
         name,
         trialModuleSelection,
         username,
         email,
         password,
       };
-
-      if (isPj) bodyPayload.companyName = companyName;
 
       // Only include acquisitionSource when a real value is selected (avoid sending empty string)
       if (acquisitionSource && String(acquisitionSource).trim() !== "") {

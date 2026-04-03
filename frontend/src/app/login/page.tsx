@@ -22,11 +22,19 @@ type ApiErrorPayload = {
   needsEmailConfirmation?: boolean;
   email?: string | null;
   code?: string;
+  previewLink?: string | null;
+  mailPreviewUrl?: string | null;
   delivery?: {
     previewUrl?: string | null;
     confirmUrl?: string | null;
     failed?: boolean;
   } | null;
+};
+
+type RecoverPasswordResponse = {
+  message?: string;
+  previewLink?: string | null;
+  mailPreviewUrl?: string | null;
 };
 
 type LoginParticleStyle = CSSProperties & {
@@ -107,6 +115,8 @@ export default function LoginPage() {
   const [pendingConfirmationBusy, setPendingConfirmationBusy] = useState(false);
   const [pendingConfirmationPreviewUrl, setPendingConfirmationPreviewUrl] = useState<string | null>(null);
   const [pendingConfirmationConfirmUrl, setPendingConfirmationConfirmUrl] = useState<string | null>(null);
+  const [recoverPreviewLink, setRecoverPreviewLink] = useState<string | null>(null);
+  const [recoverMailPreviewUrl, setRecoverMailPreviewUrl] = useState<string | null>(null);
   const countdownRef = useRef<number | null>(null);
   const countdownIntervalRef = useRef<number | null>(null);
 
@@ -418,6 +428,8 @@ export default function LoginPage() {
     event.preventDefault();
     setError(null);
     setInfo(null);
+    setRecoverPreviewLink(null);
+    setRecoverMailPreviewUrl(null);
     setLoginState("submitting");
 
     try {
@@ -435,9 +447,22 @@ export default function LoginPage() {
         return;
       }
 
-      setInfo("Se o e-mail existir, enviaremos um link de redefinição.");
+      const payload = (data as RecoverPasswordResponse | null) ?? null;
+      setInfo(
+        String(payload?.message || "").trim() ||
+          "Se o e-mail existir, enviaremos um link de redefinição.",
+      );
+      setRecoverPreviewLink(
+        payload?.previewLink && String(payload.previewLink).trim()
+          ? String(payload.previewLink)
+          : null,
+      );
+      setRecoverMailPreviewUrl(
+        payload?.mailPreviewUrl && String(payload.mailPreviewUrl).trim()
+          ? String(payload.mailPreviewUrl)
+          : null,
+      );
       setLoginState("idle");
-      setMode("login");
     } catch {
       setError("Falha ao conectar no backend.");
       setLoginState("error");
@@ -588,6 +613,16 @@ export default function LoginPage() {
               {info ? (
                 <div className="msg-info">
                   <div className="text-sm">{info}</div>
+                  {recoverPreviewLink ? (
+                    <a className="btn btn-secondary mt-3" href={recoverPreviewLink}>
+                      Abrir link de redefinição
+                    </a>
+                  ) : null}
+                  {recoverMailPreviewUrl ? (
+                    <a className="btn btn-secondary mt-3" href={recoverMailPreviewUrl} target="_blank" rel="noreferrer">
+                      Abrir preview do e-mail
+                    </a>
+                  ) : null}
                 </div>
               ) : null}
 
@@ -738,6 +773,8 @@ export default function LoginPage() {
                 onClick={() => {
                   setError(null);
                   setInfo(null);
+                  setRecoverPreviewLink(null);
+                  setRecoverMailPreviewUrl(null);
                   setMode("login");
                 }}
               >
