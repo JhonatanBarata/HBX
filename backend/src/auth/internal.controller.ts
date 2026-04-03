@@ -20,8 +20,8 @@ export class InternalController {
   ) {}
 
   private assertInternalSecret(secret?: string) {
-    const expected = process.env.INTERNAL_SECRET;
-    if (!expected) throw new BadRequestException('INTERNAL_SECRET not configured');
+    const expected = String(process.env.INTERNAL_SECRET || process.env.PROD_INTERNAL_SECRET || '').trim();
+    if (!expected) throw new BadRequestException('INTERNAL_SECRET or PROD_INTERNAL_SECRET not configured');
     if (!secret || secret !== expected) throw new ForbiddenException('invalid internal secret');
   }
 
