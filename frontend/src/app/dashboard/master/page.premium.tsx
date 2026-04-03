@@ -6,6 +6,7 @@ import {
   useDeferredValue,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import { useRouter } from "next/navigation";
@@ -815,6 +816,23 @@ function operationalAccessSourceLabel(value?: "paid" | "trial" | "blocked" | str
   return "Sem fonte";
 }
 
+function compactOperationalHint(value?: string | null, fallback = "Sem detalhe operacional.") {
+  const normalized = String(value || "").replace(/\s+/g, " ").trim();
+  if (!normalized) return fallback;
+  const [firstSentence] = normalized.split(/(?<=[.!?])\s+/);
+  const compact = String(firstSentence || normalized).trim();
+  if (compact.length <= 96) return compact;
+  return `${compact.slice(0, 93).trimEnd()}...`;
+}
+
+function normalizeOperationalHref(value?: string | null) {
+  const raw = String(value || "").trim();
+  if (!raw) return null;
+  if (/^https?:\/\//i.test(raw)) return null;
+  const normalized = raw.startsWith("/") ? raw : `/${raw.replace(/^\/+/, "")}`;
+  return normalized.startsWith("/dashboard/") ? normalized : null;
+}
+
 function companyOperationalChip(company: CompanySummary, key: OperationalStatusChip["key"]) {
   return company.operationalStatus?.statuses.find((chip) => chip.key === key) || null;
 }
@@ -843,6 +861,45 @@ function resolveMasterFinanceiroHref(company: CompanySummary) {
     return paymentChip.href;
   }
   return "/dashboard/financeiro?focus=access";
+}
+
+type OperationalNavigationTarget =
+  | { kind: "chip"; chip: OperationalStatusChip }
+  | { kind: "whatsapp" }
+  | { kind: "finance" };
+
+function resolveOperationalNavigationTarget(company: CompanySummary, target: OperationalNavigationTarget) {
+  if (target.kind === "chip") {
+    const fallbackHref = ["payment", "access"].includes(target.chip.key)
+      ? resolveMasterFinanceiroHref(company)
+      : resolveMasterWhatsAppHref(company);
+    return {
+      actionId: `chip-${target.chip.key}`,
+      label: target.chip.label,
+      href:
+        normalizeOperationalHref(target.chip.href) ||
+        normalizeOperationalHref(fallbackHref) ||
+        "/dashboard/master",
+    };
+  }
+
+  if (target.kind === "finance") {
+    return {
+      actionId: "finance",
+      label: "Financeiro",
+      href: normalizeOperationalHref(resolveMasterFinanceiroHref(company)) || "/dashboard/financeiro?focus=access",
+    };
+  }
+
+  return {
+    actionId: "whatsapp",
+    label: "WhatsApp",
+    href: normalizeOperationalHref(resolveMasterWhatsAppHref(company)) || "/dashboard/whatsapp?focus=status",
+  };
+}
+
+function operationalHrefRequiresContext(href: string) {
+  return href.startsWith("/dashboard/") && !href.startsWith("/dashboard/master");
 }
 
 function integrationStatusTone(status?: string | null) {
@@ -1387,6 +1444,7 @@ export default function MasterPremiumPage() {
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busyAction, setBusyAction] = useState<string | null>(null);
+  const [operationalBusyAction, setOperationalBusyAction] = useState<string | null>(null);
   const [createCompanyOpen, setCreateCompanyOpen] = useState(false);
   const [masterIntegrationsOpen, setMasterIntegrationsOpen] = useState(false);
   const [moduleCatalogOpen, setModuleCatalogOpen] = useState(false);
@@ -1419,6 +1477,7 @@ export default function MasterPremiumPage() {
   const [manualPaymentModal, setManualPaymentModal] = useState<ManualPaymentState | null>(null);
   const [confirmAction, setConfirmAction] = useState<ConfirmActionState | null>(null);
   const [confirmActionInput, setConfirmActionInput] = useState("");
+  const operationalActionLockRef = useRef<string | null>(null);
   const deferredSearch = useDeferredValue(search);
   const commercialModuleDrafts = useMemo(
     () =>
@@ -1732,7 +1791,93 @@ export default function MasterPremiumPage() {
   const activeCompanyInContext = activeContextCompanyId === activeCompany?.id;
   const activeOperationalStatus = activeCompany?.operationalStatus || null;
   const activeOperationalAttentionChips = (activeOperationalStatus?.statuses || []).filter((chip) => chip.tone !== "green");
+  const activeOperationalLead = compactOperationalHint(
+    activeOperationalStatus?.overallHint,
+    "A régua operacional compartilhada ainda não retornou uma leitura para esta empresa.",
+  );
+  const activeOperationalFacts = [
+    {
+      id: "health",
+      label: "Health geral",
+      value: operationalHealthLabel(activeOperationalStatus?.overallHealth),
+      tone: activeOperationalStatus?.overallHealth || "neutral",
+    },
+    ...(activeOperationalStatus?.accessReason
+      ? [
+          {
+            id: "access-reason",
+            label: "Motivo de acesso",
+            value: compactOperationalHint(activeOperationalStatus.accessReason, "Sem motivo operacional."),
+            tone: "neutral",
+          },
+        ]
+      : []),
+    ...(activeOperationalStatus?.accessSource
+      ? [
+          {
+            id: "access-source",
+            label: "Origem do acesso",
+            value: operationalAccessSourceLabel(activeOperationalStatus.accessSource),
+            tone: "neutral",
+          },
+        ]
+      : []),
+  ];
   const quickCompanyTarget = workspace?.companies.find((company) => String(company.id) === quickCompanyId) || null;
+
+  function operationalContextBusyKey(companyId: number) {
+    return `context-${companyId}`;
+  }
+
+  function operationalNavigationBusyKey(companyId: number, actionId: string) {
+    return `operational-nav-${companyId}-${actionId}`;
+  }
+
+  function beginOperationalAction(actionKey: string) {
+    if (operationalActionLockRef.current) return false;
+    operationalActionLockRef.current = actionKey;
+    setOperationalBusyAction(actionKey);
+    return true;
+  }
+
+  function releaseOperationalAction(actionKey: string, holdMs = 0) {
+    const unlock = () => {
+      if (operationalActionLockRef.current === actionKey) {
+        operationalActionLockRef.current = null;
+      }
+      setOperationalBusyAction((current) => (current === actionKey ? null : current));
+    };
+
+    if (holdMs > 0 && typeof window !== "undefined") {
+      window.setTimeout(unlock, holdMs);
+      return;
+    }
+
+    unlock();
+  }
+
+  function isOperationalActionBusy(companyId: number, actionId?: string) {
+    const current = operationalActionLockRef.current || operationalBusyAction || "";
+    if (!current) return false;
+    if (current === operationalContextBusyKey(companyId)) return true;
+    if (!actionId) return current.startsWith(`operational-nav-${companyId}-`);
+    return current === operationalNavigationBusyKey(companyId, actionId);
+  }
+
+  function updateLocalMasterContext(company: CompanySummary) {
+    setCurrentUser((current) =>
+      current
+        ? {
+            ...current,
+            masterContext: {
+              active: true,
+              companyId: company.id,
+              companyName: company.name,
+            },
+          }
+        : current,
+    );
+  }
 
   function openCompany(companyId: number, preferredTab: DrawerTab = "summary") {
     startTransition(() => {
@@ -1991,7 +2136,8 @@ export default function MasterPremiumPage() {
     if (currentUser?.masterContext?.active && currentUser.masterContext.companyId === company.id) {
       return;
     }
-    setBusyAction(`context-${company.id}`);
+    const actionKey = operationalContextBusyKey(company.id);
+    if (!beginOperationalAction(actionKey)) return;
     setError(null);
     try {
       await apiFetch("/master-context/assume", {
@@ -2009,41 +2155,44 @@ export default function MasterPremiumPage() {
     } catch (actionError) {
       setError(actionError instanceof Error ? actionError.message : "Falha ao assumir contexto.");
     } finally {
-      setBusyAction(null);
+      releaseOperationalAction(actionKey);
     }
   }
 
-  async function assumeContextAndOpen(company: CompanySummary, href: string) {
-    if (currentUser?.masterContext?.active && currentUser.masterContext.companyId === company.id) {
-      router.push(href);
-      return;
-    }
-    setBusyAction(`context-open-${company.id}`);
+  async function navigateOperational(company: CompanySummary, target: OperationalNavigationTarget) {
+    const destination = resolveOperationalNavigationTarget(company, target);
+    const actionKey = operationalNavigationBusyKey(company.id, destination.actionId);
+    if (!beginOperationalAction(actionKey)) return;
     setError(null);
+    let releaseDelay = 0;
     try {
-      await apiFetch("/master-context/assume", {
-        method: "POST",
-        headers: { "x-master-route": "/dashboard/master" },
-        body: JSON.stringify({ companyId: company.id, reason: `Diagnostico operacional: ${company.name}` }),
-      });
-      setCurrentUser((current) =>
-        current
-          ? {
-              ...current,
-              masterContext: {
-                active: true,
-                companyId: company.id,
-                companyName: company.name,
-              },
-            }
-          : current,
-      );
-      dispatchMasterContextChanged({ mode: "assumed", companyName: company.name });
-      router.push(href);
+      if (operationalHrefRequiresContext(destination.href) && !activeContextCompanyId) {
+        await apiFetch("/master-context/assume", {
+          method: "POST",
+          headers: { "x-master-route": "/dashboard/master" },
+          body: JSON.stringify({ companyId: company.id, reason: `Diagnostico operacional: ${company.name}` }),
+        });
+        updateLocalMasterContext(company);
+        dispatchMasterContextChanged({ mode: "assumed", companyName: company.name });
+      } else if (
+        operationalHrefRequiresContext(destination.href) &&
+        currentUser?.masterContext?.active &&
+        currentUser.masterContext.companyId !== company.id
+      ) {
+        await apiFetch("/master-context/assume", {
+          method: "POST",
+          headers: { "x-master-route": "/dashboard/master" },
+          body: JSON.stringify({ companyId: company.id, reason: `Diagnostico operacional: ${company.name}` }),
+        });
+        updateLocalMasterContext(company);
+        dispatchMasterContextChanged({ mode: "assumed", companyName: company.name });
+      }
+      releaseDelay = 1200;
+      router.push(destination.href);
     } catch (actionError) {
-      setError(actionError instanceof Error ? actionError.message : "Falha ao abrir o contexto operacional.");
+      setError(actionError instanceof Error ? actionError.message : `Falha ao abrir ${destination.label}.`);
     } finally {
-      setBusyAction(null);
+      releaseOperationalAction(actionKey, releaseDelay);
     }
   }
 
@@ -3037,19 +3186,26 @@ export default function MasterPremiumPage() {
                               </span>
                             </strong>
                             <div className={styles.operationalRail}>
-                              {(company.operationalStatus?.statuses || []).map((chip) => (
-                                <button
-                                  key={chip.key}
-                                  type="button"
-                                  className={styles.operationalChip}
-                                  data-tone={chip.tone}
-                                  title={chip.hint || chip.detail}
-                                  onClick={() => void assumeContextAndOpen(company, chip.href)}
-                                >
-                                  <span>{chip.shortLabel}</span>
-                                  <strong>{chip.value}</strong>
-                                </button>
-                              ))}
+                              {(company.operationalStatus?.statuses || []).map((chip) => {
+                                const chipActionId = `chip-${chip.key}`;
+                                const chipBusy = isOperationalActionBusy(company.id, chipActionId);
+                                return (
+                                  <button
+                                    key={chip.key}
+                                    type="button"
+                                    className={styles.operationalChip}
+                                    data-tone={chip.tone}
+                                    data-busy={chipBusy}
+                                    title={chip.hint || chip.detail}
+                                    aria-busy={chipBusy}
+                                    disabled={isOperationalActionBusy(company.id)}
+                                    onClick={() => void navigateOperational(company, { kind: "chip", chip })}
+                                  >
+                                    <span>{chip.shortLabel}</span>
+                                    <strong>{chipBusy ? "Abrindo..." : chip.value}</strong>
+                                  </button>
+                                );
+                              })}
                             </div>
                             <span>{company.operationalStatus?.overallHint || "Sem hint operacional."}</span>
                             <span>Última leitura: {formatDateTime(company.operationalStatus?.lastCheckedAt)}</span>
@@ -3065,22 +3221,33 @@ export default function MasterPremiumPage() {
                         </td>
                         <td>
                           <div className={styles.rowActions}>
-                            <button type="button" className="btn btn-secondary btn-sm" onClick={() => assumeContext(company)}>
-                              Assumir contexto
+                            <button
+                              type="button"
+                              className="btn btn-secondary btn-sm"
+                              onClick={() => assumeContext(company)}
+                              disabled={currentUser?.masterContext?.active && currentUser.masterContext.companyId === company.id || isOperationalActionBusy(company.id)}
+                            >
+                              {currentUser?.masterContext?.active && currentUser.masterContext.companyId === company.id
+                                ? "Contexto ativo"
+                                : isOperationalActionBusy(company.id)
+                                  ? "Processando..."
+                                  : "Assumir contexto"}
                             </button>
                             <button
                               type="button"
                               className="btn btn-secondary btn-sm"
-                              onClick={() => void assumeContextAndOpen(company, resolveMasterWhatsAppHref(company))}
+                              onClick={() => void navigateOperational(company, { kind: "whatsapp" })}
+                              disabled={isOperationalActionBusy(company.id)}
                             >
-                              Abrir WhatsApp
+                              {isOperationalActionBusy(company.id, "whatsapp") ? "Abrindo..." : "Abrir WhatsApp"}
                             </button>
                             <button
                               type="button"
                               className="btn btn-secondary btn-sm"
-                              onClick={() => void assumeContextAndOpen(company, resolveMasterFinanceiroHref(company))}
+                              onClick={() => void navigateOperational(company, { kind: "finance" })}
+                              disabled={isOperationalActionBusy(company.id)}
                             >
-                              Abrir Financeiro
+                              {isOperationalActionBusy(company.id, "finance") ? "Abrindo..." : "Abrir Financeiro"}
                             </button>
                           </div>
                         </td>
@@ -3122,8 +3289,13 @@ export default function MasterPremiumPage() {
                     : "Assuma o contexto correto antes de criar usuários ou abrir o admin do website."}
                 </span>
                 {activeContextCompanyId !== activeCompany.id ? (
-                  <button type="button" className="btn btn-primary btn-sm" onClick={() => assumeContext(activeCompany)}>
-                    Assumir contexto
+                  <button
+                    type="button"
+                    className="btn btn-primary btn-sm"
+                    onClick={() => assumeContext(activeCompany)}
+                    disabled={isOperationalActionBusy(activeCompany.id)}
+                  >
+                    {isOperationalActionBusy(activeCompany.id) ? "Assumindo..." : "Assumir contexto"}
                   </button>
                 ) : null}
               </div>
@@ -3143,51 +3315,55 @@ export default function MasterPremiumPage() {
                       <div className={styles.operationalPriorityBlock}>
                         <div className={styles.operationalPriorityHeader}>
                           <div className={styles.operationalPriorityCopy}>
-                            <p className={styles.sectionEyebrow}>Prioridade operacional</p>
+                            <div className={styles.operationalPriorityTitleRow}>
+                              <p className={styles.sectionEyebrow}>Prioridade operacional</p>
+                              <span className={styles.operationalPriorityCaption}>Mesmo status do topo e da listagem MASTER</span>
+                            </div>
                             <h3>{activeOperationalStatus?.overallLabel || "Sem leitura operacional"}</h3>
-                            <p className={styles.operationalPriorityLead}>
-                              {activeOperationalStatus?.overallHint || "A régua operacional compartilhada ainda não retornou uma leitura para esta empresa."}
-                            </p>
+                            <p className={styles.operationalPriorityLead}>{activeOperationalLead}</p>
                           </div>
-                          <div className={styles.operationalPriorityHealth}>
+                          <div className={styles.operationalPriorityHealth} data-tone={activeOperationalStatus?.overallHealth || "neutral"}>
                             <span className={operationalBadgeClass(activeOperationalStatus?.overallHealth)}>
                               {operationalHealthLabel(activeOperationalStatus?.overallHealth)}
                             </span>
                             <strong>{activeOperationalStatus?.overallLabel || "Sem leitura"}</strong>
+                            <p className={styles.operationalPriorityAssist}>{activeOperationalLead}</p>
                             <span>Última leitura: {formatDateTime(activeOperationalStatus?.lastCheckedAt)}</span>
                           </div>
                         </div>
 
                         <div className={styles.operationalPriorityFacts}>
-                          <span className={styles.operationalPriorityTag}>
-                            Health geral: {operationalHealthLabel(activeOperationalStatus?.overallHealth)}
-                          </span>
-                          {activeOperationalStatus?.accessReason ? (
-                            <span className={styles.operationalPriorityTag}>Acesso: {activeOperationalStatus.accessReason}</span>
-                          ) : null}
-                          {activeOperationalStatus?.accessSource ? (
-                            <span className={styles.operationalPriorityTag}>
-                              Origem do acesso: {operationalAccessSourceLabel(activeOperationalStatus.accessSource)}
-                            </span>
-                          ) : null}
+                          {activeOperationalFacts.map((fact) => (
+                            <article key={fact.id} className={styles.operationalPriorityFact} data-tone={fact.tone}>
+                              <span className={styles.operationalPriorityFactLabel}>{fact.label}</span>
+                              <strong className={styles.operationalPriorityFactValue}>{fact.value}</strong>
+                            </article>
+                          ))}
                         </div>
 
                         {activeOperationalStatus?.statuses?.length ? (
                           <div className={styles.operationalPriorityRail}>
                             <div className={styles.operationalRail}>
-                              {activeOperationalStatus.statuses.map((chip) => (
-                                <button
-                                  key={chip.key}
-                                  type="button"
-                                  className={styles.operationalChip}
-                                  data-tone={chip.tone}
-                                  title={chip.hint || chip.detail}
-                                  onClick={() => void assumeContextAndOpen(activeCompany, chip.href)}
-                                >
-                                  <span>{chip.shortLabel}</span>
-                                  <strong>{chip.value}</strong>
-                                </button>
-                              ))}
+                              {activeOperationalStatus.statuses.map((chip) => {
+                                const chipActionId = `chip-${chip.key}`;
+                                const chipBusy = isOperationalActionBusy(activeCompany.id, chipActionId);
+                                return (
+                                  <button
+                                    key={chip.key}
+                                    type="button"
+                                    className={styles.operationalChip}
+                                    data-tone={chip.tone}
+                                    data-busy={chipBusy}
+                                    title={chip.hint || chip.detail}
+                                    aria-busy={chipBusy}
+                                    disabled={isOperationalActionBusy(activeCompany.id)}
+                                    onClick={() => void navigateOperational(activeCompany, { kind: "chip", chip })}
+                                  >
+                                    <span>{chip.shortLabel}</span>
+                                    <strong>{chipBusy ? "Abrindo..." : chip.value}</strong>
+                                  </button>
+                                );
+                              })}
                             </div>
 
                             <div className={styles.operationalPriorityHintList}>
@@ -3195,7 +3371,7 @@ export default function MasterPremiumPage() {
                                 activeOperationalAttentionChips.map((chip) => (
                                   <article key={chip.key} className={styles.operationalPriorityHint} data-tone={chip.tone}>
                                     <strong>{chip.label}</strong>
-                                    <span>{chip.hint || chip.detail}</span>
+                                    <span>{compactOperationalHint(chip.hint || chip.detail)}</span>
                                   </article>
                                 ))
                               ) : (
@@ -3217,23 +3393,29 @@ export default function MasterPremiumPage() {
                             type="button"
                             className="btn btn-primary btn-sm"
                             onClick={() => assumeContext(activeCompany)}
-                            disabled={activeCompanyInContext}
+                            disabled={activeCompanyInContext || isOperationalActionBusy(activeCompany.id)}
                           >
-                            {activeCompanyInContext ? "Contexto ativo" : "Assumir contexto"}
+                            {activeCompanyInContext
+                              ? "Contexto ativo"
+                              : isOperationalActionBusy(activeCompany.id)
+                                ? "Assumindo..."
+                                : "Assumir contexto"}
                           </button>
                           <button
                             type="button"
                             className="btn btn-secondary btn-sm"
-                            onClick={() => void assumeContextAndOpen(activeCompany, resolveMasterWhatsAppHref(activeCompany))}
+                            onClick={() => void navigateOperational(activeCompany, { kind: "whatsapp" })}
+                            disabled={isOperationalActionBusy(activeCompany.id)}
                           >
-                            Abrir WhatsApp
+                            {isOperationalActionBusy(activeCompany.id, "whatsapp") ? "Abrindo..." : "Abrir WhatsApp"}
                           </button>
                           <button
                             type="button"
                             className="btn btn-secondary btn-sm"
-                            onClick={() => void assumeContextAndOpen(activeCompany, resolveMasterFinanceiroHref(activeCompany))}
+                            onClick={() => void navigateOperational(activeCompany, { kind: "finance" })}
+                            disabled={isOperationalActionBusy(activeCompany.id)}
                           >
-                            Abrir Financeiro
+                            {isOperationalActionBusy(activeCompany.id, "finance") ? "Abrindo..." : "Abrir Financeiro"}
                           </button>
                         </div>
                       </div>
