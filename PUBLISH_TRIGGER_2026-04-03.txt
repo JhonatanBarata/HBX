@@ -1,3 +1,0 @@
-Publish trigger
-Date: 2026-04-03
-Purpose: small file to create a real commit for publish
