@@ -22,15 +22,12 @@ export class SignupDto {
   acquisitionSource?: 'google' | 'instagram' | 'youtube' | 'indicacao' | 'parceiro' | 'outro';
 
   @IsOptional()
-  @IsNotEmpty()
   acquisitionSourceDetail?: string;
 
   @IsOptional()
-  @IsNotEmpty()
   referralReferrerName?: string;
 
   @IsOptional()
-  @IsNotEmpty()
   referralCode?: string;
 
   @IsNotEmpty()
