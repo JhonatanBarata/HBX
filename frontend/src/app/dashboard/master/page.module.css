@@ -680,6 +680,109 @@
   color: currentColor;
 }
 
+.operationalPriorityBlock,
+.operationalPriorityCopy,
+.operationalPriorityHealth,
+.operationalPriorityRail {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.operationalPriorityHeader {
+  display: grid;
+  grid-template-columns: minmax(0, 1.7fr) minmax(220px, auto);
+  gap: 1rem;
+  align-items: start;
+}
+
+.operationalPriorityCopy h3 {
+  margin: 0;
+  font-size: 1.18rem;
+  font-weight: 900;
+  letter-spacing: -0.03em;
+}
+
+.operationalPriorityLead {
+  margin: 0;
+  color: var(--master-text-soft);
+  font-size: 0.94rem;
+}
+
+.operationalPriorityHealth {
+  justify-items: end;
+  text-align: right;
+}
+
+.operationalPriorityHealth strong {
+  font-size: 0.98rem;
+  letter-spacing: -0.02em;
+}
+
+.operationalPriorityHealth span:last-child {
+  font-size: 0.8rem;
+  color: var(--master-text-soft);
+}
+
+.operationalPriorityFacts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+}
+
+.operationalPriorityTag {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.48rem 0.78rem;
+  border-radius: 999px;
+  border: 1px solid rgba(24, 49, 83, 0.1);
+  background: rgba(24, 49, 83, 0.05);
+  color: var(--master-text-soft);
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.operationalPriorityHintList {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.operationalPriorityHint,
+.operationalPriorityEmpty {
+  display: grid;
+  gap: 0.35rem;
+  padding: 0.9rem 1rem;
+  border-radius: 20px;
+  border: 1px solid rgba(24, 49, 83, 0.1);
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.operationalPriorityHint strong,
+.operationalPriorityEmpty {
+  font-size: 0.88rem;
+  font-weight: 800;
+}
+
+.operationalPriorityHint span {
+  color: var(--master-text-soft);
+  font-size: 0.84rem;
+}
+
+.operationalPriorityHint[data-tone="green"] {
+  border-color: rgba(20, 122, 108, 0.18);
+  background: rgba(20, 122, 108, 0.08);
+}
+
+.operationalPriorityHint[data-tone="yellow"] {
+  border-color: rgba(202, 141, 40, 0.18);
+  background: rgba(202, 141, 40, 0.08);
+}
+
+.operationalPriorityHint[data-tone="red"] {
+  border-color: rgba(177, 77, 88, 0.18);
+  background: rgba(177, 77, 88, 0.08);
+}
+
 .controlKpiGrid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1146,6 +1249,16 @@
 
   .summaryStats {
     grid-template-columns: 1fr;
+  }
+
+  .operationalPriorityHeader,
+  .operationalPriorityHintList {
+    grid-template-columns: 1fr;
+  }
+
+  .operationalPriorityHealth {
+    justify-items: start;
+    text-align: left;
   }
 
   .controlKpiGrid {
