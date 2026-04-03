@@ -1,15 +1,90 @@
 import { Injectable, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 
+function buildRuntimeDatabaseUrl() {
+  const rawDatabaseUrl = String(process.env.DATABASE_URL || '').trim();
+  if (!rawDatabaseUrl) {
+    return rawDatabaseUrl;
+  }
+
+  const normalizedLower = rawDatabaseUrl.toLowerCase();
+  if (normalizedLower.startsWith('file:') || normalizedLower.endsWith('.db')) {
+    return rawDatabaseUrl;
+  }
+
+  try {
+    const parsed = new URL(rawDatabaseUrl);
+    const hostname = String(parsed.hostname || '').trim().toLowerCase();
+    const isLocalHost = ['localhost', '127.0.0.1', '0.0.0.0', 'db'].includes(hostname);
+    const isSupabasePooler = hostname.endsWith('.pooler.supabase.com');
+
+    if (isLocalHost || !isSupabasePooler) {
+      return rawDatabaseUrl;
+    }
+
+    if (!parsed.searchParams.get('connection_limit')) {
+      parsed.searchParams.set('connection_limit', '2');
+    }
+
+    if (!parsed.searchParams.get('pool_timeout')) {
+      parsed.searchParams.set('pool_timeout', '30');
+    }
+
+    return parsed.toString();
+  } catch {
+    return rawDatabaseUrl;
+  }
+}
+
+function describeDatabaseTarget(databaseUrl: string) {
+  if (!databaseUrl) {
+    return 'DATABASE_URL not configured';
+  }
+
+  try {
+    const parsed = new URL(databaseUrl);
+    const databaseName = String(parsed.pathname || '').replace(/^\//, '') || null;
+    const connectionLimit = parsed.searchParams.get('connection_limit');
+    const poolTimeout = parsed.searchParams.get('pool_timeout');
+    return [
+      `host=${parsed.hostname || 'unknown'}`,
+      parsed.port ? `port=${parsed.port}` : null,
+      databaseName ? `database=${databaseName}` : null,
+      connectionLimit ? `connection_limit=${connectionLimit}` : null,
+      poolTimeout ? `pool_timeout=${poolTimeout}` : null,
+    ]
+      .filter(Boolean)
+      .join(' ');
+  } catch {
+    return 'DATABASE_URL configured';
+  }
+}
+
 @Injectable()
 export class PrismaService extends PrismaClient implements OnModuleInit, OnModuleDestroy {
   private readonly schemaCapabilityCache = new Map<string, boolean>();
+  private readonly runtimeDatabaseUrl: string;
+
+  constructor() {
+    const runtimeDatabaseUrl = buildRuntimeDatabaseUrl();
+    super(
+      runtimeDatabaseUrl
+        ? {
+            datasources: {
+              db: {
+                url: runtimeDatabaseUrl,
+              },
+            },
+          }
+        : undefined,
+    );
+    this.runtimeDatabaseUrl = runtimeDatabaseUrl;
+  }
 
   async onModuleInit() {
-    // Log DB URL at startup to help diagnose multiple DB instances
     try {
       // eslint-disable-next-line no-console
-      console.log('Prisma connecting to DATABASE_URL=', process.env.DATABASE_URL);
+      console.log('Prisma runtime target:', describeDatabaseTarget(this.runtimeDatabaseUrl || String(process.env.DATABASE_URL || '').trim()));
     } catch (e) {}
     await this.$connect();
   }
@@ -19,7 +94,7 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
   }
 
   private isSqliteUrl() {
-    const databaseUrl = String(process.env.DATABASE_URL || '').trim().toLowerCase();
+    const databaseUrl = String(this.runtimeDatabaseUrl || process.env.DATABASE_URL || '').trim().toLowerCase();
     return databaseUrl.startsWith('file:') || databaseUrl.endsWith('.db');
   }
 
