@@ -179,22 +179,39 @@ export default function RegisterPage() {
     setConfirmationActionMessage(null);
 
     try {
+      const bodyPayload: any = {
+        entityType,
+        name,
+        trialModuleSelection,
+        username,
+        email,
+        password,
+      };
+
+      if (isPj) bodyPayload.companyName = companyName;
+
+      // Only include acquisitionSource when a real value is selected (avoid sending empty string)
+      if (acquisitionSource && String(acquisitionSource).trim() !== "") {
+        bodyPayload.acquisitionSource = acquisitionSource;
+      }
+
+      if (needsSourceDetail && acquisitionSourceDetail && String(acquisitionSourceDetail).trim() !== "") {
+        bodyPayload.acquisitionSourceDetail = acquisitionSourceDetail;
+      }
+
+      if (isReferral) {
+        if (referralReferrerName && String(referralReferrerName).trim() !== "") {
+          bodyPayload.referralReferrerName = referralReferrerName;
+        }
+        if (referralCode && String(referralCode).trim() !== "") {
+          bodyPayload.referralCode = referralCode;
+        }
+      }
+
       const signupRes = await fetch(`${API_URL}/auth/signup`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          entityType,
-          companyName,
-          name,
-          trialModuleSelection,
-          acquisitionSource,
-          acquisitionSourceDetail,
-          referralReferrerName,
-          referralCode,
-          username,
-          email,
-          password,
-        }),
+        body: JSON.stringify(bodyPayload),
       });
       const signupData: unknown = await signupRes.json().catch(() => null);
 
@@ -435,28 +452,27 @@ export default function RegisterPage() {
                   </>
                 ) : null}
 
-                <div className="login-field">
-                  <label className="login-label">{isPj ? "Nome da empresa" : "Nome da pessoa"}</label>
-                  <input
-                    className="input mt-1"
-                    value={companyName}
-                    onChange={(event) => setCompanyName(event.target.value)}
-                    placeholder={isPj ? "Nome da empresa" : "Nome da pessoa"}
-                    required={!firstAccessInfo && isPj}
-                    autoComplete="organization"
-                  />
-                  {!isPj ? (
-                    <p className="text-xs text-foreground/60 mt-1">Para PF, o nome da empresa não é obrigatório.</p>
-                  ) : null}
-                </div>
+                {isPj ? (
+                  <div className="login-field">
+                    <label className="login-label">Nome da empresa</label>
+                    <input
+                      className="input mt-1"
+                      value={companyName}
+                      onChange={(event) => setCompanyName(event.target.value)}
+                      placeholder="Nome da empresa"
+                      required={!firstAccessInfo && isPj}
+                      autoComplete="organization"
+                    />
+                  </div>
+                ) : null}
 
                 <div className="login-field">
-                  <label className="login-label">Nome</label>
+                  <label className="login-label">{isPj ? "Nome do responsável" : "Nome completo"}</label>
                   <input
                     className="input mt-1"
                     value={name}
                     onChange={(event) => setName(event.target.value)}
-                    placeholder="Seu nome"
+                    placeholder={isPj ? "Nome do responsável" : "Seu nome completo"}
                     required
                     autoComplete="name"
                   />
