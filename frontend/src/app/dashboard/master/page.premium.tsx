@@ -800,6 +800,21 @@ function operationalBadgeClass(tone?: OperationalTone | null) {
   return "badge";
 }
 
+function operationalHealthLabel(tone?: OperationalTone | null) {
+  if (tone === "green") return "Operando";
+  if (tone === "yellow") return "Em atenção";
+  if (tone === "red") return "Crítica";
+  return "Sem leitura";
+}
+
+function operationalAccessSourceLabel(value?: "paid" | "trial" | "blocked" | string | null) {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (normalized === "paid") return "Pagamento ativo";
+  if (normalized === "trial") return "Trial ativo";
+  if (normalized === "blocked") return "Bloqueado";
+  return "Sem fonte";
+}
+
 function companyOperationalChip(company: CompanySummary, key: OperationalStatusChip["key"]) {
   return company.operationalStatus?.statuses.find((chip) => chip.key === key) || null;
 }
@@ -1714,6 +1729,9 @@ export default function MasterPremiumPage() {
 
   const activeCompany = detail?.company || null;
   const activeContextCompanyId = currentUser?.masterContext?.active ? currentUser.masterContext.companyId : null;
+  const activeCompanyInContext = activeContextCompanyId === activeCompany?.id;
+  const activeOperationalStatus = activeCompany?.operationalStatus || null;
+  const activeOperationalAttentionChips = (activeOperationalStatus?.statuses || []).filter((chip) => chip.tone !== "green");
   const quickCompanyTarget = workspace?.companies.find((company) => String(company.id) === quickCompanyId) || null;
 
   function openCompany(companyId: number, preferredTab: DrawerTab = "summary") {
@@ -1970,6 +1988,9 @@ export default function MasterPremiumPage() {
   }
 
   async function assumeContext(company: CompanySummary) {
+    if (currentUser?.masterContext?.active && currentUser.masterContext.companyId === company.id) {
+      return;
+    }
     setBusyAction(`context-${company.id}`);
     setError(null);
     try {
@@ -3118,6 +3139,106 @@ export default function MasterPremiumPage() {
               <div className={styles.drawerBody}>
                 {drawerTab === "summary" ? (
                   <>
+                    <section className={styles.summaryCard}>
+                      <div className={styles.operationalPriorityBlock}>
+                        <div className={styles.operationalPriorityHeader}>
+                          <div className={styles.operationalPriorityCopy}>
+                            <p className={styles.sectionEyebrow}>Prioridade operacional</p>
+                            <h3>{activeOperationalStatus?.overallLabel || "Sem leitura operacional"}</h3>
+                            <p className={styles.operationalPriorityLead}>
+                              {activeOperationalStatus?.overallHint || "A régua operacional compartilhada ainda não retornou uma leitura para esta empresa."}
+                            </p>
+                          </div>
+                          <div className={styles.operationalPriorityHealth}>
+                            <span className={operationalBadgeClass(activeOperationalStatus?.overallHealth)}>
+                              {operationalHealthLabel(activeOperationalStatus?.overallHealth)}
+                            </span>
+                            <strong>{activeOperationalStatus?.overallLabel || "Sem leitura"}</strong>
+                            <span>Última leitura: {formatDateTime(activeOperationalStatus?.lastCheckedAt)}</span>
+                          </div>
+                        </div>
+
+                        <div className={styles.operationalPriorityFacts}>
+                          <span className={styles.operationalPriorityTag}>
+                            Health geral: {operationalHealthLabel(activeOperationalStatus?.overallHealth)}
+                          </span>
+                          {activeOperationalStatus?.accessReason ? (
+                            <span className={styles.operationalPriorityTag}>Acesso: {activeOperationalStatus.accessReason}</span>
+                          ) : null}
+                          {activeOperationalStatus?.accessSource ? (
+                            <span className={styles.operationalPriorityTag}>
+                              Origem do acesso: {operationalAccessSourceLabel(activeOperationalStatus.accessSource)}
+                            </span>
+                          ) : null}
+                        </div>
+
+                        {activeOperationalStatus?.statuses?.length ? (
+                          <div className={styles.operationalPriorityRail}>
+                            <div className={styles.operationalRail}>
+                              {activeOperationalStatus.statuses.map((chip) => (
+                                <button
+                                  key={chip.key}
+                                  type="button"
+                                  className={styles.operationalChip}
+                                  data-tone={chip.tone}
+                                  title={chip.hint || chip.detail}
+                                  onClick={() => void assumeContextAndOpen(activeCompany, chip.href)}
+                                >
+                                  <span>{chip.shortLabel}</span>
+                                  <strong>{chip.value}</strong>
+                                </button>
+                              ))}
+                            </div>
+
+                            <div className={styles.operationalPriorityHintList}>
+                              {activeOperationalAttentionChips.length ? (
+                                activeOperationalAttentionChips.map((chip) => (
+                                  <article key={chip.key} className={styles.operationalPriorityHint} data-tone={chip.tone}>
+                                    <strong>{chip.label}</strong>
+                                    <span>{chip.hint || chip.detail}</span>
+                                  </article>
+                                ))
+                              ) : (
+                                <article className={styles.operationalPriorityHint} data-tone="green">
+                                  <strong>Sem bloqueios imediatos</strong>
+                                  <span>Todos os motores operacionais estão verdes na leitura atual.</span>
+                                </article>
+                              )}
+                            </div>
+                          </div>
+                        ) : (
+                          <div className={styles.operationalPriorityEmpty}>
+                            Os chips operacionais ainda não estão disponíveis para esta empresa.
+                          </div>
+                        )}
+
+                        <div className={styles.drawerQuickActions}>
+                          <button
+                            type="button"
+                            className="btn btn-primary btn-sm"
+                            onClick={() => assumeContext(activeCompany)}
+                            disabled={activeCompanyInContext}
+                          >
+                            {activeCompanyInContext ? "Contexto ativo" : "Assumir contexto"}
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn-secondary btn-sm"
+                            onClick={() => void assumeContextAndOpen(activeCompany, resolveMasterWhatsAppHref(activeCompany))}
+                          >
+                            Abrir WhatsApp
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn-secondary btn-sm"
+                            onClick={() => void assumeContextAndOpen(activeCompany, resolveMasterFinanceiroHref(activeCompany))}
+                          >
+                            Abrir Financeiro
+                          </button>
+                        </div>
+                      </div>
+                    </section>
+
                     <section className={styles.summaryCard}>
                       <div className={styles.panelCardHeader}>
                         <div>
