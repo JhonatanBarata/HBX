@@ -1,11 +1,11 @@
-import { IsEmail, IsIn, IsNotEmpty, IsOptional, MinLength } from 'class-validator';
+import { IsEmail, IsIn, IsNotEmpty, IsOptional, MinLength, ValidateIf } from 'class-validator';
 
 export class SignupDto {
   @IsOptional()
   @IsIn(['PF', 'PJ'])
   entityType?: 'PF' | 'PJ';
 
-  @IsOptional()
+  @ValidateIf((dto: SignupDto) => dto.entityType === 'PJ')
   @IsNotEmpty()
   companyName?: string;
 

@@ -467,8 +467,6 @@ export class AuthService implements OnModuleInit {
     const username = String(data.username || '').trim();
     if (!username) throw new BadRequestException('O campo Usuário é obrigatório.');
 
-    this.ensureEmailConfirmationDeliveryAvailable();
-
     const existingUsername = await this.usersService.findByUsername(username);
     // If username exists, allow completing registration only when there is no email yet.
     if (existingUsername) {
@@ -758,8 +756,6 @@ export class AuthService implements OnModuleInit {
   }
 
   async resendEmailConfirmation(email: string) {
-    this.ensureEmailConfirmationDeliveryAvailable();
-
     const normalizedEmail = String(email || '').trim().toLowerCase();
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!normalizedEmail || !emailRegex.test(normalizedEmail)) {
