@@ -617,6 +617,69 @@
   gap: 0.35rem;
 }
 
+.operationalRail {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.38rem;
+}
+
+.operationalChip {
+  border: 1px solid rgba(21, 34, 53, 0.08);
+  border-radius: 999px;
+  padding: 0.3rem 0.55rem;
+  background: rgba(255, 255, 255, 0.86);
+  color: var(--master-text);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.32rem;
+  cursor: pointer;
+  transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
+}
+
+.operationalChip:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 22px rgba(21, 34, 53, 0.08);
+}
+
+.operationalChip span {
+  font-size: 0.7rem;
+  font-weight: 800;
+  color: var(--master-text-soft);
+}
+
+.operationalChip strong {
+  font-size: 0.74rem;
+  font-weight: 900;
+  letter-spacing: -0.02em;
+}
+
+.operationalChip[data-tone="green"] {
+  color: var(--master-emerald);
+  background: rgba(20, 122, 108, 0.1);
+  border-color: rgba(20, 122, 108, 0.18);
+}
+
+.operationalChip[data-tone="yellow"] {
+  color: var(--master-sun);
+  background: rgba(202, 141, 40, 0.1);
+  border-color: rgba(202, 141, 40, 0.2);
+}
+
+.operationalChip[data-tone="red"] {
+  color: var(--master-rose);
+  background: rgba(177, 77, 88, 0.08);
+  border-color: rgba(177, 77, 88, 0.18);
+}
+
+.operationalChip[data-tone="green"] span,
+.operationalChip[data-tone="yellow"] span,
+.operationalChip[data-tone="red"] span,
+.operationalChip[data-tone="green"] strong,
+.operationalChip[data-tone="yellow"] strong,
+.operationalChip[data-tone="red"] strong {
+  color: currentColor;
+}
+
 .controlKpiGrid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
