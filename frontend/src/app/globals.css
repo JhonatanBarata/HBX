@@ -717,6 +717,91 @@ html[data-popup-open="true"] .app-topbar::after {
   gap: 0.45rem;
 }
 
+.app-topbar__statusRail {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.42rem;
+  width: 100%;
+  max-width: 760px;
+}
+
+.app-topbar__statusChip,
+.app-topbar__contextCta {
+  min-height: 34px;
+  padding: 0.34rem 0.62rem;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--line) 88%, white);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--surface) 97%, white), color-mix(in srgb, var(--surface-soft) 96%, var(--background)));
+  box-shadow: var(--shadow-inset), var(--shadow-xs);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  color: var(--foreground);
+  transition:
+    transform var(--motion-fast),
+    box-shadow var(--motion-fast),
+    border-color var(--motion-fast),
+    background-color var(--motion-fast);
+}
+
+.app-topbar__statusChip {
+  cursor: pointer;
+}
+
+.app-topbar__statusChip:hover,
+.app-topbar__contextCta:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-inset), var(--shadow-sm);
+}
+
+.app-topbar__statusChipLabel,
+.app-topbar__contextCta span {
+  font-size: 0.67rem;
+  font-weight: 800;
+  color: var(--muted);
+}
+
+.app-topbar__statusChipValue,
+.app-topbar__contextCta strong {
+  font-size: 0.74rem;
+  font-weight: 900;
+  letter-spacing: -0.03em;
+  color: var(--foreground);
+}
+
+.app-topbar__statusChip[data-tone="green"] {
+  color: var(--success);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--success) 12%, white), color-mix(in srgb, var(--success) 8%, var(--surface-soft)));
+  border-color: color-mix(in srgb, var(--success) 24%, white);
+}
+
+.app-topbar__statusChip[data-tone="yellow"] {
+  color: var(--warning);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--warning) 14%, white), color-mix(in srgb, var(--warning) 10%, var(--surface-soft)));
+  border-color: color-mix(in srgb, var(--warning) 24%, white);
+}
+
+.app-topbar__statusChip[data-tone="red"] {
+  color: var(--danger);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--danger) 12%, white), color-mix(in srgb, var(--danger) 8%, var(--surface-soft)));
+  border-color: color-mix(in srgb, var(--danger) 24%, white);
+}
+
+.app-topbar__statusChip[data-tone="green"] .app-topbar__statusChipLabel,
+.app-topbar__statusChip[data-tone="yellow"] .app-topbar__statusChipLabel,
+.app-topbar__statusChip[data-tone="red"] .app-topbar__statusChipLabel,
+.app-topbar__statusChip[data-tone="green"] .app-topbar__statusChipValue,
+.app-topbar__statusChip[data-tone="yellow"] .app-topbar__statusChipValue,
+.app-topbar__statusChip[data-tone="red"] .app-topbar__statusChipValue {
+  color: currentColor;
+}
+
 .app-topbar__signals {
   display: flex;
   align-items: center;
@@ -2756,6 +2841,10 @@ html[data-theme="tabler"] .workspace-context {
     justify-content: space-between;
   }
 
+  .app-topbar__center {
+    justify-items: stretch;
+  }
+
   .page-hero,
   html[data-theme="tailadmin"] .page-hero,
   html[data-theme="tabler"] .page-hero {
@@ -2812,9 +2901,23 @@ html[data-theme="tabler"] .workspace-context {
   }
 
   .theme-switcher__modeBadge,
-  .app-user__meta,
-  .app-topbar__metaGrid {
+  .app-user__meta {
     display: none;
+  }
+
+  .app-topbar__summary {
+    text-align: left;
+  }
+
+  .app-topbar__statusRail {
+    justify-content: flex-start;
+  }
+
+  .app-topbar__statusChip,
+  .app-topbar__contextCta {
+    flex: 1 1 calc(50% - 0.32rem);
+    min-width: 132px;
+    justify-content: space-between;
   }
 
   .theme-switcher__panel {

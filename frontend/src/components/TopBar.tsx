@@ -47,10 +47,29 @@ type MasterOverviewCompanyPayload = {
 };
 
 type UserModule = { key: string; accessible: boolean };
-type WhatsAppStatusPayload = {
-  connected: boolean;
-  status: string;
-  displayNumber?: string | null;
+type OperationalTone = "green" | "yellow" | "red";
+type OperationalStatusChip = {
+  key: "token" | "meta" | "webwhats" | "payment" | "access";
+  label: string;
+  shortLabel: string;
+  tone: OperationalTone;
+  value: string;
+  detail: string;
+  href: string;
+  quality: "real" | "partial";
+  source: string[];
+  updatedAt: string | null;
+};
+type OperationalStatusPayload = {
+  generatedAt: string;
+  context: {
+    available: boolean;
+    companyId: number | null;
+    companyName: string | null;
+    mode: "empresa" | "master_assumido" | "master_puro" | "sem_empresa";
+    masterContext?: User["masterContext"] | null;
+  };
+  statuses: OperationalStatusChip[];
 };
 type WhatsAppHealth = "green" | "yellow" | "red";
 type RecoveryAlertConversation = {
@@ -140,8 +159,7 @@ export default function TopBar() {
   const [newPass, setNewPass] = useState("");
   const [changing, setChanging] = useState(false);
   const [changeMsg, setChangeMsg] = useState<string | null>(null);
-  const [whatsAppHealth, setWhatsAppHealth] = useState<WhatsAppHealth>("yellow");
-  const [whatsAppHealthLabel, setWhatsAppHealthLabel] = useState("WhatsApp status: sem validacao");
+  const [operationalStatus, setOperationalStatus] = useState<OperationalStatusPayload | null>(null);
   const [recoveryPendingHumanCount, setRecoveryPendingHumanCount] = useState(0);
   const [atendimentoPendingHumanCount, setAtendimentoPendingHumanCount] = useState(0);
   const [incomingPopup, setIncomingPopup] = useState<TopBarIncomingPopup | null>(null);
@@ -170,6 +188,18 @@ export default function TopBar() {
     ]);
     setUser(profile);
     setModules(myModules || []);
+  }, []);
+
+  const refreshOperationalStatus = React.useCallback(async (refreshLive = true) => {
+    try {
+      const suffix = refreshLive ? "?refresh=true" : "";
+      const payload = await apiFetch<OperationalStatusPayload>(`/companies/me/operational-status${suffix}`);
+      setOperationalStatus(payload);
+      return payload;
+    } catch {
+      setOperationalStatus(null);
+      return null;
+    }
   }, []);
 
   const showMasterContextToast = React.useCallback((detail?: MasterContextChangedDetail | null) => {
@@ -236,6 +266,53 @@ export default function TopBar() {
     return new Set((modules || []).filter((m) => m.accessible).map((m) => m.key));
   }, [modules]);
 
+  const operationalStatusMap = useMemo(() => {
+    return new Map((operationalStatus?.statuses || []).map((chip) => [chip.key, chip]));
+  }, [operationalStatus]);
+
+  const operationalStatusReady = Boolean(
+    authenticated &&
+      operationalStatus?.context.available &&
+      operationalStatus.statuses.length,
+  );
+
+  const showOperationalCompanyPicker = Boolean(
+    authenticated &&
+      !operationalStatusReady &&
+      user?.isSystemMaster &&
+      !user.masterContext?.active,
+  );
+
+  const whatsAppHealth = useMemo<WhatsAppHealth>(() => {
+    const candidates = [
+      operationalStatusMap.get("meta"),
+      operationalStatusMap.get("webwhats"),
+      operationalStatusMap.get("token"),
+    ].filter(Boolean) as OperationalStatusChip[];
+
+    if (candidates.some((chip) => chip.tone === "green")) {
+      return "green";
+    }
+    if (candidates.some((chip) => chip.tone === "yellow")) {
+      return "yellow";
+    }
+    if (candidates.length > 0) {
+      return "red";
+    }
+    return "yellow";
+  }, [operationalStatusMap]);
+
+  const whatsAppHealthLabel = useMemo(() => {
+    const metaChip = operationalStatusMap.get("meta");
+    const webWhatsChip = operationalStatusMap.get("webwhats");
+    const tokenChip = operationalStatusMap.get("token");
+    const preferred = [metaChip, webWhatsChip, tokenChip].find(Boolean) || null;
+    if (!preferred) {
+      return "Motores WhatsApp: em leitura";
+    }
+    return `${preferred.label}: ${preferred.value}`;
+  }, [operationalStatusMap]);
+
   useEffect(() => {
     function refreshAuthState() {
       setAuthenticated(Boolean(getToken()));
@@ -277,8 +354,7 @@ export default function TopBar() {
     if (!authenticated) {
       setUser(null);
       setModules([]);
-      setWhatsAppHealth("yellow");
-      setWhatsAppHealthLabel("WhatsApp status: sem validacao");
+      setOperationalStatus(null);
       setRecoveryPendingHumanCount(0);
       setAtendimentoPendingHumanCount(0);
       setStorageUserId(null);
@@ -289,18 +365,21 @@ export default function TopBar() {
 
     async function loadUser() {
       try {
-        const [profile, myModules] = await Promise.all([
+        const [profile, myModules, nextOperationalStatus] = await Promise.all([
           apiFetch<User>("/profile/current-user"),
           apiFetch<UserModule[]>("/modules/me"),
+          refreshOperationalStatus(true),
         ]);
         if (mounted) {
           setUser(profile);
           setModules(myModules || []);
+          setOperationalStatus(nextOperationalStatus);
         }
       } catch {
         if (mounted) {
           setUser(null);
           setModules([]);
+          setOperationalStatus(null);
         }
       }
     }
@@ -310,6 +389,7 @@ export default function TopBar() {
     function handleMasterContextChanged(event: Event) {
       const customEvent = event as CustomEvent<MasterContextChangedDetail>;
       void refreshMasterAwareState().catch(() => undefined);
+      void refreshOperationalStatus(true).catch(() => undefined);
       showMasterContextToast(customEvent.detail);
     }
 
@@ -319,58 +399,36 @@ export default function TopBar() {
       mounted = false;
       window.removeEventListener(MASTER_CONTEXT_CHANGED_EVENT, handleMasterContextChanged);
     };
-  }, [authenticated, refreshMasterAwareState, setStorageUserId, showMasterContextToast]);
+  }, [authenticated, refreshMasterAwareState, refreshOperationalStatus, setStorageUserId, showMasterContextToast]);
 
   useEffect(() => {
     setStorageUserId(user?.id ?? null);
   }, [setStorageUserId, user?.id]);
 
   useEffect(() => {
-    if (!authenticated || !user) return;
-    if (user.isSystemMaster || !user.company?.id) return;
+    if (!authenticated) {
+      setOperationalStatus(null);
+      return;
+    }
 
     let mounted = true;
 
-    const applyStatus = (payload: WhatsAppStatusPayload | null, failed = false) => {
-      if (!mounted) return;
-      if (failed || !payload) {
-        setWhatsAppHealth("red");
-        setWhatsAppHealthLabel("WhatsApp status: erro");
-        return;
-      }
-
-      const normalized = String(payload.status || "").trim().toUpperCase();
-      if (normalized === "CONNECTED" && payload.connected) {
-        setWhatsAppHealth("green");
-        setWhatsAppHealthLabel("WhatsApp status: conectado");
-        return;
-      }
-      if (normalized === "ERROR") {
-        setWhatsAppHealth("red");
-        setWhatsAppHealthLabel("WhatsApp status: erro");
-        return;
-      }
-      setWhatsAppHealth("yellow");
-      setWhatsAppHealthLabel("WhatsApp status: desconectado");
-    };
-
     const loadStatus = async () => {
-      try {
-        const payload = await apiFetch<WhatsAppStatusPayload>("/companies/me/whatsapp-status");
-        applyStatus(payload, false);
-      } catch {
-        applyStatus(null, true);
-      }
+      const payload = await refreshOperationalStatus(true);
+      if (!mounted) return;
+      setOperationalStatus(payload);
     };
 
-    loadStatus();
-    const timer = window.setInterval(loadStatus, 30000);
+    void loadStatus();
+    const timer = window.setInterval(() => {
+      void loadStatus();
+    }, 45000);
 
     return () => {
       mounted = false;
       window.clearInterval(timer);
     };
-  }, [authenticated, user, user?.id, user?.company?.id, user?.isSystemMaster]);
+  }, [authenticated, refreshOperationalStatus]);
 
   useEffect(() => {
     if (!authenticated) {
@@ -727,6 +785,11 @@ export default function TopBar() {
     router.push(moduleKey === "atendimento" ? "/dashboard/inbox" : "/dashboard/inbox/recovery");
   }
 
+  function handleOperationalChipClick(chip: OperationalStatusChip) {
+    if (!chip.href) return;
+    router.push(chip.href);
+  }
+
   async function openMasterContextModal() {
     setMasterContextMessage(null);
     setMasterContextModalOpen(true);
@@ -853,7 +916,13 @@ export default function TopBar() {
         : "MASTER GLOBAL"
       : user?.company?.name || "Operacao sem empresa"
     : "Plataforma operacional HBX";
-  const workspaceBadge = pendingHumanCount > 0 ? `${pendingHumanCount} na fila` : "Fila sob controle";
+  const operationalSummaryMessage = showOperationalCompanyPicker
+    ? "Selecione uma empresa"
+    : operationalStatusReady
+      ? `Empresa: ${operationalStatus?.context.companyName || "Operação ativa"}`
+      : pendingHumanCount > 0
+        ? `${pendingHumanCount} na fila`
+        : "Status em leitura";
   if (hiddenRoutes.has(pathname)) {
     return null;
   }
@@ -922,15 +991,46 @@ export default function TopBar() {
 
           <div className="app-topbar__center">
             <div className="app-topbar__summary">
-              <p className="app-topbar__summaryLabel">Workspace ativo</p>
-              <strong>HBX Workspace</strong>
+              <p className="app-topbar__summaryLabel">Status operacional</p>
+              <strong>{operationalSummaryMessage}</strong>
             </div>
-            <div className="app-topbar__metaGrid" aria-label="Resumo rapido do shell">
-              <span className="app-topbar__metaPill">
-                <strong>{workspaceBadge}</strong>
-                <span>Fila</span>
-              </span>
-            </div>
+
+            {operationalStatusReady ? (
+              <div className="app-topbar__statusRail" aria-label="Status operacional da empresa">
+                {operationalStatus?.statuses.map((chip) => (
+                  <button
+                    key={chip.key}
+                    type="button"
+                    className="app-topbar__statusChip"
+                    data-tone={chip.tone}
+                    onClick={() => handleOperationalChipClick(chip)}
+                    title={chip.detail}
+                    aria-label={`${chip.label}: ${chip.value}. ${chip.detail}`}
+                  >
+                    <span className="app-topbar__statusChipLabel">{chip.shortLabel}</span>
+                    <strong className="app-topbar__statusChipValue">{chip.value}</strong>
+                  </button>
+                ))}
+              </div>
+            ) : showOperationalCompanyPicker ? (
+              <div className="app-topbar__metaGrid" aria-label="Ação operacional">
+                <button
+                  type="button"
+                  className="app-topbar__contextCta"
+                  onClick={() => void openMasterContextModal()}
+                >
+                  <strong>Escolher empresa</strong>
+                  <span>Ver motores e acesso</span>
+                </button>
+              </div>
+            ) : (
+              <div className="app-topbar__metaGrid" aria-label="Resumo rapido do shell">
+                <span className="app-topbar__metaPill">
+                  <strong>{pendingHumanCount > 0 ? `${pendingHumanCount} na fila` : "Sem alertas"}</strong>
+                  <span>Fila</span>
+                </span>
+              </div>
+            )}
           </div>
 
           <div className="app-topbar__right">

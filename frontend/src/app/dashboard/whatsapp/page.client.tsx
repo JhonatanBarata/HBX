@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import DashboardScaffold from "@/components/DashboardScaffold";
 import { apiFetch } from "../_lib/api";
 import { useRequireAuth } from "../_lib/useRequireAuth";
@@ -87,6 +88,7 @@ function temporaryLiveLabel(value?: string | null) {
 
 export default function WhatsAppCenterClientPage() {
   const hasToken = useRequireAuth();
+  const searchParams = useSearchParams();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState<string | null>(null);
   const [payload, setPayload] = useState<WhatsAppCenterPayload | null>(null);
@@ -129,6 +131,28 @@ export default function WhatsAppCenterClientPage() {
 
     return () => window.clearInterval(interval);
   }, [payload?.center.temporary.liveStatus, payload?.center.temporary.selected]);
+
+  useEffect(() => {
+    if (!payload || typeof window === "undefined") return;
+    const focus = String(searchParams.get("focus") || "").trim().toLowerCase();
+    const focusTargetByKey: Record<string, string> = {
+      temporary: "whatsapp-temporary",
+      official: "whatsapp-official",
+      status: "whatsapp-status",
+      next: "whatsapp-next-steps",
+    };
+    const targetId = focusTargetByKey[focus];
+    if (!targetId) return;
+    const target = document.getElementById(targetId);
+    if (!target) return;
+
+    const topbarOffset = Number.parseInt(
+      window.getComputedStyle(document.documentElement).getPropertyValue("--topbar-total-height"),
+      10,
+    );
+    const nextTop = target.getBoundingClientRect().top + window.scrollY - (Number.isFinite(topbarOffset) ? topbarOffset + 16 : 92);
+    window.scrollTo({ top: Math.max(0, nextTop), behavior: "smooth" });
+  }, [payload, searchParams]);
 
   async function chooseMode(mode: "TEMPORARY" | "OFFICIAL") {
     setSaving(mode);
@@ -272,7 +296,7 @@ export default function WhatsAppCenterClientPage() {
             </section>
 
             <section className={styles.pathGrid}>
-              <article className={styles.pathCard} data-active={payload.center.mode === "TEMPORARY"}>
+              <article id="whatsapp-temporary" className={styles.pathCard} data-active={payload.center.mode === "TEMPORARY"}>
                 <div className={styles.pathHeader}>
                   <div>
                     <span className={styles.pathEyebrow}>Conexão rápida / temporária</span>
@@ -378,7 +402,7 @@ export default function WhatsAppCenterClientPage() {
                 </div>
               </article>
 
-              <article className={styles.pathCardStrong} data-active={payload.center.mode === "OFFICIAL"}>
+              <article id="whatsapp-official" className={styles.pathCardStrong} data-active={payload.center.mode === "OFFICIAL"}>
                 <div className={styles.pathHeader}>
                   <div>
                     <span className={styles.pathEyebrow}>Conexão oficial / Meta</span>
@@ -436,7 +460,7 @@ export default function WhatsAppCenterClientPage() {
             </section>
 
             <section className={styles.grid}>
-              <article className={styles.panelCard}>
+              <article id="whatsapp-status" className={styles.panelCard}>
                 <div className={styles.sectionHeader}>
                   <div>
                     <strong>Situação operacional</strong>
@@ -470,7 +494,7 @@ export default function WhatsAppCenterClientPage() {
                 </div>
               </article>
 
-              <article className={styles.panelCard}>
+              <article id="whatsapp-next-steps" className={styles.panelCard}>
                 <div className={styles.sectionHeader}>
                   <div>
                     <strong>Próximos passos recomendados</strong>
