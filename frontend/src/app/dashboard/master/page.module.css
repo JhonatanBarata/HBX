@@ -866,6 +866,15 @@
   min-width: 0;
 }
 
+.operationalPriorityChipRail {
+  min-width: 0;
+}
+
+.operationalPriorityChipRail .operationalChip {
+  min-width: 0;
+  white-space: normal;
+}
+
 .controlKpiGrid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1340,6 +1349,11 @@
     grid-template-columns: 1fr;
   }
 
+  .operationalPriorityChipRail {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .controlKpiGrid {
     grid-template-columns: 1fr;
   }
@@ -1352,6 +1366,10 @@
 @media (max-width: 640px) {
   .operationalPriorityCopy h3 {
     font-size: 1.05rem;
+  }
+
+  .operationalPriorityChipRail {
+    grid-template-columns: 1fr;
   }
 
   .operationalChip {
