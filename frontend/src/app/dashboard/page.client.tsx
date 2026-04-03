@@ -7,6 +7,15 @@ import DashboardScaffold from "@/components/DashboardScaffold";
 import { apiFetch } from "./_lib/api";
 import { useRequireAuth } from "./_lib/useRequireAuth";
 import { resolveWebsiteOnlyDestination } from "@/lib/websiteLaunch";
+import {
+  compareUserModules,
+  getFirstOperationalModule,
+  isCommercialEntryCandidate,
+  isModuleBlocked,
+  normalizeUserModuleKey,
+  resolveModuleHref,
+  type UserModule,
+} from "@/lib/hbx-modules";
 import styles from "./page.module.css";
 
 type CurrentUser = {
@@ -18,93 +27,54 @@ type CurrentUser = {
   company?: {
     id: number;
     name?: string | null;
-    slug?: string | null;
-    onboardingStatus?: string | null;
     paymentStatus?: string | null;
     subscriptionStatus?: string | null;
-    premiumAccess?: boolean;
-    trialStartsAt?: string | null;
     trialEndsAt?: string | null;
-    trialModuleSelection?: "vendas" | "recovery" | null;
-    whatsappConnectionMode?: string | null;
-    whatsappTemporaryStatus?: string | null;
-    whatsappMigrationInterestAt?: string | null;
-    plan?: {
-      id: number;
-      name?: string | null;
-      price?: number | null;
-    } | null;
   } | null;
 };
 
-type ModuleCard = {
-  title: string;
-  description: string;
-  href: string;
-  badge?: string;
-};
-
-const CADASTRO_AREA: ModuleCard = {
-  title: "Cadastro",
-  description: "Area obrigatoria para manter a base central de clientes e tabelas operacionais.",
-  href: "/dashboard/importacoes/cadastros",
-};
-
-type UserModule = {
-  key: string;
-  name: string;
-  description?: string | null;
-  serviceUrl?: string | null;
-  accessible: boolean;
-};
-
-function formatDate(value?: string | null) {
-  const iso = String(value || "").trim();
-  if (!iso) return "-";
-  const parsed = new Date(iso);
-  if (Number.isNaN(parsed.getTime())) return "-";
-  return parsed.toLocaleDateString("pt-BR");
+function normalizeStatus(value?: string | null) {
+  return String(value || "").trim().toUpperCase();
 }
 
-function computeTrialRemainingDays(value?: string | null) {
-  const iso = String(value || "").trim();
-  if (!iso) return null;
-  const parsed = new Date(iso);
-  if (Number.isNaN(parsed.getTime())) return null;
-  const diff = parsed.getTime() - Date.now();
-  if (diff <= 0) return 0;
-  return Math.max(0, Math.ceil(diff / (24 * 60 * 60 * 1000)));
-}
+function buildFallbackReasons(user: CurrentUser | null, modules: UserModule[]) {
+  const reasons: string[] = [];
+  const paymentStatus = normalizeStatus(user?.company?.paymentStatus);
+  const subscriptionStatus = String(user?.company?.subscriptionStatus || "").trim().toLowerCase();
 
-function resolveTrialModuleEntry(moduleSelection?: "vendas" | "recovery" | null) {
-  if (moduleSelection === "recovery") {
-    return {
-      href: "/dashboard/inbox?atendimentoTab=recovery",
-      title: "Entrar em Recovery",
-      subtitle: "Abrir a operação inicial de cobrança e atendimento assistido.",
-      label: "Recovery",
-    };
+  if (!user?.company?.id && !user?.isSystemMaster) {
+    reasons.push("Seu usuário ainda não está vinculado a uma empresa operacional.");
   }
 
-  return {
-    href: "/dashboard/vendas",
-    title: "Entrar em Vendas/CRM",
-    subtitle: "Abrir o CRM agenda viva para começar a prospecção com rotina, retornos e próximos passos.",
-    label: "Vendas",
-  };
-}
+  if (
+    paymentStatus === "EXPIRED" ||
+    paymentStatus === "DISABLED" ||
+    subscriptionStatus === "expired" ||
+    subscriptionStatus === "canceled"
+  ) {
+    reasons.push("O acesso da empresa está bloqueado por trial encerrado ou cobrança sem regularização.");
+  } else if (
+    paymentStatus === "OVERDUE" ||
+    paymentStatus === "PENDING" ||
+    subscriptionStatus === "past_due"
+  ) {
+    reasons.push("A empresa ainda não tem acesso operacional liberado para os módulos comerciais.");
+  }
 
-function resolveWhatsAppCentralStatus(company?: CurrentUser["company"]) {
-  const mode = String(company?.whatsappConnectionMode || "").trim().toUpperCase();
-  const temporaryStatus = String(company?.whatsappTemporaryStatus || "").trim().toUpperCase();
-  if (company?.whatsappMigrationInterestAt) {
-    return "Atenção / pendente";
+  const blockedCommercialModules = modules
+    .filter((moduleItem) => isCommercialEntryCandidate(moduleItem) && isModuleBlocked(moduleItem))
+    .sort(compareUserModules);
+
+  for (const moduleItem of blockedCommercialModules) {
+    if (!moduleItem.blockedReason) continue;
+    reasons.push(`${moduleItem.name}: ${moduleItem.blockedReason}`);
   }
-  if (mode === "OFFICIAL") return "Oficial / Meta";
-  if (mode === "TEMPORARY") {
-    return temporaryStatus === "TEMPORARY" ? "Temporário" : "Atenção / pendente";
+
+  if (!reasons.length) {
+    reasons.push("Nenhum módulo comercial está disponível para esta empresa no momento.");
   }
-  return "Não conectado";
+
+  return Array.from(new Set(reasons));
 }
 
 export default function DashboardClientPage() {
@@ -114,8 +84,7 @@ export default function DashboardClientPage() {
   const [error, setError] = useState<string | null>(null);
   const [user, setUser] = useState<CurrentUser | null>(null);
   const [modules, setModules] = useState<UserModule[]>([]);
-  const [redirectingToWebsite, setRedirectingToWebsite] = useState(false);
-  const [showPremiumOnboarding, setShowPremiumOnboarding] = useState(false);
+  const [redirectingLabel, setRedirectingLabel] = useState<string | null>(null);
 
   useEffect(() => {
     if (hasToken !== true) return;
@@ -129,148 +98,81 @@ export default function DashboardClientPage() {
           apiFetch<UserModule[]>("/modules/me"),
         ]);
         setUser(me);
-        setModules(userModules || []);
+        setModules(Array.isArray(userModules) ? userModules : []);
       } catch (loadError) {
-        const message =
-          loadError instanceof Error ? loadError.message : "Falha ao carregar usuário.";
-        setError(message);
+        setError(loadError instanceof Error ? loadError.message : "Falha ao carregar o acesso inicial.");
       } finally {
         setLoading(false);
       }
     })();
   }, [hasToken]);
 
-  const isAdmin = String(user?.role ?? "").toUpperCase() === "ADMIN";
-  const roleLabel = String(user?.role ?? "").toUpperCase() || "USUÁRIO";
+  const isAdmin = String(user?.role || "").trim().toUpperCase() === "ADMIN";
   const isSystemMaster = Boolean(user?.isSystemMaster);
-  const trialModuleSelection =
-    user?.company?.trialModuleSelection === "recovery" ? "recovery" : "vendas";
-  const trialEntry = resolveTrialModuleEntry(user?.company?.trialModuleSelection as "vendas" | "recovery" | null);
-  const whatsappCentralStatus = resolveWhatsAppCentralStatus(user?.company);
-  const trialRemainingDays = computeTrialRemainingDays(user?.company?.trialEndsAt);
-  const currentPlanLabel =
-    String(user?.company?.plan?.name || "").trim() || "Free Trial";
-  const onboardingKey =
-    user?.company?.id && user?.company?.trialStartsAt
-      ? `hbx.premium-onboarding:${user.company.id}:${user.company.trialStartsAt}`
-      : null;
-  const trialOnboardingEligible =
-    !isSystemMaster &&
-    String(user?.company?.subscriptionStatus || "").trim().toLowerCase() === "trialing" &&
-    String(user?.company?.onboardingStatus || "").trim().toLowerCase() === "active_trial" &&
-    Boolean(onboardingKey);
 
-  const moduleCards = useMemo<ModuleCard[]>(() => {
-    const moduleRoutes: Record<string, string> = {
-      atendimento: "/dashboard/inbox",
-      vendas: "/dashboard/vendas",
-      gerencial: "/dashboard/gerencial",
-      webscraping: "/dashboard/webscraping",
-      financeiro: "/dashboard/financeiro",
-      website: "/dashboard/website",
-      follow_up_internacional: "/dashboard/importacoes/followup-global",
-      master: "/dashboard/master",
-    };
+  const preferredEntryModule = useMemo(() => {
+    const firstCommercialModule = getFirstOperationalModule(modules);
+    if (firstCommercialModule) return firstCommercialModule;
 
-    const merged = new Map<string, ModuleCard>();
-    for (const item of modules) {
-      if (!item.accessible) continue;
+    if (!isSystemMaster) return null;
 
-      const normalizedKey = item.key === "hbx_recovery" ? "atendimento" : item.key;
-      if (normalizedKey === "gerencial" && !isAdmin) continue;
-      if (merged.has(normalizedKey)) continue;
+    return [...modules]
+      .filter((moduleItem) => moduleItem.accessible)
+      .sort(compareUserModules)[0] || null;
+  }, [isSystemMaster, modules]);
 
-      merged.set(normalizedKey, {
-        title: normalizedKey === "atendimento" ? "Atendimento" : item.name,
-        description:
-          normalizedKey === "atendimento" && item.key === "hbx_recovery"
-            ? "Atendimento, mensagens e cobrança com clientes inadimplentes."
-            : item.description || "Módulo disponível para seu usuário.",
-        href: moduleRoutes[normalizedKey] || "/dashboard",
-        badge: normalizedKey === "gerencial" || normalizedKey === "master" ? "ADMIN" : undefined,
-      });
-    }
+  const fallbackReasons = useMemo(() => buildFallbackReasons(user, modules), [modules, user]);
 
-    const base = Array.from(merged.values());
-
-    if (isSystemMaster && !base.some((item) => item.href === "/dashboard/master")) {
-      base.push({
-        title: "Master",
-        description: "Gestão global de empresas, módulos, usuários e billing.",
-        href: "/dashboard/master",
-        badge: "ADMIN",
-      });
-    }
-
-    if (!base.some((item) => item.href === CADASTRO_AREA.href)) {
-      base.unshift(CADASTRO_AREA);
-    }
-
-    if (!isSystemMaster && user?.company?.id && !base.some((item) => item.href === "/dashboard/whatsapp")) {
-      base.splice(Math.min(2, base.length), 0, {
-        title: "Central WhatsApp",
-        description: "Escolha entre conexão rápida para testar ou rota oficial pela Meta com clareza de produto.",
-        href: "/dashboard/whatsapp",
-        badge: whatsappCentralStatus,
-      });
-    }
-
-    return base;
-  }, [isAdmin, isSystemMaster, modules, user?.company?.id, whatsappCentralStatus]);
+  const blockedCommercialModules = useMemo(
+    () =>
+      modules
+        .filter((moduleItem) => isCommercialEntryCandidate(moduleItem) && isModuleBlocked(moduleItem))
+        .sort(compareUserModules),
+    [modules],
+  );
 
   useEffect(() => {
-    if (!trialOnboardingEligible || typeof window === "undefined" || !onboardingKey) {
-      setShowPremiumOnboarding(false);
-      return;
-    }
-
-    const alreadySeen = window.localStorage.getItem(onboardingKey) === "seen";
-    if (alreadySeen) {
-      setShowPremiumOnboarding(false);
-      return;
-    }
-
-    window.localStorage.setItem(onboardingKey, "seen");
-    setShowPremiumOnboarding(true);
-  }, [onboardingKey, trialOnboardingEligible]);
-
-  useEffect(() => {
-    if (hasToken !== true || loading || redirectingToWebsite) return;
-    if (moduleCards.length !== 1 || moduleCards[0]?.href !== "/dashboard/website") return;
+    if (hasToken !== true || loading || !preferredEntryModule || redirectingLabel) return;
 
     let cancelled = false;
-    setRedirectingToWebsite(true);
+    const normalizedKey = normalizeUserModuleKey(preferredEntryModule.key);
+    setRedirectingLabel(preferredEntryModule.name || "módulo inicial");
 
-    resolveWebsiteOnlyDestination()
-      .then((destination) => {
-        if (cancelled) return;
-        if (!destination) {
-          setRedirectingToWebsite(false);
-          return;
-        }
-        if (/^https?:\/\//i.test(destination)) {
-          window.location.assign(destination);
-          return;
-        }
-        router.replace(destination);
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setRedirectingToWebsite(false);
-          router.replace("/dashboard/website");
-        }
-      });
+    if (normalizedKey === "website") {
+      resolveWebsiteOnlyDestination()
+        .then((destination) => {
+          if (cancelled) return;
+          if (!destination) {
+            router.replace("/dashboard/website");
+            return;
+          }
+          if (/^https?:\/\//i.test(destination)) {
+            window.location.assign(destination);
+            return;
+          }
+          router.replace(destination);
+        })
+        .catch(() => {
+          if (!cancelled) {
+            router.replace("/dashboard/website");
+          }
+        });
+      return () => {
+        cancelled = true;
+      };
+    }
 
+    router.replace(resolveModuleHref(preferredEntryModule.key, preferredEntryModule.serviceUrl));
     return () => {
       cancelled = true;
     };
-  }, [hasToken, loading, moduleCards, redirectingToWebsite, router]);
+  }, [hasToken, loading, preferredEntryModule, redirectingLabel, router]);
 
   if (hasToken === null) {
     return (
       <main className="app-shell">
         <div className="app-container">
-          <div className="panel p-4 text-sm text-muted">Carregando...</div>
+          <div className="panel p-4 text-sm text-muted">Carregando acesso inicial...</div>
         </div>
       </main>
     );
@@ -278,178 +180,90 @@ export default function DashboardClientPage() {
 
   if (!hasToken) return null;
 
-  if (redirectingToWebsite) {
+  if (loading || redirectingLabel) {
     return (
-      <DashboardScaffold title="Dashboard">
-        <div className="panel p-4 text-sm text-muted">Abrindo o admin do website...</div>
+      <DashboardScaffold title="Abrindo módulo" description="Validando o primeiro módulo operacional disponível.">
+        <section className={styles.stateCard}>
+          <p className={styles.eyebrow}>Entrada inteligente</p>
+          <h1 className={styles.title}>
+            {redirectingLabel ? `Abrindo ${redirectingLabel}...` : "Encontrando o melhor ponto de entrada..."}
+          </h1>
+          <p className={styles.lead}>
+            O HBX não usa mais dashboard inicial falso. Estamos levando você direto para a área realmente operacional.
+          </p>
+        </section>
       </DashboardScaffold>
     );
   }
 
   return (
-    <DashboardScaffold title="Dashboard">
-      <div className="dashboard-home">
+    <DashboardScaffold
+      title="Sem módulo operacional"
+      description="A empresa ainda não tem um módulo comercial pronto para abrir automaticamente."
+    >
+      <div className={styles.page}>
         {error ? <div className="alert alert-error">{error}</div> : null}
 
-        {showPremiumOnboarding ? (
-          <section className={styles.welcomeShell}>
-            <article className={styles.welcomeHero}>
-              <div className={styles.welcomeHeroTop}>
-                <p className={styles.welcomeEyebrow}>Onboarding ativo</p>
-                <h2 className={styles.welcomeTitle}>
-                  {`Bem-vindo${user?.name ? `, ${user.name}` : ""}.`}
-                </h2>
-                <p className={styles.welcomeLead}>
-                  Sua empresa acabou de entrar no HBX com acesso liberado para operar desde já. O foco agora é
-                  começar pelo módulo que você escolheu no cadastro, com clareza do que está ativo e do próximo passo.
-                </p>
-              </div>
+        <section className={styles.stateCard}>
+          <div className={styles.stateHeader}>
+            <p className={styles.eyebrow}>Entrada operacional</p>
+            <h1 className={styles.title}>Nenhum módulo comercial pôde ser aberto agora.</h1>
+            <p className={styles.lead}>
+              A regra nova é simples: entrar direto no primeiro módulo válido. Quando isso não for possível, o sistema precisa dizer o motivo com clareza.
+            </p>
+          </div>
 
-              <div className={styles.welcomeStats}>
-                <div className={styles.welcomeStat}>
-                  <span>Plano atual</span>
-                  <strong>{currentPlanLabel}</strong>
-                </div>
-                <div className={styles.welcomeStat}>
-                  <span>Status</span>
-                  <strong>{user?.company?.paymentStatus === "TRIAL" ? "Free trial ativo" : "Conta ativa"}</strong>
-                </div>
-                <div className={styles.welcomeStat}>
-                  <span>Dias restantes</span>
-                  <strong>
-                    {trialRemainingDays === null
-                      ? "-"
-                      : `${trialRemainingDays} dia${trialRemainingDays === 1 ? "" : "s"}`}
-                  </strong>
-                </div>
-                <div className={styles.welcomeStat}>
-                  <span>Módulo inicial</span>
-                  <strong>{trialModuleSelection === "recovery" ? "Recovery" : "Vendas"}</strong>
-                </div>
-              </div>
+          <div className={styles.reasonList}>
+            {fallbackReasons.map((reason) => (
+              <article key={reason} className={styles.reasonItem}>
+                {reason}
+              </article>
+            ))}
+          </div>
 
-              <div className={styles.welcomeGrid}>
-                <section className={styles.welcomePanel}>
-                  <h3 className={styles.panelTitle}>O que já está liberado agora</h3>
-                  <p className={styles.panelText}>
-                    Seu acesso está ativo em trial, com os módulos disponíveis para a sua empresa e uma trilha inicial
-                    pronta para começar a operar sem pressão de upgrade.
-                  </p>
-                  <div className={styles.moduleChips}>
-                    {moduleCards.map((item) => (
-                      <span key={item.href} className={styles.moduleChip}>
-                        {item.title}
-                      </span>
-                    ))}
-                  </div>
-                  <div className={styles.welcomeActions}>
-                    <Link href={trialEntry.href} className="btn btn-primary btn-sm">
-                      {trialEntry.title}
-                    </Link>
-                    <Link href="/dashboard/whatsapp" className="btn btn-secondary btn-sm">
-                      Central WhatsApp
-                    </Link>
-                    <button
-                      type="button"
-                      className="btn btn-secondary btn-sm"
-                      onClick={() => setShowPremiumOnboarding(false)}
-                    >
-                      Ver painel completo
-                    </button>
-                  </div>
-                  <p className={styles.welcomeNote}>{trialEntry.subtitle}</p>
-                </section>
+          <div className={styles.actionRow}>
+            {!isSystemMaster && user?.company?.id ? (
+              <>
+                <Link href="/dashboard/financeiro" className="btn btn-primary btn-sm">
+                  Abrir Financeiro
+                </Link>
+                <Link href="/dashboard/whatsapp" className="btn btn-secondary btn-sm">
+                  Ver motor WhatsApp
+                </Link>
+                {isAdmin ? (
+                  <Link href="/dashboard/gerencial" className="btn btn-secondary btn-sm">
+                    Abrir Gerencial
+                  </Link>
+                ) : null}
+                <Link href="/dashboard/importacoes/cadastros" className="btn btn-secondary btn-sm">
+                  Abrir Cadastro
+                </Link>
+              </>
+            ) : null}
+            {isSystemMaster ? (
+              <Link href="/dashboard/master" className="btn btn-primary btn-sm">
+                Abrir Master
+              </Link>
+            ) : null}
+          </div>
+        </section>
 
-                <aside className={styles.welcomeAside}>
-                  <h3 className={styles.panelTitle}>Próximos passos</h3>
-                  <div className={styles.steps}>
-                    <div className={styles.step}>
-                      <span className={styles.stepDot} aria-hidden="true" />
-                      <div>
-                        <strong>E-mail confirmado e conta ativada</strong>
-                        <p>Seu acesso já está validado e o ambiente da empresa foi liberado.</p>
-                      </div>
-                    </div>
-                    <div className={styles.step}>
-                      <span className={styles.stepDot} aria-hidden="true" />
-                      <div>
-                        <strong>Trial em andamento até {formatDate(user?.company?.trialEndsAt)}</strong>
-                        <p>Você está operando com status premium ativo, sem cobrança nesta fase inicial.</p>
-                      </div>
-                    </div>
-                    <div className={styles.step}>
-                      <span className={styles.stepDotActive} aria-hidden="true" />
-                      <div>
-                        <strong>Começar por {trialEntry.label}</strong>
-                        <p>Esse é o melhor ponto de entrada para transformar o trial em operação real.</p>
-                      </div>
-                    </div>
-                    <div className={styles.step}>
-                      <span className={styles.stepDotSoon} aria-hidden="true" />
-                      <div>
-                        <strong>Definir o vínculo do WhatsApp</strong>
-                        <p>Escolha entre o caminho rápido para testar ou a rota oficial pela Meta sem misturar os dois.</p>
-                      </div>
-                    </div>
-                    <div className={styles.step}>
-                      <span className={styles.stepDotSoon} aria-hidden="true" />
-                      <div>
-                        <strong>Organizar a rotina inicial</strong>
-                        <p>Depois do primeiro uso, siga para os módulos liberados e consolide a operação do dia.</p>
-                      </div>
-                    </div>
-                  </div>
-                </aside>
-              </div>
-            </article>
+        {blockedCommercialModules.length ? (
+          <section className={styles.blockedList}>
+            {blockedCommercialModules.map((moduleItem) => (
+              <article key={moduleItem.key} className={styles.blockedItem}>
+                <div className={styles.blockedTop}>
+                  <strong>{moduleItem.name}</strong>
+                  <span className={styles.blockedPill}>
+                    {moduleItem.criticalEngine ? `Motor: ${moduleItem.criticalEngine}` : "Bloqueado"}
+                  </span>
+                </div>
+                <p>{moduleItem.blockedReason || "Módulo indisponível no momento."}</p>
+              </article>
+            ))}
           </section>
         ) : null}
-
-        <section className="metrics-grid">
-          <article className="stat-card">
-            <p className="stat-card__label">Empresa</p>
-            <p className="stat-card__value text-[1.1rem] leading-tight">
-              {isSystemMaster ? "Sistema Global" : user?.company?.name ?? "Não vinculada"}
-            </p>
-          </article>
-          <article className="stat-card">
-            <p className="stat-card__label">Usuário</p>
-            <p className="stat-card__value text-[1.1rem] leading-tight">{user?.username ?? "-"}</p>
-          </article>
-          <article className="stat-card">
-            <p className="stat-card__label">Perfil</p>
-            <p className="stat-card__value text-[1.1rem] leading-tight">{roleLabel}</p>
-          </article>
-          <article className="stat-card">
-            <p className="stat-card__label">Areas ativas</p>
-            <p className="stat-card__value">{moduleCards.length}</p>
-          </article>
-        </section>
-
-        <section className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-          {loading ? (
-            <div className="panel p-4 text-sm text-muted lg:col-span-2">Carregando módulos...</div>
-          ) : (
-            moduleCards.map((item) => (
-              <Link key={item.href} href={item.href} className="panel panel-interactive p-5">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <h2 className="text-xl md:text-2xl font-extrabold tracking-tight">{item.title}</h2>
-                    <p className="text-sm text-muted mt-2 leading-relaxed">{item.description}</p>
-                  </div>
-                  {item.badge ? <span className="badge badge-brand">{item.badge}</span> : null}
-                </div>
-                <div className="mt-5 inline-flex items-center gap-2 text-sm font-semibold text-(--brand)">
-                  Acessar area
-                  <span aria-hidden="true">{"->"}</span>
-                </div>
-              </Link>
-            ))
-          )}
-        </section>
       </div>
-
-      {/* Navegacao global removida: já existe o menu superior */}
     </DashboardScaffold>
   );
 }

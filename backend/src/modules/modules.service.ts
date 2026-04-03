@@ -10,6 +10,7 @@ import structuralDefaults from '../bootstrap/structural-defaults.json';
 import { MasterContextService } from '../master-context/master-context.service';
 import { ensureWebsiteRuntimeSchema, listCompanyWebsiteConfigs } from '../website/website-runtime';
 import { ensureMasterBillingRuntimeSchema } from './master-runtime';
+import { probeWebscrapingRuntime, type WebscrapingRuntimeDiagnostic } from './webscraping-runtime.util';
 import { buildWhatsAppCenterSnapshot } from '../companies/whatsapp-center.util';
 import {
   getMasterGlobalIntegrationConfig,
@@ -29,6 +30,18 @@ type DefaultModuleDef = {
   serviceUrl?: string;
 };
 
+type ModuleCategory = 'commercial' | 'structural' | 'system';
+
+type ModuleAvailability = {
+  category: ModuleCategory;
+  sortOrder: number;
+  entryEligible: boolean;
+  blockedByEngine: boolean;
+  blockedReason: string | null;
+  blockedCode: string | null;
+  criticalEngine: string | null;
+};
+
 const DEFAULT_MODULES: DefaultModuleDef[] = (structuralDefaults.systemModules as DefaultModuleDef[]).map((moduleDef) => ({
   ...moduleDef,
   serviceUrl: moduleDef.key === 'webscraping'
@@ -40,6 +53,17 @@ const LEGACY_MODULE_KEYS = structuralDefaults.legacyModuleKeys as string[];
 const RETIRED_MODULE_KEYS = Array.isArray((structuralDefaults as any).retiredModuleKeys)
   ? ((structuralDefaults as any).retiredModuleKeys as string[])
   : [];
+const MODULE_DISPLAY_ORDER = [
+  'atendimento',
+  'vendas',
+  'website',
+  'webscraping',
+  'follow_up_internacional',
+  'financeiro',
+  'gerencial',
+  'master',
+  'exclusoes',
+];
 
 type BillingLedgerEntryRow = {
   id: string;
@@ -92,6 +116,9 @@ type WebscrapingUsageSummary = ReturnType<ModulesService['buildDefaultWebscrapin
 
 @Injectable()
 export class ModulesService implements OnModuleInit {
+  private webscrapingRuntimeCache: { expiresAt: number; value: WebscrapingRuntimeDiagnostic } | null = null;
+  private webscrapingRuntimeInFlight: Promise<WebscrapingRuntimeDiagnostic> | null = null;
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly integrationConnectionsService: IntegrationConnectionsService,
@@ -1256,6 +1283,119 @@ export class ModulesService implements OnModuleInit {
     return key === 'hbx_recovery' ? 'atendimento' : key;
   }
 
+  private getModuleCategory(moduleKey: string): ModuleCategory {
+    const normalized = this.normalizeRequestedModuleKey(moduleKey);
+    if (normalized === 'financeiro' || normalized === 'gerencial') return 'structural';
+    if (normalized === 'master' || normalized === 'exclusoes') return 'system';
+    return 'commercial';
+  }
+
+  private getModuleSortOrder(moduleKey: string) {
+    const normalized = this.normalizeRequestedModuleKey(moduleKey);
+    const index = MODULE_DISPLAY_ORDER.indexOf(normalized);
+    return index >= 0 ? index : MODULE_DISPLAY_ORDER.length + 10;
+  }
+
+  private async getCachedWebscrapingRuntime() {
+    const now = Date.now();
+    if (this.webscrapingRuntimeCache && this.webscrapingRuntimeCache.expiresAt > now) {
+      return this.webscrapingRuntimeCache.value;
+    }
+
+    if (!this.webscrapingRuntimeInFlight) {
+      this.webscrapingRuntimeInFlight = probeWebscrapingRuntime()
+        .then((value) => {
+          this.webscrapingRuntimeCache = {
+            value,
+            expiresAt: Date.now() + 30_000,
+          };
+          return value;
+        })
+        .finally(() => {
+          this.webscrapingRuntimeInFlight = null;
+        });
+    }
+
+    return this.webscrapingRuntimeInFlight;
+  }
+
+  private async buildModuleAvailabilityMap(companyId: number, moduleKeys: string[]) {
+    const normalizedKeys = Array.from(
+      new Set((moduleKeys || []).map((moduleKey) => this.normalizeRequestedModuleKey(moduleKey)).filter(Boolean)),
+    );
+    const availabilityMap = new Map<string, ModuleAvailability>();
+    if (!normalizedKeys.length) return availabilityMap;
+
+    const company = await this.prisma.company.findUnique({
+      where: { id: Number(companyId) },
+      select: {
+        whatsappAccessToken: true,
+        whatsappPhoneNumberId: true,
+        whatsappWabaId: true,
+        whatsappNumber: true,
+        whatsappDisplayNumber: true,
+        whatsappStatus: true,
+        whatsappConnectionMode: true,
+        whatsappTemporaryStatus: true,
+        useMasterWhatsAppToken: true,
+        masterWhatsAppCredentialKey: true,
+      },
+    });
+
+    const masterIntegrations = company?.useMasterWhatsAppToken
+      ? await getMasterGlobalIntegrationConfig(this.prisma)
+      : null;
+    const effectiveWhatsApp = company ? this.effectiveWhatsAppConfig(company, masterIntegrations) : null;
+    const officialConfigured = Boolean(effectiveWhatsApp?.accessToken && effectiveWhatsApp?.phoneNumberId);
+    const officialConnected =
+      officialConfigured && String(company?.whatsappStatus || '').trim().toUpperCase() === 'CONNECTED';
+    const temporaryConnected =
+      String(company?.whatsappConnectionMode || '').trim().toUpperCase() === 'TEMPORARY'
+      && String(company?.whatsappTemporaryStatus || '').trim().toUpperCase() === 'TEMPORARY';
+    const hasOperationalWhatsAppEngine = officialConnected || temporaryConnected;
+    const webscrapingRuntime = normalizedKeys.includes('webscraping')
+      ? await this.getCachedWebscrapingRuntime()
+      : null;
+
+    for (const moduleKey of normalizedKeys) {
+      const category = this.getModuleCategory(moduleKey);
+      let blockedByEngine = false;
+      let blockedReason: string | null = null;
+      let blockedCode: string | null = null;
+      let criticalEngine: string | null = null;
+
+      if (moduleKey === 'atendimento' && !hasOperationalWhatsAppEngine) {
+        blockedByEngine = true;
+        blockedCode = officialConfigured || String(company?.whatsappConnectionMode || '').trim().toUpperCase() === 'TEMPORARY'
+          ? 'whatsapp_not_operational'
+          : 'whatsapp_missing';
+        blockedReason = officialConfigured
+          ? 'Conclua a conexão do motor de WhatsApp para liberar Atendimento.'
+          : 'Configure WhatsApp/Meta para liberar Atendimento.';
+        criticalEngine = 'whatsapp';
+      }
+
+      if (moduleKey === 'webscraping' && webscrapingRuntime && webscrapingRuntime.status !== 'online') {
+        blockedByEngine = true;
+        blockedCode = webscrapingRuntime.code || 'webscraping_unavailable';
+        blockedReason = webscrapingRuntime.message || 'Motor de webscraping indisponivel.';
+        criticalEngine = 'webscraping';
+      }
+
+      availabilityMap.set(moduleKey, {
+        category,
+        sortOrder: this.getModuleSortOrder(moduleKey),
+        entryEligible: category === 'commercial',
+        blockedByEngine,
+        blockedReason,
+        blockedCode,
+        criticalEngine,
+      });
+    }
+
+    return availabilityMap;
+  }
+
   private async resolveUserContext(userId: number) {
     const user = await this.usersService.findById(Number(userId));
     if (!user) throw new ForbiddenException('Usuario nao encontrado');
@@ -1466,8 +1606,15 @@ export class ModulesService implements OnModuleInit {
       return this.isFinanceModuleKey(key);
     }
 
+    const availabilityMap = await this.buildModuleAvailabilityMap(
+      companyId,
+      orderedModules.map((moduleItem) => moduleItem.key),
+    );
+
     if (isSystemMaster) {
       for (const moduleItem of orderedModules) {
+        const availability = availabilityMap.get(this.normalizeRequestedModuleKey(moduleItem.key));
+        if (availability?.blockedByEngine) continue;
         if (await this.isCompanyModuleEnabled(companyId, moduleItem.id)) {
           return true;
         }
@@ -1487,6 +1634,9 @@ export class ModulesService implements OnModuleInit {
           },
         },
       });
+
+      const availability = availabilityMap.get(this.normalizeRequestedModuleKey(moduleItem.key));
+      if (availability?.blockedByEngine) continue;
 
       if (!userAccess || Boolean(userAccess.allowed)) {
         return true;
@@ -1532,6 +1682,14 @@ export class ModulesService implements OnModuleInit {
             companyEnabled: true,
             userAllowed: true,
             accessible: true,
+            visible: true,
+            category: this.getModuleCategory(financeiroModule.key),
+            entryEligible: false,
+            blockedByEngine: false,
+            blockedReason: null,
+            blockedCode: null,
+            criticalEngine: null,
+            sortOrder: this.getModuleSortOrder(financeiroModule.key),
           }]
         : [];
 
@@ -1545,8 +1703,21 @@ export class ModulesService implements OnModuleInit {
           companyEnabled: true,
           userAllowed: true,
           accessible: true,
+          visible: true,
+          category: this.getModuleCategory(moduleItem.key),
+          entryEligible: false,
+          blockedByEngine: false,
+          blockedReason: null,
+          blockedCode: null,
+          criticalEngine: null,
+          sortOrder: this.getModuleSortOrder(moduleItem.key),
         })),
-      ];
+      ].sort((left, right) => {
+        const leftOrder = Number(left.sortOrder || 0);
+        const rightOrder = Number(right.sortOrder || 0);
+        if (leftOrder !== rightOrder) return leftOrder - rightOrder;
+        return String(left.name || '').localeCompare(String(right.name || ''), 'pt-BR');
+      });
     }
 
     const rows = await this.prisma.companyModule.findMany({
@@ -1566,19 +1737,48 @@ export class ModulesService implements OnModuleInit {
       }
     }
 
+    const availabilityMap = await this.buildModuleAvailabilityMap(
+      companyId,
+      rows.map((row) => row.systemModule.key),
+    );
+
     const companyModules = rows
       .filter((row) => row.systemModule.companyAssignable && !this.isRetiredModuleKey(row.systemModule.key))
-      .map((row) => ({
-        key: row.systemModule.key,
-        name: row.systemModule.name,
-        description: row.systemModule.description,
-        serviceUrl: row.systemModule.serviceUrl,
-        companyEnabled: row.enabled,
-        userAllowed: isSystemMaster ? true : (userAccessMap.has(row.moduleId) ? Boolean(userAccessMap.get(row.moduleId)) : true),
-        accessible: isSystemMaster
-          ? Boolean(row.enabled)
-          : row.enabled && (userAccessMap.has(row.moduleId) ? Boolean(userAccessMap.get(row.moduleId)) : true),
-      }));
+      .map((row) => {
+        const normalizedKey = this.normalizeRequestedModuleKey(row.systemModule.key);
+        const availability = availabilityMap.get(normalizedKey) || {
+          category: this.getModuleCategory(normalizedKey),
+          sortOrder: this.getModuleSortOrder(normalizedKey),
+          entryEligible: this.getModuleCategory(normalizedKey) === 'commercial',
+          blockedByEngine: false,
+          blockedReason: null,
+          blockedCode: null,
+          criticalEngine: null,
+        };
+        const userAllowed = isSystemMaster
+          ? true
+          : (userAccessMap.has(row.moduleId) ? Boolean(userAccessMap.get(row.moduleId)) : true);
+        const visible = Boolean(row.enabled) && userAllowed;
+        const accessible = visible && !availability.blockedByEngine;
+
+        return {
+          key: row.systemModule.key,
+          name: row.systemModule.name,
+          description: row.systemModule.description,
+          serviceUrl: row.systemModule.serviceUrl,
+          companyEnabled: row.enabled,
+          userAllowed,
+          accessible,
+          visible,
+          category: availability.category,
+          entryEligible: availability.entryEligible,
+          blockedByEngine: availability.blockedByEngine,
+          blockedReason: visible ? availability.blockedReason : null,
+          blockedCode: visible ? availability.blockedCode : null,
+          criticalEngine: visible ? availability.criticalEngine : null,
+          sortOrder: availability.sortOrder,
+        };
+      });
 
     const merged = new Map<string, any>();
     for (const moduleItem of companyModules) {
@@ -1595,10 +1795,23 @@ export class ModulesService implements OnModuleInit {
         companyEnabled: true,
         userAllowed: true,
         accessible: true,
+        visible: true,
+        category: this.getModuleCategory(moduleItem.key),
+        entryEligible: false,
+        blockedByEngine: false,
+        blockedReason: null,
+        blockedCode: null,
+        criticalEngine: null,
+        sortOrder: this.getModuleSortOrder(moduleItem.key),
       });
     }
 
-    return Array.from(merged.values());
+    return Array.from(merged.values()).sort((left, right) => {
+      const leftOrder = Number(left.sortOrder || 0);
+      const rightOrder = Number(right.sortOrder || 0);
+      if (leftOrder !== rightOrder) return leftOrder - rightOrder;
+      return String(left.name || '').localeCompare(String(right.name || ''), 'pt-BR');
+    });
   }
 
   async listCompanyAccessForAdmin(adminUserId: number) {
