@@ -14,6 +14,54 @@ async function requestJson(url) {
   return response.text();
 }
 
+async function requestJsonWithOptions(url, options = {}) {
+  const response = await fetch(url, options);
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status} from ${url}`);
+  }
+  const contentType = response.headers.get('content-type') || '';
+  if (contentType.includes('application/json')) {
+    return response.json();
+  }
+  return response.text();
+}
+
+async function verifyTransactionalMailReadiness(backendUrl, env) {
+  const internalSecret = String(env.PROD_INTERNAL_SECRET || '').trim();
+  if (!internalSecret) {
+    return {
+      checked: false,
+      reason: 'PROD_INTERNAL_SECRET not configured',
+    };
+  }
+
+  const summary = await requestJsonWithOptions(`${backendUrl}/internal/mail/config-summary`, {
+    method: 'GET',
+    headers: {
+      'x-internal-secret': internalSecret,
+    },
+  });
+
+  if (!summary || typeof summary !== 'object') {
+    throw new Error('Transactional mail summary returned an unexpected payload');
+  }
+
+  const missing = Array.isArray(summary?.config?.missing)
+    ? summary.config.missing.filter((item) => typeof item === 'string' && item.trim().length > 0)
+    : [];
+
+  if (!summary.ok) {
+    const suffix = missing.length ? ` Missing: ${missing.join(', ')}` : '';
+    throw new Error(`Transactional email not ready in production (${summary.code || 'unknown'}).${suffix}`);
+  }
+
+  return {
+    checked: true,
+    code: String(summary.code || 'SMTP_READY'),
+    missing,
+  };
+}
+
 async function verifyProduction(inputEnv = resolveOperationsEnv()) {
   const env = inputEnv;
   const backendUrl = String(requireEnv(env, 'PROD_BACKEND_URL')).replace(/\/$/, '');
@@ -29,6 +77,7 @@ async function verifyProduction(inputEnv = resolveOperationsEnv()) {
   }
 
   const backendHealth = await requestJson(`${backendUrl}/health`);
+  const transactionalMail = await verifyTransactionalMailReadiness(backendUrl, env);
 
   if (databaseUrl) {
     const prismaEnv = {
@@ -54,6 +103,7 @@ async function verifyProduction(inputEnv = resolveOperationsEnv()) {
     ok: true,
     backendUrl,
     backendHealth,
+    transactionalMail,
     frontendUrl: frontendUrl || null,
     frontendStatus,
     databaseChecked: Boolean(databaseUrl),

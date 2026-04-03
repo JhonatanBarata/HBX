@@ -1,4 +1,4 @@
-import { Body, Controller, Headers, Param, Post, BadRequestException, ForbiddenException } from '@nestjs/common';
+import { Body, Controller, Get, Headers, Param, Post, BadRequestException, ForbiddenException } from '@nestjs/common';
 import { UsersService } from '../users/users.service';
 import { MailService } from '../mail/mail.service';
 import * as bcrypt from 'bcryptjs';
@@ -23,6 +23,18 @@ export class InternalController {
     const expected = process.env.INTERNAL_SECRET;
     if (!expected) throw new BadRequestException('INTERNAL_SECRET not configured');
     if (!secret || secret !== expected) throw new ForbiddenException('invalid internal secret');
+  }
+
+  @Get('mail/config-summary')
+  getTransactionalMailConfigSummary(@Headers('x-internal-secret') secret?: string) {
+    this.assertInternalSecret(secret);
+
+    const config = this.mailService.getConfigurationSummary();
+    return {
+      ok: Boolean(config.smtpConfigured && config.smtpReady),
+      code: !config.smtpConfigured ? 'SMTP_NOT_CONFIGURED' : config.smtpReady ? 'SMTP_READY' : 'SMTP_CONFIG_INCOMPLETE',
+      config,
+    };
   }
 
   @Post('users/:id/reset-password')
