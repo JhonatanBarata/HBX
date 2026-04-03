@@ -1478,6 +1478,7 @@ export default function MasterPremiumPage() {
   const [confirmAction, setConfirmAction] = useState<ConfirmActionState | null>(null);
   const [confirmActionInput, setConfirmActionInput] = useState("");
   const operationalActionLockRef = useRef<string | null>(null);
+  const operationalReleaseTimeoutRef = useRef<number | null>(null);
   const deferredSearch = useDeferredValue(search);
   const commercialModuleDrafts = useMemo(
     () =>
@@ -1584,6 +1585,14 @@ export default function MasterPremiumPage() {
       setConfirmActionInput("");
     }
   }, [confirmAction]);
+
+  useEffect(() => {
+    return () => {
+      if (operationalReleaseTimeoutRef.current != null && typeof window !== "undefined") {
+        window.clearTimeout(operationalReleaseTimeoutRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     const anyModalOpen =
@@ -1833,8 +1842,16 @@ export default function MasterPremiumPage() {
     return `operational-nav-${companyId}-${actionId}`;
   }
 
+  function companyHasActiveMasterContext(companyId?: number | null) {
+    return Boolean(currentUser?.masterContext?.active && currentUser.masterContext.companyId === companyId);
+  }
+
   function beginOperationalAction(actionKey: string) {
     if (operationalActionLockRef.current) return false;
+    if (operationalReleaseTimeoutRef.current != null && typeof window !== "undefined") {
+      window.clearTimeout(operationalReleaseTimeoutRef.current);
+      operationalReleaseTimeoutRef.current = null;
+    }
     operationalActionLockRef.current = actionKey;
     setOperationalBusyAction(actionKey);
     return true;
@@ -1842,6 +1859,9 @@ export default function MasterPremiumPage() {
 
   function releaseOperationalAction(actionKey: string, holdMs = 0) {
     const unlock = () => {
+      if (operationalReleaseTimeoutRef.current != null) {
+        operationalReleaseTimeoutRef.current = null;
+      }
       if (operationalActionLockRef.current === actionKey) {
         operationalActionLockRef.current = null;
       }
@@ -1849,7 +1869,7 @@ export default function MasterPremiumPage() {
     };
 
     if (holdMs > 0 && typeof window !== "undefined") {
-      window.setTimeout(unlock, holdMs);
+      operationalReleaseTimeoutRef.current = window.setTimeout(unlock, holdMs);
       return;
     }
 
@@ -2133,7 +2153,7 @@ export default function MasterPremiumPage() {
   }
 
   async function assumeContext(company: CompanySummary) {
-    if (currentUser?.masterContext?.active && currentUser.masterContext.companyId === company.id) {
+    if (companyHasActiveMasterContext(company.id)) {
       return;
     }
     const actionKey = operationalContextBusyKey(company.id);
@@ -2166,19 +2186,9 @@ export default function MasterPremiumPage() {
     setError(null);
     let releaseDelay = 0;
     try {
-      if (operationalHrefRequiresContext(destination.href) && !activeContextCompanyId) {
-        await apiFetch("/master-context/assume", {
-          method: "POST",
-          headers: { "x-master-route": "/dashboard/master" },
-          body: JSON.stringify({ companyId: company.id, reason: `Diagnostico operacional: ${company.name}` }),
-        });
-        updateLocalMasterContext(company);
-        dispatchMasterContextChanged({ mode: "assumed", companyName: company.name });
-      } else if (
-        operationalHrefRequiresContext(destination.href) &&
-        currentUser?.masterContext?.active &&
-        currentUser.masterContext.companyId !== company.id
-      ) {
+      const needsContext = operationalHrefRequiresContext(destination.href);
+      const hasActiveTargetContext = companyHasActiveMasterContext(company.id);
+      if (needsContext && !hasActiveTargetContext) {
         await apiFetch("/master-context/assume", {
           method: "POST",
           headers: { "x-master-route": "/dashboard/master" },
@@ -3207,7 +3217,7 @@ export default function MasterPremiumPage() {
                                 );
                               })}
                             </div>
-                            <span>{company.operationalStatus?.overallHint || "Sem hint operacional."}</span>
+                            <span>{compactOperationalHint(company.operationalStatus?.overallHint, "Sem hint operacional.")}</span>
                             <span>Última leitura: {formatDateTime(company.operationalStatus?.lastCheckedAt)}</span>
                           </div>
                         </td>
@@ -3225,9 +3235,9 @@ export default function MasterPremiumPage() {
                               type="button"
                               className="btn btn-secondary btn-sm"
                               onClick={() => assumeContext(company)}
-                              disabled={currentUser?.masterContext?.active && currentUser.masterContext.companyId === company.id || isOperationalActionBusy(company.id)}
+                              disabled={companyHasActiveMasterContext(company.id) || isOperationalActionBusy(company.id)}
                             >
-                              {currentUser?.masterContext?.active && currentUser.masterContext.companyId === company.id
+                              {companyHasActiveMasterContext(company.id)
                                 ? "Contexto ativo"
                                 : isOperationalActionBusy(company.id)
                                   ? "Processando..."
