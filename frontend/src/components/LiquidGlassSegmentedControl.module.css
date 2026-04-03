@@ -1,0 +1,79 @@
+.root {
+  position: relative;
+  display: inline-grid;
+  grid-template-columns: repeat(var(--segment-count), minmax(0, 1fr));
+  gap: 0.22rem;
+  align-items: center;
+  width: fit-content;
+  max-width: 100%;
+  padding: 0.18rem;
+  border-radius: 18px;
+  border: 1px solid color-mix(in srgb, var(--line) 86%, white);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--surface) 38%, white), color-mix(in srgb, var(--surface-soft) 82%, var(--background))),
+    color-mix(in srgb, var(--surface) 92%, transparent);
+  backdrop-filter: blur(18px) saturate(170%);
+  overflow: hidden;
+}
+
+.highlight {
+  position: absolute;
+  top: 0.18rem;
+  bottom: 0.18rem;
+  width: calc((100% - 0.36rem) / var(--segment-count));
+  transform: translateX(calc(var(--segment-index) * 100%));
+  border-radius: 14px;
+  border: 1px solid color-mix(in srgb, white 46%, var(--line));
+  background:
+    radial-gradient(circle at top left, color-mix(in srgb, white 68%, transparent), transparent 44%),
+    linear-gradient(180deg, color-mix(in srgb, white 32%, transparent), color-mix(in srgb, var(--surface) 24%, transparent));
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, white 72%, transparent),
+    0 8px 22px color-mix(in srgb, var(--foreground) 10%, transparent);
+  transition: transform var(--motion-base);
+  pointer-events: none;
+}
+
+.button,
+.buttonActive {
+  position: relative;
+  z-index: 1;
+  min-height: 34px;
+  padding: 0.34rem 0.78rem;
+  border: none;
+  border-radius: 14px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 800;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  transition:
+    color var(--motion-fast),
+    transform var(--motion-fast),
+    opacity var(--motion-fast);
+}
+
+.button:hover,
+.buttonActive:hover {
+  transform: translateY(-1px);
+}
+
+.button {
+  color: color-mix(in srgb, var(--foreground) 88%, var(--muted));
+}
+
+.buttonActive {
+  color: var(--foreground);
+}
+
+@media (max-width: 640px) {
+  .root {
+    width: 100%;
+  }
+
+  .button,
+  .buttonActive {
+    justify-content: center;
+  }
+}

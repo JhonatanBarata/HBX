@@ -7,10 +7,13 @@ import { apiFetch, getToken } from "../app/dashboard/_lib/api";
 import { MASTER_CONTEXT_CHANGED_EVENT } from "../lib/masterContextEvents";
 import type { PresentationConfig, PresentationModuleOverride } from "../lib/presentation-config";
 import {
+  formatCriticalEngineLabel,
   inferModuleCategory,
   isModuleBlocked,
   isModuleVisible,
   normalizeUserModuleKey,
+  resolveModuleBlockedActionLabel,
+  resolveModuleBlockedHref,
   resolveModuleHref,
   type HbxModuleCategory,
   type UserModule,
@@ -335,6 +338,13 @@ export default function ModuleNav({
               const href = item.moduleKey
                 ? resolveModuleHref(item.moduleKey, moduleItem?.serviceUrl || item.href)
                 : item.href;
+              const blockedHref = moduleItem ? resolveModuleBlockedHref(moduleItem) : item.href;
+              const blockedEngineLabel = moduleItem?.criticalEngine
+                ? formatCriticalEngineLabel(moduleItem.criticalEngine)
+                : null;
+              const blockedActionLabel = moduleItem
+                ? resolveModuleBlockedActionLabel(moduleItem)
+                : "Resolver";
 
               if (presentationEditing && canEditPresentation) {
                 return (
@@ -389,21 +399,23 @@ export default function ModuleNav({
 
               if (blocked) {
                 return (
-                  <div
+                  <Link
                     key={item.key}
+                    href={blockedHref}
                     className={active ? styles.moduleCardDisabledActive : styles.moduleCardDisabled}
                     data-ui-slot="module-card"
-                    aria-disabled="true"
+                    aria-current={active ? "page" : undefined}
                   >
                     <span className={styles.moduleCardBadge}>{shortLabel}</span>
                     <span className={styles.moduleCardBody}>
                       <strong>{label}</strong>
                       <small>{description}</small>
+                      {blockedEngineLabel ? <em className={styles.moduleCardMeta}>Motor crítico: {blockedEngineLabel}</em> : null}
                     </span>
                     <span className={styles.moduleCardArrow} aria-hidden="true">
-                      BLOQ.
+                      {blockedActionLabel}
                     </span>
-                  </div>
+                  </Link>
                 );
               }
 

@@ -19,6 +19,14 @@ type ApiErrorPayload = {
   message?: string | string[];
   error?: string;
   needsRegistration?: boolean;
+  needsEmailConfirmation?: boolean;
+  email?: string | null;
+  code?: string;
+  delivery?: {
+    previewUrl?: string | null;
+    confirmUrl?: string | null;
+    failed?: boolean;
+  } | null;
 };
 
 type LoginParticleStyle = CSSProperties & {
@@ -94,6 +102,11 @@ export default function LoginPage() {
   const [mode, setMode] = useState<"login" | "forgot">("login");
   const [preRegistered, setPreRegistered] = useState(false);
   const [countdown, setCountdown] = useState<number | null>(null);
+  const [pendingConfirmationEmail, setPendingConfirmationEmail] = useState<string | null>(null);
+  const [pendingConfirmationMessage, setPendingConfirmationMessage] = useState<string | null>(null);
+  const [pendingConfirmationBusy, setPendingConfirmationBusy] = useState(false);
+  const [pendingConfirmationPreviewUrl, setPendingConfirmationPreviewUrl] = useState<string | null>(null);
+  const [pendingConfirmationConfirmUrl, setPendingConfirmationConfirmUrl] = useState<string | null>(null);
   const countdownRef = useRef<number | null>(null);
   const countdownIntervalRef = useRef<number | null>(null);
 
@@ -135,6 +148,10 @@ export default function LoginPage() {
     setError(null);
     setInfo(null);
     setWakingMessage(null);
+    setPendingConfirmationEmail(null);
+    setPendingConfirmationMessage(null);
+    setPendingConfirmationPreviewUrl(null);
+    setPendingConfirmationConfirmUrl(null);
     setLoginState("submitting");
 
     try {
@@ -164,13 +181,20 @@ export default function LoginPage() {
       }
 
       if (result.state === "error") {
+        const payload = result.data && typeof result.data === "object" ? (result.data as ApiErrorPayload) : null;
         setError(result.message ?? "Erro ao autenticar.");
         setLoginState("error");
 
+        if (payload?.needsEmailConfirmation) {
+          setPendingConfirmationEmail(
+            typeof payload.email === "string" && payload.email.trim() ? payload.email.trim() : null,
+          );
+          setPendingConfirmationMessage(result.message ?? "Confirme seu e-mail antes de entrar.");
+        }
+
         if (
-          result.data &&
-          typeof result.data === "object" &&
-          Boolean((result.data as ApiErrorPayload).needsRegistration)
+          payload &&
+          Boolean(payload.needsRegistration)
         ) {
           try {
             localStorage.setItem(
@@ -197,6 +221,49 @@ export default function LoginPage() {
     } catch {
       setError("Falha ao conectar no backend.");
       setLoginState("error");
+    }
+  }
+
+  async function resendPendingConfirmation() {
+    if (!pendingConfirmationEmail) {
+      return;
+    }
+
+    setPendingConfirmationBusy(true);
+    setInfo(null);
+    setError(null);
+
+    try {
+      const response = await fetch(`${API_URL}/auth/resend-confirmation`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: pendingConfirmationEmail }),
+      });
+      const data: unknown = await response.json().catch(() => null);
+
+      if (!response.ok) {
+        setError(getErrorMessage(data) ?? "Não foi possível reenviar a confirmação agora.");
+        return;
+      }
+
+      const payload = data && typeof data === "object" ? (data as ApiErrorPayload) : null;
+      setPendingConfirmationMessage(
+        getErrorMessage(data) || "Se existir uma conta com confirmação pendente, enviaremos um novo link em instantes.",
+      );
+      setPendingConfirmationPreviewUrl(
+        typeof payload?.delivery?.previewUrl === "string" && payload.delivery.previewUrl.trim()
+          ? payload.delivery.previewUrl
+          : null,
+      );
+      setPendingConfirmationConfirmUrl(
+        typeof payload?.delivery?.confirmUrl === "string" && payload.delivery.confirmUrl.trim()
+          ? payload.delivery.confirmUrl
+          : null,
+      );
+    } catch {
+      setError("Falha ao conectar no backend.");
+    } finally {
+      setPendingConfirmationBusy(false);
     }
   }
 
@@ -378,13 +445,21 @@ export default function LoginPage() {
   }
 
   return (
-    <main className="login-stage" data-login-theme={selection.themeId} data-login-mode={selection.mode}>
+    <main className="login-stage" data-login-theme={selection.themeId} data-login-mode={selection.mode} data-login-state={loginState}>
       <div className="login-stage__grid" aria-hidden />
       <div className="login-visuals" aria-hidden>
         <div
           className={`login-visuals ${playingWelcome || visualsPlayOnLoad ? "play" : ""}`}
           aria-hidden
         >
+          <div className="login-core">
+            <span className="login-core__halo" />
+            <span className="login-core__pulse" />
+            <span className="login-core__ring login-core__ring--outer" />
+            <span className="login-core__ring login-core__ring--mid" />
+            <span className="login-core__beam login-core__beam--left" />
+            <span className="login-core__beam login-core__beam--right" />
+          </div>
           <div className="login-drop" />
           <div className="login-drop login-drop-bottom" />
           <div className="login-drop login-drop-left" />
@@ -422,8 +497,37 @@ export default function LoginPage() {
               </div>
               <div className="login-card__themeCopy">
                 <p className="login-card__themeLabel">{activeTheme.label}</p>
+                <p className="login-card__themeHint">
+                  {mode === "login"
+                    ? "Nucleo operacional pronto para autenticar com contexto, motores e trilho real de entrada."
+                    : "Recupere o acesso sem quebrar o fluxo e sem perder a operacao."}
+                </p>
               </div>
             </div>
+            <h1 className="login-card__title">
+              {mode === "login" ? "Entrar no nucleo HBX" : "Recuperar acesso com clareza"}
+            </h1>
+            <p className={`login-card__copy${mode === "forgot" ? " login-card__copy--compact" : ""}`}>
+              {mode === "login"
+                ? "Tecnologia viva, autenticacao rapida e transicao direta para o modulo realmente operacional."
+                : "Informe o e-mail da conta para receber um link seguro de redefinicao sem estado ambiguo."}
+            </p>
+            {mode === "login" ? (
+              <div className="login-card__stats">
+                <div className="login-card__stat">
+                  <span>Palco</span>
+                  <strong>{isWakingServer ? "Aquecendo backend" : isSuccess ? "Transicao armada" : "Pronto para autenticar"}</strong>
+                </div>
+                <div className="login-card__stat">
+                  <span>Entrada</span>
+                  <strong>{preRegistered ? "Primeiro acesso guiado" : "Roteamento direto por modulo"}</strong>
+                </div>
+                <div className="login-card__stat">
+                  <span>Tema</span>
+                  <strong>{activeTheme.label} · {themeModeLabel}</strong>
+                </div>
+              </div>
+            ) : null}
           </header>
 
           {mode === "login" ? (
@@ -490,6 +594,35 @@ export default function LoginPage() {
               {error ? (
                 <div className="msg-error">
                   <div className="text-sm">{error}</div>
+                </div>
+              ) : null}
+
+              {pendingConfirmationEmail ? (
+                <div className="msg-info" aria-live="polite">
+                  <div className="text-sm">
+                    {pendingConfirmationMessage || "Confirme seu e-mail antes de entrar."}
+                  </div>
+                  <div className="text-xs opacity-75 mt-2">Conta pendente: {pendingConfirmationEmail}</div>
+                  <div className="flex flex-col gap-2 mt-3">
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      onClick={() => void resendPendingConfirmation()}
+                      disabled={pendingConfirmationBusy}
+                    >
+                      {pendingConfirmationBusy ? "Reenviando confirmação..." : "Reenviar confirmação"}
+                    </button>
+                    {pendingConfirmationConfirmUrl ? (
+                      <a className="btn btn-secondary" href={pendingConfirmationConfirmUrl}>
+                        Abrir confirmação
+                      </a>
+                    ) : null}
+                    {pendingConfirmationPreviewUrl ? (
+                      <a className="btn btn-secondary" href={pendingConfirmationPreviewUrl} target="_blank" rel="noreferrer">
+                        Abrir preview do e-mail
+                      </a>
+                    ) : null}
+                  </div>
                 </div>
               ) : null}
 

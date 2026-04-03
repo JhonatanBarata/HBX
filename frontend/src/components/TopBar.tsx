@@ -6,6 +6,11 @@ import { usePathname, useRouter } from "next/navigation";
 import { apiFetch, clearToken, getToken } from "../app/dashboard/_lib/api";
 import { useInterfaceTransition } from "@/components/InterfaceTransitionProvider";
 import { useHbxTheme } from "@/components/ThemeProvider";
+import { usePopupTopbarLock } from "@/lib/use-popup-topbar-lock";
+import {
+  type WhatsAppCenterPayload,
+  type WhatsAppDiagnosticFocus,
+} from "@/lib/whatsapp-center";
 import {
   MASTER_CONTEXT_CHANGED_EVENT,
   dispatchMasterContextChanged,
@@ -13,6 +18,7 @@ import {
 } from "../lib/masterContextEvents";
 import ThemeSwitcher from "./ThemeSwitcher";
 import TechAssistantGlobalDrawer from "./TechAssistantGlobalDrawer";
+import WhatsAppOperationalDialog from "./WhatsAppOperationalDialog";
 
 type User = {
   id: number;
@@ -143,6 +149,16 @@ function formatInboxPreview(conversation: InboxAlertConversation) {
   return "Nova mensagem aguardando resposta.";
 }
 
+function resolveWhatsAppDiagnosticFocus(chip: OperationalStatusChip): WhatsAppDiagnosticFocus {
+  if (chip.key === "webwhats") return "temporary";
+  if (chip.key === "token" || chip.key === "meta") return "official";
+  return "status";
+}
+
+function isWhatsAppOperationalChip(chip: OperationalStatusChip) {
+  return chip.key === "token" || chip.key === "meta" || chip.key === "webwhats";
+}
+
 export default function TopBar() {
   const router = useRouter();
   const pathname = usePathname();
@@ -171,6 +187,13 @@ export default function TopBar() {
   const [masterContextReason, setMasterContextReason] = useState("");
   const [masterContextToast, setMasterContextToast] = useState<string | null>(null);
   const [topbarHiddenByScroll, setTopbarHiddenByScroll] = useState(false);
+  const [whatsAppDetailOpen, setWhatsAppDetailOpen] = useState(false);
+  const [whatsAppDetailFocus, setWhatsAppDetailFocus] = useState<WhatsAppDiagnosticFocus>("status");
+  const [whatsAppDetailLoading, setWhatsAppDetailLoading] = useState(false);
+  const [whatsAppDetailBusy, setWhatsAppDetailBusy] = useState<string | null>(null);
+  const [whatsAppDetailError, setWhatsAppDetailError] = useState<string | null>(null);
+  const [whatsAppDetailMessage, setWhatsAppDetailMessage] = useState<string | null>(null);
+  const [whatsAppCenter, setWhatsAppCenter] = useState<WhatsAppCenterPayload | null>(null);
   const recoveryLastSeenRef = useRef<Map<number, string>>(new Map());
   const recoveryHumanQueueRef = useRef<Map<number, boolean>>(new Map());
   const recoveryAlertReadyRef = useRef(false);
@@ -180,6 +203,8 @@ export default function TopBar() {
   const audioArmedRef = useRef(false);
   const masterContextToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastScrollYRef = useRef(0);
+
+  usePopupTopbarLock(whatsAppDetailOpen || masterContextModalOpen);
 
   const refreshMasterAwareState = React.useCallback(async () => {
     const [profile, myModules] = await Promise.all([
@@ -201,6 +226,24 @@ export default function TopBar() {
       return null;
     }
   }, []);
+
+  const loadWhatsAppCenter = React.useCallback(async (options?: { background?: boolean; refreshTemporary?: boolean }) => {
+    if (!authenticated) return null;
+    if (!options?.background) setWhatsAppDetailLoading(true);
+    setWhatsAppDetailError(null);
+    try {
+      const suffix = options?.refreshTemporary ? "?refresh=true" : "";
+      const payload = await apiFetch<WhatsAppCenterPayload>(`/companies/me/whatsapp-center${suffix}`);
+      setWhatsAppCenter(payload);
+      return payload;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Falha ao carregar o diagnostico do WhatsApp.";
+      setWhatsAppDetailError(message);
+      return null;
+    } finally {
+      if (!options?.background) setWhatsAppDetailLoading(false);
+    }
+  }, [authenticated]);
 
   const showMasterContextToast = React.useCallback((detail?: MasterContextChangedDetail | null) => {
     const mode = detail?.mode;
@@ -431,6 +474,25 @@ export default function TopBar() {
   }, [authenticated, refreshOperationalStatus]);
 
   useEffect(() => {
+    if (!whatsAppDetailMessage) return;
+    const timer = window.setTimeout(() => setWhatsAppDetailMessage(null), 2800);
+    return () => window.clearTimeout(timer);
+  }, [whatsAppDetailMessage]);
+
+  useEffect(() => {
+    if (!whatsAppDetailOpen || !whatsAppCenter?.center.temporary.selected) return;
+    const liveStatus = whatsAppCenter.center.temporary.liveStatus;
+    if (liveStatus !== "qr_ready" && liveStatus !== "connected") return;
+
+    const timer = window.setInterval(() => {
+      void loadWhatsAppCenter({ background: true, refreshTemporary: true });
+      void refreshOperationalStatus(true);
+    }, liveStatus === "connected" ? 20000 : 9000);
+
+    return () => window.clearInterval(timer);
+  }, [loadWhatsAppCenter, refreshOperationalStatus, whatsAppCenter?.center.temporary.liveStatus, whatsAppCenter?.center.temporary.selected, whatsAppDetailOpen]);
+
+  useEffect(() => {
     if (!authenticated) {
       setRecoveryPendingHumanCount(0);
       setAtendimentoPendingHumanCount(0);
@@ -657,7 +719,31 @@ export default function TopBar() {
 
   useEffect(() => {
     setOpen(false);
+    setWhatsAppDetailOpen(false);
   }, [pathname]);
+
+  useEffect(() => {
+    if (authenticated) return;
+    setWhatsAppDetailOpen(false);
+    setWhatsAppCenter(null);
+    setWhatsAppDetailError(null);
+    setWhatsAppDetailMessage(null);
+  }, [authenticated]);
+
+  useEffect(() => {
+    if (!whatsAppDetailOpen) return;
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setWhatsAppDetailOpen(false);
+      }
+    };
+
+    document.addEventListener("keydown", handleEscape);
+    return () => {
+      document.removeEventListener("keydown", handleEscape);
+    };
+  }, [whatsAppDetailOpen]);
 
   useEffect(() => {
     function handleOutsideClick(event: MouseEvent) {
@@ -785,7 +871,104 @@ export default function TopBar() {
     router.push(moduleKey === "atendimento" ? "/dashboard/inbox" : "/dashboard/inbox/recovery");
   }
 
+  async function openWhatsAppDiagnostic(focus: WhatsAppDiagnosticFocus) {
+    setWhatsAppDetailFocus(focus);
+    setWhatsAppDetailOpen(true);
+    setWhatsAppDetailError(null);
+    await loadWhatsAppCenter({ refreshTemporary: focus === "temporary" });
+    void refreshOperationalStatus(true);
+  }
+
+  async function chooseWhatsAppMode(mode: "TEMPORARY" | "OFFICIAL") {
+    setWhatsAppDetailBusy(mode);
+    setWhatsAppDetailError(null);
+    try {
+      const next = await apiFetch<WhatsAppCenterPayload>("/companies/me/whatsapp-center", {
+        method: "PATCH",
+        body: JSON.stringify({ mode }),
+      });
+      setWhatsAppCenter(next);
+      setWhatsAppDetailFocus(mode === "TEMPORARY" ? "temporary" : "official");
+      setWhatsAppDetailMessage(
+        mode === "TEMPORARY"
+          ? "Trilho rapido selecionado para teste imediato."
+          : "Rota oficial da Meta selecionada para esta empresa.",
+      );
+      void refreshOperationalStatus(true);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Falha ao atualizar o modo do WhatsApp.";
+      setWhatsAppDetailError(message);
+    } finally {
+      setWhatsAppDetailBusy(null);
+    }
+  }
+
+  async function requestWhatsAppMigration() {
+    setWhatsAppDetailBusy("migration");
+    setWhatsAppDetailError(null);
+    try {
+      const next = await apiFetch<WhatsAppCenterPayload>("/companies/me/whatsapp-center/migration-interest", {
+        method: "POST",
+        body: JSON.stringify({ source: "topbar_operational_detail" }),
+      });
+      setWhatsAppCenter(next);
+      setWhatsAppDetailMessage("Aceite registrado. O time tecnico ja consegue enxergar esta necessidade.");
+      void refreshOperationalStatus(true);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Falha ao registrar o interesse na migracao oficial.";
+      setWhatsAppDetailError(message);
+    } finally {
+      setWhatsAppDetailBusy(null);
+    }
+  }
+
+  async function startTemporaryWhatsAppConnection() {
+    setWhatsAppDetailBusy("temporary-connect");
+    setWhatsAppDetailError(null);
+    try {
+      const next = await apiFetch<WhatsAppCenterPayload>("/companies/me/whatsapp-center/temporary/connect", {
+        method: "POST",
+      });
+      setWhatsAppCenter(next);
+      setWhatsAppDetailFocus("temporary");
+      setWhatsAppDetailMessage("QR gerado. Leia o codigo no celular para concluir o vinculo rapido.");
+      void refreshOperationalStatus(true);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Falha ao iniciar o vinculo rapido por QR.";
+      setWhatsAppDetailError(message);
+    } finally {
+      setWhatsAppDetailBusy(null);
+    }
+  }
+
+  async function disconnectTemporaryWhatsAppConnection() {
+    setWhatsAppDetailBusy("temporary-disconnect");
+    setWhatsAppDetailError(null);
+    try {
+      const next = await apiFetch<WhatsAppCenterPayload>("/companies/me/whatsapp-center/temporary/disconnect", {
+        method: "POST",
+      });
+      setWhatsAppCenter(next);
+      setWhatsAppDetailMessage("Vinculo temporario desconectado.");
+      void refreshOperationalStatus(true);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Falha ao desconectar o vinculo rapido.";
+      setWhatsAppDetailError(message);
+    } finally {
+      setWhatsAppDetailBusy(null);
+    }
+  }
+
+  async function refreshTemporaryWhatsAppStatus() {
+    await loadWhatsAppCenter({ refreshTemporary: true });
+    void refreshOperationalStatus(true);
+  }
+
   function handleOperationalChipClick(chip: OperationalStatusChip) {
+    if (isWhatsAppOperationalChip(chip)) {
+      void openWhatsAppDiagnostic(resolveWhatsAppDiagnosticFocus(chip));
+      return;
+    }
     if (!chip.href) return;
     router.push(chip.href);
   }
@@ -1141,6 +1324,38 @@ export default function TopBar() {
       </div>
 
       {/* incomingPopup UI removed — notifications are disabled for now */}
+
+      <WhatsAppOperationalDialog
+        isOpen={whatsAppDetailOpen}
+        focus={whatsAppDetailFocus}
+        loading={whatsAppDetailLoading}
+        busyAction={whatsAppDetailBusy}
+        payload={whatsAppCenter}
+        error={whatsAppDetailError}
+        message={whatsAppDetailMessage}
+        onClose={() => setWhatsAppDetailOpen(false)}
+        onFocusChange={(focus) => {
+          setWhatsAppDetailFocus(focus);
+          if (focus === "temporary") {
+            void loadWhatsAppCenter({ refreshTemporary: true });
+          }
+        }}
+        onChooseMode={(mode) => {
+          void chooseWhatsAppMode(mode);
+        }}
+        onRequestMigration={() => {
+          void requestWhatsAppMigration();
+        }}
+        onStartTemporaryConnection={() => {
+          void startTemporaryWhatsAppConnection();
+        }}
+        onDisconnectTemporaryConnection={() => {
+          void disconnectTemporaryWhatsAppConnection();
+        }}
+        onRefreshTemporary={() => {
+          void refreshTemporaryWhatsAppStatus();
+        }}
+      />
 
       {masterContextToast ? (
         <div

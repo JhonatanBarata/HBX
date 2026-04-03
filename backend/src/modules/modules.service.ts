@@ -206,6 +206,7 @@ export class ModulesService implements OnModuleInit {
     const normalized = String(paymentStatusRaw || '').trim().toUpperCase();
     if (normalized === 'PAID') return 'active';
     if (normalized === 'TRIAL') return 'trialing';
+    if (normalized === 'MANUAL') return 'manual';
     if (normalized === 'DISABLED') return 'canceled';
     if (normalized === 'EXPIRED') return 'expired';
     return 'past_due';
@@ -425,6 +426,56 @@ export class ModulesService implements OnModuleInit {
     };
   }
 
+  private toAuditIso(value: unknown) {
+    if (value instanceof Date) return value.toISOString();
+    return this.normalizeOptionalString(value);
+  }
+
+  private buildCompanyAccessAuditSnapshot(company: any) {
+    return {
+      isActive: Boolean(company?.isActive),
+      paymentStatus: this.normalizeOptionalString(company?.paymentStatus),
+      subscriptionStatus: this.normalizeOptionalString(company?.subscriptionStatus),
+      premiumAccess: Boolean(company?.premiumAccess),
+      trialStartsAt: this.toAuditIso(company?.trialStartsAt),
+      trialEndsAt: this.toAuditIso(company?.trialEndsAt),
+      subscriptionCurrentPeriodStart: this.toAuditIso(company?.subscriptionCurrentPeriodStart),
+      subscriptionCurrentPeriodEnd: this.toAuditIso(company?.subscriptionCurrentPeriodEnd),
+      deactivatedAt: this.toAuditIso(company?.deactivatedAt),
+    };
+  }
+
+  private buildCompanyProfileAuditSnapshot(company: any) {
+    return {
+      name: this.normalizeOptionalString(company?.name),
+      primaryContactName: this.normalizeOptionalString(company?.primaryContactName),
+      contactEmail: this.normalizeOptionalString(company?.contactEmail),
+      contactPhone: this.normalizeOptionalString(company?.contactPhone),
+      taxDocument: this.normalizeOptionalString(company?.taxDocument),
+      paymentMethod: this.normalizeOptionalString(company?.paymentMethod),
+      billingProvider: this.normalizeOptionalString(company?.billingProvider),
+      subscriptionStatus: this.normalizeOptionalString(company?.subscriptionStatus),
+      premiumAccess: Boolean(company?.premiumAccess),
+    };
+  }
+
+  private buildCompanyFinanceSettingsAuditSnapshot(company: any) {
+    return {
+      billingCycle: this.normalizeBillingCycle(company?.billingCycle),
+      manualDiscountPercent: this.normalizePercentValue(company?.manualDiscountPercent || 0),
+      freeMonths: Math.max(0, Math.trunc(Number(company?.freeMonths || 0) || 0)),
+    };
+  }
+
+  private buildCompanyMasterTokenUsageAuditSnapshot(company: any) {
+    return {
+      useMasterMercadoPagoToken: Boolean(company?.useMasterMercadoPagoToken),
+      useMasterWhatsAppToken: Boolean(company?.useMasterWhatsAppToken),
+      masterMercadoPagoCredentialKey: this.normalizeOptionalString(company?.masterMercadoPagoCredentialKey),
+      masterWhatsAppCredentialKey: this.normalizeOptionalString(company?.masterWhatsAppCredentialKey),
+    };
+  }
+
   private buildWebscrapingUserLabel(row: {
     userName?: string | null;
     userUsername?: string | null;
@@ -640,6 +691,7 @@ export class ModulesService implements OnModuleInit {
     const trialEndsAt = this.parseDateValue(company?.trialEndsAt);
 
     if (company?.isActive === false) return 'SUSPENDED';
+    if (paymentStatus === 'MANUAL' || subscriptionStatus === 'manual') return 'MANUAL_PREMIUM';
     if (!paymentMethod || paymentMethod === 'NONE') return 'NO_METHOD';
     if (paymentStatus === 'DISABLED' || paymentStatus === 'EXPIRED' || subscriptionStatus === 'canceled' || subscriptionStatus === 'expired') {
       return 'SUSPENDED';
@@ -998,6 +1050,7 @@ export class ModulesService implements OnModuleInit {
 
     const company = await this.prisma.company.findUnique({ where: { id: Number(companyId) } });
     if (!company) throw new BadRequestException('Empresa nao encontrada');
+  const previousState = this.buildCompanyMasterTokenUsageAuditSnapshot(company);
     const masterConfig = await getMasterGlobalIntegrationConfig(this.prisma);
     const serializedConfig = serializeMasterGlobalIntegrationConfig(masterConfig);
     const selectedMercadoPago = input?.masterMercadoPagoCredentialKey
@@ -1047,10 +1100,8 @@ export class ModulesService implements OnModuleInit {
       scope: 'master_global_integrations',
       action: 'COMPANY_MASTER_TOKEN_USAGE_UPDATED',
       metadata: {
-        useMasterMercadoPagoToken: Boolean(updated.useMasterMercadoPagoToken),
-        useMasterWhatsAppToken: Boolean(updated.useMasterWhatsAppToken),
-        masterMercadoPagoCredentialKey: updated.masterMercadoPagoCredentialKey || null,
-        masterWhatsAppCredentialKey: updated.masterWhatsAppCredentialKey || null,
+        previousState,
+        currentState: this.buildCompanyMasterTokenUsageAuditSnapshot(updated),
       },
     });
 
@@ -1074,6 +1125,7 @@ export class ModulesService implements OnModuleInit {
 
     const company = await this.prisma.company.findUnique({ where: { id: Number(companyId) } });
     if (!company) throw new BadRequestException('Empresa nao encontrada');
+  const previousState = this.buildCompanyMasterTokenUsageAuditSnapshot(company);
 
     const mercadoPagoAccessToken = this.normalizeOptionalString(company.mercadoPagoAccessToken);
     const whatsappAccessToken = this.normalizeOptionalString(company.whatsappAccessToken);
@@ -1212,10 +1264,12 @@ export class ModulesService implements OnModuleInit {
         clearSource,
         importedMercadoPago: Boolean(mercadoPagoAccessToken),
         importedWhatsApp: Boolean(whatsappAccessToken && whatsappPhoneNumberId),
-        useMasterMercadoPagoToken: Boolean(updatedCompany.useMasterMercadoPagoToken),
-        useMasterWhatsAppToken: Boolean(updatedCompany.useMasterWhatsAppToken),
-        masterMercadoPagoCredentialKey: updatedCompany.masterMercadoPagoCredentialKey || null,
-        masterWhatsAppCredentialKey: updatedCompany.masterWhatsAppCredentialKey || null,
+        previousState,
+        currentState: this.buildCompanyMasterTokenUsageAuditSnapshot(updatedCompany),
+        sourceCredentialsCleared: {
+          mercadoPago: Boolean(clearSource && mercadoPagoAccessToken),
+          whatsapp: Boolean(clearSource && whatsappAccessToken && whatsappPhoneNumberId),
+        },
       },
     });
 
@@ -1542,13 +1596,16 @@ export class ModulesService implements OnModuleInit {
       company.trialEndsAt &&
       company.trialEndsAt.getTime() < now &&
       paymentStatus !== 'PAID' &&
-      subscriptionStatus !== 'active',
+      paymentStatus !== 'MANUAL' &&
+      subscriptionStatus !== 'active' &&
+      subscriptionStatus !== 'manual',
     );
     const trialAllowed =
       (paymentStatus === 'TRIAL' || subscriptionStatus === 'trialing') &&
       (!company.trialEndsAt || company.trialEndsAt.getTime() >= now);
     const paidAllowed = paymentStatus === 'PAID' || subscriptionStatus === 'active';
-    const shouldRemainActive = Boolean(company.isActive && (paidAllowed || trialAllowed));
+    const manualAllowed = paymentStatus === 'MANUAL' || subscriptionStatus === 'manual';
+    const shouldRemainActive = Boolean(company.isActive && (paidAllowed || trialAllowed || manualAllowed));
 
     if (trialExpired || !shouldRemainActive) {
       await this.prisma.$transaction([
@@ -2026,7 +2083,7 @@ export class ModulesService implements OnModuleInit {
     let riskLevel: 'stable' | 'warning' | 'critical' = 'stable';
     if (['OVERDUE', 'NO_METHOD', 'SUSPENDED'].includes(statusBucket) || recentCardFailure) {
       riskLevel = 'critical';
-    } else if (statusBucket === 'TRIAL_ENDING' || manualPaymentPending || websiteNeedsAttention) {
+    } else if (statusBucket === 'TRIAL_ENDING' || statusBucket === 'MANUAL_PREMIUM' || manualPaymentPending || websiteNeedsAttention) {
       riskLevel = 'warning';
     }
 
@@ -2085,6 +2142,8 @@ export class ModulesService implements OnModuleInit {
       financialSituation:
         statusBucket === 'PAYING'
           ? 'Adimplente'
+          : statusBucket === 'MANUAL_PREMIUM'
+            ? 'Premium manual'
           : statusBucket === 'TRIAL'
             ? 'Em trial'
             : statusBucket === 'TRIAL_ENDING'
@@ -2366,6 +2425,7 @@ export class ModulesService implements OnModuleInit {
 
     const baseStatusDistribution = [
       { key: 'PAYING', label: 'Pagando', value: companySummaries.filter((company) => company.statusBucket === 'PAYING').length },
+      { key: 'MANUAL_PREMIUM', label: 'Premium manual', value: companySummaries.filter((company) => company.statusBucket === 'MANUAL_PREMIUM').length },
       { key: 'TRIAL', label: 'Trial', value: companySummaries.filter((company) => company.statusBucket === 'TRIAL').length },
       { key: 'TRIAL_ENDING', label: 'Trial vencendo', value: companySummaries.filter((company) => company.statusBucket === 'TRIAL_ENDING').length },
       { key: 'OVERDUE', label: 'Atrasado', value: companySummaries.filter((company) => company.statusBucket === 'OVERDUE').length },
@@ -2399,6 +2459,12 @@ export class ModulesService implements OnModuleInit {
     }
 
     const attentionDefinitions = [
+      {
+        id: 'manual_premium',
+        title: 'Premium manual sem financeiro',
+        severity: 'warning',
+        companies: companySummaries.filter((company) => company.statusBucket === 'MANUAL_PREMIUM'),
+      },
       {
         id: 'trial_today',
         title: 'Trial vencendo hoje',
@@ -2936,6 +3002,10 @@ export class ModulesService implements OnModuleInit {
     const key = this.normalizeKey(moduleKey);
     const moduleItem = await this.prisma.systemModule.findUnique({ where: { key } });
     if (!moduleItem || !moduleItem.companyAssignable) throw new BadRequestException('Modulo nao encontrado para empresas');
+    const existingModuleState = await this.prisma.companyModule.findUnique({
+      where: { companyId_moduleId: { companyId, moduleId: moduleItem.id } },
+      select: { enabled: true },
+    });
 
     const company = await this.prisma.company.findUnique({ where: { id: companyId } });
     if (!company) throw new BadRequestException('Empresa nao encontrada');
@@ -2959,7 +3029,17 @@ export class ModulesService implements OnModuleInit {
       action: 'MODULE_TOGGLED',
       metadata: {
         moduleKey: moduleItem.key,
-        enabled: Boolean(result.enabled),
+        moduleName: moduleItem.name,
+        previousState: {
+          moduleKey: moduleItem.key,
+          moduleName: moduleItem.name,
+          enabled: Boolean(existingModuleState?.enabled),
+        },
+        currentState: {
+          moduleKey: moduleItem.key,
+          moduleName: moduleItem.name,
+          enabled: Boolean(result.enabled),
+        },
       },
     });
 
@@ -2974,6 +3054,7 @@ export class ModulesService implements OnModuleInit {
     await this.assertMasterUser(masterUserId);
     const company = await this.prisma.company.findUnique({ where: { id: companyId } });
     if (!company) throw new BadRequestException('Empresa nao encontrada');
+    const previousState = this.buildCompanyAccessAuditSnapshot(company);
 
     const action = String(input?.action || 'grant').trim().toLowerCase();
     const reason = this.normalizeOptionalString(input?.reason);
@@ -3002,7 +3083,14 @@ export class ModulesService implements OnModuleInit {
         companyId,
         scope: 'master_trial',
         action: 'TRIAL_ENDED',
-        metadata: { reason },
+        metadata: {
+          reason,
+          requestedAction: action,
+          previousState,
+          currentState: this.buildCompanyAccessAuditSnapshot(
+            await this.prisma.company.findUnique({ where: { id: companyId } }),
+          ),
+        },
       });
 
       return {
@@ -3062,7 +3150,12 @@ export class ModulesService implements OnModuleInit {
         action: auditAction,
         metadata: {
           reason,
+          requestedAction: action,
           endsAt: manualEnd.toISOString(),
+          previousState,
+          currentState: this.buildCompanyAccessAuditSnapshot(
+            await this.prisma.company.findUnique({ where: { id: companyId } }),
+          ),
         },
       });
 
@@ -3119,9 +3212,14 @@ export class ModulesService implements OnModuleInit {
       action: auditAction,
       metadata: {
         reason,
+        requestedAction: action,
         days: Math.trunc(days),
         trialStartsAt: trialStartsAt.toISOString(),
         trialEndsAt: trialEndsAt.toISOString(),
+        previousState,
+        currentState: this.buildCompanyAccessAuditSnapshot(
+          await this.prisma.company.findUnique({ where: { id: companyId } }),
+        ),
       },
     });
 
@@ -3145,15 +3243,16 @@ export class ModulesService implements OnModuleInit {
     await this.assertMasterUser(masterUserId);
 
     const normalized = String(paymentStatus || '').trim().toUpperCase();
-    const allowed = ['PENDING', 'TRIAL', 'PAID', 'OVERDUE', 'EXPIRED', 'DISABLED'];
+    const allowed = ['PENDING', 'TRIAL', 'PAID', 'MANUAL', 'OVERDUE', 'EXPIRED', 'DISABLED'];
     if (!allowed.includes(normalized)) {
       throw new BadRequestException(`paymentStatus deve ser um de: ${allowed.join(', ')}`);
     }
 
     const company = await this.prisma.company.findUnique({ where: { id: companyId } });
     if (!company) throw new BadRequestException('Empresa nao encontrada');
+    const previousState = this.buildCompanyAccessAuditSnapshot(company);
 
-    const isActive = normalized === 'PAID' || normalized === 'TRIAL';
+    const isActive = normalized === 'PAID' || normalized === 'TRIAL' || normalized === 'MANUAL';
     const subscriptionStatus = this.mapPaymentStatusToSubscriptionStatus(normalized);
     const now = new Date();
     await this.prisma.company.update({
@@ -3161,11 +3260,20 @@ export class ModulesService implements OnModuleInit {
       data: {
         paymentStatus: normalized,
         subscriptionStatus,
-        premiumAccess: subscriptionStatus === 'active' || subscriptionStatus === 'trialing',
-        subscriptionCurrentPeriodStart: normalized === 'PAID' ? now : company.subscriptionCurrentPeriodStart,
+        premiumAccess: ['active', 'trialing', 'manual'].includes(subscriptionStatus),
+        trialStartsAt: normalized === 'MANUAL' ? null : company.trialStartsAt,
+        trialEndsAt: normalized === 'MANUAL' ? null : company.trialEndsAt,
+        subscriptionCurrentPeriodStart:
+          normalized === 'PAID'
+            ? now
+            : normalized === 'MANUAL'
+              ? null
+              : company.subscriptionCurrentPeriodStart,
         subscriptionCurrentPeriodEnd:
           normalized === 'PAID'
             ? new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000)
+            : normalized === 'MANUAL'
+              ? null
             : normalized === 'DISABLED' || normalized === 'EXPIRED'
               ? null
               : company.subscriptionCurrentPeriodEnd,
@@ -3186,6 +3294,10 @@ export class ModulesService implements OnModuleInit {
       scope: 'master_billing',
       action: 'PAYMENT_STATUS_UPDATED',
       metadata: {
+        previousState,
+        currentState: this.buildCompanyAccessAuditSnapshot(
+          await this.prisma.company.findUnique({ where: { id: companyId } }),
+        ),
         paymentStatus: normalized,
         subscriptionStatus,
         isActive,
@@ -3239,6 +3351,7 @@ export class ModulesService implements OnModuleInit {
     const observation = this.normalizeOptionalString(input?.observation);
     const settlePending = input?.settlePending !== false;
     const previousSubscriptionStatus = String(company.subscriptionStatus || '').trim().toLowerCase();
+    const previousState = this.buildCompanyAccessAuditSnapshot(company);
 
     await this.insertBillingLedgerEntry({
       companyId,
@@ -3296,6 +3409,12 @@ export class ModulesService implements OnModuleInit {
           paymentMethod,
           settlePending,
           observation,
+          previousState,
+          currentState: this.buildCompanyAccessAuditSnapshot(
+            settlePending
+              ? await this.prisma.company.findUnique({ where: { id: companyId } })
+              : company,
+          ),
         },
       });
 
@@ -3394,9 +3513,20 @@ export class ModulesService implements OnModuleInit {
       action: 'MANUAL_PAYMENT_CANCELLED',
       severity: 'WARN',
       metadata: {
-        entryId: String(entryId),
-        amount: this.normalizeCurrencyAmount(entry.amount),
-        competence: entry.competence || null,
+        previousState: {
+          entryId: String(entryId),
+          status: String(entry.status || 'PENDING'),
+          amount: this.normalizeCurrencyAmount(entry.amount),
+          competence: entry.competence || null,
+          observation: entry.observation || null,
+        },
+        currentState: {
+          entryId: String(entryId),
+          status: 'CANCELLED',
+          amount: this.normalizeCurrencyAmount(entry.amount),
+          competence: entry.competence || null,
+          observation: nextObservation || null,
+        },
       },
     });
 
@@ -3426,6 +3556,7 @@ export class ModulesService implements OnModuleInit {
     await this.assertMasterUser(masterUserId);
     const company = await this.prisma.company.findUnique({ where: { id: companyId } });
     if (!company) throw new BadRequestException('Empresa nao encontrada');
+    const previousState = this.buildCompanyProfileAuditSnapshot(company);
 
     const paymentMethod = String(dto?.paymentMethod || company.paymentMethod || 'NONE')
       .trim()
@@ -3441,7 +3572,7 @@ export class ModulesService implements OnModuleInit {
 
     const allowedPaymentMethods = ['NONE', 'CARD', 'PIX', 'BOLETO', 'MANUAL'];
     const allowedBillingProviders = ['manual', 'mercadopago', 'stripe', 'apple', 'google'];
-    const allowedSubscriptionStatuses = ['trialing', 'active', 'past_due', 'canceled', 'expired'];
+    const allowedSubscriptionStatuses = ['trialing', 'active', 'manual', 'past_due', 'canceled', 'expired'];
 
     if (!allowedPaymentMethods.includes(paymentMethod)) {
       throw new BadRequestException(`paymentMethod deve ser um de: ${allowedPaymentMethods.join(', ')}`);
@@ -3457,7 +3588,7 @@ export class ModulesService implements OnModuleInit {
       );
     }
 
-    await this.prisma.company.update({
+    const updated = await this.prisma.company.update({
       where: { id: companyId },
       data: {
         name: this.normalizeOptionalString(dto?.name) || company.name,
@@ -3471,7 +3602,7 @@ export class ModulesService implements OnModuleInit {
         premiumAccess:
           typeof dto?.premiumAccess === 'boolean'
             ? dto.premiumAccess
-            : subscriptionStatus === 'active' || subscriptionStatus === 'trialing',
+            : ['active', 'trialing', 'manual'].includes(subscriptionStatus),
       },
     });
 
@@ -3481,13 +3612,8 @@ export class ModulesService implements OnModuleInit {
       scope: 'master_company',
       action: 'COMPANY_PROFILE_UPDATED',
       metadata: {
-        paymentMethod,
-        billingProvider,
-        subscriptionStatus,
-        premiumAccess:
-          typeof dto?.premiumAccess === 'boolean'
-            ? dto.premiumAccess
-            : subscriptionStatus === 'active' || subscriptionStatus === 'trialing',
+        previousState,
+        currentState: this.buildCompanyProfileAuditSnapshot(updated),
       },
     });
 
@@ -3507,6 +3633,7 @@ export class ModulesService implements OnModuleInit {
     await ensureMasterBillingRuntimeSchema(this.prisma);
     const company = await this.prisma.company.findUnique({ where: { id: companyId } });
     if (!company) throw new BadRequestException('Empresa nao encontrada');
+    const previousState = this.buildCompanyFinanceSettingsAuditSnapshot(company);
 
     const billingCycle = dto?.billingCycle !== undefined
       ? this.normalizeBillingCycle(dto.billingCycle)
@@ -3520,7 +3647,7 @@ export class ModulesService implements OnModuleInit {
         ? Math.max(0, Math.trunc(Number(dto.freeMonths || 0) || 0))
         : Math.max(0, Math.trunc(Number(company.freeMonths || 0) || 0));
 
-    await this.prisma.company.update({
+    const updated = await this.prisma.company.update({
       where: { id: companyId },
       data: {
         billingCycle,
@@ -3535,9 +3662,8 @@ export class ModulesService implements OnModuleInit {
       scope: 'master_billing',
       action: 'COMPANY_FINANCE_SETTINGS_UPDATED',
       metadata: {
-        billingCycle,
-        manualDiscountPercent,
-        freeMonths,
+        previousState,
+        currentState: this.buildCompanyFinanceSettingsAuditSnapshot(updated),
       },
     });
 

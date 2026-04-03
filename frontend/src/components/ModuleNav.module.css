@@ -84,13 +84,21 @@
 .moduleCardDisabledActive {
   border-style: dashed;
   background:
+    radial-gradient(circle at top right, color-mix(in srgb, var(--warning) 12%, transparent), transparent 42%),
     linear-gradient(180deg, color-mix(in srgb, var(--surface-soft) 94%, white), color-mix(in srgb, var(--surface) 90%, var(--background)));
-  opacity: 0.84;
-  cursor: not-allowed;
+  opacity: 0.92;
+  cursor: pointer;
 }
 
 .moduleCardDisabledActive {
   border-color: color-mix(in srgb, var(--warning) 34%, var(--line));
+}
+
+.moduleCardDisabled:hover,
+.moduleCardDisabledActive:hover {
+  transform: translateY(-1px);
+  border-color: color-mix(in srgb, var(--warning) 42%, var(--line));
+  box-shadow: var(--shadow-inset), var(--shadow-sm);
 }
 
 .moduleCardBadge {
@@ -135,6 +143,24 @@
   hyphens: none;
 }
 
+.moduleCardMeta {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  min-height: 22px;
+  margin-top: 0.12rem;
+  padding: 0.15rem 0.48rem;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--warning) 24%, var(--line));
+  background: color-mix(in srgb, var(--warning) 10%, var(--surface-raised));
+  color: color-mix(in srgb, var(--warning) 82%, var(--foreground));
+  font-size: 0.62rem;
+  font-style: normal;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
 .moduleCardArrow {
   min-height: 28px;
   padding: 0.24rem 0.58rem;
@@ -151,6 +177,13 @@
 .moduleCardDisabledActive .moduleCardBadge {
   background: linear-gradient(145deg, color-mix(in srgb, var(--warning) 72%, var(--brand)), color-mix(in srgb, var(--muted) 74%, var(--surface-strong)));
   box-shadow: none;
+}
+
+.moduleCardDisabled .moduleCardArrow,
+.moduleCardDisabledActive .moduleCardArrow {
+  border-color: color-mix(in srgb, var(--warning) 26%, var(--line));
+  background: color-mix(in srgb, var(--warning) 12%, var(--surface-raised));
+  color: color-mix(in srgb, var(--warning) 86%, var(--foreground));
 }
 
 .moduleEditInput,

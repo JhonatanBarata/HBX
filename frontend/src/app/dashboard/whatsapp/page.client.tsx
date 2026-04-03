@@ -6,85 +6,14 @@ import { useSearchParams } from "next/navigation";
 import DashboardScaffold from "@/components/DashboardScaffold";
 import { apiFetch } from "../_lib/api";
 import { useRequireAuth } from "../_lib/useRequireAuth";
+import {
+  formatWhatsAppDateTime,
+  type WhatsAppCenterPayload,
+  whatsappModeLabel,
+  whatsappTemporaryLiveLabel,
+  whatsappTrialModuleLabel,
+} from "@/lib/whatsapp-center";
 import styles from "./page.module.css";
-
-type WhatsAppCenterPayload = {
-  generatedAt: string;
-  company: {
-    id: number;
-    name?: string | null;
-    onboardingStatus?: string | null;
-    paymentStatus?: string | null;
-    subscriptionStatus?: string | null;
-    premiumAccess?: boolean;
-    trialModuleSelection?: string | null;
-    whatsappConnectionMode?: string | null;
-    whatsappTemporaryStatus?: string | null;
-  };
-  center: {
-    mode: "NONE" | "TEMPORARY" | "OFFICIAL";
-    status: "NOT_CONNECTED" | "TEMPORARY" | "OFFICIAL" | "ATTENTION";
-    statusLabel: string;
-    statusHint: string;
-    temporary: {
-      selected: boolean;
-      status: "NOT_CONNECTED" | "TEMPORARY" | "ATTENTION";
-      available: boolean;
-      note: string;
-      liveStatus: "idle" | "qr_ready" | "connected" | "error";
-      provider?: string | null;
-      instanceKey?: string | null;
-      pairingCode?: string | null;
-      qrCodeDataUrl?: string | null;
-      displayNumber?: string | null;
-      connectedAt?: string | null;
-      lastSyncAt?: string | null;
-      errorMessage?: string | null;
-    };
-    official: {
-      selected: boolean;
-      configured: boolean;
-      connected: boolean;
-      status?: string | null;
-      displayNumber?: string | null;
-      usingMasterToken: boolean;
-      credentialLabel?: string | null;
-      phoneNumberId?: string | null;
-      wabaId?: string | null;
-    };
-    migration: {
-      interestRequested: boolean;
-      requestedAt?: string | null;
-    };
-  };
-};
-
-function formatDateTime(value?: string | null) {
-  const iso = String(value || "").trim();
-  if (!iso) return "-";
-  const parsed = new Date(iso);
-  if (Number.isNaN(parsed.getTime())) return "-";
-  return parsed.toLocaleString("pt-BR");
-}
-
-function modeLabel(value?: string | null) {
-  const normalized = String(value || "").trim().toUpperCase();
-  if (normalized === "TEMPORARY") return "Conexão rápida / temporária";
-  if (normalized === "OFFICIAL") return "Conexão oficial / Meta";
-  return "Ainda não definido";
-}
-
-function trialModuleLabel(value?: string | null) {
-  return String(value || "").trim().toLowerCase() === "recovery" ? "Recovery" : "Vendas";
-}
-
-function temporaryLiveLabel(value?: string | null) {
-  const normalized = String(value || "").trim().toLowerCase();
-  if (normalized === "connected") return "Conectado por QR";
-  if (normalized === "qr_ready") return "QR aguardando leitura";
-  if (normalized === "error") return "Atenção técnica";
-  return "Aguardando ativação";
-}
 
 export default function WhatsAppCenterClientPage() {
   const hasToken = useRequireAuth();
@@ -228,16 +157,11 @@ export default function WhatsAppCenterClientPage() {
     if (!payload) return [];
     return [
       { label: "Status atual", value: payload.center.statusLabel, note: payload.center.statusHint },
-      { label: "Modo escolhido", value: modeLabel(payload.center.mode), note: "Clareza comercial antes de escalar." },
+      { label: "Modo escolhido", value: whatsappModeLabel(payload.center.mode), note: "Escolha objetiva entre trilho rapido e Meta oficial." },
       {
         label: "Módulo inicial",
-        value: trialModuleLabel(payload.company.trialModuleSelection),
-        note: "A operação começa daqui para frente.",
-      },
-      {
-        label: "Conta",
-        value: payload.company.paymentStatus === "TRIAL" ? "Free trial ativo" : "Conta ativa",
-        note: payload.company.premiumAccess ? "Ambiente premium liberado." : "Aguardando ativação completa.",
+        value: whatsappTrialModuleLabel(payload.company.trialModuleSelection),
+        note: "O WhatsApp precisa servir a rotina principal da empresa.",
       },
     ];
   }, [payload]);
@@ -255,15 +179,15 @@ export default function WhatsAppCenterClientPage() {
   return (
     <DashboardScaffold
       title="Central WhatsApp"
-      description="Escolha com clareza entre o vínculo rápido para testar e a operação oficial pela Meta."
+      description="Escolha o trilho, conecte o canal e use a barra superior para diagnostico operacional sob demanda."
     >
       <div className={styles.page}>
         <section className={styles.hero}>
           <div className={styles.heroCopy}>
             <span className={styles.eyebrow}>Ativação comercial</span>
-            <h1 className={styles.heroTitle}>O HBX agora trata o vínculo do WhatsApp como decisão de produto.</h1>
+            <h1 className={styles.heroTitle}>Escolha o trilho do WhatsApp e conecte sem ruído.</h1>
             <p className={styles.heroText}>
-              Em vez de misturar tudo em um único formulário técnico, a empresa escolhe de forma clara se quer testar rápido ou estruturar a operação oficial para estabilidade, automações e crescimento.
+              O detalhe operacional agora fica no topo. Aqui a tela fica focada em decidir entre QR rapido ou Meta oficial e executar a proxima ação.
             </p>
           </div>
 
@@ -273,7 +197,7 @@ export default function WhatsAppCenterClientPage() {
             <p className={styles.heroHint}>{payload?.center.statusHint || "Escolha o caminho ideal para começar."}</p>
             <div className={styles.heroMeta}>
               <span>{payload?.center.official.displayNumber || "Sem número oficial"}</span>
-              <span>{modeLabel(payload?.center.mode)}</span>
+              <span>{whatsappModeLabel(payload?.center.mode)}</span>
             </div>
           </aside>
         </section>
@@ -300,28 +224,23 @@ export default function WhatsAppCenterClientPage() {
                 <div className={styles.pathHeader}>
                   <div>
                     <span className={styles.pathEyebrow}>Conexão rápida / temporária</span>
-                    <h2>Melhor para testar e validar a operação.</h2>
+                    <h2>Teste e valide sem travar a ativação.</h2>
                   </div>
                   <span className={styles.mutedPill}>
                     {payload.center.temporary.selected ? "Selecionada" : "Disponível para escolha"}
                   </span>
                 </div>
                 <p className={styles.pathText}>
-                  Essa trilha é a mais leve para começar, provar uso e tirar a empresa da inércia. Agora ela já pode funcionar por QR sem misturar a operação temporária com a rota oficial da Meta.
+                  Use quando a prioridade for colocar a operação em movimento e validar uso com o menor atrito possível.
                 </p>
-                <div className={styles.featureList}>
-                  <span className={styles.featureChip}>Bom para teste</span>
-                  <span className={styles.featureChip}>Baixa fricção comercial</span>
-                  <span className={styles.featureChip}>Conexão real por QR</span>
-                </div>
                 <div className={styles.metaBox}>
-                  <strong>{temporaryLiveLabel(payload.center.temporary.liveStatus)}</strong>
+                  <strong>{whatsappTemporaryLiveLabel(payload.center.temporary.liveStatus)}</strong>
                   <p>{payload.center.temporary.note}</p>
                 </div>
                 <div className={styles.infoGrid}>
                   <div>
                     <span>Estado do vínculo</span>
-                    <strong>{temporaryLiveLabel(payload.center.temporary.liveStatus)}</strong>
+                    <strong>{whatsappTemporaryLiveLabel(payload.center.temporary.liveStatus)}</strong>
                   </div>
                   <div>
                     <span>Número temporário</span>
@@ -329,7 +248,7 @@ export default function WhatsAppCenterClientPage() {
                   </div>
                   <div>
                     <span>Última sincronização</span>
-                    <strong>{formatDateTime(payload.center.temporary.lastSyncAt)}</strong>
+                    <strong>{formatWhatsAppDateTime(payload.center.temporary.lastSyncAt)}</strong>
                   </div>
                 </div>
                 {payload.center.temporary.errorMessage ? (
@@ -406,20 +325,15 @@ export default function WhatsAppCenterClientPage() {
                 <div className={styles.pathHeader}>
                   <div>
                     <span className={styles.pathEyebrow}>Conexão oficial / Meta</span>
-                    <h2>Melhor para estabilidade, automações e crescimento.</h2>
+                    <h2>Estruture a operação oficial com estabilidade.</h2>
                   </div>
                   <span className={styles.statusPill}>
                     {payload.center.official.connected ? "Oficial ativo" : "Estrutura oficial"}
                   </span>
                 </div>
                 <p className={styles.pathText}>
-                  Esse é o caminho certo para contas que querem previsibilidade, número oficial, automações e expansão sem improviso. Se a conexão oficial ainda não estiver fechada, o produto já registra a decisão e acelera o contato técnico.
+                  Use quando a empresa precisa de previsibilidade, automações e uma rota oficial pronta para crescer.
                 </p>
-                <div className={styles.featureList}>
-                  <span className={styles.featureChipStrong}>Estabilidade</span>
-                  <span className={styles.featureChipStrong}>Automações</span>
-                  <span className={styles.featureChipStrong}>Escala operacional</span>
-                </div>
                 <div className={styles.infoGrid}>
                   <div>
                     <span>Status Meta</span>
@@ -459,82 +373,13 @@ export default function WhatsAppCenterClientPage() {
               </article>
             </section>
 
-            <section className={styles.grid}>
-              <article id="whatsapp-status" className={styles.panelCard}>
-                <div className={styles.sectionHeader}>
-                  <div>
-                    <strong>Situação operacional</strong>
-                    <p className={styles.helperText}>
-                      Leitura objetiva do que a empresa já definiu e do que o HBX já consegue enxergar.
-                    </p>
-                  </div>
-                </div>
-                <div className={styles.infoGrid}>
-                  <div>
-                    <span>Status visual</span>
-                    <strong>{payload.center.statusLabel}</strong>
-                  </div>
-                  <div>
-                    <span>Escolha atual</span>
-                    <strong>{modeLabel(payload.center.mode)}</strong>
-                  </div>
-                  <div>
-                    <span>Contato técnico</span>
-                    <strong>{payload.center.migration.interestRequested ? "Solicitado" : "Ainda não solicitado"}</strong>
-                  </div>
-                </div>
-                <div className={styles.summaryStack}>
-                  <p>{payload.center.statusHint}</p>
-                  <p>
-                    Interesse técnico:{" "}
-                    {payload.center.migration.interestRequested
-                      ? `${formatDateTime(payload.center.migration.requestedAt)}`
-                      : "Nenhum aceite registrado ainda."}
-                  </p>
-                </div>
-              </article>
-
-              <article id="whatsapp-next-steps" className={styles.panelCard}>
-                <div className={styles.sectionHeader}>
-                  <div>
-                    <strong>Próximos passos recomendados</strong>
-                    <p className={styles.helperText}>O vínculo do WhatsApp precisa servir a operação, e não virar obstáculo técnico.</p>
-                  </div>
-                </div>
-                <div className={styles.stepList}>
-                  <div className={styles.step}>
-                    <span className={styles.stepDot} aria-hidden="true" />
-                    <div>
-                      <strong>Escolha um trilho</strong>
-                      <p>Rápido para testar, oficial para crescer com estabilidade e automações.</p>
-                    </div>
-                  </div>
-                  <div className={styles.step}>
-                    <span className={styles.stepDotActive} aria-hidden="true" />
-                    <div>
-                      <strong>Continue a operação no módulo principal</strong>
-                      <p>
-                        Sua empresa escolheu começar por <strong>{trialModuleLabel(payload.company.trialModuleSelection)}</strong>, então o WhatsApp deve apoiar essa rotina sem atrapalhar a ativação.
-                      </p>
-                    </div>
-                  </div>
-                  <div className={styles.step}>
-                    <span className={styles.stepDotSoon} aria-hidden="true" />
-                    <div>
-                      <strong>Acompanhe a evolução no MASTER</strong>
-                      <p>O aceite para contato técnico e o status desta central já ficam visíveis para o time interno.</p>
-                    </div>
-                  </div>
-                </div>
-                <div className={styles.pathActions}>
-                  <Link href={payload.company.trialModuleSelection === "recovery" ? "/dashboard/inbox?atendimentoTab=recovery" : "/dashboard/vendas"} className="btn btn-secondary">
-                    Voltar para {trialModuleLabel(payload.company.trialModuleSelection)}
-                  </Link>
-                  <Link href="/dashboard/financeiro" className="btn btn-secondary">
-                    Abrir Financeiro
-                  </Link>
-                </div>
-              </article>
+            <section className={styles.pathActions}>
+              <Link href={payload.company.trialModuleSelection === "recovery" ? "/dashboard/inbox?atendimentoTab=recovery" : "/dashboard/vendas"} className="btn btn-secondary">
+                Voltar para {whatsappTrialModuleLabel(payload.company.trialModuleSelection)}
+              </Link>
+              <Link href="/dashboard/financeiro" className="btn btn-secondary">
+                Abrir Financeiro
+              </Link>
             </section>
           </>
         )}

@@ -76,6 +76,7 @@ type ModuleRevenuePoint = {
 
 type StatusBucket =
   | "PAYING"
+  | "MANUAL_PREMIUM"
   | "TRIAL"
   | "TRIAL_ENDING"
   | "OVERDUE"
@@ -624,6 +625,7 @@ const FILTERS = [
   { id: "high_scraping", label: "Scraping forte" },
   { id: "low_activation", label: "Ativação fraca" },
   { id: "PAYING", label: "Pagando" },
+  { id: "MANUAL_PREMIUM", label: "Premium manual" },
   { id: "TRIAL", label: "Trial" },
   { id: "TRIAL_ENDING", label: "Trial vencendo" },
   { id: "OVERDUE", label: "Inadimplentes" },
@@ -704,6 +706,7 @@ function subscriptionLabel(value?: string | null) {
   const status = String(value || "").trim().toLowerCase();
   if (status === "active") return "Ativa";
   if (status === "trialing") return "Trial";
+  if (status === "manual") return "Premium manual";
   if (status === "past_due") return "Em atraso";
   if (status === "canceled") return "Cancelada";
   if (status === "expired") return "Expirada";
@@ -714,6 +717,7 @@ function paymentStatusLabel(value?: string | null) {
   const status = String(value || "").trim().toUpperCase();
   if (status === "PAID") return "Pago";
   if (status === "TRIAL") return "Trial";
+  if (status === "MANUAL") return "Premium manual";
   if (status === "PENDING") return "Pendente";
   if (status === "OVERDUE") return "Atrasado";
   if (status === "EXPIRED") return "Expirado";
@@ -774,11 +778,12 @@ function companyHasOperationalAccess(company?: Pick<CompanySummary, "isActive" |
   if (!company?.isActive) return false;
   const paymentStatus = String(company.paymentStatus || "").trim().toUpperCase();
   const subscriptionStatus = String(company.subscriptionStatus || "").trim().toLowerCase();
-  return paymentStatus === "PAID" || paymentStatus === "TRIAL" || subscriptionStatus === "active" || subscriptionStatus === "trialing";
+  return paymentStatus === "PAID" || paymentStatus === "TRIAL" || paymentStatus === "MANUAL" || subscriptionStatus === "active" || subscriptionStatus === "trialing" || subscriptionStatus === "manual";
 }
 
 function bucketLabel(value: StatusBucket) {
   if (value === "PAYING") return "Pagando";
+  if (value === "MANUAL_PREMIUM") return "Premium manual";
   if (value === "TRIAL") return "Trial";
   if (value === "TRIAL_ENDING") return "Trial vencendo";
   if (value === "OVERDUE") return "Atrasado";
@@ -812,6 +817,7 @@ function operationalAccessSourceLabel(value?: "paid" | "trial" | "blocked" | str
   const normalized = String(value || "").trim().toLowerCase();
   if (normalized === "paid") return "Pagamento ativo";
   if (normalized === "trial") return "Trial ativo";
+  if (normalized === "manual") return "Premium manual";
   if (normalized === "blocked") return "Bloqueado";
   return "Sem fonte";
 }
@@ -861,6 +867,152 @@ function resolveMasterFinanceiroHref(company: CompanySummary) {
     return paymentChip.href;
   }
   return "/dashboard/financeiro?focus=access";
+}
+
+const AUDIT_KEY_LABELS: Record<string, string> = {
+  requestedAction: "Ação solicitada",
+  reason: "Motivo",
+  endsAt: "Fim definido",
+  days: "Dias",
+  trialStartsAt: "Início trial",
+  trialEndsAt: "Fim trial",
+  paymentStatus: "Status pagamento",
+  subscriptionStatus: "Status assinatura",
+  paymentMethod: "Método",
+  billingProvider: "Provedor",
+  premiumAccess: "Premium manual",
+  isActive: "Ativa",
+  observation: "Observação",
+  competence: "Competência",
+  value: "Valor",
+  settlePending: "Quitar pendência",
+  status: "Status",
+  statusError: "Erro",
+  connected: "Conectado",
+  endpointId: "Endpoint",
+  workflowStatus: "Workflow migração",
+  lastContactAt: "Último contato",
+  internalNote: "Nota interna",
+  interestRequested: "Interesse solicitado",
+  requestedAt: "Solicitado em",
+  source: "Origem",
+  centerStatus: "Status central",
+  centerMode: "Modo central",
+  billingCycle: "Ciclo",
+  manualDiscountPercent: "Desconto manual",
+  freeMonths: "Meses grátis",
+  masterMercadoPagoCredentialKey: "Credencial MP",
+  masterWhatsAppCredentialKey: "Credencial WhatsApp",
+  useMasterMercadoPagoToken: "Usa token MASTER MP",
+  useMasterWhatsAppToken: "Usa token MASTER WhatsApp",
+  sourceCredentialsCleared: "Credenciais limpas",
+  importedMercadoPago: "Importou MP",
+  importedWhatsApp: "Importou WhatsApp",
+  accessTokenConfigured: "Token configurado",
+  accessTokenPreview: "Preview token",
+  whatsappPhoneNumberId: "Phone ID",
+  whatsappNumber: "Número",
+  whatsappWabaId: "WABA ID",
+  accountEmail: "Conta",
+  accountUserId: "Usuário MP",
+  moduleName: "Módulo",
+  moduleKey: "Chave módulo",
+  enabled: "Habilitado",
+  previousState: "Antes",
+  currentState: "Depois",
+};
+
+function isAuditRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function auditSeverityTone(severity?: string | null) {
+  const normalized = String(severity || "").trim().toUpperCase();
+  if (normalized === "ERROR") return "danger";
+  if (normalized === "WARN" || normalized === "WARNING") return "brand";
+  return "success";
+}
+
+function auditKeyLabel(key: string) {
+  if (AUDIT_KEY_LABELS[key]) return AUDIT_KEY_LABELS[key];
+  return key
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/_/g, " ")
+    .replace(/^./, (value) => value.toUpperCase());
+}
+
+function isAuditDateLike(key: string, value: string) {
+  if (!value) return false;
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return false;
+  return /(^|_)(at|date)$/i.test(key) || /T\d{2}:\d{2}:\d{2}/.test(value);
+}
+
+function formatAuditValue(key: string, value: unknown): string {
+  if (value === null || value === undefined || value === "") return "-";
+  if (typeof value === "boolean") return value ? "Sim" : "Não";
+  if (typeof value === "number") {
+    if (key.toLowerCase().includes("percent")) return `${value}%`;
+    if (key === "value") return formatCurrency(value);
+    return String(value);
+  }
+  if (typeof value === "string") {
+    if (isAuditDateLike(key, value)) return formatDateTime(value);
+    if (key === "paymentStatus") return paymentStatusLabel(value);
+    if (key === "subscriptionStatus") return subscriptionLabel(value);
+    if (key === "paymentMethod") return paymentMethodLabel(value);
+    if (key === "billingCycle") return String(value).trim().toUpperCase() === "ANNUAL" ? "Anual" : "Mensal";
+    return value;
+  }
+  if (Array.isArray(value)) {
+    if (!value.length) return "0 item(ns)";
+    if (value.every((item) => item === null || ["string", "number", "boolean"].includes(typeof item))) {
+      const rendered = value.slice(0, 3).map((item) => formatAuditValue(key, item)).join(", ");
+      return value.length > 3 ? `${rendered} +${value.length - 3}` : rendered;
+    }
+    return `${value.length} item(ns)`;
+  }
+  if (isAuditRecord(value)) {
+    const entries = Object.entries(value).filter(([, item]) => item !== undefined);
+    if (!entries.length) return "-";
+    const preview = entries
+      .slice(0, 3)
+      .map(([childKey, childValue]) => `${auditKeyLabel(childKey)}: ${formatAuditValue(childKey, childValue)}`)
+      .join(" • ");
+    return entries.length > 3 ? `${preview} • +${entries.length - 3}` : preview;
+  }
+  return String(value);
+}
+
+function areAuditValuesEqual(left: unknown, right: unknown) {
+  return JSON.stringify(left ?? null) === JSON.stringify(right ?? null);
+}
+
+function buildAuditDetailRows(metadata?: Record<string, unknown> | null) {
+  if (!metadata) return [] as Array<{ key: string; label: string; value: string }>;
+  return Object.entries(metadata)
+    .filter(([key]) => key !== "previousState" && key !== "currentState")
+    .map(([key, value]) => ({
+      key,
+      label: auditKeyLabel(key),
+      value: formatAuditValue(key, value),
+    }))
+    .filter((row) => row.value !== "-");
+}
+
+function buildAuditChangeRows(metadata?: Record<string, unknown> | null) {
+  const previousState = isAuditRecord(metadata?.previousState) ? metadata.previousState : null;
+  const currentState = isAuditRecord(metadata?.currentState) ? metadata.currentState : null;
+  if (!previousState && !currentState) return [] as Array<{ key: string; label: string; before: string; after: string }>;
+  const keys = Array.from(new Set([...Object.keys(previousState || {}), ...Object.keys(currentState || {})]));
+  return keys
+    .filter((key) => !areAuditValuesEqual(previousState?.[key], currentState?.[key]))
+    .map((key) => ({
+      key,
+      label: auditKeyLabel(key),
+      before: formatAuditValue(key, previousState?.[key]),
+      after: formatAuditValue(key, currentState?.[key]),
+    }));
 }
 
 type OperationalNavigationTarget =
@@ -936,7 +1088,7 @@ const INTEGRATION_PROVIDER_OPTIONS: Array<{
 
 function statusTone(bucket: StatusBucket) {
   if (bucket === "PAYING") return "success";
-  if (bucket === "TRIAL" || bucket === "TRIAL_ENDING") return "warning";
+  if (bucket === "MANUAL_PREMIUM" || bucket === "TRIAL" || bucket === "TRIAL_ENDING") return "warning";
   if (bucket === "OVERDUE" || bucket === "SUSPENDED" || bucket === "NO_METHOD") return "danger";
   return "neutral";
 }
@@ -953,6 +1105,8 @@ function buildOperationalRule(company: CompanySummary) {
   const accessLimit =
     paymentStatus === "PAID" || subscriptionStatus === "active"
       ? company.subscriptionCurrentPeriodEnd || company.nextDueAt
+      : paymentStatus === "MANUAL" || subscriptionStatus === "manual"
+        ? null
       : paymentStatus === "TRIAL" || subscriptionStatus === "trialing"
         ? company.trialEndsAt
         : company.nextDueAt || company.subscriptionCurrentPeriodEnd || company.trialEndsAt;
@@ -987,6 +1141,10 @@ function buildOperationalRule(company: CompanySummary) {
     return "Acesso liberado enquanto a cobrança permanecer regular.";
   }
 
+  if (paymentStatus === "MANUAL" || subscriptionStatus === "manual") {
+    return "Acesso premium liberado manualmente pelo MASTER, sem geração automática de cobrança.";
+  }
+
   if (company.daysOverdue > 0) {
     if (accessLimit) {
       return `Se não regularizar, o acesso fica comprometido desde ${formatDate(accessLimit)}.`;
@@ -1004,6 +1162,9 @@ function buildOperationalRule(company: CompanySummary) {
 function buildStatusExplanation(company: CompanySummary) {
   if (company.paymentStatus === "PAID") {
     return "Cobrança operacional marcada como paga. Isso não significa, por si só, que existe ledger financeiro lançado.";
+  }
+  if (company.paymentStatus === "MANUAL") {
+    return "Acesso premium excepcional liberado manualmente. Não representa pagamento real e não gera ledger automático.";
   }
   if (company.paymentStatus === "TRIAL") {
     return "Cliente em trial. Sem lançamento financeiro automático até que você registre cobrança manual ou adote outra régua.";
@@ -1844,6 +2005,51 @@ export default function MasterPremiumPage() {
 
   function companyHasActiveMasterContext(companyId?: number | null) {
     return Boolean(currentUser?.masterContext?.active && currentUser.masterContext.companyId === companyId);
+  }
+
+  function renderAuditEntry(entry: AuditEntry) {
+    const detailRows = buildAuditDetailRows(entry.metadata);
+    const changeRows = buildAuditChangeRows(entry.metadata);
+
+    return (
+      <article key={entry.id} className={styles.timelineItem}>
+        <div className={styles.timelineDot} />
+        <div className={styles.auditEntryBody}>
+          <div className={styles.timelineTopline}>
+            <strong>{entry.action}</strong>
+            <span>{formatDateTime(entry.createdAt)}</span>
+          </div>
+          <div className={styles.auditEntryMeta}>
+            <span>{entry.scope}</span>
+            <span className={badgeClass(auditSeverityTone(entry.severity))}>{entry.severity}</span>
+          </div>
+          {detailRows.length ? (
+            <div className={styles.auditMetaGrid}>
+              {detailRows.map((row) => (
+                <div key={`${entry.id}-${row.key}`} className={styles.auditMetaItem}>
+                  <span>{row.label}</span>
+                  <strong>{row.value}</strong>
+                </div>
+              ))}
+            </div>
+          ) : null}
+          {changeRows.length ? (
+            <div className={styles.auditChangeList}>
+              {changeRows.map((row) => (
+                <div key={`${entry.id}-change-${row.key}`} className={styles.auditChangeRow}>
+                  <span className={styles.auditChangeLabel}>{row.label}</span>
+                  <div className={styles.auditChangeValues}>
+                    <span>{row.before}</span>
+                    <span className={styles.auditChangeArrow}>→</span>
+                    <strong>{row.after}</strong>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      </article>
+    );
   }
 
   function beginOperationalAction(actionKey: string) {
@@ -3482,6 +3688,7 @@ export default function MasterPremiumPage() {
                         <select className="field" value={profileDraft?.subscriptionStatus || "trialing"} onChange={(event) => setProfileDraft((current) => current ? { ...current, subscriptionStatus: event.target.value } : current)}>
                           <option value="trialing">Trial</option>
                           <option value="active">Ativa</option>
+                          <option value="manual">Premium manual</option>
                           <option value="past_due">Em atraso</option>
                           <option value="canceled">Cancelada</option>
                           <option value="expired">Expirada</option>
@@ -3556,18 +3763,7 @@ export default function MasterPremiumPage() {
                       </div>
                       <div className={styles.timeline}>
                         {activeCompany.trialHistory.length ? (
-                          activeCompany.trialHistory.map((entry) => (
-                            <article key={entry.id} className={styles.timelineItem}>
-                              <div className={styles.timelineDot} />
-                              <div>
-                                <div className={styles.timelineTopline}>
-                                  <strong>{entry.action}</strong>
-                                  <span>{formatDateTime(entry.createdAt)}</span>
-                                </div>
-                                <p>{entry.scope}</p>
-                              </div>
-                            </article>
-                          ))
+                          activeCompany.trialHistory.map(renderAuditEntry)
                         ) : (
                           <div className={styles.emptyPanel}>Nenhum histórico de trial para esta empresa.</div>
                         )}
@@ -3879,6 +4075,10 @@ export default function MasterPremiumPage() {
                           <strong>Marcar pago / suspender</strong>
                           <p>São ações operacionais. Ajustam acesso e status, mas não substituem um lançamento manual.</p>
                         </article>
+                        <article className={styles.noticeCard}>
+                          <strong>Premium manual</strong>
+                          <p>Liberar acesso excepcional sem gerar cobrança. Fica claro no MASTER que não é pago real nem trial.</p>
+                        </article>
                       </div>
                       <div className={styles.rowActions}>
                         <button type="button" className="btn btn-primary btn-sm" onClick={() => openManualPayment(activeCompany)}>
@@ -3904,6 +4104,27 @@ export default function MasterPremiumPage() {
                           })}
                         >
                           Marcar pago
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-secondary btn-sm"
+                          onClick={() => setConfirmAction({
+                            title: "Liberar premium manual",
+                            description: `${activeCompany.name} ficará com acesso operacional excepcional, sem cobrança real.`,
+                            confirmLabel: "Liberar premium manual",
+                            tone: "primary",
+                            details: [
+                              "Ativa a empresa e libera os módulos normalmente.",
+                              "Define o estado como premium manual, separado de pago e trial.",
+                              "Não cria lançamento financeiro nem simula pagamento.",
+                            ],
+                            run: async () => {
+                              setConfirmAction(null);
+                              await setPaymentStatus(activeCompany.id, "MANUAL", "Acesso premium manual liberado no plano operacional.");
+                            },
+                          })}
+                        >
+                          Premium manual
                         </button>
                         <button
                           type="button"
@@ -4615,18 +4836,11 @@ export default function MasterPremiumPage() {
                       </div>
                     </div>
                     <div className={styles.timeline}>
-                      {activeCompany.auditTimeline.map((entry) => (
-                        <article key={entry.id} className={styles.timelineItem}>
-                          <div className={styles.timelineDot} />
-                          <div>
-                            <div className={styles.timelineTopline}>
-                              <strong>{entry.action}</strong>
-                              <span>{formatDateTime(entry.createdAt)}</span>
-                            </div>
-                            <p>{entry.scope}</p>
-                          </div>
-                        </article>
-                      ))}
+                      {activeCompany.auditTimeline.length ? (
+                        activeCompany.auditTimeline.map(renderAuditEntry)
+                      ) : (
+                        <div className={styles.emptyPanel}>Nenhuma auditoria registrada para esta empresa.</div>
+                      )}
                     </div>
                   </section>
                 ) : null}
