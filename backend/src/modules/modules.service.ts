@@ -1582,11 +1582,29 @@ export class ModulesService implements OnModuleInit {
     `);
   }
 
-  private async evaluateCompanyStatus(companyId: number) {
-    const company = await this.prisma.company.findUnique({
-      where: { id: companyId },
-      select: { id: true, isActive: true, paymentStatus: true, subscriptionStatus: true, trialEndsAt: true },
-    });
+  private async evaluateCompanyStatus(
+    companyId: number,
+    companySnapshot?: {
+      id?: number | null;
+      isActive?: boolean | null;
+      paymentStatus?: string | null;
+      subscriptionStatus?: string | null;
+      trialEndsAt?: Date | string | null;
+    } | null,
+  ) {
+    const normalizedSnapshotId = Number(companySnapshot?.id || 0);
+    const company = normalizedSnapshotId === companyId
+      ? {
+          id: companyId,
+          isActive: Boolean(companySnapshot?.isActive),
+          paymentStatus: companySnapshot?.paymentStatus || null,
+          subscriptionStatus: companySnapshot?.subscriptionStatus || null,
+          trialEndsAt: this.parseDateValue(companySnapshot?.trialEndsAt),
+        }
+      : await this.prisma.company.findUnique({
+          where: { id: companyId },
+          select: { id: true, isActive: true, paymentStatus: true, subscriptionStatus: true, trialEndsAt: true },
+        });
     if (!company) return { exists: false, active: false };
 
     const now = Date.now();
@@ -2234,25 +2252,17 @@ export class ModulesService implements OnModuleInit {
     });
 
     const companyIds = companies.map((company) => Number(company.id));
-    const [
-      websiteConfigs,
-      ledgerRows,
-      auditRows,
-      systemModules,
-      masterIntegrationConfig,
-      userConfirmationByCompany,
-      webscrapingUsageByCompany,
-    ] = await Promise.all([
-      listCompanyWebsiteConfigs(this.prisma, companyIds),
-      this.listBillingLedgerEntriesByCompanyIds(companyIds, 2400),
-      this.listCompanyAuditRows(companyIds, 600),
-      this.prisma.systemModule.findMany({
-        orderBy: [{ companyAssignable: 'desc' }, { name: 'asc' }, { id: 'asc' }],
-      }),
-      getMasterGlobalIntegrationConfig(this.prisma),
-      this.listUserConfirmationSummaryByCompanyIds(companyIds),
-      this.listWebscrapingUsageSummaryByCompanyIds(companyIds),
-    ]);
+    // Master workspace fans out across many cross-company reads. Keep this sequence explicit
+    // so a single request does not burst through the Supabase session pool.
+    const websiteConfigs = await listCompanyWebsiteConfigs(this.prisma, companyIds);
+    const ledgerRows = await this.listBillingLedgerEntriesByCompanyIds(companyIds, 2400);
+    const auditRows = await this.listCompanyAuditRows(companyIds, 600);
+    const systemModules = await this.prisma.systemModule.findMany({
+      orderBy: [{ companyAssignable: 'desc' }, { name: 'asc' }, { id: 'asc' }],
+    });
+    const masterIntegrationConfig = await getMasterGlobalIntegrationConfig(this.prisma);
+    const userConfirmationByCompany = await this.listUserConfirmationSummaryByCompanyIds(companyIds);
+    const webscrapingUsageByCompany = await this.listWebscrapingUsageSummaryByCompanyIds(companyIds);
 
     const ledgerByCompany = new Map<number, BillingLedgerEntryRow[]>();
     for (const row of ledgerRows) {
@@ -2272,7 +2282,7 @@ export class ModulesService implements OnModuleInit {
 
     const companySummaries: Array<any> = [];
     for (const company of companies) {
-      const status = await this.evaluateCompanyStatus(company.id);
+      const status = await this.evaluateCompanyStatus(company.id, company);
       companySummaries.push(
         this.buildMasterCompanySummary(
           company,
@@ -2745,7 +2755,7 @@ export class ModulesService implements OnModuleInit {
       company.masterMercadoPagoCredentialKey,
     );
 
-    const status = await this.evaluateCompanyStatus(company.id);
+    const status = await this.evaluateCompanyStatus(company.id, company);
     const summary = this.buildMasterCompanySummary(
       company,
       websiteConfigs.get(Number(company.id)) || null,
@@ -2919,7 +2929,7 @@ export class ModulesService implements OnModuleInit {
 
     const result: any[] = [];
     for (const company of companies) {
-      const status = await this.evaluateCompanyStatus(company.id);
+      const status = await this.evaluateCompanyStatus(company.id, company);
       const websiteConfig = websiteConfigs.get(Number(company.id)) || null;
       result.push({
         id: company.id,
