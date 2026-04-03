@@ -1,5 +1,39 @@
 .moduleNavWrap {
   display: grid;
+  gap: 0.95rem;
+}
+
+.navSection {
+  display: grid;
+  gap: 0.6rem;
+}
+
+.navSectionHeader {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.45rem 0.8rem;
+  padding: 0 0.15rem;
+}
+
+.navSectionTitle {
+  margin: 0;
+  font-size: 0.78rem;
+  font-weight: 900;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--foreground);
+}
+
+.navSectionHint {
+  margin: 0;
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+
+.navSectionGrid {
+  display: grid;
   gap: 0.7rem;
 }
 
@@ -12,7 +46,9 @@
 }
 
 .moduleCard,
-.moduleCardActive {
+.moduleCardActive,
+.moduleCardDisabled,
+.moduleCardDisabledActive {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
@@ -42,6 +78,19 @@
   background:
     radial-gradient(circle at top right, color-mix(in srgb, var(--brand) 12%, transparent), transparent 38%),
     linear-gradient(180deg, color-mix(in srgb, var(--surface) 98%, white), color-mix(in srgb, var(--surface-raised) 92%, var(--background)));
+}
+
+.moduleCardDisabled,
+.moduleCardDisabledActive {
+  border-style: dashed;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--surface-soft) 94%, white), color-mix(in srgb, var(--surface) 90%, var(--background)));
+  opacity: 0.84;
+  cursor: not-allowed;
+}
+
+.moduleCardDisabledActive {
+  border-color: color-mix(in srgb, var(--warning) 34%, var(--line));
 }
 
 .moduleCardBadge {
@@ -98,6 +147,12 @@
   letter-spacing: 0.12em;
 }
 
+.moduleCardDisabled .moduleCardBadge,
+.moduleCardDisabledActive .moduleCardBadge {
+  background: linear-gradient(145deg, color-mix(in srgb, var(--warning) 72%, var(--brand)), color-mix(in srgb, var(--muted) 74%, var(--surface-strong)));
+  box-shadow: none;
+}
+
 .moduleEditInput,
 .moduleEditTextarea,
 .moduleBadgeInput {
@@ -142,13 +197,19 @@
 
 :global(html[data-theme="flowbite"]) .moduleCard,
 :global(html[data-theme="flowbite"]) .moduleCardActive,
+:global(html[data-theme="flowbite"]) .moduleCardDisabled,
+:global(html[data-theme="flowbite"]) .moduleCardDisabledActive,
 :global(html[data-theme="tabler"]) .moduleCard,
-:global(html[data-theme="tabler"]) .moduleCardActive {
+:global(html[data-theme="tabler"]) .moduleCardActive,
+:global(html[data-theme="tabler"]) .moduleCardDisabled,
+:global(html[data-theme="tabler"]) .moduleCardDisabledActive {
   border-radius: calc(var(--control-radius) + 1px);
 }
 
 :global(html[data-theme="flowbite"]) .moduleCard,
-:global(html[data-theme="flowbite"]) .moduleCardActive {
+:global(html[data-theme="flowbite"]) .moduleCardActive,
+:global(html[data-theme="flowbite"]) .moduleCardDisabled,
+:global(html[data-theme="flowbite"]) .moduleCardDisabledActive {
   box-shadow: none;
 }
 
@@ -162,7 +223,9 @@
 }
 
 :global(html[data-theme="flowbite"]) .moduleCard,
-:global(html[data-theme="flowbite"]) .moduleCardActive {
+:global(html[data-theme="flowbite"]) .moduleCardActive,
+:global(html[data-theme="flowbite"]) .moduleCardDisabled,
+:global(html[data-theme="flowbite"]) .moduleCardDisabledActive {
   grid-template-columns: auto minmax(0, 1fr);
 }
 
@@ -171,26 +234,30 @@
 }
 
 :global(html[data-theme="tabler"]) .moduleCard,
-:global(html[data-theme="tabler"]) .moduleCardActive {
+:global(html[data-theme="tabler"]) .moduleCardActive,
+:global(html[data-theme="tabler"]) .moduleCardDisabled,
+:global(html[data-theme="tabler"]) .moduleCardDisabledActive {
   background:
     linear-gradient(180deg, color-mix(in srgb, var(--surface) 98%, white), color-mix(in srgb, var(--surface-raised) 96%, var(--background)));
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 12px 24px -24px color-mix(in srgb, var(--foreground) 42%, transparent);
 }
 
 @media (max-width: 980px) {
-  .moduleNavWrap {
+  .navSectionGrid {
     grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   }
 }
 
 @media (max-width: 640px) {
-  .moduleNavWrap,
-  :global(html[data-theme="flowbite"]) .moduleNavWrap {
+  .navSectionGrid,
+  :global(html[data-theme="flowbite"]) .navSectionGrid {
     grid-template-columns: 1fr;
   }
 
   .moduleCard,
-  .moduleCardActive {
+  .moduleCardActive,
+  .moduleCardDisabled,
+  .moduleCardDisabledActive {
     grid-template-columns: auto minmax(0, 1fr);
   }
 
