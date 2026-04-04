@@ -1,14 +1,17 @@
 import { Body, Controller, Get, Headers, Param, Post, BadRequestException, ForbiddenException } from '@nestjs/common';
+import { IsEmail, IsNotEmpty } from 'class-validator';
 import { UsersService } from '../users/users.service';
 import { MailService } from '../mail/mail.service';
 import * as bcrypt from 'bcryptjs';
 import { assertPasswordPolicy } from './password-policy';
 
 class ResetPasswordDto {
+  @IsNotEmpty()
   password: string;
 }
 
 class TransactionalEmailTestDto {
+  @IsEmail()
   to: string;
 }
 

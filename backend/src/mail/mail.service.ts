@@ -33,29 +33,52 @@ export type MailSendResult = {
 export class MailService {
   private readonly logger = new Logger(MailService.name);
 
+  private normalizeEnvValue(value: unknown) {
+    const normalized = String(value || '').trim();
+    if (!normalized) {
+      return '';
+    }
+
+    const wrappedInDoubleQuotes = normalized.startsWith('"') && normalized.endsWith('"');
+    const wrappedInSingleQuotes = normalized.startsWith("'") && normalized.endsWith("'");
+    if (wrappedInDoubleQuotes || wrappedInSingleQuotes) {
+      return normalized.slice(1, -1).trim();
+    }
+
+    return normalized;
+  }
+
+  private readEnv(key: string) {
+    return this.normalizeEnvValue(process.env[key]);
+  }
+
+  private getSmtpPassword() {
+    return this.readEnv('SMTP_PASS');
+  }
+
   private isProduction() {
-    return String(process.env.NODE_ENV || '').trim().toLowerCase() === 'production';
+    return this.readEnv('NODE_ENV').toLowerCase() === 'production';
   }
 
   private useEtherealAuto() {
-    return String(process.env.ETHEREAL_AUTO || '').trim().toLowerCase() === 'true';
+    return this.readEnv('ETHEREAL_AUTO').toLowerCase() === 'true';
   }
 
   private parsePort(value: string | undefined) {
-    const normalized = String(value || '').trim();
+    const normalized = this.normalizeEnvValue(value);
     if (!normalized) return null;
     const parsed = Number(normalized);
     return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
   }
 
   private buildFromAddress() {
-    const explicitFrom = String(process.env.MAIL_FROM || '').trim();
+    const explicitFrom = this.readEnv('MAIL_FROM');
     if (explicitFrom) {
       return explicitFrom;
     }
 
-    const fromName = String(process.env.MAIL_FROM_NAME || '').trim();
-    const smtpUser = String(process.env.SMTP_USER || '').trim();
+    const fromName = this.readEnv('MAIL_FROM_NAME');
+    const smtpUser = this.readEnv('SMTP_USER');
     if (!smtpUser) {
       return null;
     }
@@ -64,12 +87,12 @@ export class MailService {
   }
 
   private buildReplyToAddress(explicitReplyTo?: string | null) {
-    const directReplyTo = String(explicitReplyTo || '').trim();
+    const directReplyTo = this.normalizeEnvValue(explicitReplyTo);
     if (directReplyTo) {
       return directReplyTo;
     }
 
-    const configuredReplyTo = String(process.env.MAIL_REPLY_TO || '').trim();
+    const configuredReplyTo = this.readEnv('MAIL_REPLY_TO');
     return configuredReplyTo || null;
   }
 
@@ -84,10 +107,10 @@ export class MailService {
   }
 
   getConfigurationSummary(): MailConfigurationSummary {
-    const host = String(process.env.SMTP_HOST || '').trim();
+    const host = this.readEnv('SMTP_HOST');
     const port = this.parsePort(process.env.SMTP_PORT);
-    const user = String(process.env.SMTP_USER || '').trim();
-    const pass = String(process.env.SMTP_PASS || '').trim();
+    const user = this.readEnv('SMTP_USER');
+    const pass = this.getSmtpPassword();
     const from = this.buildFromAddress();
     const replyTo = this.buildReplyToAddress();
     const useEthereal = this.useEtherealAuto();
@@ -116,7 +139,7 @@ export class MailService {
 
   async sendMail(input: { to: string; subject: string; text: string; from?: string | null; replyTo?: string | null }): Promise<MailSendResult> {
     const summary = this.getConfigurationSummary();
-    const from = String(input.from || '').trim() || summary.from;
+    const from = this.normalizeEnvValue(input.from) || summary.from;
     const replyTo = this.buildReplyToAddress(input.replyTo);
 
     if (summary.mode === 'log') {
@@ -184,7 +207,7 @@ export class MailService {
       throw new Error(`SMTP configuration incomplete. Missing: ${summary.missing.join(', ')}`);
     }
 
-    const pass = String(process.env.SMTP_PASS || '').trim();
+    const pass = this.getSmtpPassword();
     const transporter = nodemailer.createTransport({
       host: summary.host,
       port: summary.port,
@@ -248,7 +271,7 @@ export class MailService {
         secure: summary.port === 465,
         auth: {
           user: summary.user,
-          pass: String(process.env.SMTP_PASS || '').trim(),
+          pass: this.getSmtpPassword(),
         },
       });
 
