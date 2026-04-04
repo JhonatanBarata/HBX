@@ -72,6 +72,14 @@ function equalValue(left, right) {
   return (left ?? null) === (right ?? null);
 }
 
+function isImportacaoPermissaoCompanyForeignKeyError(error) {
+  return Boolean(
+    error
+    && error.code === 'P2003'
+    && String(error.meta?.field_name || '').includes('ImportacaoPermissao_empresaId_fkey'),
+  );
+}
+
 function normalizeCurrencyAmount(value) {
   const numeric = Number(value || 0);
   if (!Number.isFinite(numeric)) return 0;
@@ -305,6 +313,7 @@ async function ensureCompanyPermissions(prisma, mode, summary) {
   const companies = await prisma.company.findMany({ select: { id: true } });
   const roles = Object.keys(structuralDefaults.companyRolePermissions);
 
+  companyLoop:
   for (const company of companies) {
     for (const role of roles) {
       const actions = structuralDefaults.companyRolePermissions[role];
@@ -326,22 +335,29 @@ async function ensureCompanyPermissions(prisma, mode, summary) {
           continue;
         }
 
-        await prisma.importacaoPermissao.upsert({
-          where: {
-            empresaId_role_acao: {
+        try {
+          await prisma.importacaoPermissao.upsert({
+            where: {
+              empresaId_role_acao: {
+                empresaId: company.id,
+                role,
+                acao,
+              },
+            },
+            update: {},
+            create: {
               empresaId: company.id,
               role,
               acao,
+              allowed,
             },
-          },
-          update: {},
-          create: {
-            empresaId: company.id,
-            role,
-            acao,
-            allowed,
-          },
-        });
+          });
+        } catch (error) {
+          if (isImportacaoPermissaoCompanyForeignKeyError(error)) {
+            continue companyLoop;
+          }
+          throw error;
+        }
         summary.permissions += 1;
       }
     }
