@@ -26,6 +26,17 @@ async function requestJsonWithOptions(url, options = {}) {
   return response.text();
 }
 
+async function postJson(url, body, headers = {}) {
+  return requestJsonWithOptions(url, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      ...headers,
+    },
+    body: JSON.stringify(body),
+  });
+}
+
 async function verifyTransactionalMailReadiness(backendUrl, env) {
   const internalSecret = String(env.PROD_INTERNAL_SECRET || '').trim();
   if (!internalSecret) {
@@ -50,15 +61,63 @@ async function verifyTransactionalMailReadiness(backendUrl, env) {
     ? summary.config.missing.filter((item) => typeof item === 'string' && item.trim().length > 0)
     : [];
 
-  if (!summary.ok) {
+  const providerReady = Boolean(
+    summary?.ok
+    || summary?.config?.ready
+    || summary?.config?.resendReady
+    || summary?.config?.smtpReady,
+  );
+
+  if (!providerReady) {
     const suffix = missing.length ? ` Missing: ${missing.join(', ')}` : '';
     throw new Error(`Transactional email not ready in production (${summary.code || 'unknown'}).${suffix}`);
   }
 
   return {
     checked: true,
-    code: String(summary.code || 'SMTP_READY'),
+    code: String(summary.code || (summary?.config?.mode === 'resend' ? 'RESEND_READY' : 'SMTP_READY')),
+    mode: summary?.config?.mode ? String(summary.config.mode) : null,
     missing,
+  };
+}
+
+async function verifyTransactionalMailDelivery(backendUrl, env) {
+  const internalSecret = String(env.PROD_INTERNAL_SECRET || '').trim();
+  const testRecipient = String(env.PROD_TRANSACTIONAL_EMAIL_TEST_TO || '').trim().toLowerCase();
+
+  if (!internalSecret) {
+    return {
+      checked: false,
+      reason: 'PROD_INTERNAL_SECRET not configured',
+    };
+  }
+
+  if (!testRecipient) {
+    return {
+      checked: false,
+      reason: 'PROD_TRANSACTIONAL_EMAIL_TEST_TO not configured',
+    };
+  }
+
+  const payload = await postJson(
+    `${backendUrl}/internal/mail/test-transactional-email`,
+    { to: testRecipient },
+    { 'x-internal-secret': internalSecret },
+  );
+
+  if (!payload || typeof payload !== 'object') {
+    throw new Error('Transactional email delivery test returned an unexpected payload');
+  }
+
+  if (!payload.ok) {
+    throw new Error(`Transactional email delivery test failed (${payload.code || 'unknown'}): ${payload.message || 'unknown error'}`);
+  }
+
+  return {
+    checked: true,
+    code: String(payload.code || 'SMTP_TEST_OK'),
+    recipient: testRecipient,
+    message: String(payload.message || 'E-mail transacional enviado com sucesso.'),
   };
 }
 
@@ -78,6 +137,7 @@ async function verifyProduction(inputEnv = resolveOperationsEnv()) {
 
   const backendHealth = await requestJson(`${backendUrl}/health`);
   const transactionalMail = await verifyTransactionalMailReadiness(backendUrl, env);
+  const transactionalMailDelivery = await verifyTransactionalMailDelivery(backendUrl, env);
 
   if (databaseUrl) {
     const prismaEnv = {
@@ -104,6 +164,7 @@ async function verifyProduction(inputEnv = resolveOperationsEnv()) {
     backendUrl,
     backendHealth,
     transactionalMail,
+    transactionalMailDelivery,
     frontendUrl: frontendUrl || null,
     frontendStatus,
     databaseChecked: Boolean(databaseUrl),

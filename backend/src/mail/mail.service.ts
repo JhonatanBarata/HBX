@@ -1,9 +1,12 @@
 import { Injectable, Logger } from '@nestjs/common';
 
-export type MailTransportMode = 'smtp' | 'ethereal' | 'log';
+export type MailTransportMode = 'resend' | 'smtp' | 'ethereal' | 'log';
 
 export type MailConfigurationSummary = {
   mode: MailTransportMode;
+  ready: boolean;
+  resendConfigured: boolean;
+  resendReady: boolean;
   smtpConfigured: boolean;
   smtpReady: boolean;
   useEthereal: boolean;
@@ -63,6 +66,10 @@ export class MailService {
     return this.readEnv('SMTP_PASS');
   }
 
+  private getResendApiKey() {
+    return this.readEnv('RESEND_API_KEY');
+  }
+
   private isProduction() {
     return this.readEnv('NODE_ENV').toLowerCase() === 'production';
   }
@@ -101,6 +108,37 @@ export class MailService {
 
     const configuredReplyTo = this.readEnv('MAIL_REPLY_TO');
     return configuredReplyTo || null;
+  }
+
+  private buildConfigurationIncompleteError(summary: MailConfigurationSummary) {
+    if (summary.mode === 'resend') {
+      return `Resend configuration incomplete. Missing: ${summary.missing.join(', ')}`;
+    }
+    if (summary.mode === 'smtp') {
+      return `SMTP configuration incomplete. Missing: ${summary.missing.join(', ')}`;
+    }
+    return 'Transactional email provider not configured.';
+  }
+
+  private buildOperationalReadinessFailure(summary: MailConfigurationSummary) {
+    if (summary.mode === 'resend') {
+      return {
+        code: 'RESEND_CONFIG_INCOMPLETE',
+        message: `Configuração Resend incompleta. Ajuste: ${summary.missing.join(', ')}`,
+      };
+    }
+
+    if (summary.mode === 'smtp') {
+      return {
+        code: 'SMTP_CONFIG_INCOMPLETE',
+        message: `Configuração SMTP incompleta. Ajuste: ${summary.missing.join(', ')}`,
+      };
+    }
+
+    return {
+      code: 'TRANSACTIONAL_PROVIDER_NOT_CONFIGURED',
+      message: 'Nenhum provedor transacional configurado. Configure RESEND_API_KEY ou SMTP.',
+    };
   }
 
   private normalizeEnvelopeList(values: unknown) {
@@ -168,6 +206,31 @@ export class MailService {
     });
   }
 
+  private async deliverWithResend(
+    summary: MailConfigurationSummary,
+    message: { from?: string; replyTo?: string; to: string; subject: string; text: string },
+  ) {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { Resend } = require('resend');
+
+    const resend = new Resend(this.getResendApiKey());
+    const response = await resend.emails.send({
+      from: message.from || summary.from || undefined,
+      replyTo: message.replyTo || undefined,
+      to: message.to,
+      subject: message.subject,
+      text: message.text,
+    });
+
+    if (response?.error) {
+      throw new Error(String(response.error.message || response.error.name || 'Resend delivery failed'));
+    }
+
+    return {
+      id: response?.data?.id ? String(response.data.id) : null,
+    };
+  }
+
   private async deliverWithSmtpFallback(
     nodemailer: any,
     summary: MailConfigurationSummary,
@@ -200,26 +263,48 @@ export class MailService {
   }
 
   getConfigurationSummary(): MailConfigurationSummary {
+    const resendApiKey = this.getResendApiKey();
     const host = this.readEnv('SMTP_HOST');
     const port = this.parsePort(process.env.SMTP_PORT);
     const user = this.readEnv('SMTP_USER');
     const pass = this.getSmtpPassword();
     const from = this.buildFromAddress();
     const replyTo = this.buildReplyToAddress();
-    const useEthereal = this.useEtherealAuto();
+    const useEthereal = !this.isProduction() && this.useEtherealAuto();
     const missing: string[] = [];
 
-    if (host) {
+    const resendConfigured = Boolean(resendApiKey);
+    const resendReady = Boolean(resendApiKey && from);
+    const smtpConfigured = Boolean(host);
+    const smtpReady = Boolean(host && port && user && pass && from);
+
+    let mode: MailTransportMode = 'log';
+    if (resendConfigured) {
+      mode = 'resend';
+      if (!from) missing.push('MAIL_FROM or MAIL_FROM_NAME');
+    } else if (smtpConfigured) {
+      mode = 'smtp';
       if (!port) missing.push('SMTP_PORT');
       if (!user) missing.push('SMTP_USER');
       if (!pass) missing.push('SMTP_PASS');
       if (!from) missing.push('MAIL_FROM or MAIL_FROM_NAME');
+    } else if (useEthereal) {
+      mode = 'ethereal';
     }
 
+    const ready = mode === 'resend'
+      ? resendReady
+      : mode === 'smtp'
+        ? smtpReady
+        : mode === 'ethereal';
+
     return {
-      mode: host ? 'smtp' : useEthereal ? 'ethereal' : 'log',
-      smtpConfigured: Boolean(host),
-      smtpReady: Boolean(host && port && user && pass && from),
+      mode,
+      ready,
+      resendConfigured,
+      resendReady,
+      smtpConfigured,
+      smtpReady,
       useEthereal,
       host: host || null,
       port,
@@ -237,10 +322,10 @@ export class MailService {
 
     if (summary.mode === 'log') {
       if (this.isProduction()) {
-        throw new Error('SMTP not configured for transactional email in production.');
+        throw new Error('Transactional email provider not configured in production. Configure RESEND_API_KEY or SMTP.');
       }
 
-      this.logger.warn(`SMTP not configured. Logging transactional email locally to=${input.to} subject=${input.subject}`);
+      this.logger.warn(`Transactional provider not configured. Logging email locally to=${input.to} subject=${input.subject}`);
       this.logger.log(input.text);
       return {
         ok: false,
@@ -253,15 +338,15 @@ export class MailService {
         from: from || null,
         replyTo,
         errorCode: 'MAIL_DISABLED_LOCALLY',
-        errorMessage: 'SMTP not configured. Email logged locally.',
+        errorMessage: 'Transactional provider not configured. Email logged locally.',
       };
     }
 
-    // Lazy-load nodemailer only when we are actually sending.
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const nodemailer = require('nodemailer');
-
     if (summary.mode === 'ethereal') {
+      // Lazy-load nodemailer only when we are actually sending.
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const nodemailer = require('nodemailer');
+
       this.logger.log('Creating Ethereal test account for local email preview');
       const testAccount = await nodemailer.createTestAccount();
       const transporter = nodemailer.createTransport({
@@ -296,9 +381,37 @@ export class MailService {
       };
     }
 
-    if (!summary.smtpReady) {
-      throw new Error(`SMTP configuration incomplete. Missing: ${summary.missing.join(', ')}`);
+    if (!summary.ready) {
+      throw new Error(this.buildConfigurationIncompleteError(summary));
     }
+
+    if (summary.mode === 'resend') {
+      const delivery = await this.deliverWithResend(summary, {
+        from: from || undefined,
+        replyTo: replyTo || undefined,
+        to: input.to,
+        subject: input.subject,
+        text: input.text,
+      });
+
+      return {
+        ok: true,
+        queued: true,
+        transport: 'resend',
+        previewUrl: null,
+        messageId: delivery.id,
+        accepted: [input.to],
+        rejected: [],
+        from: from || summary.from || null,
+        replyTo,
+        errorCode: null,
+        errorMessage: null,
+      };
+    }
+
+    // Lazy-load nodemailer only when we are actually sending.
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const nodemailer = require('nodemailer');
 
     const info = await this.deliverWithSmtpFallback(nodemailer, summary, {
       from: from || summary.user || undefined,
@@ -326,22 +439,13 @@ export class MailService {
   async sendOperationalTestEmail(input: { to: string }) {
     const summary = this.getConfigurationSummary();
 
-    if (!summary.smtpConfigured) {
+    if (!summary.ready) {
+      const failure = this.buildOperationalReadinessFailure(summary);
       return {
         ok: false,
         attempted: false,
-        code: 'SMTP_NOT_CONFIGURED',
-        message: 'SMTP_HOST não está configurado para envio transacional real.',
-        config: summary,
-      };
-    }
-
-    if (!summary.smtpReady) {
-      return {
-        ok: false,
-        attempted: false,
-        code: 'SMTP_CONFIG_INCOMPLETE',
-        message: `Configuração SMTP incompleta. Ajuste: ${summary.missing.join(', ')}`,
+        code: failure.code,
+        message: failure.message,
         config: summary,
       };
     }
@@ -363,7 +467,11 @@ export class MailService {
       return {
         ok: delivery.ok,
         attempted: true,
-        code: delivery.ok ? 'SMTP_TEST_OK' : delivery.errorCode || 'SMTP_TEST_FAILED',
+        code: delivery.ok
+          ? delivery.transport === 'resend'
+            ? 'RESEND_TEST_OK'
+            : 'SMTP_TEST_OK'
+          : delivery.errorCode || 'SMTP_TEST_FAILED',
         message: delivery.ok
           ? 'E-mail transacional enviado com sucesso.'
           : delivery.errorMessage || 'Falha no envio do teste transacional.',

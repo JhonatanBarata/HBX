@@ -131,11 +131,11 @@ export class AuthService implements OnModuleInit {
   }
 
   private useEtherealAuto() {
-    return String(process.env.ETHEREAL_AUTO || '').trim().toLowerCase() === 'true';
+    return !this.isProduction() && String(process.env.ETHEREAL_AUTO || '').trim().toLowerCase() === 'true';
   }
 
   private hasConfiguredTransactionalMailTransport() {
-    return this.mail.getConfigurationSummary().smtpReady;
+    return this.mail.getConfigurationSummary().ready;
   }
 
   private canUseLocalEmailConfirmationFallback() {

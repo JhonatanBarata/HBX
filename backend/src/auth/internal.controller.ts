@@ -33,9 +33,23 @@ export class InternalController {
     this.assertInternalSecret(secret);
 
     const config = this.mailService.getConfigurationSummary();
+    const code = config.ready
+      ? config.mode === 'resend'
+        ? 'RESEND_READY'
+        : config.mode === 'smtp'
+          ? 'SMTP_READY'
+          : config.mode === 'ethereal'
+            ? 'ETHEREAL_READY'
+            : 'LOG_READY'
+      : config.mode === 'resend'
+        ? 'RESEND_CONFIG_INCOMPLETE'
+        : config.mode === 'smtp'
+          ? 'SMTP_CONFIG_INCOMPLETE'
+          : 'TRANSACTIONAL_PROVIDER_NOT_CONFIGURED';
+
     return {
-      ok: Boolean(config.smtpConfigured && config.smtpReady),
-      code: !config.smtpConfigured ? 'SMTP_NOT_CONFIGURED' : config.smtpReady ? 'SMTP_READY' : 'SMTP_CONFIG_INCOMPLETE',
+      ok: Boolean(config.ready),
+      code,
       config,
     };
   }

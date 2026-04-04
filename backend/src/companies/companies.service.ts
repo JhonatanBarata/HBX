@@ -837,6 +837,7 @@ export class CompaniesService implements OnModuleInit, OnModuleDestroy {
 
     await ensureMasterBillingRuntimeSchema(this.prisma);
     await ensureWebsiteRuntimeSchema(this.prisma);
+    const supportsWhatsAppEndpointTable = await this.supportsWhatsAppEndpointTable();
 
     const company = await this.loadCompanyForPermanentDeletion(id);
     if (!company) throw new NotFoundException('Company not found');
@@ -923,7 +924,9 @@ export class CompaniesService implements OnModuleInit, OnModuleDestroy {
       await tx.webscrapingUsageLog.deleteMany({ where: { companyId: id } });
       await tx.webscrapingSearchHistory.deleteMany({ where: { companyId: id } });
       await tx.techAssistantInteraction.deleteMany({ where: { companyId: id } });
-      await tx.companyWhatsAppEndpoint.deleteMany({ where: { companyId: id } });
+      if (supportsWhatsAppEndpointTable) {
+        await tx.companyWhatsAppEndpoint.deleteMany({ where: { companyId: id } });
+      }
 
       await tx.masterSupportAuditLog.deleteMany({ where: { companyId: id } });
       await tx.masterAssumedContextSession.deleteMany({ where: { companyId: id } });
