@@ -603,6 +603,11 @@ type ConfirmActionState = {
   run: () => Promise<void>;
 };
 
+function buildHardDeleteConfirmation(companyName: string) {
+  const normalized = companyName.trim();
+  return normalized ? `EXCLUIR ${normalized}` : "EXCLUIR EMPRESA";
+}
+
 type DrawerTab =
   | "summary"
   | "finance"
@@ -2490,6 +2495,31 @@ export default function MasterPremiumPage() {
       await refreshAll(companyId);
     } catch (actionError) {
       setError(actionError instanceof Error ? actionError.message : "Falha ao arquivar empresa.");
+    } finally {
+      setBusyAction(null);
+    }
+  }
+
+  async function hardDeleteCompany(companyId: number, companyName: string, reason: string) {
+    setBusyAction(`delete-${companyId}`);
+    setError(null);
+    try {
+      await apiFetch(`/companies/master/${companyId}`, {
+        method: "DELETE",
+        body: JSON.stringify({
+          confirmText: buildHardDeleteConfirmation(companyName),
+          reason,
+        }),
+      });
+      if (currentUser?.masterContext?.active && currentUser.masterContext.companyId === companyId) {
+        dispatchMasterContextChanged({ mode: "exited", companyName: currentUser.masterContext.companyName || companyName });
+      }
+      setDrawerOpen(false);
+      setDetail(null);
+      setMessage("Empresa removida permanentemente. Usuários, módulos e vínculos operacionais também foram excluídos.");
+      await loadWorkspace(true);
+    } catch (actionError) {
+      setError(actionError instanceof Error ? actionError.message : "Falha ao excluir empresa permanentemente.");
     } finally {
       setBusyAction(null);
     }
@@ -4850,13 +4880,13 @@ export default function MasterPremiumPage() {
                     <div className={styles.panelCardHeader}>
                       <div>
                         <p className={styles.sectionEyebrow}>Perigo</p>
-                        <h3>Arquivamento seguro e exclusão permanente bloqueada</h3>
+                        <h3>Arquivamento seguro e exclusão permanente real</h3>
                       </div>
                     </div>
 
                     <div className={styles.contextBannerStrong}>
                       <strong>Zona sensível</strong>
-                      <span>Arquivar bloqueia o acesso e preserva histórico. Exclusão permanente continua fora deste drawer até revisão estrutural do hard delete.</span>
+                      <span>Arquivar preserva histórico. Excluir permanentemente apaga a empresa, os usuários e os vínculos operacionais; apenas um registro mínimo da remoção fica no MASTER.</span>
                     </div>
 
                     <div className={styles.dangerGrid}>
@@ -4900,33 +4930,42 @@ export default function MasterPremiumPage() {
                       <article className={styles.dangerCard}>
                         <div>
                           <p className={styles.sectionEyebrow}>Excluir permanentemente</p>
-                          <h3>Hard delete bloqueado por segurança</h3>
+                          <h3>Apagar empresa e dados vinculados</h3>
                         </div>
                         <div className={styles.summaryMeta}>
-                          <p>O método removeByMaster() ainda não cobre todas as relações mais novas do schema atual.</p>
-                          <p>Por isso esta tela não conecta exclusão permanente diretamente ao backend legado.</p>
-                          <p>{`Quando esse fluxo for revisado, a confirmação esperada será EXCLUIR ${activeCompany.name}.`}</p>
+                          <p>Remove empresa, usuários, módulos, integrações, financeiro operacional, scraping, recovery, leads, website e mensagens vinculadas.</p>
+                          <p>O MASTER mantém apenas um snapshot mínimo da remoção para auditoria e rastreabilidade.</p>
+                          <p>Empresas sem usuário entram automaticamente em remoção permanente após 7 dias.</p>
                         </div>
                         <div className={styles.rowActions}>
                           <button
                             type="button"
-                            className="btn btn-secondary btn-sm"
+                            className="btn btn-danger btn-sm"
+                            disabled={busyAction === `delete-${activeCompany.id}`}
                             onClick={() => setConfirmAction({
-                              title: "Exclusão permanente bloqueada",
-                              description: `A exclusão permanente de ${activeCompany.name} continua desabilitada nesta tela por segurança.`,
-                              confirmLabel: "Entendi",
-                              tone: "primary",
+                              title: "Excluir empresa permanentemente",
+                              description: `${activeCompany.name} será apagada do sistema com os usuários e vínculos operacionais associados.`,
+                              confirmLabel: "Excluir permanentemente",
+                              tone: "danger",
                               details: [
-                                "O hard delete atual foi revisado e continua com cobertura estrutural incompleta.",
-                                "O caminho seguro entregue aqui é arquivamento, não remoção física.",
-                                "Antes de religar o hard delete, o backend precisa cobrir todas as relações novas do schema.",
+                                "A empresa e os usuários dela serão removidos fisicamente.",
+                                "Leads, recovery, integrações, website, billing operacional, scraping e mensagens vinculadas também serão apagados.",
+                                "O MASTER preserva apenas um histórico mínimo da remoção para auditoria.",
+                                "Se uma empresa ficar sem usuários, esse mesmo fluxo roda automaticamente após 7 dias.",
                               ],
+                              confirmationKeyword: buildHardDeleteConfirmation(activeCompany.name),
+                              confirmationInputLabel: "Digite a frase abaixo para liberar o hard delete",
                               run: async () => {
                                 setConfirmAction(null);
+                                await hardDeleteCompany(
+                                  activeCompany.id,
+                                  activeCompany.name,
+                                  "Hard delete executado pelo drawer premium do MASTER",
+                                );
                               },
                             })}
                           >
-                            Excluir permanentemente
+                            {busyAction === `delete-${activeCompany.id}` ? "Excluindo..." : "Excluir permanentemente"}
                           </button>
                         </div>
                       </article>

@@ -17,7 +17,6 @@ import { CompanyOperationalStatusService } from './company-operational-status.se
 import {
   CompaniesService,
   MASTER_HARD_DELETE_CONFIRMATION_INVALID_MESSAGE,
-  MASTER_HARD_DELETE_DISABLED_MESSAGE,
 } from './companies.service';
 
 class MasterCreateCompanyDto {
@@ -137,6 +136,10 @@ class MasterHardDeleteCompanyDto {
   @IsOptional()
   @IsString()
   confirmText?: string;
+
+  @IsOptional()
+  @IsString()
+  reason?: string;
 }
 
 @Controller('companies')
@@ -333,7 +336,7 @@ export class CompaniesController {
       return payload;
     } catch (error) {
       const message = error instanceof Error ? error.message : '';
-      if (message === MASTER_HARD_DELETE_DISABLED_MESSAGE || message === MASTER_HARD_DELETE_CONFIRMATION_INVALID_MESSAGE) {
+      if (message === MASTER_HARD_DELETE_CONFIRMATION_INVALID_MESSAGE) {
         await this.masterContextService.registerSupportAction({
           masterUserId: Number(req.user?.id),
           companyId: Number(id),
@@ -343,6 +346,7 @@ export class CompaniesController {
           metadata: {
             reason: message,
             confirmTextProvided: dto?.confirmText || null,
+            deleteReasonProvided: dto?.reason || null,
           },
         });
       }

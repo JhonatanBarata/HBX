@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { setToken } from "../dashboard/_lib/api";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3000";
+const TRANSACTIONAL_SENDER_EMAIL = "barataimports@gmail.com";
 
 type ApiErrorPayload = {
   message?: string | string[];
@@ -322,6 +323,9 @@ export default function RegisterPage() {
                 <p className="text-sm text-foreground/80 mt-2">
                   {confirmationPending.deliveryFailed ? "Tentativa de envio para" : "E-mail preparado para"} <strong>{confirmationPending.email}</strong>
                   {confirmationPending.companyName ? ` na conta ${confirmationPending.companyName}.` : "."}
+                </p>
+                <p className="text-xs text-foreground/70 mt-3">
+                  O remetente esperado desse e-mail de confirmação é <strong>{TRANSACTIONAL_SENDER_EMAIL}</strong>. Verifique também spam e lixo eletrônico.
                 </p>
                 {confirmationPending.deliveryFailed ? (
                   <p className="text-xs text-amber-700 mt-3">
