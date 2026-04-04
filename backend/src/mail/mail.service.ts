@@ -29,6 +29,13 @@ export type MailSendResult = {
   errorMessage: string | null;
 };
 
+type SmtpAttempt = {
+  host: string;
+  port: number;
+  secure: boolean;
+  label: string;
+};
+
 @Injectable()
 export class MailService {
   private readonly logger = new Logger(MailService.name);
@@ -104,6 +111,92 @@ export class MailService {
     return values
       .map((value) => String(value || '').trim())
       .filter(Boolean);
+  }
+
+  private isGmailHost(host: string | null | undefined) {
+    const normalized = String(host || '').trim().toLowerCase();
+    return normalized === 'smtp.gmail.com' || normalized.endsWith('.gmail.com');
+  }
+
+  private buildSmtpAttempts(summary: MailConfigurationSummary): SmtpAttempt[] {
+    const host = String(summary.host || '').trim();
+    const basePort = Number(summary.port || 0);
+    if (!host || !basePort) {
+      return [];
+    }
+
+    const ports = [basePort];
+    if (this.isGmailHost(host)) {
+      if (basePort !== 465) ports.push(465);
+      if (basePort !== 587) ports.push(587);
+    }
+
+    return Array.from(new Set(ports)).map((port) => ({
+      host,
+      port,
+      secure: port === 465,
+      label: `${host}:${port}`,
+    }));
+  }
+
+  private isRetryableSmtpError(error: unknown) {
+    const message = error instanceof Error ? error.message : String(error || '');
+    const normalized = message.toLowerCase();
+    return (
+      normalized.includes('connection timeout')
+      || normalized.includes('timed out')
+      || normalized.includes('etimedout')
+      || normalized.includes('econnection')
+      || normalized.includes('esocket')
+      || normalized.includes('greeting never received')
+    );
+  }
+
+  private createSmtpTransport(nodemailer: any, summary: MailConfigurationSummary, attempt: SmtpAttempt) {
+    return nodemailer.createTransport({
+      host: attempt.host,
+      port: attempt.port,
+      secure: attempt.secure,
+      family: 4,
+      connectionTimeout: 10000,
+      greetingTimeout: 10000,
+      socketTimeout: 20000,
+      auth: { user: summary.user, pass: this.getSmtpPassword() },
+      tls: {
+        servername: attempt.host,
+      },
+    });
+  }
+
+  private async deliverWithSmtpFallback(
+    nodemailer: any,
+    summary: MailConfigurationSummary,
+    message: { from?: string; replyTo?: string; to: string; subject: string; text: string },
+  ) {
+    const attempts = this.buildSmtpAttempts(summary);
+    let lastError: unknown = null;
+
+    for (let index = 0; index < attempts.length; index += 1) {
+      const attempt = attempts[index];
+      const transporter = this.createSmtpTransport(nodemailer, summary, attempt);
+
+      try {
+        const info = await transporter.sendMail(message);
+        if (index > 0) {
+          this.logger.warn(`SMTP fallback succeeded via ${attempt.label} for ${message.to}`);
+        }
+        return info;
+      } catch (error) {
+        lastError = error;
+        const shouldRetry = index < attempts.length - 1 && this.isRetryableSmtpError(error);
+        if (!shouldRetry) {
+          throw error;
+        }
+        this.logger.warn(`SMTP attempt ${attempt.label} failed for ${message.to}: ${error instanceof Error ? error.message : error}. Retrying with next configuration.`);
+      }
+    }
+
+    throw lastError instanceof Error ? lastError : new Error('SMTP delivery failed');
   }
 
   getConfigurationSummary(): MailConfigurationSummary {
@@ -207,15 +300,7 @@ export class MailService {
       throw new Error(`SMTP configuration incomplete. Missing: ${summary.missing.join(', ')}`);
     }
 
-    const pass = this.getSmtpPassword();
-    const transporter = nodemailer.createTransport({
-      host: summary.host,
-      port: summary.port,
-      secure: summary.port === 465,
-      auth: { user: summary.user, pass },
-    });
-
-    const info = await transporter.sendMail({
+    const info = await this.deliverWithSmtpFallback(nodemailer, summary, {
       from: from || summary.user || undefined,
       replyTo: replyTo || undefined,
       to: input.to,
@@ -262,20 +347,6 @@ export class MailService {
     }
 
     try {
-      // Lazy-load nodemailer only when running the real SMTP test.
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
-      const nodemailer = require('nodemailer');
-      const transporter = nodemailer.createTransport({
-        host: summary.host,
-        port: summary.port,
-        secure: summary.port === 465,
-        auth: {
-          user: summary.user,
-          pass: this.getSmtpPassword(),
-        },
-      });
-
-      await transporter.verify();
       const delivery = await this.sendMail({
         to: input.to,
         subject: 'HBX - teste operacional de e-mail transacional',
