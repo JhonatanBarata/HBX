@@ -1,4 +1,4 @@
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateCompanyDto } from './dto/create-company.dto';
 import { UpdateCompanyDto } from './dto/update-company.dto';
@@ -7,21 +7,188 @@ import { getMasterGlobalIntegrationConfig, pickMasterWhatsAppCredential } from '
 import { ensureMasterBillingRuntimeSchema } from '../modules/master-runtime';
 import { buildWhatsAppCenterSnapshot } from './whatsapp-center.util';
 import { WhatsAppTemporaryConnectionService } from './whatsapp-temporary-connection.service';
+import { ensureWebsiteRuntimeSchema } from '../website/website-runtime';
 
 export const MASTER_HARD_DELETE_CONFIRM_TEXT = 'EXCLUIR EMPRESA';
-export const MASTER_HARD_DELETE_DISABLED_MESSAGE = 'Hard delete de empresa esta desativado nesta publicacao. Use archive no Master ou habilite ALLOW_MASTER_HARD_DELETE=true apenas em manutencao controlada.';
 export const MASTER_HARD_DELETE_CONFIRMATION_INVALID_MESSAGE = 'Confirmacao invalida para hard delete.';
+export function buildMasterHardDeleteConfirmText(companyName: string) {
+  const normalizedName = String(companyName || '').trim();
+  return normalizedName ? `EXCLUIR ${normalizedName}` : MASTER_HARD_DELETE_CONFIRM_TEXT;
+}
+
+const MASTER_COMPANY_HARD_DELETE_MODULE_KEY = 'master_company_hard_delete';
+const ORPHAN_COMPANY_CLEANUP_MODULE_KEY = 'company_orphan_cleanup';
+const ORPHAN_COMPANY_CLEANUP_REASON = 'Empresa sem usuarios agendada para remocao permanente apos 7 dias.';
+const ORPHAN_COMPANY_DELETED_REASON = 'Empresa sem usuarios removida automaticamente apos 7 dias.';
 
 @Injectable()
-export class CompaniesService {
+export class CompaniesService implements OnModuleInit, OnModuleDestroy {
+  private readonly logger = new Logger(CompaniesService.name);
+  private orphanCleanupHandle: ReturnType<typeof setInterval> | null = null;
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly whatsappTemporaryConnection: WhatsAppTemporaryConnectionService,
   ) {}
 
+  async onModuleInit() {
+    if (!this.shouldRunOrphanCompanyCleanup()) {
+      return;
+    }
+
+    void this.runOrphanCompanyCleanup();
+    this.orphanCleanupHandle = setInterval(() => {
+      void this.runOrphanCompanyCleanup();
+    }, this.orphanCompanyCleanupIntervalMs());
+  }
+
+  async onModuleDestroy() {
+    if (this.orphanCleanupHandle) {
+      clearInterval(this.orphanCleanupHandle);
+      this.orphanCleanupHandle = null;
+    }
+  }
+
   private normalizeOptionalString(value: unknown) {
     const normalized = String(value || '').trim();
     return normalized || null;
+  }
+
+  private isProduction() {
+    return String(process.env.NODE_ENV || '').trim().toLowerCase() === 'production';
+  }
+
+  private shouldRunOrphanCompanyCleanup() {
+    return this.isProduction() || String(process.env.ENABLE_ORPHAN_COMPANY_CLEANUP || '').trim().toLowerCase() === 'true';
+  }
+
+  private orphanCompanyCleanupIntervalMs() {
+    const parsed = Number(process.env.ORPHAN_COMPANY_CLEANUP_INTERVAL_MINUTES || '60');
+    const minutes = Number.isFinite(parsed) && parsed > 0 ? parsed : 60;
+    return minutes * 60 * 1000;
+  }
+
+  private orphanCompanyGraceDays() {
+    const parsed = Number(process.env.ORPHAN_COMPANY_GRACE_DAYS || '7');
+    return Number.isFinite(parsed) && parsed > 0 ? Math.trunc(parsed) : 7;
+  }
+
+  private buildCompanyDeletionSnapshot(company: {
+    id: number;
+    name: string;
+    slug?: string | null;
+    entityType?: string | null;
+    createdAt?: Date | null;
+    onboardingStatus?: string | null;
+    isActive?: boolean | null;
+    paymentStatus?: string | null;
+    subscriptionStatus?: string | null;
+    deactivatedAt?: Date | null;
+    primaryContactName?: string | null;
+    contactEmail?: string | null;
+    users?: Array<{ id: number; username?: string | null; email?: string | null; isSystemMaster?: boolean | null }>;
+    _count?: Record<string, number>;
+  }, input: {
+    mode: 'master_hard_delete' | 'orphan_cleanup';
+    reason?: string | null;
+    deletedByUserId?: number | null;
+    deletedAt: Date;
+    scheduledAt?: Date | null;
+  }) {
+    return JSON.stringify({
+      company: {
+        id: Number(company.id),
+        name: String(company.name || ''),
+        slug: company.slug ? String(company.slug) : null,
+        entityType: company.entityType ? String(company.entityType) : null,
+        createdAt: company.createdAt instanceof Date ? company.createdAt.toISOString() : null,
+        onboardingStatus: company.onboardingStatus ? String(company.onboardingStatus) : null,
+        isActive: Boolean(company.isActive),
+        paymentStatus: company.paymentStatus ? String(company.paymentStatus) : null,
+        subscriptionStatus: company.subscriptionStatus ? String(company.subscriptionStatus) : null,
+        deactivatedAt: company.deactivatedAt instanceof Date ? company.deactivatedAt.toISOString() : null,
+        primaryContactName: company.primaryContactName ? String(company.primaryContactName) : null,
+        contactEmail: company.contactEmail ? String(company.contactEmail) : null,
+      },
+      users: Array.isArray(company.users)
+        ? company.users.map((user) => ({
+            id: Number(user.id),
+            username: user.username ? String(user.username) : null,
+            email: user.email ? String(user.email) : null,
+            isSystemMaster: Boolean(user.isSystemMaster),
+          }))
+        : [],
+      counts: company._count || {},
+      deletion: {
+        mode: input.mode,
+        reason: this.normalizeOptionalString(input.reason),
+        deletedByUserId: Number(input.deletedByUserId || 0) || null,
+        deletedAt: input.deletedAt.toISOString(),
+        scheduledAt: input.scheduledAt instanceof Date ? input.scheduledAt.toISOString() : null,
+      },
+    });
+  }
+
+  private isValidMasterDeleteConfirmation(companyName: string, input?: string | null) {
+    const normalized = String(input || '').trim();
+    if (!normalized) {
+      return false;
+    }
+
+    const expectedValues = new Set([
+      MASTER_HARD_DELETE_CONFIRM_TEXT,
+      String(companyName || '').trim(),
+      buildMasterHardDeleteConfirmText(companyName),
+    ].filter(Boolean));
+
+    return expectedValues.has(normalized);
+  }
+
+  private async loadCompanyForPermanentDeletion(companyId: number) {
+    return this.prisma.company.findUnique({
+      where: { id: Number(companyId) },
+      select: {
+        id: true,
+        name: true,
+        slug: true,
+        entityType: true,
+        createdAt: true,
+        onboardingStatus: true,
+        isActive: true,
+        paymentStatus: true,
+        subscriptionStatus: true,
+        deactivatedAt: true,
+        primaryContactName: true,
+        contactEmail: true,
+        users: {
+          select: {
+            id: true,
+            username: true,
+            email: true,
+            isSystemMaster: true,
+          },
+        },
+        _count: {
+          select: {
+            users: true,
+            companyModules: true,
+            importacoes: true,
+            products: true,
+            inboundMessages: true,
+            outboundMessages: true,
+            conversationSessions: true,
+            customerProfiles: true,
+            debtCases: true,
+            integrationConnections: true,
+            financeiroCharges: true,
+            atendimentoCustomers: true,
+            webscrapingSearchHistories: true,
+            webscrapingUsageLogs: true,
+            vendasLeads: true,
+          },
+        },
+      },
+    });
   }
 
   private async supportsWhatsAppEndpointTable() {
@@ -656,90 +823,112 @@ export class CompaniesService {
     return this.sanitizeCompany(updated);
   }
 
-  async removeByMaster(masterUserId: number, companyId: number, input?: { confirmText?: string | null }) {
-    await this.assertMasterUser(masterUserId);
-
-    const id = Number(companyId);
+  private async permanentlyDeleteCompanyInternal(input: {
+    companyId: number;
+    deletedByUserId?: number | null;
+    reason?: string | null;
+    historyModuleKey: string;
+    mode: 'master_hard_delete' | 'orphan_cleanup';
+    scheduleRecordId?: number | null;
+    scheduledAt?: Date | null;
+  }) {
+    const id = Number(input.companyId);
     if (!id) throw new BadRequestException('Empresa invalida');
 
-    // Keep legacy hard delete behind an explicit maintenance gate.
-    if (String(process.env.ALLOW_MASTER_HARD_DELETE || '').trim().toLowerCase() !== 'true') {
-      throw new ForbiddenException(MASTER_HARD_DELETE_DISABLED_MESSAGE);
-    }
+    await ensureMasterBillingRuntimeSchema(this.prisma);
+    await ensureWebsiteRuntimeSchema(this.prisma);
 
-    if ((input?.confirmText ?? '') !== MASTER_HARD_DELETE_CONFIRM_TEXT) {
-      throw new BadRequestException(MASTER_HARD_DELETE_CONFIRMATION_INVALID_MESSAGE);
-    }
-
-    const company = await this.prisma.company.findUnique({
-      where: { id },
-      select: {
-        id: true,
-        name: true,
-        slug: true,
-        users: { select: { id: true, isSystemMaster: true } },
-        conversationSessions: { select: { id: true } },
-        autoReplyRules: { select: { id: true } },
-        outboundMessages: { select: { id: true } },
-        importacoes: { select: { id: true } },
-        products: { select: { id: true } },
-      },
-    });
+    const company = await this.loadCompanyForPermanentDeletion(id);
     if (!company) throw new NotFoundException('Company not found');
 
     if (company.users.some((user) => user.isSystemMaster)) {
       throw new BadRequestException('Nao e permitido excluir uma empresa vinculada ao usuario MASTER do sistema');
     }
 
-    const userIds = company.users.map((user) => user.id);
-    const sessionIds = company.conversationSessions.map((session) => session.id);
-    const autoReplyRuleIds = company.autoReplyRules.map((rule) => rule.id);
-    const outboundMessageIds = company.outboundMessages.map((message) => message.id);
-    const importacaoIds = company.importacoes.map((item) => item.id);
-    const productIds = company.products.map((product) => product.id);
+    const userIds = company.users.map((user) => Number(user.id || 0)).filter((userId) => userId > 0);
+    const deletedAt = new Date();
+    const snapshot = this.buildCompanyDeletionSnapshot(company, {
+      mode: input.mode,
+      reason: input.reason,
+      deletedByUserId: input.deletedByUserId,
+      deletedAt,
+      scheduledAt: input.scheduledAt || null,
+    });
 
     await this.prisma.$transaction(async (tx) => {
-      if (outboundMessageIds.length > 0) {
-        await tx.companyMessage.updateMany({
-          where: { outboundMessageId: { in: outboundMessageIds } },
-          data: { outboundMessageId: null },
+      if (input.scheduleRecordId) {
+        await tx.deletionRecord.update({
+          where: { id: Number(input.scheduleRecordId) },
+          data: {
+            motivo: this.normalizeOptionalString(input.reason) || ORPHAN_COMPANY_DELETED_REASON,
+            snapshot,
+            permanentlyDeletedAt: deletedAt,
+            permanentlyDeletedById: Number(input.deletedByUserId || 0) || null,
+          },
         });
-        await tx.outboundAttempt.deleteMany({ where: { messageId: { in: outboundMessageIds } } });
+      } else {
+        await tx.deletionRecord.create({
+          data: {
+            moduleKey: input.historyModuleKey,
+            entityType: 'COMPANY',
+            entityId: String(id),
+            companyId: null,
+            motivo: this.normalizeOptionalString(input.reason),
+            snapshot,
+            deletedByUserId: Number(input.deletedByUserId || 0) || null,
+            deletedAt,
+            permanentlyDeletedById: Number(input.deletedByUserId || 0) || null,
+            permanentlyDeletedAt: deletedAt,
+          },
+        });
       }
 
-      if (importacaoIds.length > 0) {
-        await tx.alertaImportacao.deleteMany({ where: { importacaoId: { in: importacaoIds } } });
-        await tx.importacaoLog.deleteMany({ where: { importacaoId: { in: importacaoIds } } });
-      }
-
-      if (autoReplyRuleIds.length > 0) {
-        await tx.autoReplyResponse.deleteMany({ where: { ruleId: { in: autoReplyRuleIds } } });
-      }
-
-      if (sessionIds.length > 0) {
-        await tx.orderDraft.deleteMany({ where: { sessionId: { in: sessionIds } } });
-      }
-
-      if (productIds.length > 0) {
-        await tx.productVersion.deleteMany({ where: { productId: { in: productIds } } });
-      }
+      await tx.$executeRaw`DELETE FROM "WebsiteAdminEntryToken" WHERE "companyId" = ${id}`;
+      await tx.$executeRaw`DELETE FROM "CompanyWebsiteConfig" WHERE "companyId" = ${id}`;
+      await tx.$executeRaw`DELETE FROM "MasterBillingLedgerEntry" WHERE "companyId" = ${id}`;
+      await tx.$executeRaw`DELETE FROM "FinanceiroCharge" WHERE "companyId" = ${id}`;
 
       await tx.satisfactionSurvey.deleteMany({ where: { conversation: { companyId: id } } });
       await tx.message.deleteMany({ where: { conversation: { companyId: id } } });
       await tx.conversation.deleteMany({ where: { companyId: id } });
+      await tx.customer.deleteMany({ where: { conversations: { none: {} } } });
 
-      await tx.hbxRecoveryPayment.deleteMany({ where: { companyId: id } });
-      await tx.hbxRecoveryCustomer.deleteMany({ where: { companyId: id } });
-      await tx.hbxRecoveryFlowStage.deleteMany({ where: { companyId: id } });
-      await tx.whatsAppAuditLog.deleteMany({ where: { companyId: id } });
-      await tx.whatsAppWebhookEvent.deleteMany({ where: { companyId: id } });
+      await tx.outboundAttempt.deleteMany({ where: { message: { companyId: id } } });
       await tx.companyMessage.deleteMany({ where: { companyId: id } });
-      await tx.companyConversation.deleteMany({ where: { companyId: id } });
       await tx.outboundMessage.deleteMany({ where: { companyId: id } });
       await tx.inboundMessage.deleteMany({ where: { companyId: id } });
+
+      await tx.autoReplyResponse.deleteMany({ where: { rule: { companyId: id } } });
       await tx.autoReplyRule.deleteMany({ where: { companyId: id } });
+
       await tx.orderDraft.deleteMany({ where: { companyId: id } });
       await tx.conversationSession.deleteMany({ where: { companyId: id } });
+      await tx.companyConversation.deleteMany({ where: { companyId: id } });
+
+      await tx.hbxRecoveryPayment.deleteMany({ where: { companyId: id } });
+      await tx.vendasLeadTimelineEvent.deleteMany({ where: { lead: { companyId: id } } });
+      await tx.vendasLead.deleteMany({ where: { companyId: id } });
+      await tx.atendimentoCustomer.deleteMany({ where: { companyId: id } });
+      await tx.hbxRecoveryCustomer.deleteMany({ where: { companyId: id } });
+      await tx.debtCase.deleteMany({ where: { companyId: id } });
+      await tx.hbxRecoveryFlowStage.deleteMany({ where: { companyId: id } });
+      await tx.customerProfile.deleteMany({ where: { companyId: id } });
+
+      await tx.auvoExternalRecord.deleteMany({ where: { companyId: id } });
+      await tx.integrationSyncRun.deleteMany({ where: { companyId: id } });
+      await tx.integrationConnection.deleteMany({ where: { companyId: id } });
+
+      await tx.whatsAppAuditLog.deleteMany({ where: { companyId: id } });
+      await tx.whatsAppWebhookEvent.deleteMany({ where: { companyId: id } });
+      await tx.webscrapingUsageLog.deleteMany({ where: { companyId: id } });
+      await tx.webscrapingSearchHistory.deleteMany({ where: { companyId: id } });
+      await tx.techAssistantInteraction.deleteMany({ where: { companyId: id } });
+      await tx.companyWhatsAppEndpoint.deleteMany({ where: { companyId: id } });
+
+      await tx.masterSupportAuditLog.deleteMany({ where: { companyId: id } });
+      await tx.masterAssumedContextSession.deleteMany({ where: { companyId: id } });
+
+      await tx.importacaoLog.deleteMany({ where: { importacao: { empresaId: id } } });
       await tx.alertaImportacao.deleteMany({ where: { empresaId: id } });
       await tx.importacao.deleteMany({ where: { empresaId: id } });
       await tx.importacaoPermissao.deleteMany({ where: { empresaId: id } });
@@ -747,6 +936,7 @@ export class CompaniesService {
       await tx.cadastroFornecedor.deleteMany({ where: { empresaId: id } });
       await tx.cadastroPorto.deleteMany({ where: { empresaId: id } });
       await tx.cadastroPais.deleteMany({ where: { empresaId: id } });
+
       await tx.companyModule.deleteMany({ where: { companyId: id } });
       await tx.deletionRecord.deleteMany({ where: { companyId: id } });
       await tx.productVersion.deleteMany({ where: { product: { companyId: id } } });
@@ -771,9 +961,25 @@ export class CompaniesService {
           where: { authorId: { in: userIds } },
           data: { authorId: null },
         });
+        await tx.deletionRecord.updateMany({
+          where: { deletedByUserId: { in: userIds } },
+          data: { deletedByUserId: null },
+        });
+        await tx.masterAssumedContextSession.updateMany({
+          where: { endedByUserId: { in: userIds } },
+          data: { endedByUserId: null },
+        });
+        await tx.techAssistantInteraction.deleteMany({ where: { userId: { in: userIds } } });
+        await tx.webscrapingUsageLog.deleteMany({ where: { userId: { in: userIds } } });
+        await tx.webscrapingSearchHistory.deleteMany({ where: { userId: { in: userIds } } });
         await tx.passwordReset.deleteMany({ where: { userId: { in: userIds } } });
         await tx.userModuleAccess.deleteMany({ where: { userId: { in: userIds } } });
-        await tx.deletionRecord.deleteMany({ where: { deletedByUserId: { in: userIds } } });
+        await tx.$executeRawUnsafe(
+          `UPDATE "MasterBillingLedgerEntry" SET "createdByUserId" = NULL WHERE "createdByUserId" IN (${userIds.join(',')})`,
+        );
+        await tx.$executeRawUnsafe(
+          `DELETE FROM "WebsiteAdminEntryToken" WHERE "userId" IN (${userIds.join(',')})`,
+        );
         await tx.user.deleteMany({ where: { id: { in: userIds } } });
       }
 
@@ -788,6 +994,174 @@ export class CompaniesService {
         slug: company.slug || null,
       },
     };
+  }
+
+  private async runOrphanCompanyCleanup() {
+    if (!this.shouldRunOrphanCompanyCleanup()) {
+      return;
+    }
+
+    try {
+      const scheduledRows = await this.prisma.deletionRecord.findMany({
+        where: {
+          moduleKey: ORPHAN_COMPANY_CLEANUP_MODULE_KEY,
+          entityType: 'COMPANY',
+          permanentlyDeletedAt: null,
+        },
+        select: {
+          id: true,
+          entityId: true,
+          deletedAt: true,
+        },
+      });
+
+      const scheduledByCompanyId = new Map<number, { id: number; deletedAt: Date }>();
+      for (const row of scheduledRows) {
+        const companyId = Number(row.entityId || 0);
+        if (!companyId) continue;
+        scheduledByCompanyId.set(companyId, { id: row.id, deletedAt: row.deletedAt });
+      }
+
+      const scheduledCompanyIds = Array.from(scheduledByCompanyId.keys());
+      if (scheduledCompanyIds.length) {
+        const restoredCompanies = await this.prisma.company.findMany({
+          where: {
+            id: { in: scheduledCompanyIds },
+            users: { some: {} },
+          },
+          select: { id: true },
+        });
+
+        const restoredIds = new Set(restoredCompanies.map((company) => Number(company.id)));
+        if (restoredIds.size > 0) {
+          await this.prisma.deletionRecord.deleteMany({
+            where: {
+              id: {
+                in: scheduledRows
+                  .filter((row) => restoredIds.has(Number(row.entityId || 0)))
+                  .map((row) => Number(row.id)),
+              },
+            },
+          });
+        }
+      }
+
+      const orphanCompanies = await this.prisma.company.findMany({
+        where: {
+          users: { none: {} },
+        },
+        select: {
+          id: true,
+          name: true,
+          isActive: true,
+          paymentStatus: true,
+          subscriptionStatus: true,
+          premiumAccess: true,
+          deactivatedAt: true,
+        },
+      });
+
+      const graceCutoff = new Date(Date.now() - this.orphanCompanyGraceDays() * 24 * 60 * 60 * 1000);
+      for (const company of orphanCompanies) {
+        const companyId = Number(company.id || 0);
+        if (!companyId) continue;
+
+        const scheduled = scheduledByCompanyId.get(companyId);
+        if (!scheduled) {
+          const scheduledAt = new Date();
+          const snapshot = this.buildCompanyDeletionSnapshot(
+            {
+              ...company,
+              users: [],
+            },
+            {
+              mode: 'orphan_cleanup',
+              reason: ORPHAN_COMPANY_CLEANUP_REASON,
+              deletedAt: scheduledAt,
+              scheduledAt,
+            },
+          );
+
+          await this.prisma.$transaction(async (tx) => {
+            await tx.companyModule.updateMany({ where: { companyId }, data: { enabled: false } });
+            await tx.company.update({
+              where: { id: companyId },
+              data: {
+                isActive: false,
+                paymentStatus: 'DISABLED',
+                subscriptionStatus: 'canceled',
+                premiumAccess: false,
+                deactivatedAt: scheduledAt,
+              },
+            });
+            await tx.deletionRecord.create({
+              data: {
+                moduleKey: ORPHAN_COMPANY_CLEANUP_MODULE_KEY,
+                entityType: 'COMPANY',
+                entityId: String(companyId),
+                companyId: null,
+                motivo: ORPHAN_COMPANY_CLEANUP_REASON,
+                snapshot,
+                deletedByUserId: null,
+                deletedAt: scheduledAt,
+                permanentlyDeletedById: null,
+                permanentlyDeletedAt: null,
+              },
+            });
+          });
+          this.logger.warn(`Company ${companyId} scheduled for permanent deletion after ${this.orphanCompanyGraceDays()} days without users`);
+          continue;
+        }
+
+        if (scheduled.deletedAt <= graceCutoff) {
+          try {
+            await this.permanentlyDeleteCompanyInternal({
+              companyId,
+              deletedByUserId: null,
+              reason: ORPHAN_COMPANY_DELETED_REASON,
+              historyModuleKey: ORPHAN_COMPANY_CLEANUP_MODULE_KEY,
+              mode: 'orphan_cleanup',
+              scheduleRecordId: scheduled.id,
+              scheduledAt: scheduled.deletedAt,
+            });
+            this.logger.warn(`Company ${companyId} permanently deleted after orphan grace period`);
+          } catch (error) {
+            this.logger.error(
+              `Failed to permanently delete orphan company ${companyId}`,
+              error instanceof Error ? error.stack : undefined,
+            );
+          }
+        }
+      }
+    } catch (error) {
+      this.logger.error('Failed running orphan company cleanup', error instanceof Error ? error.stack : undefined);
+    }
+  }
+
+  async removeByMaster(
+    masterUserId: number,
+    companyId: number,
+    input?: { confirmText?: string | null; reason?: string | null },
+  ) {
+    await this.assertMasterUser(masterUserId);
+
+    const id = Number(companyId);
+    if (!id) throw new BadRequestException('Empresa invalida');
+
+    const company = await this.loadCompanyForPermanentDeletion(id);
+    if (!company) throw new NotFoundException('Company not found');
+
+    if (!this.isValidMasterDeleteConfirmation(company.name, input?.confirmText ?? '')) {
+      throw new BadRequestException(MASTER_HARD_DELETE_CONFIRMATION_INVALID_MESSAGE);
+    }
+
+    return this.permanentlyDeleteCompanyInternal({
+      companyId: id,
+      deletedByUserId: masterUserId,
+      reason: this.normalizeOptionalString(input?.reason),
+      historyModuleKey: MASTER_COMPANY_HARD_DELETE_MODULE_KEY,
+      mode: 'master_hard_delete',
+    });
   }
 
   async archiveByMaster(masterUserId: number, companyId: number, input?: { reason?: string | null }) {
