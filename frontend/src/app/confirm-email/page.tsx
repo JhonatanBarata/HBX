@@ -2,6 +2,7 @@
 
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { getToken } from "../dashboard/_lib/api";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3000";
 
@@ -107,6 +108,19 @@ function ConfirmEmailInner() {
           );
           setErrorCode(null);
           setTrialEndsAt(payload?.trialEndsAt ? String(payload.trialEndsAt) : null);
+
+          // Se já existir sessão (token), redireciona para a área logada.
+          try {
+            const existingToken = getToken();
+            if (existingToken) {
+              // sinaliza cancelamento para evitar updates adicionais e navega
+              cancelled = true;
+              router.replace("/dashboard");
+              return;
+            }
+          } catch {
+            // ignore
+          }
         }
       } catch {
         if (!cancelled) {
