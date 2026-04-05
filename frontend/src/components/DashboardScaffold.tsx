@@ -67,7 +67,7 @@ export default function DashboardScaffold({
   actions,
   showDashboardShortcut = true,
   hideHeader = false,
-  hideNavigationRail = false,
+  hideNavigationRail = true,
   layoutMode = "default",
 }: DashboardScaffoldProps) {
   const navPeekCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -79,7 +79,9 @@ export default function DashboardScaffold({
       : "HBX Workspace";
   const pageKey = buildPageKey(pathname);
   const isWorkspaceMode = layoutMode === "workspace";
-  const shouldShowHoverModules = hideNavigationRail && isWorkspaceMode;
+  // Mostrar o painel "peek" dos módulos escondidos no canto esquerdo por padrão
+  // (padrão global: navegação em rail escondida, modules peek disponível).
+  const shouldShowHoverModules = true;
   const authenticated = useSyncExternalStore(subscribeAuth, getAuthSnapshot, getAuthServerSnapshot);
   const [presentationProfile, setPresentationProfile] = useState<PresentationProfile | null>(null);
   const [presentationConfig, setPresentationConfig] = useState<PresentationConfig | null>(null);
