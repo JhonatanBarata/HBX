@@ -60,12 +60,12 @@ async function verifyTransactionalMailReadiness(backendUrl, env) {
   const missing = Array.isArray(summary?.config?.missing)
     ? summary.config.missing.filter((item) => typeof item === 'string' && item.trim().length > 0)
     : [];
+  const mode = summary?.config?.mode ? String(summary.config.mode) : null;
 
   const providerReady = Boolean(
     summary?.ok
-    || summary?.config?.ready
-    || summary?.config?.resendReady
-    || summary?.config?.smtpReady,
+    || (mode === 'resend' && summary?.config?.resendReady)
+    || (mode === 'smtp' && summary?.config?.smtpReady)
   );
 
   if (!providerReady) {
@@ -75,8 +75,8 @@ async function verifyTransactionalMailReadiness(backendUrl, env) {
 
   return {
     checked: true,
-    code: String(summary.code || (summary?.config?.mode === 'resend' ? 'RESEND_READY' : 'SMTP_READY')),
-    mode: summary?.config?.mode ? String(summary.config.mode) : null,
+    code: String(summary.code || (mode === 'resend' ? 'RESEND_READY' : 'SMTP_READY')),
+    mode,
     missing,
   };
 }
@@ -113,9 +113,16 @@ async function verifyTransactionalMailDelivery(backendUrl, env) {
     throw new Error(`Transactional email delivery test failed (${payload.code || 'unknown'}): ${payload.message || 'unknown error'}`);
   }
 
+  const mode = payload?.delivery?.transport
+    ? String(payload.delivery.transport)
+    : payload?.config?.mode
+      ? String(payload.config.mode)
+      : null;
+
   return {
     checked: true,
-    code: String(payload.code || 'SMTP_TEST_OK'),
+    code: String(payload.code || (mode === 'resend' ? 'RESEND_TEST_OK' : 'SMTP_TEST_OK')),
+    mode,
     recipient: testRecipient,
     message: String(payload.message || 'E-mail transacional enviado com sucesso.'),
   };
