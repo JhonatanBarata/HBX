@@ -319,14 +319,8 @@ export default function RegisterPage() {
             <div className="space-y-4">
               <div className="border border-foreground/10 bg-background p-4 rounded-xl shadow-sm">
                 <p className="text-sm font-semibold">Confirmação pendente</p>
-                <p className="text-sm text-foreground/80 mt-2">{confirmationPending.message}</p>
-                <p className="text-sm text-foreground/80 mt-2">
-                  {confirmationPending.deliveryFailed ? "Tentativa de envio para" : "E-mail preparado para"} <strong>{confirmationPending.email}</strong>
-                  {confirmationPending.companyName ? ` na conta ${confirmationPending.companyName}.` : "."}
-                </p>
-                <p className="text-xs text-foreground/70 mt-3">
-                  O remetente esperado desse e-mail de confirmação é <strong>{TRANSACTIONAL_SENDER_EMAIL}</strong>. Verifique também spam e lixo eletrônico.
-                </p>
+                <p className="text-sm text-foreground/80 mt-2">E-mail enviado, e cadastro criado.</p>
+                <p className="text-sm text-foreground/80 mt-2">Confirme seu e-mail para liberar o trial.</p>
                 {confirmationPending.deliveryFailed ? (
                   <p className="text-xs text-amber-700 mt-3">
                     O cadastro foi salvo, mas a entrega falhou neste momento. Reenvie a confirmação antes de tentar entrar.
@@ -337,45 +331,30 @@ export default function RegisterPage() {
                 ) : null}
               </div>
 
-              <div className="flex flex-col gap-3">
-                {confirmationPending.confirmUrl ? (
-                  <a
-                    className="w-full inline-flex items-center justify-center py-3 rounded-xl bg-secondary text-foreground font-medium hover:opacity-95"
-                    href={confirmationPending.confirmUrl}
-                  >
-                    Confirmar agora
-                  </a>
-                ) : null}
-
-                {confirmationPending.previewUrl ? (
-                  <a
-                    className="w-full inline-flex items-center justify-center py-3 rounded-xl border border-foreground/10 hover:bg-foreground/5"
-                    href={confirmationPending.previewUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    Abrir preview do e-mail
-                  </a>
-                ) : null}
-
+              <div className="flex items-center justify-center gap-6 text-sm">
                 {confirmationPending.canResendConfirmation ? (
-                  <button
-                    type="button"
-                    className="w-full py-3 rounded-xl border border-foreground/10 hover:bg-foreground/5"
-                    onClick={() => void resendConfirmation(confirmationPending.email)}
-                    disabled={resendingConfirmation}
+                  <a
+                    href="#"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      if (!resendingConfirmation) void resendConfirmation(confirmationPending.email);
+                    }}
+                    className="login-link font-medium"
                   >
-                    {resendingConfirmation ? "Reenviando confirmação..." : "Reenviar confirmação"}
-                  </button>
+                    {resendingConfirmation ? "Reenviando..." : "Reenviar email"}
+                  </a>
                 ) : null}
 
-                <button
-                  type="button"
-                  className="w-full py-3 rounded-xl border border-foreground/10 hover:bg-foreground/5"
-                  onClick={() => router.push("/login")}
+                <a
+                  href="/login"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    router.push("/login");
+                  }}
+                  className="login-link font-medium"
                 >
                   Ir para login
-                </button>
+                </a>
               </div>
             </div>
           ) : (
