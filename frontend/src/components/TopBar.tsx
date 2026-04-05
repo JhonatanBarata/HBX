@@ -131,7 +131,7 @@ const ATENDIMENTO_HUMAN_QUEUE_EVENT = "atendimento-human-queue";
 const RECOVERY_QUEUE_STORAGE_KEY = "hbxRecoveryPendingHumanCount";
 const ATENDIMENTO_QUEUE_STORAGE_KEY = "atendimentoPendingHumanCount";
 
-const hiddenRoutes = new Set(["/login", "/register", "/reset-password"]);
+const hiddenRoutes = new Set(["/login", "/register", "/reset-password", "/confirm-email"]);
 
 function extractEntryNumberLabel(metadata?: Record<string, unknown> | null) {
   const endpointLabel = String(metadata?.whatsappEntryEndpointLabel || "").trim();
