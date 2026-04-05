@@ -216,7 +216,7 @@ export class AuthService implements OnModuleInit {
     return {
       ok: true,
       status: 'pending_email_confirmation',
-      message: input.message || 'Cadastro criado. Confirme seu e-mail para liberar o trial.',
+      message: input.message || 'Cadastro criado. Confirme seu e-mail para liberar nosso trial.',
       email: input.email,
       username: input.username,
       companyName: input.companyName,
@@ -604,7 +604,7 @@ export class AuthService implements OnModuleInit {
         warnings,
         message: delivery.failed
           ? this.emailConfirmationDeliveryFailureMessage()
-          : 'Cadastro criado. Confirme seu e-mail para liberar o trial.',
+          : 'Cadastro criado. Confirme seu e-mail para liberar nosso trial:',
         previewUrl: delivery.previewUrl,
         confirmUrl: delivery.confirmUrl,
         deliveryFailed: delivery.failed,
@@ -683,7 +683,7 @@ export class AuthService implements OnModuleInit {
       warnings,
       message: delivery.failed
         ? this.emailConfirmationDeliveryFailureMessage()
-        : 'Cadastro criado. Confirme seu e-mail para liberar o trial.',
+        : 'Cadastro criado. Confirme seu e-mail para liberar nosso trial.',
       previewUrl: delivery.previewUrl,
       confirmUrl: delivery.confirmUrl,
       deliveryFailed: delivery.failed,
