@@ -1431,33 +1431,11 @@ export default function VendasClientPage() {
     >
       <div className={styles.page}>
         <section className={styles.hero}>
-          <div className={styles.heroCopy}>
-            <span className={styles.eyebrow}>HBX vendas</span>
-            <h1 className={styles.heroTitle}>Agenda viva, retorno visível e cards prontos para operar.</h1>
-            <p className={styles.heroText}>
-              O módulo agora prioriza bater o olho, identificar o que está atrasado, saber a próxima ação e agir sem se perder em tela administrativa comum.
-            </p>
-          </div>
-
-          <div className={styles.heroStats}>
-            <div className={styles.metricCard} data-tone="primary">
-              <span className={styles.metricLabel}>Agenda ativa</span>
-              <strong className={styles.metricValue}>{totalActive} cards</strong>
-              <small className={styles.metricHint}>Hoje, atrasados e próximos retornos no mesmo radar.</small>
-            </div>
-            <div className={styles.metricCard} data-tone="webscraping">
-              <span className={styles.metricLabel}>Origem pronta</span>
-              <strong className={styles.metricValue}>Manual + Webscraping</strong>
-              <small className={styles.metricHint}>Entrada comercial preparada para memória futura.</small>
-            </div>
-          </div>
-
           <div className={styles.focusGrid}>
-            {focusMetrics.map((metric) => (
+            {focusMetrics.slice(0, 2).map((metric) => (
               <article key={metric.title} className={styles.focusCard} data-tone={metric.tone}>
                 <span className={styles.focusLabel}>{metric.title}</span>
                 <strong className={styles.focusValue}>{metric.value}</strong>
-                <p className={styles.focusText}>{metric.description}</p>
               </article>
             ))}
           </div>
