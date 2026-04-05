@@ -532,26 +532,10 @@ export default function LoginPage() {
             <h1 className="login-card__title">
               {mode === "login" ? "Entrar no nucleo HBX" : "Recuperar acesso com clareza"}
             </h1>
-            <p className={`login-card__copy${mode === "forgot" ? " login-card__copy--compact" : ""}`}>
-              {mode === "login"
-                ? "Tecnologia viva, autenticacao rapida e transicao direta para o modulo realmente operacional."
-                : "Informe o e-mail da conta para receber um link seguro de redefinicao sem estado ambiguo."}
-            </p>
-            {mode === "login" ? (
-              <div className="login-card__stats">
-                <div className="login-card__stat">
-                  <span>Palco</span>
-                  <strong>{isWakingServer ? "Aquecendo backend" : isSuccess ? "Transicao armada" : "Pronto para autenticar"}</strong>
-                </div>
-                <div className="login-card__stat">
-                  <span>Entrada</span>
-                  <strong>{preRegistered ? "Primeiro acesso guiado" : "Roteamento direto por modulo"}</strong>
-                </div>
-                <div className="login-card__stat">
-                  <span>Tema</span>
-                  <strong>{activeTheme.label} · {themeModeLabel}</strong>
-                </div>
-              </div>
+            {mode === "forgot" ? (
+              <p className="login-card__copy login-card__copy--compact">
+                {"Informe o e-mail da conta para receber um link seguro de redefinicao sem estado ambiguo."}
+              </p>
             ) : null}
           </header>
 
