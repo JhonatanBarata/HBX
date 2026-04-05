@@ -14,6 +14,7 @@ const SEGMENT_SUGGESTIONS = [
   "Mercados",
   "Academias",
   "Pet shop",
+  "Outros",
 ];
 const QUANTITY_OPTIONS = [5, 10, 15, 20];
 
@@ -281,6 +282,7 @@ export default function WebscrapingClientPage() {
   const [historyItems, setHistoryItems] = useState<SearchHistoryItem[]>([]);
   const [city, setCity] = useState("");
   const [segment, setSegment] = useState("Lanchonetes");
+  const [customSegment, setCustomSegment] = useState("");
   const [quantity, setQuantity] = useState(10);
   const [minRating, setMinRating] = useState("");
   const [minReviews, setMinReviews] = useState("");
@@ -305,6 +307,8 @@ export default function WebscrapingClientPage() {
   const [appliedScriptSender, setAppliedScriptSender] = useState("");
   const [appliedScriptCompany, setAppliedScriptCompany] = useState("");
   const [scriptPresetHydrated, setScriptPresetHydrated] = useState(false);
+  const [scriptPresetDraft, setScriptPresetDraft] = useState("");
+  const [scriptPresetText, setScriptPresetText] = useState<string | null>(null);
 
   const canSeeDiagnostics = useMemo(
     () => Boolean(currentUser?.isSystemMaster) || String(currentUser?.role || "").toUpperCase() === "ADMIN",
@@ -370,6 +374,23 @@ export default function WebscrapingClientPage() {
         setCurrentUser(profilePayload);
         setHistoryItems(historyPayload.items || []);
         setPageError(null);
+        // hydrate local UI preferences (last city / segment and script preset)
+        try {
+          const lastCity = localStorage.getItem("webscraping.lastCity");
+          if (lastCity && !city) setCity(String(lastCity));
+          const lastSegment = localStorage.getItem("webscraping.lastSegment");
+          if (lastSegment) {
+            if (SEGMENT_SUGGESTIONS.includes(String(lastSegment))) {
+              setSegment(String(lastSegment));
+              setCustomSegment("");
+            } else {
+              setSegment("Outros");
+              setCustomSegment(String(lastSegment));
+            }
+          }
+        } catch {
+          // ignore storage errors
+        }
       } catch (error) {
         if (cancelled) return;
         setPageError(error instanceof Error ? error.message : "Falha ao carregar o modulo de prospeccao.");
@@ -384,6 +405,46 @@ export default function WebscrapingClientPage() {
       cancelled = true;
     };
   }, [hasToken]);
+
+  // load script preset (try backend, fallback to localStorage)
+  useEffect(() => {
+    if (!hasToken) return;
+    if (scriptPresetHydrated) return;
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const payload = await apiFetch<{ text?: string }>("/webscraping/script-preset");
+        if (cancelled) return;
+        const text = String(payload?.text || "").trim();
+        if (text) {
+          setScriptPresetText(text);
+          setScriptPresetDraft(text);
+        } else {
+          const fallback = localStorage.getItem("webscraping.scriptPreset") || "";
+          if (fallback) {
+            setScriptPresetText(fallback);
+            setScriptPresetDraft(fallback);
+          } else {
+            setScriptPresetText(null);
+            setScriptPresetDraft("");
+          }
+        }
+      } catch {
+        const fallback = localStorage.getItem("webscraping.scriptPreset") || "";
+        if (!cancelled) {
+          setScriptPresetText(fallback || null);
+          setScriptPresetDraft(fallback || "");
+        }
+      } finally {
+        if (!cancelled) setScriptPresetHydrated(true);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [hasToken, scriptPresetHydrated]);
 
   useEffect(() => {
     if (!feedback) return;
@@ -445,9 +506,10 @@ export default function WebscrapingClientPage() {
   }, [defaultScriptVariables.company, defaultScriptVariables.speaker, scriptPresetHydrated]);
 
   function buildPayload() {
+    const effectiveSegment = segment === "Outros" ? customSegment.trim() : segment.trim();
     return {
       city: city.trim(),
-      segment: segment.trim(),
+      segment: effectiveSegment,
       quantity,
       minRating: minRating ? Number(minRating) : undefined,
       minReviews: minReviews ? Number(minReviews) : undefined,
@@ -490,6 +552,14 @@ export default function WebscrapingClientPage() {
       setSearchMeta(payload.meta);
       setHasSearched(true);
       await refreshHistory();
+      // persist last city/segment locally for quicker re-entry
+      try {
+        localStorage.setItem("webscraping.lastCity", String(payload.query.city || city || ""));
+        const seg = String(payload.query.segment || (segment === "Outros" ? customSegment : segment) || "");
+        localStorage.setItem("webscraping.lastSegment", seg);
+      } catch {
+        // ignore storage errors
+      }
     } catch (error) {
       setResults([]);
       setActiveQuery(null);
@@ -510,7 +580,14 @@ export default function WebscrapingClientPage() {
         method: "POST",
       });
       setCity(payload.query.city);
-      setSegment(payload.query.segment);
+      // respect known segments and custom ones
+      if (SEGMENT_SUGGESTIONS.includes(String(payload.query.segment))) {
+        setSegment(payload.query.segment);
+        setCustomSegment("");
+      } else {
+        setSegment("Outros");
+        setCustomSegment(payload.query.segment);
+      }
       setQuantity(payload.query.quantity);
       setMinRating(payload.query.filters.minRating == null ? "" : String(payload.query.filters.minRating));
       setMinReviews(payload.query.filters.minReviews == null ? "" : String(payload.query.filters.minReviews));
@@ -526,6 +603,59 @@ export default function WebscrapingClientPage() {
       setSearchError(error instanceof Error ? error.message : "Falha ao reaproveitar pesquisa.");
     } finally {
       setHistoryBusyId(null);
+    }
+  }
+
+  async function saveScriptPreset() {
+    const text = String(scriptPresetDraft || "").trim();
+    try {
+      // try backend first
+      await apiFetch("/webscraping/script-preset", {
+        method: "PUT",
+        body: JSON.stringify({ text }),
+      });
+      setScriptPresetText(text || null);
+      setFeedback("Roteiro salvo no servidor.");
+      try {
+        localStorage.setItem("webscraping.scriptPreset", text);
+      } catch {
+        // ignore
+      }
+    } catch {
+      // fallback to localStorage only
+      try {
+        localStorage.setItem("webscraping.scriptPreset", text);
+        setScriptPresetText(text || null);
+        setFeedback("Roteiro salvo localmente (fallback).");
+      } catch {
+        setFeedback("Falha ao salvar roteiro.");
+      }
+    }
+  }
+
+  async function resetScriptPreset() {
+    const defaultText = "";
+    setScriptPresetDraft(defaultText);
+    try {
+      await apiFetch("/webscraping/script-preset", {
+        method: "PUT",
+        body: JSON.stringify({ text: defaultText }),
+      });
+      setScriptPresetText(defaultText || null);
+      setFeedback("Roteiro resetado no servidor.");
+      try {
+        localStorage.removeItem("webscraping.scriptPreset");
+      } catch {
+        // ignore
+      }
+    } catch {
+      try {
+        localStorage.removeItem("webscraping.scriptPreset");
+        setScriptPresetText(null);
+        setFeedback("Roteiro resetado localmente.");
+      } catch {
+        setFeedback("Falha ao resetar roteiro.");
+      }
     }
   }
 
