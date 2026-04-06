@@ -77,13 +77,13 @@
   justify-content: center;
   padding: 0 0.58rem;
   border-radius: 999px;
-  border: 1px solid color-mix(in srgb, var(--line) 90%, white);
+  border: 1px solid color-mix(in srgb, var(--line) 90%, var(--background));
   background: linear-gradient(180deg, #ffffff, #f4f7f5);
   color: color-mix(in srgb, #0f766e 78%, var(--foreground));
   font-size: 0.64rem;
   font-weight: 900;
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.92),
+    inset 0 1px 0 color-mix(in srgb, var(--surface) 92%, var(--background)),
     0 8px 18px rgba(15, 23, 42, 0.05);
 }
 
@@ -100,19 +100,19 @@
   gap: 0.56rem;
   padding: 0.72rem;
   border-radius: 18px;
-  border: 1px solid color-mix(in srgb, #d4dde0 86%, white);
+  border: 1px solid color-mix(in srgb, #d4dde0 86%, var(--background));
   background:
     radial-gradient(circle at top right, rgba(15, 118, 110, 0.06), transparent 34%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.99), rgba(246, 249, 248, 0.99));
+    linear-gradient(180deg, color-mix(in srgb, var(--surface) 99%, var(--background)), color-mix(in srgb, var(--surface) 99%, var(--background)));
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.92),
+    inset 0 1px 0 color-mix(in srgb, var(--surface) 92%, var(--background)),
     0 14px 30px rgba(15, 23, 42, 0.06);
 }
 
 .surfaceMuted {
   background:
     radial-gradient(circle at top right, rgba(148, 163, 184, 0.08), transparent 40%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(245, 248, 250, 0.96));
+    linear-gradient(180deg, color-mix(in srgb, var(--surface) 96%, var(--background)), color-mix(in srgb, var(--surface) 96%, var(--background)));
 }
 
 .queue {
@@ -133,10 +133,10 @@
   align-items: start;
   padding: 0.64rem 0.7rem;
   border-radius: 14px;
-  border: 1px solid color-mix(in srgb, #d9e2e0 94%, white);
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.99), rgba(247, 249, 248, 0.98));
+  border: 1px solid color-mix(in srgb, #d9e2e0 94%, var(--background));
+  background: linear-gradient(180deg, color-mix(in srgb, var(--surface) 99%, var(--background)), color-mix(in srgb, var(--surface) 98%, var(--background)));
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.92),
+    inset 0 1px 0 color-mix(in srgb, var(--surface) 92%, var(--background)),
     0 10px 22px rgba(15, 23, 42, 0.045);
   text-align: left;
   cursor: pointer;
@@ -163,7 +163,7 @@
   transform: translateY(-1px);
   border-color: color-mix(in srgb, #25d366 24%, var(--line));
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.92),
+    inset 0 1px 0 color-mix(in srgb, var(--surface) 92%, var(--background)),
     0 14px 28px rgba(18, 140, 126, 0.08);
 }
 
@@ -171,9 +171,9 @@
   border-color: color-mix(in srgb, #25d366 28%, #128c7e);
   background:
     radial-gradient(circle at top right, rgba(15, 118, 110, 0.11), transparent 40%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.99), rgba(239, 248, 244, 0.99));
+    linear-gradient(180deg, color-mix(in srgb, var(--surface) 99%, var(--background)), color-mix(in srgb, var(--surface) 99%, var(--background)));
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.95),
+    inset 0 1px 0 color-mix(in srgb, var(--surface) 95%, var(--background)),
     0 14px 28px rgba(15, 118, 110, 0.1);
 }
 
@@ -192,11 +192,11 @@
   display: grid;
   place-items: center;
   border-radius: 50%;
-  border: 1px solid color-mix(in srgb, var(--line) 82%, white);
+  border: 1px solid color-mix(in srgb, var(--line) 82%, var(--background));
   background: linear-gradient(145deg, #d8f7e2, #ffffff);
   color: var(--foreground);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.92),
+    inset 0 1px 0 color-mix(in srgb, var(--surface) 92%, var(--background)),
     0 8px 16px rgba(15, 23, 42, 0.05);
   overflow: hidden;
 }
@@ -314,8 +314,8 @@
   min-height: 22px;
   padding: 0.08rem 0.48rem;
   border-radius: 999px;
-  border: 1px solid color-mix(in srgb, var(--line) 86%, white);
-  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid color-mix(in srgb, var(--line) 86%, var(--background));
+  background: color-mix(in srgb, var(--surface) 92%, var(--background));
   font-size: 0.62rem;
   font-weight: 800;
   color: var(--foreground-soft);
@@ -332,27 +332,27 @@
 }
 
 .badgeTeal {
-  color: #0f766e;
-  border-color: rgba(15, 118, 110, 0.16);
-  background: rgba(204, 251, 241, 0.88);
+  color: color-mix(in srgb, #0f766e 88%, var(--foreground));
+  border-color: color-mix(in srgb, #0f766e 18%, var(--background));
+  background: color-mix(in srgb, #0f766e 10%, var(--background));
 }
 
 .badgeSuccess {
-  color: #166534;
-  border-color: rgba(34, 197, 94, 0.18);
-  background: rgba(220, 252, 231, 0.92);
+  color: color-mix(in srgb, var(--success) 88%, var(--foreground));
+  border-color: color-mix(in srgb, var(--success) 20%, var(--background));
+  background: color-mix(in srgb, var(--success) 10%, var(--background));
 }
 
 .badgeWarning {
-  color: #8a4f00;
-  border-color: rgba(245, 158, 11, 0.24);
-  background: rgba(255, 244, 219, 0.98);
+  color: color-mix(in srgb, #f59e0b 88%, var(--foreground));
+  border-color: color-mix(in srgb, #f59e0b 26%, var(--background));
+  background: color-mix(in srgb, #f59e0b 10%, var(--background));
 }
 
 .badgeDanger {
   color: color-mix(in srgb, var(--danger) 84%, var(--foreground));
-  border-color: color-mix(in srgb, var(--danger) 20%, white);
-  background: color-mix(in srgb, var(--danger) 10%, white);
+  border-color: color-mix(in srgb, var(--danger) 20%, var(--background));
+  background: color-mix(in srgb, var(--danger) 10%, var(--background));
 }
 
 .thread {
@@ -436,11 +436,11 @@
   gap: 0.34rem;
   padding: 0 0.5rem;
   border-radius: 10px;
-  border: 1px solid color-mix(in srgb, #d7e5df 88%, white);
-  background: rgba(255, 255, 255, 0.88);
+  border: 1px solid color-mix(in srgb, #d7e5df 88%, var(--background));
+  background: color-mix(in srgb, var(--surface) 88%, var(--background));
   color: color-mix(in srgb, #0f766e 68%, var(--foreground-soft));
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.92),
+    inset 0 1px 0 color-mix(in srgb, var(--surface) 92%, var(--background)),
     0 8px 20px rgba(15, 23, 42, 0.05);
   transition:
     transform var(--motion-fast),
@@ -452,7 +452,7 @@
   transform: translateY(-1px);
   border-color: color-mix(in srgb, #25d366 24%, var(--line));
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.92),
+    inset 0 1px 0 color-mix(in srgb, var(--surface) 92%, var(--background)),
     0 12px 24px rgba(18, 140, 126, 0.08);
 }
 
@@ -479,9 +479,9 @@
   background:
     radial-gradient(circle at 18% 16%, rgba(148, 163, 184, 0.08) 0, rgba(148, 163, 184, 0.08) 2px, transparent 2.8px),
     radial-gradient(circle at 76% 22%, rgba(15, 118, 110, 0.06) 0, rgba(15, 118, 110, 0.06) 2px, transparent 2.7px),
-    linear-gradient(180deg, rgba(248, 251, 250, 0.99), rgba(238, 244, 243, 0.99));
+    linear-gradient(180deg, color-mix(in srgb, var(--surface) 99%, var(--background)), color-mix(in srgb, var(--surface) 99%, var(--background)));
   background-size: 180px 180px, 220px 220px, auto;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.86);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--surface) 86%, var(--background));
 }
 
 .bubble {
@@ -493,7 +493,7 @@
   border-radius: 16px;
   border: 1px solid rgba(214, 223, 226, 0.94);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    inset 0 1px 0 color-mix(in srgb, var(--surface) 90%, var(--background)),
     0 10px 22px rgba(15, 23, 42, 0.055);
   animation: premium-chat-bubble-in 220ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
 }
@@ -513,7 +513,7 @@
   min-height: 22px;
   padding: 0.1rem 0.46rem;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.82);
+  background: color-mix(in srgb, var(--surface) 82%, var(--background));
   color: color-mix(in srgb, var(--foreground) 88%, var(--muted));
   font-size: 0.6rem;
   font-weight: 900;
@@ -568,7 +568,7 @@
   width: 14px;
   height: 14px;
   border-radius: 4px;
-  background: #ffffff;
+  background: var(--surface);
   border-left: 1px solid rgba(214, 223, 226, 0.94);
   border-bottom: 1px solid rgba(214, 223, 226, 0.94);
   transform: rotate(32deg);
@@ -621,12 +621,12 @@
   grid-template-rows: auto minmax(0, 1fr) auto;
   gap: 0.48rem;
   overflow: hidden;
-  border-color: color-mix(in srgb, #bfcfd0 82%, white);
+  border-color: color-mix(in srgb, #bfcfd0 82%, var(--background));
   background:
     radial-gradient(circle at top right, rgba(15, 118, 110, 0.08), transparent 36%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.99), rgba(241, 246, 245, 0.99));
+    linear-gradient(180deg, color-mix(in srgb, var(--surface) 99%, var(--background)), color-mix(in srgb, var(--surface) 99%, var(--background)));
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.96),
+    inset 0 1px 0 color-mix(in srgb, var(--surface) 96%, var(--background)),
     0 -10px 24px rgba(15, 23, 42, 0.05);
 }
 
@@ -740,7 +740,7 @@
   padding: 1rem 1.05rem;
   border-radius: 20px;
   border: 1px dashed color-mix(in srgb, #0f766e 16%, var(--line));
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.93), rgba(244, 248, 247, 0.93));
+  background: linear-gradient(180deg, color-mix(in srgb, var(--surface) 93%, var(--background)), color-mix(in srgb, var(--surface) 93%, var(--background)));
   color: var(--muted);
   line-height: 1.52;
 }

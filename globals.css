@@ -21,11 +21,11 @@
   --surface: #ffffff;
   --surface-soft: #f8fbff;
   --surface-raised: #f2f6fb;
-  --header-surface: color-mix(in srgb, var(--surface) 78%, var(--background));
-  --nav-surface: color-mix(in srgb, var(--surface) 92%, var(--background));
+  --header-surface: rgba(255, 255, 255, 0.78);
+  --nav-surface: rgba(248, 250, 252, 0.92);
   --field-surface: #ffffff;
-  --hero-from: color-mix(in srgb, var(--surface) 96%, var(--background));
-  --hero-to: color-mix(in srgb, var(--surface) 96%, var(--background));
+  --hero-from: rgba(255, 255, 255, 0.96);
+  --hero-to: rgba(239, 244, 251, 0.96);
   --hero-spotlight: rgba(148, 163, 184, 0.16);
   --table-head: #f7f9fc;
   --chat-inbound: #ffffff;
@@ -67,7 +67,7 @@
   --shadow-sm: 0 18px 42px -24px rgba(15, 23, 42, 0.34);
   --shadow-md: 0 30px 72px -32px rgba(15, 23, 42, 0.42);
   --shadow-lg: 0 44px 96px -36px rgba(15, 23, 42, 0.5);
-  --shadow-inset: inset 0 1px 0 color-mix(in srgb, var(--surface) 72%, var(--background));
+  --shadow-inset: inset 0 1px 0 rgba(255, 255, 255, 0.72);
   --panel-glow: rgba(17, 24, 39, 0.12);
   --hero-glow: rgba(17, 24, 39, 0.18);
   --hero-outline: rgba(17, 24, 39, 0.12);
@@ -242,7 +242,7 @@ textarea {
     display: grid;
     place-items: center;
     padding: 2rem;
-    background: color-mix(in srgb, var(--overlay) 92%, color-mix(in srgb, var(--surface) 12%, var(--background)));
+    background: color-mix(in srgb, var(--overlay) 92%, rgba(255, 255, 255, 0.12));
     backdrop-filter: blur(14px);
     -webkit-backdrop-filter: blur(14px);
   }
@@ -257,7 +257,7 @@ textarea {
     border-radius: calc(var(--panel-radius) + 4px);
     border: 1px solid color-mix(in srgb, var(--brand) 10%, var(--background));
     background:
-      linear-gradient(180deg, color-mix(in srgb, var(--surface) 98%, var(--background)), color-mix(in srgb, var(--surface) 98%, var(--background))),
+      linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(244, 247, 251, 0.98)),
       var(--surface);
     box-shadow:
       0 32px 96px -40px rgba(15, 23, 42, 0.6),
@@ -278,7 +278,7 @@ textarea {
     border-radius: calc(var(--panel-radius) - 2px);
     border: 1px solid color-mix(in srgb, var(--brand) 10%, var(--background));
     background:
-      linear-gradient(180deg, color-mix(in srgb, var(--surface) 98%, var(--background)), color-mix(in srgb, var(--surface) 96%, var(--background))),
+      linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 250, 252, 0.96)),
       var(--surface);
     box-shadow:
       0 22px 54px -28px rgba(15, 23, 42, 0.42),
@@ -1033,7 +1033,7 @@ html[data-popup-open="true"] .app-topbar::after {
   color: var(--brand-contrast);
   box-shadow:
     0 22px 30px -24px color-mix(in srgb, var(--login-accent) 48%, transparent),
-    inset 0 1px 0 color-mix(in srgb, var(--surface) 24%, var(--background));
+    inset 0 1px 0 rgba(255, 255, 255, 0.24);
 }
 
 .login-card__brandMark::after {
@@ -1599,7 +1599,7 @@ html[data-popup-open="true"] .app-topbar::after {
 html[data-theme-mode="dark"] .login-stage {
   --login-stage-top: color-mix(in srgb, var(--hero-from) 94%, #020617);
   --login-stage-bottom: color-mix(in srgb, var(--hero-to) 94%, #020617);
-  --login-card-top: color-mix(in srgb, var(--surface) 92%, color-mix(in srgb, var(--surface) 04%, var(--background)));
+  --login-card-top: color-mix(in srgb, var(--surface) 92%, rgba(255, 255, 255, 0.04));
   --login-card-bottom: color-mix(in srgb, var(--surface-soft) 94%, var(--background));
   --login-grid-line: color-mix(in srgb, var(--foreground) 10%, transparent);
 }
@@ -1611,7 +1611,7 @@ html[data-theme-mode="dark"] .login-card__stat {
 }
 
 html[data-theme-mode="dark"] .login-card__brandMark::after {
-  border-color: color-mix(in srgb, var(--surface) 14%, var(--background));
+  border-color: rgba(255, 255, 255, 0.14);
 }
 
 html[data-theme="shadcn"] .login-card {
@@ -1693,7 +1693,7 @@ html[data-theme="tabler"] .login-card {
     repeating-linear-gradient(90deg, transparent 0, transparent 21px, color-mix(in srgb, var(--line) 12%, transparent) 21px, color-mix(in srgb, var(--line) 12%, transparent) 22px),
     linear-gradient(180deg, color-mix(in srgb, var(--surface) 98%, var(--background)), color-mix(in srgb, var(--surface-raised) 94%, var(--background)));
   box-shadow:
-    inset 0 1px 0 color-mix(in srgb, var(--surface) 06%, var(--background)),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
     0 24px 44px -34px color-mix(in srgb, var(--foreground) 18%, transparent);
 }
 
@@ -1914,7 +1914,7 @@ html[data-theme="tabler"] .login-card__stat {
   height: 34px;
   flex: 0 0 auto;
   border-radius: calc(var(--control-radius) - 2px);
-  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--surface) 28%, var(--background)), 0 10px 18px -16px var(--panel-glow);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28), 0 10px 18px -16px var(--panel-glow);
 }
 
 .theme-switcher__trigger-copy {
@@ -2064,7 +2064,7 @@ html[data-theme="tabler"] .login-card__stat {
 
 .theme-card__previewTop {
   display: block;
-  border-bottom: 1px solid color-mix(in srgb, var(--surface) 18%, var(--background));
+  border-bottom: 1px solid rgba(255, 255, 255, 0.18);
 }
 
 .theme-card__previewBody {
@@ -2482,7 +2482,7 @@ pre {
   position: relative;
   overflow: hidden;
   min-height: 42px;
-  border: 1px solid color-mix(in srgb, var(--surface) 28%, var(--background));
+  border: 1px solid rgba(255, 255, 255, 0.28);
   border-radius: var(--control-radius);
   padding: 0.66rem 0.95rem;
   font-size: 0.86rem;
@@ -2513,13 +2513,13 @@ pre {
 .btn::before {
   opacity: 0.88;
   background:
-    radial-gradient(circle at top left, color-mix(in srgb, var(--surface) 42%, var(--background)), transparent 38%),
-    linear-gradient(180deg, color-mix(in srgb, var(--surface) 18%, var(--background)), rgba(255, 255, 255, 0));
+    radial-gradient(circle at top left, rgba(255, 255, 255, 0.42), transparent 38%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0));
 }
 
 .btn::after {
   opacity: 0;
-  background: linear-gradient(120deg, transparent 0%, color-mix(in srgb, var(--surface) 58%, var(--background)) 42%, transparent 72%);
+  background: linear-gradient(120deg, transparent 0%, rgba(255, 255, 255, 0.58) 42%, transparent 72%);
   transform: translateX(-135%);
 }
 
@@ -2612,7 +2612,7 @@ pre {
   position: absolute;
   inset: -10% auto -10% -30%;
   width: 30%;
-  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--surface) 45%, var(--background)), transparent);
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.45), transparent);
   animation: auth-success-sweep 920ms ease-in-out forwards;
 }
 
@@ -3012,7 +3012,7 @@ html[data-theme="tabler"] .card,
 html[data-theme="tabler"] .shell-card {
   background:
     linear-gradient(180deg, color-mix(in srgb, var(--surface) 98%, var(--background)), color-mix(in srgb, var(--surface-raised) 96%, var(--background)));
-  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--surface) 05%, var(--background)), 0 16px 30px -28px color-mix(in srgb, var(--foreground) 48%, transparent);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 16px 30px -28px color-mix(in srgb, var(--foreground) 48%, transparent);
 }
 
 html[data-theme="tabler"] .btn-primary,
@@ -3203,7 +3203,7 @@ html[data-theme="tabler"] .workspace-context {
   position: absolute;
   inset: 0;
   background:
-    radial-gradient(circle at 20% 20%, color-mix(in srgb, var(--surface) 08%, var(--background)), transparent 28%),
+    radial-gradient(circle at 20% 20%, rgba(255, 255, 255, 0.08), transparent 28%),
     radial-gradient(circle at 80% 25%, rgba(99, 102, 241, 0.16), transparent 24%),
     radial-gradient(circle at 50% 100%, rgba(56, 189, 248, 0.12), transparent 34%),
     rgba(6, 10, 18, 0.76);
@@ -3240,12 +3240,12 @@ html[data-theme="tabler"] .workspace-context {
   width: min(92vw, 560px);
   padding: 28px 26px 24px;
   border-radius: 28px;
-  border: 1px solid color-mix(in srgb, var(--surface) 12%, var(--background));
+  border: 1px solid rgba(255, 255, 255, 0.12);
   background:
-    linear-gradient(180deg, color-mix(in srgb, var(--surface) 10%, var(--background)), color-mix(in srgb, var(--surface) 04%, var(--background)));
+    linear-gradient(180deg, rgba(255, 255, 255, 0.10), rgba(255, 255, 255, 0.04));
   box-shadow:
     0 30px 80px rgba(0, 0, 0, 0.40),
-    inset 0 1px 0 color-mix(in srgb, var(--surface) 08%, var(--background));
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
   backdrop-filter: blur(18px);
   color: #f8fafc;
   text-align: center;
@@ -3259,8 +3259,8 @@ html[data-theme="tabler"] .workspace-context {
   margin-bottom: 16px;
   padding: 8px 12px;
   border-radius: 999px;
-  background: color-mix(in srgb, var(--surface) 08%, var(--background));
-  color: color-mix(in srgb, var(--surface) 86%, var(--background));
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.86);
   font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.04em;
@@ -3277,7 +3277,7 @@ html[data-theme="tabler"] .workspace-context {
 
 .ui-shutdown-card__brand {
   margin-bottom: 8px;
-  color: color-mix(in srgb, var(--surface) 72%, var(--background));
+  color: rgba(255, 255, 255, 0.72);
   font-size: 13px;
   font-weight: 700;
   letter-spacing: 0.18em;
@@ -3295,7 +3295,7 @@ html[data-theme="tabler"] .workspace-context {
 .ui-shutdown-card__text {
   margin: 12px auto 18px;
   max-width: 38ch;
-  color: color-mix(in srgb, var(--surface) 76%, var(--background));
+  color: rgba(255, 255, 255, 0.76);
   font-size: 14px;
   line-height: 1.6;
 }
@@ -3305,7 +3305,7 @@ html[data-theme="tabler"] .workspace-context {
   height: 8px;
   border-radius: 999px;
   overflow: hidden;
-  background: color-mix(in srgb, var(--surface) 08%, var(--background));
+  background: rgba(255, 255, 255, 0.08);
   box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.25);
 }
 

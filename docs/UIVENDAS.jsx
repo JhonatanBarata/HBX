@@ -327,18 +327,10 @@ export default function HbxAtendimentoPremium() {
                       <div className="mt-1 text-xl font-semibold text-white">{selectedClient.name}</div>
                       <div className="mt-1 text-sm text-slate-400">Hub interno do cliente com timeline, KPIs, bot e financeiro</div>
                     </div>
-                    <div className="flex items-center gap-3">
-                      <div className="rounded-[14px] border border-white/10 bg-white/[0.02] p-3">
-                        <div className="text-[10px] uppercase tracking-[0.22em] text-slate-400">Ações</div>
-                        <div className="mt-2 flex items-center gap-2">
-                          <button className="flex-1 rounded-full bg-gradient-to-r from-slate-800 via-slate-700 to-slate-600 px-4 py-2 text-sm font-semibold text-white shadow-[0_8px_30px_rgba(2,6,23,0.6)]">WhatsApp</button>
-                          <button className="rounded-full border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-200">Ligar</button>
-                        </div>
-                        <div className="mt-3 flex gap-2">
-                          <button className="rounded-full border border-white/10 bg-black/20 px-3 py-1 text-xs text-slate-300">Amanhã</button>
-                          <button className="rounded-full border border-white/10 bg-black/20 px-3 py-1 text-xs text-slate-300">Encerrar</button>
-                        </div>
-                      </div>
+                    <div className="flex flex-wrap gap-2">
+                      <button className="rounded-2xl border border-white/10 bg-black/20 px-3 py-2 text-xs text-slate-300">Perfil</button>
+                      <button className="rounded-2xl border border-white/10 bg-black/20 px-3 py-2 text-xs text-slate-300">Histórico</button>
+                      <button className="rounded-2xl border border-cyan-300/30 bg-cyan-300/12 px-3 py-2 text-xs text-cyan-100">Abrir fluxo</button>
                     </div>
                   </div>
                 </div>

@@ -8,10 +8,10 @@
   gap: 1rem;
   padding: 1.2rem;
   border-radius: 28px;
-  border: 1px solid color-mix(in srgb, var(--line) 86%, white);
+  border: 1px solid color-mix(in srgb, var(--line) 86%, var(--background));
   background:
     radial-gradient(circle at top right, color-mix(in srgb, var(--brand) 10%, transparent), transparent 30%),
-    linear-gradient(180deg, color-mix(in srgb, var(--surface) 98%, white), color-mix(in srgb, var(--surface-raised) 96%, var(--background)));
+    linear-gradient(180deg, color-mix(in srgb, var(--surface) 98%, var(--background)), color-mix(in srgb, var(--surface-raised) 96%, var(--background)));
   box-shadow: var(--shadow-inset), var(--shadow-sm);
 }
 
@@ -52,8 +52,8 @@
 .reasonItem {
   padding: 0.9rem 1rem;
   border-radius: 18px;
-  border: 1px solid color-mix(in srgb, var(--line) 84%, white);
-  background: color-mix(in srgb, var(--surface-soft) 92%, white);
+  border: 1px solid color-mix(in srgb, var(--line) 84%, var(--background));
+  background: color-mix(in srgb, var(--surface-soft) 92%, var(--background));
   color: var(--foreground);
   line-height: 1.55;
 }

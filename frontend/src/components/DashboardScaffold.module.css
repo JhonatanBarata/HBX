@@ -22,11 +22,11 @@
   justify-content: center;
   gap: 0.35rem;
   padding: 0.4rem 0.2rem;
-  border: 1px solid color-mix(in srgb, var(--line) 88%, white);
+  border: 1px solid color-mix(in srgb, var(--line) 88%, var(--background));
   border-left: none;
   border-radius: 0 18px 18px 0;
   background:
-    linear-gradient(180deg, color-mix(in srgb, var(--surface) 98%, white), color-mix(in srgb, var(--surface-raised) 94%, var(--background)));
+    linear-gradient(180deg, color-mix(in srgb, var(--surface) 98%, var(--background)), color-mix(in srgb, var(--surface-raised) 94%, var(--background)));
   box-shadow: var(--shadow-inset), var(--shadow-sm);
   transform: translateX(-6px);
   opacity: 0.95;

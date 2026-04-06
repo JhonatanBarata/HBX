@@ -8,9 +8,9 @@
   max-width: 100%;
   padding: 0.18rem;
   border-radius: 18px;
-  border: 1px solid color-mix(in srgb, var(--line) 86%, white);
+  border: 1px solid color-mix(in srgb, var(--line) 86%, var(--background));
   background:
-    linear-gradient(180deg, color-mix(in srgb, var(--surface) 38%, white), color-mix(in srgb, var(--surface-soft) 82%, var(--background))),
+    linear-gradient(180deg, color-mix(in srgb, var(--surface) 38%, var(--background)), color-mix(in srgb, var(--surface-soft) 82%, var(--background))),
     color-mix(in srgb, var(--surface) 92%, transparent);
   backdrop-filter: blur(18px) saturate(170%);
   overflow: hidden;
@@ -23,12 +23,12 @@
   width: calc((100% - 0.36rem) / var(--segment-count));
   transform: translateX(calc(var(--segment-index) * 100%));
   border-radius: 14px;
-  border: 1px solid color-mix(in srgb, white 46%, var(--line));
+  border: 1px solid color-mix(in srgb, var(--background) 46%, var(--line));
   background:
-    radial-gradient(circle at top left, color-mix(in srgb, white 68%, transparent), transparent 44%),
-    linear-gradient(180deg, color-mix(in srgb, white 32%, transparent), color-mix(in srgb, var(--surface) 24%, transparent));
+    radial-gradient(circle at top left, color-mix(in srgb, var(--background) 68%, transparent), transparent 44%),
+    linear-gradient(180deg, color-mix(in srgb, var(--background) 32%, transparent), color-mix(in srgb, var(--surface) 24%, transparent));
   box-shadow:
-    inset 0 1px 0 color-mix(in srgb, white 72%, transparent),
+    inset 0 1px 0 color-mix(in srgb, var(--background) 72%, transparent),
     0 8px 22px color-mix(in srgb, var(--foreground) 10%, transparent);
   transition: transform var(--motion-base);
   pointer-events: none;

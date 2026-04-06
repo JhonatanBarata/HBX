@@ -143,7 +143,7 @@
   padding: 0.85rem;
   border-radius: 14px;
   border: 1px solid var(--line);
-  background: color-mix(in srgb, var(--surface-soft) 90%, white);
+  background: color-mix(in srgb, var(--surface-soft) 90%, var(--background));
 }
 
 .warningBox {
@@ -182,7 +182,7 @@
   padding: 0.9rem;
   border-radius: 16px;
   border: 1px dashed color-mix(in srgb, var(--brand) 18%, var(--line));
-  background: color-mix(in srgb, var(--surface) 90%, white);
+  background: color-mix(in srgb, var(--surface) 90%, var(--background));
   color: var(--foreground-soft);
   font-size: 0.79rem;
   line-height: 1.6;
@@ -197,7 +197,7 @@
   padding: 0.35rem 0.72rem;
   border-radius: 999px;
   border: 1px solid var(--line);
-  background: color-mix(in srgb, var(--surface) 88%, white);
+  background: color-mix(in srgb, var(--surface) 88%, var(--background));
   font-size: 0.76rem;
   font-weight: 800;
   color: var(--foreground-soft);
@@ -220,7 +220,7 @@
   padding: 0.85rem 0.9rem;
   border-radius: 14px;
   border: 1px solid var(--line);
-  background: color-mix(in srgb, var(--surface) 88%, white);
+  background: color-mix(in srgb, var(--surface) 88%, var(--background));
   display: grid;
   gap: 0.2rem;
 }

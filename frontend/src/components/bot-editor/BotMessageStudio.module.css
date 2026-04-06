@@ -12,7 +12,7 @@
   border-radius: 24px;
   background:
     radial-gradient(circle at top right, color-mix(in srgb, var(--brand) 10%, transparent), transparent 36%),
-    linear-gradient(180deg, color-mix(in srgb, var(--surface) 98%, white), color-mix(in srgb, var(--surface-soft) 94%, var(--background)));
+    linear-gradient(180deg, color-mix(in srgb, var(--surface) 98%, var(--background)), color-mix(in srgb, var(--surface-soft) 94%, var(--background)));
   box-shadow: var(--shadow-inset), var(--shadow-sm);
 }
 
@@ -109,7 +109,7 @@
   padding: 0.38rem 0.8rem;
   border-radius: 12px;
   border: 1px solid color-mix(in srgb, var(--brand) 10%, var(--line));
-  background: color-mix(in srgb, var(--surface) 90%, white);
+  background: color-mix(in srgb, var(--surface) 90%, var(--background));
   color: var(--foreground-soft);
   font-size: 0.76rem;
   font-weight: 800;
@@ -128,9 +128,9 @@
   overflow: auto;
   padding: 0.18rem;
   border-radius: 18px;
-  border: 1px solid color-mix(in srgb, var(--line) 84%, white);
+  border: 1px solid color-mix(in srgb, var(--line) 84%, var(--background));
   background:
-    linear-gradient(180deg, color-mix(in srgb, var(--surface) 36%, white), color-mix(in srgb, var(--surface-soft) 84%, var(--background))),
+    linear-gradient(180deg, color-mix(in srgb, var(--surface) 36%, var(--background)), color-mix(in srgb, var(--surface-soft) 84%, var(--background))),
     color-mix(in srgb, var(--surface) 92%, transparent);
   backdrop-filter: blur(18px) saturate(170%);
 }
@@ -161,10 +161,10 @@
 .tabButtonActive {
   border-color: color-mix(in srgb, var(--brand) 36%, var(--line));
   background:
-    radial-gradient(circle at top left, color-mix(in srgb, white 66%, transparent), transparent 42%),
-    linear-gradient(180deg, color-mix(in srgb, white 26%, transparent), color-mix(in srgb, var(--brand) 10%, var(--surface)));
+    radial-gradient(circle at top left, color-mix(in srgb, var(--background) 66%, transparent), transparent 42%),
+    linear-gradient(180deg, color-mix(in srgb, var(--background) 26%, transparent), color-mix(in srgb, var(--brand) 10%, var(--surface)));
   box-shadow:
-    inset 0 1px 0 color-mix(in srgb, white 70%, transparent),
+    inset 0 1px 0 color-mix(in srgb, var(--background) 70%, transparent),
     0 14px 26px color-mix(in srgb, var(--brand) 12%, transparent);
 }
 
@@ -230,7 +230,7 @@
   font-size: 1.9rem;
   line-height: 1;
   letter-spacing: -0.05em;
-  color: #102033;
+  color: var(--foreground);
 }
 
 .metricCard span {
@@ -274,36 +274,36 @@
 .libraryChip,
 .badge,
 .chipStatic {
-  border: 1px solid color-mix(in srgb, var(--brand) 12%, #d8e4ee);
-  background: rgba(255, 255, 255, 0.88);
-  color: #183449;
+  border: 1px solid color-mix(in srgb, var(--brand) 12%, var(--line));
+  background: color-mix(in srgb, var(--surface) 88%, var(--background));
+  color: var(--foreground);
 }
 
 .libraryChipAccent,
 .badgeAccent,
 .statusReady {
-  background: color-mix(in srgb, var(--brand) 10%, white);
-  border-color: color-mix(in srgb, var(--brand) 18%, #d8e4ee);
-  color: color-mix(in srgb, var(--brand) 86%, #17324a);
+  background: color-mix(in srgb, var(--brand) 10%, var(--background));
+  border-color: color-mix(in srgb, var(--brand) 18%, var(--line));
+  color: color-mix(in srgb, var(--brand) 86%, var(--foreground));
 }
 
 .badgeMuted,
 .statusDraft {
-  background: rgba(241, 245, 249, 0.96);
+  background: color-mix(in srgb, var(--surface) 96%, var(--background));
   border-color: rgba(148, 163, 184, 0.24);
-  color: #475569;
+  color: var(--muted);
 }
 
 .badgeWarning {
-  background: rgba(255, 247, 237, 0.98);
+  background: color-mix(in srgb, var(--surface) 98%, var(--background));
   border-color: rgba(245, 158, 11, 0.22);
   color: #b45309;
 }
 
 .chip {
-  border: 1px solid color-mix(in srgb, var(--brand) 18%, #d8e4ee);
-  background: rgba(255, 255, 255, 0.94);
-  color: color-mix(in srgb, var(--brand) 84%, #17324a);
+  border: 1px solid color-mix(in srgb, var(--brand) 18%, var(--line));
+  background: color-mix(in srgb, var(--surface) 94%, var(--background));
+  color: color-mix(in srgb, var(--brand) 84%, var(--foreground));
   cursor: pointer;
 }
 
@@ -313,7 +313,7 @@
 
 .chip small {
   margin-left: 0.45rem;
-  color: #64748b;
+  color: var(--muted);
 }
 
 .scenarioList,
@@ -329,7 +329,7 @@
 .actionItem {
   border-radius: 18px;
   border: 1px solid color-mix(in srgb, var(--brand) 10%, #dbe7f1);
-  background: rgba(255, 255, 255, 0.82);
+  background: color-mix(in srgb, var(--surface) 82%, var(--background));
 }
 
 .scenarioItem,
@@ -354,8 +354,8 @@
 .flowIndexItemActive {
   border-color: color-mix(in srgb, var(--brand) 34%, #0f172a);
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(231, 244, 242, 0.96)),
-    rgba(255, 255, 255, 0.94);
+    linear-gradient(180deg, color-mix(in srgb, var(--surface) 96%, var(--background)), color-mix(in srgb, var(--surface) 96%, var(--background))),
+    color-mix(in srgb, var(--surface) 94%, var(--background));
   box-shadow: 0 18px 32px rgba(15, 118, 110, 0.12);
 }
 
@@ -372,7 +372,7 @@
 .catalogCard strong,
 .actionItem strong,
 .buttonMeta strong {
-  color: #102033;
+  color: var(--foreground);
 }
 
 .canvasSurface {
@@ -382,8 +382,8 @@
   border-radius: 18px;
   border: 1px dashed color-mix(in srgb, var(--brand) 16%, #dbe7f1);
   background:
-    radial-gradient(circle at top, rgba(255, 255, 255, 0.92), rgba(255, 255, 255, 0.76)),
-    linear-gradient(180deg, rgba(244, 249, 251, 0.96), rgba(238, 245, 248, 0.92));
+    radial-gradient(circle at top, color-mix(in srgb, var(--surface) 92%, var(--background)), color-mix(in srgb, var(--surface) 76%, var(--background))),
+    linear-gradient(180deg, color-mix(in srgb, var(--surface) 96%, var(--background)), color-mix(in srgb, var(--surface) 92%, var(--background)));
   grid-template-columns: minmax(0, 1fr);
   align-items: start;
   cursor: grab;
@@ -393,7 +393,7 @@
   padding: 0.95rem 1rem;
   border-radius: 20px;
   border: 1px solid color-mix(in srgb, var(--brand) 12%, #dbe7f1);
-  background: rgba(255, 255, 255, 0.92);
+  background: color-mix(in srgb, var(--surface) 92%, var(--background));
   display: grid;
   gap: 0.55rem;
 }
@@ -403,7 +403,7 @@
 }
 
 .flowNodeTemplate {
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(244, 249, 246, 0.96));
+  background: linear-gradient(180deg, color-mix(in srgb, var(--surface) 98%, var(--background)), color-mix(in srgb, var(--surface) 96%, var(--background)));
 }
 
 .flowNodeSecondary,
@@ -418,14 +418,14 @@
   font-weight: 800;
   text-transform: uppercase;
   letter-spacing: 0.12em;
-  color: #5b7284;
+  color: var(--muted);
 }
 
 .connectorLine {
   justify-self: center;
   width: 2px;
   min-height: 32px;
-  background: linear-gradient(180deg, color-mix(in srgb, var(--brand) 22%, white), rgba(148, 163, 184, 0.28));
+  background: linear-gradient(180deg, color-mix(in srgb, var(--brand) 22%, var(--background)), rgba(148, 163, 184, 0.28));
 }
 
 .branchGrid {
@@ -443,7 +443,7 @@
   justify-self: center;
   width: 2px;
   min-height: 24px;
-  background: linear-gradient(180deg, rgba(148, 163, 184, 0.24), color-mix(in srgb, var(--brand) 22%, white));
+  background: linear-gradient(180deg, rgba(148, 163, 184, 0.24), color-mix(in srgb, var(--brand) 22%, var(--background)));
 }
 
 .flowIndex {
@@ -476,7 +476,7 @@
   background:
     linear-gradient(rgba(203, 213, 225, 0.22) 1px, transparent 1px),
     linear-gradient(90deg, rgba(203, 213, 225, 0.22) 1px, transparent 1px),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.82), rgba(248, 250, 252, 0.82));
+    linear-gradient(180deg, color-mix(in srgb, var(--surface) 82%, var(--background)), color-mix(in srgb, var(--surface) 82%, var(--background)));
   background-size: 28px 28px, 28px 28px, auto;
 }
 
@@ -509,14 +509,14 @@
 }
 
 .flowEdgeLabel {
-  fill: #64748b;
+  fill: var(--muted);
   font-size: 12px;
   font-weight: 700;
   text-anchor: middle;
 }
 
 .flowEdgeLabelActive {
-  fill: color-mix(in srgb, var(--brand) 82%, #17324a);
+  fill: color-mix(in srgb, var(--brand) 82%, var(--foreground));
 }
 
 .flowEdgeLabelMuted {
@@ -530,42 +530,42 @@
   padding: 0.82rem 0.92rem;
   border-radius: 16px;
   border: 1px solid color-mix(in srgb, var(--brand) 12%, #dbe7f1);
-  background: rgba(255, 255, 255, 0.94);
+  background: color-mix(in srgb, var(--surface) 94%, var(--background));
   box-shadow: 0 18px 26px rgba(15, 23, 42, 0.08);
 }
 
 .flowCanvasNodeTemplate {
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(240, 248, 246, 0.96)),
-    rgba(255, 255, 255, 0.96);
+    linear-gradient(180deg, color-mix(in srgb, var(--surface) 98%, var(--background)), color-mix(in srgb, var(--surface) 96%, var(--background))),
+    color-mix(in srgb, var(--surface) 96%, var(--background));
 }
 
 .flowCanvasNodeDecision {
   border-color: rgba(245, 158, 11, 0.22);
   background:
-    linear-gradient(180deg, rgba(255, 251, 235, 0.98), rgba(255, 245, 228, 0.96)),
-    rgba(255, 255, 255, 0.96);
+    linear-gradient(180deg, color-mix(in srgb, var(--surface) 98%, var(--background)), color-mix(in srgb, #f59e0b 6%, var(--background))),
+    color-mix(in srgb, var(--surface) 96%, var(--background));
 }
 
 .flowCanvasNodeAction {
   border-color: rgba(14, 116, 144, 0.18);
   background:
-    linear-gradient(180deg, rgba(240, 249, 255, 0.98), rgba(232, 246, 252, 0.96)),
-    rgba(255, 255, 255, 0.96);
+    linear-gradient(180deg, color-mix(in srgb, var(--surface) 98%, var(--background)), color-mix(in srgb, var(--surface) 96%, var(--background))),
+    color-mix(in srgb, var(--surface) 96%, var(--background));
 }
 
 .flowCanvasNodeHuman {
   border-color: rgba(16, 185, 129, 0.2);
   background:
-    linear-gradient(180deg, rgba(236, 253, 245, 0.98), rgba(226, 250, 240, 0.96)),
-    rgba(255, 255, 255, 0.96);
+    linear-gradient(180deg, color-mix(in srgb, var(--surface) 98%, var(--background)), color-mix(in srgb, #10b981 6%, var(--background))),
+    color-mix(in srgb, var(--surface) 96%, var(--background));
 }
 
 .flowCanvasNodeEnd {
   border-color: rgba(100, 116, 139, 0.24);
   background:
-    linear-gradient(180deg, rgba(248, 250, 252, 0.98), rgba(241, 245, 249, 0.96)),
-    rgba(255, 255, 255, 0.96);
+    linear-gradient(180deg, color-mix(in srgb, var(--surface) 98%, var(--background)), color-mix(in srgb, var(--surface) 96%, var(--background))),
+    color-mix(in srgb, var(--surface) 96%, var(--background));
 }
 
 .flowCanvasNodeActive {
@@ -620,7 +620,7 @@
   padding: 0.78rem 0.82rem;
   border-radius: 14px;
   border: 1px solid color-mix(in srgb, var(--brand) 10%, #dbe7f1);
-  background: rgba(248, 250, 252, 0.96);
+  background: color-mix(in srgb, var(--surface) 96%, var(--background));
   transition:
     transform 160ms ease,
     border-color 160ms ease,
@@ -635,8 +635,8 @@
 .toggleCardActive {
   border-color: color-mix(in srgb, var(--brand) 34%, #0f172a);
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(230, 243, 241, 0.98)),
-    rgba(255, 255, 255, 0.96);
+    linear-gradient(180deg, color-mix(in srgb, var(--surface) 96%, var(--background)), color-mix(in srgb, var(--surface) 98%, var(--background))),
+    color-mix(in srgb, var(--surface) 96%, var(--background));
 }
 
 .toggleCard p {
@@ -662,7 +662,7 @@
 .fieldBlock span {
   font-size: 0.76rem;
   font-weight: 800;
-  color: #21384b;
+  color: var(--foreground);
 }
 
 .fieldBlock :global(.field) {
@@ -720,8 +720,8 @@
   border-radius: 20px;
   border: 1px solid rgba(201, 225, 215, 0.96);
   background:
-    radial-gradient(circle at top right, rgba(255, 255, 255, 0.42), transparent 32%),
-    linear-gradient(180deg, rgba(239, 249, 244, 0.99), rgba(223, 240, 232, 0.99));
+    radial-gradient(circle at top right, color-mix(in srgb, var(--surface) 42%, var(--background)), transparent 32%),
+    linear-gradient(180deg, color-mix(in srgb, var(--surface) 99%, var(--background)), rgba(223, 240, 232, 0.99));
   box-shadow:
     0 20px 48px rgba(15, 23, 42, 0.22),
     0 4px 14px rgba(15, 118, 110, 0.07);
@@ -739,7 +739,7 @@
 }
 
 .previewPopoverHeader strong {
-  color: #102033;
+  color: var(--foreground);
   font-size: 0.95rem;
 }
 
@@ -755,8 +755,8 @@
   justify-content: center;
   border-radius: 999px;
   border: 1px solid rgba(15, 23, 42, 0.08);
-  background: rgba(255, 255, 255, 0.82);
-  color: #17324a;
+  background: color-mix(in srgb, var(--surface) 82%, var(--background));
+  color: var(--foreground);
   box-shadow: 0 8px 18px rgba(15, 23, 42, 0.08);
   transition:
     transform 160ms ease,
@@ -766,7 +766,7 @@
 
 .previewPopoverClose:hover {
   transform: translateY(-1px);
-  background: rgba(255, 255, 255, 0.96);
+  background: color-mix(in srgb, var(--surface) 96%, var(--background));
   box-shadow: 0 12px 24px rgba(15, 23, 42, 0.12);
 }
 
@@ -864,11 +864,11 @@
   display: block;
   margin-top: 0.08rem;
   font-size: 0.72rem;
-  color: #4b635b;
+  color: var(--muted);
 }
 
 .phoneHeader strong {
-  color: #102033;
+  color: var(--foreground);
 }
 
 .phoneHeader span {
@@ -901,7 +901,7 @@
   display: block;
   margin-top: 0.45rem;
   font-size: 0.68rem;
-  color: #6b7280;
+  color: var(--muted);
 }
 
 .outboundBubble {
@@ -917,9 +917,9 @@
 
 .previewButton {
   justify-content: flex-start;
-  border: 1px solid color-mix(in srgb, var(--brand) 22%, #d8e4ee);
-  background: color-mix(in srgb, var(--brand) 10%, white);
-  color: color-mix(in srgb, var(--brand) 88%, #17324a);
+  border: 1px solid color-mix(in srgb, var(--brand) 22%, var(--line));
+  background: color-mix(in srgb, var(--brand) 10%, var(--background));
+  color: color-mix(in srgb, var(--brand) 88%, var(--foreground));
 }
 
 .previewActionEvent {
@@ -937,8 +937,8 @@
 .previewFallback {
   padding: 0.9rem;
   border-radius: 16px;
-  border: 1px dashed color-mix(in srgb, var(--brand) 16%, #d8e4ee);
-  background: rgba(255, 255, 255, 0.78);
+  border: 1px dashed color-mix(in srgb, var(--brand) 16%, var(--line));
+  background: color-mix(in srgb, var(--surface) 78%, var(--background));
   white-space: pre-wrap;
 }
 
@@ -974,7 +974,7 @@
   justify-content: space-between;
   gap: 0.72rem;
   padding-bottom: 0.08rem;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(255, 255, 255, 0.92));
+  background: linear-gradient(180deg, color-mix(in srgb, var(--surface) 98%, var(--background)), color-mix(in srgb, var(--surface) 92%, var(--background)));
 }
 
 .inspectorBody {
@@ -988,7 +988,7 @@
 .inspectorSection {
   border-radius: 16px;
   border: 1px solid color-mix(in srgb, var(--brand) 10%, #dbe7f1);
-  background: rgba(255, 255, 255, 0.78);
+  background: color-mix(in srgb, var(--surface) 78%, var(--background));
 }
 
 .inspectorSectionOpen {
@@ -1008,7 +1008,7 @@
   padding: 0.74rem 0.82rem;
   background: transparent;
   border: none;
-  color: #102033;
+  color: var(--foreground);
   font-size: 0.8rem;
   font-weight: 800;
   text-align: left;
@@ -1042,11 +1042,11 @@
   padding: 0.9rem;
   border-radius: 18px;
   border: 1px solid color-mix(in srgb, var(--brand) 10%, #dbe7f1);
-  background: rgba(255, 255, 255, 0.88);
+  background: color-mix(in srgb, var(--surface) 88%, var(--background));
 }
 
 .templateOptionActive {
-  border-color: color-mix(in srgb, var(--brand) 32%, #102033);
+  border-color: color-mix(in srgb, var(--brand) 32%, var(--foreground));
   box-shadow: 0 16px 28px rgba(15, 118, 110, 0.12);
 }
 
@@ -1074,8 +1074,8 @@
 .emptyState {
   padding: 0.95rem 1rem;
   border-radius: 18px;
-  border: 1px dashed color-mix(in srgb, var(--brand) 16%, #d8e4ee);
-  background: rgba(248, 250, 252, 0.88);
+  border: 1px dashed color-mix(in srgb, var(--brand) 16%, var(--line));
+  background: color-mix(in srgb, var(--surface) 88%, var(--background));
 }
 
 @media (max-width: 1240px) {
