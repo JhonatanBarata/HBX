@@ -1,6 +1,6 @@
 "use client";
 
-import { DragEvent, FormEvent, useEffect, useMemo, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useState, type DragEvent, type FormEvent } from "react";
 import DashboardScaffold from "@/components/DashboardScaffold";
 import { apiFetch } from "../_lib/api";
 import { useRequireAuth } from "../_lib/useRequireAuth";
@@ -8,7 +8,7 @@ import styles from "./page.module.css";
 
 type LeadStatus = "novo" | "contato" | "retorno" | "qualificado" | "encerrado";
 type LeadBlockKey = "today" | "overdue" | "scheduled" | "closed";
-type ViewMode = "kanban" | "list" | "agenda" | "timeline";
+type DateFilterKey = "overdue" | "today" | `scheduled:${string}`;
 type LeadTimelineEventType =
   | "lead_created"
   | "origin_registered"
@@ -34,40 +34,23 @@ type LeadTimelineEvent = {
 };
 
 type SharedProfileSummary = {
-  profileId?: string | null;
   displayName?: string | null;
   phone?: string | null;
-  phoneNormalized?: string | null;
-  email?: string | null;
-  document?: string | null;
   origin?: string | null;
   lastContactAt?: string | null;
   currentContext?: "vendas" | "atendimento" | "recovery" | "neutro" | string | null;
   presence?: {
-    vendas?: {
-      present?: boolean;
-      status?: string | null;
-    };
-    atendimento?: {
-      present?: boolean;
-      route?: string | null;
-      lastContactAt?: string | null;
-    };
-    recovery?: {
-      present?: boolean;
-      status?: string | null;
-      openAmount?: number | null;
-    };
+    vendas?: { present?: boolean; status?: string | null };
+    atendimento?: { present?: boolean; lastContactAt?: string | null };
+    recovery?: { present?: boolean; status?: string | null; openAmount?: number | null };
   };
 };
 
 type LeadItem = {
   id: string;
-  customerProfileId?: string | null;
   sourceType: "manual" | "webscraping";
   primarySource?: string | null;
   sourceHistoryId?: string | null;
-  sourceSignature?: string | null;
   timesSeen?: number;
   name?: string | null;
   phone?: string | null;
@@ -84,6 +67,7 @@ type LeadItem = {
   lastResult?: string | null;
   wasClosedBefore?: boolean;
   updatedAt?: string | null;
+  createdAt?: string | null;
   signals?: {
     alreadyExisted: boolean;
     cameFromWebscraping: boolean;
@@ -96,13 +80,7 @@ type LeadItem = {
 };
 
 type BoardResponse = {
-  summary: {
-    total: number;
-    today: number;
-    overdue: number;
-    scheduled: number;
-    closed: number;
-  };
+  summary: { total: number; today: number; overdue: number; scheduled: number; closed: number };
   blocks: Record<LeadBlockKey, LeadItem[]>;
 };
 
@@ -116,11 +94,14 @@ type LeadDraft = {
   shortNote: string;
 };
 
-type StatusColumnDefinition = {
-  value: LeadStatus;
-  label: string;
-  hint: string;
-  dropOnly?: boolean;
+type DateFilterItem = {
+  key: DateFilterKey;
+  blockKey: Exclude<LeadBlockKey, "closed">;
+  count: number;
+  title: string;
+  subtitle: string;
+  dayLabel: string;
+  isoDate?: string | null;
 };
 
 const STATUS_OPTIONS: Array<{ value: LeadStatus; label: string }> = [
@@ -131,82 +112,38 @@ const STATUS_OPTIONS: Array<{ value: LeadStatus; label: string }> = [
   { value: "encerrado", label: "Encerrado" },
 ];
 
-const STATUS_COLUMNS: StatusColumnDefinition[] = [
-  { value: "novo", label: "Novo lead", hint: "Entradas cruas para começar a trabalhar." },
-  { value: "contato", label: "Em contato", hint: "Leads já em movimento comercial." },
-  { value: "retorno", label: "Retorno", hint: "Cards que dependem de retomada." },
-  { value: "qualificado", label: "Qualificado", hint: "Oportunidades que merecem foco forte." },
-  { value: "encerrado", label: "Encerrar", hint: "Jogue aqui para tirar da agenda ativa.", dropOnly: true },
-];
+const STATUS_COLUMNS = [
+  { value: "novo", label: "Novo lead", hint: "Entrada pronta para abordagem." },
+  { value: "contato", label: "Em contato", hint: "Tração comercial em andamento." },
+  { value: "retorno", label: "Retorno", hint: "Depende de retomada na data certa." },
+  { value: "qualificado", label: "Qualificado", hint: "Onde o time precisa ser cirúrgico." },
+  { value: "encerrado", label: "Encerrar", hint: "Solte aqui para tirar da agenda ativa.", dropOnly: true },
+] satisfies Array<{ value: LeadStatus; label: string; hint: string; dropOnly?: boolean }>;
 
-const BLOCKS: Array<{
-  key: LeadBlockKey;
-  title: string;
-  description: string;
-  accent: string;
-}> = [
-  {
-    key: "overdue",
-    title: "Atrasados",
-    description: "Leads que passaram do horário e precisam voltar para o topo da operação.",
-    accent: "critico",
-  },
-  {
-    key: "today",
-    title: "Agenda do dia",
-    description: "O coração da rotina comercial de hoje, com prioridade para próxima ação e resposta rápida.",
-    accent: "hoje",
-  },
-  {
-    key: "scheduled",
-    title: "Retornos agendados",
-    description: "Movimentos futuros já posicionados para não sumirem da agenda viva.",
-    accent: "futuro",
-  },
-  {
-    key: "closed",
-    title: "Encerrados",
-    description: "Cards preservados para contexto e reabertura, fora da agenda ativa principal.",
-    accent: "arquivo",
-  },
-];
-
-const VIEW_OPTIONS: Array<{ value: ViewMode; label: string; hint: string }> = [
-  { value: "kanban", label: "Cards", hint: "Pipeline visual e arraste rápido." },
-  { value: "list", label: "Lista", hint: "Leitura compacta para bater o olho." },
-  { value: "agenda", label: "Agenda", hint: "Hoje, atrasados e próximos retornos." },
-  { value: "timeline", label: "Timeline", hint: "Memória comercial cronológica." },
-];
+const BLOCK_LABELS: Record<LeadBlockKey, string> = {
+  overdue: "Atrasados",
+  today: "Hoje",
+  scheduled: "Programados",
+  closed: "Encerrados",
+};
 
 function formatDateTime(value?: string | null) {
-  const iso = String(value || "").trim();
-  if (!iso) return "-";
-  const parsed = new Date(iso);
-  if (Number.isNaN(parsed.getTime())) return "-";
-  return parsed.toLocaleString("pt-BR", {
-    day: "2-digit",
-    month: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  const parsed = value ? new Date(value) : null;
+  return parsed && !Number.isNaN(parsed.getTime())
+    ? parsed.toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })
+    : "-";
 }
 
 function formatShortDate(value?: string | null) {
-  const iso = String(value || "").trim();
-  if (!iso) return "-";
-  const parsed = new Date(iso);
-  if (Number.isNaN(parsed.getTime())) return "-";
-  return parsed.toLocaleDateString("pt-BR", {
-    day: "2-digit",
-    month: "2-digit",
-  });
+  const parsed = value ? new Date(value) : null;
+  return parsed && !Number.isNaN(parsed.getTime())
+    ? parsed.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" })
+    : "-";
 }
 
 function toDatetimeLocal(value?: string | null) {
-  const iso = String(value || "").trim();
-  if (!iso) return "";
-  const parsed = new Date(iso);
-  if (Number.isNaN(parsed.getTime())) return "";
+  const parsed = value ? new Date(value) : null;
+  if (!parsed || Number.isNaN(parsed.getTime())) return "";
   const local = new Date(parsed.getTime() - parsed.getTimezoneOffset() * 60000);
   return local.toISOString().slice(0, 16);
 }
@@ -221,9 +158,7 @@ function plusDaysDatetimeLocal(days: number) {
 
 function normalizePhoneDigits(raw: string) {
   let digits = String(raw || "").replace(/\D/g, "");
-  if (digits.startsWith("55") && digits.length > 11) {
-    digits = digits.slice(2);
-  }
+  if (digits.startsWith("55") && digits.length > 11) digits = digits.slice(2);
   return digits;
 }
 
@@ -236,24 +171,28 @@ function buildWhatsAppUrl(phone?: string | null, leadName?: string | null) {
   const digits = normalizePhoneDigits(String(phone || ""));
   if (!digits) return "";
   const message = leadName
-    ? `Olá, ${leadName}. Estou retomando nosso contato pelo HBX.`
-    : "Olá. Estou retomando nosso contato pelo HBX.";
+    ? `Olá, ${leadName}. Estou retomando nosso contato pelo HBX Vendas.`
+    : "Olá. Estou retomando nosso contato pelo HBX Vendas.";
   return `https://wa.me/55${digits}?text=${encodeURIComponent(message)}`;
 }
 
-function webscrapingSourceLabel(value?: string | null) {
+function sourceLabel(value?: string | null) {
   const normalized = String(value || "").trim().toLowerCase();
   if (normalized === "webscraping") return "Webscraping";
   if (normalized === "manual") return "Manual";
   return normalized || "Sem origem";
 }
 
-function formatSharedContextLabel(value?: string | null) {
+function contextLabel(value?: string | null) {
   const normalized = String(value || "").trim().toLowerCase();
   if (normalized === "vendas") return "Vendas";
   if (normalized === "atendimento") return "Atendimento";
   if (normalized === "recovery") return "Recovery";
   return "Neutro";
+}
+
+function statusLabel(status: LeadStatus) {
+  return STATUS_OPTIONS.find((item) => item.value === status)?.label || status;
 }
 
 function createDraft(lead: LeadItem): LeadDraft {
@@ -271,62 +210,59 @@ function createDraft(lead: LeadItem): LeadDraft {
 function hydrateDrafts(board: BoardResponse | null) {
   const next: Record<string, LeadDraft> = {};
   if (!board) return next;
-  for (const block of BLOCKS) {
-    for (const lead of board.blocks[block.key] || []) {
+  (["overdue", "today", "scheduled", "closed"] as LeadBlockKey[]).forEach((blockKey) => {
+    (board.blocks[blockKey] || []).forEach((lead) => {
       next[lead.id] = createDraft(lead);
-    }
-  }
+    });
+  });
   return next;
 }
 
-function getReturnMeta(lead: LeadItem, draft: LeadDraft, block: LeadBlockKey) {
-  const effectiveReturnAt = draft.returnAt ? new Date(draft.returnAt).toISOString() : lead.returnAt || null;
-  if (!effectiveReturnAt) {
-    return { label: "Sem retorno definido", tone: "neutral" } as const;
-  }
-
-  if (block === "overdue") {
-    return { label: `Atrasado desde ${formatDateTime(effectiveReturnAt)}`, tone: "overdue" } as const;
-  }
-  if (block === "today") {
-    return { label: `Hoje • ${formatDateTime(effectiveReturnAt)}`, tone: "today" } as const;
-  }
-  if (block === "scheduled") {
-    return { label: `Agendado • ${formatDateTime(effectiveReturnAt)}`, tone: "scheduled" } as const;
-  }
-
-  return { label: `Encerrado • ${formatShortDate(effectiveReturnAt)}`, tone: "closed" } as const;
+function buildLocalDateKey(value?: string | null) {
+  const parsed = value ? new Date(value) : null;
+  if (!parsed || Number.isNaN(parsed.getTime())) return "";
+  return `${parsed.getFullYear()}-${`${parsed.getMonth() + 1}`.padStart(2, "0")}-${`${parsed.getDate()}`.padStart(2, "0")}`;
 }
 
-function getLeadIntensity(block: LeadBlockKey, sourceType: LeadItem["sourceType"]) {
-  if (block === "overdue") return "overdue";
-  if (block === "today") return sourceType === "webscraping" ? "webscraping" : "today";
-  if (block === "scheduled") return "scheduled";
-  return "closed";
+function railTitle(dateKey: string) {
+  const parsed = new Date(`${dateKey}T12:00:00`);
+  return Number.isNaN(parsed.getTime())
+    ? "Programado"
+    : parsed.toLocaleDateString("pt-BR", { day: "2-digit", month: "short" });
 }
 
-function getTimelineEventTone(eventType?: LeadTimelineEventType) {
-  if (eventType === "lead_closed") return "closed";
-  if (eventType === "return_scheduled") return "scheduled";
-  if (eventType === "contact_made" || eventType === "result_recorded") return "contact";
-  if (eventType === "origin_registered") return "origin";
-  if (eventType === "lead_reused") return "existing";
+function railDay(dateKey: string) {
+  const parsed = new Date(`${dateKey}T12:00:00`);
+  return Number.isNaN(parsed.getTime()) ? "Data" : parsed.toLocaleDateString("pt-BR", { weekday: "short" });
+}
+
+function pluralize(count: number, singular: string, plural: string) {
+  return `${count} ${count === 1 ? singular : plural}`;
+}
+
+function returnMeta(lead: LeadItem, draft: LeadDraft, block: LeadBlockKey) {
+  const effective = draft.returnAt ? new Date(draft.returnAt).toISOString() : lead.returnAt || null;
+  if (!effective) return { label: "Sem retorno definido", tone: "neutral" } as const;
+  if (block === "overdue") return { label: `Atrasado desde ${formatDateTime(effective)}`, tone: "overdue" } as const;
+  if (block === "today") return { label: `Hoje • ${formatDateTime(effective)}`, tone: "today" } as const;
+  if (block === "scheduled") return { label: `Agendado • ${formatDateTime(effective)}`, tone: "scheduled" } as const;
+  return { label: `Arquivo • ${formatShortDate(effective)}`, tone: "closed" } as const;
+}
+
+function timelineTone(type?: LeadTimelineEventType) {
+  if (type === "lead_closed") return "closed";
+  if (type === "return_scheduled") return "scheduled";
+  if (type === "contact_made" || type === "result_recorded") return "contact";
+  if (type === "origin_registered") return "origin";
+  if (type === "lead_reused") return "existing";
   return "neutral";
 }
 
-function getTimelineEventMeta(event: LeadTimelineEvent) {
-  if (event.eventType === "origin_registered") {
-    return event.sourceType === "webscraping" ? "Origem webscraping" : "Origem manual";
-  }
-  if (event.eventType === "status_changed" && event.statusTo) {
-    return `Status ${event.statusTo}`;
-  }
-  if (event.eventType === "result_recorded" && event.resultLabel) {
-    return event.resultLabel;
-  }
-  if (event.eventType === "return_scheduled" && event.returnAt) {
-    return formatDateTime(event.returnAt);
-  }
+function timelineMeta(event: LeadTimelineEvent) {
+  if (event.eventType === "origin_registered") return event.sourceType === "webscraping" ? "Origem webscraping" : "Origem manual";
+  if (event.eventType === "status_changed" && event.statusTo) return `Status ${event.statusTo}`;
+  if (event.eventType === "result_recorded" && event.resultLabel) return event.resultLabel;
+  if (event.eventType === "return_scheduled" && event.returnAt) return formatDateTime(event.returnAt);
   return event.createdAt ? formatDateTime(event.createdAt) : "Agora";
 }
 
@@ -339,14 +275,14 @@ export default function VendasClientPage() {
   const [drafts, setDrafts] = useState<Record<string, LeadDraft>>({});
   const [savingLeadId, setSavingLeadId] = useState<string | null>(null);
   const [creatingManual, setCreatingManual] = useState(false);
-  const [expandedLeadIds, setExpandedLeadIds] = useState<Record<string, boolean>>({});
   const [showClosed, setShowClosed] = useState(false);
   const [draggedLeadId, setDraggedLeadId] = useState<string | null>(null);
   const [dragOverColumnId, setDragOverColumnId] = useState<string | null>(null);
-  const [viewMode, setViewMode] = useState<ViewMode>("kanban");
   const [commandOpen, setCommandOpen] = useState(false);
   const [commandQuery, setCommandQuery] = useState("");
-  const [actionMenuLeadId, setActionMenuLeadId] = useState<string | null>(null);
+  const [selectedDateKey, setSelectedDateKey] = useState<DateFilterKey>("today");
+  const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null);
+  const [composerOpen, setComposerOpen] = useState(false);
   const [manualLead, setManualLead] = useState({
     name: "",
     phone: "",
@@ -376,58 +312,39 @@ export default function VendasClientPage() {
 
   useEffect(() => {
     if (!feedback) return;
-    const timer = window.setTimeout(() => setFeedback(null), 2400);
+    const timer = window.setTimeout(() => setFeedback(null), 2600);
     return () => window.clearTimeout(timer);
   }, [feedback]);
 
   useEffect(() => {
     function handleKeyboardShortcut(event: KeyboardEvent) {
-      const isShortcut = (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k";
-      if (isShortcut) {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
         event.preventDefault();
         setCommandOpen(true);
         return;
       }
-      if (event.key === "Escape") {
-        setCommandOpen(false);
-        setActionMenuLeadId(null);
-      }
+      if (event.key === "Escape") setCommandOpen(false);
     }
-
     window.addEventListener("keydown", handleKeyboardShortcut);
     return () => window.removeEventListener("keydown", handleKeyboardShortcut);
   }, []);
 
-  const totalActive = useMemo(() => {
-    if (!board) return 0;
-    return board.summary.today + board.summary.overdue + board.summary.scheduled;
-  }, [board]);
-
   const leadById = useMemo(() => {
     const map = new Map<string, { lead: LeadItem; block: LeadBlockKey }>();
     if (!board) return map;
-    for (const block of BLOCKS) {
-      for (const lead of board.blocks[block.key] || []) {
-        map.set(lead.id, { lead, block: block.key });
-      }
-    }
+    (["overdue", "today", "scheduled", "closed"] as LeadBlockKey[]).forEach((blockKey) => {
+      (board.blocks[blockKey] || []).forEach((lead) => map.set(lead.id, { lead, block: blockKey }));
+    });
     return map;
   }, [board]);
 
   const allLeads = useMemo(() => {
     const items: Array<{ lead: LeadItem; block: LeadBlockKey }> = [];
     if (!board) return items;
-    for (const block of BLOCKS) {
-      for (const lead of board.blocks[block.key] || []) {
-        items.push({ lead, block: block.key });
-      }
-    }
-    const orderWeight: Record<LeadBlockKey, number> = {
-      overdue: 0,
-      today: 1,
-      scheduled: 2,
-      closed: 3,
-    };
+    (["overdue", "today", "scheduled", "closed"] as LeadBlockKey[]).forEach((blockKey) => {
+      (board.blocks[blockKey] || []).forEach((lead) => items.push({ lead, block: blockKey }));
+    });
+    const orderWeight: Record<LeadBlockKey, number> = { overdue: 0, today: 1, scheduled: 2, closed: 3 };
     return items.sort((left, right) => {
       const blockDiff = orderWeight[left.block] - orderWeight[right.block];
       if (blockDiff !== 0) return blockDiff;
@@ -435,73 +352,118 @@ export default function VendasClientPage() {
     });
   }, [board]);
 
-  const timelineFeed = useMemo(() => {
-    return allLeads
-      .flatMap(({ lead, block }) =>
-        (lead.timeline || []).map((event) => ({
-          event,
-          lead,
-          block,
-        })),
-      )
-      .sort(
-        (left, right) =>
-          new Date(right.event.createdAt || 0).getTime() - new Date(left.event.createdAt || 0).getTime(),
-      );
-  }, [allLeads]);
-
+  const deferredCommandQuery = useDeferredValue(commandQuery);
   const commandResults = useMemo(() => {
-    const normalized = commandQuery.trim().toLowerCase();
-    const items = allLeads.slice(0, 18);
+    const normalized = deferredCommandQuery.trim().toLowerCase();
+    const items = allLeads.slice(0, 20);
     if (!normalized) return items;
     return items.filter(({ lead, block }) =>
-      [
-        lead.name,
-        lead.phone,
-        lead.email,
-        lead.city,
-        lead.segment,
-        lead.nextAction,
-        lead.shortNote,
-        lead.lastResult,
-        lead.primarySource,
-        block,
-      ]
+      [lead.name, lead.phone, lead.email, lead.city, lead.segment, lead.nextAction, lead.shortNote, lead.lastResult, lead.primarySource, block]
         .filter(Boolean)
         .join(" ")
         .toLowerCase()
         .includes(normalized),
     );
-  }, [allLeads, commandQuery]);
+  }, [allLeads, deferredCommandQuery]);
 
-  const focusMetrics = useMemo(
-    () => [
+  const timelineFeed = useMemo(() => {
+    return allLeads
+      .flatMap(({ lead, block }) => (lead.timeline || []).map((event) => ({ event, lead, block })))
+      .sort((left, right) => new Date(right.event.createdAt || 0).getTime() - new Date(left.event.createdAt || 0).getTime())
+      .slice(0, 16);
+  }, [allLeads]);
+
+  const dateFilters = useMemo<DateFilterItem[]>(() => {
+    const scheduledGroups = new Map<string, LeadItem[]>();
+    (board?.blocks.scheduled || []).forEach((lead) => {
+      const dateKey = buildLocalDateKey(lead.returnAt || lead.updatedAt);
+      if (!dateKey) return;
+      scheduledGroups.set(dateKey, [...(scheduledGroups.get(dateKey) || []), lead]);
+    });
+    return [
       {
+        key: "overdue",
+        blockKey: "overdue",
+        count: board?.summary.overdue || 0,
         title: "Atrasados",
-        value: board?.summary.overdue ?? 0,
-        description: "Voltam para o topo e não podem ficar escondidos.",
-        tone: "critical",
+        subtitle: board?.summary.overdue ? "Ontem para trás sobe para o topo." : "Sem pendência atrasada.",
+        dayLabel: "Prioridade",
       },
       {
-        title: "Agenda do dia",
-        value: board?.summary.today ?? 0,
-        description: "O que precisa andar agora para gerar conversa real.",
-        tone: "active",
+        key: "today",
+        blockKey: "today",
+        count: board?.summary.today || 0,
+        title: "Hoje",
+        subtitle: board?.summary.today ? "Tudo que precisa andar agora." : "Nenhum card encaixado em hoje.",
+        dayLabel: "Operação",
       },
-      {
-        title: "Retornos futuros",
-        value: board?.summary.scheduled ?? 0,
-        description: "Fila organizada sem poluir a agenda ativa.",
-        tone: "future",
-      },
-      {
-        title: "Encerrados",
-        value: board?.summary.closed ?? 0,
-        description: "Ficam guardados fora do foco principal.",
-        tone: "neutral",
-      },
+      ...Array.from(scheduledGroups.entries())
+        .sort((left, right) => left[0].localeCompare(right[0]))
+        .map(([dateKey, leads]) => ({
+          key: `scheduled:${dateKey}` as const,
+          blockKey: "scheduled" as const,
+          count: leads.length,
+          title: railTitle(dateKey),
+          subtitle: pluralize(leads.length, "retorno futuro", "retornos futuros"),
+          dayLabel: railDay(dateKey),
+          isoDate: dateKey,
+        })),
+    ];
+  }, [board]);
+
+  useEffect(() => {
+    if (!dateFilters.length) return;
+    setSelectedDateKey((current) => {
+      if (dateFilters.some((item) => item.key === current)) return current;
+      return dateFilters.find((item) => item.count > 0)?.key || dateFilters[0].key;
+    });
+  }, [dateFilters]);
+
+  const selectedFilter = useMemo(
+    () => dateFilters.find((item) => item.key === selectedDateKey) || dateFilters[0] || null,
+    [dateFilters, selectedDateKey],
+  );
+
+  const filteredLeads = useMemo(() => {
+    if (!board || !selectedFilter) return [];
+    if (selectedFilter.key === "overdue") return board.blocks.overdue || [];
+    if (selectedFilter.key === "today") return board.blocks.today || [];
+    return (board.blocks.scheduled || []).filter((lead) => buildLocalDateKey(lead.returnAt || lead.updatedAt) === selectedFilter.isoDate);
+  }, [board, selectedFilter]);
+
+  const laneCounts = useMemo(
+    () =>
+      filteredLeads.reduce<Record<LeadStatus, number>>(
+        (accumulator, lead) => ({ ...accumulator, [lead.status]: accumulator[lead.status] + 1 }),
+        { novo: 0, contato: 0, retorno: 0, qualificado: 0, encerrado: 0 },
+      ),
+    [filteredLeads],
+  );
+
+  useEffect(() => {
+    if (!filteredLeads.length) {
+      if (selectedLeadId && leadById.has(selectedLeadId)) return;
+      setSelectedLeadId(board?.blocks.closed?.[0]?.id || null);
+      return;
+    }
+    setSelectedLeadId((current) => (current && filteredLeads.some((lead) => lead.id === current) ? current : filteredLeads[0]?.id || current));
+  }, [board?.blocks.closed, filteredLeads, leadById, selectedLeadId]);
+
+  const selectedLeadRecord = selectedLeadId ? leadById.get(selectedLeadId) || null : null;
+  const selectedLead = selectedLeadRecord?.lead || null;
+  const selectedLeadBlock = selectedLeadRecord?.block || "today";
+  const selectedLeadDraft = selectedLead ? drafts[selectedLead.id] || createDraft(selectedLead) : null;
+  const closedLeads = board?.blocks.closed || [];
+  const totalActive = (board?.summary.today || 0) + (board?.summary.overdue || 0) + (board?.summary.scheduled || 0);
+
+  const overviewCards = useMemo(
+    () => [
+      { label: "Ativos no radar", value: totalActive, hint: "Agenda ativa somando hoje, atrasados e futuros.", tone: "active" },
+      { label: "Pressão imediata", value: board?.summary.overdue || 0, hint: "Ontem para trás entra em Atrasados.", tone: "critical" },
+      { label: "Hoje no centro", value: board?.summary.today || 0, hint: "Cards do dia ficam no fluxo principal.", tone: "today" },
+      { label: "Arquivo comercial", value: board?.summary.closed || 0, hint: "Encerrados guardados para reabertura.", tone: "archive" },
     ],
-    [board?.summary.closed, board?.summary.overdue, board?.summary.scheduled, board?.summary.today],
+    [board?.summary.closed, board?.summary.overdue, board?.summary.today, totalActive],
   );
 
   async function handleCreateManual(event: FormEvent<HTMLFormElement>) {
@@ -520,11 +482,7 @@ export default function VendasClientPage() {
           shortNote: manualLead.shortNote,
         }),
       });
-      setFeedback(
-        payload.action === "updated"
-          ? "Lead manual já existente foi atualizado no CRM."
-          : "Lead manual criado no CRM de Vendas.",
-      );
+      setFeedback(payload.action === "updated" ? "Lead manual atualizado no CRM." : "Lead manual criado no CRM.");
       setManualLead({
         name: "",
         phone: "",
@@ -533,6 +491,7 @@ export default function VendasClientPage() {
         returnAt: plusDaysDatetimeLocal(0),
         shortNote: "",
       });
+      setComposerOpen(false);
       await loadBoard();
     } catch (createError) {
       setError(createError instanceof Error ? createError.message : "Falha ao criar lead manual.");
@@ -545,41 +504,17 @@ export default function VendasClientPage() {
     setDrafts((prev) => ({
       ...prev,
       [leadId]: {
-        ...(prev[leadId] || {
-          name: "",
-          phone: "",
-          email: "",
-          status: "novo" as LeadStatus,
-          nextAction: "",
-          returnAt: "",
-          shortNote: "",
-        }),
+        ...(prev[leadId] || { name: "", phone: "", email: "", status: "novo" as LeadStatus, nextAction: "", returnAt: "", shortNote: "" }),
         ...patch,
       },
     }));
   }
 
-  function toggleLeadEditor(leadId: string) {
-    setExpandedLeadIds((prev) => ({
-      ...prev,
-      [leadId]: !prev[leadId],
-    }));
-  }
-
   async function saveLead(leadId: string, patch?: Partial<LeadDraft>, successMessage?: string) {
     const draft = {
-      ...(drafts[leadId] || {
-        name: "",
-        phone: "",
-        email: "",
-        status: "novo" as LeadStatus,
-        nextAction: "",
-        returnAt: "",
-        shortNote: "",
-      }),
+      ...(drafts[leadId] || { name: "", phone: "", email: "", status: "novo" as LeadStatus, nextAction: "", returnAt: "", shortNote: "" }),
       ...(patch || {}),
     };
-
     setSavingLeadId(leadId);
     setError(null);
     try {
@@ -595,7 +530,7 @@ export default function VendasClientPage() {
           shortNote: draft.shortNote,
         }),
       });
-      setFeedback(successMessage || "Card de Vendas atualizado.");
+      setFeedback(successMessage || "Lead atualizado com sucesso.");
       await loadBoard();
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "Falha ao atualizar o lead.");
@@ -605,9 +540,7 @@ export default function VendasClientPage() {
   }
 
   async function runQuickAction(lead: LeadItem, action: string) {
-    setActionMenuLeadId(null);
     const currentDraft = drafts[lead.id] || createDraft(lead);
-
     if (action === "hoje") {
       await saveLead(lead.id, {
         status: currentDraft.status === "novo" ? "contato" : currentDraft.status,
@@ -616,7 +549,6 @@ export default function VendasClientPage() {
       });
       return;
     }
-
     if (action === "amanha") {
       await saveLead(lead.id, {
         status: "retorno",
@@ -625,67 +557,49 @@ export default function VendasClientPage() {
       });
       return;
     }
-
     if (action === "encerrar") {
-      await saveLead(lead.id, {
-        status: "encerrado",
-        nextAction: "Lead encerrado",
-        returnAt: "",
-      });
+      await saveLead(lead.id, { status: "encerrado", nextAction: currentDraft.nextAction || "Lead encerrado", returnAt: "" });
       return;
     }
-
     if (action === "reabrir") {
-      await saveLead(lead.id, {
-        status: "retorno",
-        nextAction: "Retomar lead",
-        returnAt: plusDaysDatetimeLocal(1),
-      });
+      await saveLead(lead.id, { status: "retorno", nextAction: currentDraft.nextAction || "Retomar lead", returnAt: plusDaysDatetimeLocal(1) });
     }
   }
 
   function focusLead(leadId: string) {
-    setExpandedLeadIds((prev) => ({
-      ...prev,
-      [leadId]: true,
-    }));
+    const current = leadById.get(leadId);
+    if (!current) return;
+    if (current.block === "overdue") setSelectedDateKey("overdue");
+    if (current.block === "today") setSelectedDateKey("today");
+    if (current.block === "scheduled") {
+      const dateKey = buildLocalDateKey(current.lead.returnAt || current.lead.updatedAt);
+      if (dateKey) setSelectedDateKey(`scheduled:${dateKey}`);
+    }
+    if (current.block === "closed") setShowClosed(true);
+    setSelectedLeadId(leadId);
     setCommandOpen(false);
-    setActionMenuLeadId(null);
     window.setTimeout(() => {
-      document.querySelector<HTMLElement>(`[data-lead-id="${leadId}"]`)?.scrollIntoView({
-        behavior: "smooth",
-        block: "center",
-      });
+      document.querySelector<HTMLElement>("[data-detail-panel='true']")?.scrollIntoView({ behavior: "smooth", block: "start" });
     }, 80);
   }
 
   async function moveLeadToStatus(leadId: string, nextStatus: LeadStatus, blockKey: LeadBlockKey) {
-    const current = leadById.get(leadId);
-    const lead = current?.lead;
-    if (!lead) return;
-
-    const currentDraft = drafts[leadId] || createDraft(lead);
+    const current = leadById.get(leadId)?.lead;
+    if (!current) return;
+    const currentDraft = drafts[leadId] || createDraft(current);
     if (currentDraft.status === nextStatus) {
       setDragOverColumnId(null);
       setDraggedLeadId(null);
       return;
     }
-
-    const nextLabel = STATUS_OPTIONS.find((item) => item.value === nextStatus)?.label || nextStatus;
     await saveLead(
       leadId,
       {
         status: nextStatus,
-        nextAction:
-          nextStatus === "encerrado"
-            ? currentDraft.nextAction || "Lead encerrado"
-            : currentDraft.nextAction,
-        returnAt:
-          nextStatus === "encerrado"
-            ? ""
-            : currentDraft.returnAt || (blockKey === "today" ? plusDaysDatetimeLocal(0) : currentDraft.returnAt),
+        nextAction: nextStatus === "encerrado" ? currentDraft.nextAction || "Lead encerrado" : currentDraft.nextAction,
+        returnAt: nextStatus === "encerrado" ? "" : currentDraft.returnAt || (blockKey === "today" ? plusDaysDatetimeLocal(0) : currentDraft.returnAt),
       },
-      `Lead movido para ${nextLabel}.`,
+      `Lead movido para ${statusLabel(nextStatus)}.`,
     );
     setDragOverColumnId(null);
     setDraggedLeadId(null);
@@ -705,22 +619,14 @@ export default function VendasClientPage() {
   function handleColumnDragOver(event: DragEvent<HTMLElement>, columnId: string) {
     event.preventDefault();
     event.dataTransfer.dropEffect = "move";
-    if (dragOverColumnId !== columnId) {
-      setDragOverColumnId(columnId);
-    }
+    if (dragOverColumnId !== columnId) setDragOverColumnId(columnId);
   }
 
   function handleColumnDragLeave(columnId: string) {
-    if (dragOverColumnId === columnId) {
-      setDragOverColumnId(null);
-    }
+    if (dragOverColumnId === columnId) setDragOverColumnId(null);
   }
 
-  async function handleColumnDrop(
-    event: DragEvent<HTMLElement>,
-    blockKey: LeadBlockKey,
-    nextStatus: LeadStatus,
-  ) {
+  async function handleColumnDrop(event: DragEvent<HTMLElement>, blockKey: LeadBlockKey, nextStatus: LeadStatus) {
     event.preventDefault();
     const droppedLeadId = event.dataTransfer.getData("text/plain") || draggedLeadId;
     if (!droppedLeadId) {
@@ -732,692 +638,265 @@ export default function VendasClientPage() {
 
   function renderLeadCard(lead: LeadItem, blockKey: LeadBlockKey) {
     const draft = drafts[lead.id] || createDraft(lead);
-    const callUrl = buildCallUrl(draft.phone || lead.phone);
-    const whatsappUrl = buildWhatsAppUrl(draft.phone || lead.phone, draft.name || lead.name);
-    const sourceLabel = lead.sourceType === "webscraping" ? "Webscraping" : "Manual";
-    const isExpanded = Boolean(expandedLeadIds[lead.id]);
-    const returnMeta = getReturnMeta(lead, draft, blockKey);
-    const hasCommercialMemory = Boolean(
-      lead.customerProfileId ||
-      lead.sourceHistoryId ||
-      lead.sourceSignature ||
-      (lead.attemptCount || 0) > 0 ||
-      lead.lastContactAt,
-    );
-    const visualTone = getLeadIntensity(blockKey, lead.sourceType);
-    const sharedProfile = lead.sharedProfile || null;
-    const inAtendimento = Boolean(sharedProfile?.presence?.atendimento?.present);
-    const inRecovery = Boolean(sharedProfile?.presence?.recovery?.present);
-    const sharedLastContact =
-      sharedProfile?.lastContactAt ||
-      sharedProfile?.presence?.atendimento?.lastContactAt ||
-      lead.lastContactAt ||
-      null;
+    const meta = returnMeta(lead, draft, blockKey);
     const signals = lead.signals || {
       alreadyExisted: Boolean((lead.timesSeen || 0) > 1),
-      cameFromWebscraping:
-        lead.sourceType === "webscraping" || String(lead.primarySource || "").toLowerCase() === "webscraping",
+      cameFromWebscraping: lead.sourceType === "webscraping" || String(lead.primarySource || "").toLowerCase() === "webscraping",
       hadPreviousContact: Boolean((lead.attemptCount || 0) > 0 || lead.lastContactAt),
       wasClosedBefore: Boolean(lead.wasClosedBefore),
     };
-
+    const chips = [
+      signals.alreadyExisted ? "Lead conhecido" : null,
+      signals.cameFromWebscraping ? "Webscraping" : null,
+      signals.hadPreviousContact ? "Com histórico" : null,
+      signals.wasClosedBefore ? "Já encerrado" : null,
+      lead.city || null,
+    ].filter(Boolean);
     return (
       <article
         key={lead.id}
         className={styles.leadCard}
-        data-lead-id={lead.id}
-        data-tone={visualTone}
-        data-expanded={isExpanded ? "true" : "false"}
+        data-selected={selectedLeadId === lead.id ? "true" : "false"}
+        data-tone={blockKey}
         data-dragging={draggedLeadId === lead.id ? "true" : "false"}
         draggable
         onDragStart={(event) => handleCardDragStart(event, lead.id)}
         onDragEnd={handleCardDragEnd}
       >
         <div className={styles.leadAccent} />
-
-        <div className={styles.leadHeader}>
-          <div className={styles.leadIdentity}>
-            <div className={styles.leadHeadline}>
-              <h2 className={styles.leadTitle}>{draft.name || lead.name || "Lead sem nome"}</h2>
-              <span className={styles.sourceBadge} data-source={lead.sourceType}>
-                {sourceLabel}
-              </span>
+        <button type="button" className={styles.leadMainButton} onClick={() => focusLead(lead.id)}>
+          <div className={styles.leadCardTop}>
+            <div className={styles.leadIdentity}>
+              <span className={styles.leadEyebrow}>{sourceLabel(lead.primarySource || lead.sourceType)}</span>
+              <strong className={styles.leadName}>{draft.name || lead.name || "Lead sem nome"}</strong>
+              <span className={styles.leadSubline}>{lead.segment || "Sem segmento"}{lead.city ? ` • ${lead.city}` : ""}</span>
             </div>
-            <p className={styles.leadMeta}>
-              {lead.segment ? `${lead.segment}` : "Segmento não informado"}
-              {lead.city ? ` • ${lead.city}` : ""}
-            </p>
-          </div>
-
-          <div className={styles.leadBadges}>
-            <span className={styles.statusBadge} data-status={draft.status}>
-              {lead.statusLabel}
-            </span>
-            <span className={styles.returnBadge} data-tone={returnMeta.tone}>
-              {returnMeta.label}
-            </span>
-            <div className={styles.cardMenuWrap}>
-              <button
-                type="button"
-                className={styles.cardMenuButton}
-                onClick={() =>
-                  setActionMenuLeadId((current) => (current === lead.id ? null : lead.id))
-                }
-              >
-                Ações
-              </button>
-              {actionMenuLeadId === lead.id ? (
-                <div className={styles.cardMenu}>
-                  <button type="button" onClick={() => focusLead(lead.id)}>
-                    Abrir detalhe
-                  </button>
-                  <button type="button" onClick={() => void runQuickAction(lead, "hoje")}>
-                    Jogar para hoje
-                  </button>
-                  <button type="button" onClick={() => void runQuickAction(lead, "amanha")}>
-                    Agendar amanhã
-                  </button>
-                  {lead.quickActions.includes("encerrar") ? (
-                    <button type="button" onClick={() => void runQuickAction(lead, "encerrar")}>
-                      Encerrar
-                    </button>
-                  ) : null}
-                  {lead.quickActions.includes("reabrir") ? (
-                    <button type="button" onClick={() => void runQuickAction(lead, "reabrir")}>
-                      Reabrir
-                    </button>
-                  ) : null}
-                </div>
-              ) : null}
+            <div className={styles.leadBadgeStack}>
+              <span className={styles.statusBadge} data-status={draft.status}>{statusLabel(draft.status)}</span>
+              <span className={styles.returnBadge} data-tone={meta.tone}>{meta.label}</span>
             </div>
           </div>
-        </div>
-
-        <div className={styles.quickSummaryGrid}>
-          <div className={styles.summaryBox} data-type="next">
+          <div className={styles.leadSummaryPanel}>
             <span className={styles.summaryLabel}>Próxima ação</span>
-            <strong className={styles.summaryValue}>
-              {draft.nextAction || lead.nextAction || "Definir próxima ação"}
-            </strong>
+            <strong>{draft.nextAction || lead.nextAction || "Definir próxima ação"}</strong>
+            <p>{draft.shortNote || lead.shortNote || "Sem observação curta registrada."}</p>
           </div>
-          <div className={styles.summaryBox} data-type="note">
-            <span className={styles.summaryLabel}>Observação curta</span>
-            <strong className={styles.summaryValue}>
-              {draft.shortNote || lead.shortNote || "Sem observação ainda"}
-            </strong>
+          <div className={styles.leadChipRow}>
+            {chips.slice(0, 4).map((chip) => <span key={`${lead.id}-${chip}`} className={styles.memoryChip}>{chip}</span>)}
           </div>
+        </button>
+        <div className={styles.leadActionRow}>
+          <button type="button" className={styles.ghostAction} onClick={() => focusLead(lead.id)}>Abrir</button>
+          {lead.quickActions.includes("hoje") ? <button type="button" className={styles.ghostAction} onClick={() => void runQuickAction(lead, "hoje")} disabled={savingLeadId === lead.id}>Hoje</button> : null}
+          {lead.quickActions.includes("amanha") ? <button type="button" className={styles.ghostAction} onClick={() => void runQuickAction(lead, "amanha")} disabled={savingLeadId === lead.id}>Amanhã</button> : null}
+          {lead.quickActions.includes("encerrar") ? <button type="button" className={styles.ghostAction} onClick={() => void runQuickAction(lead, "encerrar")} disabled={savingLeadId === lead.id}>Encerrar</button> : null}
+          {lead.quickActions.includes("reabrir") ? <button type="button" className={styles.ghostAction} onClick={() => void runQuickAction(lead, "reabrir")} disabled={savingLeadId === lead.id}>Reabrir</button> : null}
         </div>
-
-        <div className={styles.memoryRail}>
-          {signals.alreadyExisted ? (
-            <span className={styles.memoryChip} data-tone="existing">
-              Lead já conhecido
-            </span>
-          ) : null}
-          {signals.cameFromWebscraping ? (
-            <span className={styles.memoryChip} data-tone="webscraping">
-              Veio de webscraping
-            </span>
-          ) : null}
-          {signals.hadPreviousContact ? (
-            <span className={styles.memoryChip} data-tone="contact">
-              Já teve contato
-            </span>
-          ) : null}
-          {signals.wasClosedBefore ? (
-            <span className={styles.memoryChip} data-tone="closed-before">
-              Já foi encerrado antes
-            </span>
-          ) : null}
-          {draft.phone || lead.phone ? (
-            <span className={styles.memoryChip}>Telefone {draft.phone || lead.phone}</span>
-          ) : null}
-          {draft.email || lead.email ? (
-            <span className={styles.memoryChip}>E-mail {draft.email || lead.email}</span>
-          ) : null}
-          {lead.attemptCount ? (
-            <span className={styles.memoryChip}>Tentativas {lead.attemptCount}</span>
-          ) : null}
-          {lead.lastResult ? (
-            <span className={styles.memoryChip}>Último resultado {lead.lastResult}</span>
-          ) : null}
-          {lead.lastContactAt ? (
-            <span className={styles.memoryChip}>Último contato {formatDateTime(lead.lastContactAt)}</span>
-          ) : null}
-          {lead.primarySource ? (
-            <span className={styles.memoryChip}>Origem principal {lead.primarySource}</span>
-          ) : null}
-          {inAtendimento ? (
-            <span className={styles.memoryChip} data-tone="shared">
-              Também em Atendimento
-            </span>
-          ) : null}
-          {inRecovery ? (
-            <span className={styles.memoryChip} data-tone="shared-recovery">
-              Também em Recovery
-            </span>
-          ) : null}
-          {sharedProfile?.currentContext && sharedProfile.currentContext !== "vendas" ? (
-            <span className={styles.memoryChip} data-tone="shared">
-              Contexto atual {formatSharedContextLabel(sharedProfile.currentContext)}
-            </span>
-          ) : null}
-          {lead.timesSeen && lead.timesSeen > 1 ? (
-            <span className={styles.memoryChip}>Reapareceu {lead.timesSeen}x</span>
-          ) : null}
-          {hasCommercialMemory ? (
-            <span className={styles.memoryChip} data-tone="ready">
-              Memória comercial pronta
-            </span>
-          ) : (
-            <span className={styles.memoryChip}>Memória comercial em preparação</span>
-          )}
-          {lead.sourceHistoryId ? (
-            <span className={styles.memoryChip}>Histórico vinculado</span>
-          ) : null}
-        </div>
-
-        <div className={styles.cardActions}>
-          <a className="btn btn-primary" href={callUrl || undefined}>
-            Ligar
-          </a>
-          <a className="btn btn-secondary" href={whatsappUrl || undefined} target="_blank" rel="noreferrer">
-            WhatsApp
-          </a>
-          {lead.quickActions.includes("hoje") ? (
-            <button
-              type="button"
-              className="btn btn-secondary"
-              onClick={() => void runQuickAction(lead, "hoje")}
-              disabled={savingLeadId === lead.id}
-            >
-              Jogar para hoje
-            </button>
-          ) : null}
-          {lead.quickActions.includes("amanha") ? (
-            <button
-              type="button"
-              className="btn btn-secondary"
-              onClick={() => void runQuickAction(lead, "amanha")}
-              disabled={savingLeadId === lead.id}
-            >
-              Amanhã cedo
-            </button>
-          ) : null}
-          {lead.quickActions.includes("encerrar") ? (
-            <button
-              type="button"
-              className="btn btn-secondary"
-              onClick={() => void runQuickAction(lead, "encerrar")}
-              disabled={savingLeadId === lead.id}
-            >
-              Encerrar
-            </button>
-          ) : null}
-          {lead.quickActions.includes("reabrir") ? (
-            <button
-              type="button"
-              className="btn btn-secondary"
-              onClick={() => void runQuickAction(lead, "reabrir")}
-              disabled={savingLeadId === lead.id}
-            >
-              Reabrir
-            </button>
-          ) : null}
-          <button
-            type="button"
-            className="btn btn-secondary"
-            onClick={() => toggleLeadEditor(lead.id)}
-          >
-            {isExpanded ? "Fechar edição" : "Editar rápido"}
-          </button>
-        </div>
-
-        {isExpanded ? (
-          <div className={styles.quickEditor}>
-            <div className={styles.editorHeader}>
-              <strong>Edição rápida</strong>
-              <span className={styles.mutedPill}>Atualizado em {formatDateTime(lead.updatedAt)}</span>
-            </div>
-
-            <div className={styles.expandedGrid}>
-              <section className={styles.timelinePanel}>
-                <div className={styles.timelineHeader}>
-                  <strong>Timeline comercial</strong>
-                  <span className={styles.metaPill}>
-                    {(lead.timeline || []).length} evento(s)
-                  </span>
-                </div>
-
-                {(lead.timeline || []).length ? (
-                  <div className={styles.timelineList}>
-                    {(lead.timeline || []).map((event) => (
-                      <article
-                        key={event.id}
-                        className={styles.timelineItem}
-                        data-tone={getTimelineEventTone(event.eventType)}
-                      >
-                        <div className={styles.timelineDot} />
-                        <div className={styles.timelineBody}>
-                          <div className={styles.timelineTopline}>
-                            <strong className={styles.timelineTitle}>{event.title}</strong>
-                            <span className={styles.timelineMeta}>{getTimelineEventMeta(event)}</span>
-                          </div>
-                          <p className={styles.timelineText}>
-                            {event.description || "Movimento comercial registrado neste lead."}
-                          </p>
-                        </div>
-                      </article>
-                    ))}
-                  </div>
-                ) : (
-                  <div className={styles.timelineEmpty}>
-                    <strong>Timeline em preparação</strong>
-                    <p className={styles.emptyText}>
-                      Os próximos movimentos deste lead vão aparecer aqui para dar contexto sem virar CRM pesado.
-                    </p>
-                  </div>
-                )}
-              </section>
-
-              <div className={styles.editorPanel}>
-                {sharedProfile ? (
-                  <section className={styles.sharedProfileCard}>
-                    <div className={styles.sectionHeader}>
-                      <div>
-                        <strong>Perfil unificado</strong>
-                        <p className={styles.helperText}>
-                          O mesmo contato pode atravessar Vendas, Atendimento e Recovery sem abrir cadastros paralelos.
-                        </p>
-                      </div>
-                      <span className={styles.metaPill}>
-                        {formatSharedContextLabel(sharedProfile.currentContext)}
-                      </span>
-                    </div>
-                    <div className={styles.sharedProfileGrid}>
-                      <div className={styles.summaryBox} data-type="next">
-                        <span className={styles.summaryLabel}>Origem central</span>
-                        <strong className={styles.summaryValue}>
-                          {sharedProfile.origin || lead.primarySource || "Sem origem dominante"}
-                        </strong>
-                      </div>
-                      <div className={styles.summaryBox} data-type="note">
-                        <span className={styles.summaryLabel}>Último toque geral</span>
-                        <strong className={styles.summaryValue}>
-                          {sharedLastContact ? formatDateTime(sharedLastContact) : "Ainda sem histórico consolidado"}
-                        </strong>
-                      </div>
-                    </div>
-                    <div className={styles.sharedPresenceRow}>
-                      <span className={styles.memoryChip} data-tone={sharedProfile?.presence?.vendas?.present ? "ready" : undefined}>
-                        Vendas {sharedProfile?.presence?.vendas?.present ? "presente" : "fora"}
-                      </span>
-                      <span className={styles.memoryChip} data-tone={inAtendimento ? "shared" : undefined}>
-                        Atendimento {inAtendimento ? "presente" : "fora"}
-                      </span>
-                      <span className={styles.memoryChip} data-tone={inRecovery ? "shared-recovery" : undefined}>
-                        Recovery {inRecovery ? "presente" : "fora"}
-                      </span>
-                      {sharedProfile?.presence?.recovery?.present &&
-                      Number(sharedProfile?.presence?.recovery?.openAmount || 0) > 0 ? (
-                        <span className={styles.memoryChip} data-tone="shared-recovery">
-                          Em aberto {Number(sharedProfile.presence?.recovery?.openAmount || 0).toLocaleString("pt-BR", {
-                            style: "currency",
-                            currency: "BRL",
-                          })}
-                        </span>
-                      ) : null}
-                    </div>
-                  </section>
-                ) : null}
-
-                <div className={styles.cardGrid}>
-                  <label className={styles.field}>
-                    <span className={styles.fieldLabel}>Status</span>
-                    <select
-                      className={styles.fieldSelect}
-                      value={draft.status}
-                      onChange={(event) =>
-                        setLeadDraft(lead.id, { status: event.target.value as LeadStatus })
-                      }
-                    >
-                      {STATUS_OPTIONS.map((status) => (
-                        <option key={status.value} value={status.value}>
-                          {status.label}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-
-                  <label className={styles.field}>
-                    <span className={styles.fieldLabel}>Telefone</span>
-                    <input
-                      className={styles.fieldInput}
-                      value={draft.phone}
-                      onChange={(event) => setLeadDraft(lead.id, { phone: event.target.value })}
-                      placeholder="Telefone"
-                    />
-                  </label>
-
-                  <label className={styles.field}>
-                    <span className={styles.fieldLabel}>E-mail</span>
-                    <input
-                      className={styles.fieldInput}
-                      value={draft.email}
-                      onChange={(event) => setLeadDraft(lead.id, { email: event.target.value })}
-                      placeholder="Opcional"
-                    />
-                  </label>
-
-                  <label className={styles.fieldWide}>
-                    <span className={styles.fieldLabel}>Próxima ação</span>
-                    <input
-                      className={styles.fieldInput}
-                      value={draft.nextAction}
-                      onChange={(event) => setLeadDraft(lead.id, { nextAction: event.target.value })}
-                      placeholder="Ex: ligação de diagnóstico"
-                    />
-                  </label>
-
-                  <label className={styles.field}>
-                    <span className={styles.fieldLabel}>Retorno agendado</span>
-                    <input
-                      className={styles.fieldInput}
-                      type="datetime-local"
-                      value={draft.returnAt}
-                      onChange={(event) => setLeadDraft(lead.id, { returnAt: event.target.value })}
-                    />
-                  </label>
-
-                  <label className={styles.fieldWide}>
-                    <span className={styles.fieldLabel}>Observação curta</span>
-                    <textarea
-                      className={styles.fieldTextarea}
-                      rows={3}
-                      value={draft.shortNote}
-                      onChange={(event) => setLeadDraft(lead.id, { shortNote: event.target.value })}
-                      placeholder="Contexto operacional curto"
-                    />
-                  </label>
-                </div>
-
-                <div className={styles.editorActions}>
-                  <button
-                    type="button"
-                    className="btn btn-primary"
-                    onClick={() => void saveLead(lead.id)}
-                    disabled={savingLeadId === lead.id}
-                  >
-                    {savingLeadId === lead.id ? "Salvando..." : "Salvar card"}
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        ) : null}
       </article>
     );
   }
 
-  function renderListView() {
-    if (!allLeads.length) {
+  function renderDetailPanel() {
+    if (!selectedLead || !selectedLeadDraft) {
       return (
-        <section className={styles.blockCard}>
-          <div className={styles.emptyState}>
-            <strong>Nenhum lead disponível</strong>
-            <p className={styles.emptyText}>Quando o CRM receber movimentos, a lista vai resumir o que está quente, atrasado e pendente.</p>
+        <aside className={styles.detailPanel} data-detail-panel="true">
+          <div className={styles.detailEmpty}>
+            <span className={styles.panelEyebrow}>Painel do lead</span>
+            <strong>Escolha um card para abrir a operação fina.</strong>
+            <p>O detalhe lateral concentra edição, timeline e presença compartilhada sem perder o contexto do board.</p>
           </div>
-        </section>
+        </aside>
       );
     }
 
+    const callUrl = buildCallUrl(selectedLeadDraft.phone || selectedLead.phone);
+    const whatsappUrl = buildWhatsAppUrl(selectedLeadDraft.phone || selectedLead.phone, selectedLeadDraft.name || selectedLead.name);
+    const meta = returnMeta(selectedLead, selectedLeadDraft, selectedLeadBlock);
+    const sharedProfile = selectedLead.sharedProfile || null;
+    const sharedLastContact = sharedProfile?.lastContactAt || sharedProfile?.presence?.atendimento?.lastContactAt || selectedLead.lastContactAt || null;
+
     return (
-      <section className={styles.blockCard}>
-        <div className={styles.sectionHeader}>
+      <aside className={styles.detailPanel} data-detail-panel="true">
+        <div className={styles.detailHero}>
           <div>
-            <strong>Lista operacional</strong>
-            <p className={styles.helperText}>Leitura enxuta para bater o olho e abrir só o que importa.</p>
+            <span className={styles.panelEyebrow}>Lead selecionado</span>
+            <h2 className={styles.detailTitle}>{selectedLeadDraft.name || selectedLead.name || "Lead sem nome"}</h2>
+            <p className={styles.detailText}>
+              {selectedLead.segment || "Sem segmento"}
+              {selectedLead.city ? ` • ${selectedLead.city}` : ""}
+              {selectedLead.primarySource ? ` • ${sourceLabel(selectedLead.primarySource)}` : ""}
+            </p>
           </div>
-          <span className={styles.metaPill}>{allLeads.length} lead(s)</span>
+          <div className={styles.detailBadgeColumn}>
+            <span className={styles.statusBadge} data-status={selectedLeadDraft.status}>{statusLabel(selectedLeadDraft.status)}</span>
+            <span className={styles.returnBadge} data-tone={meta.tone}>{meta.label}</span>
+          </div>
         </div>
-        <div className={styles.listView}>
-          {allLeads.map(({ lead, block }) => (
-            <button
-              key={`list-${lead.id}`}
-              type="button"
-              className={styles.listRow}
-              onClick={() => focusLead(lead.id)}
-            >
-              <div className={styles.listMain}>
-                <strong>{lead.name || "Lead sem nome"}</strong>
-                <span>{lead.city || "Cidade não informada"} • {lead.segment || "Sem segmento"}</span>
-              </div>
-              <span className={styles.memoryChip}>{lead.statusLabel}</span>
-              <span className={styles.memoryChip}>{lead.nextAction || "Sem próxima ação"}</span>
-              <span className={styles.memoryChip}>{getReturnMeta(lead, drafts[lead.id] || createDraft(lead), block).label}</span>
-              <span className={styles.memoryChip}>{webscrapingSourceLabel(lead.primarySource || lead.sourceType)}</span>
+
+        <div className={styles.detailMetrics}>
+          <article className={styles.detailMetric}><span>Bloco atual</span><strong>{BLOCK_LABELS[selectedLeadBlock]}</strong></article>
+          <article className={styles.detailMetric}><span>Tentativas</span><strong>{selectedLead.attemptCount || 0}</strong></article>
+          <article className={styles.detailMetric}><span>Último contato</span><strong>{formatShortDate(selectedLead.lastContactAt)}</strong></article>
+          <article className={styles.detailMetric}><span>Reaparições</span><strong>{selectedLead.timesSeen || 1}x</strong></article>
+        </div>
+
+        <div className={styles.detailActions}>
+          <a className={styles.primaryAction} href={whatsappUrl || undefined} target={whatsappUrl ? "_blank" : undefined} rel={whatsappUrl ? "noreferrer" : undefined} aria-disabled={!whatsappUrl}>Abrir WhatsApp</a>
+          <a className={styles.secondaryAction} href={callUrl || undefined} aria-disabled={!callUrl}>Ligar agora</a>
+          {selectedLead.quickActions.includes("hoje") ? <button type="button" className={styles.secondaryAction} onClick={() => void runQuickAction(selectedLead, "hoje")} disabled={savingLeadId === selectedLead.id}>Jogar para hoje</button> : null}
+          {selectedLead.quickActions.includes("amanha") ? <button type="button" className={styles.secondaryAction} onClick={() => void runQuickAction(selectedLead, "amanha")} disabled={savingLeadId === selectedLead.id}>Amanhã cedo</button> : null}
+          {selectedLead.quickActions.includes("encerrar") ? <button type="button" className={styles.secondaryAction} onClick={() => void runQuickAction(selectedLead, "encerrar")} disabled={savingLeadId === selectedLead.id}>Encerrar</button> : null}
+          {selectedLead.quickActions.includes("reabrir") ? <button type="button" className={styles.secondaryAction} onClick={() => void runQuickAction(selectedLead, "reabrir")} disabled={savingLeadId === selectedLead.id}>Reabrir</button> : null}
+        </div>
+
+        <section className={styles.detailSection}>
+          <div className={styles.sectionTopline}>
+            <div><span className={styles.panelEyebrow}>Edição rápida</span><strong>Operar o card sem sair do board</strong></div>
+            <span className={styles.miniPill}>Atualizado {formatDateTime(selectedLead.updatedAt)}</span>
+          </div>
+
+          <div className={styles.fieldGrid}>
+            <label className={styles.field}><span className={styles.fieldLabel}>Nome</span><input className={styles.fieldInput} value={selectedLeadDraft.name} onChange={(event) => setLeadDraft(selectedLead.id, { name: event.target.value })} /></label>
+            <label className={styles.field}><span className={styles.fieldLabel}>Telefone</span><input className={styles.fieldInput} value={selectedLeadDraft.phone} onChange={(event) => setLeadDraft(selectedLead.id, { phone: event.target.value })} /></label>
+            <label className={styles.field}><span className={styles.fieldLabel}>E-mail</span><input className={styles.fieldInput} value={selectedLeadDraft.email} onChange={(event) => setLeadDraft(selectedLead.id, { email: event.target.value })} /></label>
+            <label className={styles.field}>
+              <span className={styles.fieldLabel}>Status</span>
+              <select className={styles.fieldInput} value={selectedLeadDraft.status} onChange={(event) => setLeadDraft(selectedLead.id, { status: event.target.value as LeadStatus })}>
+                {STATUS_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+              </select>
+            </label>
+            <label className={styles.fieldWide}><span className={styles.fieldLabel}>Próxima ação</span><input className={styles.fieldInput} value={selectedLeadDraft.nextAction} onChange={(event) => setLeadDraft(selectedLead.id, { nextAction: event.target.value })} /></label>
+            <label className={styles.field}><span className={styles.fieldLabel}>Retorno</span><input className={styles.fieldInput} type="datetime-local" value={selectedLeadDraft.returnAt} onChange={(event) => setLeadDraft(selectedLead.id, { returnAt: event.target.value })} /></label>
+            <label className={styles.fieldWide}><span className={styles.fieldLabel}>Observação curta</span><textarea className={styles.fieldTextarea} rows={4} value={selectedLeadDraft.shortNote} onChange={(event) => setLeadDraft(selectedLead.id, { shortNote: event.target.value })} /></label>
+          </div>
+
+          <div className={styles.detailFooterActions}>
+            <button type="button" className={styles.primaryAction} onClick={() => void saveLead(selectedLead.id)} disabled={savingLeadId === selectedLead.id}>
+              {savingLeadId === selectedLead.id ? "Salvando..." : "Salvar alterações"}
             </button>
-          ))}
-        </div>
-      </section>
+          </div>
+        </section>
+
+        {sharedProfile ? (
+          <section className={styles.detailSection}>
+            <div className={styles.sectionTopline}>
+              <div><span className={styles.panelEyebrow}>Presença compartilhada</span><strong>Memória cruzada do cliente</strong></div>
+              <span className={styles.miniPill}>{contextLabel(sharedProfile.currentContext)}</span>
+            </div>
+            <div className={styles.sharedGrid}>
+              <article className={styles.sharedCard}><span>Nome base</span><strong>{sharedProfile.displayName || selectedLeadDraft.name || selectedLead.name || "-"}</strong></article>
+              <article className={styles.sharedCard}><span>Telefone</span><strong>{sharedProfile.phone || selectedLeadDraft.phone || selectedLead.phone || "-"}</strong></article>
+              <article className={styles.sharedCard}><span>Origem</span><strong>{sharedProfile.origin || sourceLabel(selectedLead.primarySource || selectedLead.sourceType)}</strong></article>
+              <article className={styles.sharedCard}><span>Último contato geral</span><strong>{formatDateTime(sharedLastContact)}</strong></article>
+            </div>
+            <div className={styles.sharedPresenceRow}>
+              {sharedProfile.presence?.atendimento?.present ? <span className={styles.memoryChip}>Também em Atendimento</span> : null}
+              {sharedProfile.presence?.recovery?.present ? <span className={styles.memoryChip}>Também em Recovery</span> : null}
+              {sharedProfile.presence?.vendas?.present ? <span className={styles.memoryChip}>Presente em Vendas</span> : null}
+            </div>
+          </section>
+        ) : null}
+
+        <section className={styles.detailSection}>
+          <div className={styles.sectionTopline}>
+            <div><span className={styles.panelEyebrow}>Timeline comercial</span><strong>O que aconteceu com este lead</strong></div>
+            <span className={styles.miniPill}>{(selectedLead.timeline || []).length} evento(s)</span>
+          </div>
+          {(selectedLead.timeline || []).length ? (
+            <div className={styles.timelineList}>
+              {(selectedLead.timeline || []).map((event) => (
+                <article key={event.id} className={styles.timelineItem} data-tone={timelineTone(event.eventType)}>
+                  <div className={styles.timelineDot} />
+                  <div className={styles.timelineBody}>
+                    <div className={styles.timelineTopline}><strong>{event.title}</strong><span>{event.createdAt ? formatDateTime(event.createdAt) : "Agora"}</span></div>
+                    <p>{event.description || "Movimento comercial registrado."}</p>
+                    <span className={styles.timelineMeta}>{timelineMeta(event)}</span>
+                  </div>
+                </article>
+              ))}
+            </div>
+          ) : (
+            <div className={styles.emptyPanel}><strong>Nenhum evento registrado</strong><p>A timeline ganha contexto assim que o lead é movimentado no CRM.</p></div>
+          )}
+        </section>
+      </aside>
     );
   }
 
-  function renderAgendaView() {
-    return (
-      <section className={styles.blockCard}>
-        <div className={styles.sectionHeader}>
-          <div>
-            <strong>Agenda viva</strong>
-            <p className={styles.helperText}>Blocos operacionais para saber quem precisa de ação agora, depois e o que já saiu do radar ativo.</p>
-          </div>
-        </div>
-        <div className={styles.agendaView}>
-          {BLOCKS.map((block) => {
-            const leads = board?.blocks[block.key] || [];
-            if (block.key === "closed" && !showClosed) return null;
-            return (
-              <article key={`agenda-${block.key}`} className={styles.agendaColumn} data-block={block.key}>
-                <div className={styles.agendaColumnHeader}>
-                  <strong>{block.title}</strong>
-                  <span className={styles.metaPill}>{leads.length}</span>
-                </div>
-                {leads.length ? (
-                  <div className={styles.agendaList}>
-                    {leads.map((lead) => (
-                      <button
-                        key={`agenda-row-${lead.id}`}
-                        type="button"
-                        className={styles.agendaRow}
-                        onClick={() => focusLead(lead.id)}
-                      >
-                        <div>
-                          <strong>{lead.name || "Lead sem nome"}</strong>
-                          <span>{lead.nextAction || "Sem próxima ação"}</span>
-                        </div>
-                        <span>{formatDateTime(lead.returnAt || lead.updatedAt)}</span>
-                      </button>
-                    ))}
-                  </div>
-                ) : (
-                  <div className={styles.emptyState}>
-                    <strong>Sem cards neste bloco</strong>
-                    <p className={styles.emptyText}>A agenda vai preencher esse grupo automaticamente quando a operação gerar movimento.</p>
-                  </div>
-                )}
-              </article>
-            );
-          })}
-        </div>
-      </section>
-    );
-  }
+  function renderPipelineBoard() {
+    if (!selectedFilter) {
+      return <section className={styles.boardShell}><div className={styles.emptyBoard}><strong>Nenhuma janela de datas disponível</strong><p>Assim que houver leads com retorno ou agenda ativa, o fluxo aparece aqui.</p></div></section>;
+    }
 
-  function renderTimelineView() {
+    const groupedByStatus = STATUS_COLUMNS.reduce<Record<LeadStatus, LeadItem[]>>(
+      (accumulator, column) => ({ ...accumulator, [column.value]: [] }),
+      { novo: [], contato: [], retorno: [], qualificado: [], encerrado: [] },
+    );
+    filteredLeads.forEach((lead) => groupedByStatus[lead.status].push(lead));
+
     return (
-      <section className={styles.blockCard}>
-        <div className={styles.sectionHeader}>
+      <section className={styles.boardShell}>
+        <div className={styles.boardHeader}>
           <div>
-            <strong>Timeline da operação</strong>
-            <p className={styles.helperText}>Visão cronológica para entender o que aconteceu sem abrir cada card manualmente.</p>
+            <span className={styles.panelEyebrow}>Janela selecionada</span>
+            <h2 className={styles.boardTitle}>{selectedFilter.title}</h2>
+            <p className={styles.boardText}>
+              {selectedFilter.subtitle} A régua operacional está assim: ontem para trás vira Atrasado, hoje fica no centro e amanhã em diante entra como Programado.
+            </p>
           </div>
-          <span className={styles.metaPill}>{timelineFeed.length} evento(s)</span>
+          <div className={styles.boardMetaStack}>
+            <span className={styles.miniPill}>{pluralize(filteredLeads.length, "card", "cards")}</span>
+            <span className={styles.miniPill}>{selectedFilter.blockKey === "scheduled" ? "Filtro futuro" : "Filtro ativo"}</span>
+          </div>
         </div>
-        {timelineFeed.length ? (
-          <div className={styles.feedList}>
-            {timelineFeed.map(({ event, lead, block }) => (
-              <article key={`feed-${event.id}`} className={styles.feedItem}>
-                <div className={styles.feedDot} data-tone={getTimelineEventTone(event.eventType)} />
-                <div className={styles.feedBody}>
-                  <div className={styles.feedTopline}>
-                    <strong>{lead.name || "Lead sem nome"}</strong>
-                    <span>{formatDateTime(event.createdAt)}</span>
+
+        <div className={styles.columnMetrics}>
+          {STATUS_OPTIONS.map((status) => <article key={`metric-${status.value}`} className={styles.columnMetric}><span>{status.label}</span><strong>{laneCounts[status.value]}</strong></article>)}
+        </div>
+
+        {filteredLeads.length ? (
+          <div className={styles.pipelineGrid}>
+            {STATUS_COLUMNS.map((column) => {
+              const columnId = `${selectedFilter.blockKey}:${column.value}`;
+              const columnLeads = column.dropOnly ? [] : groupedByStatus[column.value];
+              return (
+                <section
+                  key={columnId}
+                  className={styles.pipelineColumn}
+                  data-status={column.value}
+                  data-drop-only={column.dropOnly ? "true" : "false"}
+                  data-dragover={dragOverColumnId === columnId ? "true" : "false"}
+                  onDragOver={(event) => handleColumnDragOver(event, columnId)}
+                  onDragLeave={() => handleColumnDragLeave(columnId)}
+                  onDrop={(event) => void handleColumnDrop(event, selectedFilter.blockKey, column.value)}
+                >
+                  <div className={styles.pipelineColumnHeader}>
+                    <div><strong>{column.label}</strong><p>{column.hint}</p></div>
+                    <span className={styles.columnBadge}>{columnLeads.length}</span>
                   </div>
-                  <p className={styles.feedTitle}>{event.title}</p>
-                  <p className={styles.feedText}>
-                    {event.description || "Movimento comercial registrado."}
-                  </p>
-                  <div className={styles.memoryRail}>
-                    <span className={styles.memoryChip}>{lead.statusLabel}</span>
-                    <span className={styles.memoryChip}>{BLOCKS.find((item) => item.key === block)?.title || block}</span>
-                    <span className={styles.memoryChip}>{getTimelineEventMeta(event)}</span>
-                    <button type="button" className={styles.commandLink} onClick={() => focusLead(lead.id)}>
-                      Abrir card
-                    </button>
-                  </div>
-                </div>
-              </article>
-            ))}
+                  {columnLeads.length ? (
+                    <div className={styles.pipelineColumnCards}>{columnLeads.map((lead) => renderLeadCard(lead, selectedFilter.blockKey))}</div>
+                  ) : (
+                    <div className={styles.dropHint}>
+                      <strong>{column.dropOnly ? "Solte aqui para arquivar" : "Coluna pronta"}</strong>
+                      <p>{column.dropOnly ? "O card sai da frente operacional, mas o histórico continua disponível." : "Arraste um card para reorganizar o status sem mexer no filtro de datas."}</p>
+                    </div>
+                  )}
+                </section>
+              );
+            })}
           </div>
         ) : (
-          <div className={styles.emptyState}>
-            <strong>Nenhum evento ainda</strong>
-            <p className={styles.emptyText}>Quando os cards forem sendo trabalhados, a timeline geral aparece aqui para leitura rápida.</p>
-          </div>
+          <div className={styles.emptyBoard}><strong>Sem cards nesta data</strong><p>Quando a agenda chegar nessa janela, os cards aparecem aqui já distribuídos.</p></div>
         )}
       </section>
     );
   }
 
-  function renderKanbanView() {
-    return BLOCKS.map((block) => {
-      const leads = board?.blocks[block.key] || [];
-      const isClosedBlock = block.key === "closed";
-      const groupedByStatus = STATUS_COLUMNS.reduce<Record<LeadStatus, LeadItem[]>>(
-        (accumulator, column) => {
-          accumulator[column.value] = [];
-          return accumulator;
-        },
-        {
-          novo: [],
-          contato: [],
-          retorno: [],
-          qualificado: [],
-          encerrado: [],
-        },
-      );
-
-      for (const lead of leads) {
-        groupedByStatus[lead.status].push(lead);
-      }
-
-      if (isClosedBlock && !showClosed && leads.length === 0) {
-        return null;
-      }
-
-      return (
-        <section key={block.key} className={styles.blockCard} data-block={block.key} data-accent={block.accent}>
-          <div className={styles.sectionHeader}>
-            <div>
-              <strong>{block.title}</strong>
-              <p className={styles.helperText}>{block.description}</p>
-            </div>
-            <div className={styles.sectionActions}>
-              <span className={styles.metaPill}>{leads.length} card(s)</span>
-              {!isClosedBlock ? <span className={styles.mutedPill}>Arraste entre colunas para mover status</span> : null}
-              {isClosedBlock ? (
-                <button
-                  type="button"
-                  className="btn btn-secondary btn-sm"
-                  onClick={() => setShowClosed((current) => !current)}
-                >
-                  {showClosed ? "Ocultar encerrados" : "Mostrar encerrados"}
-                </button>
-              ) : null}
-            </div>
-          </div>
-
-          {isClosedBlock && !showClosed ? (
-            <div className={styles.emptyState}>
-              <strong>Encerrados fora do foco principal</strong>
-              <p className={styles.emptyText}>Eles continuam guardados, mas não dominam a agenda ativa enquanto você está operando o dia.</p>
-            </div>
-          ) : leads.length === 0 ? (
-            <div className={styles.emptyState}>
-              <strong>Nenhum card neste bloco</strong>
-              <p className={styles.emptyText}>Assim que a rotina gerar movimentos aqui, os cards vão aparecer com destaque operacional.</p>
-            </div>
-          ) : !isClosedBlock ? (
-            <div className={styles.statusBoard}>
-              {STATUS_COLUMNS.map((column) => {
-                const columnId = `${block.key}:${column.value}`;
-                const columnLeads = column.dropOnly ? [] : groupedByStatus[column.value];
-                const isDragTarget = dragOverColumnId === columnId;
-                return (
-                  <section
-                    key={columnId}
-                    className={styles.statusColumn}
-                    data-status={column.value}
-                    data-drop-only={column.dropOnly ? "true" : "false"}
-                    data-dragover={isDragTarget ? "true" : "false"}
-                    onDragOver={(event) => handleColumnDragOver(event, columnId)}
-                    onDragLeave={() => handleColumnDragLeave(columnId)}
-                    onDrop={(event) => void handleColumnDrop(event, block.key, column.value)}
-                  >
-                    <div className={styles.statusColumnHeader}>
-                      <div>
-                        <strong className={styles.statusColumnTitle}>{column.label}</strong>
-                        <p className={styles.statusColumnText}>{column.hint}</p>
-                      </div>
-                      <span className={styles.metaPill}>{columnLeads.length}</span>
-                    </div>
-
-                    {columnLeads.length ? (
-                      <div className={styles.statusColumnCards}>
-                        {columnLeads.map((lead) => renderLeadCard(lead, block.key))}
-                      </div>
-                    ) : (
-                      <div className={styles.statusDropHint}>
-                        <strong>{column.dropOnly ? "Solte aqui para encerrar" : "Coluna pronta para receber"}</strong>
-                        <p className={styles.emptyText}>
-                          {column.dropOnly
-                            ? "O card sai da agenda ativa e vai para encerrados, sem dominar o dia."
-                            : "Arraste um card para reorganizar o status sem perder retorno, origem e próxima ação."}
-                        </p>
-                      </div>
-                    )}
-                  </section>
-                );
-              })}
-            </div>
-          ) : (
-            <div className={styles.leadsGrid} data-block={block.key}>
-              {leads.map((lead) => renderLeadCard(lead, block.key))}
-            </div>
-          )}
-        </section>
-      );
-    });
-  }
-
   if (hasToken === null) {
     return (
       <DashboardScaffold title="Vendas" description="Carregando sessão do CRM comercial.">
-        <section className={styles.loadingCard}>
-          <div className={styles.skeletonTitle} />
-          <div className={styles.skeletonLine} />
-          <div className={styles.skeletonLineShort} />
-        </section>
+        <section className={styles.loadingCard}><div className={styles.skeletonHero} /><div className={styles.skeletonBoard} /></section>
       </DashboardScaffold>
     );
   }
@@ -1425,212 +904,132 @@ export default function VendasClientPage() {
   if (!hasToken) return null;
 
   return (
-    <DashboardScaffold
-      title="Vendas"
-      description="CRM agenda viva para prospecção, retornos e operação comercial inicial."
-    >
+    <DashboardScaffold title="Vendas" description="Pipeline premium com agenda viva, leitura por datas e operação comercial sem atrito.">
       <div className={styles.page}>
         <section className={styles.hero}>
-          <div className={styles.focusGrid}>
-            {focusMetrics.slice(0, 2).map((metric) => (
-              <article key={metric.title} className={styles.focusCard} data-tone={metric.tone}>
-                <span className={styles.focusLabel}>{metric.title}</span>
-                <strong className={styles.focusValue}>{metric.value}</strong>
-              </article>
-            ))}
+          <div className={styles.heroCopy}>
+            <span className={styles.heroEyebrow}>Modulo Vendas</span>
+            <h2 className={styles.heroTitle}>Agenda comercial premium guiada por data, prioridade e contexto real.</h2>
+            <p className={styles.heroText}>Tudo que ficou para ontem ou antes entra em Atrasados, o que vence hoje fica no centro da operação e o restante segue organizado no futuro sem poluir a tela.</p>
+            <div className={styles.heroActions}>
+              <button type="button" className={styles.primaryAction} onClick={() => setComposerOpen((current) => !current)}>{composerOpen ? "Fechar novo lead" : "Novo lead manual"}</button>
+              <button type="button" className={styles.secondaryAction} onClick={() => setCommandOpen(true)}>Buscar lead</button>
+              <button type="button" className={styles.secondaryAction} onClick={() => setShowClosed((current) => !current)}>{showClosed ? "Ocultar arquivo" : `Ver arquivo (${board?.summary.closed || 0})`}</button>
+            </div>
+          </div>
+          <div className={styles.heroMetrics}>
+            {overviewCards.map((card) => <article key={card.label} className={styles.heroMetricCard} data-tone={card.tone}><span>{card.label}</span><strong>{card.value}</strong><p>{card.hint}</p></article>)}
           </div>
         </section>
 
-        <section className={styles.toolbelt}>
-          <div>
-            <strong>Views operacionais</strong>
-            <p className={styles.helperText}>
-              A mesma base de leads agora pode ser lida como cards, lista, agenda ou timeline sem refazer a estrutura.
-            </p>
+        <section className={styles.filterRail}>
+          <div className={styles.filterRailHeader}>
+            <div><span className={styles.panelEyebrow}>Filtro por datas</span><strong>Escolha a janela e o board se reorganiza sozinho.</strong></div>
+            <div className={styles.filterRailLegend}>
+              <span className={styles.legendPill} data-tone="critical">Ontem ou antes = Atrasados</span>
+              <span className={styles.legendPill} data-tone="today">Hoje = foco principal</span>
+              <span className={styles.legendPill} data-tone="future">Amanhã em diante = Programados</span>
+            </div>
           </div>
-          <div className={styles.viewSwitch}>
-            {VIEW_OPTIONS.map((option) => (
-              <button
-                key={option.value}
-                type="button"
-                className={viewMode === option.value ? styles.viewButtonActive : styles.viewButton}
-                onClick={() => setViewMode(option.value)}
-                title={option.hint}
-              >
-                {option.label}
+          <div className={styles.filterRailScroller}>
+            {dateFilters.map((item) => (
+              <button key={item.key} type="button" className={styles.dateFilterCard} data-active={selectedDateKey === item.key ? "true" : "false"} data-tone={item.blockKey} onClick={() => setSelectedDateKey(item.key)}>
+                <span className={styles.dateFilterDay}>{item.dayLabel}</span>
+                <strong>{item.title}</strong>
+                <span>{item.subtitle}</span>
+                <b>{item.count}</b>
               </button>
             ))}
           </div>
-          <button type="button" className="btn btn-secondary" onClick={() => setCommandOpen(true)}>
-            Abrir command palette
-          </button>
         </section>
 
-        <section className={styles.manualCard}>
-          <div className={styles.sectionHeader}>
-            <div>
-              <strong>Entrada manual</strong>
-              <p className={styles.helperText}>
-                Cadastre um lead novo já com próxima ação e retorno. A ideia aqui é entrar rápido na operação, não abrir um formulário pesado.
-              </p>
-            </div>
-            <span className={styles.statusPill}>Agenda viva pronta</span>
-          </div>
-
-          <form className={styles.formGrid} onSubmit={handleCreateManual}>
-            <label className={styles.field}>
-              <span className={styles.fieldLabel}>Nome do lead</span>
-              <input
-                className={styles.fieldInput}
-                value={manualLead.name}
-                onChange={(event) => setManualLead((prev) => ({ ...prev, name: event.target.value }))}
-                placeholder="Ex: Clínica Horizonte"
-              />
-            </label>
-
-            <label className={styles.field}>
-              <span className={styles.fieldLabel}>Telefone</span>
-              <input
-                className={styles.fieldInput}
-                value={manualLead.phone}
-                onChange={(event) => setManualLead((prev) => ({ ...prev, phone: event.target.value }))}
-                placeholder="Ex: (11) 99999-0000"
-              />
-            </label>
-
-            <label className={styles.field}>
-              <span className={styles.fieldLabel}>E-mail</span>
-              <input
-                className={styles.fieldInput}
-                value={manualLead.email}
-                onChange={(event) => setManualLead((prev) => ({ ...prev, email: event.target.value }))}
-                placeholder="Opcional"
-              />
-            </label>
-
-            <label className={styles.fieldWide}>
-              <span className={styles.fieldLabel}>Próxima ação</span>
-              <input
-                className={styles.fieldInput}
-                value={manualLead.nextAction}
-                onChange={(event) => setManualLead((prev) => ({ ...prev, nextAction: event.target.value }))}
-                placeholder="Ex: Primeira ligação com roteiro curto"
-              />
-            </label>
-
-            <label className={styles.field}>
-              <span className={styles.fieldLabel}>Retorno agendado</span>
-              <input
-                className={styles.fieldInput}
-                type="datetime-local"
-                value={manualLead.returnAt}
-                onChange={(event) => setManualLead((prev) => ({ ...prev, returnAt: event.target.value }))}
-              />
-            </label>
-
-            <label className={styles.fieldWide}>
-              <span className={styles.fieldLabel}>Observação curta</span>
-              <textarea
-                className={styles.fieldTextarea}
-                value={manualLead.shortNote}
-                onChange={(event) => setManualLead((prev) => ({ ...prev, shortNote: event.target.value }))}
-                placeholder="Contexto rápido: origem, dor percebida ou promessa do próximo contato"
-                rows={3}
-              />
-            </label>
-
-            <div className={styles.formActions}>
-              <button type="submit" className="btn btn-primary" disabled={creatingManual}>
-                {creatingManual ? "Criando..." : "Criar lead manual"}
-              </button>
-            </div>
-          </form>
-        </section>
-
-        {error ? (
-          <section className={styles.errorCard}>
-            <strong className={styles.statusTitle}>Falha no CRM de Vendas</strong>
-            <p className={styles.statusText}>{error}</p>
-          </section>
-        ) : null}
-
-        {feedback ? (
-          <section className={styles.successCard}>
-            <strong className={styles.statusTitle}>Tudo certo</strong>
-            <p className={styles.statusText}>{feedback}</p>
-          </section>
-        ) : null}
+        {error ? <section className={styles.statusCard} data-tone="error"><strong>Falha no CRM de Vendas</strong><p>{error}</p></section> : null}
+        {feedback ? <section className={styles.statusCard} data-tone="success"><strong>Tudo certo</strong><p>{feedback}</p></section> : null}
 
         {loading ? (
-          <section className={styles.loadingCard}>
-            <div className={styles.skeletonGrid}>
-              <div className={styles.resultSkeleton} />
-              <div className={styles.resultSkeleton} />
-              <div className={styles.resultSkeleton} />
-            </div>
-          </section>
+          <section className={styles.loadingCard}><div className={styles.skeletonBoard} /></section>
         ) : (
-          <>
-            {viewMode === "kanban" ? renderKanbanView() : null}
-            {viewMode === "list" ? renderListView() : null}
-            {viewMode === "agenda" ? renderAgendaView() : null}
-            {viewMode === "timeline" ? renderTimelineView() : null}
-          </>
+          <div className={styles.stageGrid}>
+            <div className={styles.stageMain}>{renderPipelineBoard()}</div>
+            <div className={styles.stageAside}>{renderDetailPanel()}</div>
+          </div>
         )}
+
+        <div className={styles.supportGrid}>
+          <section className={styles.supportCard}>
+            <div className={styles.sectionTopline}>
+              <div><span className={styles.panelEyebrow}>Entrada manual</span><strong>Adicionar lead com pouca fricção</strong></div>
+              <button type="button" className={styles.secondaryAction} onClick={() => setComposerOpen((current) => !current)}>{composerOpen ? "Fechar" : "Abrir formulário"}</button>
+            </div>
+            <p className={styles.supportText}>O formulário foi mantido no backend existente, mas com uma experiência mais limpa para o time comercial entrar em operação rápido.</p>
+            {composerOpen ? (
+              <form className={styles.composerForm} onSubmit={handleCreateManual}>
+                <label className={styles.field}><span className={styles.fieldLabel}>Nome do lead</span><input className={styles.fieldInput} value={manualLead.name} onChange={(event) => setManualLead((prev) => ({ ...prev, name: event.target.value }))} placeholder="Ex: Clínica Horizonte" /></label>
+                <label className={styles.field}><span className={styles.fieldLabel}>Telefone</span><input className={styles.fieldInput} value={manualLead.phone} onChange={(event) => setManualLead((prev) => ({ ...prev, phone: event.target.value }))} placeholder="Ex: (11) 99999-0000" /></label>
+                <label className={styles.field}><span className={styles.fieldLabel}>E-mail</span><input className={styles.fieldInput} value={manualLead.email} onChange={(event) => setManualLead((prev) => ({ ...prev, email: event.target.value }))} placeholder="Opcional" /></label>
+                <label className={styles.fieldWide}><span className={styles.fieldLabel}>Próxima ação</span><input className={styles.fieldInput} value={manualLead.nextAction} onChange={(event) => setManualLead((prev) => ({ ...prev, nextAction: event.target.value }))} placeholder="Ex: Primeira ligação com roteiro curto" /></label>
+                <label className={styles.field}><span className={styles.fieldLabel}>Retorno</span><input className={styles.fieldInput} type="datetime-local" value={manualLead.returnAt} onChange={(event) => setManualLead((prev) => ({ ...prev, returnAt: event.target.value }))} /></label>
+                <label className={styles.fieldWide}><span className={styles.fieldLabel}>Observação curta</span><textarea className={styles.fieldTextarea} rows={4} value={manualLead.shortNote} onChange={(event) => setManualLead((prev) => ({ ...prev, shortNote: event.target.value }))} placeholder="Contexto rápido: origem, dor percebida ou próximo movimento." /></label>
+                <div className={styles.formFooter}><button type="submit" className={styles.primaryAction} disabled={creatingManual}>{creatingManual ? "Criando..." : "Criar lead manual"}</button></div>
+              </form>
+            ) : <div className={styles.collapsedComposer}><strong>Pronto para usar</strong><p>Abra o formulário quando precisar inserir um lead novo já com retorno e próxima ação.</p></div>}
+          </section>
+
+          <section className={styles.supportCard}>
+            <div className={styles.sectionTopline}>
+              <div><span className={styles.panelEyebrow}>Radar operacional</span><strong>Últimos movimentos da operação</strong></div>
+              <span className={styles.miniPill}>{timelineFeed.length} evento(s)</span>
+            </div>
+            {timelineFeed.length ? (
+              <div className={styles.feedList}>
+                {timelineFeed.map(({ event, lead, block }) => (
+                  <article key={`feed-${event.id}`} className={styles.feedItem}>
+                    <div className={styles.feedDot} data-tone={timelineTone(event.eventType)} />
+                    <div className={styles.feedBody}>
+                      <div className={styles.feedTopline}><strong>{lead.name || "Lead sem nome"}</strong><span>{formatDateTime(event.createdAt)}</span></div>
+                      <p>{event.title}</p>
+                      <small>{BLOCK_LABELS[block]} • {event.description || "Movimento comercial registrado."}</small>
+                      <button type="button" className={styles.commandLink} onClick={() => focusLead(lead.id)}>Abrir no painel</button>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            ) : <div className={styles.emptyPanel}><strong>Nenhum evento ainda</strong><p>Assim que os cards forem trabalhados, a leitura cronológica aparece aqui.</p></div>}
+          </section>
+        </div>
+
+        {showClosed ? (
+          <section className={styles.archiveSection}>
+            <div className={styles.sectionTopline}>
+              <div><span className={styles.panelEyebrow}>Arquivo comercial</span><strong>Encerrados preservados fora do foco do dia</strong></div>
+              <button type="button" className={styles.secondaryAction} onClick={() => setShowClosed(false)}>Ocultar arquivo</button>
+            </div>
+            {closedLeads.length ? <div className={styles.archiveGrid}>{closedLeads.map((lead) => renderLeadCard(lead, "closed"))}</div> : <div className={styles.emptyPanel}><strong>Nenhum encerrado ainda</strong><p>Quando houver cards encerrados, eles ficam guardados aqui para consulta e reabertura.</p></div>}
+          </section>
+        ) : null}
       </div>
 
       {commandOpen ? (
         <div className="ui-popup-backdrop" onClick={() => setCommandOpen(false)}>
           <div className={styles.commandPalette} onClick={(event) => event.stopPropagation()}>
-            <div className={styles.commandHeader}>
-              <div>
-                <strong>Command palette de Vendas</strong>
-                <p className={styles.helperText}>
-                  Busque lead, abra card, ligue, puxe WhatsApp ou navegue pela operação com menos atrito.
-                </p>
-              </div>
-              <button type="button" className="btn btn-secondary btn-sm" onClick={() => setCommandOpen(false)}>
-                Fechar
-              </button>
+            <div className={styles.sectionTopline}>
+              <div><span className={styles.panelEyebrow}>Command palette</span><strong>Buscar lead, cidade, ação, histórico ou origem</strong></div>
+              <button type="button" className={styles.secondaryAction} onClick={() => setCommandOpen(false)}>Fechar</button>
             </div>
-            <input
-              className={styles.commandInput}
-              placeholder="Buscar lead, cidade, ação, resultado ou origem..."
-              value={commandQuery}
-              onChange={(event) => setCommandQuery(event.target.value)}
-              autoFocus
-            />
+            <input className={styles.commandInput} placeholder="Digite nome, telefone, cidade, origem ou próxima ação..." value={commandQuery} onChange={(event) => setCommandQuery(event.target.value)} autoFocus />
             <div className={styles.commandList}>
-              {commandResults.length ? (
-                commandResults.map(({ lead, block }) => (
-                  <article key={`command-${lead.id}`} className={styles.commandRow}>
-                    <button type="button" className={styles.commandMain} onClick={() => focusLead(lead.id)}>
-                      <strong>{lead.name || "Lead sem nome"}</strong>
-                      <span>
-                        {BLOCKS.find((item) => item.key === block)?.title || block} • {lead.statusLabel} • {lead.nextAction || "Sem próxima ação"}
-                      </span>
-                    </button>
-                    <div className={styles.commandActions}>
-                      <a className="btn btn-secondary btn-sm" href={buildCallUrl(lead.phone) || undefined}>
-                        Ligar
-                      </a>
-                      <a
-                        className="btn btn-secondary btn-sm"
-                        href={buildWhatsAppUrl(lead.phone, lead.name) || undefined}
-                        target="_blank"
-                        rel="noreferrer"
-                      >
-                        WhatsApp
-                      </a>
-                    </div>
-                  </article>
-                ))
-              ) : (
-                <div className={styles.emptyState}>
-                  <strong>Nenhum resultado</strong>
-                  <p className={styles.emptyText}>Tente nome, telefone, cidade, status ou próxima ação.</p>
-                </div>
-              )}
+              {commandResults.length ? commandResults.map(({ lead, block }) => (
+                <article key={`command-${lead.id}`} className={styles.commandRow}>
+                  <button type="button" className={styles.commandMain} onClick={() => focusLead(lead.id)}>
+                    <strong>{lead.name || "Lead sem nome"}</strong>
+                    <span>{BLOCK_LABELS[block]} • {lead.statusLabel} • {lead.nextAction || "Sem próxima ação"}</span>
+                  </button>
+                  <div className={styles.commandActionRow}>
+                    <a className={styles.secondaryAction} href={buildCallUrl(lead.phone) || undefined}>Ligar</a>
+                    <a className={styles.secondaryAction} href={buildWhatsAppUrl(lead.phone, lead.name) || undefined} target="_blank" rel="noreferrer">WhatsApp</a>
+                  </div>
+                </article>
+              )) : <div className={styles.emptyPanel}><strong>Nenhum resultado</strong><p>Tente nome, telefone, cidade, status ou próxima ação.</p></div>}
             </div>
           </div>
         </div>
