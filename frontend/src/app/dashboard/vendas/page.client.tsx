@@ -1,6 +1,6 @@
 "use client";
 
-import { useDeferredValue, useEffect, useMemo, useState, type DragEvent, type FormEvent } from "react";
+import { useDeferredValue, useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import DashboardScaffold from "@/components/DashboardScaffold";
 import { apiFetch } from "../_lib/api";
 import { useRequireAuth } from "../_lib/useRequireAuth";
@@ -111,14 +111,6 @@ const STATUS_OPTIONS: Array<{ value: LeadStatus; label: string }> = [
   { value: "qualificado", label: "Qualificado" },
   { value: "encerrado", label: "Encerrado" },
 ];
-
-const STATUS_COLUMNS = [
-  { value: "novo", label: "Novo lead", hint: "Entrada pronta para abordagem." },
-  { value: "contato", label: "Em contato", hint: "Tração comercial em andamento." },
-  { value: "retorno", label: "Retorno", hint: "Depende de retomada na data certa." },
-  { value: "qualificado", label: "Qualificado", hint: "Onde o time precisa ser cirúrgico." },
-  { value: "encerrado", label: "Encerrar", hint: "Solte aqui para tirar da agenda ativa.", dropOnly: true },
-] satisfies Array<{ value: LeadStatus; label: string; hint: string; dropOnly?: boolean }>;
 
 const BLOCK_LABELS: Record<LeadBlockKey, string> = {
   overdue: "Atrasados",
@@ -276,8 +268,6 @@ export default function VendasClientPage() {
   const [savingLeadId, setSavingLeadId] = useState<string | null>(null);
   const [creatingManual, setCreatingManual] = useState(false);
   const [showClosed, setShowClosed] = useState(false);
-  const [draggedLeadId, setDraggedLeadId] = useState<string | null>(null);
-  const [dragOverColumnId, setDragOverColumnId] = useState<string | null>(null);
   const [commandOpen, setCommandOpen] = useState(false);
   const [commandQuery, setCommandQuery] = useState("");
   const [selectedDateKey, setSelectedDateKey] = useState<DateFilterKey>("today");
@@ -366,13 +356,6 @@ export default function VendasClientPage() {
     );
   }, [allLeads, deferredCommandQuery]);
 
-  const timelineFeed = useMemo(() => {
-    return allLeads
-      .flatMap(({ lead, block }) => (lead.timeline || []).map((event) => ({ event, lead, block })))
-      .sort((left, right) => new Date(right.event.createdAt || 0).getTime() - new Date(left.event.createdAt || 0).getTime())
-      .slice(0, 16);
-  }, [allLeads]);
-
   const dateFilters = useMemo<DateFilterItem[]>(() => {
     const scheduledGroups = new Map<string, LeadItem[]>();
     (board?.blocks.scheduled || []).forEach((lead) => {
@@ -380,13 +363,43 @@ export default function VendasClientPage() {
       if (!dateKey) return;
       scheduledGroups.set(dateKey, [...(scheduledGroups.get(dateKey) || []), lead]);
     });
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const futureBase = Array.from({ length: 7 }, (_, index) => {
+      const current = new Date(today);
+      current.setDate(today.getDate() + index + 1);
+      const dateKey = buildLocalDateKey(current.toISOString());
+      const leads = scheduledGroups.get(dateKey) || [];
+      return {
+        key: `scheduled:${dateKey}` as const,
+        blockKey: "scheduled" as const,
+        count: leads.length,
+        title: railTitle(dateKey),
+        subtitle: leads.length ? pluralize(leads.length, "retorno futuro", "retornos futuros") : "Sem agenda",
+        dayLabel: railDay(dateKey),
+        isoDate: dateKey,
+      };
+    });
+    const lastFutureKey = futureBase[futureBase.length - 1]?.isoDate || "";
+    const extraFuture = Array.from(scheduledGroups.entries())
+      .filter(([dateKey]) => dateKey > lastFutureKey)
+      .sort((left, right) => left[0].localeCompare(right[0]))
+      .map(([dateKey, leads]) => ({
+        key: `scheduled:${dateKey}` as const,
+        blockKey: "scheduled" as const,
+        count: leads.length,
+        title: railTitle(dateKey),
+        subtitle: pluralize(leads.length, "retorno futuro", "retornos futuros"),
+        dayLabel: railDay(dateKey),
+        isoDate: dateKey,
+      }));
     return [
       {
         key: "overdue",
         blockKey: "overdue",
         count: board?.summary.overdue || 0,
         title: "Atrasados",
-        subtitle: board?.summary.overdue ? "Ontem para trás sobe para o topo." : "Sem pendência atrasada.",
+        subtitle: board?.summary.overdue ? "Ontem para trás." : "Sem pendência.",
         dayLabel: "Prioridade",
       },
       {
@@ -394,20 +407,11 @@ export default function VendasClientPage() {
         blockKey: "today",
         count: board?.summary.today || 0,
         title: "Hoje",
-        subtitle: board?.summary.today ? "Tudo que precisa andar agora." : "Nenhum card encaixado em hoje.",
+        subtitle: board?.summary.today ? "Fluxo principal." : "Sem agenda.",
         dayLabel: "Operação",
       },
-      ...Array.from(scheduledGroups.entries())
-        .sort((left, right) => left[0].localeCompare(right[0]))
-        .map(([dateKey, leads]) => ({
-          key: `scheduled:${dateKey}` as const,
-          blockKey: "scheduled" as const,
-          count: leads.length,
-          title: railTitle(dateKey),
-          subtitle: pluralize(leads.length, "retorno futuro", "retornos futuros"),
-          dayLabel: railDay(dateKey),
-          isoDate: dateKey,
-        })),
+      ...futureBase,
+      ...extraFuture,
     ];
   }, [board]);
 
@@ -431,40 +435,19 @@ export default function VendasClientPage() {
     return (board.blocks.scheduled || []).filter((lead) => buildLocalDateKey(lead.returnAt || lead.updatedAt) === selectedFilter.isoDate);
   }, [board, selectedFilter]);
 
-  const laneCounts = useMemo(
-    () =>
-      filteredLeads.reduce<Record<LeadStatus, number>>(
-        (accumulator, lead) => ({ ...accumulator, [lead.status]: accumulator[lead.status] + 1 }),
-        { novo: 0, contato: 0, retorno: 0, qualificado: 0, encerrado: 0 },
-      ),
-    [filteredLeads],
-  );
-
   useEffect(() => {
-    if (!filteredLeads.length) {
-      if (selectedLeadId && leadById.has(selectedLeadId)) return;
-      setSelectedLeadId(board?.blocks.closed?.[0]?.id || null);
-      return;
-    }
-    setSelectedLeadId((current) => (current && filteredLeads.some((lead) => lead.id === current) ? current : filteredLeads[0]?.id || current));
-  }, [board?.blocks.closed, filteredLeads, leadById, selectedLeadId]);
+    setSelectedLeadId((current) => {
+      if (current && filteredLeads.some((lead) => lead.id === current)) return current;
+      if (current && showClosed && (board?.blocks.closed || []).some((lead) => lead.id === current)) return current;
+      return filteredLeads[0]?.id || (showClosed ? board?.blocks.closed?.[0]?.id || null : null);
+    });
+  }, [board?.blocks.closed, filteredLeads, showClosed]);
 
   const selectedLeadRecord = selectedLeadId ? leadById.get(selectedLeadId) || null : null;
   const selectedLead = selectedLeadRecord?.lead || null;
   const selectedLeadBlock = selectedLeadRecord?.block || "today";
   const selectedLeadDraft = selectedLead ? drafts[selectedLead.id] || createDraft(selectedLead) : null;
   const closedLeads = board?.blocks.closed || [];
-  const totalActive = (board?.summary.today || 0) + (board?.summary.overdue || 0) + (board?.summary.scheduled || 0);
-
-  const overviewCards = useMemo(
-    () => [
-      { label: "Ativos no radar", value: totalActive, hint: "Agenda ativa somando hoje, atrasados e futuros.", tone: "active" },
-      { label: "Pressão imediata", value: board?.summary.overdue || 0, hint: "Ontem para trás entra em Atrasados.", tone: "critical" },
-      { label: "Hoje no centro", value: board?.summary.today || 0, hint: "Cards do dia ficam no fluxo principal.", tone: "today" },
-      { label: "Arquivo comercial", value: board?.summary.closed || 0, hint: "Encerrados guardados para reabertura.", tone: "archive" },
-    ],
-    [board?.summary.closed, board?.summary.overdue, board?.summary.today, totalActive],
-  );
 
   async function handleCreateManual(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -583,59 +566,6 @@ export default function VendasClientPage() {
     }, 80);
   }
 
-  async function moveLeadToStatus(leadId: string, nextStatus: LeadStatus, blockKey: LeadBlockKey) {
-    const current = leadById.get(leadId)?.lead;
-    if (!current) return;
-    const currentDraft = drafts[leadId] || createDraft(current);
-    if (currentDraft.status === nextStatus) {
-      setDragOverColumnId(null);
-      setDraggedLeadId(null);
-      return;
-    }
-    await saveLead(
-      leadId,
-      {
-        status: nextStatus,
-        nextAction: nextStatus === "encerrado" ? currentDraft.nextAction || "Lead encerrado" : currentDraft.nextAction,
-        returnAt: nextStatus === "encerrado" ? "" : currentDraft.returnAt || (blockKey === "today" ? plusDaysDatetimeLocal(0) : currentDraft.returnAt),
-      },
-      `Lead movido para ${statusLabel(nextStatus)}.`,
-    );
-    setDragOverColumnId(null);
-    setDraggedLeadId(null);
-  }
-
-  function handleCardDragStart(event: DragEvent<HTMLElement>, leadId: string) {
-    setDraggedLeadId(leadId);
-    event.dataTransfer.effectAllowed = "move";
-    event.dataTransfer.setData("text/plain", leadId);
-  }
-
-  function handleCardDragEnd() {
-    setDraggedLeadId(null);
-    setDragOverColumnId(null);
-  }
-
-  function handleColumnDragOver(event: DragEvent<HTMLElement>, columnId: string) {
-    event.preventDefault();
-    event.dataTransfer.dropEffect = "move";
-    if (dragOverColumnId !== columnId) setDragOverColumnId(columnId);
-  }
-
-  function handleColumnDragLeave(columnId: string) {
-    if (dragOverColumnId === columnId) setDragOverColumnId(null);
-  }
-
-  async function handleColumnDrop(event: DragEvent<HTMLElement>, blockKey: LeadBlockKey, nextStatus: LeadStatus) {
-    event.preventDefault();
-    const droppedLeadId = event.dataTransfer.getData("text/plain") || draggedLeadId;
-    if (!droppedLeadId) {
-      setDragOverColumnId(null);
-      return;
-    }
-    await moveLeadToStatus(droppedLeadId, nextStatus, blockKey);
-  }
-
   function renderLeadCard(lead: LeadItem, blockKey: LeadBlockKey) {
     const draft = drafts[lead.id] || createDraft(lead);
     const meta = returnMeta(lead, draft, blockKey);
@@ -653,36 +583,28 @@ export default function VendasClientPage() {
       lead.city || null,
     ].filter(Boolean);
     return (
-      <article
-        key={lead.id}
-        className={styles.leadCard}
-        data-selected={selectedLeadId === lead.id ? "true" : "false"}
-        data-tone={blockKey}
-        data-dragging={draggedLeadId === lead.id ? "true" : "false"}
-        draggable
-        onDragStart={(event) => handleCardDragStart(event, lead.id)}
-        onDragEnd={handleCardDragEnd}
-      >
+      <article key={lead.id} className={styles.leadCard} data-selected={selectedLeadId === lead.id ? "true" : "false"} data-tone={blockKey}>
         <div className={styles.leadAccent} />
         <button type="button" className={styles.leadMainButton} onClick={() => focusLead(lead.id)}>
           <div className={styles.leadCardTop}>
             <div className={styles.leadIdentity}>
               <span className={styles.leadEyebrow}>{sourceLabel(lead.primarySource || lead.sourceType)}</span>
               <strong className={styles.leadName}>{draft.name || lead.name || "Lead sem nome"}</strong>
-              <span className={styles.leadSubline}>{lead.segment || "Sem segmento"}{lead.city ? ` • ${lead.city}` : ""}</span>
+              <span className={styles.leadSubline}>
+                {lead.segment || "Sem segmento"}
+                {lead.city ? ` • ${lead.city}` : ""}
+              </span>
             </div>
-            <div className={styles.leadBadgeStack}>
-              <span className={styles.statusBadge} data-status={draft.status}>{statusLabel(draft.status)}</span>
-              <span className={styles.returnBadge} data-tone={meta.tone}>{meta.label}</span>
-            </div>
+            <span className={styles.statusBadge} data-status={draft.status}>{statusLabel(draft.status)}</span>
           </div>
+          <span className={styles.returnBadge} data-tone={meta.tone}>{meta.label}</span>
           <div className={styles.leadSummaryPanel}>
             <span className={styles.summaryLabel}>Próxima ação</span>
             <strong>{draft.nextAction || lead.nextAction || "Definir próxima ação"}</strong>
             <p>{draft.shortNote || lead.shortNote || "Sem observação curta registrada."}</p>
           </div>
           <div className={styles.leadChipRow}>
-            {chips.slice(0, 4).map((chip) => <span key={`${lead.id}-${chip}`} className={styles.memoryChip}>{chip}</span>)}
+            {chips.slice(0, 3).map((chip) => <span key={`${lead.id}-${chip}`} className={styles.memoryChip}>{chip}</span>)}
           </div>
         </button>
         <div className={styles.leadActionRow}>
@@ -700,10 +622,14 @@ export default function VendasClientPage() {
     if (!selectedLead || !selectedLeadDraft) {
       return (
         <aside className={styles.detailPanel} data-detail-panel="true">
+          <div className={styles.detailRail}>
+            <span>Fluxo UX: selecione um cliente</span>
+            <span className={styles.miniPill}>Operação</span>
+          </div>
           <div className={styles.detailEmpty}>
-            <span className={styles.panelEyebrow}>Painel do lead</span>
-            <strong>Escolha um card para abrir a operação fina.</strong>
-            <p>O detalhe lateral concentra edição, timeline e presença compartilhada sem perder o contexto do board.</p>
+            <span className={styles.panelEyebrow}>Cliente</span>
+            <strong>Escolha um card para abrir a lateral.</strong>
+            <p>O detalhe fica mais estreito e mostra só o que precisa ser operado agora.</p>
           </div>
         </aside>
       );
@@ -717,9 +643,14 @@ export default function VendasClientPage() {
 
     return (
       <aside className={styles.detailPanel} data-detail-panel="true">
+        <div className={styles.detailRail}>
+          <span>Fluxo UX: {selectedFilter?.title || "Hoje"} → cliente selecionado → operação detalhada</span>
+          <span className={styles.miniPill}>Etapa 3 de 3</span>
+        </div>
+
         <div className={styles.detailHero}>
           <div>
-            <span className={styles.panelEyebrow}>Lead selecionado</span>
+            <span className={styles.panelEyebrow}>Cliente selecionado</span>
             <h2 className={styles.detailTitle}>{selectedLeadDraft.name || selectedLead.name || "Lead sem nome"}</h2>
             <p className={styles.detailText}>
               {selectedLead.segment || "Sem segmento"}
@@ -733,163 +664,150 @@ export default function VendasClientPage() {
           </div>
         </div>
 
-        <div className={styles.detailMetrics}>
-          <article className={styles.detailMetric}><span>Bloco atual</span><strong>{BLOCK_LABELS[selectedLeadBlock]}</strong></article>
-          <article className={styles.detailMetric}><span>Tentativas</span><strong>{selectedLead.attemptCount || 0}</strong></article>
-          <article className={styles.detailMetric}><span>Último contato</span><strong>{formatShortDate(selectedLead.lastContactAt)}</strong></article>
-          <article className={styles.detailMetric}><span>Reaparições</span><strong>{selectedLead.timesSeen || 1}x</strong></article>
-        </div>
+        <div className={styles.detailLayout}>
+          <div className={styles.detailColumn}>
+            <section className={styles.detailSection}>
+              <div className={styles.sectionTopline}>
+                <div><span className={styles.panelEyebrow}>Resumo</span><strong>Leitura rápida</strong></div>
+                <span className={styles.miniPill}>{BLOCK_LABELS[selectedLeadBlock]}</span>
+              </div>
+              <div className={styles.detailMetrics}>
+                <article className={styles.detailMetric}><span>Tentativas</span><strong>{selectedLead.attemptCount || 0}</strong></article>
+                <article className={styles.detailMetric}><span>Reaparições</span><strong>{selectedLead.timesSeen || 1}x</strong></article>
+                <article className={styles.detailMetric}><span>Último contato</span><strong>{formatShortDate(selectedLead.lastContactAt)}</strong></article>
+                <article className={styles.detailMetric}><span>Atualizado</span><strong>{formatShortDate(selectedLead.updatedAt)}</strong></article>
+              </div>
+            </section>
 
-        <div className={styles.detailActions}>
-          <a className={styles.primaryAction} href={whatsappUrl || undefined} target={whatsappUrl ? "_blank" : undefined} rel={whatsappUrl ? "noreferrer" : undefined} aria-disabled={!whatsappUrl}>Abrir WhatsApp</a>
-          <a className={styles.secondaryAction} href={callUrl || undefined} aria-disabled={!callUrl}>Ligar agora</a>
-          {selectedLead.quickActions.includes("hoje") ? <button type="button" className={styles.secondaryAction} onClick={() => void runQuickAction(selectedLead, "hoje")} disabled={savingLeadId === selectedLead.id}>Jogar para hoje</button> : null}
-          {selectedLead.quickActions.includes("amanha") ? <button type="button" className={styles.secondaryAction} onClick={() => void runQuickAction(selectedLead, "amanha")} disabled={savingLeadId === selectedLead.id}>Amanhã cedo</button> : null}
-          {selectedLead.quickActions.includes("encerrar") ? <button type="button" className={styles.secondaryAction} onClick={() => void runQuickAction(selectedLead, "encerrar")} disabled={savingLeadId === selectedLead.id}>Encerrar</button> : null}
-          {selectedLead.quickActions.includes("reabrir") ? <button type="button" className={styles.secondaryAction} onClick={() => void runQuickAction(selectedLead, "reabrir")} disabled={savingLeadId === selectedLead.id}>Reabrir</button> : null}
-        </div>
+            <section className={styles.detailSection}>
+              <div className={styles.sectionTopline}>
+                <div><span className={styles.panelEyebrow}>Ações</span><strong>Operação do cliente</strong></div>
+              </div>
+              <div className={styles.detailActions}>
+                <a className={styles.primaryAction} href={whatsappUrl || undefined} target={whatsappUrl ? "_blank" : undefined} rel={whatsappUrl ? "noreferrer" : undefined} aria-disabled={!whatsappUrl}>WhatsApp</a>
+                <a className={styles.secondaryAction} href={callUrl || undefined} aria-disabled={!callUrl}>Ligar</a>
+                {selectedLead.quickActions.includes("hoje") ? <button type="button" className={styles.secondaryAction} onClick={() => void runQuickAction(selectedLead, "hoje")} disabled={savingLeadId === selectedLead.id}>Hoje</button> : null}
+                {selectedLead.quickActions.includes("amanha") ? <button type="button" className={styles.secondaryAction} onClick={() => void runQuickAction(selectedLead, "amanha")} disabled={savingLeadId === selectedLead.id}>Amanhã</button> : null}
+                {selectedLead.quickActions.includes("encerrar") ? <button type="button" className={styles.secondaryAction} onClick={() => void runQuickAction(selectedLead, "encerrar")} disabled={savingLeadId === selectedLead.id}>Encerrar</button> : null}
+                {selectedLead.quickActions.includes("reabrir") ? <button type="button" className={styles.secondaryAction} onClick={() => void runQuickAction(selectedLead, "reabrir")} disabled={savingLeadId === selectedLead.id}>Reabrir</button> : null}
+              </div>
+            </section>
 
-        <section className={styles.detailSection}>
-          <div className={styles.sectionTopline}>
-            <div><span className={styles.panelEyebrow}>Edição rápida</span><strong>Operar o card sem sair do board</strong></div>
-            <span className={styles.miniPill}>Atualizado {formatDateTime(selectedLead.updatedAt)}</span>
+            <section className={styles.detailSection}>
+              <div className={styles.sectionTopline}>
+                <div><span className={styles.panelEyebrow}>Operação</span><strong>Editar sem sair da tela</strong></div>
+              </div>
+              <div className={styles.fieldGrid}>
+                <label className={styles.field}><span className={styles.fieldLabel}>Nome</span><input className={styles.fieldInput} value={selectedLeadDraft.name} onChange={(event) => setLeadDraft(selectedLead.id, { name: event.target.value })} /></label>
+                <label className={styles.field}><span className={styles.fieldLabel}>Telefone</span><input className={styles.fieldInput} value={selectedLeadDraft.phone} onChange={(event) => setLeadDraft(selectedLead.id, { phone: event.target.value })} /></label>
+                <label className={styles.field}><span className={styles.fieldLabel}>E-mail</span><input className={styles.fieldInput} value={selectedLeadDraft.email} onChange={(event) => setLeadDraft(selectedLead.id, { email: event.target.value })} /></label>
+                <label className={styles.field}>
+                  <span className={styles.fieldLabel}>Status</span>
+                  <select className={styles.fieldInput} value={selectedLeadDraft.status} onChange={(event) => setLeadDraft(selectedLead.id, { status: event.target.value as LeadStatus })}>
+                    {STATUS_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                  </select>
+                </label>
+                <label className={styles.fieldWide}><span className={styles.fieldLabel}>Próxima ação</span><input className={styles.fieldInput} value={selectedLeadDraft.nextAction} onChange={(event) => setLeadDraft(selectedLead.id, { nextAction: event.target.value })} /></label>
+                <label className={styles.field}><span className={styles.fieldLabel}>Retorno</span><input className={styles.fieldInput} type="datetime-local" value={selectedLeadDraft.returnAt} onChange={(event) => setLeadDraft(selectedLead.id, { returnAt: event.target.value })} /></label>
+                <label className={styles.fieldWide}><span className={styles.fieldLabel}>Observação curta</span><textarea className={styles.fieldTextarea} rows={4} value={selectedLeadDraft.shortNote} onChange={(event) => setLeadDraft(selectedLead.id, { shortNote: event.target.value })} /></label>
+              </div>
+              <div className={styles.detailFooterActions}>
+                <button type="button" className={styles.primaryAction} onClick={() => void saveLead(selectedLead.id)} disabled={savingLeadId === selectedLead.id}>
+                  {savingLeadId === selectedLead.id ? "Salvando..." : "Salvar"}
+                </button>
+              </div>
+            </section>
+
+            {sharedProfile ? (
+              <section className={styles.detailSection}>
+                <div className={styles.sectionTopline}>
+                  <div><span className={styles.panelEyebrow}>Contexto</span><strong>Memória compartilhada</strong></div>
+                  <span className={styles.miniPill}>{contextLabel(sharedProfile.currentContext)}</span>
+                </div>
+                <div className={styles.sharedGrid}>
+                  <article className={styles.sharedCard}><span>Nome base</span><strong>{sharedProfile.displayName || selectedLeadDraft.name || selectedLead.name || "-"}</strong></article>
+                  <article className={styles.sharedCard}><span>Telefone</span><strong>{sharedProfile.phone || selectedLeadDraft.phone || selectedLead.phone || "-"}</strong></article>
+                  <article className={styles.sharedCard}><span>Origem</span><strong>{sharedProfile.origin || sourceLabel(selectedLead.primarySource || selectedLead.sourceType)}</strong></article>
+                  <article className={styles.sharedCard}><span>Último contato</span><strong>{formatDateTime(sharedLastContact)}</strong></article>
+                </div>
+                <div className={styles.sharedPresenceRow}>
+                  {sharedProfile.presence?.atendimento?.present ? <span className={styles.memoryChip}>Também em Atendimento</span> : null}
+                  {sharedProfile.presence?.recovery?.present ? <span className={styles.memoryChip}>Também em Recovery</span> : null}
+                  {sharedProfile.presence?.vendas?.present ? <span className={styles.memoryChip}>Presente em Vendas</span> : null}
+                </div>
+              </section>
+            ) : null}
           </div>
 
-          <div className={styles.fieldGrid}>
-            <label className={styles.field}><span className={styles.fieldLabel}>Nome</span><input className={styles.fieldInput} value={selectedLeadDraft.name} onChange={(event) => setLeadDraft(selectedLead.id, { name: event.target.value })} /></label>
-            <label className={styles.field}><span className={styles.fieldLabel}>Telefone</span><input className={styles.fieldInput} value={selectedLeadDraft.phone} onChange={(event) => setLeadDraft(selectedLead.id, { phone: event.target.value })} /></label>
-            <label className={styles.field}><span className={styles.fieldLabel}>E-mail</span><input className={styles.fieldInput} value={selectedLeadDraft.email} onChange={(event) => setLeadDraft(selectedLead.id, { email: event.target.value })} /></label>
-            <label className={styles.field}>
-              <span className={styles.fieldLabel}>Status</span>
-              <select className={styles.fieldInput} value={selectedLeadDraft.status} onChange={(event) => setLeadDraft(selectedLead.id, { status: event.target.value as LeadStatus })}>
-                {STATUS_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-              </select>
-            </label>
-            <label className={styles.fieldWide}><span className={styles.fieldLabel}>Próxima ação</span><input className={styles.fieldInput} value={selectedLeadDraft.nextAction} onChange={(event) => setLeadDraft(selectedLead.id, { nextAction: event.target.value })} /></label>
-            <label className={styles.field}><span className={styles.fieldLabel}>Retorno</span><input className={styles.fieldInput} type="datetime-local" value={selectedLeadDraft.returnAt} onChange={(event) => setLeadDraft(selectedLead.id, { returnAt: event.target.value })} /></label>
-            <label className={styles.fieldWide}><span className={styles.fieldLabel}>Observação curta</span><textarea className={styles.fieldTextarea} rows={4} value={selectedLeadDraft.shortNote} onChange={(event) => setLeadDraft(selectedLead.id, { shortNote: event.target.value })} /></label>
-          </div>
-
-          <div className={styles.detailFooterActions}>
-            <button type="button" className={styles.primaryAction} onClick={() => void saveLead(selectedLead.id)} disabled={savingLeadId === selectedLead.id}>
-              {savingLeadId === selectedLead.id ? "Salvando..." : "Salvar alterações"}
-            </button>
-          </div>
-        </section>
-
-        {sharedProfile ? (
-          <section className={styles.detailSection}>
+          <section className={styles.timelineSection}>
             <div className={styles.sectionTopline}>
-              <div><span className={styles.panelEyebrow}>Presença compartilhada</span><strong>Memória cruzada do cliente</strong></div>
-              <span className={styles.miniPill}>{contextLabel(sharedProfile.currentContext)}</span>
+              <div><span className={styles.panelEyebrow}>Timeline</span><strong>O que aconteceu aqui dentro</strong></div>
+              <span className={styles.miniPill}>{(selectedLead.timeline || []).length} evento(s)</span>
             </div>
-            <div className={styles.sharedGrid}>
-              <article className={styles.sharedCard}><span>Nome base</span><strong>{sharedProfile.displayName || selectedLeadDraft.name || selectedLead.name || "-"}</strong></article>
-              <article className={styles.sharedCard}><span>Telefone</span><strong>{sharedProfile.phone || selectedLeadDraft.phone || selectedLead.phone || "-"}</strong></article>
-              <article className={styles.sharedCard}><span>Origem</span><strong>{sharedProfile.origin || sourceLabel(selectedLead.primarySource || selectedLead.sourceType)}</strong></article>
-              <article className={styles.sharedCard}><span>Último contato geral</span><strong>{formatDateTime(sharedLastContact)}</strong></article>
-            </div>
-            <div className={styles.sharedPresenceRow}>
-              {sharedProfile.presence?.atendimento?.present ? <span className={styles.memoryChip}>Também em Atendimento</span> : null}
-              {sharedProfile.presence?.recovery?.present ? <span className={styles.memoryChip}>Também em Recovery</span> : null}
-              {sharedProfile.presence?.vendas?.present ? <span className={styles.memoryChip}>Presente em Vendas</span> : null}
-            </div>
+            {(selectedLead.timeline || []).length ? (
+              <div className={styles.timelineList}>
+                {(selectedLead.timeline || []).map((event) => (
+                  <article key={event.id} className={styles.timelineItem} data-tone={timelineTone(event.eventType)}>
+                    <div className={styles.timelineDot} />
+                    <div className={styles.timelineBody}>
+                      <div className={styles.timelineTopline}><strong>{event.title}</strong><span>{event.createdAt ? formatDateTime(event.createdAt) : "Agora"}</span></div>
+                      <p>{event.description || "Movimento comercial registrado."}</p>
+                      <span className={styles.timelineMeta}>{timelineMeta(event)}</span>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            ) : (
+              <div className={styles.emptyPanel}><strong>Nenhum evento registrado</strong><p>A timeline aparece conforme o lead é movimentado.</p></div>
+            )}
           </section>
-        ) : null}
-
-        <section className={styles.detailSection}>
-          <div className={styles.sectionTopline}>
-            <div><span className={styles.panelEyebrow}>Timeline comercial</span><strong>O que aconteceu com este lead</strong></div>
-            <span className={styles.miniPill}>{(selectedLead.timeline || []).length} evento(s)</span>
-          </div>
-          {(selectedLead.timeline || []).length ? (
-            <div className={styles.timelineList}>
-              {(selectedLead.timeline || []).map((event) => (
-                <article key={event.id} className={styles.timelineItem} data-tone={timelineTone(event.eventType)}>
-                  <div className={styles.timelineDot} />
-                  <div className={styles.timelineBody}>
-                    <div className={styles.timelineTopline}><strong>{event.title}</strong><span>{event.createdAt ? formatDateTime(event.createdAt) : "Agora"}</span></div>
-                    <p>{event.description || "Movimento comercial registrado."}</p>
-                    <span className={styles.timelineMeta}>{timelineMeta(event)}</span>
-                  </div>
-                </article>
-              ))}
-            </div>
-          ) : (
-            <div className={styles.emptyPanel}><strong>Nenhum evento registrado</strong><p>A timeline ganha contexto assim que o lead é movimentado no CRM.</p></div>
-          )}
-        </section>
+        </div>
       </aside>
     );
   }
 
   function renderPipelineBoard() {
     if (!selectedFilter) {
-      return <section className={styles.boardShell}><div className={styles.emptyBoard}><strong>Nenhuma janela de datas disponível</strong><p>Assim que houver leads com retorno ou agenda ativa, o fluxo aparece aqui.</p></div></section>;
+      return <section className={styles.boardShell}><div className={styles.emptyBoard}><strong>Nenhuma janela de datas disponível</strong><p>Assim que houver agenda, os cards aparecem aqui.</p></div></section>;
     }
-
-    const groupedByStatus = STATUS_COLUMNS.reduce<Record<LeadStatus, LeadItem[]>>(
-      (accumulator, column) => ({ ...accumulator, [column.value]: [] }),
-      { novo: [], contato: [], retorno: [], qualificado: [], encerrado: [] },
-    );
-    filteredLeads.forEach((lead) => groupedByStatus[lead.status].push(lead));
 
     return (
       <section className={styles.boardShell}>
-        <div className={styles.boardHeader}>
+        <div className={styles.cardsHeader}>
           <div>
-            <span className={styles.panelEyebrow}>Janela selecionada</span>
+            <span className={styles.panelEyebrow}>Clientes</span>
             <h2 className={styles.boardTitle}>{selectedFilter.title}</h2>
-            <p className={styles.boardText}>
-              {selectedFilter.subtitle} A régua operacional está assim: ontem para trás vira Atrasado, hoje fica no centro e amanhã em diante entra como Programado.
-            </p>
           </div>
-          <div className={styles.boardMetaStack}>
-            <span className={styles.miniPill}>{pluralize(filteredLeads.length, "card", "cards")}</span>
-            <span className={styles.miniPill}>{selectedFilter.blockKey === "scheduled" ? "Filtro futuro" : "Filtro ativo"}</span>
+          <div className={styles.toolbar}>
+            <button type="button" className={styles.secondaryAction} onClick={() => setComposerOpen(true)}>Novo lead</button>
+            <button type="button" className={styles.secondaryAction} onClick={() => setCommandOpen(true)}>Buscar</button>
+            <button type="button" className={styles.secondaryAction} onClick={() => setShowClosed((current) => !current)}>
+              {showClosed ? "Ocultar arquivo" : `Arquivo (${closedLeads.length})`}
+            </button>
           </div>
-        </div>
-
-        <div className={styles.columnMetrics}>
-          {STATUS_OPTIONS.map((status) => <article key={`metric-${status.value}`} className={styles.columnMetric}><span>{status.label}</span><strong>{laneCounts[status.value]}</strong></article>)}
         </div>
 
         {filteredLeads.length ? (
-          <div className={styles.pipelineGrid}>
-            {STATUS_COLUMNS.map((column) => {
-              const columnId = `${selectedFilter.blockKey}:${column.value}`;
-              const columnLeads = column.dropOnly ? [] : groupedByStatus[column.value];
-              return (
-                <section
-                  key={columnId}
-                  className={styles.pipelineColumn}
-                  data-status={column.value}
-                  data-drop-only={column.dropOnly ? "true" : "false"}
-                  data-dragover={dragOverColumnId === columnId ? "true" : "false"}
-                  onDragOver={(event) => handleColumnDragOver(event, columnId)}
-                  onDragLeave={() => handleColumnDragLeave(columnId)}
-                  onDrop={(event) => void handleColumnDrop(event, selectedFilter.blockKey, column.value)}
-                >
-                  <div className={styles.pipelineColumnHeader}>
-                    <div><strong>{column.label}</strong><p>{column.hint}</p></div>
-                    <span className={styles.columnBadge}>{columnLeads.length}</span>
-                  </div>
-                  {columnLeads.length ? (
-                    <div className={styles.pipelineColumnCards}>{columnLeads.map((lead) => renderLeadCard(lead, selectedFilter.blockKey))}</div>
-                  ) : (
-                    <div className={styles.dropHint}>
-                      <strong>{column.dropOnly ? "Solte aqui para arquivar" : "Coluna pronta"}</strong>
-                      <p>{column.dropOnly ? "O card sai da frente operacional, mas o histórico continua disponível." : "Arraste um card para reorganizar o status sem mexer no filtro de datas."}</p>
-                    </div>
-                  )}
-                </section>
-              );
-            })}
+          <div className={styles.cardsGrid}>
+            {filteredLeads.map((lead) => renderLeadCard(lead, selectedFilter.blockKey))}
           </div>
         ) : (
-          <div className={styles.emptyBoard}><strong>Sem cards nesta data</strong><p>Quando a agenda chegar nessa janela, os cards aparecem aqui já distribuídos.</p></div>
+          <div className={styles.emptyBoard}><strong>Sem cards nesta data</strong><p>Nenhum cliente caiu nessa janela ainda.</p></div>
         )}
       </section>
+    );
+  }
+
+  let headerActions: ReactNode = null;
+  if (error || feedback) {
+    const compactMessage =
+      error && error.toLowerCase().includes("deve ser um e-mail válido")
+        ? "E-mail inválido no cadastro manual."
+        : error || feedback;
+    headerActions = (
+      <div className={styles.headerNotice} data-tone={error ? "error" : "success"}>
+        {compactMessage}
+      </div>
     );
   }
 
@@ -904,32 +822,11 @@ export default function VendasClientPage() {
   if (!hasToken) return null;
 
   return (
-    <DashboardScaffold title="Vendas" description="Pipeline premium com agenda viva, leitura por datas e operação comercial sem atrito.">
+    <DashboardScaffold title="Vendas" actions={headerActions}>
       <div className={styles.page}>
-        <section className={styles.hero}>
-          <div className={styles.heroCopy}>
-            <span className={styles.heroEyebrow}>Modulo Vendas</span>
-            <h2 className={styles.heroTitle}>Agenda comercial premium guiada por data, prioridade e contexto real.</h2>
-            <p className={styles.heroText}>Tudo que ficou para ontem ou antes entra em Atrasados, o que vence hoje fica no centro da operação e o restante segue organizado no futuro sem poluir a tela.</p>
-            <div className={styles.heroActions}>
-              <button type="button" className={styles.primaryAction} onClick={() => setComposerOpen((current) => !current)}>{composerOpen ? "Fechar novo lead" : "Novo lead manual"}</button>
-              <button type="button" className={styles.secondaryAction} onClick={() => setCommandOpen(true)}>Buscar lead</button>
-              <button type="button" className={styles.secondaryAction} onClick={() => setShowClosed((current) => !current)}>{showClosed ? "Ocultar arquivo" : `Ver arquivo (${board?.summary.closed || 0})`}</button>
-            </div>
-          </div>
-          <div className={styles.heroMetrics}>
-            {overviewCards.map((card) => <article key={card.label} className={styles.heroMetricCard} data-tone={card.tone}><span>{card.label}</span><strong>{card.value}</strong><p>{card.hint}</p></article>)}
-          </div>
-        </section>
-
         <section className={styles.filterRail}>
           <div className={styles.filterRailHeader}>
-            <div><span className={styles.panelEyebrow}>Filtro por datas</span><strong>Escolha a janela e o board se reorganiza sozinho.</strong></div>
-            <div className={styles.filterRailLegend}>
-              <span className={styles.legendPill} data-tone="critical">Ontem ou antes = Atrasados</span>
-              <span className={styles.legendPill} data-tone="today">Hoje = foco principal</span>
-              <span className={styles.legendPill} data-tone="future">Amanhã em diante = Programados</span>
-            </div>
+            <div><span className={styles.panelEyebrow}>Filtro por datas</span><strong>Agenda comercial</strong></div>
           </div>
           <div className={styles.filterRailScroller}>
             {dateFilters.map((item) => (
@@ -943,9 +840,6 @@ export default function VendasClientPage() {
           </div>
         </section>
 
-        {error ? <section className={styles.statusCard} data-tone="error"><strong>Falha no CRM de Vendas</strong><p>{error}</p></section> : null}
-        {feedback ? <section className={styles.statusCard} data-tone="success"><strong>Tudo certo</strong><p>{feedback}</p></section> : null}
-
         {loading ? (
           <section className={styles.loadingCard}><div className={styles.skeletonBoard} /></section>
         ) : (
@@ -955,59 +849,36 @@ export default function VendasClientPage() {
           </div>
         )}
 
-        <div className={styles.supportGrid}>
-          <section className={styles.supportCard}>
-            <div className={styles.sectionTopline}>
-              <div><span className={styles.panelEyebrow}>Entrada manual</span><strong>Adicionar lead com pouca fricção</strong></div>
-              <button type="button" className={styles.secondaryAction} onClick={() => setComposerOpen((current) => !current)}>{composerOpen ? "Fechar" : "Abrir formulário"}</button>
-            </div>
-            <p className={styles.supportText}>O formulário foi mantido no backend existente, mas com uma experiência mais limpa para o time comercial entrar em operação rápido.</p>
-            {composerOpen ? (
-              <form className={styles.composerForm} onSubmit={handleCreateManual}>
-                <label className={styles.field}><span className={styles.fieldLabel}>Nome do lead</span><input className={styles.fieldInput} value={manualLead.name} onChange={(event) => setManualLead((prev) => ({ ...prev, name: event.target.value }))} placeholder="Ex: Clínica Horizonte" /></label>
-                <label className={styles.field}><span className={styles.fieldLabel}>Telefone</span><input className={styles.fieldInput} value={manualLead.phone} onChange={(event) => setManualLead((prev) => ({ ...prev, phone: event.target.value }))} placeholder="Ex: (11) 99999-0000" /></label>
-                <label className={styles.field}><span className={styles.fieldLabel}>E-mail</span><input className={styles.fieldInput} value={manualLead.email} onChange={(event) => setManualLead((prev) => ({ ...prev, email: event.target.value }))} placeholder="Opcional" /></label>
-                <label className={styles.fieldWide}><span className={styles.fieldLabel}>Próxima ação</span><input className={styles.fieldInput} value={manualLead.nextAction} onChange={(event) => setManualLead((prev) => ({ ...prev, nextAction: event.target.value }))} placeholder="Ex: Primeira ligação com roteiro curto" /></label>
-                <label className={styles.field}><span className={styles.fieldLabel}>Retorno</span><input className={styles.fieldInput} type="datetime-local" value={manualLead.returnAt} onChange={(event) => setManualLead((prev) => ({ ...prev, returnAt: event.target.value }))} /></label>
-                <label className={styles.fieldWide}><span className={styles.fieldLabel}>Observação curta</span><textarea className={styles.fieldTextarea} rows={4} value={manualLead.shortNote} onChange={(event) => setManualLead((prev) => ({ ...prev, shortNote: event.target.value }))} placeholder="Contexto rápido: origem, dor percebida ou próximo movimento." /></label>
-                <div className={styles.formFooter}><button type="submit" className={styles.primaryAction} disabled={creatingManual}>{creatingManual ? "Criando..." : "Criar lead manual"}</button></div>
-              </form>
-            ) : <div className={styles.collapsedComposer}><strong>Pronto para usar</strong><p>Abra o formulário quando precisar inserir um lead novo já com retorno e próxima ação.</p></div>}
-          </section>
-
-          <section className={styles.supportCard}>
-            <div className={styles.sectionTopline}>
-              <div><span className={styles.panelEyebrow}>Radar operacional</span><strong>Últimos movimentos da operação</strong></div>
-              <span className={styles.miniPill}>{timelineFeed.length} evento(s)</span>
-            </div>
-            {timelineFeed.length ? (
-              <div className={styles.feedList}>
-                {timelineFeed.map(({ event, lead, block }) => (
-                  <article key={`feed-${event.id}`} className={styles.feedItem}>
-                    <div className={styles.feedDot} data-tone={timelineTone(event.eventType)} />
-                    <div className={styles.feedBody}>
-                      <div className={styles.feedTopline}><strong>{lead.name || "Lead sem nome"}</strong><span>{formatDateTime(event.createdAt)}</span></div>
-                      <p>{event.title}</p>
-                      <small>{BLOCK_LABELS[block]} • {event.description || "Movimento comercial registrado."}</small>
-                      <button type="button" className={styles.commandLink} onClick={() => focusLead(lead.id)}>Abrir no painel</button>
-                    </div>
-                  </article>
-                ))}
-              </div>
-            ) : <div className={styles.emptyPanel}><strong>Nenhum evento ainda</strong><p>Assim que os cards forem trabalhados, a leitura cronológica aparece aqui.</p></div>}
-          </section>
-        </div>
-
         {showClosed ? (
           <section className={styles.archiveSection}>
             <div className={styles.sectionTopline}>
-              <div><span className={styles.panelEyebrow}>Arquivo comercial</span><strong>Encerrados preservados fora do foco do dia</strong></div>
+              <div><span className={styles.panelEyebrow}>Arquivo</span><strong>Encerrados</strong></div>
               <button type="button" className={styles.secondaryAction} onClick={() => setShowClosed(false)}>Ocultar arquivo</button>
             </div>
-            {closedLeads.length ? <div className={styles.archiveGrid}>{closedLeads.map((lead) => renderLeadCard(lead, "closed"))}</div> : <div className={styles.emptyPanel}><strong>Nenhum encerrado ainda</strong><p>Quando houver cards encerrados, eles ficam guardados aqui para consulta e reabertura.</p></div>}
+            {closedLeads.length ? <div className={styles.cardsGrid}>{closedLeads.map((lead) => renderLeadCard(lead, "closed"))}</div> : <div className={styles.emptyPanel}><strong>Nenhum encerrado ainda</strong><p>Os cards arquivados aparecem aqui.</p></div>}
           </section>
         ) : null}
       </div>
+
+      {composerOpen ? (
+        <div className="ui-popup-backdrop" onClick={() => setComposerOpen(false)}>
+          <div className={styles.modalCard} onClick={(event) => event.stopPropagation()}>
+            <div className={styles.sectionTopline}>
+              <div><span className={styles.panelEyebrow}>Novo lead manual</span><strong>Cadastro rápido</strong></div>
+              <button type="button" className={styles.secondaryAction} onClick={() => setComposerOpen(false)}>Fechar</button>
+            </div>
+            <form className={styles.composerForm} onSubmit={handleCreateManual}>
+              <label className={styles.field}><span className={styles.fieldLabel}>Nome</span><input className={styles.fieldInput} value={manualLead.name} onChange={(event) => setManualLead((prev) => ({ ...prev, name: event.target.value }))} placeholder="Ex: Clínica Horizonte" /></label>
+              <label className={styles.field}><span className={styles.fieldLabel}>Telefone</span><input className={styles.fieldInput} value={manualLead.phone} onChange={(event) => setManualLead((prev) => ({ ...prev, phone: event.target.value }))} placeholder="Ex: (11) 99999-0000" /></label>
+              <label className={styles.field}><span className={styles.fieldLabel}>E-mail</span><input className={styles.fieldInput} value={manualLead.email} onChange={(event) => setManualLead((prev) => ({ ...prev, email: event.target.value }))} placeholder="Opcional" /></label>
+              <label className={styles.field}><span className={styles.fieldLabel}>Retorno</span><input className={styles.fieldInput} type="datetime-local" value={manualLead.returnAt} onChange={(event) => setManualLead((prev) => ({ ...prev, returnAt: event.target.value }))} /></label>
+              <label className={styles.fieldWide}><span className={styles.fieldLabel}>Próxima ação</span><input className={styles.fieldInput} value={manualLead.nextAction} onChange={(event) => setManualLead((prev) => ({ ...prev, nextAction: event.target.value }))} placeholder="Ex: Primeiro contato" /></label>
+              <label className={styles.fieldWide}><span className={styles.fieldLabel}>Observação</span><textarea className={styles.fieldTextarea} rows={4} value={manualLead.shortNote} onChange={(event) => setManualLead((prev) => ({ ...prev, shortNote: event.target.value }))} placeholder="Contexto rápido do lead." /></label>
+              <div className={styles.formFooter}><button type="submit" className={styles.primaryAction} disabled={creatingManual}>{creatingManual ? "Criando..." : "Criar lead"}</button></div>
+            </form>
+          </div>
+        </div>
+      ) : null}
 
       {commandOpen ? (
         <div className="ui-popup-backdrop" onClick={() => setCommandOpen(false)}>

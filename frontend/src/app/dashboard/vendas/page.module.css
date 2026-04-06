@@ -1,404 +1,86 @@
 .page {
-  --sales-shell-bg:
-    radial-gradient(circle at 0% 0%, color-mix(in srgb, var(--brand) 10%, transparent), transparent 30%),
-    radial-gradient(circle at 100% 0%, color-mix(in srgb, var(--info) 10%, transparent), transparent 24%),
-    linear-gradient(180deg, color-mix(in srgb, var(--surface) 98%, white), color-mix(in srgb, var(--surface-soft) 94%, var(--background)));
-  --sales-card-bg:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(248, 251, 255, 0.92)),
-    var(--surface);
-  --sales-card-border: color-mix(in srgb, var(--line) 78%, white);
-  --sales-card-shadow: 0 26px 64px -38px rgba(15, 23, 42, 0.32);
-  --sales-glow: color-mix(in srgb, var(--brand) 16%, transparent);
   display: grid;
   gap: 1rem;
+  --card-border: color-mix(in srgb, var(--line) 84%, white);
+  --card-bg:
+    radial-gradient(circle at top right, color-mix(in srgb, var(--brand) 8%, transparent), transparent 34%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(247, 249, 253, 0.94));
+  --card-shadow: 0 28px 54px -38px rgba(15, 23, 42, 0.32);
 }
 
-.hero,
 .filterRail,
 .boardShell,
 .detailPanel,
-.supportCard,
 .archiveSection,
-.statusCard,
 .loadingCard,
-.commandPalette {
+.commandPalette,
+.modalCard {
   position: relative;
   overflow: hidden;
-  border-radius: 30px;
-  border: 1px solid var(--sales-card-border);
-  background: var(--sales-shell-bg);
-  box-shadow: var(--shadow-inset), var(--sales-card-shadow);
+  border-radius: 28px;
+  border: 1px solid var(--card-border);
+  background: var(--card-bg);
+  box-shadow: var(--shadow-inset), var(--card-shadow);
 }
 
-.hero::before,
-.filterRail::before,
-.boardShell::before,
-.detailPanel::before,
-.supportCard::before,
-.archiveSection::before,
-.commandPalette::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  background:
-    linear-gradient(rgba(15, 23, 42, 0.03) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(15, 23, 42, 0.025) 1px, transparent 1px);
-  background-size: 34px 34px;
-  mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.22), transparent 88%);
-}
-
-.hero,
 .filterRail,
 .boardShell,
 .detailPanel,
-.supportCard,
 .archiveSection,
-.statusCard,
-.loadingCard {
-  padding: 1.2rem;
+.loadingCard,
+.commandPalette,
+.modalCard {
+  padding: 1rem;
 }
 
-.hero {
-  display: grid;
-  grid-template-columns: minmax(0, 1.22fr) minmax(360px, 0.78fr);
-  gap: 1rem;
-}
-
-.heroCopy,
-.heroMetrics,
-.filterRailHeader,
-.boardHeader,
-.detailHero,
-.detailMetrics,
-.detailActions,
-.detailSection,
-.supportCard,
-.archiveSection,
-.commandPalette {
-  position: relative;
-  z-index: 1;
-}
-
-.heroCopy {
-  display: grid;
-  gap: 0.9rem;
-  align-content: start;
-}
-
-.heroEyebrow,
 .panelEyebrow,
 .fieldLabel,
 .leadEyebrow,
 .summaryLabel {
   display: block;
-  font-size: 0.72rem;
+  font-size: 0.69rem;
   font-weight: 800;
   letter-spacing: var(--eyebrow-spacing);
   text-transform: uppercase;
   color: var(--muted);
 }
 
-.heroTitle {
-  margin: 0;
-  max-width: 13ch;
-  color: var(--foreground);
-  font-size: clamp(2rem, 3vw, 3.25rem);
-  line-height: 0.96;
-}
-
-.heroText,
-.boardText,
-.detailText,
-.supportText,
-.emptyPanel p,
-.detailEmpty p,
-.dropHint p,
-.emptyBoard p,
-.collapsedComposer p,
-.timelineBody p,
-.feedBody small {
-  margin: 0;
-  color: color-mix(in srgb, var(--foreground-soft) 78%, var(--muted));
-  line-height: 1.6;
-}
-
-.heroActions,
-.filterRailLegend,
-.boardMetaStack,
-.detailActions,
-.detailFooterActions,
-.leadActionRow,
-.sharedPresenceRow,
-.commandActionRow {
-  display: flex;
-  gap: 0.65rem;
-  flex-wrap: wrap;
-}
-
-.primaryAction,
-.secondaryAction,
-.ghostAction,
-.commandLink {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 42px;
-  padding: 0.72rem 1rem;
-  border-radius: 16px;
-  border: 1px solid color-mix(in srgb, var(--line) 72%, white);
-  text-decoration: none;
-  font-weight: 700;
-  cursor: pointer;
-  transition:
-    transform var(--motion-fast),
-    border-color var(--motion-fast),
-    background var(--motion-fast),
-    box-shadow var(--motion-fast),
-    opacity var(--motion-fast);
-}
-
-.primaryAction {
-  background: linear-gradient(135deg, color-mix(in srgb, var(--brand) 90%, white), color-mix(in srgb, var(--info) 74%, var(--brand)));
-  color: var(--brand-contrast);
-  border-color: color-mix(in srgb, var(--brand) 42%, white);
-  box-shadow: 0 22px 36px -24px color-mix(in srgb, var(--brand) 28%, transparent);
-}
-
-.secondaryAction,
-.ghostAction,
-.commandLink {
-  background: rgba(255, 255, 255, 0.78);
-  color: var(--foreground-soft);
-}
-
-.primaryAction:hover,
-.secondaryAction:hover,
-.ghostAction:hover,
-.commandLink:hover,
-.dateFilterCard:hover,
-.commandMain:hover {
-  transform: translateY(-1px);
-}
-
-.primaryAction[aria-disabled="true"],
-.secondaryAction[aria-disabled="true"],
-.secondaryAction:disabled,
-.ghostAction:disabled {
-  pointer-events: none;
-  opacity: 0.45;
-}
-
-.heroMetrics {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.8rem;
-}
-
-.heroMetricCard,
-.columnMetric,
-.detailMetric,
-.sharedCard {
-  padding: 0.95rem 1rem;
-  border-radius: 22px;
-  border: 1px solid color-mix(in srgb, var(--line) 76%, white);
-  background:
-    radial-gradient(circle at top right, color-mix(in srgb, var(--brand) 9%, transparent), transparent 54%),
-    var(--sales-card-bg);
-  box-shadow: var(--shadow-inset), 0 18px 40px -30px rgba(15, 23, 42, 0.22);
-}
-
-.heroMetricCard span,
-.columnMetric span,
-.detailMetric span,
-.sharedCard span {
-  display: block;
-  font-size: 0.72rem;
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-  color: var(--muted);
-}
-
-.heroMetricCard strong,
-.columnMetric strong,
-.detailMetric strong,
-.sharedCard strong {
-  display: block;
-  margin-top: 0.45rem;
-  color: var(--foreground);
-  font-size: 1.05rem;
-}
-
-.heroMetricCard p {
-  margin: 0.45rem 0 0;
-  color: color-mix(in srgb, var(--foreground-soft) 76%, var(--muted));
-}
-
-.heroMetricCard[data-tone="critical"] {
-  border-color: color-mix(in srgb, var(--danger) 26%, var(--line));
-  background:
-    radial-gradient(circle at top right, color-mix(in srgb, var(--danger) 12%, transparent), transparent 52%),
-    var(--sales-card-bg);
-}
-
-.heroMetricCard[data-tone="today"] {
-  border-color: color-mix(in srgb, var(--success) 22%, var(--line));
-  background:
-    radial-gradient(circle at top right, color-mix(in srgb, var(--success) 12%, transparent), transparent 52%),
-    var(--sales-card-bg);
-}
-
-.heroMetricCard[data-tone="archive"] {
-  border-color: color-mix(in srgb, var(--warning) 24%, var(--line));
-  background:
-    radial-gradient(circle at top right, color-mix(in srgb, var(--warning) 12%, transparent), transparent 52%),
-    var(--sales-card-bg);
-}
-
-.filterRail {
-  display: grid;
-  gap: 0.9rem;
-}
-
-.filterRailHeader,
-.sectionTopline,
-.timelineTopline,
-.feedTopline,
-.pipelineColumnHeader {
-  display: flex;
-  gap: 0.8rem;
-  justify-content: space-between;
-  align-items: start;
-  flex-wrap: wrap;
-}
-
-.filterRailHeader strong,
-.boardTitle,
-.detailTitle,
-.sectionTopline strong {
-  color: var(--foreground);
-}
-
-.filterRailScroller {
-  display: flex;
-  gap: 0.8rem;
-  overflow-x: auto;
-  padding-bottom: 0.1rem;
-}
-
-.dateFilterCard {
-  min-width: 170px;
-  display: grid;
-  gap: 0.35rem;
-  padding: 1rem;
-  border-radius: 22px;
-  border: 1px solid color-mix(in srgb, var(--line) 76%, white);
-  background:
-    radial-gradient(circle at top right, color-mix(in srgb, var(--brand) 7%, transparent), transparent 54%),
-    var(--sales-card-bg);
-  color: var(--foreground);
-  text-align: left;
-  cursor: pointer;
-  transition:
-    transform var(--motion-fast),
-    border-color var(--motion-fast),
-    box-shadow var(--motion-fast),
-    background var(--motion-fast);
-}
-
-.dateFilterCard b {
-  font-size: 1.55rem;
-  line-height: 1;
-  color: var(--foreground);
-}
-
-.dateFilterCard span {
-  color: color-mix(in srgb, var(--foreground-soft) 76%, var(--muted));
-}
-
-.dateFilterCard strong {
-  font-size: 1.04rem;
-}
-
-.dateFilterDay {
-  font-size: 0.7rem;
-  text-transform: uppercase;
-  letter-spacing: 0.16em;
-  color: color-mix(in srgb, var(--brand) 76%, var(--muted));
-}
-
-.dateFilterCard[data-active="true"] {
-  border-color: color-mix(in srgb, var(--brand) 28%, var(--line));
-  background:
-    radial-gradient(circle at top right, color-mix(in srgb, var(--brand) 13%, transparent), transparent 52%),
-    linear-gradient(180deg, color-mix(in srgb, var(--surface) 99%, white), color-mix(in srgb, var(--brand-soft) 56%, var(--surface-soft)));
-  box-shadow: 0 24px 40px -34px color-mix(in srgb, var(--brand) 22%, transparent);
-}
-
-.dateFilterCard[data-tone="overdue"] {
-  border-color: color-mix(in srgb, var(--danger) 22%, var(--line));
-}
-
-.dateFilterCard[data-tone="today"] {
-  border-color: color-mix(in srgb, var(--success) 18%, var(--line));
-}
-
-.dateFilterCard[data-tone="scheduled"] {
-  border-color: color-mix(in srgb, var(--info) 18%, var(--line));
-}
-
-.legendPill,
+.headerNotice,
 .miniPill,
 .memoryChip,
 .statusBadge,
-.returnBadge,
-.columnBadge {
+.returnBadge {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-height: 32px;
-  padding: 0.42rem 0.75rem;
+  min-height: 30px;
+  padding: 0.36rem 0.72rem;
   border-radius: 999px;
   border: 1px solid color-mix(in srgb, var(--line) 78%, white);
-  background: rgba(255, 255, 255, 0.76);
+  background: rgba(255, 255, 255, 0.84);
   color: var(--foreground-soft);
-  font-size: 0.74rem;
+  font-size: 0.73rem;
   font-weight: 800;
 }
 
-.legendPill[data-tone="critical"],
-.returnBadge[data-tone="overdue"] {
+.headerNotice[data-tone="error"] {
   border-color: color-mix(in srgb, var(--danger) 28%, white);
-  background: color-mix(in srgb, #fff0f0 84%, white);
+  background: color-mix(in srgb, #fff3f3 88%, white);
   color: color-mix(in srgb, var(--danger) 88%, var(--foreground));
 }
 
-.legendPill[data-tone="today"],
-.returnBadge[data-tone="today"] {
+.headerNotice[data-tone="success"] {
   border-color: color-mix(in srgb, var(--success) 24%, white);
-  background: color-mix(in srgb, #f0fff7 84%, white);
-  color: color-mix(in srgb, var(--success) 84%, var(--foreground));
-}
-
-.legendPill[data-tone="future"],
-.returnBadge[data-tone="scheduled"] {
-  border-color: color-mix(in srgb, var(--info) 24%, white);
-  background: color-mix(in srgb, #eef5ff 84%, white);
-  color: color-mix(in srgb, var(--info) 84%, var(--foreground));
-}
-
-.returnBadge[data-tone="closed"] {
-  border-color: color-mix(in srgb, var(--warning) 28%, white);
-  background: color-mix(in srgb, #fff7eb 86%, white);
-  color: color-mix(in srgb, var(--warning) 86%, var(--foreground));
+  background: color-mix(in srgb, #f2fff7 88%, white);
+  color: color-mix(in srgb, var(--success) 88%, var(--foreground));
 }
 
 .statusBadge[data-status="novo"] {
-  color: color-mix(in srgb, var(--success) 86%, var(--foreground));
+  color: color-mix(in srgb, var(--success) 88%, var(--foreground));
 }
 
 .statusBadge[data-status="contato"] {
-  color: color-mix(in srgb, var(--info) 84%, var(--foreground));
+  color: color-mix(in srgb, var(--info) 88%, var(--foreground));
 }
 
 .statusBadge[data-status="retorno"] {
@@ -413,37 +95,178 @@
   color: color-mix(in srgb, var(--muted) 96%, var(--foreground));
 }
 
-.statusCard {
-  display: grid;
-  gap: 0.3rem;
+.returnBadge[data-tone="overdue"] {
+  border-color: color-mix(in srgb, var(--danger) 30%, white);
+  background: color-mix(in srgb, #fff0f0 90%, white);
+  color: color-mix(in srgb, var(--danger) 88%, var(--foreground));
 }
 
-.statusCard strong {
+.returnBadge[data-tone="today"] {
+  border-color: color-mix(in srgb, var(--success) 24%, white);
+  background: color-mix(in srgb, #effff6 88%, white);
+  color: color-mix(in srgb, var(--success) 88%, var(--foreground));
+}
+
+.returnBadge[data-tone="scheduled"] {
+  border-color: color-mix(in srgb, var(--info) 24%, white);
+  background: color-mix(in srgb, #eef6ff 90%, white);
+  color: color-mix(in srgb, var(--info) 88%, var(--foreground));
+}
+
+.returnBadge[data-tone="closed"] {
+  border-color: color-mix(in srgb, var(--warning) 24%, white);
+  background: color-mix(in srgb, #fff6ea 90%, white);
+  color: color-mix(in srgb, var(--warning) 88%, var(--foreground));
+}
+
+.primaryAction,
+.secondaryAction,
+.ghostAction {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 42px;
+  padding: 0.72rem 0.98rem;
+  border-radius: 16px;
+  border: 1px solid color-mix(in srgb, var(--line) 80%, white);
+  text-decoration: none;
+  font-weight: 700;
+  cursor: pointer;
+  transition:
+    transform var(--motion-fast),
+    border-color var(--motion-fast),
+    background var(--motion-fast),
+    box-shadow var(--motion-fast),
+    opacity var(--motion-fast);
+}
+
+.primaryAction {
+  background: linear-gradient(135deg, color-mix(in srgb, var(--brand) 92%, white), color-mix(in srgb, var(--info) 76%, var(--brand)));
+  color: var(--brand-contrast);
+  border-color: color-mix(in srgb, var(--brand) 36%, white);
+  box-shadow: 0 20px 34px -24px color-mix(in srgb, var(--brand) 24%, transparent);
+}
+
+.secondaryAction,
+.ghostAction {
+  background: rgba(255, 255, 255, 0.86);
+  color: var(--foreground-soft);
+}
+
+.primaryAction:hover,
+.secondaryAction:hover,
+.ghostAction:hover,
+.dateFilterCard:hover,
+.leadCard:hover {
+  transform: translateY(-1px);
+}
+
+.primaryAction[aria-disabled="true"],
+.secondaryAction[aria-disabled="true"],
+.secondaryAction:disabled,
+.ghostAction:disabled {
+  pointer-events: none;
+  opacity: 0.5;
+}
+
+.filterRail {
+  display: grid;
+  gap: 0.9rem;
+}
+
+.filterRailHeader,
+.cardsHeader,
+.sectionTopline,
+.timelineTopline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.filterRailHeader strong,
+.boardTitle,
+.detailTitle,
+.sectionTopline strong,
+.leadName,
+.leadSummaryPanel strong,
+.timelineBody strong,
+.emptyPanel strong,
+.detailEmpty strong,
+.emptyBoard strong,
+.commandMain strong {
   color: var(--foreground);
 }
 
-.statusCard p {
-  margin: 0;
+.filterRailScroller {
+  display: flex;
+  gap: 0.75rem;
+  overflow-x: auto;
+  padding-bottom: 0.1rem;
+}
+
+.dateFilterCard {
+  min-width: 132px;
+  display: grid;
+  gap: 0.22rem;
+  padding: 0.9rem;
+  border-radius: 22px;
+  border: 1px solid color-mix(in srgb, var(--line) 82%, white);
+  background: rgba(255, 255, 255, 0.8);
+  text-align: left;
+  cursor: pointer;
+  transition:
+    transform var(--motion-fast),
+    border-color var(--motion-fast),
+    box-shadow var(--motion-fast),
+    background var(--motion-fast);
+}
+
+.dateFilterCard strong {
+  font-size: 1rem;
+}
+
+.dateFilterCard span {
   color: color-mix(in srgb, var(--foreground-soft) 72%, var(--muted));
 }
 
-.statusCard[data-tone="error"] {
-  border-color: color-mix(in srgb, var(--danger) 26%, var(--line));
-  background:
-    radial-gradient(circle at top right, color-mix(in srgb, var(--danger) 10%, transparent), transparent 34%),
-    linear-gradient(180deg, color-mix(in srgb, #fff8f8 98%, white), color-mix(in srgb, var(--surface-soft) 94%, var(--background)));
+.dateFilterCard b {
+  font-size: 1.22rem;
+  line-height: 1;
+  color: var(--foreground);
 }
 
-.statusCard[data-tone="success"] {
-  border-color: color-mix(in srgb, var(--success) 24%, var(--line));
+.dateFilterDay {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  color: color-mix(in srgb, var(--brand) 80%, var(--muted));
+}
+
+.dateFilterCard[data-active="true"] {
+  border-color: color-mix(in srgb, var(--brand) 32%, var(--line));
   background:
-    radial-gradient(circle at top right, color-mix(in srgb, var(--success) 10%, transparent), transparent 34%),
-    linear-gradient(180deg, color-mix(in srgb, #f6fff9 98%, white), color-mix(in srgb, var(--surface-soft) 94%, var(--background)));
+    radial-gradient(circle at top right, color-mix(in srgb, var(--brand) 12%, transparent), transparent 34%),
+    linear-gradient(180deg, color-mix(in srgb, var(--surface) 98%, white), color-mix(in srgb, var(--brand-soft) 64%, var(--surface-soft)));
+  box-shadow: 0 22px 36px -28px color-mix(in srgb, var(--brand) 20%, transparent);
+}
+
+.dateFilterCard[data-tone="overdue"] {
+  border-color: color-mix(in srgb, var(--danger) 24%, var(--line));
+}
+
+.dateFilterCard[data-tone="today"] {
+  border-color: color-mix(in srgb, var(--success) 18%, var(--line));
+}
+
+.dateFilterCard[data-tone="scheduled"] {
+  border-color: color-mix(in srgb, var(--info) 18%, var(--line));
 }
 
 .stageGrid {
   display: grid;
-  grid-template-columns: minmax(0, 1.2fr) minmax(360px, 0.8fr);
+  grid-template-columns: minmax(0, 1.08fr) minmax(360px, 0.72fr);
   gap: 1rem;
   align-items: start;
 }
@@ -455,125 +278,49 @@
 
 .boardShell,
 .detailPanel,
-.supportCard,
 .archiveSection {
   display: grid;
   gap: 1rem;
 }
 
 .boardTitle {
-  margin: 0.18rem 0 0;
+  margin: 0.16rem 0 0;
   font-size: 1.55rem;
 }
 
-.columnMetrics {
-  display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 0.75rem;
+.toolbar,
+.detailActions,
+.leadActionRow,
+.sharedPresenceRow,
+.commandActionRow {
+  display: flex;
+  gap: 0.6rem;
+  flex-wrap: wrap;
 }
 
-.pipelineGrid {
+.cardsGrid {
   display: grid;
-  grid-template-columns: repeat(5, minmax(240px, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.9rem;
-  overflow-x: auto;
-}
-
-.pipelineColumn {
-  display: grid;
-  gap: 0.8rem;
-  align-content: start;
-  min-height: 380px;
-  padding: 0.95rem;
-  border-radius: 24px;
-  border: 1px solid color-mix(in srgb, var(--line) 76%, white);
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.84), rgba(246, 249, 253, 0.92)),
-    var(--surface);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72);
-}
-
-.pipelineColumn[data-status="novo"] {
-  border-color: color-mix(in srgb, var(--success) 20%, var(--line));
-}
-
-.pipelineColumn[data-status="contato"] {
-  border-color: color-mix(in srgb, var(--info) 20%, var(--line));
-}
-
-.pipelineColumn[data-status="retorno"] {
-  border-color: color-mix(in srgb, #7c3aed 20%, var(--line));
-}
-
-.pipelineColumn[data-status="qualificado"] {
-  border-color: color-mix(in srgb, var(--warning) 22%, var(--line));
-}
-
-.pipelineColumn[data-status="encerrado"] {
-  border-style: dashed;
-  border-color: color-mix(in srgb, var(--warning) 24%, var(--line));
-}
-
-.pipelineColumn[data-dragover="true"] {
-  border-color: color-mix(in srgb, var(--brand) 32%, var(--line));
-  box-shadow: 0 20px 34px -30px color-mix(in srgb, var(--brand) 18%, transparent);
-}
-
-.pipelineColumnHeader strong,
-.detailTitle,
-.leadName,
-.leadSummaryPanel strong,
-.timelineBody strong,
-.feedBody strong,
-.commandMain strong,
-.emptyPanel strong,
-.detailEmpty strong,
-.dropHint strong,
-.emptyBoard strong,
-.collapsedComposer strong {
-  color: var(--foreground);
-}
-
-.pipelineColumnHeader p,
-.timelineBody span,
-.timelineMeta,
-.feedBody span,
-.commandMain span {
-  margin: 0.2rem 0 0;
-  color: color-mix(in srgb, var(--foreground-soft) 70%, var(--muted));
-  line-height: 1.45;
-}
-
-.pipelineColumnCards,
-.archiveGrid,
-.timelineList,
-.feedList,
-.commandList {
-  display: grid;
-  gap: 0.8rem;
 }
 
 .leadCard {
   position: relative;
   display: grid;
-  gap: 0.75rem;
-  padding: 1rem;
-  border-radius: 22px;
-  border: 1px solid color-mix(in srgb, var(--line) 76%, white);
+  gap: 0.8rem;
+  min-height: 0;
+  padding: 0.92rem 0.92rem 0.96rem 1rem;
+  border-radius: 24px;
+  border: 1px solid color-mix(in srgb, var(--line) 82%, white);
   background:
-    radial-gradient(circle at top right, color-mix(in srgb, var(--brand) 7%, transparent), transparent 58%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(248, 251, 255, 0.94));
-  box-shadow: 0 20px 40px -34px rgba(15, 23, 42, 0.22);
+    radial-gradient(circle at top right, color-mix(in srgb, var(--brand) 7%, transparent), transparent 38%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.97), rgba(248, 251, 255, 0.95));
+  box-shadow: 0 24px 44px -36px rgba(15, 23, 42, 0.26);
 }
 
 .leadCard[data-selected="true"] {
-  border-color: color-mix(in srgb, var(--brand) 28%, var(--line));
-  box-shadow: 0 24px 44px -34px color-mix(in srgb, var(--brand) 22%, transparent);
-}
-
-.leadCard[data-dragging="true"] {
-  opacity: 0.68;
-  transform: rotate(1deg);
+  border-color: color-mix(in srgb, var(--brand) 32%, var(--line));
+  box-shadow: 0 30px 50px -34px color-mix(in srgb, var(--brand) 24%, transparent);
 }
 
 .leadAccent {
@@ -585,7 +332,7 @@
 }
 
 .leadCard[data-tone="overdue"] .leadAccent {
-  background: linear-gradient(180deg, color-mix(in srgb, var(--danger) 72%, white), color-mix(in srgb, var(--warning) 72%, var(--danger)));
+  background: linear-gradient(180deg, color-mix(in srgb, var(--danger) 72%, white), color-mix(in srgb, var(--warning) 74%, var(--danger)));
 }
 
 .leadCard[data-tone="today"] .leadAccent {
@@ -603,61 +350,73 @@
 .leadMainButton,
 .commandMain {
   display: grid;
-  gap: 0.3rem;
+  gap: 0.55rem;
   width: 100%;
+  padding: 0;
   border: 0;
   background: transparent;
-  padding: 0;
+  color: inherit;
   text-align: left;
   cursor: pointer;
-  color: inherit;
-}
-
-.leadCardTop,
-.leadBadgeStack,
-.leadIdentity,
-.leadChipRow {
-  display: flex;
-  gap: 0.55rem;
-  flex-wrap: wrap;
 }
 
 .leadCardTop {
+  display: flex;
   align-items: start;
   justify-content: space-between;
+  gap: 0.75rem;
 }
 
 .leadIdentity {
-  flex-direction: column;
-  gap: 0.28rem;
+  display: grid;
+  gap: 0.18rem;
 }
 
-.leadSubline {
-  color: color-mix(in srgb, var(--foreground-soft) 72%, var(--muted));
+.leadName {
+  font-size: 1rem;
+  line-height: 1.3;
+}
+
+.leadSubline,
+.detailText,
+.leadSummaryPanel p,
+.timelineBody p,
+.timelineMeta,
+.emptyPanel p,
+.detailEmpty p,
+.emptyBoard p,
+.commandMain span {
+  margin: 0;
+  color: color-mix(in srgb, var(--foreground-soft) 74%, var(--muted));
+  line-height: 1.55;
 }
 
 .leadSummaryPanel {
   display: grid;
-  gap: 0.25rem;
-  padding: 0.9rem;
+  gap: 0.26rem;
+  padding: 0.82rem 0.9rem;
   border-radius: 18px;
-  border: 1px solid color-mix(in srgb, var(--line) 76%, white);
-  background:
-    radial-gradient(circle at top right, color-mix(in srgb, var(--brand) 5%, transparent), transparent 58%),
-    color-mix(in srgb, var(--surface-soft) 88%, white);
-}
-
-.leadSummaryPanel p {
-  margin: 0;
-  color: color-mix(in srgb, var(--foreground-soft) 72%, var(--muted));
+  border: 1px solid color-mix(in srgb, var(--line) 82%, white);
+  background: color-mix(in srgb, var(--surface-soft) 90%, white);
 }
 
 .leadChipRow {
+  display: flex;
   gap: 0.45rem;
+  flex-wrap: wrap;
 }
 
 .memoryChip {
-  color: color-mix(in srgb, var(--foreground-soft) 92%, var(--foreground));
+  padding-inline: 0.62rem;
+}
+
+.leadActionRow {
+  margin-top: -0.1rem;
+}
+
+.ghostAction {
+  min-height: 38px;
+  padding-inline: 0.8rem;
 }
 
 .detailPanel {
@@ -665,71 +424,103 @@
   top: calc(var(--topbar-total-height) + 12px);
 }
 
-.detailEmpty,
-.emptyPanel,
-.dropHint,
-.emptyBoard,
-.collapsedComposer {
-  display: grid;
-  gap: 0.35rem;
-  padding: 1rem;
-  border-radius: 22px;
-  border: 1px dashed color-mix(in srgb, var(--line) 84%, white);
-  background: color-mix(in srgb, var(--surface-soft) 88%, white);
+.detailRail {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.9rem 1rem;
+  border-radius: 18px;
+  border: 1px solid color-mix(in srgb, var(--line) 82%, white);
+  background: linear-gradient(135deg, color-mix(in srgb, var(--brand-soft) 64%, white), color-mix(in srgb, var(--surface-soft) 94%, white));
+  color: var(--foreground-soft);
+  font-size: 0.92rem;
 }
 
 .detailHero {
   display: flex;
-  gap: 0.8rem;
-  justify-content: space-between;
   align-items: start;
-  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.8rem;
 }
 
 .detailTitle {
-  margin: 0.2rem 0 0;
-  font-size: 1.7rem;
-  line-height: 1.08;
+  margin: 0.16rem 0 0;
+  font-size: clamp(1.3rem, 2vw, 2rem);
+  line-height: 1.05;
 }
 
 .detailBadgeColumn {
   display: grid;
-  gap: 0.55rem;
+  gap: 0.5rem;
   justify-items: end;
 }
 
-.detailMetrics {
+.detailLayout {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.75rem;
+  grid-template-columns: minmax(0, 0.92fr) minmax(0, 1.08fr);
+  gap: 0.85rem;
 }
 
-.detailSection {
-  padding: 1rem;
-  border-radius: 24px;
-  border: 1px solid color-mix(in srgb, var(--line) 78%, white);
-  background:
-    radial-gradient(circle at top right, color-mix(in srgb, var(--brand) 6%, transparent), transparent 60%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(248, 251, 255, 0.92));
-}
-
-.fieldGrid,
-.composerForm,
-.sharedGrid,
-.supportGrid {
+.detailColumn {
   display: grid;
   gap: 0.85rem;
 }
 
+.detailSection,
+.timelineSection {
+  display: grid;
+  gap: 0.85rem;
+  padding: 1rem;
+  border-radius: 24px;
+  border: 1px solid color-mix(in srgb, var(--line) 82%, white);
+  background:
+    radial-gradient(circle at top right, color-mix(in srgb, var(--brand) 6%, transparent), transparent 42%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.95), rgba(248, 251, 255, 0.93));
+}
+
+.detailMetrics,
+.sharedGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.72rem;
+}
+
+.detailMetric,
+.sharedCard {
+  padding: 0.9rem;
+  border-radius: 18px;
+  border: 1px solid color-mix(in srgb, var(--line) 82%, white);
+  background: rgba(255, 255, 255, 0.82);
+}
+
+.detailMetric span,
+.sharedCard span {
+  display: block;
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--muted);
+}
+
+.detailMetric strong,
+.sharedCard strong {
+  display: block;
+  margin-top: 0.38rem;
+  color: var(--foreground);
+}
+
 .fieldGrid,
 .composerForm {
+  display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.78rem;
 }
 
 .field,
 .fieldWide {
   display: grid;
-  gap: 0.42rem;
+  gap: 0.38rem;
 }
 
 .fieldWide {
@@ -741,15 +532,15 @@
 .commandInput {
   width: 100%;
   border-radius: 16px;
-  border: 1px solid color-mix(in srgb, var(--line) 76%, white);
+  border: 1px solid color-mix(in srgb, var(--line) 80%, white);
   background: color-mix(in srgb, var(--field-surface) 96%, white);
   color: var(--foreground);
-  padding: 0.82rem 0.95rem;
+  padding: 0.8rem 0.92rem;
 }
 
 .fieldTextarea {
+  min-height: 112px;
   resize: vertical;
-  min-height: 118px;
 }
 
 .fieldInput:focus,
@@ -759,97 +550,98 @@
   border-color: color-mix(in srgb, var(--brand) 28%, var(--line));
 }
 
+.detailFooterActions,
+.formFooter {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.timelineList,
+.commandList {
+  display: grid;
+  gap: 0.8rem;
+}
+
 .timelineList {
-  max-height: 420px;
+  max-height: 760px;
   overflow: auto;
 }
 
 .timelineItem,
-.feedItem,
 .commandRow {
   display: grid;
   gap: 0.75rem;
   padding: 0.95rem;
   border-radius: 20px;
-  border: 1px solid color-mix(in srgb, var(--line) 78%, white);
-  background:
-    radial-gradient(circle at top right, color-mix(in srgb, var(--brand) 5%, transparent), transparent 62%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(248, 251, 255, 0.92));
+  border: 1px solid color-mix(in srgb, var(--line) 82%, white);
+  background: rgba(255, 255, 255, 0.82);
 }
 
 .timelineItem {
   grid-template-columns: 14px minmax(0, 1fr);
 }
 
-.timelineDot,
-.feedDot {
+.timelineDot {
   width: 14px;
   height: 14px;
-  margin-top: 0.3rem;
+  margin-top: 0.28rem;
   border-radius: 999px;
   background: linear-gradient(180deg, color-mix(in srgb, var(--brand) 74%, white), var(--brand));
   box-shadow: 0 0 0 4px color-mix(in srgb, var(--brand) 12%, transparent);
 }
 
-.feedDot {
-  width: 12px;
-  height: 12px;
+.timelineBody {
+  display: grid;
+  gap: 0.28rem;
 }
 
-.feedDot[data-tone="contact"] {
-  background: linear-gradient(180deg, color-mix(in srgb, var(--success) 72%, white), var(--success));
+.timelineItem[data-tone="contact"] .timelineDot {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--success) 74%, white), var(--success));
   box-shadow: 0 0 0 4px color-mix(in srgb, var(--success) 10%, transparent);
 }
 
-.feedDot[data-tone="scheduled"] {
-  background: linear-gradient(180deg, color-mix(in srgb, var(--info) 72%, white), var(--info));
+.timelineItem[data-tone="scheduled"] .timelineDot {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--info) 74%, white), var(--info));
   box-shadow: 0 0 0 4px color-mix(in srgb, var(--info) 10%, transparent);
 }
 
-.feedDot[data-tone="closed"] {
-  background: linear-gradient(180deg, color-mix(in srgb, var(--warning) 72%, white), var(--warning));
+.timelineItem[data-tone="closed"] .timelineDot {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--warning) 74%, white), var(--warning));
   box-shadow: 0 0 0 4px color-mix(in srgb, var(--warning) 10%, transparent);
 }
 
-.feedDot[data-tone="existing"] {
+.timelineItem[data-tone="existing"] .timelineDot {
   background: linear-gradient(180deg, #8b5cf6, #6d28d9);
   box-shadow: 0 0 0 4px rgba(139, 92, 246, 0.12);
 }
 
-.feedDot[data-tone="origin"] {
-  background: linear-gradient(180deg, color-mix(in srgb, var(--brand) 66%, white), color-mix(in srgb, var(--info) 78%, var(--brand)));
-  box-shadow: 0 0 0 4px color-mix(in srgb, var(--brand) 10%, transparent);
-}
-
-.timelineBody,
-.feedBody {
-  display: grid;
-  gap: 0.3rem;
-}
-
-.supportGrid {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-
-.archiveGrid {
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-}
-
 .commandPalette {
-  width: min(980px, calc(100vw - 2rem));
-  max-height: min(84vh, 880px);
+  width: min(920px, calc(100vw - 2rem));
+  max-height: min(82vh, 860px);
   display: grid;
   gap: 0.9rem;
-  padding: 1.1rem;
-}
-
-.commandList {
-  overflow: auto;
 }
 
 .commandRow {
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
+}
+
+.modalCard {
+  width: min(760px, calc(100vw - 2rem));
+  display: grid;
+  gap: 0.9rem;
+}
+
+.emptyPanel,
+.detailEmpty,
+.emptyBoard {
+  display: grid;
+  gap: 0.35rem;
+  padding: 1rem;
+  border-radius: 22px;
+  border: 1px dashed color-mix(in srgb, var(--line) 84%, white);
+  background: color-mix(in srgb, var(--surface-soft) 90%, white);
 }
 
 .loadingCard {
@@ -887,57 +679,43 @@
 }
 
 @media (max-width: 1240px) {
-  .hero,
   .stageGrid,
-  .supportGrid {
+  .detailLayout {
     grid-template-columns: 1fr;
   }
 
   .detailPanel {
     position: static;
   }
-
-  .columnMetrics,
-  .detailMetrics {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
 }
 
 @media (max-width: 980px) {
-  .pipelineGrid {
-    grid-template-columns: repeat(5, minmax(280px, 1fr));
+  .cardsGrid,
+  .detailMetrics,
+  .sharedGrid {
+    grid-template-columns: 1fr;
   }
 
-  .heroMetrics {
-    grid-template-columns: 1fr 1fr;
+  .detailBadgeColumn {
+    justify-items: start;
   }
 }
 
 @media (max-width: 720px) {
-  .hero,
   .filterRail,
   .boardShell,
   .detailPanel,
-  .supportCard,
   .archiveSection,
-  .statusCard,
   .loadingCard,
-  .commandPalette {
-    padding: 1rem;
+  .commandPalette,
+  .modalCard {
+    padding: 0.9rem;
     border-radius: 24px;
   }
 
-  .heroTitle {
-    max-width: none;
-  }
-
-  .heroMetrics,
-  .columnMetrics,
-  .detailMetrics,
   .fieldGrid,
   .composerForm,
-  .sharedGrid,
-  .supportGrid {
+  .commandRow {
     grid-template-columns: 1fr;
   }
 
@@ -945,11 +723,13 @@
     grid-column: span 1;
   }
 
-  .commandRow {
-    grid-template-columns: 1fr;
+  .dateFilterCard {
+    min-width: 118px;
   }
 
-  .dateFilterCard {
-    min-width: 156px;
+  .detailHero,
+  .detailRail {
+    align-items: start;
+    flex-direction: column;
   }
 }
