@@ -384,7 +384,39 @@ function DateDropSlot({
   onSelect: () => void;
   register: (node: HTMLElement | null) => void;
 }) {
-  const { isOver, setNodeRef } = useDroppable({ id: item.key, data: { type: "date-filter", key: item.key } });
+  const { isOver, setNodeRef: setDropRef } = useDroppable({ id: item.key, data: { type: "date-filter", key: item.key } });
+  const { attributes, listeners, setNodeRef: setDragRef, isDragging } = useDraggable({ id: `date:${item.key}`, data: { type: "date-filter", key: item.key } });
+
+  const setCombinedRef = (node: HTMLElement | null) => {
+    setDropRef(node);
+    setDragRef(node);
+    register(node);
+  };
+
+  const rawSubtitle = String(item.subtitle || "").trim();
+  let showSubtitle = Boolean(rawSubtitle);
+  try {
+    const normalized = rawSubtitle
+      .normalize("NFD")
+      .replace(/\p{M}/gu, "")
+      .replace(/[^\w\s]/g, "")
+      .toLowerCase()
+      .trim();
+    if (["sem pendencia", "fluxo principal", "sem agenda"].includes(normalized)) {
+      showSubtitle = false;
+    }
+  } catch (e) {
+    const fallback = rawSubtitle.toLowerCase().replace(/[^a-z0-9 ]/g, "").trim();
+    if (["sem pendencia", "fluxo principal", "sem agenda"].includes(fallback)) {
+      showSubtitle = false;
+    }
+  }
+
+  // UX: hide the "retorno futuro" subtitle for scheduled date cards
+  // (removes strings like "1 retorno futuro" that clutter the small cards)
+  if (item.blockKey === "scheduled") {
+    showSubtitle = false;
+  }
 
   return (
     <button
@@ -394,23 +426,59 @@ function DateDropSlot({
       data-tone={item.blockKey}
       data-dropover={isOver ? "true" : "false"}
       data-pulse={pulse ? "true" : "false"}
-      data-dragging={dragging ? "true" : "false"}
+      data-dragging={dragging || isDragging ? "true" : "false"}
       onClick={() => {
         if (ignoreClick()) return;
         onSelect();
       }}
-      ref={(node) => {
-        setNodeRef(node);
-        register(node);
-      }}
+      ref={setCombinedRef}
+      {...attributes}
+      {...listeners}
     >
       <span className={styles.dateFilterDay}>{item.dayLabel}</span>
       <strong>{item.title}</strong>
-      <span>{item.subtitle}</span>
-      <b>{item.count}</b>
+      {showSubtitle ? <span>{item.subtitle}</span> : null}
+      <AnimatedCount value={item.count} />
       <span className={styles.receiveHint}>Solte aqui</span>
     </button>
   );
+}
+
+function AnimatedCount({ value }: { value: number }) {
+  const [displayed, setDisplayed] = useState(value);
+  const [rolling, setRolling] = useState(false);
+  const prevRef = useRef(value);
+  const rafRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (prevRef.current === value) return;
+    const from = prevRef.current;
+    const to = value;
+    prevRef.current = value;
+    const diff = Math.abs(to - from);
+    const DURATION = Math.max(240, Math.min(560, 220 + diff * 10));
+    const startTime = performance.now();
+    setRolling(true);
+    const tick = (now: number) => {
+      const t = Math.min((now - startTime) / DURATION, 1);
+      const eased = t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+      const current = Math.round(from + (to - from) * eased);
+      setDisplayed(current);
+      if (t < 1) {
+        rafRef.current = requestAnimationFrame(tick);
+      } else {
+        setDisplayed(to);
+        setRolling(false);
+      }
+    };
+    if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
+    rafRef.current = requestAnimationFrame(tick);
+    return () => {
+      if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
+    };
+  }, [value]);
+
+  return <b data-rolling={rolling ? "true" : "false"}>{displayed}</b>;
 }
 
 function LeadCardView({ lead, draft, blockKey, selected, saving, onFocus, onQuickAction, onEdit, onDraftChange, onSave, editing }: LeadCardView) {
@@ -682,6 +750,7 @@ export default function VendasClientPage() {
   const [composerOpen, setComposerOpen] = useState(false);
   const [expandedTimelineEventId, setExpandedTimelineEventId] = useState<string | null>(null);
   const [activeDragLeadId, setActiveDragLeadId] = useState<string | null>(null);
+  const [activeDragDateKey, setActiveDragDateKey] = useState<string | null>(null);
   const [pulseDateKey, setPulseDateKey] = useState<DateFilterKey | null>(null);
   const [flyAnimation, setFlyAnimation] = useState<FlyAnimation | null>(null);
   const [manualLead, setManualLead] = useState({
@@ -696,6 +765,9 @@ export default function VendasClientPage() {
   const dateFilterRefs = useRef<Record<string, HTMLElement | null>>({});
   const archiveRef = useRef<HTMLElement | null>(null);
   const lastDragEndedAtRef = useRef(0);
+  const filterScrollerRef = useRef<HTMLDivElement | null>(null);
+  const [visibleDateCount, setVisibleDateCount] = useState<number>(Infinity);
+  const [scrollerReady, setScrollerReady] = useState(false);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
   const detectDateFilterCollision = useMemo<CollisionDetection>(
     () => ({ pointerCoordinates, droppableContainers }) => {
@@ -818,7 +890,7 @@ export default function VendasClientPage() {
     });
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    const futureBase = Array.from({ length: 7 }, (_, index) => {
+    const futureBase = Array.from({ length: 14 }, (_, index) => {
       const current = new Date(today);
       current.setDate(today.getDate() + index + 1);
       const dateKey = buildLocalDateKey(current.toISOString());
@@ -907,6 +979,25 @@ export default function VendasClientPage() {
     }, 80);
     return () => window.clearTimeout(id);
   }, [showClosed]);
+
+  // Responsive visible date count: hide furthest dates first when space shrinks
+  useEffect(() => {
+    const el = filterScrollerRef.current;
+    if (!el) return;
+    const calculate = () => {
+      // ~64px for "+" button + 12px gap reserved at the end
+      const PLUS_RESERVED = 76;
+      // 104px min card width + 12px gap = 116px per slot
+      const CARD_SLOT = 116;
+      const fits = Math.max(2, Math.floor((el.clientWidth - PLUS_RESERVED) / CARD_SLOT));
+      setVisibleDateCount(fits);
+      setScrollerReady(true);
+    };
+    const id = requestAnimationFrame(calculate);
+    const ro = new ResizeObserver(calculate);
+    ro.observe(el);
+    return () => { cancelAnimationFrame(id); ro.disconnect(); };
+  }, []);
 
   const selectedLeadRecord = selectedLeadId ? leadById.get(selectedLeadId) || null : null;
   const selectedLead = selectedLeadRecord?.lead || null;
@@ -1214,22 +1305,67 @@ export default function VendasClientPage() {
       setSavingLeadId(null);
     }
   }
+  async function moveAllLeadsFromSourceToTarget(sourceKey: DateFilterKey, targetKey: DateFilterKey) {
+    if (!board) return;
+    let leadsToMove: LeadItem[] = [];
+    if (sourceKey === "overdue") leadsToMove = [...board.blocks.overdue];
+    else if (sourceKey === "today") leadsToMove = [...board.blocks.today];
+    else if (sourceKey.startsWith("scheduled:")) {
+      const iso = sourceKey.slice("scheduled:".length);
+      leadsToMove = (board.blocks.scheduled || []).filter((l) => buildLocalDateKey(l.returnAt || l.updatedAt) === iso);
+    } else {
+      return;
+    }
+
+    if (!leadsToMove.length) return;
+    setFeedback(`Movendo ${leadsToMove.length} retornos...`);
+    for (const lead of leadsToMove) {
+      try {
+        await handleDateMove(lead.id, targetKey);
+      } catch (err) {
+        // continue on error
+      }
+    }
+    setFeedback(`Movidos ${leadsToMove.length} retornos.`);
+  }
 
   function handleDragStart(event: DragStartEvent) {
-    setActiveDragLeadId(String(event.active.id));
+    const activeId = String(event.active.id || "");
+    if (activeId.startsWith("date:")) {
+      setActiveDragDateKey(activeId.slice("date:".length));
+      setActiveDragLeadId(null);
+    } else {
+      setActiveDragLeadId(activeId);
+      setActiveDragDateKey(null);
+    }
   }
 
   function handleDragCancel() {
     setActiveDragLeadId(null);
+    setActiveDragDateKey(null);
     lastDragEndedAtRef.current = performance.now();
   }
 
   async function handleDragEnd(event: DragEndEvent) {
-    const leadId = String(event.active.id || "");
+    const activeId = String(event.active.id || "");
     const targetKey = event.over?.id as DateFilterKey | undefined;
     setActiveDragLeadId(null);
-    if (!leadId || !targetKey) return;
+    setActiveDragDateKey(null);
+    if (!activeId || !targetKey) return;
 
+    if (activeId.startsWith("date:")) {
+      const sourceKey = activeId.slice("date:".length) as DateFilterKey;
+      if (sourceKey === targetKey) {
+        lastDragEndedAtRef.current = performance.now();
+        return;
+      }
+      setPulseDateKey(targetKey);
+      await moveAllLeadsFromSourceToTarget(sourceKey, targetKey);
+      lastDragEndedAtRef.current = performance.now();
+      return;
+    }
+
+    const leadId = activeId;
     const record = leadById.get(leadId);
     const draft = record ? drafts[leadId] || createDraft(record.lead) : null;
     const fromRect = leadCardRefs.current[leadId]?.getBoundingClientRect();
@@ -1412,6 +1548,8 @@ export default function VendasClientPage() {
       } satisfies CSSProperties)
     : undefined;
 
+    const activeDragDateItem = activeDragDateKey ? dateFilters.find((f) => f.key === activeDragDateKey) : null;
+
   return (
     <DashboardScaffold title="Vendas" actions={headerActions} hideHeader={true}>
       <DndContext
@@ -1428,14 +1566,14 @@ export default function VendasClientPage() {
               <div className={styles.filterRailHeader}>
                 <div><span className={styles.panelEyebrow}>Filtro por datas</span><strong>Agenda comercial</strong></div>
               </div>
-              <div className={styles.filterRailScroller}>
-                {dateFilters.map((item) => (
+              <div className={styles.filterRailScroller} ref={filterScrollerRef} data-ready={scrollerReady ? "true" : undefined}>
+                {dateFilters.slice(0, visibleDateCount).map((item) => (
                   <DateDropSlot
                     key={item.key}
                     item={item}
                     active={selectedDateKey === item.key}
                     pulse={pulseDateKey === item.key}
-                    dragging={Boolean(activeDragLeadId)}
+                    dragging={Boolean(activeDragLeadId || activeDragDateKey)}
                     ignoreClick={() => performance.now() - lastDragEndedAtRef.current < 70}
                     onSelect={() => setSelectedDateKey(item.key)}
                     register={(node) => registerDateFilterRef(item.key, node)}
@@ -1492,6 +1630,16 @@ export default function VendasClientPage() {
                 onFocus={() => focusLead(activeDragLead.id)}
                 onQuickAction={(action) => void runQuickAction(activeDragLead, action)}
               />
+            </div>
+          ) : activeDragDateItem ? (
+            <div className={styles.dragOverlayCard}>
+              <div className={styles.dateFilterCard} style={{ pointerEvents: "none" }}>
+                <span className={styles.dateFilterDay}>{activeDragDateItem.dayLabel}</span>
+                <strong>{activeDragDateItem.title}</strong>
+                <span>{activeDragDateItem.subtitle}</span>
+                <b>{activeDragDateItem.count}</b>
+                <span className={styles.receiveHint}>Mover todos</span>
+              </div>
             </div>
           ) : null}
         </DragOverlay>
