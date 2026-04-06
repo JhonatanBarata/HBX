@@ -1,23 +1,9 @@
 "use client";
 
-import {
-  DndContext,
-  DragOverlay,
-  PointerSensor,
-  useDraggable,
-  useDroppable,
-  useSensor,
-  useSensors,
-  type CollisionDetection,
-  type DragEndEvent,
-  type DragStartEvent,
-} from "@dnd-kit/core";
-import { CSS } from "@dnd-kit/utilities";
-import { useDeferredValue, useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from "react";
+import { useDeferredValue, useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import DashboardScaffold from "@/components/DashboardScaffold";
 import { apiFetch } from "../_lib/api";
 import { useRequireAuth } from "../_lib/useRequireAuth";
-import { HBX_WINDOW_STANDARD } from "@/lib/hbx-window-system";
 import styles from "./page.module.css";
 
 type LeadStatus = "novo" | "contato" | "retorno" | "qualificado" | "encerrado";
@@ -116,29 +102,6 @@ type DateFilterItem = {
   subtitle: string;
   dayLabel: string;
   isoDate?: string | null;
-};
-
-type LeadCardView = {
-  lead: LeadItem;
-  draft: LeadDraft;
-  blockKey: LeadBlockKey;
-  selected: boolean;
-  saving: boolean;
-  onFocus: () => void;
-  onQuickAction: (action: string) => void;
-  onEdit?: (id: string | null) => void;
-  onDraftChange?: (leadId: string, patch: Partial<LeadDraft>) => void;
-  onSave?: (leadId: string) => void;
-  editing?: boolean;
-};
-
-type FlyAnimation = {
-  leadId: string;
-  lead: LeadItem;
-  draft: LeadDraft;
-  blockKey: LeadBlockKey;
-  from: { x: number; y: number; width: number; height: number };
-  to: { x: number; y: number; width: number; height: number };
 };
 
 const STATUS_OPTIONS: Array<{ value: LeadStatus; label: string }> = [
@@ -295,351 +258,6 @@ function timelineMeta(event: LeadTimelineEvent) {
   return event.createdAt ? formatDateTime(event.createdAt) : "Agora";
 }
 
-function recomputeSummary(blocks: BoardResponse["blocks"]) {
-  return {
-    total: blocks.overdue.length + blocks.today.length + blocks.scheduled.length + blocks.closed.length,
-    today: blocks.today.length,
-    overdue: blocks.overdue.length,
-    scheduled: blocks.scheduled.length,
-    closed: blocks.closed.length,
-  };
-}
-
-function compareDateKeys(left: string, right: string) {
-  if (left === right) return 0;
-  return left < right ? -1 : 1;
-}
-
-function normalizeBoardForLocalAgenda(input: BoardResponse) {
-  const todayKey = localDateKeyFromDate(new Date());
-  const blocks: BoardResponse["blocks"] = {
-    overdue: [],
-    today: [],
-    scheduled: [],
-    closed: [],
-  };
-
-  const allLeads = [
-    ...input.blocks.overdue,
-    ...input.blocks.today,
-    ...input.blocks.scheduled,
-    ...input.blocks.closed,
-  ];
-
-  for (const lead of allLeads) {
-    if (lead.status === "encerrado") {
-      blocks.closed.push(lead);
-      continue;
-    }
-
-    const leadDateKey = buildLocalDateKey(lead.returnAt || lead.updatedAt);
-    if (!leadDateKey) {
-      blocks.today.push(lead);
-      continue;
-    }
-
-    const compare = compareDateKeys(leadDateKey, todayKey);
-    if (compare < 0) blocks.overdue.push(lead);
-    else if (compare > 0) blocks.scheduled.push(lead);
-    else blocks.today.push(lead);
-  }
-
-  return {
-    blocks,
-    summary: recomputeSummary(blocks),
-  };
-}
-
-function formatDatetimeLocal(date: Date) {
-  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
-  return local.toISOString().slice(0, 16);
-}
-
-function localDateKeyFromDate(date: Date) {
-  return `${date.getFullYear()}-${`${date.getMonth() + 1}`.padStart(2, "0")}-${`${date.getDate()}`.padStart(2, "0")}`;
-}
-
-function buildTargetDatetimeLocal(dateKey: string, currentReturnAt?: string | null, fallbackHour = 9, fallbackMinute = 0) {
-  const base = currentReturnAt ? new Date(currentReturnAt) : new Date(`${dateKey}T09:00:00`);
-  const next = new Date(base);
-  next.setFullYear(Number(dateKey.slice(0, 4)), Number(dateKey.slice(5, 7)) - 1, Number(dateKey.slice(8, 10)));
-  if (!currentReturnAt) next.setHours(fallbackHour, fallbackMinute, 0, 0);
-  return formatDatetimeLocal(next);
-}
-
-function DateDropSlot({
-  item,
-  active,
-  pulse,
-  dragging,
-  ignoreClick,
-  onSelect,
-  register,
-}: {
-  item: DateFilterItem;
-  active: boolean;
-  pulse: boolean;
-  dragging: boolean;
-  ignoreClick: () => boolean;
-  onSelect: () => void;
-  register: (node: HTMLElement | null) => void;
-}) {
-  const { isOver, setNodeRef } = useDroppable({ id: item.key, data: { type: "date-filter", key: item.key } });
-
-  return (
-    <button
-      type="button"
-      className={styles.dateFilterCard}
-      data-active={active ? "true" : "false"}
-      data-tone={item.blockKey}
-      data-dropover={isOver ? "true" : "false"}
-      data-pulse={pulse ? "true" : "false"}
-      data-dragging={dragging ? "true" : "false"}
-      onClick={() => {
-        if (ignoreClick()) return;
-        onSelect();
-      }}
-      ref={(node) => {
-        setNodeRef(node);
-        register(node);
-      }}
-    >
-      <span className={styles.dateFilterDay}>{item.dayLabel}</span>
-      <strong>{item.title}</strong>
-      <span>{item.subtitle}</span>
-      <b>{item.count}</b>
-      <span className={styles.receiveHint}>Solte aqui</span>
-    </button>
-  );
-}
-
-function LeadCardView({ lead, draft, blockKey, selected, saving, onFocus, onQuickAction, onEdit, onDraftChange, onSave, editing }: LeadCardView) {
-  const meta = returnMeta(lead, draft, blockKey);
-  const signals = lead.signals || {
-    alreadyExisted: Boolean((lead.timesSeen || 0) > 1),
-    cameFromWebscraping: lead.sourceType === "webscraping" || String(lead.primarySource || "").toLowerCase() === "webscraping",
-    hadPreviousContact: Boolean((lead.attemptCount || 0) > 0 || lead.lastContactAt),
-    wasClosedBefore: Boolean(lead.wasClosedBefore),
-  };
-  const chips = [
-    signals.alreadyExisted ? "Lead conhecido" : null,
-    signals.cameFromWebscraping ? "Webscraping" : null,
-    signals.hadPreviousContact ? "Com histórico" : null,
-    signals.wasClosedBefore ? "Já encerrado" : null,
-    lead.city || null,
-  ].filter(Boolean);
-
-  const callUrl = buildCallUrl(draft.phone || lead.phone);
-  const whatsappUrl = buildWhatsAppUrl(draft.phone || lead.phone, draft.name || lead.name);
-
-  // inline editor mount/animation control — uses global motion timings
-  const editorRef = useRef<HTMLDivElement | null>(null);
-  const [editorRendered, setEditorRendered] = useState<boolean>(Boolean(editing));
-  const [editorAnimating, setEditorAnimating] = useState(false);
-
-  useEffect(() => {
-    const el = editorRef.current;
-    const motion = HBX_WINDOW_STANDARD.motion;
-    let timer: number | undefined;
-
-    if (editing) {
-      setEditorRendered(true);
-      // open animation
-      requestAnimationFrame(() => {
-        if (!el) return;
-        el.style.overflow = "hidden";
-        el.style.maxHeight = "0px";
-        el.style.opacity = "0";
-        el.style.transition = `max-height ${motion.enterMs}ms ${motion.enterEasing}, opacity ${motion.enterMs}ms ${motion.enterEasing}`;
-        requestAnimationFrame(() => {
-          if (!el) return;
-          el.style.maxHeight = `${el.scrollHeight}px`;
-          el.style.opacity = "1";
-        });
-        setEditorAnimating(true);
-        timer = window.setTimeout(() => {
-          if (!el) return;
-          el.style.maxHeight = "";
-          el.style.overflow = "";
-          el.style.transition = "";
-          setEditorAnimating(false);
-        }, motion.enterMs + 20);
-      });
-    } else {
-      // close animation
-      if (!el) {
-        setEditorRendered(false);
-      } else {
-        el.style.overflow = "hidden";
-        el.style.maxHeight = `${el.scrollHeight}px`;
-        el.style.opacity = "1";
-        el.style.transition = `max-height ${motion.exitMs}ms ${motion.exitEasing}, opacity ${motion.exitMs}ms ${motion.exitEasing}`;
-        requestAnimationFrame(() => {
-          if (!el) return;
-          el.style.maxHeight = "0px";
-          el.style.opacity = "0";
-        });
-        setEditorAnimating(true);
-        timer = window.setTimeout(() => {
-          setEditorAnimating(false);
-          setEditorRendered(false);
-          if (el) {
-            el.style.maxHeight = "";
-            el.style.overflow = "";
-            el.style.transition = "";
-          }
-        }, motion.exitMs + 20);
-      }
-    }
-
-    return () => {
-      if (timer) window.clearTimeout(timer);
-    };
-  }, [editing]);
-
-  return (
-    <article className={styles.leadCard} data-selected={selected ? "true" : "false"} data-tone={blockKey}>
-      <div className={styles.leadAccent} />
-      <div
-        className={styles.leadMainButton}
-        role="button"
-        tabIndex={0}
-        onClick={onFocus}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" || e.key === " ") {
-            e.preventDefault();
-            onFocus();
-          }
-        }}
-      >
-        <div className={styles.leadCardTop}>
-          <div className={styles.leadIdentity}>
-            <span className={styles.leadEyebrow}>{sourceLabel(lead.primarySource || lead.sourceType)}</span>
-            <strong className={styles.leadName}>{draft.name || lead.name || "Lead sem nome"}</strong>
-            <span className={styles.leadSubline}>
-              {lead.segment || "Sem segmento"}
-              {lead.city ? ` • ${lead.city}` : ""}
-            </span>
-          </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <button type="button" className={styles.ghostAction} onClick={() => onEdit?.(lead.id)} aria-label="Editar">Editar</button>
-            <span className={styles.statusBadge} data-status={draft.status}>{statusLabel(draft.status)}</span>
-          </div>
-        </div>
-        <span className={styles.returnBadge} data-tone={meta.tone}>{meta.label}</span>
-        <div className={styles.leadChipRow}>
-          {chips.slice(0, 3).map((chip) => <span key={`${lead.id}-${chip}`} className={styles.memoryChip}>{chip}</span>)}
-        </div>
-      </div>
-
-      {editorRendered ? (
-        <div
-          ref={editorRef}
-          className={styles.inlineEdit}
-          aria-hidden={!editing && editorAnimating}
-        >
-          <div className={styles.fieldGrid}>
-            <label className={styles.field}><span className={styles.fieldLabel}>Nome</span><input className={styles.fieldInput} value={draft.name} onChange={(e) => onDraftChange?.(lead.id, { name: e.target.value })} /></label>
-            <label className={styles.field}><span className={styles.fieldLabel}>Telefone</span><input className={styles.fieldInput} value={draft.phone} onChange={(e) => onDraftChange?.(lead.id, { phone: e.target.value })} /></label>
-            <label className={styles.field}><span className={styles.fieldLabel}>E-mail</span><input className={styles.fieldInput} value={draft.email} onChange={(e) => onDraftChange?.(lead.id, { email: e.target.value })} /></label>
-            <label className={styles.field}>
-              <span className={styles.fieldLabel}>Status</span>
-              <select className={styles.fieldInput} value={draft.status} onChange={(e) => onDraftChange?.(lead.id, { status: e.target.value as LeadStatus })}>
-                {STATUS_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-              </select>
-            </label>
-            <label className={styles.fieldWide}><span className={styles.fieldLabel}>Próxima ação</span><input className={styles.fieldInput} value={draft.nextAction} onChange={(e) => onDraftChange?.(lead.id, { nextAction: e.target.value })} /></label>
-            <label className={styles.field}><span className={styles.fieldLabel}>Retorno</span><input className={styles.fieldInput} type="datetime-local" value={draft.returnAt} onChange={(e) => onDraftChange?.(lead.id, { returnAt: e.target.value })} /></label>
-            <label className={styles.fieldWide}><span className={styles.fieldLabel}>Observação curta</span><textarea className={styles.fieldTextarea} rows={3} value={draft.shortNote} onChange={(e) => onDraftChange?.(lead.id, { shortNote: e.target.value })} /></label>
-          </div>
-          <div className={styles.detailFooterActions}>
-            <button type="button" className={styles.primaryAction} onClick={() => onSave?.(lead.id)} disabled={saving}>{saving ? "Salvando..." : "Salvar"}</button>
-            <button type="button" className={styles.secondaryAction} onClick={() => onEdit?.(null)}>Cancelar</button>
-          </div>
-        </div>
-      ) : null}
-
-      <div className={styles.leadActionRow}>
-        <button type="button" className={styles.ghostAction} onClick={onFocus}>Abrir</button>
-        <a className={`${styles.primaryAction} ${styles.whatsappAction}`} href={whatsappUrl || undefined} target={whatsappUrl ? "_blank" : undefined} rel={whatsappUrl ? "noreferrer" : undefined} aria-disabled={!whatsappUrl}>WhatsApp</a>
-        <a className={styles.secondaryAction} href={callUrl || undefined} aria-disabled={!callUrl}>Ligar</a>
-        {lead.quickActions.includes("amanha") ? <button type="button" className={styles.ghostAction} onClick={() => onQuickAction("amanha")} disabled={saving}>Amanhã</button> : null}
-        {lead.quickActions.includes("encerrar") ? <button type="button" className={styles.ghostAction} onClick={() => onQuickAction("encerrar")} disabled={saving}>Encerrar</button> : null}
-        {lead.quickActions.includes("reabrir") ? <button type="button" className={styles.ghostAction} onClick={() => onQuickAction("reabrir")} disabled={saving}>Reabrir</button> : null}
-      </div>
-
-      <div className={styles.leadQuickNote}>
-        <span className={styles.summaryLabel}>Resumo</span>
-        <strong className={styles.quickNoteTitle}>Leitura rápida</strong>
-        <p className={styles.quickNoteText}>{draft.shortNote || lead.shortNote || "Sem observação curta registrada."}</p>
-      </div>
-
-      <div className={styles.leadMetricsCompact}>
-        <div className={styles.leadMetricCompact}><span>Tentativas</span><strong>{lead.attemptCount || 0}</strong></div>
-        <div className={styles.leadMetricCompact}><span>Reaparições</span><strong>{lead.timesSeen || 1}x</strong></div>
-        <div className={styles.leadMetricCompact}><span>Último contato</span><strong>{formatShortDate(lead.lastContactAt)}</strong></div>
-        <div className={styles.leadMetricCompact}><span>Atualizado</span><strong>{formatShortDate(lead.updatedAt)}</strong></div>
-      </div>
-    </article>
-  );
-}
-
-function DraggableLeadCard({
-  lead,
-  draft,
-  blockKey,
-  selected,
-  saving,
-  disabled,
-  onFocus,
-  onQuickAction,
-  onEdit,
-  onDraftChange,
-  onSave,
-  editing,
-  register,
-}: LeadCardView & { disabled: boolean; register: (node: HTMLElement | null) => void }) {
-  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
-    id: lead.id,
-    disabled,
-    data: { type: "lead", leadId: lead.id },
-  });
-
-  const style = transform
-    ? ({
-        transform: CSS.Translate.toString(transform),
-      } satisfies CSSProperties)
-    : undefined;
-
-  return (
-    <div
-      className={styles.draggableWrap}
-      data-dragging={isDragging ? "true" : "false"}
-      style={style}
-      ref={(node) => {
-        setNodeRef(node);
-        register(node);
-      }}
-      {...attributes}
-      {...listeners}
-    >
-      <LeadCardView
-        lead={lead}
-        draft={draft}
-        blockKey={blockKey}
-        selected={selected}
-        saving={saving}
-        onFocus={onFocus}
-        onQuickAction={onQuickAction}
-        onEdit={onEdit}
-        onDraftChange={onDraftChange}
-        onSave={onSave}
-        editing={editing}
-      />
-    </div>
-  );
-}
-
 export default function VendasClientPage() {
   const hasToken = useRequireAuth();
   const [loading, setLoading] = useState(true);
@@ -654,12 +272,7 @@ export default function VendasClientPage() {
   const [commandQuery, setCommandQuery] = useState("");
   const [selectedDateKey, setSelectedDateKey] = useState<DateFilterKey>("today");
   const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null);
-  const [editingLeadId, setEditingLeadId] = useState<string | null>(null);
   const [composerOpen, setComposerOpen] = useState(false);
-  const [expandedTimelineEventId, setExpandedTimelineEventId] = useState<string | null>(null);
-  const [activeDragLeadId, setActiveDragLeadId] = useState<string | null>(null);
-  const [pulseDateKey, setPulseDateKey] = useState<DateFilterKey | null>(null);
-  const [flyAnimation, setFlyAnimation] = useState<FlyAnimation | null>(null);
   const [manualLead, setManualLead] = useState({
     name: "",
     phone: "",
@@ -668,42 +281,13 @@ export default function VendasClientPage() {
     returnAt: plusDaysDatetimeLocal(0),
     shortNote: "",
   });
-  const leadCardRefs = useRef<Record<string, HTMLElement | null>>({});
-  const dateFilterRefs = useRef<Record<string, HTMLElement | null>>({});
-  const lastDragEndedAtRef = useRef(0);
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
-  const detectDateFilterCollision = useMemo<CollisionDetection>(
-    () => ({ pointerCoordinates, droppableContainers }) => {
-      if (!pointerCoordinates) return [];
-
-      for (const container of droppableContainers) {
-        const id = String(container.id);
-        const node = dateFilterRefs.current[id];
-        const rect = node?.getBoundingClientRect();
-        if (!rect) continue;
-
-        if (
-          pointerCoordinates.x >= rect.left &&
-          pointerCoordinates.x <= rect.right &&
-          pointerCoordinates.y >= rect.top &&
-          pointerCoordinates.y <= rect.bottom
-        ) {
-          return [{ id: container.id, data: { droppableContainer: container, value: 0 } }];
-        }
-      }
-
-      return [];
-    },
-    [],
-  );
 
   async function loadBoard() {
     setError(null);
     try {
       const payload = await apiFetch<BoardResponse>("/vendas/board");
-      const normalizedPayload = normalizeBoardForLocalAgenda(payload);
-      setBoard(normalizedPayload);
-      setDrafts(hydrateDrafts(normalizedPayload));
+      setBoard(payload);
+      setDrafts(hydrateDrafts(payload));
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Falha ao carregar o CRM de Vendas.");
     } finally {
@@ -721,18 +305,6 @@ export default function VendasClientPage() {
     const timer = window.setTimeout(() => setFeedback(null), 2600);
     return () => window.clearTimeout(timer);
   }, [feedback]);
-
-  useEffect(() => {
-    if (!pulseDateKey) return;
-    const timer = window.setTimeout(() => setPulseDateKey(null), 560);
-    return () => window.clearTimeout(timer);
-  }, [pulseDateKey]);
-
-  useEffect(() => {
-    if (!flyAnimation) return;
-    const timer = window.setTimeout(() => setFlyAnimation(null), 460);
-    return () => window.clearTimeout(timer);
-  }, [flyAnimation]);
 
   useEffect(() => {
     function handleKeyboardShortcut(event: KeyboardEvent) {
@@ -882,18 +454,16 @@ export default function VendasClientPage() {
     setCreatingManual(true);
     setError(null);
     try {
-      const body: any = {
-        name: manualLead.name || undefined,
-        phone: manualLead.phone || undefined,
-        nextAction: manualLead.nextAction || undefined,
-        returnAt: manualLead.returnAt || undefined,
-        shortNote: manualLead.shortNote || undefined,
-      };
-      if (manualLead.email && String(manualLead.email).trim()) body.email = manualLead.email;
-
       const payload = await apiFetch<{ ok: boolean; action: string }>("/vendas/manual", {
         method: "POST",
-        body: JSON.stringify(body),
+        body: JSON.stringify({
+          name: manualLead.name,
+          phone: manualLead.phone,
+          email: manualLead.email,
+          nextAction: manualLead.nextAction,
+          returnAt: manualLead.returnAt ? new Date(manualLead.returnAt).toISOString() : undefined,
+          shortNote: manualLead.shortNote,
+        }),
       });
       setFeedback(payload.action === "updated" ? "Lead manual atualizado no CRM." : "Lead manual criado no CRM.");
       setManualLead({
@@ -939,14 +509,12 @@ export default function VendasClientPage() {
           email: draft.email,
           status: draft.status,
           nextAction: draft.nextAction,
-          returnAt: draft.returnAt || "",
+          returnAt: draft.returnAt ? new Date(draft.returnAt).toISOString() : "",
           shortNote: draft.shortNote,
         }),
       });
       setFeedback(successMessage || "Lead atualizado com sucesso.");
       await loadBoard();
-      // If the saved lead was being edited inline, close the inline editor
-      if (editingLeadId === leadId) setEditingLeadId(null);
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "Falha ao atualizar o lead.");
     } finally {
@@ -998,171 +566,56 @@ export default function VendasClientPage() {
     }, 80);
   }
 
-  function registerLeadCardRef(leadId: string, node: HTMLElement | null) {
-    leadCardRefs.current[leadId] = node;
-  }
-
-  function registerDateFilterRef(filterKey: DateFilterKey, node: HTMLElement | null) {
-    dateFilterRefs.current[filterKey] = node;
-  }
-
-  function createPatchedDraft(lead: LeadItem, targetKey: DateFilterKey) {
-    const currentDraft = drafts[lead.id] || createDraft(lead);
-    let returnAt = currentDraft.returnAt || toDatetimeLocal(lead.returnAt) || "";
-    let status = currentDraft.status;
-
-    if (targetKey === "today") {
-      returnAt = buildTargetDatetimeLocal(localDateKeyFromDate(new Date()), returnAt || null);
-    } else if (targetKey === "overdue") {
-      const yesterday = new Date();
-      yesterday.setDate(yesterday.getDate() - 1);
-      returnAt = buildTargetDatetimeLocal(localDateKeyFromDate(yesterday), returnAt || null);
-    } else {
-      returnAt = buildTargetDatetimeLocal(targetKey.slice("scheduled:".length), returnAt || null);
-      if (status !== "encerrado" && status !== "qualificado") status = "retorno";
-    }
-
-    return {
-      ...currentDraft,
-      status,
-      returnAt: toDatetimeLocal(returnAt),
-    };
-  }
-
-  function applyOptimisticDateMove(currentBoard: BoardResponse, leadId: string, targetKey: DateFilterKey, nextDraft: LeadDraft) {
-    const blocks: BoardResponse["blocks"] = {
-      overdue: [...currentBoard.blocks.overdue],
-      today: [...currentBoard.blocks.today],
-      scheduled: [...currentBoard.blocks.scheduled],
-      closed: [...currentBoard.blocks.closed],
-    };
-    let movingLead: LeadItem | null = null;
-
-    (["overdue", "today", "scheduled", "closed"] as LeadBlockKey[]).forEach((blockKey) => {
-      blocks[blockKey] = blocks[blockKey].filter((lead) => {
-        if (lead.id !== leadId) return true;
-        movingLead = lead;
-        return false;
-      });
-    });
-
-    if (!movingLead) return currentBoard;
-
-    const patchedLead: LeadItem = {
-      ...(movingLead as LeadItem),
-      status: nextDraft.status,
-      statusLabel: statusLabel(nextDraft.status),
-      returnAt: nextDraft.returnAt ? new Date(nextDraft.returnAt).toISOString() : "",
-      updatedAt: new Date().toISOString(),
-    };
-
-    if (targetKey === "today") blocks.today.unshift(patchedLead);
-    else if (targetKey === "overdue") blocks.overdue.unshift(patchedLead);
-    else blocks.scheduled.unshift(patchedLead);
-
-    return { blocks, summary: recomputeSummary(blocks) };
-  }
-
-  async function handleDateMove(leadId: string, targetKey: DateFilterKey) {
-    if (!board) return;
-    const currentRecord = leadById.get(leadId);
-    if (!currentRecord || currentRecord.block === "closed") return;
-
-    const currentDateKey =
-      currentRecord.block === "scheduled"
-        ? (`scheduled:${buildLocalDateKey(currentRecord.lead.returnAt || currentRecord.lead.updatedAt)}` as DateFilterKey)
-        : (currentRecord.block as DateFilterKey);
-    if (currentDateKey === targetKey) return;
-
-    const previousBoard = board;
-    const previousDrafts = drafts;
-    const nextDraft = createPatchedDraft(currentRecord.lead, targetKey);
-    const optimisticBoard = applyOptimisticDateMove(board, leadId, targetKey, nextDraft);
-
-    setBoard(optimisticBoard);
-    setDrafts((prev) => ({ ...prev, [leadId]: nextDraft }));
-    setSelectedLeadId(leadId);
-    setSavingLeadId(leadId);
-
-    try {
-      await apiFetch(`/vendas/lead/${leadId}`, {
-        method: "PATCH",
-        body: JSON.stringify({
-          name: nextDraft.name,
-          phone: nextDraft.phone,
-          email: nextDraft.email,
-          status: nextDraft.status,
-          nextAction: nextDraft.nextAction,
-          returnAt: nextDraft.returnAt || "",
-          shortNote: nextDraft.shortNote,
-        }),
-      });
-      setFeedback("Lead movido na agenda.");
-      await loadBoard();
-    } catch (moveError) {
-      setBoard(previousBoard);
-      setDrafts(previousDrafts);
-      setError(moveError instanceof Error ? moveError.message : "Falha ao mover o lead na agenda.");
-    } finally {
-      setSavingLeadId(null);
-    }
-  }
-
-  function handleDragStart(event: DragStartEvent) {
-    setActiveDragLeadId(String(event.active.id));
-  }
-
-  function handleDragCancel() {
-    setActiveDragLeadId(null);
-    lastDragEndedAtRef.current = performance.now();
-  }
-
-  async function handleDragEnd(event: DragEndEvent) {
-    const leadId = String(event.active.id || "");
-    const targetKey = event.over?.id as DateFilterKey | undefined;
-    setActiveDragLeadId(null);
-    if (!leadId || !targetKey) return;
-
-    const record = leadById.get(leadId);
-    const draft = record ? drafts[leadId] || createDraft(record.lead) : null;
-    const fromRect = leadCardRefs.current[leadId]?.getBoundingClientRect();
-    const targetRect = dateFilterRefs.current[targetKey]?.getBoundingClientRect();
-    if (record && draft && fromRect && targetRect) {
-      setFlyAnimation({
-        leadId,
-        lead: record.lead,
-        draft,
-        blockKey: record.block,
-        from: { x: fromRect.left, y: fromRect.top, width: fromRect.width, height: fromRect.height },
-        to: { x: targetRect.left, y: targetRect.top, width: targetRect.width, height: targetRect.height },
-      });
-    }
-    setPulseDateKey(targetKey);
-    await handleDateMove(leadId, targetKey);
-    lastDragEndedAtRef.current = performance.now();
-  }
-
   function renderLeadCard(lead: LeadItem, blockKey: LeadBlockKey) {
     const draft = drafts[lead.id] || createDraft(lead);
-    const commonProps = {
-      lead,
-      draft,
-      blockKey,
-      selected: selectedLeadId === lead.id,
-      saving: savingLeadId === lead.id,
-      onFocus: () => focusLead(lead.id),
-      onQuickAction: (action: string) => void runQuickAction(lead, action),
-      onEdit: (id: string | null) => setEditingLeadId((cur) => (cur === id ? null : id)),
-      onDraftChange: (leadId: string, patch: Partial<LeadDraft>) => setLeadDraft(leadId, patch),
-      onSave: (leadId: string) => void saveLead(leadId),
-      editing: editingLeadId === lead.id,
+    const meta = returnMeta(lead, draft, blockKey);
+    const signals = lead.signals || {
+      alreadyExisted: Boolean((lead.timesSeen || 0) > 1),
+      cameFromWebscraping: lead.sourceType === "webscraping" || String(lead.primarySource || "").toLowerCase() === "webscraping",
+      hadPreviousContact: Boolean((lead.attemptCount || 0) > 0 || lead.lastContactAt),
+      wasClosedBefore: Boolean(lead.wasClosedBefore),
     };
-
-    if (blockKey === "closed") {
-      return <LeadCardView key={lead.id} {...commonProps} />;
-    }
-
-    return <DraggableLeadCard key={lead.id} {...commonProps} disabled={false} register={(node) => registerLeadCardRef(lead.id, node)} />;
+    const chips = [
+      signals.alreadyExisted ? "Lead conhecido" : null,
+      signals.cameFromWebscraping ? "Webscraping" : null,
+      signals.hadPreviousContact ? "Com histórico" : null,
+      signals.wasClosedBefore ? "Já encerrado" : null,
+      lead.city || null,
+    ].filter(Boolean);
+    return (
+      <article key={lead.id} className={styles.leadCard} data-selected={selectedLeadId === lead.id ? "true" : "false"} data-tone={blockKey}>
+        <div className={styles.leadAccent} />
+        <button type="button" className={styles.leadMainButton} onClick={() => focusLead(lead.id)}>
+          <div className={styles.leadCardTop}>
+            <div className={styles.leadIdentity}>
+              <span className={styles.leadEyebrow}>{sourceLabel(lead.primarySource || lead.sourceType)}</span>
+              <strong className={styles.leadName}>{draft.name || lead.name || "Lead sem nome"}</strong>
+              <span className={styles.leadSubline}>
+                {lead.segment || "Sem segmento"}
+                {lead.city ? ` • ${lead.city}` : ""}
+              </span>
+            </div>
+            <span className={styles.statusBadge} data-status={draft.status}>{statusLabel(draft.status)}</span>
+          </div>
+          <span className={styles.returnBadge} data-tone={meta.tone}>{meta.label}</span>
+          <div className={styles.leadSummaryPanel}>
+            <span className={styles.summaryLabel}>Próxima ação</span>
+            <strong>{draft.nextAction || lead.nextAction || "Definir próxima ação"}</strong>
+            <p>{draft.shortNote || lead.shortNote || "Sem observação curta registrada."}</p>
+          </div>
+          <div className={styles.leadChipRow}>
+            {chips.slice(0, 3).map((chip) => <span key={`${lead.id}-${chip}`} className={styles.memoryChip}>{chip}</span>)}
+          </div>
+        </button>
+        <div className={styles.leadActionRow}>
+          <button type="button" className={styles.ghostAction} onClick={() => focusLead(lead.id)}>Abrir</button>
+          {lead.quickActions.includes("hoje") ? <button type="button" className={styles.ghostAction} onClick={() => void runQuickAction(lead, "hoje")} disabled={savingLeadId === lead.id}>Hoje</button> : null}
+          {lead.quickActions.includes("amanha") ? <button type="button" className={styles.ghostAction} onClick={() => void runQuickAction(lead, "amanha")} disabled={savingLeadId === lead.id}>Amanhã</button> : null}
+          {lead.quickActions.includes("encerrar") ? <button type="button" className={styles.ghostAction} onClick={() => void runQuickAction(lead, "encerrar")} disabled={savingLeadId === lead.id}>Encerrar</button> : null}
+          {lead.quickActions.includes("reabrir") ? <button type="button" className={styles.ghostAction} onClick={() => void runQuickAction(lead, "reabrir")} disabled={savingLeadId === lead.id}>Reabrir</button> : null}
+        </div>
+      </article>
+    );
   }
 
   function renderDetailPanel() {
@@ -1190,37 +643,119 @@ export default function VendasClientPage() {
 
     return (
       <aside className={styles.detailPanel} data-detail-panel="true">
+        <div className={styles.detailRail}>
+          <span>Fluxo UX: {selectedFilter?.title || "Hoje"} → cliente selecionado → operação detalhada</span>
+          <span className={styles.miniPill}>Etapa 3 de 3</span>
+        </div>
+
+        <div className={styles.detailHero}>
+          <div>
+            <span className={styles.panelEyebrow}>Cliente selecionado</span>
+            <h2 className={styles.detailTitle}>{selectedLeadDraft.name || selectedLead.name || "Lead sem nome"}</h2>
+            <p className={styles.detailText}>
+              {selectedLead.segment || "Sem segmento"}
+              {selectedLead.city ? ` • ${selectedLead.city}` : ""}
+              {selectedLead.primarySource ? ` • ${sourceLabel(selectedLead.primarySource)}` : ""}
+            </p>
+          </div>
+          <div className={styles.detailBadgeColumn}>
+            <span className={styles.statusBadge} data-status={selectedLeadDraft.status}>{statusLabel(selectedLeadDraft.status)}</span>
+            <span className={styles.returnBadge} data-tone={meta.tone}>{meta.label}</span>
+          </div>
+        </div>
+
         <div className={styles.detailLayout}>
+          <div className={styles.detailColumn}>
+            <section className={styles.detailSection}>
+              <div className={styles.sectionTopline}>
+                <div><span className={styles.panelEyebrow}>Resumo</span><strong>Leitura rápida</strong></div>
+                <span className={styles.miniPill}>{BLOCK_LABELS[selectedLeadBlock]}</span>
+              </div>
+              <div className={styles.detailMetrics}>
+                <article className={styles.detailMetric}><span>Tentativas</span><strong>{selectedLead.attemptCount || 0}</strong></article>
+                <article className={styles.detailMetric}><span>Reaparições</span><strong>{selectedLead.timesSeen || 1}x</strong></article>
+                <article className={styles.detailMetric}><span>Último contato</span><strong>{formatShortDate(selectedLead.lastContactAt)}</strong></article>
+                <article className={styles.detailMetric}><span>Atualizado</span><strong>{formatShortDate(selectedLead.updatedAt)}</strong></article>
+              </div>
+            </section>
+
+            <section className={styles.detailSection}>
+              <div className={styles.sectionTopline}>
+                <div><span className={styles.panelEyebrow}>Ações</span><strong>Operação do cliente</strong></div>
+              </div>
+              <div className={styles.detailActions}>
+                <a className={styles.primaryAction} href={whatsappUrl || undefined} target={whatsappUrl ? "_blank" : undefined} rel={whatsappUrl ? "noreferrer" : undefined} aria-disabled={!whatsappUrl}>WhatsApp</a>
+                <a className={styles.secondaryAction} href={callUrl || undefined} aria-disabled={!callUrl}>Ligar</a>
+                {selectedLead.quickActions.includes("hoje") ? <button type="button" className={styles.secondaryAction} onClick={() => void runQuickAction(selectedLead, "hoje")} disabled={savingLeadId === selectedLead.id}>Hoje</button> : null}
+                {selectedLead.quickActions.includes("amanha") ? <button type="button" className={styles.secondaryAction} onClick={() => void runQuickAction(selectedLead, "amanha")} disabled={savingLeadId === selectedLead.id}>Amanhã</button> : null}
+                {selectedLead.quickActions.includes("encerrar") ? <button type="button" className={styles.secondaryAction} onClick={() => void runQuickAction(selectedLead, "encerrar")} disabled={savingLeadId === selectedLead.id}>Encerrar</button> : null}
+                {selectedLead.quickActions.includes("reabrir") ? <button type="button" className={styles.secondaryAction} onClick={() => void runQuickAction(selectedLead, "reabrir")} disabled={savingLeadId === selectedLead.id}>Reabrir</button> : null}
+              </div>
+            </section>
+
+            <section className={styles.detailSection}>
+              <div className={styles.sectionTopline}>
+                <div><span className={styles.panelEyebrow}>Operação</span><strong>Editar sem sair da tela</strong></div>
+              </div>
+              <div className={styles.fieldGrid}>
+                <label className={styles.field}><span className={styles.fieldLabel}>Nome</span><input className={styles.fieldInput} value={selectedLeadDraft.name} onChange={(event) => setLeadDraft(selectedLead.id, { name: event.target.value })} /></label>
+                <label className={styles.field}><span className={styles.fieldLabel}>Telefone</span><input className={styles.fieldInput} value={selectedLeadDraft.phone} onChange={(event) => setLeadDraft(selectedLead.id, { phone: event.target.value })} /></label>
+                <label className={styles.field}><span className={styles.fieldLabel}>E-mail</span><input className={styles.fieldInput} value={selectedLeadDraft.email} onChange={(event) => setLeadDraft(selectedLead.id, { email: event.target.value })} /></label>
+                <label className={styles.field}>
+                  <span className={styles.fieldLabel}>Status</span>
+                  <select className={styles.fieldInput} value={selectedLeadDraft.status} onChange={(event) => setLeadDraft(selectedLead.id, { status: event.target.value as LeadStatus })}>
+                    {STATUS_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                  </select>
+                </label>
+                <label className={styles.fieldWide}><span className={styles.fieldLabel}>Próxima ação</span><input className={styles.fieldInput} value={selectedLeadDraft.nextAction} onChange={(event) => setLeadDraft(selectedLead.id, { nextAction: event.target.value })} /></label>
+                <label className={styles.field}><span className={styles.fieldLabel}>Retorno</span><input className={styles.fieldInput} type="datetime-local" value={selectedLeadDraft.returnAt} onChange={(event) => setLeadDraft(selectedLead.id, { returnAt: event.target.value })} /></label>
+                <label className={styles.fieldWide}><span className={styles.fieldLabel}>Observação curta</span><textarea className={styles.fieldTextarea} rows={4} value={selectedLeadDraft.shortNote} onChange={(event) => setLeadDraft(selectedLead.id, { shortNote: event.target.value })} /></label>
+              </div>
+              <div className={styles.detailFooterActions}>
+                <button type="button" className={styles.primaryAction} onClick={() => void saveLead(selectedLead.id)} disabled={savingLeadId === selectedLead.id}>
+                  {savingLeadId === selectedLead.id ? "Salvando..." : "Salvar"}
+                </button>
+              </div>
+            </section>
+
+            {sharedProfile ? (
+              <section className={styles.detailSection}>
+                <div className={styles.sectionTopline}>
+                  <div><span className={styles.panelEyebrow}>Contexto</span><strong>Memória compartilhada</strong></div>
+                  <span className={styles.miniPill}>{contextLabel(sharedProfile.currentContext)}</span>
+                </div>
+                <div className={styles.sharedGrid}>
+                  <article className={styles.sharedCard}><span>Nome base</span><strong>{sharedProfile.displayName || selectedLeadDraft.name || selectedLead.name || "-"}</strong></article>
+                  <article className={styles.sharedCard}><span>Telefone</span><strong>{sharedProfile.phone || selectedLeadDraft.phone || selectedLead.phone || "-"}</strong></article>
+                  <article className={styles.sharedCard}><span>Origem</span><strong>{sharedProfile.origin || sourceLabel(selectedLead.primarySource || selectedLead.sourceType)}</strong></article>
+                  <article className={styles.sharedCard}><span>Último contato</span><strong>{formatDateTime(sharedLastContact)}</strong></article>
+                </div>
+                <div className={styles.sharedPresenceRow}>
+                  {sharedProfile.presence?.atendimento?.present ? <span className={styles.memoryChip}>Também em Atendimento</span> : null}
+                  {sharedProfile.presence?.recovery?.present ? <span className={styles.memoryChip}>Também em Recovery</span> : null}
+                  {sharedProfile.presence?.vendas?.present ? <span className={styles.memoryChip}>Presente em Vendas</span> : null}
+                </div>
+              </section>
+            ) : null}
+          </div>
+
           <section className={styles.timelineSection}>
             <div className={styles.sectionTopline}>
-              <div><span className={styles.panelEyebrow}>Timeline</span></div>
+              <div><span className={styles.panelEyebrow}>Timeline</span><strong>O que aconteceu aqui dentro</strong></div>
               <span className={styles.miniPill}>{(selectedLead.timeline || []).length} evento(s)</span>
             </div>
             {(selectedLead.timeline || []).length ? (
               <div className={styles.timelineList}>
-                {(selectedLead.timeline || []).map((event) => {
-                  const isExpanded = expandedTimelineEventId === event.id;
-                  const titleText = event.eventType === "return_scheduled" ? "Retorno agendado" : event.title;
-                  return (
-                    <article
-                      key={event.id}
-                      className={styles.timelineItem}
-                      data-tone={timelineTone(event.eventType)}
-                      data-expanded={isExpanded ? "true" : "false"}
-                      onClick={() => setExpandedTimelineEventId(isExpanded ? null : event.id)}
-                    >
-                      <div className={styles.timelineDot} />
-                      <div className={styles.timelineBody}>
-                        <div className={styles.timelineTopline}>
-                          <strong>{titleText}</strong>
-                          <span>{isExpanded ? (event.createdAt ? formatDateTime(event.createdAt) : "Agora") : ""}</span>
-                        </div>
-                        {isExpanded ? <p>{event.description || "Movimento comercial registrado."}</p> : null}
-                        {isExpanded ? <span className={styles.timelineMeta}>{timelineMeta(event)}</span> : null}
-                      </div>
-                    </article>
-                  );
-                })}
+                {(selectedLead.timeline || []).map((event) => (
+                  <article key={event.id} className={styles.timelineItem} data-tone={timelineTone(event.eventType)}>
+                    <div className={styles.timelineDot} />
+                    <div className={styles.timelineBody}>
+                      <div className={styles.timelineTopline}><strong>{event.title}</strong><span>{event.createdAt ? formatDateTime(event.createdAt) : "Agora"}</span></div>
+                      <p>{event.description || "Movimento comercial registrado."}</p>
+                      <span className={styles.timelineMeta}>{timelineMeta(event)}</span>
+                    </div>
+                  </article>
+                ))}
               </div>
             ) : (
               <div className={styles.emptyPanel}><strong>Nenhum evento registrado</strong><p>A timeline aparece conforme o lead é movimentado.</p></div>
@@ -1286,105 +821,44 @@ export default function VendasClientPage() {
 
   if (!hasToken) return null;
 
-  const activeDragRecord = activeDragLeadId ? leadById.get(activeDragLeadId) || null : null;
-  const activeDragLead = activeDragRecord?.lead || null;
-  const activeDragDraft = activeDragLead ? drafts[activeDragLead.id] || createDraft(activeDragLead) : null;
-  const flyStyle = flyAnimation
-    ? ({
-        ["--fly-start-x" as string]: `${flyAnimation.from.x}px`,
-        ["--fly-start-y" as string]: `${flyAnimation.from.y}px`,
-        ["--fly-width" as string]: `${flyAnimation.from.width}px`,
-        ["--fly-height" as string]: `${flyAnimation.from.height}px`,
-        ["--fly-end-x" as string]: `${flyAnimation.to.x + flyAnimation.to.width / 2 - flyAnimation.from.width / 2}px`,
-        ["--fly-end-y" as string]: `${flyAnimation.to.y + flyAnimation.to.height / 2 - flyAnimation.from.height / 2}px`,
-        ["--fly-scale-x" as string]: `${Math.max(0.28, flyAnimation.to.width / flyAnimation.from.width)}`,
-        ["--fly-scale-y" as string]: `${Math.max(0.24, flyAnimation.to.height / flyAnimation.from.height)}`,
-      } satisfies CSSProperties)
-    : undefined;
-
   return (
     <DashboardScaffold title="Vendas" actions={headerActions}>
-      <DndContext
-        sensors={sensors}
-        collisionDetection={detectDateFilterCollision}
-        onDragStart={handleDragStart}
-        onDragCancel={handleDragCancel}
-        onDragEnd={(event) => void handleDragEnd(event)}
-      >
-        <div className={styles.premiumBackdrop}>
-          <div className={styles.premiumBg} />
-          <div className={styles.page}>
-            <section className={styles.filterRail}>
-              <div className={styles.filterRailHeader}>
-                <div><span className={styles.panelEyebrow}>Filtro por datas</span><strong>Agenda comercial</strong></div>
-              </div>
-              <div className={styles.filterRailScroller}>
-                {dateFilters.map((item) => (
-                  <DateDropSlot
-                    key={item.key}
-                    item={item}
-                    active={selectedDateKey === item.key}
-                    pulse={pulseDateKey === item.key}
-                    dragging={Boolean(activeDragLeadId)}
-                    ignoreClick={() => performance.now() - lastDragEndedAtRef.current < 70}
-                    onSelect={() => setSelectedDateKey(item.key)}
-                    register={(node) => registerDateFilterRef(item.key, node)}
-                  />
-                ))}
-              </div>
-            </section>
-
-            {loading ? (
-              <section className={styles.loadingCard}><div className={styles.skeletonBoard} /></section>
-            ) : (
-              <div className={styles.stageGrid}>
-                <div className={styles.stageMain}>{renderPipelineBoard()}</div>
-                <div className={styles.stageAside}>{renderDetailPanel()}</div>
-              </div>
-            )}
-
-            {showClosed ? (
-              <section className={styles.archiveSection}>
-                <div className={styles.sectionTopline}>
-                  <div><span className={styles.panelEyebrow}>Arquivo</span><strong>Encerrados</strong></div>
-                  <button type="button" className={styles.secondaryAction} onClick={() => setShowClosed(false)}>Ocultar arquivo</button>
-                </div>
-                {closedLeads.length ? <div className={styles.cardsGrid}>{closedLeads.map((lead) => renderLeadCard(lead, "closed"))}</div> : <div className={styles.emptyPanel}><strong>Nenhum encerrado ainda</strong><p>Os cards arquivados aparecem aqui.</p></div>}
-              </section>
-            ) : null}
+      <div className={styles.page}>
+        <section className={styles.filterRail}>
+          <div className={styles.filterRailHeader}>
+            <div><span className={styles.panelEyebrow}>Filtro por datas</span><strong>Agenda comercial</strong></div>
           </div>
-        </div>
+          <div className={styles.filterRailScroller}>
+            {dateFilters.map((item) => (
+              <button key={item.key} type="button" className={styles.dateFilterCard} data-active={selectedDateKey === item.key ? "true" : "false"} data-tone={item.blockKey} onClick={() => setSelectedDateKey(item.key)}>
+                <span className={styles.dateFilterDay}>{item.dayLabel}</span>
+                <strong>{item.title}</strong>
+                <span>{item.subtitle}</span>
+                <b>{item.count}</b>
+              </button>
+            ))}
+          </div>
+        </section>
 
-        <DragOverlay dropAnimation={null}>
-          {activeDragLead && activeDragDraft ? (
-            <div className={styles.dragOverlayCard}>
-              <LeadCardView
-                lead={activeDragLead}
-                draft={activeDragDraft}
-                blockKey={activeDragRecord?.block || "today"}
-                selected={selectedLeadId === activeDragLead.id}
-                saving={savingLeadId === activeDragLead.id}
-                onFocus={() => focusLead(activeDragLead.id)}
-                onQuickAction={(action) => void runQuickAction(activeDragLead, action)}
-              />
+        {loading ? (
+          <section className={styles.loadingCard}><div className={styles.skeletonBoard} /></section>
+        ) : (
+          <div className={styles.stageGrid}>
+            <div className={styles.stageMain}>{renderPipelineBoard()}</div>
+            <div className={styles.stageAside}>{renderDetailPanel()}</div>
+          </div>
+        )}
+
+        {showClosed ? (
+          <section className={styles.archiveSection}>
+            <div className={styles.sectionTopline}>
+              <div><span className={styles.panelEyebrow}>Arquivo</span><strong>Encerrados</strong></div>
+              <button type="button" className={styles.secondaryAction} onClick={() => setShowClosed(false)}>Ocultar arquivo</button>
             </div>
-          ) : null}
-        </DragOverlay>
-
-        {flyAnimation ? (
-          <div className={styles.flyCard} style={flyStyle}>
-            <LeadCardView
-              lead={flyAnimation.lead}
-              draft={flyAnimation.draft}
-              blockKey={flyAnimation.blockKey}
-              selected={false}
-              saving={false}
-              onFocus={() => {}}
-              onQuickAction={() => {}}
-            />
-          </div>
+            {closedLeads.length ? <div className={styles.cardsGrid}>{closedLeads.map((lead) => renderLeadCard(lead, "closed"))}</div> : <div className={styles.emptyPanel}><strong>Nenhum encerrado ainda</strong><p>Os cards arquivados aparecem aqui.</p></div>}
+          </section>
         ) : null}
-      </DndContext>
+      </div>
 
       {composerOpen ? (
         <div className="ui-popup-backdrop" onClick={() => setComposerOpen(false)}>
