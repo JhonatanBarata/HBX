@@ -314,7 +314,8 @@
   display: flex;
   gap: 0.62rem;
   overflow-x: auto;
-  padding-top: 0.22rem;
+  /* create a bit more top breathing room so elevated/active cards don't get visually clipped */
+  padding-top: 0.56rem;
   padding-bottom: 0.18rem;
   flex-wrap: nowrap;
   scrollbar-width: none;
@@ -332,6 +333,26 @@
   overflow-x: hidden;
   overflow-y: visible;
   justify-content: center;
+}
+
+/* Allow the rail to show elevated/active cards and the + button without being clipped */
+.filterRail {
+  overflow: visible;
+  /* small top padding to match the scroller breathing room */
+  padding-top: 0.28rem;
+}
+
+.filterRailScroller > * {
+  position: relative;
+  z-index: 1;
+}
+
+/* ensure active card and + button render above the rail background */
+.dateFilterCard[data-active="true"] {
+  z-index: 6;
+}
+.addAgendaButton {
+  z-index: 5;
 }
 
 .dateFilterCard {
@@ -662,6 +683,13 @@
   transition: none;
 }
 
+.draggableWrap[data-flying="true"] {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: none;
+}
+
 
 
 .leadCard {
@@ -707,13 +735,14 @@
   height: var(--fly-height);
   z-index: 80;
   pointer-events: none;
+  overflow: visible;
   transform-origin: top left;
   animation: fly-to-date 440ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
 }
 
 .flyCard .leadCard {
   height: 100%;
-  overflow: hidden;
+  overflow: visible;
   box-shadow: 0 32px 48px -26px rgba(15, 23, 42, 0.24);
 }
 

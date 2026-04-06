@@ -683,6 +683,7 @@ function DraggableLeadCard({
   selected,
   saving,
   disabled,
+  hidden,
   onFocus,
   onQuickAction,
   onEdit,
@@ -690,7 +691,7 @@ function DraggableLeadCard({
   onSave,
   editing,
   register,
-}: LeadCardView & { disabled: boolean; register: (node: HTMLElement | null) => void }) {
+}: LeadCardView & { disabled: boolean; hidden: boolean; register: (node: HTMLElement | null) => void }) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: lead.id,
     disabled,
@@ -707,6 +708,7 @@ function DraggableLeadCard({
     <div
       className={styles.draggableWrap}
       data-dragging={isDragging ? "true" : "false"}
+      data-flying={hidden ? "true" : "false"}
       style={style}
       ref={(node) => {
         setNodeRef(node);
@@ -1318,15 +1320,70 @@ export default function VendasClientPage() {
     }
 
     if (!leadsToMove.length) return;
-    setFeedback(`Movendo ${leadsToMove.length} retornos...`);
+    const totalMoves = leadsToMove.length;
+    const nextDraftByLeadId: Record<string, LeadDraft> = {};
+    const failedLeadIds: string[] = [];
+    let completedMoves = 0;
+
     for (const lead of leadsToMove) {
+      nextDraftByLeadId[lead.id] = createPatchedDraft(lead, targetKey);
+    }
+
+    setError(null);
+    setFeedback(`Movendo 0/${totalMoves} retornos...`);
+    setSelectedDateKey(targetKey);
+    setSelectedLeadId(null);
+
+    const concurrency = Math.min(3, totalMoves);
+    let cursor = 0;
+
+    async function moveOneLead(lead: LeadItem) {
+      const nextDraft = nextDraftByLeadId[lead.id];
       try {
-        await handleDateMove(lead.id, targetKey);
-      } catch (err) {
-        // continue on error
+        await apiFetch(`/vendas/lead/${lead.id}`, {
+          method: "PATCH",
+          body: JSON.stringify({
+            status: nextDraft.status,
+            nextAction: nextDraft.nextAction,
+            returnAt: nextDraft.returnAt || "",
+          }),
+        });
+
+        completedMoves += 1;
+        setDrafts((prev) => ({ ...prev, [lead.id]: nextDraft }));
+        setBoard((currentBoard) => (currentBoard ? applyOptimisticDateMove(currentBoard, lead.id, targetKey, nextDraft) : currentBoard));
+        setFeedback(
+          completedMoves >= totalMoves
+            ? `Movidos ${completedMoves} retornos.`
+            : `Movendo ${completedMoves}/${totalMoves} retornos...`,
+        );
+      } catch (moveError) {
+        failedLeadIds.push(lead.id);
       }
     }
-    setFeedback(`Movidos ${leadsToMove.length} retornos.`);
+
+    async function worker() {
+      while (cursor < leadsToMove.length) {
+        const lead = leadsToMove[cursor];
+        cursor += 1;
+        if (!lead) break;
+        await moveOneLead(lead);
+      }
+    }
+
+    await Promise.all(Array.from({ length: concurrency }, () => worker()));
+    await loadBoard();
+
+    if (failedLeadIds.length) {
+      setError(
+        failedLeadIds.length === totalMoves
+          ? "Falha ao mover os retornos da agenda."
+          : `Falha ao mover ${failedLeadIds.length} de ${totalMoves} retornos.`,
+      );
+      return;
+    }
+
+    setFeedback(`Movidos ${totalMoves} retornos.`);
   }
 
   function handleDragStart(event: DragStartEvent) {
@@ -1349,11 +1406,15 @@ export default function VendasClientPage() {
   async function handleDragEnd(event: DragEndEvent) {
     const activeId = String(event.active.id || "");
     const targetKey = event.over?.id as DateFilterKey | undefined;
-    setActiveDragLeadId(null);
-    setActiveDragDateKey(null);
-    if (!activeId || !targetKey) return;
+    if (!activeId || !targetKey) {
+      setActiveDragLeadId(null);
+      setActiveDragDateKey(null);
+      return;
+    }
 
     if (activeId.startsWith("date:")) {
+      setActiveDragLeadId(null);
+      setActiveDragDateKey(null);
       const sourceKey = activeId.slice("date:".length) as DateFilterKey;
       if (sourceKey === targetKey) {
         lastDragEndedAtRef.current = performance.now();
@@ -1380,6 +1441,8 @@ export default function VendasClientPage() {
         to: { x: targetRect.left, y: targetRect.top, width: targetRect.width, height: targetRect.height },
       });
     }
+    setActiveDragLeadId(null);
+    setActiveDragDateKey(null);
     setPulseDateKey(targetKey);
     await handleDateMove(leadId, targetKey);
     lastDragEndedAtRef.current = performance.now();
@@ -1408,7 +1471,7 @@ export default function VendasClientPage() {
       return <LeadCardView key={lead.id} {...commonProps} />;
     }
 
-    return <DraggableLeadCard key={lead.id} {...commonProps} disabled={false} register={(node) => registerLeadCardRef(lead.id, node)} />;
+    return <DraggableLeadCard key={lead.id} {...commonProps} disabled={false} hidden={flyAnimation?.leadId === lead.id} register={(node) => registerLeadCardRef(lead.id, node)} />;
   }
 
   function renderDetailPanel() {

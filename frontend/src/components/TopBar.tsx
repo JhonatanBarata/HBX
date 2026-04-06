@@ -160,6 +160,46 @@ function isWhatsAppOperationalChip(chip: OperationalStatusChip) {
   return chip.key === "token" || chip.key === "meta" || chip.key === "webwhats";
 }
 
+function preserveTemporaryQrDuringPolling(
+  current: WhatsAppCenterPayload | null,
+  next: WhatsAppCenterPayload,
+  options?: { background?: boolean; refreshTemporary?: boolean },
+) {
+  const currentTemporary = current?.center.temporary;
+  const nextTemporary = next.center.temporary;
+  if (!options?.background || !options?.refreshTemporary || !currentTemporary) return next;
+  if (currentTemporary.liveStatus !== "qr_ready" || nextTemporary.liveStatus === "connected") return next;
+
+  const hasUsefulCurrentState = Boolean(
+    currentTemporary.instanceKey || currentTemporary.pairingCode || currentTemporary.qrCodeDataUrl,
+  );
+  const lostUsefulState = Boolean(
+    !nextTemporary.instanceKey || !nextTemporary.pairingCode || !nextTemporary.qrCodeDataUrl,
+  );
+  const looksTransient = Boolean(nextTemporary.errorMessage || nextTemporary.liveStatus === "error");
+  if (!hasUsefulCurrentState || !looksTransient) return next;
+  if (!lostUsefulState && nextTemporary.liveStatus !== "error") return next;
+
+  const pairingCode = nextTemporary.pairingCode || currentTemporary.pairingCode || null;
+  const qrCodeDataUrl = nextTemporary.qrCodeDataUrl || currentTemporary.qrCodeDataUrl || null;
+  const instanceKey = nextTemporary.instanceKey || currentTemporary.instanceKey || null;
+
+  return {
+    ...next,
+    center: {
+      ...next.center,
+      temporary: {
+        ...nextTemporary,
+        instanceKey,
+        pairingCode,
+        qrCodeDataUrl,
+        displayNumber: nextTemporary.displayNumber || currentTemporary.displayNumber || null,
+        liveStatus: qrCodeDataUrl || pairingCode ? "qr_ready" : nextTemporary.liveStatus,
+      },
+    },
+  };
+}
+
 export default function TopBar() {
   const router = useRouter();
   const pathname = usePathname();
@@ -196,6 +236,7 @@ export default function TopBar() {
   const [whatsAppDetailError, setWhatsAppDetailError] = useState<string | null>(null);
   const [whatsAppDetailMessage, setWhatsAppDetailMessage] = useState<string | null>(null);
   const [whatsAppCenter, setWhatsAppCenter] = useState<WhatsAppCenterPayload | null>(null);
+  const whatsAppCenterRef = useRef<WhatsAppCenterPayload | null>(null);
   const recoveryLastSeenRef = useRef<Map<number, string>>(new Map());
   const recoveryHumanQueueRef = useRef<Map<number, boolean>>(new Map());
   const recoveryAlertReadyRef = useRef(false);
@@ -207,6 +248,10 @@ export default function TopBar() {
   const lastScrollYRef = useRef(0);
 
   usePopupTopbarLock(whatsAppDetailOpen || masterContextModalOpen);
+
+  useEffect(() => {
+    whatsAppCenterRef.current = whatsAppCenter;
+  }, [whatsAppCenter]);
 
   useEffect(() => {
     setPortalReady(true);
@@ -240,8 +285,9 @@ export default function TopBar() {
     try {
       const suffix = options?.refreshTemporary ? "?refresh=true" : "";
       const payload = await apiFetch<WhatsAppCenterPayload>(`/companies/me/whatsapp-center${suffix}`);
-      setWhatsAppCenter(payload);
-      return payload;
+      const nextPayload = preserveTemporaryQrDuringPolling(whatsAppCenterRef.current, payload, options);
+      setWhatsAppCenter(nextPayload);
+      return nextPayload;
     } catch (error) {
       const message = error instanceof Error ? error.message : "Falha ao carregar o diagnostico do WhatsApp.";
       setWhatsAppDetailError(message);
