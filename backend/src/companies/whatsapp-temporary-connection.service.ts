@@ -48,8 +48,11 @@ type EvolutionInstanceEntry = {
 @Injectable()
 export class WhatsAppTemporaryConnectionService {
   private readonly logger = new Logger(WhatsAppTemporaryConnectionService.name);
+  private availabilityWarned = false;
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService) {
+    this.warnIfProviderUnavailable();
+  }
 
   private normalizeOptionalString(value: unknown) {
     const normalized = String(value || '').trim();
@@ -74,10 +77,27 @@ export class WhatsAppTemporaryConnectionService {
   }
 
   getAvailability() {
+    const missingConfigKeys: string[] = [];
+    if (!this.providerBaseUrl()) missingConfigKeys.push('WHATSAPP_TEMPORARY_API_URL');
+    if (!this.providerApiKey()) missingConfigKeys.push('WHATSAPP_TEMPORARY_API_KEY');
+
+    const configured = missingConfigKeys.length === 0;
+
     return {
-      configured: this.providerEnabled(),
-      provider: this.providerEnabled() ? 'EVOLUTION_API' : null,
+      configured,
+      provider: configured ? 'EVOLUTION_API' : null,
+      missingConfigKeys,
+      setupHint: configured
+        ? null
+        : `Configure ${missingConfigKeys.join(' e ')} no ambiente do backend para habilitar o WebWhats por QR.`,
     };
+  }
+
+  private warnIfProviderUnavailable() {
+    const availability = this.getAvailability();
+    if (availability.configured || this.availabilityWarned) return;
+    this.availabilityWarned = true;
+    this.logger.warn(availability.setupHint || 'Provider temporário do WhatsApp não configurado.');
   }
 
   private providerClient() {

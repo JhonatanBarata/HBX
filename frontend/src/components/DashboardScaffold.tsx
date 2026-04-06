@@ -148,6 +148,37 @@ export default function DashboardScaffold({
     };
   }, [loadPresentationProfile]);
 
+  // Prefetch modules and profile early so ModuleNav can render instantly on hover
+  useEffect(() => {
+    if (typeof window === "undefined" || !authenticated) return;
+    let mounted = true;
+
+    const prefetchModules = async () => {
+      try {
+        const [modules, profile] = await Promise.all([
+          apiFetch("/modules/me"),
+          apiFetch("/profile/current-user").catch(() => null),
+        ]);
+        if (!mounted) return;
+        (window as any).__hbx_prefetch = {
+          modules: Array.isArray(modules) ? modules : [],
+          profile,
+        };
+      } catch {
+        // ignore prefetch errors
+      }
+    };
+
+    const timer = window.setTimeout(() => {
+      void prefetchModules();
+    }, 0);
+
+    return () => {
+      mounted = false;
+      window.clearTimeout(timer);
+    };
+  }, [authenticated]);
+
   useEffect(() => {
     if (typeof window === "undefined" || !presentationProfile?.tenantId) return;
 

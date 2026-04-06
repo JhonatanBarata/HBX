@@ -36,6 +36,18 @@ function withAlpha(hex: string, alpha: number) {
   return `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${alpha})`;
 }
 
+function halveCssValue(value: string) {
+  const safe = String(value).trim();
+  const m = /^([0-9.]+)\s*([a-z%]*)$/i.exec(safe);
+  if (m) {
+    const num = parseFloat(m[1]);
+    const unit = m[2] || "";
+    const half = (num / 2).toString().replace(/(?:\.0+)$/g, "");
+    return `${half}${unit}`;
+  }
+  return `calc(${safe} / 2)`;
+}
+
 export function applyThemeSelectionToDocument(selection: HbxThemeSelection) {
   if (typeof document === "undefined") return;
 
@@ -88,12 +100,12 @@ export function applyThemeSelectionToDocument(selection: HbxThemeSelection) {
     "--pill-radius": "999px",
     "--topbar-frame-width": theme.chrome.topbarWidth,
     "--app-max-width": theme.chrome.contentWidth,
-    "--content-gutter": theme.chrome.contentGutter,
+    "--content-gutter": halveCssValue(theme.chrome.contentGutter),
     "--topbar-blur": theme.chrome.topbarBlur,
     "--workspace-rail-width": theme.workspace.railWidth,
     "--workspace-context-width": theme.workspace.contextWidth,
     "--workspace-gap": theme.workspace.shellGap,
-    "--workspace-padding": theme.workspace.shellPadding,
+    "--workspace-padding": halveCssValue(theme.workspace.shellPadding),
     "--workspace-hero-columns": theme.workspace.heroColumns,
     "--workspace-hero-min-height": theme.workspace.heroMinHeight,
     "--font-body": theme.typography.bodyFont,

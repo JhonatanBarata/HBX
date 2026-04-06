@@ -6,12 +6,16 @@
   place-items: center;
   padding: 20px;
   background: rgba(6, 19, 38, 0.52);
+  pointer-events: auto;
 }
 
 .dialog {
   width: min(1080px, 100%);
   max-height: min(88vh, 980px);
   overflow: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  pointer-events: auto;
   border-radius: 28px;
   border: 1px solid color-mix(in srgb, var(--line) 88%, var(--background));
   background:
@@ -23,6 +27,7 @@
 .frame {
   display: grid;
   gap: 1rem;
+  min-height: 0;
   padding: clamp(1rem, 2vw, 1.35rem);
 }
 

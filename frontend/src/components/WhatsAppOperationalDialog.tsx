@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useEffect } from "react";
 import styles from "./WhatsAppOperationalDialog.module.css";
 import {
   formatWhatsAppDateTime,
@@ -50,6 +51,21 @@ export default function WhatsAppOperationalDialog({
   onDisconnectTemporaryConnection,
   onRefreshTemporary,
 }: WhatsAppOperationalDialogProps) {
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        onClose();
+      }
+    };
+
+    document.addEventListener("keydown", handleEscape);
+    return () => {
+      document.removeEventListener("keydown", handleEscape);
+    };
+  }, [isOpen, onClose]);
+
   if (!isOpen) return null;
 
   const companyName = payload?.company.name || "Empresa";
@@ -192,6 +208,16 @@ export default function WhatsAppOperationalDialog({
                       <p>{temporary?.note || "A trilha temporaria destrava teste e prova de uso quando o objetivo e tirar a empresa da inercia."}</p>
                     </div>
 
+                    {temporary && !temporary.available ? (
+                      <div className={styles.alert}>
+                        <strong>WebWhats indisponível neste ambiente.</strong>
+                        <p>{temporary.setupHint || "Configure o provider temporário no backend para habilitar QR."}</p>
+                        {temporary.missingConfigKeys?.length ? (
+                          <p>Faltando: {temporary.missingConfigKeys.join(", ")}</p>
+                        ) : null}
+                      </div>
+                    ) : null}
+
                     <div className={styles.detailGrid}>
                       <article className={styles.fact}>
                         <span>Estado do vinculo</span>
@@ -208,6 +234,14 @@ export default function WhatsAppOperationalDialog({
                       <article className={styles.fact}>
                         <span>Conectado em</span>
                         <strong>{formatWhatsAppDateTime(temporary?.connectedAt)}</strong>
+                      </article>
+                      <article className={styles.fact}>
+                        <span>Provedor QR</span>
+                        <strong>{temporary?.provider || "Nao configurado"}</strong>
+                      </article>
+                      <article className={styles.fact}>
+                        <span>Configuracao</span>
+                        <strong>{temporary?.available ? "Pronta" : "Pendente"}</strong>
                       </article>
                     </div>
 
@@ -247,11 +281,13 @@ export default function WhatsAppOperationalDialog({
                         onClick={onStartTemporaryConnection}
                         disabled={busyAction !== null || !temporary?.available}
                       >
-                        {busyAction === "temporary-connect"
-                          ? "Gerando QR..."
-                          : temporary?.liveStatus === "connected"
-                            ? "Atualizar status por QR"
-                            : "Conectar por QR"}
+                        {!temporary?.available
+                          ? "Provider QR indisponivel"
+                          : busyAction === "temporary-connect"
+                            ? "Gerando QR..."
+                            : temporary?.liveStatus === "connected"
+                              ? "Atualizar status por QR"
+                              : "Conectar por QR"}
                       </button>
                       <button
                         type="button"

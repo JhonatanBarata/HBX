@@ -8,6 +8,18 @@
   --card-shadow: 0 28px 54px -38px rgba(15, 23, 42, 0.32);
 }
 
+/* Globally disable mid-word breaking/hyphenation for this page only.
+   This prevents words being split with hyphens or broken between letters
+   while allowing normal wrapping at word boundaries. */
+.page,
+.page * {
+  overflow-wrap: normal !important;
+  word-break: normal !important;
+  hyphens: none !important;
+  -webkit-hyphens: none !important;
+  -ms-hyphens: none !important;
+}
+
 /* Premium backdrop overrides (UIVENDAS dark mock) */
 .premiumBackdrop {
   position: relative;
@@ -65,16 +77,17 @@
   background:
     radial-gradient(circle at top right, color-mix(in srgb, var(--accent) 8%, transparent), transparent 42%),
     linear-gradient(180deg, color-mix(in srgb, var(--surface) 98%, var(--background)), color-mix(in srgb, var(--surface-soft) 97%, var(--background)));
-  border-color: color-mix(in srgb, var(--line) 68%, var(--background));
-  box-shadow: 0 36px 72px -44px rgba(2, 6, 23, 0.28);
+  /* Apply selected appearance by default so all cards look highlighted */
+  border-color: color-mix(in srgb, var(--accent) 14%, var(--background));
+  box-shadow: 0 30px 50px -34px color-mix(in srgb, var(--accent) 14%, transparent);
   transition: transform 220ms var(--motion-fast), box-shadow 220ms var(--motion-fast);
   -webkit-backdrop-filter: blur(6px) saturate(120%);
   backdrop-filter: blur(6px) saturate(120%);
 }
 
 .premiumBackdrop .leadCard[data-selected="true"] {
-  border-color: color-mix(in srgb, var(--accent) 14%, var(--background));
-  box-shadow: 0 30px 50px -34px color-mix(in srgb, var(--accent) 14%, transparent);
+  /* Cancel any inline transform applied to the selected card so visuals stay consistent */
+  transform: none !important;
 }
 
 .premiumBackdrop .detailSection,
@@ -82,7 +95,6 @@
   background: linear-gradient(135deg, color-mix(in srgb, var(--surface) 3%, var(--background)), color-mix(in srgb, var(--surface) 2%, var(--background)));
   border-color: color-mix(in srgb, var(--line) 6%, var(--background));
 }
-
 
 .filterRail,
 .boardShell,
@@ -201,8 +213,8 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-height: 42px;
-  padding: 0.72rem 0.98rem;
+  min-height: 38px;
+  padding: 0.5rem 0.75rem;
   border-radius: 16px;
   border: 1px solid color-mix(in srgb, var(--line) 80%, var(--background));
   text-decoration: none;
@@ -232,9 +244,16 @@
 .primaryAction:hover,
 .secondaryAction:hover,
 .ghostAction:hover,
-.dateFilterCard:hover,
 .leadCard:hover {
-  transform: translateY(-1px);
+  /* keep certain controls in place on hover, only increase shadow for emphasis */
+  transform: none;
+  box-shadow: 0 26px 46px -26px color-mix(in srgb, var(--line) 28%, transparent);
+}
+
+/* Date filter card hover: slight rise and stronger shadow for premium feel */
+.dateFilterCard:hover {
+  transform: translateY(-2px); /* small -translate-y-0.5 approx */
+  box-shadow: 0 18px 40px rgba(15,23,42,0.12);
 }
 
 .primaryAction[aria-disabled="true"],
@@ -277,26 +296,87 @@
 
 .filterRailScroller {
   display: flex;
-  gap: 0.75rem;
+  gap: 0.04rem; /* horizontal spacing reduced ~95% per request */
   overflow-x: auto;
   padding-bottom: 0.1rem;
 }
 
 .dateFilterCard {
-  min-width: 132px;
+  position: relative;
+  min-width: 116px;
+  height: 128px; /* increased height to give breathing room */
   display: grid;
-  gap: 0.22rem;
-  padding: 0.9rem;
-  border-radius: 22px;
-  border: 1px solid color-mix(in srgb, var(--line) 82%, var(--background));
-  background: color-mix(in srgb, var(--surface) 80%, var(--background));
-  text-align: left;
+  grid-template-rows: min-content 1fr; /* label, main content (centered) */
+  gap: 0.12rem; /* vertical spacing reduced ~80% */
+  padding: 0.2rem 0.05rem; /* vertical -80%, horizontal -95% */
+  border-radius: 28px;
+  border: 1px solid #e2e8f0; /* slate-200 */
+  background: color-mix(in srgb, #ffffff 80%, var(--background)); /* white at 80% */
+  text-align: center;
   cursor: pointer;
-  transition:
-    transform var(--motion-fast),
-    border-color var(--motion-fast),
-    box-shadow var(--motion-fast),
-    background var(--motion-fast);
+  transition: transform var(--motion-fast), box-shadow var(--motion-fast), border-color var(--motion-fast);
+  align-items: start;
+  justify-items: center;
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.08);
+}
+
+/* Agenda count badge (top-right) */
+.agendaBadge {
+  /* anchor badge absolutely to bottom center to avoid layout shifts */
+  position: absolute;
+  bottom: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: #f1f5f9; /* slate-100 */
+  color: #374151; /* slate-700 */
+  font-weight: 800;
+  font-size: 12px;
+  border: 1px solid rgba(15,23,42,0.04);
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.06);
+  margin: 0;
+  pointer-events: none;
+}
+
+.countViewport {
+  position: relative;
+  width: 100%;
+  height: 14px;
+  overflow: hidden;
+}
+
+.countItem {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  display: block;
+  text-align: center;
+  line-height: 14px;
+  font-size: 12px;
+}
+
+@keyframes odometer-old {
+  from { transform: translateY(0); opacity: 1; }
+  to { transform: translateY(-100%); opacity: 0; }
+}
+
+@keyframes odometer-new {
+  from { transform: translateY(100%); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+.countOldAnim {
+  animation: odometer-old 420ms cubic-bezier(.2,.8,.2,1) both;
+}
+
+.countNewAnim {
+  animation: odometer-new 420ms cubic-bezier(.2,.8,.2,1) both;
 }
 
 .dateFilterCard[data-dragging="true"] {
@@ -335,33 +415,57 @@
     background var(--motion-fast);
 }
 
+
 .dateFilterCard strong {
-  font-size: 1rem;
+  font-size: clamp(12px, 2.2vw, 18px); /* responsive: shrink when squeezed */
+  font-weight: 600;
+  line-height: 1.05;
+  grid-row: 2;
+  align-self: center;
+  justify-self: center;
+  text-align: center;
+  display: block;
+  max-width: 100%;
+  padding: 0 6px;
+  margin: 0;
+  color: #1f2937; /* slate-800 */
+  letter-spacing: -0.01em;
+  white-space: normal; /* allow wrapping instead of truncation */
+  overflow: visible;
+  text-overflow: clip;
+  word-break: break-word;
+  hyphens: auto;
 }
 
-.dateFilterCard span {
-  color: color-mix(in srgb, var(--foreground-soft) 72%, var(--muted));
+.dateFilterDay {
+  font-size: 10px; /* label */
+  text-transform: uppercase;
+  letter-spacing: 0.22em;
+  color: #9ca3af; /* slate-400 */
+  margin-bottom: 0.32rem;
+  font-weight: 700;
+  align-self: start;
+  justify-self: center;
 }
 
 .dateFilterCard b {
-  font-size: 1.22rem;
+  font-size: 0.75rem;
   line-height: 1;
   color: var(--foreground);
 }
 
-.dateFilterDay {
-  font-size: 0.68rem;
-  text-transform: uppercase;
-  letter-spacing: 0.16em;
-  color: color-mix(in srgb, var(--brand) 80%, var(--muted));
-}
+/* duplicate .dateFilterDay removed to keep single source of truth */
 
 .dateFilterCard[data-active="true"] {
-  border-color: color-mix(in srgb, var(--brand) 32%, var(--line));
-  background:
-    radial-gradient(circle at top right, color-mix(in srgb, var(--brand) 12%, transparent), transparent 34%),
-    linear-gradient(180deg, color-mix(in srgb, var(--surface) 98%, var(--background)), color-mix(in srgb, var(--brand-soft) 64%, var(--surface-soft)));
-  box-shadow: 0 22px 36px -28px color-mix(in srgb, var(--brand) 20%, transparent);
+  background: #ffffff; /* solid white when active */
+  border-color: #cbd5e1; /* slate-300 */
+  box-shadow: 0 18px 45px rgba(15, 23, 42, 0.16); /* stronger active shadow */
+}
+
+.dateFilterCard[data-active="true"] .agendaBadge {
+  background: #0f172a; /* slate-900 */
+  color: #ffffff;
+  box-shadow: 0 10px 22px rgba(15,23,42,0.18);
 }
 
 .dateFilterCard[data-dropover="true"] {
@@ -372,7 +476,8 @@
   box-shadow:
     0 28px 44px -30px color-mix(in srgb, var(--brand) 22%, transparent),
     0 0 0 2px color-mix(in srgb, var(--brand) 28%, transparent);
-  transform: translateY(-2px) scale(1.03);
+  /* remove vertical translation on dropover; keep slight scale for emphasis */
+  transform: scale(1.03);
 }
 
 .dateFilterCard[data-dropover="true"] .receiveHint {
@@ -382,6 +487,38 @@
   background: color-mix(in srgb, var(--brand) 18%, var(--background));
   color: color-mix(in srgb, var(--brand) 96%, var(--foreground));
   box-shadow: 0 0 0 4px color-mix(in srgb, var(--brand) 10%, transparent);
+}
+
+/* Graphic-only +Agenda button inserted after the 7th date card */
+.addAgendaButton {
+  min-width: 116px;
+  height: 112px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 28px;
+  border: 1px dashed #e2e8f0;
+  background: color-mix(in srgb, #ffffff 80%, var(--background));
+  color: color-mix(in srgb, var(--brand) 88%, var(--foreground));
+  cursor: pointer;
+  transition: transform var(--motion-fast), box-shadow var(--motion-fast);
+}
+.addAgendaButton .dateFilterDay,
+.addAgendaButton span,
+.addAgendaButton b,
+.addAgendaButton .receiveHint {
+  display: none;
+}
+.addAgendaButton strong {
+  display: block;
+  font-size: 22px;
+  line-height: 1;
+  text-align: center;
+  color: #1f2937;
+}
+.addAgendaButton:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 18px 40px rgba(15,23,42,0.12);
 }
 
 .dateFilterCard[data-pulse="true"] {
@@ -402,7 +539,8 @@
 
 .stageGrid {
   display: grid;
-  grid-template-columns: minmax(0, 2.4fr) minmax(200px, 0.48fr);
+  /* Cards (boardShell) take the remaining space; detail panel is at least 280px and at most 30% */
+  grid-template-columns: 1fr minmax(280px, 30%);
   gap: 1rem;
   align-items: start;
 }
@@ -440,6 +578,24 @@
   flex-wrap: wrap;
 }
 
+.toolbarHighlight {
+  position: relative;
+  background: color-mix(in srgb, var(--surface) 96%, var(--background));
+  color: var(--foreground);
+  border-color: color-mix(in srgb, var(--line) 72%, var(--background));
+  box-shadow: 0 12px 30px -8px rgba(15, 23, 42, 0.16);
+  -webkit-backdrop-filter: blur(6px) saturate(120%);
+  backdrop-filter: blur(6px) saturate(120%);
+  z-index: 12;
+  margin-right: 0.5rem;
+}
+
+.premiumBackdrop .toolbarHighlight {
+  background: color-mix(in srgb, var(--surface) 92%, var(--background));
+  color: var(--foreground);
+  border-color: color-mix(in srgb, var(--line) 60%, var(--background));
+}
+
 /* Reduce-to-fit action buttons: force single row but allow items to shrink to fit */
 .leadActionRow {
   flex-wrap: nowrap;
@@ -459,7 +615,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   padding-inline: 0.56rem;
-  font-size: 0.95rem;
+  font-size: 0.82rem;
 }
 
 /* Make WhatsApp slightly more prominent but still shrink-to-fit */
@@ -478,7 +634,7 @@
 }
 
 .whatsappAction:hover {
-  transform: translateY(-2px) scale(1.02);
+  transform: scale(1.02);
   box-shadow: 0 28px 60px -24px rgba(37, 211, 102, 0.28);
 }
 
@@ -489,7 +645,7 @@
 
 .cardsGrid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
   gap: 0.9rem;
   /* padding-top creates room for the selected card elevation (translateY(-18px))
      without overflowing into the cardsHeader above */
@@ -498,11 +654,16 @@
 
 .draggableWrap {
   touch-action: none;
+  transition: transform 220ms var(--motion-fast), opacity 160ms var(--motion-fast);
+  will-change: transform;
 }
 
 .draggableWrap[data-dragging="true"] {
   opacity: 0.05;
+  transition: none;
 }
+
+
 
 .leadCard {
   position: relative;
@@ -510,7 +671,7 @@
   gap: 0.75rem;
   min-height: 0;
   /* extra left padding to make room for the accent bar */
-  padding: 0.78rem 0.78rem 0.82rem 1.4rem;
+  padding: 1rem 1rem 1rem 1.4rem;
   border-radius: 28px;
   border: 1px solid color-mix(in srgb, var(--line) 68%, var(--background));
   background:
@@ -559,10 +720,10 @@
 
 .leadAccent {
   position: absolute;
-  top: 10px;
-  bottom: 10px;
+  top: 12px;
+  bottom: 12px;
   left: 0;
-  width: 10px;
+  width: 6px;
   border-radius: 0 10px 10px 0;
   background: linear-gradient(180deg, color-mix(in srgb, var(--brand) 72%, var(--background)), var(--brand));
   box-shadow: 4px 0 18px -8px rgba(2, 6, 23, 0.14);
@@ -642,7 +803,7 @@
 }
 
 .leadCard[data-selected="true"] .leadAccent {
-  width: 14px;
+  width: 10px;
   box-shadow: 12px 0 42px -18px color-mix(in srgb, var(--accent) 28%, transparent);
 }
 
@@ -650,10 +811,43 @@
 .leadAccent {
   top: 12px;
   bottom: 12px;
-  width: 12px;
+  width: 6px;
   border-radius: 0 14px 14px 0;
   box-shadow: 6px 0 28px -12px rgba(2, 6, 23, 0.18);
   border-right: 1px solid color-mix(in srgb, var(--line) 10%, var(--background));
+}
+
+/* premium glow overlay */
+.leadGlow {
+  position: absolute;
+  inset: 0;
+  border-radius: 28px;
+  pointer-events: none;
+  z-index: 1;
+  opacity: 0;
+  transition: opacity 220ms var(--motion-fast), transform 220ms var(--motion-fast);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--brand) 8%, transparent), transparent 38%);
+}
+.leadCard[data-selected="true"] .leadGlow {
+  opacity: 1;
+}
+.leadCard[data-tone="today"] .leadGlow {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--success) 10%, transparent), transparent 38%);
+}
+.leadCard[data-tone="overdue"] .leadGlow {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--danger) 10%, transparent), transparent 38%);
+}
+.leadCard[data-tone="scheduled"] .leadGlow {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--info) 10%, transparent), transparent 38%);
+}
+.leadCard[data-tone="closed"] .leadGlow {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--warning) 10%, transparent), transparent 38%);
+}
+
+/* ensure main content sits above the glow */
+.leadMainButton {
+  position: relative;
+  z-index: 3;
 }
 
 /* stronger per-tone accent glows (overrides earlier, preserves gradients) */
@@ -701,6 +895,22 @@
 .leadName {
   font-size: 1rem;
   line-height: 1.3;
+}
+
+.leadIdentity .returnBadge {
+  display: inline-block;
+  margin-top: 0.5rem;
+  font-size: 0.95rem;
+  font-weight: 800;
+  padding: 0.48rem 0.72rem;
+  border-radius: 14px;
+  border: 1px solid color-mix(in srgb, var(--line) 72%, var(--background));
+  background: color-mix(in srgb, var(--surface-soft) 92%, var(--background));
+  color: var(--foreground);
+}
+
+.leadSubline {
+  font-size: 0.75rem;
 }
 
 .leadSubline,
@@ -764,15 +974,15 @@
 }
 
 .leadMetricCompact {
-  padding: 0.56rem;
-  border-radius: 10px;
+  padding: 0.9rem;
+  border-radius: 12px;
   border: 1px solid color-mix(in srgb, var(--line) 82%, var(--background));
   background: color-mix(in srgb, var(--surface) 94%, var(--background));
 }
 
 .leadMetricCompact span {
   display: block;
-  font-size: 0.66rem;
+  font-size: 0.65rem;
   text-transform: uppercase;
   letter-spacing: 0.12em;
   color: var(--muted);
@@ -780,8 +990,9 @@
 
 .leadMetricCompact strong {
   display: block;
-  margin-top: 0.24rem;
+  margin-top: 0.32rem;
   color: var(--foreground);
+  font-size: 1.25rem;
 }
 
 .leadChipRow {
@@ -791,7 +1002,12 @@
 }
 
 .memoryChip {
-  padding-inline: 0.62rem;
+  padding: 0.26rem 0.7rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface) 94%, var(--background));
+  border: 1px solid color-mix(in srgb, var(--line) 86%, var(--background));
+  font-weight: 700;
+  font-size: 0.78rem;
 }
 
 .leadActionRow {
@@ -806,6 +1022,21 @@
 .detailPanel {
   position: sticky;
   top: calc(var(--topbar-total-height) + 12px);
+}
+
+/* Prevent words inside the detail panel from being hyphenated or split */
+.detailPanel,
+.detailPanel .panelEyebrow,
+.detailPanel .fieldLabel,
+.detailPanel .field,
+.detailPanel .detailMetric,
+.detailPanel .detailMetric *,
+.detailPanel .fieldGrid,
+.detailPanel .detailSection {
+  overflow-wrap: normal !important;
+  word-break: normal !important;
+  hyphens: none !important;
+  white-space: normal !important;
 }
 
 .detailRail {
@@ -938,6 +1169,9 @@
 .formFooter {
   display: flex;
   justify-content: flex-end;
+  gap: 0.6rem;
+  align-items: center;
+  flex-wrap: nowrap;
 }
 
 .timelineList,
@@ -955,28 +1189,32 @@
 .timelineItem,
 .commandRow {
   display: grid;
-  gap: 0.75rem;
-  padding: 0.95rem;
-  border-radius: 20px;
+  gap: 0.5rem;
+  padding: 0.45rem;
+  border-radius: 12px;
   border: 1px solid color-mix(in srgb, var(--line) 82%, var(--background));
   background: color-mix(in srgb, var(--surface) 82%, var(--background));
 }
 
 .timelineItem {
-  grid-template-columns: 14px minmax(0, 1fr);
+  grid-template-columns: 12px minmax(0, 1fr);
 }
 
 .timelineDot {
-  width: 14px;
-  height: 14px;
-  margin-top: 0.28rem;
-  border-radius: 999px;
-  background: linear-gradient(180deg, color-mix(in srgb, var(--brand) 74%, var(--background)), var(--brand));
-  box-shadow: 0 0 0 4px color-mix(in srgb, var(--brand) 12%, transparent);
-}
+  width: 10px;
+  height: 10px;
+  margin-top: 0.12rem;
 
-.timelineBody {
-  display: grid;
+.timelineBody strong {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+  display: block;
+  font-size: 0.92rem;
+  font-weight: 700;
+  line-height: 1.18;
+  color: var(--foreground);
+}
   gap: 0.28rem;
 }
 
@@ -1110,6 +1348,11 @@
   .cardsGrid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+  
+  /* timeline should span full width only on narrow screens */
+  .timelineSection {
+    grid-column: 1 / -1;
+  }
 }
 
 @media (max-width: 980px) {
@@ -1160,10 +1403,7 @@
   }
 }
 
-/* Make timeline occupy full width of the detail layout and be clickable/collapsible */
-.timelineSection {
-  grid-column: 1 / -1;
-}
+/* timeline layout handled via media queries */
 
 .timelineItem {
   cursor: pointer;
@@ -1174,19 +1414,40 @@
   overflow: hidden;
   text-overflow: ellipsis;
   display: block;
+  font-size: 0.86rem;
 }
 
 .timelineTopline span {
-  display: none;
+  display: inline-block;
+  font-size: 0.76rem;
+  color: var(--muted);
+  margin-left: 0.6rem;
 }
 
 .timelineBody p,
 .timelineMeta {
-  display: none;
+  display: block;
+  font-size: 0.78rem;
+  color: color-mix(in srgb, var(--foreground-soft) 84%, var(--muted));
+  line-height: 1.35;
+  margin: 0;
 }
 
 .timelineItem[data-expanded="true"] .timelineTopline span,
 .timelineItem[data-expanded="true"] .timelineBody p,
 .timelineItem[data-expanded="true"] .timelineMeta {
+  /* keep expanded rules for compatibility */
   display: block;
+}
+
+/* Thin, modern scrollbar inside timeline */
+.timelineList::-webkit-scrollbar {
+  width: 8px;
+}
+.timelineList::-webkit-scrollbar-track {
+  background: transparent;
+}
+.timelineList::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--line) 36%, transparent);
+  border-radius: 999px;
 }

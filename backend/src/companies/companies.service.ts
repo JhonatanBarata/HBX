@@ -430,6 +430,7 @@ export class CompaniesService implements OnModuleInit, OnModuleDestroy {
             this.normalizeOptionalString((company as any)?.whatsappDisplayNumber) ||
             this.normalizeOptionalString((company as any)?.whatsappNumber),
         };
+    const temporaryAvailability = this.whatsappTemporaryConnection.getAvailability();
 
     return {
       generatedAt: new Date().toISOString(),
@@ -450,7 +451,8 @@ export class CompaniesService implements OnModuleInit, OnModuleDestroy {
         credential: selectedCredential,
         effectiveConfig,
         includeInternal: false,
-        temporaryAvailable: this.whatsappTemporaryConnection.getAvailability().configured,
+        temporaryAvailability,
+        temporaryAvailable: temporaryAvailability.configured,
       }),
     };
   }

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
+import { createPortal } from "react-dom";
 import { apiFetch, clearToken, getToken } from "../app/dashboard/_lib/api";
 import { useInterfaceTransition } from "@/components/InterfaceTransitionProvider";
 import { useHbxTheme } from "@/components/ThemeProvider";
@@ -187,6 +188,7 @@ export default function TopBar() {
   const [masterContextReason, setMasterContextReason] = useState("");
   const [masterContextToast, setMasterContextToast] = useState<string | null>(null);
   const [topbarHiddenByScroll, setTopbarHiddenByScroll] = useState(false);
+  const [portalReady, setPortalReady] = useState(false);
   const [whatsAppDetailOpen, setWhatsAppDetailOpen] = useState(false);
   const [whatsAppDetailFocus, setWhatsAppDetailFocus] = useState<WhatsAppDiagnosticFocus>("status");
   const [whatsAppDetailLoading, setWhatsAppDetailLoading] = useState(false);
@@ -205,6 +207,10 @@ export default function TopBar() {
   const lastScrollYRef = useRef(0);
 
   usePopupTopbarLock(whatsAppDetailOpen || masterContextModalOpen);
+
+  useEffect(() => {
+    setPortalReady(true);
+  }, []);
 
   const refreshMasterAwareState = React.useCallback(async () => {
     const [profile, myModules] = await Promise.all([
@@ -731,6 +737,26 @@ export default function TopBar() {
   }, [authenticated]);
 
   useEffect(() => {
+    if (!portalReady) return;
+    const shouldLockBody = whatsAppDetailOpen || masterContextModalOpen;
+    if (!shouldLockBody) return;
+
+    const previousOverflow = document.body.style.overflow;
+    const previousTouchAction = document.body.style.touchAction;
+    const previousOverscrollBehavior = document.body.style.overscrollBehavior;
+
+    document.body.style.overflow = "hidden";
+    document.body.style.touchAction = "none";
+    document.body.style.overscrollBehavior = "contain";
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.body.style.touchAction = previousTouchAction;
+      document.body.style.overscrollBehavior = previousOverscrollBehavior;
+    };
+  }, [portalReady, whatsAppDetailOpen, masterContextModalOpen]);
+
+  useEffect(() => {
     if (!whatsAppDetailOpen) return;
 
     const handleEscape = (event: KeyboardEvent) => {
@@ -744,6 +770,21 @@ export default function TopBar() {
       document.removeEventListener("keydown", handleEscape);
     };
   }, [whatsAppDetailOpen]);
+
+  useEffect(() => {
+    if (!masterContextModalOpen) return;
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setMasterContextModalOpen(false);
+      }
+    };
+
+    document.addEventListener("keydown", handleEscape);
+    return () => {
+      document.removeEventListener("keydown", handleEscape);
+    };
+  }, [masterContextModalOpen]);
 
   useEffect(() => {
     function handleOutsideClick(event: MouseEvent) {
@@ -1106,6 +1147,127 @@ export default function TopBar() {
       : pendingHumanCount > 0
         ? `${pendingHumanCount} na fila`
         : "Status em leitura";
+  const whatsAppDialogNode = (
+    <WhatsAppOperationalDialog
+      isOpen={whatsAppDetailOpen}
+      focus={whatsAppDetailFocus}
+      loading={whatsAppDetailLoading}
+      busyAction={whatsAppDetailBusy}
+      payload={whatsAppCenter}
+      error={whatsAppDetailError}
+      message={whatsAppDetailMessage}
+      onClose={() => setWhatsAppDetailOpen(false)}
+      onFocusChange={(focus) => {
+        setWhatsAppDetailFocus(focus);
+        if (focus === "temporary") {
+          void loadWhatsAppCenter({ refreshTemporary: true });
+        }
+      }}
+      onChooseMode={(mode) => {
+        void chooseWhatsAppMode(mode);
+      }}
+      onRequestMigration={() => {
+        void requestWhatsAppMigration();
+      }}
+      onStartTemporaryConnection={() => {
+        void startTemporaryWhatsAppConnection();
+      }}
+      onDisconnectTemporaryConnection={() => {
+        void disconnectTemporaryWhatsAppConnection();
+      }}
+      onRefreshTemporary={() => {
+        void refreshTemporaryWhatsAppStatus();
+      }}
+    />
+  );
+  const masterContextModalNode =
+    masterContextModalOpen && authenticated && user?.isSystemMaster ? (
+      <div
+        style={{
+          position: "fixed",
+          inset: 0,
+          zIndex: 150,
+          background: "rgba(6, 19, 38, 0.42)",
+          display: "grid",
+          placeItems: "center",
+          padding: "16px",
+        }}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Assumir contexto da empresa"
+        onClick={() => setMasterContextModalOpen(false)}
+      >
+        <div
+          className="panel"
+          style={{ width: "min(620px, 100%)", padding: 16, maxHeight: "88vh", overflow: "auto" }}
+          onClick={(event) => event.stopPropagation()}
+        >
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-xs uppercase tracking-[0.12em] text-muted">Suporte interno MASTER</p>
+              <h3 className="mt-1 text-lg font-semibold">Assumir contexto da empresa</h3>
+            </div>
+            <button type="button" className="btn btn-secondary btn-sm" onClick={() => setMasterContextModalOpen(false)}>
+              Fechar
+            </button>
+          </div>
+
+          <div className="mt-4 grid gap-3">
+            {masterContextMessage ? (
+              <div className="alert alert-error">{masterContextMessage}</div>
+            ) : null}
+
+            <label className="grid gap-1 text-sm">
+              Empresa
+              <select
+                className="field"
+                value={selectedMasterCompanyId}
+                onChange={(event) => setSelectedMasterCompanyId(event.target.value)}
+              >
+                <option value="">Selecione...</option>
+                {masterCompanyOptions.map((company) => (
+                  <option key={company.id} value={String(company.id)}>
+                    {company.name} | {company.isActive ? "ativa" : "inativa"} | {company.paymentStatus}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className="grid gap-1 text-sm">
+              Motivo (opcional)
+              <textarea
+                className="field"
+                rows={3}
+                value={masterContextReason}
+                onChange={(event) => setMasterContextReason(event.target.value)}
+                placeholder="Ex.: diagnostico de webhook Meta para empresa X"
+              />
+            </label>
+
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                className="btn btn-primary btn-sm"
+                onClick={assumeMasterContext}
+                disabled={masterContextActionBusy}
+              >
+                {masterContextActionBusy ? "Aplicando..." : "Assumir contexto"}
+              </button>
+              {user.masterContext?.active ? (
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  onClick={exitMasterContext}
+                  disabled={masterContextActionBusy}
+                >
+                  Sair do contexto atual
+                </button>
+              ) : null}
+            </div>
+          </div>
+        </div>
+      </div>
+    ) : null;
   if (hiddenRoutes.has(pathname)) {
     return null;
   }
@@ -1324,38 +1486,7 @@ export default function TopBar() {
       </div>
 
       {/* incomingPopup UI removed — notifications are disabled for now */}
-
-      <WhatsAppOperationalDialog
-        isOpen={whatsAppDetailOpen}
-        focus={whatsAppDetailFocus}
-        loading={whatsAppDetailLoading}
-        busyAction={whatsAppDetailBusy}
-        payload={whatsAppCenter}
-        error={whatsAppDetailError}
-        message={whatsAppDetailMessage}
-        onClose={() => setWhatsAppDetailOpen(false)}
-        onFocusChange={(focus) => {
-          setWhatsAppDetailFocus(focus);
-          if (focus === "temporary") {
-            void loadWhatsAppCenter({ refreshTemporary: true });
-          }
-        }}
-        onChooseMode={(mode) => {
-          void chooseWhatsAppMode(mode);
-        }}
-        onRequestMigration={() => {
-          void requestWhatsAppMigration();
-        }}
-        onStartTemporaryConnection={() => {
-          void startTemporaryWhatsAppConnection();
-        }}
-        onDisconnectTemporaryConnection={() => {
-          void disconnectTemporaryWhatsAppConnection();
-        }}
-        onRefreshTemporary={() => {
-          void refreshTemporaryWhatsAppStatus();
-        }}
-      />
+      {portalReady ? createPortal(whatsAppDialogNode, document.body) : null}
 
       {masterContextToast ? (
         <div
@@ -1383,85 +1514,7 @@ export default function TopBar() {
         </div>
       ) : null}
 
-      {masterContextModalOpen && authenticated && user?.isSystemMaster ? (
-        <div
-          style={{
-            position: "fixed",
-            inset: 0,
-            zIndex: 150,
-            background: "rgba(6, 19, 38, 0.42)",
-            display: "grid",
-            placeItems: "center",
-            padding: "16px",
-          }}
-        >
-          <div className="panel" style={{ width: "min(620px, 100%)", padding: 16 }}>
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <p className="text-xs uppercase tracking-[0.12em] text-muted">Suporte interno MASTER</p>
-                <h3 className="mt-1 text-lg font-semibold">Assumir contexto da empresa</h3>
-              </div>
-              <button type="button" className="btn btn-secondary btn-sm" onClick={() => setMasterContextModalOpen(false)}>
-                Fechar
-              </button>
-            </div>
-
-            <div className="mt-4 grid gap-3">
-              {masterContextMessage ? (
-                <div className="alert alert-error">{masterContextMessage}</div>
-              ) : null}
-
-              <label className="grid gap-1 text-sm">
-                Empresa
-                <select
-                  className="field"
-                  value={selectedMasterCompanyId}
-                  onChange={(event) => setSelectedMasterCompanyId(event.target.value)}
-                >
-                  <option value="">Selecione...</option>
-                  {masterCompanyOptions.map((company) => (
-                    <option key={company.id} value={String(company.id)}>
-                      {company.name} | {company.isActive ? "ativa" : "inativa"} | {company.paymentStatus}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              <label className="grid gap-1 text-sm">
-                Motivo (opcional)
-                <textarea
-                  className="field"
-                  rows={3}
-                  value={masterContextReason}
-                  onChange={(event) => setMasterContextReason(event.target.value)}
-                  placeholder="Ex.: diagnostico de webhook Meta para empresa X"
-                />
-              </label>
-
-              <div className="flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  className="btn btn-primary btn-sm"
-                  onClick={assumeMasterContext}
-                  disabled={masterContextActionBusy}
-                >
-                  {masterContextActionBusy ? "Aplicando..." : "Assumir contexto"}
-                </button>
-                {user.masterContext?.active ? (
-                  <button
-                    type="button"
-                    className="btn btn-secondary btn-sm"
-                    onClick={exitMasterContext}
-                    disabled={masterContextActionBusy}
-                  >
-                    Sair do contexto atual
-                  </button>
-                ) : null}
-              </div>
-            </div>
-          </div>
-        </div>
-      ) : null}
+      {portalReady && masterContextModalNode ? createPortal(masterContextModalNode, document.body) : null}
 
       <TechAssistantGlobalDrawer
         isSystemMaster={Boolean(user?.isSystemMaster)}
