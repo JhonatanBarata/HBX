@@ -46,6 +46,7 @@ export type WhatsAppCenterSnapshot = {
     selected: boolean;
     status: 'NOT_CONNECTED' | 'TEMPORARY' | 'ATTENTION';
     available: boolean;
+    configured?: boolean;
     note: string;
     liveStatus: 'idle' | 'qr_ready' | 'connected' | 'error';
     provider: string | null;
@@ -56,6 +57,8 @@ export type WhatsAppCenterSnapshot = {
     connectedAt: string | null;
     lastSyncAt: string | null;
     errorMessage: string | null;
+    missingConfigKeys?: string[];
+    setupHint?: string | null;
   };
   official: {
     selected: boolean;
@@ -89,13 +92,25 @@ export function buildWhatsAppCenterSnapshot(input: {
     whatsappNumber?: NullableText;
   } | null;
   includeInternal?: boolean;
+  temporaryAvailability?: {
+    configured: boolean;
+    provider: string | null;
+    missingConfigKeys?: string[];
+    setupHint?: string | null;
+  } | null;
   temporaryAvailable?: boolean;
 }): WhatsAppCenterSnapshot {
   const company = input.company || {};
   const credential = input.credential || null;
   const effectiveConfig = input.effectiveConfig || null;
   const includeInternal = Boolean(input.includeInternal);
-  const temporaryAvailable = Boolean(input.temporaryAvailable);
+  const temporaryAvailability =
+    input.temporaryAvailability || {
+      configured: Boolean(input.temporaryAvailable),
+      provider: null,
+      missingConfigKeys: [],
+      setupHint: null,
+    };
 
   const mode = normalizeMode(company.whatsappConnectionMode);
   const temporaryStatus = normalizeTemporaryStatus(company.whatsappTemporaryStatus);
@@ -177,17 +192,18 @@ export function buildWhatsAppCenterSnapshot(input: {
     temporary: {
       selected: mode === 'TEMPORARY',
       status: temporaryStatus,
-      available: temporaryAvailable,
+      available: temporaryAvailability.configured,
+      configured: temporaryAvailability.configured,
       note:
         temporaryStatus === 'TEMPORARY'
           ? 'Número temporário conectado por QR para teste rápido da operação.'
           : temporaryQrCodeData || temporaryPairingCode
             ? 'O QR já foi gerado. Falta apenas concluir o pareamento no WhatsApp.'
-            : temporaryAvailable
+            : temporaryAvailability.configured
               ? 'O vínculo rápido pode ser iniciado por QR sem misturar esse trilho com a rota oficial da Meta.'
-              : 'O vínculo rápido depende da configuração técnica do provedor QR neste ambiente.',
+              : temporaryAvailability.setupHint || 'O vínculo rápido depende da configuração técnica do provedor QR neste ambiente.',
       liveStatus: temporaryLiveStatus,
-      provider: temporaryProvider,
+      provider: temporaryProvider || temporaryAvailability.provider,
       instanceKey: temporaryInstanceKey,
       pairingCode: temporaryPairingCode,
       qrCodeDataUrl: temporaryQrCodeData,
@@ -195,6 +211,8 @@ export function buildWhatsAppCenterSnapshot(input: {
       connectedAt: temporaryConnectedAt,
       lastSyncAt: temporaryLastSyncAt,
       errorMessage: temporaryError,
+      missingConfigKeys: temporaryAvailability.missingConfigKeys || [],
+      setupHint: temporaryAvailability.setupHint || null,
     },
     official: {
       selected: mode === 'OFFICIAL',

@@ -51,12 +51,12 @@
   --pill-radius: 999px;
   --topbar-frame-width: 1480px;
   --app-max-width: 1540px;
-  --content-gutter: 18px;
+  --content-gutter: 9px;
   --topbar-blur: 24px;
   --workspace-rail-width: 292px;
   --workspace-context-width: 286px;
   --workspace-gap: 18px;
-  --workspace-padding: 20px;
+  --workspace-padding: 10px;
   --workspace-hero-columns: 1.25fr 0.9fr;
   --workspace-hero-min-height: 196px;
   --font-body: var(--font-manrope);

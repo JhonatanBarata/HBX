@@ -20,6 +20,7 @@ export type WhatsAppCenterPayload = {
       selected: boolean;
       status: "NOT_CONNECTED" | "TEMPORARY" | "ATTENTION";
       available: boolean;
+      configured?: boolean;
       note: string;
       liveStatus: "idle" | "qr_ready" | "connected" | "error";
       provider?: string | null;
@@ -30,6 +31,8 @@ export type WhatsAppCenterPayload = {
       connectedAt?: string | null;
       lastSyncAt?: string | null;
       errorMessage?: string | null;
+      missingConfigKeys?: string[];
+      setupHint?: string | null;
     };
     official: {
       selected: boolean;

@@ -818,4 +818,55 @@ export class VendasService {
       lead: this.buildLeadPayload(updated),
     };
   }
+
+  async registerAttemptForUser(user: any, leadId: string, dto?: { channel?: string }) {
+    const context = this.resolveUserContext(user);
+    const existing = await this.prisma.vendasLead.findFirst({
+      where: {
+        id: String(leadId || '').trim(),
+        companyId: context.companyId,
+      },
+    });
+
+    if (!existing) {
+      throw new NotFoundException('Lead comercial nao encontrado.');
+    }
+
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const row = await tx.vendasLead.update({
+        where: { id: existing.id },
+        data: {
+          attemptCount: { increment: 1 },
+          lastContactAt: new Date(),
+        },
+      });
+
+      await tx.vendasLeadTimelineEvent.create({
+        data: {
+          leadId: existing.id,
+          ...this.buildTimelineEvent({
+            eventType: 'contact_made',
+            title: 'Tentativa de contato',
+            description: dto?.channel ? `Tentativa por ${String(dto.channel)}` : 'Tentativa de contato registrada.',
+            createdByUserId: context.userId,
+          }),
+        },
+      });
+
+      return tx.vendasLead.findUniqueOrThrow({
+        where: { id: row.id },
+        include: {
+          timelineEvents: {
+            orderBy: [{ createdAt: 'desc' }],
+            take: 12,
+          },
+        },
+      });
+    });
+
+    return {
+      ok: true,
+      lead: this.buildLeadPayload(updated),
+    };
+  }
 }

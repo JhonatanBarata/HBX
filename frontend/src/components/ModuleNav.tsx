@@ -219,6 +219,18 @@ export default function ModuleNav({
         return;
       }
 
+      // If the app already prefetched modules/profile (e.g. DashboardScaffold), use them
+      if (typeof window !== "undefined" && (window as any).__hbx_prefetch && Array.isArray((window as any).__hbx_prefetch.modules)) {
+        const pre = (window as any).__hbx_prefetch;
+        if (!mounted) return;
+        setModules(Array.isArray(pre.modules) ? pre.modules : []);
+        setUserRole(String(pre.profile?.role || null));
+        setIsSystemMaster(Boolean(pre.profile?.isSystemMaster));
+        setHasCompany(Boolean(pre.profile?.company?.id));
+        setLoading(false);
+        return;
+      }
+
       setLoading(true);
       try {
         const [myModules, profile] = await Promise.all([
