@@ -1054,10 +1054,12 @@ export default function VendasClientPage() {
     if (action === "amanha") {
       // Move the lead to the next available date filter instead of only setting a datetime.
       // Compute the lead's current date key and find its index inside `dateFilters`.
+      const currentRecord = leadById.get(lead.id);
+      const leadBlock = currentRecord?.block || "today";
       const currentDateKey =
-        lead.block === "scheduled"
+        leadBlock === "scheduled"
           ? (`scheduled:${buildLocalDateKey(lead.returnAt || lead.updatedAt)}` as DateFilterKey)
-          : (lead.block as DateFilterKey);
+          : (leadBlock as DateFilterKey);
 
       const idx = dateFilters.findIndex((item) => item.key === currentDateKey);
       const nextIndex = idx >= 0 ? Math.min(idx + 1, Math.max(0, dateFilters.length - 1)) : 0;
