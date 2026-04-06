@@ -202,7 +202,7 @@ export class WhatsAppTemporaryConnectionService {
 
   private parseAxiosError(error: unknown) {
     if (axios.isAxiosError(error)) {
-      const status = error.response?.status;
+      const status = error.response?.status || null;
       const payload = error.response?.data;
       const message = typeof payload === 'string'
         ? payload
@@ -225,6 +225,35 @@ export class WhatsAppTemporaryConnectionService {
   private isConnectedState(rawState: string | null) {
     const normalized = String(rawState || '').trim().toLowerCase();
     return normalized === 'open' || normalized === 'connected';
+  }
+
+  private isTransientInstanceNotFoundError(error: unknown) {
+    const parsed = this.parseAxiosError(error);
+    const message = String(parsed.message || '').trim().toLowerCase();
+    return parsed.status === 404 && (
+      message.includes('instance')
+      || message.includes('not found')
+      || message.includes('not exist')
+      || message.includes('does not exist')
+      || message.includes('404')
+    );
+  }
+
+  private async retryTransientInstanceLookup<T>(operation: () => Promise<T>, context: string) {
+    try {
+      return await operation();
+    } catch (error) {
+      if (!this.isTransientInstanceNotFoundError(error)) {
+        throw error;
+      }
+
+      const parsed = this.parseAxiosError(error);
+      this.logger.warn(
+        `Temporary WhatsApp provider returned transient instance lookup error during ${context}: ${parsed.message}. Retrying once.`,
+      );
+      await new Promise((resolve) => setTimeout(resolve, 800));
+      return operation();
+    }
   }
 
   private resolveDisplayNumber(instance: EvolutionInstanceEntry['instance'] | null) {
@@ -319,66 +348,92 @@ export class WhatsAppTemporaryConnectionService {
     const client = this.providerClient();
     const lastSyncAt = new Date();
     const requestQr = Boolean(options?.requestQr);
+    let preservedInstanceKey = this.normalizeOptionalString(company.whatsappTemporaryInstanceKey);
+    let preservedPairingCode = this.normalizeOptionalString(company.whatsappTemporaryPairingCode);
+    let preservedQrCodeDataUrl = this.normalizeOptionalString(company.whatsappTemporaryQrCodeData);
+    let preservedDisplayNumber = this.normalizeOptionalString(company.whatsappTemporaryDisplayNumber);
+    let preservedConnectedAt = company.whatsappTemporaryConnectedAt || null;
 
     try {
       const { instanceKey, instance } = await this.ensureEvolutionInstance(client, company);
+      preservedInstanceKey = instanceKey;
       const currentInstance = instance || (await this.fetchEvolutionInstance(client, instanceKey));
-      const rawState = await this.fetchConnectionState(client, instanceKey);
+      preservedDisplayNumber =
+        this.resolveDisplayNumber(currentInstance)
+        || preservedDisplayNumber;
+      const rawState = await this.retryTransientInstanceLookup(
+        () => this.fetchConnectionState(client, instanceKey),
+        `connectionState/${instanceKey}`,
+      );
       const connected = this.isConnectedState(rawState);
       let code: string | null = null;
-      let pairingCode: string | null = null;
 
       if (!connected && requestQr) {
-        const connectPayload = await this.fetchConnectPayload(
-          client,
-          instanceKey,
-          this.normalizeDigits(company.whatsappNumber) || this.normalizeDigits(company.contactPhone),
+        const connectPayload = await this.retryTransientInstanceLookup(
+          () => this.fetchConnectPayload(
+            client,
+            instanceKey,
+            this.normalizeDigits(company.whatsappNumber) || this.normalizeDigits(company.contactPhone),
+          ),
+          `connect/${instanceKey}`,
         );
         code = connectPayload.code;
-        pairingCode = connectPayload.pairingCode;
+        preservedPairingCode = connectPayload.pairingCode || preservedPairingCode;
       }
 
-      const qrCodeDataUrl = connected
-        ? null
-        : code
-          ? await this.buildQrCodeDataUrl(code)
-          : this.normalizeOptionalString(company.whatsappTemporaryQrCodeData);
-      const displayNumber =
-        this.resolveDisplayNumber(currentInstance)
-        || this.normalizeOptionalString(company.whatsappTemporaryDisplayNumber);
+      if (connected) {
+        preservedPairingCode = null;
+        preservedQrCodeDataUrl = null;
+        preservedConnectedAt = company.whatsappTemporaryConnectedAt || lastSyncAt;
+      } else if (code) {
+        preservedQrCodeDataUrl = await this.buildQrCodeDataUrl(code);
+      }
 
       return {
         connected,
         temporaryStatus: connected
           ? 'TEMPORARY'
-          : requestQr || String(rawState || '').trim()
+          : requestQr || String(rawState || '').trim() || preservedQrCodeDataUrl || preservedPairingCode
             ? 'ATTENTION'
             : 'NOT_CONNECTED',
         rawState,
-        qrCodeDataUrl,
-        pairingCode: connected ? null : pairingCode || this.normalizeOptionalString(company.whatsappTemporaryPairingCode),
-        displayNumber,
+        qrCodeDataUrl: preservedQrCodeDataUrl,
+        pairingCode: preservedPairingCode,
+        displayNumber: preservedDisplayNumber,
         provider: 'EVOLUTION_API',
         errorMessage: null,
-        connectedAt: connected ? company.whatsappTemporaryConnectedAt || lastSyncAt : null,
+        connectedAt: connected ? preservedConnectedAt : null,
         lastSyncAt,
         instanceKey,
       } satisfies TemporarySyncResult;
     } catch (error) {
       const parsed = this.parseAxiosError(error);
+      const latestCompany = await this.loadCompany(company.id).catch(() => company);
+      const instanceKey =
+        preservedInstanceKey
+        || this.normalizeOptionalString(latestCompany.whatsappTemporaryInstanceKey);
+      const pairingCode =
+        preservedPairingCode
+        || this.normalizeOptionalString(latestCompany.whatsappTemporaryPairingCode);
+      const qrCodeDataUrl =
+        preservedQrCodeDataUrl
+        || this.normalizeOptionalString(latestCompany.whatsappTemporaryQrCodeData);
+      const displayNumber =
+        preservedDisplayNumber
+        || this.normalizeOptionalString(latestCompany.whatsappTemporaryDisplayNumber);
       this.logger.warn(`Temporary WhatsApp provider sync failed for company ${company.id}: ${parsed.message}`);
       return {
         connected: false,
         temporaryStatus: 'ATTENTION',
         rawState: null,
-        qrCodeDataUrl: null,
-        pairingCode: this.normalizeOptionalString(company.whatsappTemporaryPairingCode),
-        displayNumber: this.normalizeOptionalString(company.whatsappTemporaryDisplayNumber),
+        qrCodeDataUrl,
+        pairingCode,
+        displayNumber,
         provider: this.providerEnabled() ? 'EVOLUTION_API' : null,
-        errorMessage: parsed.message || this.normalizeOptionalString(company.whatsappTemporaryStatusError),
-        connectedAt: null,
+        errorMessage: parsed.message || this.normalizeOptionalString(latestCompany.whatsappTemporaryStatusError),
+        connectedAt: preservedConnectedAt || latestCompany.whatsappTemporaryConnectedAt || null,
         lastSyncAt,
-        instanceKey: this.normalizeOptionalString(company.whatsappTemporaryInstanceKey),
+        instanceKey,
       } satisfies TemporarySyncResult;
     }
   }
