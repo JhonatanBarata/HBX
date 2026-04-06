@@ -8,18 +8,6 @@
   --card-shadow: 0 28px 54px -38px rgba(15, 23, 42, 0.32);
 }
 
-/* Globally disable mid-word breaking/hyphenation for this page only.
-   This prevents words being split with hyphens or broken between letters
-   while allowing normal wrapping at word boundaries. */
-.page,
-.page * {
-  overflow-wrap: normal !important;
-  word-break: normal !important;
-  hyphens: none !important;
-  -webkit-hyphens: none !important;
-  -ms-hyphens: none !important;
-}
-
 /* Premium backdrop overrides (UIVENDAS dark mock) */
 .premiumBackdrop {
   position: relative;
@@ -244,16 +232,9 @@
 .primaryAction:hover,
 .secondaryAction:hover,
 .ghostAction:hover,
+.dateFilterCard:hover,
 .leadCard:hover {
-  /* keep certain controls in place on hover, only increase shadow for emphasis */
-  transform: none;
-  box-shadow: 0 26px 46px -26px color-mix(in srgb, var(--line) 28%, transparent);
-}
-
-/* Date filter card hover: slight rise and stronger shadow for premium feel */
-.dateFilterCard:hover {
-  transform: translateY(-2px); /* small -translate-y-0.5 approx */
-  box-shadow: 0 18px 40px rgba(15,23,42,0.12);
+  transform: translateY(-1px);
 }
 
 .primaryAction[aria-disabled="true"],
@@ -296,87 +277,26 @@
 
 .filterRailScroller {
   display: flex;
-  gap: 0.04rem; /* horizontal spacing reduced ~95% per request */
+  gap: 0.75rem;
   overflow-x: auto;
   padding-bottom: 0.1rem;
 }
 
 .dateFilterCard {
-  position: relative;
-  min-width: 116px;
-  height: 128px; /* increased height to give breathing room */
+  min-width: 98px;
   display: grid;
-  grid-template-rows: min-content 1fr; /* label, main content (centered) */
-  gap: 0.12rem; /* vertical spacing reduced ~80% */
-  padding: 0.2rem 0.05rem; /* vertical -80%, horizontal -95% */
-  border-radius: 28px;
-  border: 1px solid #e2e8f0; /* slate-200 */
-  background: color-mix(in srgb, #ffffff 80%, var(--background)); /* white at 80% */
-  text-align: center;
+  gap: 0.22rem;
+  padding: 0.75rem 1rem;
+  border-radius: 22px;
+  border: 1px solid color-mix(in srgb, var(--line) 82%, var(--background));
+  background: color-mix(in srgb, var(--surface) 80%, var(--background));
+  text-align: left;
   cursor: pointer;
-  transition: transform var(--motion-fast), box-shadow var(--motion-fast), border-color var(--motion-fast);
-  align-items: start;
-  justify-items: center;
-  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.08);
-}
-
-/* Agenda count badge (top-right) */
-.agendaBadge {
-  /* anchor badge absolutely to bottom center to avoid layout shifts */
-  position: absolute;
-  bottom: 8px;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 28px;
-  height: 28px;
-  border-radius: 999px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background: #f1f5f9; /* slate-100 */
-  color: #374151; /* slate-700 */
-  font-weight: 800;
-  font-size: 12px;
-  border: 1px solid rgba(15,23,42,0.04);
-  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.06);
-  margin: 0;
-  pointer-events: none;
-}
-
-.countViewport {
-  position: relative;
-  width: 100%;
-  height: 14px;
-  overflow: hidden;
-}
-
-.countItem {
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: 0;
-  display: block;
-  text-align: center;
-  line-height: 14px;
-  font-size: 12px;
-}
-
-@keyframes odometer-old {
-  from { transform: translateY(0); opacity: 1; }
-  to { transform: translateY(-100%); opacity: 0; }
-}
-
-@keyframes odometer-new {
-  from { transform: translateY(100%); opacity: 0; }
-  to { transform: translateY(0); opacity: 1; }
-}
-
-.countOldAnim {
-  animation: odometer-old 420ms cubic-bezier(.2,.8,.2,1) both;
-}
-
-.countNewAnim {
-  animation: odometer-new 420ms cubic-bezier(.2,.8,.2,1) both;
+  transition:
+    transform var(--motion-fast),
+    border-color var(--motion-fast),
+    box-shadow var(--motion-fast),
+    background var(--motion-fast);
 }
 
 .dateFilterCard[data-dragging="true"] {
@@ -415,37 +335,12 @@
     background var(--motion-fast);
 }
 
-
 .dateFilterCard strong {
-  font-size: clamp(12px, 2.2vw, 18px); /* responsive: shrink when squeezed */
-  font-weight: 600;
-  line-height: 1.05;
-  grid-row: 2;
-  align-self: center;
-  justify-self: center;
-  text-align: center;
-  display: block;
-  max-width: 100%;
-  padding: 0 6px;
-  margin: 0;
-  color: #1f2937; /* slate-800 */
-  letter-spacing: -0.01em;
-  white-space: normal; /* allow wrapping instead of truncation */
-  overflow: visible;
-  text-overflow: clip;
-  word-break: break-word;
-  hyphens: auto;
+  font-size: 0.875rem;
 }
 
-.dateFilterDay {
-  font-size: 10px; /* label */
-  text-transform: uppercase;
-  letter-spacing: 0.22em;
-  color: #9ca3af; /* slate-400 */
-  margin-bottom: 0.32rem;
-  font-weight: 700;
-  align-self: start;
-  justify-self: center;
+.dateFilterCard span {
+  color: color-mix(in srgb, var(--foreground-soft) 72%, var(--muted));
 }
 
 .dateFilterCard b {
@@ -454,18 +349,19 @@
   color: var(--foreground);
 }
 
-/* duplicate .dateFilterDay removed to keep single source of truth */
-
-.dateFilterCard[data-active="true"] {
-  background: #ffffff; /* solid white when active */
-  border-color: #cbd5e1; /* slate-300 */
-  box-shadow: 0 18px 45px rgba(15, 23, 42, 0.16); /* stronger active shadow */
+.dateFilterDay {
+  font-size: 0.625rem; /* 10px */
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  color: color-mix(in srgb, var(--brand) 80%, var(--muted));
 }
 
-.dateFilterCard[data-active="true"] .agendaBadge {
-  background: #0f172a; /* slate-900 */
-  color: #ffffff;
-  box-shadow: 0 10px 22px rgba(15,23,42,0.18);
+.dateFilterCard[data-active="true"] {
+  border-color: color-mix(in srgb, var(--brand) 32%, var(--line));
+  background:
+    radial-gradient(circle at top right, color-mix(in srgb, var(--brand) 12%, transparent), transparent 34%),
+    linear-gradient(180deg, color-mix(in srgb, var(--surface) 98%, var(--background)), color-mix(in srgb, var(--brand-soft) 64%, var(--surface-soft)));
+  box-shadow: 0 22px 36px -28px color-mix(in srgb, var(--brand) 20%, transparent);
 }
 
 .dateFilterCard[data-dropover="true"] {
@@ -476,8 +372,7 @@
   box-shadow:
     0 28px 44px -30px color-mix(in srgb, var(--brand) 22%, transparent),
     0 0 0 2px color-mix(in srgb, var(--brand) 28%, transparent);
-  /* remove vertical translation on dropover; keep slight scale for emphasis */
-  transform: scale(1.03);
+  transform: translateY(-2px) scale(1.03);
 }
 
 .dateFilterCard[data-dropover="true"] .receiveHint {
@@ -491,14 +386,14 @@
 
 /* Graphic-only +Agenda button inserted after the 7th date card */
 .addAgendaButton {
-  min-width: 116px;
-  height: 112px;
+  min-width: 132px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border-radius: 28px;
-  border: 1px dashed #e2e8f0;
-  background: color-mix(in srgb, #ffffff 80%, var(--background));
+  padding: 0.75rem 1rem;
+  border-radius: 22px;
+  border: 1px dashed color-mix(in srgb, var(--line) 64%, var(--background));
+  background: color-mix(in srgb, var(--surface) 86%, var(--background));
   color: color-mix(in srgb, var(--brand) 88%, var(--foreground));
   cursor: pointer;
   transition: transform var(--motion-fast), box-shadow var(--motion-fast);
@@ -511,14 +406,14 @@
 }
 .addAgendaButton strong {
   display: block;
-  font-size: 22px;
+  font-size: 1.25rem;
   line-height: 1;
   text-align: center;
-  color: #1f2937;
+  color: color-mix(in srgb, var(--brand) 88%, var(--foreground));
 }
 .addAgendaButton:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 18px 40px rgba(15,23,42,0.12);
+  transform: translateY(-1px);
+  box-shadow: 0 18px 36px -12px color-mix(in srgb, var(--brand) 16%, transparent);
 }
 
 .dateFilterCard[data-pulse="true"] {
@@ -539,8 +434,7 @@
 
 .stageGrid {
   display: grid;
-  /* Cards (boardShell) take the remaining space; detail panel is at least 280px and at most 30% */
-  grid-template-columns: 1fr minmax(280px, 30%);
+  grid-template-columns: minmax(0, 2.4fr) minmax(200px, 0.48fr);
   gap: 1rem;
   align-items: start;
 }
@@ -578,24 +472,6 @@
   flex-wrap: wrap;
 }
 
-.toolbarHighlight {
-  position: relative;
-  background: color-mix(in srgb, var(--surface) 96%, var(--background));
-  color: var(--foreground);
-  border-color: color-mix(in srgb, var(--line) 72%, var(--background));
-  box-shadow: 0 12px 30px -8px rgba(15, 23, 42, 0.16);
-  -webkit-backdrop-filter: blur(6px) saturate(120%);
-  backdrop-filter: blur(6px) saturate(120%);
-  z-index: 12;
-  margin-right: 0.5rem;
-}
-
-.premiumBackdrop .toolbarHighlight {
-  background: color-mix(in srgb, var(--surface) 92%, var(--background));
-  color: var(--foreground);
-  border-color: color-mix(in srgb, var(--line) 60%, var(--background));
-}
-
 /* Reduce-to-fit action buttons: force single row but allow items to shrink to fit */
 .leadActionRow {
   flex-wrap: nowrap;
@@ -615,7 +491,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   padding-inline: 0.56rem;
-  font-size: 0.82rem;
+  font-size: 0.95rem;
 }
 
 /* Make WhatsApp slightly more prominent but still shrink-to-fit */
@@ -634,7 +510,7 @@
 }
 
 .whatsappAction:hover {
-  transform: scale(1.02);
+  transform: translateY(-2px) scale(1.02);
   box-shadow: 0 28px 60px -24px rgba(37, 211, 102, 0.28);
 }
 
@@ -645,7 +521,7 @@
 
 .cardsGrid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 0.9rem;
   /* padding-top creates room for the selected card elevation (translateY(-18px))
      without overflowing into the cardsHeader above */
@@ -1024,21 +900,6 @@
   top: calc(var(--topbar-total-height) + 12px);
 }
 
-/* Prevent words inside the detail panel from being hyphenated or split */
-.detailPanel,
-.detailPanel .panelEyebrow,
-.detailPanel .fieldLabel,
-.detailPanel .field,
-.detailPanel .detailMetric,
-.detailPanel .detailMetric *,
-.detailPanel .fieldGrid,
-.detailPanel .detailSection {
-  overflow-wrap: normal !important;
-  word-break: normal !important;
-  hyphens: none !important;
-  white-space: normal !important;
-}
-
 .detailRail {
   display: flex;
   align-items: center;
@@ -1169,9 +1030,6 @@
 .formFooter {
   display: flex;
   justify-content: flex-end;
-  gap: 0.6rem;
-  align-items: center;
-  flex-wrap: nowrap;
 }
 
 .timelineList,
@@ -1190,8 +1048,8 @@
 .commandRow {
   display: grid;
   gap: 0.5rem;
-  padding: 0.45rem;
-  border-radius: 12px;
+  padding: 0.6rem;
+  border-radius: 16px;
   border: 1px solid color-mix(in srgb, var(--line) 82%, var(--background));
   background: color-mix(in srgb, var(--surface) 82%, var(--background));
 }
@@ -1201,18 +1059,18 @@
 }
 
 .timelineDot {
-  width: 10px;
-  height: 10px;
-  margin-top: 0.12rem;
+  width: 12px;
+  height: 12px;
+  margin-top: 0.16rem;
 
 .timelineBody strong {
   white-space: normal;
   overflow: visible;
   text-overflow: clip;
   display: block;
-  font-size: 0.92rem;
+  font-size: 0.97rem;
   font-weight: 700;
-  line-height: 1.18;
+  line-height: 1.2;
   color: var(--foreground);
 }
   gap: 0.28rem;
@@ -1348,11 +1206,6 @@
   .cardsGrid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
-  
-  /* timeline should span full width only on narrow screens */
-  .timelineSection {
-    grid-column: 1 / -1;
-  }
 }
 
 @media (max-width: 980px) {
@@ -1403,7 +1256,10 @@
   }
 }
 
-/* timeline layout handled via media queries */
+/* Make timeline occupy full width of the detail layout and be clickable/collapsible */
+.timelineSection {
+  grid-column: 1 / -1;
+}
 
 .timelineItem {
   cursor: pointer;
@@ -1414,12 +1270,11 @@
   overflow: hidden;
   text-overflow: ellipsis;
   display: block;
-  font-size: 0.86rem;
 }
 
 .timelineTopline span {
   display: inline-block;
-  font-size: 0.76rem;
+  font-size: 0.82rem;
   color: var(--muted);
   margin-left: 0.6rem;
 }
@@ -1427,7 +1282,7 @@
 .timelineBody p,
 .timelineMeta {
   display: block;
-  font-size: 0.78rem;
+  font-size: 0.86rem;
   color: color-mix(in srgb, var(--foreground-soft) 84%, var(--muted));
   line-height: 1.35;
   margin: 0;

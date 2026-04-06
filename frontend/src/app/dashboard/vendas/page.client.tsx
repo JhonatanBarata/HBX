@@ -13,7 +13,7 @@ import {
   type DragStartEvent,
 } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
-import { useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from "react";
+import { useDeferredValue, useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from "react";
 import DashboardScaffold from "@/components/DashboardScaffold";
 import { apiFetch } from "../_lib/api";
 import { useRequireAuth } from "../_lib/useRequireAuth";
@@ -255,11 +255,9 @@ function buildLocalDateKey(value?: string | null) {
 
 function railTitle(dateKey: string) {
   const parsed = new Date(`${dateKey}T12:00:00`);
-  if (Number.isNaN(parsed.getTime())) return "Programado";
-  const day = String(parsed.getDate()).padStart(2, "0");
-  const month = parsed.toLocaleString("pt-BR", { month: "long" });
-  const monthCap = month.charAt(0).toUpperCase() + month.slice(1);
-  return `${day}/${monthCap}`;
+  return Number.isNaN(parsed.getTime())
+    ? "Programado"
+    : parsed.toLocaleDateString("pt-BR", { day: "2-digit", month: "short" });
 }
 
 function railDay(dateKey: string) {
@@ -387,21 +385,7 @@ function DateDropSlot({
   register: (node: HTMLElement | null) => void;
 }) {
   const { isOver, setNodeRef } = useDroppable({ id: item.key, data: { type: "date-filter", key: item.key } });
-  
-  const prevCountRef = useRef<number>(item.count);
-  const [animating, setAnimating] = useState(false);
 
-  useEffect(() => {
-    if (prevCountRef.current !== item.count) {
-      setAnimating(true);
-      const id = window.setTimeout(() => {
-        prevCountRef.current = item.count;
-        setAnimating(false);
-      }, 420);
-      return () => clearTimeout(id);
-    }
-    return undefined;
-  }, [item.count]);
   return (
     <button
       type="button"
@@ -422,17 +406,8 @@ function DateDropSlot({
     >
       <span className={styles.dateFilterDay}>{item.dayLabel}</span>
       <strong>{item.title}</strong>
-
-      {typeof item.count === "number" ? (
-        <div className={styles.agendaBadge} aria-hidden>
-          <div className={styles.countViewport}>
-            <span className={`${styles.countItem} ${animating ? styles.countOldAnim : ""}`}>{prevCountRef.current}</span>
-            <span key={String(item.count)} className={`${styles.countItem} ${animating ? styles.countNewAnim : ""}`}>{item.count}</span>
-          </div>
-        </div>
-      ) : (
-        <b />
-      )}
+      <span>{item.subtitle}</span>
+      <b>{item.count}</b>
       <span className={styles.receiveHint}>Solte aqui</span>
     </button>
   );
@@ -582,7 +557,7 @@ function LeadCardView({ lead, draft, blockKey, selected, saving, onFocus, onQuic
             </label>
             <label className={styles.fieldWide}><span className={styles.fieldLabel}>Próxima ação</span><input className={styles.fieldInput} value={draft.nextAction} onChange={(e) => onDraftChange?.(lead.id, { nextAction: e.target.value })} /></label>
             <label className={styles.field}><span className={styles.fieldLabel}>Retorno</span><input className={styles.fieldInput} type="datetime-local" value={draft.returnAt} onChange={(e) => onDraftChange?.(lead.id, { returnAt: e.target.value })} /></label>
-            <label className={styles.fieldWide}><span className={styles.fieldLabel}>Observações</span><textarea className={styles.fieldTextarea} rows={3} value={draft.shortNote} onChange={(e) => onDraftChange?.(lead.id, { shortNote: e.target.value })} /></label>
+            <label className={styles.fieldWide}><span className={styles.fieldLabel}>Observação curta</span><textarea className={styles.fieldTextarea} rows={3} value={draft.shortNote} onChange={(e) => onDraftChange?.(lead.id, { shortNote: e.target.value })} /></label>
           </div>
           <div className={styles.detailFooterActions}>
             <button type="button" className={styles.primaryAction} onClick={() => onSave?.(lead.id)} disabled={saving}>{saving ? "Salvando..." : "Salvar"}</button>
@@ -622,10 +597,13 @@ function LeadCardView({ lead, draft, blockKey, selected, saving, onFocus, onQuic
       <div className={styles.leadQuickNote}>
         <span className={styles.summaryLabel}>Resumo</span>
         <strong className={styles.quickNoteTitle}>Leitura rápida</strong>
-        <p className={styles.quickNoteText}>{draft.shortNote || lead.shortNote || "Sem observações registradas."}</p>
+        <p className={styles.quickNoteText}>{draft.shortNote || lead.shortNote || "Sem observação curta registrada."}</p>
       </div>
 
-      {/* metrics removed from compact card view per design */}
+      <div className={styles.leadMetricsCompact}>
+        <div className={styles.leadMetricCompact}><span>Tentativas</span><strong>{lead.attemptCount || 0}</strong></div>
+        <div className={styles.leadMetricCompact}><span>Último contato</span><strong>{formatShortDate(lead.lastContactAt)}</strong></div>
+      </div>
     </article>
   );
 }
@@ -898,73 +876,6 @@ export default function VendasClientPage() {
     });
   }, [dateFilters]);
 
-  // Responsive date chips: measure available space and render only the number
-  // of date cards that fit, always keeping the + button visible.
-  const scrollerRef = useRef<HTMLDivElement | null>(null);
-  const addButtonRef = useRef<HTMLButtonElement | null>(null);
-  const measuredWidthsRef = useRef<number[]>([]);
-  const [visibleDateCount, setVisibleDateCount] = useState<number>(dateFilters.length);
-
-  useLayoutEffect(() => {
-    if (!scrollerRef.current) return;
-    let raf = 0;
-    let ro: ResizeObserver | null = null;
-
-    function measureAndCompute() {
-      const scroller = scrollerRef.current!;
-      const containerWidth = scroller.clientWidth;
-      const addWidth = addButtonRef.current?.getBoundingClientRect().width || 116;
-
-      const widths = dateFilters.map((item, idx) => {
-        const node = dateFilterRefs.current[item.key];
-        if (node) return node.getBoundingClientRect().width;
-        return measuredWidthsRef.current[idx] || 116;
-      });
-
-      measuredWidthsRef.current = widths;
-
-      const gap = 8; // small estimate for inter-item gap
-      let available = containerWidth - addWidth - gap;
-      if (available <= 0) {
-        setVisibleDateCount(0);
-        return;
-      }
-
-      let used = 0;
-      let count = 0;
-      for (let w of widths) {
-        if (used + w <= available) {
-          used += w + gap;
-          count += 1;
-        } else break;
-      }
-
-      setVisibleDateCount(Math.max(0, Math.min(count, dateFilters.length)));
-    }
-
-    function tryMeasure() {
-      // Wait until dateFilterRefs are populated by initial render
-      if (Object.keys(dateFilterRefs.current).length < dateFilters.length) {
-        raf = requestAnimationFrame(tryMeasure);
-        return;
-      }
-      measureAndCompute();
-      if (scrollerRef.current) {
-        ro = new ResizeObserver(measureAndCompute);
-        ro.observe(scrollerRef.current);
-      }
-      window.addEventListener("resize", measureAndCompute);
-    }
-
-    tryMeasure();
-
-    return () => {
-      if (raf) cancelAnimationFrame(raf);
-      if (ro) ro.disconnect();
-      window.removeEventListener("resize", measureAndCompute);
-    };
-  }, [dateFilters.length]);
-
   const selectedFilter = useMemo(
     () => dateFilters.find((item) => item.key === selectedDateKey) || dateFilters[0] || null,
     [dateFilters, selectedDateKey],
@@ -1101,7 +1012,7 @@ export default function VendasClientPage() {
     return { blocks, summary: recomputeSummary(blocks) };
   }
 
-  async function incrementAttempt(leadId: string, channel?: string) {
+  async function incrementAttempt(leadId: string) {
     if (!board) return;
     const currentRecord = leadById.get(leadId);
     const currentAttempt = currentRecord?.lead.attemptCount || 0;
@@ -1112,9 +1023,9 @@ export default function VendasClientPage() {
     setSavingLeadId(leadId);
     setError(null);
     try {
-      await apiFetch(`/vendas/lead/${leadId}/attempt`, {
-        method: "POST",
-        body: JSON.stringify({ channel }),
+      await apiFetch(`/vendas/lead/${leadId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ attemptCount: nextAttempt }),
       });
       setFeedback("Tentativa registrada.");
       await loadBoard();
@@ -1129,7 +1040,7 @@ export default function VendasClientPage() {
   async function runQuickAction(lead: LeadItem, action: string) {
     const currentDraft = drafts[lead.id] || createDraft(lead);
     if (action === "tentativa_whatsapp" || action === "tentativa_call") {
-      await incrementAttempt(lead.id, action === "tentativa_whatsapp" ? "whatsapp" : "call");
+      await incrementAttempt(lead.id);
       return;
     }
     if (action === "hoje") {
@@ -1143,12 +1054,10 @@ export default function VendasClientPage() {
     if (action === "amanha") {
       // Move the lead to the next available date filter instead of only setting a datetime.
       // Compute the lead's current date key and find its index inside `dateFilters`.
-      const currentRecord = leadById.get(lead.id) || null;
-      const currentBlock = currentRecord?.block || "today";
       const currentDateKey =
-        currentBlock === "scheduled"
+        lead.block === "scheduled"
           ? (`scheduled:${buildLocalDateKey(lead.returnAt || lead.updatedAt)}` as DateFilterKey)
-          : (currentBlock as DateFilterKey);
+          : (lead.block as DateFilterKey);
 
       const idx = dateFilters.findIndex((item) => item.key === currentDateKey);
       const nextIndex = idx >= 0 ? Math.min(idx + 1, Math.max(0, dateFilters.length - 1)) : 0;
@@ -1390,65 +1299,6 @@ export default function VendasClientPage() {
     return (
       <aside className={styles.detailPanel} data-detail-panel="true">
         <div className={styles.detailLayout}>
-          <div className={styles.detailColumn}>
-            <section className={styles.detailSection}>
-              <div className={styles.sectionTopline}>
-                <div><span className={styles.panelEyebrow}>Detalhes</span></div>
-              </div>
-
-              <div className={styles.fieldGrid}>
-                <label className={styles.field}>
-                  <span className={styles.fieldLabel}>Retorno</span>
-                  <input
-                    className={styles.fieldInput}
-                    type="datetime-local"
-                    value={selectedLeadDraft.returnAt || selectedLead.returnAt || ""}
-                    onChange={(e) => setLeadDraft(selectedLead.id, { returnAt: e.target.value })}
-                  />
-                </label>
-
-                <label className={styles.fieldWide}>
-                  <span className={styles.fieldLabel}>Observações</span>
-                  <textarea
-                    className={styles.fieldTextarea}
-                    rows={4}
-                    value={selectedLeadDraft.shortNote || selectedLead.shortNote || ""}
-                    onChange={(e) => setLeadDraft(selectedLead.id, { shortNote: e.target.value })}
-                  />
-                </label>
-              </div>
-
-              <div className={styles.detailMetrics}>
-                <div className={styles.detailMetric}>
-                  <span>Tentativas</span>
-                  <strong>{selectedLead.attemptCount || 0}</strong>
-                </div>
-                <div className={styles.detailMetric}>
-                  <span>Último contato</span>
-                  <strong>{formatShortDate(sharedLastContact || selectedLead.lastContactAt)}</strong>
-                </div>
-              </div>
-
-              <div className={styles.detailFooterActions}>
-                <button
-                  type="button"
-                  className={styles.primaryAction}
-                  onClick={() => void saveLead(selectedLead.id)}
-                  disabled={savingLeadId === selectedLead.id}
-                >
-                  {savingLeadId === selectedLead.id ? "Salvando..." : "Salvar"}
-                </button>
-                <button
-                  type="button"
-                  className={styles.secondaryAction}
-                  onClick={() => setDrafts((prev) => { const next = { ...prev }; delete next[selectedLead.id]; return next; })}
-                >
-                  Cancelar
-                </button>
-              </div>
-            </section>
-          </div>
-
           <section className={styles.timelineSection}>
             <div className={styles.sectionTopline}>
               <div><span className={styles.panelEyebrow}>Timeline</span></div>
@@ -1576,8 +1426,8 @@ export default function VendasClientPage() {
               <div className={styles.filterRailHeader}>
                 <div><span className={styles.panelEyebrow}>Filtro por datas</span><strong>Agenda comercial</strong></div>
               </div>
-              <div className={styles.filterRailScroller} ref={scrollerRef}>
-                {dateFilters.slice(0, visibleDateCount || 0).map((item) => (
+              <div className={styles.filterRailScroller}>
+                {dateFilters.map((item) => (
                   <DateDropSlot
                     key={item.key}
                     item={item}
@@ -1590,10 +1440,9 @@ export default function VendasClientPage() {
                   />
                 ))}
 
-                {/* +Agenda button: rendered after the visible date cards so it is always last */}
+                {/* +Agenda button: rendered after all date cards so it is always last */}
                 <button
                   type="button"
-                  ref={(node) => { addButtonRef.current = node; }}
                   className={`${styles.dateFilterCard} ${styles.addAgendaButton}`}
                   aria-label="+Agenda"
                   title="+Agenda"
