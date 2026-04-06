@@ -100,8 +100,6 @@ export default function HbxAtendimentoPremium() {
     return clients.find((client) => client.id === selectedClientId) ?? clients[0];
   }, [clients, selectedClientId]);
 
-  const [openIndex, setOpenIndex] = useState(null);
-
   const miniBars = [42, 66, 48, 82, 61, 73, 94, 76, 58, 88, 72, 98];
 
   return (
@@ -329,18 +327,10 @@ export default function HbxAtendimentoPremium() {
                       <div className="mt-1 text-xl font-semibold text-white">{selectedClient.name}</div>
                       <div className="mt-1 text-sm text-slate-400">Hub interno do cliente com timeline, KPIs, bot e financeiro</div>
                     </div>
-                    <div className="flex items-center gap-3">
-                      <div className="rounded-[14px] border border-white/10 bg-white/[0.02] p-3">
-                        <div className="text-[10px] uppercase tracking-[0.22em] text-slate-400">Ações</div>
-                        <div className="mt-2 flex items-center gap-2">
-                          <button className="flex-1 rounded-full bg-gradient-to-r from-slate-800 via-slate-700 to-slate-600 px-4 py-2 text-sm font-semibold text-white shadow-[0_8px_30px_rgba(2,6,23,0.6)]">WhatsApp</button>
-                          <button className="rounded-full border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-200">Ligar</button>
-                        </div>
-                        <div className="mt-3 flex gap-2">
-                          <button className="rounded-full border border-white/10 bg-black/20 px-3 py-1 text-xs text-slate-300">Amanhã</button>
-                          <button className="rounded-full border border-white/10 bg-black/20 px-3 py-1 text-xs text-slate-300">Encerrar</button>
-                        </div>
-                      </div>
+                    <div className="flex flex-wrap gap-2">
+                      <button className="rounded-2xl border border-white/10 bg-black/20 px-3 py-2 text-xs text-slate-300">Perfil</button>
+                      <button className="rounded-2xl border border-white/10 bg-black/20 px-3 py-2 text-xs text-slate-300">Histórico</button>
+                      <button className="rounded-2xl border border-cyan-300/30 bg-cyan-300/12 px-3 py-2 text-xs text-cyan-100">Abrir fluxo</button>
                     </div>
                   </div>
                 </div>
@@ -456,38 +446,11 @@ export default function HbxAtendimentoPremium() {
                           className="relative overflow-hidden rounded-[22px] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.06),rgba(255,255,255,0.03))] p-4"
                         >
                           <div className="absolute left-0 top-0 h-full w-1 bg-gradient-to-b from-cyan-300 via-blue-500 to-violet-500" />
-
-                          <div>
-                            <button
-                              type="button"
-                              onClick={() => setOpenIndex(openIndex === index ? null : index)}
-                              aria-expanded={openIndex === index}
-                              className="w-full text-left"
-                            >
-                              <div className="flex items-center justify-between">
-                                <div className="pl-2 text-sm leading-6 text-slate-100 truncate">{title}</div>
-                                <ChevronRight className={`h-4 w-4 text-slate-400 transition-transform ${openIndex === index ? 'rotate-90' : ''}`} />
-                              </div>
-                            </button>
-
-                            <AnimatePresence>
-                              {openIndex === index && (
-                                <motion.div
-                                  initial={{ opacity: 0, height: 0 }}
-                                  animate={{ opacity: 1, height: 'auto' }}
-                                  exit={{ opacity: 0, height: 0 }}
-                                  transition={{ duration: 0.2 }}
-                                  className="mt-3"
-                                >
-                                  <div className="mb-2 flex items-center justify-between">
-                                    <span className="text-[11px] uppercase tracking-[0.18em] text-cyan-200">{time}</span>
-                                    <span className="rounded-full border border-white/10 bg-black/20 px-2.5 py-1 text-[10px] uppercase tracking-[0.14em] text-slate-300">{type}</span>
-                                  </div>
-                                  <div className="pl-2 text-sm leading-6 text-slate-100">{title}</div>
-                                </motion.div>
-                              )}
-                            </AnimatePresence>
+                          <div className="mb-2 flex items-center justify-between">
+                            <span className="text-[11px] uppercase tracking-[0.18em] text-cyan-200">{time}</span>
+                            <span className="rounded-full border border-white/10 bg-black/20 px-2.5 py-1 text-[10px] uppercase tracking-[0.14em] text-slate-300">{type}</span>
                           </div>
+                          <div className="pl-2 text-sm leading-6 text-slate-100">{title}</div>
                         </motion.div>
                       ))}
                     </div>

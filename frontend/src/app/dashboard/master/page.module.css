@@ -1,6 +1,6 @@
 :global(.app-shell[data-page-key="master"]) {
   --master-bg: #f4efe7;
-  --master-surface: rgba(255, 255, 255, 0.86);
+  --master-surface: color-mix(in srgb, var(--surface) 86%, var(--background));
   --master-surface-strong: #ffffff;
   --master-border: rgba(26, 44, 66, 0.12);
   --master-text: #152235;
@@ -50,7 +50,7 @@
   border-radius: 28px;
   background:
     radial-gradient(circle at top left, rgba(20, 122, 108, 0.14), transparent 34%),
-    linear-gradient(135deg, rgba(255, 255, 255, 0.95), rgba(246, 242, 236, 0.88));
+    linear-gradient(135deg, color-mix(in srgb, var(--surface) 95%, var(--background)), color-mix(in srgb, var(--surface) 88%, var(--background)));
   box-shadow: var(--master-shadow-soft);
 }
 
@@ -98,7 +98,7 @@
   padding: 1rem;
   border-radius: 22px;
   border: 1px solid var(--master-border);
-  background: rgba(255, 255, 255, 0.72);
+  background: color-mix(in srgb, var(--surface) 72%, var(--background));
 }
 
 .commandAlerts strong,
@@ -150,7 +150,7 @@
   background: linear-gradient(135deg, var(--master-navy), #2f5d8a);
   color: #fff;
   font-weight: 800;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--surface) 18%, var(--background));
 }
 
 .loadingGrid,
@@ -183,8 +183,8 @@
 .skeletonCard {
   min-height: 168px;
   background:
-    linear-gradient(110deg, rgba(255, 255, 255, 0.64) 8%, rgba(245, 240, 232, 0.94) 18%, rgba(255, 255, 255, 0.64) 33%),
-    rgba(255, 255, 255, 0.9);
+    linear-gradient(110deg, color-mix(in srgb, var(--surface) 64%, var(--background)) 8%, color-mix(in srgb, var(--surface) 94%, var(--background)) 18%, color-mix(in srgb, var(--surface) 64%, var(--background)) 33%),
+    color-mix(in srgb, var(--surface) 90%, var(--background));
   background-size: 200% 100%;
   animation: masterShimmer 1.5s linear infinite;
 }
@@ -205,7 +205,7 @@
   width: 96px;
   height: 96px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.52);
+  background: color-mix(in srgb, var(--surface) 52%, var(--background));
   filter: blur(4px);
 }
 
@@ -253,7 +253,7 @@
 .metricCard[data-accent] .metricTrend,
 .metricCard[data-accent] .metricNote,
 .metricCard[data-accent] .metricAux {
-  color: rgba(255, 255, 255, 0.82);
+  color: color-mix(in srgb, var(--surface) 82%, var(--background));
 }
 
 .metricCardHeader,
@@ -450,7 +450,7 @@
   min-height: 10%;
   border-radius: 22px;
   background: linear-gradient(180deg, rgba(20, 122, 108, 0.92), rgba(24, 49, 83, 0.88));
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--surface) 20%, var(--background));
 }
 
 .paymentBarFill[data-mode="failed"] {
@@ -566,7 +566,7 @@
   overflow: auto;
   border-radius: 26px;
   border: 1px solid var(--master-border);
-  background: rgba(255, 255, 255, 0.84);
+  background: color-mix(in srgb, var(--surface) 84%, var(--background));
   box-shadow: var(--master-shadow-soft);
 }
 
@@ -628,7 +628,7 @@
   border-radius: 999px;
   min-height: 2.2rem;
   padding: 0.36rem 0.62rem;
-  background: rgba(255, 255, 255, 0.86);
+  background: color-mix(in srgb, var(--surface) 86%, var(--background));
   color: var(--master-text);
   display: inline-flex;
   align-items: center;
@@ -742,22 +742,22 @@
   padding: 1rem 1.05rem;
   border-radius: 22px;
   border: 1px solid rgba(24, 49, 83, 0.08);
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.78), rgba(244, 239, 231, 0.9));
+  background: linear-gradient(180deg, color-mix(in srgb, var(--surface) 78%, var(--background)), color-mix(in srgb, var(--surface) 90%, var(--background)));
 }
 
 .operationalPriorityHealth[data-tone="green"] {
   border-color: rgba(20, 122, 108, 0.16);
-  background: linear-gradient(180deg, rgba(20, 122, 108, 0.08), rgba(255, 255, 255, 0.86));
+  background: linear-gradient(180deg, rgba(20, 122, 108, 0.08), color-mix(in srgb, var(--surface) 86%, var(--background)));
 }
 
 .operationalPriorityHealth[data-tone="yellow"] {
   border-color: rgba(202, 141, 40, 0.16);
-  background: linear-gradient(180deg, rgba(202, 141, 40, 0.08), rgba(255, 255, 255, 0.86));
+  background: linear-gradient(180deg, rgba(202, 141, 40, 0.08), color-mix(in srgb, var(--surface) 86%, var(--background)));
 }
 
 .operationalPriorityHealth[data-tone="red"] {
   border-color: rgba(177, 77, 88, 0.16);
-  background: linear-gradient(180deg, rgba(177, 77, 88, 0.08), rgba(255, 255, 255, 0.86));
+  background: linear-gradient(180deg, rgba(177, 77, 88, 0.08), color-mix(in srgb, var(--surface) 86%, var(--background)));
 }
 
 .operationalPriorityHealth strong {
@@ -789,7 +789,7 @@
   padding: 0.78rem 0.9rem;
   border-radius: 18px;
   border: 1px solid rgba(24, 49, 83, 0.08);
-  background: rgba(255, 255, 255, 0.66);
+  background: color-mix(in srgb, var(--surface) 66%, var(--background));
 }
 
 .operationalPriorityFact[data-tone="green"] {
@@ -832,7 +832,7 @@
   padding: 0.9rem 1rem;
   border-radius: 20px;
   border: 1px solid rgba(24, 49, 83, 0.1);
-  background: rgba(255, 255, 255, 0.72);
+  background: color-mix(in srgb, var(--surface) 72%, var(--background));
 }
 
 .operationalPriorityHint strong,
@@ -917,7 +917,7 @@
   padding: 1.25rem;
   border-radius: 24px;
   border: 1px dashed rgba(24, 49, 83, 0.16);
-  background: rgba(255, 255, 255, 0.62);
+  background: color-mix(in srgb, var(--surface) 62%, var(--background));
   color: var(--master-text-soft);
   text-align: center;
 }
@@ -956,10 +956,10 @@
   height: min(calc(100vh - 68px), 920px);
   padding: 1.2rem;
   border-radius: 32px;
-  border: 1px solid rgba(255, 255, 255, 0.5);
+  border: 1px solid color-mix(in srgb, var(--surface) 50%, var(--background));
   background:
     radial-gradient(circle at top right, rgba(20, 122, 108, 0.12), transparent 28%),
-    linear-gradient(180deg, rgba(251, 249, 244, 0.98), rgba(243, 238, 230, 0.98));
+    linear-gradient(180deg, color-mix(in srgb, var(--surface) 98%, var(--background)), color-mix(in srgb, var(--surface) 98%, var(--background)));
   box-shadow: 0 34px 90px rgba(15, 24, 35, 0.28);
   transform: translate(-50%, 24px) scale(0.985);
   transition: transform 240ms ease, opacity 240ms ease;
@@ -1058,7 +1058,7 @@
   padding: 1rem;
   border-radius: 20px;
   border: 1px solid var(--master-border);
-  background: rgba(255, 255, 255, 0.76);
+  background: color-mix(in srgb, var(--surface) 76%, var(--background));
 }
 
 .noticeCard,
@@ -1069,7 +1069,7 @@
 }
 
 .dangerCard {
-  background: rgba(255, 248, 248, 0.86);
+  background: color-mix(in srgb, var(--surface) 86%, var(--background));
   border-color: rgba(177, 77, 88, 0.18);
 }
 
@@ -1091,7 +1091,7 @@
   padding: 1rem;
   border-radius: 20px;
   border: 1px solid var(--master-border);
-  background: rgba(255, 255, 255, 0.7);
+  background: color-mix(in srgb, var(--surface) 70%, var(--background));
 }
 
 .summaryStats span {
@@ -1131,7 +1131,7 @@
   padding: 0.7rem 0.95rem;
   border-radius: 16px;
   border: 1px solid var(--master-border);
-  background: rgba(255, 255, 255, 0.84);
+  background: color-mix(in srgb, var(--surface) 84%, var(--background));
   color: var(--master-text);
   font-size: 0.84rem;
   font-weight: 800;
@@ -1150,7 +1150,7 @@
   place-items: center;
   border: 1px solid var(--master-border);
   border-radius: 16px;
-  background: rgba(255, 255, 255, 0.84);
+  background: color-mix(in srgb, var(--surface) 84%, var(--background));
   color: var(--master-text);
   cursor: pointer;
   transition: transform 160ms ease, border-color 160ms ease, background 160ms ease;
@@ -1159,7 +1159,7 @@
 .iconOnlyButton:hover {
   transform: translateY(-1px);
   border-color: rgba(24, 49, 83, 0.22);
-  background: rgba(255, 255, 255, 0.96);
+  background: color-mix(in srgb, var(--surface) 96%, var(--background));
 }
 
 .checkboxCard input {
@@ -1309,8 +1309,8 @@
   overflow: auto;
   padding: 1.2rem;
   border-radius: 30px;
-  border: 1px solid rgba(255, 255, 255, 0.45);
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.97), rgba(244, 239, 231, 0.98));
+  border: 1px solid color-mix(in srgb, var(--surface) 45%, var(--background));
+  background: linear-gradient(180deg, color-mix(in srgb, var(--surface) 97%, var(--background)), color-mix(in srgb, var(--surface) 98%, var(--background)));
   box-shadow: 0 28px 70px rgba(15, 24, 35, 0.24);
 }
 

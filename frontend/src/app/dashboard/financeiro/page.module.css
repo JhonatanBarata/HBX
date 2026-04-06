@@ -9,10 +9,10 @@
 .successCard,
 .loadingCard {
   border-radius: 28px;
-  border: 1px solid color-mix(in srgb, var(--line) 84%, white);
+  border: 1px solid color-mix(in srgb, var(--line) 84%, var(--background));
   background:
     radial-gradient(circle at top right, color-mix(in srgb, #0f766e 10%, transparent), transparent 34%),
-    linear-gradient(180deg, color-mix(in srgb, var(--surface) 98%, white), color-mix(in srgb, var(--surface-soft) 94%, var(--background)));
+    linear-gradient(180deg, color-mix(in srgb, var(--surface) 98%, var(--background)), color-mix(in srgb, var(--surface-soft) 94%, var(--background)));
   box-shadow: var(--shadow-inset), var(--shadow-xs);
   padding: 1.1rem;
 }
@@ -68,7 +68,7 @@
   border: 1px solid color-mix(in srgb, #0f766e 18%, var(--line));
   background:
     radial-gradient(circle at top right, color-mix(in srgb, #34d399 14%, transparent), transparent 48%),
-    color-mix(in srgb, var(--surface-raised) 92%, white);
+    color-mix(in srgb, var(--surface-raised) 92%, var(--background));
 }
 
 .heroValue,
@@ -106,8 +106,8 @@
 
 .metricCard {
   padding: 0.95rem 1rem;
-  border: 1px solid color-mix(in srgb, var(--line) 84%, white);
-  background: color-mix(in srgb, var(--surface-raised) 94%, white);
+  border: 1px solid color-mix(in srgb, var(--line) 84%, var(--background));
+  background: color-mix(in srgb, var(--surface-raised) 94%, var(--background));
 }
 
 .metricValue {
@@ -135,8 +135,8 @@
   gap: 0.3rem;
   padding: 0.92rem 0.96rem;
   border-radius: 18px;
-  border: 1px solid color-mix(in srgb, var(--line) 84%, white);
-  background: color-mix(in srgb, var(--surface-raised) 94%, white);
+  border: 1px solid color-mix(in srgb, var(--line) 84%, var(--background));
+  background: color-mix(in srgb, var(--surface-raised) 94%, var(--background));
 }
 
 .infoGrid span {
@@ -161,16 +161,16 @@
 .mutedPill {
   min-height: 34px;
   padding: 0.42rem 0.8rem;
-  border: 1px solid color-mix(in srgb, var(--line) 84%, white);
-  background: rgba(255, 255, 255, 0.74);
+  border: 1px solid color-mix(in srgb, var(--line) 84%, var(--background));
+  background: color-mix(in srgb, var(--surface) 74%, var(--background));
   font-size: 0.76rem;
   font-weight: 800;
 }
 
 .statusPill {
-  color: #065f46;
-  border-color: color-mix(in srgb, #10b981 30%, white);
-  background: color-mix(in srgb, #d1fae5 82%, white);
+  color: color-mix(in srgb, #10b981 88%, var(--foreground));
+  border-color: color-mix(in srgb, #10b981 30%, var(--background));
+  background: color-mix(in srgb, #10b981 12%, var(--background));
 }
 
 .mutedPill,
@@ -197,8 +197,8 @@
   width: 100%;
   min-height: 48px;
   border-radius: 16px;
-  border: 1px solid color-mix(in srgb, var(--line) 82%, white);
-  background: color-mix(in srgb, var(--field-surface) 94%, white);
+  border: 1px solid color-mix(in srgb, var(--line) 82%, var(--background));
+  background: color-mix(in srgb, var(--field-surface) 94%, var(--background));
   color: var(--foreground);
   padding: 0.76rem 0.92rem;
 }
@@ -221,8 +221,8 @@
 .chargePanel,
 .pixPanel {
   padding: 0.95rem 1rem;
-  border: 1px solid color-mix(in srgb, var(--line) 84%, white);
-  background: color-mix(in srgb, var(--surface-raised) 94%, white);
+  border: 1px solid color-mix(in srgb, var(--line) 84%, var(--background));
+  background: color-mix(in srgb, var(--surface-raised) 94%, var(--background));
   border-radius: 22px;
 }
 
@@ -245,15 +245,15 @@
 .qrImage {
   width: min(100%, 240px);
   border-radius: 20px;
-  border: 1px solid color-mix(in srgb, var(--line) 84%, white);
+  border: 1px solid color-mix(in srgb, var(--line) 84%, var(--background));
   background: white;
   padding: 0.8rem;
 }
 
 .historyItem {
   padding: 0.95rem 1rem;
-  border: 1px solid color-mix(in srgb, var(--line) 84%, white);
-  background: color-mix(in srgb, var(--surface-raised) 94%, white);
+  border: 1px solid color-mix(in srgb, var(--line) 84%, var(--background));
+  background: color-mix(in srgb, var(--surface-raised) 94%, var(--background));
 }
 
 .historyRight {

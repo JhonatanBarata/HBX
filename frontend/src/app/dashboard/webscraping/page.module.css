@@ -14,10 +14,10 @@
 .diagnosticCard,
 .loadingCard {
   border-radius: 28px;
-  border: 1px solid color-mix(in srgb, var(--line) 84%, white);
+  border: 1px solid color-mix(in srgb, var(--line) 84%, var(--background));
   background:
     radial-gradient(circle at top right, color-mix(in srgb, var(--brand) 10%, transparent), transparent 34%),
-    linear-gradient(180deg, color-mix(in srgb, var(--surface) 98%, white), color-mix(in srgb, var(--surface-soft) 94%, var(--background)));
+    linear-gradient(180deg, color-mix(in srgb, var(--surface) 98%, var(--background)), color-mix(in srgb, var(--surface-soft) 94%, var(--background)));
   box-shadow: var(--shadow-inset), var(--shadow-xs);
 }
 
@@ -100,7 +100,7 @@
   padding: 0.95rem 1rem;
   border-radius: 20px;
   border: 1px solid color-mix(in srgb, var(--brand) 18%, var(--line));
-  background: color-mix(in srgb, var(--surface-raised) 88%, white);
+  background: color-mix(in srgb, var(--surface-raised) 88%, var(--background));
 }
 
 .metricLabel,
@@ -146,8 +146,8 @@
   min-height: 34px;
   padding: 0.42rem 0.8rem;
   border-radius: 999px;
-  border: 1px solid color-mix(in srgb, var(--line) 84%, white);
-  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid color-mix(in srgb, var(--line) 84%, var(--background));
+  background: color-mix(in srgb, var(--surface) 72%, var(--background));
   font-size: 0.76rem;
   font-weight: 800;
 }
@@ -167,14 +167,14 @@
 .segmentChipActive,
 .resultPillOk {
   color: #0f766e;
-  border-color: color-mix(in srgb, #10b981 32%, white);
-  background: color-mix(in srgb, #d1fae5 82%, white);
+  border-color: color-mix(in srgb, #10b981 32%, var(--background));
+  background: color-mix(in srgb, #d1fae5 82%, var(--background));
 }
 
 .resultPill {
   color: #92400e;
-  border-color: color-mix(in srgb, #f59e0b 32%, white);
-  background: color-mix(in srgb, #fef3c7 84%, white);
+  border-color: color-mix(in srgb, #f59e0b 32%, var(--background));
+  background: color-mix(in srgb, #fef3c7 84%, var(--background));
 }
 
 .formGrid,
@@ -202,8 +202,8 @@
   min-height: 48px;
   width: 100%;
   border-radius: 16px;
-  border: 1px solid color-mix(in srgb, var(--line) 82%, white);
-  background: color-mix(in srgb, var(--field-surface) 94%, white);
+  border: 1px solid color-mix(in srgb, var(--line) 82%, var(--background));
+  background: color-mix(in srgb, var(--field-surface) 94%, var(--background));
   color: var(--foreground);
   padding: 0.76rem 0.92rem;
 }
@@ -216,7 +216,7 @@
 
 .advancedWrap {
   padding-top: 0.4rem;
-  border-top: 1px solid color-mix(in srgb, var(--line) 78%, white);
+  border-top: 1px solid color-mix(in srgb, var(--line) 78%, var(--background));
 }
 
 .scriptGuideGrid {
@@ -231,8 +231,8 @@
   gap: 0.75rem;
   padding: 0.95rem;
   border-radius: 22px;
-  border: 1px solid color-mix(in srgb, var(--line) 84%, white);
-  background: color-mix(in srgb, var(--surface) 98%, white);
+  border: 1px solid color-mix(in srgb, var(--line) 84%, var(--background));
+  background: color-mix(in srgb, var(--surface) 98%, var(--background));
 }
 
 .advancedToggle {
@@ -255,8 +255,8 @@
   align-items: center;
   padding: 0.75rem 0.9rem;
   border-radius: 16px;
-  border: 1px solid color-mix(in srgb, var(--line) 82%, white);
-  background: color-mix(in srgb, var(--field-surface) 94%, white);
+  border: 1px solid color-mix(in srgb, var(--line) 82%, var(--background));
+  background: color-mix(in srgb, var(--field-surface) 94%, var(--background));
   color: var(--foreground);
 }
 
@@ -285,8 +285,8 @@
 .resultCard,
 .resultSkeleton {
   border-radius: 22px;
-  border: 1px solid color-mix(in srgb, var(--line) 84%, white);
-  background: color-mix(in srgb, var(--surface) 98%, white);
+  border: 1px solid color-mix(in srgb, var(--line) 84%, var(--background));
+  background: color-mix(in srgb, var(--surface) 98%, var(--background));
   padding: 0.95rem;
 }
 
@@ -331,15 +331,15 @@
 .scriptBox {
   padding: 0.8rem;
   border-radius: 18px;
-  border: 1px solid color-mix(in srgb, var(--line) 84%, white);
-  background: color-mix(in srgb, var(--surface-soft) 90%, white);
+  border: 1px solid color-mix(in srgb, var(--line) 84%, var(--background));
+  background: color-mix(in srgb, var(--surface-soft) 90%, var(--background));
 }
 
 .emptyState {
   padding: 1.1rem;
   border-radius: 22px;
-  border: 1px dashed color-mix(in srgb, var(--line) 86%, white);
-  background: color-mix(in srgb, var(--surface-soft) 88%, white);
+  border: 1px dashed color-mix(in srgb, var(--line) 86%, var(--background));
+  background: color-mix(in srgb, var(--surface-soft) 88%, var(--background));
 }
 
 .diagnosticGrid {
@@ -355,9 +355,9 @@
   border-radius: 999px;
   background: linear-gradient(
     90deg,
-    color-mix(in srgb, var(--surface-soft) 92%, white),
-    color-mix(in srgb, var(--brand) 12%, white),
-    color-mix(in srgb, var(--surface-soft) 92%, white)
+    color-mix(in srgb, var(--surface-soft) 92%, var(--background)),
+    color-mix(in srgb, var(--brand) 12%, var(--background)),
+    color-mix(in srgb, var(--surface-soft) 92%, var(--background))
   );
   background-size: 220% 100%;
   animation: shimmer 1.5s linear infinite;

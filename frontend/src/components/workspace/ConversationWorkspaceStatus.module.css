@@ -29,8 +29,8 @@
 
 .diagnostics {
   border-radius: 16px;
-  border: 1px solid color-mix(in srgb, var(--line) 88%, white);
-  background: color-mix(in srgb, var(--surface-raised) 94%, white);
+  border: 1px solid color-mix(in srgb, var(--line) 88%, var(--background));
+  background: color-mix(in srgb, var(--surface-raised) 94%, var(--background));
   box-shadow: var(--shadow-inset), var(--shadow-xs);
   overflow: hidden;
 }
@@ -49,8 +49,8 @@
 }
 
 .root[data-tone="error"] .diagnostics {
-  border-color: color-mix(in srgb, var(--danger) 18%, white);
-  background: color-mix(in srgb, var(--danger) 4%, white);
+  border-color: color-mix(in srgb, var(--danger) 18%, var(--background));
+  background: color-mix(in srgb, var(--danger) 4%, var(--background));
 }
 
 .diagnosticGrid {
@@ -65,7 +65,7 @@
   align-items: flex-start;
   gap: 0.8rem;
   padding-top: 0.62rem;
-  border-top: 1px solid color-mix(in srgb, var(--line) 92%, white);
+  border-top: 1px solid color-mix(in srgb, var(--line) 92%, var(--background));
 }
 
 .diagnosticRow dt {

@@ -535,17 +535,10 @@ export default function TechAssistantGlobalDrawer({ isSystemMaster, masterContex
       );
     };
 
-    const originalConsoleError = console.error;
-    console.error = (...args: unknown[]) => {
-      pushSignal(
-        toSignal(
-          "console",
-          formatUnknown(args[0], "console.error"),
-          args.slice(1).map((item) => formatUnknown(item, "")).filter(Boolean).join(" | "),
-        ),
-      );
-      originalConsoleError(...args);
-    };
+    // NOTE: removed global console.error override — it produced noisy
+    // forwarding of framework warnings (e.g., hydration messages) and
+    // caused confusing stack traces. Runtime errors are already captured
+    // via window "error" and "unhandledrejection" listeners above.
 
     window.addEventListener("hbx-tech-assistant:page-context", handlePageContext as EventListener);
     window.addEventListener("hbx-tech-assistant:api-error", handleApiError as EventListener);
@@ -553,7 +546,7 @@ export default function TechAssistantGlobalDrawer({ isSystemMaster, masterContex
     window.addEventListener("unhandledrejection", handlePromiseError);
 
     return () => {
-      console.error = originalConsoleError;
+      // no console override to restore
       window.removeEventListener("hbx-tech-assistant:page-context", handlePageContext as EventListener);
       window.removeEventListener("hbx-tech-assistant:api-error", handleApiError as EventListener);
       window.removeEventListener("error", handleWindowError);

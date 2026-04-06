@@ -13,10 +13,10 @@
   max-height: min(88vh, 980px);
   overflow: auto;
   border-radius: 28px;
-  border: 1px solid color-mix(in srgb, var(--line) 88%, white);
+  border: 1px solid color-mix(in srgb, var(--line) 88%, var(--background));
   background:
     radial-gradient(circle at top right, color-mix(in srgb, var(--brand) 12%, transparent), transparent 28%),
-    linear-gradient(180deg, color-mix(in srgb, var(--surface) 98%, white), color-mix(in srgb, var(--surface-soft) 94%, var(--background)));
+    linear-gradient(180deg, color-mix(in srgb, var(--surface) 98%, var(--background)), color-mix(in srgb, var(--surface-soft) 94%, var(--background)));
   box-shadow: 0 30px 80px rgba(4, 15, 30, 0.28);
 }
 
@@ -85,20 +85,20 @@
 }
 
 .alert {
-  border: 1px solid color-mix(in srgb, var(--danger) 22%, white);
-  background: color-mix(in srgb, var(--danger) 10%, white);
+  border: 1px solid color-mix(in srgb, var(--danger) 22%, var(--background));
+  background: color-mix(in srgb, var(--danger) 10%, var(--background));
   color: color-mix(in srgb, var(--danger) 76%, var(--foreground));
 }
 
 .success {
-  border: 1px solid color-mix(in srgb, var(--success) 22%, white);
-  background: color-mix(in srgb, var(--success) 10%, white);
+  border: 1px solid color-mix(in srgb, var(--success) 22%, var(--background));
+  background: color-mix(in srgb, var(--success) 10%, var(--background));
   color: color-mix(in srgb, var(--success) 78%, var(--foreground));
 }
 
 .loading {
-  border: 1px solid color-mix(in srgb, var(--line) 88%, white);
-  background: color-mix(in srgb, var(--surface) 92%, white);
+  border: 1px solid color-mix(in srgb, var(--line) 88%, var(--background));
+  background: color-mix(in srgb, var(--surface) 92%, var(--background));
   color: var(--muted);
 }
 
@@ -112,8 +112,8 @@
 .section,
 .sectionWide {
   border-radius: 24px;
-  border: 1px solid color-mix(in srgb, var(--line) 88%, white);
-  background: linear-gradient(180deg, color-mix(in srgb, var(--surface) 98%, white), color-mix(in srgb, var(--surface-soft) 95%, var(--background)));
+  border: 1px solid color-mix(in srgb, var(--line) 88%, var(--background));
+  background: linear-gradient(180deg, color-mix(in srgb, var(--surface) 98%, var(--background)), color-mix(in srgb, var(--surface-soft) 95%, var(--background)));
   box-shadow: var(--shadow-inset), var(--shadow-xs);
 }
 
@@ -166,8 +166,8 @@
   min-height: 36px;
   padding: 0.42rem 0.8rem;
   border-radius: 999px;
-  border: 1px solid color-mix(in srgb, var(--line) 88%, white);
-  background: color-mix(in srgb, var(--surface) 94%, white);
+  border: 1px solid color-mix(in srgb, var(--line) 88%, var(--background));
+  background: color-mix(in srgb, var(--surface) 94%, var(--background));
   color: var(--muted);
   font-size: 0.76rem;
   font-weight: 800;
@@ -178,8 +178,8 @@
 .focusButton:hover,
 .focusButton[data-active="true"] {
   transform: translateY(-1px);
-  border-color: color-mix(in srgb, var(--brand) 26%, white);
-  background: linear-gradient(145deg, color-mix(in srgb, var(--brand) 12%, white), color-mix(in srgb, var(--brand-soft) 88%, white));
+  border-color: color-mix(in srgb, var(--brand) 26%, var(--background));
+  background: linear-gradient(145deg, color-mix(in srgb, var(--brand) 12%, var(--background)), color-mix(in srgb, var(--brand-soft) 88%, var(--background)));
   color: var(--foreground);
   box-shadow: var(--shadow-inset), var(--shadow-sm);
 }
@@ -209,7 +209,7 @@
 
 .section[data-active="true"],
 .sectionWide[data-active="true"] {
-  border-color: color-mix(in srgb, var(--brand) 28%, white);
+  border-color: color-mix(in srgb, var(--brand) 28%, var(--background));
   box-shadow: var(--shadow-inset), 0 18px 44px color-mix(in srgb, var(--brand) 10%, transparent);
 }
 
@@ -237,7 +237,7 @@
   gap: 0.55rem;
   padding: 0.95rem 1rem;
   border-radius: 22px;
-  background: linear-gradient(145deg, color-mix(in srgb, var(--brand) 10%, white), color-mix(in srgb, var(--surface-soft) 88%, var(--background)));
+  background: linear-gradient(145deg, color-mix(in srgb, var(--brand) 10%, var(--background)), color-mix(in srgb, var(--surface-soft) 88%, var(--background)));
 }
 
 .statusLead {
@@ -264,8 +264,8 @@
   gap: 0.24rem;
   padding: 0.8rem 0.9rem;
   border-radius: 18px;
-  border: 1px solid color-mix(in srgb, var(--line) 84%, white);
-  background: color-mix(in srgb, var(--surface) 92%, white);
+  border: 1px solid color-mix(in srgb, var(--line) 84%, var(--background));
+  background: color-mix(in srgb, var(--surface) 92%, var(--background));
 }
 
 .badgeLabel {
@@ -290,7 +290,7 @@
   gap: 0.24rem;
   padding: 0.82rem 0.9rem;
   border-radius: 18px;
-  background: color-mix(in srgb, var(--surface-soft) 88%, white);
+  background: color-mix(in srgb, var(--surface-soft) 88%, var(--background));
 }
 
 .fact strong {
@@ -313,7 +313,7 @@
   align-items: center;
   padding: 0.9rem;
   border-radius: 22px;
-  background: linear-gradient(145deg, color-mix(in srgb, var(--success) 8%, white), color-mix(in srgb, var(--surface) 90%, white));
+  background: linear-gradient(145deg, color-mix(in srgb, var(--success) 8%, var(--background)), color-mix(in srgb, var(--surface) 90%, var(--background)));
 }
 
 .qrMeta {
@@ -339,8 +339,8 @@
   justify-content: center;
   padding: 0.8rem;
   border-radius: 18px;
-  border: 1px solid color-mix(in srgb, var(--line) 82%, white);
-  background: color-mix(in srgb, var(--surface) 92%, white);
+  border: 1px solid color-mix(in srgb, var(--line) 82%, var(--background));
+  background: color-mix(in srgb, var(--surface) 92%, var(--background));
 }
 
 .qrImage {

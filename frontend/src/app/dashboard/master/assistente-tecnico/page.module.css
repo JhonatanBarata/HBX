@@ -38,11 +38,11 @@
 }
 
 .heroStat {
-  border: 1px solid color-mix(in srgb, var(--line) 84%, white);
+  border: 1px solid color-mix(in srgb, var(--line) 84%, var(--background));
   border-radius: 16px;
   padding: 0.9rem;
-  background: color-mix(in srgb, var(--surface) 90%, white);
-  box-shadow: inset 0 1px 0 color-mix(in srgb, white 74%, transparent);
+  background: color-mix(in srgb, var(--surface) 90%, var(--background));
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--background) 74%, transparent);
 }
 
 .quickActions {
@@ -95,11 +95,11 @@
 }
 
 .bubbleUser {
-  background: linear-gradient(145deg, color-mix(in srgb, var(--brand) 10%, white), color-mix(in srgb, var(--surface) 96%, var(--surface-soft)));
+  background: linear-gradient(145deg, color-mix(in srgb, var(--brand) 10%, var(--background)), color-mix(in srgb, var(--surface) 96%, var(--surface-soft)));
 }
 
 .bubbleAssistant {
-  background: linear-gradient(180deg, color-mix(in srgb, var(--surface) 95%, white), color-mix(in srgb, var(--surface-soft) 90%, var(--surface)));
+  background: linear-gradient(180deg, color-mix(in srgb, var(--surface) 95%, var(--background)), color-mix(in srgb, var(--surface-soft) 90%, var(--surface)));
 }
 
 .bubbleHeader {
@@ -123,10 +123,10 @@
 }
 
 .blockCard {
-  border: 1px solid color-mix(in srgb, var(--line) 82%, white);
+  border: 1px solid color-mix(in srgb, var(--line) 82%, var(--background));
   border-radius: 16px;
   padding: 0.9rem;
-  background: color-mix(in srgb, var(--surface) 96%, white);
+  background: color-mix(in srgb, var(--surface) 96%, var(--background));
 }
 
 .blockCardFull {
@@ -148,8 +148,8 @@
   font-size: 0.8rem;
   line-height: 1.6;
   color: color-mix(in srgb, var(--foreground) 92%, #0f172a);
-  background: color-mix(in srgb, var(--surface-soft) 88%, white);
-  border: 1px solid color-mix(in srgb, var(--line) 84%, white);
+  background: color-mix(in srgb, var(--surface-soft) 88%, var(--background));
+  border: 1px solid color-mix(in srgb, var(--line) 84%, var(--background));
   border-radius: 14px;
   padding: 0.85rem;
   max-height: 320px;
@@ -162,15 +162,15 @@
 }
 
 .historyItem {
-  border: 1px solid color-mix(in srgb, var(--line) 82%, white);
+  border: 1px solid color-mix(in srgb, var(--line) 82%, var(--background));
   border-radius: 16px;
   padding: 0.85rem;
-  background: color-mix(in srgb, var(--surface) 94%, white);
+  background: color-mix(in srgb, var(--surface) 94%, var(--background));
 }
 
 .historyItemActive {
-  border-color: color-mix(in srgb, var(--brand) 36%, white);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand) 14%, white);
+  border-color: color-mix(in srgb, var(--brand) 36%, var(--background));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand) 14%, var(--background));
 }
 
 .historyActions {
@@ -186,10 +186,10 @@
 }
 
 .miniCard {
-  border: 1px solid color-mix(in srgb, var(--line) 84%, white);
+  border: 1px solid color-mix(in srgb, var(--line) 84%, var(--background));
   border-radius: 16px;
   padding: 0.9rem;
-  background: color-mix(in srgb, var(--surface-soft) 84%, white);
+  background: color-mix(in srgb, var(--surface-soft) 84%, var(--background));
 }
 
 .payloadList {
@@ -201,7 +201,7 @@
   border: 1px dashed color-mix(in srgb, var(--brand) 28%, var(--line));
   border-radius: 16px;
   padding: 0.85rem;
-  background: color-mix(in srgb, var(--brand) 5%, white);
+  background: color-mix(in srgb, var(--brand) 5%, var(--background));
 }
 
 .stickyColumn {
