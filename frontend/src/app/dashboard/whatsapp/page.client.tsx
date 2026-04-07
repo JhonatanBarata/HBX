@@ -8,7 +8,9 @@ import { apiFetch } from "../_lib/api";
 import { useRequireAuth } from "../_lib/useRequireAuth";
 import {
   formatWhatsAppDateTime,
+  type WhatsAppModalPayload,
   type WhatsAppCenterPayload,
+  whatsappModalStatusLabel,
   whatsappModeLabel,
   whatsappTemporaryLiveLabel,
   whatsappTrialModuleLabel,
@@ -19,10 +21,45 @@ export default function WhatsAppCenterClientPage() {
   const hasToken = useRequireAuth();
   const searchParams = useSearchParams();
   const [loading, setLoading] = useState(true);
+  const [modalLoading, setModalLoading] = useState(true);
   const [saving, setSaving] = useState<string | null>(null);
+  const [modalSaving, setModalSaving] = useState<string | null>(null);
   const [payload, setPayload] = useState<WhatsAppCenterPayload | null>(null);
+  const [modalPayload, setModalPayload] = useState<WhatsAppModalPayload | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [modalError, setModalError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [canManageModal, setCanManageModal] = useState<boolean | null>(null);
+
+  function shouldLoadModalQr(nextPayload: WhatsAppModalPayload | null) {
+    if (!nextPayload?.data.available) return false;
+    return nextPayload.status === "waiting_qr" || nextPayload.status === "starting";
+  }
+
+  function mergeModalPayload(
+    statusPayload: WhatsAppModalPayload,
+    qrPayload: WhatsAppModalPayload,
+  ): WhatsAppModalPayload {
+    if (qrPayload.data.qrCodeDataUrl || qrPayload.status === "connected") {
+      return {
+        ...qrPayload,
+        data: {
+          ...statusPayload.data,
+          ...qrPayload.data,
+        },
+      };
+    }
+
+    return {
+      ...statusPayload,
+      data: {
+        ...statusPayload.data,
+        updatedAt: qrPayload.data.updatedAt || statusPayload.data.updatedAt,
+        lastError: qrPayload.data.lastError || statusPayload.data.lastError,
+        qrCodeDataUrl: qrPayload.data.qrCodeDataUrl || null,
+      },
+    };
+  }
 
   async function loadCenter(background = false, refreshTemporary = false) {
     if (!background) setLoading(true);
@@ -38,9 +75,86 @@ export default function WhatsAppCenterClientPage() {
     }
   }
 
+  async function loadModalStatus(background = false) {
+    if (!background) setModalLoading(true);
+    setModalError(null);
+    try {
+      const statusData = await apiFetch<WhatsAppModalPayload>("/companies/me/whatsapp-modal/status");
+      let nextPayload = statusData;
+
+      if (shouldLoadModalQr(statusData)) {
+        const qrData = await apiFetch<WhatsAppModalPayload>("/companies/me/whatsapp-modal/qr");
+        nextPayload = mergeModalPayload(statusData, qrData);
+      } else {
+        nextPayload = {
+          ...statusData,
+          data: {
+            ...statusData.data,
+            qrCodeDataUrl: null,
+          },
+        };
+      }
+
+      setModalPayload(nextPayload);
+    } catch (loadError) {
+      setModalError(loadError instanceof Error ? loadError.message : "Falha ao carregar o Modal WhatsApp.");
+    } finally {
+      if (!background) setModalLoading(false);
+    }
+  }
+
+  async function runModalAction(action: "start" | "disconnect" | "restart") {
+    setModalSaving(action);
+    setModalError(null);
+    try {
+      const response = await apiFetch<WhatsAppModalPayload>(`/companies/me/whatsapp-modal/${action}`, {
+        method: "POST",
+      });
+      let nextPayload = response;
+
+      if (shouldLoadModalQr(response) && !response.data.qrCodeDataUrl) {
+        const qrData = await apiFetch<WhatsAppModalPayload>("/companies/me/whatsapp-modal/qr");
+        nextPayload = mergeModalPayload(response, qrData);
+      }
+
+      setModalPayload(nextPayload);
+      if (response.success) {
+        setMessage(response.message);
+      }
+    } catch (actionError) {
+      setModalError(actionError instanceof Error ? actionError.message : "Falha ao executar a ação no Modal WhatsApp.");
+    } finally {
+      setModalSaving(null);
+    }
+  }
+
+  async function loadModalAccess() {
+    setModalLoading(true);
+    try {
+      const profile = await apiFetch<{ role?: string | null; isSystemMaster?: boolean }>("/profile/current-user");
+      const allowed = Boolean(profile?.isSystemMaster) || String(profile?.role || "").trim().toUpperCase() === "ADMIN";
+      setCanManageModal(allowed);
+
+      if (allowed) {
+        await loadModalStatus();
+        return;
+      }
+
+      setModalPayload(null);
+      setModalError(null);
+    } catch (profileError) {
+      setCanManageModal(false);
+      setModalPayload(null);
+      setModalError(profileError instanceof Error ? profileError.message : null);
+    } finally {
+      setModalLoading(false);
+    }
+  }
+
   useEffect(() => {
     if (hasToken !== true) return;
     void loadCenter();
+    void loadModalAccess();
   }, [hasToken]);
 
   useEffect(() => {
@@ -60,6 +174,16 @@ export default function WhatsAppCenterClientPage() {
 
     return () => window.clearInterval(interval);
   }, [payload?.center.temporary.liveStatus, payload?.center.temporary.selected]);
+
+  useEffect(() => {
+    if (canManageModal !== true || !modalPayload?.data.available) return;
+
+    const interval = window.setInterval(() => {
+      void loadModalStatus(true);
+    }, modalPayload.status === "connected" ? 20000 : 7000);
+
+    return () => window.clearInterval(interval);
+  }, [canManageModal, modalPayload?.data.available, modalPayload?.status]);
 
   useEffect(() => {
     if (!payload || typeof window === "undefined") return;
@@ -165,6 +289,18 @@ export default function WhatsAppCenterClientPage() {
       },
     ];
   }, [payload]);
+
+  const modalOperationalError = useMemo(() => {
+    if (modalError) return modalError;
+    if (!modalPayload) return null;
+    if (modalPayload.data.missingConfigKeys.length > 0 && !modalPayload.data.available) {
+      return `Configuração pendente: ${modalPayload.data.missingConfigKeys.join(", ")}.`;
+    }
+    if (!modalPayload.success && modalPayload.status === "error") {
+      return modalPayload.message;
+    }
+    return modalPayload.data.lastError || null;
+  }, [modalError, modalPayload]);
 
   if (hasToken === null) {
     return (
@@ -371,6 +507,145 @@ export default function WhatsAppCenterClientPage() {
                   </button>
                 </div>
               </article>
+            </section>
+
+            <section id="whatsapp-modal" className={styles.panelCard}>
+              <div className={styles.sectionHeader}>
+                <div>
+                  <span className={styles.pathEyebrow}>Integração externa / Modal WhatsApp</span>
+                  <h2>Conecte um motor externo na mesma network do backend.</h2>
+                </div>
+                <span className={styles.mutedPill}>
+                  {modalPayload ? whatsappModalStatusLabel(modalPayload.status) : "Carregando status"}
+                </span>
+              </div>
+              <p className={styles.helperText}>
+                O HBX fala apenas com seus endpoints internos. O frontend nunca acessa o container externo diretamente.
+              </p>
+
+              {modalLoading && !modalPayload ? (
+                <div className={styles.metaBox}>
+                  <strong>Carregando Modal WhatsApp</strong>
+                  <p>Consultando o backend HBX para obter o status atual da sessão.</p>
+                </div>
+              ) : null}
+
+              {canManageModal === false ? (
+                <div className={styles.metaBox}>
+                  <strong>Área administrativa</strong>
+                  <p>O Modal WhatsApp fica restrito a MASTER e ADMIN da empresa, seguindo o mesmo padrão de governança do painel.</p>
+                </div>
+              ) : null}
+
+              {canManageModal === true && modalPayload ? (
+                <>
+                  <div className={styles.infoGrid}>
+                    <div>
+                      <span>Status atual</span>
+                      <strong>{whatsappModalStatusLabel(modalPayload.status)}</strong>
+                    </div>
+                    <div>
+                      <span>Tenant técnico</span>
+                      <strong>{modalPayload.data.tenantKey}</strong>
+                    </div>
+                    <div>
+                      <span>Número conectado</span>
+                      <strong>{modalPayload.data.phone || "-"}</strong>
+                    </div>
+                    <div>
+                      <span>Saúde do provedor</span>
+                      <strong>{modalPayload.data.providerHealth}</strong>
+                    </div>
+                    <div>
+                      <span>Última atualização</span>
+                      <strong>{formatWhatsAppDateTime(modalPayload.data.updatedAt)}</strong>
+                    </div>
+                    <div>
+                      <span>Disponibilidade</span>
+                      <strong>{modalPayload.data.available ? "Pronta" : "Indisponível"}</strong>
+                    </div>
+                  </div>
+
+                  <div className={styles.metaBox}>
+                    <strong>{modalPayload.message}</strong>
+                    <p>
+                      {modalPayload.data.available
+                        ? "Use iniciar, desconectar ou reiniciar sem expor a URL interna do serviço externo."
+                        : modalPayload.data.enabled
+                          ? "A integração está habilitada, mas ainda faltam variáveis de ambiente no backend."
+                          : "Ative a feature por variável de ambiente quando o serviço externo estiver conectado à network compartilhada."}
+                    </p>
+                  </div>
+
+                  {modalOperationalError ? (
+                    <div className={styles.errorInline}>
+                      <strong>Erro amigável</strong>
+                      <p>{modalOperationalError}</p>
+                    </div>
+                  ) : null}
+
+                  {modalPayload.data.qrCodeDataUrl ? (
+                    <div className={styles.qrPanel}>
+                      <div className={styles.qrPanelCopy}>
+                        <strong>Escaneie o QR do modal externo</strong>
+                        <p>
+                          Abra o WhatsApp no celular, vá em aparelhos conectados e leia o QR abaixo para concluir a sessão.
+                        </p>
+                        <div className={styles.summaryStack}>
+                          <p>Status: {whatsappModalStatusLabel(modalPayload.status)}</p>
+                          <p>Atualizado em: {formatWhatsAppDateTime(modalPayload.data.updatedAt)}</p>
+                        </div>
+                      </div>
+                      <div className={styles.qrFrame}>
+                        <img
+                          src={modalPayload.data.qrCodeDataUrl}
+                          alt="QR Code do Modal WhatsApp"
+                          className={styles.qrImage}
+                        />
+                      </div>
+                    </div>
+                  ) : null}
+
+                  <div className={styles.pathActions}>
+                    <button
+                      type="button"
+                      className="btn btn-primary"
+                      onClick={() => void runModalAction("start")}
+                      disabled={modalSaving !== null || !modalPayload.data.available}
+                    >
+                      {modalSaving === "start" ? "Iniciando..." : "Iniciar conexão"}
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      onClick={() => void loadModalStatus(true)}
+                      disabled={modalSaving !== null}
+                    >
+                      Atualizar status
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      onClick={() => void runModalAction("disconnect")}
+                      disabled={
+                        modalSaving !== null
+                        || !modalPayload.data.available
+                        || (modalPayload.status !== "connected" && modalPayload.status !== "waiting_qr")
+                      }
+                    >
+                      {modalSaving === "disconnect" ? "Desconectando..." : "Desconectar"}
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      onClick={() => void runModalAction("restart")}
+                      disabled={modalSaving !== null || !modalPayload.data.available}
+                    >
+                      {modalSaving === "restart" ? "Reiniciando..." : "Reiniciar sessão"}
+                    </button>
+                  </div>
+                </>
+              ) : null}
             </section>
 
             <section className={styles.pathActions}>

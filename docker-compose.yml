@@ -10,6 +10,8 @@ services:
       - "5432:5432"
     volumes:
       - ./postgres-data:/var/lib/postgresql/data
+    networks:
+      - hbx_net
 
   backend:
     build:
@@ -39,6 +41,10 @@ services:
       WHATSAPP_TEMPORARY_API_URL: "http://147.15.36.137:8080"
       WHATSAPP_TEMPORARY_API_KEY: "HBXEVOLUTION2026OracleVM94731"
       WHATSAPP_TEMPORARY_INSTANCE_PREFIX: "hbx-temp"
+      WHATSAPP_MODAL_ENABLED: ${WHATSAPP_MODAL_ENABLED:-false}
+      WHATSAPP_MODAL_INTERNAL_URL: ${WHATSAPP_MODAL_INTERNAL_URL:-http://whatsapp-modal:3001}
+      WHATSAPP_MODAL_API_KEY: ${WHATSAPP_MODAL_API_KEY:-}
+      WHATSAPP_MODAL_TIMEOUT_MS: ${WHATSAPP_MODAL_TIMEOUT_MS:-15000}
 
     ports:
       - "3000:3000"
@@ -46,6 +52,8 @@ services:
       - ./backend:/app:cached
       - ./backend/prisma:/app/prisma:cached
       - backend_node_modules:/app/node_modules
+    networks:
+      - hbx_net
     command: sh -lc "npm run prisma:generate && npx prisma migrate deploy --schema=./prisma/schema.prisma && npm run start:dev"
 
   webscraping:
@@ -59,7 +67,24 @@ services:
       MOCK_MODE: ${WEBSCRAPING_MOCK_MODE:-0}
     volumes:
       - ./webscraping:/app:cached
+    networks:
+      - hbx_net
+
+  # Serviço externo opcional. O motor WhatsApp fica fora do monorepo; se usado,
+  # conecte o container à mesma network hbx_net e exponha a porta interna esperada.
+  # whatsapp-modal:
+  #   image: your-registry/whatsapp-modal:latest
+  #   restart: unless-stopped
+  #   environment:
+  #     PORT: "3001"
+  #   networks:
+  #     - hbx_net
 
 volumes:
   backend_node_modules:
     driver: local
+
+networks:
+  hbx_net:
+    name: hbx_net
+    driver: bridge
