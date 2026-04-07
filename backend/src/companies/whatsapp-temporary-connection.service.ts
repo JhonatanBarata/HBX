@@ -267,9 +267,9 @@ export class WhatsAppTemporaryConnectionService {
   private async retryFetchEvolutionInstance(
     client: AxiosInstance,
     instanceKey: string,
-    attempts = 3,
+    attempts = 4,
   ) {
-    const delaysMs = [800, 1200, 1800];
+    const delaysMs = [600, 1000, 1500, 2200];
     const maxAttempts = Math.max(1, Math.min(Math.trunc(attempts), delaysMs.length));
     for (const delayMs of delaysMs.slice(0, maxAttempts)) {
       await this.sleep(delayMs);
@@ -321,7 +321,7 @@ export class WhatsAppTemporaryConnectionService {
 
     if (!instance) {
       await this.createEvolutionInstanceIfMissing(client, company, instanceKey);
-      instance = await this.retryFetchEvolutionInstance(client, instanceKey, 3);
+      instance = await this.retryFetchEvolutionInstance(client, instanceKey, 4);
     }
 
     await this.prisma.company.update({
@@ -365,7 +365,7 @@ export class WhatsAppTemporaryConnectionService {
       let instance = await this.fetchEvolutionInstance(client, instanceKey);
       if (!instance) {
         await this.createEvolutionInstanceIfMissing(client, company, instanceKey);
-        instance = await this.retryFetchEvolutionInstance(client, instanceKey, 3);
+        instance = await this.retryFetchEvolutionInstance(client, instanceKey, 4);
       }
 
       if (!instance) {
@@ -412,7 +412,7 @@ export class WhatsAppTemporaryConnectionService {
       let instance = await this.fetchEvolutionInstance(client, instanceKey);
       if (!instance) {
         await this.createEvolutionInstanceIfMissing(client, company, instanceKey);
-        instance = await this.retryFetchEvolutionInstance(client, instanceKey, 3);
+        instance = await this.retryFetchEvolutionInstance(client, instanceKey, 4);
       }
 
       if (!instance) {
@@ -443,7 +443,7 @@ export class WhatsAppTemporaryConnectionService {
     try {
       const { instanceKey, instance } = await this.ensureEvolutionInstance(client, company, intendedInstanceKey);
       preservedInstanceKey = instanceKey;
-      const currentInstance = instance || (await this.fetchEvolutionInstance(client, instanceKey));
+      const currentInstance = instance || (await this.retryFetchEvolutionInstance(client, instanceKey, 4));
       preservedDisplayNumber =
         this.resolveDisplayNumber(currentInstance)
         || preservedDisplayNumber;
