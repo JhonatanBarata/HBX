@@ -767,35 +767,8 @@ export default function WebscrapingClientPage() {
   if (!hasToken) return null;
 
   return (
-    <DashboardScaffold
-      title="Prospeccao"
-      description="Prospecao local nativa, com historico persistente e exportacao direta para Excel."
-    >
+    <DashboardScaffold hideHeader={true} showDashboardShortcut={false}>
       <div className={styles.page}>
-        <section className={styles.hero}>
-          <div className={styles.heroCopy}>
-            <span className={styles.eyebrow}>HBX prospeccao local</span>
-            <h1 className={styles.heroTitle}>Cidade e segmento primeiro. O resto entra para acelerar.</h1>
-            <p className={styles.heroText}>
-              Busque contatos operacionais, reaproveite pesquisas recentes e exporte uma planilha pronta para abordagem.
-            </p>
-          </div>
-
-          <div className={styles.heroStats}>
-            <div className={styles.metricCard}>
-              <span className={styles.metricLabel}>Motor</span>
-              <strong className={styles.metricValue}>Nativo HBX</strong>
-            </div>
-            <div className={styles.metricCard}>
-              <span className={styles.metricLabel}>Historico</span>
-              <strong className={styles.metricValue}>{historyItems.length} pesquisas recentes</strong>
-            </div>
-            <div className={styles.metricCard}>
-              <span className={styles.metricLabel}>Roteiro</span>
-              <strong className={styles.metricValue}>{buildCompanyName(currentUser) || "Personalizado"}</strong>
-            </div>
-          </div>
-        </section>
 
         {loadingBootstrap ? (
           <section className={styles.loadingCard}>
@@ -809,17 +782,7 @@ export default function WebscrapingClientPage() {
           </section>
         ) : null}
 
-        {!loadingBootstrap && configurationPending ? (
-          <section className={styles.statusCard}>
-            <div>
-              <strong className={styles.statusTitle}>Modulo temporariamente em configuracao</strong>
-              <p className={styles.statusText}>
-                A interface segue disponivel para consulta do historico e o restante da experiencia permanece limpo enquanto a configuracao final e concluida.
-              </p>
-            </div>
-            <span className={styles.statusPill}>Configuracao em andamento</span>
-          </section>
-        ) : null}
+        {/* Status de configuracao removido */}
 
         {pageError ? (
           <section className={styles.errorCard}>
@@ -970,19 +933,16 @@ export default function WebscrapingClientPage() {
 
           <div className={styles.searchActions}>
             <p className={styles.helperText}>
-              {configurationPending
-                ? "As novas consultas ficam liberadas assim que a configuracao do modulo for concluida."
-                : "O modulo prioriza reaproveitamento do historico e so complementa a busca quando realmente precisa."}
+              O modulo prioriza reaproveitamento do historico e so complementa a busca quando realmente precisa.
             </p>
             <div className={styles.actionRow}>
               <button
                 type="button"
                 className="btn btn-primary"
                 onClick={() => void handleSearch()}
-                disabled={loadingBootstrap || searching || configurationPending}
-                title={configurationPending ? "Modulo temporariamente em configuracao." : undefined}
+                disabled={loadingBootstrap || searching}
               >
-                {searching ? "Buscando..." : configurationPending ? "Modulo em configuracao" : "Buscar contatos"}
+                {searching ? "Buscando..." : "Buscar contatos"}
               </button>
               <button
                 type="button"
