@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Delete, Get, Param, ParseIntPipe, Patch, Post, Put, Query, Req, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, ForbiddenException, Get, Param, ParseIntPipe, Patch, Post, Put, Query, Req, UseGuards } from '@nestjs/common';
 import { CreateCompanyDto } from './dto/create-company.dto';
 import { UpdateCompanyDto } from './dto/update-company.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -14,6 +14,7 @@ import { Type } from 'class-transformer';
 import { MercadoPagoClientService } from '../payments/mercado-pago-client.service';
 import { MasterContextService } from '../master-context/master-context.service';
 import { CompanyOperationalStatusService } from './company-operational-status.service';
+import { WhatsAppModalService } from './whatsapp-modal.service';
 import {
   CompaniesService,
   MASTER_HARD_DELETE_CONFIRMATION_INVALID_MESSAGE,
@@ -151,6 +152,7 @@ export class CompaniesController {
     private readonly mercadoPagoClient: MercadoPagoClientService,
     private readonly masterContextService: MasterContextService,
     private readonly companyOperationalStatus: CompanyOperationalStatusService,
+    private readonly whatsappModalService: WhatsAppModalService,
   ) {}
 
   // NOTE: We intentionally do not provide a public company lookup endpoint.
@@ -288,6 +290,31 @@ export class CompaniesController {
       throw new BadRequestException('Nenhuma empresa operacional selecionada para este contexto.');
     }
     return companyId;
+  }
+
+  private assertWhatsAppModalAdminAccess(req: any, companyId: number) {
+    if (req?.user?.isSystemMaster) {
+      return;
+    }
+
+    const normalizedUserCompanyId = Number(req?.user?.companyId || 0);
+    const normalizedRole = String(req?.user?.role || '').trim().toUpperCase();
+    if (normalizedUserCompanyId === Number(companyId) && normalizedRole === 'ADMIN') {
+      return;
+    }
+
+    throw new ForbiddenException('Acesso restrito ao MASTER ou ADMIN da empresa.');
+  }
+
+  private async resolveMyWhatsAppModalCompanyIdOrThrow(req: any) {
+    const companyId = await this.resolveOperationalCompanyIdOrThrow(req);
+    this.assertWhatsAppModalAdminAccess(req, companyId);
+    return companyId;
+  }
+
+  private resolveParamWhatsAppModalCompanyIdOrThrow(req: any, companyId: number) {
+    this.assertWhatsAppModalAdminAccess(req, companyId);
+    return Number(companyId);
   }
 
   @Post()
@@ -700,6 +727,41 @@ export class CompaniesController {
     return this.companiesService.disconnectWhatsAppTemporaryConnection(companyId);
   }
 
+  @Get('me/whatsapp-modal/status')
+  @UseGuards(JwtAuthGuard)
+  async getMyWhatsAppModalStatus(@Req() req: any) {
+    const companyId = await this.resolveMyWhatsAppModalCompanyIdOrThrow(req);
+    return this.whatsappModalService.getCompanyStatus(companyId);
+  }
+
+  @Post('me/whatsapp-modal/start')
+  @UseGuards(JwtAuthGuard)
+  async startMyWhatsAppModalSession(@Req() req: any) {
+    const companyId = await this.resolveMyWhatsAppModalCompanyIdOrThrow(req);
+    return this.whatsappModalService.startCompanySession(companyId);
+  }
+
+  @Get('me/whatsapp-modal/qr')
+  @UseGuards(JwtAuthGuard)
+  async getMyWhatsAppModalQrCode(@Req() req: any) {
+    const companyId = await this.resolveMyWhatsAppModalCompanyIdOrThrow(req);
+    return this.whatsappModalService.getCompanyQrCode(companyId);
+  }
+
+  @Post('me/whatsapp-modal/disconnect')
+  @UseGuards(JwtAuthGuard)
+  async disconnectMyWhatsAppModalSession(@Req() req: any) {
+    const companyId = await this.resolveMyWhatsAppModalCompanyIdOrThrow(req);
+    return this.whatsappModalService.disconnectCompanySession(companyId);
+  }
+
+  @Post('me/whatsapp-modal/restart')
+  @UseGuards(JwtAuthGuard)
+  async restartMyWhatsAppModalSession(@Req() req: any) {
+    const companyId = await this.resolveMyWhatsAppModalCompanyIdOrThrow(req);
+    return this.whatsappModalService.restartCompanySession(companyId);
+  }
+
   @Post('me/whatsapp-center/migration-interest')
   @UseGuards(JwtAuthGuard)
   async registerMyWhatsAppMigrationInterest(
@@ -708,6 +770,41 @@ export class CompaniesController {
   ) {
     const companyId = await this.resolveOperationalCompanyIdOrThrow(req);
     return this.companiesService.registerWhatsAppMigrationInterest(companyId, dto || {});
+  }
+
+  @Get(':id/whatsapp-modal/status')
+  @UseGuards(JwtAuthGuard)
+  async getCompanyWhatsAppModalStatus(@Req() req: any, @Param('id', ParseIntPipe) id: number) {
+    const companyId = this.resolveParamWhatsAppModalCompanyIdOrThrow(req, id);
+    return this.whatsappModalService.getCompanyStatus(companyId);
+  }
+
+  @Post(':id/whatsapp-modal/start')
+  @UseGuards(JwtAuthGuard)
+  async startCompanyWhatsAppModalSession(@Req() req: any, @Param('id', ParseIntPipe) id: number) {
+    const companyId = this.resolveParamWhatsAppModalCompanyIdOrThrow(req, id);
+    return this.whatsappModalService.startCompanySession(companyId);
+  }
+
+  @Get(':id/whatsapp-modal/qr')
+  @UseGuards(JwtAuthGuard)
+  async getCompanyWhatsAppModalQrCode(@Req() req: any, @Param('id', ParseIntPipe) id: number) {
+    const companyId = this.resolveParamWhatsAppModalCompanyIdOrThrow(req, id);
+    return this.whatsappModalService.getCompanyQrCode(companyId);
+  }
+
+  @Post(':id/whatsapp-modal/disconnect')
+  @UseGuards(JwtAuthGuard)
+  async disconnectCompanyWhatsAppModalSession(@Req() req: any, @Param('id', ParseIntPipe) id: number) {
+    const companyId = this.resolveParamWhatsAppModalCompanyIdOrThrow(req, id);
+    return this.whatsappModalService.disconnectCompanySession(companyId);
+  }
+
+  @Post(':id/whatsapp-modal/restart')
+  @UseGuards(JwtAuthGuard)
+  async restartCompanyWhatsAppModalSession(@Req() req: any, @Param('id', ParseIntPipe) id: number) {
+    const companyId = this.resolveParamWhatsAppModalCompanyIdOrThrow(req, id);
+    return this.whatsappModalService.restartCompanySession(companyId);
   }
 
   @Get(':id')

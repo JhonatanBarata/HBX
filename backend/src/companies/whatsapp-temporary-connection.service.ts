@@ -388,6 +388,33 @@ export class WhatsAppTemporaryConnectionService {
     return null;
   }
 
+  private async deleteEvolutionInstance(
+    client: AxiosInstance,
+    instanceKey: string,
+    instanceId?: string | null,
+  ) {
+    const targets = [instanceKey, this.normalizeOptionalString(instanceId)].filter(
+      (target, index, items): target is string => Boolean(target && items.indexOf(target) === index),
+    );
+    let lastError: unknown = null;
+
+    for (const target of targets) {
+      try {
+        await client.delete(`/instance/delete/${encodeURIComponent(target)}`);
+        return;
+      } catch (error) {
+        lastError = error;
+        if (!this.isTransientInstanceNotFoundError(error)) {
+          throw error;
+        }
+      }
+    }
+
+    if (lastError && !this.isTransientInstanceNotFoundError(lastError)) {
+      throw lastError;
+    }
+  }
+
   private async retryFetchEvolutionInstance(
     client: AxiosInstance,
     instanceKey: string,
@@ -709,6 +736,130 @@ export class WhatsAppTemporaryConnectionService {
     return latestSnapshot;
   }
 
+  private async fetchExistingInstanceAfterNotFound(
+    client: AxiosInstance,
+    instanceKey: string | null,
+    error: unknown,
+  ) {
+    if (!instanceKey || !this.isTransientInstanceNotFoundError(error)) return null;
+    try {
+      return await this.fetchEvolutionInstance(client, instanceKey);
+    } catch {
+      return null;
+    }
+  }
+
+  private async fetchConnectQrDirectly(
+    client: AxiosInstance,
+    instanceKey: string,
+    number?: string | null,
+  ) {
+    let latestQr: NormalizedQrPayload = {
+      code: null,
+      pairingCode: null,
+      qrCodeDataUrl: null,
+      pending: true,
+    };
+
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      if (attempt > 0) {
+        await this.sleep(1500);
+      }
+
+      try {
+        latestQr = await this.fetchConnectPayload(client, instanceKey, number);
+        if (this.hasQrPayload(latestQr)) {
+          return latestQr;
+        }
+      } catch (error) {
+        if (!this.isTransientInstanceNotFoundError(error)) {
+          throw error;
+        }
+
+        const parsed = this.parseAxiosError(error);
+        this.logger.warn(
+          `Temporary WhatsApp provider returned not found during direct QR connect for existing instance ${instanceKey}: ${parsed.message}`,
+        );
+      }
+    }
+
+    return latestQr;
+  }
+
+  private async syncQrWithEvolutionProvider(
+    client: AxiosInstance,
+    company: CompanyTemporaryFields,
+    instanceKey: string,
+    lastSyncAt: Date,
+  ): Promise<TemporarySyncResult> {
+    let snapshot = await this.fetchEvolutionInstance(client, instanceKey);
+    let createQr: NormalizedQrPayload | null = null;
+
+    if (!snapshot) {
+      createQr = await this.createEvolutionInstanceIfMissing(client, company, instanceKey);
+      snapshot = await this.retryFetchEvolutionInstance(client, instanceKey, 4);
+    }
+
+    if (!snapshot) {
+      return {
+        connected: false,
+        temporaryStatus: 'ATTENTION',
+        rawState: null,
+        qrCodeDataUrl: null,
+        pairingCode: null,
+        displayNumber: this.normalizeOptionalString(company.whatsappTemporaryDisplayNumber),
+        provider: 'EVOLUTION_API',
+        errorMessage: `Instance "${instanceKey}" not found`,
+        connectedAt: null,
+        lastSyncAt,
+        instanceKey,
+      };
+    }
+
+    const number = this.normalizeDigits(company.whatsappNumber) || this.normalizeDigits(company.contactPhone);
+    let selectedQr = this.mergeQrPayloads([createQr, snapshot.qr]);
+
+    if (!this.hasQrPayload(selectedQr)) {
+      const connectQr = await this.fetchConnectQrDirectly(client, instanceKey, number);
+      selectedQr = this.mergeQrPayloads([connectQr, selectedQr]);
+    }
+
+    if (!this.hasQrPayload(selectedQr)) {
+      this.logger.warn(
+        `Temporary WhatsApp provider returned no QR for existing instance ${instanceKey}; recreating the temporary instance once.`,
+      );
+      await this.deleteEvolutionInstance(client, instanceKey, snapshot.instance?.instanceId);
+      await this.sleep(800);
+
+      createQr = await this.createEvolutionInstanceIfMissing(client, company, instanceKey);
+      snapshot = await this.retryFetchEvolutionInstance(client, instanceKey, 4);
+
+      if (snapshot) {
+        selectedQr = this.mergeQrPayloads([createQr, snapshot.qr]);
+        if (!this.hasQrPayload(selectedQr)) {
+          const reconnectQr = await this.fetchConnectQrDirectly(client, instanceKey, number);
+          selectedQr = this.mergeQrPayloads([reconnectQr, selectedQr]);
+        }
+      }
+    }
+
+    return {
+      connected: false,
+      temporaryStatus: 'ATTENTION',
+      rawState: this.resolveInstanceState(snapshot?.instance || null),
+      qrCodeDataUrl: selectedQr.qrCodeDataUrl,
+      pairingCode: selectedQr.pairingCode,
+      displayNumber:
+        this.resolveDisplayNumber(snapshot?.instance || null)
+        || this.normalizeOptionalString(company.whatsappTemporaryDisplayNumber),
+      provider: 'EVOLUTION_API',
+      errorMessage: null,
+      connectedAt: null,
+      lastSyncAt,
+      instanceKey,
+    };
+  }
+
   private async fetchConnectPayloadWithRecovery(
     client: AxiosInstance,
     company: CompanyTemporaryFields,
@@ -774,6 +925,10 @@ export class WhatsAppTemporaryConnectionService {
       pairingCode: preservedPairingCode,
       qrCodeDataUrl: preservedQrCodeDataUrl,
     };
+
+    if (requestQr) {
+      return this.syncQrWithEvolutionProvider(client, company, intendedInstanceKey, lastSyncAt);
+    }
 
     try {
       const { instanceKey, instance, createQr, instanceQr } = await this.ensureEvolutionInstance(
@@ -859,6 +1014,7 @@ export class WhatsAppTemporaryConnectionService {
       }
 
       const connected = this.isConnectedState(rawState);
+      const instanceExists = Boolean(latestInstance);
 
       if (connected) {
         preservedPairingCode = null;
@@ -878,7 +1034,7 @@ export class WhatsAppTemporaryConnectionService {
         pairingCode: preservedPairingCode,
         displayNumber: preservedDisplayNumber,
         provider: 'EVOLUTION_API',
-        errorMessage: connected ? null : stateErrorMessage,
+        errorMessage: connected || instanceExists ? null : stateErrorMessage,
         connectedAt: connected ? preservedConnectedAt : null,
         lastSyncAt,
         instanceKey,
@@ -889,25 +1045,32 @@ export class WhatsAppTemporaryConnectionService {
       const instanceKey =
         preservedInstanceKey
         || this.normalizeOptionalString(latestCompany.whatsappTemporaryInstanceKey);
+      const existingSnapshot = await this.fetchExistingInstanceAfterNotFound(client, instanceKey, error);
       const pairingCode =
         preservedPairingCode
+        || existingSnapshot?.qr?.pairingCode
         || this.normalizeOptionalString(latestCompany.whatsappTemporaryPairingCode);
       const qrCodeDataUrl =
         preservedQrCodeDataUrl
+        || existingSnapshot?.qr?.qrCodeDataUrl
         || this.normalizeOptionalString(latestCompany.whatsappTemporaryQrCodeData);
       const displayNumber =
         preservedDisplayNumber
+        || this.resolveDisplayNumber(existingSnapshot?.instance || null)
         || this.normalizeOptionalString(latestCompany.whatsappTemporaryDisplayNumber);
+      const rawState = this.resolveInstanceState(existingSnapshot?.instance || null);
       this.logger.warn(`Temporary WhatsApp provider sync failed for company ${company.id}: ${parsed.message}`);
       return {
         connected: false,
         temporaryStatus: 'ATTENTION',
-        rawState: null,
+        rawState,
         qrCodeDataUrl,
         pairingCode,
         displayNumber,
         provider: 'EVOLUTION_API',
-        errorMessage: parsed.message || this.normalizeOptionalString(latestCompany.whatsappTemporaryStatusError),
+        errorMessage: existingSnapshot
+          ? null
+          : parsed.message || this.normalizeOptionalString(latestCompany.whatsappTemporaryStatusError),
         connectedAt: preservedConnectedAt || latestCompany.whatsappTemporaryConnectedAt || null,
         lastSyncAt,
         instanceKey,
