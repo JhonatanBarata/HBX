@@ -151,7 +151,7 @@ export default function WhatsAppOperationalDialog({
                 ))}
               </div>
 
-              <div className={styles.contentGrid}>
+              <div className={styles.contentGrid} data-focus={focus}>
                 <div className={styles.mainColumn}>
                   <section className={styles.sectionWide} data-active={focus === "status"}>
                     <div className={styles.sectionHeader}>

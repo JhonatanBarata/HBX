@@ -527,9 +527,14 @@ export default function TopBar() {
 
   useEffect(() => {
     if (!whatsAppDetailMessage) return;
+    const keepQrMessageVisible = Boolean(
+      whatsAppDetailMessage.startsWith("QR gerado") &&
+        (whatsAppCenter?.center.temporary.qrCodeDataUrl || whatsAppCenter?.center.temporary.pairingCode),
+    );
+    if (keepQrMessageVisible) return;
     const timer = window.setTimeout(() => setWhatsAppDetailMessage(null), 2800);
     return () => window.clearTimeout(timer);
-  }, [whatsAppDetailMessage]);
+  }, [whatsAppCenter?.center.temporary.pairingCode, whatsAppCenter?.center.temporary.qrCodeDataUrl, whatsAppDetailMessage]);
 
   useEffect(() => {
     if (!whatsAppDetailOpen || !whatsAppCenter?.center.temporary.selected) return;

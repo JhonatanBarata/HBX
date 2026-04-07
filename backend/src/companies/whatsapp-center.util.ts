@@ -166,10 +166,10 @@ export function buildWhatsAppCenterSnapshot(input: {
     status = 'ATTENTION';
     statusLabel = 'Atenção / pendente';
     statusHint = mode === 'TEMPORARY'
-      ? temporaryError
-        ? 'O vínculo rápido precisa de atenção técnica para continuar.'
-        : temporaryQrCodeData || temporaryPairingCode
-          ? 'QR gerado para concluir o vínculo rápido temporário.'
+      ? temporaryQrCodeData || temporaryPairingCode
+        ? 'QR gerado para concluir o vínculo rápido temporário.'
+        : temporaryError
+          ? 'O vínculo rápido precisa de atenção técnica para continuar.'
           : 'O vínculo rápido foi selecionado e já pode ser iniciado por QR.'
       : migrationRequested
       ? 'Interesse de migração registrado para o time técnico acompanhar.'
@@ -178,10 +178,10 @@ export function buildWhatsAppCenterSnapshot(input: {
 
   const temporaryLiveStatus = temporaryStatus === 'TEMPORARY'
     ? 'connected'
-    : temporaryError
-      ? 'error'
-      : temporaryQrCodeData || temporaryPairingCode
-        ? 'qr_ready'
+    : temporaryQrCodeData || temporaryPairingCode
+      ? 'qr_ready'
+      : temporaryError
+        ? 'error'
         : 'idle';
 
   return {
