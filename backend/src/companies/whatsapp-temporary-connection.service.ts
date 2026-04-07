@@ -227,6 +227,16 @@ export class WhatsAppTemporaryConnectionService {
     return normalized === 'open' || normalized === 'connected';
   }
 
+  private async sleep(delayMs: number) {
+    await new Promise((resolve) => setTimeout(resolve, delayMs));
+  }
+
+  private isAlreadyExistingInstanceError(error: unknown) {
+    const parsed = this.parseAxiosError(error);
+    const message = String(parsed.message || '').toLowerCase();
+    return message.includes('already') || message.includes('exists') || parsed.status === 409;
+  }
+
   private isTransientInstanceNotFoundError(error: unknown) {
     const parsed = this.parseAxiosError(error);
     const message = String(parsed.message || '').trim().toLowerCase();
@@ -239,21 +249,35 @@ export class WhatsAppTemporaryConnectionService {
     );
   }
 
-  private async retryTransientInstanceLookup<T>(operation: () => Promise<T>, context: string) {
+  private async createEvolutionInstanceIfMissing(
+    client: AxiosInstance,
+    company: CompanyTemporaryFields,
+    instanceKey: string,
+  ) {
     try {
-      return await operation();
+      await this.createEvolutionInstance(client, company, instanceKey);
     } catch (error) {
-      if (!this.isTransientInstanceNotFoundError(error)) {
-        throw error;
+      if (!this.isAlreadyExistingInstanceError(error)) {
+        const parsed = this.parseAxiosError(error);
+        throw new BadRequestException(parsed.message);
       }
-
-      const parsed = this.parseAxiosError(error);
-      this.logger.warn(
-        `Temporary WhatsApp provider returned transient instance lookup error during ${context}: ${parsed.message}. Retrying once.`,
-      );
-      await new Promise((resolve) => setTimeout(resolve, 800));
-      return operation();
     }
+  }
+
+  private async retryFetchEvolutionInstance(
+    client: AxiosInstance,
+    instanceKey: string,
+    attempts = 3,
+  ) {
+    const delaysMs = [800, 1200, 1800];
+    const maxAttempts = Math.max(1, Math.min(Math.trunc(attempts), delaysMs.length));
+    for (const delayMs of delaysMs.slice(0, maxAttempts)) {
+      await this.sleep(delayMs);
+      const instance = await this.fetchEvolutionInstance(client, instanceKey);
+      if (instance) return instance;
+    }
+
+    return null;
   }
 
   private resolveDisplayNumber(instance: EvolutionInstanceEntry['instance'] | null) {
@@ -287,21 +311,17 @@ export class WhatsAppTemporaryConnectionService {
     });
   }
 
-  private async ensureEvolutionInstance(client: AxiosInstance, company: CompanyTemporaryFields) {
-    const instanceKey = this.buildInstanceKey(company);
+  private async ensureEvolutionInstance(
+    client: AxiosInstance,
+    company: CompanyTemporaryFields,
+    preferredInstanceKey?: string | null,
+  ) {
+    const instanceKey = this.normalizeOptionalString(preferredInstanceKey) || this.buildInstanceKey(company);
     let instance = await this.fetchEvolutionInstance(client, instanceKey);
 
     if (!instance) {
-      try {
-        await this.createEvolutionInstance(client, company, instanceKey);
-      } catch (error) {
-        const parsed = this.parseAxiosError(error);
-        const message = String(parsed.message || '').toLowerCase();
-        if (!message.includes('already') && !message.includes('exists') && parsed.status !== 409) {
-          throw new BadRequestException(parsed.message);
-        }
-      }
-      instance = await this.fetchEvolutionInstance(client, instanceKey);
+      await this.createEvolutionInstanceIfMissing(client, company, instanceKey);
+      instance = await this.retryFetchEvolutionInstance(client, instanceKey, 3);
     }
 
     await this.prisma.company.update({
@@ -325,6 +345,38 @@ export class WhatsAppTemporaryConnectionService {
     return this.normalizeOptionalString(response.data?.instance?.state || response.data?.instance?.status);
   }
 
+  private async fetchConnectionStateWithRecovery(
+    client: AxiosInstance,
+    company: CompanyTemporaryFields,
+    instanceKey: string,
+  ) {
+    try {
+      return await this.fetchConnectionState(client, instanceKey);
+    } catch (error) {
+      if (!this.isTransientInstanceNotFoundError(error)) {
+        throw error;
+      }
+
+      const parsed = this.parseAxiosError(error);
+      this.logger.warn(
+        `Temporary WhatsApp provider did not find instance ${instanceKey} during connectionState: ${parsed.message}. Refetching before one recreate attempt.`,
+      );
+
+      let instance = await this.fetchEvolutionInstance(client, instanceKey);
+      if (!instance) {
+        await this.createEvolutionInstanceIfMissing(client, company, instanceKey);
+        instance = await this.retryFetchEvolutionInstance(client, instanceKey, 3);
+      }
+
+      if (!instance) {
+        throw error;
+      }
+
+      await this.sleep(800);
+      return this.fetchConnectionState(client, instanceKey);
+    }
+  }
+
   private async fetchConnectPayload(client: AxiosInstance, instanceKey: string, number?: string | null) {
     const response = await client.get<{ code?: string; pairingCode?: string }>(
       `/instance/connect/${encodeURIComponent(instanceKey)}`,
@@ -339,6 +391,39 @@ export class WhatsAppTemporaryConnectionService {
     };
   }
 
+  private async fetchConnectPayloadWithRecovery(
+    client: AxiosInstance,
+    company: CompanyTemporaryFields,
+    instanceKey: string,
+    number?: string | null,
+  ) {
+    try {
+      return await this.fetchConnectPayload(client, instanceKey, number);
+    } catch (error) {
+      if (!this.isTransientInstanceNotFoundError(error)) {
+        throw error;
+      }
+
+      const parsed = this.parseAxiosError(error);
+      this.logger.warn(
+        `Temporary WhatsApp provider did not find instance ${instanceKey} during connect: ${parsed.message}. Refetching before one recreate attempt.`,
+      );
+
+      let instance = await this.fetchEvolutionInstance(client, instanceKey);
+      if (!instance) {
+        await this.createEvolutionInstanceIfMissing(client, company, instanceKey);
+        instance = await this.retryFetchEvolutionInstance(client, instanceKey, 3);
+      }
+
+      if (!instance) {
+        throw error;
+      }
+
+      await this.sleep(800);
+      return this.fetchConnectPayload(client, instanceKey, number);
+    }
+  }
+
   private async syncWithEvolutionProvider(
     company: CompanyTemporaryFields,
     options?: {
@@ -348,34 +433,30 @@ export class WhatsAppTemporaryConnectionService {
     const client = this.providerClient();
     const lastSyncAt = new Date();
     const requestQr = Boolean(options?.requestQr);
-    let preservedInstanceKey = this.normalizeOptionalString(company.whatsappTemporaryInstanceKey);
+    const intendedInstanceKey = this.buildInstanceKey(company);
+    let preservedInstanceKey = intendedInstanceKey;
     let preservedPairingCode = this.normalizeOptionalString(company.whatsappTemporaryPairingCode);
     let preservedQrCodeDataUrl = this.normalizeOptionalString(company.whatsappTemporaryQrCodeData);
     let preservedDisplayNumber = this.normalizeOptionalString(company.whatsappTemporaryDisplayNumber);
     let preservedConnectedAt = company.whatsappTemporaryConnectedAt || null;
 
     try {
-      const { instanceKey, instance } = await this.ensureEvolutionInstance(client, company);
+      const { instanceKey, instance } = await this.ensureEvolutionInstance(client, company, intendedInstanceKey);
       preservedInstanceKey = instanceKey;
       const currentInstance = instance || (await this.fetchEvolutionInstance(client, instanceKey));
       preservedDisplayNumber =
         this.resolveDisplayNumber(currentInstance)
         || preservedDisplayNumber;
-      const rawState = await this.retryTransientInstanceLookup(
-        () => this.fetchConnectionState(client, instanceKey),
-        `connectionState/${instanceKey}`,
-      );
+      const rawState = await this.fetchConnectionStateWithRecovery(client, company, instanceKey);
       const connected = this.isConnectedState(rawState);
       let code: string | null = null;
 
       if (!connected && requestQr) {
-        const connectPayload = await this.retryTransientInstanceLookup(
-          () => this.fetchConnectPayload(
-            client,
-            instanceKey,
-            this.normalizeDigits(company.whatsappNumber) || this.normalizeDigits(company.contactPhone),
-          ),
-          `connect/${instanceKey}`,
+        const connectPayload = await this.fetchConnectPayloadWithRecovery(
+          client,
+          company,
+          instanceKey,
+          this.normalizeDigits(company.whatsappNumber) || this.normalizeDigits(company.contactPhone),
         );
         code = connectPayload.code;
         preservedPairingCode = connectPayload.pairingCode || preservedPairingCode;
@@ -429,7 +510,7 @@ export class WhatsAppTemporaryConnectionService {
         qrCodeDataUrl,
         pairingCode,
         displayNumber,
-        provider: this.providerEnabled() ? 'EVOLUTION_API' : null,
+        provider: 'EVOLUTION_API',
         errorMessage: parsed.message || this.normalizeOptionalString(latestCompany.whatsappTemporaryStatusError),
         connectedAt: preservedConnectedAt || latestCompany.whatsappTemporaryConnectedAt || null,
         lastSyncAt,

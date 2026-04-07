@@ -47,15 +47,24 @@ export class UsersService {
   }
 
   async findByUsername(username: string): Promise<User | null> {
-    return this.prisma.user.findUnique({ where: { username }, include: { company: { include: { plan: { include: { features: true } } } } } });
+    return this.prisma.user.findUnique({
+      where: { username },
+      include: { company: { include: { plan: { include: { features: true } } } } },
+    });
   }
 
   async findByEmail(email: string): Promise<User | null> {
-    return this.prisma.user.findUnique({ where: { email }, include: { company: { include: { plan: { include: { features: true } } } } } });
+    return this.prisma.user.findUnique({
+      where: { email },
+      include: { company: { include: { plan: { include: { features: true } } } } },
+    });
   }
 
   async findById(id: number): Promise<User | null> {
-    return this.prisma.user.findUnique({ where: { id }, include: { company: { include: { plan: { include: { features: true } } } } } });
+    return this.prisma.user.findUnique({
+      where: { id },
+      include: { company: { include: { plan: { include: { features: true } } } } },
+    });
   }
 
   async updateCompany(userId: number, companyId: number): Promise<User> {
@@ -117,10 +126,84 @@ export class UsersService {
   }
 
   async hardDeleteUser(userId: number): Promise<void> {
+    const hasWebsiteAdminEntryToken = await this.prisma.hasTable('WebsiteAdminEntryToken');
+    const hasMasterBillingLedgerEntry = await this.prisma.hasTable('MasterBillingLedgerEntry');
+
     await this.prisma.$transaction(async (tx) => {
       await tx.userModuleAccess.deleteMany({ where: { userId } });
       await tx.passwordReset.deleteMany({ where: { userId } });
-      await tx.productVersion.updateMany({ where: { authorId: userId }, data: { authorId: null } });
+
+      await tx.productVersion.updateMany({
+        where: { authorId: userId },
+        data: { authorId: null },
+      });
+
+      await tx.importacao.updateMany({
+        where: {
+          OR: [
+            { createdBy: userId },
+            { finalizedBy: userId },
+            { reabertoPor: userId },
+          ],
+        },
+        data: {
+          createdBy: null,
+          finalizedBy: null,
+          reabertoPor: null,
+        },
+      });
+
+      await tx.deletionRecord.updateMany({
+        where: { deletedByUserId: userId },
+        data: { deletedByUserId: null },
+      });
+
+      await tx.masterAssumedContextSession.updateMany({
+        where: { endedByUserId: userId },
+        data: { endedByUserId: null },
+      });
+
+      await tx.techAssistantInteraction.deleteMany({ where: { userId } });
+      await tx.webscrapingSearchHistory.deleteMany({ where: { userId } });
+      await tx.webscrapingUsageLog.deleteMany({ where: { userId } });
+
+      await tx.hbxRecoveryPayment.updateMany({
+        where: { createdByUserId: userId },
+        data: { createdByUserId: null },
+      });
+
+      await tx.financeiroCharge.updateMany({
+        where: { createdByUserId: userId },
+        data: { createdByUserId: null },
+      });
+
+      await tx.integrationSyncRun.updateMany({
+        where: { triggeredByUserId: userId },
+        data: { triggeredByUserId: null },
+      });
+
+      await tx.vendasLead.updateMany({
+        where: { createdByUserId: userId },
+        data: { createdByUserId: null },
+      });
+
+      await tx.vendasLeadTimelineEvent.updateMany({
+        where: { createdByUserId: userId },
+        data: { createdByUserId: null },
+      });
+
+      if (hasWebsiteAdminEntryToken) {
+        await tx.$executeRawUnsafe(
+          `DELETE FROM "WebsiteAdminEntryToken" WHERE "userId" = ${Number(userId)}`
+        );
+      }
+
+      if (hasMasterBillingLedgerEntry) {
+        await tx.$executeRawUnsafe(
+          `UPDATE "MasterBillingLedgerEntry" SET "createdByUserId" = NULL WHERE "createdByUserId" = ${Number(userId)}`
+        );
+      }
+
       await tx.user.delete({ where: { id: userId } });
     });
   }
