@@ -54,6 +54,31 @@ export type WhatsAppCenterPayload = {
 
 export type WhatsAppDiagnosticFocus = "status" | "temporary" | "official";
 
+export type WhatsAppModalPayload = {
+  success: boolean;
+  status: "offline" | "starting" | "waiting_qr" | "connected" | "disconnected" | "error";
+  message: string;
+  errorCode?: string | null;
+  data: {
+    companyId: number;
+    companyName: string;
+    companySlug: string | null;
+    tenantKey: string;
+    provider: "external_modal";
+    enabled: boolean;
+    configured: boolean;
+    available: boolean;
+    providerHealth: "disabled" | "misconfigured" | "healthy" | "unavailable" | "unknown";
+    missingConfigKeys: string[];
+    phone: string | null;
+    connectedAt: string | null;
+    updatedAt: string | null;
+    lastError: string | null;
+    qrCodeDataUrl: string | null;
+    rawStatus: string | null;
+  };
+};
+
 export function formatWhatsAppDateTime(value?: string | null) {
   const iso = String(value || "").trim();
   if (!iso) return "-";
@@ -79,4 +104,14 @@ export function whatsappTemporaryLiveLabel(value?: string | null) {
   if (normalized === "qr_ready") return "QR aguardando leitura";
   if (normalized === "error") return "Atencao tecnica";
   return "Aguardando ativacao";
+}
+
+export function whatsappModalStatusLabel(value?: string | null) {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (normalized === "starting") return "Iniciando";
+  if (normalized === "waiting_qr") return "Aguardando QR";
+  if (normalized === "connected") return "Conectado";
+  if (normalized === "disconnected") return "Desconectado";
+  if (normalized === "error") return "Erro";
+  return "Offline";
 }
