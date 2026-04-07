@@ -44,6 +44,12 @@ model Company {
   whatsappTemporaryLastSyncAt DateTime?
   whatsappTemporaryConnectedAt DateTime?
   whatsappTemporaryStatusError String?
+  whatsappModalStatus      String?
+  whatsappModalProvider    String?
+  whatsappModalPhone       String?
+  whatsappModalConnectedAt DateTime?
+  whatsappModalLastError   String?
+  whatsappModalUpdatedAt   DateTime?
   whatsappMigrationInterestStatus String @default("NONE") // NONE | REQUESTED | CONTACTED | RESOLVED
   whatsappMigrationInterestAt DateTime?
   whatsappMigrationInterestSource String?

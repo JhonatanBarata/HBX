@@ -9,10 +9,11 @@ import { WhatsAppStatusService } from '../messaging/whatsapp-status.service';
 import { PaymentsModule } from '../payments/payments.module';
 import { WhatsAppTemporaryConnectionService } from './whatsapp-temporary-connection.service';
 import { CompanyOperationalStatusService } from './company-operational-status.service';
+import { WhatsAppModalService } from './whatsapp-modal.service';
 
 @Module({
   imports: [PrismaModule, UsersModule, PlansModule, PaymentsModule, MasterContextModule],
-  providers: [CompaniesService, WhatsAppStatusService, WhatsAppTemporaryConnectionService, CompanyOperationalStatusService],
+  providers: [CompaniesService, WhatsAppStatusService, WhatsAppTemporaryConnectionService, CompanyOperationalStatusService, WhatsAppModalService],
   controllers: [CompaniesController],
   exports: [CompaniesService, CompanyOperationalStatusService],
 })
