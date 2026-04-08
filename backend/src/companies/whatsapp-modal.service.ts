@@ -274,6 +274,8 @@ export class WhatsAppModalService {
       }
     }
 
+    await this.cleanupProviderSession(tenantKey);
+
     const optimisticSnapshot: ModalSnapshot = {
       ...storedSnapshot,
       status: 'disconnected',
@@ -378,6 +380,23 @@ export class WhatsAppModalService {
   private isMissingInstanceError(error: unknown) {
     const providerError = this.toProviderError(error);
     return providerError.statusCode === 404 || this.isMissingInstanceMessage(providerError.message);
+  }
+
+  private async cleanupProviderSession(tenantKey: string) {
+    try {
+      await this.requestProvider({
+        method: 'DELETE',
+        path: `/sessions/${encodeURIComponent(tenantKey)}`,
+        purpose: 'remoção da sessao',
+        treatNotFoundAsNull: true,
+      });
+    } catch (error) {
+      const providerError = this.toProviderError(error);
+      if ([404, 405, 501].includes(Number(providerError.statusCode || 0))) {
+        return;
+      }
+      this.logger.warn(`Modal WhatsApp cleanup failed for ${tenantKey}: ${providerError.message}`);
+    }
   }
 
   private normalizeDate(value: unknown) {
