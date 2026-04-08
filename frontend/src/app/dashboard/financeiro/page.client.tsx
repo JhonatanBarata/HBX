@@ -561,7 +561,7 @@ export default function FinanceiroClientPage() {
                 </Link>
               </div>
               <div className={styles.infoGrid}>
-                <div><span>Melhor para testar</span><strong>Conexão rápida / temporária</strong></div>
+                <div><span>Melhor para testar</span><strong>Conexão rápida por QR</strong></div>
                 <div><span>Melhor para crescer</span><strong>Conexão oficial / Meta</strong></div>
                 <div><span>Próximo passo</span><strong>Escolher a trilha sem misturar os modos</strong></div>
               </div>

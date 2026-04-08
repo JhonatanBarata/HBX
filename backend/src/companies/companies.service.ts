@@ -6,7 +6,6 @@ import { buildImportacaoPermissaoRows } from '../bootstrap/company-structural-de
 import { getMasterGlobalIntegrationConfig, pickMasterWhatsAppCredential } from '../modules/master-global-integrations.util';
 import { ensureMasterBillingRuntimeSchema } from '../modules/master-runtime';
 import { buildWhatsAppCenterSnapshot } from './whatsapp-center.util';
-import { WhatsAppTemporaryConnectionService } from './whatsapp-temporary-connection.service';
 import { ensureWebsiteRuntimeSchema } from '../website/website-runtime';
 
 export const MASTER_HARD_DELETE_CONFIRM_TEXT = 'EXCLUIR EMPRESA';
@@ -28,7 +27,6 @@ export class CompaniesService implements OnModuleInit, OnModuleDestroy {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly whatsappTemporaryConnection: WhatsAppTemporaryConnectionService,
   ) {}
 
   async onModuleInit() {
@@ -400,11 +398,6 @@ export class CompaniesService implements OnModuleInit, OnModuleDestroy {
 
   async getWhatsAppCenterForCompany(companyId: number, options?: { refreshTemporary?: boolean }) {
     await ensureMasterBillingRuntimeSchema(this.prisma);
-    if (options?.refreshTemporary) {
-      await this.whatsappTemporaryConnection.syncCompanyTemporaryConnection(companyId, {
-        requestQr: false,
-      });
-    }
 
     const company = await this.findByIdForMaster(companyId);
     const masterConfig = await getMasterGlobalIntegrationConfig(this.prisma);
@@ -430,7 +423,12 @@ export class CompaniesService implements OnModuleInit, OnModuleDestroy {
             this.normalizeOptionalString((company as any)?.whatsappDisplayNumber) ||
             this.normalizeOptionalString((company as any)?.whatsappNumber),
         };
-    const temporaryAvailability = this.whatsappTemporaryConnection.getAvailability();
+    const temporaryAvailability = {
+      configured: false,
+      provider: null,
+      missingConfigKeys: [] as string[],
+      setupHint: 'O runtime legado do QR foi removido deste ambiente. Use o modal WhatsApp do HBX.',
+    };
 
     return {
       generatedAt: new Date().toISOString(),
@@ -442,9 +440,14 @@ export class CompaniesService implements OnModuleInit, OnModuleDestroy {
         subscriptionStatus: this.normalizeOptionalString((company as any)?.subscriptionStatus),
         premiumAccess: Boolean((company as any)?.premiumAccess),
         trialModuleSelection: this.normalizeOptionalString((company as any)?.trialModuleSelection),
-        whatsappConnectionMode: this.normalizeOptionalString((company as any)?.whatsappConnectionMode) || 'NONE',
+        whatsappConnectionMode:
+          this.normalizeOptionalString((company as any)?.whatsappConnectionMode)?.toUpperCase() === 'TEMPORARY'
+            ? 'QR'
+            : this.normalizeOptionalString((company as any)?.whatsappConnectionMode) || 'NONE',
         whatsappTemporaryStatus:
-          this.normalizeOptionalString((company as any)?.whatsappTemporaryStatus) || 'NOT_CONNECTED',
+          this.normalizeOptionalString((company as any)?.whatsappTemporaryStatus)?.toUpperCase() === 'TEMPORARY'
+            ? 'QR'
+            : this.normalizeOptionalString((company as any)?.whatsappTemporaryStatus) || 'NOT_CONNECTED',
       },
       center: buildWhatsAppCenterSnapshot({
         company,
@@ -466,51 +469,26 @@ export class CompaniesService implements OnModuleInit, OnModuleDestroy {
     await ensureMasterBillingRuntimeSchema(this.prisma);
     const company = await this.findByIdForMaster(companyId);
     const requestedMode = String(input?.mode || '').trim().toUpperCase();
-    if (!['TEMPORARY', 'OFFICIAL', 'NONE'].includes(requestedMode)) {
+    if (!['TEMPORARY', 'QR', 'OFFICIAL', 'NONE'].includes(requestedMode)) {
       throw new BadRequestException('Modo de vínculo inválido.');
     }
+
+    const normalizedRequestedMode = requestedMode === 'QR' ? 'TEMPORARY' : requestedMode;
 
     const updated = await this.prisma.company.update({
       where: { id: Number(companyId) },
       data: {
-        whatsappConnectionMode: requestedMode,
+        whatsappConnectionMode: normalizedRequestedMode,
         whatsappTemporaryStatus:
-          requestedMode === 'TEMPORARY'
+          normalizedRequestedMode === 'TEMPORARY'
             ? ((company as any)?.whatsappTemporaryStatus === 'TEMPORARY' ? 'TEMPORARY' : 'ATTENTION')
-            : requestedMode === 'NONE'
+            : normalizedRequestedMode === 'NONE'
               ? 'NOT_CONNECTED'
               : (company as any)?.whatsappTemporaryStatus || 'NOT_CONNECTED',
       },
     });
 
     return this.getWhatsAppCenterForCompany(updated.id);
-  }
-
-  async startWhatsAppTemporaryConnection(companyId: number) {
-    await ensureMasterBillingRuntimeSchema(this.prisma);
-    const company = await this.findByIdForMaster(companyId);
-    const requestedMode = String((company as any)?.whatsappConnectionMode || '').trim().toUpperCase();
-    if (requestedMode !== 'TEMPORARY') {
-      await this.prisma.company.update({
-        where: { id: Number(companyId) },
-        data: {
-          whatsappConnectionMode: 'TEMPORARY',
-          whatsappTemporaryStatus:
-            String((company as any)?.whatsappTemporaryStatus || '').trim().toUpperCase() === 'TEMPORARY'
-              ? 'TEMPORARY'
-              : 'ATTENTION',
-        },
-      });
-    }
-
-    await this.whatsappTemporaryConnection.startTemporaryConnection(companyId);
-    return this.getWhatsAppCenterForCompany(companyId);
-  }
-
-  async disconnectWhatsAppTemporaryConnection(companyId: number) {
-    await ensureMasterBillingRuntimeSchema(this.prisma);
-    await this.whatsappTemporaryConnection.disconnectTemporaryConnection(companyId);
-    return this.getWhatsAppCenterForCompany(companyId);
   }
 
   async registerWhatsAppMigrationInterest(

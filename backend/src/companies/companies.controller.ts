@@ -713,20 +713,6 @@ export class CompaniesController {
     return this.companiesService.updateWhatsAppCenterForCompany(companyId, dto || {});
   }
 
-  @Post('me/whatsapp-center/temporary/connect')
-  @UseGuards(JwtAuthGuard)
-  async startMyWhatsAppTemporaryConnection(@Req() req: any) {
-    const companyId = await this.resolveOperationalCompanyIdOrThrow(req);
-    return this.companiesService.startWhatsAppTemporaryConnection(companyId);
-  }
-
-  @Post('me/whatsapp-center/temporary/disconnect')
-  @UseGuards(JwtAuthGuard)
-  async disconnectMyWhatsAppTemporaryConnection(@Req() req: any) {
-    const companyId = await this.resolveOperationalCompanyIdOrThrow(req);
-    return this.companiesService.disconnectWhatsAppTemporaryConnection(companyId);
-  }
-
   @Get('me/whatsapp-modal/status')
   @UseGuards(JwtAuthGuard)
   async getMyWhatsAppModalStatus(@Req() req: any) {

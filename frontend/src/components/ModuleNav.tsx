@@ -127,7 +127,7 @@ const NAV_ITEMS: NavItem[] = [
     href: "/dashboard/whatsapp",
     label: "WhatsApp",
     shortLabel: "WA",
-    description: "Conexão do motor oficial ou temporário.",
+    description: "Conexão rápida por QR ou Meta oficial.",
     matcher: (route) => route.startsWith("/dashboard/whatsapp"),
     category: "structural",
     companyOnly: true,

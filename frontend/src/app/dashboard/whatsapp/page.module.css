@@ -102,7 +102,7 @@
   border-color: color-mix(in srgb, #10b981 34%, var(--background));
 }
 
-.heroPanel[data-tone="TEMPORARY"] {
+.heroPanel[data-tone="QR"] {
   border-color: color-mix(in srgb, #ca8a04 34%, var(--background));
 }
 

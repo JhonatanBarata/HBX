@@ -168,13 +168,13 @@ type CompanySummary = {
   recentCardFailure?: boolean;
   websiteNeedsAttention?: boolean;
   whatsappCenter: {
-    mode: "NONE" | "TEMPORARY" | "OFFICIAL";
-    status: "NOT_CONNECTED" | "TEMPORARY" | "OFFICIAL" | "ATTENTION";
+    mode: "NONE" | "QR" | "OFFICIAL";
+    status: "NOT_CONNECTED" | "QR" | "OFFICIAL" | "ATTENTION";
     statusLabel: string;
     statusHint: string;
-    temporary: {
+    qrConnection: {
       selected: boolean;
-      status: "NOT_CONNECTED" | "TEMPORARY" | "ATTENTION";
+      status: "NOT_CONNECTED" | "QR" | "ATTENTION";
       available: boolean;
       note: string;
     };
@@ -4719,7 +4719,7 @@ export default function MasterPremiumPage() {
                         <span className="badge">
                           {activeCompany.whatsapp.masterCredentialLabel || "Nenhuma credencial selecionada"}
                         </span>
-                        <span className={badgeClass(activeCompany.whatsappCenter?.status === "OFFICIAL" ? "success" : activeCompany.whatsappCenter?.status === "TEMPORARY" ? "brand" : activeCompany.whatsappCenter?.status === "ATTENTION" ? "danger" : "neutral")}>
+                        <span className={badgeClass(activeCompany.whatsappCenter?.status === "OFFICIAL" ? "success" : activeCompany.whatsappCenter?.status === "QR" ? "brand" : activeCompany.whatsappCenter?.status === "ATTENTION" ? "danger" : "neutral")}>
                           {activeCompany.whatsappCenter?.statusLabel || "Não conectado"}
                         </span>
                       </div>

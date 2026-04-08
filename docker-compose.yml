@@ -23,11 +23,12 @@ services:
       - db
     environment:
       APP_PORT: "3000"
-      DATABASE_URL: "postgresql://admin:admin123@db:5432/jhonatan_dev"
-      DIRECT_URL: "postgresql://admin:admin123@db:5432/jhonatan_dev"
+      DATABASE_URL: postgresql://admin:admin123@db:5432/jhonatan_dev
+      DIRECT_URL: postgresql://admin:admin123@db:5432/jhonatan_dev
       NODE_ENV: development
-      WEBSCRAPING_INTERNAL_URL: "http://webscraping:8501"
-      WEBSCRAPING_URL: "/hbx/webscraping"
+
+      WEBSCRAPING_INTERNAL_URL: http://webscraping:8501
+      WEBSCRAPING_URL: /hbx/webscraping
 
       WHATSAPP_HBX_RECOVERY_TEMPLATE_NAME: ${WHATSAPP_HBX_RECOVERY_TEMPLATE_NAME:-}
       WHATSAPP_HBX_RECOVERY_TEMPLATE_LANGUAGE: ${WHATSAPP_HBX_RECOVERY_TEMPLATE_LANGUAGE:-pt_BR}
@@ -38,11 +39,8 @@ services:
       WHATSAPP_WEBSCRAPING_TEMPLATE_NAME: ${WHATSAPP_WEBSCRAPING_TEMPLATE_NAME:-}
       WHATSAPP_WEBSCRAPING_TEMPLATE_LANGUAGE: ${WHATSAPP_WEBSCRAPING_TEMPLATE_LANGUAGE:-pt_BR}
 
-      WHATSAPP_TEMPORARY_API_URL: "http://147.15.36.137:8080"
-      WHATSAPP_TEMPORARY_API_KEY: "HBXEVOLUTION2026OracleVM94731"
-      WHATSAPP_TEMPORARY_INSTANCE_PREFIX: "hbx-temp"
-      WHATSAPP_MODAL_ENABLED: ${WHATSAPP_MODAL_ENABLED:-false}
-      WHATSAPP_MODAL_INTERNAL_URL: ${WHATSAPP_MODAL_INTERNAL_URL:-http://whatsapp-modal:3001}
+      WHATSAPP_MODAL_ENABLED: ${WHATSAPP_MODAL_ENABLED:-true}
+      WHATSAPP_MODAL_INTERNAL_URL: ${WHATSAPP_MODAL_INTERNAL_URL:-http://147.15.36.137:3100}
       WHATSAPP_MODAL_API_KEY: ${WHATSAPP_MODAL_API_KEY:-}
       WHATSAPP_MODAL_TIMEOUT_MS: ${WHATSAPP_MODAL_TIMEOUT_MS:-15000}
 
@@ -70,21 +68,10 @@ services:
     networks:
       - hbx_net
 
-  # Serviço externo opcional. O motor WhatsApp fica fora do monorepo; se usado,
-  # conecte o container à mesma network hbx_net e exponha a porta interna esperada.
-  # whatsapp-modal:
-  #   image: your-registry/whatsapp-modal:latest
-  #   restart: unless-stopped
-  #   environment:
-  #     PORT: "3001"
-  #   networks:
-  #     - hbx_net
-
 volumes:
   backend_node_modules:
     driver: local
 
 networks:
   hbx_net:
-    name: hbx_net
-    driver: bridge
+    external: true
