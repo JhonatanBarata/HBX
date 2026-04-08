@@ -161,8 +161,8 @@ function isWhatsAppOperationalChip(chip: OperationalStatusChip) {
   return chip.key === "token" || chip.key === "meta" || chip.key === "webwhats";
 }
 
-function shouldLoadModalQr(nextPayload: WhatsAppModalPayload | null) {
-  if (!nextPayload?.data.available) return false;
+function shouldLoadModalQr(nextPayload: WhatsAppModalPayload | null, includeQr: boolean) {
+  if (!includeQr || !nextPayload?.data.available) return false;
   return nextPayload.status === "waiting_qr" || nextPayload.status === "starting";
 }
 
@@ -229,6 +229,7 @@ export default function TopBar() {
   const [whatsAppModalLoading, setWhatsAppModalLoading] = useState(false);
   const [whatsAppCenter, setWhatsAppCenter] = useState<WhatsAppCenterPayload | null>(null);
   const [whatsAppModal, setWhatsAppModal] = useState<WhatsAppModalPayload | null>(null);
+  const [whatsAppQrRequested, setWhatsAppQrRequested] = useState(false);
   const recoveryLastSeenRef = useRef<Map<number, string>>(new Map());
   const recoveryHumanQueueRef = useRef<Map<number, boolean>>(new Map());
   const recoveryAlertReadyRef = useRef(false);
@@ -283,7 +284,7 @@ export default function TopBar() {
     }
   }, [authenticated]);
 
-  const loadWhatsAppModal = React.useCallback(async (options?: { background?: boolean }) => {
+  const loadWhatsAppModal = React.useCallback(async (options?: { background?: boolean; includeQr?: boolean }) => {
     if (!authenticated) return null;
     if (!options?.background) setWhatsAppModalLoading(true);
     setWhatsAppDetailError(null);
@@ -291,7 +292,7 @@ export default function TopBar() {
       const statusPayload = await apiFetch<WhatsAppModalPayload>("/companies/me/whatsapp-modal/status");
       let nextPayload = statusPayload;
 
-      if (shouldLoadModalQr(statusPayload)) {
+      if (shouldLoadModalQr(statusPayload, Boolean(options?.includeQr))) {
         const qrPayload = await apiFetch<WhatsAppModalPayload>("/companies/me/whatsapp-modal/qr");
         nextPayload = mergeModalPayload(statusPayload, qrPayload);
       } else {
@@ -556,15 +557,32 @@ export default function TopBar() {
 
   useEffect(() => {
     if (!whatsAppDetailOpen || whatsAppDetailFocus !== "qr" || !whatsAppModal?.data.available) return;
-    if (whatsAppModal.status !== "waiting_qr" && whatsAppModal.status !== "connected") return;
+    if (
+      whatsAppModal.status !== "waiting_qr"
+      && whatsAppModal.status !== "connected"
+      && whatsAppModal.status !== "starting"
+    ) return;
 
     const timer = window.setInterval(() => {
-      void loadWhatsAppModal({ background: true });
+      void loadWhatsAppModal({
+        background: true,
+        includeQr:
+          whatsAppQrRequested
+          && (whatsAppModal.status === "waiting_qr" || whatsAppModal.status === "starting"),
+      });
       void refreshOperationalStatus(true);
     }, whatsAppModal.status === "connected" ? 20000 : 9000);
 
     return () => window.clearInterval(timer);
-  }, [loadWhatsAppModal, refreshOperationalStatus, whatsAppDetailFocus, whatsAppDetailOpen, whatsAppModal?.data.available, whatsAppModal?.status]);
+  }, [
+    loadWhatsAppModal,
+    refreshOperationalStatus,
+    whatsAppDetailFocus,
+    whatsAppDetailOpen,
+    whatsAppModal?.data.available,
+    whatsAppModal?.status,
+    whatsAppQrRequested,
+  ]);
 
   useEffect(() => {
     if (!authenticated) {
@@ -981,12 +999,13 @@ export default function TopBar() {
   }
 
   async function openWhatsAppDiagnostic(focus: WhatsAppDiagnosticFocus) {
+    setWhatsAppQrRequested(false);
     setWhatsAppDetailFocus(focus);
     setWhatsAppDetailOpen(true);
     setWhatsAppDetailError(null);
     await Promise.all([
       loadWhatsAppCenter(),
-      loadWhatsAppModal(),
+      loadWhatsAppModal({ includeQr: false }),
     ]);
     void refreshOperationalStatus(true);
   }
@@ -1051,12 +1070,13 @@ export default function TopBar() {
     setWhatsAppDetailBusy("qr-connect");
     setWhatsAppDetailError(null);
     try {
+      setWhatsAppQrRequested(true);
       await ensureWhatsAppQrMode();
       const response = await apiFetch<WhatsAppModalPayload>("/companies/me/whatsapp-modal/start", {
         method: "POST",
       });
       let nextPayload = response;
-      if (shouldLoadModalQr(response) && !response.data.qrCodeDataUrl) {
+      if (shouldLoadModalQr(response, true) && !response.data.qrCodeDataUrl) {
         const qrPayload = await apiFetch<WhatsAppModalPayload>("/companies/me/whatsapp-modal/qr");
         nextPayload = mergeModalPayload(response, qrPayload);
       }
@@ -1072,6 +1092,7 @@ export default function TopBar() {
       );
       void refreshOperationalStatus(true);
     } catch (error) {
+      setWhatsAppQrRequested(false);
       const message = error instanceof Error ? error.message : "Falha ao iniciar a conexão rápida por QR.";
       setWhatsAppDetailError(message);
     } finally {
@@ -1083,6 +1104,7 @@ export default function TopBar() {
     setWhatsAppDetailBusy("qr-disconnect");
     setWhatsAppDetailError(null);
     try {
+      setWhatsAppQrRequested(false);
       const response = await apiFetch<WhatsAppModalPayload>("/companies/me/whatsapp-modal/disconnect", {
         method: "POST",
       });
@@ -1252,11 +1274,16 @@ export default function TopBar() {
       error={whatsAppDetailError}
       modalError={null}
       message={whatsAppDetailMessage}
-      onClose={() => setWhatsAppDetailOpen(false)}
+      onClose={() => {
+        setWhatsAppQrRequested(false);
+        setWhatsAppDetailOpen(false);
+      }}
       onFocusChange={(focus) => {
         setWhatsAppDetailFocus(focus);
         void loadWhatsAppCenter({ background: true });
-        if (focus === "qr") void loadWhatsAppModal();
+        if (focus === "qr") {
+          void loadWhatsAppModal({ includeQr: whatsAppQrRequested });
+        }
       }}
       onChooseMode={(mode) => {
         void chooseWhatsAppMode(mode);

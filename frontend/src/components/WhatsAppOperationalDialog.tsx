@@ -95,7 +95,7 @@ export default function WhatsAppOperationalDialog({
   const qrConnectionError =
     modalError ||
     (modalPayload?.data.lastError || null) ||
-    qrConnection?.errorMessage ||
+    (modalPayload && !modalPayload.success && modalPayload.status === "error" ? modalPayload.message : null) ||
     null;
 
   return (
@@ -257,7 +257,7 @@ export default function WhatsAppOperationalDialog({
                       </article>
                       <article className={styles.fact}>
                         <span>Numero conectado</span>
-                        <strong>{modalPayload?.data.phone || qrConnection?.displayNumber || "-"}</strong>
+                        <strong>{modalPayload?.data.phone || "-"}</strong>
                       </article>
                       <article className={styles.fact}>
                         <span>Conectado em</span>
@@ -265,7 +265,7 @@ export default function WhatsAppOperationalDialog({
                       </article>
                       <article className={styles.fact}>
                         <span>Saude do provedor</span>
-                        <strong>{modalPayload ? modalPayload.data.providerHealth : qrConnection?.provider || "Nao configurado"}</strong>
+                        <strong>{modalPayload ? modalPayload.data.providerHealth : "Aguardando acionamento"}</strong>
                       </article>
                       <article className={styles.fact}>
                         <span>Configuracao</span>
@@ -275,16 +275,16 @@ export default function WhatsAppOperationalDialog({
 
                     {qrConnectionError ? <div className={styles.alert}>{qrConnectionError}</div> : null}
 
-                    {(modalPayload?.data.qrCodeDataUrl || qrConnection?.qrCodeDataUrl) ? (
+                    {modalPayload?.data.qrCodeDataUrl ? (
                       <div className={styles.qrPanel}>
                         <div className={styles.qrMeta}>
                           <strong>QR pronto</strong>
                           <p>Abra o WhatsApp no celular e leia o QR.</p>
-                          <p>Pairing code: {qrConnection?.pairingCode || "-"}</p>
+                          <p>Pairing code: -</p>
                         </div>
                         <div className={styles.qrImageWrap}>
                           <Image
-                            src={modalPayload?.data.qrCodeDataUrl || qrConnection?.qrCodeDataUrl || ""}
+                            src={modalPayload.data.qrCodeDataUrl}
                             alt="QR Code para conexão rápida por QR"
                             className={styles.qrImage}
                             width={148}
@@ -304,6 +304,8 @@ export default function WhatsAppOperationalDialog({
                           busyAction !== null
                           || !modalPayload?.data.available
                           || modalPayload.status === "connected"
+                          || modalPayload.status === "waiting_qr"
+                          || modalPayload.status === "starting"
                         }
                       >
                         {busyAction === "qr-connect" ? "Conectando..." : "Conectar"}
@@ -315,7 +317,11 @@ export default function WhatsAppOperationalDialog({
                         disabled={
                           busyAction !== null
                           || !modalPayload?.data.available
-                          || (modalPayload.status !== "connected" && modalPayload.status !== "waiting_qr")
+                          || (
+                            modalPayload.status !== "connected"
+                            && modalPayload.status !== "waiting_qr"
+                            && modalPayload.status !== "starting"
+                          )
                         }
                       >
                         {busyAction === "qr-disconnect" ? "Desconectando..." : "Desconectar"}
