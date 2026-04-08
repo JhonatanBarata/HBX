@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { useEffect } from "react";
 import styles from "./WhatsAppOperationalDialog.module.css";
@@ -9,7 +10,6 @@ import {
   type WhatsAppDiagnosticFocus,
   type WhatsAppModalPayload,
   whatsappModeLabel,
-  whatsappModalStatusLabel,
   whatsappQrConnectionLiveLabel,
   whatsappTrialModuleLabel,
 } from "@/lib/whatsapp-center";
@@ -31,7 +31,6 @@ type WhatsAppOperationalDialogProps = {
   onRequestMigration: () => void;
   onStartQrConnection: () => void;
   onDisconnectQrConnection: () => void;
-  onRefreshQrConnection: () => void;
 };
 
 const FOCUS_LABELS: Record<WhatsAppDiagnosticFocus, string> = {
@@ -57,7 +56,6 @@ export default function WhatsAppOperationalDialog({
   onRequestMigration,
   onStartQrConnection,
   onDisconnectQrConnection,
-  onRefreshQrConnection,
 }: WhatsAppOperationalDialogProps) {
   useEffect(() => {
     if (!isOpen) return;
@@ -115,7 +113,7 @@ export default function WhatsAppOperationalDialog({
               <span className={styles.eyebrow}>WhatsApp operacional</span>
               <h2 className={styles.title}>{companyName}</h2>
               <p className={styles.subtitle}>
-                O clique da barra superior agora mostra o estado real da conexão rápida por QR e da Meta oficial, sem carregar linguagem de runtime legado.
+                Conecte ou desconecte o WhatsApp por QR e veja o código quando ele estiver pronto.
               </p>
             </div>
 
@@ -231,7 +229,7 @@ export default function WhatsAppOperationalDialog({
                   <section className={styles.section} data-active={focus === "qr"}>
                     <div className={styles.sectionHeader}>
                       <strong>Conexao rapida por QR</strong>
-                      <p>{qrConnection?.note || "Use este trilho quando a meta for ativar rápido, provar valor e colocar a empresa em movimento sem fricção."}</p>
+                      <p>Use Conectar para gerar o QR e Desconectar para encerrar a sessão.</p>
                     </div>
 
                     {modalLoading && !modalPayload ? (
@@ -280,17 +278,18 @@ export default function WhatsAppOperationalDialog({
                     {(modalPayload?.data.qrCodeDataUrl || qrConnection?.qrCodeDataUrl) ? (
                       <div className={styles.qrPanel}>
                         <div className={styles.qrMeta}>
-                          <strong>QR pronto para leitura</strong>
-                          <p>
-                            Abra o WhatsApp no celular, entre em aparelhos conectados e leia o QR para concluir a conexão rápida.
-                          </p>
+                          <strong>QR pronto</strong>
+                          <p>Abra o WhatsApp no celular e leia o QR.</p>
                           <p>Pairing code: {qrConnection?.pairingCode || "-"}</p>
                         </div>
                         <div className={styles.qrImageWrap}>
-                          <img
+                          <Image
                             src={modalPayload?.data.qrCodeDataUrl || qrConnection?.qrCodeDataUrl || ""}
                             alt="QR Code para conexão rápida por QR"
                             className={styles.qrImage}
+                            width={148}
+                            height={148}
+                            unoptimized
                           />
                         </div>
                       </div>
@@ -300,32 +299,14 @@ export default function WhatsAppOperationalDialog({
                       <button
                         type="button"
                         className="btn btn-primary"
-                        onClick={() => onChooseMode("QR")}
-                        disabled={busyAction !== null}
-                      >
-                        {busyAction === "QR" ? "Salvando..." : "Usar conexão rápida por QR"}
-                      </button>
-                      <button
-                        type="button"
-                        className="btn btn-secondary"
                         onClick={onStartQrConnection}
-                        disabled={busyAction !== null || !modalPayload?.data.available}
+                        disabled={
+                          busyAction !== null
+                          || !modalPayload?.data.available
+                          || modalPayload.status === "connected"
+                        }
                       >
-                        {!modalPayload?.data.available
-                          ? "QR indisponivel"
-                          : busyAction === "qr-start"
-                            ? "Gerando QR..."
-                            : modalPayload?.status === "connected"
-                              ? "Atualizar sessão"
-                              : "Conectar por QR"}
-                      </button>
-                      <button
-                        type="button"
-                        className="btn btn-secondary"
-                        onClick={onRefreshQrConnection}
-                        disabled={busyAction !== null}
-                      >
-                        Atualizar leitura
+                        {busyAction === "qr-connect" ? "Conectando..." : "Conectar"}
                       </button>
                       <button
                         type="button"
@@ -337,7 +318,7 @@ export default function WhatsAppOperationalDialog({
                           || (modalPayload.status !== "connected" && modalPayload.status !== "waiting_qr")
                         }
                       >
-                        {busyAction === "qr-disconnect" ? "Desconectando..." : "Desconectar QR"}
+                        {busyAction === "qr-disconnect" ? "Desconectando..." : "Desconectar"}
                       </button>
                     </div>
                   </section>

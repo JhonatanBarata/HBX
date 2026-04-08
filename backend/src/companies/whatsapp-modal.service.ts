@@ -201,14 +201,16 @@ export class WhatsAppModalService {
     await this.persistSnapshot(company, liveSnapshot, 'start');
 
     try {
-      const refreshedSnapshot = await this.fetchLiveSnapshot(company, { includeQr: true });
+      const refreshedSnapshot = await this.waitForSessionReady(company, liveSnapshot);
       return this.buildResponse(company, refreshedSnapshot, {
         success: true,
         providerHealth: 'healthy',
         message:
           refreshedSnapshot.status === 'waiting_qr'
-            ? 'Sessão iniciada. Escaneie o QR code para concluir a conexão.'
-            : 'Sessão iniciada no Modal WhatsApp.',
+            ? 'QR pronto para leitura.'
+            : refreshedSnapshot.status === 'connected'
+              ? 'WhatsApp conectado.'
+              : 'Solicitação enviada ao Modal WhatsApp. Atualize novamente em alguns segundos.',
       });
     } catch (error) {
       this.logger.warn(`Modal WhatsApp start confirmation failed for company ${company.id}: ${this.toProviderError(error).message}`);
@@ -267,7 +269,9 @@ export class WhatsAppModalService {
         purpose: 'desconexao da sessao',
       });
     } catch (error) {
-      return this.buildFailureResponse(company, storedSnapshot, error, 'Falha ao desconectar a sessão do Modal WhatsApp.');
+      if (!this.isMissingInstanceError(error)) {
+        return this.buildFailureResponse(company, storedSnapshot, error, 'Falha ao desconectar a sessão do Modal WhatsApp.');
+      }
     }
 
     const optimisticSnapshot: ModalSnapshot = {
@@ -331,14 +335,16 @@ export class WhatsAppModalService {
     }
 
     try {
-      const refreshedSnapshot = await this.fetchLiveSnapshot(company, { includeQr: true });
+      const refreshedSnapshot = await this.waitForSessionReady(company, optimisticSnapshot);
       return this.buildResponse(company, refreshedSnapshot, {
         success: true,
         providerHealth: 'healthy',
         message:
           refreshedSnapshot.status === 'waiting_qr'
-            ? 'Sessão reiniciada. Escaneie o QR code atualizado.'
-            : 'Sessão reiniciada no Modal WhatsApp.',
+            ? 'QR pronto para leitura.'
+            : refreshedSnapshot.status === 'connected'
+              ? 'WhatsApp conectado.'
+              : 'Solicitação de reinício enviada ao Modal WhatsApp. Atualize novamente em alguns segundos.',
       });
     } catch (error) {
       this.logger.warn(`Modal WhatsApp restart confirmation failed for company ${company.id}: ${this.toProviderError(error).message}`);
@@ -353,6 +359,25 @@ export class WhatsAppModalService {
   private normalizeOptionalString(value: unknown) {
     const normalized = String(value || '').trim();
     return normalized || null;
+  }
+
+  private sleep(delayMs: number) {
+    return new Promise((resolve) => setTimeout(resolve, delayMs));
+  }
+
+  private isMissingInstanceMessage(value: unknown) {
+    const normalized = String(value || '').trim().toLowerCase();
+    if (!normalized) return false;
+    return (
+      (normalized.includes('instance') && normalized.includes('not found'))
+      || (normalized.includes('session') && normalized.includes('not found'))
+      || normalized === 'not_found'
+    );
+  }
+
+  private isMissingInstanceError(error: unknown) {
+    const providerError = this.toProviderError(error);
+    return providerError.statusCode === 404 || this.isMissingInstanceMessage(providerError.message);
   }
 
   private normalizeDate(value: unknown) {
@@ -605,11 +630,14 @@ export class WhatsAppModalService {
       root.owner,
       root.ownerJid,
     );
-    const normalizedStatus = this.normalizeExternalStatus(rawStatus, {
-      phone: phone || fallback.phone,
-      lastError,
-      qrCodeDataUrl,
-    });
+    const missingInstance = this.isMissingInstanceMessage(rawStatus) || this.isMissingInstanceMessage(lastError);
+    const normalizedStatus = missingInstance
+      ? 'offline'
+      : this.normalizeExternalStatus(rawStatus, {
+          phone: phone || fallback.phone,
+          lastError,
+          qrCodeDataUrl,
+        });
 
     return {
       status: normalizedStatus,
@@ -620,12 +648,33 @@ export class WhatsAppModalService {
               this.firstString(session.connectedAt, rootData.connectedAt, root.connectedAt),
             ) || fallback.connectedAt || new Date()
           : null,
-      lastError: normalizedStatus === 'error' ? lastError || fallback.lastError : null,
+      lastError: missingInstance ? null : normalizedStatus === 'error' ? lastError || fallback.lastError : null,
       updatedAt: new Date(),
       provider: 'external_modal',
       qrCodeDataUrl,
       rawStatus,
     };
+  }
+
+  private async waitForSessionReady(company: CompanyModalFields, fallback: ModalSnapshot) {
+    const delaysMs = [0, 500, 1000, 1500];
+    let latest = fallback;
+
+    for (const delayMs of delaysMs) {
+      if (delayMs > 0) {
+        await this.sleep(delayMs);
+      }
+
+      latest = await this.fetchLiveSnapshot(company, { includeQr: true });
+      if (latest.status === 'waiting_qr' || latest.status === 'connected') {
+        return latest;
+      }
+      if (latest.status === 'error' && !this.isMissingInstanceMessage(latest.lastError)) {
+        return latest;
+      }
+    }
+
+    return latest;
   }
 
   private buildMessage(snapshot: ModalSnapshot) {
@@ -743,6 +792,15 @@ export class WhatsAppModalService {
       this.asRecord(responseBody.data)?.message,
     );
     const suffix = detail ? ` ${detail}` : '';
+    const normalizedPurpose = String(purpose || '').trim().toLowerCase();
+
+    if (response.status === 409 && normalizedPurpose.includes('qr')) {
+      return new WhatsAppModalProviderError(
+        'WHATSAPP_MODAL_QR_UNAVAILABLE',
+        'QR code indisponível no momento. Atualize o status em alguns segundos.',
+        response.status,
+      );
+    }
 
     if (response.status === 408 || response.status === 504) {
       return new WhatsAppModalProviderError(
@@ -882,12 +940,22 @@ export class WhatsAppModalService {
 
   private async fetchQrSnapshot(company: CompanyModalFields, fallback: ModalSnapshot) {
     const tenantKey = this.buildTenantKey(company);
-    const payload = await this.requestProvider({
-      method: 'GET',
-      path: `/sessions/${encodeURIComponent(tenantKey)}/qr`,
-      purpose: 'leitura do qr',
-      treatNotFoundAsNull: true,
-    });
+    let payload: unknown = null;
+
+    try {
+      payload = await this.requestProvider({
+        method: 'GET',
+        path: `/sessions/${encodeURIComponent(tenantKey)}/qr`,
+        purpose: 'leitura do qr',
+        treatNotFoundAsNull: true,
+      });
+    } catch (error) {
+      const providerError = this.toProviderError(error);
+      if (providerError.code === 'WHATSAPP_MODAL_QR_UNAVAILABLE' || this.isMissingInstanceError(providerError)) {
+        return null;
+      }
+      throw providerError;
+    }
 
     if (!payload) {
       return null;
@@ -912,12 +980,20 @@ export class WhatsAppModalService {
   ) {
     const tenantKey = this.buildTenantKey(company);
     const fallback = this.buildStoredSnapshot(company);
-    const payload = await this.requestProvider({
-      method: 'GET',
-      path: `/sessions/${encodeURIComponent(tenantKey)}/status`,
-      purpose: 'status da sessao',
-      treatNotFoundAsNull: true,
-    });
+    let payload: unknown = null;
+
+    try {
+      payload = await this.requestProvider({
+        method: 'GET',
+        path: `/sessions/${encodeURIComponent(tenantKey)}/status`,
+        purpose: 'status da sessao',
+        treatNotFoundAsNull: true,
+      });
+    } catch (error) {
+      if (!this.isMissingInstanceError(error)) {
+        throw error;
+      }
+    }
 
     let snapshot: ModalSnapshot = payload
       ? await this.extractSnapshot(payload, fallback)

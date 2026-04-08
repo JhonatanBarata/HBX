@@ -991,6 +991,19 @@ export default function TopBar() {
     void refreshOperationalStatus(true);
   }
 
+  async function ensureWhatsAppQrMode() {
+    if (whatsAppCenter?.center.mode === "QR") {
+      return whatsAppCenter;
+    }
+
+    const next = await apiFetch<WhatsAppCenterPayload>("/companies/me/whatsapp-center", {
+      method: "PATCH",
+      body: JSON.stringify({ mode: "QR" }),
+    });
+    setWhatsAppCenter(next);
+    return next;
+  }
+
   async function chooseWhatsAppMode(mode: "QR" | "OFFICIAL") {
     setWhatsAppDetailBusy(mode);
     setWhatsAppDetailError(null);
@@ -1035,9 +1048,10 @@ export default function TopBar() {
   }
 
   async function startQrWhatsAppConnection() {
-    setWhatsAppDetailBusy("qr-start");
+    setWhatsAppDetailBusy("qr-connect");
     setWhatsAppDetailError(null);
     try {
+      await ensureWhatsAppQrMode();
       const response = await apiFetch<WhatsAppModalPayload>("/companies/me/whatsapp-modal/start", {
         method: "POST",
       });
@@ -1049,7 +1063,13 @@ export default function TopBar() {
       setWhatsAppModal(nextPayload);
       void loadWhatsAppCenter({ background: true });
       setWhatsAppDetailFocus("qr");
-      setWhatsAppDetailMessage("QR gerado. Leia o código no celular para concluir a conexão rápida.");
+      setWhatsAppDetailMessage(
+        nextPayload.data.qrCodeDataUrl
+          ? "QR pronto para leitura."
+          : nextPayload.status === "connected"
+            ? "WhatsApp conectado."
+            : "Conexão iniciada."
+      );
       void refreshOperationalStatus(true);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Falha ao iniciar a conexão rápida por QR.";
@@ -1076,14 +1096,6 @@ export default function TopBar() {
     } finally {
       setWhatsAppDetailBusy(null);
     }
-  }
-
-  async function refreshQrWhatsAppStatus() {
-    await Promise.all([
-      loadWhatsAppCenter({ background: true }),
-      loadWhatsAppModal(),
-    ]);
-    void refreshOperationalStatus(true);
   }
 
   function handleOperationalChipClick(chip: OperationalStatusChip) {
@@ -1257,9 +1269,6 @@ export default function TopBar() {
       }}
       onDisconnectQrConnection={() => {
         void disconnectQrWhatsAppConnection();
-      }}
-      onRefreshQrConnection={() => {
-        void refreshQrWhatsAppStatus();
       }}
     />
   );
