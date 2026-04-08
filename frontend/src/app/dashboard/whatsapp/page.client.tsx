@@ -1,7 +1,8 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import DashboardScaffold from "@/components/DashboardScaffold";
 import { apiFetch } from "../_lib/api";
@@ -60,7 +61,7 @@ export default function WhatsAppCenterClientPage() {
     };
   }
 
-  async function loadCenter(background = false) {
+  const loadCenter = useCallback(async (background = false) => {
     if (!background) setLoading(true);
     setError(null);
     try {
@@ -71,9 +72,9 @@ export default function WhatsAppCenterClientPage() {
     } finally {
       if (!background) setLoading(false);
     }
-  }
+  }, []);
 
-  async function loadModalStatus(background = false) {
+  const loadModalStatus = useCallback(async (background = false) => {
     if (!background) setModalLoading(true);
     setModalError(null);
     try {
@@ -99,18 +100,36 @@ export default function WhatsAppCenterClientPage() {
     } finally {
       if (!background) setModalLoading(false);
     }
+  }, []);
+
+  async function ensureQrModeSelected() {
+    if (payload?.center.mode === "QR") {
+      return payload;
+    }
+
+    const next = await apiFetch<WhatsAppCenterPayload>("/companies/me/whatsapp-center", {
+      method: "PATCH",
+      body: JSON.stringify({ mode: "QR" }),
+    });
+    setPayload(next);
+    return next;
   }
 
-  async function runModalAction(action: "start" | "disconnect" | "restart") {
+  async function runModalAction(action: "connect" | "disconnect") {
     setModalSaving(action);
     setModalError(null);
     try {
-      const response = await apiFetch<WhatsAppModalPayload>(`/companies/me/whatsapp-modal/${action}`, {
+      if (action === "connect") {
+        await ensureQrModeSelected();
+      }
+
+      const endpoint = action === "connect" ? "start" : "disconnect";
+      const response = await apiFetch<WhatsAppModalPayload>(`/companies/me/whatsapp-modal/${endpoint}`, {
         method: "POST",
       });
       let nextPayload = response;
 
-      if (shouldLoadModalQr(response) && !response.data.qrCodeDataUrl) {
+      if (action === "connect" && shouldLoadModalQr(response) && !response.data.qrCodeDataUrl) {
         const qrData = await apiFetch<WhatsAppModalPayload>("/companies/me/whatsapp-modal/qr");
         nextPayload = mergeModalPayload(response, qrData);
       }
@@ -118,10 +137,24 @@ export default function WhatsAppCenterClientPage() {
       setModalPayload(nextPayload);
       void loadCenter(true);
       if (response.success) {
-        setMessage(response.message);
+        setMessage(
+          action === "connect"
+            ? nextPayload.data.qrCodeDataUrl
+              ? "QR pronto para leitura."
+              : nextPayload.status === "connected"
+                ? "WhatsApp conectado."
+                : "Conexão iniciada."
+            : "WhatsApp desconectado."
+        );
       }
     } catch (actionError) {
-      setModalError(actionError instanceof Error ? actionError.message : "Falha ao executar a ação da conexão rápida.");
+      setModalError(
+        actionError instanceof Error
+          ? actionError.message
+          : action === "connect"
+            ? "Falha ao conectar por QR."
+            : "Falha ao desconectar o QR."
+      );
     } finally {
       setModalSaving(null);
     }
@@ -131,7 +164,7 @@ export default function WhatsAppCenterClientPage() {
     if (hasToken !== true) return;
     void loadCenter();
     void loadModalStatus();
-  }, [hasToken]);
+  }, [hasToken, loadCenter, loadModalStatus]);
 
   useEffect(() => {
     if (!message) return;
@@ -147,7 +180,7 @@ export default function WhatsAppCenterClientPage() {
     }, modalPayload.status === "connected" ? 20000 : 7000);
 
     return () => window.clearInterval(interval);
-  }, [modalPayload?.data.available, modalPayload?.status]);
+  }, [modalPayload?.data.available, modalPayload?.status, loadModalStatus]);
 
   useEffect(() => {
     if (!payload || typeof window === "undefined") return;
@@ -311,7 +344,7 @@ export default function WhatsAppCenterClientPage() {
                   </span>
                 </div>
                 <p className={styles.pathText}>
-                  Use quando a prioridade for provar valor rápido, validar uso no trial e colocar atendimento inicial em movimento.
+                  Clique em Conectar para gerar o QR e leia no celular.
                 </p>
                 <div className={styles.metaBox}>
                   <strong>{qrConnectionStatusLabel}</strong>
@@ -340,20 +373,21 @@ export default function WhatsAppCenterClientPage() {
                 {(modalPayload?.data.qrCodeDataUrl || payload.center.qrConnection.qrCodeDataUrl) ? (
                   <div className={styles.qrPanel}>
                     <div className={styles.qrPanelCopy}>
-                      <strong>Escaneie o QR com o WhatsApp</strong>
-                      <p>
-                        Abra o WhatsApp no celular, vá em aparelhos conectados e leia o QR abaixo para concluir a conexão rápida.
-                      </p>
+                      <strong>QR pronto</strong>
+                      <p>Abra o WhatsApp no celular e leia o QR.</p>
                       <div className={styles.summaryStack}>
                         <p>Pairing code: {payload.center.qrConnection.pairingCode || "-"}</p>
                         <p>Tenant técnico: {modalPayload?.data.tenantKey || "-"}</p>
                       </div>
                     </div>
                     <div className={styles.qrFrame}>
-                      <img
+                      <Image
                         src={modalPayload?.data.qrCodeDataUrl || payload.center.qrConnection.qrCodeDataUrl || ""}
                         alt="QR Code para conexão rápida por QR"
                         className={styles.qrImage}
+                        width={208}
+                        height={208}
+                        unoptimized
                       />
                     </div>
                   </div>
@@ -362,30 +396,14 @@ export default function WhatsAppCenterClientPage() {
                   <button
                     type="button"
                     className="btn btn-primary"
-                    onClick={() => void chooseMode("QR")}
-                    disabled={saving !== null}
+                    onClick={() => void runModalAction("connect")}
+                    disabled={
+                      modalSaving !== null
+                      || !modalPayload?.data.available
+                      || modalPayload.status === "connected"
+                    }
                   >
-                    {saving === "QR" ? "Salvando..." : "Usar conexão rápida por QR"}
-                  </button>
-                  <button
-                    type="button"
-                    className="btn btn-secondary"
-                    onClick={() => void runModalAction("start")}
-                    disabled={modalSaving !== null || !modalPayload?.data.available}
-                  >
-                    {modalSaving === "start"
-                      ? "Gerando QR..."
-                      : modalPayload?.status === "connected"
-                        ? "Atualizar sessão"
-                        : "Conectar por QR"}
-                  </button>
-                  <button
-                    type="button"
-                    className="btn btn-secondary"
-                    onClick={() => void loadModalStatus(true)}
-                    disabled={modalSaving !== null}
-                  >
-                    Atualizar leitura
+                    {modalSaving === "connect" ? "Conectando..." : "Conectar"}
                   </button>
                   <button
                     type="button"
@@ -397,7 +415,7 @@ export default function WhatsAppCenterClientPage() {
                       || (modalPayload.status !== "connected" && modalPayload.status !== "waiting_qr")
                     }
                   >
-                    {modalSaving === "disconnect" ? "Desconectando..." : "Desconectar QR"}
+                    {modalSaving === "disconnect" ? "Desconectando..." : "Desconectar"}
                   </button>
                 </div>
               </article>
