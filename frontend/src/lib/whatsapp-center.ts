@@ -12,13 +12,13 @@ export type WhatsAppCenterPayload = {
     whatsappTemporaryStatus?: string | null;
   };
   center: {
-    mode: "NONE" | "TEMPORARY" | "OFFICIAL";
-    status: "NOT_CONNECTED" | "TEMPORARY" | "OFFICIAL" | "ATTENTION";
+    mode: "NONE" | "QR" | "OFFICIAL";
+    status: "NOT_CONNECTED" | "QR" | "OFFICIAL" | "ATTENTION";
     statusLabel: string;
     statusHint: string;
-    temporary: {
+    qrConnection: {
       selected: boolean;
-      status: "NOT_CONNECTED" | "TEMPORARY" | "ATTENTION";
+      status: "NOT_CONNECTED" | "QR" | "ATTENTION";
       available: boolean;
       configured?: boolean;
       note: string;
@@ -52,7 +52,7 @@ export type WhatsAppCenterPayload = {
   };
 };
 
-export type WhatsAppDiagnosticFocus = "status" | "temporary" | "official";
+export type WhatsAppDiagnosticFocus = "status" | "qr" | "official";
 
 export type WhatsAppModalPayload = {
   success: boolean;
@@ -89,8 +89,8 @@ export function formatWhatsAppDateTime(value?: string | null) {
 
 export function whatsappModeLabel(value?: string | null) {
   const normalized = String(value || "").trim().toUpperCase();
-  if (normalized === "TEMPORARY") return "Conexao rapida / temporaria";
-  if (normalized === "OFFICIAL") return "Conexao oficial / Meta";
+  if (normalized === "QR" || normalized === "TEMPORARY") return "Conexao rapida por QR";
+  if (normalized === "OFFICIAL") return "Meta oficial";
   return "Ainda nao definido";
 }
 
@@ -98,7 +98,7 @@ export function whatsappTrialModuleLabel(value?: string | null) {
   return String(value || "").trim().toLowerCase() === "recovery" ? "Recovery" : "Vendas";
 }
 
-export function whatsappTemporaryLiveLabel(value?: string | null) {
+export function whatsappQrConnectionLiveLabel(value?: string | null) {
   const normalized = String(value || "").trim().toLowerCase();
   if (normalized === "connected") return "Conectado por QR";
   if (normalized === "qr_ready") return "QR aguardando leitura";

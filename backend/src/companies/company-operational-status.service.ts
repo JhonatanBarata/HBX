@@ -4,7 +4,7 @@ import { WhatsAppStatusService } from '../messaging/whatsapp-status.service';
 import { MercadoPagoClientService } from '../payments/mercado-pago-client.service';
 import { buildWhatsAppCenterSnapshot, type WhatsAppCenterSnapshot } from './whatsapp-center.util';
 import { CompaniesService } from './companies.service';
-import { WhatsAppTemporaryConnectionService } from './whatsapp-temporary-connection.service';
+import { WhatsAppModalService } from './whatsapp-modal.service';
 import {
   getMasterGlobalIntegrationConfig,
   pickMasterMercadoPagoCredential,
@@ -61,7 +61,7 @@ export class CompanyOperationalStatusService {
     private readonly companiesService: CompaniesService,
     private readonly whatsappStatus: WhatsAppStatusService,
     private readonly mercadoPagoClient: MercadoPagoClientService,
-    private readonly whatsappTemporaryConnection: WhatsAppTemporaryConnectionService,
+    private readonly whatsappModalService: WhatsAppModalService,
   ) {}
 
   private mapTrialRemainingDays(trialEndsAt?: Date | string | null) {
@@ -80,6 +80,19 @@ export class CompanyOperationalStatusService {
 
   private buildOperationalChip(input: OperationalStatusChip): OperationalStatusChip {
     return input;
+  }
+
+  private normalizeText(value?: unknown) {
+    const normalized = String(value || '').trim();
+    return normalized || null;
+  }
+
+  private modalAvailable() {
+    const enabled = ['1', 'true', 'yes', 'on'].includes(
+      String(process.env.WHATSAPP_MODAL_ENABLED || '').trim().toLowerCase(),
+    );
+    const internalUrl = String(process.env.WHATSAPP_MODAL_INTERNAL_URL || '').trim();
+    return Boolean(enabled && internalUrl);
   }
 
   private latestCheckedAt(values: Array<string | null | undefined>) {
@@ -123,7 +136,7 @@ export class CompanyOperationalStatusService {
       credential: selectedCredential,
       effectiveConfig,
       includeInternal: false,
-      temporaryAvailable: this.whatsappTemporaryConnection.getAvailability().configured,
+      temporaryAvailable: false,
     });
   }
 
@@ -242,9 +255,11 @@ export class CompanyOperationalStatusService {
     const officialConfigured = Boolean(whatsappCenter?.official?.configured);
     const officialConnected = Boolean(whatsappCenter?.official?.connected);
     const officialStatus = String(whatsappCenter?.official?.status || '').trim().toUpperCase();
-    const temporaryAvailable = Boolean(whatsappCenter?.temporary?.available);
-    const temporaryLiveStatus = String(whatsappCenter?.temporary?.liveStatus || '').trim().toLowerCase();
-    const temporaryStatus = String(whatsappCenter?.temporary?.status || '').trim().toUpperCase();
+    const modalAvailable = this.modalAvailable();
+    const modalStatus = String(company?.whatsappModalStatus || '').trim().toUpperCase();
+    const modalPhone = this.normalizeText(company?.whatsappModalPhone);
+    const modalLastError = this.normalizeText(company?.whatsappModalLastError);
+    const modalUpdatedAt = this.normalizeDate(company?.whatsappModalUpdatedAt);
 
     const tokenChip = officialConnected
       ? this.buildOperationalChip({
@@ -355,55 +370,59 @@ export class CompanyOperationalStatusService {
           });
 
     const webWhatsChip =
-      temporaryAvailable && temporaryLiveStatus === 'connected'
+      modalAvailable && modalStatus === 'CONNECTED'
         ? this.buildOperationalChip({
             key: 'webwhats',
             label: 'WebWhats ativo',
             shortLabel: 'WebWhats',
             tone: 'green',
             value: 'Conect.',
-            detail: 'Conexão temporária ativa e operando via WebWhats.',
+            detail: modalPhone
+              ? `Conexão rápida por QR ativa no modal WhatsApp com ${modalPhone}.`
+              : 'Conexão rápida por QR ativa no modal WhatsApp.',
             hint: 'WebWhats conectado.',
-            href: '/dashboard/whatsapp?focus=temporary',
+            href: '/dashboard/whatsapp?focus=qr',
             quality: 'real',
-            source: ['company.whatsappTemporaryStatus', 'company.whatsappTemporaryConnectedAt'],
-            updatedAt: this.normalizeDate(company?.whatsappTemporaryLastSyncAt),
+            source: ['company.whatsappModalStatus', 'company.whatsappModalPhone'],
+            updatedAt: modalUpdatedAt,
             active: true,
           })
-        : temporaryAvailable && (temporaryLiveStatus === 'qr_ready' || temporaryStatus === 'ATTENTION')
+        : modalAvailable && ['WAITING_QR', 'STARTING', 'ERROR'].includes(modalStatus)
           ? this.buildOperationalChip({
               key: 'webwhats',
               label: 'WebWhats ativo',
               shortLabel: 'WebWhats',
               tone: 'yellow',
-              value: temporaryLiveStatus === 'qr_ready' ? 'QR' : 'Atenção',
+              value: modalStatus === 'WAITING_QR' ? 'QR' : modalStatus === 'STARTING' ? 'Iniciando' : 'Atenção',
               detail:
-                temporaryLiveStatus === 'qr_ready'
-                  ? 'QR disponível para concluir a conexão temporária.'
-                  : String(whatsappCenter?.temporary?.errorMessage || 'Conexão temporária precisa de atenção.'),
+                modalStatus === 'WAITING_QR'
+                  ? 'QR disponível para concluir a conexão rápida.'
+                  : modalStatus === 'STARTING'
+                    ? 'Sessão do modal WhatsApp em inicialização.'
+                    : String(modalLastError || 'Conexão rápida por QR precisa de atenção.'),
               hint:
-                temporaryLiveStatus === 'qr_ready'
+                modalStatus === 'WAITING_QR'
                   ? 'QR aguardando leitura.'
                   : 'WebWhats em atenção.',
-              href: '/dashboard/whatsapp?focus=temporary',
+              href: '/dashboard/whatsapp?focus=qr',
               quality: 'real',
-              source: ['company.whatsappTemporaryStatus', 'company.whatsappTemporaryPairingCode'],
-              updatedAt: this.normalizeDate(company?.whatsappTemporaryLastSyncAt),
+              source: ['company.whatsappModalStatus', 'company.whatsappModalLastError'],
+              updatedAt: modalUpdatedAt,
               active: false,
             })
-          : temporaryAvailable
+          : modalAvailable
             ? this.buildOperationalChip({
                 key: 'webwhats',
                 label: 'WebWhats ativo',
                 shortLabel: 'WebWhats',
                 tone: 'red',
                 value: 'Off',
-                detail: 'A trilha temporária está disponível, mas ainda não foi conectada.',
+                detail: 'A conexão rápida por QR está disponível, mas ainda não foi conectada.',
                 hint: 'WebWhats não conectado.',
-                href: '/dashboard/whatsapp?focus=temporary',
+                href: '/dashboard/whatsapp?focus=qr',
                 quality: 'real',
-                source: ['company.whatsappTemporaryStatus'],
-                updatedAt: this.normalizeDate(company?.whatsappTemporaryLastSyncAt),
+                source: ['company.whatsappModalStatus'],
+                updatedAt: modalUpdatedAt,
                 active: false,
               })
             : this.buildOperationalChip({
@@ -412,11 +431,11 @@ export class CompanyOperationalStatusService {
                 shortLabel: 'WebWhats',
                 tone: 'red',
                 value: 'Indisp.',
-                detail: 'O motor temporário/WebWhats não está configurado neste ambiente.',
+                detail: 'O modal WhatsApp não está configurado neste ambiente.',
                 hint: 'WebWhats indisponível.',
-                href: '/dashboard/whatsapp?focus=temporary',
+                href: '/dashboard/whatsapp?focus=qr',
                 quality: 'real',
-                source: ['env.WHATSAPP_TEMPORARY_API_URL', 'env.WHATSAPP_TEMPORARY_API_KEY'],
+                source: ['env.WHATSAPP_MODAL_ENABLED', 'env.WHATSAPP_MODAL_INTERNAL_URL'],
                 updatedAt: null,
                 active: false,
               });
@@ -598,9 +617,7 @@ export class CompanyOperationalStatusService {
 
     if (opts?.refresh) {
       await this.whatsappStatus.getStatusForCompany(normalizedCompanyId, { refresh: true });
-      await this.whatsappTemporaryConnection.syncCompanyTemporaryConnection(normalizedCompanyId, {
-        requestQr: false,
-      });
+      await this.whatsappModalService.getCompanyStatus(normalizedCompanyId);
     }
 
     const companies = await this.companiesService.listByIdsForMaster([normalizedCompanyId]);

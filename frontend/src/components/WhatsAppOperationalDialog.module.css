@@ -223,12 +223,12 @@
   box-shadow: var(--shadow-inset), 0 18px 44px color-mix(in srgb, var(--brand) 10%, transparent);
 }
 
-.contentGrid[data-focus="temporary"],
+.contentGrid[data-focus="qr"],
 .contentGrid[data-focus="official"] {
   grid-template-columns: 1fr;
 }
 
-.contentGrid[data-focus="temporary"] .sideColumn,
+.contentGrid[data-focus="qr"] .sideColumn,
 .contentGrid[data-focus="official"] .mainColumn {
   display: none;
 }

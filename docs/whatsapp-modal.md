@@ -6,16 +6,18 @@ Integrar o HBX a um serviço externo de WhatsApp rodando em Docker, sem trazer o
 
 ## Variáveis de ambiente do backend
 
-- `WHATSAPP_MODAL_ENABLED=false`
-- `WHATSAPP_MODAL_INTERNAL_URL=http://whatsapp-modal:3001`
+- `WHATSAPP_MODAL_ENABLED=true`
+- `WHATSAPP_MODAL_INTERNAL_URL=http://147.15.36.137:3100`
 - `WHATSAPP_MODAL_API_KEY=`
 - `WHATSAPP_MODAL_TIMEOUT_MS=15000`
 
-Com `WHATSAPP_MODAL_ENABLED=false`, a feature fica desligada sem quebrar o ambiente atual.
+Com `WHATSAPP_MODAL_ENABLED=true`, a feature fica habilitada no backend HBX.
 
 ## Network Docker
 
-O compose principal do repo publica a network nomeada `hbx_net`. O container externo do modal deve entrar nessa mesma network para que o backend consiga resolver `http://whatsapp-modal:3001` por DNS Docker, sem usar `localhost` dentro do container.
+No ambiente atual do HBX, o backend aponta para `http://147.15.36.137:3100`.
+
+Se o motor for rodado na mesma infra Docker do HBX, ele tambem pode entrar na network nomeada `hbx_net` e ser resolvido por DNS Docker.
 
 Exemplo em outro compose:
 
@@ -26,7 +28,7 @@ services:
     container_name: whatsapp-modal
     restart: unless-stopped
     environment:
-      PORT: "3001"
+      PORT: "3100"
     networks:
       - hbx_net
 
@@ -38,13 +40,13 @@ networks:
 ## Contrato esperado do serviço externo
 
 - `GET /health`
+- `POST /sessions`
 - `GET /sessions/:tenant/status`
-- `POST /sessions/:tenant/start`
 - `GET /sessions/:tenant/qr`
 - `POST /sessions/:tenant/disconnect`
 - `POST /sessions/:tenant/restart`
 
-O HBX usa `tenantKey=company-<companyId>` como identificador estável da sessão e envia também `companyId`, `companySlug` e `companyName` no `start`.
+O HBX usa `tenantKey=company-<companyId>` como identificador estável da sessão e envia `sessionKey` no `POST /sessions`.
 
 ## Endpoints internos do HBX
 

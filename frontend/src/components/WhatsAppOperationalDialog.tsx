@@ -7,8 +7,10 @@ import {
   formatWhatsAppDateTime,
   type WhatsAppCenterPayload,
   type WhatsAppDiagnosticFocus,
+  type WhatsAppModalPayload,
   whatsappModeLabel,
-  whatsappTemporaryLiveLabel,
+  whatsappModalStatusLabel,
+  whatsappQrConnectionLiveLabel,
   whatsappTrialModuleLabel,
 } from "@/lib/whatsapp-center";
 
@@ -16,22 +18,25 @@ type WhatsAppOperationalDialogProps = {
   isOpen: boolean;
   focus: WhatsAppDiagnosticFocus;
   loading: boolean;
+  modalLoading: boolean;
   busyAction: string | null;
   payload: WhatsAppCenterPayload | null;
+  modalPayload: WhatsAppModalPayload | null;
   error: string | null;
+  modalError: string | null;
   message: string | null;
   onClose: () => void;
   onFocusChange: (focus: WhatsAppDiagnosticFocus) => void;
-  onChooseMode: (mode: "TEMPORARY" | "OFFICIAL") => void;
+  onChooseMode: (mode: "QR" | "OFFICIAL") => void;
   onRequestMigration: () => void;
-  onStartTemporaryConnection: () => void;
-  onDisconnectTemporaryConnection: () => void;
-  onRefreshTemporary: () => void;
+  onStartQrConnection: () => void;
+  onDisconnectQrConnection: () => void;
+  onRefreshQrConnection: () => void;
 };
 
 const FOCUS_LABELS: Record<WhatsAppDiagnosticFocus, string> = {
   status: "Diagnostico",
-  temporary: "QR rapido",
+  qr: "QR rapido",
   official: "Meta oficial",
 };
 
@@ -39,17 +44,20 @@ export default function WhatsAppOperationalDialog({
   isOpen,
   focus,
   loading,
+  modalLoading,
   busyAction,
   payload,
+  modalPayload,
   error,
+  modalError,
   message,
   onClose,
   onFocusChange,
   onChooseMode,
   onRequestMigration,
-  onStartTemporaryConnection,
-  onDisconnectTemporaryConnection,
-  onRefreshTemporary,
+  onStartQrConnection,
+  onDisconnectQrConnection,
+  onRefreshQrConnection,
 }: WhatsAppOperationalDialogProps) {
   useEffect(() => {
     if (!isOpen) return;
@@ -69,10 +77,28 @@ export default function WhatsAppOperationalDialog({
   if (!isOpen) return null;
 
   const companyName = payload?.company.name || "Empresa";
-  const temporary = payload?.center.temporary;
+  const qrConnection = payload?.center.qrConnection;
   const official = payload?.center.official;
   const migration = payload?.center.migration;
   const statusHref = `/dashboard/whatsapp?focus=${focus}`;
+  const qrConnectionLabel = modalPayload
+    ? modalPayload.status === "waiting_qr"
+      ? "QR aguardando leitura"
+      : modalPayload.status === "connected"
+        ? "Conectado por QR"
+        : modalPayload.status === "starting"
+          ? "Iniciando"
+          : modalPayload.status === "error"
+            ? "Atencao tecnica"
+            : modalPayload.status === "disconnected"
+              ? "Desconectado"
+              : "Offline"
+    : whatsappQrConnectionLiveLabel(qrConnection?.liveStatus);
+  const qrConnectionError =
+    modalError ||
+    (modalPayload?.data.lastError || null) ||
+    qrConnection?.errorMessage ||
+    null;
 
   return (
     <div className={styles.backdrop} onClick={onClose}>
@@ -89,7 +115,7 @@ export default function WhatsAppOperationalDialog({
               <span className={styles.eyebrow}>WhatsApp operacional</span>
               <h2 className={styles.title}>{companyName}</h2>
               <p className={styles.subtitle}>
-                O clique da barra superior agora abre o estado real de token, Meta e WebWhats sem esconder QR, pairing ou proximo passo comercial.
+                O clique da barra superior agora mostra o estado real da conexão rápida por QR e da Meta oficial, sem carregar linguagem de runtime legado.
               </p>
             </div>
 
@@ -119,12 +145,12 @@ export default function WhatsAppOperationalDialog({
                 <article className={styles.summaryCard}>
                   <span>Modo escolhido</span>
                   <strong>{whatsappModeLabel(payload.center.mode)}</strong>
-                  <p className={styles.note}>A topbar deixa visivel qual trilho a empresa assumiu.</p>
+                  <p className={styles.note}>A topbar deixa visível qual trilho a empresa assumiu.</p>
                 </article>
                 <article className={styles.summaryCard}>
                   <span>Modulo inicial</span>
                   <strong>{whatsappTrialModuleLabel(payload.company.trialModuleSelection)}</strong>
-                  <p className={styles.note}>O vinculo precisa servir a operacao principal, nao o contrario.</p>
+                  <p className={styles.note}>A conexão precisa servir a operação principal, não o contrário.</p>
                 </article>
                 <article className={styles.summaryCard}>
                   <span>Contato tecnico</span>
@@ -132,13 +158,13 @@ export default function WhatsAppOperationalDialog({
                   <p className={styles.note}>
                     {migration?.interestRequested
                       ? `Pedido registrado em ${formatWhatsAppDateTime(migration.requestedAt)}.`
-                      : "O aceite para migracao oficial ainda nao foi registrado."}
+                      : "O aceite para migração oficial ainda não foi registrado."}
                   </p>
                 </article>
               </div>
 
               <div className={styles.focusRail} aria-label="Foco do diagnostico do WhatsApp">
-                {(["status", "temporary", "official"] as WhatsAppDiagnosticFocus[]).map((key) => (
+                {(["status", "qr", "official"] as WhatsAppDiagnosticFocus[]).map((key) => (
                   <button
                     key={key}
                     type="button"
@@ -157,7 +183,7 @@ export default function WhatsAppOperationalDialog({
                     <div className={styles.sectionHeader}>
                       <strong>Leitura objetiva da barra superior</strong>
                       <p>
-                        O topo sinaliza se a empresa tem rota oficial pronta, QR aguardando leitura ou um gargalo tecnico que exige decisao do time.
+                        O topo sinaliza se a empresa tem Meta pronta, QR aguardando leitura ou um gargalo técnico que exige decisão do time.
                       </p>
                     </div>
 
@@ -169,8 +195,8 @@ export default function WhatsAppOperationalDialog({
 
                     <div className={styles.statusBadgeRow}>
                       <article className={styles.badge}>
-                        <span className={styles.badgeLabel}>Trilho rapido</span>
-                        <strong className={styles.badgeValue}>{whatsappTemporaryLiveLabel(temporary?.liveStatus)}</strong>
+                        <span className={styles.badgeLabel}>Conexao rapida por QR</span>
+                        <strong className={styles.badgeValue}>{qrConnectionLabel}</strong>
                       </article>
                       <article className={styles.badge}>
                         <span className={styles.badgeLabel}>Meta oficial</span>
@@ -188,12 +214,12 @@ export default function WhatsAppOperationalDialog({
                         <strong>{official?.displayNumber || "-"}</strong>
                       </article>
                       <article className={styles.fact}>
-                        <span>Numero temporario</span>
-                        <strong>{temporary?.displayNumber || "-"}</strong>
+                        <span>Numero do QR</span>
+                        <strong>{modalPayload?.data.phone || qrConnection?.displayNumber || "-"}</strong>
                       </article>
                       <article className={styles.fact}>
-                        <span>Ultima leitura temporaria</span>
-                        <strong>{formatWhatsAppDateTime(temporary?.lastSyncAt)}</strong>
+                        <span>Ultima leitura do QR</span>
+                        <strong>{formatWhatsAppDateTime(modalPayload?.data.updatedAt || qrConnection?.lastSyncAt)}</strong>
                       </article>
                       <article className={styles.fact}>
                         <span>Aceite de migracao</span>
@@ -202,64 +228,68 @@ export default function WhatsAppOperationalDialog({
                     </div>
                   </section>
 
-                  <section className={styles.section} data-active={focus === "temporary"}>
+                  <section className={styles.section} data-active={focus === "qr"}>
                     <div className={styles.sectionHeader}>
                       <strong>Conexao rapida por QR</strong>
-                      <p>{temporary?.note || "A trilha temporaria destrava teste e prova de uso quando o objetivo e tirar a empresa da inercia."}</p>
+                      <p>{qrConnection?.note || "Use este trilho quando a meta for ativar rápido, provar valor e colocar a empresa em movimento sem fricção."}</p>
                     </div>
 
-                    {temporary && !temporary.available ? (
+                    {modalLoading && !modalPayload ? (
+                      <div className={styles.loading}>Consultando o modal WhatsApp para ler o estado técnico atual...</div>
+                    ) : null}
+
+                    {qrConnection && !modalPayload?.data.available && !modalLoading ? (
                       <div className={styles.alert}>
-                        <strong>WebWhats indisponível neste ambiente.</strong>
-                        <p>{temporary.setupHint || "Configure o provider temporário no backend para habilitar QR."}</p>
-                        {temporary.missingConfigKeys?.length ? (
-                          <p>Faltando: {temporary.missingConfigKeys.join(", ")}</p>
+                        <strong>Conexão rápida indisponível neste ambiente.</strong>
+                        <p>{qrConnection.setupHint || "Configure o modal WhatsApp no backend para habilitar o QR."}</p>
+                        {qrConnection.missingConfigKeys?.length ? (
+                          <p>Faltando: {qrConnection.missingConfigKeys.join(", ")}</p>
                         ) : null}
                       </div>
                     ) : null}
 
                     <div className={styles.detailGrid}>
                       <article className={styles.fact}>
-                        <span>Estado do vinculo</span>
-                        <strong>{whatsappTemporaryLiveLabel(temporary?.liveStatus)}</strong>
+                        <span>Estado da conexão</span>
+                        <strong>{qrConnectionLabel}</strong>
                       </article>
                       <article className={styles.fact}>
-                        <span>Instancia tecnica</span>
-                        <strong>{temporary?.instanceKey || "-"}</strong>
+                        <span>Tenant tecnico</span>
+                        <strong>{modalPayload?.data.tenantKey || "-"}</strong>
                       </article>
                       <article className={styles.fact}>
-                        <span>Pairing code</span>
-                        <strong>{temporary?.pairingCode || "-"}</strong>
+                        <span>Numero conectado</span>
+                        <strong>{modalPayload?.data.phone || qrConnection?.displayNumber || "-"}</strong>
                       </article>
                       <article className={styles.fact}>
                         <span>Conectado em</span>
-                        <strong>{formatWhatsAppDateTime(temporary?.connectedAt)}</strong>
+                        <strong>{formatWhatsAppDateTime(modalPayload?.data.connectedAt || qrConnection?.connectedAt)}</strong>
                       </article>
                       <article className={styles.fact}>
-                        <span>Provedor QR</span>
-                        <strong>{temporary?.provider || "Nao configurado"}</strong>
+                        <span>Saude do provedor</span>
+                        <strong>{modalPayload ? modalPayload.data.providerHealth : qrConnection?.provider || "Nao configurado"}</strong>
                       </article>
                       <article className={styles.fact}>
                         <span>Configuracao</span>
-                        <strong>{temporary?.available ? "Pronta" : "Pendente"}</strong>
+                        <strong>{modalPayload?.data.available || qrConnection?.available ? "Pronta" : "Pendente"}</strong>
                       </article>
                     </div>
 
-                    {temporary?.errorMessage ? <div className={styles.alert}>{temporary.errorMessage}</div> : null}
+                    {qrConnectionError ? <div className={styles.alert}>{qrConnectionError}</div> : null}
 
-                    {temporary?.qrCodeDataUrl ? (
+                    {(modalPayload?.data.qrCodeDataUrl || qrConnection?.qrCodeDataUrl) ? (
                       <div className={styles.qrPanel}>
                         <div className={styles.qrMeta}>
                           <strong>QR pronto para leitura</strong>
                           <p>
-                            Abra o WhatsApp no celular, entre em aparelhos conectados e leia o QR para concluir o vinculo rapido sem sair da topbar.
+                            Abra o WhatsApp no celular, entre em aparelhos conectados e leia o QR para concluir a conexão rápida.
                           </p>
-                          <p>Pairing code: {temporary.pairingCode || "-"}</p>
+                          <p>Pairing code: {qrConnection?.pairingCode || "-"}</p>
                         </div>
                         <div className={styles.qrImageWrap}>
                           <img
-                            src={temporary.qrCodeDataUrl}
-                            alt="QR Code para conectar o WhatsApp temporario"
+                            src={modalPayload?.data.qrCodeDataUrl || qrConnection?.qrCodeDataUrl || ""}
+                            alt="QR Code para conexão rápida por QR"
                             className={styles.qrImage}
                           />
                         </div>
@@ -270,40 +300,44 @@ export default function WhatsAppOperationalDialog({
                       <button
                         type="button"
                         className="btn btn-primary"
-                        onClick={() => onChooseMode("TEMPORARY")}
+                        onClick={() => onChooseMode("QR")}
                         disabled={busyAction !== null}
                       >
-                        {busyAction === "TEMPORARY" ? "Salvando..." : "Usar trilho rapido"}
+                        {busyAction === "QR" ? "Salvando..." : "Usar conexão rápida por QR"}
                       </button>
                       <button
                         type="button"
                         className="btn btn-secondary"
-                        onClick={onStartTemporaryConnection}
-                        disabled={busyAction !== null || !temporary?.available}
+                        onClick={onStartQrConnection}
+                        disabled={busyAction !== null || !modalPayload?.data.available}
                       >
-                        {!temporary?.available
-                          ? "Provider QR indisponivel"
-                          : busyAction === "temporary-connect"
+                        {!modalPayload?.data.available
+                          ? "QR indisponivel"
+                          : busyAction === "qr-start"
                             ? "Gerando QR..."
-                            : temporary?.liveStatus === "connected"
-                              ? "Atualizar status por QR"
+                            : modalPayload?.status === "connected"
+                              ? "Atualizar sessão"
                               : "Conectar por QR"}
                       </button>
                       <button
                         type="button"
                         className="btn btn-secondary"
-                        onClick={onRefreshTemporary}
-                        disabled={busyAction !== null || !temporary?.available}
+                        onClick={onRefreshQrConnection}
+                        disabled={busyAction !== null}
                       >
                         Atualizar leitura
                       </button>
                       <button
                         type="button"
                         className="btn btn-secondary"
-                        onClick={onDisconnectTemporaryConnection}
-                        disabled={busyAction !== null || (!temporary?.instanceKey && temporary?.liveStatus !== "connected")}
+                        onClick={onDisconnectQrConnection}
+                        disabled={
+                          busyAction !== null
+                          || !modalPayload?.data.available
+                          || (modalPayload.status !== "connected" && modalPayload.status !== "waiting_qr")
+                        }
                       >
-                        {busyAction === "temporary-disconnect" ? "Desconectando..." : "Desconectar temporario"}
+                        {busyAction === "qr-disconnect" ? "Desconectando..." : "Desconectar QR"}
                       </button>
                     </div>
                   </section>
@@ -314,7 +348,7 @@ export default function WhatsAppOperationalDialog({
                     <div className={styles.sectionHeader}>
                       <strong>Meta oficial</strong>
                       <p>
-                        O topo deixa claro se a credencial oficial existe, se ja esta operando e se a origem do token e MASTER ou empresa.
+                        O topo deixa claro se a credencial oficial existe, se já está operando e se a origem do token é MASTER ou empresa.
                       </p>
                     </div>
 
@@ -344,7 +378,7 @@ export default function WhatsAppOperationalDialog({
                         onClick={() => onChooseMode("OFFICIAL")}
                         disabled={busyAction !== null}
                       >
-                        {busyAction === "OFFICIAL" ? "Salvando..." : "Usar rota oficial"}
+                        {busyAction === "OFFICIAL" ? "Salvando..." : "Usar Meta oficial"}
                       </button>
                       <button
                         type="button"
@@ -363,13 +397,13 @@ export default function WhatsAppOperationalDialog({
 
                   <section className={styles.section} data-active={focus === "status"}>
                     <div className={styles.sectionHeader}>
-                      <strong>Proximos passos sugeridos</strong>
-                      <p>O clique no topo precisa virar decisao rapida, nao so navegacao.</p>
+                      <strong>Próximos passos sugeridos</strong>
+                      <p>O clique no topo precisa virar decisão rápida, não só navegação.</p>
                     </div>
                     <ul className={styles.list}>
-                      <li>Se o objetivo e provar uso agora, deixe o trilho rapido selecionado e gere o QR.</li>
-                      <li>Se a conta vai operar com previsibilidade e automacoes, selecione a rota oficial e registre o aceite tecnico.</li>
-                      <li>Quando a barra mostrar atencao ou falha, abra a central completa para investigar historico e contexto adicional.</li>
+                      <li>Se o objetivo é provar uso agora, deixe a conexão rápida por QR selecionada e gere o QR.</li>
+                      <li>Se a conta vai operar com previsibilidade e automações, selecione a Meta oficial e registre o aceite técnico.</li>
+                      <li>Quando a barra mostrar atenção ou falha, abra a central completa para investigar histórico e contexto adicional.</li>
                     </ul>
                   </section>
                 </div>

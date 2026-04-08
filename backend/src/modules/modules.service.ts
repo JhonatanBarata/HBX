@@ -1391,8 +1391,7 @@ export class ModulesService implements OnModuleInit {
         whatsappNumber: true,
         whatsappDisplayNumber: true,
         whatsappStatus: true,
-        whatsappConnectionMode: true,
-        whatsappTemporaryStatus: true,
+        whatsappModalStatus: true,
         useMasterWhatsAppToken: true,
         masterWhatsAppCredentialKey: true,
       },
@@ -1405,10 +1404,11 @@ export class ModulesService implements OnModuleInit {
     const officialConfigured = Boolean(effectiveWhatsApp?.accessToken && effectiveWhatsApp?.phoneNumberId);
     const officialConnected =
       officialConfigured && String(company?.whatsappStatus || '').trim().toUpperCase() === 'CONNECTED';
-    const temporaryConnected =
-      String(company?.whatsappConnectionMode || '').trim().toUpperCase() === 'TEMPORARY'
-      && String(company?.whatsappTemporaryStatus || '').trim().toUpperCase() === 'TEMPORARY';
-    const hasOperationalWhatsAppEngine = officialConnected || temporaryConnected;
+    const modalConfigured = ['1', 'true', 'yes', 'on'].includes(
+      String(process.env.WHATSAPP_MODAL_ENABLED || '').trim().toLowerCase(),
+    ) && Boolean(String(process.env.WHATSAPP_MODAL_INTERNAL_URL || '').trim());
+    const modalConnected = String(company?.whatsappModalStatus || '').trim().toUpperCase() === 'CONNECTED';
+    const hasOperationalWhatsAppEngine = officialConnected || modalConnected;
     const webscrapingRuntime = normalizedKeys.includes('webscraping')
       ? await this.getCachedWebscrapingRuntime()
       : null;
@@ -1422,10 +1422,10 @@ export class ModulesService implements OnModuleInit {
 
       if (moduleKey === 'atendimento' && !hasOperationalWhatsAppEngine) {
         blockedByEngine = true;
-        blockedCode = officialConfigured || String(company?.whatsappConnectionMode || '').trim().toUpperCase() === 'TEMPORARY'
+        blockedCode = officialConfigured || modalConfigured
           ? 'whatsapp_not_operational'
           : 'whatsapp_missing';
-        blockedReason = officialConfigured
+        blockedReason = officialConfigured || modalConfigured
           ? 'Conclua a conexão do motor de WhatsApp para liberar Atendimento.'
           : 'Configure WhatsApp/Meta para liberar Atendimento.';
         criticalEngine = 'whatsapp';
@@ -2199,10 +2199,7 @@ export class ModulesService implements OnModuleInit {
         credential: selectedWhatsAppCredential,
         effectiveConfig: effectiveWhatsApp,
         includeInternal: true,
-        temporaryAvailable: Boolean(
-          String(process.env.WHATSAPP_TEMPORARY_API_URL || '').trim()
-          && String(process.env.WHATSAPP_TEMPORARY_API_KEY || '').trim(),
-        ),
+        temporaryAvailable: false,
       }),
       webscrapingUsage,
       mercadoPago: {

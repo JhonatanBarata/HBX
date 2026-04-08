@@ -16,13 +16,15 @@ function normalizeText(value: unknown) {
 
 function normalizeMode(value: unknown) {
   const mode = String(value || '').trim().toUpperCase();
-  if (mode === 'TEMPORARY' || mode === 'OFFICIAL') return mode;
+  if (mode === 'TEMPORARY' || mode === 'QR') return 'QR';
+  if (mode === 'OFFICIAL') return 'OFFICIAL';
   return 'NONE';
 }
 
-function normalizeTemporaryStatus(value: unknown) {
+function normalizeQrStatus(value: unknown) {
   const status = String(value || '').trim().toUpperCase();
-  if (status === 'TEMPORARY' || status === 'ATTENTION') return status;
+  if (status === 'TEMPORARY' || status === 'QR') return 'QR';
+  if (status === 'ATTENTION') return 'ATTENTION';
   return 'NOT_CONNECTED';
 }
 
@@ -38,13 +40,13 @@ function normalizeDate(value: unknown) {
 }
 
 export type WhatsAppCenterSnapshot = {
-  mode: 'NONE' | 'TEMPORARY' | 'OFFICIAL';
-  status: 'NOT_CONNECTED' | 'TEMPORARY' | 'OFFICIAL' | 'ATTENTION';
+  mode: 'NONE' | 'QR' | 'OFFICIAL';
+  status: 'NOT_CONNECTED' | 'QR' | 'OFFICIAL' | 'ATTENTION';
   statusLabel: string;
   statusHint: string;
-  temporary: {
+  qrConnection: {
     selected: boolean;
-    status: 'NOT_CONNECTED' | 'TEMPORARY' | 'ATTENTION';
+    status: 'NOT_CONNECTED' | 'QR' | 'ATTENTION';
     available: boolean;
     configured?: boolean;
     note: string;
@@ -104,7 +106,7 @@ export function buildWhatsAppCenterSnapshot(input: {
   const credential = input.credential || null;
   const effectiveConfig = input.effectiveConfig || null;
   const includeInternal = Boolean(input.includeInternal);
-  const temporaryAvailability =
+  const qrAvailability =
     input.temporaryAvailability || {
       configured: Boolean(input.temporaryAvailable),
       provider: null,
@@ -113,18 +115,18 @@ export function buildWhatsAppCenterSnapshot(input: {
     };
 
   const mode = normalizeMode(company.whatsappConnectionMode);
-  const temporaryStatus = normalizeTemporaryStatus(company.whatsappTemporaryStatus);
+  const qrStatus = normalizeQrStatus(company.whatsappTemporaryStatus);
   const migrationStatus = normalizeMigrationStatus(company.whatsappMigrationInterestStatus);
   const workflowStatus = normalizeMigrationStatus(company.whatsappMigrationWorkflowStatus);
   const officialStatus = normalizeText(company.whatsappStatus)?.toUpperCase() || null;
-  const temporaryProvider = normalizeText(company.whatsappTemporaryProvider);
-  const temporaryInstanceKey = normalizeText(company.whatsappTemporaryInstanceKey);
-  const temporaryPairingCode = normalizeText(company.whatsappTemporaryPairingCode);
-  const temporaryQrCodeData = normalizeText(company.whatsappTemporaryQrCodeData);
-  const temporaryDisplayNumber = normalizeText(company.whatsappTemporaryDisplayNumber);
-  const temporaryConnectedAt = normalizeDate(company.whatsappTemporaryConnectedAt);
-  const temporaryLastSyncAt = normalizeDate(company.whatsappTemporaryLastSyncAt);
-  const temporaryError = normalizeText(company.whatsappTemporaryStatusError);
+  const qrProvider = normalizeText(company.whatsappTemporaryProvider);
+  const qrInstanceKey = normalizeText(company.whatsappTemporaryInstanceKey);
+  const qrPairingCode = normalizeText(company.whatsappTemporaryPairingCode);
+  const qrCodeData = normalizeText(company.whatsappTemporaryQrCodeData);
+  const qrDisplayNumber = normalizeText(company.whatsappTemporaryDisplayNumber);
+  const qrConnectedAt = normalizeDate(company.whatsappTemporaryConnectedAt);
+  const qrLastSyncAt = normalizeDate(company.whatsappTemporaryLastSyncAt);
+  const qrError = normalizeText(company.whatsappTemporaryStatusError);
   const effectivePhoneNumberId =
     normalizeText(effectiveConfig?.phoneNumberId) || normalizeText(company.whatsappPhoneNumberId);
   const effectiveAccessToken =
@@ -147,40 +149,40 @@ export function buildWhatsAppCenterSnapshot(input: {
 
   let status: WhatsAppCenterSnapshot['status'] = 'NOT_CONNECTED';
   let statusLabel = 'Não conectado';
-  let statusHint = 'Escolha o caminho ideal para ativar o WhatsApp da empresa.';
+  let statusHint = 'Escolha o trilho ideal para ativar o WhatsApp da empresa.';
 
   if (officialConnected) {
     status = 'OFFICIAL';
-    statusLabel = 'Oficial / Meta';
-    statusHint = 'Número oficial validado para estabilidade, automações e crescimento.';
-  } else if (mode === 'TEMPORARY' && temporaryStatus === 'TEMPORARY') {
-    status = 'TEMPORARY';
-    statusLabel = 'Temporário';
-    statusHint = 'Vínculo rápido ativo para teste operacional imediato via QR.';
+    statusLabel = 'Meta oficial';
+    statusHint = 'Número oficial validado para estabilidade, automações e operação crítica.';
+  } else if (mode === 'QR' && qrStatus === 'QR') {
+    status = 'QR';
+    statusLabel = 'Conexão rápida por QR';
+    statusHint = 'O trilho rápido por QR está ativo para onboarding, trial e uso inicial.';
   } else if (
-    (mode === 'TEMPORARY' && (temporaryStatus === 'ATTENTION' || temporaryQrCodeData || temporaryPairingCode || temporaryError))
-    || migrationRequested
-    || (mode === 'OFFICIAL' && officialConfigured)
-    || officialStatus === 'ERROR'
+    (mode === 'QR' && (qrStatus === 'ATTENTION' || qrCodeData || qrPairingCode || qrError)) ||
+    migrationRequested ||
+    (mode === 'OFFICIAL' && officialConfigured) ||
+    officialStatus === 'ERROR'
   ) {
     status = 'ATTENTION';
     statusLabel = 'Atenção / pendente';
-    statusHint = mode === 'TEMPORARY'
-      ? temporaryQrCodeData || temporaryPairingCode
-        ? 'QR gerado para concluir o vínculo rápido temporário.'
-        : temporaryError
-          ? 'O vínculo rápido precisa de atenção técnica para continuar.'
-          : 'O vínculo rápido foi selecionado e já pode ser iniciado por QR.'
+    statusHint = mode === 'QR'
+      ? qrCodeData || qrPairingCode
+        ? 'O QR já foi gerado. Falta concluir a leitura no WhatsApp.'
+        : qrError
+          ? 'A conexão rápida por QR precisa de atenção técnica para continuar.'
+          : 'A conexão rápida por QR foi escolhida e já pode ser iniciada.'
       : migrationRequested
-      ? 'Interesse de migração registrado para o time técnico acompanhar.'
-      : 'O caminho oficial foi escolhido, mas ainda precisa fechar a conexão com a Meta.';
+        ? 'Interesse na trilha oficial registrado para o time técnico acompanhar.'
+        : 'A rota oficial foi escolhida, mas ainda precisa fechar a conexão com a Meta.';
   }
 
-  const temporaryLiveStatus = temporaryStatus === 'TEMPORARY'
+  const qrLiveStatus = qrStatus === 'QR'
     ? 'connected'
-    : temporaryQrCodeData || temporaryPairingCode
+    : qrCodeData || qrPairingCode
       ? 'qr_ready'
-      : temporaryError
+      : qrError
         ? 'error'
         : 'idle';
 
@@ -189,30 +191,30 @@ export function buildWhatsAppCenterSnapshot(input: {
     status,
     statusLabel,
     statusHint,
-    temporary: {
-      selected: mode === 'TEMPORARY',
-      status: temporaryStatus,
-      available: temporaryAvailability.configured,
-      configured: temporaryAvailability.configured,
+    qrConnection: {
+      selected: mode === 'QR',
+      status: qrStatus,
+      available: qrAvailability.configured,
+      configured: qrAvailability.configured,
       note:
-        temporaryStatus === 'TEMPORARY'
-          ? 'Número temporário conectado por QR para teste rápido da operação.'
-          : temporaryQrCodeData || temporaryPairingCode
-            ? 'O QR já foi gerado. Falta apenas concluir o pareamento no WhatsApp.'
-            : temporaryAvailability.configured
-              ? 'O vínculo rápido pode ser iniciado por QR sem misturar esse trilho com a rota oficial da Meta.'
-              : temporaryAvailability.setupHint || 'O vínculo rápido depende da configuração técnica do provedor QR neste ambiente.',
-      liveStatus: temporaryLiveStatus,
-      provider: temporaryProvider || temporaryAvailability.provider,
-      instanceKey: temporaryInstanceKey,
-      pairingCode: temporaryPairingCode,
-      qrCodeDataUrl: temporaryQrCodeData,
-      displayNumber: temporaryDisplayNumber,
-      connectedAt: temporaryConnectedAt,
-      lastSyncAt: temporaryLastSyncAt,
-      errorMessage: temporaryError,
-      missingConfigKeys: temporaryAvailability.missingConfigKeys || [],
-      setupHint: temporaryAvailability.setupHint || null,
+        qrStatus === 'QR'
+          ? 'Número conectado pelo trilho rápido por QR para ativação inicial e operação leve.'
+          : qrCodeData || qrPairingCode
+            ? 'O QR já está pronto. Falta apenas concluir o pareamento no WhatsApp.'
+            : qrAvailability.configured
+              ? 'A conexão rápida por QR pode ser iniciada sem misturar esse trilho com a rota oficial da Meta.'
+              : qrAvailability.setupHint || 'A conexão rápida por QR depende da configuração técnica do modal neste ambiente.',
+      liveStatus: qrLiveStatus,
+      provider: qrProvider || qrAvailability.provider,
+      instanceKey: qrInstanceKey,
+      pairingCode: qrPairingCode,
+      qrCodeDataUrl: qrCodeData,
+      displayNumber: qrDisplayNumber,
+      connectedAt: qrConnectedAt,
+      lastSyncAt: qrLastSyncAt,
+      errorMessage: qrError,
+      missingConfigKeys: qrAvailability.missingConfigKeys || [],
+      setupHint: qrAvailability.setupHint || null,
     },
     official: {
       selected: mode === 'OFFICIAL',

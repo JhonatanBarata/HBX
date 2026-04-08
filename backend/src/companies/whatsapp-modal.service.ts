@@ -1,5 +1,6 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import axios, { AxiosError, AxiosResponse, Method } from 'axios';
+import * as QRCode from 'qrcode';
 import { ensureMasterBillingRuntimeSchema } from '../modules/master-runtime';
 import { PrismaService } from '../prisma/prisma.service';
 
@@ -176,43 +177,42 @@ export class WhatsAppModalService {
     const tenantKey = this.buildTenantKey(company);
     this.logger.log(`Starting Modal WhatsApp session for company ${company.id} (${tenantKey}).`);
 
+    let liveSnapshot: ModalSnapshot = {
+      ...storedSnapshot,
+      status: 'starting',
+      lastError: null,
+      updatedAt: new Date(),
+      qrCodeDataUrl: null,
+    };
+
     try {
       await this.requestProvider({
         method: 'POST',
-        path: `/sessions/${encodeURIComponent(tenantKey)}/start`,
+        path: '/sessions',
         purpose: 'inicio da sessao',
         data: {
-          tenantKey,
-          companyId: company.id,
-          companySlug: company.slug,
-          companyName: company.name,
+          sessionKey: tenantKey,
         },
       });
     } catch (error) {
       return this.buildFailureResponse(company, storedSnapshot, error, 'Falha ao iniciar a sessão do Modal WhatsApp.');
     }
 
-    const optimisticSnapshot: ModalSnapshot = {
-      ...storedSnapshot,
-      status: 'starting',
-      lastError: null,
-      updatedAt: new Date(),
-    };
-    await this.persistSnapshot(company, optimisticSnapshot, 'start');
+    await this.persistSnapshot(company, liveSnapshot, 'start');
 
     try {
-      const liveSnapshot = await this.fetchLiveSnapshot(company, { includeQr: true });
-      return this.buildResponse(company, liveSnapshot, {
+      const refreshedSnapshot = await this.fetchLiveSnapshot(company, { includeQr: true });
+      return this.buildResponse(company, refreshedSnapshot, {
         success: true,
         providerHealth: 'healthy',
         message:
-          liveSnapshot.status === 'waiting_qr'
+          refreshedSnapshot.status === 'waiting_qr'
             ? 'Sessão iniciada. Escaneie o QR code para concluir a conexão.'
             : 'Sessão iniciada no Modal WhatsApp.',
       });
     } catch (error) {
       this.logger.warn(`Modal WhatsApp start confirmation failed for company ${company.id}: ${this.toProviderError(error).message}`);
-      return this.buildResponse(company, optimisticSnapshot, {
+      return this.buildResponse(company, liveSnapshot, {
         success: true,
         providerHealth: 'unknown',
         message: 'Solicitação enviada ao Modal WhatsApp. Atualize o status em alguns segundos.',
@@ -282,8 +282,8 @@ export class WhatsAppModalService {
     await this.persistSnapshot(company, optimisticSnapshot, 'disconnect');
 
     try {
-      const liveSnapshot = await this.fetchLiveSnapshot(company, { includeQr: false });
-      return this.buildResponse(company, liveSnapshot, {
+      const refreshedSnapshot = await this.fetchLiveSnapshot(company, { includeQr: false });
+      return this.buildResponse(company, refreshedSnapshot, {
         success: true,
         providerHealth: 'healthy',
         message: 'Sessão desconectada do Modal WhatsApp.',
@@ -309,16 +309,6 @@ export class WhatsAppModalService {
     const tenantKey = this.buildTenantKey(company);
     this.logger.log(`Restarting Modal WhatsApp session for company ${company.id} (${tenantKey}).`);
 
-    try {
-      await this.requestProvider({
-        method: 'POST',
-        path: `/sessions/${encodeURIComponent(tenantKey)}/restart`,
-        purpose: 'reinicio da sessao',
-      });
-    } catch (error) {
-      return this.buildFailureResponse(company, storedSnapshot, error, 'Falha ao reiniciar a sessão do Modal WhatsApp.');
-    }
-
     const optimisticSnapshot: ModalSnapshot = {
       ...storedSnapshot,
       status: 'starting',
@@ -331,12 +321,22 @@ export class WhatsAppModalService {
     await this.persistSnapshot(company, optimisticSnapshot, 'restart');
 
     try {
-      const liveSnapshot = await this.fetchLiveSnapshot(company, { includeQr: true });
-      return this.buildResponse(company, liveSnapshot, {
+      await this.requestProvider({
+        method: 'POST',
+        path: `/sessions/${encodeURIComponent(tenantKey)}/restart`,
+        purpose: 'reinicio da sessao',
+      });
+    } catch (error) {
+      return this.buildFailureResponse(company, storedSnapshot, error, 'Falha ao reiniciar a sessão do Modal WhatsApp.');
+    }
+
+    try {
+      const refreshedSnapshot = await this.fetchLiveSnapshot(company, { includeQr: true });
+      return this.buildResponse(company, refreshedSnapshot, {
         success: true,
         providerHealth: 'healthy',
         message:
-          liveSnapshot.status === 'waiting_qr'
+          refreshedSnapshot.status === 'waiting_qr'
             ? 'Sessão reiniciada. Escaneie o QR code atualizado.'
             : 'Sessão reiniciada no Modal WhatsApp.',
       });
@@ -384,9 +384,8 @@ export class WhatsAppModalService {
     const missingConfigKeys: string[] = [];
 
     if (!internalUrl) missingConfigKeys.push('WHATSAPP_MODAL_INTERNAL_URL');
-    if (!apiKey) missingConfigKeys.push('WHATSAPP_MODAL_API_KEY');
 
-    const configured = Boolean(internalUrl && apiKey);
+    const configured = Boolean(internalUrl);
     return {
       enabled,
       configured,
@@ -439,6 +438,7 @@ export class WhatsAppModalService {
     };
 
     if (apiKey) {
+      headers.apikey = apiKey;
       headers['x-api-key'] = apiKey;
       headers.Authorization = `Bearer ${apiKey}`;
     }
@@ -453,13 +453,14 @@ export class WhatsAppModalService {
 
   private firstString(...values: unknown[]) {
     for (const value of values) {
+      if (value && typeof value === 'object') continue;
       const normalized = this.normalizeOptionalString(value);
       if (normalized) return normalized;
     }
     return null;
   }
 
-  private normalizeQrCodeData(value: unknown) {
+  private async normalizeQrCodeData(value: unknown) {
     const normalized = this.normalizeOptionalString(value);
     if (!normalized) return null;
     if (normalized.startsWith('data:image')) return normalized;
@@ -468,7 +469,10 @@ export class WhatsAppModalService {
     if (/^[A-Za-z0-9+/=]+$/.test(compact) && compact.length > 120) {
       return `data:image/png;base64,${compact}`;
     }
-    return normalized;
+    return QRCode.toDataURL(normalized, {
+      width: 320,
+      margin: 1,
+    });
   }
 
   private normalizeExternalStatus(rawStatus: string | null, hints: {
@@ -497,7 +501,7 @@ export class WhatsAppModalService {
     if (['starting', 'booting', 'initializing', 'connecting', 'launching', 'opening'].includes(normalized)) {
       return 'starting' as const;
     }
-    if (['disconnected', 'closed', 'stopped', 'logged_out', 'terminated'].includes(normalized)) {
+    if (['disconnected', 'close', 'closed', 'stopped', 'logged_out', 'terminated'].includes(normalized)) {
       return 'disconnected' as const;
     }
     if (['offline', 'not_connected', 'none', 'missing', 'not_found', 'idle'].includes(normalized)) {
@@ -513,37 +517,61 @@ export class WhatsAppModalService {
     return 'offline';
   }
 
-  private extractSnapshot(payload: unknown, fallback: ModalSnapshot): ModalSnapshot {
+  private async extractSnapshot(payload: unknown, fallback: ModalSnapshot): Promise<ModalSnapshot> {
     const root = this.asRecord(payload) || {};
     const rootData = this.asRecord(root.data) || root;
+    const instance = this.asRecord(rootData.instance) || this.asRecord(root.instance) || null;
     const session = this.asRecord(rootData.session) || this.asRecord(root.session) || rootData;
-    const qr = this.asRecord(rootData.qr) || this.asRecord(session.qr) || null;
+    const qr =
+      this.asRecord(rootData.qr)
+      || this.asRecord(rootData.qrcode)
+      || this.asRecord(rootData.Qrcode)
+      || this.asRecord(session.qr)
+      || this.asRecord(session.qrcode)
+      || this.asRecord(session.Qrcode)
+      || null;
 
-    const qrCodeDataUrl = this.normalizeQrCodeData(
+    const qrCodeDataUrl = await this.normalizeQrCodeData(
       this.firstString(
+        session.base64,
         session.qrCodeDataUrl,
         session.qrCode,
         session.qr,
+        session.code,
+        rootData.base64,
         rootData.qrCodeDataUrl,
         rootData.qrCode,
         rootData.qr,
+        rootData.code,
+        root.base64,
         root.qrCodeDataUrl,
         root.qrCode,
         root.qr,
+        root.code,
+        root.qrcode,
+        root.Qrcode,
         qr?.qrCodeDataUrl,
         qr?.qrCode,
         qr?.value,
         qr?.base64,
         qr?.code,
+        qr?.qrcode,
+        qr?.Qrcode,
       ),
     );
     const rawStatus = this.firstString(
+      instance?.state,
+      instance?.status,
+      instance?.connectionStatus,
       session.status,
       session.state,
+      session.connectionStatus,
       rootData.status,
       rootData.state,
+      rootData.connectionStatus,
       root.status,
       root.state,
+      root.connectionStatus,
     );
     const lastError = this.firstString(
       session.lastError,
@@ -557,15 +585,25 @@ export class WhatsAppModalService {
       root.success === false ? root.message : null,
     );
     const phone = this.firstString(
+      instance?.number,
+      instance?.owner,
+      instance?.ownerJid,
+      instance?.profileName,
       session.phone,
       session.phoneNumber,
       session.number,
+      session.owner,
+      session.ownerJid,
       rootData.phone,
       rootData.phoneNumber,
       rootData.number,
+      rootData.owner,
+      rootData.ownerJid,
       root.phone,
       root.phoneNumber,
       root.number,
+      root.owner,
+      root.ownerJid,
     );
     const normalizedStatus = this.normalizeExternalStatus(rawStatus, {
       phone: phone || fallback.phone,
@@ -855,7 +893,7 @@ export class WhatsAppModalService {
       return null;
     }
 
-    const qrSnapshot = this.extractSnapshot(payload, fallback);
+    const qrSnapshot = await this.extractSnapshot(payload, fallback);
     return {
       ...fallback,
       status: qrSnapshot.qrCodeDataUrl ? 'waiting_qr' : fallback.status,
@@ -882,7 +920,7 @@ export class WhatsAppModalService {
     });
 
     let snapshot: ModalSnapshot = payload
-      ? this.extractSnapshot(payload, fallback)
+      ? await this.extractSnapshot(payload, fallback)
       : {
           ...fallback,
           status: 'offline',
@@ -892,7 +930,7 @@ export class WhatsAppModalService {
           rawStatus: null,
         };
 
-    if (options?.includeQr && (snapshot.status === 'waiting_qr' || snapshot.status === 'starting')) {
+    if (options?.includeQr && snapshot.status !== 'connected') {
       const qrSnapshot = await this.fetchQrSnapshot(company, snapshot);
       if (qrSnapshot) {
         snapshot = qrSnapshot;
