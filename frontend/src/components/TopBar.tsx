@@ -300,7 +300,7 @@ export default function TopBar() {
           ...statusPayload,
           data: {
             ...statusPayload.data,
-            qrCodeDataUrl: null,
+            qrCodeDataUrl: statusPayload.data.qrCodeDataUrl || null,
           },
         };
       }
@@ -1086,12 +1086,19 @@ export default function TopBar() {
     setWhatsAppDetailBusy("qr-connect");
     setWhatsAppDetailError(null);
     try {
+      const requestQrOnly =
+        whatsAppModal?.status === "waiting_qr"
+        && !whatsAppModal.data.qrCodeDataUrl;
       setWhatsAppQrRequested(true);
-      setWhatsAppDetailMessage("Conectando ao motor...");
-      await ensureWhatsAppQrMode();
-      const response = await apiFetch<WhatsAppModalPayload>("/companies/me/whatsapp-modal/start", {
-        method: "POST",
-      });
+      setWhatsAppDetailMessage(requestQrOnly ? "Atualizando o QR..." : "Conectando ao motor...");
+      if (!requestQrOnly) {
+        await ensureWhatsAppQrMode();
+      }
+      const response = requestQrOnly
+        ? await apiFetch<WhatsAppModalPayload>("/companies/me/whatsapp-modal/qr")
+        : await apiFetch<WhatsAppModalPayload>("/companies/me/whatsapp-modal/start", {
+            method: "POST",
+          });
       let nextPayload = response;
       if (shouldLoadModalQr(response, true) && !response.data.qrCodeDataUrl) {
         setWhatsAppDetailMessage("Motor respondeu. Solicitando o QR code...");
