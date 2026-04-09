@@ -2,20 +2,20 @@
 
 ## Objetivo
 
-Integrar o HBX a um serviço externo de WhatsApp rodando em Docker, sem trazer o motor para dentro do monorepo. O backend HBX passa a consumir um adapter HTTP interno e o frontend fala apenas com os endpoints do próprio HBX.
+Integrar o HBX ao Webwhats real, sem adapter `/sessions` e sem trazer o motor para dentro do monorepo. O backend HBX consome diretamente o contrato `/instance/...` e o frontend fala apenas com os endpoints do próprio HBX.
 
 ## Variáveis de ambiente do backend
 
 - `WHATSAPP_MODAL_ENABLED=true`
-- `WHATSAPP_MODAL_INTERNAL_URL=http://147.15.36.137:3100`
-- `WHATSAPP_MODAL_API_KEY=`
+- `WHATSAPP_MODAL_INTERNAL_URL=http://147.15.36.137:8080`
+- `WHATSAPP_MODAL_API_KEY=` ou `AUTHENTICATION_API_KEY=`
 - `WHATSAPP_MODAL_TIMEOUT_MS=15000`
 
 Com `WHATSAPP_MODAL_ENABLED=true`, a feature fica habilitada no backend HBX.
 
 ## Network Docker
 
-No ambiente atual do HBX, o backend aponta para `http://147.15.36.137:3100`.
+No ambiente atual do HBX, o backend aponta para `http://147.15.36.137:8080`.
 
 Se o motor for rodado na mesma infra Docker do HBX, ele tambem pode entrar na network nomeada `hbx_net` e ser resolvido por DNS Docker.
 
@@ -37,16 +37,15 @@ networks:
     external: true
 ```
 
-## Contrato esperado do serviço externo
+## Contrato esperado do Webwhats
 
-- `GET /health`
-- `POST /sessions`
-- `GET /sessions/:tenant/status`
-- `GET /sessions/:tenant/qr`
-- `POST /sessions/:tenant/disconnect`
-- `POST /sessions/:tenant/restart`
+- `POST /instance/create`
+- `GET /instance/connect/:instanceName`
+- `GET /instance/connectionState/:instanceName`
+- `POST /instance/restart/:instanceName`
+- `DELETE /instance/logout/:instanceName`
 
-O HBX usa `tenantKey=company-<companyId>` como identificador estável da sessão e envia `sessionKey` no `POST /sessions`.
+O HBX usa `instanceName=company-<companyId>` como identificador estável da instância e envia o header `apikey` com a mesma chave configurada no Webwhats em `AUTHENTICATION_API_KEY`.
 
 ## Endpoints internos do HBX
 
