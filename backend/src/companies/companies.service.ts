@@ -6,6 +6,7 @@ import { buildImportacaoPermissaoRows } from '../bootstrap/company-structural-de
 import { getMasterGlobalIntegrationConfig, pickMasterWhatsAppCredential } from '../modules/master-global-integrations.util';
 import { ensureMasterBillingRuntimeSchema } from '../modules/master-runtime';
 import { buildWhatsAppCenterSnapshot } from './whatsapp-center.util';
+import { WhatsAppModalService } from './whatsapp-modal.service';
 import { ensureWebsiteRuntimeSchema } from '../website/website-runtime';
 
 export const MASTER_HARD_DELETE_CONFIRM_TEXT = 'EXCLUIR EMPRESA';
@@ -27,6 +28,7 @@ export class CompaniesService implements OnModuleInit, OnModuleDestroy {
 
   constructor(
     private readonly prisma: PrismaService,
+    private readonly whatsappModalService: WhatsAppModalService,
   ) {}
 
   async onModuleInit() {
@@ -423,11 +425,12 @@ export class CompaniesService implements OnModuleInit, OnModuleDestroy {
             this.normalizeOptionalString((company as any)?.whatsappDisplayNumber) ||
             this.normalizeOptionalString((company as any)?.whatsappNumber),
         };
+    const modalAvailability = this.whatsappModalService.getAvailability();
     const temporaryAvailability = {
-      configured: false,
-      provider: null,
-      missingConfigKeys: [] as string[],
-      setupHint: 'O runtime legado do QR foi removido deste ambiente. Use o modal WhatsApp do HBX.',
+      configured: modalAvailability.configured,
+      provider: modalAvailability.enabled ? 'external_modal' : null,
+      missingConfigKeys: [...modalAvailability.missingConfigKeys],
+      setupHint: modalAvailability.setupHint,
     };
 
     return {
@@ -455,7 +458,7 @@ export class CompaniesService implements OnModuleInit, OnModuleDestroy {
         effectiveConfig,
         includeInternal: false,
         temporaryAvailability,
-        temporaryAvailable: temporaryAvailability.configured,
+        temporaryAvailable: modalAvailability.available,
       }),
     };
   }

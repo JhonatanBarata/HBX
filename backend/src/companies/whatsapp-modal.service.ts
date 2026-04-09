@@ -34,6 +34,7 @@ type ModalConfig = {
   apiKey: string | null;
   timeoutMs: number;
   missingConfigKeys: string[];
+  setupHint: string | null;
 };
 
 type ModalSnapshot = {
@@ -105,6 +106,7 @@ export class WhatsAppModalService {
       available: config.available,
       missingConfigKeys: [...config.missingConfigKeys],
       timeoutMs: config.timeoutMs,
+      setupHint: config.setupHint,
     };
   }
 
@@ -558,18 +560,40 @@ export class WhatsAppModalService {
     return Math.max(1000, Math.min(30000, Math.trunc(parsed)));
   }
 
+  private readModalApiKey() {
+    return (
+      this.normalizeOptionalString(process.env.WHATSAPP_MODAL_API_KEY) ||
+      this.normalizeOptionalString(process.env.AUTHENTICATION_API_KEY)
+    );
+  }
+
   private readConfig(): ModalConfig {
     const enabled = ['1', 'true', 'yes', 'on'].includes(
       String(process.env.WHATSAPP_MODAL_ENABLED || '').trim().toLowerCase(),
     );
     const internalUrl = this.normalizeOptionalString(process.env.WHATSAPP_MODAL_INTERNAL_URL)?.replace(/\/+$/, '') || null;
-    const apiKey = this.normalizeOptionalString(process.env.WHATSAPP_MODAL_API_KEY);
+    const apiKey = this.readModalApiKey();
     const missingConfigKeys: string[] = [];
 
     if (!internalUrl) missingConfigKeys.push('WHATSAPP_MODAL_INTERNAL_URL');
-    if (!apiKey) missingConfigKeys.push('WHATSAPP_MODAL_API_KEY');
+    if (!apiKey) missingConfigKeys.push('WHATSAPP_MODAL_API_KEY ou AUTHENTICATION_API_KEY');
 
     const configured = Boolean(internalUrl && apiKey);
+    const setupHint = !enabled
+      ? 'Integração Modal WhatsApp desativada por ambiente.'
+      : configured
+        ? null
+        : this.buildMisconfiguredMessage({
+            enabled,
+            configured,
+            available: enabled && configured,
+            internalUrl,
+            apiKey,
+            timeoutMs: this.clampTimeout(process.env.WHATSAPP_MODAL_TIMEOUT_MS),
+            missingConfigKeys,
+            setupHint: null,
+          });
+
     return {
       enabled,
       configured,
@@ -578,6 +602,7 @@ export class WhatsAppModalService {
       apiKey,
       timeoutMs: this.clampTimeout(process.env.WHATSAPP_MODAL_TIMEOUT_MS),
       missingConfigKeys,
+      setupHint,
     };
   }
 
@@ -1055,7 +1080,7 @@ export class WhatsAppModalService {
     if (response.status === 401 || response.status === 403) {
       return new WhatsAppModalProviderError(
         'WHATSAPP_MODAL_NOT_CONFIGURED',
-        `Webwhats recusou a autenticacao durante ${purpose}. Verifique WHATSAPP_MODAL_API_KEY.${suffix}`.trim(),
+        `Webwhats recusou a autenticacao durante ${purpose}. Verifique WHATSAPP_MODAL_API_KEY ou AUTHENTICATION_API_KEY.${suffix}`.trim(),
         response.status,
       );
     }
