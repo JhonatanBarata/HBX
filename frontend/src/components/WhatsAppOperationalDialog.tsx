@@ -92,6 +92,8 @@ export default function WhatsAppOperationalDialog({
               ? "Desconectado"
               : "Offline"
     : whatsappQrConnectionLiveLabel(qrConnection?.liveStatus);
+  const modalStatus = modalPayload?.status || "offline";
+  const modalConfiguredForAction = modalPayload ? modalPayload.data.available : true;
   const qrConnectionError =
     modalError ||
     (modalPayload?.data.lastError || null) ||
@@ -302,10 +304,9 @@ export default function WhatsAppOperationalDialog({
                         onClick={onStartQrConnection}
                         disabled={
                           busyAction !== null
-                          || !modalPayload?.data.available
-                          || modalPayload.status === "connected"
-                          || modalPayload.status === "waiting_qr"
-                          || modalPayload.status === "starting"
+                          || !modalConfiguredForAction
+                          || modalStatus === "connected"
+                          || modalStatus === "waiting_qr"
                         }
                       >
                         {busyAction === "qr-connect" ? "Conectando..." : "Conectar"}
@@ -316,11 +317,11 @@ export default function WhatsAppOperationalDialog({
                         onClick={onDisconnectQrConnection}
                         disabled={
                           busyAction !== null
-                          || !modalPayload?.data.available
+                          || !modalConfiguredForAction
                           || (
-                            modalPayload.status !== "connected"
-                            && modalPayload.status !== "waiting_qr"
-                            && modalPayload.status !== "starting"
+                            modalStatus !== "connected"
+                            && modalStatus !== "waiting_qr"
+                            && modalStatus !== "starting"
                           )
                         }
                       >

@@ -31,10 +31,11 @@ export default function WhatsAppCenterClientPage() {
   const [error, setError] = useState<string | null>(null);
   const [modalError, setModalError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const modalConfiguredForAction = modalPayload ? modalPayload.data.available : true;
 
   function shouldLoadModalQr(nextPayload: WhatsAppModalPayload | null, includeQr: boolean) {
     if (!includeQr || !nextPayload?.data.available) return false;
-    return nextPayload.status === "waiting_qr" || nextPayload.status === "starting";
+    return nextPayload.status !== "connected";
   }
 
   function mergeModalPayload(
@@ -73,6 +74,22 @@ export default function WhatsAppCenterClientPage() {
     } finally {
       if (!background) setLoading(false);
     }
+  }, []);
+
+  const waitForModalQrCode = useCallback(async (statusPayload: WhatsAppModalPayload) => {
+    let latestPayload = statusPayload;
+
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      const qrData = await apiFetch<WhatsAppModalPayload>("/companies/me/whatsapp-modal/qr");
+      latestPayload = mergeModalPayload(latestPayload, qrData);
+      setModalPayload(latestPayload);
+      if (latestPayload.data.qrCodeDataUrl || latestPayload.status === "connected") {
+        return latestPayload;
+      }
+      await new Promise((resolve) => window.setTimeout(resolve, 1500));
+    }
+
+    return latestPayload;
   }, []);
 
   const loadModalStatus = useCallback(async (background = false, includeQr = false) => {
@@ -122,9 +139,11 @@ export default function WhatsAppCenterClientPage() {
     try {
       if (action === "connect") {
         setModalQrRequested(true);
+        setMessage("Conectando ao motor...");
         await ensureQrModeSelected();
       } else {
         setModalQrRequested(false);
+        setMessage("Encerrando a sessão no motor...");
       }
 
       const endpoint = action === "connect" ? "start" : "disconnect";
@@ -134,8 +153,8 @@ export default function WhatsAppCenterClientPage() {
       let nextPayload = response;
 
       if (action === "connect" && shouldLoadModalQr(response, true) && !response.data.qrCodeDataUrl) {
-        const qrData = await apiFetch<WhatsAppModalPayload>("/companies/me/whatsapp-modal/qr");
-        nextPayload = mergeModalPayload(response, qrData);
+        setMessage("Motor respondeu. Solicitando o QR code...");
+        nextPayload = await waitForModalQrCode(response);
       }
 
       setModalPayload(nextPayload);
@@ -147,7 +166,7 @@ export default function WhatsAppCenterClientPage() {
               ? "QR pronto para leitura."
               : nextPayload.status === "connected"
                 ? "WhatsApp conectado."
-                : "Conexão iniciada."
+                : "Motor respondeu. Ainda aguardando o QR code."
             : "WhatsApp desconectado."
         );
       }
@@ -185,7 +204,7 @@ export default function WhatsAppCenterClientPage() {
     const interval = window.setInterval(() => {
       void loadModalStatus(
         true,
-        modalQrRequested && (modalPayload.status === "waiting_qr" || modalPayload.status === "starting"),
+        modalQrRequested && modalPayload.status !== "connected",
       );
     }, modalPayload.status === "connected" ? 20000 : 7000);
 
@@ -276,6 +295,7 @@ export default function WhatsAppCenterClientPage() {
     }
     return whatsappQrConnectionLiveLabel(payload?.center.qrConnection.liveStatus);
   }, [modalPayload, payload?.center.qrConnection.liveStatus]);
+  const modalStatus = modalPayload?.status || "offline";
 
   const qrConnectionNote = useMemo(() => {
     if (!modalPayload) {
@@ -322,30 +342,9 @@ export default function WhatsAppCenterClientPage() {
   if (!hasToken) return null;
 
   return (
-    <DashboardScaffold
-      title="Central WhatsApp"
-      description="Escolha o trilho, conecte o canal e deixe a Meta como rota premium para operação oficial."
-    >
+    <DashboardScaffold title="" description="" hideHeader={true}>
       <div className={styles.page}>
-        <section className={styles.hero}>
-          <div className={styles.heroCopy}>
-            <span className={styles.eyebrow}>Ativação comercial</span>
-            <h1 className={styles.heroTitle}>Escolha o trilho do WhatsApp e conecte sem ruído.</h1>
-            <p className={styles.heroText}>
-              Esta tela agora fala a linguagem da trindade: conexão rápida por QR para ativação inicial e Meta oficial como trilho premium e institucional.
-            </p>
-          </div>
-
-          <aside className={styles.heroPanel} data-tone={payload?.center.status || "NOT_CONNECTED"}>
-            <span className={styles.statusPill}>{payload?.center.statusLabel || "Não conectado"}</span>
-            <strong className={styles.heroValue}>{payload?.company.name || "Empresa"}</strong>
-            <p className={styles.heroHint}>{payload?.center.statusHint || "Escolha o caminho ideal para começar."}</p>
-            <div className={styles.heroMeta}>
-              <span>{payload?.center.official.displayNumber || "Sem número oficial"}</span>
-              <span>{whatsappModeLabel(payload?.center.mode)}</span>
-            </div>
-          </aside>
-        </section>
+        <section className={styles.hero}></section>
 
         {error ? <section className={styles.errorCard}>{error}</section> : null}
         {message ? <section className={styles.successCard}>{message}</section> : null}
@@ -354,15 +353,7 @@ export default function WhatsAppCenterClientPage() {
           <section className={styles.loadingCard}>Carregando central...</section>
         ) : (
           <>
-            <section className={styles.metricsGrid}>
-              {currentSummary.map((item) => (
-                <article key={item.label} className={styles.metricCard}>
-                  <span className={styles.metricLabel}>{item.label}</span>
-                  <strong className={styles.metricValue}>{item.value}</strong>
-                  <p className={styles.metricNote}>{item.note}</p>
-                </article>
-              ))}
-            </section>
+            <section className={styles.metricsGrid}></section>
 
             <section className={styles.pathGrid}>
               <article id="whatsapp-qr" className={styles.pathCard} data-active={payload.center.mode === "QR"}>
@@ -431,10 +422,9 @@ export default function WhatsAppCenterClientPage() {
                     onClick={() => void runModalAction("connect")}
                     disabled={
                       modalSaving !== null
-                      || !modalPayload?.data.available
-                      || modalPayload.status === "connected"
-                      || modalPayload.status === "waiting_qr"
-                      || modalPayload.status === "starting"
+                      || !modalConfiguredForAction
+                      || modalStatus === "connected"
+                      || modalStatus === "waiting_qr"
                     }
                   >
                     {modalSaving === "connect" ? "Conectando..." : "Conectar"}
@@ -445,11 +435,11 @@ export default function WhatsAppCenterClientPage() {
                     onClick={() => void runModalAction("disconnect")}
                     disabled={
                       modalSaving !== null
-                      || !modalPayload?.data.available
+                      || !modalConfiguredForAction
                       || (
-                        modalPayload.status !== "connected"
-                        && modalPayload.status !== "waiting_qr"
-                        && modalPayload.status !== "starting"
+                        modalStatus !== "connected"
+                        && modalStatus !== "waiting_qr"
+                        && modalStatus !== "starting"
                       )
                     }
                   >
@@ -508,26 +498,6 @@ export default function WhatsAppCenterClientPage() {
                   </button>
                 </div>
               </article>
-            </section>
-
-            <section id="whatsapp-next-steps" className={styles.panelCard}>
-              <div className={styles.sectionHeader}>
-                <div>
-                  <span className={styles.pathEyebrow}>Leitura estratégica</span>
-                  <h2>Qual é o próximo passo certo para esta empresa?</h2>
-                </div>
-                <span className={styles.mutedPill}>
-                  {modalLoading ? "Lendo conexão" : modalPayload ? whatsappModalStatusLabel(modalPayload.status) : "Sem leitura"}
-                </span>
-              </div>
-              <p className={styles.helperText}>
-                QR liga o cliente rápido. Meta protege a operação premium e os fluxos mais críticos.
-              </p>
-              <div className={styles.summaryStack}>
-                <p>Se a empresa está validando o produto, mantenha a conexão rápida por QR como trilho principal.</p>
-                <p>Se a empresa vai amadurecer automações, cobrança ou governança, registre o interesse na Meta oficial.</p>
-                <p>O motor do QR já está isolado no modal do HBX; a UI agora trata isso como produto, não como detalhe de runtime.</p>
-              </div>
             </section>
 
             <section className={styles.pathActions}>

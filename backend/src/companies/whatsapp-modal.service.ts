@@ -676,7 +676,7 @@ export class WhatsAppModalService {
   }
 
   private async waitForSessionReady(company: CompanyModalFields, fallback: ModalSnapshot) {
-    const delaysMs = [0, 500, 1000, 1500];
+    const delaysMs = [0, 750, 1500, 2500, 4000, 6000];
     let latest = fallback;
 
     for (const delayMs of delaysMs) {

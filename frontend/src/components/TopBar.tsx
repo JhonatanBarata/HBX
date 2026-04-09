@@ -163,7 +163,7 @@ function isWhatsAppOperationalChip(chip: OperationalStatusChip) {
 
 function shouldLoadModalQr(nextPayload: WhatsAppModalPayload | null, includeQr: boolean) {
   if (!includeQr || !nextPayload?.data.available) return false;
-  return nextPayload.status === "waiting_qr" || nextPayload.status === "starting";
+  return nextPayload.status !== "connected";
 }
 
 function mergeModalPayload(
@@ -315,6 +315,22 @@ export default function TopBar() {
       if (!options?.background) setWhatsAppModalLoading(false);
     }
   }, [authenticated]);
+
+  const waitForWhatsAppModalQr = React.useCallback(async (statusPayload: WhatsAppModalPayload) => {
+    let latestPayload = statusPayload;
+
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      const qrPayload = await apiFetch<WhatsAppModalPayload>("/companies/me/whatsapp-modal/qr");
+      latestPayload = mergeModalPayload(latestPayload, qrPayload);
+      setWhatsAppModal(latestPayload);
+      if (latestPayload.data.qrCodeDataUrl || latestPayload.status === "connected") {
+        return latestPayload;
+      }
+      await new Promise((resolve) => window.setTimeout(resolve, 1500));
+    }
+
+    return latestPayload;
+  }, []);
 
   const showMasterContextToast = React.useCallback((detail?: MasterContextChangedDetail | null) => {
     const mode = detail?.mode;
@@ -568,7 +584,7 @@ export default function TopBar() {
         background: true,
         includeQr:
           whatsAppQrRequested
-          && (whatsAppModal.status === "waiting_qr" || whatsAppModal.status === "starting"),
+          && whatsAppModal.status !== "connected",
       });
       void refreshOperationalStatus(true);
     }, whatsAppModal.status === "connected" ? 20000 : 9000);
@@ -1071,14 +1087,15 @@ export default function TopBar() {
     setWhatsAppDetailError(null);
     try {
       setWhatsAppQrRequested(true);
+      setWhatsAppDetailMessage("Conectando ao motor...");
       await ensureWhatsAppQrMode();
       const response = await apiFetch<WhatsAppModalPayload>("/companies/me/whatsapp-modal/start", {
         method: "POST",
       });
       let nextPayload = response;
       if (shouldLoadModalQr(response, true) && !response.data.qrCodeDataUrl) {
-        const qrPayload = await apiFetch<WhatsAppModalPayload>("/companies/me/whatsapp-modal/qr");
-        nextPayload = mergeModalPayload(response, qrPayload);
+        setWhatsAppDetailMessage("Motor respondeu. Solicitando o QR code...");
+        nextPayload = await waitForWhatsAppModalQr(response);
       }
       setWhatsAppModal(nextPayload);
       void loadWhatsAppCenter({ background: true });
@@ -1088,7 +1105,7 @@ export default function TopBar() {
           ? "QR pronto para leitura."
           : nextPayload.status === "connected"
             ? "WhatsApp conectado."
-            : "Conexão iniciada."
+            : "Motor respondeu. Ainda aguardando o QR code."
       );
       void refreshOperationalStatus(true);
     } catch (error) {
@@ -1105,6 +1122,7 @@ export default function TopBar() {
     setWhatsAppDetailError(null);
     try {
       setWhatsAppQrRequested(false);
+      setWhatsAppDetailMessage("Encerrando a sessão no motor...");
       const response = await apiFetch<WhatsAppModalPayload>("/companies/me/whatsapp-modal/disconnect", {
         method: "POST",
       });
