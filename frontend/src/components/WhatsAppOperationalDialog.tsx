@@ -94,6 +94,7 @@ export default function WhatsAppOperationalDialog({
     : whatsappQrConnectionLiveLabel(qrConnection?.liveStatus);
   const modalStatus = modalPayload?.status || "offline";
   const modalConfiguredForAction = modalPayload ? modalPayload.data.available : true;
+  const hasQrCode = Boolean(modalPayload?.data.qrCodeDataUrl);
   const qrConnectionError =
     modalError ||
     (modalPayload?.data.lastError || null) ||
@@ -306,10 +307,14 @@ export default function WhatsAppOperationalDialog({
                           busyAction !== null
                           || !modalConfiguredForAction
                           || modalStatus === "connected"
-                          || modalStatus === "waiting_qr"
+                          || (modalStatus === "waiting_qr" && hasQrCode)
                         }
                       >
-                        {busyAction === "qr-connect" ? "Conectando..." : "Conectar"}
+                        {busyAction === "qr-connect"
+                          ? "Conectando..."
+                          : modalStatus === "waiting_qr" && !hasQrCode
+                            ? "Atualizar QR"
+                            : "Conectar"}
                       </button>
                       <button
                         type="button"

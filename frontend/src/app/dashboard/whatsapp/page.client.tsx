@@ -107,7 +107,7 @@ export default function WhatsAppCenterClientPage() {
           ...statusData,
           data: {
             ...statusData.data,
-            qrCodeDataUrl: null,
+            qrCodeDataUrl: statusData.data.qrCodeDataUrl || null,
           },
         };
       }
@@ -137,19 +137,30 @@ export default function WhatsAppCenterClientPage() {
     setModalSaving(action);
     setModalError(null);
     try {
+      const requestQrOnly =
+        action === "connect"
+        && modalPayload?.status === "waiting_qr"
+        && !modalPayload.data.qrCodeDataUrl;
+
       if (action === "connect") {
         setModalQrRequested(true);
-        setMessage("Conectando ao motor...");
-        await ensureQrModeSelected();
+        setMessage(requestQrOnly ? "Atualizando o QR..." : "Conectando ao motor...");
+        if (!requestQrOnly) {
+          await ensureQrModeSelected();
+        }
       } else {
         setModalQrRequested(false);
         setMessage("Encerrando a sessão no motor...");
       }
 
-      const endpoint = action === "connect" ? "start" : "disconnect";
-      const response = await apiFetch<WhatsAppModalPayload>(`/companies/me/whatsapp-modal/${endpoint}`, {
-        method: "POST",
-      });
+      const response = action === "connect" && requestQrOnly
+        ? await apiFetch<WhatsAppModalPayload>("/companies/me/whatsapp-modal/qr")
+        : await apiFetch<WhatsAppModalPayload>(
+            `/companies/me/whatsapp-modal/${action === "connect" ? "start" : "disconnect"}`,
+            {
+              method: "POST",
+            },
+          );
       let nextPayload = response;
 
       if (action === "connect" && shouldLoadModalQr(response, true) && !response.data.qrCodeDataUrl) {
@@ -296,6 +307,7 @@ export default function WhatsAppCenterClientPage() {
     return whatsappQrConnectionLiveLabel(payload?.center.qrConnection.liveStatus);
   }, [modalPayload, payload?.center.qrConnection.liveStatus]);
   const modalStatus = modalPayload?.status || "offline";
+  const hasQrCode = Boolean(modalPayload?.data.qrCodeDataUrl);
 
   const qrConnectionNote = useMemo(() => {
     if (!modalPayload) {
@@ -416,19 +428,23 @@ export default function WhatsAppCenterClientPage() {
                   </div>
                 ) : null}
                 <div className={styles.pathActions}>
-                  <button
-                    type="button"
-                    className="btn btn-primary"
-                    onClick={() => void runModalAction("connect")}
-                    disabled={
-                      modalSaving !== null
-                      || !modalConfiguredForAction
-                      || modalStatus === "connected"
-                      || modalStatus === "waiting_qr"
-                    }
-                  >
-                    {modalSaving === "connect" ? "Conectando..." : "Conectar"}
-                  </button>
+                    <button
+                      type="button"
+                      className="btn btn-primary"
+                      onClick={() => void runModalAction("connect")}
+                      disabled={
+                        modalSaving !== null
+                        || !modalConfiguredForAction
+                        || modalStatus === "connected"
+                        || (modalStatus === "waiting_qr" && hasQrCode)
+                      }
+                    >
+                    {modalSaving === "connect"
+                      ? "Conectando..."
+                      : modalStatus === "waiting_qr" && !hasQrCode
+                        ? "Atualizar QR"
+                        : "Conectar"}
+                    </button>
                   <button
                     type="button"
                     className="btn btn-secondary"

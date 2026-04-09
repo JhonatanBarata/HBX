@@ -160,7 +160,7 @@ export class WhatsAppModalService {
     }
 
     try {
-      const snapshot = await this.fetchLiveSnapshot(company, { includeQr: true });
+      const snapshot = await this.fetchLiveSnapshot(company, { includeQr: false });
       return this.buildResponse(company, snapshot, {
         success: true,
         providerHealth: 'healthy',
