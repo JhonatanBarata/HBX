@@ -1067,6 +1067,32 @@ export class InboxService {
     return normalized;
   }
 
+  async bulkSetBotActive(user: any, dto: { ids?: number[]; enabled?: boolean }) {
+    const companyId = this.requireCompanyIdFromUser(user);
+    const ids = Array.isArray(dto?.ids) ? dto.ids.map((v) => Number(v)).filter((v) => Number.isFinite(v)) : [];
+    if (!ids.length) {
+      throw new BadRequestException('ids is required');
+    }
+
+    const result = await this.prisma.companyConversation.updateMany({
+      where: { companyId, channel: 'whatsapp', id: { in: ids } },
+      data: { botActive: Boolean(dto.enabled) },
+    });
+
+    try {
+      await this.logInboxEvent({
+        companyId,
+        event: dto.enabled ? 'bulk_bot_enabled' : 'bulk_bot_disabled',
+        message: `Bulk ${dto.enabled ? 'enabled' : 'disabled'} bot for ${result.count} conversations`,
+        extra: { ids: ids.slice(0, 50) },
+      });
+    } catch {
+      // ignore logging failures
+    }
+
+    return { updated: result.count };
+  }
+
   private renderAgendaTemplate(template: string, context: Record<string, string>) {
     return String(template || '').replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (_, key) => {
       const token = String(key || '').trim();

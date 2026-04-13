@@ -22,6 +22,7 @@ import { SendConversationMessageDto } from './dto/send-conversation-message.dto'
 import { ModuleAccessGuard } from '../modules/module-access.guard';
 import { ModuleAccess } from '../modules/module-feature.decorator';
 import { UpdateAtendimentoBotConfigDto } from './dto/update-atendimento-bot-config.dto';
+import { BulkSetBotDto } from './dto/bulk-set-bot.dto';
 import { UpdateAtendimentoAgendaDto } from './dto/update-atendimento-agenda.dto';
 import { SimulateAtendimentoAgendaDto } from './dto/simulate-atendimento-agenda.dto';
 import { BlockConversationDto } from './dto/block-conversation.dto';
@@ -96,6 +97,11 @@ export class InboxController {
   @Patch('conversations/:id/unblock')
   unblockConversation(@Req() req: any, @Param('id', ParseIntPipe) id: number) {
     return this.inboxService.unblockConversation(req.user, id);
+  }
+
+  @Patch('conversations/bulk-bot')
+  bulkSetBot(@Req() req: any, @Body() dto: BulkSetBotDto) {
+    return this.inboxService.bulkSetBotActive(req.user, dto);
   }
 
   @Post('conversations/:id/message')
