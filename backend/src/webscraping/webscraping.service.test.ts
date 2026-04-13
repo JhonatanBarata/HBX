@@ -157,7 +157,17 @@ test('pesquisa repetida reaproveita historico sem chamar Google novamente', asyn
     return createResponse(500, {}) as any;
   }) as any;
 
+  let trialCountChecks = 0;
+
   const service = new WebscrapingService(createPrisma({
+    company: {
+      findUnique: async () => ({
+        id: 7,
+        onboardingStatus: 'active_trial',
+        paymentStatus: 'TRIAL',
+        subscriptionStatus: 'trialing',
+      }),
+    },
     webscrapingSearchHistory: {
       findFirst: async () => null,
       findUnique: async () => ({
@@ -199,6 +209,13 @@ test('pesquisa repetida reaproveita historico sem chamar Google novamente', asyn
       upsert: async () => ({ id: 'history-1' }),
       delete: async () => null,
     },
+    webscrapingUsageLog: {
+      count: async () => {
+        trialCountChecks += 1;
+        return 99;
+      },
+      create: async () => ({ id: 'usage-1' }),
+    },
   }));
 
   try {
@@ -212,6 +229,94 @@ test('pesquisa repetida reaproveita historico sem chamar Google novamente', asyn
     assert.equal(response.results.length, 1);
     assert.equal(response.meta.technicalCacheUsed, false);
     assert.equal(fetchSpy.length, 0);
+    assert.equal(trialCountChecks, 0);
+  } finally {
+    global.fetch = previousFetch;
+    if (previousGoogleKey === undefined) delete process.env.GOOGLE_PLACES_API_KEY;
+    else process.env.GOOGLE_PLACES_API_KEY = previousGoogleKey;
+  }
+});
+
+test('reaproveitar historico ignora limite do trial e devolve resultado salvo', async () => {
+  const previousGoogleKey = process.env.GOOGLE_PLACES_API_KEY;
+  delete process.env.GOOGLE_PLACES_API_KEY;
+
+  const previousFetch = global.fetch;
+  const fetchSpy: string[] = [];
+  global.fetch = (async () => {
+    fetchSpy.push('called');
+    return createResponse(500, {}) as any;
+  }) as any;
+
+  let trialCountChecks = 0;
+
+  const service = new WebscrapingService(createPrisma({
+    company: {
+      findUnique: async () => ({
+        id: 7,
+        onboardingStatus: 'active_trial',
+        paymentStatus: 'TRIAL',
+        subscriptionStatus: 'trialing',
+      }),
+    },
+    webscrapingSearchHistory: {
+      findFirst: async () => ({
+        id: 'history-1',
+        userId: 9,
+        city: 'Rio Claro - SP',
+        segment: 'Lanchonetes',
+        quantity: 10,
+        filtersJson: JSON.stringify({
+          minRating: null,
+          minReviews: null,
+          onlyProbableWhatsApp: false,
+          onlyWithWebsite: false,
+        }),
+        searchSignature: 'signature',
+        resultCount: 1,
+        createdAt: new Date('2026-04-01T12:00:00.000Z'),
+        updatedAt: new Date('2026-04-01T12:00:00.000Z'),
+        lastUsedAt: new Date('2026-04-01T12:00:00.000Z'),
+        places: [
+          {
+            id: 'place-row-1',
+            placeId: 'place-1',
+            rank: 1,
+            name: 'BRUNAO LANCHES',
+            phone: '+55 19 99888-7766',
+            phoneDigits: '19998887766',
+            probableWhatsApp: true,
+            rating: 4.7,
+            reviews: 142,
+            address: 'Rua Central, 100',
+            website: 'https://lanches.example.com',
+            googleMapsUrl: 'https://maps.google.com/?q=lanches',
+          },
+        ],
+      }),
+      findUnique: async () => null,
+      findMany: async () => [],
+      update: async ({ where, data }: any) => ({ id: where.id, ...data }),
+      upsert: async () => ({ id: 'history-1' }),
+      delete: async () => null,
+    },
+    webscrapingUsageLog: {
+      count: async () => {
+        trialCountChecks += 1;
+        return 99;
+      },
+      create: async () => ({ id: 'usage-1' }),
+    },
+  }));
+
+  try {
+    const response = await service.reuseHistorySearchForUser(createUser(), 'history-1');
+
+    assert.equal(response.meta.source, 'history');
+    assert.equal(response.results.length, 1);
+    assert.equal(response.results[0].name, 'BRUNAO LANCHES');
+    assert.equal(fetchSpy.length, 0);
+    assert.equal(trialCountChecks, 0);
   } finally {
     global.fetch = previousFetch;
     if (previousGoogleKey === undefined) delete process.env.GOOGLE_PLACES_API_KEY;
@@ -291,9 +396,16 @@ test('cache tecnico global reaproveita busca publica entre empresas sem chamar G
   }
 });
 
-test('trial bloqueia segunda busca do dia e registra tentativa bloqueada', async () => {
+test('trial bloqueia quarta busca nova do dia e registra tentativa bloqueada', async () => {
   const previousGoogleKey = process.env.GOOGLE_PLACES_API_KEY;
-  delete process.env.GOOGLE_PLACES_API_KEY;
+  process.env.GOOGLE_PLACES_API_KEY = 'test-key';
+
+  const previousFetch = global.fetch;
+  const fetchSpy: string[] = [];
+  global.fetch = (async () => {
+    fetchSpy.push('called');
+    return createResponse(500, {}) as any;
+  }) as any;
 
   const createdLogs: Array<Record<string, unknown>> = [];
   const service = new WebscrapingService(createPrisma({
@@ -306,7 +418,7 @@ test('trial bloqueia segunda busca do dia e registra tentativa bloqueada', async
       }),
     },
     webscrapingUsageLog: {
-      count: async () => 1,
+      count: async () => 3,
       create: async (input: Record<string, unknown>) => {
         createdLogs.push(input);
         return { id: 'usage-blocked-1' };
@@ -324,13 +436,15 @@ test('trial bloqueia segunda busca do dia e registra tentativa bloqueada', async
         }),
       (error: any) => {
         assert.equal(error?.response?.code, 'trial_daily_limit_reached');
-        assert.match(String(error?.response?.message || ''), /1 busca por dia/i);
+        assert.match(String(error?.response?.message || ''), /3 usos do motor por dia/i);
         return true;
       },
     );
 
     assert.equal(createdLogs.length, 1);
+    assert.equal(fetchSpy.length, 0);
   } finally {
+    global.fetch = previousFetch;
     if (previousGoogleKey === undefined) delete process.env.GOOGLE_PLACES_API_KEY;
     else process.env.GOOGLE_PLACES_API_KEY = previousGoogleKey;
   }
