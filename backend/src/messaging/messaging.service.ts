@@ -158,6 +158,9 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
   ) {}
 
   onModuleInit() {
+    this.webwhatsBridge.setInboundRelay(async (input) => {
+      await this.handleWebwhatsSyncedInbound(input);
+    });
     // lightweight worker; avoids extra infra
     this.pollHandle = setInterval(() => {
       this.processDueMessages().catch((e) => this.logger.error(e?.message || e));
@@ -167,6 +170,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
   onModuleDestroy() {
     if (this.pollHandle) clearInterval(this.pollHandle);
     this.pollHandle = null;
+    this.webwhatsBridge.setInboundRelay(null);
   }
 
   private get cloudApiBaseUrl(): string {
@@ -2958,6 +2962,75 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  private normalizeWebwhatsAttachmentKind(value: unknown): 'image' | 'video' | 'document' | 'audio' | null {
+    const normalized = String(value || '').trim().toLowerCase();
+    if (normalized === 'image') return 'image';
+    if (normalized === 'video') return 'video';
+    if (normalized === 'document' || normalized === 'file') return 'document';
+    if (normalized === 'audio') return 'audio';
+    return null;
+  }
+
+  private extractWebwhatsAttachment(variables: Record<string, any>) {
+    const nested =
+      variables?.attachment && typeof variables.attachment === 'object' && !Array.isArray(variables.attachment)
+        ? (variables.attachment as Record<string, any>)
+        : {};
+    const explicitKind = this.normalizeWebwhatsAttachmentKind(
+      nested.kind || nested.type || variables?.attachmentKind,
+    );
+    const mimeType = String(nested.mimeType || variables?.attachmentMimeType || '').trim() || null;
+    const fileName = String(nested.fileName || variables?.attachmentFileName || '').trim() || null;
+    const url = String(
+      nested.url || nested.mediaUrl || nested.attachmentUrl || variables?.attachmentUrl || '',
+    ).trim();
+    const previewUrl = String(nested.previewUrl || variables?.attachmentPreviewUrl || '').trim() || null;
+
+    let inferredKind = explicitKind;
+    const sourceForInference = `${mimeType || ''} ${fileName || ''} ${url}`.toLowerCase();
+    if (!inferredKind) {
+      if (mimeType?.startsWith('image/') || /\.(png|jpe?g|gif|webp|bmp|svg)(\?|$)/.test(sourceForInference)) {
+        inferredKind = 'image';
+      } else if (mimeType?.startsWith('video/') || /\.(mp4|webm|mov|m4v)(\?|$)/.test(sourceForInference)) {
+        inferredKind = 'video';
+      } else if (mimeType?.startsWith('audio/') || /\.(mp3|ogg|wav|m4a|opus|aac|webm)(\?|$)/.test(sourceForInference)) {
+        inferredKind = 'audio';
+      } else if (url || fileName) {
+        inferredKind = 'document';
+      }
+    }
+
+    if (!inferredKind || !url) return null;
+    return {
+      kind: inferredKind,
+      url,
+      previewUrl,
+      mimeType,
+      fileName,
+    };
+  }
+
+  private stripAttachmentReferenceFromBody(
+    bodyRaw: string | null | undefined,
+    attachment: { url: string; previewUrl?: string | null },
+  ) {
+    const body = String(bodyRaw || '').trim();
+    if (!body) return '';
+
+    const referenceLines = new Set(
+      [attachment.url, attachment.previewUrl]
+        .map((value) => String(value || '').trim())
+        .filter(Boolean),
+    );
+    if (!referenceLines.size) return body;
+
+    const filteredLines = body
+      .split(/\r?\n/)
+      .filter((line) => !referenceLines.has(String(line || '').trim()));
+
+    return filteredLines.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+  }
+
   private async sendOne(messageId: number) {
     // lock: flip to SENDING only if still PENDING
     const locked = await this.prisma.outboundMessage.updateMany({
@@ -2995,6 +3068,12 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
         failedAt: true,
         deliveryStatus: true,
         createdAt: true,
+        message: {
+          select: {
+            conversationId: true,
+            variablesJson: true,
+          },
+        },
       },
     });
     if (!msg) return;
@@ -3009,6 +3088,162 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     const startedAtMs = Date.now();
 
     try {
+      const messageType = String(msg.messageType || 'text').toLowerCase();
+      const conversationId = Number(msg.message?.conversationId || 0) || null;
+      const dispatchVariables = this.parseJsonPayload<Record<string, any>>(msg.message?.variablesJson, {});
+      const attachment = this.extractWebwhatsAttachment(dispatchVariables);
+      const webwhatsAvailable = this.webwhatsBridge.isDispatchAvailable((company as any)?.whatsappModalStatus);
+
+      const markWebwhatsSent = async (input: {
+        requestBody: Record<string, unknown>;
+        response: any;
+        providerMessageId: string | null;
+      }) => {
+        await this.prisma.outboundAttempt.update({
+          where: { id: attempt.id },
+          data: {
+            finishedAt: new Date(),
+            success: true,
+            httpStatus: 200,
+            requestBody: JSON.stringify(input.requestBody),
+            responseBody: JSON.stringify(input.response ?? null),
+          },
+        });
+        await this.prisma.outboundMessage.update({
+          where: { id: msg.id },
+          data: {
+            status: 'SENT',
+            sentAt: new Date(),
+            attemptCount: attemptNo,
+            lastError: null,
+            provider: 'WEBWHATS',
+            providerMessageId: input.providerMessageId || undefined,
+            deliveryStatus: 'sent',
+          },
+        });
+        await this.prisma.companyMessage.updateMany({
+          where: { outboundMessageId: msg.id },
+          data: {
+            status: 'SENT',
+            provider: 'WEBWHATS',
+            providerMessageId: input.providerMessageId || undefined,
+            error: null,
+          },
+        });
+        await this.updateRecoveryTemplateLastContact(msg, 'sent', new Date());
+        await this.logWhatsAppEvent({
+          companyId: msg.companyId,
+          scope: 'dispatch',
+          event: 'outbound_sent',
+          message: `Mensagem enviada para ${msg.to} via Webwhats`,
+          conversationId,
+          phone: msg.to,
+          messageType: attachment?.kind || msg.messageType || 'text',
+          result: 'sent',
+          extra: {
+            outboundMessageId: msg.id,
+            provider: 'WEBWHATS',
+            providerMessageId: input.providerMessageId || null,
+            attemptNo,
+            sourceModule: msg.sourceModule || null,
+            requestBody: input.requestBody,
+            providerResponse: input.response ?? null,
+          },
+        });
+      };
+
+      if (attachment) {
+        if (!webwhatsAvailable) {
+          throw new Error('Envio de midia requer WhatsApp modal conectado.');
+        }
+        try {
+          const caption = this.stripAttachmentReferenceFromBody(msg.body, attachment) || undefined;
+          const webwhatsResult = await this.webwhatsBridge.sendMedia(msg.companyId, {
+            to: msg.to,
+            conversationId,
+            mediaType: attachment.kind,
+            media: attachment.url,
+            caption,
+            fileName: attachment.fileName,
+            mimeType: attachment.mimeType,
+          });
+          await markWebwhatsSent({
+            requestBody: {
+              number: webwhatsResult.target,
+              mediatype: attachment.kind,
+              mediaSource: attachment.url,
+              caption: caption || null,
+              fileName: attachment.fileName || null,
+              mimetype: attachment.mimeType || null,
+            },
+            response: webwhatsResult.response,
+            providerMessageId: webwhatsResult.providerMessageId,
+          });
+          this.logger.log(
+            `Webwhats sent media messageId=${msg.id} providerMessageId=${webwhatsResult.providerMessageId || '(missing)'} in ${Date.now() - startedAtMs}ms`,
+          );
+          return;
+        } catch (webwhatsError) {
+          this.logger.warn(
+            `Webwhats media send falhou para messageId=${msg.id}: ${this.normalizeProviderDispatchError(webwhatsError, 'Falha ao enviar midia via Webwhats')}`,
+          );
+          throw webwhatsError;
+        }
+      }
+
+      if (messageType === 'text' && webwhatsAvailable) {
+        try {
+          const webwhatsResult = await this.webwhatsBridge.sendText(msg.companyId, {
+            to: msg.to,
+            text: msg.body,
+            conversationId,
+          });
+          await markWebwhatsSent({
+            requestBody: { number: webwhatsResult.target, text: msg.body },
+            response: webwhatsResult.response,
+            providerMessageId: webwhatsResult.providerMessageId,
+          });
+          this.logger.log(
+            `Webwhats sent messageId=${msg.id} providerMessageId=${webwhatsResult.providerMessageId || '(missing)'} in ${Date.now() - startedAtMs}ms`,
+          );
+          return;
+        } catch (webwhatsError) {
+          this.logger.warn(
+            `Webwhats send fallback acionado para messageId=${msg.id}: ${this.normalizeProviderDispatchError(webwhatsError, 'Falha ao enviar via Webwhats')}`,
+          );
+          if (!this.enabled) {
+            throw webwhatsError;
+          }
+        }
+      }
+
+      if (messageType === 'interactive' && webwhatsAvailable) {
+        try {
+          const interactivePayload = this.parseJsonPayload<Record<string, any>>(msg.templateComponents, {});
+          const webwhatsResult = await this.webwhatsBridge.sendInteractive(msg.companyId, {
+            to: msg.to,
+            conversationId,
+            payload: interactivePayload,
+          });
+          await markWebwhatsSent({
+            requestBody: webwhatsResult.requestBody || { number: webwhatsResult.target, interactive: interactivePayload },
+            response: webwhatsResult.response,
+            providerMessageId: webwhatsResult.providerMessageId,
+          });
+          this.logger.log(
+            `Webwhats sent interactive messageId=${msg.id} providerMessageId=${webwhatsResult.providerMessageId || '(missing)'} in ${Date.now() - startedAtMs}ms`,
+          );
+          return;
+        } catch (webwhatsError) {
+          this.logger.warn(
+            `Webwhats interactive send fallback acionado para messageId=${msg.id}: ${this.normalizeProviderDispatchError(webwhatsError, 'Falha ao enviar interacao via Webwhats')}`,
+          );
+          if (!this.enabled) {
+            throw webwhatsError;
+          }
+        }
+      }
+
       if (!this.enabled) {
         await this.prisma.outboundAttempt.update({
           where: { id: attempt.id },
@@ -3029,73 +3264,12 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
         return;
       }
 
-      const messageType = String(msg.messageType || 'text').toLowerCase();
-      if (messageType === 'text') {
-        try {
-          const webwhatsResult = await this.webwhatsBridge.sendText(msg.companyId, {
-            to: msg.to,
-            text: msg.body,
-            conversationId: Number((msg as any)?.message?.conversationId || 0) || null,
-          });
-          await this.prisma.outboundAttempt.update({
-            where: { id: attempt.id },
-            data: {
-              finishedAt: new Date(),
-              success: true,
-              httpStatus: 200,
-              requestBody: JSON.stringify({ number: webwhatsResult.target, text: msg.body }),
-              responseBody: JSON.stringify(webwhatsResult.response ?? null),
-            },
-          });
-          await this.prisma.outboundMessage.update({
-            where: { id: msg.id },
-            data: {
-              status: 'SENT',
-              sentAt: new Date(),
-              attemptCount: attemptNo,
-              lastError: null,
-              provider: 'WEBWHATS',
-              providerMessageId: webwhatsResult.providerMessageId || undefined,
-              deliveryStatus: 'sent',
-            },
-          });
-          await this.prisma.companyMessage.updateMany({
-            where: { outboundMessageId: msg.id },
-            data: {
-              status: 'SENT',
-              provider: 'WEBWHATS',
-              providerMessageId: webwhatsResult.providerMessageId || undefined,
-              error: null,
-            },
-          });
-          await this.updateRecoveryTemplateLastContact(msg, 'sent', new Date());
-          await this.logWhatsAppEvent({
-            companyId: msg.companyId,
-            scope: 'dispatch',
-            event: 'outbound_sent',
-            message: `Mensagem enviada para ${msg.to} via Webwhats`,
-            conversationId: null,
-            phone: msg.to,
-            messageType: msg.messageType || 'text',
-            result: 'sent',
-            extra: {
-              outboundMessageId: msg.id,
-              provider: 'WEBWHATS',
-              providerMessageId: webwhatsResult.providerMessageId || null,
-              attemptNo,
-              sourceModule: msg.sourceModule || null,
-              providerResponse: webwhatsResult.response ?? null,
-            },
-          });
-          this.logger.log(
-            `Webwhats sent messageId=${msg.id} providerMessageId=${webwhatsResult.providerMessageId || '(missing)'} in ${Date.now() - startedAtMs}ms`,
-          );
-          return;
-        } catch (webwhatsError) {
-          this.logger.warn(
-            `Webwhats send fallback acionado para messageId=${msg.id}: ${this.normalizeProviderDispatchError(webwhatsError, 'Falha ao enviar via Webwhats')}`,
-          );
-        }
+      if (attachment) {
+        throw new Error('Envio de midia requer Webwhats ativo; fallback pela Cloud API ainda nao esta implementado.');
+      }
+
+      if (messageType !== 'text' && messageType !== 'template' && messageType !== 'interactive') {
+        throw new Error(`Tipo de mensagem outbound nao suportado: ${messageType}`);
       }
 
       const creds = resolveWhatsAppCredentials(company, {
@@ -3634,67 +3808,101 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     return { ok: true };
   }
 
-  private async handleInboundMessage(input: WhatsAppInboundNormalized) {
-    const companyId = Number(input.companyId || 0);
-    const from = normalizeWhatsAppPhone(input.customerPhone);
-    const text = String(input.text || '').trim();
-    const company = await this.prisma.company.findUnique({ where: { id: companyId } });
-    if (!company) throw new NotFoundException(`Company with id ${companyId} not found`);
+  private async updateInboundConversationMetadata(input: {
+    conversationId: number | null | undefined;
+    rawPayload?: any;
+    timestamp: Date;
+    inboundContactName?: string | null;
+    receivedOnEndpointId?: string | null;
+    receivedOnPhoneNumberId?: string | null;
+    receivedOnDisplayNumber?: string | null;
+    receivedOnModuleKey?: string | null;
+    receivedOnEndpointLabel?: string | null;
+  }) {
+    const conversationId = Number(input.conversationId || 0);
+    if (conversationId <= 0) return;
 
-    const inboundType = normalizeWhatsAppMessageType(input.messageType);
-    const inboundContactName = String((input.rawPayload as any)?._contactName || '').trim();
-    const inboundRow = await this.conversations.recordInboundMessage({
-      companyId,
-      from,
-      body: text,
-      receivedAt: input.timestamp,
-      providerMessageId: input.externalMessageId || undefined,
-      rawPayload: input.rawPayload,
-      messageType: inboundType,
-      senderType: 'client',
-      sourceModule: 'whatsapp_webhook',
+    const conversation = await this.prisma.companyConversation.findUnique({
+      where: { id: conversationId },
+      select: { metadata: true },
     });
-    const inboundConversationId = Number(inboundRow?.conversationId || 0);
-    if (inboundConversationId > 0) {
-      const conversation = await this.prisma.companyConversation.findUnique({
-        where: { id: inboundConversationId },
-        select: { metadata: true },
-      });
-      const metadata = this.parseConversationMetadata(conversation?.metadata);
-      await this.prisma.companyConversation.update({
-        where: { id: inboundConversationId },
-        data: {
-          metadata: JSON.stringify({
-            ...metadata,
-            ...(inboundContactName
-              ? {
-                  whatsappName: inboundContactName,
-                  waNickname: inboundContactName,
-                  whatsappProfileName: inboundContactName,
-                }
-              : {}),
-            whatsappEntryEndpointId: String(input.receivedOnEndpointId || '').trim() || null,
-            whatsappEntryPhoneNumberId: String(input.receivedOnPhoneNumberId || '').trim() || null,
-            whatsappEntryDisplayNumber: String(input.receivedOnDisplayNumber || '').trim() || null,
-            whatsappEntryModuleKey: String(input.receivedOnModuleKey || '').trim().toLowerCase() || null,
-            whatsappEntryEndpointLabel: String(input.receivedOnEndpointLabel || '').trim() || null,
-            whatsappLastInboundAt: input.timestamp.toISOString(),
-          }),
-        },
-      });
-    }
+    const metadata = this.parseConversationMetadata(conversation?.metadata);
+    const remoteJid = String(input.rawPayload?.key?.remoteJid || '').trim() || null;
+    const remoteJidAlt = String(
+      input.rawPayload?.key?.remoteJidAlt || input.rawPayload?.key?.participantAlt || '',
+    ).trim() || null;
+
+    await this.prisma.companyConversation.update({
+      where: { id: conversationId },
+      data: {
+        metadata: JSON.stringify({
+          ...metadata,
+          ...(input.inboundContactName
+            ? {
+                whatsappName: input.inboundContactName,
+                waNickname: input.inboundContactName,
+                whatsappProfileName: input.inboundContactName,
+              }
+            : {}),
+          ...(remoteJid ? { whatsappRemoteJid: remoteJid } : {}),
+          ...(remoteJidAlt ? { whatsappRemoteJidAlt: remoteJidAlt } : {}),
+          ...(input.receivedOnEndpointId !== undefined
+            ? { whatsappEntryEndpointId: String(input.receivedOnEndpointId || '').trim() || null }
+            : {}),
+          ...(input.receivedOnPhoneNumberId !== undefined
+            ? { whatsappEntryPhoneNumberId: String(input.receivedOnPhoneNumberId || '').trim() || null }
+            : {}),
+          ...(input.receivedOnDisplayNumber !== undefined
+            ? { whatsappEntryDisplayNumber: String(input.receivedOnDisplayNumber || '').trim() || null }
+            : {}),
+          ...(input.receivedOnModuleKey !== undefined
+            ? { whatsappEntryModuleKey: String(input.receivedOnModuleKey || '').trim().toLowerCase() || null }
+            : {}),
+          ...(input.receivedOnEndpointLabel !== undefined
+            ? { whatsappEntryEndpointLabel: String(input.receivedOnEndpointLabel || '').trim() || null }
+            : {}),
+          whatsappLastInboundAt: input.timestamp.toISOString(),
+        }),
+      },
+    });
+  }
+
+  private async processPersistedInbound(input: {
+    company: { id: number; name: string; timezone?: string | null };
+    from: string;
+    text: string;
+    inboundType: ReturnType<typeof normalizeWhatsAppMessageType>;
+    rawPayload?: any;
+    timestamp: Date;
+    externalMessageId?: string | null;
+    inboundRow: { id: number; conversationId: number | null };
+    scope: string;
+    provider: string;
+    sourceModule: string;
+    receivedOnEndpointId?: string | null;
+    receivedOnPhoneNumberId?: string | null;
+    receivedOnDisplayNumber?: string | null;
+    receivedOnModuleKey?: string | null;
+  }) {
+    const companyId = Number(input.company.id || 0);
+    const from = normalizeWhatsAppPhone(input.from);
+    const text = String(input.text || '').trim();
+    const inboundConversationId = Number(input.inboundRow?.conversationId || 0);
+
     await this.logWhatsAppEvent({
       companyId,
-      scope: 'webhook',
+      scope: input.scope,
       event: 'inbound_persisted',
-      message: `Mensagem inbound ${inboundType} persistida`,
+      message: `Mensagem inbound ${input.inboundType} persistida`,
       conversationId: inboundConversationId || null,
       phone: from,
-      messageType: inboundType,
+      messageType: input.inboundType,
       result: 'received',
       extra: {
-        providerMessageId: input.externalMessageId,
-        companyMessageId: inboundRow?.id || null,
+        provider: input.provider,
+        sourceModule: input.sourceModule,
+        providerMessageId: input.externalMessageId || null,
+        companyMessageId: Number(input.inboundRow?.id || 0) || null,
         whatsappEndpointId: String(input.receivedOnEndpointId || '').trim() || null,
         receivedOnModuleKey: String(input.receivedOnModuleKey || '').trim().toLowerCase() || null,
         receivedOnDisplayNumber: String(input.receivedOnDisplayNumber || '').trim() || null,
@@ -3702,17 +3910,17 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     });
 
     const recoveryCustomer = await this.findRecoveryCustomerByPhone(companyId, from);
-    if (['text', 'button', 'interactive', 'image', 'document', 'audio'].includes(inboundType)) {
+    if (['text', 'button', 'interactive', 'image', 'document', 'audio'].includes(input.inboundType)) {
       const atendimentoResult = await this.handleAtendimentoInbound({
         companyId,
         from,
         text,
         conversationId: inboundConversationId,
-        inboundMessageId: Number(inboundRow?.id || 0),
+        inboundMessageId: Number(input.inboundRow?.id || 0),
         company: {
-          id: company.id,
-          name: String(company.name || 'HBX Solutions'),
-          timezone: company.timezone,
+          id: input.company.id,
+          name: String(input.company.name || 'HBX Solutions'),
+          timezone: input.company.timezone,
         },
         recoveryCustomer,
         rawPayload: input.rawPayload,
@@ -3726,20 +3934,19 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
       }
     }
 
-    if (recoveryCustomer && ['text', 'button', 'interactive', 'image', 'document', 'audio'].includes(inboundType)) {
+    if (recoveryCustomer && ['text', 'button', 'interactive', 'image', 'document', 'audio'].includes(input.inboundType)) {
       await this.handleRecoveryInbound({
         companyId,
         from,
         text,
-        conversationId: Number(inboundRow?.conversationId || 0),
-        inboundMessageId: Number(inboundRow?.id || 0),
+        conversationId: inboundConversationId,
+        inboundMessageId: Number(input.inboundRow?.id || 0),
         customer: recoveryCustomer,
         rawPayload: input.rawPayload,
       });
       return { matched: true, source: 'hbx_recovery', customerId: recoveryCustomer.id };
     }
 
-    // Resolve / create an active session (companyId + from) and run the minimal orchestrator.
     const session = await this.sessions.getOrCreateActiveSession({ companyId, channel: 'whatsapp', from });
     const decision = this.orchestrator.decide({ state: session.state, text });
     const nextState = decision.nextState ?? session.state;
@@ -3754,7 +3961,6 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
 
     await this.prisma.inboundMessage.create({ data: { companyId, from, body: text } });
 
-    // If orchestrator decided a reply, enqueue it and stop here (avoid double-automation).
     if (decision.reply) {
       await this.conversations.queueOutboundForCompany(companyId, {
         to: from,
@@ -3782,8 +3988,8 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
 
     if (!matched) return { matched: false, sessionId: session.id, state: nextState };
 
-    const greeting = computeGreeting(company.timezone);
-    const vars = { greeting, companyName: company.name, from };
+    const greeting = computeGreeting(input.company.timezone);
+    const vars = { greeting, companyName: input.company.name, from };
     const responses = [...matched.responses].sort((a, b) => a.order - b.order);
 
     for (const r of responses) {
@@ -3796,10 +4002,123 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
         sourceModule: 'atendimento',
         messageType: 'text',
       });
-      // ensure the queue scheduling matches the intended delay
       await this.prisma.outboundMessage.update({ where: { id: queued.outboundMessageId }, data: { nextAttemptAt: when } });
     }
 
     return { matched: true, ruleId: matched.id, sessionId: session.id, state: nextState, enqueued: responses.length };
+  }
+
+  private async handleWebwhatsSyncedInbound(input: {
+    companyId: number;
+    conversationId: number;
+    companyMessageId: number;
+    customerPhone: string;
+    text: string;
+    timestamp: Date;
+    rawPayload?: any;
+    externalMessageId?: string | null;
+    inboundType: string;
+    contactName?: string | null;
+  }) {
+    const companyId = Number(input.companyId || 0);
+    if (!companyId) return { matched: false, discarded: true };
+
+    const company = await this.prisma.company.findUnique({
+      where: { id: companyId },
+      select: { id: true, name: true, timezone: true },
+    });
+    if (!company) return { matched: false, discarded: true };
+
+    const inboundRow = await this.prisma.companyMessage.findFirst({
+      where: { id: Number(input.companyMessageId || 0), companyId },
+      select: { id: true, conversationId: true },
+    });
+    if (!inboundRow) return { matched: false, discarded: true };
+
+    await this.updateInboundConversationMetadata({
+      conversationId: Number(inboundRow.conversationId || input.conversationId || 0),
+      rawPayload: input.rawPayload,
+      timestamp: input.timestamp,
+      inboundContactName: String(input.contactName || '').trim() || null,
+    });
+
+    return this.processPersistedInbound({
+      company: {
+        id: company.id,
+        name: String(company.name || 'HBX Solutions'),
+        timezone: company.timezone,
+      },
+      from: input.customerPhone,
+      text: String(input.text || '').trim(),
+      inboundType: normalizeWhatsAppMessageType(input.inboundType),
+      rawPayload: input.rawPayload,
+      timestamp: input.timestamp,
+      externalMessageId: input.externalMessageId || null,
+      inboundRow: {
+        id: Number(inboundRow.id || 0),
+        conversationId: Number(inboundRow.conversationId || 0) || null,
+      },
+      scope: 'webwhats_sync',
+      provider: 'WEBWHATS',
+      sourceModule: 'webwhats_sync',
+    });
+  }
+
+  private async handleInboundMessage(input: WhatsAppInboundNormalized) {
+    const companyId = Number(input.companyId || 0);
+    const from = normalizeWhatsAppPhone(input.customerPhone);
+    const text = String(input.text || '').trim();
+    const company = await this.prisma.company.findUnique({ where: { id: companyId } });
+    if (!company) throw new NotFoundException(`Company with id ${companyId} not found`);
+
+    const inboundType = normalizeWhatsAppMessageType(input.messageType);
+    const inboundContactName = String((input.rawPayload as any)?._contactName || '').trim();
+    const inboundRow = await this.conversations.recordInboundMessage({
+      companyId,
+      from,
+      body: text,
+      receivedAt: input.timestamp,
+      providerMessageId: input.externalMessageId || undefined,
+      rawPayload: input.rawPayload,
+      messageType: inboundType,
+      senderType: 'client',
+      sourceModule: 'whatsapp_webhook',
+    });
+    await this.updateInboundConversationMetadata({
+      conversationId: Number(inboundRow?.conversationId || 0),
+      rawPayload: input.rawPayload,
+      timestamp: input.timestamp,
+      inboundContactName,
+      receivedOnEndpointId: String(input.receivedOnEndpointId || '').trim() || null,
+      receivedOnPhoneNumberId: String(input.receivedOnPhoneNumberId || '').trim() || null,
+      receivedOnDisplayNumber: String(input.receivedOnDisplayNumber || '').trim() || null,
+      receivedOnModuleKey: String(input.receivedOnModuleKey || '').trim().toLowerCase() || null,
+      receivedOnEndpointLabel: String(input.receivedOnEndpointLabel || '').trim() || null,
+    });
+
+    return this.processPersistedInbound({
+      company: {
+        id: company.id,
+        name: String(company.name || 'HBX Solutions'),
+        timezone: company.timezone,
+      },
+      from,
+      text,
+      inboundType,
+      rawPayload: input.rawPayload,
+      timestamp: input.timestamp,
+      externalMessageId: input.externalMessageId || null,
+      inboundRow: {
+        id: Number(inboundRow?.id || 0),
+        conversationId: Number(inboundRow?.conversationId || 0) || null,
+      },
+      scope: 'webhook',
+      provider: 'WHATSAPP_CLOUD',
+      sourceModule: 'whatsapp_webhook',
+      receivedOnEndpointId: String(input.receivedOnEndpointId || '').trim() || null,
+      receivedOnPhoneNumberId: String(input.receivedOnPhoneNumberId || '').trim() || null,
+      receivedOnDisplayNumber: String(input.receivedOnDisplayNumber || '').trim() || null,
+      receivedOnModuleKey: String(input.receivedOnModuleKey || '').trim().toLowerCase() || null,
+    });
   }
 }

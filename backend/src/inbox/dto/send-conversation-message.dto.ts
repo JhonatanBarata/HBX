@@ -1,4 +1,4 @@
-import { IsNotEmpty, IsOptional, IsString } from 'class-validator';
+import { IsInt, IsNotEmpty, IsOptional, IsString, Min } from 'class-validator';
 
 export class SendConversationMessageDto {
   @IsString()
@@ -12,4 +12,34 @@ export class SendConversationMessageDto {
   @IsOptional()
   @IsString()
   quotedContent?: string;
+
+  @IsOptional()
+  @IsString()
+  attachmentKind?: string;
+
+  @IsOptional()
+  @IsString()
+  attachmentUrl?: string;
+
+  @IsOptional()
+  @IsString()
+  attachmentPreviewUrl?: string;
+
+  @IsOptional()
+  @IsString()
+  attachmentMimeType?: string;
+
+  @IsOptional()
+  @IsString()
+  attachmentFileName?: string;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  attachmentFileSize?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  attachmentDurationSeconds?: number;
 }

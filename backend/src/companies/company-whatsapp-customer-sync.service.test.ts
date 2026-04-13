@@ -39,7 +39,7 @@ function createService(overrides?: Partial<Record<string, any>>) {
   return { service, prisma, cadastrosService, operationalStatus, webwhatsBridge };
 }
 
-test('syncCompanyCustomers usa Meta quando a trilha oficial esta ativa', async () => {
+test('syncCompanyCustomers usa Meta e cadastra contatos sem nome com o telefone', async () => {
   const upsertCalls: Array<Record<string, unknown>> = [];
   const { service } = createService({
     operationalStatus: {
@@ -75,12 +75,15 @@ test('syncCompanyCustomers usa Meta quando a trilha oficial esta ativa', async (
 
   assert.equal(result.engine, 'meta');
   assert.equal(result.sourceLabel, 'Meta');
-  assert.equal(result.syncedContacts, 1);
-  assert.equal(result.skippedWithoutName, 1);
-  assert.equal(upsertCalls.length, 1);
+  assert.equal(result.syncedContacts, 2);
+  assert.equal(result.syncedWithoutName, 1);
+  assert.equal(result.skippedWithoutName, 0);
+  assert.equal(upsertCalls.length, 2);
   assert.equal(upsertCalls[0].phone, '+5511999988877');
   assert.equal(upsertCalls[0].name, 'Maria Silva');
   assert.equal(upsertCalls[0].registrationOrigin, 'meta_sync');
+  assert.equal(upsertCalls[1].phone, '+551188887777');
+  assert.equal(upsertCalls[1].name, null);
 });
 
 test('syncCompanyCustomers reaproveita nome da conversa ao sincronizar contatos do WebWhats', async () => {
@@ -140,4 +143,48 @@ test('syncCompanyCustomers falha quando nenhum motor WhatsApp esta ativo', async
     () => service.syncCompanyCustomers(7),
     /Nenhum motor WhatsApp ativo/,
   );
+});
+
+test('syncCompanyCustomers preserva origem manual ao atualizar um cadastro ja existente', async () => {
+  const upsertCalls: Array<Record<string, unknown>> = [];
+  const { service } = createService({
+    operationalStatus: {
+      getOperationalStatusForCompany: async () => ({ metaActive: true, webWhatsActive: false }),
+    },
+    prisma: {
+      companyConversation: {
+        findMany: async () => [
+          {
+            id: 51,
+            contact: '+5511991112222',
+            metadata: JSON.stringify({ whatsappContactName: 'Cliente Manual' }),
+            lastMessageAt: new Date('2026-04-13T09:15:00.000Z'),
+          },
+        ],
+      },
+    },
+    cadastrosService: {
+      listRawCustomerRegistry: async () => [
+        {
+          phoneNormalized: '5511991112222',
+          registrationOrigin: 'manual',
+          registrationStatus: 'manual',
+          lastMessageAt: null,
+          conversationId: null,
+          name: 'Cliente Manual',
+        },
+      ],
+      upsertCustomerRegistry: async (input: Record<string, unknown>) => {
+        upsertCalls.push(input);
+        return { id: 'registry-manual' };
+      },
+    },
+  });
+
+  const result = await service.syncCompanyCustomers(7);
+
+  assert.equal(result.syncedContacts, 1);
+  assert.equal(upsertCalls.length, 1);
+  assert.equal(upsertCalls[0].registrationOrigin, 'manual');
+  assert.equal(upsertCalls[0].registrationStatus, 'manual');
 });

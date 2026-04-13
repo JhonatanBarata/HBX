@@ -72,6 +72,7 @@ export type InboxMessage = {
   sourceModule?: string | null;
   status: string;
   error: string | null;
+  metadata?: Record<string, unknown> | null;
 };
 
 export type InboxRecoveryPaymentSummary = {
@@ -113,6 +114,11 @@ export type InboxConversation = {
   metadata?: Record<string, unknown> | null;
   customer: Customer;
   messages: InboxMessage[];
+};
+
+export type InboxBootstrapPayload = {
+  conversations: InboxConversation[];
+  selectedConversation: InboxConversation | null;
 };
 
 export type AtendimentoBotVariableScope = "shared" | "atendimento" | "recovery";
@@ -1086,10 +1092,20 @@ export function getMessagePreview(message?: InboxMessage | null) {
   if (!message) return "Sem mensagens";
   const content = String(message.content || "").trim();
   if (content) return content;
-  const type = String(message.messageType || "text").trim().toLowerCase();
+  const metadata =
+    message.metadata && typeof message.metadata === "object" && !Array.isArray(message.metadata)
+      ? (message.metadata as Record<string, unknown>)
+      : null;
+  const type = String(metadata?.normalizedMessageType || message.messageType || "text")
+    .trim()
+    .toLowerCase();
+  const fileName = String(metadata?.fileName || "").trim();
   if (type === "image") return "[Imagem recebida]";
-  if (type === "audio") return "[Audio recebido]";
-  if (type === "document") return "[Documento recebido]";
+  if (type === "audio") return fileName ? `[Audio] ${fileName}` : "[Audio recebido]";
+  if (type === "document") return fileName ? `[Documento] ${fileName}` : "[Documento recebido]";
+  if (type === "video") return "[Video recebido]";
+  if (type === "sticker") return "[Figurinha recebida]";
+  if (type === "reaction") return "[Reacao recebida]";
   if (type === "interactive") return "[Interacao recebida]";
   if (type === "button") return "[Botao recebido]";
   if (type === "system_event") return "[Evento do sistema]";

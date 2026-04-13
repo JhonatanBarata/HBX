@@ -11,7 +11,7 @@ import {
   RECOVERY_BOT_CONFIG_TITLE,
   type RecoveryRoutingRules,
 } from '../hbx-recovery/recovery-bot-config';
-import { buildStructuredWhatsAppLog } from '../messaging/whatsapp-channel';
+import { buildStructuredWhatsAppLog, normalizeWhatsAppPhone } from '../messaging/whatsapp-channel';
 import {
   ATENDIMENTO_AGENDA_CONFIG_CHANNEL,
   ATENDIMENTO_AGENDA_CONFIG_TITLE,
@@ -103,6 +103,269 @@ export class InboxService {
     }
   }
 
+  private normalizeMessageMetadataText(value: unknown) {
+    const normalized = String(value || '').trim();
+    return normalized || null;
+  }
+
+  private unwrapMessagePayload(payloadRaw: unknown): Record<string, any> {
+    const payload =
+      payloadRaw && typeof payloadRaw === 'object' && !Array.isArray(payloadRaw)
+        ? (payloadRaw as Record<string, any>)
+        : {};
+    const nested =
+      payload.ephemeralMessage?.message ||
+      payload.viewOnceMessage?.message ||
+      payload.viewOnceMessageV2?.message ||
+      payload.viewOnceMessageV2Extension?.message ||
+      payload.documentWithCaptionMessage?.message ||
+      null;
+    if (nested && typeof nested === 'object') {
+      return this.unwrapMessagePayload(nested);
+    }
+    return payload;
+  }
+
+  private normalizeConversationMessageType(
+    messageTypeRaw: unknown,
+    rawPayload: Record<string, any>,
+    variables: Record<string, any>,
+  ) {
+    const attachmentKind = String((variables?.attachment as any)?.kind || variables?.attachmentKind || '')
+      .trim()
+      .toLowerCase();
+    if (['image', 'video', 'document', 'audio'].includes(attachmentKind)) {
+      return attachmentKind;
+    }
+
+    const normalized = String(messageTypeRaw || '').trim().toLowerCase();
+    if (normalized.includes('image')) return 'image';
+    if (normalized.includes('video') || normalized.includes('ptv')) return 'video';
+    if (normalized.includes('document')) return 'document';
+    if (normalized.includes('audio')) return 'audio';
+    if (normalized.includes('sticker')) return 'sticker';
+    if (normalized.includes('reaction')) return 'reaction';
+    if (normalized.includes('interactive') || normalized.includes('button') || normalized.includes('list')) {
+      return 'interactive';
+    }
+
+    const payload = this.unwrapMessagePayload(rawPayload?.message || rawPayload);
+    if ((payload as any).imageMessage) return 'image';
+    if ((payload as any).videoMessage || (payload as any).ptvMessage) return 'video';
+    if ((payload as any).documentMessage) return 'document';
+    if ((payload as any).audioMessage) return 'audio';
+    if ((payload as any).stickerMessage) return 'sticker';
+    if ((payload as any).reactionMessage) return 'reaction';
+    if (
+      (payload as any).interactiveMessage ||
+      (payload as any).buttonsMessage ||
+      (payload as any).buttonsResponseMessage ||
+      (payload as any).listMessage ||
+      (payload as any).listResponseMessage ||
+      (payload as any).templateButtonReplyMessage
+    ) {
+      return 'interactive';
+    }
+
+    return normalized || 'text';
+  }
+
+  private extractMessageTextFromPayload(payloadRaw: unknown, normalizedType: string) {
+    const payload = this.unwrapMessagePayload(payloadRaw);
+    const conversation = this.normalizeMessageMetadataText((payload as any).conversation);
+    const extendedText = this.normalizeMessageMetadataText((payload as any).extendedTextMessage?.text);
+    if (conversation || extendedText) return conversation || extendedText || '';
+
+    const reactionText =
+      this.normalizeMessageMetadataText((payload as any).reactionMessage?.text) ||
+      this.normalizeMessageMetadataText((payload as any).reactionMessage?.emoji);
+    if (reactionText) return reactionText;
+
+    if (normalizedType === 'image') {
+      return this.normalizeMessageMetadataText((payload as any).imageMessage?.caption) || '[imagem recebida]';
+    }
+    if (normalizedType === 'video') {
+      return this.normalizeMessageMetadataText((payload as any).videoMessage?.caption) || '[video recebido]';
+    }
+    if (normalizedType === 'document') {
+      return (
+        this.normalizeMessageMetadataText((payload as any).documentMessage?.caption) ||
+        this.normalizeMessageMetadataText((payload as any).documentMessage?.fileName) ||
+        this.normalizeMessageMetadataText((payload as any).documentMessage?.title) ||
+        '[documento recebido]'
+      );
+    }
+    if (normalizedType === 'audio') return '[audio recebido]';
+    if (normalizedType === 'sticker') return '[figurinha recebida]';
+    if (normalizedType === 'interactive') {
+      return (
+        this.normalizeMessageMetadataText((payload as any).buttonsResponseMessage?.selectedDisplayText) ||
+        this.normalizeMessageMetadataText((payload as any).templateButtonReplyMessage?.selectedDisplayText) ||
+        this.normalizeMessageMetadataText((payload as any).listResponseMessage?.title) ||
+        this.normalizeMessageMetadataText((payload as any).interactiveResponseMessage?.nativeFlowResponseMessage?.paramsJson) ||
+        '[interacao recebida]'
+      );
+    }
+
+    return '[mensagem sincronizada]';
+  }
+
+  private getMessageContextInfo(payloadRaw: unknown) {
+    const payload = this.unwrapMessagePayload(payloadRaw);
+    return (
+      (payload as any).extendedTextMessage?.contextInfo ||
+      (payload as any).imageMessage?.contextInfo ||
+      (payload as any).videoMessage?.contextInfo ||
+      (payload as any).documentMessage?.contextInfo ||
+      (payload as any).audioMessage?.contextInfo ||
+      (payload as any).buttonsResponseMessage?.contextInfo ||
+      (payload as any).templateButtonReplyMessage?.contextInfo ||
+      (payload as any).listResponseMessage?.contextInfo ||
+      null
+    );
+  }
+
+  private extractQuotedMessagePreview(contextInfo: any, variables: Record<string, any>) {
+    const explicitPreview = this.normalizeMessageMetadataText(
+      variables?.quotedPreview || variables?.quotedContent,
+    );
+    if (explicitPreview) return explicitPreview;
+
+    const quotedMessage =
+      contextInfo?.quotedMessage && typeof contextInfo.quotedMessage === 'object'
+        ? contextInfo.quotedMessage
+        : null;
+    if (!quotedMessage) return null;
+
+    const quotedType = this.normalizeConversationMessageType(null, { message: quotedMessage }, {});
+    return this.extractMessageTextFromPayload(quotedMessage, quotedType);
+  }
+
+  private normalizeStoredFileSize(value: unknown) {
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      return Math.max(0, Math.floor(value));
+    }
+    if (typeof value === 'string' && value.trim()) {
+      const parsed = Number(value);
+      if (Number.isFinite(parsed)) return Math.max(0, Math.floor(parsed));
+    }
+    if (value && typeof value === 'object') {
+      const low = Number((value as any).low ?? 0);
+      const high = Number((value as any).high ?? 0);
+      if (Number.isFinite(low) || Number.isFinite(high)) {
+        return Math.max(0, Math.floor((Number.isFinite(high) ? high : 0) * 4294967296 + (Number.isFinite(low) ? low : 0)));
+      }
+    }
+    return null;
+  }
+
+  private resolveConversationMessageSenderName(
+    conversationContact: string,
+    conversationMetadata: Record<string, any>,
+    rawPayload: Record<string, any>,
+  ) {
+    if (!String(conversationContact || '').trim().toLowerCase().includes('@g.us')) {
+      return null;
+    }
+
+    const conversationNames = new Set(
+      [
+        conversationMetadata?.whatsappContactName,
+        conversationMetadata?.waNickname,
+        conversationMetadata?.whatsappName,
+        conversationMetadata?.whatsappProfileName,
+      ]
+        .map((value) => String(value || '').trim().toLowerCase())
+        .filter(Boolean),
+    );
+    const participant = this.normalizeMessageMetadataText(rawPayload?.participant || rawPayload?.key?.participant);
+    const participantAlt = this.normalizeMessageMetadataText(
+      rawPayload?.key?.participantAlt || rawPayload?.participantAlt || rawPayload?.key?.remoteJidAlt,
+    );
+    const participantPhone = normalizeWhatsAppPhone(String(participantAlt || participant || ''));
+    const pushName = this.normalizeDisplayNameCandidate(
+      rawPayload?.pushName,
+      participantPhone || participantAlt || participant,
+    );
+    if (pushName && !conversationNames.has(pushName.toLowerCase())) {
+      return pushName;
+    }
+    return participantPhone || participantAlt || participant || null;
+  }
+
+  private buildConversationMessageMetadata(
+    message: any,
+    conversationContact: string,
+    conversationMetadata: Record<string, any>,
+  ) {
+    const rawPayload = this.parseConversationMetadata(message?.rawPayload);
+    const variables = this.parseConversationMetadata(message?.variablesJson);
+    const payload = this.unwrapMessagePayload(rawPayload?.message || rawPayload);
+    const normalizedMessageType = this.normalizeConversationMessageType(
+      message?.messageType,
+      rawPayload,
+      variables,
+    );
+    const attachment =
+      variables?.attachment && typeof variables.attachment === 'object' && !Array.isArray(variables.attachment)
+        ? (variables.attachment as Record<string, any>)
+        : {};
+
+    const mediaSource =
+      normalizedMessageType === 'image'
+        ? (payload as any).imageMessage
+        : normalizedMessageType === 'video'
+          ? (payload as any).videoMessage || (payload as any).ptvMessage
+          : normalizedMessageType === 'document'
+            ? (payload as any).documentMessage
+            : normalizedMessageType === 'audio'
+              ? (payload as any).audioMessage
+              : null;
+
+    const resolvedTextFromPayload = this.extractMessageTextFromPayload(payload, normalizedMessageType);
+    const storedBody = String(message?.body || '').trim();
+    const resolvedText =
+      !storedBody || storedBody.toLowerCase() === '[mensagem sincronizada]'
+        ? resolvedTextFromPayload
+        : storedBody;
+    const contextInfo = this.getMessageContextInfo(payload);
+    const participant = this.normalizeMessageMetadataText(rawPayload?.participant || rawPayload?.key?.participant);
+    const participantAlt = this.normalizeMessageMetadataText(
+      rawPayload?.key?.participantAlt || rawPayload?.participantAlt || rawPayload?.key?.remoteJidAlt,
+    );
+    const senderPhone = normalizeWhatsAppPhone(String(participantAlt || participant || '')) || null;
+
+    const metadata = Object.fromEntries(
+      Object.entries({
+        normalizedMessageType,
+        rawMessageType: this.normalizeMessageMetadataText(String(message?.messageType || '').toLowerCase()),
+        resolvedText,
+        remoteJid: this.normalizeMessageMetadataText(rawPayload?.key?.remoteJid),
+        remoteJidAlt: this.normalizeMessageMetadataText(rawPayload?.key?.remoteJidAlt),
+        participant,
+        participantAlt,
+        pushName: this.normalizeMessageMetadataText(rawPayload?.pushName),
+        senderName: this.resolveConversationMessageSenderName(conversationContact, conversationMetadata, rawPayload),
+        senderPhone,
+        quotedMessageId: this.normalizeMessageMetadataText(variables?.quotedMessageId || contextInfo?.stanzaId),
+        quotedPreview: this.extractQuotedMessagePreview(contextInfo, variables),
+        mediaUrl: this.normalizeMessageMetadataText(
+          attachment?.url || attachment?.mediaUrl || attachment?.attachmentUrl || mediaSource?.url,
+        ),
+        previewUrl: this.normalizeMessageMetadataText(attachment?.previewUrl || attachment?.url || mediaSource?.url),
+        mimeType: this.normalizeMessageMetadataText(attachment?.mimeType || mediaSource?.mimetype),
+        fileName: this.normalizeMessageMetadataText(
+          attachment?.fileName || mediaSource?.fileName || mediaSource?.title,
+        ),
+        fileSize: this.normalizeStoredFileSize(attachment?.fileSize ?? mediaSource?.fileLength),
+        durationSeconds: this.normalizeStoredFileSize(attachment?.durationSeconds ?? mediaSource?.seconds),
+        isVoiceNote: Boolean(attachment?.isVoiceNote ?? mediaSource?.ptt),
+      }).filter(([, value]) => value !== null && value !== undefined && value !== ''),
+    );
+
+    return Object.keys(metadata).length ? metadata : null;
+  }
+
   private getAtendimentoBlockedState(metadataRaw: string | Record<string, any> | null | undefined) {
     const metadata =
       metadataRaw && typeof metadataRaw === 'object' && !Array.isArray(metadataRaw)
@@ -139,11 +402,9 @@ export class InboxService {
   }
 
   private async resolveConversationDisplayName(companyId: number, contact: string, metadataRaw?: string | null) {
+    void companyId;
     const metadata = this.parseConversationMetadata(metadataRaw);
     const metadataCandidates = [
-      metadata?.cliente,
-      metadata?.customerName,
-      metadata?.name,
       metadata?.whatsappContactName,
       metadata?.waNickname,
       metadata?.whatsappName,
@@ -153,17 +414,25 @@ export class InboxService {
       const normalized = this.normalizeDisplayNameCandidate(candidate, contact);
       if (normalized) return normalized;
     }
-    const digits = String(contact || '').replace(/\D/g, '');
-    if (!digits) return null;
-    const customer = await this.prisma.hbxRecoveryCustomer.findFirst({
-      where: { companyId, whatsappNumber: { endsWith: digits } },
-      select: { clientName: true, name: true },
-    });
-    return this.normalizeDisplayNameCandidate(customer?.clientName || customer?.name || null, contact);
+    return null;
   }
 
   private normalizeConversationPhone(contact: string | null | undefined) {
-    return String(contact || '').replace(/\D/g, '').slice(-13) || null;
+    const raw = String(contact || '').trim().toLowerCase();
+    if (!raw || raw.includes('@g.us') || raw.includes('@broadcast') || raw.includes('@lid')) {
+      return null;
+    }
+    const normalizedPhone = normalizeWhatsAppPhone(raw);
+    if (!normalizedPhone) return null;
+    return normalizedPhone.replace(/\D/g, '').slice(-13) || null;
+  }
+
+  private normalizeConversationTakeLimit(value: string | number | null | undefined, fallback?: number) {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      return fallback;
+    }
+    return Math.min(Math.floor(parsed), 50);
   }
 
   private normalizeDisplayNameCandidate(value: unknown, phone?: string | null) {
@@ -474,13 +743,14 @@ export class InboxService {
     const blockedState = this.getAtendimentoBlockedState(conversation.metadata);
     const conversationMetadata = this.parseConversationMetadata(conversation.metadata);
     const profile = identityRow?.customerProfile || null;
+    const manualLockedName =
+      String(identityRow?.registrationOrigin || '').trim().toLowerCase() === 'manual' ||
+      String(identityRow?.registrationStatus || '').trim().toLowerCase() === 'manual'
+        ? this.normalizeDisplayNameCandidate(identityRow?.name || null, conversation.contact)
+        : null;
     const customerName =
       this.normalizeDisplayNameCandidate(
-        identityRow?.name ||
-          profile?.name ||
-          sharedProfile?.displayName ||
-          displayName ||
-          null,
+        manualLockedName || displayName || identityRow?.name || profile?.name || null,
         conversation.contact,
       ) || null;
     return {
@@ -536,17 +806,27 @@ export class InboxService {
         registrationStatus: identityRow?.registrationStatus ? String(identityRow.registrationStatus) : null,
         sharedProfile: sharedProfile || null,
       },
-      messages: (conversation.messages || []).map((message: any) => ({
-        id: String(message.id),
-        direction: String(message.direction || '').trim().toLowerCase(),
-        content: String(message.body || ''),
-        createdAt: message.timestamp,
-        messageType: String(message.messageType || 'text').trim().toLowerCase(),
-        senderType: String(message.senderType || 'system').trim().toLowerCase(),
-        status: String(message.status || 'RECEIVED').trim().toUpperCase(),
-        sourceModule: String(message.sourceModule || '').trim().toLowerCase() || null,
-        error: message.error ? String(message.error) : null,
-      })),
+      messages: (conversation.messages || []).map((message: any) => {
+        const messageMetadata = this.buildConversationMessageMetadata(
+          message,
+          String(conversation.contact || ''),
+          conversationMetadata,
+        );
+        return {
+          id: String(message.id),
+          direction: String(message.direction || '').trim().toLowerCase(),
+          content: String(messageMetadata?.resolvedText || message.body || ''),
+          createdAt: message.timestamp,
+          messageType: String(messageMetadata?.normalizedMessageType || message.messageType || 'text')
+            .trim()
+            .toLowerCase(),
+          senderType: String(message.senderType || 'system').trim().toLowerCase(),
+          status: String(message.status || 'RECEIVED').trim().toUpperCase(),
+          sourceModule: String(message.sourceModule || '').trim().toLowerCase() || null,
+          error: message.error ? String(message.error) : null,
+          metadata: messageMetadata,
+        };
+      }),
     };
   }
 
@@ -593,13 +873,17 @@ export class InboxService {
     });
   }
 
-  async listConversations(user: any) {
-    const companyId = this.requireCompanyIdFromUser(user);
+  private async listConversationSummariesForCompany(
+    companyId: number,
+    options?: { take?: string | number | null },
+  ) {
+    const take = this.normalizeConversationTakeLimit(options?.take);
     await this.webwhatsBridge.syncRecentChats(companyId);
     const routingRules = await this.getRecoveryRoutingRules(companyId);
     const rows = await this.prisma.companyConversation.findMany({
       where: { companyId, channel: 'whatsapp' },
       orderBy: [{ lastInteractionAt: 'desc' }, { id: 'desc' }],
+      ...(take ? { take } : {}),
       include: {
         messages: {
           orderBy: { timestamp: 'desc' },
@@ -634,6 +918,27 @@ export class InboxService {
         );
       }),
     );
+  }
+
+  async getBootstrap(user: any, take?: string | number) {
+    const companyId = this.requireCompanyIdFromUser(user);
+    const conversations = await this.listConversationSummariesForCompany(companyId, {
+      take: this.normalizeConversationTakeLimit(take, 10),
+    });
+    const firstConversationId = conversations[0]?.id ? Number(conversations[0].id) : null;
+    const selectedConversation = firstConversationId
+      ? await this.getConversationByIdForCompany(companyId, firstConversationId)
+      : null;
+
+    return {
+      conversations,
+      selectedConversation,
+    };
+  }
+
+  async listConversations(user: any, take?: string | number) {
+    const companyId = this.requireCompanyIdFromUser(user);
+    return this.listConversationSummariesForCompany(companyId, { take });
   }
 
   private async getConversationByIdForCompany(companyId: number, id: number) {
@@ -1139,7 +1444,19 @@ export class InboxService {
     user: any,
     conversationId: number,
     content: string,
-    opts?: { quotedMessageId?: string; quotedContent?: string },
+    opts?: {
+      quotedMessageId?: string;
+      quotedContent?: string;
+      attachment?: {
+        kind?: string | null;
+        url?: string | null;
+        previewUrl?: string | null;
+        mimeType?: string | null;
+        fileName?: string | null;
+        fileSize?: number | null;
+        durationSeconds?: number | null;
+      };
+    },
   ) {
     const companyId = this.requireCompanyIdFromUser(user);
     const conversation = await this.prisma.companyConversation.findFirst({
@@ -1157,11 +1474,34 @@ export class InboxService {
     const quotedPreview = opts?.quotedContent
       ? String(opts.quotedContent).trim().slice(0, 200)
       : null;
+    const attachment = opts?.attachment
+      ? {
+          kind: this.normalizeMessageMetadataText(opts.attachment.kind) || undefined,
+          url: this.normalizeMessageMetadataText(opts.attachment.url) || undefined,
+          previewUrl:
+            this.normalizeMessageMetadataText(opts.attachment.previewUrl || opts.attachment.url) ||
+            undefined,
+          mimeType: this.normalizeMessageMetadataText(opts.attachment.mimeType) || undefined,
+          fileName: this.normalizeMessageMetadataText(opts.attachment.fileName) || undefined,
+          fileSize: this.normalizeStoredFileSize(opts.attachment.fileSize),
+          durationSeconds: this.normalizeStoredFileSize(opts.attachment.durationSeconds),
+        }
+      : null;
     const body = quotedPreview
       ? `> ${quotedPreview}\n\n${normalizedContent}`
       : normalizedContent;
+    const variables: Record<string, unknown> = {};
+    if (opts?.quotedMessageId) {
+      variables.quotedMessageId = String(opts.quotedMessageId).trim();
+    }
+    if (quotedPreview) {
+      variables.quotedPreview = quotedPreview;
+    }
+    if (attachment?.url || attachment?.kind) {
+      variables.attachment = attachment;
+    }
 
-    await this.conversations.queueOutboundForCompany(companyId, {
+    const outboundPayload: any = {
       conversationId,
       to: toPhone,
       body,
@@ -1174,7 +1514,33 @@ export class InboxService {
         botActive: false,
         flowResult: null,
       },
-    });
+    };
+    if (Object.keys(variables).length) {
+      outboundPayload.variables = variables;
+    }
+
+    await this.conversations.queueOutboundForCompany(companyId, outboundPayload);
+
+    const conversationMetadata = this.parseConversationMetadata(conversation.metadata);
+    const vendasAgendaQueue =
+      conversationMetadata?.vendasAgendaQueue &&
+      typeof conversationMetadata.vendasAgendaQueue === 'object' &&
+      !Array.isArray(conversationMetadata.vendasAgendaQueue)
+        ? (conversationMetadata.vendasAgendaQueue as Record<string, unknown>)
+        : null;
+    if (vendasAgendaQueue?.active && vendasAgendaQueue.draftPending !== false) {
+      await this.conversations.updateConversationState(companyId, conversationId, {
+        metadata: {
+          ...conversationMetadata,
+          vendasAgendaQueue: {
+            ...vendasAgendaQueue,
+            draftPending: false,
+            lastManualSendAt: new Date().toISOString(),
+            syncedAt: new Date().toISOString(),
+          },
+        },
+      });
+    }
 
     await this.logInboxEvent({
       companyId,
@@ -1184,7 +1550,11 @@ export class InboxService {
       phone: toPhone,
       messageType: 'text',
       result: 'queued',
-      extra: { sourceModule: 'atendimento_human', hasQuote: !!quotedPreview },
+      extra: {
+        sourceModule: 'atendimento_human',
+        hasQuote: !!quotedPreview,
+        attachmentKind: attachment?.kind || null,
+      },
     });
 
     return this.getConversationByIdForCompany(companyId, conversationId);
@@ -1198,9 +1568,32 @@ export class InboxService {
     if (!conversation) throw new NotFoundException('Conversation not found');
     if (!file || !file.buffer) throw new BadRequestException('Arquivo obrigatorio.');
 
-    const allowedMimes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'video/mp4', 'application/pdf'];
+    const allowedMimes = [
+      'image/jpeg',
+      'image/png',
+      'image/gif',
+      'image/webp',
+      'video/mp4',
+      'application/pdf',
+      'application/msword',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'application/vnd.ms-excel',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'text/plain',
+      'text/csv',
+      'audio/mpeg',
+      'audio/mp3',
+      'audio/ogg',
+      'audio/opus',
+      'audio/mp4',
+      'audio/x-m4a',
+      'audio/webm',
+      'audio/wav',
+    ];
     if (!allowedMimes.includes(file.mimetype)) {
-      throw new BadRequestException('Tipo de arquivo nao suportado. Use JPEG, PNG, GIF, WEBP, MP4 ou PDF.');
+      throw new BadRequestException(
+        'Tipo de arquivo nao suportado. Use imagem, MP4, PDF/DOC/XLS/TXT/CSV ou audio MP3/OGG/M4A/WAV/WEBM.',
+      );
     }
 
     const uploadDir = join(process.cwd(), 'public', 'uploads', 'inbox');

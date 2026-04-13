@@ -1,5 +1,7 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { CustomerProfileService } from '../customer-profile/customer-profile.service';
+import { ConversationsService } from '../messaging/conversations.service';
+import { buildWhatsAppPhoneCandidates } from '../messaging/whatsapp-channel';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   CreateManualVendasLeadDto,
@@ -35,11 +37,27 @@ type TimelineEventRecord = {
   createdByUserId: number | null;
 };
 
+type VendasAgendaQueueMetadata = {
+  active?: boolean;
+  leadId?: string | null;
+  sourceModule?: string | null;
+  sourceBlock?: string | null;
+  status?: string | null;
+  nextAction?: string | null;
+  returnAt?: string | null;
+  draftMessage?: string | null;
+  draftPending?: boolean;
+  syncedAt?: string | null;
+  deactivatedAt?: string | null;
+  lastManualSendAt?: string | null;
+};
+
 @Injectable()
 export class VendasService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly customerProfileService: CustomerProfileService,
+    private readonly conversations: ConversationsService,
   ) {}
 
   private normalizeText(value: unknown) {
@@ -70,6 +88,17 @@ export class VendasService {
     if (!normalized) return null;
     const parsed = new Date(normalized);
     return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
+
+  private parseConversationMetadata(raw: string | null | undefined): Record<string, any> {
+    if (!raw) return {};
+    try {
+      const parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+      return parsed as Record<string, any>;
+    } catch {
+      return {};
+    }
   }
 
   private startOfToday(date = new Date()) {
@@ -247,6 +276,261 @@ export class VendasService {
       resultLabel: this.normalizeText(input.resultLabel),
       returnAt: input.returnAt || null,
       createdByUserId: Number(input.createdByUserId || 0) || null,
+    };
+  }
+
+  private normalizeLeadConversationPhone(value: unknown) {
+    const digits = this.normalizePhone(value);
+    return digits ? `+${digits}` : null;
+  }
+
+  private readVendasAgendaQueueMetadata(metadata: Record<string, any>) {
+    const queue = metadata?.vendasAgendaQueue;
+    if (!queue || typeof queue !== 'object' || Array.isArray(queue)) return null;
+    return queue as VendasAgendaQueueMetadata;
+  }
+
+  private shouldMirrorLeadToInboxAgenda(row: any) {
+    if (!row || this.isClosedLead(row)) return false;
+    return this.classifyLeadBlock(row) === 'today';
+  }
+
+  private buildSalesAgendaDraftMessage(row: any) {
+    const name = this.normalizeText(row?.name);
+    if (name) {
+      return `Olá, ${name}. Estou retomando nosso contato pelo HBX Vendas. Quando puder, me responda por aqui.`;
+    }
+    return 'Olá. Estou retomando nosso contato pelo HBX Vendas. Quando puder, me responda por aqui.';
+  }
+
+  private buildVendasAgendaQueueMetadata(row: any, currentQueue?: VendasAgendaQueueMetadata | null) {
+    const draftMessage = this.buildSalesAgendaDraftMessage(row);
+    const nextAction = this.normalizeText(row?.nextAction);
+    const returnAt = row?.returnAt instanceof Date ? row.returnAt.toISOString() : this.parseDate(row?.returnAt)?.toISOString() || null;
+    const status = this.normalizeStatus(row?.status);
+    const contentChanged =
+      String(currentQueue?.draftMessage || '').trim() !== draftMessage ||
+      String(currentQueue?.nextAction || '').trim() !== String(nextAction || '').trim() ||
+      String(currentQueue?.returnAt || '').trim() !== String(returnAt || '').trim() ||
+      String(currentQueue?.status || '').trim() !== status;
+    const preserveConsumedDraft =
+      Boolean(currentQueue?.active) && currentQueue?.draftPending === false && !contentChanged;
+
+    return {
+      active: true,
+      leadId: String(row?.id || '').trim() || null,
+      sourceModule: 'vendas',
+      sourceBlock: 'today',
+      status,
+      nextAction,
+      returnAt,
+      draftMessage,
+      draftPending: preserveConsumedDraft ? false : true,
+      syncedAt: new Date().toISOString(),
+      deactivatedAt: null,
+      lastManualSendAt: currentQueue?.lastManualSendAt || null,
+    } satisfies VendasAgendaQueueMetadata;
+  }
+
+  private conversationMatchesLeadPhone(conversationContact: unknown, lead: any) {
+    const conversationDigits = this.normalizePhone(conversationContact);
+    const leadDigits = this.normalizePhone(lead?.phoneNormalized || lead?.phone);
+    return Boolean(conversationDigits && leadDigits && conversationDigits === leadDigits);
+  }
+
+  private async findConversationByPhone(companyId: number, phoneRaw: unknown) {
+    const digits = this.normalizePhone(phoneRaw);
+    if (!digits) return null;
+    const candidates = Array.from(
+      new Set([
+        ...buildWhatsAppPhoneCandidates(digits),
+        String(phoneRaw || '').trim(),
+      ].filter(Boolean)),
+    );
+
+    return this.prisma.companyConversation.findFirst({
+      where: {
+        companyId,
+        channel: 'whatsapp',
+        OR: [
+          ...(candidates.length ? [{ contact: { in: candidates } }] : []),
+          { contact: { contains: digits } },
+          { contact: { endsWith: digits } },
+        ],
+      },
+      orderBy: [{ lastMessageAt: 'desc' }, { id: 'desc' }],
+    });
+  }
+
+  private async activateLeadInInboxAgenda(companyId: number, row: any) {
+    const contact = this.normalizeLeadConversationPhone(row?.phoneNormalized || row?.phone);
+    if (!contact) {
+      return { activated: 0, updated: 0, skippedWithoutPhone: 1 };
+    }
+
+    const conversation = await this.conversations.getOrCreateConversationForContact(companyId, contact);
+    const metadata = this.parseConversationMetadata(conversation?.metadata);
+    const currentQueue = this.readVendasAgendaQueueMetadata(metadata);
+    const nextQueue = this.buildVendasAgendaQueueMetadata(row, currentQueue);
+    const changed = JSON.stringify(currentQueue || null) !== JSON.stringify(nextQueue);
+
+    if (changed) {
+      await this.conversations.updateConversationState(companyId, conversation.id, {
+        metadata: {
+          ...metadata,
+          vendasAgendaQueue: nextQueue,
+        },
+        lastInteractionAt: new Date(),
+      });
+    }
+
+    return {
+      activated: currentQueue?.active ? 0 : 1,
+      updated: currentQueue?.active && changed ? 1 : 0,
+      skippedWithoutPhone: 0,
+    };
+  }
+
+  private async deactivateLeadInInboxAgenda(companyId: number, phoneRaw: unknown, leadId: string) {
+    const conversation = await this.findConversationByPhone(companyId, phoneRaw);
+    if (!conversation) return false;
+
+    const metadata = this.parseConversationMetadata(conversation.metadata);
+    const currentQueue = this.readVendasAgendaQueueMetadata(metadata);
+    if (!currentQueue) return false;
+    if (currentQueue.leadId && String(currentQueue.leadId) !== String(leadId)) return false;
+    if (currentQueue.active === false && currentQueue.draftPending === false) return false;
+
+    await this.conversations.updateConversationState(companyId, conversation.id, {
+      metadata: {
+        ...metadata,
+        vendasAgendaQueue: {
+          ...currentQueue,
+          active: false,
+          draftPending: false,
+          syncedAt: new Date().toISOString(),
+          deactivatedAt: new Date().toISOString(),
+        },
+      },
+    });
+    return true;
+  }
+
+  private async syncLeadToInboxAgenda(companyId: number, row: any, previous?: any) {
+    const result = {
+      activated: 0,
+      updated: 0,
+      deactivated: 0,
+      skippedWithoutPhone: 0,
+    };
+
+    const currentPhone = row?.phoneNormalized || row?.phone || null;
+    const previousPhone = previous?.phoneNormalized || previous?.phone || null;
+
+    if (this.shouldMirrorLeadToInboxAgenda(row)) {
+      const syncResult = await this.activateLeadInInboxAgenda(companyId, row);
+      result.activated += syncResult.activated;
+      result.updated += syncResult.updated;
+      result.skippedWithoutPhone += syncResult.skippedWithoutPhone;
+    } else {
+      const deactivated = await this.deactivateLeadInInboxAgenda(
+        companyId,
+        currentPhone || previousPhone,
+        String(row?.id || previous?.id || ''),
+      );
+      if (deactivated) result.deactivated += 1;
+    }
+
+    if (
+      previousPhone &&
+      this.normalizePhone(previousPhone) &&
+      this.normalizePhone(previousPhone) !== this.normalizePhone(currentPhone)
+    ) {
+      const deactivatedPrevious = await this.deactivateLeadInInboxAgenda(
+        companyId,
+        previousPhone,
+        String(row?.id || previous?.id || ''),
+      );
+      if (deactivatedPrevious) result.deactivated += 1;
+    }
+
+    return result;
+  }
+
+  async syncTodayAgendaForUser(user: any) {
+    const context = this.resolveUserContext(user);
+    const rows = await this.prisma.vendasLead.findMany({
+      where: { companyId: context.companyId },
+      orderBy: [{ returnAt: 'asc' }, { updatedAt: 'desc' }, { createdAt: 'desc' }],
+    });
+
+    const rowById = new Map(rows.map((row) => [String(row.id), row]));
+    const activeLeadIds = new Set<string>();
+    let activated = 0;
+    let updated = 0;
+    let deactivated = 0;
+    let skippedWithoutPhone = 0;
+
+    for (const row of rows) {
+      if (!this.shouldMirrorLeadToInboxAgenda(row)) continue;
+      activeLeadIds.add(String(row.id));
+      const syncResult = await this.syncLeadToInboxAgenda(context.companyId, row);
+      activated += syncResult.activated;
+      updated += syncResult.updated;
+      deactivated += syncResult.deactivated;
+      skippedWithoutPhone += syncResult.skippedWithoutPhone;
+    }
+
+    const mirroredConversations = await this.prisma.companyConversation.findMany({
+      where: {
+        companyId: context.companyId,
+        channel: 'whatsapp',
+        metadata: { contains: '"vendasAgendaQueue"' },
+      },
+      select: {
+        id: true,
+        contact: true,
+        metadata: true,
+      },
+    });
+
+    for (const conversation of mirroredConversations) {
+      const metadata = this.parseConversationMetadata(conversation.metadata);
+      const queue = this.readVendasAgendaQueueMetadata(metadata);
+      if (!queue?.active) continue;
+
+      const leadId = String(queue.leadId || '').trim();
+      const linkedLead = leadId ? rowById.get(leadId) || null : null;
+      const shouldStayActive =
+        Boolean(linkedLead) &&
+        this.shouldMirrorLeadToInboxAgenda(linkedLead) &&
+        this.conversationMatchesLeadPhone(conversation.contact, linkedLead);
+
+      if (shouldStayActive) continue;
+
+      await this.conversations.updateConversationState(context.companyId, conversation.id, {
+        metadata: {
+          ...metadata,
+          vendasAgendaQueue: {
+            ...queue,
+            active: false,
+            draftPending: false,
+            syncedAt: new Date().toISOString(),
+            deactivatedAt: new Date().toISOString(),
+          },
+        },
+      });
+      deactivated += 1;
+    }
+
+    return {
+      ok: true,
+      todayLeadCount: rows.filter((row) => this.shouldMirrorLeadToInboxAgenda(row)).length,
+      mirroredLeadCount: activeLeadIds.size,
+      activated,
+      updated,
+      deactivated,
+      skippedWithoutPhone,
     };
   }
 
@@ -581,6 +865,8 @@ export class VendasService {
       shortNote: dto?.shortNote || null,
     });
 
+    await this.syncLeadToInboxAgenda(context.companyId, result.lead);
+
     return {
       ok: true,
       ...result,
@@ -629,6 +915,7 @@ export class VendasService {
       } else {
         updatedCount += 1;
       }
+      await this.syncLeadToInboxAgenda(context.companyId, result.lead);
       importedLeads.push(result.lead);
     }
 
@@ -794,6 +1081,8 @@ export class VendasService {
       });
 
       if (timelineEvents.length) {
+    await this.syncLeadToInboxAgenda(context.companyId, updated, existing);
+
         await tx.vendasLeadTimelineEvent.createMany({
           data: timelineEvents.map((event) => ({
             leadId: existing.id,

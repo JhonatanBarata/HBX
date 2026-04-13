@@ -41,7 +41,11 @@ export class CompanyWhatsAppCustomerSyncService {
   }
 
   private normalizePhoneCandidate(value: unknown) {
-    const phone = normalizeWhatsAppPhone(String(value || '').trim());
+    const raw = String(value || '').trim().toLowerCase();
+    if (!raw || raw.includes('@g.us') || raw.includes('@broadcast') || raw.includes('@lid')) {
+      return null;
+    }
+    const phone = normalizeWhatsAppPhone(raw);
     const digits = normalizeWhatsAppDigits(phone);
     if (digits.length < 10 || digits.length > 15) return null;
     return phone;
@@ -96,9 +100,6 @@ export class CompanyWhatsAppCustomerSyncService {
     if (!phone) return null;
     const metadata = this.parseMetadata(row.metadata);
     const name = this.preferredName(
-      metadata?.cliente,
-      metadata?.customerName,
-      metadata?.name,
       metadata?.whatsappContactName,
       metadata?.waNickname,
       metadata?.whatsappName,
@@ -134,7 +135,7 @@ export class CompanyWhatsAppCustomerSyncService {
     });
   }
 
-  private shouldSyncCandidate(existing: any, candidate: SyncCandidate, resolvedName: string) {
+  private shouldSyncCandidate(existing: any, candidate: SyncCandidate, resolvedName: string | null) {
     if (!existing) return true;
     if (!String(existing.name || '').trim() && resolvedName) return true;
     if (!existing.conversationId && candidate.conversationId) return true;
@@ -242,6 +243,7 @@ export class CompanyWhatsAppCustomerSyncService {
     let skippedWithoutName = 0;
     let skippedWithoutPhone = 0;
     let skippedUnchanged = 0;
+    let syncedWithoutName = 0;
 
     for (const candidate of source.candidates) {
       if (!candidate.phoneNormalized) {
@@ -250,10 +252,6 @@ export class CompanyWhatsAppCustomerSyncService {
       }
 
       const resolvedName = this.normalizeNameCandidate(candidate.name, candidate.phone);
-      if (!resolvedName) {
-        skippedWithoutName += 1;
-        continue;
-      }
 
       const existing = existingByPhone.get(candidate.phoneNormalized) || null;
       if (!this.shouldSyncCandidate(existing, candidate, resolvedName)) {
@@ -261,18 +259,24 @@ export class CompanyWhatsAppCustomerSyncService {
         continue;
       }
 
+      const existingOrigin = String(existing?.registrationOrigin || '').trim().toLowerCase();
+      const existingStatus = String(existing?.registrationStatus || '').trim().toLowerCase();
+
       await this.cadastrosService.upsertCustomerRegistry({
         companyId: normalizedCompanyId,
         phone: candidate.phone,
-        name: resolvedName,
-        registrationOrigin: engine === 'meta' ? 'meta_sync' : 'webwhats_sync',
-        registrationStatus: 'confirmed',
+        name: resolvedName || null,
+        registrationOrigin: existingOrigin === 'manual' ? 'manual' : engine === 'meta' ? 'meta_sync' : 'webwhats_sync',
+        registrationStatus: existingStatus === 'manual' ? 'manual' : 'confirmed',
         route: 'atendimento',
         conversationId: candidate.conversationId || undefined,
         lastMessageAt: candidate.lastMessageAt || undefined,
       });
 
       syncedContacts += 1;
+      if (!resolvedName) {
+        syncedWithoutName += 1;
+      }
       if (existing) {
         updatedContacts += 1;
       } else {
@@ -300,6 +304,7 @@ export class CompanyWhatsAppCustomerSyncService {
       syncedContacts,
       createdContacts,
       updatedContacts,
+      syncedWithoutName,
       skippedWithoutName,
       skippedWithoutPhone,
       skippedUnchanged,

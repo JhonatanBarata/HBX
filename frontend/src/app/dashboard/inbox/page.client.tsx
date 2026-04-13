@@ -58,6 +58,7 @@ import {
   fetchBrazilianHolidays,
   formatCurrency,
   getMessagePreview,
+  type InboxBootstrapPayload,
   normalizeAgendaConfig,
   normalizeBotConfig,
   type AtendimentoAgendaConfig,
@@ -79,6 +80,15 @@ type StatusFilter = "all" | "new" | "open" | "closed" | "blocked";
 type NoticeState = {
   tone: "success" | "error";
   text: string;
+};
+
+type InboxAttachmentPreview = {
+  file: File;
+  url: string;
+  kind: "image" | "video" | "document" | "audio";
+  mimeType: string;
+  size: number;
+  fileName: string;
 };
 
 type InboxAlertKind = "human_queue" | "new_message";
@@ -127,6 +137,17 @@ type CurrentUserProfile = {
 type UserModule = {
   key: string;
   accessible: boolean;
+};
+
+type VendasAgendaQueueMetadata = {
+  active?: boolean;
+  leadId?: string | null;
+  nextAction?: string | null;
+  returnAt?: string | null;
+  draftMessage?: string | null;
+  draftPending?: boolean;
+  syncedAt?: string | null;
+  lastManualSendAt?: string | null;
 };
 
 const ATENDIMENTO_PENDING_STORAGE_KEY = "atendimentoPendingHumanCount";
@@ -230,6 +251,33 @@ function isLikelyImageUrl(raw: string) {
   return /\.(png|jpe?g|gif|webp|bmp|svg)$/.test(noQuery);
 }
 
+function isLikelyVideoUrl(raw: string) {
+  const value = String(raw || "").trim();
+  if (!value) return false;
+  const isUrl = /^https?:\/\/\S+$/i.test(value) || /^\/\S+$/.test(value);
+  if (!isUrl) return false;
+  const noQuery = value.split("?")[0].toLowerCase();
+  return /\.(mp4|webm|mov|m4v)$/.test(noQuery);
+}
+
+function isLikelyAudioUrl(raw: string) {
+  const value = String(raw || "").trim();
+  if (!value) return false;
+  const isUrl = /^https?:\/\/\S+$/i.test(value) || /^\/\S+$/.test(value);
+  if (!isUrl) return false;
+  const noQuery = value.split("?")[0].toLowerCase();
+  return /\.(mp3|ogg|wav|m4a|opus|aac|webm)$/.test(noQuery);
+}
+
+function isLikelyDocumentUrl(raw: string) {
+  const value = String(raw || "").trim();
+  if (!value) return false;
+  const isUrl = /^https?:\/\/\S+$/i.test(value) || /^\/\S+$/.test(value);
+  if (!isUrl) return false;
+  const noQuery = value.split("?")[0].toLowerCase();
+  return /\.(pdf|doc|docx|xls|xlsx|csv|txt)$/.test(noQuery);
+}
+
 function toAbsoluteAssetUrl(raw: string) {
   const value = String(raw || "").trim();
   if (!value) return "";
@@ -252,27 +300,184 @@ function normalizePathologicalLineBreaks(raw: string) {
   return compact.join("");
 }
 
-function parseInboxMessageMedia(message: InboxMessage) {
-  const rawContent = normalizePathologicalLineBreaks(String(message?.content || "")).trim();
-  if (!rawContent) {
-    return {
-      imageUrl: null as string | null,
-      text: String(getMessagePreview(message) || "").trim(),
-    };
+function getInboxMessageMetadata(message?: InboxMessage | null): Record<string, unknown> | null {
+  const metadata = message?.metadata;
+  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) {
+    return null;
+  }
+  return metadata as Record<string, unknown>;
+}
+
+function normalizeInboxMessageType(message?: InboxMessage | null) {
+  const metadata = getInboxMessageMetadata(message);
+  const rawType = String(metadata?.normalizedMessageType || message?.messageType || "text")
+    .trim()
+    .toLowerCase();
+  if (rawType.includes("image")) return "image" as const;
+  if (rawType.includes("video") || rawType.includes("ptv")) return "video" as const;
+  if (rawType.includes("document")) return "document" as const;
+  if (rawType.includes("audio")) return "audio" as const;
+  if (rawType.includes("sticker")) return "sticker" as const;
+  if (rawType.includes("reaction")) return "reaction" as const;
+  if (rawType.includes("interactive") || rawType.includes("button") || rawType.includes("list")) {
+    return "interactive" as const;
+  }
+  return "text" as const;
+}
+
+function splitInboxQuotedBlock(raw: string) {
+  const value = String(raw || "").trim();
+  if (!value.startsWith("> ")) {
+    return { quotedText: null as string | null, text: value };
   }
 
-  const lines = rawContent.split("\n");
-  const first = String(lines[0] || "").trim();
-  if (isLikelyImageUrl(first)) {
-    return {
-      imageUrl: toAbsoluteAssetUrl(first),
-      text: lines.slice(1).join("\n").trim(),
-    };
+  const lines = value.split("\n");
+  const quotedLines: string[] = [];
+  let index = 0;
+  while (index < lines.length && lines[index].startsWith(">")) {
+    quotedLines.push(lines[index].replace(/^>\s?/, ""));
+    index += 1;
+  }
+  if (index < lines.length && lines[index].trim() === "") {
+    index += 1;
   }
 
   return {
-    imageUrl: null as string | null,
-    text: rawContent,
+    quotedText: quotedLines.join("\n").trim() || null,
+    text: lines.slice(index).join("\n").trim(),
+  };
+}
+
+function normalizeInboxFileSize(raw: unknown) {
+  const value = Number(raw || 0);
+  if (!Number.isFinite(value) || value <= 0) return null;
+  return Math.floor(value);
+}
+
+function formatInboxFileSizeLabel(raw: unknown) {
+  const size = normalizeInboxFileSize(raw);
+  if (!size) return null;
+  if (size >= 1024 * 1024) {
+    return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+  }
+  if (size >= 1024) {
+    return `${Math.round(size / 1024)} KB`;
+  }
+  return `${size} B`;
+}
+
+function formatInboxDurationLabel(raw: unknown) {
+  const totalSeconds = Number(raw || 0);
+  if (!Number.isFinite(totalSeconds) || totalSeconds <= 0) return null;
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = Math.floor(totalSeconds % 60)
+    .toString()
+    .padStart(2, "0");
+  return `${minutes}:${seconds}`;
+}
+
+function resolveInboxAttachmentKind(file: { type?: string | null; name?: string | null }) {
+  const mimeType = String(file?.type || "").trim().toLowerCase();
+  const name = String(file?.name || "").trim().toLowerCase();
+  if (mimeType.startsWith("image/")) return "image" as const;
+  if (mimeType.startsWith("video/")) return "video" as const;
+  if (mimeType.startsWith("audio/")) return "audio" as const;
+  if (
+    mimeType.includes("pdf") ||
+    mimeType.includes("word") ||
+    mimeType.includes("excel") ||
+    mimeType.includes("sheet") ||
+    mimeType.includes("text/") ||
+    mimeType.includes("csv")
+  ) {
+    return "document" as const;
+  }
+  if (/\.(png|jpe?g|gif|webp|bmp|svg)$/.test(name)) return "image" as const;
+  if (/\.(mp4|webm|mov|m4v)$/.test(name)) return "video" as const;
+  if (/\.(mp3|ogg|wav|m4a|opus|aac)$/.test(name)) return "audio" as const;
+  return "document" as const;
+}
+
+function createInboxAttachmentPreview(file: File): InboxAttachmentPreview {
+  return {
+    file,
+    url: URL.createObjectURL(file),
+    kind: resolveInboxAttachmentKind(file),
+    mimeType: String(file.type || "").trim(),
+    size: Number(file.size || 0),
+    fileName: String(file.name || "arquivo").trim() || "arquivo",
+  };
+}
+
+function getInboxGroupSenderColor(seed: string) {
+  const palette = ["#53bdeb", "#06cf9c", "#ff8f40", "#ff7292", "#7e8fff", "#ffd279"];
+  const source = String(seed || "sender");
+  let hash = 0;
+  for (let index = 0; index < source.length; index += 1) {
+    hash = (hash * 31 + source.charCodeAt(index)) | 0;
+  }
+  return palette[Math.abs(hash) % palette.length];
+}
+
+function parseInboxMessageMedia(message: InboxMessage, conversation?: InboxConversation | null) {
+  const metadata = getInboxMessageMetadata(message);
+  const normalizedType = normalizeInboxMessageType(message);
+  const rawContent = normalizePathologicalLineBreaks(String(message?.content || "")).trim();
+  const quotedParts = splitInboxQuotedBlock(rawContent);
+  let text = quotedParts.text;
+  const explicitMediaUrl = toAbsoluteAssetUrl(
+    String(metadata?.mediaUrl || metadata?.previewUrl || "").trim(),
+  );
+  const firstLine = String(text.split("\n")[0] || "").trim();
+  const firstLineIsUrl = /^https?:\/\/\S+$/i.test(firstLine) || /^\/\S+$/.test(firstLine);
+  const fallbackMediaUrl = firstLineIsUrl ? toAbsoluteAssetUrl(firstLine) : "";
+  let mediaKind = normalizedType;
+  if (mediaKind === "text" && fallbackMediaUrl) {
+    if (isLikelyImageUrl(fallbackMediaUrl)) mediaKind = "image";
+    else if (isLikelyVideoUrl(fallbackMediaUrl)) mediaKind = "video";
+    else if (isLikelyAudioUrl(fallbackMediaUrl)) mediaKind = "audio";
+    else if (isLikelyDocumentUrl(fallbackMediaUrl)) mediaKind = "document";
+  }
+
+  const resolvedMediaUrl = explicitMediaUrl || fallbackMediaUrl;
+  const imageUrl = mediaKind === "image" && resolvedMediaUrl ? resolvedMediaUrl : null;
+  const videoUrl = mediaKind === "video" && resolvedMediaUrl ? resolvedMediaUrl : null;
+  const audioUrl = mediaKind === "audio" && resolvedMediaUrl ? resolvedMediaUrl : null;
+  const documentUrl = mediaKind === "document" && resolvedMediaUrl ? resolvedMediaUrl : null;
+
+  if (resolvedMediaUrl && fallbackMediaUrl && firstLine === fallbackMediaUrl.replace(API_PUBLIC_BASE, "")) {
+    text = text.split("\n").slice(1).join("\n").trim();
+  } else if (resolvedMediaUrl && fallbackMediaUrl && firstLineIsUrl) {
+    text = text.split("\n").slice(1).join("\n").trim();
+  }
+
+  const senderPhone =
+    formatInboxPhoneLabel(String(metadata?.senderPhone || metadata?.participantAlt || metadata?.participant || "")) ||
+    null;
+  const senderNameCandidate = normalizeConversationDisplayNameCandidate(
+    metadata?.senderName,
+    String(metadata?.senderPhone || metadata?.participantAlt || metadata?.participant || ""),
+  );
+  const senderName =
+    conversation && isInboxGroupRemoteJid(extractInboxRawContact(conversation))
+      ? senderNameCandidate || senderPhone
+      : null;
+
+  return {
+    kind: mediaKind,
+    imageUrl,
+    videoUrl,
+    audioUrl,
+    documentUrl,
+    fileName: String(metadata?.fileName || "").trim() || null,
+    mimeType: String(metadata?.mimeType || "").trim() || null,
+    fileSize: normalizeInboxFileSize(metadata?.fileSize),
+    durationSeconds: normalizeInboxFileSize(metadata?.durationSeconds),
+    isVoiceNote: Boolean(metadata?.isVoiceNote),
+    quotedText: String(metadata?.quotedPreview || quotedParts.quotedText || "").trim() || null,
+    senderName,
+    senderColor: senderName ? getInboxGroupSenderColor(String(metadata?.senderPhone || senderName || message.id)) : null,
+    text: text || (rawContent ? String(getMessagePreview(message) || "").trim() : String(getMessagePreview(message) || "").trim()),
   };
 }
 
@@ -365,6 +570,13 @@ function getInboxConversationMetadata(
   return metadata as Record<string, unknown>;
 }
 
+function getInboxConversationUnreadCount(conversation?: InboxConversation | null) {
+  const metadata = getInboxConversationMetadata(conversation);
+  const unreadCount = Number(metadata?.whatsappUnreadCount || 0);
+  if (!Number.isFinite(unreadCount) || unreadCount <= 0) return 0;
+  return Math.floor(unreadCount);
+}
+
 function getInboxMergedConversationIds(conversation?: InboxConversation | null) {
   const metadata = getInboxConversationMetadata(conversation);
   const mergedIds = Array.isArray(metadata?.__mergedConversationIds)
@@ -374,6 +586,33 @@ function getInboxMergedConversationIds(conversation?: InboxConversation | null) 
     .map((value) => String(value || "").trim())
     .filter(Boolean);
   return Array.from(new Set(normalized));
+}
+
+function getInboxVendasAgendaQueue(conversation?: InboxConversation | null) {
+  const metadata = getInboxConversationMetadata(conversation);
+  if (
+    !metadata?.vendasAgendaQueue ||
+    typeof metadata.vendasAgendaQueue !== "object" ||
+    Array.isArray(metadata.vendasAgendaQueue)
+  ) {
+    return null;
+  }
+  return metadata.vendasAgendaQueue as VendasAgendaQueueMetadata;
+}
+
+function getInboxVendasAgendaDraft(conversation?: InboxConversation | null) {
+  const queue = getInboxVendasAgendaQueue(conversation);
+  if (!queue?.active || queue.draftPending === false) return null;
+
+  const text = String(queue.draftMessage || "").trim();
+  if (!text) return null;
+
+  return {
+    leadId: String(queue.leadId || "").trim() || null,
+    nextAction: String(queue.nextAction || "").trim() || null,
+    returnAt: String(queue.returnAt || "").trim() || null,
+    text,
+  };
 }
 
 function isInboxGroupRemoteJid(raw: string | null | undefined) {
@@ -406,10 +645,13 @@ function resolveInboxAvatarUrl(conversation?: InboxConversation | null) {
 function resolveInboxConversationDisplayName(conversation?: InboxConversation | null) {
   if (!conversation) return "Cliente";
   const phone = String(conversation.customer?.phone || "").trim();
+  const metadata = getInboxConversationMetadata(conversation);
   const candidates = [
     conversation.customer?.name,
-    conversation.customer?.sharedProfile?.displayName,
-    conversation.recoveryCustomerName,
+    metadata?.whatsappContactName,
+    metadata?.waNickname,
+    metadata?.whatsappName,
+    metadata?.whatsappProfileName,
     phone,
   ];
 
@@ -447,14 +689,18 @@ function getInboxConversationInitials(conversation?: InboxConversation | null) {
 
 function extractInboxRawContact(conversation?: InboxConversation | null) {
   const metadata = getInboxConversationMetadata(conversation);
-  return String(
-    metadata?.whatsappRemoteJidAlt ||
-      metadata?.remoteJidAlt ||
-      metadata?.whatsappRemoteJid ||
-      metadata?.remoteJid ||
-      conversation?.customer?.phone ||
-      "",
-  ).trim();
+  const candidates = [
+    metadata?.whatsappRemoteJid,
+    metadata?.remoteJid,
+    metadata?.whatsappRemoteJidAlt,
+    metadata?.remoteJidAlt,
+    conversation?.customer?.phone,
+  ]
+    .map((value) => String(value || "").trim())
+    .filter(Boolean);
+
+  const nonLid = candidates.find((value) => !value.toLowerCase().includes("@lid"));
+  return nonLid || candidates[0] || "";
 }
 
 function extractInboxContactDigits(raw: string | null | undefined) {
@@ -503,15 +749,6 @@ function isInboxDisplayNameEquivalentToPhone(displayName: string, rawPhone?: str
 function getInboxConversationIdentityAliases(conversation?: InboxConversation | null) {
   if (!conversation) return ["conversation:none"];
   const aliases = new Set<string>();
-  const sharedProfileId = String(conversation.customer?.sharedProfile?.profileId || "").trim();
-  if (sharedProfileId) aliases.add(`shared:${sharedProfileId}`);
-
-  const customerProfileId = String(conversation.customer?.customerProfileId || "").trim();
-  if (customerProfileId) aliases.add(`profile:${customerProfileId}`);
-
-  const recoveryCustomerId = String(conversation.recoveryCustomerId || "").trim();
-  if (recoveryCustomerId) aliases.add(`recovery:${recoveryCustomerId}`);
-
   const rawContact = extractInboxRawContact(conversation);
   const stableRemoteKey = getInboxStableRemoteKey(conversation);
   if (stableRemoteKey) aliases.add(`jid:${stableRemoteKey}`);
@@ -727,6 +964,10 @@ function getInboxConversationSubtitle(conversation?: InboxConversation | null) {
   if (metadata?.whatsappWindowActive === true) {
     return "online";
   }
+  const rawContact = extractInboxRawContact(conversation);
+  if (isInboxGroupRemoteJid(rawContact)) {
+    return "Grupo";
+  }
   const displayName = resolveInboxConversationDisplayName(conversation);
   const formattedPhone = getInboxConversationDisplayPhone(conversation);
 
@@ -853,7 +1094,7 @@ function mergeInboxConversationSummary(
       phone:
         String(detail.customer?.phone || "").trim() ||
         String(summary.customer?.phone || "").trim() ||
-        null,
+        "",
       avatarUrl:
         String(detail.customer?.avatarUrl || "").trim() ||
         String(summary.customer?.avatarUrl || "").trim() ||
@@ -866,6 +1107,33 @@ function mergeInboxConversationSummary(
         ? detail.messages
         : summary.messages,
   };
+}
+
+function markInboxConversationAsSummaryOnly(conversation?: InboxConversation | null) {
+  if (!conversation) return null;
+  const metadata = getInboxConversationMetadata(conversation);
+  return {
+    ...conversation,
+    metadata: {
+      ...(metadata || {}),
+      __summaryOnly: true,
+    },
+    messages: [],
+  } as InboxConversation;
+}
+
+function clearInboxConversationSummaryOnly(conversation?: InboxConversation | null) {
+  if (!conversation) return null;
+  const metadata = { ...(getInboxConversationMetadata(conversation) || {}) };
+  delete metadata.__summaryOnly;
+  return {
+    ...conversation,
+    metadata,
+  } as InboxConversation;
+}
+
+function isInboxConversationSummaryOnly(conversation?: InboxConversation | null) {
+  return Boolean(getInboxConversationMetadata(conversation)?.__summaryOnly);
 }
 
 function areInboxMessageListsEquivalent(
@@ -1107,11 +1375,12 @@ export default function InboxClientPage() {
   const [conversations, setConversations] = useState<InboxConversation[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedConversation, setSelectedConversation] = useState<InboxConversation | null>(null);
+  const [bootstrapReady, setBootstrapReady] = useState(false);
   const [loadingList, setLoadingList] = useState(true);
   const [loadingConversation, setLoadingConversation] = useState(false);
-  const [loadingBot, setLoadingBot] = useState(true);
+  const [loadingBot, setLoadingBot] = useState(false);
   const [savingBot, setSavingBot] = useState(false);
-  const [loadingAgenda, setLoadingAgenda] = useState(true);
+  const [loadingAgenda, setLoadingAgenda] = useState(false);
   const [savingAgenda, setSavingAgenda] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [conversationListError, setConversationListError] = useState<string | null>(null);
@@ -1122,7 +1391,7 @@ export default function InboxClientPage() {
   const [sending, setSending] = useState(false);
   const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
   const [replyingTo, setReplyingTo] = useState<InboxMessage | null>(null);
-  const [imagePreview, setImagePreview] = useState<{ file: File; url: string } | null>(null);
+  const [imagePreview, setImagePreview] = useState<InboxAttachmentPreview | null>(null);
   const [openedImage, setOpenedImage] = useState<{ src: string; alt: string } | null>(null);
   const [agendaStudioOpen, setAgendaStudioOpen] = useState(false);
   const [automationStudioOpen, setAutomationStudioOpen] = useState(false);
@@ -1169,6 +1438,9 @@ export default function InboxClientPage() {
   const conversationsRef = useRef<InboxConversation[]>([]);
   const selectedIdRef = useRef<string | null>(null);
   const selectedConversationRef = useRef<InboxConversation | null>(null);
+  const botConfigLoadedRef = useRef(false);
+  const agendaConfigLoadedRef = useRef(false);
+  const autoFilledAgendaDraftSignatureRef = useRef<string | null>(null);
 
   // Close emoji picker when clicking outside
   useEffect(() => {
@@ -1235,43 +1507,76 @@ export default function InboxClientPage() {
     selectedConversationRef.current = selectedConversation;
   }, [selectedConversation, selectedId]);
 
+  const bootstrapInbox = useCallback(async (options?: { take?: number }) => {
+    const take = Math.max(1, Math.min(50, Number(options?.take || 10) || 10));
+    setBootstrapReady(false);
+    setLoadingList(true);
+    setLoadingConversation(true);
+    setError(null);
+    setConversationListError(null);
+    setConversationDetailError(null);
+    try {
+      const payload = await apiFetch<InboxBootstrapPayload>(`/inbox/bootstrap?take=${take}`);
+      const nextList = normalizeInboxConversationList(
+        Array.isArray(payload?.conversations) ? payload.conversations : [],
+      );
+      const detail = payload?.selectedConversation || null;
+      const preferredId = detail?.id || nextList[0]?.id || null;
+      const summary = preferredId
+        ? nextList.find((conversation) => conversation.id === preferredId) || null
+        : null;
+      const mergedSelected = mergeInboxConversationSummary(summary, detail);
+
+      setConversations(nextList);
+      setSelectedId(mergedSelected?.id || preferredId);
+      setSelectedConversation(mergedSelected);
+      setLastConversationSyncAt(new Date().toISOString());
+      setBootstrapReady(true);
+    } catch (loadError) {
+      const message =
+        loadError instanceof Error ? loadError.message : "Falha ao carregar a inbox.";
+      setConversationListError(message);
+      setError(message);
+    } finally {
+      setLoadingList(false);
+      setLoadingConversation(false);
+    }
+  }, []);
+
   const loadConversation = useCallback(async (id: string, options?: { silent?: boolean }) => {
     const silent = options?.silent ?? false;
     const summary =
       conversationsRef.current.find((conversation) => conversation.id === id) || null;
     const mergedSummary = mergeInboxConversationSummary(
       summary,
-      selectedConversationRef.current?.id === id ? selectedConversationRef.current : null,
+      selectedConversationRef.current?.id === id &&
+        !isInboxConversationSummaryOnly(selectedConversationRef.current)
+        ? selectedConversationRef.current
+        : null,
     );
     setSelectedId(id);
     if (mergedSummary && (!silent || !selectedConversationRef.current)) {
-      setSelectedConversation(mergedSummary);
+      setSelectedConversation(
+        silent && selectedConversationRef.current?.id === id
+          ? mergedSummary
+          : markInboxConversationAsSummaryOnly(mergedSummary),
+      );
     }
     setConversationDetailError(null);
     if (!silent) setLoadingConversation(true);
     try {
-      const mergedIds = getInboxMergedConversationIds(mergedSummary);
-      const targetIds = mergedIds.length > 0 ? mergedIds : [id];
-      const responses = await Promise.all(
-        targetIds.map((conversationId) =>
-          apiFetch<InboxConversation>(`/inbox/conversations/${conversationId}`),
-        ),
-      );
-      const normalizedResponses = normalizeInboxConversationList(
-        responses.filter(Boolean) as InboxConversation[],
-      );
-      const data =
-        normalizedResponses.find((conversation) => conversation.id === id) ||
-        normalizedResponses[0] ||
-        null;
+      const data = await apiFetch<InboxConversation>(`/inbox/conversations/${id}`);
 
       setSelectedConversation((current) =>
-        data && !(silent && !didInboxConversationViewChange(current, data)) ? data : current,
+        data && !(silent && !didInboxConversationViewChange(current, data))
+          ? clearInboxConversationSummaryOnly(data)
+          : current,
       );
       if (data) {
         setSelectedId(data.id);
       }
       setConversationDetailError(null);
+      setBootstrapReady(true);
     } catch (loadError) {
       const message =
         loadError instanceof Error ? loadError.message : "Falha ao carregar conversa.";
@@ -1298,6 +1603,7 @@ export default function InboxClientPage() {
           setConversations(data);
         }
         setConversationListError(null);
+        setBootstrapReady(true);
         if (listChanged || currentList.length === 0) {
           setLastConversationSyncAt(new Date().toISOString());
         }
@@ -1352,7 +1658,7 @@ export default function InboxClientPage() {
                 : current
               : current,
           );
-        } else if (!nextSummary) {
+          } else if (!nextSummary) {
           setSelectedConversation(null);
         }
       } catch (loadError) {
@@ -1369,11 +1675,13 @@ export default function InboxClientPage() {
     [loadConversation],
   );
 
-  const loadBotConfig = useCallback(async () => {
+  const loadBotConfig = useCallback(async (options?: { force?: boolean }) => {
+    if (botConfigLoadedRef.current && !options?.force) return;
     setLoadingBot(true);
     try {
       const data = await apiFetch<AtendimentoBotConfig>("/inbox/bot-config");
       setBotConfig(normalizeBotConfig(data));
+      botConfigLoadedRef.current = true;
     } catch (loadError) {
       const message = loadError instanceof Error ? loadError.message : "Falha ao carregar editor.";
       setError(message);
@@ -1382,11 +1690,13 @@ export default function InboxClientPage() {
     }
   }, []);
 
-  const loadAgendaConfig = useCallback(async () => {
+  const loadAgendaConfig = useCallback(async (options?: { force?: boolean }) => {
+    if (agendaConfigLoadedRef.current && !options?.force) return;
     setLoadingAgenda(true);
     try {
       const data = await apiFetch<AtendimentoAgendaConfig>("/inbox/agenda");
       setAgendaConfig(normalizeAgendaConfig(data));
+      agendaConfigLoadedRef.current = true;
     } catch (loadError) {
       const message = loadError instanceof Error ? loadError.message : "Falha ao carregar agenda.";
       setError(message);
@@ -1415,17 +1725,40 @@ export default function InboxClientPage() {
 
   useEffect(() => {
     if (hasToken === false) return;
-    void loadConversations();
-    return startSmartPolling(() => loadConversations({ silent: true }), {
-      intervalMs: 10000,
-      immediate: false,
-    });
-  }, [hasToken, loadConversations]);
+    let cancelled = false;
+    let stopPolling: (() => void) | undefined;
+
+    void (async () => {
+      await bootstrapInbox({ take: 10 });
+      if (cancelled) return;
+      stopPolling = startSmartPolling(() => loadConversations({ silent: true }), {
+        intervalMs: 10000,
+        immediate: false,
+      });
+    })();
+
+    return () => {
+      cancelled = true;
+      stopPolling?.();
+    };
+  }, [bootstrapInbox, hasToken, loadConversations]);
 
   useEffect(() => {
     if (hasToken === false) return;
-    void Promise.all([loadBotConfig(), loadAgendaConfig(), loadCurrentUser(), loadUserModules()]);
-  }, [hasToken, loadAgendaConfig, loadBotConfig, loadCurrentUser, loadUserModules]);
+    void Promise.all([loadCurrentUser(), loadUserModules()]);
+  }, [hasToken, loadCurrentUser, loadUserModules]);
+
+  useEffect(() => {
+    if (hasToken === false) return;
+    if (!automationStudioOpen && !templatesStudioOpen) return;
+    void loadBotConfig();
+  }, [automationStudioOpen, hasToken, loadBotConfig, templatesStudioOpen]);
+
+  useEffect(() => {
+    if (hasToken === false) return;
+    if (!agendaStudioOpen) return;
+    void loadAgendaConfig();
+  }, [agendaStudioOpen, hasToken, loadAgendaConfig]);
 
   const filteredConversations = useMemo(() => {
     const filtered =
@@ -1455,6 +1788,7 @@ export default function InboxClientPage() {
                   (conversation) =>
                     conversation.status !== "closed" &&
                     !conversation.isBlocked &&
+                    !isAtendimentoAgendaConversation(conversation) &&
                     conversation.status !== "open" &&
                     conversation.botActive !== false,
                 )
@@ -1518,8 +1852,12 @@ export default function InboxClientPage() {
   );
 
   const retryConversationList = useCallback(() => {
+    if (!bootstrapReady && conversationsRef.current.length === 0) {
+      void bootstrapInbox({ take: 10 });
+      return;
+    }
     void loadConversations({ preferredId: selectedIdRef.current });
-  }, [loadConversations]);
+  }, [bootstrapInbox, bootstrapReady, loadConversations]);
 
   const retryConversationDetail = useCallback(() => {
     if (!selectedIdRef.current) return;
@@ -1527,6 +1865,7 @@ export default function InboxClientPage() {
   }, [loadConversation]);
 
   useEffect(() => {
+    if (!bootstrapReady) return;
     if (activeTab !== "messages") return;
 
     const currentConversationId = selectedConversation?.id ?? selectedId ?? null;
@@ -1552,6 +1891,7 @@ export default function InboxClientPage() {
     void loadConversation(fallbackConversation.id);
   }, [
     activeTab,
+    bootstrapReady,
     filteredConversations,
     loadConversation,
     loadingConversation,
@@ -1669,22 +2009,39 @@ export default function InboxClientPage() {
     [userModules],
   );
 
-  const selectedStatus = selectedConversation?.status ?? "new";
-  const selectedBlocked = Boolean(selectedConversation?.isBlocked);
-  const selectedConversationDisplayName = resolveInboxConversationDisplayName(selectedConversation);
-  const selectedConversationStatusMeta = selectedConversation
-    ? getAtendimentoConversationStatusMeta(selectedConversation, hasRecoveryCapability)
+  const conversationForView = useMemo(
+    () => {
+      const summary = selectedId
+        ? conversations.find((conversation) => conversation.id === selectedId) || null
+        : null;
+      if (selectedConversation?.id === selectedId) {
+        return selectedConversation;
+      }
+      return summary;
+    },
+    [conversations, selectedConversation, selectedId],
+  );
+
+  const selectedStatus = conversationForView?.status ?? "new";
+  const selectedBlocked = Boolean(conversationForView?.isBlocked);
+  const selectedConversationDisplayName = resolveInboxConversationDisplayName(conversationForView);
+  const selectedConversationStatusMeta = conversationForView
+    ? getAtendimentoConversationStatusMeta(conversationForView, hasRecoveryCapability)
     : null;
-  const selectedConversationIsAgenda = selectedConversation
-    ? isAtendimentoAgendaConversation(selectedConversation)
+  const selectedConversationIsAgenda = conversationForView
+    ? isAtendimentoAgendaConversation(conversationForView)
     : false;
+  const selectedVendasAgendaDraft = useMemo(
+    () => getInboxVendasAgendaDraft(conversationForView),
+    [conversationForView],
+  );
   const selectedConversationHasRecoveryContext =
-    hasRecoveryCapability && selectedConversation
-      ? hasAtendimentoRecoveryContext(selectedConversation)
+    hasRecoveryCapability && conversationForView
+      ? hasAtendimentoRecoveryContext(conversationForView)
       : false;
   const selectedConversationRecoveryPrimary =
-    hasRecoveryCapability && selectedConversation
-      ? isAtendimentoRecoveryPrimary(selectedConversation)
+    hasRecoveryCapability && conversationForView
+      ? isAtendimentoRecoveryPrimary(conversationForView)
       : false;
 
   useEffect(() => {
@@ -2135,17 +2492,37 @@ export default function InboxClientPage() {
       setError(null);
       try {
         let content = sendText.trim();
-        // If there's an image, upload it first and prepend the URL
+        let uploadedAttachment:
+          | {
+              kind: InboxAttachmentPreview["kind"];
+              url: string;
+              previewUrl: string;
+              mimeType: string;
+              fileName: string;
+              fileSize: number;
+            }
+          | null = null;
         if (imagePreview) {
           const formData = new FormData();
           formData.append("file", imagePreview.file);
-          const mediaResult = await apiFetch<{ url: string }>(`/inbox/conversations/${selectedId}/media`, {
+          const mediaResult = await apiFetch<{
+            url: string;
+            filename: string;
+            mimeType: string;
+            size: number;
+          }>(`/inbox/conversations/${selectedId}/media`, {
             method: "POST",
             body: formData,
           });
+          uploadedAttachment = {
+            kind: imagePreview.kind,
+            url: mediaResult.url,
+            previewUrl: mediaResult.url,
+            mimeType: mediaResult.mimeType,
+            fileName: imagePreview.fileName || mediaResult.filename,
+            fileSize: mediaResult.size,
+          };
           content = content ? `${mediaResult.url}\n${content}` : mediaResult.url;
-          URL.revokeObjectURL(imagePreview.url);
-          setImagePreview(null);
         }
         const data = await apiFetch<InboxConversation>(`/inbox/conversations/${selectedId}/message`, {
           method: "POST",
@@ -2153,8 +2530,18 @@ export default function InboxClientPage() {
             content,
             quotedMessageId: replyingTo?.id,
             quotedContent: replyingTo ? getMessagePreview(replyingTo).slice(0, 200) : undefined,
+            attachmentKind: uploadedAttachment?.kind,
+            attachmentUrl: uploadedAttachment?.url,
+            attachmentPreviewUrl: uploadedAttachment?.previewUrl,
+            attachmentMimeType: uploadedAttachment?.mimeType,
+            attachmentFileName: uploadedAttachment?.fileName,
+            attachmentFileSize: uploadedAttachment?.fileSize,
           }),
         });
+        if (imagePreview) {
+          URL.revokeObjectURL(imagePreview.url);
+          setImagePreview(null);
+        }
         setSendText("");
         setReplyingTo(null);
         setSelectedConversation(data);
@@ -2237,6 +2624,7 @@ export default function InboxClientPage() {
             <ChatQueue className={styles.conversationList}>
               {filteredConversations.map((conversation) => {
                 const active = conversation.id === selectedId;
+                const unreadCount = getInboxConversationUnreadCount(conversation);
                 const statusMeta = getAtendimentoConversationStatusMeta(
                   conversation,
                   hasRecoveryCapability,
@@ -2261,6 +2649,12 @@ export default function InboxClientPage() {
                     subtitle={subtitleLabel}
                     preview={previewLabel}
                     meta={activityAtLabel}
+                    className={[
+                      styles.conversationQueueItem,
+                      unreadCount > 0 && !active ? styles.conversationQueueItemUnread : "",
+                    ]
+                      .filter(Boolean)
+                      .join(" ")}
                   />
                 );
               })}
@@ -2270,9 +2664,7 @@ export default function InboxClientPage() {
       ),
       main: () => (
         <section className={`${styles.workspaceDockPanel} ${styles.inboxMainPanel} ${styles.chatStagePanel}`}>
-          {loadingConversation ? (
-            <ChatEmptyState title="Carregando conversa">Preparando historico e contexto do cliente.</ChatEmptyState>
-          ) : conversationDetailError && selectedId ? (
+          {conversationDetailError && selectedId && !conversationForView ? (
             <ConversationWorkspaceStatus
               title="Falha ao abrir conversa"
               description={conversationDetailError}
@@ -2281,21 +2673,21 @@ export default function InboxClientPage() {
               onRetry={retryConversationDetail}
               retryLabel="Reabrir conversa"
             />
-          ) : !selectedConversation ? (
+          ) : !conversationForView ? (
             <ChatEmptyState title="Nenhuma conversa selecionada">Escolha uma conversa na fila para abrir o chat.</ChatEmptyState>
           ) : (
             <section className={styles.whatsAppConversationShell}>
               <header className={styles.whatsAppConversationHeader}>
                 <div className={styles.whatsAppConversationIdentity}>
                   <ChatAvatar
-                    initials={getInboxConversationInitials(selectedConversation)}
-                    imageUrl={resolveInboxAvatarUrl(selectedConversation)}
+                    initials={getInboxConversationInitials(conversationForView)}
+                    imageUrl={resolveInboxAvatarUrl(conversationForView)}
                     tone={mapAtendimentoConversationToneToQueueTone(selectedConversationStatusMeta?.tone || "bot")}
                   />
                   <div className={styles.whatsAppConversationIdentityText}>
                     <strong>{selectedConversationDisplayName}</strong>
-                    {getInboxConversationSubtitle(selectedConversation) ? (
-                      <span>{getInboxConversationSubtitle(selectedConversation)}</span>
+                    {getInboxConversationSubtitle(conversationForView) ? (
+                      <span>{getInboxConversationSubtitle(conversationForView)}</span>
                     ) : null}
                   </div>
                 </div>
@@ -2326,17 +2718,24 @@ export default function InboxClientPage() {
               </header>
 
               <div ref={chatTimelineRef} className={styles.whatsAppTimeline}>
-                {selectedConversation.messages.length === 0 ? (
+                {loadingConversation || isInboxConversationSummaryOnly(conversationForView) ? (
+                  <ChatEmptyState title="Carregando conversa">Preparando historico do cliente.</ChatEmptyState>
+                ) : conversationForView.messages.length === 0 ? (
                   <ChatEmptyState title="Sem mensagens">Esta conversa ainda nao tem historico registrado.</ChatEmptyState>
                 ) : (
-                  selectedConversation.messages.map((message, index) => {
+                  conversationForView.messages.map((message, index) => {
                     const tone = mapInboxBubbleTone(message);
-                    const rendered = parseInboxMessageMedia(message);
+                    const rendered = parseInboxMessageMedia(message, conversationForView);
                     const previousMessage =
-                      index > 0 ? selectedConversation.messages[index - 1] : null;
+                      index > 0 ? conversationForView.messages[index - 1] : null;
                     const showDayDivider = !previousMessage
                       || !isInboxSameCalendarDay(previousMessage.createdAt, message.createdAt);
                     const isOutbound = tone === "human" || tone === "outbound";
+                    const showGroupSender =
+                      !isOutbound
+                      && tone !== "system"
+                      && isInboxGroupRemoteJid(extractInboxRawContact(conversationForView))
+                      && Boolean(rendered.senderName);
                     return (
                       <div key={message.id} className={styles.whatsAppMessageBlock}>
                         {showDayDivider ? (
@@ -2375,8 +2774,26 @@ export default function InboxClientPage() {
                                   : tone === "system"
                                     ? styles.whatsAppBubbleSystem
                                     : styles.whatsAppBubbleInbound
-                              } ${rendered.imageUrl ? styles.whatsAppBubbleWithMedia : ""}`}
+                              } ${rendered.imageUrl ? styles.whatsAppBubbleWithMedia : ""} ${
+                                rendered.kind !== "text" ? styles.whatsAppBubbleWithAttachment : ""
+                              }`}
                             >
+                              {rendered.quotedText ? (
+                                <div className={styles.whatsAppQuotedSnippet}>
+                                  <span className={styles.whatsAppQuotedSnippetLabel}>Mensagem respondida</span>
+                                  <p className={styles.whatsAppQuotedSnippetText}>
+                                    {formatWhatsAppText(rendered.quotedText)}
+                                  </p>
+                                </div>
+                              ) : null}
+                              {showGroupSender ? (
+                                <span
+                                  className={styles.whatsAppBubbleSender}
+                                  style={rendered.senderColor ? { color: rendered.senderColor } : undefined}
+                                >
+                                  {rendered.senderName}
+                                </span>
+                              ) : null}
                               {rendered.imageUrl ? (
                                 <button
                                   type="button"
@@ -2398,6 +2815,63 @@ export default function InboxClientPage() {
                                     loading="lazy"
                                   />
                                 </button>
+                              ) : null}
+                              {rendered.videoUrl ? (
+                                <video className={styles.whatsAppBubbleVideo} controls preload="metadata">
+                                  <source src={rendered.videoUrl} />
+                                </video>
+                              ) : null}
+                              {rendered.documentUrl || rendered.kind === "document" ? (
+                                rendered.documentUrl ? (
+                                  <a
+                                    href={rendered.documentUrl}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className={styles.whatsAppDocumentCard}
+                                  >
+                                    <span className={styles.whatsAppDocumentIcon}>DOC</span>
+                                    <span className={styles.whatsAppDocumentBody}>
+                                      <strong>{rendered.fileName || "Documento"}</strong>
+                                      <span>
+                                        {[rendered.mimeType, formatInboxFileSizeLabel(rendered.fileSize)]
+                                          .filter(Boolean)
+                                          .join(" • ") || "Abrir documento"}
+                                      </span>
+                                    </span>
+                                  </a>
+                                ) : (
+                                  <div className={styles.whatsAppDocumentCard}>
+                                    <span className={styles.whatsAppDocumentIcon}>DOC</span>
+                                    <span className={styles.whatsAppDocumentBody}>
+                                      <strong>{rendered.fileName || "Documento"}</strong>
+                                      <span>
+                                        {[rendered.mimeType, formatInboxFileSizeLabel(rendered.fileSize)]
+                                          .filter(Boolean)
+                                          .join(" • ") || "Documento recebido"}
+                                      </span>
+                                    </span>
+                                  </div>
+                                )
+                              ) : null}
+                              {rendered.audioUrl || rendered.kind === "audio" ? (
+                                <div className={styles.whatsAppAudioCard}>
+                                  <span className={styles.whatsAppAudioIcon}>
+                                    {rendered.isVoiceNote ? "VOZ" : "AUDIO"}
+                                  </span>
+                                  <div className={styles.whatsAppAudioBody}>
+                                    {rendered.audioUrl ? (
+                                      <audio className={styles.whatsAppAudioPlayer} controls preload="metadata">
+                                        <source src={rendered.audioUrl} />
+                                      </audio>
+                                    ) : (
+                                      <div className={styles.whatsAppAudioWavePlaceholder} />
+                                    )}
+                                    <span className={styles.whatsAppAudioMeta}>
+                                      {rendered.isVoiceNote ? "Mensagem de voz" : "Audio recebido"}
+                                      {rendered.durationSeconds ? ` • ${formatInboxDurationLabel(rendered.durationSeconds)}` : ""}
+                                    </span>
+                                  </div>
+                                </div>
                               ) : null}
                               {rendered.text ? (
                                 <p className={styles.whatsAppBubbleText}>{formatWhatsAppText(rendered.text)}</p>
@@ -2455,8 +2929,25 @@ export default function InboxClientPage() {
                 ) : null}
                 {imagePreview ? (
                   <div className={styles.whatsAppImagePreviewBar}>
-                    <img src={imagePreview.url} alt="preview" className={styles.whatsAppImagePreviewThumb} />
-                    <span className={styles.whatsAppImagePreviewName}>{imagePreview.file.name}</span>
+                    {imagePreview.kind === "image" ? (
+                      <img src={imagePreview.url} alt="preview" className={styles.whatsAppImagePreviewThumb} />
+                    ) : (
+                      <div className={styles.whatsAppAttachmentPreviewIcon}>
+                        {imagePreview.kind === "audio"
+                          ? "AUDIO"
+                          : imagePreview.kind === "video"
+                            ? "VIDEO"
+                            : "DOC"}
+                      </div>
+                    )}
+                    <div className={styles.whatsAppAttachmentPreviewBody}>
+                      <span className={styles.whatsAppImagePreviewName}>{imagePreview.fileName}</span>
+                      <small className={styles.whatsAppAttachmentPreviewMeta}>
+                        {[imagePreview.kind, formatInboxFileSizeLabel(imagePreview.size)]
+                          .filter(Boolean)
+                          .join(" • ")}
+                      </small>
+                    </div>
                     <button
                       type="button"
                       className={styles.whatsAppImagePreviewClose}
@@ -2518,8 +3009,8 @@ export default function InboxClientPage() {
                   <button
                     type="button"
                     className={styles.whatsAppAttachButton}
-                    title="Anexar imagem"
-                    aria-label="Anexar imagem"
+                    title="Anexar arquivo"
+                    aria-label="Anexar arquivo"
                     onMouseDown={(e) => e.preventDefault()}
                     onClick={() => fileInputRef.current?.click()}
                     disabled={selectedBlocked || sending}
@@ -2529,13 +3020,13 @@ export default function InboxClientPage() {
                   <input
                     ref={fileInputRef}
                     type="file"
-                    accept="image/*,video/mp4,application/pdf"
+                    accept="image/*,video/mp4,application/pdf,.doc,.docx,.xls,.xlsx,.csv,.txt,audio/*"
                     style={{ display: "none" }}
                     onChange={(e) => {
                       const file = e.target.files?.[0];
                       if (!file) return;
                       if (imagePreview) URL.revokeObjectURL(imagePreview.url);
-                      setImagePreview({ file, url: URL.createObjectURL(file) });
+                      setImagePreview(createInboxAttachmentPreview(file));
                       e.target.value = "";
                     }}
                   />
@@ -2578,6 +3069,10 @@ export default function InboxClientPage() {
                 {selectedBlocked ? (
                   <small className={styles.whatsAppComposerHint}>
                     Contato bloqueado. Desbloqueie para responder.
+                  </small>
+                ) : selectedVendasAgendaDraft ? (
+                  <small className={styles.whatsAppComposerHint}>
+                    Rascunho herdado do CRM de Vendas. Ele só será enviado quando você clicar em enviar.
                   </small>
                 ) : null}
               </form>
@@ -3210,7 +3705,23 @@ export default function InboxClientPage() {
     });
     setOpenedImage(null);
     setSendText("");
+    autoFilledAgendaDraftSignatureRef.current = null;
   }, [selectedId]);
+
+  useEffect(() => {
+    if (!selectedId || selectedConversation?.id !== selectedId) return;
+
+    const draft = getInboxVendasAgendaDraft(selectedConversation);
+    const signature = draft
+      ? `${selectedId}:${draft.leadId || ""}:${draft.returnAt || ""}:${draft.text}`
+      : `${selectedId}:empty`;
+
+    if (autoFilledAgendaDraftSignatureRef.current === signature) return;
+    autoFilledAgendaDraftSignatureRef.current = signature;
+    if (!draft) return;
+
+    setSendText((current) => (current.trim() ? current : draft.text));
+  }, [selectedConversation, selectedId]);
 
   useEffect(() => {
     if (humanAlertTimerRef.current !== null) {
@@ -3333,137 +3844,7 @@ export default function InboxClientPage() {
           </section>
         ) : null}
 
-        <div className={styles.notificationDock}>
-          {notice ? (
-            expandedAlerts.system_notice ? (
-              <article className={`${styles.notificationCard} ${styles.notificationCardInfo}`}>
-                <div className={styles.notificationHeader}>
-                  <div>
-                    <p className={styles.attentionEyebrow}>Atualizacao do sistema</p>
-                    <strong>{notice.tone === "success" ? "Acao concluida" : "Falha na acao"}</strong>
-                  </div>
-                  <button type="button" className={styles.closePopupButton} onClick={() => setNotice(null)}>
-                    Fechar
-                  </button>
-                </div>
-                <p className={styles.attentionPreview}>{notice.text}</p>
-              </article>
-            ) : (
-              <button
-                type="button"
-                className={`${styles.notificationMinimized} ${styles.notificationMinimizedInfo}`}
-                onClick={() => {
-                  setExpandedAlerts((current) => ({ ...current, system_notice: true }));
-                  scheduleAlertCollapse("system_notice", noticeTimerRef);
-                }}
-              >
-                Atualizacao do sistema
-              </button>
-            )
-          ) : null}
-
-          {humanAttentionPreview && !dismissedAlerts.human_queue ? (
-            expandedAlerts.human_queue ? (
-              <article className={styles.notificationCard}>
-                <div className={styles.notificationHeader}>
-                  <div>
-                    <p className={styles.attentionEyebrow}>{humanQueueLabel}</p>
-                    <p className={styles.notificationModule}>
-                      {humanAttentionPreview.routeTarget === "recovery" ? "Recovery" : "Atendimento"}
-                    </p>
-                    <strong>{resolveInboxConversationDisplayName(humanAttentionPreview)}</strong>
-                    <p className={styles.notificationModule}>
-                      {formatInboxPhoneLabel(extractInboxRawContact(humanAttentionPreview)) || "Contato WhatsApp"}
-                    </p>
-                  </div>
-                  <span className={styles.pulseBadge}>Fila humana</span>
-                </div>
-                <p className={styles.attentionPreview}>{getMessagePreview(humanAttentionPreview.messages?.[0])}</p>
-                <div className={styles.footerActions}>
-                  <button
-                    type="button"
-                    className="btn btn-primary btn-sm"
-                    onClick={() => {
-                      setActiveTab("messages");
-                      setDismissedAlerts((current) => ({ ...current, human_queue: true }));
-                      void loadConversation(humanAttentionPreview.id);
-                    }}
-                  >
-                    Abrir conversa
-                  </button>
-                  <button
-                    type="button"
-                    className="btn btn-secondary btn-sm"
-                    onClick={() => setDismissedAlerts((current) => ({ ...current, human_queue: true }))}
-                  >
-                    Dispensar
-                  </button>
-                </div>
-              </article>
-            ) : (
-              <button
-                type="button"
-                className={`${styles.notificationMinimized} ${styles.notificationUnread}`}
-                onClick={() => {
-                  setExpandedAlerts((current) => ({ ...current, human_queue: true }));
-                  scheduleAlertCollapse("human_queue", humanAlertTimerRef);
-                }}
-              >
-                {humanQueueLabel}
-                <span className={styles.notificationCount}>{humanAttentionConversations.length}</span>
-              </button>
-            )
-          ) : null}
-
-          {newInboundPreview && !dismissedAlerts.new_message ? (
-            expandedAlerts.new_message ? (
-              <article className={styles.notificationCard}>
-                <div className={styles.notificationHeader}>
-                  <div>
-                    <p className={styles.attentionEyebrow}>Nova mensagem no Atendimento</p>
-                    <strong>{resolveInboxConversationDisplayName(newInboundPreview)}</strong>
-                    <p className={styles.notificationModule}>
-                      {formatInboxPhoneLabel(extractInboxRawContact(newInboundPreview)) || "Contato WhatsApp"}
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    className={styles.closePopupButton}
-                    onClick={() => setDismissedAlerts((current) => ({ ...current, new_message: true }))}
-                  >
-                    Fechar
-                  </button>
-                </div>
-                <p className={styles.attentionPreview}>{getMessagePreview(newInboundPreview.messages?.[0])}</p>
-                <div className={styles.footerActions}>
-                  <button
-                    type="button"
-                    className="btn btn-primary btn-sm"
-                    onClick={() => {
-                      setActiveTab("messages");
-                      setDismissedAlerts((current) => ({ ...current, new_message: true }));
-                      void loadConversation(newInboundPreview.id);
-                    }}
-                  >
-                    Abrir fila agora
-                  </button>
-                </div>
-              </article>
-            ) : (
-              <button
-                type="button"
-                className={`${styles.notificationMinimized} ${styles.notificationUnread}`}
-                onClick={() => {
-                  setExpandedAlerts((current) => ({ ...current, new_message: true }));
-                  scheduleAlertCollapse("new_message", newAlertTimerRef);
-                }}
-              >
-                Nova mensagem no Atendimento
-                <span className={styles.notificationCount}>{newInboundConversations.length}</span>
-              </button>
-            )
-          ) : null}
-        </div>
+        {/* Notifications removed: system updates and inbox/message alerts hidden per user request. */}
       </DashboardScaffold>
 
       {agendaStudioOpen ? (
