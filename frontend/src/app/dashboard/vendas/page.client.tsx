@@ -14,6 +14,7 @@ import {
 } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
 import { useDeferredValue, useEffect, useMemo, useRef, useState, useCallback, type CSSProperties, type FormEvent, type ReactNode } from "react";
+import { useRouter } from "next/navigation";
 import DashboardScaffold from "@/components/DashboardScaffold";
 import { apiFetch } from "../_lib/api";
 import { useRequireAuth } from "../_lib/useRequireAuth";
@@ -393,6 +394,8 @@ function DateDropSlot({
     register(node);
   };
 
+  const router = useRouter();
+
   const rawSubtitle = String(item.subtitle || "").trim();
   let showSubtitle = Boolean(rawSubtitle);
   try {
@@ -419,8 +422,9 @@ function DateDropSlot({
   }
 
   return (
-    <button
-      type="button"
+    <div
+      role="button"
+      tabIndex={0}
       className={styles.dateFilterCard}
       data-active={active ? "true" : "false"}
       data-tone={item.blockKey}
@@ -431,6 +435,13 @@ function DateDropSlot({
         if (ignoreClick()) return;
         onSelect();
       }}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          if (ignoreClick()) return;
+          onSelect();
+        }
+      }}
       ref={setCombinedRef}
       {...attributes}
       {...listeners}
@@ -438,9 +449,33 @@ function DateDropSlot({
       <span className={styles.dateFilterDay}>{item.dayLabel}</span>
       <strong>{item.title}</strong>
       {showSubtitle ? <span>{item.subtitle}</span> : null}
+
+      {item.blockKey === "today" ? (
+        <button
+          type="button"
+          className={styles.atendimentoShortcut}
+          onClick={(e) => {
+            e.stopPropagation();
+            e.preventDefault();
+            // Navega internamente para a inbox e abre o estúdio de automação (Fluxo)
+            try {
+              router.push("/dashboard/inbox?atendimentoTab=automation");
+            } catch {
+              // fallback silencioso
+            }
+          }}
+          title="Abrir Atendimento"
+          aria-label="Abrir Atendimento"
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </button>
+      ) : null}
+
       <AnimatedCount value={item.count} />
       <span className={styles.receiveHint}>Solte aqui</span>
-    </button>
+    </div>
   );
 }
 

@@ -1,122 +1,141 @@
 .filterBar {
-  display: grid;
-  gap: 0.4rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: stretch;
   width: 100%;
   min-width: 0;
-  max-width: 100%;
-  padding: 0.08rem 0 0;
 }
 
-.primaryRow {
+.queueCard {
   position: relative;
-  display: inline-grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0.22rem;
-  align-items: center;
-  width: min(100%, 360px);
-  max-width: 100%;
-  padding: 0.2rem;
+  flex: 1 1 110px;
+  min-width: 110px;
+  max-width: 170px;
+  display: grid;
+  gap: 0.18rem;
+  align-content: center;
+  justify-items: center;
+  text-align: center;
+  padding: 0.58rem 0.58rem 0.68rem;
   border-radius: 18px;
-  border: 1px solid color-mix(in srgb, var(--line) 84%, var(--background));
+  border: 1px solid color-mix(in srgb, var(--line) 70%, var(--background));
   background:
-    linear-gradient(180deg, color-mix(in srgb, var(--surface) 42%, var(--background)), color-mix(in srgb, var(--surface) 24%, var(--background))),
-    color-mix(in srgb, var(--surface-raised) 88%, var(--background));
-  backdrop-filter: blur(20px) saturate(180%);
-  overflow: hidden;
-}
-
-.secondaryRow {
-  position: relative;
-  display: inline-grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 0.2rem;
-  align-items: center;
-  width: min(100%, 480px);
-  padding: 0.16rem;
-  border-radius: 18px;
-  border: 1px solid color-mix(in srgb, var(--line) 84%, var(--background));
-  background:
-    linear-gradient(180deg, color-mix(in srgb, var(--surface) 32%, var(--background)), color-mix(in srgb, var(--surface) 16%, var(--background))),
-    color-mix(in srgb, var(--surface) 96%, var(--background));
-  backdrop-filter: blur(18px) saturate(170%);
-  overflow: hidden;
-}
-
-.primaryHighlight,
-.secondaryHighlight {
-  position: absolute;
-  top: 0.18rem;
-  bottom: 0.18rem;
-  width: calc((100% - 0.36rem) / var(--segment-count));
-  transform: translateX(calc(var(--segment-index) * 100%));
-  border-radius: 14px;
-  border: 1px solid color-mix(in srgb, var(--surface) 48%, var(--background));
-  background:
-    radial-gradient(circle at top left, color-mix(in srgb, var(--surface) 70%, var(--background)), transparent 44%),
-    linear-gradient(180deg, color-mix(in srgb, var(--surface) 54%, var(--background)), color-mix(in srgb, var(--surface) 18%, var(--background)));
+    radial-gradient(circle at top right, color-mix(in srgb, var(--brand) 9%, transparent), transparent 36%),
+    linear-gradient(180deg, color-mix(in srgb, var(--surface) 96%, var(--background)), color-mix(in srgb, var(--surface-soft) 95%, var(--background)));
   box-shadow:
-    inset 0 1px 0 color-mix(in srgb, var(--surface) 94%, var(--background)),
-    0 8px 22px rgba(15, 23, 42, 0.08);
-  transition: transform var(--motion-base);
-  pointer-events: none;
-}
-
-.primaryButton,
-.primaryButtonActive,
-.secondaryButton,
-.secondaryButtonActive {
-  position: relative;
-  z-index: 1;
-  min-height: 29px;
-  flex: 0 0 auto;
-  max-width: 100%;
-  padding: 0.3rem 0.66rem;
-  border: none;
-  border-radius: 12px;
-  background: transparent;
-  color: var(--muted);
-  font-size: 0.7rem;
-  font-weight: 800;
-  letter-spacing: 0.01em;
-  white-space: nowrap;
+    0 10px 18px -14px rgba(15, 23, 42, 0.24),
+    inset 0 1px 0 color-mix(in srgb, var(--surface) 95%, var(--background));
   transition:
-    background-color var(--motion-fast),
-    color var(--motion-fast),
+    transform var(--motion-fast),
     box-shadow var(--motion-fast),
-    transform var(--motion-fast);
+    border-color var(--motion-fast),
+    background-color var(--motion-fast);
 }
 
-.primaryButton:hover,
-.primaryButtonActive:hover,
-.secondaryButton:hover,
-.secondaryButtonActive:hover {
-  transform: translateY(-1px);
+.queueCard:hover {
+  transform: translateY(-2px);
 }
 
-.primaryButtonActive {
-  color: var(--foreground);
+.queueCard[data-active="true"] {
+  border-color: color-mix(in srgb, var(--brand) 54%, var(--line));
+  box-shadow:
+    0 24px 36px -26px color-mix(in srgb, var(--brand) 22%, transparent),
+    0 0 0 2px color-mix(in srgb, var(--brand) 24%, transparent);
 }
 
-.primaryButton {
-  color: color-mix(in srgb, var(--foreground) 88%, var(--muted));
+.queueCard[data-dropover="true"] {
+  transform: translateY(-3px) scale(1.03);
+  border-color: color-mix(in srgb, var(--brand) 72%, var(--line));
+  box-shadow:
+    0 32px 44px -28px color-mix(in srgb, var(--brand) 32%, transparent),
+    0 0 0 3px color-mix(in srgb, var(--brand) 28%, transparent);
 }
 
-.secondaryButton,
-.secondaryButtonActive {
-  min-height: 28px;
-  padding: 0.18rem 0.54rem;
-  border-radius: 14px;
-  border: none;
-  font-size: 0.66rem;
+.queueCard[data-tone="recovery"][data-dropover="true"] {
+  border-color: color-mix(in srgb, var(--warning) 72%, var(--line));
 }
 
-.secondaryButtonActive {
-  color: color-mix(in srgb, var(--foreground) 92%, var(--brand));
+.queueCard[data-tone="scheduled"][data-dropover="true"] {
+  border-color: color-mix(in srgb, var(--info) 70%, var(--line));
+}
+
+.queueCard[data-tone="bot"][data-dropover="true"] {
+  border-color: color-mix(in srgb, var(--success) 68%, var(--line));
+}
+
+.queueCard[data-tone="archived"][data-dropover="true"] {
+  border-color: color-mix(in srgb, var(--muted) 64%, var(--line));
+}
+
+.queueTitle {
+  font-size: 0.76rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  color: color-mix(in srgb, var(--foreground) 90%, var(--muted));
+  text-transform: none;
+}
+
+.queueCount {
+  font-size: 1.55rem;
+  line-height: 1;
+  color: color-mix(in srgb, var(--foreground) 95%, var(--brand));
+}
+
+@keyframes odometer-rush {
+  0% {
+    filter: blur(0);
+    transform: translateY(0) scale(1);
+    opacity: 1;
+  }
+
+  26% {
+    filter: blur(1.3px);
+    transform: translateY(-3px) scale(1.03);
+    opacity: 0.78;
+  }
+
+  68% {
+    filter: blur(0.8px);
+    transform: translateY(1px) scale(0.995);
+    opacity: 0.92;
+  }
+
+  100% {
+    filter: blur(0);
+    transform: translateY(0) scale(1);
+    opacity: 1;
+  }
+}
+
+.queueCount[data-rolling="true"] {
+  animation: odometer-rush 280ms cubic-bezier(0.22, 1, 0.36, 1) 1;
+  color: color-mix(in srgb, var(--brand) 96%, var(--foreground));
+  text-shadow: 0 0 14px color-mix(in srgb, var(--brand) 30%, transparent);
+}
+
+.receiveHint {
+  position: absolute;
+  left: 50%;
+  bottom: 0.34rem;
+  transform: translateX(-50%) translateY(6px);
+  opacity: 0;
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  color: color-mix(in srgb, var(--brand) 90%, var(--foreground));
+  transition: opacity var(--motion-fast), transform var(--motion-fast);
+}
+
+.queueCard[data-dropover="true"] .receiveHint {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
 }
 
 @media (max-width: 720px) {
-  .primaryRow,
-  .secondaryRow {
-    width: 100%;
+  .queueCard {
+    flex-basis: calc(50% - 0.4rem);
+    min-width: 0;
+    max-width: none;
   }
 }

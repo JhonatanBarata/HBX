@@ -131,6 +131,16 @@
   box-shadow: var(--shadow-inset), var(--shadow-xs);
 }
 
+.robotDecoration {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  margin-left: 0.4rem;
+  color: #128c7e;
+}
+
 .inboxMainPanel {
   padding: 0.36rem;
   border-color: #202c33;
@@ -139,6 +149,8 @@
 }
 
 .whatsAppConversationShell {
+  position: relative;
+  isolation: isolate;
   min-height: 0;
   height: 100%;
   display: grid;
@@ -147,6 +159,101 @@
   border-radius: 14px;
   border: 1px solid #202c33;
   background: #0b141a;
+}
+
+.whatsAppConversationShellTransition {
+  animation: inbox-conversation-enter var(--motion-base) both;
+}
+
+.whatsAppConversationShellLoading {
+  transition:
+    transform var(--motion-base),
+    filter var(--motion-base),
+    opacity var(--motion-base);
+}
+
+.whatsAppConversationLoadingMask {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 1rem;
+  pointer-events: none;
+  background:
+    linear-gradient(180deg, rgba(11, 20, 26, 0.42), rgba(11, 20, 26, 0.08) 28%, rgba(11, 20, 26, 0));
+  animation: inbox-stage-mask-in var(--motion-base) both;
+}
+
+.whatsAppConversationLoadingChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-height: 32px;
+  padding: 0.36rem 0.78rem;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, #25d366 28%, #202c33);
+  background: color-mix(in srgb, #111b21 86%, rgba(255, 255, 255, 0.08));
+  box-shadow:
+    0 18px 36px -24px rgba(0, 0, 0, 0.55),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  color: #dffaf0;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.whatsAppConversationLoadingChip::before {
+  content: "";
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 999px;
+  background: #25d366;
+  box-shadow: 0 0 0 0 rgba(37, 211, 102, 0.4);
+  animation: inbox-stage-chip-pulse 1s ease-in-out infinite;
+}
+
+@keyframes inbox-conversation-enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.994);
+    filter: saturate(0.96);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    filter: saturate(1);
+  }
+}
+
+@keyframes inbox-stage-mask-in {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes inbox-stage-chip-pulse {
+  0% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgba(37, 211, 102, 0.38);
+  }
+
+  70% {
+    transform: scale(1.06);
+    box-shadow: 0 0 0 10px rgba(37, 211, 102, 0);
+  }
+
+  100% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgba(37, 211, 102, 0);
+  }
 }
 
 .chatStagePanel > .whatsAppConversationShell {
@@ -1577,8 +1684,12 @@
 }
 
 .quickActionsGrid {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.72rem;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.52rem;
+}
+
+.quickActionsGrid > * {
+  min-width: 0;
 }
 
 .automationShell {

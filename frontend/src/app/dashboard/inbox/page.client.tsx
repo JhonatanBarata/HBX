@@ -7,6 +7,7 @@ import {
   useRef,
   useState,
   type FormEvent,
+  type CSSProperties,
 } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
@@ -23,7 +24,9 @@ import DashboardScaffold from "@/components/DashboardScaffold";
 import ConversationActionList from "@/components/workspace/ConversationActionList";
 import ConversationContextPanel from "@/components/workspace/ConversationContextPanel";
 import ConversationListPane from "@/components/workspace/ConversationListPane";
-import ConversationQueueFilterBar from "@/components/workspace/ConversationQueueFilterBar";
+import ConversationQueueFilterBar, {
+  type ConversationQueueFilterValue,
+} from "@/components/workspace/ConversationQueueFilterBar";
 import WorkspaceSegmentedControl from "@/components/workspace/WorkspaceSegmentedControl";
 import ConversationWorkspaceStatus from "@/components/workspace/ConversationWorkspaceStatus";
 import {
@@ -72,7 +75,7 @@ import {
 import styles from "./page.module.css";
 
 type InboxTab = "messages" | "automation";
-type InboxQueue = "all" | "recovery" | "scheduled" | "bot" | "closed";
+type InboxQueue = "all" | "groups" | "recovery" | "scheduled" | "bot" | "archived";
 type ContextTab = "conversa" | "financeiro" | "agenda";
 type AtendimentoSection = "conversa" | "financeiro" | "agenda" | "automacao";
 type StatusFilter = "all" | "new" | "open" | "closed" | "blocked";
@@ -150,6 +153,17 @@ type VendasAgendaQueueMetadata = {
   lastManualSendAt?: string | null;
 };
 
+const INBOX_QUEUE_ORDER: InboxQueue[] = [
+  "all",
+  "archived",
+  "groups",
+  "recovery",
+  "scheduled",
+  "bot",
+];
+
+const INBOX_MANUAL_QUEUE_STORAGE_KEY = "hbx:inbox:manual-queue-overrides";
+
 const ATENDIMENTO_PENDING_STORAGE_KEY = "atendimentoPendingHumanCount";
 const DEFAULT_META_TEMPLATES_PAYLOAD: RecoveryMetaTemplatesPayload = {
   phoneNumberId: null,
@@ -209,16 +223,18 @@ function normalizeInboxTab(value: string | null | undefined): InboxTab | null {
 
 function getInboxQueueLabel(queue: InboxQueue) {
   switch (queue) {
+    case "groups":
+      return "Grupos";
     case "recovery":
       return "Chat • Recovery";
     case "scheduled":
       return "Chat • Agendamento";
     case "bot":
       return "Chat • BOT";
-    case "closed":
-      return "Encerrados";
+    case "archived":
+      return "Arquivados";
     default:
-      return "Chat";
+      return "Conversas";
   }
 }
 
@@ -568,6 +584,87 @@ function getInboxConversationMetadata(
     return null;
   }
   return metadata as Record<string, unknown>;
+}
+
+function parseInboxBooleanFlag(raw: unknown) {
+  if (typeof raw === "boolean") return raw;
+  if (typeof raw === "number") return raw !== 0;
+  const normalized = String(raw || "").trim().toLowerCase();
+  if (!normalized) return false;
+  return normalized === "true" || normalized === "1" || normalized === "yes" || normalized === "sim";
+}
+
+function isInboxConversationArchived(conversation?: InboxConversation | null) {
+  const metadata = getInboxConversationMetadata(conversation);
+  if (!metadata) return false;
+  return [
+    metadata.whatsappArchived,
+    metadata.chatArchived,
+    metadata.isArchived,
+    metadata.archived,
+    metadata.whatsappChatArchived,
+  ].some((value) => parseInboxBooleanFlag(value));
+}
+
+function parseInboxDateOnlyKey(value: string) {
+  const normalized = String(value || "").trim();
+  if (!normalized) return null;
+  const match = normalized.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return null;
+  const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]), 0, 0, 0, 0);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function normalizeInboxComparableDate(value: unknown) {
+  const asDateOnly = parseInboxDateOnlyKey(String(value || ""));
+  if (asDateOnly) return asDateOnly;
+  const parsed = new Date(String(value || ""));
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function isSameInboxCalendarDay(left: Date, right: Date) {
+  return (
+    left.getFullYear() === right.getFullYear() &&
+    left.getMonth() === right.getMonth() &&
+    left.getDate() === right.getDate()
+  );
+}
+
+function isInboxWebscrapingToday(conversation?: InboxConversation | null) {
+  if (!conversation) return false;
+  const metadata = getInboxConversationMetadata(conversation);
+  const sourceCandidates = [
+    conversation.latestSourceModule,
+    metadata?.latestSourceModule,
+    metadata?.sourceModule,
+    metadata?.originFlow,
+  ]
+    .map((value) => String(value || "").trim().toLowerCase())
+    .filter(Boolean);
+
+  const fromWebscraping = sourceCandidates.some((value) => value.includes("webscraping"));
+  if (!fromWebscraping) return false;
+
+  const activityAt = normalizeInboxComparableDate(getInboxConversationActivityAt(conversation));
+  if (!activityAt) return false;
+  return isSameInboxCalendarDay(activityAt, new Date());
+}
+
+function getInboxConversationQueue(
+  conversation: InboxConversation,
+  manualQueueOverrides?: Record<string, InboxQueue>,
+): InboxQueue {
+  const manualQueue = manualQueueOverrides?.[String(conversation.id)];
+  if (manualQueue && INBOX_QUEUE_ORDER.includes(manualQueue)) {
+    return manualQueue;
+  }
+
+  if (isInboxConversationArchived(conversation)) return "archived";
+  if (isInboxGroupRemoteJid(extractInboxRawContact(conversation))) return "groups";
+  if (conversation.botActive === true && !conversation.humanAssigned) return "bot";
+  if (Number(conversation.recoveryOpenAmount || 0) > 0) return "recovery";
+  if (isInboxWebscrapingToday(conversation)) return "scheduled";
+  return "all";
 }
 
 function getInboxConversationUnreadCount(conversation?: InboxConversation | null) {
@@ -1372,6 +1469,9 @@ export default function InboxClientPage() {
   const [mounted, setMounted] = useState(false);
   const [activeTab, setActiveTab] = useState<InboxTab>(requestedTab);
   const [inboxQueue, setInboxQueue] = useState<InboxQueue>("all");
+  const [manualQueueOverrides, setManualQueueOverrides] = useState<Record<string, InboxQueue>>({});
+  const [draggedConversationId, setDraggedConversationId] = useState<string | null>(null);
+  const [dropOverQueue, setDropOverQueue] = useState<InboxQueue | null>(null);
   const [conversations, setConversations] = useState<InboxConversation[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedConversation, setSelectedConversation] = useState<InboxConversation | null>(null);
@@ -1438,9 +1538,15 @@ export default function InboxClientPage() {
   const conversationsRef = useRef<InboxConversation[]>([]);
   const selectedIdRef = useRef<string | null>(null);
   const selectedConversationRef = useRef<InboxConversation | null>(null);
+  const conversationLoadTokenRef = useRef(0);
   const botConfigLoadedRef = useRef(false);
   const agendaConfigLoadedRef = useRef(false);
   const autoFilledAgendaDraftSignatureRef = useRef<string | null>(null);
+  const lastSectionChangeRef = useRef<{ section: AtendimentoSection | null; at: number }>({
+    section: null,
+    at: 0,
+  });
+  const skipAutomationAutoOpenRef = useRef(false);
 
   // Close emoji picker when clicking outside
   useEffect(() => {
@@ -1471,6 +1577,12 @@ export default function InboxClientPage() {
   }, [openedImage]);
 
   useEffect(() => {
+    if (skipAutomationAutoOpenRef.current) {
+      const timer = window.setTimeout(() => {
+        skipAutomationAutoOpenRef.current = false;
+      }, 50);
+      return () => window.clearTimeout(timer);
+    }
     if (requestedTab !== "automation" || automationStudioOpen) return;
     setAutomationStudioOpen(true);
     setAgendaStudioOpen(false);
@@ -1481,6 +1593,27 @@ export default function InboxClientPage() {
   useEffect(() => {
     setMounted(true);
   }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const raw = window.localStorage.getItem(INBOX_MANUAL_QUEUE_STORAGE_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as Record<string, InboxQueue>;
+      if (!parsed || typeof parsed !== "object") return;
+      const nextEntries = Object.entries(parsed).filter(
+        ([, queue]) => typeof queue === "string" && INBOX_QUEUE_ORDER.includes(queue),
+      );
+      setManualQueueOverrides(Object.fromEntries(nextEntries));
+    } catch {
+      // ignore persisted parse errors
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(INBOX_MANUAL_QUEUE_STORAGE_KEY, JSON.stringify(manualQueueOverrides));
+  }, [manualQueueOverrides]);
 
   useEffect(() => {
     if (!agendaStudioOpen && !automationStudioOpen && !templatesStudioOpen) return;
@@ -1544,6 +1677,7 @@ export default function InboxClientPage() {
   }, []);
 
   const loadConversation = useCallback(async (id: string, options?: { silent?: boolean }) => {
+    const requestToken = ++conversationLoadTokenRef.current;
     const silent = options?.silent ?? false;
     const summary =
       conversationsRef.current.find((conversation) => conversation.id === id) || null;
@@ -1554,18 +1688,27 @@ export default function InboxClientPage() {
         ? selectedConversationRef.current
         : null,
     );
+    const currentDetailedConversation =
+      selectedConversationRef.current &&
+      !isInboxConversationSummaryOnly(selectedConversationRef.current)
+        ? selectedConversationRef.current
+        : null;
     setSelectedId(id);
     if (mergedSummary && (!silent || !selectedConversationRef.current)) {
-      setSelectedConversation(
-        silent && selectedConversationRef.current?.id === id
-          ? mergedSummary
-          : markInboxConversationAsSummaryOnly(mergedSummary),
-      );
+      if (silent && selectedConversationRef.current?.id === id) {
+        setSelectedConversation(mergedSummary);
+      } else if (!currentDetailedConversation || currentDetailedConversation.id === id) {
+        setSelectedConversation(markInboxConversationAsSummaryOnly(mergedSummary));
+      }
     }
     setConversationDetailError(null);
     if (!silent) setLoadingConversation(true);
     try {
       const data = await apiFetch<InboxConversation>(`/inbox/conversations/${id}`);
+
+      if (requestToken !== conversationLoadTokenRef.current) {
+        return;
+      }
 
       setSelectedConversation((current) =>
         data && !(silent && !didInboxConversationViewChange(current, data))
@@ -1578,12 +1721,17 @@ export default function InboxClientPage() {
       setConversationDetailError(null);
       setBootstrapReady(true);
     } catch (loadError) {
+      if (requestToken !== conversationLoadTokenRef.current) {
+        return;
+      }
       const message =
         loadError instanceof Error ? loadError.message : "Falha ao carregar conversa.";
       setConversationDetailError(message);
       setError(message);
     } finally {
-      if (!silent) setLoadingConversation(false);
+      if (!silent && requestToken === conversationLoadTokenRef.current) {
+        setLoadingConversation(false);
+      }
     }
   }, []);
 
@@ -1760,44 +1908,38 @@ export default function InboxClientPage() {
     void loadAgendaConfig();
   }, [agendaStudioOpen, hasToken, loadAgendaConfig]);
 
+  const queueByConversationId = useMemo(() => {
+    const entries = conversations.map((conversation) => [
+      conversation.id,
+      getInboxConversationQueue(conversation, manualQueueOverrides),
+    ] as const);
+    return Object.fromEntries(entries) as Record<string, InboxQueue>;
+  }, [conversations, manualQueueOverrides]);
+
+  const queueCounts = useMemo(() => {
+    const base: Record<InboxQueue, number> = {
+      all: 0,
+      archived: 0,
+      groups: 0,
+      recovery: 0,
+      scheduled: 0,
+      bot: 0,
+    };
+    for (const conversation of conversations) {
+      const queue = queueByConversationId[conversation.id] || "all";
+      base[queue] += 1;
+    }
+    return base;
+  }, [conversations, queueByConversationId]);
+
   const filteredConversations = useMemo(() => {
-    const filtered =
-      inboxQueue === "closed"
-        ? conversations.filter(
-            (conversation) =>
-              conversation.status === "closed" ||
-              conversation.status === "blocked" ||
-              conversation.isBlocked,
-          )
-        : inboxQueue === "recovery"
-          ? conversations.filter(
-              (conversation) =>
-                conversation.status !== "closed" &&
-                !conversation.isBlocked &&
-                hasAtendimentoRecoveryContext(conversation),
-            )
-          : inboxQueue === "scheduled"
-            ? conversations.filter(
-                (conversation) =>
-                  conversation.status !== "closed" &&
-                  !conversation.isBlocked &&
-                  isAtendimentoAgendaConversation(conversation),
-              )
-            : inboxQueue === "bot"
-              ? conversations.filter(
-                  (conversation) =>
-                    conversation.status !== "closed" &&
-                    !conversation.isBlocked &&
-                    !isAtendimentoAgendaConversation(conversation) &&
-                    conversation.status !== "open" &&
-                    conversation.botActive !== false,
-                )
-              : conversations.filter(
-                  (conversation) => conversation.status !== "closed" && !conversation.isBlocked,
-                );
+    const filtered = conversations.filter((conversation) => {
+      const queue = queueByConversationId[conversation.id] || "all";
+      return queue === inboxQueue;
+    });
 
     return sortInboxConversationsByActivity(filtered);
-  }, [conversations, inboxQueue]);
+  }, [conversations, inboxQueue, queueByConversationId]);
 
   const inboxQueueDiagnostics = useMemo(
     () => [
@@ -2017,9 +2159,23 @@ export default function InboxClientPage() {
       if (selectedConversation?.id === selectedId) {
         return selectedConversation;
       }
+      if (
+        loadingConversation &&
+        selectedConversation &&
+        !isInboxConversationSummaryOnly(selectedConversation)
+      ) {
+        return selectedConversation;
+      }
       return summary;
     },
-    [conversations, selectedConversation, selectedId],
+    [conversations, loadingConversation, selectedConversation, selectedId],
+  );
+
+  const isConversationStageSwitching = Boolean(
+    loadingConversation &&
+      selectedId &&
+      conversationForView &&
+      conversationForView.id !== selectedId,
   );
 
   const selectedStatus = conversationForView?.status ?? "new";
@@ -2065,7 +2221,7 @@ export default function InboxClientPage() {
   const humanQueueLabel = `${humanAttentionConversations.length} mensagem${
     humanAttentionConversations.length === 1 ? "" : "s"
   }`;
-  const queueListTitle = inboxQueue === "closed" ? "Encerradas" : "Chat";
+  const queueListTitle = getInboxQueueLabel(inboxQueue);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -2171,6 +2327,12 @@ export default function InboxClientPage() {
   ]);
 
   const handleSectionChange = useCallback((nextSection: AtendimentoSection) => {
+    const now = Date.now();
+    if (lastSectionChangeRef.current.section === nextSection && now - lastSectionChangeRef.current.at < 400) {
+      return;
+    }
+    lastSectionChangeRef.current = { section: nextSection, at: now };
+
     const params = new URLSearchParams(searchParams?.toString() || "");
     if (nextSection === "automacao") {
       setActiveTab("messages");
@@ -2250,12 +2412,18 @@ export default function InboxClientPage() {
   }, [loadMetaTemplates]);
 
   const closeAutomationExperience = useCallback(() => {
+    // Prevent the auto-open effect from re-opening the studio while we navigate
+    skipAutomationAutoOpenRef.current = true;
     setAutomationStudioOpen(false);
     setTemplatesStudioOpen(false);
     const params = new URLSearchParams(searchParams?.toString() || "");
     params.delete("atendimentoTab");
     const nextUrl = params.toString() ? `${pathname}?${params.toString()}` : pathname;
     router.replace(nextUrl, { scroll: false });
+    // Ensure the skip flag is cleared after a short delay in case navigation is async
+    window.setTimeout(() => {
+      skipAutomationAutoOpenRef.current = false;
+    }, 200);
   }, [pathname, router, searchParams]);
 
   const editMetaTemplate = useCallback((template: RecoveryMetaTemplateItem) => {
@@ -2422,28 +2590,6 @@ export default function InboxClientPage() {
     [loadConversations, selectedId],
   );
 
-  const toggleSelectedBot = useCallback(async () => {
-    if (!selectedConversation || !selectedId) return;
-    if (selectedConversation.isBlocked) {
-      setNotice({
-        tone: "error",
-        text: "Desbloqueie a conversa antes de alternar o BOT.",
-      });
-      return;
-    }
-
-    const nextStatus: Exclude<StatusFilter, "all" | "blocked"> =
-      selectedConversation.botActive === false || selectedConversation.humanAssigned
-        ? "new"
-        : "open";
-
-    await updateStatus(nextStatus);
-    setNotice({
-      tone: "success",
-      text: nextStatus === "new" ? "BOT ativado para esta conversa." : "BOT pausado nesta conversa.",
-    });
-  }, [selectedConversation, selectedId, updateStatus]);
-
   const bulkSetBotForVisible = useCallback(
     async (enabled: boolean) => {
       if (!filteredConversations || !filteredConversations.length) return;
@@ -2455,7 +2601,20 @@ export default function InboxClientPage() {
           method: "PATCH",
           body: JSON.stringify({ ids, enabled }),
         });
-        setNotice({ tone: "success", text: enabled ? "BOT ativado para conversas visíveis." : "BOT pausado para conversas visíveis." });
+        const affectedIds = filteredConversations.map((conversation) => String(conversation.id));
+        setManualQueueOverrides((current) => {
+          const next = { ...current };
+          for (const conversationId of affectedIds) {
+            next[conversationId] = enabled ? "bot" : "all";
+          }
+          return next;
+        });
+        setNotice({
+          tone: "success",
+          text: enabled
+            ? "BOT ativado para todas as conversas da fila atual."
+            : "BOT pausado para todas as conversas da fila atual.",
+        });
         await loadConversations({ silent: true });
       } catch (err) {
         setError(err instanceof Error ? err.message : "Falha ao atualizar conversas.");
@@ -2464,6 +2623,45 @@ export default function InboxClientPage() {
       }
     },
     [filteredConversations, loadConversations],
+  );
+
+  const moveConversationToQueue = useCallback(
+    async (conversationId: string, targetQueue: InboxQueue) => {
+      if (!conversationId || !targetQueue) return;
+      const numericConversationId = Number(conversationId);
+      if (!Number.isFinite(numericConversationId)) return;
+
+      setError(null);
+      try {
+        if (targetQueue === "bot" || targetQueue === "all") {
+          await apiFetch(`/inbox/conversations/bulk-bot`, {
+            method: "PATCH",
+            body: JSON.stringify({ ids: [numericConversationId], enabled: targetQueue === "bot" }),
+          });
+        }
+
+        setManualQueueOverrides((current) => ({
+          ...current,
+          [conversationId]: targetQueue,
+        }));
+
+        await loadConversations({ preferredId: conversationId, silent: true });
+      } catch (moveError) {
+        const message = moveError instanceof Error ? moveError.message : "Falha ao mover conversa de fila.";
+        setError(message);
+      }
+    },
+    [loadConversations],
+  );
+
+  const handleQueueDrop = useCallback(
+    (targetQueue: InboxQueue) => {
+      if (!draggedConversationId) return;
+      void moveConversationToQueue(draggedConversationId, targetQueue);
+      setDropOverQueue(null);
+      setDraggedConversationId(null);
+    },
+    [draggedConversationId, moveConversationToQueue],
   );
 
   const blockConversation = useCallback(async () => {
@@ -2591,61 +2789,44 @@ export default function InboxClientPage() {
             <>
               <button
                 type="button"
-                className={`btn btn-sm ${
-                  selectedConversation?.botActive !== false && !selectedConversation?.humanAssigned
-                    ? "btn-primary"
-                    : "btn-secondary"
-                }`}
-                onClick={() => void toggleSelectedBot()}
-                disabled={!selectedConversation || selectedConversation.isBlocked}
-                title={
-                  selectedConversation?.isBlocked
-                    ? "Desbloqueie a conversa para alternar o BOT."
-                    : selectedConversation?.botActive !== false &&
-                        !selectedConversation?.humanAssigned
-                      ? "Pausar respostas automaticas do BOT nesta conversa."
-                      : "Ativar respostas automaticas do BOT nesta conversa."
-                }
-              >
-                BOT
-              </button>
-              <button
-                type="button"
                 className="btn btn-secondary btn-sm"
                 onClick={() => void bulkSetBotForVisible(true)}
                 disabled={!filteredConversations.length || savingBot}
-                title="Ativar respostas automaticas do BOT para todas conversas visíveis"
+                title="Ativar respostas automáticas do BOT para todas as conversas da fila aberta"
               >
-                Ativar todos
+                Ativar BOT
               </button>
               <button
                 type="button"
                 className="btn btn-secondary btn-sm"
                 onClick={() => void bulkSetBotForVisible(false)}
                 disabled={!filteredConversations.length || savingBot}
-                title="Pausar respostas automaticas do BOT para todas conversas visíveis"
+                title="Pausar respostas automáticas do BOT para todas as conversas da fila aberta"
               >
-                Pausar todos
+                Pausar BOT
               </button>
-              <button
-                type="button"
-                className="btn btn-secondary btn-sm"
-                onClick={() => handleSectionChange("automacao")}
-              >
-                Fluxo
-              </button>
+              <span className={styles.robotDecoration} title="Robô" aria-hidden>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                  <rect x="3" y="7" width="18" height="11" rx="2" />
+                  <path d="M8 7V5a4 4 0 0 1 8 0v2" />
+                  <circle cx="8.8" cy="12" r="1" />
+                  <circle cx="15.2" cy="12" r="1" />
+                  <path d="M9.5 16.2c.7.5 1.8.5 2.5 0" />
+                </svg>
+              </span>
             </>
           }
           className={`${styles.workspaceDockPanel} ${styles.inboxListPanel}`}
           bodyClassName={`${styles.workspaceDockBody} ${styles.inboxListBody}`}
         >
           <ConversationQueueFilterBar
-            value={inboxQueue}
-            onChange={(value) => {
-              if (value !== "blocked") {
-                setInboxQueue(value);
-              }
-            }}
+            value={inboxQueue as ConversationQueueFilterValue}
+            counts={queueCounts as Record<ConversationQueueFilterValue, number>}
+            dropOverQueue={dropOverQueue as ConversationQueueFilterValue | null}
+            onChange={(value) => setInboxQueue(value as InboxQueue)}
+            onQueueDragOver={(queue) => setDropOverQueue(queue as InboxQueue)}
+            onQueueDragLeave={() => setDropOverQueue(null)}
+            onQueueDrop={(queue) => handleQueueDrop(queue as InboxQueue)}
           />
           {loadingList ? (
             <ChatEmptyState title="Carregando conversas">A fila sera montada assim que a leitura inicial terminar.</ChatEmptyState>
@@ -2662,7 +2843,7 @@ export default function InboxClientPage() {
             <ChatEmptyState title="Nenhuma conversa encontrada">Ajuste o filtro ou aguarde novas mensagens entrarem na fila.</ChatEmptyState>
           ) : (
             <ChatQueue className={styles.conversationList}>
-              {filteredConversations.map((conversation) => {
+              {filteredConversations.map((conversation, idx) => {
                 const active = conversation.id === selectedId;
                 const unreadCount = getInboxConversationUnreadCount(conversation);
                 const statusMeta = getAtendimentoConversationStatusMeta(
@@ -2681,6 +2862,17 @@ export default function InboxClientPage() {
                     key={conversation.id}
                     active={active}
                     onClick={() => loadConversation(conversation.id)}
+                    style={{ "--reveal-index": idx } as CSSProperties}
+                    draggable
+                    onDragStart={(event) => {
+                      event.dataTransfer.effectAllowed = "move";
+                      event.dataTransfer.setData("text/plain", String(conversation.id));
+                      setDraggedConversationId(String(conversation.id));
+                    }}
+                    onDragEnd={() => {
+                      setDraggedConversationId(null);
+                      setDropOverQueue(null);
+                    }}
                     initials={getInboxConversationInitials(conversation)}
                     imageUrl={resolveInboxAvatarUrl(conversation)}
                     label={statusMeta.shortLabel}
@@ -2716,7 +2908,17 @@ export default function InboxClientPage() {
           ) : !conversationForView ? (
             <ChatEmptyState title="Nenhuma conversa selecionada">Escolha uma conversa na fila para abrir o chat.</ChatEmptyState>
           ) : (
-            <section className={styles.whatsAppConversationShell}>
+            <section
+              key={conversationForView.id}
+              className={`${styles.whatsAppConversationShell} ${styles.whatsAppConversationShellTransition} ${
+                isConversationStageSwitching ? styles.whatsAppConversationShellLoading : ""
+              }`}
+            >
+              {isConversationStageSwitching ? (
+                <div className={styles.whatsAppConversationLoadingMask} aria-hidden="true">
+                  <span className={styles.whatsAppConversationLoadingChip}>Abrindo conversa...</span>
+                </div>
+              ) : null}
               <header className={styles.whatsAppConversationHeader}>
                 <div className={styles.whatsAppConversationIdentity}>
                   <ChatAvatar
@@ -3407,32 +3609,40 @@ export default function InboxClientPage() {
       inboxDetailDiagnostics,
       inboxQueue,
       inboxQueueDiagnostics,
+      isConversationStageSwitching,
       loadConversation,
       loadingConversation,
       loadingList,
       mounted,
+      openedImage,
+      queueCounts,
       retryConversationDetail,
       retryConversationList,
       selectedBlocked,
       selectedConversation,
+      conversationForView,
       selectedConversationDisplayName,
       selectedConversationHasRecoveryContext,
       selectedConversationIsAgenda,
       selectedConversationRecoveryPrimary,
       selectedConversationStatusMeta,
       selectedId,
+      selectedVendasAgendaDraft,
       selectedStatus,
       queueListTitle,
+      bulkSetBotForVisible,
+      dropOverQueue,
+      handleQueueDrop,
       sendMessage,
       sendText,
       sending,
+      savingBot,
       emojiPickerOpen,
       setEmojiPickerOpen,
       replyingTo,
       setReplyingTo,
       imagePreview,
       setImagePreview,
-      toggleSelectedBot,
       unblockConversation,
       updateStatus,
     ],
