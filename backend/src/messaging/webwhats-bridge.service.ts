@@ -914,6 +914,7 @@ export class WebwhatsBridgeService {
     const chatDisplayName =
       this.getChatDisplayName(chat, primaryContact, alternateContact) ||
       this.getPersistedDisplayName(existingMetadata);
+    const archivedFlag = this.resolveChatArchivedFlag(chat);
     const metadata = {
       ...(existingMetadata || {}),
       whatsappRemoteJid: remoteJid,
@@ -933,6 +934,7 @@ export class WebwhatsBridgeService {
         chat.windowActive === undefined || chat.windowActive === null ? undefined : Boolean(chat.windowActive),
       whatsappUnreadCount:
         chat.unreadCount === undefined || chat.unreadCount === null ? undefined : Number(chat.unreadCount || 0),
+      ...(archivedFlag === null ? {} : { whatsappArchived: archivedFlag }),
     };
 
     const lastMessageAt = this.resolveMessageDate(chat.lastMessage?.messageTimestamp || chat.updatedAt) || new Date();
@@ -1170,6 +1172,37 @@ export class WebwhatsBridgeService {
   private normalizeOptionalString(value: unknown) {
     const normalized = String(value || '').trim();
     return normalized || null;
+  }
+
+  private normalizeOptionalBoolean(value: unknown) {
+    if (typeof value === 'boolean') return value;
+    if (typeof value === 'number') return value !== 0;
+    const normalized = String(value || '').trim().toLowerCase();
+    if (!normalized) return null;
+    if (['true', '1', 'yes', 'sim'].includes(normalized)) return true;
+    if (['false', '0', 'no', 'nao', 'não'].includes(normalized)) return false;
+    return null;
+  }
+
+  private resolveChatArchivedFlag(chat: WebwhatsChatSummary) {
+    const candidateValues = [
+      (chat as any)?.archived,
+      (chat as any)?.isArchived,
+      (chat as any)?.chatArchived,
+      (chat as any)?.isChatArchived,
+      (chat as any)?.archive,
+      (chat as any)?.state?.archived,
+      (chat as any)?.chat?.archived,
+      (chat as any)?.conversation?.archived,
+      (chat as any)?.lastMessage?.chat?.archived,
+    ];
+
+    for (const candidate of candidateValues) {
+      const normalized = this.normalizeOptionalBoolean(candidate);
+      if (normalized !== null) return normalized;
+    }
+
+    return null;
   }
 
   private parseMetadata(raw: string | null | undefined) {

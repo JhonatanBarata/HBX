@@ -77,12 +77,19 @@
 .nodeBadgeRow,
 .canvasStatus,
 .publicationActions,
-.chipList,
-.previewButtonList {
+.chipList {
   display: flex;
   flex-wrap: wrap;
   gap: 0.55rem;
   align-items: center;
+}
+
+.previewButtonList {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.55rem;
+  align-items: stretch;
+  width: 100%;
 }
 
 .topbar {
@@ -920,6 +927,11 @@
   border: 1px solid color-mix(in srgb, var(--brand) 22%, var(--line));
   background: color-mix(in srgb, var(--brand) 10%, var(--background));
   color: color-mix(in srgb, var(--brand) 88%, var(--foreground));
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .previewActionEvent {

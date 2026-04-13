@@ -1,12 +1,12 @@
 .actionButton {
-  min-height: 70px !important;
+  min-height: 62px !important;
   justify-content: flex-start !important;
-  padding: 0.78rem 0.82rem !important;
+  padding: 0.64rem 0.68rem !important;
   border-radius: 22px !important;
   text-align: left;
   display: grid !important;
-  grid-template-columns: 38px minmax(0, 1fr);
-  gap: 0.58rem;
+  grid-template-columns: 34px minmax(0, 1fr);
+  gap: 0.5rem;
   align-items: center;
   white-space: nowrap;
 }
@@ -18,8 +18,8 @@
 }
 
 .actionIcon {
-  width: 38px;
-  height: 38px;
+  width: 34px;
+  height: 34px;
   border-radius: 14px;
   display: grid;
   place-items: center;
@@ -37,14 +37,14 @@
 }
 
 .actionIcon svg {
-  width: 16px;
-  height: 16px;
+  width: 15px;
+  height: 15px;
 }
 
 .actionLabel {
   min-width: 0;
   color: inherit;
-  font-size: 0.66rem;
+  font-size: 0.64rem;
   font-weight: 900;
   line-height: 1;
   white-space: nowrap;

@@ -560,6 +560,37 @@
   border-color: color-mix(in srgb, var(--brand) 70%, var(--line));
 }
 
+/* Atendimento shortcut shown on the 'Hoje' date card */
+.atendimentoShortcut {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: 8px;
+  width: 44px;
+  height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--brand) 84%, var(--surface-raised)), color-mix(in srgb, var(--brand-soft) 62%, var(--surface)));
+  border: 1px solid color-mix(in srgb, var(--brand) 28%, var(--line));
+  box-shadow: 0 18px 34px -18px rgba(15, 23, 42, 0.34), 0 4px 10px -6px rgba(15,23,42,0.18);
+  cursor: pointer;
+  transition: transform var(--motion-fast), background var(--motion-fast), box-shadow var(--motion-fast);
+  z-index: 12;
+}
+
+.atendimentoShortcut:hover {
+  transform: translateX(-50%) translateY(-4px) scale(1.02);
+  box-shadow: 0 26px 46px -22px rgba(15, 23, 42, 0.38), 0 8px 18px -8px rgba(15,23,42,0.22);
+}
+
+.atendimentoShortcut svg {
+  width: 18px;
+  height: 18px;
+  color: white;
+}
+
 .dateFilterCard[data-pulse="true"] {
   animation: date-received-pulse 520ms ease;
 }
