@@ -52,6 +52,7 @@ import {
 } from './whatsapp-channel';
 import { CadastrosService } from '../cadastros/cadastros.service';
 import { CustomerProfileService } from '../customer-profile/customer-profile.service';
+import { WebwhatsBridgeService } from './webwhats-bridge.service';
 
 function clamp(n: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, n));
@@ -153,6 +154,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     private readonly mercadoPagoClient: MercadoPagoClientService,
     private readonly cadastrosService: CadastrosService,
     private readonly customerProfileService: CustomerProfileService,
+    private readonly webwhatsBridge: WebwhatsBridgeService,
   ) {}
 
   onModuleInit() {
@@ -2853,6 +2855,11 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
         failedAt: true,
         deliveryStatus: true,
         createdAt: true,
+        message: {
+          select: {
+            conversationId: true,
+          },
+        },
       },
     });
   }
@@ -3022,6 +3029,75 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
         return;
       }
 
+      const messageType = String(msg.messageType || 'text').toLowerCase();
+      if (messageType === 'text') {
+        try {
+          const webwhatsResult = await this.webwhatsBridge.sendText(msg.companyId, {
+            to: msg.to,
+            text: msg.body,
+            conversationId: Number((msg as any)?.message?.conversationId || 0) || null,
+          });
+          await this.prisma.outboundAttempt.update({
+            where: { id: attempt.id },
+            data: {
+              finishedAt: new Date(),
+              success: true,
+              httpStatus: 200,
+              requestBody: JSON.stringify({ number: webwhatsResult.target, text: msg.body }),
+              responseBody: JSON.stringify(webwhatsResult.response ?? null),
+            },
+          });
+          await this.prisma.outboundMessage.update({
+            where: { id: msg.id },
+            data: {
+              status: 'SENT',
+              sentAt: new Date(),
+              attemptCount: attemptNo,
+              lastError: null,
+              provider: 'WEBWHATS',
+              providerMessageId: webwhatsResult.providerMessageId || undefined,
+              deliveryStatus: 'sent',
+            },
+          });
+          await this.prisma.companyMessage.updateMany({
+            where: { outboundMessageId: msg.id },
+            data: {
+              status: 'SENT',
+              provider: 'WEBWHATS',
+              providerMessageId: webwhatsResult.providerMessageId || undefined,
+              error: null,
+            },
+          });
+          await this.updateRecoveryTemplateLastContact(msg, 'sent', new Date());
+          await this.logWhatsAppEvent({
+            companyId: msg.companyId,
+            scope: 'dispatch',
+            event: 'outbound_sent',
+            message: `Mensagem enviada para ${msg.to} via Webwhats`,
+            conversationId: null,
+            phone: msg.to,
+            messageType: msg.messageType || 'text',
+            result: 'sent',
+            extra: {
+              outboundMessageId: msg.id,
+              provider: 'WEBWHATS',
+              providerMessageId: webwhatsResult.providerMessageId || null,
+              attemptNo,
+              sourceModule: msg.sourceModule || null,
+              providerResponse: webwhatsResult.response ?? null,
+            },
+          });
+          this.logger.log(
+            `Webwhats sent messageId=${msg.id} providerMessageId=${webwhatsResult.providerMessageId || '(missing)'} in ${Date.now() - startedAtMs}ms`,
+          );
+          return;
+        } catch (webwhatsError) {
+          this.logger.warn(
+            `Webwhats send fallback acionado para messageId=${msg.id}: ${this.normalizeProviderDispatchError(webwhatsError, 'Falha ao enviar via Webwhats')}`,
+          );
+        }
+      }
+
       const creds = resolveWhatsAppCredentials(company, {
         endpointId: supportsOutboundEndpointColumn
           ? String((msg as any).whatsappEndpointId || '').trim() || undefined
@@ -3037,7 +3113,6 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
         messaging_product: 'whatsapp',
         to: msg.to,
       };
-      const messageType = String(msg.messageType || 'text').toLowerCase();
       if (messageType === 'template') {
         requestBody.type = 'template';
         requestBody.template = {

@@ -99,7 +99,25 @@ export class InboxController {
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: SendConversationMessageDto,
   ) {
-    return this.inboxService.sendMessage(req.user, id, dto.content);
+    return this.inboxService.sendMessage(req.user, id, dto.content, {
+      quotedMessageId: dto.quotedMessageId,
+      quotedContent: dto.quotedContent,
+    });
+  }
+
+  @Post('conversations/:id/media')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage: memoryStorage(),
+      limits: { fileSize: 16 * 1024 * 1024 }, // 16 MB
+    }),
+  )
+  uploadMedia(
+    @Req() req: any,
+    @Param('id', ParseIntPipe) id: number,
+    @UploadedFile() file: any,
+  ) {
+    return this.inboxService.uploadConversationMedia(req.user, id, file);
   }
 
   // ---------------------------------------------------------------------------

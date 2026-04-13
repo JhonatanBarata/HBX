@@ -14,11 +14,12 @@ import { WhatsAppAuditService } from './whatsapp-audit.service';
 import { PaymentsModule } from '../payments/payments.module';
 import { CadastrosModule } from '../cadastros/cadastros.module';
 import { CustomerProfileModule } from '../customer-profile/customer-profile.module';
+import { WebwhatsBridgeService } from './webwhats-bridge.service';
 
 @Module({
   imports: [PrismaModule, ModulesAccessModule, PaymentsModule, CadastrosModule, CustomerProfileModule],
-  providers: [MessagingService, ConversationSessionsService, MessageOrchestratorService, OrderDraftsService, ConversationsService, WhatsAppStatusService, WhatsAppAuditService],
+  providers: [MessagingService, ConversationSessionsService, MessageOrchestratorService, OrderDraftsService, ConversationsService, WhatsAppStatusService, WhatsAppAuditService, WebwhatsBridgeService],
   controllers: [MessagingController, ConversationsController, WhatsAppController],
-  exports: [WhatsAppStatusService, ConversationsService, WhatsAppAuditService],
+  exports: [WhatsAppStatusService, ConversationsService, WhatsAppAuditService, WebwhatsBridgeService],
 })
 export class MessagingModule {}

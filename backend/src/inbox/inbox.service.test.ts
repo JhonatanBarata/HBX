@@ -82,7 +82,13 @@ function createService(overrides?: Partial<Record<string, any>>) {
     ...(overrides?.customerProfileService || {}),
   } as any;
 
-  const service = new InboxService(prisma, conversations, audit, cadastrosService, customerProfileService);
+  const webwhatsBridge = {
+    syncRecentChats: async () => 0,
+    syncConversationMessages: async () => 0,
+    ...(overrides?.webwhatsBridge || {}),
+  } as any;
+
+  const service = new InboxService(prisma, conversations, audit, cadastrosService, customerProfileService, webwhatsBridge);
   return { service, prisma, conversations, auditCalls, queueCalls, cadastrosService };
 }
 

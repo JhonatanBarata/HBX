@@ -1,4 +1,6 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { existsSync, mkdirSync, writeFileSync } from 'fs';
+import { extname, join } from 'path';
 import { PrismaService } from '../prisma/prisma.service';
 import { ConversationsService } from '../messaging/conversations.service';
 import { WhatsAppAuditService } from '../messaging/whatsapp-audit.service';
@@ -28,6 +30,7 @@ import {
 } from './atendimento-config';
 import { CadastrosService } from '../cadastros/cadastros.service';
 import { CustomerProfileService } from '../customer-profile/customer-profile.service';
+import { WebwhatsBridgeService } from '../messaging/webwhats-bridge.service';
 
 @Injectable()
 export class InboxService {
@@ -37,6 +40,7 @@ export class InboxService {
     private readonly whatsappAudit: WhatsAppAuditService,
     private readonly cadastrosService: CadastrosService,
     private readonly customerProfileService: CustomerProfileService,
+    private readonly webwhatsBridge: WebwhatsBridgeService,
   ) {}
 
   private async logInboxEvent(input: {
@@ -136,27 +140,55 @@ export class InboxService {
 
   private async resolveConversationDisplayName(companyId: number, contact: string, metadataRaw?: string | null) {
     const metadata = this.parseConversationMetadata(metadataRaw);
-    const metadataName = String(
-      metadata?.cliente ||
-        metadata?.customerName ||
-        metadata?.name ||
-        metadata?.waNickname ||
-        metadata?.whatsappName ||
-        metadata?.whatsappProfileName ||
-        '',
-    ).trim();
-    if (metadataName) return metadataName;
+    const metadataCandidates = [
+      metadata?.cliente,
+      metadata?.customerName,
+      metadata?.name,
+      metadata?.whatsappContactName,
+      metadata?.waNickname,
+      metadata?.whatsappName,
+      metadata?.whatsappProfileName,
+    ];
+    for (const candidate of metadataCandidates) {
+      const normalized = this.normalizeDisplayNameCandidate(candidate, contact);
+      if (normalized) return normalized;
+    }
     const digits = String(contact || '').replace(/\D/g, '');
     if (!digits) return null;
     const customer = await this.prisma.hbxRecoveryCustomer.findFirst({
       where: { companyId, whatsappNumber: { endsWith: digits } },
       select: { clientName: true, name: true },
     });
-    return String(customer?.clientName || customer?.name || '').trim() || null;
+    return this.normalizeDisplayNameCandidate(customer?.clientName || customer?.name || null, contact);
   }
 
   private normalizeConversationPhone(contact: string | null | undefined) {
     return String(contact || '').replace(/\D/g, '').slice(-13) || null;
+  }
+
+  private normalizeDisplayNameCandidate(value: unknown, phone?: string | null) {
+    const normalized = String(value || '')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .replace(/^["'“”‘’]+|["'“”‘’]+$/g, '')
+      .trim();
+    if (!normalized) return null;
+    const lowered = normalized.toLowerCase();
+    if (lowered === 'você' || lowered === 'voce' || lowered === 'you' || lowered === 'eu') {
+      return null;
+    }
+    if (lowered.includes('@lid') || lowered.includes('@s.whatsapp.net')) {
+      return null;
+    }
+    if (/^\d{14,}$/.test(normalized.replace(/\s+/g, ''))) {
+      return null;
+    }
+    const candidateDigits = normalized.replace(/\D/g, '');
+    const phoneDigits = String(phone || '').replace(/\D/g, '');
+    if (candidateDigits && phoneDigits && candidateDigits === phoneDigits) {
+      return null;
+    }
+    return normalized;
   }
 
   private async loadAtendimentoIdentityMap(companyId: number, contacts: Array<string | null | undefined>) {
@@ -440,9 +472,17 @@ export class InboxService {
     );
     const routeContext = await this.resolveRecoveryRoutingContext(companyId, conversation, routingRules);
     const blockedState = this.getAtendimentoBlockedState(conversation.metadata);
+    const conversationMetadata = this.parseConversationMetadata(conversation.metadata);
     const profile = identityRow?.customerProfile || null;
     const customerName =
-      String(identityRow?.name || profile?.name || displayName || '').trim() || null;
+      this.normalizeDisplayNameCandidate(
+        identityRow?.name ||
+          profile?.name ||
+          sharedProfile?.displayName ||
+          displayName ||
+          null,
+        conversation.contact,
+      ) || null;
     return {
       id: String(conversation.id),
       status: this.toInboxStatus(conversation),
@@ -474,11 +514,18 @@ export class InboxService {
       isBlocked: blockedState.isBlocked,
       blockedAt: blockedState.blockedAt,
       blockedReason: blockedState.blockedReason,
-      metadata: this.parseConversationMetadata(conversation.metadata),
+      metadata: conversationMetadata,
       customer: {
         id: String(identityRow?.id || conversation.id),
         phone: String(identityRow?.phone || conversation.contact || ''),
         name: customerName,
+        avatarUrl:
+          String(
+            conversationMetadata.whatsappAvatarUrl ||
+            conversationMetadata.profilePicUrl ||
+            conversationMetadata.avatarUrl ||
+            '',
+          ).trim() || null,
         customerProfileId: profile?.id ? String(profile.id) : identityRow?.customerProfileId ? String(identityRow.customerProfileId) : null,
         email: profile?.email ? String(profile.email) : null,
         document: profile?.document ? String(profile.document) : null,
@@ -548,10 +595,11 @@ export class InboxService {
 
   async listConversations(user: any) {
     const companyId = this.requireCompanyIdFromUser(user);
+    await this.webwhatsBridge.syncRecentChats(companyId);
     const routingRules = await this.getRecoveryRoutingRules(companyId);
     const rows = await this.prisma.companyConversation.findMany({
       where: { companyId, channel: 'whatsapp' },
-      orderBy: { updatedAt: 'desc' },
+      orderBy: [{ lastInteractionAt: 'desc' }, { id: 'desc' }],
       include: {
         messages: {
           orderBy: { timestamp: 'desc' },
@@ -589,6 +637,7 @@ export class InboxService {
   }
 
   private async getConversationByIdForCompany(companyId: number, id: number) {
+    await this.webwhatsBridge.syncConversationMessages(companyId, id);
     const routingRules = await this.getRecoveryRoutingRules(companyId);
     const conversation = await this.prisma.companyConversation.findFirst({
       where: { id, companyId, channel: 'whatsapp' },
@@ -1086,7 +1135,12 @@ export class InboxService {
     return this.getConversationByIdForCompany(companyId, conversation.id);
   }
 
-  async sendMessage(user: any, conversationId: number, content: string) {
+  async sendMessage(
+    user: any,
+    conversationId: number,
+    content: string,
+    opts?: { quotedMessageId?: string; quotedContent?: string },
+  ) {
     const companyId = this.requireCompanyIdFromUser(user);
     const conversation = await this.prisma.companyConversation.findFirst({
       where: { id: conversationId, companyId },
@@ -1099,10 +1153,18 @@ export class InboxService {
     const normalizedContent = this.requireTrimmed(content, 'content');
     const toPhone = this.requireTrimmed(String(conversation.contact || ''), 'customer phone');
 
+    // Build body with optional quote prefix (text-only fallback, WhatsApp style)
+    const quotedPreview = opts?.quotedContent
+      ? String(opts.quotedContent).trim().slice(0, 200)
+      : null;
+    const body = quotedPreview
+      ? `> ${quotedPreview}\n\n${normalizedContent}`
+      : normalizedContent;
+
     await this.conversations.queueOutboundForCompany(companyId, {
       conversationId,
       to: toPhone,
-      body: normalizedContent,
+      body,
       messageType: 'text',
       sourceModule: 'atendimento_human',
       senderType: 'human',
@@ -1122,10 +1184,35 @@ export class InboxService {
       phone: toPhone,
       messageType: 'text',
       result: 'queued',
-      extra: { sourceModule: 'atendimento_human' },
+      extra: { sourceModule: 'atendimento_human', hasQuote: !!quotedPreview },
     });
 
     return this.getConversationByIdForCompany(companyId, conversationId);
+  }
+
+  async uploadConversationMedia(user: any, conversationId: number, file: any) {
+    const companyId = this.requireCompanyIdFromUser(user);
+    const conversation = await this.prisma.companyConversation.findFirst({
+      where: { id: conversationId, companyId },
+    });
+    if (!conversation) throw new NotFoundException('Conversation not found');
+    if (!file || !file.buffer) throw new BadRequestException('Arquivo obrigatorio.');
+
+    const allowedMimes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'video/mp4', 'application/pdf'];
+    if (!allowedMimes.includes(file.mimetype)) {
+      throw new BadRequestException('Tipo de arquivo nao suportado. Use JPEG, PNG, GIF, WEBP, MP4 ou PDF.');
+    }
+
+    const uploadDir = join(process.cwd(), 'public', 'uploads', 'inbox');
+    if (!existsSync(uploadDir)) mkdirSync(uploadDir, { recursive: true });
+
+    const safeExt = extname(file.originalname || '').replace(/[^a-zA-Z0-9.]/g, '').slice(0, 6) || '.bin';
+    const filename = `${companyId}_${conversationId}_${Date.now()}${safeExt}`;
+    const filePath = join(uploadDir, filename);
+    writeFileSync(filePath, file.buffer);
+
+    const publicUrl = `/uploads/inbox/${filename}`;
+    return { url: publicUrl, filename, mimeType: file.mimetype, size: file.size };
   }
 
   // ---------------------------------------------------------------------------
