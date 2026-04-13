@@ -13,7 +13,7 @@ import {
   type DragStartEvent,
 } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
-import { useDeferredValue, useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from "react";
+import { useDeferredValue, useEffect, useMemo, useRef, useState, useCallback, type CSSProperties, type FormEvent, type ReactNode } from "react";
 import DashboardScaffold from "@/components/DashboardScaffold";
 import { apiFetch } from "../_lib/api";
 import { useRequireAuth } from "../_lib/useRequireAuth";
