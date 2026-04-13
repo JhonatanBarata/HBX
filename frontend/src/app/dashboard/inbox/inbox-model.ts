@@ -1100,6 +1100,7 @@ export function getMessagePreview(message?: InboxMessage | null) {
     .trim()
     .toLowerCase();
   const fileName = String(metadata?.fileName || "").trim();
+  if (type === "deleted" || metadata?.isDeleted) return "[Mensagem apagada]";
   if (type === "image") return "[Imagem recebida]";
   if (type === "audio") return fileName ? `[Audio] ${fileName}` : "[Audio recebido]";
   if (type === "document") return fileName ? `[Documento] ${fileName}` : "[Documento recebido]";

@@ -1,5 +1,5 @@
 .actionButton {
-  min-height: 62px !important;
+  min-height: 72px !important;
   justify-content: flex-start !important;
   padding: 0.64rem 0.68rem !important;
   border-radius: 22px !important;
@@ -8,7 +8,7 @@
   grid-template-columns: 34px minmax(0, 1fr);
   gap: 0.5rem;
   align-items: center;
-  white-space: nowrap;
+  white-space: normal;
 }
 
 .actionButtonDanger {
@@ -46,8 +46,10 @@
   color: inherit;
   font-size: 0.64rem;
   font-weight: 900;
-  line-height: 1;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  line-height: 1.18;
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
 }

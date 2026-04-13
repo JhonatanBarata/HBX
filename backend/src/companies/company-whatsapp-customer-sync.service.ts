@@ -90,6 +90,49 @@ export class CompanyWhatsAppCustomerSyncService {
     return null;
   }
 
+  private extractWebwhatsContactName(
+    contact:
+      | {
+          pushName?: string | null;
+          name?: string | null;
+          displayName?: string | null;
+          formattedName?: string | null;
+          fullName?: string | null;
+          shortName?: string | null;
+          notifyName?: string | null;
+          verifiedName?: string | null;
+          businessName?: string | null;
+        }
+      | null
+      | undefined,
+    phone?: string | null,
+  ) {
+    return this.preferredName(
+      contact?.name,
+      contact?.displayName,
+      contact?.formattedName,
+      contact?.fullName,
+      contact?.shortName,
+      contact?.notifyName,
+      contact?.verifiedName,
+      contact?.businessName,
+      contact?.pushName,
+      phone,
+    );
+  }
+
+  private shouldReplaceStoredName(
+    existingName: unknown,
+    nextName: string | null,
+    phone?: string | null,
+  ) {
+    const current = this.normalizeNameCandidate(existingName, phone);
+    const incoming = this.normalizeNameCandidate(nextName, phone);
+    if (!incoming) return false;
+    if (!current) return true;
+    return current !== incoming;
+  }
+
   private buildConversationCandidate(row: {
     id: number;
     contact: string;
@@ -137,11 +180,21 @@ export class CompanyWhatsAppCustomerSyncService {
 
   private shouldSyncCandidate(existing: any, candidate: SyncCandidate, resolvedName: string | null) {
     if (!existing) return true;
-    if (!String(existing.name || '').trim() && resolvedName) return true;
+    const existingOrigin = String(existing.registrationOrigin || '').trim().toLowerCase();
+    if (this.shouldReplaceStoredName(existing.name, resolvedName, candidate.phone)) {
+      return true;
+    }
     if (!existing.conversationId && candidate.conversationId) return true;
     const existingLast = existing.lastMessageAt ? new Date(existing.lastMessageAt).getTime() : 0;
     const candidateLast = candidate.lastMessageAt ? candidate.lastMessageAt.getTime() : 0;
     if (candidateLast > existingLast) return true;
+    if (
+      resolvedName
+      && existingOrigin !== 'manual'
+      && this.normalizeNameCandidate(existing.name, candidate.phone) !== resolvedName
+    ) {
+      return true;
+    }
     return String(existing.registrationStatus || '').trim().toLowerCase() !== 'confirmed';
   }
 
@@ -186,7 +239,18 @@ export class CompanyWhatsAppCustomerSyncService {
     }
 
     const { rows, candidatesByPhone } = await this.listConversationCandidates(companyId);
-    let contacts: Array<{ remoteJid?: string | null; pushName?: string | null }> = [];
+    let contacts: Array<{
+      remoteJid?: string | null;
+      pushName?: string | null;
+      name?: string | null;
+      displayName?: string | null;
+      formattedName?: string | null;
+      fullName?: string | null;
+      shortName?: string | null;
+      notifyName?: string | null;
+      verifiedName?: string | null;
+      businessName?: string | null;
+    }> = [];
     try {
       contacts = await this.webwhatsBridge.listContacts(companyId, { force: true });
     } catch {
@@ -202,7 +266,10 @@ export class CompanyWhatsAppCustomerSyncService {
       this.mergeCandidate(merged, {
         phone,
         phoneNormalized,
-        name: this.preferredName(fromConversation?.name, contact?.pushName),
+        name: this.preferredName(
+          fromConversation?.name,
+          this.extractWebwhatsContactName(contact, phone),
+        ),
         conversationId: fromConversation?.conversationId || null,
         lastMessageAt: fromConversation?.lastMessageAt || null,
       });

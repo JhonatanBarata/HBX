@@ -29,6 +29,54 @@ export class CadastrosService {
     return String(input || '').trim();
   }
 
+  private normalizeRegistryNameCandidate(value: unknown, phone?: string | null) {
+    const normalized = String(value || '')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .replace(/^["'“”‘’]+|["'“”‘’]+$/g, '')
+      .trim();
+    if (!normalized) return null;
+
+    const lowered = normalized.toLowerCase();
+    if (
+      lowered === 'contato whatsapp'
+      || lowered === 'cliente'
+      || lowered === 'novo cliente'
+      || lowered === 'você'
+      || lowered === 'voce'
+      || lowered === 'you'
+      || lowered === 'eu'
+    ) {
+      return null;
+    }
+    if (lowered.includes('@lid') || lowered.includes('@s.whatsapp.net')) {
+      return null;
+    }
+
+    const candidateDigits = normalized.replace(/\D/g, '');
+    const phoneDigits = String(phone || '').replace(/\D/g, '');
+    if (candidateDigits && candidateDigits.length >= 10 && candidateDigits === phoneDigits) {
+      return null;
+    }
+    if (candidateDigits.length >= 14) {
+      return null;
+    }
+
+    return normalized;
+  }
+
+  private shouldReplaceRegistryName(
+    existingName: unknown,
+    incomingName: unknown,
+    phone?: string | null,
+  ) {
+    const nextName = this.normalizeRegistryNameCandidate(incomingName, phone);
+    if (!nextName) return false;
+    const currentName = this.normalizeRegistryNameCandidate(existingName, phone);
+    if (!currentName) return true;
+    return currentName !== nextName;
+  }
+
   normalizeCustomerPhone(raw: string): string {
     return String(raw || '').replace(/\D/g, '').slice(-13);
   }
@@ -163,7 +211,9 @@ export class CadastrosService {
       return this.prisma.atendimentoCustomer.update({
         where: { id: existing.id },
         data: {
-          ...(fallbackName && !existing.name ? { name: fallbackName } : {}),
+          ...(this.shouldReplaceRegistryName(existing.name, fallbackName, rawPhone || phoneNorm)
+            ? { name: this.normalizeRegistryNameCandidate(fallbackName, rawPhone || phoneNorm) }
+            : {}),
           ...(existing.phone ? {} : { phone: rawPhone || existing.phoneNormalized }),
           ...(profile?.id ? { customerProfileId: String(profile.id) } : {}),
           registrationOrigin: existing.registrationOrigin === 'manual' ? existing.registrationOrigin : 'recovery',
@@ -204,6 +254,7 @@ export class CadastrosService {
   }) {
     const phoneNorm = this.normalizeCustomerPhone(input.phone);
     if (!phoneNorm || phoneNorm.length < 8) return null;
+    const normalizedInputName = this.normalizeRegistryNameCandidate(input.name, input.phone);
 
     const profileId = String(input.customerProfileId || '').trim() || null;
     const profile = profileId
@@ -211,7 +262,7 @@ export class CadastrosService {
       : await this.ensureCustomerProfile({
           companyId: input.companyId,
           phone: input.phone,
-          name: input.name || null,
+          name: normalizedInputName || null,
           notes: input.notes || null,
           externalSource: input.registrationOrigin || 'atendimento',
           status: 'active',
@@ -221,13 +272,13 @@ export class CadastrosService {
     });
 
     if (existing) {
-      const shouldUpdateName = !existing.name && !!input.name;
+      const shouldUpdateName = this.shouldReplaceRegistryName(existing.name, normalizedInputName, input.phone);
       const normalizedNotes = input.notes !== undefined ? (input.notes ? String(input.notes).trim() || null : null) : undefined;
       const nextLastMessageAt = input.lastMessageAt === undefined ? undefined : input.lastMessageAt ?? null;
       const updateData: any = {
         ...(shouldUpdateName
           ? {
-              name: input.name!,
+              name: normalizedInputName!,
               registrationStatus: input.registrationStatus || existing.registrationStatus,
             }
           : {}),
@@ -268,7 +319,7 @@ export class CadastrosService {
         customerProfileId: profile?.id ? String(profile.id) : null,
         phone: input.phone,
         phoneNormalized: phoneNorm,
-        name: input.name || null,
+        name: normalizedInputName || null,
         registrationOrigin: input.registrationOrigin || 'whatsapp_bot',
         registrationStatus: input.registrationStatus || 'pending_confirmation',
         route: input.route || 'atendimento',

@@ -699,6 +699,40 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     return normalized ? normalized.slice(0, 120) : null;
   }
 
+  private extractInboundContactName(rawPayload: any, fallbackMetadata?: Record<string, any> | null) {
+    const candidates = [
+      rawPayload?._contactName,
+      rawPayload?.pushName,
+      rawPayload?.contactName,
+      rawPayload?.contact?.name,
+      rawPayload?.contact?.displayName,
+      rawPayload?.contact?.formattedName,
+      rawPayload?.contact?.fullName,
+      rawPayload?.contact?.shortName,
+      rawPayload?.contact?.notifyName,
+      rawPayload?.contact?.verifiedName,
+      rawPayload?.contact?.businessName,
+      rawPayload?.chat?.name,
+      rawPayload?.chat?.displayName,
+      rawPayload?.chat?.formattedName,
+      rawPayload?.chat?.fullName,
+      rawPayload?.chat?.shortName,
+      fallbackMetadata?.whatsappContactName,
+      fallbackMetadata?.waNickname,
+      fallbackMetadata?.whatsappName,
+      fallbackMetadata?.whatsappProfileName,
+    ];
+
+    for (const candidate of candidates) {
+      const normalized = this.normalizeCustomerProfileName(
+        candidate === undefined || candidate === null ? null : String(candidate),
+      );
+      if (normalized) return normalized;
+    }
+
+    return null;
+  }
+
   private shouldPromoteAtendimentoProfile(registrationStatus?: string | null) {
     const normalized = String(registrationStatus || '').trim().toLowerCase();
     return normalized === 'confirmed' || normalized === 'manual';
@@ -2299,7 +2333,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
 
     const metadata = this.parseConversationMetadata(conversation?.metadata);
     const blockedState = this.getAtendimentoBlockedState(metadata);
-    const inboundProfileName = String((rawPayload as any)?._contactName || '').trim();
+    const inboundProfileName = this.extractInboundContactName(rawPayload, metadata);
 
     // Upsert customer record on every inbound message
     await this.upsertAtendimentoCustomerLocal({
@@ -2740,7 +2774,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     // Action: quick registration triggered from main menu button
     if (actionId === 'start_quick_registration') {
       await setInboundMeta('atendimento_bot', false);
-      const suggestedName = String(metadata?.waNickname || metadata?.whatsappName || '').trim();
+      const suggestedName = this.extractInboundContactName(rawPayload, metadata);
       if (suggestedName) {
         await this.conversations.queueOutboundForCompany(companyId, {
           to: from, contactId: from,
@@ -3831,17 +3865,19 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     const remoteJidAlt = String(
       input.rawPayload?.key?.remoteJidAlt || input.rawPayload?.key?.participantAlt || '',
     ).trim() || null;
+    const inboundContactName = this.normalizeCustomerProfileName(input.inboundContactName || null);
 
     await this.prisma.companyConversation.update({
       where: { id: conversationId },
       data: {
         metadata: JSON.stringify({
           ...metadata,
-          ...(input.inboundContactName
+          ...(inboundContactName
             ? {
-                whatsappName: input.inboundContactName,
-                waNickname: input.inboundContactName,
-                whatsappProfileName: input.inboundContactName,
+                whatsappName: inboundContactName,
+                waNickname: inboundContactName,
+                whatsappProfileName: inboundContactName,
+                whatsappContactName: inboundContactName,
               }
             : {}),
           ...(remoteJid ? { whatsappRemoteJid: remoteJid } : {}),
@@ -4072,7 +4108,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     if (!company) throw new NotFoundException(`Company with id ${companyId} not found`);
 
     const inboundType = normalizeWhatsAppMessageType(input.messageType);
-    const inboundContactName = String((input.rawPayload as any)?._contactName || '').trim();
+    const inboundContactName = this.extractInboundContactName(input.rawPayload, null);
     const inboundRow = await this.conversations.recordInboundMessage({
       companyId,
       from,

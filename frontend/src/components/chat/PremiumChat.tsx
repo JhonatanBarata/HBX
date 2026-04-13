@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type ButtonHTMLAttributes, type HTMLAttributes, type ReactNode } from "react";
+import { useState, type ButtonHTMLAttributes, type HTMLAttributes, type ReactNode } from "react";
 import styles from "./PremiumChat.module.css";
 
 function cx(...values: Array<string | false | null | undefined>) {
@@ -18,7 +18,9 @@ type GlyphName =
   | "pause"
   | "play"
   | "shield"
-  | "user";
+  | "user"
+  | "trash"
+  | "smile";
 
 export function ChatGlyph({
   name,
@@ -117,6 +119,25 @@ export function ChatGlyph({
           <path d="M5.5 19a6.7 6.7 0 0 1 13 0" />
         </svg>
       );
+    case "trash":
+      return (
+        <svg {...commonProps}>
+          <path d="M4.5 7h15" />
+          <path d="M9 4.5h6" />
+          <path d="M7 7l.8 11.2A1.5 1.5 0 0 0 9.3 19.5h5.4a1.5 1.5 0 0 0 1.5-1.3L17 7" />
+          <path d="M10 10.5v5.5" />
+          <path d="M14 10.5v5.5" />
+        </svg>
+      );
+    case "smile":
+      return (
+        <svg {...commonProps}>
+          <circle cx="12" cy="12" r="8.5" />
+          <path d="M8.8 14.2a4.4 4.4 0 0 0 6.4 0" />
+          <path d="M9.2 10.2h.01" />
+          <path d="M14.8 10.2h.01" />
+        </svg>
+      );
     default:
       return null;
   }
@@ -173,14 +194,10 @@ export function ChatAvatar({
   tone?: AvatarTone;
   imageUrl?: string | null;
 }) {
-  const [imageFailed, setImageFailed] = useState(false);
-
-  useEffect(() => {
-    setImageFailed(false);
-  }, [imageUrl]);
+  const [failedImageUrl, setFailedImageUrl] = useState<string | null>(null);
 
   const resolvedImageUrl = String(imageUrl || "").trim();
-  const showImage = Boolean(resolvedImageUrl) && !imageFailed;
+  const showImage = Boolean(resolvedImageUrl) && failedImageUrl !== resolvedImageUrl;
 
   return (
     <div
@@ -201,7 +218,7 @@ export function ChatAvatar({
           alt=""
           loading="lazy"
           referrerPolicy="no-referrer"
-          onError={() => setImageFailed(true)}
+          onError={() => setFailedImageUrl(resolvedImageUrl)}
         />
       ) : (
         <div className={styles.avatarInner}>
@@ -259,8 +276,11 @@ export function ChatQueueItem({
   badges,
   active,
   className,
+  disabled,
+  onClick,
+  onKeyDown,
   ...props
-}: ButtonHTMLAttributes<HTMLButtonElement> & {
+}: HTMLAttributes<HTMLDivElement> & {
   initials: string;
   label?: string;
   tone?: AvatarTone;
@@ -272,24 +292,35 @@ export function ChatQueueItem({
   badges?: ReactNode;
   active?: boolean;
   className?: string;
+  disabled?: boolean;
 }) {
   return (
-    <button
-      type="button"
-      className={cx(styles.queueItem, active && styles.queueItemActive, className)}
+    <div
+      role={onClick ? "button" : undefined}
+      tabIndex={onClick && !disabled ? 0 : undefined}
+      aria-disabled={disabled ? true : undefined}
+      className={cx(styles.queueItem, active && styles.queueItemActive, disabled && styles.queueItemDisabled, className)}
+      onClick={disabled ? undefined : onClick}
+      onKeyDown={(event) => {
+        if (!disabled && onClick && (event.key === "Enter" || event.key === " ")) {
+          event.preventDefault();
+          event.currentTarget.click();
+        }
+        onKeyDown?.(event);
+      }}
       {...props}
     >
       <ChatAvatar initials={initials} label={label} tone={tone} imageUrl={imageUrl} />
       <div className={styles.queueContent}>
         <div className={styles.queueTop}>
           <strong>{title}</strong>
-          {meta ? <span>{meta}</span> : null}
+          {meta ? <div className={styles.queueMeta}>{meta}</div> : null}
         </div>
         {subtitle ? <p className={styles.queueSubtitle}>{subtitle}</p> : null}
         {preview ? <p className={styles.queuePreview}>{preview}</p> : null}
         {badges ? <div className={styles.queueBadges}>{badges}</div> : null}
       </div>
-    </button>
+    </div>
   );
 }
 

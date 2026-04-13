@@ -99,6 +99,11 @@ export class InboxController {
     return this.inboxService.unblockConversation(req.user, id);
   }
 
+  @Delete('conversations/:id')
+  deleteConversation(@Req() req: any, @Param('id', ParseIntPipe) id: number) {
+    return this.inboxService.deleteConversation(req.user, id);
+  }
+
   @Patch('conversations/bulk-bot')
   bulkSetBot(@Req() req: any, @Body() dto: BulkSetBotDto) {
     return this.inboxService.bulkSetBotActive(req.user, dto);
@@ -141,6 +146,34 @@ export class InboxController {
     @UploadedFile() file: any,
   ) {
     return this.inboxService.uploadConversationMedia(req.user, id, file);
+  }
+
+  @Post('conversations/:conversationId/messages/:messageId/reaction')
+  reactToMessage(
+    @Req() req: any,
+    @Param('conversationId', ParseIntPipe) conversationId: number,
+    @Param('messageId', ParseIntPipe) messageId: number,
+    @Body() dto: { reaction?: string | null },
+  ) {
+    return this.inboxService.reactToConversationMessage(
+      req.user,
+      conversationId,
+      messageId,
+      String(dto?.reaction || ''),
+    );
+  }
+
+  @Delete('conversations/:conversationId/messages/:messageId')
+  deleteMessageForEveryone(
+    @Req() req: any,
+    @Param('conversationId', ParseIntPipe) conversationId: number,
+    @Param('messageId', ParseIntPipe) messageId: number,
+  ) {
+    return this.inboxService.deleteConversationMessageForEveryone(
+      req.user,
+      conversationId,
+      messageId,
+    );
   }
 
   // ---------------------------------------------------------------------------

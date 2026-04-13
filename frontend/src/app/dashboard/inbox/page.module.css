@@ -650,9 +650,12 @@
   margin-bottom: 1.75rem;
   padding: 0.72rem 0.82rem;
   border-radius: 11px;
+  border: none;
   background: rgba(17, 27, 33, 0.34);
   color: inherit;
   text-decoration: none;
+  text-align: left;
+  cursor: pointer;
 }
 
 .whatsAppDocumentIcon {
@@ -1275,6 +1278,101 @@
 .conversationQueueItemUnread p,
 .conversationQueueItemUnread span {
   color: #ffffff;
+}
+
+.conversationQueueItemMuted {
+  filter: saturate(0.72);
+}
+
+.conversationQueueItemMuted strong,
+.conversationQueueItemMuted p,
+.conversationQueueItemMuted span {
+  color: color-mix(in srgb, #9fb1bc 84%, #dfe8ee);
+}
+
+.conversationQueueMetaStack {
+  position: relative;
+  display: grid;
+  justify-items: end;
+  gap: 0.18rem;
+}
+
+.conversationQueueMetaTime {
+  font-size: 0.72rem;
+  font-weight: 800;
+  color: #128c7e;
+}
+
+.conversationQueueMetaMenuWrap {
+  position: relative;
+}
+
+.conversationQueueMetaButton {
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: color-mix(in srgb, var(--muted) 78%, var(--foreground));
+  cursor: pointer;
+  transition:
+    background-color var(--motion-fast),
+    color var(--motion-fast),
+    transform var(--motion-fast);
+}
+
+.conversationQueueMetaButton:hover {
+  background: rgba(18, 140, 126, 0.12);
+  color: #128c7e;
+  transform: translateY(-1px);
+}
+
+.conversationQueueMetaButton svg {
+  width: 14px;
+  height: 14px;
+}
+
+.conversationQueueMetaPopup {
+  position: absolute;
+  top: calc(100% + 0.35rem);
+  right: 0;
+  z-index: 12;
+  min-width: 132px;
+  display: grid;
+  gap: 0.18rem;
+  padding: 0.36rem;
+  border-radius: 14px;
+  border: 1px solid color-mix(in srgb, var(--line) 88%, var(--background));
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--surface) 99%, var(--background)), color-mix(in srgb, var(--surface) 94%, var(--background)));
+  box-shadow: 0 18px 42px rgba(15, 23, 42, 0.16);
+}
+
+.conversationQueueMetaPopupAction {
+  min-height: 34px;
+  padding: 0.42rem 0.62rem;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--foreground);
+  font-size: 0.76rem;
+  font-weight: 800;
+  text-align: left;
+  cursor: pointer;
+}
+
+.conversationQueueMetaPopupAction:hover {
+  background: color-mix(in srgb, #25d366 10%, var(--background));
+}
+
+.conversationQueueMetaPopupActionDanger {
+  color: color-mix(in srgb, var(--danger) 88%, var(--foreground));
+}
+
+.conversationQueueMetaPopupActionDanger:hover {
+  background: color-mix(in srgb, var(--danger) 10%, var(--background));
 }
 
 .conversationContent {
@@ -3140,8 +3238,6 @@
 
 .whatsAppReplyButtonHover {
   flex-shrink: 0;
-  align-self: flex-start;
-  margin-top: 6px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -3158,7 +3254,13 @@
   transition: opacity 0.12s ease, background 0.12s ease;
 }
 
-.whatsAppMessageRow:hover .whatsAppReplyButtonHover {
+.whatsAppReplyButtonHover svg {
+  width: 13px;
+  height: 13px;
+}
+
+.whatsAppMessageRow:hover .whatsAppReplyButtonHover,
+.whatsAppMessageRow:hover .whatsAppHoverActionRail {
   opacity: 1;
   pointer-events: auto;
 }
@@ -3168,11 +3270,22 @@
   background: rgba(255, 255, 255, 0.22);
 }
 
-.whatsAppReplyButtonInbound {
+.whatsAppHoverActionRail {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.24rem;
+  align-self: flex-start;
+  margin-top: 6px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s ease;
+}
+
+.whatsAppHoverActionRailInbound {
   margin-left: 4px;
 }
 
-.whatsAppReplyButtonOutbound {
+.whatsAppHoverActionRailOutbound {
   margin-right: 4px;
 }
 
@@ -3192,6 +3305,59 @@
   max-height: 90vh;
   border-radius: 10px;
   box-shadow: 0 24px 56px rgba(0, 0, 0, 0.45);
+}
+
+.whatsAppImageLightboxCard {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.whatsAppDocumentLightboxCard {
+  width: min(94vw, 1120px);
+  height: min(88vh, 900px);
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 0.8rem;
+  padding: 1rem;
+  border-radius: 20px;
+  background: linear-gradient(180deg, #132129, #0f1a20);
+  box-shadow: 0 26px 60px rgba(0, 0, 0, 0.4);
+}
+
+.whatsAppDocumentLightboxHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.8rem;
+}
+
+.whatsAppDocumentLightboxTitle {
+  min-width: 0;
+  display: grid;
+  gap: 0.12rem;
+}
+
+.whatsAppDocumentLightboxTitle strong {
+  color: #e9edef;
+  font-size: 1rem;
+}
+
+.whatsAppDocumentLightboxTitle span {
+  color: #9fb1bc;
+  font-size: 0.76rem;
+}
+
+.whatsAppDocumentLightboxLink {
+  white-space: nowrap;
+}
+
+.whatsAppDocumentLightboxFrame {
+  width: 100%;
+  height: 100%;
+  border: none;
+  border-radius: 14px;
+  background: #ffffff;
 }
 
 .whatsAppImageLightboxClose {
@@ -3268,6 +3434,85 @@
 
 .whatsAppReplyBarClose:hover {
   color: #eaeaea;
+}
+
+.whatsAppReactionChipRow {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.3rem;
+  margin-top: 0.3rem;
+}
+
+.whatsAppReactionChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.22rem;
+  min-height: 24px;
+  padding: 0.12rem 0.42rem;
+  border-radius: 999px;
+  background: rgba(17, 27, 33, 0.76);
+  color: #e9edef;
+  font-size: 0.74rem;
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.18);
+}
+
+.whatsAppReactionChip strong {
+  font-size: 0.69rem;
+  color: #9df3dc;
+}
+
+.whatsAppReactionPickerBubble {
+  position: absolute;
+  top: -44px;
+  z-index: 16;
+  display: inline-flex;
+  gap: 0.2rem;
+  padding: 0.34rem;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(17, 27, 33, 0.96);
+  box-shadow: 0 18px 36px rgba(0, 0, 0, 0.28);
+}
+
+.whatsAppReactionPickerBubbleInbound {
+  left: 0;
+}
+
+.whatsAppReactionPickerBubbleOutbound {
+  right: 0;
+}
+
+.whatsAppReactionPickerItem {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  cursor: pointer;
+  font-size: 1rem;
+}
+
+.whatsAppReactionPickerItem:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.whatsAppDeletedRevealButton {
+  margin-top: 0.35rem;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: #86e1c5;
+  font-size: 0.74rem;
+  line-height: 1.35;
+  text-align: left;
+  cursor: pointer;
+}
+
+.whatsAppDeletedRevealButton:hover {
+  color: #b7f7e5;
 }
 
 /* ── Image preview bar above composer ── */

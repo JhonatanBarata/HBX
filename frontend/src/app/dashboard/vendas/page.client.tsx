@@ -423,8 +423,6 @@ function DateDropSlot({
 
   return (
     <div
-      role="button"
-      tabIndex={0}
       className={styles.dateFilterCard}
       data-active={active ? "true" : "false"}
       data-tone={item.blockKey}

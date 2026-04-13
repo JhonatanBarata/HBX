@@ -192,7 +192,7 @@
   background: linear-gradient(180deg, #128c7e, #25d366);
 }
 
-.queueItem:disabled {
+.queueItemDisabled {
   cursor: wait;
   opacity: 0.72;
 }
@@ -272,9 +272,17 @@
 
 .queueTop {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 0.55rem;
+}
+
+.queueMeta {
+  flex: 0 0 auto;
+  min-width: 42px;
+  display: grid;
+  justify-items: end;
+  gap: 0.18rem;
 }
 
 .queueTop strong {
