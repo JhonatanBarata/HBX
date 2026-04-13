@@ -768,6 +768,7 @@ export default function VendasClientPage() {
   const archiveRef = useRef<HTMLElement | null>(null);
   const lastDragEndedAtRef = useRef(0);
   const filterScrollerRef = useRef<HTMLDivElement | null>(null);
+  const initialAgendaSyncRef = useRef(false);
   const [visibleDateCount, setVisibleDateCount] = useState<number>(Infinity);
   const [scrollerReady, setScrollerReady] = useState(false);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
@@ -810,10 +811,24 @@ export default function VendasClientPage() {
     }
   }
 
+  const syncTodayAgendaToInbox = useCallback(async () => {
+    try {
+      await apiFetch("/vendas/agenda/whatsapp/sync-today", { method: "POST" });
+    } catch {
+      // Best effort only. The per-lead sync still runs on create/update/import.
+    }
+  }, []);
+
   useEffect(() => {
     if (hasToken !== true) return;
     void loadBoard();
   }, [hasToken]);
+
+  useEffect(() => {
+    if (hasToken !== true || initialAgendaSyncRef.current) return;
+    initialAgendaSyncRef.current = true;
+    void syncTodayAgendaToInbox();
+  }, [hasToken, syncTodayAgendaToInbox]);
 
   useEffect(() => {
     if (!feedback) return;

@@ -40,6 +40,11 @@ export class VendasController {
     return this.vendasService.updateLeadForUser(req.user, leadId, dto);
   }
 
+  @Post('agenda/whatsapp/sync-today')
+  syncTodayAgenda(@Req() req: any) {
+    return this.vendasService.syncTodayAgendaForUser(req.user);
+  }
+
   @Post('lead/:leadId/attempt')
   registerAttempt(@Req() req: any, @Param('leadId') leadId: string, @Body() body?: any) {
     return this.vendasService.registerAttemptForUser(req.user, leadId, body || undefined);

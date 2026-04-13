@@ -51,6 +51,21 @@ function hasAtendimentoFinancialFlowSignal(conversation: InboxConversation) {
   return ATENDIMENTO_FINANCIAL_HINTS.some((hint) => haystack.includes(hint));
 }
 
+export function hasAtendimentoAgendaQueueSignal(conversation: InboxConversation) {
+  const metadata =
+    conversation?.metadata && typeof conversation.metadata === "object" && !Array.isArray(conversation.metadata)
+      ? (conversation.metadata as Record<string, unknown>)
+      : null;
+  const queue =
+    metadata?.vendasAgendaQueue &&
+    typeof metadata.vendasAgendaQueue === "object" &&
+    !Array.isArray(metadata.vendasAgendaQueue)
+      ? (metadata.vendasAgendaQueue as Record<string, unknown>)
+      : null;
+
+  return Boolean(queue?.active);
+}
+
 function formatSharedDateLabel(valueRaw: string | null | undefined) {
   const normalized = String(valueRaw || "").trim();
   if (!normalized) return "-";
@@ -109,6 +124,7 @@ export function isAtendimentoRecoveryConversation(
 }
 
 export function isAtendimentoAgendaConversation(conversation: InboxConversation) {
+  if (hasAtendimentoAgendaQueueSignal(conversation)) return true;
   const haystack = getAtendimentoFinancialHaystack(conversation);
 
   return haystack.includes("agenda") || haystack.includes("agendado");

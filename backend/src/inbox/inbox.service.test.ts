@@ -6,6 +6,7 @@ import { InboxService } from './inbox.service';
 function createService(overrides?: Partial<Record<string, any>>) {
   const auditCalls: Array<Record<string, unknown>> = [];
   const queueCalls: Array<Record<string, unknown>> = [];
+  const conversationStateCalls: Array<Record<string, unknown>> = [];
   const baseConversation = {
     id: 42,
     companyId: 7,
@@ -59,6 +60,10 @@ function createService(overrides?: Partial<Record<string, any>>) {
       queueCalls.push({ companyId, payload });
       return { id: 999 };
     },
+    updateConversationState: async (companyId: number, conversationId: number, payload: Record<string, unknown>) => {
+      conversationStateCalls.push({ companyId, conversationId, payload });
+      return { id: conversationId, ...payload };
+    },
     recordInboundMessage: async () => ({ id: 77, conversationId: 42 }),
     ...(overrides?.conversations || {}),
   } as any;
@@ -89,11 +94,11 @@ function createService(overrides?: Partial<Record<string, any>>) {
   } as any;
 
   const service = new InboxService(prisma, conversations, audit, cadastrosService, customerProfileService, webwhatsBridge);
-  return { service, prisma, conversations, auditCalls, queueCalls, cadastrosService };
+  return { service, prisma, conversations, auditCalls, queueCalls, conversationStateCalls, cadastrosService };
 }
 
 test('sendMessage queues outbound on the real conversation with human flow state', async () => {
-  const { service, queueCalls, auditCalls } = createService();
+  const { service, queueCalls, auditCalls, conversationStateCalls } = createService();
   (service as any).getConversationByIdForCompany = async () => ({ id: '42', messages: [] });
 
   const result = await service.sendMessage({ companyId: 7 }, 42, 'Olá, vamos continuar o atendimento');
@@ -119,6 +124,48 @@ test('sendMessage queues outbound on the real conversation with human flow state
   });
   assert.equal(auditCalls.length, 1);
   assert.equal(auditCalls[0].event, 'manual_outbound_queued');
+  assert.equal(conversationStateCalls.length, 0);
+});
+
+test('sendMessage clears pending Vendas agenda draft after queueing manual outbound', async () => {
+  const { service, conversationStateCalls } = createService({
+    prisma: {
+      companyConversation: {
+        findFirst: async () => ({
+          id: 42,
+          companyId: 7,
+          channel: 'whatsapp',
+          contact: '+5519998877766',
+          humanAssigned: false,
+          botActive: true,
+          flowResult: null,
+          metadata: JSON.stringify({
+            vendasAgendaQueue: {
+              active: true,
+              leadId: 'lead-1',
+              draftMessage: 'Olá, Carlos. Estou retomando nosso contato pelo HBX Vendas.',
+              draftPending: true,
+            },
+          }),
+          createdAt: new Date('2026-03-18T10:00:00.000Z'),
+          updatedAt: new Date('2026-03-18T10:01:00.000Z'),
+          messages: [],
+        }),
+      },
+    },
+  });
+  (service as any).getConversationByIdForCompany = async () => ({ id: '42', messages: [] });
+
+  await service.sendMessage({ companyId: 7 }, 42, 'Olá, vamos continuar o atendimento');
+
+  assert.equal(conversationStateCalls.length, 1);
+  assert.equal(conversationStateCalls[0].companyId, 7);
+  assert.equal(conversationStateCalls[0].conversationId, 42);
+  assert.equal(
+    (conversationStateCalls[0].payload as any).metadata.vendasAgendaQueue.draftPending,
+    false,
+  );
+  assert.ok((conversationStateCalls[0].payload as any).metadata.vendasAgendaQueue.lastManualSendAt);
 });
 
 test('updateConversationStatus maps open and closed to real conversation flags', async () => {

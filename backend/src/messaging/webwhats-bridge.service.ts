@@ -1,7 +1,11 @@
 import { Injectable, Logger } from '@nestjs/common';
 import axios, { Method } from 'axios';
+import { existsSync, readFileSync } from 'fs';
+import { join } from 'path';
 import { PrismaService } from '../prisma/prisma.service';
 import { buildWhatsAppPhoneCandidates, normalizeWhatsAppPhone } from './whatsapp-channel';
+
+type WebwhatsMediaType = 'image' | 'video' | 'document' | 'audio';
 
 type WebwhatsConfig = {
   enabled: boolean;
@@ -74,6 +78,19 @@ type WebwhatsFetchedMessage = {
   MessageUpdate?: Array<{ status?: string | null }> | null;
 };
 
+type WebwhatsInboundRelayInput = {
+  companyId: number;
+  conversationId: number;
+  companyMessageId: number;
+  customerPhone: string;
+  text: string;
+  timestamp: Date;
+  rawPayload: unknown;
+  externalMessageId: string | null;
+  inboundType: string;
+  contactName?: string | null;
+};
+
 @Injectable()
 export class WebwhatsBridgeService {
   private readonly logger = new Logger(WebwhatsBridgeService.name);
@@ -81,6 +98,7 @@ export class WebwhatsBridgeService {
   private readonly detailSyncAt = new Map<string, number>();
   private readonly contactSyncAt = new Map<number, number>();
   private readonly contactCache = new Map<number, WebwhatsContactSummary[]>();
+  private inboundRelay: ((input: WebwhatsInboundRelayInput) => Promise<void>) | null = null;
 
   constructor(private readonly prisma: PrismaService) {}
 
@@ -163,18 +181,22 @@ export class WebwhatsBridgeService {
       this.fetchChats(company.id, 120),
     ]);
     const contactsByJid = this.indexContactsByJid(contacts);
+    const conversationKeys = Array.from(
+      new Set(
+        [
+          remoteJid,
+          remoteJidAlt,
+          this.normalizeRemoteJid(String(conversation.contact || '')),
+        ]
+          .map((value) => this.normalizeOptionalString(value))
+          .filter(Boolean),
+      ),
+    ) as string[];
     const matchingChat = chats.find((chat) => {
       const chatRemoteJid = this.normalizeOptionalString(chat?.remoteJid);
       const chatRemoteJidAlt = this.getChatRemoteJidAlt(chat);
-      return [
-        chatRemoteJid,
-        chatRemoteJidAlt,
-        remoteJid,
-        remoteJidAlt,
-        this.normalizeRemoteJid(String(conversation.contact || '')),
-      ]
-        .filter(Boolean)
-        .some((value) => value === chatRemoteJid || value === chatRemoteJidAlt);
+      const chatKeys = [chatRemoteJid, chatRemoteJidAlt].filter(Boolean) as string[];
+      return chatKeys.some((value) => conversationKeys.includes(value));
     }) || null;
 
     if (matchingChat) {
@@ -287,6 +309,14 @@ export class WebwhatsBridgeService {
     return this.getCachedContacts(companyId);
   }
 
+  setInboundRelay(handler: ((input: WebwhatsInboundRelayInput) => Promise<void>) | null) {
+    this.inboundRelay = handler;
+  }
+
+  isDispatchAvailable(status: string | null | undefined) {
+    return this.canUseConnectedInstance({ whatsappModalStatus: status });
+  }
+
   async sendText(companyId: number, input: { to: string; text: string; conversationId?: number | null }) {
     const company = await this.prisma.company.findUnique({
       where: { id: companyId },
@@ -314,6 +344,153 @@ export class WebwhatsBridgeService {
     const rawMessageId = this.normalizeOptionalString(response?.key?.id || response?.id);
     return {
       target,
+      response,
+      rawMessageId,
+      providerMessageId: rawMessageId ? this.buildProviderMessageId(tenantKey, rawMessageId) : null,
+    };
+  }
+
+  async sendMedia(
+    companyId: number,
+    input: {
+      to: string;
+      mediaType: WebwhatsMediaType;
+      media: string;
+      conversationId?: number | null;
+      caption?: string | null;
+      fileName?: string | null;
+      mimeType?: string | null;
+    },
+  ) {
+    const company = await this.prisma.company.findUnique({
+      where: { id: companyId },
+      select: {
+        id: true,
+        whatsappModalStatus: true,
+      },
+    });
+    if (!company || !this.canUseConnectedInstance(company)) {
+      throw new Error('WEBWHATS_NOT_CONNECTED');
+    }
+
+    const tenantKey = this.buildTenantKey(company.id);
+    const target = await this.resolveSendTarget(companyId, input);
+    const response = await this.request<any>({
+      method: 'POST',
+      path: `/message/sendMedia/${encodeURIComponent(tenantKey)}`,
+      purpose: 'envio de midia via Webwhats',
+      data: {
+        number: target,
+        mediatype: input.mediaType,
+        media: this.resolveOutboundMediaInput(input.media),
+        ...(this.normalizeOptionalString(input.caption) ? { caption: this.normalizeOptionalString(input.caption) } : {}),
+        ...(this.normalizeOptionalString(input.fileName) ? { fileName: this.normalizeOptionalString(input.fileName) } : {}),
+        ...(this.normalizeOptionalString(input.mimeType) ? { mimetype: this.normalizeOptionalString(input.mimeType) } : {}),
+      },
+    });
+
+    const rawMessageId = this.normalizeOptionalString(response?.key?.id || response?.id);
+    return {
+      target,
+      response,
+      rawMessageId,
+      providerMessageId: rawMessageId ? this.buildProviderMessageId(tenantKey, rawMessageId) : null,
+    };
+  }
+
+  async sendInteractive(
+    companyId: number,
+    input: {
+      to: string;
+      payload: Record<string, any>;
+      conversationId?: number | null;
+    },
+  ) {
+    const company = await this.prisma.company.findUnique({
+      where: { id: companyId },
+      select: {
+        id: true,
+        whatsappModalStatus: true,
+      },
+    });
+    if (!company || !this.canUseConnectedInstance(company)) {
+      throw new Error('WEBWHATS_NOT_CONNECTED');
+    }
+
+    const tenantKey = this.buildTenantKey(company.id);
+    const target = await this.resolveSendTarget(companyId, input);
+    const payloadType = this.normalizeOptionalString(input.payload?.type);
+
+    let path = '';
+    let requestBody: Record<string, unknown> | null = null;
+    if (payloadType === 'button') {
+      const bodyText = this.normalizeOptionalString(input.payload?.body?.text) || 'Atendimento';
+      const footerText = this.normalizeOptionalString(input.payload?.footer?.text) || 'Atendimento';
+      const buttons = Array.isArray(input.payload?.action?.buttons)
+        ? input.payload.action.buttons
+            .map((button: any) => ({
+              type: 'reply',
+              displayText: this.normalizeOptionalString(button?.reply?.title),
+              id: this.normalizeOptionalString(button?.reply?.id),
+            }))
+            .filter((button: any) => button.displayText && button.id)
+        : [];
+      if (!buttons.length) {
+        throw new Error('WEBWHATS_INTERACTIVE_BUTTONS_EMPTY');
+      }
+      path = `/message/sendButtons/${encodeURIComponent(tenantKey)}`;
+      requestBody = {
+        number: target,
+        title: bodyText,
+        footer: footerText,
+        buttons,
+      };
+    } else if (payloadType === 'list') {
+      const bodyText = this.normalizeOptionalString(input.payload?.body?.text) || 'Atendimento';
+      const footerText = this.normalizeOptionalString(input.payload?.footer?.text) || 'Atendimento';
+      const buttonText = this.normalizeOptionalString(input.payload?.action?.button) || 'Escolher opcao';
+      const sections = Array.isArray(input.payload?.action?.sections)
+        ? input.payload.action.sections
+            .map((section: any) => ({
+              title: this.normalizeOptionalString(section?.title) || 'Opcoes',
+              rows: Array.isArray(section?.rows)
+                ? section.rows
+                    .map((row: any) => ({
+                      title: this.normalizeOptionalString(row?.title),
+                      description: this.normalizeOptionalString(row?.description) || '',
+                      rowId: this.normalizeOptionalString(row?.id || row?.rowId),
+                    }))
+                    .filter((row: any) => row.title && row.rowId)
+                : [],
+            }))
+            .filter((section: any) => section.rows.length > 0)
+        : [];
+      if (!sections.length) {
+        throw new Error('WEBWHATS_INTERACTIVE_LIST_EMPTY');
+      }
+      path = `/message/sendList/${encodeURIComponent(tenantKey)}`;
+      requestBody = {
+        number: target,
+        title: bodyText,
+        footerText,
+        buttonText,
+        sections,
+      };
+    } else {
+      throw new Error(`WEBWHATS_INTERACTIVE_TYPE_UNSUPPORTED:${payloadType || 'unknown'}`);
+    }
+
+    const response = await this.request<any>({
+      method: 'POST',
+      path,
+      purpose: 'envio de interacao via Webwhats',
+      data: requestBody,
+    });
+
+    const rawMessageId = this.normalizeOptionalString(response?.key?.id || response?.id);
+    return {
+      target,
+      requestBody,
       response,
       rawMessageId,
       providerMessageId: rawMessageId ? this.buildProviderMessageId(tenantKey, rawMessageId) : null,
@@ -356,6 +533,61 @@ export class WebwhatsBridgeService {
     const config = this.readConfig();
     if (!config.available) return false;
     return String(company?.whatsappModalStatus || '').trim().toLowerCase() === 'connected';
+  }
+
+  private resolveOutboundMediaInput(raw: string) {
+    const normalized = this.normalizeOptionalString(raw);
+    if (!normalized) {
+      throw new Error('WEBWHATS_MEDIA_SOURCE_MISSING');
+    }
+
+    const localFilePath = this.resolveUploadedMediaPath(normalized);
+    if (localFilePath && existsSync(localFilePath)) {
+      return readFileSync(localFilePath).toString('base64');
+    }
+
+    if (normalized.startsWith('/')) {
+      return this.buildPublicAssetUrl(normalized);
+    }
+
+    return normalized;
+  }
+
+  private resolveUploadedMediaPath(raw: string) {
+    const pathname = this.extractMediaPathname(raw);
+    if (!pathname || !pathname.startsWith('/uploads/')) return null;
+
+    const normalizedRelativePath = decodeURIComponent(pathname)
+      .replace(/^\/+/, '')
+      .split('/')
+      .filter(Boolean);
+    if (!normalizedRelativePath.length) return null;
+
+    return join(process.cwd(), 'public', ...normalizedRelativePath);
+  }
+
+  private extractMediaPathname(raw: string) {
+    const normalized = this.normalizeOptionalString(raw);
+    if (!normalized) return null;
+    if (normalized.startsWith('/')) {
+      return normalized.split('?')[0].split('#')[0];
+    }
+    try {
+      const parsed = new URL(normalized);
+      return parsed.pathname || null;
+    } catch {
+      return null;
+    }
+  }
+
+  private buildPublicAssetUrl(pathname: string) {
+    const baseUrl = (
+      this.normalizeOptionalString(process.env.PUBLIC_API_BASE_URL)
+      || this.normalizeOptionalString(process.env.API_PUBLIC_URL)
+      || this.normalizeOptionalString(process.env.BACKEND_PUBLIC_URL)
+      || `http://localhost:${Number(process.env.APP_PORT || 3000)}`
+    ).replace(/\/+$/, '');
+    return `${baseUrl}${pathname.startsWith('/') ? pathname : `/${pathname}`}`;
   }
 
   private isThrottled(map: Map<number | string, number>, key: number | string, windowMs: number) {
@@ -506,7 +738,6 @@ export class WebwhatsBridgeService {
       chat?.contact?.pushName,
       chat?.notifyName,
       chat?.contact?.notifyName,
-      chat?.lastMessage?.pushName,
     ];
 
     for (const candidate of candidates) {
@@ -522,9 +753,6 @@ export class WebwhatsBridgeService {
 
     const candidates = [
       metadata.whatsappContactName,
-      metadata.cliente,
-      metadata.customerName,
-      metadata.name,
       metadata.waNickname,
       metadata.whatsappName,
       metadata.whatsappProfileName,
@@ -559,6 +787,117 @@ export class WebwhatsBridgeService {
     return normalized;
   }
 
+  private resolvePreferredConversationContact(...candidates: Array<string | null | undefined>) {
+    for (const candidate of candidates) {
+      const raw = String(candidate || '').trim().toLowerCase();
+      if (!raw || raw.includes('@g.us') || raw.includes('@lid') || raw.includes('@broadcast')) {
+        continue;
+      }
+      const normalizedPhone = normalizeWhatsAppPhone(raw);
+      if (normalizedPhone) return normalizedPhone;
+    }
+
+    for (const candidate of candidates) {
+      const normalized = this.normalizeOptionalString(candidate);
+      if (normalized) return normalized;
+    }
+
+    return '';
+  }
+
+  private async consolidateDuplicateConversations(
+    companyId: number,
+    rows: Array<{
+      id: number;
+      contact: string;
+      metadata: string | null;
+      humanAssigned: boolean | null;
+      lastMessageAt: Date | null;
+      lastInteractionAt: Date | null;
+    }>,
+    preferredContact: string,
+    remoteJid: string,
+    remoteJidAlt: string | null,
+  ) {
+    if (rows.length <= 1) return rows[0] || null;
+
+    const canonicalContact = this.resolvePreferredConversationContact(
+      preferredContact,
+      remoteJid,
+      remoteJidAlt,
+    );
+    const canonical =
+      rows.find((row) => String(row.contact || '') === canonicalContact) ||
+      rows.find((row) => row.humanAssigned) ||
+      rows[0];
+    const duplicates = rows.filter((row) => row.id !== canonical.id);
+    if (!duplicates.length) return canonical;
+
+    const mergedMetadata: Record<string, any> = {};
+    for (const row of [...duplicates, canonical]) {
+      const parsed = this.parseMetadata(row.metadata);
+      for (const [key, value] of Object.entries(parsed || {})) {
+        if (value === undefined || value === null || value === '') continue;
+        if (mergedMetadata[key] === undefined || mergedMetadata[key] === null || mergedMetadata[key] === '') {
+          mergedMetadata[key] = value;
+        }
+      }
+    }
+
+    const normalizedRemoteJid = this.normalizeOptionalString(remoteJid);
+    const normalizedRemoteJidAlt = this.normalizeOptionalString(remoteJidAlt);
+    if (normalizedRemoteJid) mergedMetadata.whatsappRemoteJid = normalizedRemoteJid;
+    if (normalizedRemoteJidAlt) mergedMetadata.whatsappRemoteJidAlt = normalizedRemoteJidAlt;
+
+    const lastMessageAt = rows.reduce<Date | null>((latest, row) => {
+      if (!row.lastMessageAt) return latest;
+      if (!latest || row.lastMessageAt.getTime() > latest.getTime()) return row.lastMessageAt;
+      return latest;
+    }, canonical.lastMessageAt || null);
+    const lastInteractionAt = rows.reduce<Date | null>((latest, row) => {
+      if (!row.lastInteractionAt) return latest;
+      if (!latest || row.lastInteractionAt.getTime() > latest.getTime()) return row.lastInteractionAt;
+      return latest;
+    }, canonical.lastInteractionAt || null);
+
+    this.logger.warn(
+      `Consolidating duplicate WhatsApp conversations for company=${companyId}, canonical=${canonical.id}, duplicates=${duplicates.map((row) => row.id).join(',')}`,
+    );
+
+    return this.prisma.$transaction(async (tx) => {
+      const duplicateIds = duplicates.map((row) => row.id);
+      if (duplicateIds.length) {
+        await tx.companyMessage.updateMany({
+          where: { conversationId: { in: duplicateIds } },
+          data: { conversationId: canonical.id },
+        });
+        await tx.companyConversation.deleteMany({
+          where: { id: { in: duplicateIds } },
+        });
+      }
+
+      return tx.companyConversation.update({
+        where: { id: canonical.id },
+        data: {
+          ...(canonicalContact && canonicalContact !== String(canonical.contact || '')
+            ? { contact: canonicalContact }
+            : {}),
+          metadata: JSON.stringify(mergedMetadata),
+          ...(lastMessageAt ? { lastMessageAt } : {}),
+          ...(lastInteractionAt ? { lastInteractionAt } : {}),
+        },
+        select: {
+          id: true,
+          contact: true,
+          metadata: true,
+          humanAssigned: true,
+          lastMessageAt: true,
+          lastInteractionAt: true,
+        },
+      });
+    });
+  }
+
   private async upsertConversationFromChat(
     companyId: number,
     chat: WebwhatsChatSummary,
@@ -569,7 +908,7 @@ export class WebwhatsBridgeService {
     if (!remoteJid) return null;
 
     const remoteJidAlt = this.getChatRemoteJidAlt(chat);
-    const contact = this.buildConversationContact(remoteJidAlt || remoteJid);
+    const contact = this.resolvePreferredConversationContact(remoteJidAlt, remoteJid);
     const existing = await this.findConversation(companyId, remoteJid, remoteJidAlt, contact);
     const existingMetadata = this.parseMetadata(existing?.metadata);
     const chatDisplayName =
@@ -665,10 +1004,19 @@ export class WebwhatsBridgeService {
         metadata: true,
         humanAssigned: true,
         lastMessageAt: true,
+        lastInteractionAt: true,
       },
     });
 
     if (!rows.length) return null;
+    const consolidated = await this.consolidateDuplicateConversations(
+      companyId,
+      rows,
+      preferredContact,
+      remoteJid,
+      remoteJidAlt,
+    );
+    if (consolidated) return consolidated;
     const exactPreferred = rows.find((row) => String(row.contact || '') === preferredContact);
     if (exactPreferred) return exactPreferred;
     const humanAssigned = rows.find((row) => row.humanAssigned);
@@ -698,6 +1046,7 @@ export class WebwhatsBridgeService {
     const body = this.extractMessageBody(message, messageType);
     const status = this.normalizeStoredStatus(message, direction);
     const resolvedContact = this.buildConversationContact(remoteJidAlt || this.getMessageRemoteJidAlt(message) || remoteJid);
+    const normalizedCustomerPhone = normalizeWhatsAppPhone(resolvedContact);
 
     const payload = {
       companyId,
@@ -715,8 +1064,15 @@ export class WebwhatsBridgeService {
       rawPayload: JSON.stringify(message || {}),
     } as const;
 
+    let persistedMessageId = 0;
+    let shouldRelayInbound = false;
+
     if (rawProviderMessageId) {
-      await this.prisma.companyMessage.upsert({
+      const existing = await this.prisma.companyMessage.findUnique({
+        where: { providerMessageId: rawProviderMessageId },
+        select: { id: true },
+      });
+      const persisted = await this.prisma.companyMessage.upsert({
         where: { providerMessageId: rawProviderMessageId },
         create: payload,
         update: {
@@ -731,7 +1087,10 @@ export class WebwhatsBridgeService {
           sourceModule: payload.sourceModule,
           provider: payload.provider,
         },
+        select: { id: true },
       });
+      persistedMessageId = Number(persisted.id || 0);
+      shouldRelayInbound = !existing;
     } else {
       const existing = await this.prisma.companyMessage.findFirst({
         where: {
@@ -744,7 +1103,14 @@ export class WebwhatsBridgeService {
         select: { id: true },
       });
       if (!existing) {
-        await this.prisma.companyMessage.create({ data: payload });
+        const created = await this.prisma.companyMessage.create({
+          data: payload,
+          select: { id: true },
+        });
+        persistedMessageId = Number(created.id || 0);
+        shouldRelayInbound = true;
+      } else {
+        persistedMessageId = Number(existing.id || 0);
       }
     }
 
@@ -755,6 +1121,33 @@ export class WebwhatsBridgeService {
         lastInteractionAt: timestamp,
       },
     });
+
+    if (
+      direction === 'INBOUND'
+      && shouldRelayInbound
+      && persistedMessageId > 0
+      && normalizedCustomerPhone
+      && this.inboundRelay
+    ) {
+      try {
+        await this.inboundRelay({
+          companyId,
+          conversationId,
+          companyMessageId: persistedMessageId,
+          customerPhone: normalizedCustomerPhone,
+          text: body,
+          timestamp,
+          rawPayload: message || {},
+          externalMessageId: rawProviderMessageId,
+          inboundType: messageType,
+          contactName: this.normalizeOptionalString(message?.pushName),
+        });
+      } catch (error: any) {
+        this.logger.warn(
+          `Webwhats inbound relay falhou para company ${companyId} conversation ${conversationId}: ${String(error?.message || error)}`,
+        );
+      }
+    }
   }
 
   private normalizeRemoteJid(valueRaw: string) {
@@ -769,10 +1162,9 @@ export class WebwhatsBridgeService {
   private isSyncableChat(remoteJidRaw: string | null | undefined) {
     const remoteJid = String(remoteJidRaw || '').trim().toLowerCase();
     if (!remoteJid) return false;
-    if (remoteJid.includes('@g.us')) return false;
     if (remoteJid.includes('@broadcast')) return false;
     if (remoteJid === 'status@broadcast') return false;
-    return remoteJid.includes('@s.whatsapp.net') || remoteJid.includes('@lid');
+    return remoteJid.includes('@s.whatsapp.net') || remoteJid.includes('@lid') || remoteJid.includes('@g.us');
   }
 
   private normalizeOptionalString(value: unknown) {

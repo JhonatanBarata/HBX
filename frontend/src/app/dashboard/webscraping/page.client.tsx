@@ -767,7 +767,7 @@ export default function WebscrapingClientPage() {
   if (!hasToken) return null;
 
   return (
-    <DashboardScaffold hideHeader={true} showDashboardShortcut={false}>
+    <DashboardScaffold title="Prospeccao" hideHeader={true} showDashboardShortcut={false}>
       <div className={styles.page}>
 
         {loadingBootstrap ? (

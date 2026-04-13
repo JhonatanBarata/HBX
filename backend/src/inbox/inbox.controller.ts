@@ -35,6 +35,11 @@ import { PromoteToRecoveryDto } from './dto/promote-to-recovery.dto';
 export class InboxController {
   constructor(private readonly inboxService: InboxService) {}
 
+  @Get('bootstrap')
+  getBootstrap(@Req() req: any, @Query('take') take?: string) {
+    return this.inboxService.getBootstrap(req.user, take);
+  }
+
   @Get('bot-config')
   getBotConfig(@Req() req: any) {
     return this.inboxService.getBotConfig(req.user);
@@ -61,8 +66,8 @@ export class InboxController {
   }
 
   @Get('conversations')
-  listConversations(@Req() req: any) {
-    return this.inboxService.listConversations(req.user);
+  listConversations(@Req() req: any, @Query('take') take?: string) {
+    return this.inboxService.listConversations(req.user, take);
   }
 
   @Get('conversations/:id')
@@ -102,6 +107,18 @@ export class InboxController {
     return this.inboxService.sendMessage(req.user, id, dto.content, {
       quotedMessageId: dto.quotedMessageId,
       quotedContent: dto.quotedContent,
+      attachment:
+        dto.attachmentUrl || dto.attachmentKind
+          ? {
+              kind: dto.attachmentKind,
+              url: dto.attachmentUrl,
+              previewUrl: dto.attachmentPreviewUrl,
+              mimeType: dto.attachmentMimeType,
+              fileName: dto.attachmentFileName,
+              fileSize: dto.attachmentFileSize,
+              durationSeconds: dto.attachmentDurationSeconds,
+            }
+          : undefined,
     });
   }
 
