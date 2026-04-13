@@ -80,58 +80,120 @@ function ResetPasswordInner() {
     }
   }
 
+  const inlineMainStyle: React.CSSProperties & Record<string, string> = {
+    minHeight: "100vh",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: "1.5rem",
+    background: "linear-gradient(180deg, #f4f7fb 0%, #ebf0f7 100%)",
+    // Override login accent to HBX blue (primary) and a darker variant
+    "--login-accent": "#26428C",
+    "--login-accent-alt": "#0B1F48",
+  };
+
+  const inlineCardStyle: React.CSSProperties = {
+    maxWidth: "520px",
+    width: "100%",
+    padding: "1.25rem",
+    borderRadius: "18px",
+    background: "#ffffff",
+    boxShadow: "0 18px 42px -24px rgba(15,23,42,0.28)",
+    border: "1px solid rgba(15,23,42,0.06)",
+  };
+
+  const inlineInputStyle: React.CSSProperties = {
+    width: "100%",
+    marginTop: "0.25rem",
+    padding: "0.5rem",
+    borderRadius: "12px",
+    border: "1px solid rgba(15,23,42,0.06)",
+    background: "#ffffff",
+  };
+
+  const inlineButtonStyle: React.CSSProperties = {
+    width: "100%",
+    padding: "0.6rem",
+    borderRadius: "12px",
+    background: "linear-gradient(145deg, #26428C, #0B1F48)",
+    color: "#ffffff",
+    border: "none",
+    cursor: "pointer",
+    boxShadow: "0 12px 28px -12px rgba(38,66,140,0.36)",
+    transition: "transform 160ms ease, box-shadow 160ms ease",
+  };
+
   return (
-    <main className="min-h-screen flex items-center justify-center p-6">
-      <div className="max-w-md w-full p-6 border border-foreground/10 rounded-2xl bg-background shadow-sm">
-        <h1 className="text-2xl font-bold mb-2">Redefinir senha</h1>
-        <p className="text-sm text-foreground/70 mb-6">Crie uma nova senha para sua conta.</p>
+    <main className="login-stage" style={inlineMainStyle}>
+      <div className="login-stage__grid" aria-hidden />
+      <div className="login-visuals" aria-hidden />
 
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="text-sm font-medium">Nova senha</label>
-            <input
-              type="password"
-              className="w-full mt-1 p-2 border border-foreground/10 rounded-xl bg-background"
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              placeholder="****"
-              required
-              autoComplete="new-password"
-            />
-            <p className="text-xs text-foreground/60 mt-1">Mínimo de 4 caracteres.</p>
+      <div className="login-shell">
+        <div className={`login-card card transition-all duration-300 opacity-100 translate-y-0`} style={inlineCardStyle}>
+          <div className="login-card__chrome" aria-hidden />
+
+          <header className="login-card__header">
+            <div className="login-card__brandBlock">
+              <div className="login-card__brandMark" aria-hidden>
+                <span className="login-card__brandMarkCore">HBX</span>
+              </div>
+              <div className="login-card__themeCopy">
+                <p className="login-card__themeLabel">Acesso seguro HBX</p>
+                <p className="login-card__themeHint">Crie uma nova senha para sua conta.</p>
+              </div>
+            </div>
+
+            <h1 className="login-card__title">Redefinir senha</h1>
+          </header>
+
+          <div className="p-6">
+            <form onSubmit={handleSubmit} className="space-y-4">
+              <div>
+                <label className="text-sm font-medium">Nova senha</label>
+                <input
+                  type="password"
+                  className="w-full mt-1 p-2 border border-foreground/10 rounded-xl bg-background"
+                  style={inlineInputStyle}
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  placeholder="****"
+                  required
+                  autoComplete="new-password"
+                />
+                <p className="text-xs text-foreground/60 mt-1">Mínimo de 4 caracteres.</p>
+              </div>
+
+              <div>
+                <label className="text-sm font-medium">Confirmar nova senha</label>
+                <input
+                  type="password"
+                  className="w-full mt-1 p-2 border border-foreground/10 rounded-xl bg-background"
+                  style={inlineInputStyle}
+                  value={confirmPassword}
+                  onChange={(event) => setConfirmPassword(event.target.value)}
+                  placeholder="****"
+                  required
+                  autoComplete="new-password"
+                />
+              </div>
+
+              {info ? (
+                <p className="text-sm border border-foreground/10 bg-background p-2 rounded-xl">{info}</p>
+              ) : null}
+              {error ? (
+                <p className="text-sm border border-foreground/10 bg-background p-2 rounded-xl">{error}</p>
+              ) : null}
+
+              <button disabled={loading} style={inlineButtonStyle}>
+                {loading ? "Salvando..." : "Salvar nova senha"}
+              </button>
+
+              <a className="block text-center text-sm underline text-foreground/70" href="/login">
+                Voltar para o login
+              </a>
+            </form>
           </div>
-
-          <div>
-            <label className="text-sm font-medium">Confirmar nova senha</label>
-            <input
-              type="password"
-              className="w-full mt-1 p-2 border border-foreground/10 rounded-xl bg-background"
-              value={confirmPassword}
-              onChange={(event) => setConfirmPassword(event.target.value)}
-              placeholder="****"
-              required
-              autoComplete="new-password"
-            />
-          </div>
-
-          {info ? (
-            <p className="text-sm border border-foreground/10 bg-background p-2 rounded-xl">{info}</p>
-          ) : null}
-          {error ? (
-            <p className="text-sm border border-foreground/10 bg-background p-2 rounded-xl">{error}</p>
-          ) : null}
-
-          <button
-            disabled={loading}
-            className="w-full py-2 rounded-xl bg-primary text-background hover:opacity-90 disabled:opacity-50"
-          >
-            {loading ? "Salvando..." : "Salvar nova senha"}
-          </button>
-
-          <a className="block text-center text-sm underline text-foreground/70" href="/login">
-            Voltar para o login
-          </a>
-        </form>
+        </div>
       </div>
     </main>
   );

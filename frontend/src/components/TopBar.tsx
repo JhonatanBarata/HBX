@@ -24,7 +24,9 @@ import WhatsAppOperationalDialog from "./WhatsAppOperationalDialog";
 
 type User = {
   id: number;
-  username: string;
+  username?: string | null;
+  name?: string | null;
+  email?: string | null;
   role?: string | null;
   isSystemMaster?: boolean;
   company?: { id: number; name?: string | null } | null;
@@ -1412,6 +1414,10 @@ export default function TopBar() {
         </div>
       </div>
     ) : null;
+  const displayName = (user?.name || user?.username || user?.email || "").trim();
+  const _initialSource = displayName || String(user?.username || user?.email || "");
+  const displayInitial = _initialSource ? _initialSource.charAt(0).toUpperCase() : "U";
+  const displayLabel = displayName ? `User: ${displayName}` : user?.username ? `User: ${user.username}` : "";
   if (hiddenRoutes.has(pathname)) {
     return null;
   }
@@ -1551,11 +1557,9 @@ export default function TopBar() {
                   onClick={() => setOpen((value) => !value)}
                   aria-expanded={open}
                 >
-                  <span className="app-user__avatar">
-                    {user.username ? user.username.charAt(0).toUpperCase() : "U"}
-                  </span>
+                  <span className="app-user__avatar">{displayInitial}</span>
                   <span className="app-user__meta">
-                    <span className="app-user__name">{user.username}</span>
+                    <span className="app-user__name">{displayLabel || user?.username || ""}</span>
                     <span className="app-user__company">
                       {user.isSystemMaster
                         ? user.masterContext?.active

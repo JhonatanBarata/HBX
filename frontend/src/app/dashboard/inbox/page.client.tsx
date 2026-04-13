@@ -12,19 +12,15 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   ChatActionGrid,
   ChatAvatar,
-  ChatComposer,
   ChatEmptyState,
   ChatFieldNote,
   ChatIconButton,
-  ChatMessageBubble,
   ChatQueue,
   ChatQueueItem,
   ChatInfoCard,
-  ChatThread,
 } from "@/components/chat/PremiumChat";
 import DashboardScaffold from "@/components/DashboardScaffold";
 import ConversationActionList from "@/components/workspace/ConversationActionList";
-import ConversationBadgeList from "@/components/workspace/ConversationBadgeList";
 import ConversationContextPanel from "@/components/workspace/ConversationContextPanel";
 import ConversationListPane from "@/components/workspace/ConversationListPane";
 import ConversationQueueFilterBar from "@/components/workspace/ConversationQueueFilterBar";
@@ -35,12 +31,9 @@ import {
   buildAtendimentoContextSummary,
   buildAtendimentoRecoveryPaymentHistory,
   buildAtendimentoRecoverySummary,
-  buildAtendimentoQueueBadges,
   formatAtendimentoRecoveryPaymentStatusLabel,
-  getAtendimentoComposerHint,
   getAtendimentoRecoveryPaymentDate,
   getAtendimentoConversationStatusMeta,
-  hasAtendimentoOpenDebt,
   hasAtendimentoRecoveryContext,
   isAtendimentoAgendaConversation,
   isAtendimentoRecoveryPrimary,
@@ -208,27 +201,6 @@ function getInboxQueueLabel(queue: InboxQueue) {
   }
 }
 
-function getConversationPrimaryActionLabel(conversation: InboxConversation | null) {
-  if (!conversation) return "Selecione uma conversa para operar.";
-  if (conversation.isBlocked) return "Desbloqueie o contato para responder.";
-  if (hasAtendimentoOpenDebt(conversation)) {
-    return "Responder e revisar o financeiro quando preciso.";
-  }
-  if (hasAtendimentoRecoveryContext(conversation)) {
-    return "Responder sem perder o contexto financeiro desta conversa.";
-  }
-  if (isAtendimentoAgendaConversation(conversation)) {
-    return "Responder e acompanhar a agenda.";
-  }
-  if (conversation.status === "open") {
-    return "Conduza o atendimento e encerre quando resolver.";
-  }
-  if (conversation.status === "closed") {
-    return "Reabra apenas se houver novo contexto.";
-  }
-  return "Responda ou assuma no humano sem sair da inbox.";
-}
-
 function getConversationNoteStorageKey(companyId: number | null | undefined, conversationId: string | null) {
   if (!companyId || !conversationId) return null;
   return `hbx:inbox:note:${companyId}:${conversationId}`;
@@ -247,6 +219,97 @@ function makeClientId(prefix: string) {
   return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
+const API_PUBLIC_BASE = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000").replace(/\/+$/, "");
+
+function isLikelyImageUrl(raw: string) {
+  const value = String(raw || "").trim();
+  if (!value) return false;
+  const isUrl = /^https?:\/\/\S+$/i.test(value) || /^\/\S+$/.test(value);
+  if (!isUrl) return false;
+  const noQuery = value.split("?")[0].toLowerCase();
+  return /\.(png|jpe?g|gif|webp|bmp|svg)$/.test(noQuery);
+}
+
+function toAbsoluteAssetUrl(raw: string) {
+  const value = String(raw || "").trim();
+  if (!value) return "";
+  if (/^https?:\/\//i.test(value)) return value;
+  if (value.startsWith("/")) return `${API_PUBLIC_BASE}${value}`;
+  return value;
+}
+
+function normalizePathologicalLineBreaks(raw: string) {
+  const value = String(raw || "");
+  if (!value.includes("\n")) return value;
+  const lines = value.split("\n");
+  const compact = lines.map((line) => line.trim()).filter(Boolean);
+  if (compact.length < 4) return value;
+
+  // Heuristic: if most lines are 1-2 chars, it is likely a broken wrap artifact.
+  const shortLines = compact.filter((line) => line.length <= 2).length;
+  if (shortLines / compact.length < 0.7) return value;
+
+  return compact.join("");
+}
+
+function parseInboxMessageMedia(message: InboxMessage) {
+  const rawContent = normalizePathologicalLineBreaks(String(message?.content || "")).trim();
+  if (!rawContent) {
+    return {
+      imageUrl: null as string | null,
+      text: String(getMessagePreview(message) || "").trim(),
+    };
+  }
+
+  const lines = rawContent.split("\n");
+  const first = String(lines[0] || "").trim();
+  if (isLikelyImageUrl(first)) {
+    return {
+      imageUrl: toAbsoluteAssetUrl(first),
+      text: lines.slice(1).join("\n").trim(),
+    };
+  }
+
+  return {
+    imageUrl: null as string | null,
+    text: rawContent,
+  };
+}
+
+/** Renders WhatsApp-style inline formatting: *bold*, _italic_, ~strike~, `mono` */
+function formatWhatsAppText(raw: string): React.ReactNode {
+  if (!raw) return null;
+  // Split into lines, process each
+  const lines = raw.split("\n");
+  const result: React.ReactNode[] = [];
+  lines.forEach((line, li) => {
+    if (li > 0) result.push(<br key={`br${li}`} />);
+    // Tokenize: *bold*, _italic_, ~strike~, `mono`, regular
+    const regex = /(\*[^*\n]+\*)|(_[^_\n]+_)|(~[^~\n]+~)|(`[^`\n]+`)/g;
+    let last = 0;
+    let match: RegExpExecArray | null;
+    const parts: React.ReactNode[] = [];
+    while ((match = regex.exec(line)) !== null) {
+      if (match.index > last) parts.push(line.slice(last, match.index));
+      const token = match[0];
+      const key = `${li}-${match.index}`;
+      if (token.startsWith("*") && token.endsWith("*")) {
+        parts.push(<strong key={key}>{token.slice(1, -1)}</strong>);
+      } else if (token.startsWith("_") && token.endsWith("_")) {
+        parts.push(<em key={key}>{token.slice(1, -1)}</em>);
+      } else if (token.startsWith("~") && token.endsWith("~")) {
+        parts.push(<del key={key}>{token.slice(1, -1)}</del>);
+      } else if (token.startsWith("`") && token.endsWith("`")) {
+        parts.push(<code key={key} style={{ background: "rgba(0,0,0,0.18)", borderRadius: 3, padding: "0 3px", fontFamily: "monospace", fontSize: "0.9em" }}>{token.slice(1, -1)}</code>);
+      }
+      last = match.index + token.length;
+    }
+    if (last < line.length) parts.push(line.slice(last));
+    result.push(...parts);
+  });
+  return result.length ? result : raw;
+}
+
 function formatDateLabel(dateStr: string | null | undefined, mounted: boolean) {
   if (!dateStr) return "-";
   const parsed = new Date(dateStr);
@@ -261,10 +324,417 @@ function formatTimeLabel(dateStr: string | null | undefined, mounted: boolean) {
   return parsed.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
 }
 
-function getInboxConversationFreshness(conversation?: Pick<InboxConversation, "updatedAt" | "messages"> | null) {
+function normalizeConversationDisplayNameCandidate(
+  value: unknown,
+  phone?: string | null,
+) {
+  const normalized = String(value || "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/^["'“”‘’]+|["'“”‘’]+$/g, "")
+    .trim();
+  if (!normalized) return null;
+
+  const lowered = normalized.toLowerCase();
+  if (lowered === "você" || lowered === "voce" || lowered === "you" || lowered === "eu") {
+    return null;
+  }
+  if (lowered.includes("@lid") || lowered.includes("@s.whatsapp.net")) {
+    return null;
+  }
+  if (/^\d{14,}$/.test(normalized.replace(/\s+/g, ""))) {
+    return null;
+  }
+
+  const candidateDigits = normalized.replace(/\D/g, "");
+  const phoneDigits = String(phone || "").replace(/\D/g, "");
+  if (candidateDigits && phoneDigits && candidateDigits === phoneDigits) {
+    return null;
+  }
+
+  return normalized;
+}
+
+function getInboxConversationMetadata(
+  conversation?: InboxConversation | null,
+): Record<string, unknown> | null {
+  const metadata = conversation?.metadata;
+  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) {
+    return null;
+  }
+  return metadata as Record<string, unknown>;
+}
+
+function getInboxMergedConversationIds(conversation?: InboxConversation | null) {
+  const metadata = getInboxConversationMetadata(conversation);
+  const mergedIds = Array.isArray(metadata?.__mergedConversationIds)
+    ? metadata.__mergedConversationIds
+    : null;
+  const normalized = (mergedIds || [conversation?.id])
+    .map((value) => String(value || "").trim())
+    .filter(Boolean);
+  return Array.from(new Set(normalized));
+}
+
+function isInboxGroupRemoteJid(raw: string | null | undefined) {
+  const value = String(raw || "").trim().toLowerCase();
+  return value.includes("@g.us");
+}
+
+function getInboxStableRemoteKey(conversation?: InboxConversation | null) {
+  return String(extractInboxRawContact(conversation) || "").trim().toLowerCase();
+}
+
+function resolveInboxAvatarUrl(conversation?: InboxConversation | null) {
+  if (!conversation) return null;
+  const metadata = getInboxConversationMetadata(conversation);
+  const candidates = [
+    conversation.customer?.avatarUrl,
+    metadata?.whatsappAvatarUrl,
+    metadata?.avatarUrl,
+  ];
+
+  for (const candidate of candidates) {
+    const normalized = String(candidate || "").trim();
+    if (!normalized) continue;
+    return toAbsoluteAssetUrl(normalized);
+  }
+
+  return null;
+}
+
+function resolveInboxConversationDisplayName(conversation?: InboxConversation | null) {
+  if (!conversation) return "Cliente";
+  const phone = String(conversation.customer?.phone || "").trim();
+  const candidates = [
+    conversation.customer?.name,
+    conversation.customer?.sharedProfile?.displayName,
+    conversation.recoveryCustomerName,
+    phone,
+  ];
+
+  for (const candidate of candidates) {
+    const normalized = normalizeConversationDisplayNameCandidate(candidate, phone);
+    if (normalized) return normalized;
+  }
+
+  return (
+    formatInboxPhoneLabel(extractInboxRawContact(conversation)) ||
+    formatInboxPhoneLabel(phone) ||
+    "Contato WhatsApp"
+  );
+}
+
+function getInboxConversationInitials(conversation?: InboxConversation | null) {
+  const displayName = resolveInboxConversationDisplayName(conversation);
+  const phone = String(conversation?.customer?.phone || "").trim();
+  const digits = displayName.replace(/\D/g, "");
+  if (digits && digits === phone.replace(/\D/g, "")) {
+    return digits.slice(-2).padStart(2, "0");
+  }
+
+  const words = displayName
+    .split(/\s+/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+
+  if (words.length >= 2) {
+    return `${words[0][0] || ""}${words[1][0] || ""}`.toUpperCase();
+  }
+
+  return displayName.slice(0, 2).toUpperCase();
+}
+
+function extractInboxRawContact(conversation?: InboxConversation | null) {
+  const metadata = getInboxConversationMetadata(conversation);
+  return String(
+    metadata?.whatsappRemoteJidAlt ||
+      metadata?.remoteJidAlt ||
+      metadata?.whatsappRemoteJid ||
+      metadata?.remoteJid ||
+      conversation?.customer?.phone ||
+      "",
+  ).trim();
+}
+
+function extractInboxContactDigits(raw: string | null | undefined) {
+  const digits = String(raw || "").replace(/\D/g, "");
+  if (digits.length < 10 || digits.length > 13) return null;
+  return digits;
+}
+
+function formatInboxPhoneLabel(raw: string | null | undefined) {
+  const digits = extractInboxContactDigits(raw);
+  if (!digits) return null;
+
+  if (digits.length === 13 && digits.startsWith("55")) {
+    return `+${digits.slice(0, 2)} ${digits.slice(2, 4)} ${digits.slice(4, 9)}-${digits.slice(9)}`;
+  }
+
+  if (digits.length === 12 && digits.startsWith("55")) {
+    return `+${digits.slice(0, 2)} ${digits.slice(2, 4)} ${digits.slice(4, 8)}-${digits.slice(8)}`;
+  }
+
+  if (digits.length === 11) {
+    return `(${digits.slice(0, 2)}) ${digits.slice(2, 7)}-${digits.slice(7)}`;
+  }
+
+  if (digits.length === 10) {
+    return `(${digits.slice(0, 2)}) ${digits.slice(2, 6)}-${digits.slice(6)}`;
+  }
+
+  return digits;
+}
+
+function getInboxConversationDisplayPhone(conversation?: InboxConversation | null) {
+  if (!conversation) return null;
+  return (
+    formatInboxPhoneLabel(conversation.customer?.phone) ||
+    formatInboxPhoneLabel(extractInboxRawContact(conversation))
+  );
+}
+
+function isInboxDisplayNameEquivalentToPhone(displayName: string, rawPhone?: string | null) {
+  const nameDigits = displayName.replace(/\D/g, "");
+  const phoneDigits = extractInboxContactDigits(rawPhone);
+  return Boolean(nameDigits && phoneDigits && nameDigits === phoneDigits);
+}
+
+function getInboxConversationIdentityAliases(conversation?: InboxConversation | null) {
+  if (!conversation) return ["conversation:none"];
+  const aliases = new Set<string>();
+  const sharedProfileId = String(conversation.customer?.sharedProfile?.profileId || "").trim();
+  if (sharedProfileId) aliases.add(`shared:${sharedProfileId}`);
+
+  const customerProfileId = String(conversation.customer?.customerProfileId || "").trim();
+  if (customerProfileId) aliases.add(`profile:${customerProfileId}`);
+
+  const recoveryCustomerId = String(conversation.recoveryCustomerId || "").trim();
+  if (recoveryCustomerId) aliases.add(`recovery:${recoveryCustomerId}`);
+
+  const rawContact = extractInboxRawContact(conversation);
+  const stableRemoteKey = getInboxStableRemoteKey(conversation);
+  if (stableRemoteKey) aliases.add(`jid:${stableRemoteKey}`);
+  const phoneDigits = extractInboxContactDigits(rawContact);
+  if (phoneDigits && !isInboxGroupRemoteJid(rawContact)) aliases.add(`phone:${phoneDigits}`);
+
+  aliases.add(`conversation:${conversation.id}`);
+  return Array.from(aliases);
+}
+
+function getInboxConversationQualityScore(conversation: InboxConversation) {
+  const hasPhone = Boolean(extractInboxContactDigits(extractInboxRawContact(conversation)));
+  const hasAvatar = Boolean(resolveInboxAvatarUrl(conversation));
+  const displayName = resolveInboxConversationDisplayName(conversation);
+  const hasRealName = !isInboxDisplayNameEquivalentToPhone(
+    displayName,
+    extractInboxRawContact(conversation),
+  );
+  const hasSharedProfile = Boolean(String(conversation.customer?.sharedProfile?.profileId || "").trim());
+  const hasCustomerProfile = Boolean(String(conversation.customer?.customerProfileId || "").trim());
+  const hasRecoveryLink = Boolean(String(conversation.recoveryCustomerId || "").trim());
+  const messageCount = Array.isArray(conversation.messages) ? conversation.messages.length : 0;
+
+  return (
+    (hasRealName ? 8 : 0) +
+    (hasPhone ? 6 : 0) +
+    (hasAvatar ? 4 : 0) +
+    (hasSharedProfile ? 4 : 0) +
+    (hasCustomerProfile ? 3 : 0) +
+    (hasRecoveryLink ? 2 : 0) +
+    Math.min(messageCount, 3)
+  );
+}
+
+function mergeInboxMessageLists(
+  leftMessages?: InboxMessage[] | null,
+  rightMessages?: InboxMessage[] | null,
+) {
+  const merged = [...(Array.isArray(leftMessages) ? leftMessages : []), ...(Array.isArray(rightMessages) ? rightMessages : [])];
+  const byId = new Map<string, InboxMessage>();
+  for (const message of merged) {
+    byId.set(String(message.id), message);
+  }
+
+  return Array.from(byId.values()).sort((left, right) => {
+    const leftTime = new Date(String(left.createdAt || "")).getTime();
+    const rightTime = new Date(String(right.createdAt || "")).getTime();
+    return (Number.isFinite(leftTime) ? leftTime : 0) - (Number.isFinite(rightTime) ? rightTime : 0);
+  });
+}
+
+function mergeInboxConversations(
+  current: InboxConversation,
+  incoming: InboxConversation,
+) {
+  const currentScore = getInboxConversationQualityScore(current);
+  const incomingScore = getInboxConversationQualityScore(incoming);
+  const shouldPreferIncoming =
+    incomingScore > currentScore ||
+    (incomingScore === currentScore &&
+      new Date(getInboxConversationActivityAt(incoming)).getTime() >
+        new Date(getInboxConversationActivityAt(current)).getTime());
+  const primary = shouldPreferIncoming ? incoming : current;
+  const secondary = primary === incoming ? current : incoming;
+
+  const mergedMessages = mergeInboxMessageLists(primary.messages, secondary.messages);
+  const mergedMetadata = {
+    ...((secondary.metadata as Record<string, unknown> | null | undefined) || {}),
+    ...((primary.metadata as Record<string, unknown> | null | undefined) || {}),
+    __mergedConversationIds: Array.from(
+      new Set([
+        ...getInboxMergedConversationIds(primary),
+        ...getInboxMergedConversationIds(secondary),
+      ]),
+    ),
+  };
+
+  return {
+    ...secondary,
+    ...primary,
+    metadata: mergedMetadata,
+    customer: {
+      ...secondary.customer,
+      ...primary.customer,
+      name:
+        normalizeConversationDisplayNameCandidate(primary.customer?.name, primary.customer?.phone) ||
+        normalizeConversationDisplayNameCandidate(secondary.customer?.name, secondary.customer?.phone) ||
+        primary.customer?.name ||
+        secondary.customer?.name ||
+        null,
+      phone:
+        extractInboxContactDigits(extractInboxRawContact(primary))
+          ? String(primary.customer?.phone || extractInboxRawContact(primary) || "").trim()
+          : String(secondary.customer?.phone || extractInboxRawContact(secondary) || "").trim(),
+      avatarUrl:
+        String(primary.customer?.avatarUrl || "").trim() ||
+        String(secondary.customer?.avatarUrl || "").trim() ||
+        null,
+      sharedProfile: primary.customer?.sharedProfile || secondary.customer?.sharedProfile || null,
+    },
+    messages: mergedMessages,
+  };
+}
+
+function mergeDuplicateInboxConversations(conversationList: InboxConversation[]) {
+  const source = Array.isArray(conversationList) ? conversationList : [];
+  if (source.length <= 1) return source;
+
+  const parent = source.map((_, index) => index);
+  const find = (index: number): number => {
+    let root = index;
+    while (parent[root] !== root) {
+      root = parent[root];
+    }
+    while (parent[index] !== index) {
+      const next = parent[index];
+      parent[index] = root;
+      index = next;
+    }
+    return root;
+  };
+  const union = (left: number, right: number) => {
+    const leftRoot = find(left);
+    const rightRoot = find(right);
+    if (leftRoot !== rightRoot) {
+      parent[rightRoot] = leftRoot;
+    }
+  };
+
+  const aliasToFirstIndex = new Map<string, number>();
+  source.forEach((conversation, index) => {
+    for (const alias of getInboxConversationIdentityAliases(conversation)) {
+      const first = aliasToFirstIndex.get(alias);
+      if (first === undefined) {
+        aliasToFirstIndex.set(alias, index);
+      } else {
+        union(first, index);
+      }
+    }
+  });
+
+  const groups = new Map<number, InboxConversation[]>();
+  source.forEach((conversation, index) => {
+    const root = find(index);
+    const list = groups.get(root);
+    if (list) {
+      list.push(conversation);
+    } else {
+      groups.set(root, [conversation]);
+    }
+  });
+
+  return Array.from(groups.values()).map((group) =>
+    group.slice(1).reduce((acc, item) => mergeInboxConversations(acc, item), group[0]),
+  );
+}
+
+function getInboxConversationActivityAt(
+  conversation?:
+    | Pick<InboxConversation, "createdAt" | "blockedAt" | "messages">
+    | null,
+) {
   const messages = Array.isArray(conversation?.messages) ? conversation.messages : [];
-  const newestMessage = messages.length <= 1 ? messages[0] : messages[messages.length - 1];
-  return String(newestMessage?.createdAt || conversation?.updatedAt || "").trim();
+  const candidates = [
+    messages[0]?.createdAt,
+    messages[messages.length - 1]?.createdAt,
+    conversation?.blockedAt,
+    conversation?.createdAt,
+  ]
+    .map((value) => String(value || "").trim())
+    .filter(Boolean);
+
+  if (candidates.length === 0) return "";
+  return candidates.reduce((latest, candidate) => {
+    if (!latest) return candidate;
+    const latestTime = new Date(latest).getTime();
+    const candidateTime = new Date(candidate).getTime();
+    if (!Number.isFinite(candidateTime)) return latest;
+    if (!Number.isFinite(latestTime) || candidateTime > latestTime) {
+      return candidate;
+    }
+    return latest;
+  }, "");
+}
+
+function getInboxConversationFreshness(
+  conversation?:
+    | Pick<InboxConversation, "createdAt" | "blockedAt" | "messages">
+    | null,
+) {
+  return getInboxConversationActivityAt(conversation);
+}
+
+function getInboxConversationPreview(conversation?: InboxConversation | null) {
+  const messages = Array.isArray(conversation?.messages) ? conversation.messages : [];
+  const latestMessage = [...messages].sort((left, right) => {
+    const leftTime = new Date(String(left.createdAt || "")).getTime();
+    const rightTime = new Date(String(right.createdAt || "")).getTime();
+    return (Number.isFinite(rightTime) ? rightTime : 0) - (Number.isFinite(leftTime) ? leftTime : 0);
+  })[0];
+  const preview = String(getMessagePreview(latestMessage) || "").trim();
+  if (preview) return preview;
+  if (!conversation) return "";
+  if (isAtendimentoAgendaConversation(conversation)) return "Agendamento em andamento";
+  if (conversation.isBlocked) return "Contato bloqueado";
+  if (conversation.status === "closed") return "Conversa encerrada";
+  return "Sem mensagens ainda";
+}
+
+function getInboxConversationSubtitle(conversation?: InboxConversation | null) {
+  if (!conversation) return undefined;
+  const metadata = getInboxConversationMetadata(conversation);
+  if (metadata?.whatsappWindowActive === true) {
+    return "online";
+  }
+  const displayName = resolveInboxConversationDisplayName(conversation);
+  const formattedPhone = getInboxConversationDisplayPhone(conversation);
+
+  if (!formattedPhone || isInboxDisplayNameEquivalentToPhone(displayName, formattedPhone)) {
+    return undefined;
+  }
+
+  return formattedPhone;
 }
 
 function parseTemplateButtonLines(value: string) {
@@ -351,9 +821,46 @@ function mergeInboxConversationSummary(
   if (!summary && !detail) return null;
   if (!summary) return detail || null;
   if (!detail || detail.id !== summary.id) return summary;
+
+  const summaryMetadata =
+    (summary.metadata as Record<string, unknown> | null | undefined) || {};
+  const detailMetadata =
+    (detail.metadata as Record<string, unknown> | null | undefined) || {};
+  const mergedCustomerName =
+    normalizeConversationDisplayNameCandidate(detail.customer?.name, detail.customer?.phone) ||
+    normalizeConversationDisplayNameCandidate(summary.customer?.name, summary.customer?.phone) ||
+    detail.customer?.name ||
+    summary.customer?.name ||
+    null;
+
   return {
-    ...detail,
     ...summary,
+    ...detail,
+    metadata: {
+      ...summaryMetadata,
+      ...detailMetadata,
+      __mergedConversationIds: Array.from(
+        new Set([
+          ...getInboxMergedConversationIds(summary),
+          ...getInboxMergedConversationIds(detail),
+        ]),
+      ),
+    },
+    customer: {
+      ...summary.customer,
+      ...detail.customer,
+      name: mergedCustomerName,
+      phone:
+        String(detail.customer?.phone || "").trim() ||
+        String(summary.customer?.phone || "").trim() ||
+        null,
+      avatarUrl:
+        String(detail.customer?.avatarUrl || "").trim() ||
+        String(summary.customer?.avatarUrl || "").trim() ||
+        null,
+      sharedProfile:
+        detail.customer?.sharedProfile || summary.customer?.sharedProfile || null,
+    },
     messages:
       Array.isArray(detail.messages) && detail.messages.length > 0
         ? detail.messages
@@ -392,7 +899,6 @@ function didInboxConversationViewChange(
   if (current.id !== next.id) return true;
 
   const comparableFields = [
-    "updatedAt",
     "status",
     "routeTarget",
     "routeReason",
@@ -419,8 +925,14 @@ function didInboxConversationViewChange(
     return true;
   }
 
-  if (String(current.customer?.name || "") !== String(next.customer?.name || "")) return true;
+  if (getInboxConversationFreshness(current) !== getInboxConversationFreshness(next)) return true;
+  if (
+    resolveInboxConversationDisplayName(current) !== resolveInboxConversationDisplayName(next)
+  ) {
+    return true;
+  }
   if (String(current.customer?.phone || "") !== String(next.customer?.phone || "")) return true;
+  if (String(resolveInboxAvatarUrl(current) || "") !== String(resolveInboxAvatarUrl(next) || "")) return true;
   if (String(current.customer?.customerProfileId || "") !== String(next.customer?.customerProfileId || "")) return true;
   if (String(current.customer?.email || "") !== String(next.customer?.email || "")) return true;
   if (String(current.customer?.document || "") !== String(next.customer?.document || "")) return true;
@@ -428,6 +940,22 @@ function didInboxConversationViewChange(
   if (String(current.customer?.registrationStatus || "") !== String(next.customer?.registrationStatus || "")) return true;
 
   return !areInboxMessageListsEquivalent(current.messages, next.messages);
+}
+
+function sortInboxConversationsByActivity(conversationList: InboxConversation[]) {
+  return [...conversationList].sort((left, right) => {
+    const leftTime = new Date(getInboxConversationActivityAt(left)).getTime();
+    const rightTime = new Date(getInboxConversationActivityAt(right)).getTime();
+    const safeLeft = Number.isFinite(leftTime) ? leftTime : 0;
+    const safeRight = Number.isFinite(rightTime) ? rightTime : 0;
+    return safeRight - safeLeft;
+  });
+}
+
+function normalizeInboxConversationList(conversationList: InboxConversation[]) {
+  return sortInboxConversationsByActivity(
+    mergeDuplicateInboxConversations(sortInboxConversationsByActivity(conversationList)),
+  );
 }
 
 function areInboxConversationListsEquivalent(
@@ -452,49 +980,45 @@ function mapInboxBubbleTone(message: InboxMessage) {
   return "inbound" as const;
 }
 
-function formatInboxSourceModuleLabel(sourceRaw: string | null | undefined) {
-  const source = String(sourceRaw || "").trim().toLowerCase();
-  if (!source) return null;
-
-  const labels: Record<string, string> = {
-    hbx_recovery: "Recovery",
-    hbx_recovery_bot: "BOT Recovery",
-    atendimento_human: "Humano Atendimento",
-    atendimento_internal: "Sistema Atendimento",
-    whatsapp: "WhatsApp",
-  };
-
-  return labels[source] || source.replace(/[_-]+/g, " ");
+function formatInboxMessageTimeLabel(dateStr: string | null | undefined, mounted: boolean) {
+  if (!dateStr) return "-";
+  const parsed = new Date(dateStr);
+  if (!mounted) return parsed.toISOString();
+  return parsed.toLocaleTimeString("pt-BR", {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
-function getInboxMessageSenderLabel(message: InboxMessage) {
-  const sourceLabel = formatInboxSourceModuleLabel(message.sourceModule);
-  if (sourceLabel === "Recovery" || sourceLabel === "BOT Recovery") {
-    return sourceLabel;
-  }
-
-  const senderType = String(message.senderType || "").trim().toLowerCase();
-  if (senderType === "human") return "Humano";
-  if (senderType === "system") return "Sistema";
-  return String(message.direction || "").trim().toLowerCase() === "outbound" ? "HBX" : "Cliente";
+function formatInboxMessageDayLabel(dateStr: string | null | undefined, mounted: boolean) {
+  if (!dateStr) return "";
+  const parsed = new Date(dateStr);
+  if (!mounted) return parsed.toISOString().slice(0, 10);
+  const today = new Date();
+  const isSameDay =
+    parsed.getDate() === today.getDate() &&
+    parsed.getMonth() === today.getMonth() &&
+    parsed.getFullYear() === today.getFullYear();
+  if (isSameDay) return "Hoje";
+  return parsed.toLocaleDateString("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "2-digit",
+  });
 }
 
-function getInboxMessageTypeLabel(message: InboxMessage) {
-  const sourceLabel = formatInboxSourceModuleLabel(message.sourceModule);
-  const messageType = String(message.messageType || "texto").replace(/_/g, " ");
-  if (messageType === "system event" && sourceLabel) {
-    return `${messageType} • ${sourceLabel}`;
-  }
-  return messageType;
-}
-
-function getInboxMessageMeta(message: InboxMessage, mounted: boolean) {
-  const sourceLabel = formatInboxSourceModuleLabel(message.sourceModule);
-  const base = formatDateLabel(message.createdAt, mounted);
-  if (!sourceLabel || sourceLabel === "Recovery" || sourceLabel === "BOT Recovery") {
-    return base;
-  }
-  return `${base} • ${sourceLabel}`;
+function isInboxSameCalendarDay(
+  leftDate: string | null | undefined,
+  rightDate: string | null | undefined,
+) {
+  if (!leftDate || !rightDate) return false;
+  const left = new Date(leftDate);
+  const right = new Date(rightDate);
+  return (
+    left.getDate() === right.getDate() &&
+    left.getMonth() === right.getMonth() &&
+    left.getFullYear() === right.getFullYear()
+  );
 }
 
 function removeButtonFromSections(config: AtendimentoBotConfig, actionId: string): AtendimentoBotConfig {
@@ -510,6 +1034,62 @@ function removeButtonFromSections(config: AtendimentoBotConfig, actionId: string
     ),
     postActionButtons: config.postActionButtons.filter((button) => button.actionId !== actionId),
   };
+}
+
+const COMMON_EMOJIS = [
+  "😀", "😂", "🥲", "😊", "🥰", "😍", "😘", "😭", "😅", "🤣",
+  "😤", "😡", "🤔", "😴", "🤗", "😱", "😎", "🥺", "😒", "😔",
+  "👍", "👏", "🙏", "🤝", "💪", "🫡", "🫶", "✌️", "👀", "💯",
+  "❤️", "🔥", "⭐", "✨", "🎉", "✅", "❌", "🚀", "💬", "😬",
+];
+
+function MessageStatusTick({ status }: { status: string }) {
+  const s = String(status || "").toLowerCase();
+  if (s === "read") {
+    return (
+      <span style={{ display: "inline-flex", alignItems: "center", marginLeft: 3 }} title="Lido">
+        <svg width={18} height={10} viewBox="0 0 18 10" fill="none" aria-hidden="true">
+          <path d="M1 5l4 4L13 1" stroke="#53bdeb" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+          <path d="M5 5l4 4L17 1" stroke="#53bdeb" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </span>
+    );
+  }
+  if (s === "delivered") {
+    return (
+      <span style={{ display: "inline-flex", alignItems: "center", marginLeft: 3 }} title="Entregue">
+        <svg width={18} height={10} viewBox="0 0 18 10" fill="none" aria-hidden="true">
+          <path d="M1 5l4 4L13 1" stroke="#8696a0" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+          <path d="M5 5l4 4L17 1" stroke="#8696a0" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </span>
+    );
+  }
+  if (s === "sent") {
+    return (
+      <span style={{ display: "inline-flex", alignItems: "center", marginLeft: 3 }} title="Enviado">
+        <svg width={12} height={10} viewBox="0 0 12 10" fill="none" aria-hidden="true">
+          <path d="M1 5l4 4L11 1" stroke="#8696a0" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </span>
+    );
+  }
+  if (s === "failed" || s === "error") {
+    return (
+      <span style={{ display: "inline-flex", alignItems: "center", marginLeft: 3, color: "#ff6b6b", fontWeight: 700, fontSize: "0.78rem" }} title="Falha no envio">!</span>
+    );
+  }
+  if (s === "pending" || s === "queued" || s === "processing") {
+    return (
+      <span style={{ display: "inline-flex", alignItems: "center", marginLeft: 3 }} title="Enviando">
+        <svg width={10} height={10} viewBox="0 0 10 10" fill="none" aria-hidden="true">
+          <circle cx="5" cy="5" r="4" stroke="#8696a0" strokeWidth="1.5" />
+          <path d="M5 2.5V5l2 1.5" stroke="#8696a0" strokeWidth="1.5" strokeLinecap="round" />
+        </svg>
+      </span>
+    );
+  }
+  return null;
 }
 
 export default function InboxClientPage() {
@@ -540,6 +1120,10 @@ export default function InboxClientPage() {
   const [notice, setNotice] = useState<NoticeState | null>(null);
   const [sendText, setSendText] = useState("");
   const [sending, setSending] = useState(false);
+  const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
+  const [replyingTo, setReplyingTo] = useState<InboxMessage | null>(null);
+  const [imagePreview, setImagePreview] = useState<{ file: File; url: string } | null>(null);
+  const [openedImage, setOpenedImage] = useState<{ src: string; alt: string } | null>(null);
   const [agendaStudioOpen, setAgendaStudioOpen] = useState(false);
   const [automationStudioOpen, setAutomationStudioOpen] = useState(false);
   const [templatesStudioOpen, setTemplatesStudioOpen] = useState(false);
@@ -579,10 +1163,40 @@ export default function InboxClientPage() {
   const noticeTimerRef = useRef<number | null>(null);
   const skipNotePersistRef = useRef(false);
   const chatTimelineRef = useRef<HTMLDivElement | null>(null);
+  const chatComposerInputRef = useRef<HTMLTextAreaElement | null>(null);
+  const emojiPickerRef = useRef<HTMLDivElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const conversationsRef = useRef<InboxConversation[]>([]);
   const selectedIdRef = useRef<string | null>(null);
   const selectedConversationRef = useRef<InboxConversation | null>(null);
 
+  // Close emoji picker when clicking outside
+  useEffect(() => {
+    if (!emojiPickerOpen) return;
+    const handle = (event: MouseEvent) => {
+      if (emojiPickerRef.current && !emojiPickerRef.current.contains(event.target as Node)) {
+        setEmojiPickerOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handle);
+    return () => document.removeEventListener("mousedown", handle);
+  }, [emojiPickerOpen]);
+
+  useEffect(() => {
+    if (!openedImage) return;
+    const previousOverflow = document.body.style.overflow;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setOpenedImage(null);
+      }
+    };
+    document.body.style.overflow = "hidden";
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [openedImage]);
 
   useEffect(() => {
     if (requestedTab !== "automation" || automationStudioOpen) return;
@@ -636,11 +1250,27 @@ export default function InboxClientPage() {
     setConversationDetailError(null);
     if (!silent) setLoadingConversation(true);
     try {
-      const data = await apiFetch<InboxConversation>(`/inbox/conversations/${id}`);
-      setSelectedConversation((current) =>
-        silent && !didInboxConversationViewChange(current, data) ? current : data,
+      const mergedIds = getInboxMergedConversationIds(mergedSummary);
+      const targetIds = mergedIds.length > 0 ? mergedIds : [id];
+      const responses = await Promise.all(
+        targetIds.map((conversationId) =>
+          apiFetch<InboxConversation>(`/inbox/conversations/${conversationId}`),
+        ),
       );
-      setSelectedId(data.id);
+      const normalizedResponses = normalizeInboxConversationList(
+        responses.filter(Boolean) as InboxConversation[],
+      );
+      const data =
+        normalizedResponses.find((conversation) => conversation.id === id) ||
+        normalizedResponses[0] ||
+        null;
+
+      setSelectedConversation((current) =>
+        data && !(silent && !didInboxConversationViewChange(current, data)) ? data : current,
+      );
+      if (data) {
+        setSelectedId(data.id);
+      }
       setConversationDetailError(null);
     } catch (loadError) {
       const message =
@@ -659,7 +1289,8 @@ export default function InboxClientPage() {
       setError(null);
       setConversationListError(null);
       try {
-        const data = await apiFetch<InboxConversation[]>("/inbox/conversations");
+        const response = await apiFetch<InboxConversation[]>("/inbox/conversations");
+        const data = normalizeInboxConversationList(Array.isArray(response) ? response : []);
         const currentList = conversationsRef.current;
         const listChanged = !areInboxConversationListsEquivalent(currentList, data);
 
@@ -667,7 +1298,7 @@ export default function InboxClientPage() {
           setConversations(data);
         }
         setConversationListError(null);
-        if (listChanged || !lastConversationSyncAt) {
+        if (listChanged || currentList.length === 0) {
           setLastConversationSyncAt(new Date().toISOString());
         }
 
@@ -721,7 +1352,7 @@ export default function InboxClientPage() {
                 : current
               : current,
           );
-        } else {
+        } else if (!nextSummary) {
           setSelectedConversation(null);
         }
       } catch (loadError) {
@@ -735,7 +1366,7 @@ export default function InboxClientPage() {
         if (!silent) setLoadingList(false);
       }
     },
-    [lastConversationSyncAt, loadConversation],
+    [loadConversation],
   );
 
   const loadBotConfig = useCallback(async () => {
@@ -797,42 +1428,41 @@ export default function InboxClientPage() {
   }, [hasToken, loadAgendaConfig, loadBotConfig, loadCurrentUser, loadUserModules]);
 
   const filteredConversations = useMemo(() => {
-    if (inboxQueue === "closed") {
-      return conversations.filter(
-        (conversation) =>
-          conversation.status === "closed" ||
-          conversation.status === "blocked" ||
-          conversation.isBlocked,
-      );
-    }
-    if (inboxQueue === "recovery") {
-      return conversations.filter(
-        (conversation) =>
-          conversation.status !== "closed" &&
-          !conversation.isBlocked &&
-          hasAtendimentoRecoveryContext(conversation),
-      );
-    }
-    if (inboxQueue === "scheduled") {
-      return conversations.filter(
-        (conversation) =>
-          conversation.status !== "closed" &&
-          !conversation.isBlocked &&
-          isAtendimentoAgendaConversation(conversation),
-      );
-    }
-    if (inboxQueue === "bot") {
-      return conversations.filter(
-        (conversation) =>
-          conversation.status !== "closed" &&
-          !conversation.isBlocked &&
-          conversation.status !== "open" &&
-          conversation.botActive !== false,
-      );
-    }
-    return conversations.filter(
-      (conversation) => conversation.status !== "closed" && !conversation.isBlocked,
-    );
+    const filtered =
+      inboxQueue === "closed"
+        ? conversations.filter(
+            (conversation) =>
+              conversation.status === "closed" ||
+              conversation.status === "blocked" ||
+              conversation.isBlocked,
+          )
+        : inboxQueue === "recovery"
+          ? conversations.filter(
+              (conversation) =>
+                conversation.status !== "closed" &&
+                !conversation.isBlocked &&
+                hasAtendimentoRecoveryContext(conversation),
+            )
+          : inboxQueue === "scheduled"
+            ? conversations.filter(
+                (conversation) =>
+                  conversation.status !== "closed" &&
+                  !conversation.isBlocked &&
+                  isAtendimentoAgendaConversation(conversation),
+              )
+            : inboxQueue === "bot"
+              ? conversations.filter(
+                  (conversation) =>
+                    conversation.status !== "closed" &&
+                    !conversation.isBlocked &&
+                    conversation.status !== "open" &&
+                    conversation.botActive !== false,
+                )
+              : conversations.filter(
+                  (conversation) => conversation.status !== "closed" && !conversation.isBlocked,
+                );
+
+    return sortInboxConversationsByActivity(filtered);
   }, [conversations, inboxQueue]);
 
   const inboxQueueDiagnostics = useMemo(
@@ -939,7 +1569,8 @@ export default function InboxClientPage() {
         )
         .sort(
           (left, right) =>
-            new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime(),
+            new Date(getInboxConversationActivityAt(right)).getTime() -
+            new Date(getInboxConversationActivityAt(left)).getTime(),
         ),
     [conversations],
   );
@@ -1040,18 +1671,7 @@ export default function InboxClientPage() {
 
   const selectedStatus = selectedConversation?.status ?? "new";
   const selectedBlocked = Boolean(selectedConversation?.isBlocked);
-  const selectedConversationMetadata =
-    (selectedConversation?.metadata as Record<string, unknown> | null | undefined) ?? null;
-  const selectedConversationDisplayName =
-    selectedConversation?.customer.name ||
-    String(
-      selectedConversationMetadata?.waNickname ||
-        selectedConversationMetadata?.whatsappName ||
-        selectedConversationMetadata?.whatsappProfileName ||
-        "",
-    ).trim() ||
-    selectedConversation?.customer.phone ||
-    "";
+  const selectedConversationDisplayName = resolveInboxConversationDisplayName(selectedConversation);
   const selectedConversationStatusMeta = selectedConversation
     ? getAtendimentoConversationStatusMeta(selectedConversation, hasRecoveryCapability)
     : null;
@@ -1062,59 +1682,19 @@ export default function InboxClientPage() {
     hasRecoveryCapability && selectedConversation
       ? hasAtendimentoRecoveryContext(selectedConversation)
       : false;
-  const selectedConversationHasOpenDebt =
-    hasRecoveryCapability && selectedConversation
-      ? hasAtendimentoOpenDebt(selectedConversation)
-      : false;
   const selectedConversationRecoveryPrimary =
     hasRecoveryCapability && selectedConversation
       ? isAtendimentoRecoveryPrimary(selectedConversation)
       : false;
-  const selectedHeaderBadges = useMemo(() => {
-    if (!selectedConversation || !selectedConversationStatusMeta) return [];
 
-    const primaryTone =
-      selectedConversationStatusMeta.tone === "human"
-        ? "success"
-        : selectedConversationStatusMeta.tone === "recovery"
-          ? "warning"
-          : selectedConversationStatusMeta.tone === "blocked"
-            ? "danger"
-            : selectedConversationStatusMeta.tone === "closed"
-              ? "neutral"
-              : "brand";
+  useEffect(() => {
+    if (!selectedId || selectedBlocked) return;
+    const frame = window.requestAnimationFrame(() => {
+      chatComposerInputRef.current?.focus();
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [selectedBlocked, selectedId]);
 
-    const badges: Array<{
-      label: string;
-      tone: "neutral" | "brand" | "teal" | "success" | "warning" | "danger";
-    }> = [
-      {
-        label: selectedConversationStatusMeta.label,
-        tone: primaryTone,
-      },
-    ];
-
-    if (selectedConversationHasOpenDebt) {
-      badges.push({
-        label: formatCurrency(Number(selectedConversation.recoveryOpenAmount || 0)),
-        tone: "warning",
-      });
-    } else if (selectedConversationHasRecoveryContext && !selectedConversationRecoveryPrimary) {
-      badges.push({ label: "Financeiro", tone: "warning" });
-    } else if (selectedConversationIsAgenda) {
-      badges.push({ label: "Agenda", tone: "teal" });
-    }
-
-    return badges;
-  }, [
-    selectedConversation,
-    selectedConversationHasOpenDebt,
-    selectedConversationHasRecoveryContext,
-    selectedConversationRecoveryPrimary,
-    selectedConversationIsAgenda,
-    selectedConversationStatusMeta,
-  ]);
-  const selectedPrimaryActionLabel = getConversationPrimaryActionLabel(selectedConversation);
   const noteStorageKey = useMemo(
     () =>
       getConversationNoteStorageKey(
@@ -1225,6 +1805,7 @@ export default function InboxClientPage() {
     savingAgenda,
     savingBot,
     selectedBlocked,
+    selectedConversation?.customer?.customerProfileId,
     selectedConversation?.customer?.name,
     selectedConversation?.customer?.phone,
     selectedConversation?.routeTarget,
@@ -1484,6 +2065,28 @@ export default function InboxClientPage() {
     [loadConversations, selectedId],
   );
 
+  const toggleSelectedBot = useCallback(async () => {
+    if (!selectedConversation || !selectedId) return;
+    if (selectedConversation.isBlocked) {
+      setNotice({
+        tone: "error",
+        text: "Desbloqueie a conversa antes de alternar o BOT.",
+      });
+      return;
+    }
+
+    const nextStatus: Exclude<StatusFilter, "all" | "blocked"> =
+      selectedConversation.botActive === false || selectedConversation.humanAssigned
+        ? "new"
+        : "open";
+
+    await updateStatus(nextStatus);
+    setNotice({
+      tone: "success",
+      text: nextStatus === "new" ? "BOT ativado para esta conversa." : "BOT pausado nesta conversa.",
+    });
+  }, [selectedConversation, selectedId, updateStatus]);
+
   const blockConversation = useCallback(async () => {
     if (!selectedId) return;
     const reason = window.prompt(
@@ -1526,15 +2129,34 @@ export default function InboxClientPage() {
   const sendMessage = useCallback(
     async (event: FormEvent<HTMLFormElement>) => {
       event.preventDefault();
-      if (!selectedId || !sendText.trim() || selectedBlocked) return;
+      if (!selectedId || selectedBlocked) return;
+      if (!sendText.trim() && !imagePreview) return;
       setSending(true);
       setError(null);
       try {
+        let content = sendText.trim();
+        // If there's an image, upload it first and prepend the URL
+        if (imagePreview) {
+          const formData = new FormData();
+          formData.append("file", imagePreview.file);
+          const mediaResult = await apiFetch<{ url: string }>(`/inbox/conversations/${selectedId}/media`, {
+            method: "POST",
+            body: formData,
+          });
+          content = content ? `${mediaResult.url}\n${content}` : mediaResult.url;
+          URL.revokeObjectURL(imagePreview.url);
+          setImagePreview(null);
+        }
         const data = await apiFetch<InboxConversation>(`/inbox/conversations/${selectedId}/message`, {
           method: "POST",
-          body: JSON.stringify({ content: sendText.trim() }),
+          body: JSON.stringify({
+            content,
+            quotedMessageId: replyingTo?.id,
+            quotedContent: replyingTo ? getMessagePreview(replyingTo).slice(0, 200) : undefined,
+          }),
         });
         setSendText("");
+        setReplyingTo(null);
         setSelectedConversation(data);
         setNotice({ tone: "success", text: "Mensagem manual enfileirada com sucesso." });
         await loadConversations({ preferredId: data.id, silent: true });
@@ -1545,7 +2167,7 @@ export default function InboxClientPage() {
         setSending(false);
       }
     },
-    [loadConversations, selectedBlocked, selectedId, sendText],
+    [loadConversations, selectedBlocked, selectedId, sendText, replyingTo, imagePreview],
   );
 
   const inboxWorkspaceComponents = useMemo(
@@ -1557,13 +2179,35 @@ export default function InboxClientPage() {
           description={undefined}
           count={filteredConversations.length}
           actions={
-            <button
-              type="button"
-              className="btn btn-secondary btn-sm"
-              onClick={() => handleSectionChange("automacao")}
-            >
-              Fluxo
-            </button>
+            <>
+              <button
+                type="button"
+                className={`btn btn-sm ${
+                  selectedConversation?.botActive !== false && !selectedConversation?.humanAssigned
+                    ? "btn-primary"
+                    : "btn-secondary"
+                }`}
+                onClick={() => void toggleSelectedBot()}
+                disabled={!selectedConversation || selectedConversation.isBlocked}
+                title={
+                  selectedConversation?.isBlocked
+                    ? "Desbloqueie a conversa para alternar o BOT."
+                    : selectedConversation?.botActive !== false &&
+                        !selectedConversation?.humanAssigned
+                      ? "Pausar respostas automaticas do BOT nesta conversa."
+                      : "Ativar respostas automaticas do BOT nesta conversa."
+                }
+              >
+                BOT
+              </button>
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                onClick={() => handleSectionChange("automacao")}
+              >
+                Fluxo
+              </button>
+            </>
           }
           className={`${styles.workspaceDockPanel} ${styles.inboxListPanel}`}
           bodyClassName={`${styles.workspaceDockBody} ${styles.inboxListBody}`}
@@ -1593,32 +2237,30 @@ export default function InboxClientPage() {
             <ChatQueue className={styles.conversationList}>
               {filteredConversations.map((conversation) => {
                 const active = conversation.id === selectedId;
-                const latestMessage = conversation.messages?.[0];
                 const statusMeta = getAtendimentoConversationStatusMeta(
                   conversation,
                   hasRecoveryCapability,
+                );
+                const displayName = resolveInboxConversationDisplayName(conversation);
+                const subtitleLabel = getInboxConversationSubtitle(conversation);
+                const previewLabel = getInboxConversationPreview(conversation);
+                const activityAtLabel = formatTimeLabel(
+                  getInboxConversationActivityAt(conversation),
+                  mounted,
                 );
                 return (
                   <ChatQueueItem
                     key={conversation.id}
                     active={active}
                     onClick={() => loadConversation(conversation.id)}
-                    initials={String(conversation.customer.name || conversation.customer.phone).slice(0, 2).toUpperCase()}
+                    initials={getInboxConversationInitials(conversation)}
+                    imageUrl={resolveInboxAvatarUrl(conversation)}
                     label={statusMeta.shortLabel}
                     tone={mapAtendimentoConversationToneToQueueTone(statusMeta.tone)}
-                    title={conversation.customer.name || conversation.customer.phone}
-                    subtitle={
-                      isAtendimentoAgendaConversation(conversation)
-                        ? `${conversation.customer.phone} • Agenda em curso`
-                        : conversation.customer.phone
-                    }
-                    preview={getMessagePreview(latestMessage)}
-                    meta={formatTimeLabel(conversation.updatedAt, mounted)}
-                    badges={
-                      <ConversationBadgeList
-                        badges={buildAtendimentoQueueBadges(conversation, hasRecoveryCapability)}
-                      />
-                    }
+                    title={displayName}
+                    subtitle={subtitleLabel}
+                    preview={previewLabel}
+                    meta={activityAtLabel}
                   />
                 );
               })}
@@ -1642,19 +2284,22 @@ export default function InboxClientPage() {
           ) : !selectedConversation ? (
             <ChatEmptyState title="Nenhuma conversa selecionada">Escolha uma conversa na fila para abrir o chat.</ChatEmptyState>
           ) : (
-            <ChatThread
-              avatar={
-                <ChatAvatar
-                  initials={String(selectedConversationDisplayName).slice(0, 2).toUpperCase()}
-                  label={selectedConversationStatusMeta?.shortLabel || "BOT"}
-                  tone={mapAtendimentoConversationToneToQueueTone(selectedConversationStatusMeta?.tone || "bot")}
-                />
-              }
-              title={selectedConversationDisplayName}
-              subtitle={selectedConversation.customer.phone}
-              badges={<ConversationBadgeList badges={selectedHeaderBadges} />}
-              actions={
-                <div className={styles.threadActionRail}>
+            <section className={styles.whatsAppConversationShell}>
+              <header className={styles.whatsAppConversationHeader}>
+                <div className={styles.whatsAppConversationIdentity}>
+                  <ChatAvatar
+                    initials={getInboxConversationInitials(selectedConversation)}
+                    imageUrl={resolveInboxAvatarUrl(selectedConversation)}
+                    tone={mapAtendimentoConversationToneToQueueTone(selectedConversationStatusMeta?.tone || "bot")}
+                  />
+                  <div className={styles.whatsAppConversationIdentityText}>
+                    <strong>{selectedConversationDisplayName}</strong>
+                    {getInboxConversationSubtitle(selectedConversation) ? (
+                      <span>{getInboxConversationSubtitle(selectedConversation)}</span>
+                    ) : null}
+                  </div>
+                </div>
+                <div className={styles.whatsAppConversationActions}>
                   {selectedConversationHasRecoveryContext ? (
                     <ChatIconButton
                       icon="wallet"
@@ -1674,75 +2319,295 @@ export default function InboxClientPage() {
                   <ChatIconButton
                     icon="gear"
                     onClick={() => handleSectionChange("automacao")}
-                    title="Abrir editor de automacao"
-                    aria-label="Abrir editor de automacao"
+                    title="Abrir automacao"
+                    aria-label="Abrir automacao"
                   />
                 </div>
-              }
-              footer={
-                <form className={styles.threadComposerForm} onSubmit={sendMessage}>
-                  <ChatComposer
-                    title="Responder"
-                    description={selectedPrimaryActionLabel}
-                    toolbar={
-                      <span className={styles.inlineContextBadge}>
-                        {selectedConversationStatusMeta?.label || "Ativo"}
-                      </span>
-                    }
-                    footer={
-                      <>
-                        <ChatFieldNote>
-                          {getAtendimentoComposerHint(selectedConversation, hasRecoveryCapability)}
-                        </ChatFieldNote>
-                        <div className={styles.threadComposerActions}>
-                          <span className={styles.threadComposerCount}>{sendText.trim().length} caracteres</span>
-                          <button
-                            type="submit"
-                            className="btn btn-primary"
-                            disabled={sending || !sendText.trim() || selectedBlocked}
-                          >
-                            {sending ? "Enviando..." : "Enviar resposta"}
-                          </button>
-                        </div>
-                      </>
-                    }
-                  >
-                    <textarea
-                      id="atendimento-chat-reply"
-                      name="atendimentoChatReply"
-                      className={`field ${styles.threadComposerInput}`}
-                      rows={5}
-                      value={sendText}
-                      onChange={(event) => setSendText(event.target.value)}
-                      placeholder={
-                        selectedBlocked
-                          ? "Contato bloqueado. Desbloqueie para responder."
-                          : "Escreva a resposta aqui e envie sem sair da conversa..."
-                      }
-                      disabled={selectedBlocked || sending}
-                    />
-                  </ChatComposer>
-                </form>
-              }
-            >
-              <div ref={chatTimelineRef} className={styles.chatTimeline}>
+              </header>
+
+              <div ref={chatTimelineRef} className={styles.whatsAppTimeline}>
                 {selectedConversation.messages.length === 0 ? (
                   <ChatEmptyState title="Sem mensagens">Esta conversa ainda nao tem historico registrado.</ChatEmptyState>
                 ) : (
-                  selectedConversation.messages.map((message) => (
-                    <ChatMessageBubble
-                      key={message.id}
-                      tone={mapInboxBubbleTone(message)}
-                      sender={getInboxMessageSenderLabel(message)}
-                      messageType={getInboxMessageTypeLabel(message)}
-                      meta={getInboxMessageMeta(message, mounted)}
-                    >
-                      <p>{getMessagePreview(message)}</p>
-                    </ChatMessageBubble>
-                  ))
+                  selectedConversation.messages.map((message, index) => {
+                    const tone = mapInboxBubbleTone(message);
+                    const rendered = parseInboxMessageMedia(message);
+                    const previousMessage =
+                      index > 0 ? selectedConversation.messages[index - 1] : null;
+                    const showDayDivider = !previousMessage
+                      || !isInboxSameCalendarDay(previousMessage.createdAt, message.createdAt);
+                    const isOutbound = tone === "human" || tone === "outbound";
+                    return (
+                      <div key={message.id} className={styles.whatsAppMessageBlock}>
+                        {showDayDivider ? (
+                          <div className={styles.whatsAppDayDivider}>
+                            <span>{formatInboxMessageDayLabel(message.createdAt, mounted)}</span>
+                          </div>
+                        ) : null}
+                        <div
+                          className={`${styles.whatsAppMessageRow} ${
+                            isOutbound
+                              ? styles.whatsAppMessageRowOutbound
+                              : tone === "system"
+                                ? styles.whatsAppMessageRowSystem
+                                : styles.whatsAppMessageRowInbound
+                          }`}
+                        >
+                          {tone !== "system" && isOutbound ? (
+                            <button
+                              type="button"
+                              className={`${styles.whatsAppReplyButtonHover} ${styles.whatsAppReplyButtonOutbound}`}
+                              title="Responder"
+                              onMouseDown={(e) => e.preventDefault()}
+                              onClick={() => {
+                                setReplyingTo(message);
+                                chatComposerInputRef.current?.focus();
+                              }}
+                            >
+                              ↩
+                            </button>
+                          ) : null}
+                          <div className={styles.whatsAppBubbleWrap}>
+                            <div
+                              className={`${styles.whatsAppBubble} ${
+                                isOutbound
+                                  ? styles.whatsAppBubbleOutbound
+                                  : tone === "system"
+                                    ? styles.whatsAppBubbleSystem
+                                    : styles.whatsAppBubbleInbound
+                              } ${rendered.imageUrl ? styles.whatsAppBubbleWithMedia : ""}`}
+                            >
+                              {rendered.imageUrl ? (
+                                <button
+                                  type="button"
+                                  className={styles.whatsAppBubbleImageButton}
+                                  onMouseDown={(e) => e.preventDefault()}
+                                  onClick={() =>
+                                    setOpenedImage({
+                                      src: rendered.imageUrl || "",
+                                      alt: "Imagem da conversa",
+                                    })
+                                  }
+                                  aria-label="Abrir imagem"
+                                  title="Abrir imagem"
+                                >
+                                  <img
+                                    src={rendered.imageUrl}
+                                    alt="Imagem enviada"
+                                    className={styles.whatsAppBubbleImage}
+                                    loading="lazy"
+                                  />
+                                </button>
+                              ) : null}
+                              {rendered.text ? (
+                                <p className={styles.whatsAppBubbleText}>{formatWhatsAppText(rendered.text)}</p>
+                              ) : null}
+                              <span
+                                className={`${styles.whatsAppBubbleMeta} ${
+                                  rendered.imageUrl ? styles.whatsAppBubbleMetaOnMedia : ""
+                                }`}
+                              >
+                                {formatInboxMessageTimeLabel(message.createdAt, mounted)}
+                                {isOutbound ? (
+                                  <MessageStatusTick status={message.status} />
+                                ) : null}
+                              </span>
+                            </div>
+                          </div>
+                          {tone !== "system" && !isOutbound ? (
+                            <button
+                              type="button"
+                              className={`${styles.whatsAppReplyButtonHover} ${styles.whatsAppReplyButtonInbound}`}
+                              title="Responder"
+                              onMouseDown={(e) => e.preventDefault()}
+                              onClick={() => {
+                                setReplyingTo(message);
+                                chatComposerInputRef.current?.focus();
+                              }}
+                            >
+                              ↩
+                            </button>
+                          ) : null}
+                        </div>
+                      </div>
+                    );
+                  })
                 )}
               </div>
-            </ChatThread>
+
+              <form className={styles.whatsAppComposerForm} onSubmit={sendMessage}>
+                {replyingTo ? (
+                  <div className={styles.whatsAppReplyBar}>
+                    <div className={styles.whatsAppReplyBarContent}>
+                      <span className={styles.whatsAppReplyBarLabel}>Respondendo a</span>
+                      <p className={styles.whatsAppReplyBarText}>{getMessagePreview(replyingTo).slice(0, 100)}</p>
+                    </div>
+                    <button
+                      type="button"
+                      className={styles.whatsAppReplyBarClose}
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => setReplyingTo(null)}
+                      aria-label="Cancelar resposta"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                ) : null}
+                {imagePreview ? (
+                  <div className={styles.whatsAppImagePreviewBar}>
+                    <img src={imagePreview.url} alt="preview" className={styles.whatsAppImagePreviewThumb} />
+                    <span className={styles.whatsAppImagePreviewName}>{imagePreview.file.name}</span>
+                    <button
+                      type="button"
+                      className={styles.whatsAppImagePreviewClose}
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => {
+                        URL.revokeObjectURL(imagePreview.url);
+                        setImagePreview(null);
+                      }}
+                      aria-label="Remover imagem"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                ) : null}
+                <div className={styles.whatsAppComposerRow}>
+                  <div className={styles.whatsAppEmojiWrapper} ref={emojiPickerRef}>
+                    <button
+                      type="button"
+                      className={styles.whatsAppEmojiButton}
+                      onClick={() => setEmojiPickerOpen((prev) => !prev)}
+                      title="Emojis"
+                      aria-label="Abrir seletor de emojis"
+                    >
+                      😊
+                    </button>
+                    {emojiPickerOpen ? (
+                      <div className={styles.whatsAppEmojiPicker}>
+                        {COMMON_EMOJIS.map((emoji) => (
+                          <button
+                            key={emoji}
+                            type="button"
+                            className={styles.whatsAppEmojiItem}
+                            onMouseDown={(e) => e.preventDefault()}
+                            onClick={() => {
+                              const textarea = chatComposerInputRef.current;
+                              if (!textarea) {
+                                setSendText((prev) => prev + emoji);
+                                setEmojiPickerOpen(false);
+                                return;
+                              }
+                              const start = textarea.selectionStart ?? textarea.value.length;
+                              const end = textarea.selectionEnd ?? textarea.value.length;
+                              const next = textarea.value.substring(0, start) + emoji + textarea.value.substring(end);
+                              setSendText(next);
+                              setEmojiPickerOpen(false);
+                              window.requestAnimationFrame(() => {
+                                textarea.focus();
+                                const cur = start + [...emoji].length;
+                                textarea.setSelectionRange(cur, cur);
+                              });
+                            }}
+                          >
+                            {emoji}
+                          </button>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+                  <button
+                    type="button"
+                    className={styles.whatsAppAttachButton}
+                    title="Anexar imagem"
+                    aria-label="Anexar imagem"
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={selectedBlocked || sending}
+                  >
+                    📎
+                  </button>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/*,video/mp4,application/pdf"
+                    style={{ display: "none" }}
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      if (imagePreview) URL.revokeObjectURL(imagePreview.url);
+                      setImagePreview({ file, url: URL.createObjectURL(file) });
+                      e.target.value = "";
+                    }}
+                  />
+                  <textarea
+                    id="atendimento-chat-reply"
+                    name="atendimentoChatReply"
+                    ref={chatComposerInputRef}
+                    className={`field ${styles.whatsAppComposerInput}`}
+                    rows={1}
+                    value={sendText}
+                    onChange={(event) => setSendText(event.target.value)}
+                    onPointerDown={(event) => {
+                      event.stopPropagation();
+                      chatComposerInputRef.current?.focus();
+                    }}
+                    onKeyDown={(event) => {
+                      event.stopPropagation();
+                      if (event.key === "Enter" && !event.shiftKey) {
+                        event.preventDefault();
+                        event.currentTarget.form?.requestSubmit();
+                      }
+                    }}
+                    placeholder={
+                      selectedBlocked
+                        ? "Contato bloqueado. Desbloqueie para responder."
+                        : "Digite uma mensagem"
+                    }
+                    disabled={selectedBlocked || sending}
+                  />
+                  <button
+                    type="submit"
+                    className={`btn ${styles.whatsAppComposerButton}`}
+                    disabled={sending || (!sendText.trim() && !imagePreview) || selectedBlocked}
+                    aria-label={sending ? "Enviando mensagem" : "Enviar mensagem"}
+                    title={sending ? "Enviando..." : "Enviar"}
+                  >
+                    {sending ? "Enviando..." : "➤"}
+                  </button>
+                </div>
+                {selectedBlocked ? (
+                  <small className={styles.whatsAppComposerHint}>
+                    Contato bloqueado. Desbloqueie para responder.
+                  </small>
+                ) : null}
+              </form>
+
+              {openedImage ? (
+                <div
+                  className={styles.whatsAppImageLightbox}
+                  role="dialog"
+                  aria-modal="true"
+                  aria-label="Visualizador de imagem"
+                  onClick={() => setOpenedImage(null)}
+                >
+                  <button
+                    type="button"
+                    className={styles.whatsAppImageLightboxClose}
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => setOpenedImage(null)}
+                    aria-label="Fechar imagem"
+                  >
+                    ✕
+                  </button>
+                  <img
+                    src={openedImage.src}
+                    alt={openedImage.alt}
+                    className={styles.whatsAppImageLightboxImage}
+                    onClick={(e) => e.stopPropagation()}
+                  />
+                </div>
+              ) : null}
+            </section>
           )}
         </section>
       ),
@@ -2016,26 +2881,27 @@ export default function InboxClientPage() {
       selectedBlocked,
       selectedConversation,
       selectedConversationDisplayName,
-      selectedHeaderBadges,
       selectedConversationHasRecoveryContext,
       selectedConversationIsAgenda,
       selectedConversationRecoveryPrimary,
       selectedConversationStatusMeta,
       selectedId,
-      selectedPrimaryActionLabel,
       selectedStatus,
       queueListTitle,
       sendMessage,
       sendText,
       sending,
+      emojiPickerOpen,
+      setEmojiPickerOpen,
+      replyingTo,
+      setReplyingTo,
+      imagePreview,
+      setImagePreview,
+      toggleSelectedBot,
       unblockConversation,
       updateStatus,
     ],
   );
-
-  const InboxListPanel = inboxWorkspaceComponents.list;
-  const InboxMainPanel = inboxWorkspaceComponents.main;
-  const InboxContextPanel = inboxWorkspaceComponents.context;
 
   const addAgendaGroup = useCallback(() => {
     setAgendaConfig((current) => ({
@@ -2335,6 +3201,17 @@ export default function InboxClientPage() {
     });
   }, [selectedConversation, selectedConversation?.id, selectedConversation?.messages.length]);
 
+  // Clear composer state when switching conversations
+  useEffect(() => {
+    setReplyingTo(null);
+    setImagePreview((prev) => {
+      if (prev) URL.revokeObjectURL(prev.url);
+      return null;
+    });
+    setOpenedImage(null);
+    setSendText("");
+  }, [selectedId]);
+
   useEffect(() => {
     if (humanAlertTimerRef.current !== null) {
       window.clearTimeout(humanAlertTimerRef.current);
@@ -2444,13 +3321,13 @@ export default function InboxClientPage() {
           <section className={styles.inboxCanvas} data-ui-no-reveal="true">
             <section className={styles.inboxStage}>
               <div className={styles.inboxStageList}>
-                <InboxListPanel />
+                {inboxWorkspaceComponents.list()}
               </div>
               <div className={styles.inboxStageMain}>
-                <InboxMainPanel />
+                {inboxWorkspaceComponents.main()}
               </div>
               <div className={styles.inboxStageContext}>
-                <InboxContextPanel />
+                {inboxWorkspaceComponents.context()}
               </div>
             </section>
           </section>
@@ -2494,8 +3371,10 @@ export default function InboxClientPage() {
                     <p className={styles.notificationModule}>
                       {humanAttentionPreview.routeTarget === "recovery" ? "Recovery" : "Atendimento"}
                     </p>
-                    <strong>{humanAttentionPreview.customer.name || humanAttentionPreview.customer.phone}</strong>
-                    <p className={styles.notificationModule}>{humanAttentionPreview.customer.phone}</p>
+                    <strong>{resolveInboxConversationDisplayName(humanAttentionPreview)}</strong>
+                    <p className={styles.notificationModule}>
+                      {formatInboxPhoneLabel(extractInboxRawContact(humanAttentionPreview)) || "Contato WhatsApp"}
+                    </p>
                   </div>
                   <span className={styles.pulseBadge}>Fila humana</span>
                 </div>
@@ -2542,7 +3421,10 @@ export default function InboxClientPage() {
                 <div className={styles.notificationHeader}>
                   <div>
                     <p className={styles.attentionEyebrow}>Nova mensagem no Atendimento</p>
-                    <strong>{newInboundPreview.customer.name || newInboundPreview.customer.phone}</strong>
+                    <strong>{resolveInboxConversationDisplayName(newInboundPreview)}</strong>
+                    <p className={styles.notificationModule}>
+                      {formatInboxPhoneLabel(extractInboxRawContact(newInboundPreview)) || "Contato WhatsApp"}
+                    </p>
                   </div>
                   <button
                     type="button"

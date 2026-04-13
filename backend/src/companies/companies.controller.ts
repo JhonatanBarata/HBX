@@ -15,6 +15,7 @@ import { MercadoPagoClientService } from '../payments/mercado-pago-client.servic
 import { MasterContextService } from '../master-context/master-context.service';
 import { CompanyOperationalStatusService } from './company-operational-status.service';
 import { WhatsAppModalService } from './whatsapp-modal.service';
+import { CompanyWhatsAppCustomerSyncService } from './company-whatsapp-customer-sync.service';
 import {
   CompaniesService,
   MASTER_HARD_DELETE_CONFIRMATION_INVALID_MESSAGE,
@@ -153,6 +154,7 @@ export class CompaniesController {
     private readonly masterContextService: MasterContextService,
     private readonly companyOperationalStatus: CompanyOperationalStatusService,
     private readonly whatsappModalService: WhatsAppModalService,
+    private readonly companyWhatsAppCustomerSync: CompanyWhatsAppCustomerSyncService,
   ) {}
 
   // NOTE: We intentionally do not provide a public company lookup endpoint.
@@ -692,6 +694,13 @@ export class CompaniesController {
     };
   }
 
+
+  @Post('me/customer-registry/sync-whatsapp')
+  @UseGuards(JwtAuthGuard)
+  async syncMyCustomerRegistryFromWhatsApp(@Req() req: any) {
+    const companyId = await this.resolveOperationalCompanyIdOrThrow(req);
+    return this.companyWhatsAppCustomerSync.syncCompanyCustomers(companyId);
+  }
   @Get('master/operational-status')
   @UseGuards(JwtAuthGuard, MasterGuard)
   async getOperationalStatusForMaster(

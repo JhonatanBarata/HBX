@@ -5,6 +5,7 @@ export type Customer = {
   id: string;
   phone: string;
   name: string | null;
+  avatarUrl?: string | null;
   customerProfileId?: string | null;
   email?: string | null;
   document?: string | null;

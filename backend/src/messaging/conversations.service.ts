@@ -366,20 +366,32 @@ export class ConversationsService {
         undefined,
       sourceModule,
     });
-    if (!resolvedCreds.phoneNumberId) {
+    const modalConnected =
+      String((company as any)?.whatsappModalStatus || '')
+        .trim()
+        .toUpperCase() === 'CONNECTED';
+    const hasMetaCredentials = Boolean(resolvedCreds.phoneNumberId);
+
+    if (!hasMetaCredentials && !modalConnected) {
       throw new BadRequestException('WhatsApp nao configurado para esta empresa.');
     }
 
-    await this.whatsappStatus.ensureConnected(companyId, {
-      endpointId: resolvedCreds.endpointId || undefined,
-      preferredModuleKey:
-        String(payload?.preferredModuleKey || '').trim().toLowerCase() || undefined,
-      sourceModule,
-    });
-    const openWindow = await this.hasOpenCustomerServiceWindow(companyId, conversation.id);
+    if (hasMetaCredentials) {
+      await this.whatsappStatus.ensureConnected(companyId, {
+        endpointId: resolvedCreds.endpointId || undefined,
+        preferredModuleKey:
+          String(payload?.preferredModuleKey || '').trim().toLowerCase() || undefined,
+        sourceModule,
+      });
+    }
 
-    if (!openWindow && messageType !== 'template') {
-      throw new BadRequestException('Fora da janela de 24h. Use template aprovado pela Meta.');
+    // The 24h customer service window is a Meta Cloud API restriction.
+    // If modal/webwhats is connected, allow free-form text queueing.
+    if (!modalConnected) {
+      const openWindow = await this.hasOpenCustomerServiceWindow(companyId, conversation.id);
+      if (!openWindow && messageType !== 'template') {
+        throw new BadRequestException('Fora da janela de 24h. Use template aprovado pela Meta.');
+      }
     }
     if (messageType === 'template' && !templateName) {
       throw new BadRequestException('templateName obrigatorio para envio template.');

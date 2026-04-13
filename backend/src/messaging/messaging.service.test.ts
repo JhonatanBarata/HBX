@@ -28,6 +28,7 @@ function createService(overrides?: Partial<Record<string, any>>) {
     (overrides?.mercadoPagoClient || {}) as any,
     (overrides?.cadastrosService || {}) as any,
     (overrides?.customerProfileService || {}) as any,
+    ({ sendText: async () => undefined, ...(overrides?.webwhatsBridge || {}) } as any),
   );
 
   return { service, prisma };

@@ -1,0 +1,308 @@
+import { BadRequestException, Injectable } from '@nestjs/common';
+import { CadastrosService } from '../cadastros/cadastros.service';
+import { PrismaService } from '../prisma/prisma.service';
+import { normalizeWhatsAppDigits, normalizeWhatsAppPhone } from '../messaging/whatsapp-channel';
+import { WebwhatsBridgeService } from '../messaging/webwhats-bridge.service';
+import { CompanyOperationalStatusService } from './company-operational-status.service';
+
+type SyncEngine = 'meta' | 'webwhats';
+
+type SyncCandidate = {
+  phone: string;
+  phoneNormalized: string;
+  name: string | null;
+  conversationId: number | null;
+  lastMessageAt: Date | null;
+};
+
+@Injectable()
+export class CompanyWhatsAppCustomerSyncService {
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly cadastrosService: CadastrosService,
+    private readonly operationalStatus: CompanyOperationalStatusService,
+    private readonly webwhatsBridge: WebwhatsBridgeService,
+  ) {}
+
+  private resolveActiveEngine(status: { metaActive?: boolean; webWhatsActive?: boolean } | null): SyncEngine | null {
+    if (status?.metaActive) return 'meta';
+    if (status?.webWhatsActive) return 'webwhats';
+    return null;
+  }
+
+  private parseMetadata(raw: string | null | undefined): Record<string, any> {
+    if (!raw) return {};
+    try {
+      const parsed = JSON.parse(raw);
+      return parsed && typeof parsed === 'object' ? parsed : {};
+    } catch {
+      return {};
+    }
+  }
+
+  private normalizePhoneCandidate(value: unknown) {
+    const phone = normalizeWhatsAppPhone(String(value || '').trim());
+    const digits = normalizeWhatsAppDigits(phone);
+    if (digits.length < 10 || digits.length > 15) return null;
+    return phone;
+  }
+
+  private normalizeNameCandidate(value: unknown, phone?: string | null) {
+    const normalized = String(value || '')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .replace(/^["'“”‘’]+|["'“”‘’]+$/g, '')
+      .trim();
+    if (!normalized) return null;
+    const lowered = normalized.toLowerCase();
+    if (lowered === 'você' || lowered === 'voce' || lowered === 'you' || lowered === 'eu') {
+      return null;
+    }
+    if (lowered.includes('@lid') || lowered.includes('@s.whatsapp.net')) {
+      return null;
+    }
+    if (/^\d{14,}$/.test(normalized.replace(/\s+/g, ''))) {
+      return null;
+    }
+    const candidateDigits = normalized.replace(/\D/g, '');
+    const phoneDigits = String(phone || '').replace(/\D/g, '');
+    if (candidateDigits && phoneDigits && candidateDigits === phoneDigits) {
+      return null;
+    }
+    return normalized;
+  }
+
+  private toDate(value: Date | string | null | undefined) {
+    if (!value) return null;
+    const parsed = value instanceof Date ? value : new Date(String(value));
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
+
+  private preferredName(...candidates: Array<unknown>) {
+    for (const candidate of candidates) {
+      const normalized = this.normalizeNameCandidate(candidate);
+      if (normalized) return normalized;
+    }
+    return null;
+  }
+
+  private buildConversationCandidate(row: {
+    id: number;
+    contact: string;
+    metadata: string | null;
+    lastMessageAt: Date | null;
+  }): SyncCandidate | null {
+    const phone = this.normalizePhoneCandidate(row.contact);
+    if (!phone) return null;
+    const metadata = this.parseMetadata(row.metadata);
+    const name = this.preferredName(
+      metadata?.cliente,
+      metadata?.customerName,
+      metadata?.name,
+      metadata?.whatsappContactName,
+      metadata?.waNickname,
+      metadata?.whatsappName,
+      metadata?.whatsappProfileName,
+    );
+    return {
+      phone,
+      phoneNormalized: this.cadastrosService.normalizeCustomerPhone(phone),
+      name,
+      conversationId: Number(row.id || 0) || null,
+      lastMessageAt: this.toDate(row.lastMessageAt),
+    };
+  }
+
+  private mergeCandidate(map: Map<string, SyncCandidate>, candidate: SyncCandidate | null) {
+    if (!candidate?.phoneNormalized) return;
+    const current = map.get(candidate.phoneNormalized);
+    if (!current) {
+      map.set(candidate.phoneNormalized, candidate);
+      return;
+    }
+
+    const currentLast = current.lastMessageAt ? current.lastMessageAt.getTime() : 0;
+    const candidateLast = candidate.lastMessageAt ? candidate.lastMessageAt.getTime() : 0;
+    const preferred = candidateLast > currentLast ? candidate : current;
+    const secondary = preferred === candidate ? current : candidate;
+
+    map.set(candidate.phoneNormalized, {
+      ...preferred,
+      name: preferred.name || secondary.name || null,
+      conversationId: preferred.conversationId || secondary.conversationId || null,
+      lastMessageAt: preferred.lastMessageAt || secondary.lastMessageAt || null,
+    });
+  }
+
+  private shouldSyncCandidate(existing: any, candidate: SyncCandidate, resolvedName: string) {
+    if (!existing) return true;
+    if (!String(existing.name || '').trim() && resolvedName) return true;
+    if (!existing.conversationId && candidate.conversationId) return true;
+    const existingLast = existing.lastMessageAt ? new Date(existing.lastMessageAt).getTime() : 0;
+    const candidateLast = candidate.lastMessageAt ? candidate.lastMessageAt.getTime() : 0;
+    if (candidateLast > existingLast) return true;
+    return String(existing.registrationStatus || '').trim().toLowerCase() !== 'confirmed';
+  }
+
+  private async listConversationCandidates(companyId: number) {
+    const rows = await this.prisma.companyConversation.findMany({
+      where: { companyId, channel: 'whatsapp' },
+      select: {
+        id: true,
+        contact: true,
+        metadata: true,
+        lastMessageAt: true,
+      },
+      orderBy: { lastMessageAt: 'desc' },
+    });
+
+    const byPhone = new Map<string, SyncCandidate>();
+    for (const row of rows) {
+      this.mergeCandidate(byPhone, this.buildConversationCandidate(row));
+    }
+
+    return {
+      rows,
+      candidatesByPhone: byPhone,
+    };
+  }
+
+  private async buildMetaCandidates(companyId: number) {
+    const { rows, candidatesByPhone } = await this.listConversationCandidates(companyId);
+    return {
+      candidates: [...candidatesByPhone.values()],
+      conversationCount: rows.length,
+      syncedConversations: 0,
+    };
+  }
+
+  private async buildWebwhatsCandidates(companyId: number) {
+    let syncedConversations = 0;
+    try {
+      syncedConversations = await this.webwhatsBridge.syncRecentChats(companyId, { force: true, limit: 120 });
+    } catch {
+      syncedConversations = 0;
+    }
+
+    const { rows, candidatesByPhone } = await this.listConversationCandidates(companyId);
+    let contacts: Array<{ remoteJid?: string | null; pushName?: string | null }> = [];
+    try {
+      contacts = await this.webwhatsBridge.listContacts(companyId, { force: true });
+    } catch {
+      contacts = [];
+    }
+
+    const merged = new Map(candidatesByPhone);
+    for (const contact of contacts) {
+      const phone = this.normalizePhoneCandidate(contact?.remoteJid);
+      if (!phone) continue;
+      const phoneNormalized = this.cadastrosService.normalizeCustomerPhone(phone);
+      const fromConversation = candidatesByPhone.get(phoneNormalized) || null;
+      this.mergeCandidate(merged, {
+        phone,
+        phoneNormalized,
+        name: this.preferredName(fromConversation?.name, contact?.pushName),
+        conversationId: fromConversation?.conversationId || null,
+        lastMessageAt: fromConversation?.lastMessageAt || null,
+      });
+    }
+
+    return {
+      candidates: [...merged.values()],
+      conversationCount: rows.length,
+      syncedConversations,
+    };
+  }
+
+  async syncCompanyCustomers(companyId: number) {
+    const normalizedCompanyId = Number(companyId || 0);
+    if (!normalizedCompanyId) {
+      throw new BadRequestException('Empresa nao identificada para sincronizar clientes.');
+    }
+
+    const status = await this.operationalStatus.getOperationalStatusForCompany(normalizedCompanyId, {
+      refresh: true,
+    });
+    const engine = this.resolveActiveEngine(status);
+    if (!engine) {
+      throw new BadRequestException('Nenhum motor WhatsApp ativo nesta empresa. Conecte WebWhats ou Meta antes de atualizar o cadastro.');
+    }
+
+    const source = engine === 'meta'
+      ? await this.buildMetaCandidates(normalizedCompanyId)
+      : await this.buildWebwhatsCandidates(normalizedCompanyId);
+    const existingRows = await this.cadastrosService.listRawCustomerRegistry(normalizedCompanyId);
+    const existingByPhone = new Map<string, any>(
+      existingRows.map((row) => [String(row.phoneNormalized || ''), row]),
+    );
+
+    let syncedContacts = 0;
+    let createdContacts = 0;
+    let updatedContacts = 0;
+    let skippedWithoutName = 0;
+    let skippedWithoutPhone = 0;
+    let skippedUnchanged = 0;
+
+    for (const candidate of source.candidates) {
+      if (!candidate.phoneNormalized) {
+        skippedWithoutPhone += 1;
+        continue;
+      }
+
+      const resolvedName = this.normalizeNameCandidate(candidate.name, candidate.phone);
+      if (!resolvedName) {
+        skippedWithoutName += 1;
+        continue;
+      }
+
+      const existing = existingByPhone.get(candidate.phoneNormalized) || null;
+      if (!this.shouldSyncCandidate(existing, candidate, resolvedName)) {
+        skippedUnchanged += 1;
+        continue;
+      }
+
+      await this.cadastrosService.upsertCustomerRegistry({
+        companyId: normalizedCompanyId,
+        phone: candidate.phone,
+        name: resolvedName,
+        registrationOrigin: engine === 'meta' ? 'meta_sync' : 'webwhats_sync',
+        registrationStatus: 'confirmed',
+        route: 'atendimento',
+        conversationId: candidate.conversationId || undefined,
+        lastMessageAt: candidate.lastMessageAt || undefined,
+      });
+
+      syncedContacts += 1;
+      if (existing) {
+        updatedContacts += 1;
+      } else {
+        createdContacts += 1;
+        existingByPhone.set(candidate.phoneNormalized, {
+          phoneNormalized: candidate.phoneNormalized,
+          name: resolvedName,
+          conversationId: candidate.conversationId || null,
+          lastMessageAt: candidate.lastMessageAt || null,
+          registrationStatus: 'confirmed',
+        });
+      }
+    }
+
+    return {
+      engine,
+      sourceLabel: engine === 'meta' ? 'Meta' : 'WebWhats',
+      activeMotors: {
+        meta: Boolean(status?.metaActive),
+        webwhats: Boolean(status?.webWhatsActive),
+      },
+      scannedContacts: source.candidates.length,
+      conversationCount: source.conversationCount,
+      syncedConversations: source.syncedConversations,
+      syncedContacts,
+      createdContacts,
+      updatedContacts,
+      skippedWithoutName,
+      skippedWithoutPhone,
+      skippedUnchanged,
+    };
+  }
+}

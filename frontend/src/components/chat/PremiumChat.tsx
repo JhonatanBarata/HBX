@@ -1,6 +1,6 @@
 "use client";
 
-import type { ButtonHTMLAttributes, HTMLAttributes, ReactNode } from "react";
+import { useEffect, useState, type ButtonHTMLAttributes, type HTMLAttributes, type ReactNode } from "react";
 import styles from "./PremiumChat.module.css";
 
 function cx(...values: Array<string | false | null | undefined>) {
@@ -166,11 +166,22 @@ export function ChatAvatar({
   initials,
   label,
   tone = "brand",
+  imageUrl,
 }: {
   initials: string;
   label?: string;
   tone?: AvatarTone;
+  imageUrl?: string | null;
 }) {
+  const [imageFailed, setImageFailed] = useState(false);
+
+  useEffect(() => {
+    setImageFailed(false);
+  }, [imageUrl]);
+
+  const resolvedImageUrl = String(imageUrl || "").trim();
+  const showImage = Boolean(resolvedImageUrl) && !imageFailed;
+
   return (
     <div
       className={cx(
@@ -183,10 +194,21 @@ export function ChatAvatar({
         tone === "success" && styles.avatarSuccess,
       )}
     >
-      <div className={styles.avatarInner}>
-        <span className={styles.avatarInitials}>{initials}</span>
-        {label ? <small className={styles.avatarLabel}>{label}</small> : null}
-      </div>
+      {showImage ? (
+        <img
+          className={styles.avatarImage}
+          src={resolvedImageUrl}
+          alt=""
+          loading="lazy"
+          referrerPolicy="no-referrer"
+          onError={() => setImageFailed(true)}
+        />
+      ) : (
+        <div className={styles.avatarInner}>
+          <span className={styles.avatarInitials}>{initials}</span>
+          {label ? <small className={styles.avatarLabel}>{label}</small> : null}
+        </div>
+      )}
     </div>
   );
 }
@@ -229,6 +251,7 @@ export function ChatQueueItem({
   initials,
   label,
   tone = "brand",
+  imageUrl,
   title,
   subtitle,
   preview,
@@ -241,6 +264,7 @@ export function ChatQueueItem({
   initials: string;
   label?: string;
   tone?: AvatarTone;
+  imageUrl?: string | null;
   title: ReactNode;
   subtitle?: ReactNode;
   preview?: ReactNode;
@@ -255,7 +279,7 @@ export function ChatQueueItem({
       className={cx(styles.queueItem, active && styles.queueItemActive, className)}
       {...props}
     >
-      <ChatAvatar initials={initials} label={label} tone={tone} />
+      <ChatAvatar initials={initials} label={label} tone={tone} imageUrl={imageUrl} />
       <div className={styles.queueContent}>
         <div className={styles.queueTop}>
           <strong>{title}</strong>

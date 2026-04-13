@@ -205,7 +205,6 @@ export class CadastrosService {
     const phoneNorm = this.normalizeCustomerPhone(input.phone);
     if (!phoneNorm || phoneNorm.length < 8) return null;
 
-    const now = input.lastMessageAt ?? new Date();
     const profileId = String(input.customerProfileId || '').trim() || null;
     const profile = profileId
       ? { id: profileId }
@@ -223,29 +222,46 @@ export class CadastrosService {
 
     if (existing) {
       const shouldUpdateName = !existing.name && !!input.name;
+      const normalizedNotes = input.notes !== undefined ? (input.notes ? String(input.notes).trim() || null : null) : undefined;
+      const nextLastMessageAt = input.lastMessageAt === undefined ? undefined : input.lastMessageAt ?? null;
+      const updateData: any = {
+        ...(shouldUpdateName
+          ? {
+              name: input.name!,
+              registrationStatus: input.registrationStatus || existing.registrationStatus,
+            }
+          : {}),
+        ...(input.registrationStatus && input.registrationStatus !== 'pending_confirmation' && input.registrationStatus !== existing.registrationStatus
+          ? { registrationStatus: input.registrationStatus }
+          : {}),
+        ...(input.route === 'recovery' && existing.route !== 'recovery' ? { route: 'recovery' } : {}),
+        ...(normalizedNotes !== undefined && normalizedNotes !== existing.notes ? { notes: normalizedNotes } : {}),
+        ...(input.conversationId && input.conversationId !== existing.conversationId ? { conversationId: input.conversationId } : {}),
+        ...(existing.phone ? {} : { phone: input.phone }),
+        ...(profile?.id && String(existing.customerProfileId || '') !== String(profile.id)
+          ? { customerProfileId: String(profile.id) }
+          : {}),
+        ...(nextLastMessageAt !== undefined
+          ? {
+              lastMessageAt: nextLastMessageAt,
+            }
+          : {}),
+      };
+
+      if (!Object.keys(updateData).length) {
+        return existing;
+      }
+
       return this.prisma.atendimentoCustomer.update({
         where: { id: existing.id },
         data: {
-          ...(shouldUpdateName
-            ? {
-                name: input.name!,
-                registrationStatus: input.registrationStatus || existing.registrationStatus,
-              }
-            : {}),
-          ...(input.registrationStatus && input.registrationStatus !== 'pending_confirmation'
-            ? { registrationStatus: input.registrationStatus }
-            : {}),
-          ...(input.route === 'recovery' ? { route: 'recovery' } : {}),
-          ...(input.notes !== undefined ? { notes: input.notes ? String(input.notes).trim() || null : null } : {}),
-          ...(input.conversationId ? { conversationId: input.conversationId } : {}),
-          ...(existing.phone ? {} : { phone: input.phone }),
-          ...(profile?.id ? { customerProfileId: String(profile.id) } : {}),
-          lastMessageAt: now,
-          updatedAt: now,
+          ...updateData,
+          updatedAt: input.lastMessageAt ?? new Date(),
         },
       });
     }
 
+    const createdAt = input.lastMessageAt ?? new Date();
     return this.prisma.atendimentoCustomer.create({
       data: {
         companyId: input.companyId,
@@ -258,9 +274,9 @@ export class CadastrosService {
         route: input.route || 'atendimento',
         notes: input.notes ? String(input.notes).trim() || null : null,
         conversationId: input.conversationId ?? null,
-        lastMessageAt: now,
-        createdAt: now,
-        updatedAt: now,
+        lastMessageAt: input.lastMessageAt ?? null,
+        createdAt,
+        updatedAt: createdAt,
       },
     });
   }
