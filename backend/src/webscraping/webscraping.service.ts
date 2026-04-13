@@ -15,6 +15,7 @@ const PLACES_TEXT_SEARCH_URL = 'https://maps.googleapis.com/maps/api/place/texts
 const PLACES_DETAILS_URL = 'https://maps.googleapis.com/maps/api/place/details/json';
 const MAX_QUANTITY = 20;
 const GLOBAL_CACHE_TTL_HOURS = 24;
+const TRIAL_DAILY_MOTOR_LIMIT = 3;
 
 type RuntimeStatus = 'online' | 'degraded';
 type SearchSource = 'history' | 'google' | 'hybrid' | 'global_cache';
@@ -135,7 +136,7 @@ type SearchExecutionOptions = {
   historyIdHint?: string;
 };
 
-type UsageEventType = 'EXECUTED' | 'BLOCKED_DAILY_LIMIT';
+type UsageEventType = 'EXECUTED' | 'MOTOR_EXECUTED' | 'BLOCKED_DAILY_LIMIT';
 
 type UsageExecutionMeta = {
   source?: SearchSource;
@@ -318,7 +319,6 @@ export class WebscrapingService {
   ): Promise<WebscrapingSearchResponse> {
     const context = this.resolveContext(user);
     const normalized = this.normalizeSearchInput(input);
-    await this.assertTrialDailyLimit(context, normalized);
     const historyEnabled = await this.supportsHistoryPersistence();
     const existingHistory = historyEnabled
       ? await this.findHistoryBySignature(context.companyId, normalized.searchSignature, options.historyIdHint)
@@ -419,6 +419,8 @@ export class WebscrapingService {
       throw this.buildConfigurationUnavailableError();
     }
 
+    await this.assertTrialDailyLimit(context, normalized);
+
     for (const candidateLimit of this.buildCandidateSteps(normalized.quantity)) {
       if (results.length >= normalized.quantity) break;
       const candidates = await this.searchPlaces(`${normalized.segment} em ${normalized.city}`, candidateLimit);
@@ -468,7 +470,7 @@ export class WebscrapingService {
             ? this.buildGlobalCacheValidUntil().toISOString()
             : null,
     });
-    await this.recordUsageLog(context, normalized, 'EXECUTED', response.results.length, null, response.meta);
+              await this.recordUsageLog(context, normalized, 'MOTOR_EXECUTED', response.results.length, null, response.meta);
     return response;
   }
 
@@ -514,31 +516,37 @@ export class WebscrapingService {
       throw new NotFoundException('Historico indisponivel neste ambiente.');
     }
 
-    const row = await this.prisma.webscrapingSearchHistory.findFirst({
-      where: {
-        id: String(historyId || '').trim(),
-        companyId: context.companyId,
-      },
-    });
+    const row = await this.findHistoryById(context.companyId, historyId);
 
     if (!row) {
       throw new NotFoundException('Pesquisa anterior nao encontrada.');
     }
 
     const filters = this.parseFiltersJson(row.filtersJson);
-    return this.searchContactsForUser(
-      user,
-      {
-        city: row.city,
-        segment: row.segment,
-        quantity: row.quantity,
-        minRating: filters.minRating,
-        minReviews: filters.minReviews,
-        onlyProbableWhatsApp: filters.onlyProbableWhatsApp,
-        onlyWithWebsite: filters.onlyWithWebsite,
-      },
-      { historyIdHint: row.id },
-    );
+    const normalized = this.normalizeSearchInput({
+      city: row.city,
+      segment: row.segment,
+      quantity: row.quantity,
+      minRating: filters.minRating,
+      minReviews: filters.minReviews,
+      onlyProbableWhatsApp: filters.onlyProbableWhatsApp,
+      onlyWithWebsite: filters.onlyWithWebsite,
+    });
+    const storedResults = this.sortContacts(this.restoreStoredResults(row)).slice(0, normalized.quantity);
+
+    await this.touchHistory(row.id, context.userId);
+
+    const response = this.buildSearchResponse(normalized, storedResults, {
+      historyId: row.id,
+      source: 'history',
+      reusedCount: storedResults.length,
+      fetchedCount: 0,
+      technicalCacheUsed: false,
+      technicalCacheReusedCount: 0,
+      technicalCacheValidUntil: null,
+    });
+    await this.recordUsageLog(context, normalized, 'EXECUTED', response.results.length, null, response.meta);
+    return response;
   }
 
   async exportContactsForUser(user: any, input: SearchContactsInput) {
@@ -669,10 +677,10 @@ export class WebscrapingService {
 
     const dayStart = this.startOfToday();
     const nextDayStart = this.startOfTomorrow();
-    const todayExecutions = await this.prisma.webscrapingUsageLog.count({
+    const todayMotorExecutions = await this.prisma.webscrapingUsageLog.count({
       where: {
         companyId: context.companyId,
-        eventType: 'EXECUTED',
+        eventType: 'MOTOR_EXECUTED',
         createdAt: {
           gte: dayStart,
           lt: nextDayStart,
@@ -680,11 +688,11 @@ export class WebscrapingService {
       },
     });
 
-    if (todayExecutions < 1) {
+    if (todayMotorExecutions < TRIAL_DAILY_MOTOR_LIMIT) {
       return;
     }
 
-    const message = 'No free trial, o webscraping permite 1 busca por dia. Volte amanhã ou ative uma conta paga.';
+    const message = `No free trial, o webscraping permite ${TRIAL_DAILY_MOTOR_LIMIT} usos do motor por dia. Reaproveitamentos nao contam. Volte amanha ou ative uma conta paga.`;
     await this.recordUsageLog(context, input, 'BLOCKED_DAILY_LIMIT', 0, message);
     throw new ForbiddenException({
       code: 'trial_daily_limit_reached',
@@ -703,6 +711,8 @@ export class WebscrapingService {
     const usageLogEnabled = await this.supportsUsageLogPersistence();
     if (!usageLogEnabled) return;
 
+    const executedEvent = this.isExecutedUsageEvent(eventType);
+
     await this.prisma.webscrapingUsageLog.create({
       data: {
         companyId: context.companyId,
@@ -712,14 +722,14 @@ export class WebscrapingService {
         segment: input.segment,
         quantity: input.quantity,
         resultCount: Math.max(0, Math.trunc(resultCount || 0)),
-        source: eventType === 'EXECUTED' ? executionMeta?.source || null : null,
+        source: executedEvent ? executionMeta?.source || null : null,
         reusedCount:
-          eventType === 'EXECUTED' ? Math.max(0, Math.trunc(executionMeta?.reusedCount || 0)) : 0,
+          executedEvent ? Math.max(0, Math.trunc(executionMeta?.reusedCount || 0)) : 0,
         fetchedCount:
-          eventType === 'EXECUTED' ? Math.max(0, Math.trunc(executionMeta?.fetchedCount || 0)) : 0,
-        technicalCacheUsed: eventType === 'EXECUTED' ? Boolean(executionMeta?.technicalCacheUsed) : false,
+          executedEvent ? Math.max(0, Math.trunc(executionMeta?.fetchedCount || 0)) : 0,
+        technicalCacheUsed: executedEvent ? Boolean(executionMeta?.technicalCacheUsed) : false,
         technicalCacheReusedCount:
-          eventType === 'EXECUTED'
+          executedEvent
             ? Math.max(0, Math.trunc(executionMeta?.technicalCacheReusedCount || 0))
             : 0,
         searchSignature: input.searchSignature,
@@ -938,17 +948,7 @@ export class WebscrapingService {
 
   private async findHistoryBySignature(companyId: number, searchSignature: string, historyIdHint?: string): Promise<SearchHistoryRow | null> {
     if (historyIdHint) {
-      const hinted = await this.prisma.webscrapingSearchHistory.findFirst({
-        where: {
-          id: String(historyIdHint || '').trim(),
-          companyId,
-        },
-        include: {
-          places: {
-            orderBy: [{ rank: 'asc' }],
-          },
-        },
-      });
+      const hinted = await this.findHistoryById(companyId, historyIdHint);
       if (hinted) return hinted as SearchHistoryRow;
     }
 
@@ -966,6 +966,25 @@ export class WebscrapingService {
       },
     });
     return (row as SearchHistoryRow | null) || null;
+  }
+
+  private async findHistoryById(companyId: number, historyId: string): Promise<SearchHistoryRow | null> {
+    const row = await this.prisma.webscrapingSearchHistory.findFirst({
+      where: {
+        id: String(historyId || '').trim(),
+        companyId,
+      },
+      include: {
+        places: {
+          orderBy: [{ rank: 'asc' }],
+        },
+      },
+    });
+    return (row as SearchHistoryRow | null) || null;
+  }
+
+  private isExecutedUsageEvent(eventType: UsageEventType) {
+    return eventType === 'EXECUTED' || eventType === 'MOTOR_EXECUTED';
   }
 
   private async findGlobalCacheBySignature(cacheSignature: string): Promise<GlobalCacheRow | null> {
