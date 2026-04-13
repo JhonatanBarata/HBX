@@ -55,6 +55,14 @@ type WebwhatsChatSummary = {
 type WebwhatsContactSummary = {
   remoteJid: string;
   pushName?: string | null;
+  name?: string | null;
+  displayName?: string | null;
+  formattedName?: string | null;
+  fullName?: string | null;
+  shortName?: string | null;
+  notifyName?: string | null;
+  verifiedName?: string | null;
+  businessName?: string | null;
   profilePicUrl?: string | null;
   isSaved?: boolean | null;
   type?: string | null;
@@ -317,7 +325,7 @@ export class WebwhatsBridgeService {
     return this.canUseConnectedInstance({ whatsappModalStatus: status });
   }
 
-  async sendText(companyId: number, input: { to: string; text: string; conversationId?: number | null }) {
+  private async requireConnectedCompany(companyId: number) {
     const company = await this.prisma.company.findUnique({
       where: { id: companyId },
       select: {
@@ -328,6 +336,11 @@ export class WebwhatsBridgeService {
     if (!company || !this.canUseConnectedInstance(company)) {
       throw new Error('WEBWHATS_NOT_CONNECTED');
     }
+    return company;
+  }
+
+  async sendText(companyId: number, input: { to: string; text: string; conversationId?: number | null }) {
+    const company = await this.requireConnectedCompany(companyId);
 
     const tenantKey = this.buildTenantKey(company.id);
     const target = await this.resolveSendTarget(companyId, input);
@@ -362,16 +375,7 @@ export class WebwhatsBridgeService {
       mimeType?: string | null;
     },
   ) {
-    const company = await this.prisma.company.findUnique({
-      where: { id: companyId },
-      select: {
-        id: true,
-        whatsappModalStatus: true,
-      },
-    });
-    if (!company || !this.canUseConnectedInstance(company)) {
-      throw new Error('WEBWHATS_NOT_CONNECTED');
-    }
+    const company = await this.requireConnectedCompany(companyId);
 
     const tenantKey = this.buildTenantKey(company.id);
     const target = await this.resolveSendTarget(companyId, input);
@@ -406,16 +410,7 @@ export class WebwhatsBridgeService {
       conversationId?: number | null;
     },
   ) {
-    const company = await this.prisma.company.findUnique({
-      where: { id: companyId },
-      select: {
-        id: true,
-        whatsappModalStatus: true,
-      },
-    });
-    if (!company || !this.canUseConnectedInstance(company)) {
-      throw new Error('WEBWHATS_NOT_CONNECTED');
-    }
+    const company = await this.requireConnectedCompany(companyId);
 
     const tenantKey = this.buildTenantKey(company.id);
     const target = await this.resolveSendTarget(companyId, input);
@@ -495,6 +490,178 @@ export class WebwhatsBridgeService {
       rawMessageId,
       providerMessageId: rawMessageId ? this.buildProviderMessageId(tenantKey, rawMessageId) : null,
     };
+  }
+
+  async updateBlockStatus(
+    companyId: number,
+    input: {
+      to?: string;
+      conversationId?: number | null;
+      status: 'block' | 'unblock';
+    },
+  ) {
+    const company = await this.requireConnectedCompany(companyId);
+    const tenantKey = this.buildTenantKey(company.id);
+    const target = await this.resolveSendTarget(companyId, {
+      to: String(input.to || ''),
+      conversationId: input.conversationId ?? null,
+    });
+    return this.request<any>({
+      method: 'POST',
+      path: `/message/updateBlockStatus/${encodeURIComponent(tenantKey)}`,
+      purpose: input.status === 'block' ? 'bloqueio de contato via Webwhats' : 'desbloqueio de contato via Webwhats',
+      data: {
+        number: target,
+        status: input.status,
+      },
+    });
+  }
+
+  async archiveChat(
+    companyId: number,
+    input: {
+      conversationId: number;
+      archive: boolean;
+    },
+  ) {
+    const company = await this.requireConnectedCompany(companyId);
+    const tenantKey = this.buildTenantKey(company.id);
+    const conversation = await this.prisma.companyConversation.findFirst({
+      where: { id: Number(input.conversationId || 0), companyId, channel: 'whatsapp' },
+      select: { id: true, contact: true, metadata: true },
+    });
+    if (!conversation) {
+      throw new Error('WEBWHATS_CONVERSATION_NOT_FOUND');
+    }
+
+    const metadata = this.parseMetadata(conversation.metadata);
+    const remoteJid =
+      this.normalizeOptionalString(metadata.whatsappRemoteJid) ||
+      this.normalizeRemoteJid(String(conversation.contact || ''));
+    const remoteJidAlt =
+      this.normalizeOptionalString(metadata.whatsappRemoteJidAlt) || null;
+    if (!remoteJid) {
+      throw new Error('WEBWHATS_CHAT_REMOTE_JID_MISSING');
+    }
+
+    const [chats, lastMessageRow] = await Promise.all([
+      this.fetchChats(company.id, 120),
+      this.prisma.companyMessage.findFirst({
+        where: { companyId, conversationId: conversation.id },
+        orderBy: [{ timestamp: 'desc' }, { createdAt: 'desc' }],
+        select: {
+          direction: true,
+          providerMessageId: true,
+          rawPayload: true,
+          timestamp: true,
+        },
+      }),
+    ]);
+
+    const matchingChat =
+      chats.find((chat) => {
+        const chatRemoteJid = this.normalizeOptionalString(chat?.remoteJid);
+        const chatRemoteJidAlt = this.getChatRemoteJidAlt(chat);
+        return [chatRemoteJid, chatRemoteJidAlt].some(
+          (value) => value && [remoteJid, remoteJidAlt].includes(value),
+        );
+      }) || null;
+    const lastMessagePayload =
+      matchingChat?.lastMessage ||
+      this.buildArchiveLastMessagePayload(remoteJid, lastMessageRow);
+
+    return this.request<any>({
+      method: 'POST',
+      path: `/chat/archiveChat/${encodeURIComponent(tenantKey)}`,
+      purpose: input.archive ? 'arquivamento de chat via Webwhats' : 'desarquivamento de chat via Webwhats',
+      data: {
+        lastMessage: lastMessagePayload,
+        archive: Boolean(input.archive),
+        chat: remoteJid,
+      },
+    });
+  }
+
+  async sendReaction(
+    companyId: number,
+    input: {
+      conversationId?: number | null;
+      remoteJid?: string | null;
+      messageId: string;
+      fromMe: boolean;
+      reaction: string;
+    },
+  ) {
+    const company = await this.requireConnectedCompany(companyId);
+    const tenantKey = this.buildTenantKey(company.id);
+    const resolvedRemoteJid = this.normalizeRemoteJid(
+      String(
+        input.remoteJid ||
+          (await this.resolveSendTarget(companyId, {
+            to: '',
+            conversationId: input.conversationId ?? null,
+          })) ||
+          '',
+      ),
+    );
+    if (!resolvedRemoteJid) {
+      throw new Error('WEBWHATS_REACTION_REMOTE_JID_MISSING');
+    }
+
+    return this.request<any>({
+      method: 'POST',
+      path: `/message/sendReaction/${encodeURIComponent(tenantKey)}`,
+      purpose: 'envio de reacao via Webwhats',
+      data: {
+        key: {
+          remoteJid: resolvedRemoteJid,
+          fromMe: Boolean(input.fromMe),
+          id: String(input.messageId || ''),
+        },
+        reaction: String(input.reaction || ''),
+      },
+    });
+  }
+
+  async deleteMessageForEveryone(
+    companyId: number,
+    input: {
+      conversationId?: number | null;
+      remoteJid?: string | null;
+      messageId: string;
+      fromMe: boolean;
+      participant?: string | null;
+    },
+  ) {
+    const company = await this.requireConnectedCompany(companyId);
+    const tenantKey = this.buildTenantKey(company.id);
+    const resolvedRemoteJid = this.normalizeRemoteJid(
+      String(
+        input.remoteJid ||
+          (await this.resolveSendTarget(companyId, {
+            to: '',
+            conversationId: input.conversationId ?? null,
+          })) ||
+          '',
+      ),
+    );
+    if (!resolvedRemoteJid) {
+      throw new Error('WEBWHATS_DELETE_REMOTE_JID_MISSING');
+    }
+
+    return this.request<any>({
+      method: 'DELETE',
+      path: `/chat/deleteMessageForEveryone/${encodeURIComponent(tenantKey)}`,
+      purpose: 'exclusao de mensagem para todos via Webwhats',
+      data: {
+        id: String(input.messageId || ''),
+        remoteJid: resolvedRemoteJid,
+        fromMe: Boolean(input.fromMe),
+        ...(this.normalizeOptionalString(input.participant)
+          ? { participant: this.normalizeOptionalString(input.participant) }
+          : {}),
+      },
+    });
   }
 
   private readConfig(): WebwhatsConfig {
@@ -719,7 +886,23 @@ export class WebwhatsBridgeService {
     alternateContact?: WebwhatsContactSummary | null,
   ) {
     const candidates = [
+      primaryContact?.name,
+      primaryContact?.displayName,
+      primaryContact?.formattedName,
+      primaryContact?.fullName,
+      primaryContact?.shortName,
+      primaryContact?.notifyName,
+      primaryContact?.verifiedName,
+      primaryContact?.businessName,
       primaryContact?.pushName,
+      alternateContact?.name,
+      alternateContact?.displayName,
+      alternateContact?.formattedName,
+      alternateContact?.fullName,
+      alternateContact?.shortName,
+      alternateContact?.notifyName,
+      alternateContact?.verifiedName,
+      alternateContact?.businessName,
       alternateContact?.pushName,
       chat?.contact?.name,
       chat?.contact?.formattedName,
@@ -1033,6 +1216,112 @@ export class WebwhatsBridgeService {
     return remoteJid;
   }
 
+  private buildArchiveLastMessagePayload(
+    remoteJid: string,
+    lastMessageRow:
+      | {
+          direction: string;
+          providerMessageId: string | null;
+          rawPayload: string | null;
+          timestamp: Date;
+        }
+      | null
+      | undefined,
+  ) {
+    const rawPayload = this.parseMetadata(lastMessageRow?.rawPayload);
+    const rawKeyId =
+      this.normalizeOptionalString(rawPayload?.key?.id) ||
+      this.extractRawProviderMessageId(lastMessageRow?.providerMessageId);
+    if (!rawKeyId) return null;
+    return {
+      key: {
+        remoteJid:
+          this.normalizeOptionalString(rawPayload?.key?.remoteJid) ||
+          remoteJid,
+        fromMe:
+          rawPayload?.key?.fromMe === undefined || rawPayload?.key?.fromMe === null
+            ? String(lastMessageRow?.direction || '').trim().toUpperCase() === 'OUTBOUND'
+            : Boolean(rawPayload?.key?.fromMe),
+        id: rawKeyId,
+      },
+      messageTimestamp: Math.floor(
+        (lastMessageRow?.timestamp instanceof Date
+          ? lastMessageRow.timestamp.getTime()
+          : Date.now()) / 1000,
+      ),
+    };
+  }
+
+  private extractRawProviderMessageId(value: unknown) {
+    const normalized = this.normalizeOptionalString(value);
+    if (!normalized) return null;
+    const match = normalized.match(/^webwhats:[^:]+:(.+)$/i);
+    return match?.[1] ? String(match[1]).trim() : normalized;
+  }
+
+  private async markConversationMessageDeleted(
+    companyId: number,
+    input: {
+      conversationId: number;
+      targetRawMessageId: string;
+      deletedAt: Date;
+      deletedBy: 'self' | 'contact';
+      rawPayload?: unknown;
+    },
+  ) {
+    const targetProviderMessageId = this.buildProviderMessageId(
+      this.buildTenantKey(companyId),
+      input.targetRawMessageId,
+    );
+    const existing = await this.prisma.companyMessage.findUnique({
+      where: { providerMessageId: targetProviderMessageId },
+      select: {
+        id: true,
+        body: true,
+        messageType: true,
+        rawPayload: true,
+        variablesJson: true,
+      },
+    });
+    if (!existing?.id) return false;
+
+    const variables = this.parseMetadata(existing.variablesJson);
+    const deletedAtIso = input.deletedAt.toISOString();
+    const revealUntil = new Date(input.deletedAt.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString();
+    const originalText =
+      this.normalizeOptionalString(variables.deletedOriginalText) ||
+      this.normalizeOptionalString(existing.body) ||
+      null;
+    const originalMessageType =
+      this.normalizeOptionalString(variables.deletedOriginalMessageType) ||
+      this.normalizeOptionalString(existing.messageType) ||
+      null;
+
+    await this.prisma.companyMessage.update({
+      where: { id: existing.id },
+      data: {
+        body: '[mensagem apagada]',
+        variablesJson: JSON.stringify({
+          ...variables,
+          isDeleted: true,
+          deletedAt: deletedAtIso,
+          deletedBy: input.deletedBy,
+          deletedRevealUntil: revealUntil,
+          deletedOriginalText: originalText,
+          deletedOriginalMessageType: originalMessageType,
+        }),
+        ...(existing.rawPayload
+          ? {}
+          : {
+              rawPayload: JSON.stringify(
+                input.rawPayload && typeof input.rawPayload === 'object' ? input.rawPayload : {},
+              ),
+            }),
+      },
+    });
+    return true;
+  }
+
   private async upsertConversationMessage(
     companyId: number,
     conversationId: number,
@@ -1040,9 +1329,29 @@ export class WebwhatsBridgeService {
     message: WebwhatsFetchedMessage,
     remoteJidAlt?: string | null,
   ) {
+    const protocolType = this.normalizeOptionalString(message?.message?.protocolMessage?.type)?.toUpperCase();
+    const revokedMessageId = this.normalizeOptionalString(message?.message?.protocolMessage?.key?.id);
+    const timestamp = this.resolveMessageDate(message?.messageTimestamp) || new Date();
+    if (protocolType === 'REVOKE' && revokedMessageId) {
+      await this.markConversationMessageDeleted(companyId, {
+        conversationId,
+        targetRawMessageId: revokedMessageId,
+        deletedAt: timestamp,
+        deletedBy: message?.key?.fromMe ? 'self' : 'contact',
+        rawPayload: message || {},
+      });
+      await this.prisma.companyConversation.update({
+        where: { id: conversationId },
+        data: {
+          lastMessageAt: timestamp,
+          lastInteractionAt: timestamp,
+        },
+      });
+      return;
+    }
+
     const keyId = this.normalizeOptionalString(message?.key?.id || message?.id);
     const rawProviderMessageId = keyId ? this.buildProviderMessageId(this.buildTenantKey(companyId), keyId) : null;
-    const timestamp = this.resolveMessageDate(message?.messageTimestamp) || new Date();
     const direction = message?.key?.fromMe ? 'OUTBOUND' : 'INBOUND';
     const messageType = this.normalizeMessageType(message);
     const body = this.extractMessageBody(message, messageType);
@@ -1130,6 +1439,8 @@ export class WebwhatsBridgeService {
       && persistedMessageId > 0
       && normalizedCustomerPhone
       && this.inboundRelay
+      && messageType !== 'reaction'
+      && messageType !== 'deleted'
     ) {
       try {
         await this.inboundRelay({
@@ -1230,7 +1541,12 @@ export class WebwhatsBridgeService {
 
   private normalizeMessageType(message: WebwhatsFetchedMessage) {
     const declared = String(message?.messageType || '').trim();
-    if (declared && declared !== 'conversation') return declared.toLowerCase();
+    if (declared && declared !== 'conversation') {
+      const lowered = declared.toLowerCase();
+      if (lowered.includes('reaction')) return 'reaction';
+      if (lowered.includes('protocol')) return 'deleted';
+      return lowered;
+    }
 
     const payload = message?.message || {};
     if (payload.extendedTextMessage) return 'text';
@@ -1239,6 +1555,8 @@ export class WebwhatsBridgeService {
     if (payload.documentMessage || payload.documentWithCaptionMessage) return 'document';
     if (payload.audioMessage) return 'audio';
     if (payload.stickerMessage) return 'sticker';
+    if (payload.reactionMessage) return 'reaction';
+    if (String(payload.protocolMessage?.type || '').trim().toUpperCase() === 'REVOKE') return 'deleted';
     if (payload.pollCreationMessage || payload.pollCreationMessageV3) return 'poll';
     return 'text';
   }
@@ -1248,6 +1566,11 @@ export class WebwhatsBridgeService {
     const conversation = this.normalizeOptionalString((payload as any).conversation);
     const extendedText = this.normalizeOptionalString((payload as any).extendedTextMessage?.text);
     if (conversation || extendedText) return conversation || extendedText || '';
+    const reactionText =
+      this.normalizeOptionalString((payload as any).reactionMessage?.text)
+      || this.normalizeOptionalString((payload as any).reactionMessage?.emoji);
+    if (reactionText) return reactionText;
+    if (normalizedType === 'deleted') return '[mensagem apagada]';
 
     if (normalizedType === 'image') {
       return (

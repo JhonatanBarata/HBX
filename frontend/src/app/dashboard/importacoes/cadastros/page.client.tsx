@@ -891,7 +891,7 @@ export default function CadastrosClientPage() {
                 <span className="badge">{customerHealthyCount} em dia</span>
                 <span className="badge">{customerDebtCount} com divida</span>
                 <button className="btn btn-secondary" type="button" onClick={syncCustomersFromMotor} disabled={syncingCustomers}>
-                  {syncingCustomers ? "Atualizando..." : "Atualizar do motor"}
+                  {syncingCustomers ? "Sincronizando..." : "Sincronizar com WhatsApp"}
                 </button>
               </div>
             </div>

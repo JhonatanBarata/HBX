@@ -108,7 +108,7 @@ test('syncCompanyCustomers reaproveita nome da conversa ao sincronizar contatos 
       syncRecentChats: async () => 8,
       listContacts: async () => [
         { remoteJid: '5511912345678@s.whatsapp.net', pushName: '' },
-        { remoteJid: '5511988877766@s.whatsapp.net', pushName: 'Novo Cliente' },
+        { remoteJid: '5511988877766@s.whatsapp.net', name: 'Novo Cliente' },
       ],
     },
     cadastrosService: {
@@ -130,6 +130,48 @@ test('syncCompanyCustomers reaproveita nome da conversa ao sincronizar contatos 
   assert.equal(upsertCalls[0].name, 'Carlos do WhatsApp');
   assert.equal(upsertCalls[1].name, 'Novo Cliente');
   assert.equal(typeof webwhatsBridge.listContacts, 'function');
+});
+
+test('syncCompanyCustomers corrige nome ruim salvo quando o WhatsApp traz um nome melhor', async () => {
+  const upsertCalls: Array<Record<string, unknown>> = [];
+  const { service } = createService({
+    operationalStatus: {
+      getOperationalStatusForCompany: async () => ({ metaActive: false, webWhatsActive: true }),
+    },
+    prisma: {
+      companyConversation: {
+        findMany: async () => [],
+      },
+    },
+    webwhatsBridge: {
+      syncRecentChats: async () => 2,
+      listContacts: async () => [
+        { remoteJid: '5519996015804@s.whatsapp.net', fullName: 'Glauco' },
+      ],
+    },
+    cadastrosService: {
+      listRawCustomerRegistry: async () => [
+        {
+          phoneNormalized: '5519996015804',
+          registrationOrigin: 'webwhats_sync',
+          registrationStatus: 'confirmed',
+          lastMessageAt: null,
+          conversationId: null,
+          name: '+5519996015804',
+        },
+      ],
+      upsertCustomerRegistry: async (input: Record<string, unknown>) => {
+        upsertCalls.push(input);
+        return { id: 'registry-fix-name' };
+      },
+    },
+  });
+
+  const result = await service.syncCompanyCustomers(7);
+
+  assert.equal(result.syncedContacts, 1);
+  assert.equal(upsertCalls.length, 1);
+  assert.equal(upsertCalls[0].name, 'Glauco');
 });
 
 test('syncCompanyCustomers falha quando nenhum motor WhatsApp esta ativo', async () => {

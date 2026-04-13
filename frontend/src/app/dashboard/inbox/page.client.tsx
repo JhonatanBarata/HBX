@@ -15,6 +15,7 @@ import {
   ChatAvatar,
   ChatEmptyState,
   ChatFieldNote,
+  ChatGlyph,
   ChatIconButton,
   ChatQueue,
   ChatQueueItem,
@@ -92,6 +93,15 @@ type InboxAttachmentPreview = {
   mimeType: string;
   size: number;
   fileName: string;
+};
+
+type OpenedInboxAsset = {
+  kind: "image" | "document";
+  src: string;
+  alt: string;
+  title?: string | null;
+  mimeType?: string | null;
+  fileName?: string | null;
 };
 
 type InboxAlertKind = "human_queue" | "new_message";
@@ -294,6 +304,20 @@ function isLikelyDocumentUrl(raw: string) {
   return /\.(pdf|doc|docx|xls|xlsx|csv|txt)$/.test(noQuery);
 }
 
+function canPreviewDocumentInOverlay(url: string, mimeType?: string | null, fileName?: string | null) {
+  const normalizedUrl = String(url || "").trim().toLowerCase();
+  const normalizedMime = String(mimeType || "").trim().toLowerCase();
+  const normalizedName = String(fileName || "").trim().toLowerCase();
+  return (
+    normalizedMime.includes("pdf") ||
+    normalizedMime.includes("xml") ||
+    normalizedMime.includes("text/") ||
+    normalizedMime.includes("json") ||
+    /\.(pdf|xml|txt|csv|json|html?)($|\?)/.test(normalizedUrl) ||
+    /\.(pdf|xml|txt|csv|json|html?)$/.test(normalizedName)
+  );
+}
+
 function toAbsoluteAssetUrl(raw: string) {
   const value = String(raw || "").trim();
   if (!value) return "";
@@ -329,6 +353,7 @@ function normalizeInboxMessageType(message?: InboxMessage | null) {
   const rawType = String(metadata?.normalizedMessageType || message?.messageType || "text")
     .trim()
     .toLowerCase();
+  if (rawType.includes("deleted")) return "deleted" as const;
   if (rawType.includes("image")) return "image" as const;
   if (rawType.includes("video") || rawType.includes("ptv")) return "video" as const;
   if (rawType.includes("document")) return "document" as const;
@@ -438,9 +463,31 @@ function getInboxGroupSenderColor(seed: string) {
 function parseInboxMessageMedia(message: InboxMessage, conversation?: InboxConversation | null) {
   const metadata = getInboxMessageMetadata(message);
   const normalizedType = normalizeInboxMessageType(message);
+  const isDeleted = Boolean(metadata?.isDeleted || normalizedType === "deleted");
   const rawContent = normalizePathologicalLineBreaks(String(message?.content || "")).trim();
   const quotedParts = splitInboxQuotedBlock(rawContent);
   let text = quotedParts.text;
+  if (isDeleted) {
+    return {
+      kind: "deleted",
+      imageUrl: null,
+      videoUrl: null,
+      audioUrl: null,
+      documentUrl: null,
+      fileName: null,
+      mimeType: null,
+      fileSize: null,
+      durationSeconds: null,
+      isVoiceNote: false,
+      quotedText: null,
+      senderName: null,
+      senderColor: null,
+      text: "Mensagem apagada",
+      isDeleted: true,
+      deletedOriginalText: String(metadata?.deletedOriginalText || "").trim() || null,
+      deletedRevealUntil: String(metadata?.deletedRevealUntil || "").trim() || null,
+    };
+  }
   const explicitMediaUrl = toAbsoluteAssetUrl(
     String(metadata?.mediaUrl || metadata?.previewUrl || "").trim(),
   );
@@ -494,7 +541,54 @@ function parseInboxMessageMedia(message: InboxMessage, conversation?: InboxConve
     senderName,
     senderColor: senderName ? getInboxGroupSenderColor(String(metadata?.senderPhone || senderName || message.id)) : null,
     text: text || (rawContent ? String(getMessagePreview(message) || "").trim() : String(getMessagePreview(message) || "").trim()),
+    isDeleted: false,
+    deletedOriginalText: null,
+    deletedRevealUntil: null,
   };
+}
+
+function getInboxMessageProviderKeyId(message?: InboxMessage | null) {
+  const metadata = getInboxMessageMetadata(message);
+  return String(metadata?.providerKeyId || "").trim() || null;
+}
+
+function getInboxMessageReactionTargetKeyId(message?: InboxMessage | null) {
+  const metadata = getInboxMessageMetadata(message);
+  return String(metadata?.reactionTargetKeyId || "").trim() || null;
+}
+
+function getInboxMessageReactionEmoji(message?: InboxMessage | null) {
+  const metadata = getInboxMessageMetadata(message);
+  return String(metadata?.reactionEmoji || message?.content || "").trim() || null;
+}
+
+function isInboxReactionMessage(message?: InboxMessage | null) {
+  return normalizeInboxMessageType(message) === "reaction";
+}
+
+function buildInboxReactionIndex(messages?: InboxMessage[] | null) {
+  const index = new Map<string, string[]>();
+  for (const message of Array.isArray(messages) ? messages : []) {
+    if (!isInboxReactionMessage(message)) continue;
+    const targetKey = getInboxMessageReactionTargetKeyId(message);
+    const emoji = getInboxMessageReactionEmoji(message);
+    if (!targetKey || !emoji) continue;
+    const current = index.get(targetKey) || [];
+    current.push(emoji);
+    index.set(targetKey, current);
+  }
+  return index;
+}
+
+function shouldHideInboxMessageFromTimeline(message?: InboxMessage | null) {
+  return isInboxReactionMessage(message) && Boolean(getInboxMessageReactionTargetKeyId(message));
+}
+
+function canRevealDeletedInboxMessage(message?: InboxMessage | null) {
+  const metadata = getInboxMessageMetadata(message);
+  if (!metadata?.deletedRevealUntil || !metadata?.deletedOriginalText) return false;
+  const revealUntil = new Date(String(metadata.deletedRevealUntil));
+  return !Number.isNaN(revealUntil.getTime()) && revealUntil.getTime() >= Date.now();
 }
 
 /** Renders WhatsApp-style inline formatting: *bold*, _italic_, ~strike~, `mono` */
@@ -1492,7 +1586,10 @@ export default function InboxClientPage() {
   const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
   const [replyingTo, setReplyingTo] = useState<InboxMessage | null>(null);
   const [imagePreview, setImagePreview] = useState<InboxAttachmentPreview | null>(null);
-  const [openedImage, setOpenedImage] = useState<{ src: string; alt: string } | null>(null);
+  const [openedAsset, setOpenedAsset] = useState<OpenedInboxAsset | null>(null);
+  const [queueActionConversationId, setQueueActionConversationId] = useState<string | null>(null);
+  const [messageReactionTargetId, setMessageReactionTargetId] = useState<string | null>(null);
+  const [revealedDeletedMessageIds, setRevealedDeletedMessageIds] = useState<Record<string, boolean>>({});
   const [agendaStudioOpen, setAgendaStudioOpen] = useState(false);
   const [automationStudioOpen, setAutomationStudioOpen] = useState(false);
   const [templatesStudioOpen, setTemplatesStudioOpen] = useState(false);
@@ -1534,6 +1631,8 @@ export default function InboxClientPage() {
   const chatTimelineRef = useRef<HTMLDivElement | null>(null);
   const chatComposerInputRef = useRef<HTMLTextAreaElement | null>(null);
   const emojiPickerRef = useRef<HTMLDivElement | null>(null);
+  const queueActionMenuRef = useRef<HTMLDivElement | null>(null);
+  const messageReactionPickerRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const conversationsRef = useRef<InboxConversation[]>([]);
   const selectedIdRef = useRef<string | null>(null);
@@ -1542,6 +1641,7 @@ export default function InboxClientPage() {
   const botConfigLoadedRef = useRef(false);
   const agendaConfigLoadedRef = useRef(false);
   const autoFilledAgendaDraftSignatureRef = useRef<string | null>(null);
+  const sendTextDirtyRef = useRef(false);
   const lastSectionChangeRef = useRef<{ section: AtendimentoSection | null; at: number }>({
     section: null,
     at: 0,
@@ -1561,11 +1661,11 @@ export default function InboxClientPage() {
   }, [emojiPickerOpen]);
 
   useEffect(() => {
-    if (!openedImage) return;
+    if (!openedAsset) return;
     const previousOverflow = document.body.style.overflow;
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
-        setOpenedImage(null);
+        setOpenedAsset(null);
       }
     };
     document.body.style.overflow = "hidden";
@@ -1574,7 +1674,26 @@ export default function InboxClientPage() {
       document.body.style.overflow = previousOverflow;
       document.removeEventListener("keydown", onKeyDown);
     };
-  }, [openedImage]);
+  }, [openedAsset]);
+
+  useEffect(() => {
+    const handle = (event: MouseEvent) => {
+      if (
+        queueActionMenuRef.current &&
+        !queueActionMenuRef.current.contains(event.target as Node)
+      ) {
+        setQueueActionConversationId(null);
+      }
+      if (
+        messageReactionPickerRef.current &&
+        !messageReactionPickerRef.current.contains(event.target as Node)
+      ) {
+        setMessageReactionTargetId(null);
+      }
+    };
+    document.addEventListener("mousedown", handle);
+    return () => document.removeEventListener("mousedown", handle);
+  }, []);
 
   useEffect(() => {
     if (skipAutomationAutoOpenRef.current) {
@@ -2191,6 +2310,17 @@ export default function InboxClientPage() {
     () => getInboxVendasAgendaDraft(conversationForView),
     [conversationForView],
   );
+  const conversationMessagesForView = useMemo(
+    () =>
+      (Array.isArray(conversationForView?.messages) ? conversationForView.messages : []).filter(
+        (message) => !shouldHideInboxMessageFromTimeline(message),
+      ),
+    [conversationForView],
+  );
+  const conversationReactionIndex = useMemo(
+    () => buildInboxReactionIndex(conversationForView?.messages),
+    [conversationForView],
+  );
   const selectedConversationHasRecoveryContext =
     hasRecoveryCapability && conversationForView
       ? hasAtendimentoRecoveryContext(conversationForView)
@@ -2664,27 +2794,38 @@ export default function InboxClientPage() {
     [draggedConversationId, moveConversationToQueue],
   );
 
-  const blockConversation = useCallback(async () => {
-    if (!selectedId) return;
+  const blockConversationById = useCallback(async (conversationId: string) => {
+    if (!conversationId) return;
+    const targetConversation =
+      conversationsRef.current.find((conversation) => conversation.id === conversationId) ||
+      (selectedConversationRef.current?.id === conversationId ? selectedConversationRef.current : null);
     const reason = window.prompt(
       "Motivo do bloqueio:",
-      selectedConversation?.blockedReason || "Bloqueado manualmente pelo operador.",
+      targetConversation?.blockedReason || "Bloqueado manualmente pelo operador.",
     );
     if (reason === null) return;
     setError(null);
     try {
-      const data = await apiFetch<InboxConversation>(`/inbox/conversations/${selectedId}/block`, {
+      const data = await apiFetch<InboxConversation>(`/inbox/conversations/${conversationId}/block`, {
         method: "PATCH",
         body: JSON.stringify({ reason }),
       });
-      setSelectedConversation(data);
+      if (selectedIdRef.current === conversationId) {
+        setSelectedConversation(data);
+      }
+      setQueueActionConversationId(null);
       setNotice({ tone: "success", text: "Contato bloqueado no Atendimento." });
       await loadConversations({ preferredId: data.id, silent: true });
     } catch (updateError) {
       const message = updateError instanceof Error ? updateError.message : "Falha ao bloquear contato.";
       setError(message);
     }
-  }, [loadConversations, selectedConversation?.blockedReason, selectedId]);
+  }, [loadConversations]);
+
+  const blockConversation = useCallback(async () => {
+    if (!selectedId) return;
+    await blockConversationById(selectedId);
+  }, [blockConversationById, selectedId]);
 
   const unblockConversation = useCallback(async () => {
     if (!selectedId) return;
@@ -2702,6 +2843,82 @@ export default function InboxClientPage() {
       setError(message);
     }
   }, [loadConversations, selectedId]);
+
+  const deleteConversationById = useCallback(
+    async (conversationId: string) => {
+      if (!conversationId) return;
+      const confirmed = window.confirm("Excluir esta conversa do sistema?");
+      if (!confirmed) return;
+      setError(null);
+      try {
+        await apiFetch(`/inbox/conversations/${conversationId}`, {
+          method: "DELETE",
+        });
+        setQueueActionConversationId(null);
+        if (selectedIdRef.current === conversationId) {
+          setSelectedConversation(null);
+          setSelectedId(null);
+        }
+        setNotice({ tone: "success", text: "Conversa excluida com sucesso." });
+        await loadConversations({
+          preferredId: selectedIdRef.current === conversationId ? null : selectedIdRef.current,
+          silent: true,
+        });
+      } catch (deleteError) {
+        const message = deleteError instanceof Error ? deleteError.message : "Falha ao excluir conversa.";
+        setError(message);
+      }
+    },
+    [loadConversations],
+  );
+
+  const reactToMessage = useCallback(
+    async (messageId: string, reaction: string) => {
+      if (!selectedId || !messageId || !reaction) return;
+      setError(null);
+      try {
+        const data = await apiFetch<InboxConversation>(
+          `/inbox/conversations/${selectedId}/messages/${messageId}/reaction`,
+          {
+            method: "POST",
+            body: JSON.stringify({ reaction }),
+          },
+        );
+        setSelectedConversation(data);
+        setMessageReactionTargetId(null);
+        await loadConversations({ preferredId: data.id, silent: true });
+      } catch (reactionError) {
+        const message = reactionError instanceof Error ? reactionError.message : "Falha ao reagir à mensagem.";
+        setError(message);
+      }
+    },
+    [loadConversations, selectedId],
+  );
+
+  const deleteSentMessage = useCallback(
+    async (messageId: string) => {
+      if (!selectedId || !messageId) return;
+      const confirmed = window.confirm("Apagar esta mensagem para todos?");
+      if (!confirmed) return;
+      setError(null);
+      try {
+        const data = await apiFetch<InboxConversation>(
+          `/inbox/conversations/${selectedId}/messages/${messageId}`,
+          {
+            method: "DELETE",
+          },
+        );
+        setSelectedConversation(data);
+        setMessageReactionTargetId(null);
+        setNotice({ tone: "success", text: "Mensagem apagada para todos." });
+        await loadConversations({ preferredId: data.id, silent: true });
+      } catch (deleteError) {
+        const message = deleteError instanceof Error ? deleteError.message : "Falha ao apagar mensagem.";
+        setError(message);
+      }
+    },
+    [loadConversations, selectedId],
+  );
 
   const sendMessage = useCallback(
     async (event: FormEvent<HTMLFormElement>) => {
@@ -2763,6 +2980,7 @@ export default function InboxClientPage() {
           setImagePreview(null);
         }
         setSendText("");
+        sendTextDirtyRef.current = false;
         setReplyingTo(null);
         setSelectedConversation(data);
         setNotice({ tone: "success", text: "Mensagem manual enfileirada com sucesso." });
@@ -2880,9 +3098,57 @@ export default function InboxClientPage() {
                     title={displayName}
                     subtitle={subtitleLabel}
                     preview={previewLabel}
-                    meta={activityAtLabel}
+                    meta={
+                      <div className={styles.conversationQueueMetaStack}>
+                        <span className={styles.conversationQueueMetaTime}>{activityAtLabel}</span>
+                        <div
+                          className={styles.conversationQueueMetaMenuWrap}
+                          ref={queueActionConversationId === conversation.id ? queueActionMenuRef : null}
+                        >
+                          <button
+                            type="button"
+                            className={styles.conversationQueueMetaButton}
+                            aria-label="Abrir ações da conversa"
+                            title="Ações da conversa"
+                            onMouseDown={(event) => event.preventDefault()}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              setQueueActionConversationId((current) =>
+                                current === conversation.id ? null : conversation.id,
+                              );
+                            }}
+                          >
+                            <ChatGlyph name="gear" />
+                          </button>
+                          {queueActionConversationId === conversation.id ? (
+                            <div
+                              className={styles.conversationQueueMetaPopup}
+                              onClick={(event) => event.stopPropagation()}
+                            >
+                              <button
+                                type="button"
+                                className={styles.conversationQueueMetaPopupAction}
+                                onClick={() => void blockConversationById(conversation.id)}
+                              >
+                                Bloquear
+                              </button>
+                              <button
+                                type="button"
+                                className={`${styles.conversationQueueMetaPopupAction} ${styles.conversationQueueMetaPopupActionDanger}`}
+                                onClick={() => void deleteConversationById(conversation.id)}
+                              >
+                                Excluir
+                              </button>
+                            </div>
+                          ) : null}
+                        </div>
+                      </div>
+                    }
                     className={[
                       styles.conversationQueueItem,
+                      (conversation.isBlocked || isInboxConversationArchived(conversation))
+                        ? styles.conversationQueueItemMuted
+                        : "",
                       unreadCount > 0 && !active ? styles.conversationQueueItemUnread : "",
                     ]
                       .filter(Boolean)
@@ -2962,14 +3228,14 @@ export default function InboxClientPage() {
               <div ref={chatTimelineRef} className={styles.whatsAppTimeline}>
                 {loadingConversation || isInboxConversationSummaryOnly(conversationForView) ? (
                   <ChatEmptyState title="Carregando conversa">Preparando historico do cliente.</ChatEmptyState>
-                ) : conversationForView.messages.length === 0 ? (
+                ) : conversationMessagesForView.length === 0 ? (
                   <ChatEmptyState title="Sem mensagens">Esta conversa ainda nao tem historico registrado.</ChatEmptyState>
                 ) : (
-                  conversationForView.messages.map((message, index) => {
+                  conversationMessagesForView.map((message, index) => {
                     const tone = mapInboxBubbleTone(message);
                     const rendered = parseInboxMessageMedia(message, conversationForView);
                     const previousMessage =
-                      index > 0 ? conversationForView.messages[index - 1] : null;
+                      index > 0 ? conversationMessagesForView[index - 1] : null;
                     const showDayDivider = !previousMessage
                       || !isInboxSameCalendarDay(previousMessage.createdAt, message.createdAt);
                     const isOutbound = tone === "human" || tone === "outbound";
@@ -2978,6 +3244,23 @@ export default function InboxClientPage() {
                       && tone !== "system"
                       && isInboxGroupRemoteJid(extractInboxRawContact(conversationForView))
                       && Boolean(rendered.senderName);
+                    const reactionKey = getInboxMessageProviderKeyId(message);
+                    const reactionEmojis = reactionKey
+                      ? conversationReactionIndex.get(reactionKey) || []
+                      : [];
+                    const canDeleteMessage =
+                      isOutbound &&
+                      !rendered.isDeleted &&
+                      Boolean(reactionKey);
+                    const canRevealDeleted = rendered.isDeleted && canRevealDeletedInboxMessage(message);
+                    const isDeletedRevealed = Boolean(revealedDeletedMessageIds[message.id]);
+                    const canPreviewDocument =
+                      Boolean(rendered.documentUrl) &&
+                      canPreviewDocumentInOverlay(
+                        rendered.documentUrl || "",
+                        rendered.mimeType,
+                        rendered.fileName,
+                      );
                     return (
                       <div key={message.id} className={styles.whatsAppMessageBlock}>
                         {showDayDivider ? (
@@ -2994,19 +3277,51 @@ export default function InboxClientPage() {
                                 : styles.whatsAppMessageRowInbound
                           }`}
                         >
-                          {tone !== "system" && isOutbound ? (
-                            <button
-                              type="button"
-                              className={`${styles.whatsAppReplyButtonHover} ${styles.whatsAppReplyButtonOutbound}`}
-                              title="Responder"
-                              onMouseDown={(e) => e.preventDefault()}
-                              onClick={() => {
-                                setReplyingTo(message);
-                                chatComposerInputRef.current?.focus();
-                              }}
+                          {tone !== "system" ? (
+                            <div
+                              className={`${styles.whatsAppHoverActionRail} ${
+                                isOutbound
+                                  ? styles.whatsAppHoverActionRailOutbound
+                                  : styles.whatsAppHoverActionRailInbound
+                              }`}
                             >
-                              ↩
-                            </button>
+                              <button
+                                type="button"
+                                className={styles.whatsAppReplyButtonHover}
+                                title="Responder"
+                                onMouseDown={(e) => e.preventDefault()}
+                                onClick={() => {
+                                  setReplyingTo(message);
+                                  chatComposerInputRef.current?.focus();
+                                }}
+                              >
+                                ↩
+                              </button>
+                              <button
+                                type="button"
+                                className={styles.whatsAppReplyButtonHover}
+                                title="Reagir"
+                                onMouseDown={(e) => e.preventDefault()}
+                                onClick={() =>
+                                  setMessageReactionTargetId((current) =>
+                                    current === message.id ? null : message.id,
+                                  )
+                                }
+                              >
+                                <ChatGlyph name="smile" />
+                              </button>
+                              {canDeleteMessage ? (
+                                <button
+                                  type="button"
+                                  className={styles.whatsAppReplyButtonHover}
+                                  title="Apagar para todos"
+                                  onMouseDown={(e) => e.preventDefault()}
+                                  onClick={() => void deleteSentMessage(message.id)}
+                                >
+                                  <ChatGlyph name="trash" />
+                                </button>
+                              ) : null}
+                            </div>
                           ) : null}
                           <div className={styles.whatsAppBubbleWrap}>
                             <div
@@ -3017,7 +3332,9 @@ export default function InboxClientPage() {
                                     ? styles.whatsAppBubbleSystem
                                     : styles.whatsAppBubbleInbound
                               } ${rendered.imageUrl ? styles.whatsAppBubbleWithMedia : ""} ${
-                                rendered.kind !== "text" ? styles.whatsAppBubbleWithAttachment : ""
+                                ["image", "video", "document", "audio"].includes(String(rendered.kind || ""))
+                                  ? styles.whatsAppBubbleWithAttachment
+                                  : ""
                               }`}
                             >
                               {rendered.quotedText ? (
@@ -3042,7 +3359,8 @@ export default function InboxClientPage() {
                                   className={styles.whatsAppBubbleImageButton}
                                   onMouseDown={(e) => e.preventDefault()}
                                   onClick={() =>
-                                    setOpenedImage({
+                                    setOpenedAsset({
+                                      kind: "image",
                                       src: rendered.imageUrl || "",
                                       alt: "Imagem da conversa",
                                     })
@@ -3065,11 +3383,24 @@ export default function InboxClientPage() {
                               ) : null}
                               {rendered.documentUrl || rendered.kind === "document" ? (
                                 rendered.documentUrl ? (
-                                  <a
-                                    href={rendered.documentUrl}
-                                    target="_blank"
-                                    rel="noreferrer"
+                                  <button
+                                    type="button"
                                     className={styles.whatsAppDocumentCard}
+                                    onMouseDown={(e) => e.preventDefault()}
+                                    onClick={() => {
+                                      if (canPreviewDocument) {
+                                        setOpenedAsset({
+                                          kind: "document",
+                                          src: rendered.documentUrl || "",
+                                          alt: rendered.fileName || "Documento",
+                                          title: rendered.fileName || "Documento",
+                                          mimeType: rendered.mimeType,
+                                          fileName: rendered.fileName,
+                                        });
+                                        return;
+                                      }
+                                      window.open(rendered.documentUrl || "", "_blank", "noopener,noreferrer");
+                                    }}
                                   >
                                     <span className={styles.whatsAppDocumentIcon}>DOC</span>
                                     <span className={styles.whatsAppDocumentBody}>
@@ -3080,7 +3411,7 @@ export default function InboxClientPage() {
                                           .join(" • ") || "Abrir documento"}
                                       </span>
                                     </span>
-                                  </a>
+                                  </button>
                                 ) : (
                                   <div className={styles.whatsAppDocumentCard}>
                                     <span className={styles.whatsAppDocumentIcon}>DOC</span>
@@ -3103,7 +3434,7 @@ export default function InboxClientPage() {
                                   <div className={styles.whatsAppAudioBody}>
                                     {rendered.audioUrl ? (
                                       <audio className={styles.whatsAppAudioPlayer} controls preload="metadata">
-                                        <source src={rendered.audioUrl} />
+                                        <source src={rendered.audioUrl} type={rendered.mimeType || undefined} />
                                       </audio>
                                     ) : (
                                       <div className={styles.whatsAppAudioWavePlaceholder} />
@@ -3118,6 +3449,23 @@ export default function InboxClientPage() {
                               {rendered.text ? (
                                 <p className={styles.whatsAppBubbleText}>{formatWhatsAppText(rendered.text)}</p>
                               ) : null}
+                              {rendered.isDeleted && canRevealDeleted ? (
+                                <button
+                                  type="button"
+                                  className={styles.whatsAppDeletedRevealButton}
+                                  onMouseDown={(e) => e.preventDefault()}
+                                  onClick={() =>
+                                    setRevealedDeletedMessageIds((current) => ({
+                                      ...current,
+                                      [message.id]: !current[message.id],
+                                    }))
+                                  }
+                                >
+                                  {isDeletedRevealed && rendered.deletedOriginalText
+                                    ? formatWhatsAppText(rendered.deletedOriginalText)
+                                    : "Toque para revelar por 7 dias"}
+                                </button>
+                              ) : null}
                               <span
                                 className={`${styles.whatsAppBubbleMeta} ${
                                   rendered.imageUrl ? styles.whatsAppBubbleMetaOnMedia : ""
@@ -3129,21 +3477,42 @@ export default function InboxClientPage() {
                                 ) : null}
                               </span>
                             </div>
+                            {reactionEmojis.length ? (
+                              <div className={styles.whatsAppReactionChipRow}>
+                                {Array.from(new Set(reactionEmojis)).map((emoji) => {
+                                  const count = reactionEmojis.filter((item) => item === emoji).length;
+                                  return (
+                                    <span key={`${message.id}:${emoji}`} className={styles.whatsAppReactionChip}>
+                                      <span>{emoji}</span>
+                                      {count > 1 ? <strong>{count}</strong> : null}
+                                    </span>
+                                  );
+                                })}
+                              </div>
+                            ) : null}
+                            {messageReactionTargetId === message.id ? (
+                              <div
+                                ref={messageReactionPickerRef}
+                                className={`${styles.whatsAppReactionPickerBubble} ${
+                                  isOutbound
+                                    ? styles.whatsAppReactionPickerBubbleOutbound
+                                    : styles.whatsAppReactionPickerBubbleInbound
+                                }`}
+                              >
+                                {["👍", "❤️", "😂", "🙏", "😮", "😢"].map((emoji) => (
+                                  <button
+                                    key={`${message.id}:${emoji}`}
+                                    type="button"
+                                    className={styles.whatsAppReactionPickerItem}
+                                    onMouseDown={(e) => e.preventDefault()}
+                                    onClick={() => void reactToMessage(message.id, emoji)}
+                                  >
+                                    {emoji}
+                                  </button>
+                                ))}
+                              </div>
+                            ) : null}
                           </div>
-                          {tone !== "system" && !isOutbound ? (
-                            <button
-                              type="button"
-                              className={`${styles.whatsAppReplyButtonHover} ${styles.whatsAppReplyButtonInbound}`}
-                              title="Responder"
-                              onMouseDown={(e) => e.preventDefault()}
-                              onClick={() => {
-                                setReplyingTo(message);
-                                chatComposerInputRef.current?.focus();
-                              }}
-                            >
-                              ↩
-                            </button>
-                          ) : null}
                         </div>
                       </div>
                     );
@@ -3226,6 +3595,7 @@ export default function InboxClientPage() {
                             onClick={() => {
                               const textarea = chatComposerInputRef.current;
                               if (!textarea) {
+                                sendTextDirtyRef.current = true;
                                 setSendText((prev) => prev + emoji);
                                 setEmojiPickerOpen(false);
                                 return;
@@ -3233,6 +3603,7 @@ export default function InboxClientPage() {
                               const start = textarea.selectionStart ?? textarea.value.length;
                               const end = textarea.selectionEnd ?? textarea.value.length;
                               const next = textarea.value.substring(0, start) + emoji + textarea.value.substring(end);
+                              sendTextDirtyRef.current = true;
                               setSendText(next);
                               setEmojiPickerOpen(false);
                               window.requestAnimationFrame(() => {
@@ -3279,7 +3650,10 @@ export default function InboxClientPage() {
                     className={`field ${styles.whatsAppComposerInput}`}
                     rows={1}
                     value={sendText}
-                    onChange={(event) => setSendText(event.target.value)}
+                    onChange={(event) => {
+                      sendTextDirtyRef.current = true;
+                      setSendText(event.target.value);
+                    }}
                     onPointerDown={(event) => {
                       event.stopPropagation();
                       chatComposerInputRef.current?.focus();
@@ -3319,29 +3693,65 @@ export default function InboxClientPage() {
                 ) : null}
               </form>
 
-              {openedImage ? (
+              {openedAsset ? (
                 <div
                   className={styles.whatsAppImageLightbox}
                   role="dialog"
                   aria-modal="true"
-                  aria-label="Visualizador de imagem"
-                  onClick={() => setOpenedImage(null)}
+                  aria-label={
+                    openedAsset.kind === "document"
+                      ? "Visualizador de documento"
+                      : "Visualizador de imagem"
+                  }
+                  onClick={() => setOpenedAsset(null)}
                 >
                   <button
                     type="button"
                     className={styles.whatsAppImageLightboxClose}
                     onMouseDown={(e) => e.preventDefault()}
-                    onClick={() => setOpenedImage(null)}
-                    aria-label="Fechar imagem"
+                    onClick={() => setOpenedAsset(null)}
+                    aria-label="Fechar visualizador"
                   >
                     ✕
                   </button>
-                  <img
-                    src={openedImage.src}
-                    alt={openedImage.alt}
-                    className={styles.whatsAppImageLightboxImage}
+                  <div
+                    className={
+                      openedAsset.kind === "document"
+                        ? styles.whatsAppDocumentLightboxCard
+                        : styles.whatsAppImageLightboxCard
+                    }
                     onClick={(e) => e.stopPropagation()}
-                  />
+                  >
+                    {openedAsset.kind === "document" ? (
+                      <>
+                        <div className={styles.whatsAppDocumentLightboxHeader}>
+                          <div className={styles.whatsAppDocumentLightboxTitle}>
+                            <strong>{openedAsset.title || openedAsset.fileName || "Documento"}</strong>
+                            {openedAsset.mimeType ? <span>{openedAsset.mimeType}</span> : null}
+                          </div>
+                          <a
+                            href={openedAsset.src}
+                            target="_blank"
+                            rel="noreferrer"
+                            className={`btn btn-secondary btn-sm ${styles.whatsAppDocumentLightboxLink}`}
+                          >
+                            Abrir em nova guia
+                          </a>
+                        </div>
+                        <iframe
+                          src={openedAsset.src}
+                          title={openedAsset.title || openedAsset.fileName || "Documento"}
+                          className={styles.whatsAppDocumentLightboxFrame}
+                        />
+                      </>
+                    ) : (
+                      <img
+                        src={openedAsset.src}
+                        alt={openedAsset.alt}
+                        className={styles.whatsAppImageLightboxImage}
+                      />
+                    )}
+                  </div>
                 </div>
               ) : null}
             </section>
@@ -3610,17 +4020,24 @@ export default function InboxClientPage() {
       inboxQueue,
       inboxQueueDiagnostics,
       isConversationStageSwitching,
+      deleteConversationById,
+      deleteSentMessage,
       loadConversation,
       loadingConversation,
       loadingList,
       mounted,
-      openedImage,
+      openedAsset,
+      queueActionConversationId,
       queueCounts,
+      reactToMessage,
       retryConversationDetail,
       retryConversationList,
+      revealedDeletedMessageIds,
       selectedBlocked,
       selectedConversation,
       conversationForView,
+      conversationMessagesForView,
+      conversationReactionIndex,
       selectedConversationDisplayName,
       selectedConversationHasRecoveryContext,
       selectedConversationIsAgenda,
@@ -3639,10 +4056,13 @@ export default function InboxClientPage() {
       savingBot,
       emojiPickerOpen,
       setEmojiPickerOpen,
+      setOpenedAsset,
       replyingTo,
       setReplyingTo,
       imagePreview,
       setImagePreview,
+      messageReactionTargetId,
+      blockConversationById,
       unblockConversation,
       updateStatus,
     ],
@@ -3953,9 +4373,12 @@ export default function InboxClientPage() {
       if (prev) URL.revokeObjectURL(prev.url);
       return null;
     });
-    setOpenedImage(null);
+    setOpenedAsset(null);
     setSendText("");
+    sendTextDirtyRef.current = false;
     autoFilledAgendaDraftSignatureRef.current = null;
+    setQueueActionConversationId(null);
+    setMessageReactionTargetId(null);
   }, [selectedId]);
 
   useEffect(() => {
@@ -3969,6 +4392,7 @@ export default function InboxClientPage() {
     if (autoFilledAgendaDraftSignatureRef.current === signature) return;
     autoFilledAgendaDraftSignatureRef.current = signature;
     if (!draft) return;
+    if (sendTextDirtyRef.current) return;
 
     setSendText((current) => (current.trim() ? current : draft.text));
   }, [selectedConversation, selectedId]);
