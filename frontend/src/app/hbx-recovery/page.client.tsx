@@ -8832,12 +8832,17 @@ export default function HbxRecoveryClientPage({ embedded = false }: HbxRecoveryC
             className={styles.workspaceDockShell}
             toolbarSlot={
               <ConversationQueueFilterBar
-                value={interactionsQueue}
-                onChange={(value) => {
+                value={interactionsQueue as any}
+                onChange={(value: any) => {
                   if (value === "all" || value === "blocked" || value === "closed") {
                     setInteractionsQueue(value);
                   }
                 }}
+                counts={{ all: 0, archived: 0, groups: 0, recovery: 0, scheduled: 0, bot: 0 }}
+                dropOverQueue={null}
+                onQueueDragOver={() => {}}
+                onQueueDragLeave={() => {}}
+                onQueueDrop={() => {}}
               />
             }
           />
