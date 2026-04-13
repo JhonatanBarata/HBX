@@ -2444,6 +2444,28 @@ export default function InboxClientPage() {
     });
   }, [selectedConversation, selectedId, updateStatus]);
 
+  const bulkSetBotForVisible = useCallback(
+    async (enabled: boolean) => {
+      if (!filteredConversations || !filteredConversations.length) return;
+      setSavingBot(true);
+      setError(null);
+      try {
+        const ids = filteredConversations.map((c) => Number(c.id)).filter(Boolean);
+        await apiFetch(`/inbox/conversations/bulk-bot`, {
+          method: "PATCH",
+          body: JSON.stringify({ ids, enabled }),
+        });
+        setNotice({ tone: "success", text: enabled ? "BOT ativado para conversas visíveis." : "BOT pausado para conversas visíveis." });
+        await loadConversations({ silent: true });
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Falha ao atualizar conversas.");
+      } finally {
+        setSavingBot(false);
+      }
+    },
+    [filteredConversations, loadConversations],
+  );
+
   const blockConversation = useCallback(async () => {
     if (!selectedId) return;
     const reason = window.prompt(
@@ -2586,6 +2608,24 @@ export default function InboxClientPage() {
                 }
               >
                 BOT
+              </button>
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                onClick={() => void bulkSetBotForVisible(true)}
+                disabled={!filteredConversations.length || savingBot}
+                title="Ativar respostas automaticas do BOT para todas conversas visíveis"
+              >
+                Ativar todos
+              </button>
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                onClick={() => void bulkSetBotForVisible(false)}
+                disabled={!filteredConversations.length || savingBot}
+                title="Pausar respostas automaticas do BOT para todas conversas visíveis"
+              >
+                Pausar todos
               </button>
               <button
                 type="button"
