@@ -15,7 +15,7 @@ const PLACES_TEXT_SEARCH_URL = 'https://maps.googleapis.com/maps/api/place/texts
 const PLACES_DETAILS_URL = 'https://maps.googleapis.com/maps/api/place/details/json';
 const MAX_QUANTITY = 20;
 const GLOBAL_CACHE_TTL_HOURS = 24;
-const TRIAL_DAILY_MOTOR_LIMIT = 3;
+const TRIAL_DAILY_MOTOR_LIMIT = 2;
 
 type RuntimeStatus = 'online' | 'degraded';
 type SearchSource = 'history' | 'google' | 'hybrid' | 'global_cache';

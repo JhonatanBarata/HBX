@@ -154,7 +154,7 @@ export function ChatDockPanel({
   bodyClassName,
 }: {
   eyebrow?: string;
-  title: ReactNode;
+  title?: ReactNode;
   description?: ReactNode;
   count?: ReactNode;
   actions?: ReactNode;
@@ -162,14 +162,24 @@ export function ChatDockPanel({
   className?: string;
   bodyClassName?: string;
 }) {
+  const hasHeaderCopy =
+    eyebrow !== undefined &&
+    eyebrow !== null
+      ? true
+      : title !== undefined && title !== null && title !== ""
+        ? true
+        : description !== undefined && description !== null && description !== "";
+
   return (
     <div className={cx(styles.panel, className)}>
       <div className={styles.panelHeader}>
-        <div className={styles.panelTitle}>
-          {eyebrow ? <span className={styles.eyebrow}>{eyebrow}</span> : null}
-          <strong>{title}</strong>
-          {description ? <p>{description}</p> : null}
-        </div>
+        {hasHeaderCopy ? (
+          <div className={styles.panelTitle}>
+            {eyebrow ? <span className={styles.eyebrow}>{eyebrow}</span> : null}
+            {title !== undefined && title !== null && title !== "" ? <strong>{title}</strong> : null}
+            {description ? <p>{description}</p> : null}
+          </div>
+        ) : null}
         <div className={styles.panelAside}>
           {actions}
           {count !== undefined ? <span className={styles.counter}>{count}</span> : null}

@@ -2404,7 +2404,8 @@ pre {
 }
 
 .app-container--workspace {
-  width: min(1680px, calc(100vw - (var(--content-gutter) * 2)));
+  width: calc(100vw - (var(--content-gutter) * 2));
+  max-width: none;
   padding-left: max(10px, calc(var(--content-gutter) - 6px));
   padding-right: max(10px, calc(var(--content-gutter) - 6px));
 }

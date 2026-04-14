@@ -219,7 +219,7 @@
   text-transform: uppercase;
 }
 
-:global(html[data-theme="tailadmin"]) .moduleCardActive,
+.moduleCardActive,
 :global(html[data-theme="tabler"]) .moduleCardActive {
   border-color: color-mix(in srgb, var(--brand) 30%, var(--line));
 }
@@ -228,10 +228,10 @@
   box-shadow: var(--shadow-inset), var(--shadow-md);
 }
 
-:global(html[data-theme="flowbite"]) .moduleCard,
-:global(html[data-theme="flowbite"]) .moduleCardActive,
-:global(html[data-theme="flowbite"]) .moduleCardDisabled,
-:global(html[data-theme="flowbite"]) .moduleCardDisabledActive,
+.moduleCard,
+.moduleCardActive,
+.moduleCardDisabled,
+.moduleCardDisabledActive,
 :global(html[data-theme="tabler"]) .moduleCard,
 :global(html[data-theme="tabler"]) .moduleCardActive,
 :global(html[data-theme="tabler"]) .moduleCardDisabled,
@@ -239,30 +239,30 @@
   border-radius: calc(var(--control-radius) + 1px);
 }
 
-:global(html[data-theme="flowbite"]) .moduleCard,
-:global(html[data-theme="flowbite"]) .moduleCardActive,
-:global(html[data-theme="flowbite"]) .moduleCardDisabled,
-:global(html[data-theme="flowbite"]) .moduleCardDisabledActive {
+.moduleCard,
+.moduleCardActive,
+.moduleCardDisabled,
+.moduleCardDisabledActive {
   box-shadow: none;
 }
 
-:global(html[data-theme="flowbite"]) .moduleCardArrow,
+.moduleCardArrow,
 :global(html[data-theme="tabler"]) .moduleCardArrow {
   border-radius: calc(var(--control-radius) - 2px);
 }
 
-:global(html[data-theme="flowbite"]) .moduleNavWrap {
+.moduleNavWrap {
   grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
 }
 
-:global(html[data-theme="flowbite"]) .moduleCard,
-:global(html[data-theme="flowbite"]) .moduleCardActive,
-:global(html[data-theme="flowbite"]) .moduleCardDisabled,
-:global(html[data-theme="flowbite"]) .moduleCardDisabledActive {
+.moduleCard,
+.moduleCardActive,
+.moduleCardDisabled,
+.moduleCardDisabledActive {
   grid-template-columns: auto minmax(0, 1fr);
 }
 
-:global(html[data-theme="flowbite"]) .moduleCardArrow {
+.moduleCardArrow {
   display: none;
 }
 
@@ -282,8 +282,7 @@
 }
 
 @media (max-width: 640px) {
-  .navSectionGrid,
-  :global(html[data-theme="flowbite"]) .navSectionGrid {
+  .navSectionGrid {
     grid-template-columns: 1fr;
   }
 

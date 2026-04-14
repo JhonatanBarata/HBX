@@ -11,6 +11,8 @@ const THEME_MODE_OPTIONS = [
   { id: "dark", label: "Escuro" },
 ] as const;
 
+const THEME_COUNT_LABEL = `${HBX_THEME_IDS.length} temas HBX`;
+
 export default function ThemeSwitcher() {
   const rootRef = React.useRef<HTMLDivElement | null>(null);
   const [open, setOpen] = React.useState(false);
@@ -72,7 +74,7 @@ export default function ThemeSwitcher() {
         <div className="theme-switcher__panel" role="dialog" aria-label="Selecionar tema visual">
           <div className="theme-switcher__panelHeader">
             <div>
-              <p className="theme-switcher__eyebrow">5 temas HBX</p>
+              <p className="theme-switcher__eyebrow">{THEME_COUNT_LABEL}</p>
               <strong className="theme-switcher__title">Escolha a experiência visual</strong>
             </div>
             <div className="theme-switcher__modeRow">

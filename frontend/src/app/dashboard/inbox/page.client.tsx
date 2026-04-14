@@ -2,13 +2,16 @@
 
 import {
   useCallback,
+  useDeferredValue,
   useEffect,
   useMemo,
   useRef,
   useState,
+  type MouseEvent as ReactMouseEvent,
   type FormEvent,
   type CSSProperties,
 } from "react";
+import { createPortal } from "react-dom";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   ChatActionGrid,
@@ -78,6 +81,7 @@ import styles from "./page.module.css";
 type InboxTab = "messages" | "automation";
 type InboxQueue = "all" | "groups" | "recovery" | "scheduled" | "bot" | "archived";
 type ContextTab = "conversa" | "financeiro" | "agenda";
+type QueueActionMenuPosition = { top: number; left: number };
 type AtendimentoSection = "conversa" | "financeiro" | "agenda" | "automacao";
 type StatusFilter = "all" | "new" | "open" | "closed" | "blocked";
 
@@ -213,13 +217,6 @@ const CONTEXT_TAB_ITEMS: Array<{ id: ContextTab; label: string }> = [
   { id: "agenda", label: "Agenda" },
 ];
 
-const ATENDIMENTO_SECTION_ITEMS: Array<{ id: AtendimentoSection; label: string }> = [
-  { id: "conversa", label: "Conversa" },
-  { id: "financeiro", label: "Financeiro" },
-  { id: "agenda", label: "Agenda" },
-  { id: "automacao", label: "Automacao" },
-];
-
 function normalizeInboxTab(value: string | null | undefined): InboxTab | null {
   const normalized = String(value || "").trim().toLowerCase();
   if (normalized === "messages") {
@@ -261,6 +258,62 @@ const ACTION_KIND_LABELS: Record<AtendimentoBotActionGuide["kind"], string> = {
   show_menu: "Mostrar menu",
   agenda: "Agenda",
 };
+
+type DockGlyph = "note" | "wallet" | "clock" | "gear" | "spark" | "user";
+
+function joinClassNames(...values: Array<string | false | null | undefined>) {
+  return values.filter(Boolean).join(" ");
+}
+
+function SearchIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <circle cx="11" cy="11" r="6.5" />
+      <path d="M16.2 16.2 20 20" />
+    </svg>
+  );
+}
+
+function DockButton({
+  icon,
+  label,
+  active,
+  badge,
+  onClick,
+}: {
+  icon: DockGlyph;
+  label: string;
+  active?: boolean;
+  badge?: number | string | null;
+  onClick: () => void;
+}) {
+  const hasBadge = badge !== null && badge !== undefined && badge !== "" && badge !== 0;
+
+  return (
+    <button
+      type="button"
+      className={styles.commandDockButton}
+      data-active={active ? "true" : "false"}
+      onClick={onClick}
+      aria-label={label}
+      title={label}
+    >
+      <span className={styles.commandDockIcon}>
+        <ChatGlyph name={icon} />
+      </span>
+      {hasBadge ? <span className={styles.commandDockBadge}>{badge}</span> : null}
+    </button>
+  );
+}
 
 function makeClientId(prefix: string) {
   return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
@@ -1159,14 +1212,7 @@ function getInboxConversationSubtitle(conversation?: InboxConversation | null) {
   if (isInboxGroupRemoteJid(rawContact)) {
     return "Grupo";
   }
-  const displayName = resolveInboxConversationDisplayName(conversation);
-  const formattedPhone = getInboxConversationDisplayPhone(conversation);
-
-  if (!formattedPhone || isInboxDisplayNameEquivalentToPhone(displayName, formattedPhone)) {
-    return undefined;
-  }
-
-  return formattedPhone;
+  return undefined;
 }
 
 function parseTemplateButtonLines(value: string) {
@@ -1563,6 +1609,7 @@ export default function InboxClientPage() {
   const [mounted, setMounted] = useState(false);
   const [activeTab, setActiveTab] = useState<InboxTab>(requestedTab);
   const [inboxQueue, setInboxQueue] = useState<InboxQueue>("all");
+  const [conversationSearch, setConversationSearch] = useState("");
   const [manualQueueOverrides, setManualQueueOverrides] = useState<Record<string, InboxQueue>>({});
   const [draggedConversationId, setDraggedConversationId] = useState<string | null>(null);
   const [dropOverQueue, setDropOverQueue] = useState<InboxQueue | null>(null);
@@ -1588,6 +1635,7 @@ export default function InboxClientPage() {
   const [imagePreview, setImagePreview] = useState<InboxAttachmentPreview | null>(null);
   const [openedAsset, setOpenedAsset] = useState<OpenedInboxAsset | null>(null);
   const [queueActionConversationId, setQueueActionConversationId] = useState<string | null>(null);
+  const [queueActionMenuPosition, setQueueActionMenuPosition] = useState<QueueActionMenuPosition | null>(null);
   const [messageReactionTargetId, setMessageReactionTargetId] = useState<string | null>(null);
   const [revealedDeletedMessageIds, setRevealedDeletedMessageIds] = useState<Record<string, boolean>>({});
   const [agendaStudioOpen, setAgendaStudioOpen] = useState(false);
@@ -1647,6 +1695,7 @@ export default function InboxClientPage() {
     at: 0,
   });
   const skipAutomationAutoOpenRef = useRef(false);
+  const deferredConversationSearch = useDeferredValue(conversationSearch);
 
   // Close emoji picker when clicking outside
   useEffect(() => {
@@ -1694,6 +1743,45 @@ export default function InboxClientPage() {
     document.addEventListener("mousedown", handle);
     return () => document.removeEventListener("mousedown", handle);
   }, []);
+
+  useEffect(() => {
+    if (!queueActionConversationId) {
+      setQueueActionMenuPosition(null);
+      return;
+    }
+
+    const closeMenu = () => {
+      setQueueActionConversationId(null);
+      setQueueActionMenuPosition(null);
+    };
+
+    window.addEventListener("resize", closeMenu);
+    window.addEventListener("scroll", closeMenu, true);
+    return () => {
+      window.removeEventListener("resize", closeMenu);
+      window.removeEventListener("scroll", closeMenu, true);
+    };
+  }, [queueActionConversationId]);
+
+  const toggleQueueConversationMenu = useCallback(
+    (conversationId: string, event: ReactMouseEvent<HTMLButtonElement>) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const rect = event.currentTarget.getBoundingClientRect();
+      setQueueActionConversationId((current) => {
+        if (current === conversationId) {
+          setQueueActionMenuPosition(null);
+          return null;
+        }
+        setQueueActionMenuPosition({
+          top: rect.bottom + 8,
+          left: Math.max(12, rect.right - 144),
+        });
+        return conversationId;
+      });
+    },
+    [],
+  );
 
   useEffect(() => {
     if (skipAutomationAutoOpenRef.current) {
@@ -2052,13 +2140,27 @@ export default function InboxClientPage() {
   }, [conversations, queueByConversationId]);
 
   const filteredConversations = useMemo(() => {
+    const normalizedSearch = deferredConversationSearch.trim().toLowerCase();
     const filtered = conversations.filter((conversation) => {
       const queue = queueByConversationId[conversation.id] || "all";
-      return queue === inboxQueue;
+      if (queue !== inboxQueue) return false;
+      if (!normalizedSearch) return true;
+
+      const haystack = [
+        resolveInboxConversationDisplayName(conversation),
+        conversation.customer?.phone,
+        getInboxConversationSubtitle(conversation),
+        getInboxConversationPreview(conversation),
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+
+      return haystack.includes(normalizedSearch);
     });
 
     return sortInboxConversationsByActivity(filtered);
-  }, [conversations, inboxQueue, queueByConversationId]);
+  }, [conversations, deferredConversationSearch, inboxQueue, queueByConversationId]);
 
   const inboxQueueDiagnostics = useMemo(
     () => [
@@ -2346,12 +2448,15 @@ export default function InboxClientPage() {
       ),
     [currentUserProfile?.company?.id, selectedConversation?.id],
   );
-  const humanAttentionPreview = humanAttentionConversations[0] || null;
-  const newInboundPreview = newInboundConversations[0] || null;
-  const humanQueueLabel = `${humanAttentionConversations.length} mensagem${
-    humanAttentionConversations.length === 1 ? "" : "s"
-  }`;
-  const queueListTitle = getInboxQueueLabel(inboxQueue);
+  const activeDockSection = templatesStudioOpen
+    ? "templates"
+    : automationStudioOpen
+      ? "automacao"
+      : agendaStudioOpen || contextTab === "agenda"
+        ? "agenda"
+        : contextTab === "financeiro"
+          ? "financeiro"
+          : "conversa";
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -2814,6 +2919,7 @@ export default function InboxClientPage() {
         setSelectedConversation(data);
       }
       setQueueActionConversationId(null);
+      setQueueActionMenuPosition(null);
       setNotice({ tone: "success", text: "Contato bloqueado no Atendimento." });
       await loadConversations({ preferredId: data.id, silent: true });
     } catch (updateError) {
@@ -2855,6 +2961,7 @@ export default function InboxClientPage() {
           method: "DELETE",
         });
         setQueueActionConversationId(null);
+        setQueueActionMenuPosition(null);
         if (selectedIdRef.current === conversationId) {
           setSelectedConversation(null);
           setSelectedId(null);
@@ -2998,16 +3105,16 @@ export default function InboxClientPage() {
   const inboxWorkspaceComponents = useMemo(
     () => ({
       list: () => (
-          <ConversationListPane
+        <ConversationListPane
           eyebrow={undefined}
-          title={queueListTitle}
+          title={undefined}
           description={undefined}
-          count={filteredConversations.length}
+          count={undefined}
           actions={
-            <>
+            <div className={styles.listHeaderActions}>
               <button
                 type="button"
-                className="btn btn-secondary btn-sm"
+                className={styles.listCommandButton}
                 onClick={() => void bulkSetBotForVisible(true)}
                 disabled={!filteredConversations.length || savingBot}
                 title="Ativar respostas automáticas do BOT para todas as conversas da fila aberta"
@@ -3016,27 +3123,48 @@ export default function InboxClientPage() {
               </button>
               <button
                 type="button"
-                className="btn btn-secondary btn-sm"
+                className={styles.listCommandButton}
                 onClick={() => void bulkSetBotForVisible(false)}
                 disabled={!filteredConversations.length || savingBot}
                 title="Pausar respostas automáticas do BOT para todas as conversas da fila aberta"
               >
                 Pausar BOT
               </button>
-              <span className={styles.robotDecoration} title="Robô" aria-hidden>
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                  <rect x="3" y="7" width="18" height="11" rx="2" />
-                  <path d="M8 7V5a4 4 0 0 1 8 0v2" />
-                  <circle cx="8.8" cy="12" r="1" />
-                  <circle cx="15.2" cy="12" r="1" />
-                  <path d="M9.5 16.2c.7.5 1.8.5 2.5 0" />
-                </svg>
-              </span>
-            </>
+              <button
+                type="button"
+                className={styles.listIconButton}
+                onClick={openTemplatesSettings}
+                title="Abrir templates Meta"
+                aria-label="Abrir templates Meta"
+              >
+                <ChatGlyph name="spark" />
+              </button>
+            </div>
           }
           className={`${styles.workspaceDockPanel} ${styles.inboxListPanel}`}
           bodyClassName={`${styles.workspaceDockBody} ${styles.inboxListBody}`}
         >
+          <div className={styles.listSearchRow}>
+            <label className={styles.listSearchField}>
+              <SearchIcon className={styles.listSearchIcon} />
+              <input
+                type="search"
+                value={conversationSearch}
+                onChange={(event) => setConversationSearch(event.target.value)}
+                placeholder="Buscar conversa, telefone ou trecho..."
+                className={styles.listSearchInput}
+                aria-label="Buscar conversa"
+              />
+            </label>
+            <button
+              type="button"
+              className={styles.listSearchAction}
+              onClick={() => setConversationSearch("")}
+              disabled={!conversationSearch.trim()}
+            >
+              Limpar
+            </button>
+          </div>
           <ConversationQueueFilterBar
             value={inboxQueue as ConversationQueueFilterValue}
             counts={queueCounts as Record<ConversationQueueFilterValue, number>}
@@ -3101,58 +3229,30 @@ export default function InboxClientPage() {
                     meta={
                       <div className={styles.conversationQueueMetaStack}>
                         <span className={styles.conversationQueueMetaTime}>{activityAtLabel}</span>
-                        <div
-                          className={styles.conversationQueueMetaMenuWrap}
-                          ref={queueActionConversationId === conversation.id ? queueActionMenuRef : null}
-                        >
+                        <div className={styles.conversationQueueMetaMenuWrap}>
                           <button
                             type="button"
                             className={styles.conversationQueueMetaButton}
                             aria-label="Abrir ações da conversa"
                             title="Ações da conversa"
-                            onMouseDown={(event) => event.preventDefault()}
-                            onClick={(event) => {
+                            onMouseDown={(event) => {
+                              event.preventDefault();
                               event.stopPropagation();
-                              setQueueActionConversationId((current) =>
-                                current === conversation.id ? null : conversation.id,
-                              );
                             }}
+                            onClick={(event) => toggleQueueConversationMenu(conversation.id, event)}
                           >
                             <ChatGlyph name="gear" />
                           </button>
-                          {queueActionConversationId === conversation.id ? (
-                            <div
-                              className={styles.conversationQueueMetaPopup}
-                              onClick={(event) => event.stopPropagation()}
-                            >
-                              <button
-                                type="button"
-                                className={styles.conversationQueueMetaPopupAction}
-                                onClick={() => void blockConversationById(conversation.id)}
-                              >
-                                Bloquear
-                              </button>
-                              <button
-                                type="button"
-                                className={`${styles.conversationQueueMetaPopupAction} ${styles.conversationQueueMetaPopupActionDanger}`}
-                                onClick={() => void deleteConversationById(conversation.id)}
-                              >
-                                Excluir
-                              </button>
-                            </div>
-                          ) : null}
                         </div>
                       </div>
                     }
-                    className={[
+                    className={joinClassNames(
                       styles.conversationQueueItem,
+                      queueActionConversationId === conversation.id && styles.conversationQueueItemMenuOpen,
                       (conversation.isBlocked || isInboxConversationArchived(conversation))
-                        ? styles.conversationQueueItemMuted
-                        : "",
-                      unreadCount > 0 && !active ? styles.conversationQueueItemUnread : "",
-                    ]
-                      .filter(Boolean)
-                      .join(" ")}
+                        && styles.conversationQueueItemMuted,
+                      unreadCount > 0 && !active && styles.conversationQueueItemUnread,
+                    )}
                   />
                 );
               })}
@@ -3194,9 +3294,22 @@ export default function InboxClientPage() {
                   />
                   <div className={styles.whatsAppConversationIdentityText}>
                     <strong>{selectedConversationDisplayName}</strong>
-                    {getInboxConversationSubtitle(conversationForView) ? (
-                      <span>{getInboxConversationSubtitle(conversationForView)}</span>
-                    ) : null}
+                    <div className={styles.conversationIdentityMeta}>
+                      <span className={styles.conversationPresenceBadge}>Online</span>
+                      {selectedConversationStatusMeta ? (
+                        <span
+                          className={styles.conversationContextBadge}
+                          data-tone={selectedConversationStatusMeta.tone}
+                        >
+                          {selectedConversationStatusMeta.label}
+                        </span>
+                      ) : null}
+                      {getInboxConversationSubtitle(conversationForView) ? (
+                        <span className={styles.conversationIdentitySubtitle}>
+                          {getInboxConversationSubtitle(conversationForView)}
+                        </span>
+                      ) : null}
+                    </div>
                   </div>
                 </div>
                 <div className={styles.whatsAppConversationActions}>
@@ -3222,6 +3335,14 @@ export default function InboxClientPage() {
                     title="Abrir automacao"
                     aria-label="Abrir automacao"
                   />
+                  <button
+                    type="button"
+                    className={styles.conversationPrimaryAction}
+                    onClick={() => void updateStatus(selectedStatus === "closed" ? "open" : "closed")}
+                    disabled={sending}
+                  >
+                    {selectedStatus === "closed" ? "Reabrir atendimento" : "Finalizar atendimento"}
+                  </button>
                 </div>
               </header>
 
@@ -4011,6 +4132,7 @@ export default function InboxClientPage() {
       blockConversation,
       conversationDetailError,
       conversationListError,
+      conversationSearch,
       contextTab,
       internalNote,
       hasRecoveryCapability,
@@ -4046,10 +4168,10 @@ export default function InboxClientPage() {
       selectedId,
       selectedVendasAgendaDraft,
       selectedStatus,
-      queueListTitle,
       bulkSetBotForVisible,
       dropOverQueue,
       handleQueueDrop,
+      openTemplatesSettings,
       sendMessage,
       sendText,
       sending,
@@ -4063,6 +4185,7 @@ export default function InboxClientPage() {
       setImagePreview,
       messageReactionTargetId,
       blockConversationById,
+      toggleQueueConversationMenu,
       unblockConversation,
       updateStatus,
     ],
@@ -4478,33 +4601,74 @@ export default function InboxClientPage() {
         description="Inbox unificada com conversa dominante, Recovery como contexto e atalhos operacionais enxutos."
         hideHeader={true}
         hideNavigationRail={true}
+        hideHoverModules={true}
         layoutMode="workspace"
-        actions={
-          <WorkspaceSegmentedControl
-            items={ATENDIMENTO_SECTION_ITEMS}
-            value={
-              templatesStudioOpen || automationStudioOpen
-                ? "automacao"
-                : agendaStudioOpen
-                  ? "agenda"
-                  : contextTab
-            }
-            onChange={(nextSection) => handleSectionChange(nextSection as AtendimentoSection)}
-            className={styles.moduleTabs}
-            highlightClassName={styles.moduleTabHighlight}
-            buttonClassName={styles.moduleTab}
-            activeButtonClassName={styles.moduleTabActive}
-            role="tablist"
-            buttonRole="tab"
-            ariaLabel="Navegacao principal do Atendimento"
-          />
-        }
       >
         {error ? <div className="alert alert-error">{error}</div> : null}
 
         {activeTab === "messages" ? (
-          <section className={styles.inboxCanvas} data-ui-no-reveal="true">
-            <section className={styles.inboxStage}>
+          <section className={styles.premiumInboxShell} data-ui-no-reveal="true">
+            <section className={styles.inboxCanvas}>
+              <aside className={styles.commandDock}>
+                <div className={styles.commandDockTop}>
+                  <button
+                    type="button"
+                    className={styles.commandDockBrand}
+                    onClick={() => handleSectionChange("conversa")}
+                    aria-label="Voltar para conversas"
+                    title="HBX Atendimento"
+                  >
+                    <span>HB</span>
+                  </button>
+                </div>
+                <div className={styles.commandDockNav}>
+                  <DockButton
+                    icon="note"
+                    label="Conversas"
+                    active={activeDockSection === "conversa"}
+                    badge={newInboundConversations.length || null}
+                    onClick={() => handleSectionChange("conversa")}
+                  />
+                  <DockButton
+                    icon="wallet"
+                    label="Financeiro"
+                    active={activeDockSection === "financeiro"}
+                    badge={queueCounts.recovery || null}
+                    onClick={() => handleSectionChange("financeiro")}
+                  />
+                  <DockButton
+                    icon="clock"
+                    label="Agenda"
+                    active={activeDockSection === "agenda"}
+                    badge={selectedConversationIsAgenda ? "!" : null}
+                    onClick={() => handleSectionChange("agenda")}
+                  />
+                  <DockButton
+                    icon="gear"
+                    label="Automacao"
+                    active={activeDockSection === "automacao"}
+                    badge={queueCounts.bot || null}
+                    onClick={() => handleSectionChange("automacao")}
+                  />
+                  <DockButton
+                    icon="spark"
+                    label="Templates"
+                    active={activeDockSection === "templates"}
+                    badge={metaTemplates.counters.approved || null}
+                    onClick={openTemplatesSettings}
+                  />
+                </div>
+                <div className={styles.commandDockBottom}>
+                  <DockButton
+                    icon="user"
+                    label="Operador"
+                    active={false}
+                    badge={null}
+                    onClick={() => handleSectionChange("conversa")}
+                  />
+                </div>
+              </aside>
+
               <div className={styles.inboxStageList}>
                 {inboxWorkspaceComponents.list()}
               </div>
@@ -4540,6 +4704,54 @@ export default function InboxClientPage() {
           </div>
         </div>
       ) : null}
+
+      {typeof document !== "undefined" &&
+      queueActionConversationId &&
+      queueActionMenuPosition
+        ? createPortal(
+            <div
+              ref={queueActionMenuRef}
+              className={`${styles.conversationQueueMetaPopup} ${styles.conversationQueueMetaPopupPortal}`}
+              style={{
+                top: `${queueActionMenuPosition.top}px`,
+                left: `${queueActionMenuPosition.left}px`,
+              }}
+              onClick={(event) => event.stopPropagation()}
+            >
+              <button
+                type="button"
+                className={styles.conversationQueueMetaPopupAction}
+                onMouseDown={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                }}
+                onClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  void blockConversationById(queueActionConversationId);
+                }}
+              >
+                Bloquear
+              </button>
+              <button
+                type="button"
+                className={`${styles.conversationQueueMetaPopupAction} ${styles.conversationQueueMetaPopupActionDanger}`}
+                onMouseDown={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                }}
+                onClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  void deleteConversationById(queueActionConversationId);
+                }}
+              >
+                Excluir
+              </button>
+            </div>,
+            document.body,
+          )
+        : null}
 
       {automationStudioOpen ? (
         <div className={`${styles.botStudioOverlay} ${overlayVisible ? styles.botStudioOverlayActive : ""}`}>
