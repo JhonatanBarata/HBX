@@ -582,6 +582,42 @@ export class WebwhatsBridgeService {
     });
   }
 
+  async deleteChat(
+    companyId: number,
+    input: {
+      conversationId: number;
+    },
+  ) {
+    const company = await this.requireConnectedCompany(companyId);
+    const tenantKey = this.buildTenantKey(company.id);
+    const conversation = await this.prisma.companyConversation.findFirst({
+      where: { id: Number(input.conversationId || 0), companyId, channel: 'whatsapp' },
+      select: { id: true, contact: true, metadata: true },
+    });
+    if (!conversation) {
+      throw new Error('WEBWHATS_CONVERSATION_NOT_FOUND');
+    }
+
+    const metadata = this.parseMetadata(conversation.metadata);
+    const remoteJid =
+      this.normalizeOptionalString(metadata.whatsappRemoteJid) ||
+      this.normalizeRemoteJid(String(conversation.contact || ''));
+
+    if (!remoteJid) {
+      throw new Error('WEBWHATS_CHAT_REMOTE_JID_MISSING');
+    }
+
+    // Endpoint expected by the active Webwhats runtime to delete a full chat on WhatsApp side.
+    return this.request<any>({
+      method: 'DELETE',
+      path: `/chat/deleteChat/${encodeURIComponent(tenantKey)}`,
+      purpose: 'exclusao de conversa inteira via Webwhats',
+      data: {
+        chat: remoteJid,
+      },
+    });
+  }
+
   async sendReaction(
     companyId: number,
     input: {

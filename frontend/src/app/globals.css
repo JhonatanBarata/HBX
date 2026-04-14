@@ -1804,6 +1804,103 @@ html[data-theme="tabler"] .login-card__stat {
   cursor: pointer;
 }
 
+.wa-unread-wrap {
+  position: relative;
+}
+
+.wa-unread-popup {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  z-index: 120;
+  width: min(360px, calc(100vw - 24px));
+  max-height: min(60vh, 520px);
+  overflow: auto;
+  padding: 0.56rem;
+  border-radius: 16px;
+  border: 1px solid color-mix(in srgb, var(--line) 86%, var(--background));
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--surface) 98%, var(--background)), color-mix(in srgb, var(--surface-soft) 94%, var(--background)));
+  box-shadow: var(--shadow-inset), var(--shadow-md);
+}
+
+.wa-unread-popup__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.wa-unread-popup__head strong {
+  font-size: 0.82rem;
+  color: var(--foreground);
+}
+
+.wa-unread-popup__link {
+  border: none;
+  background: transparent;
+  color: var(--brand);
+  font-size: 0.72rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.wa-unread-popup__list {
+  display: grid;
+  gap: 0.44rem;
+}
+
+.wa-unread-popup__item {
+  display: grid;
+  gap: 0.36rem;
+  padding: 0.5rem;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--line) 88%, var(--background));
+  background: color-mix(in srgb, var(--surface) 96%, var(--background));
+}
+
+.wa-unread-popup__copy strong {
+  display: block;
+  font-size: 0.76rem;
+  color: var(--foreground);
+}
+
+.wa-unread-popup__copy p {
+  margin: 0.18rem 0 0;
+  font-size: 0.72rem;
+  line-height: 1.4;
+  color: var(--muted);
+}
+
+.wa-unread-popup__actions {
+  display: flex;
+  gap: 0.36rem;
+}
+
+.wa-unread-popup__action {
+  min-height: 28px;
+  padding: 0 0.56rem;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--line) 84%, var(--background));
+  background: color-mix(in srgb, var(--surface) 98%, var(--background));
+  color: var(--foreground);
+  font-size: 0.68rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.wa-unread-popup__action--danger {
+  border-color: color-mix(in srgb, var(--danger) 28%, var(--line));
+  color: color-mix(in srgb, var(--danger) 88%, var(--foreground));
+}
+
+.wa-unread-popup__state {
+  margin: 0.18rem 0;
+  font-size: 0.74rem;
+  color: var(--muted);
+}
+
 .wa-health {
   width: 28px;
   height: 28px;
