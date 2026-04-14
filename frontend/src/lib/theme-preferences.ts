@@ -20,13 +20,13 @@ function mapLegacyThemeId(value: string | null): HbxThemeId {
     return "shadcn";
   }
   if (normalized === "secondary" || normalized === "green" || normalized === "tailadmin") {
-    return "tailadmin";
+    return DEFAULT_THEME_SELECTION.themeId;
   }
   if (normalized === "neutral" || normalized === "slate" || normalized === "grey") {
     return "tabler";
   }
   if (normalized === "pink" || normalized === "mosaic") return "mosaic";
-  if (normalized === "flowbite") return "flowbite";
+  if (normalized === "flowbite") return DEFAULT_THEME_SELECTION.themeId;
   if (normalized === "tabler") return "tabler";
   return DEFAULT_THEME_SELECTION.themeId;
 }

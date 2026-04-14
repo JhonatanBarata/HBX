@@ -82,6 +82,18 @@ export class AuthService implements OnModuleInit {
     return normalized === 'vendas' || normalized === 'recovery' ? normalized : null;
   }
 
+  private resolveTrialEnabledModuleKeys(trialModuleSelection: 'vendas' | 'recovery' | null) {
+    if (trialModuleSelection === 'recovery') {
+      return ['atendimento'];
+    }
+
+    if (trialModuleSelection === 'vendas') {
+      return ['atendimento', 'vendas', 'webscraping'];
+    }
+
+    return [] as string[];
+  }
+
   private normalizeAcquisitionSource(value: string | undefined) {
     const normalized = String(value || '').trim().toLowerCase();
     return ['google', 'instagram', 'youtube', 'indicacao', 'parceiro', 'outro'].includes(normalized)
@@ -253,8 +265,46 @@ export class AuthService implements OnModuleInit {
     });
   }
 
+  private async syncTrialSelectedModulesTx(
+    tx: any,
+    companyId: number,
+    trialModuleSelection: 'vendas' | 'recovery' | null,
+  ) {
+    if (!trialModuleSelection) return;
+
+    const enabledKeys = this.resolveTrialEnabledModuleKeys(trialModuleSelection);
+    const enabledModuleRows = enabledKeys.length
+      ? await tx.systemModule.findMany({
+          where: {
+            companyAssignable: true,
+            key: { in: enabledKeys },
+          },
+          select: { id: true },
+        })
+      : [];
+
+    await tx.companyModule.updateMany({
+      where: { companyId },
+      data: { enabled: false },
+    });
+
+    if (!enabledModuleRows.length) return;
+
+    await tx.companyModule.updateMany({
+      where: {
+        companyId,
+        moduleId: { in: enabledModuleRows.map((moduleRow: { id: number }) => moduleRow.id) },
+      },
+      data: { enabled: true },
+    });
+  }
+
   private async activateConfirmedTrialTx(tx: any, companyId: number, activatedAt: Date) {
     const trialEndsAt = this.addDays(activatedAt, 30);
+    const company = await tx.company.findUnique({
+      where: { id: companyId },
+      select: { trialModuleSelection: true },
+    });
     await tx.company.update({
       where: { id: companyId },
       data: {
@@ -270,10 +320,11 @@ export class AuthService implements OnModuleInit {
         deactivatedAt: null,
       },
     });
-    await tx.companyModule.updateMany({
-      where: { companyId },
-      data: { enabled: true },
-    });
+    await this.syncTrialSelectedModulesTx(
+      tx,
+      companyId,
+      this.normalizeTrialModuleSelection(company?.trialModuleSelection || undefined),
+    );
     return trialEndsAt;
   }
 
@@ -571,6 +622,7 @@ export class AuthService implements OnModuleInit {
           skipDuplicates: true,
         });
         await this.seedDefaultCompanyModulesTx(tx, company.id);
+        await this.syncTrialSelectedModulesTx(tx, company.id, trialModuleSelection);
         await tx.user.update({
           where: { id: existingUsername.id },
           data: {
@@ -648,6 +700,7 @@ export class AuthService implements OnModuleInit {
         skipDuplicates: true,
       });
       await this.seedDefaultCompanyModulesTx(tx, company.id);
+      await this.syncTrialSelectedModulesTx(tx, company.id, trialModuleSelection);
 
       const user = await tx.user.create({
         data: {

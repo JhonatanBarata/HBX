@@ -1284,6 +1284,10 @@
   filter: saturate(0.72);
 }
 
+.conversationQueueItemMenuOpen {
+  z-index: 18;
+}
+
 .conversationQueueItemMuted strong,
 .conversationQueueItemMuted p,
 .conversationQueueItemMuted span {
@@ -1292,24 +1296,27 @@
 
 .conversationQueueMetaStack {
   position: relative;
-  display: grid;
-  justify-items: end;
-  gap: 0.18rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.14rem;
 }
 
 .conversationQueueMetaTime {
   font-size: 0.72rem;
   font-weight: 800;
   color: #128c7e;
+  line-height: 1;
 }
 
 .conversationQueueMetaMenuWrap {
   position: relative;
+  z-index: 6;
 }
 
 .conversationQueueMetaButton {
-  width: 24px;
-  height: 24px;
+  width: 20px;
+  height: 20px;
   display: grid;
   place-items: center;
   border: none;
@@ -1330,15 +1337,15 @@
 }
 
 .conversationQueueMetaButton svg {
-  width: 14px;
-  height: 14px;
+  width: 12px;
+  height: 12px;
 }
 
 .conversationQueueMetaPopup {
   position: absolute;
   top: calc(100% + 0.35rem);
   right: 0;
-  z-index: 12;
+  z-index: 24;
   min-width: 132px;
   display: grid;
   gap: 0.18rem;
@@ -1348,6 +1355,15 @@
   background:
     linear-gradient(180deg, color-mix(in srgb, var(--surface) 99%, var(--background)), color-mix(in srgb, var(--surface) 94%, var(--background)));
   box-shadow: 0 18px 42px rgba(15, 23, 42, 0.16);
+}
+
+.conversationQueueMetaPopupPortal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: auto;
+  z-index: 1200;
+  animation: inbox-queue-menu-in var(--motion-fast) both;
 }
 
 .conversationQueueMetaPopupAction {
@@ -1373,6 +1389,18 @@
 
 .conversationQueueMetaPopupActionDanger:hover {
   background: color-mix(in srgb, var(--danger) 10%, var(--background));
+}
+
+@keyframes inbox-queue-menu-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.98);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }
 
 .conversationContent {
@@ -3282,7 +3310,11 @@
 }
 
 .whatsAppHoverActionRailInbound {
-  margin-left: 4px;
+  position: absolute;
+  top: 0.38rem;
+  left: 0.18rem;
+  z-index: 2;
+  margin-left: 0;
 }
 
 .whatsAppHoverActionRailOutbound {
@@ -3617,4 +3649,1305 @@
 .whatsAppAttachButton:disabled {
   opacity: 0.4;
   cursor: default;
+}
+
+/* Radical dark-shell redesign for Atendimento/Chat */
+
+.premiumInboxShell {
+  --inbox-bg: #040814;
+  --inbox-bg-soft: #0b1224;
+  --inbox-surface: rgba(10, 16, 34, 0.86);
+  --inbox-surface-strong: rgba(14, 21, 43, 0.96);
+  --inbox-line: rgba(104, 126, 183, 0.22);
+  --inbox-line-strong: rgba(120, 145, 224, 0.34);
+  --inbox-text: #edf3ff;
+  --inbox-muted: #91a0c3;
+  --inbox-accent: #4f6bff;
+  --inbox-accent-strong: #2f55ff;
+  --inbox-teal: #16d7b5;
+  --inbox-emerald: #19d37c;
+  --inbox-warning: #ffb547;
+  --inbox-danger: #ff6f91;
+  min-height: 0;
+  height: min(
+    var(--workspace-stage-height, calc(100dvh - var(--topbar-total-height) - 1.1rem)),
+    calc(100dvh - var(--topbar-total-height) - 1.1rem)
+  );
+  display: block;
+  padding: 0.18rem 0.28rem 0.28rem;
+  border-radius: 30px;
+  background:
+    radial-gradient(circle at top left, rgba(79, 107, 255, 0.2), transparent 28%),
+    radial-gradient(circle at top right, rgba(22, 215, 181, 0.12), transparent 24%),
+    linear-gradient(180deg, #060a15, #080d1c 44%, #050814);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    0 24px 64px rgba(2, 6, 23, 0.48);
+}
+
+.commandDock,
+.workspaceDockPanel,
+.conversationQueueMetaPopup,
+.botStudioChrome {
+  backdrop-filter: blur(22px);
+  -webkit-backdrop-filter: blur(22px);
+}
+
+.inboxCanvas {
+  display: grid;
+  grid-template-columns: 74px minmax(300px, 344px) minmax(0, 1fr) minmax(340px, 380px);
+  gap: 0.7rem;
+  min-height: 0;
+  height: 100%;
+}
+
+.commandDock {
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  gap: 0.95rem;
+  padding: 0.82rem 0.58rem;
+  border-radius: 26px;
+  border: 1px solid rgba(96, 119, 186, 0.22);
+  background:
+    linear-gradient(180deg, rgba(8, 13, 29, 0.96), rgba(7, 11, 24, 0.88)),
+    radial-gradient(circle at top, rgba(79, 107, 255, 0.18), transparent 34%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    0 18px 42px rgba(2, 6, 23, 0.34);
+}
+
+.commandDockTop,
+.commandDockBottom,
+.commandDockNav {
+  display: grid;
+  justify-items: center;
+  gap: 0.7rem;
+}
+
+.commandDockBrand {
+  width: 52px;
+  height: 52px;
+  display: grid;
+  place-items: center;
+  border-radius: 18px;
+  border: 1px solid rgba(103, 129, 216, 0.4);
+  background: linear-gradient(145deg, rgba(54, 91, 255, 0.98), rgba(82, 36, 255, 0.9));
+  color: #fff;
+  font-size: 0.98rem;
+  font-weight: 900;
+  letter-spacing: -0.06em;
+  box-shadow: 0 18px 40px rgba(50, 82, 255, 0.36);
+}
+
+.commandDockButton {
+  position: relative;
+  width: 52px;
+  height: 52px;
+  display: grid;
+  place-items: center;
+  border-radius: 18px;
+  border: 1px solid rgba(95, 118, 182, 0.18);
+  background: rgba(11, 18, 36, 0.72);
+  color: #97a7cf;
+  transition:
+    transform var(--motion-fast),
+    border-color var(--motion-fast),
+    background-color var(--motion-fast),
+    color var(--motion-fast),
+    box-shadow var(--motion-fast);
+}
+
+.commandDockButton:hover {
+  transform: translateY(-1px);
+  border-color: rgba(113, 140, 228, 0.3);
+  color: #e6eeff;
+  background: rgba(17, 28, 58, 0.88);
+}
+
+.commandDockButton[data-active="true"] {
+  color: #fff;
+  border-color: rgba(88, 121, 255, 0.46);
+  background: linear-gradient(180deg, rgba(39, 72, 219, 0.92), rgba(73, 40, 224, 0.92));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.14),
+    0 18px 36px rgba(55, 82, 234, 0.36);
+}
+
+.commandDockIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.commandDockIcon :global(svg) {
+  width: 18px;
+  height: 18px;
+}
+
+.commandDockBadge {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  min-width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 0.28rem;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #ff5c87, #ff7b43);
+  color: #fff;
+  font-size: 0.6rem;
+  font-weight: 900;
+  box-shadow: 0 8px 20px rgba(255, 92, 135, 0.3);
+}
+
+.inboxStageList,
+.inboxStageMain,
+.inboxStageContext,
+.inboxMainBody,
+.inboxListBody,
+.inboxContextBody,
+.workspaceDockPanel,
+.chatStagePanel,
+.workspaceDockBody,
+.contextStack {
+  min-width: 0;
+  min-height: 0;
+}
+
+.workspaceDockPanel {
+  height: 100%;
+  padding: 0.9rem;
+  gap: 0.8rem;
+  border-radius: 28px;
+  border: 1px solid rgba(96, 118, 182, 0.22);
+  background:
+    linear-gradient(180deg, rgba(10, 16, 34, 0.94), rgba(10, 15, 30, 0.84)),
+    radial-gradient(circle at top, rgba(79, 107, 255, 0.12), transparent 42%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    0 18px 42px rgba(2, 6, 23, 0.32);
+}
+
+.workspaceDockPanelHeader strong,
+.workspaceDockPanelHeader small,
+.workspaceDockCounter,
+.conversationQueueMetaTime,
+.conversationIdentitySubtitle,
+.whatsAppComposerHint,
+.whatsAppBubbleMeta,
+.recoveryPaymentRow p,
+.internalNoteInput,
+.sectionHead small,
+.workspaceCard {
+  color: var(--inbox-text);
+}
+
+.workspaceDockPanelHeader strong {
+  font-size: 1.08rem;
+  color: var(--inbox-text);
+}
+
+.workspaceDockBody {
+  gap: 0.7rem;
+  padding-right: 0.12rem;
+}
+
+.listHeaderActions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.listCommandButton,
+.listIconButton,
+.listSearchAction,
+.conversationPrimaryAction {
+  border: 1px solid rgba(105, 129, 204, 0.22);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  transition:
+    transform var(--motion-fast),
+    border-color var(--motion-fast),
+    background-color var(--motion-fast),
+    color var(--motion-fast),
+    box-shadow var(--motion-fast);
+}
+
+.listCommandButton {
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 0.74rem;
+  border-radius: 999px;
+  background: rgba(20, 31, 63, 0.94);
+  color: #d8e3ff;
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.listCommandButton:hover:not(:disabled),
+.listIconButton:hover:not(:disabled),
+.listSearchAction:hover:not(:disabled),
+.conversationPrimaryAction:hover:not(:disabled) {
+  transform: translateY(-1px);
+  border-color: rgba(122, 149, 236, 0.38);
+}
+
+.listCommandButton:disabled,
+.listIconButton:disabled,
+.listSearchAction:disabled,
+.conversationPrimaryAction:disabled {
+  opacity: 0.48;
+  cursor: not-allowed;
+}
+
+.listIconButton {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border-radius: 12px;
+  background: rgba(20, 31, 63, 0.94);
+  color: #d8e3ff;
+}
+
+.listIconButton :global(svg) {
+  width: 14px;
+  height: 14px;
+}
+
+.listMetricsGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.55rem;
+}
+
+.listMetricCard {
+  min-height: 76px;
+  display: grid;
+  align-content: center;
+  gap: 0.2rem;
+  padding: 0.74rem 0.82rem;
+  border-radius: 18px;
+  border: 1px solid rgba(95, 117, 182, 0.18);
+  background:
+    linear-gradient(180deg, rgba(15, 23, 47, 0.92), rgba(12, 18, 38, 0.78)),
+    radial-gradient(circle at top right, rgba(79, 107, 255, 0.16), transparent 44%);
+}
+
+.listMetricCard span {
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: var(--inbox-muted);
+}
+
+.listMetricCard strong {
+  font-size: 1.42rem;
+  line-height: 1;
+  letter-spacing: -0.05em;
+  color: var(--inbox-text);
+}
+
+.listSearchRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.55rem;
+}
+
+.listSearchField {
+  min-width: 0;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0 0.82rem;
+  border-radius: 18px;
+  border: 1px solid rgba(97, 119, 184, 0.2);
+  background: rgba(14, 21, 43, 0.9);
+  color: #d7e1ff;
+}
+
+.listSearchIcon {
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
+  color: #7f90bb;
+}
+
+.listSearchInput {
+  flex: 1 1 auto;
+  width: 100%;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: #edf3ff;
+  font-size: 0.84rem;
+}
+
+.listSearchInput::placeholder {
+  color: #7687b1;
+}
+
+.listSearchAction {
+  min-width: 74px;
+  min-height: 44px;
+  padding: 0 0.82rem;
+  border-radius: 16px;
+  background: rgba(18, 28, 58, 0.92);
+  color: #d7e1ff;
+  font-size: 0.75rem;
+  font-weight: 800;
+}
+
+.conversationList {
+  gap: 0.46rem;
+}
+
+.conversationQueueMetaStack {
+  display: grid;
+  justify-items: end;
+  gap: 0.3rem;
+}
+
+.conversationQueueMetaTime {
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: #90a1c6;
+}
+
+.conversationQueueMetaButton {
+  width: 28px;
+  height: 28px;
+  border-radius: 10px;
+  border: 1px solid rgba(97, 119, 184, 0.16);
+  background: rgba(14, 21, 43, 0.78);
+  color: #9fb0d8;
+}
+
+.conversationQueueMetaButton:hover {
+  color: #edf3ff;
+  background: rgba(20, 31, 63, 0.94);
+}
+
+.conversationQueueMetaPopup {
+  min-width: 164px;
+  padding: 0.36rem;
+  border-radius: 16px;
+  border: 1px solid rgba(101, 124, 194, 0.2);
+  background: rgba(9, 15, 32, 0.94);
+  box-shadow: 0 24px 48px rgba(2, 6, 23, 0.45);
+}
+
+.conversationQueueMetaPopupAction {
+  color: #dbe5ff;
+  border-radius: 12px;
+}
+
+.conversationQueueMetaPopupAction:hover {
+  background: rgba(22, 34, 69, 0.96);
+}
+
+.inboxMainPanel {
+  padding: 0.42rem;
+}
+
+.whatsAppConversationShell {
+  border-radius: 24px;
+  border: 1px solid rgba(99, 121, 188, 0.18);
+  background:
+    linear-gradient(180deg, rgba(6, 12, 26, 0.98), rgba(9, 14, 28, 0.98)),
+    radial-gradient(circle at top, rgba(79, 107, 255, 0.12), transparent 42%);
+}
+
+.whatsAppConversationHeader {
+  padding: 0.88rem 1rem;
+  border-bottom: 1px solid rgba(98, 120, 186, 0.12);
+  background:
+    linear-gradient(180deg, rgba(11, 18, 36, 0.92), rgba(10, 16, 34, 0.68)),
+    radial-gradient(circle at top left, rgba(79, 107, 255, 0.1), transparent 36%);
+}
+
+.whatsAppConversationIdentity {
+  gap: 0.85rem;
+}
+
+.whatsAppConversationIdentityText strong {
+  font-size: 1.02rem;
+  color: #edf3ff;
+}
+
+.conversationIdentityMeta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.42rem;
+  margin-top: 0.2rem;
+}
+
+.conversationPresenceBadge,
+.conversationContextBadge {
+  min-height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.1rem 0.54rem;
+  border-radius: 999px;
+  font-size: 0.66rem;
+  font-weight: 800;
+}
+
+.conversationPresenceBadge {
+  background: rgba(13, 85, 53, 0.42);
+  color: #bfffe1;
+  border: 1px solid rgba(25, 211, 124, 0.24);
+}
+
+.conversationContextBadge {
+  background: rgba(25, 36, 74, 0.74);
+  border: 1px solid rgba(104, 127, 199, 0.18);
+  color: #dce5ff;
+}
+
+.conversationContextBadge[data-tone="warning"],
+.conversationContextBadge[data-tone="recovery"] {
+  color: #ffdba5;
+  background: rgba(82, 56, 14, 0.46);
+  border-color: rgba(255, 181, 71, 0.2);
+}
+
+.conversationContextBadge[data-tone="success"],
+.conversationContextBadge[data-tone="human"] {
+  color: #bcffe0;
+  background: rgba(8, 80, 50, 0.44);
+  border-color: rgba(25, 211, 124, 0.2);
+}
+
+.conversationIdentitySubtitle {
+  color: #91a0c3;
+  font-size: 0.72rem;
+}
+
+.whatsAppConversationActions {
+  gap: 0.5rem;
+}
+
+.conversationPrimaryAction {
+  min-height: 38px;
+  padding: 0 0.96rem;
+  border-radius: 14px;
+  background: linear-gradient(135deg, rgba(52, 96, 255, 0.96), rgba(90, 45, 255, 0.92));
+  color: #fff;
+  font-size: 0.76rem;
+  font-weight: 900;
+  letter-spacing: -0.01em;
+  box-shadow: 0 14px 26px rgba(52, 96, 255, 0.24);
+}
+
+.whatsAppTimeline {
+  gap: 0.78rem;
+  padding: 1rem 1.2rem 0.8rem;
+  background:
+    radial-gradient(circle at 18% 16%, rgba(255, 255, 255, 0.03) 0, rgba(255, 255, 255, 0.03) 1.7px, transparent 2.7px),
+    radial-gradient(circle at 80% 24%, rgba(66, 147, 255, 0.05) 0, rgba(66, 147, 255, 0.05) 2px, transparent 3px),
+    linear-gradient(180deg, #07101f, #0a1325 55%, #07101b);
+  background-size: 190px 190px, 240px 240px, auto;
+}
+
+.whatsAppMessageRow {
+  position: relative;
+  display: flex;
+  width: 100%;
+}
+
+.whatsAppMessageRowInbound {
+  justify-content: flex-start;
+  padding-right: 12%;
+}
+
+.whatsAppMessageRowOutbound {
+  justify-content: flex-end;
+  padding-left: 10.8%;
+}
+
+.whatsAppMessageRowSystem {
+  justify-content: center;
+}
+
+.whatsAppBubbleWrap {
+  position: relative;
+  max-width: min(78%, 760px);
+}
+
+.whatsAppBubble {
+  gap: 0.42rem;
+  border-radius: 20px;
+  padding: 0.76rem 0.92rem;
+  border: 1px solid rgba(97, 119, 184, 0.12);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.04),
+    0 14px 26px rgba(2, 6, 23, 0.24);
+}
+
+.whatsAppBubbleInbound {
+  background:
+    linear-gradient(180deg, rgba(19, 29, 58, 0.96), rgba(15, 23, 44, 0.96)),
+    radial-gradient(circle at top left, rgba(91, 119, 255, 0.1), transparent 40%);
+  color: #edf3ff;
+}
+
+.whatsAppBubbleOutbound {
+  background:
+    linear-gradient(180deg, rgba(5, 101, 83, 0.95), rgba(3, 74, 70, 0.95)),
+    radial-gradient(circle at top right, rgba(76, 255, 216, 0.14), transparent 42%);
+  color: #effff8;
+}
+
+.whatsAppBubbleSystem {
+  background: rgba(21, 31, 58, 0.78);
+  color: #c7d3f4;
+}
+
+.whatsAppBubbleText {
+  margin: 0;
+  color: inherit;
+  font-size: 0.95rem;
+  line-height: 1.56;
+}
+
+.whatsAppBubbleMeta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.34rem;
+  margin-left: auto;
+  font-size: 0.69rem;
+  color: rgba(232, 241, 255, 0.76);
+}
+
+.whatsAppBubbleMetaOnMedia {
+  padding: 0.2rem 0.44rem;
+  border-radius: 999px;
+  background: rgba(4, 9, 20, 0.46);
+}
+
+.whatsAppQuotedSnippet {
+  padding: 0.54rem 0.62rem;
+  border-radius: 14px;
+  border-left: 3px solid rgba(99, 122, 191, 0.64);
+  background: rgba(7, 14, 30, 0.36);
+}
+
+.whatsAppQuotedSnippetLabel {
+  color: #b3c2ea;
+}
+
+.whatsAppBubbleSender {
+  color: #a6bbff;
+  font-size: 0.72rem;
+}
+
+.whatsAppDocumentCard,
+.whatsAppAudioCard {
+  border-radius: 18px;
+  border: 1px solid rgba(97, 119, 184, 0.18);
+  background: rgba(6, 12, 28, 0.34);
+}
+
+.whatsAppReplyButtonHover {
+  width: 30px;
+  height: 30px;
+  border-radius: 11px;
+  background: rgba(13, 20, 39, 0.78);
+  border: 1px solid rgba(95, 117, 182, 0.14);
+  color: #d4def9;
+}
+
+.whatsAppReactionChip {
+  background: rgba(17, 27, 54, 0.88);
+  border: 1px solid rgba(100, 123, 195, 0.16);
+  color: #e8efff;
+}
+
+.whatsAppReactionPickerBubble {
+  border-radius: 18px;
+  border: 1px solid rgba(101, 124, 194, 0.2);
+  background: rgba(9, 15, 32, 0.96);
+  box-shadow: 0 20px 38px rgba(2, 6, 23, 0.36);
+}
+
+.whatsAppComposerForm {
+  gap: 0.5rem;
+  padding: 0.82rem 1rem 0.96rem;
+  border-top: 1px solid rgba(98, 120, 186, 0.12);
+  background:
+    linear-gradient(180deg, rgba(11, 18, 36, 0.96), rgba(10, 16, 34, 0.82)),
+    radial-gradient(circle at top left, rgba(79, 107, 255, 0.08), transparent 42%);
+}
+
+.whatsAppReplyBar,
+.whatsAppImagePreviewBar {
+  border-radius: 18px;
+  border: 1px solid rgba(97, 119, 184, 0.16);
+  background: rgba(13, 20, 39, 0.92);
+}
+
+.whatsAppComposerRow {
+  gap: 0.48rem;
+}
+
+.whatsAppComposerInput {
+  min-height: 46px;
+  border-radius: 16px !important;
+  border-color: rgba(98, 120, 186, 0.18) !important;
+  background: rgba(13, 20, 39, 0.94) !important;
+  color: #edf3ff !important;
+  padding: 0.76rem 1rem !important;
+  font-size: 0.94rem;
+}
+
+.whatsAppComposerInput::placeholder {
+  color: #7788b2;
+}
+
+.whatsAppComposerInput:focus {
+  border-color: rgba(93, 118, 255, 0.36) !important;
+  box-shadow: 0 0 0 3px rgba(79, 107, 255, 0.12) !important;
+}
+
+.whatsAppComposerButton {
+  width: 46px;
+  height: 46px;
+  min-height: 46px;
+  border-radius: 16px !important;
+  background: linear-gradient(135deg, rgba(52, 96, 255, 0.98), rgba(90, 45, 255, 0.92)) !important;
+  box-shadow: 0 16px 28px rgba(52, 96, 255, 0.28) !important;
+}
+
+.whatsAppEmojiButton,
+.whatsAppAttachButton {
+  width: 42px;
+  height: 42px;
+  border-radius: 14px;
+  border: 1px solid rgba(96, 118, 182, 0.16);
+  background: rgba(13, 20, 39, 0.82);
+  color: #d7e1ff;
+}
+
+.whatsAppEmojiButton:hover:not(:disabled),
+.whatsAppAttachButton:hover:not(:disabled) {
+  background: rgba(18, 28, 58, 0.94);
+}
+
+.whatsAppComposerHint {
+  font-size: 0.72rem;
+  color: #7f90bb;
+}
+
+.whatsAppDayDivider span {
+  border: 1px solid rgba(100, 123, 195, 0.18);
+  background: rgba(10, 16, 34, 0.9);
+  color: #98a8cf;
+}
+
+.inboxContextPanel {
+  padding-right: 0.86rem;
+}
+
+.contextTabs {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(var(--segment-count), minmax(0, 1fr));
+  padding: 0.22rem;
+  border-radius: 999px;
+  border: 1px solid rgba(101, 124, 194, 0.18);
+  background: rgba(13, 20, 39, 0.84);
+}
+
+.contextTabHighlight {
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  left: 4px;
+  width: calc((100% - 8px) / var(--segment-count));
+  border-radius: 999px;
+  background: linear-gradient(135deg, rgba(42, 88, 255, 0.96), rgba(24, 173, 255, 0.8));
+  box-shadow: 0 10px 22px rgba(42, 88, 255, 0.28);
+  transform: translateX(calc(var(--segment-index) * 100%));
+  transition: transform var(--motion-base);
+}
+
+.contextTab {
+  position: relative;
+  z-index: 1;
+  min-height: 34px;
+  border: none;
+  background: transparent;
+  color: #8fa0c6;
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.contextTabActive {
+  color: #fff;
+}
+
+.contextStack,
+.contextGrid {
+  gap: 0.7rem;
+}
+
+.internalNoteCard {
+  gap: 0.55rem;
+}
+
+.internalNoteInput {
+  border-radius: 16px !important;
+  border: 1px solid rgba(98, 120, 186, 0.16) !important;
+  background: rgba(13, 20, 39, 0.9) !important;
+  color: #e7efff !important;
+  resize: vertical;
+}
+
+.internalNoteInput::placeholder {
+  color: #7c8eb8;
+}
+
+.quickActionsGrid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.recoveryPaymentHistory {
+  gap: 0.5rem;
+  padding-right: 0.12rem;
+}
+
+.recoveryPaymentRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.7rem 0.76rem;
+  border-radius: 16px;
+  border: 1px solid rgba(98, 120, 186, 0.16);
+  background: rgba(13, 20, 39, 0.9);
+}
+
+.recoveryPaymentRow strong {
+  color: #edf3ff;
+}
+
+.contextButtonRow {
+  gap: 0.55rem;
+}
+
+.botStudioOverlay {
+  background: rgba(2, 6, 20, 0.72);
+}
+
+.botStudioFrame {
+  border-radius: 28px;
+  border: 1px solid rgba(100, 123, 195, 0.22);
+  background:
+    linear-gradient(180deg, rgba(8, 13, 29, 0.98), rgba(10, 16, 34, 0.96));
+  box-shadow: 0 28px 68px rgba(2, 6, 23, 0.56);
+}
+
+.botStudioChrome {
+  min-height: 74px;
+  border-bottom: 1px solid rgba(100, 123, 195, 0.16);
+  background: rgba(10, 16, 34, 0.88);
+}
+
+.botStudioChrome strong,
+.botStudioChromeEyebrow,
+.metaBadge {
+  color: #edf3ff;
+}
+
+.metaBadge {
+  border: 1px solid rgba(100, 123, 195, 0.18);
+  background: rgba(17, 27, 54, 0.88);
+}
+
+.workspaceDockBody,
+.whatsAppTimeline,
+.contextStack,
+.recoveryPaymentHistory,
+.botStudioBody,
+.templateCatalog {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(110, 135, 214, 0.44) transparent;
+}
+
+.workspaceDockBody::-webkit-scrollbar,
+.whatsAppTimeline::-webkit-scrollbar,
+.contextStack::-webkit-scrollbar,
+.recoveryPaymentHistory::-webkit-scrollbar,
+.botStudioBody::-webkit-scrollbar,
+.templateCatalog::-webkit-scrollbar {
+  width: 9px;
+  height: 9px;
+}
+
+.workspaceDockBody::-webkit-scrollbar-track,
+.whatsAppTimeline::-webkit-scrollbar-track,
+.contextStack::-webkit-scrollbar-track,
+.recoveryPaymentHistory::-webkit-scrollbar-track,
+.botStudioBody::-webkit-scrollbar-track,
+.templateCatalog::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.workspaceDockBody::-webkit-scrollbar-thumb,
+.whatsAppTimeline::-webkit-scrollbar-thumb,
+.contextStack::-webkit-scrollbar-thumb,
+.recoveryPaymentHistory::-webkit-scrollbar-thumb,
+.botStudioBody::-webkit-scrollbar-thumb,
+.templateCatalog::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: linear-gradient(180deg, rgba(95, 121, 215, 0.64), rgba(83, 110, 197, 0.24));
+  background-clip: padding-box;
+}
+
+.workspaceDockBody::-webkit-scrollbar-thumb:hover,
+.whatsAppTimeline::-webkit-scrollbar-thumb:hover,
+.contextStack::-webkit-scrollbar-thumb:hover,
+.recoveryPaymentHistory::-webkit-scrollbar-thumb:hover,
+.botStudioBody::-webkit-scrollbar-thumb:hover,
+.templateCatalog::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, rgba(124, 149, 236, 0.82), rgba(86, 118, 224, 0.34));
+  background-clip: padding-box;
+}
+
+:global(html[data-theme-mode="light"]) .premiumInboxShell {
+  --inbox-text: var(--foreground);
+  --inbox-muted: var(--muted);
+  background:
+    radial-gradient(circle at top left, color-mix(in srgb, var(--info) 12%, transparent), transparent 28%),
+    radial-gradient(circle at top right, color-mix(in srgb, var(--success) 10%, transparent), transparent 24%),
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--surface) 98%, var(--background)),
+      color-mix(in srgb, var(--background-alt) 98%, var(--background))
+    );
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.7),
+    0 24px 64px rgba(15, 23, 42, 0.12);
+}
+
+:global(html[data-theme-mode="light"]) .commandDock,
+:global(html[data-theme-mode="light"]) .workspaceDockPanel,
+:global(html[data-theme-mode="light"]) .conversationQueueMetaPopup,
+:global(html[data-theme-mode="light"]) .botStudioChrome {
+  border-color: color-mix(in srgb, var(--line) 88%, var(--background));
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--surface) 98%, var(--background)),
+      color-mix(in srgb, var(--surface-soft) 97%, var(--background))
+    ),
+    radial-gradient(circle at top, color-mix(in srgb, var(--brand) 8%, transparent), transparent 42%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.78),
+    0 18px 42px rgba(15, 23, 42, 0.08);
+}
+
+:global(html[data-theme-mode="light"]) .commandDockBrand {
+  border-color: color-mix(in srgb, var(--brand) 26%, var(--background));
+  box-shadow: 0 16px 34px color-mix(in srgb, var(--brand) 18%, transparent);
+}
+
+:global(html[data-theme-mode="light"]) .commandDockButton {
+  border-color: color-mix(in srgb, var(--line) 86%, var(--background));
+  background: color-mix(in srgb, var(--surface) 94%, var(--background));
+  color: color-mix(in srgb, var(--foreground) 72%, var(--muted));
+}
+
+:global(html[data-theme-mode="light"]) .commandDockButton:hover {
+  background: color-mix(in srgb, var(--surface) 99%, var(--background));
+  color: var(--foreground);
+}
+
+:global(html[data-theme-mode="light"]) .commandDockButton[data-active="true"] {
+  border-color: color-mix(in srgb, var(--brand) 28%, var(--background));
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--brand-soft) 88%, var(--surface)),
+      color-mix(in srgb, var(--brand) 16%, var(--surface))
+    );
+  color: var(--foreground);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.72),
+    0 14px 28px color-mix(in srgb, var(--brand) 14%, transparent);
+}
+
+:global(html[data-theme-mode="light"]) .commandDockBadge {
+  box-shadow: 0 10px 18px color-mix(in srgb, var(--danger) 22%, transparent);
+}
+
+:global(html[data-theme-mode="light"]) .listCommandButton,
+:global(html[data-theme-mode="light"]) .listIconButton,
+:global(html[data-theme-mode="light"]) .listSearchAction {
+  border-color: color-mix(in srgb, var(--line) 88%, var(--background));
+  background: color-mix(in srgb, var(--surface) 96%, var(--background));
+  color: var(--foreground);
+}
+
+:global(html[data-theme-mode="light"]) .listSearchField {
+  border-color: color-mix(in srgb, var(--line) 88%, var(--background));
+  background: color-mix(in srgb, var(--surface) 98%, var(--background));
+  color: var(--foreground);
+}
+
+:global(html[data-theme-mode="light"]) .listSearchIcon,
+:global(html[data-theme-mode="light"]) .conversationQueueMetaTime {
+  color: color-mix(in srgb, var(--brand) 78%, var(--muted));
+}
+
+:global(html[data-theme-mode="light"]) .listSearchInput {
+  color: var(--foreground);
+}
+
+:global(html[data-theme-mode="light"]) .listSearchInput::placeholder {
+  color: color-mix(in srgb, var(--foreground) 44%, var(--muted));
+}
+
+:global(html[data-theme-mode="light"]) .conversationQueueMetaButton {
+  border-color: color-mix(in srgb, var(--line) 88%, var(--background));
+  background: color-mix(in srgb, var(--surface) 96%, var(--background));
+  color: color-mix(in srgb, var(--foreground) 72%, var(--muted));
+}
+
+:global(html[data-theme-mode="light"]) .conversationQueueMetaButton:hover,
+:global(html[data-theme-mode="light"]) .conversationQueueMetaPopupAction:hover {
+  background: color-mix(in srgb, var(--surface-raised) 96%, var(--background));
+  color: var(--foreground);
+}
+
+:global(html[data-theme-mode="light"]) .conversationQueueMetaPopupAction {
+  color: var(--foreground);
+}
+
+:global(html[data-theme-mode="light"]) .conversationQueueItem::after {
+  background:
+    radial-gradient(circle at left center, rgba(255, 255, 255, 0.58), rgba(255, 255, 255, 0.12) 22%, transparent 48%),
+    linear-gradient(
+      90deg,
+      color-mix(in srgb, var(--brand) 12%, transparent) 0%,
+      color-mix(in srgb, var(--success) 10%, transparent) 72%,
+      transparent 100%
+    );
+}
+
+:global(html[data-theme-mode="light"]) .conversationQueueItemUnread {
+  border-color: color-mix(in srgb, var(--brand) 22%, var(--line));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.74),
+    0 16px 28px rgba(15, 23, 42, 0.08);
+}
+
+:global(html[data-theme-mode="light"]) .conversationQueueItemUnread::before {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--brand) 92%, white), color-mix(in srgb, var(--success) 92%, white));
+}
+
+:global(html[data-theme-mode="light"]) .conversationQueueItemUnread strong,
+:global(html[data-theme-mode="light"]) .conversationQueueItemUnread p,
+:global(html[data-theme-mode="light"]) .conversationQueueItemUnread span {
+  color: var(--foreground);
+}
+
+:global(html[data-theme-mode="light"]) .whatsAppConversationShell {
+  border-color: color-mix(in srgb, var(--line) 88%, var(--background));
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--surface) 99%, var(--background)),
+      color-mix(in srgb, var(--surface-soft) 98%, var(--background))
+    ),
+    radial-gradient(circle at top, color-mix(in srgb, var(--brand) 9%, transparent), transparent 42%);
+}
+
+:global(html[data-theme-mode="light"]) .whatsAppConversationHeader {
+  border-bottom-color: color-mix(in srgb, var(--line) 92%, var(--background));
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--surface) 98%, var(--background)),
+      color-mix(in srgb, var(--surface-soft) 96%, var(--background))
+    ),
+    radial-gradient(circle at top left, color-mix(in srgb, var(--brand) 8%, transparent), transparent 36%);
+}
+
+:global(html[data-theme-mode="light"]) .whatsAppConversationIdentityText strong {
+  color: var(--foreground);
+}
+
+:global(html[data-theme-mode="light"]) .conversationIdentitySubtitle {
+  color: var(--muted);
+}
+
+:global(html[data-theme-mode="light"]) .conversationPresenceBadge {
+  color: color-mix(in srgb, var(--success) 88%, var(--foreground));
+  background: color-mix(in srgb, var(--success) 10%, var(--background));
+  border-color: color-mix(in srgb, var(--success) 18%, var(--background));
+}
+
+:global(html[data-theme-mode="light"]) .conversationContextBadge {
+  color: color-mix(in srgb, var(--foreground) 84%, var(--muted));
+  background: color-mix(in srgb, var(--surface-raised) 94%, var(--background));
+  border-color: color-mix(in srgb, var(--line) 88%, var(--background));
+}
+
+:global(html[data-theme-mode="light"]) .conversationContextBadge[data-tone="warning"],
+:global(html[data-theme-mode="light"]) .conversationContextBadge[data-tone="recovery"] {
+  color: color-mix(in srgb, var(--warning) 90%, var(--foreground));
+  background: color-mix(in srgb, var(--warning) 11%, var(--background));
+  border-color: color-mix(in srgb, var(--warning) 16%, var(--background));
+}
+
+:global(html[data-theme-mode="light"]) .conversationContextBadge[data-tone="success"],
+:global(html[data-theme-mode="light"]) .conversationContextBadge[data-tone="human"] {
+  color: color-mix(in srgb, var(--success) 90%, var(--foreground));
+  background: color-mix(in srgb, var(--success) 10%, var(--background));
+  border-color: color-mix(in srgb, var(--success) 16%, var(--background));
+}
+
+:global(html[data-theme-mode="light"]) .whatsAppConversationLoadingMask {
+  background:
+    linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.58),
+      rgba(255, 255, 255, 0.22) 28%,
+      rgba(255, 255, 255, 0)
+    );
+}
+
+:global(html[data-theme-mode="light"]) .whatsAppConversationLoadingChip {
+  border-color: color-mix(in srgb, var(--success) 20%, var(--line));
+  background: color-mix(in srgb, var(--surface) 98%, var(--background));
+  color: color-mix(in srgb, var(--success) 90%, var(--foreground));
+  box-shadow:
+    0 18px 36px -24px rgba(15, 23, 42, 0.18),
+    inset 0 1px 0 rgba(255, 255, 255, 0.84);
+}
+
+:global(html[data-theme-mode="light"]) .whatsAppTimeline {
+  background:
+    radial-gradient(circle at 18% 16%, rgba(15, 23, 42, 0.04) 0, rgba(15, 23, 42, 0.04) 1.7px, transparent 2.7px),
+    radial-gradient(circle at 80% 24%, color-mix(in srgb, var(--brand) 10%, transparent) 0, color-mix(in srgb, var(--brand) 10%, transparent) 2px, transparent 3px),
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--surface) 99%, var(--background)),
+      color-mix(in srgb, var(--background-alt) 96%, var(--background))
+    );
+}
+
+:global(html[data-theme-mode="light"]) .whatsAppBubbleInbound {
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--surface) 99%, var(--background)), color-mix(in srgb, var(--surface-soft) 96%, var(--background))),
+    radial-gradient(circle at top left, color-mix(in srgb, var(--brand) 8%, transparent), transparent 40%);
+  color: var(--foreground);
+}
+
+:global(html[data-theme-mode="light"]) .whatsAppBubbleOutbound {
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--chat-outbound) 98%, var(--background)), color-mix(in srgb, var(--chat-outbound) 92%, var(--background))),
+    radial-gradient(circle at top right, color-mix(in srgb, var(--success) 12%, transparent), transparent 42%);
+  color: var(--foreground);
+}
+
+:global(html[data-theme-mode="light"]) .whatsAppBubbleSystem {
+  background: color-mix(in srgb, var(--chat-system) 96%, var(--background));
+  color: color-mix(in srgb, var(--foreground) 78%, var(--muted));
+}
+
+:global(html[data-theme-mode="light"]) .whatsAppBubbleMeta {
+  color: color-mix(in srgb, var(--foreground) 62%, var(--muted));
+}
+
+:global(html[data-theme-mode="light"]) .whatsAppBubbleMetaOnMedia {
+  background: rgba(255, 255, 255, 0.72);
+}
+
+:global(html[data-theme-mode="light"]) .whatsAppQuotedSnippet,
+:global(html[data-theme-mode="light"]) .whatsAppDocumentCard,
+:global(html[data-theme-mode="light"]) .whatsAppAudioCard,
+:global(html[data-theme-mode="light"]) .whatsAppReplyBar,
+:global(html[data-theme-mode="light"]) .whatsAppImagePreviewBar,
+:global(html[data-theme-mode="light"]) .whatsAppReactionChip,
+:global(html[data-theme-mode="light"]) .whatsAppReactionPickerBubble,
+:global(html[data-theme-mode="light"]) .recoveryPaymentRow {
+  border-color: color-mix(in srgb, var(--line) 88%, var(--background));
+  background: color-mix(in srgb, var(--surface) 96%, var(--background));
+  color: var(--foreground);
+}
+
+:global(html[data-theme-mode="light"]) .whatsAppBubbleSender {
+  color: color-mix(in srgb, var(--brand) 78%, var(--muted));
+}
+
+:global(html[data-theme-mode="light"]) .whatsAppReplyButtonHover,
+:global(html[data-theme-mode="light"]) .whatsAppEmojiButton,
+:global(html[data-theme-mode="light"]) .whatsAppAttachButton {
+  border-color: color-mix(in srgb, var(--line) 88%, var(--background));
+  background: color-mix(in srgb, var(--surface) 96%, var(--background));
+  color: var(--foreground);
+}
+
+:global(html[data-theme-mode="light"]) .whatsAppComposerForm {
+  border-top-color: color-mix(in srgb, var(--line) 92%, var(--background));
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--surface) 98%, var(--background)),
+      color-mix(in srgb, var(--surface-soft) 97%, var(--background))
+    ),
+    radial-gradient(circle at top left, color-mix(in srgb, var(--brand) 7%, transparent), transparent 42%);
+}
+
+:global(html[data-theme-mode="light"]) .whatsAppComposerInput,
+:global(html[data-theme-mode="light"]) .internalNoteInput {
+  border-color: color-mix(in srgb, var(--line) 88%, var(--background)) !important;
+  background: color-mix(in srgb, var(--surface) 99%, var(--background)) !important;
+  color: var(--foreground) !important;
+}
+
+:global(html[data-theme-mode="light"]) .whatsAppComposerInput::placeholder,
+:global(html[data-theme-mode="light"]) .internalNoteInput::placeholder,
+:global(html[data-theme-mode="light"]) .whatsAppComposerHint {
+  color: var(--muted);
+}
+
+:global(html[data-theme-mode="light"]) .whatsAppDayDivider span {
+  border-color: color-mix(in srgb, var(--line) 88%, var(--background));
+  background: color-mix(in srgb, var(--surface) 96%, var(--background));
+  color: var(--muted);
+}
+
+:global(html[data-theme-mode="light"]) .contextTabs {
+  border-color: color-mix(in srgb, var(--line) 88%, var(--background));
+  background: color-mix(in srgb, var(--surface-soft) 96%, var(--background));
+}
+
+:global(html[data-theme-mode="light"]) .contextTab {
+  color: color-mix(in srgb, var(--foreground) 68%, var(--muted));
+}
+
+:global(html[data-theme-mode="light"]) .contextTabActive,
+:global(html[data-theme-mode="light"]) .recoveryPaymentRow strong {
+  color: var(--foreground);
+}
+
+:global(html[data-theme-mode="light"]) .botStudioFrame {
+  border-color: color-mix(in srgb, var(--line) 88%, var(--background));
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--surface) 99%, var(--background)),
+      color-mix(in srgb, var(--surface-soft) 97%, var(--background))
+    );
+  box-shadow: 0 28px 68px rgba(15, 23, 42, 0.16);
+}
+
+:global(html[data-theme-mode="light"]) .botStudioOverlay {
+  background: rgba(238, 242, 249, 0.72);
+}
+
+:global(html[data-theme-mode="light"]) .metaBadge {
+  border-color: color-mix(in srgb, var(--line) 88%, var(--background));
+  background: color-mix(in srgb, var(--surface-raised) 96%, var(--background));
+  color: var(--foreground);
+}
+
+:global(html[data-theme-mode="light"]) .workspaceDockBody,
+:global(html[data-theme-mode="light"]) .whatsAppTimeline,
+:global(html[data-theme-mode="light"]) .contextStack,
+:global(html[data-theme-mode="light"]) .recoveryPaymentHistory,
+:global(html[data-theme-mode="light"]) .botStudioBody,
+:global(html[data-theme-mode="light"]) .templateCatalog {
+  scrollbar-color: color-mix(in srgb, var(--brand) 22%, transparent) transparent;
+}
+
+:global(html[data-theme-mode="light"]) .workspaceDockBody::-webkit-scrollbar-thumb,
+:global(html[data-theme-mode="light"]) .whatsAppTimeline::-webkit-scrollbar-thumb,
+:global(html[data-theme-mode="light"]) .contextStack::-webkit-scrollbar-thumb,
+:global(html[data-theme-mode="light"]) .recoveryPaymentHistory::-webkit-scrollbar-thumb,
+:global(html[data-theme-mode="light"]) .botStudioBody::-webkit-scrollbar-thumb,
+:global(html[data-theme-mode="light"]) .templateCatalog::-webkit-scrollbar-thumb {
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--brand) 32%, transparent),
+    color-mix(in srgb, var(--brand) 14%, transparent)
+  );
+  background-clip: padding-box;
+}
+
+:global(html[data-theme-mode="light"]) .workspaceDockBody::-webkit-scrollbar-thumb:hover,
+:global(html[data-theme-mode="light"]) .whatsAppTimeline::-webkit-scrollbar-thumb:hover,
+:global(html[data-theme-mode="light"]) .contextStack::-webkit-scrollbar-thumb:hover,
+:global(html[data-theme-mode="light"]) .recoveryPaymentHistory::-webkit-scrollbar-thumb:hover,
+:global(html[data-theme-mode="light"]) .botStudioBody::-webkit-scrollbar-thumb:hover,
+:global(html[data-theme-mode="light"]) .templateCatalog::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--brand) 44%, transparent),
+    color-mix(in srgb, var(--info) 18%, transparent)
+  );
+  background-clip: padding-box;
+}
+
+@media (max-width: 1480px) {
+  .inboxCanvas {
+    grid-template-columns: 72px minmax(280px, 320px) minmax(0, 1fr) minmax(300px, 332px);
+  }
+}
+
+@media (max-width: 1280px) {
+  .premiumInboxShell {
+    height: auto;
+    min-height: calc(100dvh - var(--topbar-total-height) - 1rem);
+  }
+
+  .inboxCanvas {
+    grid-template-columns: 72px minmax(280px, 320px) minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) minmax(280px, auto);
+  }
+
+  .inboxStageContext {
+    grid-column: 2 / -1;
+    grid-row: 2;
+  }
+}
+
+@media (max-width: 980px) {
+  .inboxCanvas {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto;
+  }
+
+  .commandDock {
+    grid-template-rows: none;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+  }
+
+  .commandDockNav {
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(0, 1fr);
+  }
+
+  .commandDockButton,
+  .commandDockBrand {
+    width: 46px;
+    height: 46px;
+  }
+
+  .quickActionsGrid {
+    grid-template-columns: 1fr;
+  }
 }

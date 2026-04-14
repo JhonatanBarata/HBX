@@ -25,6 +25,7 @@ type DashboardScaffoldProps = {
   showDashboardShortcut?: boolean;
   hideHeader?: boolean;
   hideNavigationRail?: boolean;
+  hideHoverModules?: boolean;
   layoutMode?: "default" | "workspace";
 };
 
@@ -68,6 +69,7 @@ export default function DashboardScaffold({
   showDashboardShortcut = true,
   hideHeader = false,
   hideNavigationRail = true,
+  hideHoverModules = false,
   layoutMode = "default",
 }: DashboardScaffoldProps) {
   const navPeekCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -81,7 +83,7 @@ export default function DashboardScaffold({
   const isWorkspaceMode = layoutMode === "workspace";
   // Mostrar o painel "peek" dos módulos escondidos no canto esquerdo por padrão
   // (padrão global: navegação em rail escondida, modules peek disponível).
-  const shouldShowHoverModules = true;
+  const shouldShowHoverModules = !hideHoverModules;
   const authenticated = useSyncExternalStore(subscribeAuth, getAuthSnapshot, getAuthServerSnapshot);
   const [presentationProfile, setPresentationProfile] = useState<PresentationProfile | null>(null);
   const [presentationConfig, setPresentationConfig] = useState<PresentationConfig | null>(null);
@@ -160,7 +162,7 @@ export default function DashboardScaffold({
           apiFetch("/profile/current-user").catch(() => null),
         ]);
         if (!mounted) return;
-        (window as any).__hbx_prefetch = {
+        (window as Window & { __hbx_prefetch?: { modules: unknown[]; profile: unknown } }).__hbx_prefetch = {
           modules: Array.isArray(modules) ? modules : [],
           profile,
         };

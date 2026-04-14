@@ -5,7 +5,7 @@ import { ChatDockPanel } from "@/components/chat/PremiumChat";
 
 type ConversationListPaneProps = {
   eyebrow?: string;
-  title: ReactNode;
+  title?: ReactNode;
   description?: ReactNode;
   count?: ReactNode;
   className?: string;

@@ -139,3 +139,80 @@
     max-width: none;
   }
 }
+
+/* Inbox dark premium override */
+
+:global(html[data-theme-mode="dark"]) .filterBar {
+  gap: 0.42rem;
+}
+
+:global(html[data-theme-mode="dark"]) .queueCard {
+  flex: 1 1 96px;
+  min-width: 96px;
+  max-width: none;
+  justify-items: center;
+  text-align: center;
+  align-content: center;
+  padding: 0.6rem 0.72rem;
+  border-radius: 18px;
+  border: 1px solid rgba(97, 119, 184, 0.16);
+  background:
+    linear-gradient(180deg, rgba(15, 23, 47, 0.9), rgba(11, 18, 36, 0.86)),
+    radial-gradient(circle at top right, rgba(79, 107, 255, 0.14), transparent 36%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.04),
+    0 12px 20px -18px rgba(2, 6, 23, 0.72);
+}
+
+:global(html[data-theme-mode="dark"]) .queueCard:hover {
+  transform: translateY(-1px);
+  border-color: rgba(116, 142, 232, 0.28);
+}
+
+:global(html[data-theme-mode="dark"]) .queueCard[data-active="true"] {
+  border-color: rgba(97, 125, 226, 0.38);
+  background:
+    linear-gradient(180deg, rgba(31, 55, 140, 0.94), rgba(19, 36, 88, 0.92)),
+    radial-gradient(circle at top right, rgba(116, 142, 232, 0.16), transparent 42%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    0 18px 28px -20px rgba(55, 82, 234, 0.62);
+}
+
+:global(html[data-theme-mode="dark"]) .queueCard[data-dropover="true"] {
+  transform: translateY(-2px) scale(1.01);
+  border-color: rgba(124, 149, 236, 0.4);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    0 22px 32px -20px rgba(55, 82, 234, 0.68);
+}
+
+:global(html[data-theme-mode="dark"]) .queueTitle {
+  font-size: 0.73rem;
+  font-weight: 800;
+  color: #dbe5ff;
+  text-align: center;
+}
+
+:global(html[data-theme-mode="dark"]) .queueCount {
+  font-size: 1.18rem;
+  color: #f1f5ff;
+}
+
+:global(html[data-theme-mode="dark"]) .queueCount[data-rolling="true"] {
+  color: #fff;
+  text-shadow: 0 0 16px rgba(97, 125, 226, 0.38);
+}
+
+:global(html[data-theme-mode="dark"]) .receiveHint {
+  left: 50%;
+  right: auto;
+  bottom: 0.5rem;
+  transform: translateX(-50%) translateY(4px);
+  font-size: 0.58rem;
+  color: #bdccf3;
+}
+
+:global(html[data-theme-mode="dark"]) .queueCard[data-dropover="true"] .receiveHint {
+  transform: translateX(-50%) translateY(0);
+}

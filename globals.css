@@ -193,7 +193,7 @@ html[data-theme="shadcn"] body.app-root::before {
   background-size: 42px 42px;
 }
 
-html[data-theme="tailadmin"] body.app-root::before {
+body.app-root::before {
   opacity: 0.54;
   background-size: 28px 28px;
 }
@@ -208,7 +208,7 @@ html[data-theme="mosaic"] body.app-root::before {
   background-size: auto, auto, 46px 46px, 46px 46px;
 }
 
-html[data-theme="flowbite"] body.app-root::before {
+body.app-root::before {
   opacity: 0.36;
   background:
     radial-gradient(circle, color-mix(in srgb, var(--brand) 12%, transparent) 1px, transparent 1px),
