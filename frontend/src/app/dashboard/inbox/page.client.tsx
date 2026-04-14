@@ -2953,7 +2953,7 @@ export default function InboxClientPage() {
   const deleteConversationById = useCallback(
     async (conversationId: string) => {
       if (!conversationId) return;
-      const confirmed = window.confirm("Excluir esta conversa do sistema?");
+      const confirmed = window.confirm("Excluir esta conversa do sistema e enviar comando de exclusao para o WhatsApp?");
       if (!confirmed) return;
       setError(null);
       try {
@@ -2966,7 +2966,7 @@ export default function InboxClientPage() {
           setSelectedConversation(null);
           setSelectedId(null);
         }
-        setNotice({ tone: "success", text: "Conversa excluida com sucesso." });
+        setNotice({ tone: "success", text: "Conversa excluida do sistema e comando enviado ao WhatsApp." });
         await loadConversations({
           preferredId: selectedIdRef.current === conversationId ? null : selectedIdRef.current,
           silent: true,
@@ -3882,9 +3882,9 @@ export default function InboxClientPage() {
       context: () => (
         <ConversationContextPanel
           eyebrow={undefined}
-          title="Cliente"
+          title={undefined}
           description={undefined}
-          count={selectedConversation ? CONTEXT_TAB_ITEMS.find((item) => item.id === contextTab)?.label : "--"}
+          count={undefined}
           actions={
             selectedConversation ? (
               <WorkspaceSegmentedControl
@@ -4053,14 +4053,7 @@ export default function InboxClientPage() {
                                 <p>{formatDateLabel(getAtendimentoRecoveryPaymentDate(payment), mounted)}</p>
                               </div>
                               {payment.paymentUrl ? (
-                                <a
-                                  href={payment.paymentUrl}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  className="btn btn-secondary btn-sm"
-                                >
-                                  Abrir link
-                                </a>
+                                <span className={styles.recoveryPaymentLinkText}>Link disponivel no financeiro</span>
                               ) : null}
                             </article>
                           ))}
@@ -4601,7 +4594,6 @@ export default function InboxClientPage() {
         description="Inbox unificada com conversa dominante, Recovery como contexto e atalhos operacionais enxutos."
         hideHeader={true}
         hideNavigationRail={true}
-        hideHoverModules={true}
         layoutMode="workspace"
       >
         {error ? <div className="alert alert-error">{error}</div> : null}

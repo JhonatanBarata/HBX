@@ -104,6 +104,11 @@ export class InboxController {
     return this.inboxService.deleteConversation(req.user, id);
   }
 
+  @Patch('conversations/:id/read')
+  markConversationAsRead(@Req() req: any, @Param('id', ParseIntPipe) id: number) {
+    return this.inboxService.markConversationAsRead(req.user, id);
+  }
+
   @Patch('conversations/bulk-bot')
   bulkSetBot(@Req() req: any, @Body() dto: BulkSetBotDto) {
     return this.inboxService.bulkSetBotActive(req.user, dto);
@@ -170,6 +175,19 @@ export class InboxController {
     @Param('messageId', ParseIntPipe) messageId: number,
   ) {
     return this.inboxService.deleteConversationMessageForEveryone(
+      req.user,
+      conversationId,
+      messageId,
+    );
+  }
+
+  @Delete('conversations/:conversationId/messages/:messageId/local')
+  deleteMessageLocally(
+    @Req() req: any,
+    @Param('conversationId', ParseIntPipe) conversationId: number,
+    @Param('messageId', ParseIntPipe) messageId: number,
+  ) {
+    return this.inboxService.deleteConversationMessageLocally(
       req.user,
       conversationId,
       messageId,

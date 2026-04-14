@@ -15,20 +15,19 @@
 }
 
 .navPeekHandle {
-  width: 26px;
-  min-height: 92px;
+  width: 40px;
+  min-height: 40px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 0.35rem;
-  padding: 0.4rem 0.2rem;
+  gap: 0;
+  padding: 0;
   border: 1px solid color-mix(in srgb, var(--line) 88%, var(--background));
-  border-left: none;
-  border-radius: 0 18px 18px 0;
+  border-radius: 12px;
   background:
     linear-gradient(180deg, color-mix(in srgb, var(--surface) 98%, var(--background)), color-mix(in srgb, var(--surface-raised) 94%, var(--background)));
   box-shadow: var(--shadow-inset), var(--shadow-sm);
-  transform: translateX(-6px);
+  transform: none;
   opacity: 0.95;
   transition:
     transform var(--motion-base),
@@ -45,21 +44,19 @@
 }
 
 .navPeekHandleEdge {
-  width: 3px;
-  height: 38px;
-  border-radius: 999px;
+  width: 6px;
+  height: 6px;
+  border-radius: 2px;
   background: linear-gradient(180deg, var(--brand), var(--brand-solid));
+  box-shadow:
+    10px 0 0 0 color-mix(in srgb, var(--brand) 88%, var(--brand-solid)),
+    0 10px 0 0 color-mix(in srgb, var(--brand) 80%, var(--brand-solid)),
+    10px 10px 0 0 color-mix(in srgb, var(--brand) 96%, var(--brand-solid));
   flex: 0 0 auto;
 }
 
 .navPeekHandleLabel {
-  writing-mode: vertical-rl;
-  transform: rotate(180deg);
-  font-size: 0.68rem;
-  font-weight: 900;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: color-mix(in srgb, var(--foreground) 84%, var(--muted));
+  display: none;
 }
 
 .navPeekPanel {

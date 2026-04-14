@@ -101,9 +101,19 @@ type RecoveryAlertSummary = {
   conversations: RecoveryAlertConversation[];
 };
 type InboxAlertMessage = {
+  id?: string;
   direction: string;
   content: string;
   createdAt: string;
+};
+
+type TopBarUnreadEntry = {
+  conversationId: string;
+  conversationLabel: string;
+  messageId: string;
+  messagePreview: string;
+  messageAt: string;
+  unreadCount: number;
 };
 type InboxAlertConversation = {
   id: string;
@@ -198,6 +208,7 @@ export default function TopBar() {
   const pathname = usePathname();
   const topbarFrameRef = useRef<HTMLDivElement | null>(null);
   const userMenuRef = useRef<HTMLDivElement | null>(null);
+  const unreadMenuRef = useRef<HTMLDivElement | null>(null);
   const { isShuttingDown, runGlobalShutdown } = useInterfaceTransition();
   const { setStorageUserId } = useHbxTheme();
 
@@ -212,6 +223,10 @@ export default function TopBar() {
   const [operationalStatus, setOperationalStatus] = useState<OperationalStatusPayload | null>(null);
   const [recoveryPendingHumanCount, setRecoveryPendingHumanCount] = useState(0);
   const [atendimentoPendingHumanCount, setAtendimentoPendingHumanCount] = useState(0);
+  const [unreadInboxOpen, setUnreadInboxOpen] = useState(false);
+  const [unreadInboxLoading, setUnreadInboxLoading] = useState(false);
+  const [unreadInboxError, setUnreadInboxError] = useState<string | null>(null);
+  const [unreadInboxEntries, setUnreadInboxEntries] = useState<TopBarUnreadEntry[]>([]);
   const [incomingPopup, setIncomingPopup] = useState<TopBarIncomingPopup | null>(null);
   const [masterContextModalOpen, setMasterContextModalOpen] = useState(false);
   const [masterContextActionBusy, setMasterContextActionBusy] = useState(false);
@@ -1016,6 +1031,110 @@ export default function TopBar() {
     router.push(moduleKey === "atendimento" ? "/dashboard/inbox" : "/dashboard/inbox/recovery");
   }
 
+  async function loadUnreadInboxEntries() {
+    setUnreadInboxLoading(true);
+    setUnreadInboxError(null);
+    try {
+      const rows = await apiFetch<InboxAlertConversation[]>("/inbox/conversations?take=80");
+      const normalizedRows = Array.isArray(rows) ? rows : [];
+      const entries: TopBarUnreadEntry[] = [];
+
+      for (const conversation of normalizedRows) {
+        const unreadCount = Math.max(0, Math.trunc(Number(conversation?.metadata?.whatsappUnreadCount || 0)));
+        if (!unreadCount) continue;
+
+        const allMessages = Array.isArray(conversation.messages) ? conversation.messages : [];
+        const inboundMessages = allMessages.filter(
+          (message) => String(message?.direction || "").trim().toLowerCase() === "inbound",
+        );
+        const unreadMessages = (inboundMessages.length ? inboundMessages : allMessages).slice(-unreadCount);
+        const baseLabel = String(conversation.customer?.name || "").trim() || conversation.customer?.phone || "Cliente";
+
+        for (const message of unreadMessages) {
+          const messageId = String(message?.id || "").trim();
+          if (!messageId) continue;
+          entries.push({
+            conversationId: String(conversation.id),
+            conversationLabel: baseLabel,
+            messageId,
+            messagePreview: String(message?.content || "Nova mensagem").trim() || "Nova mensagem",
+            messageAt: String(message?.createdAt || conversation.updatedAt || ""),
+            unreadCount,
+          });
+        }
+      }
+
+      entries.sort((a, b) => new Date(b.messageAt).getTime() - new Date(a.messageAt).getTime());
+      setUnreadInboxEntries(entries.slice(0, 30));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Falha ao carregar mensagens não lidas.";
+      setUnreadInboxError(message);
+      setUnreadInboxEntries([]);
+    } finally {
+      setUnreadInboxLoading(false);
+    }
+  }
+
+  async function toggleUnreadInboxPopup() {
+    if (unreadInboxOpen) {
+      setUnreadInboxOpen(false);
+      return;
+    }
+    setUnreadInboxOpen(true);
+    await loadUnreadInboxEntries();
+  }
+
+  async function markUnreadConversationAsRead(conversationId: string) {
+    if (!conversationId) return;
+    try {
+      await apiFetch(`/inbox/conversations/${conversationId}/read`, {
+        method: "PATCH",
+      });
+      setUnreadInboxEntries((current) =>
+        current.filter((entry) => entry.conversationId !== conversationId),
+      );
+      setAtendimentoPendingHumanCount((current) => Math.max(0, current - 1));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Falha ao marcar conversa como lida.";
+      setUnreadInboxError(message);
+    }
+  }
+
+  async function deleteUnreadMessage(entry: TopBarUnreadEntry) {
+    try {
+      await apiFetch(
+        `/inbox/conversations/${entry.conversationId}/messages/${entry.messageId}/local`,
+        {
+          method: "DELETE",
+        },
+      );
+      setUnreadInboxEntries((current) =>
+        current.filter((row) => !(row.conversationId === entry.conversationId && row.messageId === entry.messageId)),
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Falha ao excluir mensagem.";
+      setUnreadInboxError(message);
+    }
+  }
+
+  useEffect(() => {
+    if (!unreadInboxOpen) return;
+    const onPointerDown = (event: PointerEvent) => {
+      if (!unreadMenuRef.current?.contains(event.target as Node)) {
+        setUnreadInboxOpen(false);
+      }
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setUnreadInboxOpen(false);
+    };
+    window.addEventListener("pointerdown", onPointerDown);
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener("pointerdown", onPointerDown);
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [unreadInboxOpen]);
+
   async function openWhatsAppDiagnostic(focus: WhatsAppDiagnosticFocus) {
     setWhatsAppQrRequested(false);
     setWhatsAppDetailFocus(focus);
@@ -1437,26 +1556,85 @@ export default function TopBar() {
 
             {authenticated && user && !user.isSystemMaster && user.company?.id ? (
               <div className="app-topbar__signals">
-                <button
-                  type="button"
-                  className={`wa-health-wrap ${atendimentoPendingHumanCount > 0 ? "wa-health-wrap--alert" : ""}`}
-                  onClick={() => handleQueueShortcut("atendimento")}
-                >
-                  <span
-                    className={`wa-health wa-health--${whatsAppHealth}`}
-                    title={`${whatsAppHealthLabel} · Atendimento: ${atendimentoPendingHumanCount}`}
-                    aria-label={`${whatsAppHealthLabel} · Atendimento: ${atendimentoPendingHumanCount}`}
+                <div ref={unreadMenuRef} className="wa-unread-wrap">
+                  <button
+                    type="button"
+                    className={`wa-health-wrap ${atendimentoPendingHumanCount > 0 ? "wa-health-wrap--alert" : ""}`}
+                    onClick={() => void toggleUnreadInboxPopup()}
                   >
-                    <svg viewBox="0 0 24 24" aria-hidden="true">
-                      <path d="M19.1 4.9A9.9 9.9 0 0 0 12 2a10 10 0 0 0-8.7 14.9L2 22l5.3-1.4A10 10 0 1 0 19.1 4.9Zm-7.1 15.4a8.2 8.2 0 0 1-4.2-1.2l-.3-.2-3.1.8.8-3-.2-.3a8.2 8.2 0 1 1 7 3.9Zm4.5-6.2c-.2-.1-1.2-.6-1.4-.7-.2-.1-.3-.1-.5.1-.1.2-.5.7-.6.8-.1.1-.2.1-.4 0s-.9-.3-1.7-1a6.4 6.4 0 0 1-1.2-1.5c-.1-.2 0-.3.1-.4l.3-.3.2-.3c.1-.1.1-.3 0-.4L10.4 8c-.1-.2-.3-.2-.4-.2h-.4c-.1 0-.4.1-.5.3-.2.2-.7.7-.7 1.6 0 1 .7 1.9.8 2 .1.1 1.3 2 3.2 2.8.5.2.9.4 1.2.5.5.1 1 .1 1.4.1.4-.1 1.2-.5 1.4-1 .2-.6.2-1 .1-1.1 0-.1-.2-.1-.4-.2Z" />
-                    </svg>
-                  </span>
-                  {atendimentoPendingHumanCount > 0 ? (
-                    <span className="wa-health__queue-badge" aria-hidden="true">
-                      {atendimentoPendingHumanCount}
+                    <span
+                      className={`wa-health wa-health--${whatsAppHealth}`}
+                      title={`${whatsAppHealthLabel} · Atendimento: ${atendimentoPendingHumanCount}`}
+                      aria-label={`${whatsAppHealthLabel} · Atendimento: ${atendimentoPendingHumanCount}`}
+                    >
+                      <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M19.1 4.9A9.9 9.9 0 0 0 12 2a10 10 0 0 0-8.7 14.9L2 22l5.3-1.4A10 10 0 1 0 19.1 4.9Zm-7.1 15.4a8.2 8.2 0 0 1-4.2-1.2l-.3-.2-3.1.8.8-3-.2-.3a8.2 8.2 0 1 1 7 3.9Zm4.5-6.2c-.2-.1-1.2-.6-1.4-.7-.2-.1-.3-.1-.5.1-.1.2-.5.7-.6.8-.1.1-.2.1-.4 0s-.9-.3-1.7-1a6.4 6.4 0 0 1-1.2-1.5c-.1-.2 0-.3.1-.4l.3-.3.2-.3c.1-.1.1-.3 0-.4L10.4 8c-.1-.2-.3-.2-.4-.2h-.4c-.1 0-.4.1-.5.3-.2.2-.7.7-.7 1.6 0 1 .7 1.9.8 2 .1.1 1.3 2 3.2 2.8.5.2.9.4 1.2.5.5.1 1 .1 1.4.1.4-.1 1.2-.5 1.4-1 .2-.6.2-1 .1-1.1 0-.1-.2-.1-.4-.2Z" />
+                      </svg>
                     </span>
+                    {atendimentoPendingHumanCount > 0 ? (
+                      <span className="wa-health__queue-badge" aria-hidden="true">
+                        {atendimentoPendingHumanCount}
+                      </span>
+                    ) : null}
+                  </button>
+
+                  {unreadInboxOpen ? (
+                    <div className="wa-unread-popup" role="dialog" aria-label="Mensagens não lidas">
+                      <div className="wa-unread-popup__head">
+                        <strong>Mensagens não lidas</strong>
+                        <button
+                          type="button"
+                          className="wa-unread-popup__link"
+                          onClick={() => {
+                            setUnreadInboxOpen(false);
+                            handleQueueShortcut("atendimento");
+                          }}
+                        >
+                          Abrir inbox
+                        </button>
+                      </div>
+
+                      {unreadInboxLoading ? <p className="wa-unread-popup__state">Carregando...</p> : null}
+                      {unreadInboxError ? <p className="wa-unread-popup__state">{unreadInboxError}</p> : null}
+
+                      {!unreadInboxLoading && !unreadInboxError ? (
+                        unreadInboxEntries.length ? (
+                          <div className="wa-unread-popup__list">
+                            {unreadInboxEntries.map((entry) => (
+                              <div
+                                key={`${entry.conversationId}:${entry.messageId}`}
+                                className="wa-unread-popup__item"
+                              >
+                                <div className="wa-unread-popup__copy">
+                                  <strong>{entry.conversationLabel}</strong>
+                                  <p>{entry.messagePreview}</p>
+                                </div>
+                                <div className="wa-unread-popup__actions">
+                                  <button
+                                    type="button"
+                                    className="wa-unread-popup__action"
+                                    onClick={() => void markUnreadConversationAsRead(entry.conversationId)}
+                                  >
+                                    Marcar lido
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="wa-unread-popup__action wa-unread-popup__action--danger"
+                                    onClick={() => void deleteUnreadMessage(entry)}
+                                  >
+                                    Excluir
+                                  </button>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="wa-unread-popup__state">Sem mensagens pendentes.</p>
+                        )
+                      ) : null}
+                    </div>
                   ) : null}
-                </button>
+                </div>
 
                 <button
                   type="button"

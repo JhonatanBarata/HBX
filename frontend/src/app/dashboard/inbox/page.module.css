@@ -4007,24 +4007,31 @@
 }
 
 .conversationQueueMetaStack {
-  display: grid;
-  justify-items: end;
-  gap: 0.3rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.16rem;
 }
 
 .conversationQueueMetaTime {
-  font-size: 0.68rem;
+  font-size: 0.66rem;
   font-weight: 700;
   color: #90a1c6;
+  line-height: 1;
 }
 
 .conversationQueueMetaButton {
-  width: 28px;
-  height: 28px;
-  border-radius: 10px;
+  width: 22px;
+  height: 22px;
+  border-radius: 8px;
   border: 1px solid rgba(97, 119, 184, 0.16);
   background: rgba(14, 21, 43, 0.78);
   color: #9fb0d8;
+}
+
+.conversationQueueMetaButton svg {
+  width: 12px;
+  height: 12px;
 }
 
 .conversationQueueMetaButton:hover {
@@ -4178,13 +4185,13 @@
 
 .whatsAppBubbleWrap {
   position: relative;
-  max-width: min(78%, 760px);
+  max-width: min(58%, 570px);
 }
 
 .whatsAppBubble {
   gap: 0.42rem;
-  border-radius: 20px;
-  padding: 0.76rem 0.92rem;
+  border-radius: 16px;
+  padding: 0.56rem 0.7rem;
   border: 1px solid rgba(97, 119, 184, 0.12);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.04),
@@ -4213,8 +4220,8 @@
 .whatsAppBubbleText {
   margin: 0;
   color: inherit;
-  font-size: 0.95rem;
-  line-height: 1.56;
+  font-size: 0.85rem;
+  line-height: 1.48;
 }
 
 .whatsAppBubbleMeta {
@@ -4223,7 +4230,7 @@
   justify-content: flex-end;
   gap: 0.34rem;
   margin-left: auto;
-  font-size: 0.69rem;
+  font-size: 0.62rem;
   color: rgba(232, 241, 255, 0.76);
 }
 
@@ -4437,6 +4444,13 @@
 
 .recoveryPaymentRow strong {
   color: #edf3ff;
+}
+
+.recoveryPaymentLinkText {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #9fb0d8;
+  white-space: nowrap;
 }
 
 .contextButtonRow {

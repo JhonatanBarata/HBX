@@ -1635,6 +1635,27 @@ export class InboxService {
   async deleteConversation(user: any, conversationId: number) {
     const companyId = this.requireCompanyIdFromUser(user);
     const conversation = await this.ensureConversation(companyId, conversationId);
+
+    // Try to delete chat on WhatsApp side before deleting local records.
+    // If WhatsApp runtime is unavailable, keep local deletion but register warning.
+    try {
+      await this.webwhatsBridge.deleteChat(companyId, {
+        conversationId: conversation.id,
+      });
+    } catch (error) {
+      await this.logInboxEvent({
+        companyId,
+        event: 'conversation_delete_whatsapp_failed',
+        message: 'Falha ao excluir conversa no WhatsApp antes da remocao local.',
+        conversationId,
+        phone: String(conversation.contact || '').trim(),
+        result: 'warning',
+        extra: {
+          error: error instanceof Error ? error.message : 'unknown_error',
+        },
+      });
+    }
+
     await this.prisma.$transaction(async (tx) => {
       await tx.companyMessage.deleteMany({
         where: { companyId, conversationId: conversation.id },
@@ -1652,6 +1673,41 @@ export class InboxService {
       result: 'deleted',
     });
     return { success: true, id: String(conversation.id) };
+  }
+
+  async markConversationAsRead(user: any, conversationId: number) {
+    const companyId = this.requireCompanyIdFromUser(user);
+    const conversation = await this.ensureConversation(companyId, conversationId);
+    const metadata = this.parseConversationMetadata(conversation.metadata);
+    const nextMetadata = {
+      ...metadata,
+      whatsappUnreadCount: 0,
+    };
+
+    await this.prisma.companyConversation.update({
+      where: { id: conversation.id },
+      data: {
+        metadata: JSON.stringify(nextMetadata),
+      },
+    });
+
+    return this.getConversationByIdForCompany(companyId, conversation.id);
+  }
+
+  async deleteConversationMessageLocally(
+    user: any,
+    conversationId: number,
+    messageId: number,
+  ) {
+    const companyId = this.requireCompanyIdFromUser(user);
+    const conversation = await this.ensureConversation(companyId, conversationId);
+    await this.ensureConversationMessage(companyId, conversation.id, messageId);
+
+    await this.prisma.companyMessage.delete({
+      where: { id: messageId },
+    });
+
+    return this.getConversationByIdForCompany(companyId, conversation.id);
   }
 
   async reactToConversationMessage(
