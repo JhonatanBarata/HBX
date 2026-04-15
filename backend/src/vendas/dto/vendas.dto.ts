@@ -1,4 +1,4 @@
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
   ArrayMaxSize,
   IsArray,
@@ -12,6 +12,12 @@ import {
 
 const LEAD_STATUSES = ['novo', 'contato', 'retorno', 'qualificado', 'encerrado'] as const;
 
+function optionalEmail(value: unknown) {
+  if (typeof value !== 'string') return value;
+  const normalized = value.trim().toLowerCase();
+  return normalized ? normalized : undefined;
+}
+
 export class CreateManualVendasLeadDto {
   @IsOptional()
   @IsString()
@@ -24,6 +30,7 @@ export class CreateManualVendasLeadDto {
   phone?: string;
 
   @IsOptional()
+  @Transform(({ value }) => optionalEmail(value))
   @IsEmail()
   email?: string;
 
@@ -58,6 +65,7 @@ export class UpdateVendasLeadDto {
   phone?: string;
 
   @IsOptional()
+  @Transform(({ value }) => optionalEmail(value))
   @IsEmail()
   email?: string;
 
@@ -96,6 +104,7 @@ export class ImportWebscrapingLeadItemDto {
   phoneDigits?: string;
 
   @IsOptional()
+  @Transform(({ value }) => optionalEmail(value))
   @IsEmail()
   email?: string;
 

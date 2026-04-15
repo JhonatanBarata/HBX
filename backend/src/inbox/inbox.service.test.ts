@@ -201,6 +201,62 @@ test('sendMessage clears pending Vendas agenda draft after queueing manual outbo
     false,
   );
   assert.ok((conversationStateCalls[0].payload as any).metadata.vendasAgendaQueue.lastManualSendAt);
+  assert.equal(
+    (conversationStateCalls[0].payload as any).metadata.vendasAgendaQueue.manualSent,
+    true,
+  );
+  assert.ok((conversationStateCalls[0].payload as any).metadata.vendasAgendaQueue.manualSentAt);
+  assert.equal(
+    (conversationStateCalls[0].payload as any).metadata.vendasAgendaQueue.botEligible,
+    false,
+  );
+  assert.equal(
+    (conversationStateCalls[0].payload as any).metadata.vendasAgendaQueue.botEntryPending,
+    true,
+  );
+});
+
+test('sendMessage marks manual send metadata even when the inherited draft was already consumed', async () => {
+  const { service, conversationStateCalls } = createService({
+    prisma: {
+      companyConversation: {
+        findFirst: async () => ({
+          id: 42,
+          companyId: 7,
+          channel: 'whatsapp',
+          contact: '+5519998877766',
+          humanAssigned: false,
+          botActive: true,
+          flowResult: null,
+          metadata: JSON.stringify({
+            vendasAgendaQueue: {
+              active: true,
+              leadId: 'lead-1',
+              draftMessage: 'Olá, Carlos. Estou retomando nosso contato pelo HBX Vendas.',
+              draftPending: false,
+            },
+          }),
+          createdAt: new Date('2026-03-18T10:00:00.000Z'),
+          updatedAt: new Date('2026-03-18T10:01:00.000Z'),
+          messages: [],
+        }),
+      },
+    },
+  });
+  (service as any).getConversationByIdForCompany = async () => ({ id: '42', messages: [] });
+
+  await service.sendMessage({ companyId: 7 }, 42, 'Seguindo com seu atendimento');
+
+  assert.equal(conversationStateCalls.length, 1);
+  assert.equal(
+    (conversationStateCalls[0].payload as any).metadata.vendasAgendaQueue.manualSent,
+    true,
+  );
+  assert.ok((conversationStateCalls[0].payload as any).metadata.vendasAgendaQueue.manualSentAt);
+  assert.equal(
+    (conversationStateCalls[0].payload as any).metadata.vendasAgendaQueue.botEntryPending,
+    true,
+  );
 });
 
 test('updateConversationStatus maps open and closed to real conversation flags', async () => {
@@ -254,6 +310,66 @@ test('updateConversationStatus maps open and closed to real conversation flags',
   assert.equal(auditCalls.length, 2);
   assert.equal(auditCalls[0].event, 'conversation_status_updated');
   assert.equal(auditCalls[1].event, 'conversation_status_updated');
+});
+
+test('blockConversation persists BOT_OFF on CustomerProfile', async () => {
+  const profileStateCalls: Array<Record<string, unknown>> = [];
+  const { service } = createService({
+    prisma: {
+      companyMessage: {
+        create: async ({ data }: any) => ({ id: 801, ...data }),
+      },
+    },
+    customerProfileService: {
+      upsertAtendimentoProfileState: async (input: Record<string, unknown>) => {
+        profileStateCalls.push(input);
+        return { id: 'profile-1', ...input };
+      },
+    },
+    webwhatsBridge: {
+      updateBlockStatus: async () => undefined,
+      archiveChat: async () => undefined,
+    },
+  });
+  (service as any).getConversationByIdForCompany = async () => ({ id: '42', messages: [] });
+
+  await service.blockConversation({ companyId: 7, id: 99 }, 42, 'Fila humana manual');
+
+  assert.equal(profileStateCalls.length, 1);
+  assert.equal(profileStateCalls[0].companyId, 7);
+  assert.equal(profileStateCalls[0].phone, '+5519998877766');
+  assert.equal(profileStateCalls[0].botOff, true);
+  assert.equal(profileStateCalls[0].botOffReason, 'Fila humana manual');
+  assert.ok(profileStateCalls[0].botOffAt instanceof Date);
+});
+
+test('unblockConversation clears BOT_OFF on CustomerProfile', async () => {
+  const profileStateCalls: Array<Record<string, unknown>> = [];
+  const { service } = createService({
+    prisma: {
+      companyMessage: {
+        create: async ({ data }: any) => ({ id: 802, ...data }),
+      },
+    },
+    customerProfileService: {
+      upsertAtendimentoProfileState: async (input: Record<string, unknown>) => {
+        profileStateCalls.push(input);
+        return { id: 'profile-1', ...input };
+      },
+    },
+    webwhatsBridge: {
+      updateBlockStatus: async () => undefined,
+      archiveChat: async () => undefined,
+    },
+  });
+  (service as any).getConversationByIdForCompany = async () => ({ id: '42', messages: [] });
+
+  await service.unblockConversation({ companyId: 7, id: 99 }, 42);
+
+  assert.equal(profileStateCalls.length, 1);
+  assert.equal(profileStateCalls[0].companyId, 7);
+  assert.equal(profileStateCalls[0].phone, '+5519998877766');
+  assert.equal(profileStateCalls[0].botOff, false);
 });
 
 test('deleteConversation removes local records after WhatsApp confirms deletion', async () => {

@@ -4,6 +4,11 @@ import assert from 'node:assert/strict';
 import { MessagingService } from './messaging.service';
 
 function createService(overrides?: Partial<Record<string, any>>) {
+  const queueCalls: Array<Record<string, unknown>> = [];
+  const conversationStateCalls: Array<Record<string, unknown>> = [];
+  const auditCalls: Array<Record<string, unknown>> = [];
+  const companyMessageUpdateCalls: Array<Record<string, unknown>> = [];
+
   const prisma = {
     hasTable: async () => false,
     hasColumn: async () => false,
@@ -14,8 +19,50 @@ function createService(overrides?: Partial<Record<string, any>>) {
         }
         return null;
       },
+      findUnique: async ({ where }: any) => ({
+        id: Number(where?.id || 7),
+        name: 'HBX Solutions',
+        timezone: 'America/Sao_Paulo',
+      }),
+    },
+    companyConversation: {
+      findFirst: async () => null,
+    },
+    companyMessage: {
+      count: async () => 0,
+      findFirst: async () => null,
+      create: async ({ data }: any) => ({ id: 501, ...data }),
+      update: async (input: Record<string, unknown>) => {
+        companyMessageUpdateCalls.push(input);
+        return input;
+      },
+    },
+    atendimentoCustomer: {
+      findUnique: async () => null,
+    },
+    hbxRecoveryFlowStage: {
+      findFirst: async () => null,
     },
     ...(overrides?.prisma || {}),
+  } as any;
+
+  const conversations = {
+    queueOutboundForCompany: async (companyId: number, payload: Record<string, unknown>) => {
+      queueCalls.push({ companyId, payload });
+      return { outboundMessageId: 999, conversationId: payload.conversationId || 42 };
+    },
+    updateConversationState: async (companyId: number, conversationId: number, payload: Record<string, unknown>) => {
+      conversationStateCalls.push({ companyId, conversationId, payload });
+      return { id: conversationId, ...payload };
+    },
+    ...(overrides?.conversations || {}),
+  } as any;
+
+  const audit = {
+    log: async (payload: Record<string, unknown>) => {
+      auditCalls.push(payload);
+    },
+    ...(overrides?.audit || {}),
   } as any;
 
   const service = new MessagingService(
@@ -23,15 +70,22 @@ function createService(overrides?: Partial<Record<string, any>>) {
     (overrides?.sessions || {}) as any,
     (overrides?.orchestrator || {}) as any,
     (overrides?.drafts || {}) as any,
-    (overrides?.conversations || {}) as any,
-    ({ log: async () => undefined, ...(overrides?.audit || {}) } as any),
+    conversations,
+    audit,
     (overrides?.mercadoPagoClient || {}) as any,
     (overrides?.cadastrosService || {}) as any,
     (overrides?.customerProfileService || {}) as any,
     ({ sendText: async () => undefined, ...(overrides?.webwhatsBridge || {}) } as any),
   );
 
-  return { service, prisma };
+  return {
+    service,
+    prisma,
+    queueCalls,
+    conversationStateCalls,
+    auditCalls,
+    companyMessageUpdateCalls,
+  };
 }
 
 test('upsertAtendimentoCustomerLocal reuses known customer profile before syncing atendimento projection', async () => {
@@ -127,6 +181,54 @@ test('upsertAtendimentoCustomerLocal preserves atendimento sync when profile res
   assert.equal(upsertCalls[0].route, 'atendimento');
 });
 
+test('upsertAtendimentoCustomerLocal persists confirmed inbound state into CustomerProfile', async () => {
+  const profileStateCalls: Array<Record<string, unknown>> = [];
+  const registryCalls: Array<Record<string, unknown>> = [];
+  const inboundAt = new Date('2026-04-15T10:00:00.000Z');
+  const { service } = createService({
+    cadastrosService: {
+      upsertCustomerRegistry: async (input: Record<string, unknown>) => {
+        registryCalls.push(input);
+        return { id: 'registry-4' };
+      },
+    },
+    customerProfileService: {
+      normalizePhone: (phone: string) => String(phone || '').replace(/\D/g, '').slice(-13),
+      upsertAtendimentoProfileState: async (input: Record<string, unknown>) => {
+        profileStateCalls.push(input);
+        return { id: 'profile-shared', ...input };
+      },
+    },
+  });
+
+  await (service as any).upsertAtendimentoCustomerLocal({
+    companyId: 7,
+    phone: '+55 19 99887-7766',
+    name: 'Carlos Eduardo',
+    registrationStatus: 'confirmed',
+    conversationId: 42,
+    nameSource: 'confirmed_inbound',
+    inboundAt,
+    metadata: {
+      atendimentoBlockedAt: '2026-04-15T09:55:00.000Z',
+      atendimentoBlockedReason: 'Fila humana manual',
+    },
+  });
+
+  assert.equal(profileStateCalls.length, 1);
+  assert.equal(profileStateCalls[0].confirmedName, 'Carlos Eduardo');
+  assert.equal(profileStateCalls[0].profileName, null);
+  assert.equal(profileStateCalls[0].nameConfirmed, true);
+  assert.equal(profileStateCalls[0].nameSource, 'confirmed_inbound');
+  assert.deepEqual(profileStateCalls[0].inboundAt, inboundAt);
+  assert.equal(profileStateCalls[0].botOff, true);
+  assert.equal(profileStateCalls[0].botOffReason, 'Fila humana manual');
+  assert.ok(profileStateCalls[0].botOffAt instanceof Date);
+  assert.equal(registryCalls.length, 1);
+  assert.equal(registryCalls[0].customerProfileId, 'profile-shared');
+  assert.deepEqual(registryCalls[0].lastMessageAt, inboundAt);
+});
+
 test('handleInboundProxyMessage normalizes template inbound as text before persistence', async () => {
   const { service } = createService();
   let captured: Record<string, unknown> | null = null;
@@ -171,4 +273,176 @@ test('handleInboundProxyMessage discards unmapped company without invoking persi
 
   assert.deepEqual(result, { ok: true, discarded: true });
   assert.equal(called, false);
+});
+
+test('handleAtendimentoInbound enters the Vendas agenda bot gate and opens the main menu after manual reply', async () => {
+  const { service, queueCalls, conversationStateCalls, companyMessageUpdateCalls } = createService({
+    prisma: {
+      companyConversation: {
+        findFirst: async () => ({
+          id: 42,
+          metadata: JSON.stringify({
+            cliente: 'Carlos',
+            vendasAgendaQueue: {
+              active: true,
+              leadId: 'lead-1',
+              sourceModule: 'vendas',
+              sourceBlock: 'today',
+              manualSent: true,
+              manualSentAt: '2026-04-15T10:00:00.000Z',
+              botEntryPending: true,
+            },
+          }),
+          currentFlow: 'atendimento_whatsapp_hibrido',
+          currentStep: 'atendimento_humano',
+          flowResult: null,
+          botActive: false,
+          humanAssigned: true,
+        }),
+      },
+      atendimentoCustomer: {
+        findUnique: async () => ({
+          name: 'Carlos',
+          registrationStatus: 'confirmed',
+          customerProfile: { name: 'Carlos' },
+        }),
+      },
+      companyMessage: {
+        count: async () => 2,
+        findFirst: async () => null,
+        create: async ({ data }: any) => ({ id: 501, ...data }),
+        update: async (input: Record<string, unknown>) => {
+          companyMessageUpdateCalls.push(input);
+          return input;
+        },
+      },
+    },
+    cadastrosService: {
+      upsertCustomerRegistry: async () => ({ id: 'registry-1' }),
+    },
+    customerProfileService: {
+      normalizePhone: (phone: string) => String(phone || '').replace(/\D/g, '').slice(-13),
+      upsertProfile: async () => ({ id: 'profile-1', name: 'Carlos', status: 'active' }),
+    },
+  });
+
+  const result = await (service as any).handleAtendimentoInbound({
+    companyId: 7,
+    from: '+55 19 99887-7766',
+    text: 'Tenho interesse',
+    conversationId: 42,
+    inboundMessageId: 88,
+    timestamp: new Date('2026-04-15T10:05:00.000Z'),
+    company: { id: 7, name: 'HBX Solutions', timezone: 'America/Sao_Paulo' },
+    recoveryCustomer: null,
+    rawPayload: {},
+  });
+
+  assert.equal(result.handled, true);
+  assert.equal(result.vendasAgendaBotGate, true);
+  assert.equal(queueCalls.length, 1);
+  assert.equal((queueCalls[0].payload as any).sourceModule, 'atendimento_bot');
+  assert.equal((queueCalls[0].payload as any).flowState.currentStep, 'menu_principal');
+  assert.equal((queueCalls[0].payload as any).body, 'Escolha abaixo como deseja continuar:');
+  assert.equal(conversationStateCalls.length, 1);
+  assert.equal((conversationStateCalls[0].payload as any).humanAssigned, false);
+  assert.equal((conversationStateCalls[0].payload as any).botActive, true);
+  assert.equal(
+    (conversationStateCalls[0].payload as any).metadata.vendasAgendaQueue.botEligible,
+    true,
+  );
+  assert.equal(
+    (conversationStateCalls[0].payload as any).metadata.vendasAgendaQueue.botEntryPending,
+    false,
+  );
+  assert.equal((conversationStateCalls[0].payload as any).metadata.cliente, 'Carlos');
+  assert.equal(companyMessageUpdateCalls.length, 1);
+  assert.equal((companyMessageUpdateCalls[0] as any).data.sourceModule, 'atendimento_bot');
+});
+
+test('handleAtendimentoInbound asks for the name first when the Vendas agenda reply has no confirmed identity', async () => {
+  const { service, queueCalls, conversationStateCalls, companyMessageUpdateCalls } = createService({
+    prisma: {
+      companyConversation: {
+        findFirst: async () => ({
+          id: 42,
+          metadata: JSON.stringify({
+            vendasAgendaQueue: {
+              active: true,
+              leadId: 'lead-2',
+              sourceModule: 'vendas',
+              sourceBlock: 'today',
+              manualSent: true,
+              manualSentAt: '2026-04-15T10:00:00.000Z',
+              botEntryPending: true,
+            },
+          }),
+          currentFlow: 'atendimento_whatsapp_hibrido',
+          currentStep: 'atendimento_humano',
+          flowResult: null,
+          botActive: false,
+          humanAssigned: true,
+        }),
+      },
+      atendimentoCustomer: {
+        findUnique: async () => ({
+          name: 'Contato novo',
+          registrationStatus: 'pending_confirmation',
+          customerProfile: { name: null },
+        }),
+      },
+      companyMessage: {
+        count: async () => 2,
+        findFirst: async () => null,
+        create: async ({ data }: any) => ({ id: 502, ...data }),
+        update: async (input: Record<string, unknown>) => {
+          companyMessageUpdateCalls.push(input);
+          return input;
+        },
+      },
+    },
+    cadastrosService: {
+      upsertCustomerRegistry: async () => ({ id: 'registry-2' }),
+    },
+    customerProfileService: {
+      normalizePhone: (phone: string) => String(phone || '').replace(/\D/g, '').slice(-13),
+      upsertProfile: async () => ({ id: 'profile-2', name: 'Contato novo', status: 'provisional' }),
+    },
+  });
+
+  const result = await (service as any).handleAtendimentoInbound({
+    companyId: 7,
+    from: '+55 19 99811-2233',
+    text: 'Oi',
+    conversationId: 42,
+    inboundMessageId: 89,
+    timestamp: new Date('2026-04-15T10:06:00.000Z'),
+    company: { id: 7, name: 'HBX Solutions', timezone: 'America/Sao_Paulo' },
+    recoveryCustomer: null,
+    rawPayload: {},
+  });
+
+  assert.equal(result.handled, true);
+  assert.equal(result.nameGate, true);
+  assert.equal(queueCalls.length, 1);
+  assert.equal(
+    (queueCalls[0].payload as any).body,
+    'Oi, tudo bem? Antes de continuar, como posso te chamar?',
+  );
+  assert.equal((queueCalls[0].payload as any).flowState.currentStep, 'coletando_nome');
+  assert.equal((queueCalls[0].payload as any).messageType, 'text');
+  assert.equal(conversationStateCalls.length, 1);
+  assert.equal((conversationStateCalls[0].payload as any).humanAssigned, false);
+  assert.equal((conversationStateCalls[0].payload as any).botActive, true);
+  assert.equal(
+    (conversationStateCalls[0].payload as any).metadata.vendasAgendaQueue.botEligible,
+    true,
+  );
+  assert.equal(
+    (conversationStateCalls[0].payload as any).metadata.vendasAgendaQueue.botEntryPending,
+    false,
+  );
+  assert.equal((conversationStateCalls[0].payload as any).metadata.cliente, undefined);
+  assert.equal(companyMessageUpdateCalls.length, 1);
+  assert.equal((companyMessageUpdateCalls[0] as any).data.sourceModule, 'atendimento_bot');
 });

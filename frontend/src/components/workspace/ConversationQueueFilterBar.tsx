@@ -23,7 +23,7 @@ type ConversationQueueFilterBarProps = {
 
 const OPTIONS: Array<{ value: ConversationQueueFilterValue; label: string }> = [
   { value: "all", label: "Conversas" },
-  { value: "archived", label: "Arquivados" },
+  { value: "archived", label: "Excluídos" },
   { value: "groups", label: "Grupos" },
   { value: "recovery", label: "Recovery" },
   { value: "scheduled", label: "Agendamento" },

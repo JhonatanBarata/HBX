@@ -101,17 +101,12 @@ export function hasAtendimentoOpenDebt(conversation: InboxConversation) {
 }
 
 export function hasAtendimentoRecoveryContext(conversation: InboxConversation) {
-  return (
-    Boolean(conversation.recoveryCustomerId) ||
-    hasAtendimentoOpenDebt(conversation) ||
-    Boolean(String(conversation.recoveryStatus || "").trim()) ||
-    hasAtendimentoFinancialFlowSignal(conversation)
-  );
+  return hasAtendimentoOpenDebt(conversation);
 }
 
 export function isAtendimentoRecoveryPrimary(conversation: InboxConversation) {
   return (
-    conversation.routeTarget === "recovery" ||
+    (conversation.routeTarget === "recovery" && hasAtendimentoOpenDebt(conversation)) ||
     (hasAtendimentoOpenDebt(conversation) && hasAtendimentoFinancialFlowSignal(conversation))
   );
 }
@@ -422,7 +417,7 @@ export function buildAtendimentoContextSummary(input: {
     });
   }
 
-  if (allowRecoveryCapability && conversation.latestSourceModule) {
+  if (hasRecoveryContext && conversation.latestSourceModule) {
     summary.push({
       label: "Origem do fluxo",
       value: formatRecoverySourceModuleLabel(conversation.latestSourceModule),
