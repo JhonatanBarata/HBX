@@ -156,6 +156,8 @@ type UserModule = {
   accessible: boolean;
 };
 
+type DeletedConversationAliasMap = Record<string, string>;
+
 type VendasAgendaQueueMetadata = {
   active?: boolean;
   leadId?: string | null;
@@ -177,6 +179,8 @@ const INBOX_QUEUE_ORDER: InboxQueue[] = [
 ];
 
 const INBOX_MANUAL_QUEUE_STORAGE_KEY = "hbx:inbox:manual-queue-overrides";
+const INBOX_DELETED_CONVERSATION_ALIASES_STORAGE_KEY = "hbx:inbox:deleted-conversation-aliases";
+const INBOX_GLOBAL_BOT_ENABLED_STORAGE_KEY = "hbx:inbox:global-bot-enabled";
 
 const ATENDIMENTO_PENDING_STORAGE_KEY = "atendimentoPendingHumanCount";
 const DEFAULT_META_TEMPLATES_PAYLOAD: RecoveryMetaTemplatesPayload = {
@@ -265,6 +269,98 @@ function joinClassNames(...values: Array<string | false | null | undefined>) {
   return values.filter(Boolean).join(" ");
 }
 
+function readStoredGlobalBotEnabled() {
+  if (typeof window === "undefined") return null;
+  const raw = window.localStorage.getItem(INBOX_GLOBAL_BOT_ENABLED_STORAGE_KEY);
+  if (raw === "true") return true;
+  if (raw === "false") return false;
+  return null;
+}
+
+function writeStoredGlobalBotEnabled(enabled: boolean) {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(INBOX_GLOBAL_BOT_ENABLED_STORAGE_KEY, enabled ? "true" : "false");
+}
+
+function normalizeDeletedConversationAliasMap(raw: unknown): DeletedConversationAliasMap {
+  if (Array.isArray(raw)) {
+    const fallbackDeletedAt = new Date().toISOString();
+    return Object.fromEntries(
+      raw
+        .map((value) => String(value || "").trim())
+        .filter(Boolean)
+        .map((alias) => [alias, fallbackDeletedAt]),
+    );
+  }
+
+  if (!raw || typeof raw !== "object") {
+    return {};
+  }
+
+  const entries = Object.entries(raw as Record<string, unknown>)
+    .map(([alias, deletedAt]) => [String(alias || "").trim(), String(deletedAt || "").trim()] as const)
+    .filter(([alias, deletedAt]) => alias && deletedAt);
+
+  return Object.fromEntries(entries);
+}
+
+function normalizeInboxConversationId(value: unknown) {
+  const normalized = String(value ?? "").trim();
+  if (!normalized) return null;
+  const lowered = normalized.toLowerCase();
+  if (lowered === "undefined" || lowered === "null" || lowered === "nan") return null;
+  return normalized;
+}
+
+function getInboxConversationRuntimeId(conversation: unknown) {
+  if (!conversation || typeof conversation !== "object" || Array.isArray(conversation)) {
+    return null;
+  }
+
+  const record = conversation as Record<string, unknown>;
+  const nestedConversation =
+    record.conversation && typeof record.conversation === "object" && !Array.isArray(record.conversation)
+      ? (record.conversation as Record<string, unknown>)
+      : null;
+  const metadata =
+    record.metadata && typeof record.metadata === "object" && !Array.isArray(record.metadata)
+      ? (record.metadata as Record<string, unknown>)
+      : null;
+  const customer =
+    record.customer && typeof record.customer === "object" && !Array.isArray(record.customer)
+      ? (record.customer as Record<string, unknown>)
+      : null;
+
+  const candidates = [
+    record.id,
+    record.conversationId,
+    record.conversation_id,
+    nestedConversation?.id,
+    nestedConversation?.conversationId,
+    metadata?.conversationId,
+    metadata?.companyConversationId,
+    customer?.conversationId,
+  ];
+
+  for (const candidate of candidates) {
+    const id = normalizeInboxConversationId(candidate);
+    if (id) return id;
+  }
+
+  return null;
+}
+
+function normalizeInboxConversationPayload(
+  conversation: InboxConversation | null | undefined,
+) {
+  const id = getInboxConversationRuntimeId(conversation);
+  if (!id || !conversation) return null;
+  return {
+    ...conversation,
+    id,
+  } as InboxConversation;
+}
+
 function SearchIcon({ className }: { className?: string }) {
   return (
     <svg
@@ -320,6 +416,30 @@ function makeClientId(prefix: string) {
 }
 
 const API_PUBLIC_BASE = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000").replace(/\/+$/, "");
+const WHATSAPP_ASSET_EXPIRY_GRACE_MS = 5 * 60 * 1000;
+
+function getWhatsAppAssetExpiryMs(raw: string) {
+  const value = String(raw || "").trim();
+  if (!value) return null;
+  try {
+    const parsed = new URL(value, API_PUBLIC_BASE);
+    if (!/(^|\.)whatsapp\.net$/i.test(parsed.hostname)) return null;
+    const rawExpiry = parsed.searchParams.get("oe");
+    if (!rawExpiry) return null;
+    const expirySeconds = /^[0-9a-f]+$/i.test(rawExpiry)
+      ? Number.parseInt(rawExpiry, 16)
+      : Number(rawExpiry);
+    if (!Number.isFinite(expirySeconds) || expirySeconds <= 0) return null;
+    return expirySeconds * 1000;
+  } catch {
+    return null;
+  }
+}
+
+function isExpiredWhatsAppAssetUrl(raw: string) {
+  const expiresAt = getWhatsAppAssetExpiryMs(raw);
+  return Boolean(expiresAt && expiresAt <= Date.now() + WHATSAPP_ASSET_EXPIRY_GRACE_MS);
+}
 
 function isLikelyImageUrl(raw: string) {
   const value = String(raw || "").trim();
@@ -374,9 +494,12 @@ function canPreviewDocumentInOverlay(url: string, mimeType?: string | null, file
 function toAbsoluteAssetUrl(raw: string) {
   const value = String(raw || "").trim();
   if (!value) return "";
-  if (/^https?:\/\//i.test(value)) return value;
-  if (value.startsWith("/")) return `${API_PUBLIC_BASE}${value}`;
-  return value;
+  const resolved = /^https?:\/\//i.test(value)
+    ? value
+    : value.startsWith("/")
+      ? `${API_PUBLIC_BASE}${value}`
+      : value;
+  return isExpiredWhatsAppAssetUrl(resolved) ? "" : resolved;
 }
 
 function normalizePathologicalLineBreaks(raw: string) {
@@ -537,25 +660,30 @@ function parseInboxMessageMedia(message: InboxMessage, conversation?: InboxConve
       senderColor: null,
       text: "Mensagem apagada",
       isDeleted: true,
+      mediaExpired: false,
       deletedOriginalText: String(metadata?.deletedOriginalText || "").trim() || null,
       deletedRevealUntil: String(metadata?.deletedRevealUntil || "").trim() || null,
     };
   }
-  const explicitMediaUrl = toAbsoluteAssetUrl(
-    String(metadata?.mediaUrl || metadata?.previewUrl || "").trim(),
-  );
+  const explicitMediaUrlRaw = String(metadata?.mediaUrl || metadata?.previewUrl || "").trim();
+  const explicitMediaUrl = toAbsoluteAssetUrl(explicitMediaUrlRaw);
+  const explicitMediaExpired = Boolean(explicitMediaUrlRaw && !explicitMediaUrl && isExpiredWhatsAppAssetUrl(explicitMediaUrlRaw));
   const firstLine = String(text.split("\n")[0] || "").trim();
   const firstLineIsUrl = /^https?:\/\/\S+$/i.test(firstLine) || /^\/\S+$/.test(firstLine);
-  const fallbackMediaUrl = firstLineIsUrl ? toAbsoluteAssetUrl(firstLine) : "";
+  const fallbackMediaUrlRaw = firstLineIsUrl ? firstLine : "";
+  const fallbackMediaUrl = fallbackMediaUrlRaw ? toAbsoluteAssetUrl(fallbackMediaUrlRaw) : "";
+  const fallbackMediaExpired = Boolean(fallbackMediaUrlRaw && !fallbackMediaUrl && isExpiredWhatsAppAssetUrl(fallbackMediaUrlRaw));
   let mediaKind = normalizedType;
-  if (mediaKind === "text" && fallbackMediaUrl) {
-    if (isLikelyImageUrl(fallbackMediaUrl)) mediaKind = "image";
-    else if (isLikelyVideoUrl(fallbackMediaUrl)) mediaKind = "video";
-    else if (isLikelyAudioUrl(fallbackMediaUrl)) mediaKind = "audio";
-    else if (isLikelyDocumentUrl(fallbackMediaUrl)) mediaKind = "document";
+  const fallbackMediaKindSource = fallbackMediaUrl || fallbackMediaUrlRaw;
+  if (mediaKind === "text" && fallbackMediaKindSource) {
+    if (isLikelyImageUrl(fallbackMediaKindSource)) mediaKind = "image";
+    else if (isLikelyVideoUrl(fallbackMediaKindSource)) mediaKind = "video";
+    else if (isLikelyAudioUrl(fallbackMediaKindSource)) mediaKind = "audio";
+    else if (isLikelyDocumentUrl(fallbackMediaKindSource)) mediaKind = "document";
   }
 
   const resolvedMediaUrl = explicitMediaUrl || fallbackMediaUrl;
+  const mediaExpired = explicitMediaExpired || fallbackMediaExpired;
   const imageUrl = mediaKind === "image" && resolvedMediaUrl ? resolvedMediaUrl : null;
   const videoUrl = mediaKind === "video" && resolvedMediaUrl ? resolvedMediaUrl : null;
   const audioUrl = mediaKind === "audio" && resolvedMediaUrl ? resolvedMediaUrl : null;
@@ -564,6 +692,8 @@ function parseInboxMessageMedia(message: InboxMessage, conversation?: InboxConve
   if (resolvedMediaUrl && fallbackMediaUrl && firstLine === fallbackMediaUrl.replace(API_PUBLIC_BASE, "")) {
     text = text.split("\n").slice(1).join("\n").trim();
   } else if (resolvedMediaUrl && fallbackMediaUrl && firstLineIsUrl) {
+    text = text.split("\n").slice(1).join("\n").trim();
+  } else if (mediaExpired && fallbackMediaUrlRaw && firstLineIsUrl) {
     text = text.split("\n").slice(1).join("\n").trim();
   }
 
@@ -595,6 +725,7 @@ function parseInboxMessageMedia(message: InboxMessage, conversation?: InboxConve
     senderColor: senderName ? getInboxGroupSenderColor(String(metadata?.senderPhone || senderName || message.id)) : null,
     text: text || (rawContent ? String(getMessagePreview(message) || "").trim() : String(getMessagePreview(message) || "").trim()),
     isDeleted: false,
+    mediaExpired,
     deletedOriginalText: null,
     deletedRevealUntil: null,
   };
@@ -999,8 +1130,28 @@ function getInboxConversationIdentityAliases(conversation?: InboxConversation | 
   const phoneDigits = extractInboxContactDigits(rawContact);
   if (phoneDigits && !isInboxGroupRemoteJid(rawContact)) aliases.add(`phone:${phoneDigits}`);
 
-  aliases.add(`conversation:${conversation.id}`);
+  const conversationId = normalizeInboxConversationId(conversation.id);
+  if (conversationId) aliases.add(`conversation:${conversationId}`);
   return Array.from(aliases);
+}
+
+function isInboxConversationHiddenByDelete(
+  conversation: InboxConversation | null | undefined,
+  deletedAliases: DeletedConversationAliasMap,
+) {
+  if (!conversation) return false;
+  const deletedAtValues = getInboxConversationIdentityAliases(conversation)
+    .map((alias) => deletedAliases[alias])
+    .filter(Boolean)
+    .map((value) => new Date(String(value)).getTime())
+    .filter((value) => Number.isFinite(value));
+
+  if (deletedAtValues.length === 0) return false;
+
+  const lastDeletedAt = Math.max(...deletedAtValues);
+  const activityAt = new Date(getInboxConversationActivityAt(conversation)).getTime();
+  if (!Number.isFinite(activityAt)) return true;
+  return activityAt <= lastDeletedAt;
 }
 
 function getInboxConversationQualityScore(conversation: InboxConversation) {
@@ -1458,8 +1609,12 @@ function sortInboxConversationsByActivity(conversationList: InboxConversation[])
 }
 
 function normalizeInboxConversationList(conversationList: InboxConversation[]) {
+  const normalized = (Array.isArray(conversationList) ? conversationList : [])
+    .map((conversation) => normalizeInboxConversationPayload(conversation))
+    .filter((conversation): conversation is InboxConversation => Boolean(conversation));
+
   return sortInboxConversationsByActivity(
-    mergeDuplicateInboxConversations(sortInboxConversationsByActivity(conversationList)),
+    mergeDuplicateInboxConversations(sortInboxConversationsByActivity(normalized)),
   );
 }
 
@@ -1611,6 +1766,7 @@ export default function InboxClientPage() {
   const [inboxQueue, setInboxQueue] = useState<InboxQueue>("all");
   const [conversationSearch, setConversationSearch] = useState("");
   const [manualQueueOverrides, setManualQueueOverrides] = useState<Record<string, InboxQueue>>({});
+  const [deletedConversationAliases, setDeletedConversationAliases] = useState<DeletedConversationAliasMap>({});
   const [draggedConversationId, setDraggedConversationId] = useState<string | null>(null);
   const [dropOverQueue, setDropOverQueue] = useState<InboxQueue | null>(null);
   const [conversations, setConversations] = useState<InboxConversation[]>([]);
@@ -1634,6 +1790,7 @@ export default function InboxClientPage() {
   const [replyingTo, setReplyingTo] = useState<InboxMessage | null>(null);
   const [imagePreview, setImagePreview] = useState<InboxAttachmentPreview | null>(null);
   const [openedAsset, setOpenedAsset] = useState<OpenedInboxAsset | null>(null);
+  const [failedInboxMediaUrls, setFailedInboxMediaUrls] = useState<Record<string, true>>({});
   const [queueActionConversationId, setQueueActionConversationId] = useState<string | null>(null);
   const [queueActionMenuPosition, setQueueActionMenuPosition] = useState<QueueActionMenuPosition | null>(null);
   const [messageReactionTargetId, setMessageReactionTargetId] = useState<string | null>(null);
@@ -1683,6 +1840,7 @@ export default function InboxClientPage() {
   const messageReactionPickerRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const conversationsRef = useRef<InboxConversation[]>([]);
+  const deletedConversationAliasesRef = useRef<DeletedConversationAliasMap>({});
   const selectedIdRef = useRef<string | null>(null);
   const selectedConversationRef = useRef<InboxConversation | null>(null);
   const conversationLoadTokenRef = useRef(0);
@@ -1696,6 +1854,14 @@ export default function InboxClientPage() {
   });
   const skipAutomationAutoOpenRef = useRef(false);
   const deferredConversationSearch = useDeferredValue(conversationSearch);
+
+  const markInboxMediaUrlFailed = useCallback((url?: string | null) => {
+    const normalized = String(url || "").trim();
+    if (!normalized) return;
+    setFailedInboxMediaUrls((current) =>
+      current[normalized] ? current : { ...current, [normalized]: true },
+    );
+  }, []);
 
   // Close emoji picker when clicking outside
   useEffect(() => {
@@ -1819,8 +1985,31 @@ export default function InboxClientPage() {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
+    try {
+      const raw = window.localStorage.getItem(INBOX_DELETED_CONVERSATION_ALIASES_STORAGE_KEY);
+      const parsed = raw ? JSON.parse(raw) : {};
+      const normalized = normalizeDeletedConversationAliasMap(parsed);
+      setDeletedConversationAliases(normalized);
+      deletedConversationAliasesRef.current = normalized;
+    } catch {
+      setDeletedConversationAliases({});
+      deletedConversationAliasesRef.current = {};
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
     window.localStorage.setItem(INBOX_MANUAL_QUEUE_STORAGE_KEY, JSON.stringify(manualQueueOverrides));
   }, [manualQueueOverrides]);
+
+  useEffect(() => {
+    deletedConversationAliasesRef.current = deletedConversationAliases;
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(
+      INBOX_DELETED_CONVERSATION_ALIASES_STORAGE_KEY,
+      JSON.stringify(deletedConversationAliases),
+    );
+  }, [deletedConversationAliases]);
 
   useEffect(() => {
     if (!agendaStudioOpen && !automationStudioOpen && !templatesStudioOpen) return;
@@ -1859,8 +2048,16 @@ export default function InboxClientPage() {
       const payload = await apiFetch<InboxBootstrapPayload>(`/inbox/bootstrap?take=${take}`);
       const nextList = normalizeInboxConversationList(
         Array.isArray(payload?.conversations) ? payload.conversations : [],
+      ).filter(
+        (conversation) =>
+          !isInboxConversationHiddenByDelete(conversation, deletedConversationAliasesRef.current),
       );
-      const detail = payload?.selectedConversation || null;
+      const normalizedDetail = normalizeInboxConversationPayload(payload?.selectedConversation);
+      const detail =
+        normalizedDetail &&
+        !isInboxConversationHiddenByDelete(normalizedDetail, deletedConversationAliasesRef.current)
+          ? normalizedDetail
+          : null;
       const preferredId = detail?.id || nextList[0]?.id || null;
       const summary = preferredId
         ? nextList.find((conversation) => conversation.id === preferredId) || null
@@ -1883,14 +2080,23 @@ export default function InboxClientPage() {
     }
   }, []);
 
-  const loadConversation = useCallback(async (id: string, options?: { silent?: boolean }) => {
-    const requestToken = ++conversationLoadTokenRef.current;
+  const loadConversation = useCallback(async (id: string | null | undefined, options?: { silent?: boolean }) => {
     const silent = options?.silent ?? false;
+    const conversationId = normalizeInboxConversationId(id);
+    if (!conversationId) {
+      const message = "Conversa sem identificador valido. Recarregue a fila para sincronizar novamente.";
+      setConversationDetailError(message);
+      setError(message);
+      if (!silent) setLoadingConversation(false);
+      return;
+    }
+
+    const requestToken = ++conversationLoadTokenRef.current;
     const summary =
-      conversationsRef.current.find((conversation) => conversation.id === id) || null;
+      conversationsRef.current.find((conversation) => conversation.id === conversationId) || null;
     const mergedSummary = mergeInboxConversationSummary(
       summary,
-      selectedConversationRef.current?.id === id &&
+      selectedConversationRef.current?.id === conversationId &&
         !isInboxConversationSummaryOnly(selectedConversationRef.current)
         ? selectedConversationRef.current
         : null,
@@ -1900,20 +2106,34 @@ export default function InboxClientPage() {
       !isInboxConversationSummaryOnly(selectedConversationRef.current)
         ? selectedConversationRef.current
         : null;
-    setSelectedId(id);
+    setSelectedId(conversationId);
     if (mergedSummary && (!silent || !selectedConversationRef.current)) {
-      if (silent && selectedConversationRef.current?.id === id) {
+      if (silent && selectedConversationRef.current?.id === conversationId) {
         setSelectedConversation(mergedSummary);
-      } else if (!currentDetailedConversation || currentDetailedConversation.id === id) {
+      } else if (!currentDetailedConversation || currentDetailedConversation.id === conversationId) {
         setSelectedConversation(markInboxConversationAsSummaryOnly(mergedSummary));
       }
     }
     setConversationDetailError(null);
     if (!silent) setLoadingConversation(true);
     try {
-      const data = await apiFetch<InboxConversation>(`/inbox/conversations/${id}`);
+      const rawData = await apiFetch<InboxConversation>(`/inbox/conversations/${conversationId}`);
+      const data = normalizeInboxConversationPayload(rawData);
+      if (!data) {
+        throw new Error("Conversa sem identificador valido retornada pelo servidor.");
+      }
 
       if (requestToken !== conversationLoadTokenRef.current) {
+        return;
+      }
+
+      if (isInboxConversationHiddenByDelete(data, deletedConversationAliasesRef.current)) {
+        if (selectedIdRef.current === conversationId) {
+          setSelectedId(null);
+          setSelectedConversation(null);
+          selectedIdRef.current = null;
+          selectedConversationRef.current = null;
+        }
         return;
       }
 
@@ -1950,7 +2170,10 @@ export default function InboxClientPage() {
       setConversationListError(null);
       try {
         const response = await apiFetch<InboxConversation[]>("/inbox/conversations");
-        const data = normalizeInboxConversationList(Array.isArray(response) ? response : []);
+        const data = normalizeInboxConversationList(Array.isArray(response) ? response : []).filter(
+          (conversation) =>
+            !isInboxConversationHiddenByDelete(conversation, deletedConversationAliasesRef.current),
+        );
         const currentList = conversationsRef.current;
         const listChanged = !areInboxConversationListsEquivalent(currentList, data);
 
@@ -2035,7 +2258,9 @@ export default function InboxClientPage() {
     setLoadingBot(true);
     try {
       const data = await apiFetch<AtendimentoBotConfig>("/inbox/bot-config");
-      setBotConfig(normalizeBotConfig(data));
+      const normalized = normalizeBotConfig(data);
+      writeStoredGlobalBotEnabled(normalized.routingRules.globalBotEnabled !== false);
+      setBotConfig(normalized);
       botConfigLoadedRef.current = true;
     } catch (loadError) {
       const message = loadError instanceof Error ? loadError.message : "Falha ao carregar editor.";
@@ -2043,6 +2268,20 @@ export default function InboxClientPage() {
     } finally {
       setLoadingBot(false);
     }
+  }, []);
+
+  useEffect(() => {
+    const stored = readStoredGlobalBotEnabled();
+    if (stored === null) return;
+    setBotConfig((current) =>
+      normalizeBotConfig({
+        ...current,
+        routingRules: {
+          ...current.routingRules,
+          globalBotEnabled: stored,
+        },
+      }),
+    );
   }, []);
 
   const loadAgendaConfig = useCallback(async (options?: { force?: boolean }) => {
@@ -2105,9 +2344,8 @@ export default function InboxClientPage() {
 
   useEffect(() => {
     if (hasToken === false) return;
-    if (!automationStudioOpen && !templatesStudioOpen) return;
     void loadBotConfig();
-  }, [automationStudioOpen, hasToken, loadBotConfig, templatesStudioOpen]);
+  }, [hasToken, loadBotConfig]);
 
   useEffect(() => {
     if (hasToken === false) return;
@@ -2138,6 +2376,8 @@ export default function InboxClientPage() {
     }
     return base;
   }, [conversations, queueByConversationId]);
+
+  const globalBotEnabled = botConfig.routingRules.globalBotEnabled !== false;
 
   const filteredConversations = useMemo(() => {
     const normalizedSearch = deferredConversationSearch.trim().toLowerCase();
@@ -2860,6 +3100,39 @@ export default function InboxClientPage() {
     [filteredConversations, loadConversations],
   );
 
+  const toggleGlobalBot = useCallback(async () => {
+    const enabled = !globalBotEnabled;
+    const nextConfig = normalizeBotConfig({
+      ...botConfig,
+      routingRules: {
+        ...botConfig.routingRules,
+        globalBotEnabled: enabled,
+      },
+    });
+    setSavingBot(true);
+    setError(null);
+    try {
+      const payload = await apiFetch<AtendimentoBotConfig>("/inbox/bot-config", {
+        method: "PATCH",
+        body: JSON.stringify(nextConfig),
+      });
+      const normalized = normalizeBotConfig(payload);
+      writeStoredGlobalBotEnabled(normalized.routingRules.globalBotEnabled !== false);
+      setBotConfig(normalized);
+      setNotice({
+        tone: "success",
+        text: enabled
+          ? "BOT global ativado para novas mensagens."
+          : "BOT global desativado para novas mensagens.",
+      });
+    } catch (toggleError) {
+      setError(toggleError instanceof Error ? toggleError.message : "Falha ao atualizar BOT global.");
+      setBotConfig(botConfig);
+    } finally {
+      setSavingBot(false);
+    }
+  }, [botConfig, globalBotEnabled]);
+
   const moveConversationToQueue = useCallback(
     async (conversationId: string, targetQueue: InboxQueue) => {
       if (!conversationId || !targetQueue) return;
@@ -2956,22 +3229,61 @@ export default function InboxClientPage() {
       const confirmed = window.confirm("Excluir esta conversa do sistema e enviar comando de exclusao para o WhatsApp?");
       if (!confirmed) return;
       setError(null);
+      let aliasesToHide: string[] = [`conversation:${conversationId}`];
+      const previousDeletedAliasesSnapshot: DeletedConversationAliasMap = {
+        ...deletedConversationAliasesRef.current,
+      };
       try {
-        await apiFetch(`/inbox/conversations/${conversationId}`, {
+        const targetConversation =
+          conversationsRef.current.find((conversation) => conversation.id === conversationId) ||
+          (selectedConversationRef.current?.id === conversationId ? selectedConversationRef.current : null);
+        aliasesToHide = Array.from(
+          new Set([
+            `conversation:${conversationId}`,
+            ...getInboxConversationIdentityAliases(targetConversation),
+          ]),
+        );
+        setDeletedConversationAliases((current) => {
+          const deletedAt = new Date().toISOString();
+          const next: DeletedConversationAliasMap = { ...current };
+          for (const alias of aliasesToHide) {
+            next[alias] = deletedAt;
+          }
+          deletedConversationAliasesRef.current = next;
+          return next;
+        });
+        const response = await apiFetch<{ message?: string }>(`/inbox/conversations/${conversationId}`, {
           method: "DELETE",
         });
         setQueueActionConversationId(null);
         setQueueActionMenuPosition(null);
+        setConversations((current) => current.filter((conversation) => conversation.id !== conversationId));
+        conversationsRef.current = conversationsRef.current.filter((conversation) => conversation.id !== conversationId);
+        setManualQueueOverrides((current) => {
+          const next = { ...current };
+          delete next[conversationId];
+          return next;
+        });
         if (selectedIdRef.current === conversationId) {
           setSelectedConversation(null);
           setSelectedId(null);
+          selectedIdRef.current = null;
+          selectedConversationRef.current = null;
         }
-        setNotice({ tone: "success", text: "Conversa excluida do sistema e comando enviado ao WhatsApp." });
+        setNotice({
+          tone: "success",
+          text:
+            String(response?.message || "").trim() ||
+            "Conversa excluida do sistema e do WhatsApp.",
+        });
         await loadConversations({
           preferredId: selectedIdRef.current === conversationId ? null : selectedIdRef.current,
           silent: true,
         });
       } catch (deleteError) {
+        const rollbackState = { ...previousDeletedAliasesSnapshot };
+        deletedConversationAliasesRef.current = rollbackState;
+        setDeletedConversationAliases(rollbackState);
         const message = deleteError instanceof Error ? deleteError.message : "Falha ao excluir conversa.";
         setError(message);
       }
@@ -3354,7 +3666,23 @@ export default function InboxClientPage() {
                 ) : (
                   conversationMessagesForView.map((message, index) => {
                     const tone = mapInboxBubbleTone(message);
-                    const rendered = parseInboxMessageMedia(message, conversationForView);
+                    let rendered = parseInboxMessageMedia(message, conversationForView);
+                    const mediaFailedInBrowser = Boolean(
+                      (rendered.imageUrl && failedInboxMediaUrls[rendered.imageUrl]) ||
+                        (rendered.videoUrl && failedInboxMediaUrls[rendered.videoUrl]) ||
+                        (rendered.audioUrl && failedInboxMediaUrls[rendered.audioUrl]) ||
+                        (rendered.documentUrl && failedInboxMediaUrls[rendered.documentUrl]),
+                    );
+                    if (mediaFailedInBrowser) {
+                      rendered = {
+                        ...rendered,
+                        imageUrl: null,
+                        videoUrl: null,
+                        audioUrl: null,
+                        documentUrl: null,
+                        mediaExpired: true,
+                      };
+                    }
                     const previousMessage =
                       index > 0 ? conversationMessagesForView[index - 1] : null;
                     const showDayDivider = !previousMessage
@@ -3474,6 +3802,15 @@ export default function InboxClientPage() {
                                   {rendered.senderName}
                                 </span>
                               ) : null}
+                              {rendered.mediaExpired ? (
+                                <div className={styles.whatsAppExpiredMediaCard}>
+                                  <span className={styles.whatsAppDocumentIcon}>EXP</span>
+                                  <span className={styles.whatsAppDocumentBody}>
+                                    <strong>Midia temporaria expirada</strong>
+                                    <span>Atualize a conversa para tentar obter um novo link.</span>
+                                  </span>
+                                </div>
+                              ) : null}
                               {rendered.imageUrl ? (
                                 <button
                                   type="button"
@@ -3494,11 +3831,17 @@ export default function InboxClientPage() {
                                     alt="Imagem enviada"
                                     className={styles.whatsAppBubbleImage}
                                     loading="lazy"
+                                    onError={() => markInboxMediaUrlFailed(rendered.imageUrl)}
                                   />
                                 </button>
                               ) : null}
                               {rendered.videoUrl ? (
-                                <video className={styles.whatsAppBubbleVideo} controls preload="metadata">
+                                <video
+                                  className={styles.whatsAppBubbleVideo}
+                                  controls
+                                  preload="metadata"
+                                  onError={() => markInboxMediaUrlFailed(rendered.videoUrl)}
+                                >
                                   <source src={rendered.videoUrl} />
                                 </video>
                               ) : null}
@@ -3554,7 +3897,12 @@ export default function InboxClientPage() {
                                   </span>
                                   <div className={styles.whatsAppAudioBody}>
                                     {rendered.audioUrl ? (
-                                      <audio className={styles.whatsAppAudioPlayer} controls preload="metadata">
+                                      <audio
+                                        className={styles.whatsAppAudioPlayer}
+                                        controls
+                                        preload="metadata"
+                                        onError={() => markInboxMediaUrlFailed(rendered.audioUrl)}
+                                      >
                                         <source src={rendered.audioUrl} type={rendered.mimeType || undefined} />
                                       </audio>
                                     ) : (
@@ -4137,9 +4485,11 @@ export default function InboxClientPage() {
       isConversationStageSwitching,
       deleteConversationById,
       deleteSentMessage,
+      failedInboxMediaUrls,
       loadConversation,
       loadingConversation,
       loadingList,
+      markInboxMediaUrlFailed,
       mounted,
       openedAsset,
       queueActionConversationId,
@@ -4450,7 +4800,9 @@ export default function InboxClientPage() {
         method: "PATCH",
         body: JSON.stringify(nextConfig),
       });
-      setBotConfig(normalizeBotConfig(payload));
+      const normalized = normalizeBotConfig(payload);
+      writeStoredGlobalBotEnabled(normalized.routingRules.globalBotEnabled !== false);
+      setBotConfig(normalized);
       setNotice({ tone: "success", text: "Editor do bot salvo com sucesso." });
     } catch (saveError) {
       const message = saveError instanceof Error ? saveError.message : "Falha ao salvar editor.";
@@ -4606,11 +4958,12 @@ export default function InboxClientPage() {
                   <button
                     type="button"
                     className={styles.commandDockBrand}
-                    onClick={() => handleSectionChange("conversa")}
-                    aria-label="Voltar para conversas"
-                    title="HBX Atendimento"
+                    data-active={globalBotEnabled ? "true" : "false"}
+                    onClick={() => void toggleGlobalBot()}
+                    aria-label={globalBotEnabled ? "Desativar BOT global" : "Ativar BOT global"}
+                    title={globalBotEnabled ? "BOT global ativo" : "BOT global desativado"}
                   >
-                    <span>HB</span>
+                    <span>Hbot</span>
                   </button>
                 </div>
                 <div className={styles.commandDockNav}>

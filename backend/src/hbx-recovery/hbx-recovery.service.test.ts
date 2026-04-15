@@ -589,6 +589,7 @@ test('manual Recovery creation reuses existing CustomerProfile and links custome
   const createCalls: any[] = [];
 
   service.cadastrosService = {
+    getCustomerRegistryByPhone: async () => null,
     syncCustomerRegistryFromRecovery: async (_companyId: number, row: any) => ({ ...row, phone: row.whatsappNumber }),
   };
   service.prisma = {
@@ -639,6 +640,7 @@ test('manual Recovery creation creates CustomerProfile and DebtCase when open am
   const debtCreates: any[] = [];
 
   service.cadastrosService = {
+    getCustomerRegistryByPhone: async () => null,
     syncCustomerRegistryFromRecovery: async (_companyId: number, row: any) => ({ ...row, phone: row.whatsappNumber }),
   };
   service.prisma = {

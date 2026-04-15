@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { InboxService } from './inbox.service';
+import { WebwhatsProviderError } from '../messaging/webwhats-bridge.service';
 
 function createService(overrides?: Partial<Record<string, any>>) {
   const auditCalls: Array<Record<string, unknown>> = [];
@@ -14,12 +15,44 @@ function createService(overrides?: Partial<Record<string, any>>) {
     contact: '+5519998877766',
     humanAssigned: false,
     botActive: true,
+    currentFlow: null,
+    currentStep: null,
     flowResult: null,
+    assignedUserId: null,
     metadata: JSON.stringify({ cliente: 'Carlos' }),
     createdAt: new Date('2026-03-18T10:00:00.000Z'),
     updatedAt: new Date('2026-03-18T10:01:00.000Z'),
     messages: [],
   };
+
+  const buildLiveConversationState = () => ({
+    id: baseConversation.id,
+    contact: baseConversation.contact,
+    metadata: baseConversation.metadata,
+    currentFlow: baseConversation.currentFlow,
+    currentStep: baseConversation.currentStep,
+    flowResult: baseConversation.flowResult,
+    botActive: baseConversation.botActive,
+    humanAssigned: baseConversation.humanAssigned,
+    assignedUserId: baseConversation.assignedUserId,
+    createdAt: baseConversation.createdAt,
+    updatedAt: baseConversation.updatedAt,
+  });
+
+  const buildLiveConversationSnapshot = () => ({
+    conversation: buildLiveConversationState(),
+    remoteJid: '5519998877766@s.whatsapp.net',
+    remoteJidAlt: null,
+    contact: baseConversation.contact,
+    displayName: 'Carlos',
+    avatarUrl: null,
+    unreadCount: 0,
+    archived: false,
+    windowActive: null,
+    lastMessageAt: baseConversation.updatedAt,
+    lastMessage: null,
+    messages: [],
+  });
 
   const prisma = {
     atendimentoCustomer: {
@@ -90,6 +123,8 @@ function createService(overrides?: Partial<Record<string, any>>) {
   const webwhatsBridge = {
     syncRecentChats: async () => 0,
     syncConversationMessages: async () => 0,
+    listLiveChats: async () => [buildLiveConversationSnapshot()],
+    getLiveConversation: async () => buildLiveConversationSnapshot(),
     ...(overrides?.webwhatsBridge || {}),
   } as any;
 
@@ -219,6 +254,178 @@ test('updateConversationStatus maps open and closed to real conversation flags',
   assert.equal(auditCalls.length, 2);
   assert.equal(auditCalls[0].event, 'conversation_status_updated');
   assert.equal(auditCalls[1].event, 'conversation_status_updated');
+});
+
+test('deleteConversation removes local records after WhatsApp confirms deletion', async () => {
+  const messageDeleteCalls: Array<Record<string, unknown>> = [];
+  const conversationDeleteCalls: Array<Record<string, unknown>> = [];
+  const { service, auditCalls } = createService({
+    prisma: {
+      companyMessage: {
+        deleteMany: async (input: Record<string, unknown>) => {
+          messageDeleteCalls.push(input);
+          return { count: 3 };
+        },
+      },
+      companyConversation: {
+        findFirst: async () => ({
+          id: 42,
+          companyId: 7,
+          channel: 'whatsapp',
+          contact: '+5519998877766',
+          humanAssigned: false,
+          botActive: true,
+          flowResult: null,
+          metadata: JSON.stringify({ cliente: 'Carlos' }),
+          createdAt: new Date('2026-03-18T10:00:00.000Z'),
+          updatedAt: new Date('2026-03-18T10:01:00.000Z'),
+          messages: [],
+        }),
+        delete: async (input: Record<string, unknown>) => {
+          conversationDeleteCalls.push(input);
+          return { id: 42 };
+        },
+      },
+    },
+    webwhatsBridge: {
+      deleteChat: async () => ({
+        outcome: 'deleted',
+        chatId: '5519998877766@s.whatsapp.net',
+        message: 'Chat deleted',
+        raw: { deleted: true },
+      }),
+    },
+  });
+
+  const result = await service.deleteConversation({ companyId: 7 }, 42);
+
+  assert.equal(result.success, true);
+  assert.equal(result.message, 'Conversa excluida do sistema e do WhatsApp.');
+  assert.equal(messageDeleteCalls.length, 1);
+  assert.deepEqual(messageDeleteCalls[0], {
+    where: { companyId: 7, conversationId: 42 },
+  });
+  assert.equal(conversationDeleteCalls.length, 1);
+  assert.deepEqual(conversationDeleteCalls[0], {
+    where: { id: 42 },
+  });
+  assert.equal(auditCalls.length, 2);
+  assert.equal(auditCalls[0].event, 'conversation_delete_whatsapp_confirmed');
+  assert.equal(auditCalls[1].event, 'conversation_deleted');
+});
+
+test('deleteConversation keeps idempotent success when WhatsApp chat is already gone', async () => {
+  const messageDeleteCalls: Array<Record<string, unknown>> = [];
+  const conversationDeleteCalls: Array<Record<string, unknown>> = [];
+  const { service, auditCalls } = createService({
+    prisma: {
+      companyMessage: {
+        deleteMany: async (input: Record<string, unknown>) => {
+          messageDeleteCalls.push(input);
+          return { count: 2 };
+        },
+      },
+      companyConversation: {
+        findFirst: async () => ({
+          id: 42,
+          companyId: 7,
+          channel: 'whatsapp',
+          contact: '+5519998877766',
+          humanAssigned: false,
+          botActive: true,
+          flowResult: null,
+          metadata: JSON.stringify({ cliente: 'Carlos' }),
+          createdAt: new Date('2026-03-18T10:00:00.000Z'),
+          updatedAt: new Date('2026-03-18T10:01:00.000Z'),
+          messages: [],
+        }),
+        delete: async (input: Record<string, unknown>) => {
+          conversationDeleteCalls.push(input);
+          return { id: 42 };
+        },
+      },
+    },
+    webwhatsBridge: {
+      deleteChat: async () => ({
+        outcome: 'already_deleted',
+        chatId: '5519998877766@s.whatsapp.net',
+        message: 'Chat not found',
+        raw: { notFound: true },
+      }),
+    },
+  });
+
+  const result = await service.deleteConversation({ companyId: 7 }, 42);
+
+  assert.equal(result.success, true);
+  assert.equal(
+    result.message,
+    'Conversa removida do sistema. O chat ja nao existia mais no WhatsApp.',
+  );
+  assert.equal(messageDeleteCalls.length, 1);
+  assert.equal(conversationDeleteCalls.length, 1);
+  assert.equal(auditCalls.length, 2);
+  assert.equal(auditCalls[0].event, 'conversation_delete_whatsapp_confirmed');
+  assert.equal(auditCalls[1].event, 'conversation_deleted');
+});
+
+test('deleteConversation does not remove local records when WhatsApp session is disconnected', async () => {
+  const messageDeleteCalls: Array<Record<string, unknown>> = [];
+  const conversationDeleteCalls: Array<Record<string, unknown>> = [];
+  const { service, auditCalls } = createService({
+    prisma: {
+      companyMessage: {
+        deleteMany: async (input: Record<string, unknown>) => {
+          messageDeleteCalls.push(input);
+          return { count: 0 };
+        },
+      },
+      companyConversation: {
+        findFirst: async () => ({
+          id: 42,
+          companyId: 7,
+          channel: 'whatsapp',
+          contact: '+5519998877766',
+          humanAssigned: false,
+          botActive: true,
+          flowResult: null,
+          metadata: JSON.stringify({ cliente: 'Carlos' }),
+          createdAt: new Date('2026-03-18T10:00:00.000Z'),
+          updatedAt: new Date('2026-03-18T10:01:00.000Z'),
+          messages: [],
+        }),
+        delete: async (input: Record<string, unknown>) => {
+          conversationDeleteCalls.push(input);
+          return { id: 42 };
+        },
+      },
+    },
+    webwhatsBridge: {
+      deleteChat: async () => {
+        throw new WebwhatsProviderError(
+          'WEBWHATS_NOT_CONNECTED',
+          'Sessao do WhatsApp desconectada. Reconecte o dispositivo antes de excluir a conversa.',
+        );
+      },
+    },
+  });
+
+  await assert.rejects(
+    () => service.deleteConversation({ companyId: 7 }, 42),
+    (error: any) => {
+      assert.equal(error?.name, 'ConflictException');
+      assert.equal(
+        error?.message,
+        'Sessao do WhatsApp desconectada. Reconecte o dispositivo antes de excluir a conversa.',
+      );
+      return true;
+    },
+  );
+
+  assert.equal(messageDeleteCalls.length, 0);
+  assert.equal(conversationDeleteCalls.length, 0);
+  assert.equal(auditCalls.length, 1);
+  assert.equal(auditCalls[0].event, 'conversation_delete_whatsapp_failed');
 });
 
 test('getConversationById exposes customer identity fields from AtendimentoCustomer and CustomerProfile', async () => {

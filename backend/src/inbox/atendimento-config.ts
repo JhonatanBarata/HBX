@@ -8,6 +8,7 @@ export const ATENDIMENTO_BUTTON_ID_PREFIX = 'atendimento_';
 
 export const ATENDIMENTO_BOT_ACTION_IDS = [
   'start_quick_registration',
+  'continue_journey',
   'talk_human',
   'close_topic',
   'enter_recovery',
@@ -56,6 +57,7 @@ export type AtendimentoBotButton = {
 };
 
 export type AtendimentoRoutingRules = {
+  globalBotEnabled: boolean;
   checkRecoveryBeforeReply: boolean;
   autoRouteDebtorsToRecovery: boolean;
   autoReopenClosedConversation: boolean;
@@ -214,6 +216,14 @@ const DEFAULT_ACTION_CATALOG: AtendimentoBotActionGuide[] = [
       'Perfeito. Vamos iniciar seu cadastro rapido agora. Me envie seu nome completo para eu abrir a ficha inicial.',
   },
   {
+    actionId: 'continue_journey',
+    title: 'Continuar atendimento',
+    description: 'Mantem o cliente dentro da jornada principal do Atendimento.',
+    route: 'atendimento',
+    kind: 'show_menu',
+    enabled: true,
+  },
+  {
     actionId: 'talk_human',
     title: 'Falar com atendente',
     description: 'Encaminha a conversa para a fila humana do Atendimento.',
@@ -306,6 +316,7 @@ export const DEFAULT_ATENDIMENTO_BOT_CONFIG: AtendimentoBotConfig = {
   variableCatalog: DEFAULT_VARIABLE_CATALOG,
   actionCatalog: DEFAULT_ACTION_CATALOG,
   routingRules: {
+    globalBotEnabled: true,
     checkRecoveryBeforeReply: true,
     autoRouteDebtorsToRecovery: true,
     autoReopenClosedConversation: true,
@@ -670,6 +681,9 @@ export function normalizeAtendimentoBotConfig(
     routingRules: {
       ...DEFAULT_ATENDIMENTO_BOT_CONFIG.routingRules,
       ...(config.routingRules || {}),
+      globalBotEnabled:
+        config.routingRules?.globalBotEnabled ??
+        DEFAULT_ATENDIMENTO_BOT_CONFIG.routingRules.globalBotEnabled,
       checkRecoveryBeforeReply:
         config.routingRules?.checkRecoveryBeforeReply ??
         DEFAULT_ATENDIMENTO_BOT_CONFIG.routingRules.checkRecoveryBeforeReply,
