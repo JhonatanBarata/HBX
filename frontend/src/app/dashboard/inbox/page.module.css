@@ -1749,6 +1749,8 @@
   position: relative;
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
+  width: min(100%, 290px);
+  margin-inline: auto;
   gap: 0.22rem;
   padding: 0.14rem;
   border-radius: 16px;
@@ -1822,6 +1824,341 @@
   display: flex;
   flex-wrap: wrap;
   gap: 0.42rem;
+}
+
+.customerCardPanel {
+  position: relative;
+  display: grid;
+  gap: 0.72rem;
+  overflow: hidden;
+  padding: 0.78rem 0.72rem 0.76rem 0.94rem;
+  border-radius: 18px;
+  border: 1px solid color-mix(in srgb, var(--line) 78%, transparent);
+  background:
+    radial-gradient(circle at 14% 0%, color-mix(in srgb, var(--surface) 38%, transparent), transparent 34%),
+    linear-gradient(
+      145deg,
+      color-mix(in srgb, var(--surface) 78%, var(--background)),
+      color-mix(in srgb, var(--surface-soft) 52%, var(--background))
+    );
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--surface) 72%, transparent),
+    0 18px 34px color-mix(in srgb, #020617 10%, transparent);
+  transform: perspective(900px) translate3d(0, 0, 0) rotateX(0deg) rotateY(0deg);
+  transform-style: preserve-3d;
+  transition:
+    transform var(--motion-base),
+    box-shadow var(--motion-base),
+    border-color var(--motion-base),
+    background var(--motion-base);
+  will-change: transform;
+}
+
+.customerCardPanel::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background:
+    linear-gradient(120deg, rgba(255, 255, 255, 0.18), transparent 36%),
+    radial-gradient(circle at 86% 12%, color-mix(in srgb, var(--brand) 12%, transparent), transparent 34%);
+  opacity: 0.5;
+  pointer-events: none;
+  transition: opacity var(--motion-base);
+}
+
+.customerCardPanel:hover {
+  border-color: color-mix(in srgb, var(--brand) 28%, var(--line));
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--surface) 84%, transparent),
+    0 26px 48px color-mix(in srgb, #020617 18%, transparent);
+  transform: perspective(900px) translate3d(0, -3px, 18px) rotateX(1.5deg) rotateY(-1.2deg);
+}
+
+.customerCardPanel:hover::before {
+  opacity: 0.78;
+}
+
+.customerCardAccent {
+  position: absolute;
+  inset: 0.76rem auto 0.76rem 0.52rem;
+  width: 4px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #20c780, #1d8bff);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, #20c780 20%, transparent),
+    0 12px 28px color-mix(in srgb, #20c780 26%, transparent);
+  transform: translateZ(28px);
+}
+
+.customerCardPanel > *:not(.customerCardAccent) {
+  position: relative;
+  z-index: 1;
+}
+
+.customerCardHeader,
+.customerCardReturnEditor,
+.customerCardHistoryHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.65rem;
+}
+
+.customerCardHeader strong {
+  display: block;
+  color: var(--foreground);
+  font-size: 1rem;
+  line-height: 1.15;
+}
+
+.customerCardHeader span,
+.customerCardReturnLine,
+.customerCardHistoryHeader span {
+  color: var(--foreground-soft);
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+
+.customerCardHeaderActions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.42rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.customerCardGhostButton,
+.customerCardPillButton,
+.customerCardPrimaryAction,
+.customerCardSecondaryAction,
+.customerCardDangerAction {
+  min-height: 34px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--line) 82%, var(--background));
+  padding: 0.44rem 0.72rem;
+  font-size: 0.76rem;
+  font-weight: 900;
+  letter-spacing: 0;
+  transition:
+    transform var(--motion-fast),
+    box-shadow var(--motion-fast),
+    opacity var(--motion-fast);
+}
+
+.customerCardGhostButton:hover,
+.customerCardPillButton:hover,
+.customerCardPrimaryAction:hover,
+.customerCardSecondaryAction:hover,
+.customerCardDangerAction:hover {
+  transform: translate3d(0, -2px, 14px);
+  box-shadow:
+    0 14px 24px color-mix(in srgb, #020617 14%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.12);
+}
+
+.customerCardGhostButton:disabled,
+.customerCardPillButton:disabled,
+.customerCardPrimaryAction:disabled,
+.customerCardSecondaryAction:disabled,
+.customerCardDangerAction:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+  transform: none;
+}
+
+.customerCardGhostButton {
+  background: color-mix(in srgb, var(--surface) 78%, var(--background));
+  color: var(--foreground);
+}
+
+.customerCardPillButton {
+  background: color-mix(in srgb, var(--brand) 12%, var(--surface));
+  color: var(--brand-strong);
+}
+
+.customerCardReturnLine {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 35px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--line) 76%, transparent);
+  background: color-mix(in srgb, var(--surface-soft) 78%, var(--background));
+  padding: 0.48rem 0.72rem;
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--surface) 62%, transparent),
+    0 10px 18px color-mix(in srgb, #020617 8%, transparent);
+  transform: translateZ(12px);
+}
+
+.customerCardReturnLine em {
+  color: #b91c1c;
+  font-style: normal;
+  font-weight: 900;
+}
+
+.customerCardActions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+
+.customerCardPrimaryAction {
+  border-color: color-mix(in srgb, #20c780 42%, transparent);
+  background: linear-gradient(135deg, #22c55e, #14b87a);
+  color: #fff;
+  box-shadow: 0 12px 24px color-mix(in srgb, #16a34a 22%, transparent);
+}
+
+.customerCardSecondaryAction {
+  background: color-mix(in srgb, var(--surface) 88%, var(--background));
+  color: var(--foreground);
+}
+
+.customerCardDangerAction {
+  border-color: color-mix(in srgb, #ef4444 26%, var(--line));
+  background: color-mix(in srgb, #ef4444 8%, var(--surface));
+  color: #b91c1c;
+}
+
+.customerCardSummaryBox {
+  display: grid;
+  gap: 0.42rem;
+  border-radius: 14px;
+  border: 1px solid color-mix(in srgb, var(--line) 82%, transparent);
+  background: color-mix(in srgb, var(--surface-soft) 88%, var(--background));
+  padding: 0.62rem;
+  transform: translateZ(10px);
+  transition:
+    transform var(--motion-base),
+    box-shadow var(--motion-base),
+    border-color var(--motion-base);
+}
+
+.customerCardSummaryBox:hover {
+  border-color: color-mix(in srgb, var(--brand) 20%, var(--line));
+  box-shadow: 0 16px 28px color-mix(in srgb, #020617 10%, transparent);
+  transform: translate3d(0, -2px, 18px);
+}
+
+.customerCardSummaryBox label,
+.customerCardReturnEditor label {
+  display: grid;
+  gap: 0.34rem;
+  min-width: 0;
+  color: var(--foreground-soft);
+  font-size: 0.69rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.customerCardTextarea {
+  min-height: 94px;
+  resize: vertical;
+}
+
+.customerCardReturnEditor input {
+  min-height: 36px;
+  font-size: 0.78rem;
+}
+
+.customerCardMetrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.48rem;
+}
+
+.customerCardMetrics span {
+  display: grid;
+  gap: 0.22rem;
+  min-height: 74px;
+  align-content: center;
+  border-radius: 14px;
+  border: 1px solid color-mix(in srgb, var(--line) 82%, transparent);
+  background: color-mix(in srgb, var(--surface) 86%, var(--background));
+  padding: 0.62rem;
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--surface) 68%, transparent),
+    0 10px 18px color-mix(in srgb, #020617 8%, transparent);
+  transform: translateZ(8px);
+  transition:
+    transform var(--motion-base),
+    box-shadow var(--motion-base),
+    border-color var(--motion-base);
+}
+
+.customerCardMetrics span:hover {
+  border-color: color-mix(in srgb, var(--brand) 22%, var(--line));
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--surface) 84%, transparent),
+    0 18px 30px color-mix(in srgb, #020617 14%, transparent);
+  transform: translate3d(0, -2px, 20px);
+}
+
+.customerCardMetrics small {
+  color: var(--foreground-muted);
+  font-size: 0.62rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.customerCardMetrics strong {
+  color: var(--foreground);
+  font-size: 0.94rem;
+}
+
+.customerCardHistory {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.customerCardHistoryItem {
+  display: grid;
+  gap: 0.18rem;
+  border-left: 2px solid color-mix(in srgb, var(--brand) 50%, var(--line));
+  padding: 0.2rem 0 0.24rem 0.58rem;
+  transition:
+    transform var(--motion-fast),
+    border-color var(--motion-fast);
+}
+
+.customerCardHistoryItem:hover {
+  border-left-color: color-mix(in srgb, var(--brand) 76%, var(--line));
+  transform: translateX(2px);
+}
+
+.customerCardHistoryItem strong {
+  color: var(--foreground);
+  font-size: 0.78rem;
+}
+
+.customerCardHistoryItem p {
+  margin: 0;
+  color: var(--foreground-soft);
+  font-size: 0.73rem;
+  line-height: 1.35;
+}
+
+.customerCardHistoryItem span,
+.customerCardShortcut span {
+  color: var(--foreground-muted);
+  font-size: 0.68rem;
+  font-weight: 800;
+}
+
+.customerCardShortcut {
+  display: grid;
+  gap: 0.16rem;
+  border-radius: 14px;
+  border: 1px solid color-mix(in srgb, var(--brand) 24%, var(--line));
+  background: color-mix(in srgb, var(--brand) 6%, var(--surface));
+  padding: 0.62rem 0.7rem;
+}
+
+.customerCardShortcut strong {
+  color: var(--foreground);
+  font-size: 0.82rem;
 }
 
 .quickActionsGrid {
@@ -3174,7 +3511,7 @@
   }
 
   .contextTabs {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
   .conversationHead,
@@ -3228,7 +3565,7 @@
   }
 
   .contextTabs {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
   .agendaTabs {
@@ -3927,14 +4264,6 @@
   padding-right: 0.12rem;
 }
 
-.listHeaderActions {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.45rem;
-}
-
-.listCommandButton,
-.listIconButton,
 .listSearchAction,
 .conversationPrimaryAction {
   border: 1px solid rgba(105, 129, 204, 0.22);
@@ -3947,48 +4276,16 @@
     box-shadow var(--motion-fast);
 }
 
-.listCommandButton {
-  min-height: 34px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0 0.74rem;
-  border-radius: 999px;
-  background: rgba(20, 31, 63, 0.94);
-  color: #d8e3ff;
-  font-size: 0.72rem;
-  font-weight: 800;
-}
-
-.listCommandButton:hover:not(:disabled),
-.listIconButton:hover:not(:disabled),
 .listSearchAction:hover:not(:disabled),
 .conversationPrimaryAction:hover:not(:disabled) {
   transform: translateY(-1px);
   border-color: rgba(122, 149, 236, 0.38);
 }
 
-.listCommandButton:disabled,
-.listIconButton:disabled,
 .listSearchAction:disabled,
 .conversationPrimaryAction:disabled {
   opacity: 0.48;
   cursor: not-allowed;
-}
-
-.listIconButton {
-  width: 34px;
-  height: 34px;
-  display: grid;
-  place-items: center;
-  border-radius: 12px;
-  background: rgba(20, 31, 63, 0.94);
-  color: #d8e3ff;
-}
-
-.listIconButton :global(svg) {
-  width: 14px;
-  height: 14px;
 }
 
 .listMetricsGrid {
@@ -4166,7 +4463,6 @@
   margin-top: 0.2rem;
 }
 
-.conversationPresenceBadge,
 .conversationContextBadge {
   min-height: 24px;
   display: inline-flex;
@@ -4176,12 +4472,6 @@
   border-radius: 999px;
   font-size: 0.66rem;
   font-weight: 800;
-}
-
-.conversationPresenceBadge {
-  background: rgba(13, 85, 53, 0.42);
-  color: #bfffe1;
-  border: 1px solid rgba(25, 211, 124, 0.24);
 }
 
 .conversationContextBadge {
@@ -4440,6 +4730,8 @@
   position: relative;
   display: grid;
   grid-template-columns: repeat(var(--segment-count), minmax(0, 1fr));
+  width: min(100%, 290px);
+  margin-inline: auto;
   padding: 0.22rem;
   border-radius: 999px;
   border: 1px solid rgba(101, 124, 194, 0.18);
@@ -4493,6 +4785,57 @@
 
 .internalNoteInput::placeholder {
   color: #7c8eb8;
+}
+
+.customerCardPanel {
+  padding-left: 0.82rem;
+}
+
+.customerCardAccent {
+  background: linear-gradient(180deg, #22c55e, #38bdf8);
+  box-shadow: 0 0 24px rgba(34, 197, 94, 0.18);
+}
+
+.customerCardGhostButton,
+.customerCardSecondaryAction {
+  border-color: rgba(98, 120, 186, 0.18);
+  background: rgba(13, 20, 39, 0.88);
+  color: #e7efff;
+}
+
+.customerCardPillButton {
+  border-color: rgba(124, 102, 255, 0.24);
+  background: rgba(124, 102, 255, 0.12);
+  color: #d7d1ff;
+}
+
+.customerCardDangerAction {
+  border-color: rgba(248, 113, 113, 0.28);
+  background: rgba(127, 29, 29, 0.16);
+  color: #fecaca;
+}
+
+.customerCardReturnLine,
+.customerCardSummaryBox,
+.customerCardMetrics span,
+.customerCardShortcut {
+  border-color: rgba(98, 120, 186, 0.16);
+  background: rgba(13, 20, 39, 0.78);
+}
+
+.customerCardTextarea {
+  border-radius: 14px !important;
+  border: 1px solid rgba(98, 120, 186, 0.16) !important;
+  background: rgba(7, 12, 24, 0.82) !important;
+  color: #e7efff !important;
+}
+
+.customerCardTextarea::placeholder {
+  color: #7c8eb8;
+}
+
+.customerCardHistoryItem {
+  border-left-color: rgba(56, 189, 248, 0.58);
 }
 
 .quickActionsGrid {
@@ -4699,8 +5042,6 @@
   box-shadow: 0 10px 18px color-mix(in srgb, var(--danger) 22%, transparent);
 }
 
-:global(html[data-theme-mode="light"]) .listCommandButton,
-:global(html[data-theme-mode="light"]) .listIconButton,
 :global(html[data-theme-mode="light"]) .listSearchAction {
   border-color: color-mix(in srgb, var(--line) 88%, var(--background));
   background: color-mix(in srgb, var(--surface) 96%, var(--background));
@@ -4798,12 +5139,6 @@
 
 :global(html[data-theme-mode="light"]) .conversationIdentitySubtitle {
   color: var(--muted);
-}
-
-:global(html[data-theme-mode="light"]) .conversationPresenceBadge {
-  color: color-mix(in srgb, var(--success) 88%, var(--foreground));
-  background: color-mix(in srgb, var(--success) 10%, var(--background));
-  border-color: color-mix(in srgb, var(--success) 18%, var(--background));
 }
 
 :global(html[data-theme-mode="light"]) .conversationContextBadge {
@@ -4921,7 +5256,8 @@
 }
 
 :global(html[data-theme-mode="light"]) .whatsAppComposerInput,
-:global(html[data-theme-mode="light"]) .internalNoteInput {
+:global(html[data-theme-mode="light"]) .internalNoteInput,
+:global(html[data-theme-mode="light"]) .customerCardTextarea {
   border-color: color-mix(in srgb, var(--line) 88%, var(--background)) !important;
   background: color-mix(in srgb, var(--surface) 99%, var(--background)) !important;
   color: var(--foreground) !important;
@@ -4929,8 +5265,75 @@
 
 :global(html[data-theme-mode="light"]) .whatsAppComposerInput::placeholder,
 :global(html[data-theme-mode="light"]) .internalNoteInput::placeholder,
+:global(html[data-theme-mode="light"]) .customerCardTextarea::placeholder,
 :global(html[data-theme-mode="light"]) .whatsAppComposerHint {
   color: var(--muted);
+}
+
+:global(html[data-theme-mode="light"]) .customerCardHeader strong,
+:global(html[data-theme-mode="light"]) .customerCardMetrics strong,
+:global(html[data-theme-mode="light"]) .customerCardHistoryItem strong,
+:global(html[data-theme-mode="light"]) .customerCardShortcut strong {
+  color: var(--foreground);
+}
+
+:global(html[data-theme-mode="light"]) .customerCardHeader span,
+:global(html[data-theme-mode="light"]) .customerCardReturnLine,
+:global(html[data-theme-mode="light"]) .customerCardHistoryHeader span,
+:global(html[data-theme-mode="light"]) .customerCardHistoryItem p,
+:global(html[data-theme-mode="light"]) .customerCardHistoryItem span,
+:global(html[data-theme-mode="light"]) .customerCardShortcut span {
+  color: color-mix(in srgb, var(--foreground) 64%, var(--muted));
+}
+
+:global(html[data-theme-mode="light"]) .customerCardReturnLine,
+:global(html[data-theme-mode="light"]) .customerCardSummaryBox,
+:global(html[data-theme-mode="light"]) .customerCardMetrics span,
+:global(html[data-theme-mode="light"]) .customerCardShortcut {
+  border-color: color-mix(in srgb, var(--line) 88%, var(--background));
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--surface) 99%, var(--background)),
+      color-mix(in srgb, var(--surface-soft) 96%, var(--background))
+    );
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.78),
+    0 12px 22px rgba(15, 23, 42, 0.04);
+}
+
+:global(html[data-theme-mode="light"]) .customerCardReturnLine {
+  color: color-mix(in srgb, var(--foreground) 78%, var(--muted));
+}
+
+:global(html[data-theme-mode="light"]) .customerCardGhostButton,
+:global(html[data-theme-mode="light"]) .customerCardSecondaryAction {
+  border-color: color-mix(in srgb, var(--line) 88%, var(--background));
+  background: color-mix(in srgb, var(--surface) 98%, var(--background));
+  color: var(--foreground);
+  box-shadow: 0 10px 18px rgba(15, 23, 42, 0.05);
+}
+
+:global(html[data-theme-mode="light"]) .customerCardPillButton {
+  border-color: color-mix(in srgb, var(--brand) 18%, var(--line));
+  background: color-mix(in srgb, var(--brand) 9%, var(--surface));
+  color: color-mix(in srgb, var(--brand) 74%, var(--foreground));
+}
+
+:global(html[data-theme-mode="light"]) .customerCardDangerAction {
+  border-color: color-mix(in srgb, var(--danger) 22%, var(--line));
+  background: color-mix(in srgb, var(--danger) 8%, var(--surface));
+  color: color-mix(in srgb, var(--danger) 80%, var(--foreground));
+}
+
+:global(html[data-theme-mode="light"]) .customerCardMetrics small,
+:global(html[data-theme-mode="light"]) .customerCardSummaryBox label,
+:global(html[data-theme-mode="light"]) .customerCardReturnEditor label {
+  color: color-mix(in srgb, var(--foreground) 58%, var(--muted));
+}
+
+:global(html[data-theme-mode="light"]) .customerCardHistoryItem {
+  border-left-color: color-mix(in srgb, var(--brand) 46%, var(--line));
 }
 
 :global(html[data-theme-mode="light"]) .whatsAppDayDivider span {

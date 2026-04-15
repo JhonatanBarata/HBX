@@ -161,12 +161,62 @@ type DeletedConversationAliasMap = Record<string, string>;
 type VendasAgendaQueueMetadata = {
   active?: boolean;
   leadId?: string | null;
+  sourceModule?: string | null;
+  sourceBlock?: string | null;
+  status?: string | null;
   nextAction?: string | null;
   returnAt?: string | null;
   draftMessage?: string | null;
   draftPending?: boolean;
   syncedAt?: string | null;
   lastManualSendAt?: string | null;
+  manualSent?: boolean | string | number | null;
+  manualSentAt?: string | null;
+  botEligible?: boolean | string | number | null;
+  botEntryPending?: boolean | string | number | null;
+  manualQueueOverride?: string | null;
+  manualQueueOverriddenAt?: string | null;
+};
+
+type CustomerConversationCardPayload = {
+  customer: {
+    profileId?: string | null;
+    name?: string | null;
+    phone?: string | null;
+    phoneNormalized?: string | null;
+    doNotCall?: boolean | null;
+    doNotCallReason?: string | null;
+    observations?: string | null;
+    updatedAt?: string | null;
+  };
+  lead?: {
+    id?: string | null;
+    status?: string | null;
+    statusLabel?: string | null;
+    nextAction?: string | null;
+    returnAt?: string | null;
+    attemptCount?: number | null;
+    timesSeen?: number | null;
+    sourceType?: string | null;
+    shortNote?: string | null;
+    lastContactAt?: string | null;
+    updatedAt?: string | null;
+  } | null;
+  history?: Array<{
+    id: string;
+    eventType?: string | null;
+    title?: string | null;
+    description?: string | null;
+    resultLabel?: string | null;
+    returnAt?: string | null;
+    createdAt?: string | null;
+  }>;
+};
+
+type CustomerConversationCardDraft = {
+  doNotCall: boolean;
+  returnAt: string;
+  observations: string;
 };
 
 const INBOX_QUEUE_ORDER: InboxQueue[] = [
@@ -226,9 +276,23 @@ function normalizeInboxTab(value: string | null | undefined): InboxTab | null {
   if (normalized === "messages") {
     return "messages";
   }
-  if (normalized === "automation" || normalized === "agenda" || normalized === "recovery") {
+  if (normalized === "automation" || normalized === "recovery") {
     return "automation";
   }
+  return null;
+}
+
+function normalizeInboxQueueParam(value: string | null | undefined): InboxQueue | null {
+  const normalized = String(value || "").trim().toLowerCase();
+  return INBOX_QUEUE_ORDER.includes(normalized as InboxQueue) ? (normalized as InboxQueue) : null;
+}
+
+function normalizeAtendimentoSectionParam(value: string | null | undefined): AtendimentoSection | null {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (normalized === "conversa" || normalized === "financeiro" || normalized === "agenda" || normalized === "automacao") {
+    return normalized;
+  }
+  if (normalized === "automation") return "automacao";
   return null;
 }
 
@@ -243,7 +307,7 @@ function getInboxQueueLabel(queue: InboxQueue) {
     case "bot":
       return "Chat • BOT";
     case "archived":
-      return "Arquivados";
+      return "Excluídos";
     default:
       return "Conversas";
   }
@@ -823,6 +887,60 @@ function formatTimeLabel(dateStr: string | null | undefined, mounted: boolean) {
   return parsed.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
 }
 
+function formatShortDateTimeLabel(dateStr: string | null | undefined, mounted: boolean) {
+  if (!dateStr) return "-";
+  const parsed = new Date(dateStr);
+  if (Number.isNaN(parsed.getTime())) return "-";
+  if (!mounted) return parsed.toISOString();
+  return parsed.toLocaleString("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function formatDateTimeLocalValue(dateStr: string | null | undefined) {
+  if (!dateStr) return "";
+  const parsed = new Date(dateStr);
+  if (Number.isNaN(parsed.getTime())) return "";
+  const local = new Date(parsed.getTime() - parsed.getTimezoneOffset() * 60000);
+  return local.toISOString().slice(0, 16);
+}
+
+function toIsoFromLocalDateTime(value: string | null | undefined) {
+  const normalized = String(value || "").trim();
+  if (!normalized) return null;
+  const parsed = new Date(normalized);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed.toISOString();
+}
+
+function buildTomorrowReturnLocalValue() {
+  const tomorrow = new Date();
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  tomorrow.setHours(9, 0, 0, 0);
+  return formatDateTimeLocalValue(tomorrow.toISOString());
+}
+
+function buildCustomerConversationCardDraft(
+  payload: CustomerConversationCardPayload | null,
+): CustomerConversationCardDraft {
+  return {
+    doNotCall: Boolean(payload?.customer?.doNotCall),
+    returnAt: formatDateTimeLocalValue(payload?.lead?.returnAt || null),
+    observations: String(payload?.customer?.observations || payload?.lead?.shortNote || ""),
+  };
+}
+
+function getCustomerConversationCardPhoneDigits(
+  payload: CustomerConversationCardPayload | null,
+  conversation?: InboxConversation | null,
+) {
+  return String(payload?.customer?.phoneNormalized || payload?.customer?.phone || conversation?.customer?.phone || "")
+    .replace(/\D/g, "");
+}
+
 function normalizeConversationDisplayNameCandidate(
   value: unknown,
   phone?: string | null,
@@ -910,6 +1028,9 @@ function isSameInboxCalendarDay(left: Date, right: Date) {
 
 function isInboxWebscrapingToday(conversation?: InboxConversation | null) {
   if (!conversation) return false;
+  const vendasAgendaQueue = getInboxVendasAgendaQueue(conversation);
+  if (parseInboxBooleanFlag(vendasAgendaQueue?.active)) return true;
+
   const metadata = getInboxConversationMetadata(conversation);
   const sourceCandidates = [
     conversation.latestSourceModule,
@@ -936,12 +1057,28 @@ function getInboxConversationQueue(
   if (manualQueue && INBOX_QUEUE_ORDER.includes(manualQueue)) {
     return manualQueue;
   }
+  const metadata = getInboxConversationMetadata(conversation);
+  const vendasAgendaQueue = getInboxVendasAgendaQueue(conversation);
+  if (
+    parseInboxBooleanFlag(metadata?.inboxLocalDeleted) ||
+    parseInboxBooleanFlag(metadata?.localDeleted)
+  ) {
+    return "archived";
+  }
+  const persistedQueue = String(
+    metadata?.inboxManualQueueOverride || vendasAgendaQueue?.manualQueueOverride || "",
+  )
+    .trim()
+    .toLowerCase();
+  if (INBOX_QUEUE_ORDER.includes(persistedQueue as InboxQueue)) {
+    return persistedQueue as InboxQueue;
+  }
 
   if (isInboxConversationArchived(conversation)) return "archived";
   if (isInboxGroupRemoteJid(extractInboxRawContact(conversation))) return "groups";
-  if (conversation.botActive === true && !conversation.humanAssigned) return "bot";
   if (Number(conversation.recoveryOpenAmount || 0) > 0) return "recovery";
   if (isInboxWebscrapingToday(conversation)) return "scheduled";
+  if (conversation.botActive === true && !conversation.humanAssigned) return "bot";
   return "all";
 }
 
@@ -973,21 +1110,6 @@ function getInboxVendasAgendaQueue(conversation?: InboxConversation | null) {
     return null;
   }
   return metadata.vendasAgendaQueue as VendasAgendaQueueMetadata;
-}
-
-function getInboxVendasAgendaDraft(conversation?: InboxConversation | null) {
-  const queue = getInboxVendasAgendaQueue(conversation);
-  if (!queue?.active || queue.draftPending === false) return null;
-
-  const text = String(queue.draftMessage || "").trim();
-  if (!text) return null;
-
-  return {
-    leadId: String(queue.leadId || "").trim() || null,
-    nextAction: String(queue.nextAction || "").trim() || null,
-    returnAt: String(queue.returnAt || "").trim() || null,
-    text,
-  };
 }
 
 function isInboxGroupRemoteJid(raw: string | null | undefined) {
@@ -1139,19 +1261,9 @@ function isInboxConversationHiddenByDelete(
   conversation: InboxConversation | null | undefined,
   deletedAliases: DeletedConversationAliasMap,
 ) {
-  if (!conversation) return false;
-  const deletedAtValues = getInboxConversationIdentityAliases(conversation)
-    .map((alias) => deletedAliases[alias])
-    .filter(Boolean)
-    .map((value) => new Date(String(value)).getTime())
-    .filter((value) => Number.isFinite(value));
-
-  if (deletedAtValues.length === 0) return false;
-
-  const lastDeletedAt = Math.max(...deletedAtValues);
-  const activityAt = new Date(getInboxConversationActivityAt(conversation)).getTime();
-  if (!Number.isFinite(activityAt)) return true;
-  return activityAt <= lastDeletedAt;
+  void conversation;
+  void deletedAliases;
+  return false;
 }
 
 function getInboxConversationQualityScore(conversation: InboxConversation) {
@@ -1355,10 +1467,6 @@ function getInboxConversationPreview(conversation?: InboxConversation | null) {
 
 function getInboxConversationSubtitle(conversation?: InboxConversation | null) {
   if (!conversation) return undefined;
-  const metadata = getInboxConversationMetadata(conversation);
-  if (metadata?.whatsappWindowActive === true) {
-    return "online";
-  }
   const rawContact = extractInboxRawContact(conversation);
   if (isInboxGroupRemoteJid(rawContact)) {
     return "Grupo";
@@ -1761,6 +1869,14 @@ export default function InboxClientPage() {
     () => normalizeInboxTab(searchParams?.get("atendimentoTab")) || "messages",
     [searchParams],
   );
+  const requestedQueue = useMemo(
+    () => normalizeInboxQueueParam(searchParams?.get("atendimentoQueue") || searchParams?.get("queue")),
+    [searchParams],
+  );
+  const requestedSection = useMemo(
+    () => normalizeAtendimentoSectionParam(searchParams?.get("atendimentoSection")),
+    [searchParams],
+  );
   const [mounted, setMounted] = useState(false);
   const [activeTab, setActiveTab] = useState<InboxTab>(requestedTab);
   const [inboxQueue, setInboxQueue] = useState<InboxQueue>("all");
@@ -1795,6 +1911,18 @@ export default function InboxClientPage() {
   const [queueActionMenuPosition, setQueueActionMenuPosition] = useState<QueueActionMenuPosition | null>(null);
   const [messageReactionTargetId, setMessageReactionTargetId] = useState<string | null>(null);
   const [revealedDeletedMessageIds, setRevealedDeletedMessageIds] = useState<Record<string, boolean>>({});
+  const [customerConversationCard, setCustomerConversationCard] =
+    useState<CustomerConversationCardPayload | null>(null);
+  const [customerConversationCardDraft, setCustomerConversationCardDraft] =
+    useState<CustomerConversationCardDraft>({
+      doNotCall: false,
+      returnAt: "",
+      observations: "",
+    });
+  const [loadingCustomerConversationCard, setLoadingCustomerConversationCard] = useState(false);
+  const [savingCustomerConversationCard, setSavingCustomerConversationCard] = useState(false);
+  const [customerConversationCardError, setCustomerConversationCardError] = useState<string | null>(null);
+  const [customerCardShortcutOpen, setCustomerCardShortcutOpen] = useState(false);
   const [agendaStudioOpen, setAgendaStudioOpen] = useState(false);
   const [automationStudioOpen, setAutomationStudioOpen] = useState(false);
   const [templatesStudioOpen, setTemplatesStudioOpen] = useState(false);
@@ -1839,14 +1967,16 @@ export default function InboxClientPage() {
   const queueActionMenuRef = useRef<HTMLDivElement | null>(null);
   const messageReactionPickerRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const customerReturnInputRef = useRef<HTMLInputElement | null>(null);
+  const customerReturnAutoSaveTimerRef = useRef<number | null>(null);
   const conversationsRef = useRef<InboxConversation[]>([]);
   const deletedConversationAliasesRef = useRef<DeletedConversationAliasMap>({});
   const selectedIdRef = useRef<string | null>(null);
   const selectedConversationRef = useRef<InboxConversation | null>(null);
+  const inboxQueueRef = useRef<InboxQueue>("all");
   const conversationLoadTokenRef = useRef(0);
   const botConfigLoadedRef = useRef(false);
   const agendaConfigLoadedRef = useRef(false);
-  const autoFilledAgendaDraftSignatureRef = useRef<string | null>(null);
   const sendTextDirtyRef = useRef(false);
   const lastSectionChangeRef = useRef<{ section: AtendimentoSection | null; at: number }>({
     section: null,
@@ -1964,6 +2094,29 @@ export default function InboxClientPage() {
   }, [automationStudioOpen, requestedTab]);
 
   useEffect(() => {
+    if (requestedQueue) {
+      setInboxQueue(requestedQueue);
+    }
+    if (!requestedSection) return;
+
+    setActiveTab("messages");
+    setAutomationStudioOpen(false);
+    setTemplatesStudioOpen(false);
+    if (requestedSection === "agenda") {
+      setAgendaStudioOpen(false);
+      setContextTab("agenda");
+      return;
+    }
+    if (requestedSection === "automacao") {
+      setAutomationStudioOpen(true);
+      setAgendaStudioOpen(false);
+      return;
+    }
+    setAgendaStudioOpen(false);
+    setContextTab(requestedSection);
+  }, [requestedQueue, requestedSection]);
+
+  useEffect(() => {
     setMounted(true);
   }, []);
 
@@ -2030,6 +2183,10 @@ export default function InboxClientPage() {
   useEffect(() => {
     conversationsRef.current = conversations;
   }, [conversations]);
+
+  useEffect(() => {
+    inboxQueueRef.current = inboxQueue;
+  }, [inboxQueue]);
 
   useEffect(() => {
     selectedIdRef.current = selectedId;
@@ -2101,18 +2258,18 @@ export default function InboxClientPage() {
         ? selectedConversationRef.current
         : null,
     );
-    const currentDetailedConversation =
-      selectedConversationRef.current &&
-      !isInboxConversationSummaryOnly(selectedConversationRef.current)
-        ? selectedConversationRef.current
-        : null;
     setSelectedId(conversationId);
-    if (mergedSummary && (!silent || !selectedConversationRef.current)) {
-      if (silent && selectedConversationRef.current?.id === conversationId) {
-        setSelectedConversation(mergedSummary);
-      } else if (!currentDetailedConversation || currentDetailedConversation.id === conversationId) {
-        setSelectedConversation(markInboxConversationAsSummaryOnly(mergedSummary));
-      }
+    selectedIdRef.current = conversationId;
+    if (mergedSummary) {
+      const nextConversation =
+        silent && selectedConversationRef.current?.id === conversationId
+          ? mergedSummary
+          : markInboxConversationAsSummaryOnly(mergedSummary);
+      setSelectedConversation(nextConversation);
+      selectedConversationRef.current = nextConversation;
+    } else if (!silent || selectedConversationRef.current?.id !== conversationId) {
+      setSelectedConversation(null);
+      selectedConversationRef.current = null;
     }
     setConversationDetailError(null);
     if (!silent) setLoadingConversation(true);
@@ -2137,11 +2294,15 @@ export default function InboxClientPage() {
         return;
       }
 
+      const detailedConversation = clearInboxConversationSummaryOnly(data);
       setSelectedConversation((current) =>
-        data && !(silent && !didInboxConversationViewChange(current, data))
-          ? clearInboxConversationSummaryOnly(data)
+        detailedConversation && !(silent && !didInboxConversationViewChange(current, detailedConversation))
+          ? detailedConversation
           : current,
       );
+      if (detailedConversation) {
+        selectedConversationRef.current = detailedConversation;
+      }
       if (data) {
         setSelectedId(data.id);
       }
@@ -2189,7 +2350,13 @@ export default function InboxClientPage() {
         const preferredId = options?.preferredId ?? selectedIdRef.current;
         const selectedSummary =
           preferredId ? data.find((conversation) => conversation.id === preferredId) || null : null;
-        const fallbackSummary = data[0] ?? null;
+        const currentQueue = inboxQueueRef.current;
+        const fallbackSummary =
+          (currentQueue === "all"
+            ? data[0]
+            : data.find((conversation) => getInboxConversationQueue(conversation) === currentQueue)) ??
+          data[0] ??
+          null;
         const nextSummary = selectedSummary || fallbackSummary;
         const nextId = nextSummary?.id ?? null;
 
@@ -2252,6 +2419,167 @@ export default function InboxClientPage() {
     },
     [loadConversation],
   );
+
+  const loadCustomerConversationCard = useCallback(async (conversationId: string | null | undefined) => {
+    const normalizedId = normalizeInboxConversationId(conversationId);
+    if (!normalizedId) {
+      setCustomerConversationCard(null);
+      setCustomerConversationCardDraft({
+        doNotCall: false,
+        returnAt: "",
+        observations: "",
+      });
+      setCustomerConversationCardError(null);
+      return;
+    }
+    setLoadingCustomerConversationCard(true);
+    setCustomerConversationCardError(null);
+    try {
+      const payload = await apiFetch<CustomerConversationCardPayload>(
+        `/inbox/conversations/${normalizedId}/status-card`,
+      );
+      setCustomerConversationCard(payload);
+      setCustomerConversationCardDraft(buildCustomerConversationCardDraft(payload));
+    } catch (loadError) {
+      const message =
+        loadError instanceof Error ? loadError.message : "Falha ao carregar card do cliente.";
+      setCustomerConversationCardError(message);
+    } finally {
+      setLoadingCustomerConversationCard(false);
+    }
+  }, []);
+
+  const saveCustomerConversationCard = useCallback(
+    async (
+      patch?: Partial<{
+        doNotCall: boolean;
+        returnAt: string | null;
+        observations: string;
+      }>,
+    ) => {
+      if (!selectedId) return;
+      if (customerReturnAutoSaveTimerRef.current) {
+        window.clearTimeout(customerReturnAutoSaveTimerRef.current);
+        customerReturnAutoSaveTimerRef.current = null;
+      }
+
+      const hasDoNotCallPatch =
+        Boolean(patch) && Object.prototype.hasOwnProperty.call(patch, "doNotCall");
+      const nextDoNotCall = hasDoNotCallPatch
+        ? Boolean(patch?.doNotCall)
+        : customerConversationCardDraft.doNotCall;
+      const nextReturnAt =
+        patch && Object.prototype.hasOwnProperty.call(patch, "returnAt")
+          ? patch.returnAt ?? null
+          : toIsoFromLocalDateTime(customerConversationCardDraft.returnAt);
+      const nextObservations = patch?.observations ?? customerConversationCardDraft.observations;
+      const body: Record<string, unknown> = {
+        returnAt: nextReturnAt,
+        observations: nextObservations,
+      };
+      if (hasDoNotCallPatch || customerConversationCardDraft.doNotCall) {
+        body.doNotCall = nextDoNotCall;
+      }
+
+      setSavingCustomerConversationCard(true);
+      setCustomerConversationCardError(null);
+      try {
+        const payload = await apiFetch<CustomerConversationCardPayload>(
+          `/inbox/conversations/${selectedId}/status-card`,
+          {
+            method: "PATCH",
+            body: JSON.stringify(body),
+          },
+        );
+        setCustomerConversationCard(payload);
+        setCustomerConversationCardDraft(buildCustomerConversationCardDraft(payload));
+        setNotice({ tone: "success", text: "Card do cliente salvo." });
+        await loadConversations({ preferredId: selectedId, silent: true });
+      } catch (saveError) {
+        const message =
+          saveError instanceof Error ? saveError.message : "Falha ao salvar card do cliente.";
+        setCustomerConversationCardError(message);
+        setNotice({ tone: "error", text: message });
+      } finally {
+        setSavingCustomerConversationCard(false);
+      }
+    },
+    [customerConversationCardDraft, loadConversations, selectedId],
+  );
+
+  const handleCustomerReturnChange = useCallback(
+    (value: string) => {
+      setCustomerConversationCardDraft((current) => ({ ...current, returnAt: value }));
+      if (customerReturnAutoSaveTimerRef.current) {
+        window.clearTimeout(customerReturnAutoSaveTimerRef.current);
+        customerReturnAutoSaveTimerRef.current = null;
+      }
+      const isoValue = toIsoFromLocalDateTime(value);
+      if (!isoValue) return;
+      customerReturnAutoSaveTimerRef.current = window.setTimeout(() => {
+        void saveCustomerConversationCard({
+          ...(customerConversationCardDraft.doNotCall ? { doNotCall: false } : {}),
+          returnAt: isoValue,
+        });
+      }, 700);
+    },
+    [customerConversationCardDraft.doNotCall, saveCustomerConversationCard],
+  );
+
+  const scheduleCustomerReturnTomorrow = useCallback(() => {
+    const localValue = buildTomorrowReturnLocalValue();
+    setCustomerConversationCardDraft((current) => ({
+      ...current,
+      doNotCall: false,
+      returnAt: localValue,
+    }));
+    const isoValue = toIsoFromLocalDateTime(localValue);
+    void saveCustomerConversationCard({
+      ...(customerConversationCardDraft.doNotCall ? { doNotCall: false } : {}),
+      returnAt: isoValue,
+    });
+  }, [customerConversationCardDraft.doNotCall, saveCustomerConversationCard]);
+
+  const markCustomerDoNotCall = useCallback(() => {
+    setCustomerConversationCardDraft((current) => ({
+      ...current,
+      doNotCall: true,
+      returnAt: "",
+    }));
+    void saveCustomerConversationCard({ doNotCall: true, returnAt: null });
+  }, [saveCustomerConversationCard]);
+
+  const openCustomerReturnPicker = useCallback(() => {
+    const input = customerReturnInputRef.current as (HTMLInputElement & { showPicker?: () => void }) | null;
+    input?.showPicker?.();
+    input?.focus();
+  }, []);
+
+  useEffect(() => {
+    if (!selectedId) {
+      setCustomerConversationCard(null);
+      setCustomerCardShortcutOpen(false);
+      return;
+    }
+    if (contextTab !== "conversa") return;
+    setCustomerCardShortcutOpen(false);
+    setCustomerConversationCard(null);
+    setCustomerConversationCardDraft({
+      doNotCall: false,
+      returnAt: "",
+      observations: "",
+    });
+    setCustomerConversationCardError(null);
+    void loadCustomerConversationCard(selectedId);
+  }, [contextTab, loadCustomerConversationCard, selectedId]);
+
+  useEffect(() => {
+    return () => {
+      if (customerReturnAutoSaveTimerRef.current) {
+        window.clearTimeout(customerReturnAutoSaveTimerRef.current);
+      }
+    };
+  }, []);
 
   const loadBotConfig = useCallback(async (options?: { force?: boolean }) => {
     if (botConfigLoadedRef.current && !options?.force) return;
@@ -2362,7 +2690,7 @@ export default function InboxClientPage() {
   }, [conversations, manualQueueOverrides]);
 
   const queueCounts = useMemo(() => {
-    const base: Record<InboxQueue, number> = {
+  const base: Record<InboxQueue, number> = {
       all: 0,
       archived: 0,
       groups: 0,
@@ -2507,6 +2835,7 @@ export default function InboxClientPage() {
       [...conversations]
         .filter(
           (conversation) =>
+            getInboxConversationQueue(conversation, manualQueueOverrides) !== "archived" &&
             conversation.routeTarget === "atendimento" &&
             (conversation.status === "new" || conversation.status === "open"),
         )
@@ -2515,7 +2844,7 @@ export default function InboxClientPage() {
             new Date(getInboxConversationActivityAt(right)).getTime() -
             new Date(getInboxConversationActivityAt(left)).getTime(),
         ),
-    [conversations],
+    [conversations, manualQueueOverrides],
   );
 
   const pendingAtendimentoCount = pendingAtendimentoConversations.length;
@@ -2620,16 +2949,9 @@ export default function InboxClientPage() {
       if (selectedConversation?.id === selectedId) {
         return selectedConversation;
       }
-      if (
-        loadingConversation &&
-        selectedConversation &&
-        !isInboxConversationSummaryOnly(selectedConversation)
-      ) {
-        return selectedConversation;
-      }
       return summary;
     },
-    [conversations, loadingConversation, selectedConversation, selectedId],
+    [conversations, selectedConversation, selectedId],
   );
 
   const isConversationStageSwitching = Boolean(
@@ -2645,13 +2967,31 @@ export default function InboxClientPage() {
   const selectedConversationStatusMeta = conversationForView
     ? getAtendimentoConversationStatusMeta(conversationForView, hasRecoveryCapability)
     : null;
+  const customerCardName =
+    customerConversationCard?.customer?.name || selectedConversationDisplayName || "Cliente";
+  const customerCardPhone =
+    customerConversationCard?.customer?.phone ||
+    conversationForView?.customer?.phone ||
+    customerConversationCard?.customer?.phoneNormalized ||
+    "";
+  const customerCardPhoneDigits = getCustomerConversationCardPhoneDigits(
+    customerConversationCard,
+    conversationForView,
+  );
+  const customerCardReturnAt = customerConversationCard?.lead?.returnAt || null;
+  const customerCardLastContactAt =
+    customerConversationCard?.lead?.lastContactAt ||
+    customerConversationCard?.lead?.updatedAt ||
+    conversationForView?.updatedAt ||
+    null;
+  const customerCardAttempts = Number(customerConversationCard?.lead?.attemptCount || 0);
+  const customerCardTimesSeen = Math.max(1, Number(customerConversationCard?.lead?.timesSeen || 1));
+  const customerCardHistory = Array.isArray(customerConversationCard?.history)
+    ? customerConversationCard.history
+    : [];
   const selectedConversationIsAgenda = conversationForView
     ? isAtendimentoAgendaConversation(conversationForView)
     : false;
-  const selectedVendasAgendaDraft = useMemo(
-    () => getInboxVendasAgendaDraft(conversationForView),
-    [conversationForView],
-  );
   const conversationMessagesForView = useMemo(
     () =>
       (Array.isArray(conversationForView?.messages) ? conversationForView.messages : []).filter(
@@ -3065,41 +3405,6 @@ export default function InboxClientPage() {
     [loadConversations, selectedId],
   );
 
-  const bulkSetBotForVisible = useCallback(
-    async (enabled: boolean) => {
-      if (!filteredConversations || !filteredConversations.length) return;
-      setSavingBot(true);
-      setError(null);
-      try {
-        const ids = filteredConversations.map((c) => Number(c.id)).filter(Boolean);
-        await apiFetch(`/inbox/conversations/bulk-bot`, {
-          method: "PATCH",
-          body: JSON.stringify({ ids, enabled }),
-        });
-        const affectedIds = filteredConversations.map((conversation) => String(conversation.id));
-        setManualQueueOverrides((current) => {
-          const next = { ...current };
-          for (const conversationId of affectedIds) {
-            next[conversationId] = enabled ? "bot" : "all";
-          }
-          return next;
-        });
-        setNotice({
-          tone: "success",
-          text: enabled
-            ? "BOT ativado para todas as conversas da fila atual."
-            : "BOT pausado para todas as conversas da fila atual.",
-        });
-        await loadConversations({ silent: true });
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Falha ao atualizar conversas.");
-      } finally {
-        setSavingBot(false);
-      }
-    },
-    [filteredConversations, loadConversations],
-  );
-
   const toggleGlobalBot = useCallback(async () => {
     const enabled = !globalBotEnabled;
     const nextConfig = normalizeBotConfig({
@@ -3146,6 +3451,17 @@ export default function InboxClientPage() {
             method: "PATCH",
             body: JSON.stringify({ ids: [numericConversationId], enabled: targetQueue === "bot" }),
           });
+        }
+
+        const updatedConversation = await apiFetch<InboxConversation>(`/inbox/conversations/${conversationId}/queue`, {
+          method: "PATCH",
+          body: JSON.stringify({ queue: targetQueue }),
+        });
+        const normalizedUpdatedConversation = normalizeInboxConversationPayload(updatedConversation);
+        if (normalizedUpdatedConversation) {
+          setSelectedConversation((current) =>
+            current?.id === normalizedUpdatedConversation.id ? normalizedUpdatedConversation : current,
+          );
         }
 
         setManualQueueOverrides((current) => ({
@@ -3226,64 +3542,26 @@ export default function InboxClientPage() {
   const deleteConversationById = useCallback(
     async (conversationId: string) => {
       if (!conversationId) return;
-      const confirmed = window.confirm("Excluir esta conversa do sistema e enviar comando de exclusao para o WhatsApp?");
+      const confirmed = window.confirm("Enviar esta conversa para Excluídos apenas no HBX? Nenhum comando será enviado ao WhatsApp.");
       if (!confirmed) return;
       setError(null);
-      let aliasesToHide: string[] = [`conversation:${conversationId}`];
-      const previousDeletedAliasesSnapshot: DeletedConversationAliasMap = {
-        ...deletedConversationAliasesRef.current,
-      };
       try {
-        const targetConversation =
-          conversationsRef.current.find((conversation) => conversation.id === conversationId) ||
-          (selectedConversationRef.current?.id === conversationId ? selectedConversationRef.current : null);
-        aliasesToHide = Array.from(
-          new Set([
-            `conversation:${conversationId}`,
-            ...getInboxConversationIdentityAliases(targetConversation),
-          ]),
-        );
-        setDeletedConversationAliases((current) => {
-          const deletedAt = new Date().toISOString();
-          const next: DeletedConversationAliasMap = { ...current };
-          for (const alias of aliasesToHide) {
-            next[alias] = deletedAt;
-          }
-          deletedConversationAliasesRef.current = next;
-          return next;
-        });
         const response = await apiFetch<{ message?: string }>(`/inbox/conversations/${conversationId}`, {
           method: "DELETE",
         });
         setQueueActionConversationId(null);
         setQueueActionMenuPosition(null);
-        setConversations((current) => current.filter((conversation) => conversation.id !== conversationId));
-        conversationsRef.current = conversationsRef.current.filter((conversation) => conversation.id !== conversationId);
         setManualQueueOverrides((current) => {
-          const next = { ...current };
-          delete next[conversationId];
-          return next;
+          return { ...current, [conversationId]: "archived" };
         });
-        if (selectedIdRef.current === conversationId) {
-          setSelectedConversation(null);
-          setSelectedId(null);
-          selectedIdRef.current = null;
-          selectedConversationRef.current = null;
-        }
         setNotice({
           tone: "success",
           text:
             String(response?.message || "").trim() ||
-            "Conversa excluida do sistema e do WhatsApp.",
+            "Conversa enviada para Excluídos apenas no HBX.",
         });
-        await loadConversations({
-          preferredId: selectedIdRef.current === conversationId ? null : selectedIdRef.current,
-          silent: true,
-        });
+        await loadConversations({ preferredId: conversationId, silent: true });
       } catch (deleteError) {
-        const rollbackState = { ...previousDeletedAliasesSnapshot };
-        deletedConversationAliasesRef.current = rollbackState;
-        setDeletedConversationAliases(rollbackState);
         const message = deleteError instanceof Error ? deleteError.message : "Falha ao excluir conversa.";
         setError(message);
       }
@@ -3422,37 +3700,7 @@ export default function InboxClientPage() {
           title={undefined}
           description={undefined}
           count={undefined}
-          actions={
-            <div className={styles.listHeaderActions}>
-              <button
-                type="button"
-                className={styles.listCommandButton}
-                onClick={() => void bulkSetBotForVisible(true)}
-                disabled={!filteredConversations.length || savingBot}
-                title="Ativar respostas automáticas do BOT para todas as conversas da fila aberta"
-              >
-                Ativar BOT
-              </button>
-              <button
-                type="button"
-                className={styles.listCommandButton}
-                onClick={() => void bulkSetBotForVisible(false)}
-                disabled={!filteredConversations.length || savingBot}
-                title="Pausar respostas automáticas do BOT para todas as conversas da fila aberta"
-              >
-                Pausar BOT
-              </button>
-              <button
-                type="button"
-                className={styles.listIconButton}
-                onClick={openTemplatesSettings}
-                title="Abrir templates Meta"
-                aria-label="Abrir templates Meta"
-              >
-                <ChatGlyph name="spark" />
-              </button>
-            </div>
-          }
+          actions={undefined}
           className={`${styles.workspaceDockPanel} ${styles.inboxListPanel}`}
           bodyClassName={`${styles.workspaceDockBody} ${styles.inboxListBody}`}
         >
@@ -3607,7 +3855,6 @@ export default function InboxClientPage() {
                   <div className={styles.whatsAppConversationIdentityText}>
                     <strong>{selectedConversationDisplayName}</strong>
                     <div className={styles.conversationIdentityMeta}>
-                      <span className={styles.conversationPresenceBadge}>Online</span>
                       {selectedConversationStatusMeta ? (
                         <span
                           className={styles.conversationContextBadge}
@@ -4155,10 +4402,6 @@ export default function InboxClientPage() {
                   <small className={styles.whatsAppComposerHint}>
                     Contato bloqueado. Desbloqueie para responder.
                   </small>
-                ) : selectedVendasAgendaDraft ? (
-                  <small className={styles.whatsAppComposerHint}>
-                    Rascunho herdado do CRM de Vendas. Ele só será enviado quando você clicar em enviar.
-                  </small>
                 ) : null}
               </form>
 
@@ -4285,6 +4528,166 @@ export default function InboxClientPage() {
                     ))}
                   </ChatInfoCard>
 
+                  <ChatInfoCard title="Card do cliente" meta={customerConversationCard?.lead?.statusLabel || "Vendas"}>
+                    <div className={styles.customerCardPanel}>
+                      <span className={styles.customerCardAccent} aria-hidden="true" />
+                      <div className={styles.customerCardHeader}>
+                        <div>
+                          <strong>{customerCardName}</strong>
+                          <span>{customerCardPhone ? formatInboxPhoneLabel(customerCardPhone) || customerCardPhone : "Sem telefone"}</span>
+                        </div>
+                        <div className={styles.customerCardHeaderActions}>
+                          <button
+                            type="button"
+                            className={styles.customerCardGhostButton}
+                            onClick={() => setCustomerCardShortcutOpen((current) => !current)}
+                          >
+                            Cadastro
+                          </button>
+                          <button
+                            type="button"
+                            className={styles.customerCardPillButton}
+                            onClick={openCustomerReturnPicker}
+                          >
+                            Retorno
+                          </button>
+                        </div>
+                      </div>
+
+                      {customerCardShortcutOpen ? (
+                        <div className={styles.customerCardShortcut}>
+                          <strong>{customerCardName}</strong>
+                          <span>Perfil #{customerConversationCard?.customer?.profileId || "--"}</span>
+                          <span>{customerConversationCardDraft.doNotCall ? "Não ligar mais" : "Contato liberado"}</span>
+                        </div>
+                      ) : null}
+
+                      <div className={styles.customerCardReturnLine}>
+                        <span>
+                          {customerCardReturnAt
+                            ? `Retorno ${formatShortDateTimeLabel(customerCardReturnAt, mounted)}`
+                            : `Hoje · ${formatShortDateTimeLabel(customerCardLastContactAt, mounted)}`}
+                        </span>
+                        {customerConversationCardDraft.doNotCall ? <em>Não ligar mais</em> : null}
+                      </div>
+
+                      <div className={styles.customerCardActions}>
+                        <button
+                          type="button"
+                          className={styles.customerCardPrimaryAction}
+                          onClick={() => {
+                            if (!customerCardPhoneDigits) return;
+                            window.open(`https://wa.me/${customerCardPhoneDigits}`, "_blank", "noopener,noreferrer");
+                          }}
+                          disabled={!customerCardPhoneDigits}
+                        >
+                          WhatsApp
+                        </button>
+                        <button
+                          type="button"
+                          className={styles.customerCardSecondaryAction}
+                          onClick={() => {
+                            if (!customerCardPhoneDigits) return;
+                            window.location.href = `tel:+${customerCardPhoneDigits}`;
+                          }}
+                          disabled={!customerCardPhoneDigits}
+                        >
+                          Ligar
+                        </button>
+                        <button
+                          type="button"
+                          className={styles.customerCardSecondaryAction}
+                          onClick={scheduleCustomerReturnTomorrow}
+                          disabled={savingCustomerConversationCard}
+                        >
+                          Amanhã
+                        </button>
+                        <button
+                          type="button"
+                          className={styles.customerCardDangerAction}
+                          onClick={markCustomerDoNotCall}
+                          disabled={savingCustomerConversationCard || customerConversationCardDraft.doNotCall}
+                        >
+                          Não ligar mais
+                        </button>
+                      </div>
+
+                      <div className={styles.customerCardSummaryBox}>
+                        <label>
+                          <span>Observações</span>
+                          <textarea
+                            className={`field ${styles.customerCardTextarea}`}
+                            rows={4}
+                            value={customerConversationCardDraft.observations}
+                            onChange={(event) =>
+                              setCustomerConversationCardDraft((current) => ({
+                                ...current,
+                                observations: event.target.value,
+                              }))
+                            }
+                            placeholder="Digite o contexto comercial, combinado ou restrição..."
+                          />
+                        </label>
+                      </div>
+
+                      <div className={styles.customerCardReturnEditor}>
+                        <label>
+                          <span>Retorno</span>
+                          <input
+                            ref={customerReturnInputRef}
+                            type="datetime-local"
+                            className="field"
+                            value={customerConversationCardDraft.returnAt}
+                            onChange={(event) => handleCustomerReturnChange(event.target.value)}
+                          />
+                        </label>
+                        <button
+                          type="button"
+                          className={styles.customerCardGhostButton}
+                          onClick={() => void saveCustomerConversationCard()}
+                          disabled={savingCustomerConversationCard}
+                        >
+                          {savingCustomerConversationCard ? "Salvando..." : "Salvar"}
+                        </button>
+                      </div>
+
+                      <div className={styles.customerCardMetrics}>
+                        <span>
+                          <small>Tentativas</small>
+                          <strong>{customerCardAttempts}</strong>
+                        </span>
+                        <span>
+                          <small>Reaparições</small>
+                          <strong>{customerCardTimesSeen}</strong>
+                        </span>
+                        <span>
+                          <small>Último contato</small>
+                          <strong>{formatShortDateTimeLabel(customerCardLastContactAt, mounted)}</strong>
+                        </span>
+                      </div>
+
+                      <div className={styles.customerCardHistory}>
+                        <div className={styles.customerCardHistoryHeader}>
+                          <strong>Histórico</strong>
+                          <span>{loadingCustomerConversationCard ? "Carregando" : `${customerCardHistory.length}`}</span>
+                        </div>
+                        {customerConversationCardError ? (
+                          <ChatFieldNote>{customerConversationCardError}</ChatFieldNote>
+                        ) : customerCardHistory.length > 0 ? (
+                          customerCardHistory.slice(0, 5).map((event) => (
+                            <article key={event.id} className={styles.customerCardHistoryItem}>
+                              <strong>{event.title || "Atualização"}</strong>
+                              <p>{event.description || event.resultLabel || "Registro salvo no histórico."}</p>
+                              <span>{formatShortDateTimeLabel(event.createdAt, mounted)}</span>
+                            </article>
+                          ))
+                        ) : (
+                          <ChatFieldNote>Nenhum histórico comercial registrado para este telefone.</ChatFieldNote>
+                        )}
+                      </div>
+                    </div>
+                  </ChatInfoCard>
+
                   <ChatInfoCard title="Acoes rapidas" meta="Operacao">
                     <ChatActionGrid className={styles.quickActionsGrid}>
                       <ConversationActionList
@@ -4305,21 +4708,6 @@ export default function InboxClientPage() {
                         })}
                       />
                     </ChatActionGrid>
-                  </ChatInfoCard>
-
-                  <ChatInfoCard title="Nota interna" meta="Local nesta estacao" muted>
-                    <div className={styles.internalNoteCard}>
-                      <textarea
-                        className={`field ${styles.internalNoteInput}`}
-                        rows={6}
-                        value={internalNote}
-                        onChange={(event) => setInternalNote(event.target.value)}
-                        placeholder="Anote contexto operacional rapido, proxima ligacao ou combinados internos..."
-                      />
-                      <ChatFieldNote>
-                        Salva localmente no navegador desta estacao, sem alterar backend ou API.
-                      </ChatFieldNote>
-                    </div>
                   </ChatInfoCard>
                 </div>
               ) : null}
@@ -4475,10 +4863,23 @@ export default function InboxClientPage() {
       conversationListError,
       conversationSearch,
       contextTab,
+      customerCardAttempts,
+      customerCardHistory,
+      customerCardLastContactAt,
+      customerCardName,
+      customerCardPhone,
+      customerCardPhoneDigits,
+      customerCardReturnAt,
+      customerCardShortcutOpen,
+      customerCardTimesSeen,
+      customerConversationCard,
+      customerConversationCardDraft,
+      customerConversationCardError,
       internalNote,
       hasRecoveryCapability,
       filteredConversations,
       handleSectionChange,
+      handleCustomerReturnChange,
       inboxDetailDiagnostics,
       inboxQueue,
       inboxQueueDiagnostics,
@@ -4488,9 +4889,12 @@ export default function InboxClientPage() {
       failedInboxMediaUrls,
       loadConversation,
       loadingConversation,
+      loadingCustomerConversationCard,
       loadingList,
+      markCustomerDoNotCall,
       markInboxMediaUrlFailed,
       mounted,
+      openCustomerReturnPicker,
       openedAsset,
       queueActionConversationId,
       queueCounts,
@@ -4509,9 +4913,10 @@ export default function InboxClientPage() {
       selectedConversationRecoveryPrimary,
       selectedConversationStatusMeta,
       selectedId,
-      selectedVendasAgendaDraft,
       selectedStatus,
-      bulkSetBotForVisible,
+      saveCustomerConversationCard,
+      savingCustomerConversationCard,
+      scheduleCustomerReturnTomorrow,
       dropOverQueue,
       handleQueueDrop,
       openTemplatesSettings,
@@ -4832,7 +5237,7 @@ export default function InboxClientPage() {
     window.requestAnimationFrame(() => {
       timeline.scrollTop = timeline.scrollHeight;
     });
-  }, [selectedConversation, selectedConversation?.id, selectedConversation?.messages.length]);
+  }, [selectedConversation?.id, selectedConversation?.messages.length]);
 
   // Clear composer state when switching conversations
   useEffect(() => {
@@ -4844,26 +5249,9 @@ export default function InboxClientPage() {
     setOpenedAsset(null);
     setSendText("");
     sendTextDirtyRef.current = false;
-    autoFilledAgendaDraftSignatureRef.current = null;
     setQueueActionConversationId(null);
     setMessageReactionTargetId(null);
   }, [selectedId]);
-
-  useEffect(() => {
-    if (!selectedId || selectedConversation?.id !== selectedId) return;
-
-    const draft = getInboxVendasAgendaDraft(selectedConversation);
-    const signature = draft
-      ? `${selectedId}:${draft.leadId || ""}:${draft.returnAt || ""}:${draft.text}`
-      : `${selectedId}:empty`;
-
-    if (autoFilledAgendaDraftSignatureRef.current === signature) return;
-    autoFilledAgendaDraftSignatureRef.current = signature;
-    if (!draft) return;
-    if (sendTextDirtyRef.current) return;
-
-    setSendText((current) => (current.trim() ? current : draft.text));
-  }, [selectedConversation, selectedId]);
 
   useEffect(() => {
     if (humanAlertTimerRef.current !== null) {
@@ -4943,7 +5331,7 @@ export default function InboxClientPage() {
     <>
       <DashboardScaffold
         title="Atendimento"
-        description="Inbox unificada com conversa dominante, Recovery como contexto e atalhos operacionais enxutos."
+        description="Inbox unificada com conversa dominante, contexto financeiro real e atalhos operacionais enxutos."
         hideHeader={true}
         hideNavigationRail={true}
         layoutMode="workspace"

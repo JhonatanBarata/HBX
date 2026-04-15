@@ -384,6 +384,9 @@ model CustomerProfile {
   sourceConnection     IntegrationConnection? @relation(fields: [sourceConnectionId], references: [id])
   sourceConnectionId   String?
   name                 String?
+  profileName          String?
+  nameSource           String?
+  nameConfirmed        Boolean  @default(false)
   phone                String?
   phoneNormalized      String?
   email                String?
@@ -392,6 +395,11 @@ model CustomerProfile {
   externalCustomerId   String?
   status               String   @default("active")
   notes                String?
+  firstInboundAt       DateTime?
+  lastInboundAt        DateTime?
+  botOff               Boolean  @default(false)
+  botOffReason         String?
+  botOffAt             DateTime?
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt
   atendimentoCustomers AtendimentoCustomer[]

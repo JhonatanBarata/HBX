@@ -9,6 +9,9 @@ function buildProfileRow(overrides?: Partial<Record<string, unknown>>) {
     companyId: 7,
     sourceConnectionId: null,
     name: 'Cliente',
+    profileName: null,
+    nameSource: null,
+    nameConfirmed: false,
     phone: '+5519998877766',
     phoneNormalized: '5519998877766',
     email: null,
@@ -17,6 +20,11 @@ function buildProfileRow(overrides?: Partial<Record<string, unknown>>) {
     externalCustomerId: null,
     status: 'active',
     notes: null,
+    firstInboundAt: null,
+    lastInboundAt: null,
+    botOff: false,
+    botOffReason: null,
+    botOffAt: null,
     createdAt: new Date('2026-03-28T10:00:00.000Z'),
     updatedAt: new Date('2026-03-28T10:00:00.000Z'),
     ...overrides,
@@ -176,4 +184,110 @@ test('upsertProfile does not downgrade a strong active name with weak whatsapp i
   assert.equal(updateCalled, false);
   assert.equal(result.name, 'Carlos Eduardo');
   assert.equal(result.status, 'active');
+});
+
+test('upsertAtendimentoProfileState stores provisional inbound identity and timestamps in CustomerProfile', async () => {
+  const createCalls: Array<Record<string, unknown>> = [];
+  const updateCalls: Array<Record<string, unknown>> = [];
+  const createdRow = buildProfileRow({
+    id: 'profile-inbound',
+    name: null,
+    profileName: null,
+    nameSource: null,
+    nameConfirmed: false,
+    status: 'provisional',
+    firstInboundAt: null,
+    lastInboundAt: null,
+  });
+  let findFirstCalls = 0;
+
+  const prisma = {
+    customerProfile: {
+      findFirst: async () => {
+        findFirstCalls += 1;
+        if (findFirstCalls === 1) return null;
+        return createdRow;
+      },
+      create: async ({ data }: any) => {
+        createCalls.push(data);
+        return { ...createdRow, ...data };
+      },
+      update: async ({ data }: any) => {
+        updateCalls.push(data);
+        return { ...createdRow, ...data };
+      },
+    },
+  } as any;
+
+  const service = new CustomerProfileService(prisma);
+  const inboundAt = new Date('2026-04-15T10:00:00.000Z');
+  const result = await service.upsertAtendimentoProfileState({
+    companyId: 7,
+    phone: '+55 19 99887-7766',
+    profileName: 'Carlos no WhatsApp',
+    nameSource: 'whatsapp_profile',
+    inboundAt,
+  });
+
+  assert.equal(createCalls.length, 1);
+  assert.equal(createCalls[0].name, null);
+  assert.equal(createCalls[0].status, 'provisional');
+  assert.equal(updateCalls.length, 1);
+  assert.equal(updateCalls[0].profileName, 'Carlos no WhatsApp');
+  assert.equal(updateCalls[0].nameSource, 'whatsapp_profile');
+  assert.deepEqual(updateCalls[0].firstInboundAt, inboundAt);
+  assert.deepEqual(updateCalls[0].lastInboundAt, inboundAt);
+  assert.equal(result.profileName, 'Carlos no WhatsApp');
+  assert.equal(result.nameConfirmed, false);
+});
+
+test('upsertAtendimentoProfileState confirms name and persists BOT_OFF without losing the first inbound timestamp', async () => {
+  const updateCalls: Array<Record<string, unknown>> = [];
+  const existingRow = buildProfileRow({
+    id: 'profile-shared-state',
+    name: null,
+    profileName: 'Carlos no WhatsApp',
+    nameSource: 'whatsapp_profile',
+    nameConfirmed: false,
+    status: 'provisional',
+    firstInboundAt: new Date('2026-04-15T10:00:00.000Z'),
+    lastInboundAt: new Date('2026-04-15T10:00:00.000Z'),
+    botOff: false,
+  });
+
+  const prisma = {
+    customerProfile: {
+      findFirst: async () => existingRow,
+      update: async ({ data }: any) => {
+        updateCalls.push(data);
+        return { ...existingRow, ...data };
+      },
+    },
+  } as any;
+
+  const service = new CustomerProfileService(prisma);
+  const inboundAt = new Date('2026-04-15T10:05:00.000Z');
+  const botOffAt = new Date('2026-04-15T10:06:00.000Z');
+  const result = await service.upsertAtendimentoProfileState({
+    companyId: 7,
+    phone: '+55 19 99887-7766',
+    confirmedName: 'Carlos Eduardo',
+    nameSource: 'confirmed_inbound',
+    nameConfirmed: true,
+    inboundAt,
+    botOff: true,
+    botOffReason: 'Operador solicitou fila humana',
+    botOffAt,
+  });
+
+  assert.equal(updateCalls.length, 2);
+  assert.equal(updateCalls[1].nameConfirmed, true);
+  assert.equal(updateCalls[1].nameSource, 'confirmed_inbound');
+  assert.deepEqual(updateCalls[1].lastInboundAt, inboundAt);
+  assert.equal(updateCalls[1].firstInboundAt, undefined);
+  assert.equal(updateCalls[1].botOff, true);
+  assert.equal(updateCalls[1].botOffReason, 'Operador solicitou fila humana');
+  assert.deepEqual(updateCalls[1].botOffAt, botOffAt);
+  assert.equal(result.nameConfirmed, true);
+  assert.equal(result.botOff, true);
 });

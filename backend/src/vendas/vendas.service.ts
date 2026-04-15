@@ -50,6 +50,12 @@ type VendasAgendaQueueMetadata = {
   syncedAt?: string | null;
   deactivatedAt?: string | null;
   lastManualSendAt?: string | null;
+  manualSent?: boolean;
+  manualSentAt?: string | null;
+  botEligible?: boolean;
+  botEntryPending?: boolean;
+  manualQueueOverride?: string | null;
+  manualQueueOverriddenAt?: string | null;
 };
 
 @Injectable()
@@ -67,7 +73,11 @@ export class VendasService {
 
   private normalizePhone(value: unknown) {
     const digits = this.customerProfileService.normalizePhone(value);
-    return digits || null;
+    if (!digits) return null;
+    if (!digits.startsWith('55') && (digits.length === 10 || digits.length === 11)) {
+      return `55${digits}`;
+    }
+    return digits;
   }
 
   private normalizeEmail(value: unknown) {
@@ -284,6 +294,42 @@ export class VendasService {
     return digits ? `+${digits}` : null;
   }
 
+  private buildLeadPhoneCandidates(value: unknown) {
+    const digits = this.normalizePhone(value);
+    if (!digits) return [];
+
+    const candidates = new Set<string>();
+    for (const candidate of buildWhatsAppPhoneCandidates(digits)) {
+      if (candidate) candidates.add(candidate);
+    }
+
+    const raw = String(value || '').trim();
+    if (raw) candidates.add(raw);
+    return [...candidates];
+  }
+
+  private buildLeadPhoneNormalizedCandidates(value: unknown) {
+    const digits = this.customerProfileService.normalizePhone(value);
+    if (!digits) return [];
+
+    const candidates = new Set<string>();
+    const canonical = this.normalizePhone(digits);
+    if (canonical) candidates.add(canonical);
+    candidates.add(digits);
+    if (digits.startsWith('55') && digits.length > 11) {
+      candidates.add(digits.slice(2));
+    } else if (digits.length === 10 || digits.length === 11) {
+      candidates.add(`55${digits}`);
+    }
+    return [...candidates].filter(Boolean);
+  }
+
+  private buildPreferredLeadContact(value: unknown) {
+    const digits = this.normalizePhone(value);
+    if (!digits) return null;
+    return `+${digits}`;
+  }
+
   private readVendasAgendaQueueMetadata(metadata: Record<string, any>) {
     const queue = metadata?.vendasAgendaQueue;
     if (!queue || typeof queue !== 'object' || Array.isArray(queue)) return null;
@@ -304,10 +350,36 @@ export class VendasService {
   }
 
   private buildVendasAgendaQueueMetadata(row: any, currentQueue?: VendasAgendaQueueMetadata | null) {
+    const manualQueueOverride = this.normalizeText(currentQueue?.manualQueueOverride);
     const draftMessage = this.buildSalesAgendaDraftMessage(row);
     const nextAction = this.normalizeText(row?.nextAction);
     const returnAt = row?.returnAt instanceof Date ? row.returnAt.toISOString() : this.parseDate(row?.returnAt)?.toISOString() || null;
     const status = this.normalizeStatus(row?.status);
+    const manualSentAt = this.normalizeText(currentQueue?.manualSentAt || currentQueue?.lastManualSendAt);
+    const manualSent = Boolean(currentQueue?.manualSent || manualSentAt);
+    if (manualQueueOverride && manualQueueOverride !== 'scheduled') {
+      const syncedAt = new Date().toISOString();
+      return {
+        ...(currentQueue || {}),
+        active: false,
+        leadId: String(row?.id || '').trim() || currentQueue?.leadId || null,
+        sourceModule: 'vendas',
+        sourceBlock: 'today',
+        status,
+        nextAction,
+        returnAt,
+        draftMessage,
+        draftPending: false,
+        syncedAt,
+        deactivatedAt: currentQueue?.deactivatedAt || syncedAt,
+        manualSent,
+        manualSentAt,
+        botEligible: false,
+        botEntryPending: false,
+        manualQueueOverride,
+        manualQueueOverriddenAt: this.normalizeText(currentQueue?.manualQueueOverriddenAt),
+      } satisfies VendasAgendaQueueMetadata;
+    }
     const contentChanged =
       String(currentQueue?.draftMessage || '').trim() !== draftMessage ||
       String(currentQueue?.nextAction || '').trim() !== String(nextAction || '').trim() ||
@@ -328,24 +400,40 @@ export class VendasService {
       draftPending: preserveConsumedDraft ? false : true,
       syncedAt: new Date().toISOString(),
       deactivatedAt: null,
-      lastManualSendAt: currentQueue?.lastManualSendAt || null,
+      lastManualSendAt: this.normalizeText(currentQueue?.lastManualSendAt || manualSentAt),
+      manualSent,
+      manualSentAt,
+      botEligible: currentQueue?.botEligible === true,
+      botEntryPending: currentQueue?.botEntryPending === true,
+      manualQueueOverride: manualQueueOverride === 'scheduled' ? null : manualQueueOverride,
+      manualQueueOverriddenAt: manualQueueOverride === 'scheduled' ? null : this.normalizeText(currentQueue?.manualQueueOverriddenAt),
     } satisfies VendasAgendaQueueMetadata;
   }
 
   private conversationMatchesLeadPhone(conversationContact: unknown, lead: any) {
     const conversationDigits = this.normalizePhone(conversationContact);
     const leadDigits = this.normalizePhone(lead?.phoneNormalized || lead?.phone);
-    return Boolean(conversationDigits && leadDigits && conversationDigits === leadDigits);
+    if (!conversationDigits || !leadDigits) return false;
+    if (conversationDigits === leadDigits) return true;
+    const leadCandidates = this.buildLeadPhoneCandidates(leadDigits)
+      .map((candidate) => this.normalizePhone(candidate))
+      .filter((candidate): candidate is string => Boolean(candidate));
+    const conversationCandidates = this.buildLeadPhoneCandidates(conversationDigits)
+      .map((candidate) => this.normalizePhone(candidate))
+      .filter((candidate): candidate is string => Boolean(candidate));
+    return leadCandidates.some((candidate) => Boolean(candidate && conversationCandidates.includes(candidate)));
   }
 
   private async findConversationByPhone(companyId: number, phoneRaw: unknown) {
     const digits = this.normalizePhone(phoneRaw);
     if (!digits) return null;
-    const candidates = Array.from(
-      new Set([
-        ...buildWhatsAppPhoneCandidates(digits),
-        String(phoneRaw || '').trim(),
-      ].filter(Boolean)),
+    const candidates = this.buildLeadPhoneCandidates(phoneRaw);
+    const candidateDigits = Array.from(
+      new Set(
+        candidates
+          .map((candidate) => this.normalizePhone(candidate))
+          .filter((candidate): candidate is string => Boolean(candidate)),
+      ),
     );
 
     return this.prisma.companyConversation.findFirst({
@@ -354,8 +442,9 @@ export class VendasService {
         channel: 'whatsapp',
         OR: [
           ...(candidates.length ? [{ contact: { in: candidates } }] : []),
-          { contact: { contains: digits } },
-          { contact: { endsWith: digits } },
+          ...candidateDigits.map((candidate) => ({ contact: { contains: candidate } })),
+          ...candidateDigits.map((candidate) => ({ contact: { endsWith: candidate } })),
+          ...candidates.map((candidate) => ({ metadata: { contains: candidate } })),
         ],
       },
       orderBy: [{ lastMessageAt: 'desc' }, { id: 'desc' }],
@@ -363,12 +452,15 @@ export class VendasService {
   }
 
   private async activateLeadInInboxAgenda(companyId: number, row: any) {
-    const contact = this.normalizeLeadConversationPhone(row?.phoneNormalized || row?.phone);
+    const phoneRaw = row?.phoneNormalized || row?.phone;
+    const contact = this.buildPreferredLeadContact(phoneRaw) || this.normalizeLeadConversationPhone(phoneRaw);
     if (!contact) {
       return { activated: 0, updated: 0, skippedWithoutPhone: 1 };
     }
 
-    const conversation = await this.conversations.getOrCreateConversationForContact(companyId, contact);
+    const conversation =
+      (await this.findConversationByPhone(companyId, phoneRaw)) ||
+      (await this.conversations.getOrCreateConversationForContact(companyId, contact));
     const metadata = this.parseConversationMetadata(conversation?.metadata);
     const currentQueue = this.readVendasAgendaQueueMetadata(metadata);
     const nextQueue = this.buildVendasAgendaQueueMetadata(row, currentQueue);
@@ -408,6 +500,8 @@ export class VendasService {
           ...currentQueue,
           active: false,
           draftPending: false,
+          botEligible: false,
+          botEntryPending: false,
           syncedAt: new Date().toISOString(),
           deactivatedAt: new Date().toISOString(),
         },
@@ -515,6 +609,8 @@ export class VendasService {
             ...queue,
             active: false,
             draftPending: false,
+            botEligible: false,
+            botEntryPending: false,
             syncedAt: new Date().toISOString(),
             deactivatedAt: new Date().toISOString(),
           },
@@ -617,13 +713,13 @@ export class VendasService {
     };
 
     if (phoneNormalized) {
-      const existing = await this.prisma.vendasLead.findUnique({
+      const phoneNormalizedCandidates = this.buildLeadPhoneNormalizedCandidates(input.phone);
+      const existing = await this.prisma.vendasLead.findFirst({
         where: {
-          companyId_phoneNormalized: {
-            companyId: input.companyId,
-            phoneNormalized,
-          },
+          companyId: input.companyId,
+          phoneNormalized: { in: phoneNormalizedCandidates.length ? phoneNormalizedCandidates : [phoneNormalized] },
         },
+        orderBy: [{ updatedAt: 'desc' }],
       });
 
       if (existing) {
@@ -638,6 +734,7 @@ export class VendasService {
           timesSeen: Math.max(1, Math.trunc(Number(existing.timesSeen || 0) || 1)) + 1,
           name: baseData.name || existing.name,
           phone: baseData.phone || existing.phone,
+          phoneNormalized: baseData.phoneNormalized || existing.phoneNormalized,
           email: baseData.email || existing.email,
           city: baseData.city || existing.city,
           segment: baseData.segment || existing.segment,
@@ -759,9 +856,18 @@ export class VendasService {
   async previewWebscrapingImportForUser(user: any, dto: ImportWebscrapingLeadsDto) {
     const context = this.resolveUserContext(user);
     const incomingLeads = Array.isArray(dto?.leads) ? dto.leads : [];
-    const phoneNormalizeds = incomingLeads
-      .map((item) => this.normalizePhone(item?.phone || item?.phoneDigits || null))
-      .filter(Boolean) as string[];
+    const phoneNormalizeds = Array.from(
+      new Set(
+        incomingLeads
+          .map((item) => this.normalizePhone(item?.phone || item?.phoneDigits || null))
+          .filter(Boolean) as string[],
+      ),
+    );
+    const lookupPhoneNormalizeds = Array.from(
+      new Set(
+        incomingLeads.flatMap((item) => this.buildLeadPhoneNormalizedCandidates(item?.phone || item?.phoneDigits || null)),
+      ),
+    );
 
     if (!phoneNormalizeds.length) {
       return { items: [] };
@@ -770,7 +876,7 @@ export class VendasService {
     const rows = await this.prisma.vendasLead.findMany({
       where: {
         companyId: context.companyId,
-        phoneNormalized: { in: phoneNormalizeds },
+        phoneNormalized: { in: lookupPhoneNormalizeds.length ? lookupPhoneNormalizeds : phoneNormalizeds },
       },
       orderBy: [{ updatedAt: 'desc' }],
     });
@@ -778,13 +884,16 @@ export class VendasService {
     const byPhone = new Map<string, any>();
     for (const row of rows) {
       const key = String(row?.phoneNormalized || '').trim();
-      if (!key || byPhone.has(key)) continue;
-      byPhone.set(key, row);
+      if (!key) continue;
+      const candidates = this.buildLeadPhoneNormalizedCandidates(key);
+      for (const candidate of candidates) {
+        if (!byPhone.has(candidate)) byPhone.set(candidate, row);
+      }
     }
 
     const sharedMap = await this.customerProfileService.buildSharedContextRegistry(context.companyId, {
       profileIds: rows.map((row) => row.customerProfileId).filter(Boolean),
-      phoneNormalizeds,
+      phoneNormalizeds: lookupPhoneNormalizeds.length ? lookupPhoneNormalizeds : phoneNormalizeds,
     });
 
     return {

@@ -39,7 +39,6 @@ import { CadastrosService } from '../cadastros/cadastros.service';
 import { CustomerProfileService } from '../customer-profile/customer-profile.service';
 import {
   WebwhatsBridgeService,
-  WebwhatsDeleteChatResult,
   WebwhatsFetchedMessage,
   WebwhatsLiveChatSnapshot,
   WebwhatsLiveConversationSnapshot,
@@ -744,9 +743,6 @@ export class InboxService {
         : null;
 
     const hasRecoveryDebt = Number(recoveryCustomer?.openAmount || 0) > 0;
-    const recoveryFlow =
-      String(conversation?.currentFlow || '').trim().toLowerCase().includes('recovery') ||
-      latestSourceModule.startsWith('hbx_recovery');
 
     let routeTarget: 'recovery' | 'atendimento' = 'atendimento';
     let routeReason = 'Atendimento manual padrao.';
@@ -757,27 +753,25 @@ export class InboxService {
     } else if (hasRecoveryDebt && routingRules.preferRecoveryForDebtors) {
       routeTarget = 'recovery';
       routeReason = 'Cliente com debito em aberto e contexto ativo de cobranca.';
-    } else if (recoveryFlow && routingRules.preferRecoveryForNegotiations) {
-      routeTarget = 'recovery';
-      routeReason = 'Conversa originada ou mantida pelo fluxo do HBX Recovery.';
     }
 
     return {
       routeTarget,
       routeReason,
-      recoveryCustomerId: recoveryCustomer?.id ? String(recoveryCustomer.id) : null,
+      recoveryCustomerId: hasRecoveryDebt && recoveryCustomer?.id ? String(recoveryCustomer.id) : null,
       recoveryCustomerName: String(
-        recoveryCustomer?.clientName || recoveryCustomer?.name || '',
+        hasRecoveryDebt ? recoveryCustomer?.clientName || recoveryCustomer?.name || '' : '',
       ).trim() || null,
-      recoveryOpenAmount: Number(recoveryCustomer?.openAmount || 0),
+      recoveryOpenAmount: hasRecoveryDebt ? Number(recoveryCustomer?.openAmount || 0) : 0,
       recoveryRiskScore:
+        !hasRecoveryDebt ||
         recoveryCustomer?.paymentHistoryScore === undefined ||
         recoveryCustomer?.paymentHistoryScore === null
           ? null
           : Number(recoveryCustomer.paymentHistoryScore),
-      recoveryTotalPaid: Number(recoveryCustomer?.totalPaid || 0),
-      recoveryStatus: String(recoveryCustomer?.status || '').trim() || null,
-      recoveryPaymentHistory: Array.isArray(recoveryCustomer?.payments)
+      recoveryTotalPaid: hasRecoveryDebt ? Number(recoveryCustomer?.totalPaid || 0) : 0,
+      recoveryStatus: hasRecoveryDebt ? String(recoveryCustomer?.status || '').trim() || null : null,
+      recoveryPaymentHistory: hasRecoveryDebt && Array.isArray(recoveryCustomer?.payments)
         ? recoveryCustomer.payments.map((payment) => ({
             id: String(payment.id),
             amount: Number(payment.amount || 0),
@@ -789,7 +783,7 @@ export class InboxService {
             paymentUrl: String(payment.paymentUrl || '').trim() || null,
           }))
         : [],
-      recoveryCurrentStep: String(conversation?.currentStep || '').trim() || null,
+      recoveryCurrentStep: hasRecoveryDebt ? String(conversation?.currentStep || '').trim() || null : null,
       recoverySuggestedPath: routeTarget === 'recovery' ? '/dashboard/inbox/recovery' : '/dashboard/inbox',
       latestSourceModule: latestSourceModule || null,
     };
@@ -1480,6 +1474,358 @@ export class InboxService {
     return this.getConversationByIdForCompany(companyId, id);
   }
 
+  private normalizeStatusCardPhone(value: unknown) {
+    const digits = this.customerProfileService.normalizePhone(value);
+    if (!digits) return null;
+    if (!digits.startsWith('55') && (digits.length === 10 || digits.length === 11)) {
+      return `55${digits}`;
+    }
+    return digits;
+  }
+
+  private getStatusCardPhoneVariants(phoneNormalized: string) {
+    const variants = new Set<string>();
+    const digits = String(phoneNormalized || '').replace(/\D/g, '');
+    if (!digits) return [];
+    variants.add(digits);
+    if (digits.startsWith('55') && (digits.length === 12 || digits.length === 13)) {
+      variants.add(digits.slice(2));
+    } else if (!digits.startsWith('55') && (digits.length === 10 || digits.length === 11)) {
+      variants.add(`55${digits}`);
+    }
+    return Array.from(variants);
+  }
+
+  private parseStatusCardDate(value: unknown) {
+    const normalized = String(value || '').trim();
+    if (!normalized) return null;
+    const parsed = new Date(normalized);
+    if (Number.isNaN(parsed.getTime())) {
+      throw new BadRequestException('Data de retorno invalida.');
+    }
+    return parsed;
+  }
+
+  private formatInboxVendasStatusLabel(statusRaw: unknown) {
+    const status = String(statusRaw || '').trim().toLowerCase();
+    if (status === 'contato') return 'Em contato';
+    if (status === 'retorno') return 'Retorno';
+    if (status === 'qualificado') return 'Qualificado';
+    if (status === 'encerrado') return 'Encerrado';
+    return 'Novo lead';
+  }
+
+  private async resolveStatusCardRecords(companyId: number, conversationId: number) {
+    const conversation = await this.ensureConversation(companyId, conversationId);
+    const phoneNormalized = this.normalizeStatusCardPhone(conversation.contact);
+    if (!phoneNormalized) {
+      throw new BadRequestException('Conversa sem telefone valido para o card do cliente.');
+    }
+    const phoneVariants = this.getStatusCardPhoneVariants(phoneNormalized);
+
+    let profile = await this.prisma.customerProfile.findFirst({
+      where: { companyId, phoneNormalized: { in: phoneVariants } },
+      orderBy: [{ updatedAt: 'desc' }],
+    });
+    if (!profile) {
+      const created = await this.customerProfileService.upsertProfile({
+        companyId,
+        phone: `+${phoneNormalized}`,
+        externalSource: 'atendimento_status',
+        status: 'active',
+      });
+      profile = await this.prisma.customerProfile.findFirst({
+        where: { id: String(created.id), companyId },
+      });
+    }
+    if (!profile) throw new BadRequestException('Nao foi possivel criar o perfil central do cliente.');
+
+    let atendimentoCustomer = await this.prisma.atendimentoCustomer.findFirst({
+      where: { companyId, phoneNormalized: { in: phoneVariants } },
+      orderBy: [{ updatedAt: 'desc' }],
+    });
+    if (!atendimentoCustomer) {
+      atendimentoCustomer = await this.prisma.atendimentoCustomer.create({
+        data: {
+          companyId,
+          customerProfileId: profile.id,
+          name: profile.name || null,
+          phone: String(conversation.contact || '').trim(),
+          phoneNormalized,
+          registrationOrigin: 'atendimento_status',
+          registrationStatus: 'manual',
+          route: 'atendimento',
+          conversationId,
+          lastMessageAt: conversation.lastMessageAt || conversation.updatedAt || new Date(),
+        },
+      });
+    } else if (!atendimentoCustomer.customerProfileId) {
+      atendimentoCustomer = await this.prisma.atendimentoCustomer.update({
+        where: { id: atendimentoCustomer.id },
+        data: { customerProfileId: profile.id },
+      });
+    }
+
+    const lead = await this.prisma.vendasLead.findFirst({
+      where: {
+        companyId,
+        OR: [
+          { phoneNormalized: { in: phoneVariants } },
+          { customerProfileId: profile.id },
+        ],
+      },
+      orderBy: [{ updatedAt: 'desc' }],
+      include: {
+        timelineEvents: {
+          orderBy: [{ createdAt: 'desc' }],
+          take: 12,
+        },
+      },
+    });
+
+    return { conversation, phoneNormalized, profile, atendimentoCustomer, lead };
+  }
+
+  private buildStatusCardPayload(input: {
+    phoneNormalized: string;
+    profile: any;
+    atendimentoCustomer?: any;
+    lead?: any;
+  }) {
+    const lead = input.lead || null;
+    const timeline = Array.isArray(lead?.timelineEvents) ? lead.timelineEvents : [];
+    const history = timeline.map((event: any) => ({
+      id: String(event.id),
+      eventType: String(event.eventType || 'generic'),
+      title: String(event.title || 'Atualizacao'),
+      description: event.description ? String(event.description) : null,
+      resultLabel: event.resultLabel ? String(event.resultLabel) : null,
+      returnAt: event.returnAt instanceof Date ? event.returnAt.toISOString() : event.returnAt ? new Date(event.returnAt).toISOString() : null,
+      createdAt: event.createdAt instanceof Date ? event.createdAt.toISOString() : event.createdAt ? new Date(event.createdAt).toISOString() : null,
+    }));
+
+    return {
+      customer: {
+        profileId: String(input.profile.id),
+        name: input.profile.name || input.profile.profileName || input.atendimentoCustomer?.name || null,
+        phone: input.profile.phone || input.atendimentoCustomer?.phone || `+${input.phoneNormalized}`,
+        phoneNormalized: input.phoneNormalized,
+        doNotCall: Boolean(input.profile.botOff),
+        doNotCallReason: input.profile.botOffReason || null,
+        observations: input.profile.notes || input.atendimentoCustomer?.notes || '',
+        updatedAt: input.profile.updatedAt instanceof Date ? input.profile.updatedAt.toISOString() : null,
+      },
+      lead: lead
+        ? {
+            id: String(lead.id),
+            status: String(lead.status || 'novo'),
+            statusLabel: this.formatInboxVendasStatusLabel(lead.status),
+            nextAction: lead.nextAction || null,
+            returnAt: lead.returnAt instanceof Date ? lead.returnAt.toISOString() : lead.returnAt ? new Date(lead.returnAt).toISOString() : null,
+            attemptCount: Number(lead.attemptCount || 0),
+            timesSeen: Number(lead.timesSeen || 0),
+            sourceType: lead.sourceType || null,
+            shortNote: lead.shortNote || null,
+            lastContactAt: lead.lastContactAt instanceof Date ? lead.lastContactAt.toISOString() : null,
+            updatedAt: lead.updatedAt instanceof Date ? lead.updatedAt.toISOString() : null,
+          }
+        : null,
+      history,
+    };
+  }
+
+  async getConversationStatusCard(user: any, conversationId: number) {
+    const companyId = this.requireCompanyIdFromUser(user);
+    const records = await this.resolveStatusCardRecords(companyId, conversationId);
+    return this.buildStatusCardPayload(records);
+  }
+
+  private async ensureStatusCardLead(input: {
+    companyId: number;
+    userId: number | null;
+    profile: any;
+    atendimentoCustomer?: any;
+    phoneNormalized: string;
+    status?: string;
+    returnAt?: Date | null;
+    observations?: string | null;
+  }) {
+    const phoneVariants = this.getStatusCardPhoneVariants(input.phoneNormalized);
+    const existing = await this.prisma.vendasLead.findFirst({
+      where: {
+        companyId: input.companyId,
+        OR: [
+          { phoneNormalized: { in: phoneVariants } },
+          { customerProfileId: input.profile.id },
+        ],
+      },
+      orderBy: [{ updatedAt: 'desc' }],
+    });
+    const nextAction = input.status === 'encerrado'
+      ? 'Não ligar mais'
+      : input.returnAt
+        ? 'Retorno solicitado pelo Atendimento'
+        : 'Atualizacao via Atendimento';
+    if (existing) {
+      return this.prisma.vendasLead.update({
+        where: { id: existing.id },
+        data: {
+          customerProfileId: input.profile.id,
+          name: input.profile.name || input.atendimentoCustomer?.name || existing.name,
+          phone: input.profile.phone || input.atendimentoCustomer?.phone || existing.phone || `+${input.phoneNormalized}`,
+          phoneNormalized: input.phoneNormalized,
+          ...(input.status ? { status: input.status } : {}),
+          ...(input.returnAt !== undefined ? { returnAt: input.returnAt } : {}),
+          nextAction,
+          ...(input.observations !== undefined ? { shortNote: input.observations } : {}),
+          ...(input.status === 'encerrado'
+            ? {
+                lastResult: 'Não ligar mais',
+                wasClosedBefore: true,
+                closedAt: new Date(),
+              }
+            : input.returnAt
+              ? {
+                  closedAt: null,
+                }
+              : {}),
+        },
+      });
+    }
+
+    return this.prisma.vendasLead.create({
+      data: {
+        companyId: input.companyId,
+        customerProfileId: input.profile.id,
+        sourceType: 'manual',
+        primarySource: 'atendimento_status',
+        timesSeen: 1,
+        name: input.profile.name || input.atendimentoCustomer?.name || null,
+        phone: input.profile.phone || input.atendimentoCustomer?.phone || `+${input.phoneNormalized}`,
+        phoneNormalized: input.phoneNormalized,
+        status: input.status || (input.returnAt ? 'retorno' : 'contato'),
+        nextAction,
+        returnAt: input.returnAt ?? null,
+        shortNote: input.observations || null,
+        lastResult: input.status === 'encerrado' ? 'Não ligar mais' : null,
+        wasClosedBefore: input.status === 'encerrado',
+        closedAt: input.status === 'encerrado' ? new Date() : null,
+        createdByUserId: input.userId,
+      },
+    });
+  }
+
+  async updateConversationStatusCard(
+    user: any,
+    conversationId: number,
+    dto: { doNotCall?: boolean; returnAt?: string | null; observations?: string | null },
+  ) {
+    const companyId = this.requireCompanyIdFromUser(user);
+    const records = await this.resolveStatusCardRecords(companyId, conversationId);
+    const observations =
+      dto.observations === undefined ? undefined : String(dto.observations || '').trim();
+    const returnAt = dto.returnAt === undefined ? undefined : this.parseStatusCardDate(dto.returnAt);
+    const doNotCall = dto.doNotCall === undefined ? undefined : Boolean(dto.doNotCall);
+    const now = new Date();
+
+    if (doNotCall !== undefined) {
+      await this.customerProfileService.upsertAtendimentoProfileState({
+        companyId,
+        phone: `+${records.phoneNormalized}`,
+        botOff: doNotCall,
+        botOffReason: doNotCall ? 'Não ligar mais' : null,
+        botOffAt: doNotCall ? now : null,
+      } as any);
+    }
+
+    const profilePatch: any = {};
+    if (observations !== undefined) profilePatch.notes = observations || null;
+    if (Object.keys(profilePatch).length) {
+      records.profile = await this.prisma.customerProfile.update({
+        where: { id: records.profile.id },
+        data: profilePatch,
+      });
+      if (records.atendimentoCustomer?.id) {
+        records.atendimentoCustomer = await this.prisma.atendimentoCustomer.update({
+          where: { id: records.atendimentoCustomer.id },
+          data: { notes: observations || null },
+        });
+      }
+    }
+
+    if (doNotCall !== undefined || returnAt !== undefined || observations !== undefined) {
+      const lead = await this.ensureStatusCardLead({
+        companyId,
+        userId: Number(user?.id || 0) || null,
+        profile: records.profile,
+        atendimentoCustomer: records.atendimentoCustomer,
+        phoneNormalized: records.phoneNormalized,
+        status: doNotCall === true ? 'encerrado' : returnAt ? 'retorno' : undefined,
+        returnAt,
+        observations,
+      });
+
+      const events: any[] = [];
+      if (doNotCall !== undefined) {
+        events.push({
+          leadId: lead.id,
+          eventType: 'status_preference',
+          title: doNotCall ? 'Não ligar mais' : 'Contato liberado',
+          description: doNotCall
+            ? 'Cliente marcado para nao receber novas ligacoes ou automacoes.'
+            : 'Preferencia de nao ligar removida pelo Atendimento.',
+          resultLabel: doNotCall ? 'Não ligar mais' : 'Liberado',
+          createdByUserId: Number(user?.id || 0) || null,
+        });
+      }
+      if (returnAt) {
+        events.push({
+          leadId: lead.id,
+          eventType: 'return_scheduled',
+          title: 'Retorno agendado',
+          description: 'Retorno definido a partir da aba Conversa do Atendimento.',
+          returnAt,
+          createdByUserId: Number(user?.id || 0) || null,
+        });
+      }
+      if (observations !== undefined) {
+        events.push({
+          leadId: lead.id,
+          eventType: 'note_updated',
+          title: 'Observacao atualizada',
+          description: observations || 'Observacao removida no Atendimento.',
+          createdByUserId: Number(user?.id || 0) || null,
+        });
+      }
+      if (events.length) {
+        await this.prisma.vendasLeadTimelineEvent.createMany({ data: events });
+      }
+    }
+
+    const refreshed = await this.resolveStatusCardRecords(companyId, conversationId);
+    const metadata = this.parseConversationMetadata(refreshed.conversation.metadata);
+    const conversationStatePatch: any = {
+      metadata: {
+        ...metadata,
+        atendimentoStatusCard: {
+          doNotCall: doNotCall ?? Boolean(refreshed.profile.botOff),
+          returnAt: returnAt ? returnAt.toISOString() : undefined,
+          observations: observations ?? refreshed.profile.notes ?? null,
+          updatedAt: now.toISOString(),
+          updatedByUserId: Number(user?.id || 0) || null,
+        },
+      },
+    };
+    if (doNotCall === true) {
+      conversationStatePatch.botActive = false;
+      conversationStatePatch.humanAssigned = false;
+      conversationStatePatch.flowResult = 'do_not_call';
+    }
+    await this.conversations.updateConversationState(companyId, conversationId, conversationStatePatch);
+
+    return this.getConversationStatusCard(user, conversationId);
+  }
+
   async getBotConfig(user: any) {
     const companyId = this.requireCompanyIdFromUser(user);
     return this.getBotConfigByCompanyId(companyId);
@@ -1910,11 +2256,135 @@ export class InboxService {
     return this.getConversationByIdForCompany(companyId, id);
   }
 
+  async updateConversationQueue(user: any, id: number, queueRaw?: string) {
+    const companyId = this.requireCompanyIdFromUser(user);
+    const conversation = await this.ensureConversation(companyId, id);
+    const queue = String(queueRaw || '').trim().toLowerCase();
+    const allowedQueues = new Set(['all', 'groups', 'recovery', 'scheduled', 'bot', 'archived']);
+    if (!allowedQueues.has(queue)) {
+      throw new BadRequestException('Fila invalida.');
+    }
+
+    const metadata = this.parseConversationMetadata(conversation.metadata);
+    const currentQueue =
+      metadata?.vendasAgendaQueue &&
+      typeof metadata.vendasAgendaQueue === 'object' &&
+      !Array.isArray(metadata.vendasAgendaQueue)
+        ? (metadata.vendasAgendaQueue as Record<string, unknown>)
+        : null;
+    const now = new Date().toISOString();
+    const nextMetadata: Record<string, unknown> = {
+      ...metadata,
+      inboxManualQueueOverride: queue,
+      inboxManualQueueOverriddenAt: now,
+      ...(queue === 'archived'
+        ? {
+            inboxLocalDeleted: true,
+            inboxLocalDeletedAt: now,
+            inboxLocalDeletedByUserId: Number(user?.id || 0) || null,
+          }
+        : {
+            inboxLocalDeleted: false,
+            inboxLocalDeletedAt: null,
+            inboxLocalDeletedByUserId: null,
+          }),
+    };
+
+    if (currentQueue) {
+      nextMetadata.vendasAgendaQueue =
+        queue === 'scheduled'
+          ? {
+              ...currentQueue,
+              active: true,
+              manualQueueOverride: null,
+              manualQueueOverriddenAt: null,
+              syncedAt: now,
+            }
+          : {
+              ...currentQueue,
+              active: false,
+              draftPending: false,
+              botEligible: false,
+              botEntryPending: false,
+              manualQueueOverride: queue,
+              manualQueueOverriddenAt: now,
+              deactivatedAt: currentQueue.deactivatedAt || now,
+              syncedAt: now,
+            };
+    }
+
+    await this.conversations.updateConversationState(companyId, id, {
+      metadata: nextMetadata,
+      ...(queue === 'archived'
+        ? {
+            botActive: false,
+            humanAssigned: false,
+            flowResult: 'local_deleted',
+          }
+        : {}),
+    });
+
+    if (queue === 'archived') {
+      try {
+        await this.customerProfileService.upsertAtendimentoProfileState({
+          companyId,
+          phone: String(conversation.contact || '').trim(),
+          botOff: true,
+          botOffReason: 'Conversa enviada para Excluídos no HBX.',
+          botOffAt: new Date(),
+        } as any);
+      } catch (error) {
+        await this.logInboxEvent({
+          companyId,
+          event: 'conversation_queue_profile_sync_failed',
+          message: 'Falha ao persistir BOT_OFF no CustomerProfile durante movimentacao para Excluídos.',
+          conversationId: id,
+          phone: String(conversation.contact || '').trim(),
+          result: 'warning',
+          extra: {
+            error: error instanceof Error ? error.message : 'unknown_error',
+          },
+        });
+      }
+    }
+
+    await this.logInboxEvent({
+      companyId,
+      event: 'conversation_queue_updated',
+      message: `Fila manual atualizada para ${queue}`,
+      conversationId: id,
+      result: queue,
+    });
+
+    return this.getConversationByIdForCompany(companyId, id);
+  }
+
   async blockConversation(user: any, conversationId: number, reasonRaw?: string) {
     const companyId = this.requireCompanyIdFromUser(user);
     const conversation = await this.ensureConversation(companyId, conversationId);
     const metadata = this.parseConversationMetadata(conversation.metadata);
     const reason = String(reasonRaw || '').trim() || 'Bloqueado manualmente pelo operador.';
+    try {
+      await this.customerProfileService.upsertAtendimentoProfileState({
+        companyId,
+        phone: String(conversation.contact || '').trim(),
+        botOff: true,
+        botOffReason: reason,
+        botOffAt: new Date(),
+      } as any);
+    } catch (error) {
+      await this.logInboxEvent({
+        companyId,
+        event: 'conversation_block_profile_sync_failed',
+        message: 'Falha ao persistir BOT_OFF no CustomerProfile durante o bloqueio.',
+        conversationId,
+        phone: String(conversation.contact || '').trim(),
+        result: 'warning',
+        extra: {
+          error: error instanceof Error ? error.message : 'unknown_error',
+        },
+      });
+    }
     try {
       await this.webwhatsBridge.updateBlockStatus(companyId, {
         conversationId: conversation.id,
@@ -1976,6 +2446,25 @@ export class InboxService {
       this.parseConversationMetadata(conversation.metadata),
     );
     try {
+      await this.customerProfileService.upsertAtendimentoProfileState({
+        companyId,
+        phone: String(conversation.contact || '').trim(),
+        botOff: false,
+      } as any);
+    } catch (error) {
+      await this.logInboxEvent({
+        companyId,
+        event: 'conversation_unblock_profile_sync_failed',
+        message: 'Falha ao limpar BOT_OFF no CustomerProfile durante o desbloqueio.',
+        conversationId,
+        phone: String(conversation.contact || '').trim(),
+        result: 'warning',
+        extra: {
+          error: error instanceof Error ? error.message : 'unknown_error',
+        },
+      });
+    }
+    try {
       await this.webwhatsBridge.updateBlockStatus(companyId, {
         conversationId: conversation.id,
         to: String(conversation.contact || ''),
@@ -2028,132 +2517,84 @@ export class InboxService {
   async deleteConversation(user: any, conversationId: number) {
     const companyId = this.requireCompanyIdFromUser(user);
     const conversation = await this.ensureConversation(companyId, conversationId);
+    const metadata = this.parseConversationMetadata(conversation.metadata);
+    const currentQueue =
+      metadata?.vendasAgendaQueue &&
+      typeof metadata.vendasAgendaQueue === 'object' &&
+      !Array.isArray(metadata.vendasAgendaQueue)
+        ? (metadata.vendasAgendaQueue as Record<string, unknown>)
+        : null;
+    const now = new Date().toISOString();
+    const nextMetadata: Record<string, unknown> = {
+      ...metadata,
+      inboxLocalDeleted: true,
+      inboxLocalDeletedAt: now,
+      inboxLocalDeletedByUserId: Number(user?.id || 0) || null,
+      inboxManualQueueOverride: 'archived',
+      inboxManualQueueOverriddenAt: now,
+    };
 
-    let deleteResult: WebwhatsDeleteChatResult;
+    if (currentQueue) {
+      nextMetadata.vendasAgendaQueue = {
+        ...currentQueue,
+        active: false,
+        draftPending: false,
+        botEligible: false,
+        botEntryPending: false,
+        manualQueueOverride: 'archived',
+        manualQueueOverriddenAt: now,
+        deactivatedAt: currentQueue.deactivatedAt || now,
+        syncedAt: now,
+      };
+    }
+
+    await this.conversations.updateConversationState(companyId, conversation.id, {
+      botActive: false,
+      humanAssigned: false,
+      flowResult: 'local_deleted',
+      metadata: nextMetadata,
+    });
+
     try {
-      deleteResult = await this.webwhatsBridge.deleteChat(companyId, {
-        conversationId: conversation.id,
-      });
+      await this.customerProfileService.upsertAtendimentoProfileState({
+        companyId,
+        phone: String(conversation.contact || '').trim(),
+        botOff: true,
+        botOffReason: 'Conversa excluida localmente no HBX.',
+        botOffAt: new Date(),
+      } as any);
     } catch (error) {
       await this.logInboxEvent({
         companyId,
-        event: 'conversation_delete_whatsapp_failed',
-        message: 'Falha ao excluir conversa no WhatsApp. Remocao local cancelada.',
+        event: 'conversation_local_delete_profile_sync_failed',
+        message: 'Falha ao persistir BOT_OFF no CustomerProfile durante exclusao local.',
         conversationId,
         phone: String(conversation.contact || '').trim(),
         result: 'warning',
-        extra: this.buildDeleteConversationWhatsAppFailureLog(error),
+        extra: {
+          error: error instanceof Error ? error.message : 'unknown_error',
+        },
       });
-      throw this.mapDeleteConversationWhatsAppError(error);
     }
 
-    const successMessage =
-      deleteResult.outcome === 'already_deleted'
-        ? 'Conversa removida do sistema. O chat ja nao existia mais no WhatsApp.'
-        : 'Conversa excluida do sistema e do WhatsApp.';
-
     await this.logInboxEvent({
       companyId,
-      event: 'conversation_delete_whatsapp_confirmed',
-      message:
-        deleteResult.outcome === 'already_deleted'
-          ? 'Chat ja nao existia mais no WhatsApp. Seguindo com remocao local.'
-          : 'Chat excluido no WhatsApp com sucesso.',
+      event: 'conversation_local_deleted',
+      message: 'Conversa enviada para Excluídos apenas no HBX. Nenhum comando foi enviado ao WhatsApp.',
       conversationId,
       phone: String(conversation.contact || '').trim(),
-      result: deleteResult.outcome,
+      result: 'local_deleted',
       extra: {
-        outcome: deleteResult.outcome,
-        chatId: deleteResult.chatId,
-        providerMessage: deleteResult.message,
-      },
-    });
-
-    await this.prisma.$transaction(async (tx) => {
-      await tx.companyMessage.deleteMany({
-        where: { companyId, conversationId: conversation.id },
-      });
-      await tx.companyConversation.delete({
-        where: { id: conversation.id },
-      });
-    });
-    await this.logInboxEvent({
-      companyId,
-      event: 'conversation_deleted',
-      message: successMessage,
-      conversationId,
-      phone: String(conversation.contact || '').trim(),
-      result: 'deleted',
-      extra: {
-        outcome: deleteResult.outcome,
-        chatId: deleteResult.chatId,
-        providerMessage: deleteResult.message,
+        localOnly: true,
+        whatsappCommandSent: false,
       },
     });
     return {
       success: true,
       id: String(conversation.id),
-      message: successMessage,
-      whatsapp: {
-        outcome: deleteResult.outcome,
-        chatId: deleteResult.chatId,
-        message: deleteResult.message,
-      },
+      message: 'Conversa enviada para Excluídos apenas no HBX.',
+      localOnly: true,
     };
-  }
-
-  private buildDeleteConversationWhatsAppFailureLog(error: unknown) {
-    if (error instanceof WebwhatsProviderError) {
-      return {
-        code: error.code,
-        statusCode: error.statusCode ?? null,
-        providerMessage: error.providerMessage || null,
-        error: error.message,
-      };
-    }
-
-    return {
-      error: error instanceof Error ? error.message : 'unknown_error',
-    };
-  }
-
-  private mapDeleteConversationWhatsAppError(error: unknown) {
-    if (error instanceof WebwhatsProviderError) {
-      if (error.code === 'WEBWHATS_NOT_CONNECTED') {
-        return new ConflictException(
-          'Sessao do WhatsApp desconectada. Reconecte o dispositivo antes de excluir a conversa.',
-        );
-      }
-      if (error.code === 'WEBWHATS_NOT_CONFIGURED') {
-        return new ServiceUnavailableException(
-          'Integracao do WhatsApp nao configurada para excluir conversas.',
-        );
-      }
-      if (error.code === 'WEBWHATS_TIMEOUT' || error.code === 'WEBWHATS_UNAVAILABLE') {
-        return new ServiceUnavailableException(
-          'WhatsApp indisponivel no momento para excluir a conversa. Tente novamente.',
-        );
-      }
-      if (error.providerMessage) {
-        return new BadRequestException(error.providerMessage);
-      }
-      return new BadRequestException(
-        'Falha ao excluir conversa no WhatsApp. Atualize a conversa e tente novamente.',
-      );
-    }
-
-    const rawMessage = error instanceof Error ? error.message : '';
-    if (rawMessage === 'WEBWHATS_CHAT_REMOTE_JID_MISSING') {
-      return new BadRequestException(
-        'Conversa sem identificador remoto valido para exclusao no WhatsApp.',
-      );
-    }
-    if (rawMessage === 'WEBWHATS_CONVERSATION_NOT_FOUND') {
-      return new NotFoundException('Conversa nao encontrada para exclusao.');
-    }
-    return new BadRequestException(
-      rawMessage || 'Falha ao excluir conversa no WhatsApp. Atualize a conversa e tente novamente.',
-    );
   }
 
   async markConversationAsRead(user: any, conversationId: number) {
@@ -2397,15 +2838,20 @@ export class InboxService {
       !Array.isArray(conversationMetadata.vendasAgendaQueue)
         ? (conversationMetadata.vendasAgendaQueue as Record<string, unknown>)
         : null;
-    if (vendasAgendaQueue?.active && vendasAgendaQueue.draftPending !== false) {
+    if (vendasAgendaQueue?.active) {
+      const manualSentAt = new Date().toISOString();
       await this.conversations.updateConversationState(companyId, conversationId, {
         metadata: {
           ...conversationMetadata,
           vendasAgendaQueue: {
             ...vendasAgendaQueue,
             draftPending: false,
-            lastManualSendAt: new Date().toISOString(),
-            syncedAt: new Date().toISOString(),
+            lastManualSendAt: manualSentAt,
+            manualSent: true,
+            manualSentAt,
+            botEligible: false,
+            botEntryPending: true,
+            syncedAt: manualSentAt,
           },
         },
       });

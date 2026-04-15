@@ -14,6 +14,19 @@ type CustomerProfileInput = {
   notes?: string | null;
 };
 
+type AtendimentoProfileStateInput = {
+  companyId: number;
+  phone: string;
+  profileName?: string | null;
+  confirmedName?: string | null;
+  nameSource?: string | null;
+  nameConfirmed?: boolean;
+  inboundAt?: Date | null;
+  botOff?: boolean;
+  botOffReason?: string | null;
+  botOffAt?: Date | null;
+};
+
 type SharedProfilePresenceRecord = {
   present: boolean;
   customerId?: string | null;
@@ -152,6 +165,19 @@ export class CustomerProfileService {
     return normalized || null;
   }
 
+  private normalizeProfileLabel(value: unknown) {
+    const normalized = this.normalizeText(value);
+    return normalized ? normalized.slice(0, 120) : null;
+  }
+
+  private normalizeDate(value: unknown) {
+    if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value;
+    const normalized = this.normalizeText(value);
+    if (!normalized) return null;
+    const parsed = new Date(normalized);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
+
   normalizePhone(raw: unknown) {
     const digits = String(raw || '').replace(/\D/g, '');
     return digits ? digits.slice(-13) : null;
@@ -173,6 +199,9 @@ export class CustomerProfileService {
       companyId: Number(row.companyId),
       sourceConnectionId: row.sourceConnectionId ? String(row.sourceConnectionId) : null,
       name: row.name ? String(row.name) : null,
+      profileName: row.profileName ? String(row.profileName) : null,
+      nameSource: row.nameSource ? String(row.nameSource) : null,
+      nameConfirmed: row.nameConfirmed === undefined || row.nameConfirmed === null ? false : Boolean(row.nameConfirmed),
       phone: row.phone ? String(row.phone) : null,
       phoneNormalized: row.phoneNormalized ? String(row.phoneNormalized) : null,
       email: row.email ? String(row.email) : null,
@@ -181,6 +210,11 @@ export class CustomerProfileService {
       externalCustomerId: row.externalCustomerId ? String(row.externalCustomerId) : null,
       status: row.status ? String(row.status) : null,
       notes: row.notes ? String(row.notes) : null,
+      firstInboundAt: row.firstInboundAt || null,
+      lastInboundAt: row.lastInboundAt || null,
+      botOff: row.botOff === undefined || row.botOff === null ? false : Boolean(row.botOff),
+      botOffReason: row.botOffReason ? String(row.botOffReason) : null,
+      botOffAt: row.botOffAt || null,
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
     };
@@ -716,6 +750,98 @@ export class CustomerProfileService {
     }
 
     return this.createProfileConflictSafe(payload);
+  }
+
+  async upsertAtendimentoProfileState(input: AtendimentoProfileStateInput) {
+    const phoneNormalized = this.normalizePhone(input.phone);
+    if (!phoneNormalized) return null;
+
+    const nameConfirmed = input.nameConfirmed === true;
+    const normalizedProfileName = this.normalizeProfileLabel(input.profileName);
+    const normalizedConfirmedName = this.normalizeProfileLabel(input.confirmedName);
+    const normalizedNameSource =
+      this.normalizeText(input.nameSource)
+      || (nameConfirmed ? 'confirmed_inbound' : normalizedProfileName ? 'whatsapp_profile' : null);
+    const inboundAt = this.normalizeDate(input.inboundAt);
+    const botOffAt = this.normalizeDate(input.botOffAt);
+
+    const baseProfile = await this.upsertProfile({
+      companyId: input.companyId,
+      phone: input.phone,
+      name: nameConfirmed ? normalizedConfirmedName : null,
+      externalSource: normalizedNameSource || 'whatsapp_bot',
+      status: nameConfirmed ? 'active' : 'provisional',
+    });
+
+    const current = await this.prisma.customerProfile.findFirst({
+      where: { id: String(baseProfile.id), companyId: input.companyId },
+    });
+    if (!current) return baseProfile;
+
+    const currentFirstInboundAt = this.normalizeDate(current.firstInboundAt);
+    const currentLastInboundAt = this.normalizeDate(current.lastInboundAt);
+    const updateData: any = {
+      ...(normalizedProfileName && normalizedProfileName !== this.normalizeProfileLabel(current.profileName)
+        ? { profileName: normalizedProfileName }
+        : {}),
+      ...(nameConfirmed && normalizedConfirmedName && normalizedConfirmedName !== this.normalizeProfileLabel(current.name)
+        ? { name: normalizedConfirmedName }
+        : {}),
+      ...(nameConfirmed && current.nameConfirmed !== true ? { nameConfirmed: true } : {}),
+      ...(
+        normalizedNameSource
+        && normalizedNameSource !== this.normalizeText(current.nameSource)
+        && (nameConfirmed || !this.normalizeText(current.nameSource))
+          ? { nameSource: normalizedNameSource }
+          : {}
+      ),
+    };
+
+    if (inboundAt) {
+      if (!currentFirstInboundAt || inboundAt.getTime() < currentFirstInboundAt.getTime()) {
+        updateData.firstInboundAt = inboundAt;
+      }
+      if (!currentLastInboundAt || inboundAt.getTime() > currentLastInboundAt.getTime()) {
+        updateData.lastInboundAt = inboundAt;
+      }
+    }
+
+    if (input.botOff !== undefined) {
+      const nextBotOff = Boolean(input.botOff);
+      if (Boolean(current.botOff) !== nextBotOff) {
+        updateData.botOff = nextBotOff;
+      }
+
+      if (nextBotOff) {
+        const normalizedBotOffReason = this.normalizeText(input.botOffReason);
+        const currentBotOffReason = this.normalizeText(current.botOffReason);
+        const nextBotOffAt = botOffAt || this.normalizeDate(current.botOffAt) || new Date();
+
+        if (normalizedBotOffReason !== currentBotOffReason) {
+          updateData.botOffReason = normalizedBotOffReason;
+        }
+        if (!current.botOffAt || !this.normalizeDate(current.botOffAt) || nextBotOffAt.getTime() !== this.normalizeDate(current.botOffAt)!.getTime()) {
+          updateData.botOffAt = nextBotOffAt;
+        }
+      } else {
+        if (current.botOffReason !== null) {
+          updateData.botOffReason = null;
+        }
+        if (current.botOffAt !== null) {
+          updateData.botOffAt = null;
+        }
+      }
+    }
+
+    if (!Object.keys(updateData).length) {
+      return this.buildProfileRecord(current);
+    }
+
+    const row = await this.prisma.customerProfile.update({
+      where: { id: String(current.id) },
+      data: updateData,
+    });
+    return this.buildProfileRecord(row);
   }
 
   private normalizeProfilePayload(input: CustomerProfileInput, opts?: { allowEmpty?: boolean; partial?: boolean }) {

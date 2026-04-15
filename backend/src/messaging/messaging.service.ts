@@ -139,6 +139,25 @@ const ATENDIMENTO_STEP = {
   COLLECTING_NAME: 'coletando_nome',
 } as const;
 
+type VendasAgendaQueueMetadata = {
+  active?: boolean;
+  leadId?: string | null;
+  sourceModule?: string | null;
+  sourceBlock?: string | null;
+  status?: string | null;
+  nextAction?: string | null;
+  returnAt?: string | null;
+  draftMessage?: string | null;
+  draftPending?: boolean;
+  syncedAt?: string | null;
+  deactivatedAt?: string | null;
+  lastManualSendAt?: string | null;
+  manualSent?: boolean;
+  manualSentAt?: string | null;
+  botEligible?: boolean;
+  botEntryPending?: boolean;
+};
+
 @Injectable()
 export class MessagingService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(MessagingService.name);
@@ -699,6 +718,253 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     return normalized ? normalized.slice(0, 120) : null;
   }
 
+  private normalizeIsoDateTime(value: unknown) {
+    const normalized = String(value || '').trim();
+    if (!normalized) return null;
+    const parsed = new Date(normalized);
+    return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
+  }
+
+  private readVendasAgendaQueueMetadata(metadata: Record<string, any>): VendasAgendaQueueMetadata | null {
+    const queue = metadata?.vendasAgendaQueue;
+    if (!queue || typeof queue !== 'object' || Array.isArray(queue)) return null;
+    return queue as VendasAgendaQueueMetadata;
+  }
+
+  private isAtendimentoBotOff(
+    metadata: Record<string, any>,
+    queue?: VendasAgendaQueueMetadata | null,
+    profileBotOff?: boolean | null,
+  ) {
+    return (
+      profileBotOff === true
+      || metadata?.botOff === true
+      || metadata?.atendimentoBotOff === true
+      || (queue as any)?.botOff === true
+    );
+  }
+
+  private resolveInboundBotOffState(metadata: Record<string, any>) {
+    const explicitFalse = metadata?.botOff === false || metadata?.atendimentoBotOff === false;
+    if (explicitFalse) {
+      return { botOff: false as boolean | undefined, botOffReason: null, botOffAt: null as Date | null };
+    }
+
+    const blockedAt = this.normalizeIsoDateTime(metadata?.atendimentoBlockedAt);
+    const explicitTrue =
+      metadata?.botOff === true
+      || metadata?.atendimentoBotOff === true
+      || Boolean(blockedAt);
+    if (!explicitTrue) {
+      return { botOff: undefined, botOffReason: null, botOffAt: null as Date | null };
+    }
+
+    return {
+      botOff: true,
+      botOffReason:
+        String(
+          metadata?.botOffReason
+          || metadata?.atendimentoBotOffReason
+          || metadata?.atendimentoBlockedReason
+          || '',
+        ).trim() || null,
+      botOffAt: blockedAt ? new Date(blockedAt) : new Date(),
+    };
+  }
+
+  private async resolveAtendimentoIdentityState(input: {
+    companyId: number;
+    phone: string;
+    metadata?: Record<string, any> | null;
+    fallbackName?: string | null;
+  }) {
+    const metadata = input.metadata || {};
+    const phoneNormalized = this.customerProfileService.normalizePhone(input.phone);
+    const metadataName = this.normalizeCustomerProfileName(
+      metadata?.cliente || metadata?.customerName || metadata?.name,
+    );
+    const findPreferredProfileByPhoneNormalized =
+      (this.customerProfileService as any).findPreferredProfileByPhoneNormalized;
+    const profile =
+      phoneNormalized && typeof findPreferredProfileByPhoneNormalized === 'function'
+        ? await findPreferredProfileByPhoneNormalized.call(
+            this.customerProfileService,
+            input.companyId,
+            phoneNormalized,
+          )
+        : null;
+
+    const registry = phoneNormalized
+      ? await this.prisma.atendimentoCustomer.findUnique({
+          where: {
+            companyId_phoneNormalized: {
+              companyId: input.companyId,
+              phoneNormalized,
+            },
+          },
+          select: {
+            name: true,
+            registrationStatus: true,
+            customerProfile: {
+              select: {
+                name: true,
+              },
+            },
+          },
+        })
+      : null;
+
+    const registrationStatus = String(registry?.registrationStatus || '').trim().toLowerCase();
+    const registryName = this.normalizeCustomerProfileName(registry?.name || null);
+    const profileConfirmedName = this.normalizeCustomerProfileName(
+      profile?.name || registry?.customerProfile?.name || null,
+    );
+    const profileName = this.normalizeCustomerProfileName(profile?.profileName || null);
+    const fallbackName = this.normalizeCustomerProfileName(input.fallbackName || null);
+    const profileNameConfirmed = profile?.nameConfirmed === true || Boolean(profileConfirmedName);
+    const isConfirmed =
+      Boolean(metadataName)
+      || profileNameConfirmed
+      || registrationStatus === 'confirmed'
+      || registrationStatus === 'manual';
+    const confirmedName =
+      metadataName
+      || (profileNameConfirmed ? profileConfirmedName : null)
+      || (isConfirmed ? registryName || profileConfirmedName : null)
+      || null;
+
+    return {
+      profileId: profile?.id ? String(profile.id) : null,
+      name: confirmedName || profileName || fallbackName || registryName || profileConfirmedName || null,
+      confirmedName,
+      isConfirmed,
+      registrationStatus: registrationStatus || null,
+      botOff: profile?.botOff === true,
+      botOffReason: String(profile?.botOffReason || '').trim() || null,
+    };
+  }
+
+  private async tryEnterVendasAgendaBotGate(input: {
+    companyId: number;
+    from: string;
+    conversationId: number;
+    inboundMessageId: number;
+    timestamp: Date;
+    company: { id: number; name: string; timezone?: string | null };
+    metadata: Record<string, any>;
+    config: AtendimentoBotConfig;
+    inboundProfileName?: string | null;
+    setInboundMeta: (sourceModule: string, isComplaint: boolean) => Promise<void>;
+  }) {
+    const queue = this.readVendasAgendaQueueMetadata(input.metadata);
+    if (!queue?.active || queue.botEntryPending !== true) return null;
+
+    const sourceModule = String(queue.sourceModule || '').trim().toLowerCase();
+    if (sourceModule && sourceModule !== 'vendas') return null;
+
+    const sourceBlock = String(queue.sourceBlock || '').trim().toLowerCase();
+    if (sourceBlock && sourceBlock !== 'today') return null;
+
+    const manualSentAt = this.normalizeIsoDateTime(queue.manualSentAt || queue.lastManualSendAt);
+    if (!queue.manualSent && !manualSentAt) return null;
+    if (manualSentAt && input.timestamp.getTime() <= new Date(manualSentAt).getTime()) return null;
+
+    const syncedAt = new Date().toISOString();
+    const identity = await this.resolveAtendimentoIdentityState({
+      companyId: input.companyId,
+      phone: input.from,
+      metadata: input.metadata,
+      fallbackName: input.inboundProfileName || null,
+    });
+    const botOffActive = this.isAtendimentoBotOff(input.metadata, queue, identity.botOff);
+    const nextQueue: VendasAgendaQueueMetadata = {
+      ...queue,
+      manualSent: true,
+      manualSentAt: manualSentAt || syncedAt,
+      lastManualSendAt: this.normalizeIsoDateTime(queue.lastManualSendAt || manualSentAt) || syncedAt,
+      botEligible: !botOffActive,
+      botEntryPending: false,
+      syncedAt,
+    };
+
+    if (botOffActive) {
+      await input.setInboundMeta('atendimento_human', false);
+      await this.updateAtendimentoConversationState(
+        input.companyId,
+        input.conversationId,
+        {
+          currentFlow: ATENDIMENTO_FLOW_ID,
+          currentStep: ATENDIMENTO_STEP.HUMAN,
+          botActive: false,
+          humanAssigned: true,
+          flowResult: null,
+        },
+        {
+          ...this.clearAtendimentoBlockedMetadata(input.metadata),
+          vendasAgendaQueue: nextQueue,
+        },
+      );
+      return { handled: true, humanMode: true, botSuppressed: true, botOff: true };
+    }
+
+    const metadataPatch: Record<string, unknown> = {
+      ...this.clearAtendimentoBlockedMetadata(input.metadata),
+      vendasAgendaQueue: nextQueue,
+      ...(identity.confirmedName ? { cliente: identity.confirmedName } : {}),
+    };
+
+    await input.setInboundMeta('atendimento_bot', false);
+
+    if (!identity.isConfirmed) {
+      await this.conversations.queueOutboundForCompany(input.companyId, {
+        to: input.from,
+        contactId: input.from,
+        body: 'Oi, tudo bem? Antes de continuar, como posso te chamar?',
+        messageType: 'text',
+        sourceModule: 'atendimento_bot',
+        senderType: 'bot',
+        flowState: {
+          currentFlow: ATENDIMENTO_FLOW_ID,
+          currentStep: ATENDIMENTO_STEP.COLLECTING_NAME,
+          botActive: true,
+          humanAssigned: false,
+          flowResult: null,
+        },
+      });
+      await this.updateAtendimentoConversationState(
+        input.companyId,
+        input.conversationId,
+        {
+          currentFlow: ATENDIMENTO_FLOW_ID,
+          currentStep: ATENDIMENTO_STEP.COLLECTING_NAME,
+          botActive: true,
+          humanAssigned: false,
+          flowResult: null,
+        },
+        metadataPatch,
+      );
+      return { handled: true, vendasAgendaBotGate: true, nameGate: true };
+    }
+
+    const vars = this.buildAtendimentoTemplateVars({
+      companyName: input.company.name,
+      phone: input.from,
+      metadata: metadataPatch,
+      recoveryCustomer: null,
+    });
+    await this.queueAtendimentoButtonPrompt({
+      companyId: input.companyId,
+      to: input.from,
+      contactId: input.from,
+      conversationId: input.conversationId,
+      body: renderTemplate(input.config.mainMenuPrompt, vars),
+      step: ATENDIMENTO_STEP.MAIN_MENU,
+      buttons: input.config.mainMenuButtons,
+      variables: metadataPatch,
+    });
+    return { handled: true, vendasAgendaBotGate: true, botEligible: true };
+  }
+
   private extractInboundContactName(rawPayload: any, fallbackMetadata?: Record<string, any> | null) {
     const candidates = [
       rawPayload?._contactName,
@@ -744,16 +1010,41 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     name?: string | null;
     registrationOrigin?: string;
     registrationStatus?: string;
+    nameSource?: string | null;
+    inboundAt?: Date | null;
+    metadata?: Record<string, any> | null;
   }) {
+    const normalizedName = this.normalizeCustomerProfileName(input.name);
+    const nameConfirmed = this.shouldPromoteAtendimentoProfile(input.registrationStatus);
+    const botOffState = this.resolveInboundBotOffState(input.metadata || {});
+    const statefulUpsert = (this.customerProfileService as any).upsertAtendimentoProfileState;
+
+    if (typeof statefulUpsert === 'function') {
+      return statefulUpsert.call(this.customerProfileService, {
+        companyId: input.companyId,
+        phone: input.phone,
+        profileName: nameConfirmed ? null : normalizedName,
+        confirmedName: nameConfirmed ? normalizedName : null,
+        nameSource:
+          String(input.nameSource || '').trim()
+          || (nameConfirmed ? 'confirmed_inbound' : normalizedName ? 'whatsapp_profile' : null),
+        nameConfirmed,
+        inboundAt: input.inboundAt || new Date(),
+        botOff: botOffState.botOff,
+        botOffReason: botOffState.botOffReason,
+        botOffAt: botOffState.botOffAt,
+      });
+    }
+
     const phoneNormalized = this.customerProfileService.normalizePhone(input.phone);
     if (!phoneNormalized) return null;
 
     return this.customerProfileService.upsertProfile({
       companyId: input.companyId,
       phone: input.phone,
-      name: this.normalizeCustomerProfileName(input.name),
+      name: normalizedName,
       externalSource: input.registrationOrigin || 'whatsapp_bot',
-      status: this.shouldPromoteAtendimentoProfile(input.registrationStatus) ? 'active' : 'provisional',
+      status: nameConfirmed ? 'active' : 'provisional',
     });
   }
 
@@ -764,11 +1055,15 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     registrationOrigin?: string;
     registrationStatus?: string;
     conversationId?: number | null;
-  }): Promise<void> {
+    nameSource?: string | null;
+    inboundAt?: Date | null;
+    metadata?: Record<string, any> | null;
+  }) {
     let customerProfileId: string | null = null;
+    let profile: any = null;
 
     try {
-      const profile = await this.resolveAtendimentoCustomerProfile(input);
+      profile = await this.resolveAtendimentoCustomerProfile(input);
       customerProfileId = profile?.id ? String(profile.id) : null;
     } catch (err) {
       this.logger.warn(`resolveAtendimentoCustomerProfile failed: ${(err as any)?.message}`);
@@ -779,11 +1074,16 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
         ...input,
         customerProfileId,
         route: 'atendimento',
-        lastMessageAt: new Date(),
+        lastMessageAt: input.inboundAt || new Date(),
       });
     } catch (err) {
       this.logger.warn(`upsertAtendimentoCustomerLocal failed: ${(err as any)?.message}`);
     }
+
+    return {
+      customerProfileId,
+      profile,
+    };
   }
 
   private async getAtendimentoBotConfig(companyId: number): Promise<AtendimentoBotConfig> {
@@ -2341,6 +2641,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     text: string;
     conversationId: number;
     inboundMessageId: number;
+    timestamp: Date;
     company: { id: number; name: string; timezone?: string | null };
     recoveryCustomer?: any | null;
     rawPayload?: any;
@@ -2376,7 +2677,10 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
       companyId,
       phone: from,
       name: inboundProfileName || undefined,
+      nameSource: inboundProfileName ? 'whatsapp_profile' : undefined,
       conversationId: safeConversationId || null,
+      inboundAt: input.timestamp,
+      metadata,
     });
 
     const isClosedConversation =
@@ -2467,6 +2771,22 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
       }
       await setInboundMeta('atendimento_human', Boolean(normalizedText));
       return { handled: true, humanMode: true, botSuppressed: true };
+    }
+
+    const vendasAgendaBotGate = await this.tryEnterVendasAgendaBotGate({
+      companyId,
+      from,
+      conversationId: safeConversationId,
+      inboundMessageId,
+      timestamp: input.timestamp,
+      company,
+      metadata,
+      config,
+      inboundProfileName,
+      setInboundMeta,
+    });
+    if (vendasAgendaBotGate?.handled) {
+      return vendasAgendaBotGate;
     }
 
     if (recoveryCustomer && isRecoveryConversation) {
@@ -2789,6 +3109,9 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
         await this.upsertAtendimentoCustomerLocal({
           companyId, phone: from, name: suggestedName,
           registrationStatus: 'confirmed', conversationId: safeConversationId,
+          nameSource: 'confirmed_inbound',
+          inboundAt: input.timestamp,
+          metadata,
         });
         const updatedMetadata: Record<string, unknown> = { ...metadata, cliente: suggestedName };
         delete updatedMetadata.atendimentoRegSuggestedName;
@@ -2831,6 +3154,9 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
       await this.upsertAtendimentoCustomerLocal({
         companyId, phone: from, name: confirmedName,
         registrationStatus: 'confirmed', conversationId: safeConversationId,
+        nameSource: 'confirmed_inbound',
+        inboundAt: input.timestamp,
+        metadata,
       });
       await this.updateAtendimentoConversationState(
         companyId, safeConversationId,
@@ -4040,6 +4366,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
         text,
         conversationId: inboundConversationId,
         inboundMessageId: Number(input.inboundRow?.id || 0),
+        timestamp: input.timestamp,
         company: {
           id: input.company.id,
           name: String(input.company.name || 'HBX Solutions'),
@@ -4049,9 +4376,10 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
         rawPayload: input.rawPayload,
       });
       if (atendimentoResult?.handled) {
+        const delegatedToRecovery = Boolean((atendimentoResult as any)?.delegatedToRecovery);
         return {
           matched: true,
-          source: atendimentoResult.delegatedToRecovery ? 'hbx_recovery' : 'atendimento',
+          source: delegatedToRecovery ? 'hbx_recovery' : 'atendimento',
           customerId: recoveryCustomer?.id || null,
         };
       }

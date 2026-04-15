@@ -1,0 +1,3822 @@
+diff --git a/backend/prisma/schema.prisma b/backend/prisma/schema.prisma
+index e661dcd..8071aa5 100644
+--- a/backend/prisma/schema.prisma
++++ b/backend/prisma/schema.prisma
+@@ -384,6 +384,9 @@ model CustomerProfile {
+   sourceConnection     IntegrationConnection? @relation(fields: [sourceConnectionId], references: [id])
+   sourceConnectionId   String?
+   name                 String?
++  profileName          String?
++  nameSource           String?
++  nameConfirmed        Boolean  @default(false)
+   phone                String?
+   phoneNormalized      String?
+   email                String?
+@@ -392,6 +395,11 @@ model CustomerProfile {
+   externalCustomerId   String?
+   status               String   @default("active")
+   notes                String?
++  firstInboundAt       DateTime?
++  lastInboundAt        DateTime?
++  botOff               Boolean  @default(false)
++  botOffReason         String?
++  botOffAt             DateTime?
+   createdAt            DateTime @default(now())
+   updatedAt            DateTime @updatedAt
+   atendimentoCustomers AtendimentoCustomer[]
+diff --git a/backend/src/customer-profile/customer-profile.service.test.ts b/backend/src/customer-profile/customer-profile.service.test.ts
+index 2c0db0d..74f0a3f 100644
+--- a/backend/src/customer-profile/customer-profile.service.test.ts
++++ b/backend/src/customer-profile/customer-profile.service.test.ts
+@@ -9,6 +9,9 @@ function buildProfileRow(overrides?: Partial<Record<string, unknown>>) {
+     companyId: 7,
+     sourceConnectionId: null,
+     name: 'Cliente',
++    profileName: null,
++    nameSource: null,
++    nameConfirmed: false,
+     phone: '+5519998877766',
+     phoneNormalized: '5519998877766',
+     email: null,
+@@ -17,6 +20,11 @@ function buildProfileRow(overrides?: Partial<Record<string, unknown>>) {
+     externalCustomerId: null,
+     status: 'active',
+     notes: null,
++    firstInboundAt: null,
++    lastInboundAt: null,
++    botOff: false,
++    botOffReason: null,
++    botOffAt: null,
+     createdAt: new Date('2026-03-28T10:00:00.000Z'),
+     updatedAt: new Date('2026-03-28T10:00:00.000Z'),
+     ...overrides,
+@@ -176,4 +184,110 @@ test('upsertProfile does not downgrade a strong active name with weak whatsapp i
+   assert.equal(updateCalled, false);
+   assert.equal(result.name, 'Carlos Eduardo');
+   assert.equal(result.status, 'active');
++});
++
++test('upsertAtendimentoProfileState stores provisional inbound identity and timestamps in CustomerProfile', async () => {
++  const createCalls: Array<Record<string, unknown>> = [];
++  const updateCalls: Array<Record<string, unknown>> = [];
++  const createdRow = buildProfileRow({
++    id: 'profile-inbound',
++    name: null,
++    profileName: null,
++    nameSource: null,
++    nameConfirmed: false,
++    status: 'provisional',
++    firstInboundAt: null,
++    lastInboundAt: null,
++  });
++  let findFirstCalls = 0;
++
++  const prisma = {
++    customerProfile: {
++      findFirst: async () => {
++        findFirstCalls += 1;
++        if (findFirstCalls === 1) return null;
++        return createdRow;
++      },
++      create: async ({ data }: any) => {
++        createCalls.push(data);
++        return { ...createdRow, ...data };
++      },
++      update: async ({ data }: any) => {
++        updateCalls.push(data);
++        return { ...createdRow, ...data };
++      },
++    },
++  } as any;
++
++  const service = new CustomerProfileService(prisma);
++  const inboundAt = new Date('2026-04-15T10:00:00.000Z');
++  const result = await service.upsertAtendimentoProfileState({
++    companyId: 7,
++    phone: '+55 19 99887-7766',
++    profileName: 'Carlos no WhatsApp',
++    nameSource: 'whatsapp_profile',
++    inboundAt,
++  });
++
++  assert.equal(createCalls.length, 1);
++  assert.equal(createCalls[0].name, null);
++  assert.equal(createCalls[0].status, 'provisional');
++  assert.equal(updateCalls.length, 1);
++  assert.equal(updateCalls[0].profileName, 'Carlos no WhatsApp');
++  assert.equal(updateCalls[0].nameSource, 'whatsapp_profile');
++  assert.deepEqual(updateCalls[0].firstInboundAt, inboundAt);
++  assert.deepEqual(updateCalls[0].lastInboundAt, inboundAt);
++  assert.equal(result.profileName, 'Carlos no WhatsApp');
++  assert.equal(result.nameConfirmed, false);
++});
++
++test('upsertAtendimentoProfileState confirms name and persists BOT_OFF without losing the first inbound timestamp', async () => {
++  const updateCalls: Array<Record<string, unknown>> = [];
++  const existingRow = buildProfileRow({
++    id: 'profile-shared-state',
++    name: null,
++    profileName: 'Carlos no WhatsApp',
++    nameSource: 'whatsapp_profile',
++    nameConfirmed: false,
++    status: 'provisional',
++    firstInboundAt: new Date('2026-04-15T10:00:00.000Z'),
++    lastInboundAt: new Date('2026-04-15T10:00:00.000Z'),
++    botOff: false,
++  });
++
++  const prisma = {
++    customerProfile: {
++      findFirst: async () => existingRow,
++      update: async ({ data }: any) => {
++        updateCalls.push(data);
++        return { ...existingRow, ...data };
++      },
++    },
++  } as any;
++
++  const service = new CustomerProfileService(prisma);
++  const inboundAt = new Date('2026-04-15T10:05:00.000Z');
++  const botOffAt = new Date('2026-04-15T10:06:00.000Z');
++  const result = await service.upsertAtendimentoProfileState({
++    companyId: 7,
++    phone: '+55 19 99887-7766',
++    confirmedName: 'Carlos Eduardo',
++    nameSource: 'confirmed_inbound',
++    nameConfirmed: true,
++    inboundAt,
++    botOff: true,
++    botOffReason: 'Operador solicitou fila humana',
++    botOffAt,
++  });
++
++  assert.equal(updateCalls.length, 2);
++  assert.equal(updateCalls[1].nameConfirmed, true);
++  assert.equal(updateCalls[1].nameSource, 'confirmed_inbound');
++  assert.deepEqual(updateCalls[1].lastInboundAt, inboundAt);
++  assert.equal(updateCalls[1].firstInboundAt, undefined);
++  assert.equal(updateCalls[1].botOff, true);
++  assert.equal(updateCalls[1].botOffReason, 'Operador solicitou fila humana');
++  assert.deepEqual(updateCalls[1].botOffAt, botOffAt);
++  assert.equal(result.nameConfirmed, true);
++  assert.equal(result.botOff, true);
+ });
+\ No newline at end of file
+diff --git a/backend/src/customer-profile/customer-profile.service.ts b/backend/src/customer-profile/customer-profile.service.ts
+index 7269666..91626d9 100644
+--- a/backend/src/customer-profile/customer-profile.service.ts
++++ b/backend/src/customer-profile/customer-profile.service.ts
+@@ -14,6 +14,19 @@ type CustomerProfileInput = {
+   notes?: string | null;
+ };
+ 
++type AtendimentoProfileStateInput = {
++  companyId: number;
++  phone: string;
++  profileName?: string | null;
++  confirmedName?: string | null;
++  nameSource?: string | null;
++  nameConfirmed?: boolean;
++  inboundAt?: Date | null;
++  botOff?: boolean;
++  botOffReason?: string | null;
++  botOffAt?: Date | null;
++};
++
+ type SharedProfilePresenceRecord = {
+   present: boolean;
+   customerId?: string | null;
+@@ -152,6 +165,19 @@ export class CustomerProfileService {
+     return normalized || null;
+   }
+ 
++  private normalizeProfileLabel(value: unknown) {
++    const normalized = this.normalizeText(value);
++    return normalized ? normalized.slice(0, 120) : null;
++  }
++
++  private normalizeDate(value: unknown) {
++    if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value;
++    const normalized = this.normalizeText(value);
++    if (!normalized) return null;
++    const parsed = new Date(normalized);
++    return Number.isNaN(parsed.getTime()) ? null : parsed;
++  }
++
+   normalizePhone(raw: unknown) {
+     const digits = String(raw || '').replace(/\D/g, '');
+     return digits ? digits.slice(-13) : null;
+@@ -173,6 +199,9 @@ export class CustomerProfileService {
+       companyId: Number(row.companyId),
+       sourceConnectionId: row.sourceConnectionId ? String(row.sourceConnectionId) : null,
+       name: row.name ? String(row.name) : null,
++      profileName: row.profileName ? String(row.profileName) : null,
++      nameSource: row.nameSource ? String(row.nameSource) : null,
++      nameConfirmed: row.nameConfirmed === undefined || row.nameConfirmed === null ? false : Boolean(row.nameConfirmed),
+       phone: row.phone ? String(row.phone) : null,
+       phoneNormalized: row.phoneNormalized ? String(row.phoneNormalized) : null,
+       email: row.email ? String(row.email) : null,
+@@ -181,6 +210,11 @@ export class CustomerProfileService {
+       externalCustomerId: row.externalCustomerId ? String(row.externalCustomerId) : null,
+       status: row.status ? String(row.status) : null,
+       notes: row.notes ? String(row.notes) : null,
++      firstInboundAt: row.firstInboundAt || null,
++      lastInboundAt: row.lastInboundAt || null,
++      botOff: row.botOff === undefined || row.botOff === null ? false : Boolean(row.botOff),
++      botOffReason: row.botOffReason ? String(row.botOffReason) : null,
++      botOffAt: row.botOffAt || null,
+       createdAt: row.createdAt,
+       updatedAt: row.updatedAt,
+     };
+@@ -718,6 +752,98 @@ export class CustomerProfileService {
+     return this.createProfileConflictSafe(payload);
+   }
+ 
++  async upsertAtendimentoProfileState(input: AtendimentoProfileStateInput) {
++    const phoneNormalized = this.normalizePhone(input.phone);
++    if (!phoneNormalized) return null;
++
++    const nameConfirmed = input.nameConfirmed === true;
++    const normalizedProfileName = this.normalizeProfileLabel(input.profileName);
++    const normalizedConfirmedName = this.normalizeProfileLabel(input.confirmedName);
++    const normalizedNameSource =
++      this.normalizeText(input.nameSource)
++      || (nameConfirmed ? 'confirmed_inbound' : normalizedProfileName ? 'whatsapp_profile' : null);
++    const inboundAt = this.normalizeDate(input.inboundAt);
++    const botOffAt = this.normalizeDate(input.botOffAt);
++
++    const baseProfile = await this.upsertProfile({
++      companyId: input.companyId,
++      phone: input.phone,
++      name: nameConfirmed ? normalizedConfirmedName : null,
++      externalSource: normalizedNameSource || 'whatsapp_bot',
++      status: nameConfirmed ? 'active' : 'provisional',
++    });
++
++    const current = await this.prisma.customerProfile.findFirst({
++      where: { id: String(baseProfile.id), companyId: input.companyId },
++    });
++    if (!current) return baseProfile;
++
++    const currentFirstInboundAt = this.normalizeDate(current.firstInboundAt);
++    const currentLastInboundAt = this.normalizeDate(current.lastInboundAt);
++    const updateData: any = {
++      ...(normalizedProfileName && normalizedProfileName !== this.normalizeProfileLabel(current.profileName)
++        ? { profileName: normalizedProfileName }
++        : {}),
++      ...(nameConfirmed && normalizedConfirmedName && normalizedConfirmedName !== this.normalizeProfileLabel(current.name)
++        ? { name: normalizedConfirmedName }
++        : {}),
++      ...(nameConfirmed && current.nameConfirmed !== true ? { nameConfirmed: true } : {}),
++      ...(
++        normalizedNameSource
++        && normalizedNameSource !== this.normalizeText(current.nameSource)
++        && (nameConfirmed || !this.normalizeText(current.nameSource))
++          ? { nameSource: normalizedNameSource }
++          : {}
++      ),
++    };
++
++    if (inboundAt) {
++      if (!currentFirstInboundAt || inboundAt.getTime() < currentFirstInboundAt.getTime()) {
++        updateData.firstInboundAt = inboundAt;
++      }
++      if (!currentLastInboundAt || inboundAt.getTime() > currentLastInboundAt.getTime()) {
++        updateData.lastInboundAt = inboundAt;
++      }
++    }
++
++    if (input.botOff !== undefined) {
++      const nextBotOff = Boolean(input.botOff);
++      if (Boolean(current.botOff) !== nextBotOff) {
++        updateData.botOff = nextBotOff;
++      }
++
++      if (nextBotOff) {
++        const normalizedBotOffReason = this.normalizeText(input.botOffReason);
++        const currentBotOffReason = this.normalizeText(current.botOffReason);
++        const nextBotOffAt = botOffAt || this.normalizeDate(current.botOffAt) || new Date();
++
++        if (normalizedBotOffReason !== currentBotOffReason) {
++          updateData.botOffReason = normalizedBotOffReason;
++        }
++        if (!current.botOffAt || !this.normalizeDate(current.botOffAt) || nextBotOffAt.getTime() !== this.normalizeDate(current.botOffAt)!.getTime()) {
++          updateData.botOffAt = nextBotOffAt;
++        }
++      } else {
++        if (current.botOffReason !== null) {
++          updateData.botOffReason = null;
++        }
++        if (current.botOffAt !== null) {
++          updateData.botOffAt = null;
++        }
++      }
++    }
++
++    if (!Object.keys(updateData).length) {
++      return this.buildProfileRecord(current);
++    }
++
++    const row = await this.prisma.customerProfile.update({
++      where: { id: String(current.id) },
++      data: updateData,
++    });
++    return this.buildProfileRecord(row);
++  }
++
+   private normalizeProfilePayload(input: CustomerProfileInput, opts?: { allowEmpty?: boolean; partial?: boolean }) {
+     const normalizedStatus = this.normalizeText(input.status) || 'active';
+     const normalizedSource = this.normalizeText(input.externalSource);
+diff --git a/backend/src/inbox/inbox.controller.ts b/backend/src/inbox/inbox.controller.ts
+index 709037e..549750f 100644
+--- a/backend/src/inbox/inbox.controller.ts
++++ b/backend/src/inbox/inbox.controller.ts
+@@ -76,6 +76,20 @@ export class InboxController {
+     return this.inboxService.getConversationById(req.user, id);
+   }
+ 
++  @Get('conversations/:id/status-card')
++  getStatusCard(@Req() req: any, @Param('id', ParseIntPipe) id: number) {
++    return this.inboxService.getConversationStatusCard(req.user, id);
++  }
++
++  @Patch('conversations/:id/status-card')
++  updateStatusCard(
++    @Req() req: any,
++    @Param('id', ParseIntPipe) id: number,
++    @Body() dto: { doNotCall?: boolean; returnAt?: string | null; observations?: string | null },
++  ) {
++    return this.inboxService.updateConversationStatusCard(req.user, id, dto || {});
++  }
++
+   @Patch('conversations/:id/status')
+   updateStatus(
+     @Req() req: any,
+@@ -85,6 +99,15 @@ export class InboxController {
+     return this.inboxService.updateConversationStatus(req.user, id, dto.status);
+   }
+ 
++  @Patch('conversations/:id/queue')
++  updateQueue(
++    @Req() req: any,
++    @Param('id', ParseIntPipe) id: number,
++    @Body() dto: { queue?: string },
++  ) {
++    return this.inboxService.updateConversationQueue(req.user, id, dto?.queue);
++  }
++
+   @Patch('conversations/:id/block')
+   blockConversation(
+     @Req() req: any,
+diff --git a/backend/src/inbox/inbox.service.test.ts b/backend/src/inbox/inbox.service.test.ts
+index 2945cd9..a074aeb 100644
+--- a/backend/src/inbox/inbox.service.test.ts
++++ b/backend/src/inbox/inbox.service.test.ts
+@@ -312,6 +312,66 @@ test('updateConversationStatus maps open and closed to real conversation flags',
+   assert.equal(auditCalls[1].event, 'conversation_status_updated');
+ });
+ 
++test('blockConversation persists BOT_OFF on CustomerProfile', async () => {
++  const profileStateCalls: Array<Record<string, unknown>> = [];
++  const { service } = createService({
++    prisma: {
++      companyMessage: {
++        create: async ({ data }: any) => ({ id: 801, ...data }),
++      },
++    },
++    customerProfileService: {
++      upsertAtendimentoProfileState: async (input: Record<string, unknown>) => {
++        profileStateCalls.push(input);
++        return { id: 'profile-1', ...input };
++      },
++    },
++    webwhatsBridge: {
++      updateBlockStatus: async () => undefined,
++      archiveChat: async () => undefined,
++    },
++  });
++  (service as any).getConversationByIdForCompany = async () => ({ id: '42', messages: [] });
++
++  await service.blockConversation({ companyId: 7, id: 99 }, 42, 'Fila humana manual');
++
++  assert.equal(profileStateCalls.length, 1);
++  assert.equal(profileStateCalls[0].companyId, 7);
++  assert.equal(profileStateCalls[0].phone, '+5519998877766');
++  assert.equal(profileStateCalls[0].botOff, true);
++  assert.equal(profileStateCalls[0].botOffReason, 'Fila humana manual');
++  assert.ok(profileStateCalls[0].botOffAt instanceof Date);
++});
++
++test('unblockConversation clears BOT_OFF on CustomerProfile', async () => {
++  const profileStateCalls: Array<Record<string, unknown>> = [];
++  const { service } = createService({
++    prisma: {
++      companyMessage: {
++        create: async ({ data }: any) => ({ id: 802, ...data }),
++      },
++    },
++    customerProfileService: {
++      upsertAtendimentoProfileState: async (input: Record<string, unknown>) => {
++        profileStateCalls.push(input);
++        return { id: 'profile-1', ...input };
++      },
++    },
++    webwhatsBridge: {
++      updateBlockStatus: async () => undefined,
++      archiveChat: async () => undefined,
++    },
++  });
++  (service as any).getConversationByIdForCompany = async () => ({ id: '42', messages: [] });
++
++  await service.unblockConversation({ companyId: 7, id: 99 }, 42);
++
++  assert.equal(profileStateCalls.length, 1);
++  assert.equal(profileStateCalls[0].companyId, 7);
++  assert.equal(profileStateCalls[0].phone, '+5519998877766');
++  assert.equal(profileStateCalls[0].botOff, false);
++});
++
+ test('deleteConversation removes local records after WhatsApp confirms deletion', async () => {
+   const messageDeleteCalls: Array<Record<string, unknown>> = [];
+   const conversationDeleteCalls: Array<Record<string, unknown>> = [];
+diff --git a/backend/src/inbox/inbox.service.ts b/backend/src/inbox/inbox.service.ts
+index 66a4c24..1393c23 100644
+--- a/backend/src/inbox/inbox.service.ts
++++ b/backend/src/inbox/inbox.service.ts
+@@ -39,7 +39,6 @@ import { CadastrosService } from '../cadastros/cadastros.service';
+ import { CustomerProfileService } from '../customer-profile/customer-profile.service';
+ import {
+   WebwhatsBridgeService,
+-  WebwhatsDeleteChatResult,
+   WebwhatsFetchedMessage,
+   WebwhatsLiveChatSnapshot,
+   WebwhatsLiveConversationSnapshot,
+@@ -744,9 +743,6 @@ export class InboxService {
+         : null;
+ 
+     const hasRecoveryDebt = Number(recoveryCustomer?.openAmount || 0) > 0;
+-    const recoveryFlow =
+-      String(conversation?.currentFlow || '').trim().toLowerCase().includes('recovery') ||
+-      latestSourceModule.startsWith('hbx_recovery');
+ 
+     let routeTarget: 'recovery' | 'atendimento' = 'atendimento';
+     let routeReason = 'Atendimento manual padrao.';
+@@ -757,27 +753,25 @@ export class InboxService {
+     } else if (hasRecoveryDebt && routingRules.preferRecoveryForDebtors) {
+       routeTarget = 'recovery';
+       routeReason = 'Cliente com debito em aberto e contexto ativo de cobranca.';
+-    } else if (recoveryFlow && routingRules.preferRecoveryForNegotiations) {
+-      routeTarget = 'recovery';
+-      routeReason = 'Conversa originada ou mantida pelo fluxo do HBX Recovery.';
+     }
+ 
+     return {
+       routeTarget,
+       routeReason,
+-      recoveryCustomerId: recoveryCustomer?.id ? String(recoveryCustomer.id) : null,
++      recoveryCustomerId: hasRecoveryDebt && recoveryCustomer?.id ? String(recoveryCustomer.id) : null,
+       recoveryCustomerName: String(
+-        recoveryCustomer?.clientName || recoveryCustomer?.name || '',
++        hasRecoveryDebt ? recoveryCustomer?.clientName || recoveryCustomer?.name || '' : '',
+       ).trim() || null,
+-      recoveryOpenAmount: Number(recoveryCustomer?.openAmount || 0),
++      recoveryOpenAmount: hasRecoveryDebt ? Number(recoveryCustomer?.openAmount || 0) : 0,
+       recoveryRiskScore:
++        !hasRecoveryDebt ||
+         recoveryCustomer?.paymentHistoryScore === undefined ||
+         recoveryCustomer?.paymentHistoryScore === null
+           ? null
+           : Number(recoveryCustomer.paymentHistoryScore),
+-      recoveryTotalPaid: Number(recoveryCustomer?.totalPaid || 0),
+-      recoveryStatus: String(recoveryCustomer?.status || '').trim() || null,
+-      recoveryPaymentHistory: Array.isArray(recoveryCustomer?.payments)
++      recoveryTotalPaid: hasRecoveryDebt ? Number(recoveryCustomer?.totalPaid || 0) : 0,
++      recoveryStatus: hasRecoveryDebt ? String(recoveryCustomer?.status || '').trim() || null : null,
++      recoveryPaymentHistory: hasRecoveryDebt && Array.isArray(recoveryCustomer?.payments)
+         ? recoveryCustomer.payments.map((payment) => ({
+             id: String(payment.id),
+             amount: Number(payment.amount || 0),
+@@ -789,7 +783,7 @@ export class InboxService {
+             paymentUrl: String(payment.paymentUrl || '').trim() || null,
+           }))
+         : [],
+-      recoveryCurrentStep: String(conversation?.currentStep || '').trim() || null,
++      recoveryCurrentStep: hasRecoveryDebt ? String(conversation?.currentStep || '').trim() || null : null,
+       recoverySuggestedPath: routeTarget === 'recovery' ? '/dashboard/inbox/recovery' : '/dashboard/inbox',
+       latestSourceModule: latestSourceModule || null,
+     };
+@@ -1480,6 +1474,358 @@ export class InboxService {
+     return this.getConversationByIdForCompany(companyId, id);
+   }
+ 
++  private normalizeStatusCardPhone(value: unknown) {
++    const digits = this.customerProfileService.normalizePhone(value);
++    if (!digits) return null;
++    if (!digits.startsWith('55') && (digits.length === 10 || digits.length === 11)) {
++      return `55${digits}`;
++    }
++    return digits;
++  }
++
++  private getStatusCardPhoneVariants(phoneNormalized: string) {
++    const variants = new Set<string>();
++    const digits = String(phoneNormalized || '').replace(/\D/g, '');
++    if (!digits) return [];
++    variants.add(digits);
++    if (digits.startsWith('55') && (digits.length === 12 || digits.length === 13)) {
++      variants.add(digits.slice(2));
++    } else if (!digits.startsWith('55') && (digits.length === 10 || digits.length === 11)) {
++      variants.add(`55${digits}`);
++    }
++    return Array.from(variants);
++  }
++
++  private parseStatusCardDate(value: unknown) {
++    const normalized = String(value || '').trim();
++    if (!normalized) return null;
++    const parsed = new Date(normalized);
++    if (Number.isNaN(parsed.getTime())) {
++      throw new BadRequestException('Data de retorno invalida.');
++    }
++    return parsed;
++  }
++
++  private formatInboxVendasStatusLabel(statusRaw: unknown) {
++    const status = String(statusRaw || '').trim().toLowerCase();
++    if (status === 'contato') return 'Em contato';
++    if (status === 'retorno') return 'Retorno';
++    if (status === 'qualificado') return 'Qualificado';
++    if (status === 'encerrado') return 'Encerrado';
++    return 'Novo lead';
++  }
++
++  private async resolveStatusCardRecords(companyId: number, conversationId: number) {
++    const conversation = await this.ensureConversation(companyId, conversationId);
++    const phoneNormalized = this.normalizeStatusCardPhone(conversation.contact);
++    if (!phoneNormalized) {
++      throw new BadRequestException('Conversa sem telefone valido para o card do cliente.');
++    }
++    const phoneVariants = this.getStatusCardPhoneVariants(phoneNormalized);
++
++    let profile = await this.prisma.customerProfile.findFirst({
++      where: { companyId, phoneNormalized: { in: phoneVariants } },
++      orderBy: [{ updatedAt: 'desc' }],
++    });
++    if (!profile) {
++      const created = await this.customerProfileService.upsertProfile({
++        companyId,
++        phone: `+${phoneNormalized}`,
++        externalSource: 'atendimento_status',
++        status: 'active',
++      });
++      profile = await this.prisma.customerProfile.findFirst({
++        where: { id: String(created.id), companyId },
++      });
++    }
++    if (!profile) throw new BadRequestException('Nao foi possivel criar o perfil central do cliente.');
++
++    let atendimentoCustomer = await this.prisma.atendimentoCustomer.findFirst({
++      where: { companyId, phoneNormalized: { in: phoneVariants } },
++      orderBy: [{ updatedAt: 'desc' }],
++    });
++    if (!atendimentoCustomer) {
++      atendimentoCustomer = await this.prisma.atendimentoCustomer.create({
++        data: {
++          companyId,
++          customerProfileId: profile.id,
++          name: profile.name || null,
++          phone: String(conversation.contact || '').trim(),
++          phoneNormalized,
++          registrationOrigin: 'atendimento_status',
++          registrationStatus: 'manual',
++          route: 'atendimento',
++          conversationId,
++          lastMessageAt: conversation.lastMessageAt || conversation.updatedAt || new Date(),
++        },
++      });
++    } else if (!atendimentoCustomer.customerProfileId) {
++      atendimentoCustomer = await this.prisma.atendimentoCustomer.update({
++        where: { id: atendimentoCustomer.id },
++        data: { customerProfileId: profile.id },
++      });
++    }
++
++    const lead = await this.prisma.vendasLead.findFirst({
++      where: {
++        companyId,
++        OR: [
++          { phoneNormalized: { in: phoneVariants } },
++          { customerProfileId: profile.id },
++        ],
++      },
++      orderBy: [{ updatedAt: 'desc' }],
++      include: {
++        timelineEvents: {
++          orderBy: [{ createdAt: 'desc' }],
++          take: 12,
++        },
++      },
++    });
++
++    return { conversation, phoneNormalized, profile, atendimentoCustomer, lead };
++  }
++
++  private buildStatusCardPayload(input: {
++    phoneNormalized: string;
++    profile: any;
++    atendimentoCustomer?: any;
++    lead?: any;
++  }) {
++    const lead = input.lead || null;
++    const timeline = Array.isArray(lead?.timelineEvents) ? lead.timelineEvents : [];
++    const history = timeline.map((event: any) => ({
++      id: String(event.id),
++      eventType: String(event.eventType || 'generic'),
++      title: String(event.title || 'Atualizacao'),
++      description: event.description ? String(event.description) : null,
++      resultLabel: event.resultLabel ? String(event.resultLabel) : null,
++      returnAt: event.returnAt instanceof Date ? event.returnAt.toISOString() : event.returnAt ? new Date(event.returnAt).toISOString() : null,
++      createdAt: event.createdAt instanceof Date ? event.createdAt.toISOString() : event.createdAt ? new Date(event.createdAt).toISOString() : null,
++    }));
++
++    return {
++      customer: {
++        profileId: String(input.profile.id),
++        name: input.profile.name || input.profile.profileName || input.atendimentoCustomer?.name || null,
++        phone: input.profile.phone || input.atendimentoCustomer?.phone || `+${input.phoneNormalized}`,
++        phoneNormalized: input.phoneNormalized,
++        doNotCall: Boolean(input.profile.botOff),
++        doNotCallReason: input.profile.botOffReason || null,
++        observations: input.profile.notes || input.atendimentoCustomer?.notes || '',
++        updatedAt: input.profile.updatedAt instanceof Date ? input.profile.updatedAt.toISOString() : null,
++      },
++      lead: lead
++        ? {
++            id: String(lead.id),
++            status: String(lead.status || 'novo'),
++            statusLabel: this.formatInboxVendasStatusLabel(lead.status),
++            nextAction: lead.nextAction || null,
++            returnAt: lead.returnAt instanceof Date ? lead.returnAt.toISOString() : lead.returnAt ? new Date(lead.returnAt).toISOString() : null,
++            attemptCount: Number(lead.attemptCount || 0),
++            timesSeen: Number(lead.timesSeen || 0),
++            sourceType: lead.sourceType || null,
++            shortNote: lead.shortNote || null,
++            lastContactAt: lead.lastContactAt instanceof Date ? lead.lastContactAt.toISOString() : null,
++            updatedAt: lead.updatedAt instanceof Date ? lead.updatedAt.toISOString() : null,
++          }
++        : null,
++      history,
++    };
++  }
++
++  async getConversationStatusCard(user: any, conversationId: number) {
++    const companyId = this.requireCompanyIdFromUser(user);
++    const records = await this.resolveStatusCardRecords(companyId, conversationId);
++    return this.buildStatusCardPayload(records);
++  }
++
++  private async ensureStatusCardLead(input: {
++    companyId: number;
++    userId: number | null;
++    profile: any;
++    atendimentoCustomer?: any;
++    phoneNormalized: string;
++    status?: string;
++    returnAt?: Date | null;
++    observations?: string | null;
++  }) {
++    const phoneVariants = this.getStatusCardPhoneVariants(input.phoneNormalized);
++    const existing = await this.prisma.vendasLead.findFirst({
++      where: {
++        companyId: input.companyId,
++        OR: [
++          { phoneNormalized: { in: phoneVariants } },
++          { customerProfileId: input.profile.id },
++        ],
++      },
++      orderBy: [{ updatedAt: 'desc' }],
++    });
++    const nextAction = input.status === 'encerrado'
++      ? 'Não ligar mais'
++      : input.returnAt
++        ? 'Retorno solicitado pelo Atendimento'
++        : 'Atualizacao via Atendimento';
++    if (existing) {
++      return this.prisma.vendasLead.update({
++        where: { id: existing.id },
++        data: {
++          customerProfileId: input.profile.id,
++          name: input.profile.name || input.atendimentoCustomer?.name || existing.name,
++          phone: input.profile.phone || input.atendimentoCustomer?.phone || existing.phone || `+${input.phoneNormalized}`,
++          phoneNormalized: input.phoneNormalized,
++          ...(input.status ? { status: input.status } : {}),
++          ...(input.returnAt !== undefined ? { returnAt: input.returnAt } : {}),
++          nextAction,
++          ...(input.observations !== undefined ? { shortNote: input.observations } : {}),
++          ...(input.status === 'encerrado'
++            ? {
++                lastResult: 'Não ligar mais',
++                wasClosedBefore: true,
++                closedAt: new Date(),
++              }
++            : input.returnAt
++              ? {
++                  closedAt: null,
++                }
++              : {}),
++        },
++      });
++    }
++
++    return this.prisma.vendasLead.create({
++      data: {
++        companyId: input.companyId,
++        customerProfileId: input.profile.id,
++        sourceType: 'manual',
++        primarySource: 'atendimento_status',
++        timesSeen: 1,
++        name: input.profile.name || input.atendimentoCustomer?.name || null,
++        phone: input.profile.phone || input.atendimentoCustomer?.phone || `+${input.phoneNormalized}`,
++        phoneNormalized: input.phoneNormalized,
++        status: input.status || (input.returnAt ? 'retorno' : 'contato'),
++        nextAction,
++        returnAt: input.returnAt ?? null,
++        shortNote: input.observations || null,
++        lastResult: input.status === 'encerrado' ? 'Não ligar mais' : null,
++        wasClosedBefore: input.status === 'encerrado',
++        closedAt: input.status === 'encerrado' ? new Date() : null,
++        createdByUserId: input.userId,
++      },
++    });
++  }
++
++  async updateConversationStatusCard(
++    user: any,
++    conversationId: number,
++    dto: { doNotCall?: boolean; returnAt?: string | null; observations?: string | null },
++  ) {
++    const companyId = this.requireCompanyIdFromUser(user);
++    const records = await this.resolveStatusCardRecords(companyId, conversationId);
++    const observations =
++      dto.observations === undefined ? undefined : String(dto.observations || '').trim();
++    const returnAt = dto.returnAt === undefined ? undefined : this.parseStatusCardDate(dto.returnAt);
++    const doNotCall = dto.doNotCall === undefined ? undefined : Boolean(dto.doNotCall);
++    const now = new Date();
++
++    if (doNotCall !== undefined) {
++      await this.customerProfileService.upsertAtendimentoProfileState({
++        companyId,
++        phone: `+${records.phoneNormalized}`,
++        botOff: doNotCall,
++        botOffReason: doNotCall ? 'Não ligar mais' : null,
++        botOffAt: doNotCall ? now : null,
++      } as any);
++    }
++
++    const profilePatch: any = {};
++    if (observations !== undefined) profilePatch.notes = observations || null;
++    if (Object.keys(profilePatch).length) {
++      records.profile = await this.prisma.customerProfile.update({
++        where: { id: records.profile.id },
++        data: profilePatch,
++      });
++      if (records.atendimentoCustomer?.id) {
++        records.atendimentoCustomer = await this.prisma.atendimentoCustomer.update({
++          where: { id: records.atendimentoCustomer.id },
++          data: { notes: observations || null },
++        });
++      }
++    }
++
++    if (doNotCall !== undefined || returnAt !== undefined || observations !== undefined) {
++      const lead = await this.ensureStatusCardLead({
++        companyId,
++        userId: Number(user?.id || 0) || null,
++        profile: records.profile,
++        atendimentoCustomer: records.atendimentoCustomer,
++        phoneNormalized: records.phoneNormalized,
++        status: doNotCall === true ? 'encerrado' : returnAt ? 'retorno' : undefined,
++        returnAt,
++        observations,
++      });
++
++      const events: any[] = [];
++      if (doNotCall !== undefined) {
++        events.push({
++          leadId: lead.id,
++          eventType: 'status_preference',
++          title: doNotCall ? 'Não ligar mais' : 'Contato liberado',
++          description: doNotCall
++            ? 'Cliente marcado para nao receber novas ligacoes ou automacoes.'
++            : 'Preferencia de nao ligar removida pelo Atendimento.',
++          resultLabel: doNotCall ? 'Não ligar mais' : 'Liberado',
++          createdByUserId: Number(user?.id || 0) || null,
++        });
++      }
++      if (returnAt) {
++        events.push({
++          leadId: lead.id,
++          eventType: 'return_scheduled',
++          title: 'Retorno agendado',
++          description: 'Retorno definido a partir da aba Conversa do Atendimento.',
++          returnAt,
++          createdByUserId: Number(user?.id || 0) || null,
++        });
++      }
++      if (observations !== undefined) {
++        events.push({
++          leadId: lead.id,
++          eventType: 'note_updated',
++          title: 'Observacao atualizada',
++          description: observations || 'Observacao removida no Atendimento.',
++          createdByUserId: Number(user?.id || 0) || null,
++        });
++      }
++      if (events.length) {
++        await this.prisma.vendasLeadTimelineEvent.createMany({ data: events });
++      }
++    }
++
++    const refreshed = await this.resolveStatusCardRecords(companyId, conversationId);
++    const metadata = this.parseConversationMetadata(refreshed.conversation.metadata);
++    const conversationStatePatch: any = {
++      metadata: {
++        ...metadata,
++        atendimentoStatusCard: {
++          doNotCall: doNotCall ?? Boolean(refreshed.profile.botOff),
++          returnAt: returnAt ? returnAt.toISOString() : undefined,
++          observations: observations ?? refreshed.profile.notes ?? null,
++          updatedAt: now.toISOString(),
++          updatedByUserId: Number(user?.id || 0) || null,
++        },
++      },
++    };
++    if (doNotCall === true) {
++      conversationStatePatch.botActive = false;
++      conversationStatePatch.humanAssigned = false;
++      conversationStatePatch.flowResult = 'do_not_call';
++    }
++    await this.conversations.updateConversationState(companyId, conversationId, conversationStatePatch);
++
++    return this.getConversationStatusCard(user, conversationId);
++  }
++
+   async getBotConfig(user: any) {
+     const companyId = this.requireCompanyIdFromUser(user);
+     return this.getBotConfigByCompanyId(companyId);
+@@ -1910,11 +2256,135 @@ export class InboxService {
+     return this.getConversationByIdForCompany(companyId, id);
+   }
+ 
++  async updateConversationQueue(user: any, id: number, queueRaw?: string) {
++    const companyId = this.requireCompanyIdFromUser(user);
++    const conversation = await this.ensureConversation(companyId, id);
++    const queue = String(queueRaw || '').trim().toLowerCase();
++    const allowedQueues = new Set(['all', 'groups', 'recovery', 'scheduled', 'bot', 'archived']);
++    if (!allowedQueues.has(queue)) {
++      throw new BadRequestException('Fila invalida.');
++    }
++
++    const metadata = this.parseConversationMetadata(conversation.metadata);
++    const currentQueue =
++      metadata?.vendasAgendaQueue &&
++      typeof metadata.vendasAgendaQueue === 'object' &&
++      !Array.isArray(metadata.vendasAgendaQueue)
++        ? (metadata.vendasAgendaQueue as Record<string, unknown>)
++        : null;
++    const now = new Date().toISOString();
++    const nextMetadata: Record<string, unknown> = {
++      ...metadata,
++      inboxManualQueueOverride: queue,
++      inboxManualQueueOverriddenAt: now,
++      ...(queue === 'archived'
++        ? {
++            inboxLocalDeleted: true,
++            inboxLocalDeletedAt: now,
++            inboxLocalDeletedByUserId: Number(user?.id || 0) || null,
++          }
++        : {
++            inboxLocalDeleted: false,
++            inboxLocalDeletedAt: null,
++            inboxLocalDeletedByUserId: null,
++          }),
++    };
++
++    if (currentQueue) {
++      nextMetadata.vendasAgendaQueue =
++        queue === 'scheduled'
++          ? {
++              ...currentQueue,
++              active: true,
++              manualQueueOverride: null,
++              manualQueueOverriddenAt: null,
++              syncedAt: now,
++            }
++          : {
++              ...currentQueue,
++              active: false,
++              draftPending: false,
++              botEligible: false,
++              botEntryPending: false,
++              manualQueueOverride: queue,
++              manualQueueOverriddenAt: now,
++              deactivatedAt: currentQueue.deactivatedAt || now,
++              syncedAt: now,
++            };
++    }
++
++    await this.conversations.updateConversationState(companyId, id, {
++      metadata: nextMetadata,
++      ...(queue === 'archived'
++        ? {
++            botActive: false,
++            humanAssigned: false,
++            flowResult: 'local_deleted',
++          }
++        : {}),
++    });
++
++    if (queue === 'archived') {
++      try {
++        await this.customerProfileService.upsertAtendimentoProfileState({
++          companyId,
++          phone: String(conversation.contact || '').trim(),
++          botOff: true,
++          botOffReason: 'Conversa enviada para Excluídos no HBX.',
++          botOffAt: new Date(),
++        } as any);
++      } catch (error) {
++        await this.logInboxEvent({
++          companyId,
++          event: 'conversation_queue_profile_sync_failed',
++          message: 'Falha ao persistir BOT_OFF no CustomerProfile durante movimentacao para Excluídos.',
++          conversationId: id,
++          phone: String(conversation.contact || '').trim(),
++          result: 'warning',
++          extra: {
++            error: error instanceof Error ? error.message : 'unknown_error',
++          },
++        });
++      }
++    }
++
++    await this.logInboxEvent({
++      companyId,
++      event: 'conversation_queue_updated',
++      message: `Fila manual atualizada para ${queue}`,
++      conversationId: id,
++      result: queue,
++    });
++
++    return this.getConversationByIdForCompany(companyId, id);
++  }
++
+   async blockConversation(user: any, conversationId: number, reasonRaw?: string) {
+     const companyId = this.requireCompanyIdFromUser(user);
+     const conversation = await this.ensureConversation(companyId, conversationId);
+     const metadata = this.parseConversationMetadata(conversation.metadata);
+     const reason = String(reasonRaw || '').trim() || 'Bloqueado manualmente pelo operador.';
++    try {
++      await this.customerProfileService.upsertAtendimentoProfileState({
++        companyId,
++        phone: String(conversation.contact || '').trim(),
++        botOff: true,
++        botOffReason: reason,
++        botOffAt: new Date(),
++      } as any);
++    } catch (error) {
++      await this.logInboxEvent({
++        companyId,
++        event: 'conversation_block_profile_sync_failed',
++        message: 'Falha ao persistir BOT_OFF no CustomerProfile durante o bloqueio.',
++        conversationId,
++        phone: String(conversation.contact || '').trim(),
++        result: 'warning',
++        extra: {
++          error: error instanceof Error ? error.message : 'unknown_error',
++        },
++      });
++    }
+     try {
+       await this.webwhatsBridge.updateBlockStatus(companyId, {
+         conversationId: conversation.id,
+@@ -1975,6 +2445,25 @@ export class InboxService {
+     const metadata = this.clearAtendimentoBlockedMetadata(
+       this.parseConversationMetadata(conversation.metadata),
+     );
++    try {
++      await this.customerProfileService.upsertAtendimentoProfileState({
++        companyId,
++        phone: String(conversation.contact || '').trim(),
++        botOff: false,
++      } as any);
++    } catch (error) {
++      await this.logInboxEvent({
++        companyId,
++        event: 'conversation_unblock_profile_sync_failed',
++        message: 'Falha ao limpar BOT_OFF no CustomerProfile durante o desbloqueio.',
++        conversationId,
++        phone: String(conversation.contact || '').trim(),
++        result: 'warning',
++        extra: {
++          error: error instanceof Error ? error.message : 'unknown_error',
++        },
++      });
++    }
+     try {
+       await this.webwhatsBridge.updateBlockStatus(companyId, {
+         conversationId: conversation.id,
+@@ -2028,134 +2517,86 @@ export class InboxService {
+   async deleteConversation(user: any, conversationId: number) {
+     const companyId = this.requireCompanyIdFromUser(user);
+     const conversation = await this.ensureConversation(companyId, conversationId);
++    const metadata = this.parseConversationMetadata(conversation.metadata);
++    const currentQueue =
++      metadata?.vendasAgendaQueue &&
++      typeof metadata.vendasAgendaQueue === 'object' &&
++      !Array.isArray(metadata.vendasAgendaQueue)
++        ? (metadata.vendasAgendaQueue as Record<string, unknown>)
++        : null;
++    const now = new Date().toISOString();
++    const nextMetadata: Record<string, unknown> = {
++      ...metadata,
++      inboxLocalDeleted: true,
++      inboxLocalDeletedAt: now,
++      inboxLocalDeletedByUserId: Number(user?.id || 0) || null,
++      inboxManualQueueOverride: 'archived',
++      inboxManualQueueOverriddenAt: now,
++    };
++
++    if (currentQueue) {
++      nextMetadata.vendasAgendaQueue = {
++        ...currentQueue,
++        active: false,
++        draftPending: false,
++        botEligible: false,
++        botEntryPending: false,
++        manualQueueOverride: 'archived',
++        manualQueueOverriddenAt: now,
++        deactivatedAt: currentQueue.deactivatedAt || now,
++        syncedAt: now,
++      };
++    }
++
++    await this.conversations.updateConversationState(companyId, conversation.id, {
++      botActive: false,
++      humanAssigned: false,
++      flowResult: 'local_deleted',
++      metadata: nextMetadata,
++    });
+ 
+-    let deleteResult: WebwhatsDeleteChatResult;
+     try {
+-      deleteResult = await this.webwhatsBridge.deleteChat(companyId, {
+-        conversationId: conversation.id,
+-      });
++      await this.customerProfileService.upsertAtendimentoProfileState({
++        companyId,
++        phone: String(conversation.contact || '').trim(),
++        botOff: true,
++        botOffReason: 'Conversa excluida localmente no HBX.',
++        botOffAt: new Date(),
++      } as any);
+     } catch (error) {
+       await this.logInboxEvent({
+         companyId,
+-        event: 'conversation_delete_whatsapp_failed',
+-        message: 'Falha ao excluir conversa no WhatsApp. Remocao local cancelada.',
++        event: 'conversation_local_delete_profile_sync_failed',
++        message: 'Falha ao persistir BOT_OFF no CustomerProfile durante exclusao local.',
+         conversationId,
+         phone: String(conversation.contact || '').trim(),
+         result: 'warning',
+-        extra: this.buildDeleteConversationWhatsAppFailureLog(error),
++        extra: {
++          error: error instanceof Error ? error.message : 'unknown_error',
++        },
+       });
+-      throw this.mapDeleteConversationWhatsAppError(error);
+     }
+ 
+-    const successMessage =
+-      deleteResult.outcome === 'already_deleted'
+-        ? 'Conversa removida do sistema. O chat ja nao existia mais no WhatsApp.'
+-        : 'Conversa excluida do sistema e do WhatsApp.';
+-
+-    await this.logInboxEvent({
+-      companyId,
+-      event: 'conversation_delete_whatsapp_confirmed',
+-      message:
+-        deleteResult.outcome === 'already_deleted'
+-          ? 'Chat ja nao existia mais no WhatsApp. Seguindo com remocao local.'
+-          : 'Chat excluido no WhatsApp com sucesso.',
+-      conversationId,
+-      phone: String(conversation.contact || '').trim(),
+-      result: deleteResult.outcome,
+-      extra: {
+-        outcome: deleteResult.outcome,
+-        chatId: deleteResult.chatId,
+-        providerMessage: deleteResult.message,
+-      },
+-    });
+-
+-    await this.prisma.$transaction(async (tx) => {
+-      await tx.companyMessage.deleteMany({
+-        where: { companyId, conversationId: conversation.id },
+-      });
+-      await tx.companyConversation.delete({
+-        where: { id: conversation.id },
+-      });
+-    });
+     await this.logInboxEvent({
+       companyId,
+-      event: 'conversation_deleted',
+-      message: successMessage,
++      event: 'conversation_local_deleted',
++      message: 'Conversa enviada para Excluídos apenas no HBX. Nenhum comando foi enviado ao WhatsApp.',
+       conversationId,
+       phone: String(conversation.contact || '').trim(),
+-      result: 'deleted',
++      result: 'local_deleted',
+       extra: {
+-        outcome: deleteResult.outcome,
+-        chatId: deleteResult.chatId,
+-        providerMessage: deleteResult.message,
++        localOnly: true,
++        whatsappCommandSent: false,
+       },
+     });
+     return {
+       success: true,
+       id: String(conversation.id),
+-      message: successMessage,
+-      whatsapp: {
+-        outcome: deleteResult.outcome,
+-        chatId: deleteResult.chatId,
+-        message: deleteResult.message,
+-      },
++      message: 'Conversa enviada para Excluídos apenas no HBX.',
++      localOnly: true,
+     };
+   }
+ 
+-  private buildDeleteConversationWhatsAppFailureLog(error: unknown) {
+-    if (error instanceof WebwhatsProviderError) {
+-      return {
+-        code: error.code,
+-        statusCode: error.statusCode ?? null,
+-        providerMessage: error.providerMessage || null,
+-        error: error.message,
+-      };
+-    }
+-
+-    return {
+-      error: error instanceof Error ? error.message : 'unknown_error',
+-    };
+-  }
+-
+-  private mapDeleteConversationWhatsAppError(error: unknown) {
+-    if (error instanceof WebwhatsProviderError) {
+-      if (error.code === 'WEBWHATS_NOT_CONNECTED') {
+-        return new ConflictException(
+-          'Sessao do WhatsApp desconectada. Reconecte o dispositivo antes de excluir a conversa.',
+-        );
+-      }
+-      if (error.code === 'WEBWHATS_NOT_CONFIGURED') {
+-        return new ServiceUnavailableException(
+-          'Integracao do WhatsApp nao configurada para excluir conversas.',
+-        );
+-      }
+-      if (error.code === 'WEBWHATS_TIMEOUT' || error.code === 'WEBWHATS_UNAVAILABLE') {
+-        return new ServiceUnavailableException(
+-          'WhatsApp indisponivel no momento para excluir a conversa. Tente novamente.',
+-        );
+-      }
+-      if (error.providerMessage) {
+-        return new BadRequestException(error.providerMessage);
+-      }
+-      return new BadRequestException(
+-        'Falha ao excluir conversa no WhatsApp. Atualize a conversa e tente novamente.',
+-      );
+-    }
+-
+-    const rawMessage = error instanceof Error ? error.message : '';
+-    if (rawMessage === 'WEBWHATS_CHAT_REMOTE_JID_MISSING') {
+-      return new BadRequestException(
+-        'Conversa sem identificador remoto valido para exclusao no WhatsApp.',
+-      );
+-    }
+-    if (rawMessage === 'WEBWHATS_CONVERSATION_NOT_FOUND') {
+-      return new NotFoundException('Conversa nao encontrada para exclusao.');
+-    }
+-    return new BadRequestException(
+-      rawMessage || 'Falha ao excluir conversa no WhatsApp. Atualize a conversa e tente novamente.',
+-    );
+-  }
+-
+   async markConversationAsRead(user: any, conversationId: number) {
+     const companyId = this.requireCompanyIdFromUser(user);
+     const conversation = await this.ensureConversation(companyId, conversationId);
+diff --git a/backend/src/messaging/messaging.service.test.ts b/backend/src/messaging/messaging.service.test.ts
+index efb36a2..a4d2326 100644
+--- a/backend/src/messaging/messaging.service.test.ts
++++ b/backend/src/messaging/messaging.service.test.ts
+@@ -181,6 +181,54 @@ test('upsertAtendimentoCustomerLocal preserves atendimento sync when profile res
+   assert.equal(upsertCalls[0].route, 'atendimento');
+ });
+ 
++test('upsertAtendimentoCustomerLocal persists confirmed inbound state into CustomerProfile', async () => {
++  const profileStateCalls: Array<Record<string, unknown>> = [];
++  const registryCalls: Array<Record<string, unknown>> = [];
++  const inboundAt = new Date('2026-04-15T10:00:00.000Z');
++  const { service } = createService({
++    cadastrosService: {
++      upsertCustomerRegistry: async (input: Record<string, unknown>) => {
++        registryCalls.push(input);
++        return { id: 'registry-4' };
++      },
++    },
++    customerProfileService: {
++      normalizePhone: (phone: string) => String(phone || '').replace(/\D/g, '').slice(-13),
++      upsertAtendimentoProfileState: async (input: Record<string, unknown>) => {
++        profileStateCalls.push(input);
++        return { id: 'profile-shared', ...input };
++      },
++    },
++  });
++
++  await (service as any).upsertAtendimentoCustomerLocal({
++    companyId: 7,
++    phone: '+55 19 99887-7766',
++    name: 'Carlos Eduardo',
++    registrationStatus: 'confirmed',
++    conversationId: 42,
++    nameSource: 'confirmed_inbound',
++    inboundAt,
++    metadata: {
++      atendimentoBlockedAt: '2026-04-15T09:55:00.000Z',
++      atendimentoBlockedReason: 'Fila humana manual',
++    },
++  });
++
++  assert.equal(profileStateCalls.length, 1);
++  assert.equal(profileStateCalls[0].confirmedName, 'Carlos Eduardo');
++  assert.equal(profileStateCalls[0].profileName, null);
++  assert.equal(profileStateCalls[0].nameConfirmed, true);
++  assert.equal(profileStateCalls[0].nameSource, 'confirmed_inbound');
++  assert.deepEqual(profileStateCalls[0].inboundAt, inboundAt);
++  assert.equal(profileStateCalls[0].botOff, true);
++  assert.equal(profileStateCalls[0].botOffReason, 'Fila humana manual');
++  assert.ok(profileStateCalls[0].botOffAt instanceof Date);
++  assert.equal(registryCalls.length, 1);
++  assert.equal(registryCalls[0].customerProfileId, 'profile-shared');
++  assert.deepEqual(registryCalls[0].lastMessageAt, inboundAt);
++});
++
+ test('handleInboundProxyMessage normalizes template inbound as text before persistence', async () => {
+   const { service } = createService();
+   let captured: Record<string, unknown> | null = null;
+@@ -340,7 +388,7 @@ test('handleAtendimentoInbound asks for the name first when the Vendas agenda re
+         findUnique: async () => ({
+           name: 'Contato novo',
+           registrationStatus: 'pending_confirmation',
+-          customerProfile: { name: 'Contato novo' },
++          customerProfile: { name: null },
+         }),
+       },
+       companyMessage: {
+diff --git a/backend/src/messaging/messaging.service.ts b/backend/src/messaging/messaging.service.ts
+index 11b8a0f..016a232 100644
+--- a/backend/src/messaging/messaging.service.ts
++++ b/backend/src/messaging/messaging.service.ts
+@@ -731,14 +731,47 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
+     return queue as VendasAgendaQueueMetadata;
+   }
+ 
+-  private isAtendimentoBotOff(metadata: Record<string, any>, queue?: VendasAgendaQueueMetadata | null) {
++  private isAtendimentoBotOff(
++    metadata: Record<string, any>,
++    queue?: VendasAgendaQueueMetadata | null,
++    profileBotOff?: boolean | null,
++  ) {
+     return (
+-      metadata?.botOff === true
++      profileBotOff === true
++      || metadata?.botOff === true
+       || metadata?.atendimentoBotOff === true
+       || (queue as any)?.botOff === true
+     );
+   }
+ 
++  private resolveInboundBotOffState(metadata: Record<string, any>) {
++    const explicitFalse = metadata?.botOff === false || metadata?.atendimentoBotOff === false;
++    if (explicitFalse) {
++      return { botOff: false as boolean | undefined, botOffReason: null, botOffAt: null as Date | null };
++    }
++
++    const blockedAt = this.normalizeIsoDateTime(metadata?.atendimentoBlockedAt);
++    const explicitTrue =
++      metadata?.botOff === true
++      || metadata?.atendimentoBotOff === true
++      || Boolean(blockedAt);
++    if (!explicitTrue) {
++      return { botOff: undefined, botOffReason: null, botOffAt: null as Date | null };
++    }
++
++    return {
++      botOff: true,
++      botOffReason:
++        String(
++          metadata?.botOffReason
++          || metadata?.atendimentoBotOffReason
++          || metadata?.atendimentoBlockedReason
++          || '',
++        ).trim() || null,
++      botOffAt: blockedAt ? new Date(blockedAt) : new Date(),
++    };
++  }
++
+   private async resolveAtendimentoIdentityState(input: {
+     companyId: number;
+     phone: string;
+@@ -750,6 +783,16 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
+     const metadataName = this.normalizeCustomerProfileName(
+       metadata?.cliente || metadata?.customerName || metadata?.name,
+     );
++    const findPreferredProfileByPhoneNormalized =
++      (this.customerProfileService as any).findPreferredProfileByPhoneNormalized;
++    const profile =
++      phoneNormalized && typeof findPreferredProfileByPhoneNormalized === 'function'
++        ? await findPreferredProfileByPhoneNormalized.call(
++            this.customerProfileService,
++            input.companyId,
++            phoneNormalized,
++          )
++        : null;
+ 
+     const registry = phoneNormalized
+       ? await this.prisma.atendimentoCustomer.findUnique({
+@@ -773,19 +816,31 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
+ 
+     const registrationStatus = String(registry?.registrationStatus || '').trim().toLowerCase();
+     const registryName = this.normalizeCustomerProfileName(registry?.name || null);
+-    const profileName = this.normalizeCustomerProfileName(registry?.customerProfile?.name || null);
++    const profileConfirmedName = this.normalizeCustomerProfileName(
++      profile?.name || registry?.customerProfile?.name || null,
++    );
++    const profileName = this.normalizeCustomerProfileName(profile?.profileName || null);
+     const fallbackName = this.normalizeCustomerProfileName(input.fallbackName || null);
++    const profileNameConfirmed = profile?.nameConfirmed === true || Boolean(profileConfirmedName);
+     const isConfirmed =
+       Boolean(metadataName)
++      || profileNameConfirmed
+       || registrationStatus === 'confirmed'
+       || registrationStatus === 'manual';
+-    const confirmedName = metadataName || (isConfirmed ? registryName || profileName : null) || null;
++    const confirmedName =
++      metadataName
++      || (profileNameConfirmed ? profileConfirmedName : null)
++      || (isConfirmed ? registryName || profileConfirmedName : null)
++      || null;
+ 
+     return {
+-      name: confirmedName || fallbackName || registryName || profileName || null,
++      profileId: profile?.id ? String(profile.id) : null,
++      name: confirmedName || profileName || fallbackName || registryName || profileConfirmedName || null,
+       confirmedName,
+       isConfirmed,
+       registrationStatus: registrationStatus || null,
++      botOff: profile?.botOff === true,
++      botOffReason: String(profile?.botOffReason || '').trim() || null,
+     };
+   }
+ 
+@@ -815,17 +870,24 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
+     if (manualSentAt && input.timestamp.getTime() <= new Date(manualSentAt).getTime()) return null;
+ 
+     const syncedAt = new Date().toISOString();
++    const identity = await this.resolveAtendimentoIdentityState({
++      companyId: input.companyId,
++      phone: input.from,
++      metadata: input.metadata,
++      fallbackName: input.inboundProfileName || null,
++    });
++    const botOffActive = this.isAtendimentoBotOff(input.metadata, queue, identity.botOff);
+     const nextQueue: VendasAgendaQueueMetadata = {
+       ...queue,
+       manualSent: true,
+       manualSentAt: manualSentAt || syncedAt,
+       lastManualSendAt: this.normalizeIsoDateTime(queue.lastManualSendAt || manualSentAt) || syncedAt,
+-      botEligible: !this.isAtendimentoBotOff(input.metadata, queue),
++      botEligible: !botOffActive,
+       botEntryPending: false,
+       syncedAt,
+     };
+ 
+-    if (this.isAtendimentoBotOff(input.metadata, queue)) {
++    if (botOffActive) {
+       await input.setInboundMeta('atendimento_human', false);
+       await this.updateAtendimentoConversationState(
+         input.companyId,
+@@ -845,12 +907,6 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
+       return { handled: true, humanMode: true, botSuppressed: true, botOff: true };
+     }
+ 
+-    const identity = await this.resolveAtendimentoIdentityState({
+-      companyId: input.companyId,
+-      phone: input.from,
+-      metadata: input.metadata,
+-      fallbackName: input.inboundProfileName || null,
+-    });
+     const metadataPatch: Record<string, unknown> = {
+       ...this.clearAtendimentoBlockedMetadata(input.metadata),
+       vendasAgendaQueue: nextQueue,
+@@ -954,16 +1010,41 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
+     name?: string | null;
+     registrationOrigin?: string;
+     registrationStatus?: string;
++    nameSource?: string | null;
++    inboundAt?: Date | null;
++    metadata?: Record<string, any> | null;
+   }) {
++    const normalizedName = this.normalizeCustomerProfileName(input.name);
++    const nameConfirmed = this.shouldPromoteAtendimentoProfile(input.registrationStatus);
++    const botOffState = this.resolveInboundBotOffState(input.metadata || {});
++    const statefulUpsert = (this.customerProfileService as any).upsertAtendimentoProfileState;
++
++    if (typeof statefulUpsert === 'function') {
++      return statefulUpsert.call(this.customerProfileService, {
++        companyId: input.companyId,
++        phone: input.phone,
++        profileName: nameConfirmed ? null : normalizedName,
++        confirmedName: nameConfirmed ? normalizedName : null,
++        nameSource:
++          String(input.nameSource || '').trim()
++          || (nameConfirmed ? 'confirmed_inbound' : normalizedName ? 'whatsapp_profile' : null),
++        nameConfirmed,
++        inboundAt: input.inboundAt || new Date(),
++        botOff: botOffState.botOff,
++        botOffReason: botOffState.botOffReason,
++        botOffAt: botOffState.botOffAt,
++      });
++    }
++
+     const phoneNormalized = this.customerProfileService.normalizePhone(input.phone);
+     if (!phoneNormalized) return null;
+ 
+     return this.customerProfileService.upsertProfile({
+       companyId: input.companyId,
+       phone: input.phone,
+-      name: this.normalizeCustomerProfileName(input.name),
++      name: normalizedName,
+       externalSource: input.registrationOrigin || 'whatsapp_bot',
+-      status: this.shouldPromoteAtendimentoProfile(input.registrationStatus) ? 'active' : 'provisional',
++      status: nameConfirmed ? 'active' : 'provisional',
+     });
+   }
+ 
+@@ -974,11 +1055,15 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
+     registrationOrigin?: string;
+     registrationStatus?: string;
+     conversationId?: number | null;
+-  }): Promise<void> {
++    nameSource?: string | null;
++    inboundAt?: Date | null;
++    metadata?: Record<string, any> | null;
++  }) {
+     let customerProfileId: string | null = null;
++    let profile: any = null;
+ 
+     try {
+-      const profile = await this.resolveAtendimentoCustomerProfile(input);
++      profile = await this.resolveAtendimentoCustomerProfile(input);
+       customerProfileId = profile?.id ? String(profile.id) : null;
+     } catch (err) {
+       this.logger.warn(`resolveAtendimentoCustomerProfile failed: ${(err as any)?.message}`);
+@@ -989,11 +1074,16 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
+         ...input,
+         customerProfileId,
+         route: 'atendimento',
+-        lastMessageAt: new Date(),
++        lastMessageAt: input.inboundAt || new Date(),
+       });
+     } catch (err) {
+       this.logger.warn(`upsertAtendimentoCustomerLocal failed: ${(err as any)?.message}`);
+     }
++
++    return {
++      customerProfileId,
++      profile,
++    };
+   }
+ 
+   private async getAtendimentoBotConfig(companyId: number): Promise<AtendimentoBotConfig> {
+@@ -2587,7 +2677,10 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
+       companyId,
+       phone: from,
+       name: inboundProfileName || undefined,
++      nameSource: inboundProfileName ? 'whatsapp_profile' : undefined,
+       conversationId: safeConversationId || null,
++      inboundAt: input.timestamp,
++      metadata,
+     });
+ 
+     const isClosedConversation =
+@@ -3016,6 +3109,9 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
+         await this.upsertAtendimentoCustomerLocal({
+           companyId, phone: from, name: suggestedName,
+           registrationStatus: 'confirmed', conversationId: safeConversationId,
++          nameSource: 'confirmed_inbound',
++          inboundAt: input.timestamp,
++          metadata,
+         });
+         const updatedMetadata: Record<string, unknown> = { ...metadata, cliente: suggestedName };
+         delete updatedMetadata.atendimentoRegSuggestedName;
+@@ -3058,6 +3154,9 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
+       await this.upsertAtendimentoCustomerLocal({
+         companyId, phone: from, name: confirmedName,
+         registrationStatus: 'confirmed', conversationId: safeConversationId,
++        nameSource: 'confirmed_inbound',
++        inboundAt: input.timestamp,
++        metadata,
+       });
+       await this.updateAtendimentoConversationState(
+         companyId, safeConversationId,
+diff --git a/backend/src/vendas/dto/vendas.dto.ts b/backend/src/vendas/dto/vendas.dto.ts
+index 75a90aa..7953446 100644
+--- a/backend/src/vendas/dto/vendas.dto.ts
++++ b/backend/src/vendas/dto/vendas.dto.ts
+@@ -1,4 +1,4 @@
+-import { Type } from 'class-transformer';
++import { Transform, Type } from 'class-transformer';
+ import {
+   ArrayMaxSize,
+   IsArray,
+@@ -12,6 +12,12 @@ import {
+ 
+ const LEAD_STATUSES = ['novo', 'contato', 'retorno', 'qualificado', 'encerrado'] as const;
+ 
++function optionalEmail(value: unknown) {
++  if (typeof value !== 'string') return value;
++  const normalized = value.trim().toLowerCase();
++  return normalized ? normalized : undefined;
++}
++
+ export class CreateManualVendasLeadDto {
+   @IsOptional()
+   @IsString()
+@@ -24,6 +30,7 @@ export class CreateManualVendasLeadDto {
+   phone?: string;
+ 
+   @IsOptional()
++  @Transform(({ value }) => optionalEmail(value))
+   @IsEmail()
+   email?: string;
+ 
+@@ -58,6 +65,7 @@ export class UpdateVendasLeadDto {
+   phone?: string;
+ 
+   @IsOptional()
++  @Transform(({ value }) => optionalEmail(value))
+   @IsEmail()
+   email?: string;
+ 
+@@ -96,6 +104,7 @@ export class ImportWebscrapingLeadItemDto {
+   phoneDigits?: string;
+ 
+   @IsOptional()
++  @Transform(({ value }) => optionalEmail(value))
+   @IsEmail()
+   email?: string;
+ 
+diff --git a/backend/src/vendas/vendas.service.ts b/backend/src/vendas/vendas.service.ts
+index 63957d1..e4b656b 100644
+--- a/backend/src/vendas/vendas.service.ts
++++ b/backend/src/vendas/vendas.service.ts
+@@ -54,6 +54,8 @@ type VendasAgendaQueueMetadata = {
+   manualSentAt?: string | null;
+   botEligible?: boolean;
+   botEntryPending?: boolean;
++  manualQueueOverride?: string | null;
++  manualQueueOverriddenAt?: string | null;
+ };
+ 
+ @Injectable()
+@@ -71,7 +73,11 @@ export class VendasService {
+ 
+   private normalizePhone(value: unknown) {
+     const digits = this.customerProfileService.normalizePhone(value);
+-    return digits || null;
++    if (!digits) return null;
++    if (!digits.startsWith('55') && (digits.length === 10 || digits.length === 11)) {
++      return `55${digits}`;
++    }
++    return digits;
+   }
+ 
+   private normalizeEmail(value: unknown) {
+@@ -288,6 +294,42 @@ export class VendasService {
+     return digits ? `+${digits}` : null;
+   }
+ 
++  private buildLeadPhoneCandidates(value: unknown) {
++    const digits = this.normalizePhone(value);
++    if (!digits) return [];
++
++    const candidates = new Set<string>();
++    for (const candidate of buildWhatsAppPhoneCandidates(digits)) {
++      if (candidate) candidates.add(candidate);
++    }
++
++    const raw = String(value || '').trim();
++    if (raw) candidates.add(raw);
++    return [...candidates];
++  }
++
++  private buildLeadPhoneNormalizedCandidates(value: unknown) {
++    const digits = this.customerProfileService.normalizePhone(value);
++    if (!digits) return [];
++
++    const candidates = new Set<string>();
++    const canonical = this.normalizePhone(digits);
++    if (canonical) candidates.add(canonical);
++    candidates.add(digits);
++    if (digits.startsWith('55') && digits.length > 11) {
++      candidates.add(digits.slice(2));
++    } else if (digits.length === 10 || digits.length === 11) {
++      candidates.add(`55${digits}`);
++    }
++    return [...candidates].filter(Boolean);
++  }
++
++  private buildPreferredLeadContact(value: unknown) {
++    const digits = this.normalizePhone(value);
++    if (!digits) return null;
++    return `+${digits}`;
++  }
++
+   private readVendasAgendaQueueMetadata(metadata: Record<string, any>) {
+     const queue = metadata?.vendasAgendaQueue;
+     if (!queue || typeof queue !== 'object' || Array.isArray(queue)) return null;
+@@ -308,12 +350,36 @@ export class VendasService {
+   }
+ 
+   private buildVendasAgendaQueueMetadata(row: any, currentQueue?: VendasAgendaQueueMetadata | null) {
++    const manualQueueOverride = this.normalizeText(currentQueue?.manualQueueOverride);
+     const draftMessage = this.buildSalesAgendaDraftMessage(row);
+     const nextAction = this.normalizeText(row?.nextAction);
+     const returnAt = row?.returnAt instanceof Date ? row.returnAt.toISOString() : this.parseDate(row?.returnAt)?.toISOString() || null;
+     const status = this.normalizeStatus(row?.status);
+     const manualSentAt = this.normalizeText(currentQueue?.manualSentAt || currentQueue?.lastManualSendAt);
+     const manualSent = Boolean(currentQueue?.manualSent || manualSentAt);
++    if (manualQueueOverride && manualQueueOverride !== 'scheduled') {
++      const syncedAt = new Date().toISOString();
++      return {
++        ...(currentQueue || {}),
++        active: false,
++        leadId: String(row?.id || '').trim() || currentQueue?.leadId || null,
++        sourceModule: 'vendas',
++        sourceBlock: 'today',
++        status,
++        nextAction,
++        returnAt,
++        draftMessage,
++        draftPending: false,
++        syncedAt,
++        deactivatedAt: currentQueue?.deactivatedAt || syncedAt,
++        manualSent,
++        manualSentAt,
++        botEligible: false,
++        botEntryPending: false,
++        manualQueueOverride,
++        manualQueueOverriddenAt: this.normalizeText(currentQueue?.manualQueueOverriddenAt),
++      } satisfies VendasAgendaQueueMetadata;
++    }
+     const contentChanged =
+       String(currentQueue?.draftMessage || '').trim() !== draftMessage ||
+       String(currentQueue?.nextAction || '').trim() !== String(nextAction || '').trim() ||
+@@ -339,23 +405,35 @@ export class VendasService {
+       manualSentAt,
+       botEligible: currentQueue?.botEligible === true,
+       botEntryPending: currentQueue?.botEntryPending === true,
++      manualQueueOverride: manualQueueOverride === 'scheduled' ? null : manualQueueOverride,
++      manualQueueOverriddenAt: manualQueueOverride === 'scheduled' ? null : this.normalizeText(currentQueue?.manualQueueOverriddenAt),
+     } satisfies VendasAgendaQueueMetadata;
+   }
+ 
+   private conversationMatchesLeadPhone(conversationContact: unknown, lead: any) {
+     const conversationDigits = this.normalizePhone(conversationContact);
+     const leadDigits = this.normalizePhone(lead?.phoneNormalized || lead?.phone);
+-    return Boolean(conversationDigits && leadDigits && conversationDigits === leadDigits);
++    if (!conversationDigits || !leadDigits) return false;
++    if (conversationDigits === leadDigits) return true;
++    const leadCandidates = this.buildLeadPhoneCandidates(leadDigits)
++      .map((candidate) => this.normalizePhone(candidate))
++      .filter((candidate): candidate is string => Boolean(candidate));
++    const conversationCandidates = this.buildLeadPhoneCandidates(conversationDigits)
++      .map((candidate) => this.normalizePhone(candidate))
++      .filter((candidate): candidate is string => Boolean(candidate));
++    return leadCandidates.some((candidate) => Boolean(candidate && conversationCandidates.includes(candidate)));
+   }
+ 
+   private async findConversationByPhone(companyId: number, phoneRaw: unknown) {
+     const digits = this.normalizePhone(phoneRaw);
+     if (!digits) return null;
+-    const candidates = Array.from(
+-      new Set([
+-        ...buildWhatsAppPhoneCandidates(digits),
+-        String(phoneRaw || '').trim(),
+-      ].filter(Boolean)),
++    const candidates = this.buildLeadPhoneCandidates(phoneRaw);
++    const candidateDigits = Array.from(
++      new Set(
++        candidates
++          .map((candidate) => this.normalizePhone(candidate))
++          .filter((candidate): candidate is string => Boolean(candidate)),
++      ),
+     );
+ 
+     return this.prisma.companyConversation.findFirst({
+@@ -364,8 +442,9 @@ export class VendasService {
+         channel: 'whatsapp',
+         OR: [
+           ...(candidates.length ? [{ contact: { in: candidates } }] : []),
+-          { contact: { contains: digits } },
+-          { contact: { endsWith: digits } },
++          ...candidateDigits.map((candidate) => ({ contact: { contains: candidate } })),
++          ...candidateDigits.map((candidate) => ({ contact: { endsWith: candidate } })),
++          ...candidates.map((candidate) => ({ metadata: { contains: candidate } })),
+         ],
+       },
+       orderBy: [{ lastMessageAt: 'desc' }, { id: 'desc' }],
+@@ -373,12 +452,15 @@ export class VendasService {
+   }
+ 
+   private async activateLeadInInboxAgenda(companyId: number, row: any) {
+-    const contact = this.normalizeLeadConversationPhone(row?.phoneNormalized || row?.phone);
++    const phoneRaw = row?.phoneNormalized || row?.phone;
++    const contact = this.buildPreferredLeadContact(phoneRaw) || this.normalizeLeadConversationPhone(phoneRaw);
+     if (!contact) {
+       return { activated: 0, updated: 0, skippedWithoutPhone: 1 };
+     }
+ 
+-    const conversation = await this.conversations.getOrCreateConversationForContact(companyId, contact);
++    const conversation =
++      (await this.findConversationByPhone(companyId, phoneRaw)) ||
++      (await this.conversations.getOrCreateConversationForContact(companyId, contact));
+     const metadata = this.parseConversationMetadata(conversation?.metadata);
+     const currentQueue = this.readVendasAgendaQueueMetadata(metadata);
+     const nextQueue = this.buildVendasAgendaQueueMetadata(row, currentQueue);
+@@ -631,13 +713,13 @@ export class VendasService {
+     };
+ 
+     if (phoneNormalized) {
+-      const existing = await this.prisma.vendasLead.findUnique({
++      const phoneNormalizedCandidates = this.buildLeadPhoneNormalizedCandidates(input.phone);
++      const existing = await this.prisma.vendasLead.findFirst({
+         where: {
+-          companyId_phoneNormalized: {
+-            companyId: input.companyId,
+-            phoneNormalized,
+-          },
++          companyId: input.companyId,
++          phoneNormalized: { in: phoneNormalizedCandidates.length ? phoneNormalizedCandidates : [phoneNormalized] },
+         },
++        orderBy: [{ updatedAt: 'desc' }],
+       });
+ 
+       if (existing) {
+@@ -652,6 +734,7 @@ export class VendasService {
+           timesSeen: Math.max(1, Math.trunc(Number(existing.timesSeen || 0) || 1)) + 1,
+           name: baseData.name || existing.name,
+           phone: baseData.phone || existing.phone,
++          phoneNormalized: baseData.phoneNormalized || existing.phoneNormalized,
+           email: baseData.email || existing.email,
+           city: baseData.city || existing.city,
+           segment: baseData.segment || existing.segment,
+@@ -773,9 +856,18 @@ export class VendasService {
+   async previewWebscrapingImportForUser(user: any, dto: ImportWebscrapingLeadsDto) {
+     const context = this.resolveUserContext(user);
+     const incomingLeads = Array.isArray(dto?.leads) ? dto.leads : [];
+-    const phoneNormalizeds = incomingLeads
+-      .map((item) => this.normalizePhone(item?.phone || item?.phoneDigits || null))
+-      .filter(Boolean) as string[];
++    const phoneNormalizeds = Array.from(
++      new Set(
++        incomingLeads
++          .map((item) => this.normalizePhone(item?.phone || item?.phoneDigits || null))
++          .filter(Boolean) as string[],
++      ),
++    );
++    const lookupPhoneNormalizeds = Array.from(
++      new Set(
++        incomingLeads.flatMap((item) => this.buildLeadPhoneNormalizedCandidates(item?.phone || item?.phoneDigits || null)),
++      ),
++    );
+ 
+     if (!phoneNormalizeds.length) {
+       return { items: [] };
+@@ -784,7 +876,7 @@ export class VendasService {
+     const rows = await this.prisma.vendasLead.findMany({
+       where: {
+         companyId: context.companyId,
+-        phoneNormalized: { in: phoneNormalizeds },
++        phoneNormalized: { in: lookupPhoneNormalizeds.length ? lookupPhoneNormalizeds : phoneNormalizeds },
+       },
+       orderBy: [{ updatedAt: 'desc' }],
+     });
+@@ -792,13 +884,16 @@ export class VendasService {
+     const byPhone = new Map<string, any>();
+     for (const row of rows) {
+       const key = String(row?.phoneNormalized || '').trim();
+-      if (!key || byPhone.has(key)) continue;
+-      byPhone.set(key, row);
++      if (!key) continue;
++      const candidates = this.buildLeadPhoneNormalizedCandidates(key);
++      for (const candidate of candidates) {
++        if (!byPhone.has(candidate)) byPhone.set(candidate, row);
++      }
+     }
+ 
+     const sharedMap = await this.customerProfileService.buildSharedContextRegistry(context.companyId, {
+       profileIds: rows.map((row) => row.customerProfileId).filter(Boolean),
+-      phoneNormalizeds,
++      phoneNormalizeds: lookupPhoneNormalizeds.length ? lookupPhoneNormalizeds : phoneNormalizeds,
+     });
+ 
+     return {
+diff --git a/frontend/src/app/dashboard/inbox/page.client.tsx b/frontend/src/app/dashboard/inbox/page.client.tsx
+index bbf1517..91ed8c0 100644
+--- a/frontend/src/app/dashboard/inbox/page.client.tsx
++++ b/frontend/src/app/dashboard/inbox/page.client.tsx
+@@ -161,12 +161,62 @@ type DeletedConversationAliasMap = Record<string, string>;
+ type VendasAgendaQueueMetadata = {
+   active?: boolean;
+   leadId?: string | null;
++  sourceModule?: string | null;
++  sourceBlock?: string | null;
++  status?: string | null;
+   nextAction?: string | null;
+   returnAt?: string | null;
+   draftMessage?: string | null;
+   draftPending?: boolean;
+   syncedAt?: string | null;
+   lastManualSendAt?: string | null;
++  manualSent?: boolean | string | number | null;
++  manualSentAt?: string | null;
++  botEligible?: boolean | string | number | null;
++  botEntryPending?: boolean | string | number | null;
++  manualQueueOverride?: string | null;
++  manualQueueOverriddenAt?: string | null;
++};
++
++type CustomerConversationCardPayload = {
++  customer: {
++    profileId?: string | null;
++    name?: string | null;
++    phone?: string | null;
++    phoneNormalized?: string | null;
++    doNotCall?: boolean | null;
++    doNotCallReason?: string | null;
++    observations?: string | null;
++    updatedAt?: string | null;
++  };
++  lead?: {
++    id?: string | null;
++    status?: string | null;
++    statusLabel?: string | null;
++    nextAction?: string | null;
++    returnAt?: string | null;
++    attemptCount?: number | null;
++    timesSeen?: number | null;
++    sourceType?: string | null;
++    shortNote?: string | null;
++    lastContactAt?: string | null;
++    updatedAt?: string | null;
++  } | null;
++  history?: Array<{
++    id: string;
++    eventType?: string | null;
++    title?: string | null;
++    description?: string | null;
++    resultLabel?: string | null;
++    returnAt?: string | null;
++    createdAt?: string | null;
++  }>;
++};
++
++type CustomerConversationCardDraft = {
++  doNotCall: boolean;
++  returnAt: string;
++  observations: string;
+ };
+ 
+ const INBOX_QUEUE_ORDER: InboxQueue[] = [
+@@ -226,12 +276,26 @@ function normalizeInboxTab(value: string | null | undefined): InboxTab | null {
+   if (normalized === "messages") {
+     return "messages";
+   }
+-  if (normalized === "automation" || normalized === "agenda" || normalized === "recovery") {
++  if (normalized === "automation" || normalized === "recovery") {
+     return "automation";
+   }
+   return null;
+ }
+ 
++function normalizeInboxQueueParam(value: string | null | undefined): InboxQueue | null {
++  const normalized = String(value || "").trim().toLowerCase();
++  return INBOX_QUEUE_ORDER.includes(normalized as InboxQueue) ? (normalized as InboxQueue) : null;
++}
++
++function normalizeAtendimentoSectionParam(value: string | null | undefined): AtendimentoSection | null {
++  const normalized = String(value || "").trim().toLowerCase();
++  if (normalized === "conversa" || normalized === "financeiro" || normalized === "agenda" || normalized === "automacao") {
++    return normalized;
++  }
++  if (normalized === "automation") return "automacao";
++  return null;
++}
++
+ function getInboxQueueLabel(queue: InboxQueue) {
+   switch (queue) {
+     case "groups":
+@@ -243,7 +307,7 @@ function getInboxQueueLabel(queue: InboxQueue) {
+     case "bot":
+       return "Chat • BOT";
+     case "archived":
+-      return "Arquivados";
++      return "Excluídos";
+     default:
+       return "Conversas";
+   }
+@@ -823,6 +887,60 @@ function formatTimeLabel(dateStr: string | null | undefined, mounted: boolean) {
+   return parsed.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+ }
+ 
++function formatShortDateTimeLabel(dateStr: string | null | undefined, mounted: boolean) {
++  if (!dateStr) return "-";
++  const parsed = new Date(dateStr);
++  if (Number.isNaN(parsed.getTime())) return "-";
++  if (!mounted) return parsed.toISOString();
++  return parsed.toLocaleString("pt-BR", {
++    day: "2-digit",
++    month: "2-digit",
++    hour: "2-digit",
++    minute: "2-digit",
++  });
++}
++
++function formatDateTimeLocalValue(dateStr: string | null | undefined) {
++  if (!dateStr) return "";
++  const parsed = new Date(dateStr);
++  if (Number.isNaN(parsed.getTime())) return "";
++  const local = new Date(parsed.getTime() - parsed.getTimezoneOffset() * 60000);
++  return local.toISOString().slice(0, 16);
++}
++
++function toIsoFromLocalDateTime(value: string | null | undefined) {
++  const normalized = String(value || "").trim();
++  if (!normalized) return null;
++  const parsed = new Date(normalized);
++  if (Number.isNaN(parsed.getTime())) return null;
++  return parsed.toISOString();
++}
++
++function buildTomorrowReturnLocalValue() {
++  const tomorrow = new Date();
++  tomorrow.setDate(tomorrow.getDate() + 1);
++  tomorrow.setHours(9, 0, 0, 0);
++  return formatDateTimeLocalValue(tomorrow.toISOString());
++}
++
++function buildCustomerConversationCardDraft(
++  payload: CustomerConversationCardPayload | null,
++): CustomerConversationCardDraft {
++  return {
++    doNotCall: Boolean(payload?.customer?.doNotCall),
++    returnAt: formatDateTimeLocalValue(payload?.lead?.returnAt || null),
++    observations: String(payload?.customer?.observations || payload?.lead?.shortNote || ""),
++  };
++}
++
++function getCustomerConversationCardPhoneDigits(
++  payload: CustomerConversationCardPayload | null,
++  conversation?: InboxConversation | null,
++) {
++  return String(payload?.customer?.phoneNormalized || payload?.customer?.phone || conversation?.customer?.phone || "")
++    .replace(/\D/g, "");
++}
++
+ function normalizeConversationDisplayNameCandidate(
+   value: unknown,
+   phone?: string | null,
+@@ -910,6 +1028,9 @@ function isSameInboxCalendarDay(left: Date, right: Date) {
+ 
+ function isInboxWebscrapingToday(conversation?: InboxConversation | null) {
+   if (!conversation) return false;
++  const vendasAgendaQueue = getInboxVendasAgendaQueue(conversation);
++  if (parseInboxBooleanFlag(vendasAgendaQueue?.active)) return true;
++
+   const metadata = getInboxConversationMetadata(conversation);
+   const sourceCandidates = [
+     conversation.latestSourceModule,
+@@ -936,12 +1057,28 @@ function getInboxConversationQueue(
+   if (manualQueue && INBOX_QUEUE_ORDER.includes(manualQueue)) {
+     return manualQueue;
+   }
++  const metadata = getInboxConversationMetadata(conversation);
++  const vendasAgendaQueue = getInboxVendasAgendaQueue(conversation);
++  if (
++    parseInboxBooleanFlag(metadata?.inboxLocalDeleted) ||
++    parseInboxBooleanFlag(metadata?.localDeleted)
++  ) {
++    return "archived";
++  }
++  const persistedQueue = String(
++    metadata?.inboxManualQueueOverride || vendasAgendaQueue?.manualQueueOverride || "",
++  )
++    .trim()
++    .toLowerCase();
++  if (INBOX_QUEUE_ORDER.includes(persistedQueue as InboxQueue)) {
++    return persistedQueue as InboxQueue;
++  }
+ 
+   if (isInboxConversationArchived(conversation)) return "archived";
+   if (isInboxGroupRemoteJid(extractInboxRawContact(conversation))) return "groups";
+-  if (conversation.botActive === true && !conversation.humanAssigned) return "bot";
+   if (Number(conversation.recoveryOpenAmount || 0) > 0) return "recovery";
+   if (isInboxWebscrapingToday(conversation)) return "scheduled";
++  if (conversation.botActive === true && !conversation.humanAssigned) return "bot";
+   return "all";
+ }
+ 
+@@ -975,21 +1112,6 @@ function getInboxVendasAgendaQueue(conversation?: InboxConversation | null) {
+   return metadata.vendasAgendaQueue as VendasAgendaQueueMetadata;
+ }
+ 
+-function getInboxVendasAgendaDraft(conversation?: InboxConversation | null) {
+-  const queue = getInboxVendasAgendaQueue(conversation);
+-  if (!queue?.active || queue.draftPending === false) return null;
+-
+-  const text = String(queue.draftMessage || "").trim();
+-  if (!text) return null;
+-
+-  return {
+-    leadId: String(queue.leadId || "").trim() || null,
+-    nextAction: String(queue.nextAction || "").trim() || null,
+-    returnAt: String(queue.returnAt || "").trim() || null,
+-    text,
+-  };
+-}
+-
+ function isInboxGroupRemoteJid(raw: string | null | undefined) {
+   const value = String(raw || "").trim().toLowerCase();
+   return value.includes("@g.us");
+@@ -1139,19 +1261,9 @@ function isInboxConversationHiddenByDelete(
+   conversation: InboxConversation | null | undefined,
+   deletedAliases: DeletedConversationAliasMap,
+ ) {
+-  if (!conversation) return false;
+-  const deletedAtValues = getInboxConversationIdentityAliases(conversation)
+-    .map((alias) => deletedAliases[alias])
+-    .filter(Boolean)
+-    .map((value) => new Date(String(value)).getTime())
+-    .filter((value) => Number.isFinite(value));
+-
+-  if (deletedAtValues.length === 0) return false;
+-
+-  const lastDeletedAt = Math.max(...deletedAtValues);
+-  const activityAt = new Date(getInboxConversationActivityAt(conversation)).getTime();
+-  if (!Number.isFinite(activityAt)) return true;
+-  return activityAt <= lastDeletedAt;
++  void conversation;
++  void deletedAliases;
++  return false;
+ }
+ 
+ function getInboxConversationQualityScore(conversation: InboxConversation) {
+@@ -1355,10 +1467,6 @@ function getInboxConversationPreview(conversation?: InboxConversation | null) {
+ 
+ function getInboxConversationSubtitle(conversation?: InboxConversation | null) {
+   if (!conversation) return undefined;
+-  const metadata = getInboxConversationMetadata(conversation);
+-  if (metadata?.whatsappWindowActive === true) {
+-    return "online";
+-  }
+   const rawContact = extractInboxRawContact(conversation);
+   if (isInboxGroupRemoteJid(rawContact)) {
+     return "Grupo";
+@@ -1761,6 +1869,14 @@ export default function InboxClientPage() {
+     () => normalizeInboxTab(searchParams?.get("atendimentoTab")) || "messages",
+     [searchParams],
+   );
++  const requestedQueue = useMemo(
++    () => normalizeInboxQueueParam(searchParams?.get("atendimentoQueue") || searchParams?.get("queue")),
++    [searchParams],
++  );
++  const requestedSection = useMemo(
++    () => normalizeAtendimentoSectionParam(searchParams?.get("atendimentoSection")),
++    [searchParams],
++  );
+   const [mounted, setMounted] = useState(false);
+   const [activeTab, setActiveTab] = useState<InboxTab>(requestedTab);
+   const [inboxQueue, setInboxQueue] = useState<InboxQueue>("all");
+@@ -1795,6 +1911,18 @@ export default function InboxClientPage() {
+   const [queueActionMenuPosition, setQueueActionMenuPosition] = useState<QueueActionMenuPosition | null>(null);
+   const [messageReactionTargetId, setMessageReactionTargetId] = useState<string | null>(null);
+   const [revealedDeletedMessageIds, setRevealedDeletedMessageIds] = useState<Record<string, boolean>>({});
++  const [customerConversationCard, setCustomerConversationCard] =
++    useState<CustomerConversationCardPayload | null>(null);
++  const [customerConversationCardDraft, setCustomerConversationCardDraft] =
++    useState<CustomerConversationCardDraft>({
++      doNotCall: false,
++      returnAt: "",
++      observations: "",
++    });
++  const [loadingCustomerConversationCard, setLoadingCustomerConversationCard] = useState(false);
++  const [savingCustomerConversationCard, setSavingCustomerConversationCard] = useState(false);
++  const [customerConversationCardError, setCustomerConversationCardError] = useState<string | null>(null);
++  const [customerCardShortcutOpen, setCustomerCardShortcutOpen] = useState(false);
+   const [agendaStudioOpen, setAgendaStudioOpen] = useState(false);
+   const [automationStudioOpen, setAutomationStudioOpen] = useState(false);
+   const [templatesStudioOpen, setTemplatesStudioOpen] = useState(false);
+@@ -1839,14 +1967,16 @@ export default function InboxClientPage() {
+   const queueActionMenuRef = useRef<HTMLDivElement | null>(null);
+   const messageReactionPickerRef = useRef<HTMLDivElement | null>(null);
+   const fileInputRef = useRef<HTMLInputElement | null>(null);
++  const customerReturnInputRef = useRef<HTMLInputElement | null>(null);
++  const customerReturnAutoSaveTimerRef = useRef<number | null>(null);
+   const conversationsRef = useRef<InboxConversation[]>([]);
+   const deletedConversationAliasesRef = useRef<DeletedConversationAliasMap>({});
+   const selectedIdRef = useRef<string | null>(null);
+   const selectedConversationRef = useRef<InboxConversation | null>(null);
++  const inboxQueueRef = useRef<InboxQueue>("all");
+   const conversationLoadTokenRef = useRef(0);
+   const botConfigLoadedRef = useRef(false);
+   const agendaConfigLoadedRef = useRef(false);
+-  const autoFilledAgendaDraftSignatureRef = useRef<string | null>(null);
+   const sendTextDirtyRef = useRef(false);
+   const lastSectionChangeRef = useRef<{ section: AtendimentoSection | null; at: number }>({
+     section: null,
+@@ -1963,6 +2093,29 @@ export default function InboxClientPage() {
+     setActiveTab("messages");
+   }, [automationStudioOpen, requestedTab]);
+ 
++  useEffect(() => {
++    if (requestedQueue) {
++      setInboxQueue(requestedQueue);
++    }
++    if (!requestedSection) return;
++
++    setActiveTab("messages");
++    setAutomationStudioOpen(false);
++    setTemplatesStudioOpen(false);
++    if (requestedSection === "agenda") {
++      setAgendaStudioOpen(false);
++      setContextTab("agenda");
++      return;
++    }
++    if (requestedSection === "automacao") {
++      setAutomationStudioOpen(true);
++      setAgendaStudioOpen(false);
++      return;
++    }
++    setAgendaStudioOpen(false);
++    setContextTab(requestedSection);
++  }, [requestedQueue, requestedSection]);
++
+   useEffect(() => {
+     setMounted(true);
+   }, []);
+@@ -2031,6 +2184,10 @@ export default function InboxClientPage() {
+     conversationsRef.current = conversations;
+   }, [conversations]);
+ 
++  useEffect(() => {
++    inboxQueueRef.current = inboxQueue;
++  }, [inboxQueue]);
++
+   useEffect(() => {
+     selectedIdRef.current = selectedId;
+     selectedConversationRef.current = selectedConversation;
+@@ -2101,18 +2258,18 @@ export default function InboxClientPage() {
+         ? selectedConversationRef.current
+         : null,
+     );
+-    const currentDetailedConversation =
+-      selectedConversationRef.current &&
+-      !isInboxConversationSummaryOnly(selectedConversationRef.current)
+-        ? selectedConversationRef.current
+-        : null;
+     setSelectedId(conversationId);
+-    if (mergedSummary && (!silent || !selectedConversationRef.current)) {
+-      if (silent && selectedConversationRef.current?.id === conversationId) {
+-        setSelectedConversation(mergedSummary);
+-      } else if (!currentDetailedConversation || currentDetailedConversation.id === conversationId) {
+-        setSelectedConversation(markInboxConversationAsSummaryOnly(mergedSummary));
+-      }
++    selectedIdRef.current = conversationId;
++    if (mergedSummary) {
++      const nextConversation =
++        silent && selectedConversationRef.current?.id === conversationId
++          ? mergedSummary
++          : markInboxConversationAsSummaryOnly(mergedSummary);
++      setSelectedConversation(nextConversation);
++      selectedConversationRef.current = nextConversation;
++    } else if (!silent || selectedConversationRef.current?.id !== conversationId) {
++      setSelectedConversation(null);
++      selectedConversationRef.current = null;
+     }
+     setConversationDetailError(null);
+     if (!silent) setLoadingConversation(true);
+@@ -2137,11 +2294,15 @@ export default function InboxClientPage() {
+         return;
+       }
+ 
++      const detailedConversation = clearInboxConversationSummaryOnly(data);
+       setSelectedConversation((current) =>
+-        data && !(silent && !didInboxConversationViewChange(current, data))
+-          ? clearInboxConversationSummaryOnly(data)
++        detailedConversation && !(silent && !didInboxConversationViewChange(current, detailedConversation))
++          ? detailedConversation
+           : current,
+       );
++      if (detailedConversation) {
++        selectedConversationRef.current = detailedConversation;
++      }
+       if (data) {
+         setSelectedId(data.id);
+       }
+@@ -2189,7 +2350,13 @@ export default function InboxClientPage() {
+         const preferredId = options?.preferredId ?? selectedIdRef.current;
+         const selectedSummary =
+           preferredId ? data.find((conversation) => conversation.id === preferredId) || null : null;
+-        const fallbackSummary = data[0] ?? null;
++        const currentQueue = inboxQueueRef.current;
++        const fallbackSummary =
++          (currentQueue === "all"
++            ? data[0]
++            : data.find((conversation) => getInboxConversationQueue(conversation) === currentQueue)) ??
++          data[0] ??
++          null;
+         const nextSummary = selectedSummary || fallbackSummary;
+         const nextId = nextSummary?.id ?? null;
+ 
+@@ -2253,6 +2420,167 @@ export default function InboxClientPage() {
+     [loadConversation],
+   );
+ 
++  const loadCustomerConversationCard = useCallback(async (conversationId: string | null | undefined) => {
++    const normalizedId = normalizeInboxConversationId(conversationId);
++    if (!normalizedId) {
++      setCustomerConversationCard(null);
++      setCustomerConversationCardDraft({
++        doNotCall: false,
++        returnAt: "",
++        observations: "",
++      });
++      setCustomerConversationCardError(null);
++      return;
++    }
++    setLoadingCustomerConversationCard(true);
++    setCustomerConversationCardError(null);
++    try {
++      const payload = await apiFetch<CustomerConversationCardPayload>(
++        `/inbox/conversations/${normalizedId}/status-card`,
++      );
++      setCustomerConversationCard(payload);
++      setCustomerConversationCardDraft(buildCustomerConversationCardDraft(payload));
++    } catch (loadError) {
++      const message =
++        loadError instanceof Error ? loadError.message : "Falha ao carregar card do cliente.";
++      setCustomerConversationCardError(message);
++    } finally {
++      setLoadingCustomerConversationCard(false);
++    }
++  }, []);
++
++  const saveCustomerConversationCard = useCallback(
++    async (
++      patch?: Partial<{
++        doNotCall: boolean;
++        returnAt: string | null;
++        observations: string;
++      }>,
++    ) => {
++      if (!selectedId) return;
++      if (customerReturnAutoSaveTimerRef.current) {
++        window.clearTimeout(customerReturnAutoSaveTimerRef.current);
++        customerReturnAutoSaveTimerRef.current = null;
++      }
++
++      const hasDoNotCallPatch =
++        Boolean(patch) && Object.prototype.hasOwnProperty.call(patch, "doNotCall");
++      const nextDoNotCall = hasDoNotCallPatch
++        ? Boolean(patch?.doNotCall)
++        : customerConversationCardDraft.doNotCall;
++      const nextReturnAt =
++        patch && Object.prototype.hasOwnProperty.call(patch, "returnAt")
++          ? patch.returnAt ?? null
++          : toIsoFromLocalDateTime(customerConversationCardDraft.returnAt);
++      const nextObservations = patch?.observations ?? customerConversationCardDraft.observations;
++      const body: Record<string, unknown> = {
++        returnAt: nextReturnAt,
++        observations: nextObservations,
++      };
++      if (hasDoNotCallPatch || customerConversationCardDraft.doNotCall) {
++        body.doNotCall = nextDoNotCall;
++      }
++
++      setSavingCustomerConversationCard(true);
++      setCustomerConversationCardError(null);
++      try {
++        const payload = await apiFetch<CustomerConversationCardPayload>(
++          `/inbox/conversations/${selectedId}/status-card`,
++          {
++            method: "PATCH",
++            body: JSON.stringify(body),
++          },
++        );
++        setCustomerConversationCard(payload);
++        setCustomerConversationCardDraft(buildCustomerConversationCardDraft(payload));
++        setNotice({ tone: "success", text: "Card do cliente salvo." });
++        await loadConversations({ preferredId: selectedId, silent: true });
++      } catch (saveError) {
++        const message =
++          saveError instanceof Error ? saveError.message : "Falha ao salvar card do cliente.";
++        setCustomerConversationCardError(message);
++        setNotice({ tone: "error", text: message });
++      } finally {
++        setSavingCustomerConversationCard(false);
++      }
++    },
++    [customerConversationCardDraft, loadConversations, selectedId],
++  );
++
++  const handleCustomerReturnChange = useCallback(
++    (value: string) => {
++      setCustomerConversationCardDraft((current) => ({ ...current, returnAt: value }));
++      if (customerReturnAutoSaveTimerRef.current) {
++        window.clearTimeout(customerReturnAutoSaveTimerRef.current);
++        customerReturnAutoSaveTimerRef.current = null;
++      }
++      const isoValue = toIsoFromLocalDateTime(value);
++      if (!isoValue) return;
++      customerReturnAutoSaveTimerRef.current = window.setTimeout(() => {
++        void saveCustomerConversationCard({
++          ...(customerConversationCardDraft.doNotCall ? { doNotCall: false } : {}),
++          returnAt: isoValue,
++        });
++      }, 700);
++    },
++    [customerConversationCardDraft.doNotCall, saveCustomerConversationCard],
++  );
++
++  const scheduleCustomerReturnTomorrow = useCallback(() => {
++    const localValue = buildTomorrowReturnLocalValue();
++    setCustomerConversationCardDraft((current) => ({
++      ...current,
++      doNotCall: false,
++      returnAt: localValue,
++    }));
++    const isoValue = toIsoFromLocalDateTime(localValue);
++    void saveCustomerConversationCard({
++      ...(customerConversationCardDraft.doNotCall ? { doNotCall: false } : {}),
++      returnAt: isoValue,
++    });
++  }, [customerConversationCardDraft.doNotCall, saveCustomerConversationCard]);
++
++  const markCustomerDoNotCall = useCallback(() => {
++    setCustomerConversationCardDraft((current) => ({
++      ...current,
++      doNotCall: true,
++      returnAt: "",
++    }));
++    void saveCustomerConversationCard({ doNotCall: true, returnAt: null });
++  }, [saveCustomerConversationCard]);
++
++  const openCustomerReturnPicker = useCallback(() => {
++    const input = customerReturnInputRef.current as (HTMLInputElement & { showPicker?: () => void }) | null;
++    input?.showPicker?.();
++    input?.focus();
++  }, []);
++
++  useEffect(() => {
++    if (!selectedId) {
++      setCustomerConversationCard(null);
++      setCustomerCardShortcutOpen(false);
++      return;
++    }
++    if (contextTab !== "conversa") return;
++    setCustomerCardShortcutOpen(false);
++    setCustomerConversationCard(null);
++    setCustomerConversationCardDraft({
++      doNotCall: false,
++      returnAt: "",
++      observations: "",
++    });
++    setCustomerConversationCardError(null);
++    void loadCustomerConversationCard(selectedId);
++  }, [contextTab, loadCustomerConversationCard, selectedId]);
++
++  useEffect(() => {
++    return () => {
++      if (customerReturnAutoSaveTimerRef.current) {
++        window.clearTimeout(customerReturnAutoSaveTimerRef.current);
++      }
++    };
++  }, []);
++
+   const loadBotConfig = useCallback(async (options?: { force?: boolean }) => {
+     if (botConfigLoadedRef.current && !options?.force) return;
+     setLoadingBot(true);
+@@ -2362,7 +2690,7 @@ export default function InboxClientPage() {
+   }, [conversations, manualQueueOverrides]);
+ 
+   const queueCounts = useMemo(() => {
+-    const base: Record<InboxQueue, number> = {
++  const base: Record<InboxQueue, number> = {
+       all: 0,
+       archived: 0,
+       groups: 0,
+@@ -2507,6 +2835,7 @@ export default function InboxClientPage() {
+       [...conversations]
+         .filter(
+           (conversation) =>
++            getInboxConversationQueue(conversation, manualQueueOverrides) !== "archived" &&
+             conversation.routeTarget === "atendimento" &&
+             (conversation.status === "new" || conversation.status === "open"),
+         )
+@@ -2515,7 +2844,7 @@ export default function InboxClientPage() {
+             new Date(getInboxConversationActivityAt(right)).getTime() -
+             new Date(getInboxConversationActivityAt(left)).getTime(),
+         ),
+-    [conversations],
++    [conversations, manualQueueOverrides],
+   );
+ 
+   const pendingAtendimentoCount = pendingAtendimentoConversations.length;
+@@ -2620,16 +2949,9 @@ export default function InboxClientPage() {
+       if (selectedConversation?.id === selectedId) {
+         return selectedConversation;
+       }
+-      if (
+-        loadingConversation &&
+-        selectedConversation &&
+-        !isInboxConversationSummaryOnly(selectedConversation)
+-      ) {
+-        return selectedConversation;
+-      }
+       return summary;
+     },
+-    [conversations, loadingConversation, selectedConversation, selectedId],
++    [conversations, selectedConversation, selectedId],
+   );
+ 
+   const isConversationStageSwitching = Boolean(
+@@ -2645,13 +2967,31 @@ export default function InboxClientPage() {
+   const selectedConversationStatusMeta = conversationForView
+     ? getAtendimentoConversationStatusMeta(conversationForView, hasRecoveryCapability)
+     : null;
++  const customerCardName =
++    customerConversationCard?.customer?.name || selectedConversationDisplayName || "Cliente";
++  const customerCardPhone =
++    customerConversationCard?.customer?.phone ||
++    conversationForView?.customer?.phone ||
++    customerConversationCard?.customer?.phoneNormalized ||
++    "";
++  const customerCardPhoneDigits = getCustomerConversationCardPhoneDigits(
++    customerConversationCard,
++    conversationForView,
++  );
++  const customerCardReturnAt = customerConversationCard?.lead?.returnAt || null;
++  const customerCardLastContactAt =
++    customerConversationCard?.lead?.lastContactAt ||
++    customerConversationCard?.lead?.updatedAt ||
++    conversationForView?.updatedAt ||
++    null;
++  const customerCardAttempts = Number(customerConversationCard?.lead?.attemptCount || 0);
++  const customerCardTimesSeen = Math.max(1, Number(customerConversationCard?.lead?.timesSeen || 1));
++  const customerCardHistory = Array.isArray(customerConversationCard?.history)
++    ? customerConversationCard.history
++    : [];
+   const selectedConversationIsAgenda = conversationForView
+     ? isAtendimentoAgendaConversation(conversationForView)
+     : false;
+-  const selectedVendasAgendaDraft = useMemo(
+-    () => getInboxVendasAgendaDraft(conversationForView),
+-    [conversationForView],
+-  );
+   const conversationMessagesForView = useMemo(
+     () =>
+       (Array.isArray(conversationForView?.messages) ? conversationForView.messages : []).filter(
+@@ -3065,41 +3405,6 @@ export default function InboxClientPage() {
+     [loadConversations, selectedId],
+   );
+ 
+-  const bulkSetBotForVisible = useCallback(
+-    async (enabled: boolean) => {
+-      if (!filteredConversations || !filteredConversations.length) return;
+-      setSavingBot(true);
+-      setError(null);
+-      try {
+-        const ids = filteredConversations.map((c) => Number(c.id)).filter(Boolean);
+-        await apiFetch(`/inbox/conversations/bulk-bot`, {
+-          method: "PATCH",
+-          body: JSON.stringify({ ids, enabled }),
+-        });
+-        const affectedIds = filteredConversations.map((conversation) => String(conversation.id));
+-        setManualQueueOverrides((current) => {
+-          const next = { ...current };
+-          for (const conversationId of affectedIds) {
+-            next[conversationId] = enabled ? "bot" : "all";
+-          }
+-          return next;
+-        });
+-        setNotice({
+-          tone: "success",
+-          text: enabled
+-            ? "BOT ativado para todas as conversas da fila atual."
+-            : "BOT pausado para todas as conversas da fila atual.",
+-        });
+-        await loadConversations({ silent: true });
+-      } catch (err) {
+-        setError(err instanceof Error ? err.message : "Falha ao atualizar conversas.");
+-      } finally {
+-        setSavingBot(false);
+-      }
+-    },
+-    [filteredConversations, loadConversations],
+-  );
+-
+   const toggleGlobalBot = useCallback(async () => {
+     const enabled = !globalBotEnabled;
+     const nextConfig = normalizeBotConfig({
+@@ -3148,6 +3453,17 @@ export default function InboxClientPage() {
+           });
+         }
+ 
++        const updatedConversation = await apiFetch<InboxConversation>(`/inbox/conversations/${conversationId}/queue`, {
++          method: "PATCH",
++          body: JSON.stringify({ queue: targetQueue }),
++        });
++        const normalizedUpdatedConversation = normalizeInboxConversationPayload(updatedConversation);
++        if (normalizedUpdatedConversation) {
++          setSelectedConversation((current) =>
++            current?.id === normalizedUpdatedConversation.id ? normalizedUpdatedConversation : current,
++          );
++        }
++
+         setManualQueueOverrides((current) => ({
+           ...current,
+           [conversationId]: targetQueue,
+@@ -3226,64 +3542,26 @@ export default function InboxClientPage() {
+   const deleteConversationById = useCallback(
+     async (conversationId: string) => {
+       if (!conversationId) return;
+-      const confirmed = window.confirm("Excluir esta conversa do sistema e enviar comando de exclusao para o WhatsApp?");
++      const confirmed = window.confirm("Enviar esta conversa para Excluídos apenas no HBX? Nenhum comando será enviado ao WhatsApp.");
+       if (!confirmed) return;
+       setError(null);
+-      let aliasesToHide: string[] = [`conversation:${conversationId}`];
+-      const previousDeletedAliasesSnapshot: DeletedConversationAliasMap = {
+-        ...deletedConversationAliasesRef.current,
+-      };
+       try {
+-        const targetConversation =
+-          conversationsRef.current.find((conversation) => conversation.id === conversationId) ||
+-          (selectedConversationRef.current?.id === conversationId ? selectedConversationRef.current : null);
+-        aliasesToHide = Array.from(
+-          new Set([
+-            `conversation:${conversationId}`,
+-            ...getInboxConversationIdentityAliases(targetConversation),
+-          ]),
+-        );
+-        setDeletedConversationAliases((current) => {
+-          const deletedAt = new Date().toISOString();
+-          const next: DeletedConversationAliasMap = { ...current };
+-          for (const alias of aliasesToHide) {
+-            next[alias] = deletedAt;
+-          }
+-          deletedConversationAliasesRef.current = next;
+-          return next;
+-        });
+         const response = await apiFetch<{ message?: string }>(`/inbox/conversations/${conversationId}`, {
+           method: "DELETE",
+         });
+         setQueueActionConversationId(null);
+         setQueueActionMenuPosition(null);
+-        setConversations((current) => current.filter((conversation) => conversation.id !== conversationId));
+-        conversationsRef.current = conversationsRef.current.filter((conversation) => conversation.id !== conversationId);
+         setManualQueueOverrides((current) => {
+-          const next = { ...current };
+-          delete next[conversationId];
+-          return next;
++          return { ...current, [conversationId]: "archived" };
+         });
+-        if (selectedIdRef.current === conversationId) {
+-          setSelectedConversation(null);
+-          setSelectedId(null);
+-          selectedIdRef.current = null;
+-          selectedConversationRef.current = null;
+-        }
+         setNotice({
+           tone: "success",
+           text:
+             String(response?.message || "").trim() ||
+-            "Conversa excluida do sistema e do WhatsApp.",
+-        });
+-        await loadConversations({
+-          preferredId: selectedIdRef.current === conversationId ? null : selectedIdRef.current,
+-          silent: true,
++            "Conversa enviada para Excluídos apenas no HBX.",
+         });
++        await loadConversations({ preferredId: conversationId, silent: true });
+       } catch (deleteError) {
+-        const rollbackState = { ...previousDeletedAliasesSnapshot };
+-        deletedConversationAliasesRef.current = rollbackState;
+-        setDeletedConversationAliases(rollbackState);
+         const message = deleteError instanceof Error ? deleteError.message : "Falha ao excluir conversa.";
+         setError(message);
+       }
+@@ -3422,37 +3700,7 @@ export default function InboxClientPage() {
+           title={undefined}
+           description={undefined}
+           count={undefined}
+-          actions={
+-            <div className={styles.listHeaderActions}>
+-              <button
+-                type="button"
+-                className={styles.listCommandButton}
+-                onClick={() => void bulkSetBotForVisible(true)}
+-                disabled={!filteredConversations.length || savingBot}
+-                title="Ativar respostas automáticas do BOT para todas as conversas da fila aberta"
+-              >
+-                Ativar BOT
+-              </button>
+-              <button
+-                type="button"
+-                className={styles.listCommandButton}
+-                onClick={() => void bulkSetBotForVisible(false)}
+-                disabled={!filteredConversations.length || savingBot}
+-                title="Pausar respostas automáticas do BOT para todas as conversas da fila aberta"
+-              >
+-                Pausar BOT
+-              </button>
+-              <button
+-                type="button"
+-                className={styles.listIconButton}
+-                onClick={openTemplatesSettings}
+-                title="Abrir templates Meta"
+-                aria-label="Abrir templates Meta"
+-              >
+-                <ChatGlyph name="spark" />
+-              </button>
+-            </div>
+-          }
++          actions={undefined}
+           className={`${styles.workspaceDockPanel} ${styles.inboxListPanel}`}
+           bodyClassName={`${styles.workspaceDockBody} ${styles.inboxListBody}`}
+         >
+@@ -3607,7 +3855,6 @@ export default function InboxClientPage() {
+                   <div className={styles.whatsAppConversationIdentityText}>
+                     <strong>{selectedConversationDisplayName}</strong>
+                     <div className={styles.conversationIdentityMeta}>
+-                      <span className={styles.conversationPresenceBadge}>Online</span>
+                       {selectedConversationStatusMeta ? (
+                         <span
+                           className={styles.conversationContextBadge}
+@@ -4155,10 +4402,6 @@ export default function InboxClientPage() {
+                   <small className={styles.whatsAppComposerHint}>
+                     Contato bloqueado. Desbloqueie para responder.
+                   </small>
+-                ) : selectedVendasAgendaDraft ? (
+-                  <small className={styles.whatsAppComposerHint}>
+-                    Rascunho herdado do CRM de Vendas. Ele só será enviado quando você clicar em enviar.
+-                  </small>
+                 ) : null}
+               </form>
+ 
+@@ -4285,6 +4528,166 @@ export default function InboxClientPage() {
+                     ))}
+                   </ChatInfoCard>
+ 
++                  <ChatInfoCard title="Card do cliente" meta={customerConversationCard?.lead?.statusLabel || "Vendas"}>
++                    <div className={styles.customerCardPanel}>
++                      <span className={styles.customerCardAccent} aria-hidden="true" />
++                      <div className={styles.customerCardHeader}>
++                        <div>
++                          <strong>{customerCardName}</strong>
++                          <span>{customerCardPhone ? formatInboxPhoneLabel(customerCardPhone) || customerCardPhone : "Sem telefone"}</span>
++                        </div>
++                        <div className={styles.customerCardHeaderActions}>
++                          <button
++                            type="button"
++                            className={styles.customerCardGhostButton}
++                            onClick={() => setCustomerCardShortcutOpen((current) => !current)}
++                          >
++                            Cadastro
++                          </button>
++                          <button
++                            type="button"
++                            className={styles.customerCardPillButton}
++                            onClick={openCustomerReturnPicker}
++                          >
++                            Retorno
++                          </button>
++                        </div>
++                      </div>
++
++                      {customerCardShortcutOpen ? (
++                        <div className={styles.customerCardShortcut}>
++                          <strong>{customerCardName}</strong>
++                          <span>Perfil #{customerConversationCard?.customer?.profileId || "--"}</span>
++                          <span>{customerConversationCardDraft.doNotCall ? "Não ligar mais" : "Contato liberado"}</span>
++                        </div>
++                      ) : null}
++
++                      <div className={styles.customerCardReturnLine}>
++                        <span>
++                          {customerCardReturnAt
++                            ? `Retorno ${formatShortDateTimeLabel(customerCardReturnAt, mounted)}`
++                            : `Hoje · ${formatShortDateTimeLabel(customerCardLastContactAt, mounted)}`}
++                        </span>
++                        {customerConversationCardDraft.doNotCall ? <em>Não ligar mais</em> : null}
++                      </div>
++
++                      <div className={styles.customerCardActions}>
++                        <button
++                          type="button"
++                          className={styles.customerCardPrimaryAction}
++                          onClick={() => {
++                            if (!customerCardPhoneDigits) return;
++                            window.open(`https://wa.me/${customerCardPhoneDigits}`, "_blank", "noopener,noreferrer");
++                          }}
++                          disabled={!customerCardPhoneDigits}
++                        >
++                          WhatsApp
++                        </button>
++                        <button
++                          type="button"
++                          className={styles.customerCardSecondaryAction}
++                          onClick={() => {
++                            if (!customerCardPhoneDigits) return;
++                            window.location.href = `tel:+${customerCardPhoneDigits}`;
++                          }}
++                          disabled={!customerCardPhoneDigits}
++                        >
++                          Ligar
++                        </button>
++                        <button
++                          type="button"
++                          className={styles.customerCardSecondaryAction}
++                          onClick={scheduleCustomerReturnTomorrow}
++                          disabled={savingCustomerConversationCard}
++                        >
++                          Amanhã
++                        </button>
++                        <button
++                          type="button"
++                          className={styles.customerCardDangerAction}
++                          onClick={markCustomerDoNotCall}
++                          disabled={savingCustomerConversationCard || customerConversationCardDraft.doNotCall}
++                        >
++                          Não ligar mais
++                        </button>
++                      </div>
++
++                      <div className={styles.customerCardSummaryBox}>
++                        <label>
++                          <span>Observações</span>
++                          <textarea
++                            className={`field ${styles.customerCardTextarea}`}
++                            rows={4}
++                            value={customerConversationCardDraft.observations}
++                            onChange={(event) =>
++                              setCustomerConversationCardDraft((current) => ({
++                                ...current,
++                                observations: event.target.value,
++                              }))
++                            }
++                            placeholder="Digite o contexto comercial, combinado ou restrição..."
++                          />
++                        </label>
++                      </div>
++
++                      <div className={styles.customerCardReturnEditor}>
++                        <label>
++                          <span>Retorno</span>
++                          <input
++                            ref={customerReturnInputRef}
++                            type="datetime-local"
++                            className="field"
++                            value={customerConversationCardDraft.returnAt}
++                            onChange={(event) => handleCustomerReturnChange(event.target.value)}
++                          />
++                        </label>
++                        <button
++                          type="button"
++                          className={styles.customerCardGhostButton}
++                          onClick={() => void saveCustomerConversationCard()}
++                          disabled={savingCustomerConversationCard}
++                        >
++                          {savingCustomerConversationCard ? "Salvando..." : "Salvar"}
++                        </button>
++                      </div>
++
++                      <div className={styles.customerCardMetrics}>
++                        <span>
++                          <small>Tentativas</small>
++                          <strong>{customerCardAttempts}</strong>
++                        </span>
++                        <span>
++                          <small>Reaparições</small>
++                          <strong>{customerCardTimesSeen}</strong>
++                        </span>
++                        <span>
++                          <small>Último contato</small>
++                          <strong>{formatShortDateTimeLabel(customerCardLastContactAt, mounted)}</strong>
++                        </span>
++                      </div>
++
++                      <div className={styles.customerCardHistory}>
++                        <div className={styles.customerCardHistoryHeader}>
++                          <strong>Histórico</strong>
++                          <span>{loadingCustomerConversationCard ? "Carregando" : `${customerCardHistory.length}`}</span>
++                        </div>
++                        {customerConversationCardError ? (
++                          <ChatFieldNote>{customerConversationCardError}</ChatFieldNote>
++                        ) : customerCardHistory.length > 0 ? (
++                          customerCardHistory.slice(0, 5).map((event) => (
++                            <article key={event.id} className={styles.customerCardHistoryItem}>
++                              <strong>{event.title || "Atualização"}</strong>
++                              <p>{event.description || event.resultLabel || "Registro salvo no histórico."}</p>
++                              <span>{formatShortDateTimeLabel(event.createdAt, mounted)}</span>
++                            </article>
++                          ))
++                        ) : (
++                          <ChatFieldNote>Nenhum histórico comercial registrado para este telefone.</ChatFieldNote>
++                        )}
++                      </div>
++                    </div>
++                  </ChatInfoCard>
++
+                   <ChatInfoCard title="Acoes rapidas" meta="Operacao">
+                     <ChatActionGrid className={styles.quickActionsGrid}>
+                       <ConversationActionList
+@@ -4306,21 +4709,6 @@ export default function InboxClientPage() {
+                       />
+                     </ChatActionGrid>
+                   </ChatInfoCard>
+-
+-                  <ChatInfoCard title="Nota interna" meta="Local nesta estacao" muted>
+-                    <div className={styles.internalNoteCard}>
+-                      <textarea
+-                        className={`field ${styles.internalNoteInput}`}
+-                        rows={6}
+-                        value={internalNote}
+-                        onChange={(event) => setInternalNote(event.target.value)}
+-                        placeholder="Anote contexto operacional rapido, proxima ligacao ou combinados internos..."
+-                      />
+-                      <ChatFieldNote>
+-                        Salva localmente no navegador desta estacao, sem alterar backend ou API.
+-                      </ChatFieldNote>
+-                    </div>
+-                  </ChatInfoCard>
+                 </div>
+               ) : null}
+ 
+@@ -4475,10 +4863,23 @@ export default function InboxClientPage() {
+       conversationListError,
+       conversationSearch,
+       contextTab,
++      customerCardAttempts,
++      customerCardHistory,
++      customerCardLastContactAt,
++      customerCardName,
++      customerCardPhone,
++      customerCardPhoneDigits,
++      customerCardReturnAt,
++      customerCardShortcutOpen,
++      customerCardTimesSeen,
++      customerConversationCard,
++      customerConversationCardDraft,
++      customerConversationCardError,
+       internalNote,
+       hasRecoveryCapability,
+       filteredConversations,
+       handleSectionChange,
++      handleCustomerReturnChange,
+       inboxDetailDiagnostics,
+       inboxQueue,
+       inboxQueueDiagnostics,
+@@ -4488,9 +4889,12 @@ export default function InboxClientPage() {
+       failedInboxMediaUrls,
+       loadConversation,
+       loadingConversation,
++      loadingCustomerConversationCard,
+       loadingList,
++      markCustomerDoNotCall,
+       markInboxMediaUrlFailed,
+       mounted,
++      openCustomerReturnPicker,
+       openedAsset,
+       queueActionConversationId,
+       queueCounts,
+@@ -4509,9 +4913,10 @@ export default function InboxClientPage() {
+       selectedConversationRecoveryPrimary,
+       selectedConversationStatusMeta,
+       selectedId,
+-      selectedVendasAgendaDraft,
+       selectedStatus,
+-      bulkSetBotForVisible,
++      saveCustomerConversationCard,
++      savingCustomerConversationCard,
++      scheduleCustomerReturnTomorrow,
+       dropOverQueue,
+       handleQueueDrop,
+       openTemplatesSettings,
+@@ -4832,7 +5237,7 @@ export default function InboxClientPage() {
+     window.requestAnimationFrame(() => {
+       timeline.scrollTop = timeline.scrollHeight;
+     });
+-  }, [selectedConversation, selectedConversation?.id, selectedConversation?.messages.length]);
++  }, [selectedConversation?.id, selectedConversation?.messages.length]);
+ 
+   // Clear composer state when switching conversations
+   useEffect(() => {
+@@ -4844,27 +5249,10 @@ export default function InboxClientPage() {
+     setOpenedAsset(null);
+     setSendText("");
+     sendTextDirtyRef.current = false;
+-    autoFilledAgendaDraftSignatureRef.current = null;
+     setQueueActionConversationId(null);
+     setMessageReactionTargetId(null);
+   }, [selectedId]);
+ 
+-  useEffect(() => {
+-    if (!selectedId || selectedConversation?.id !== selectedId) return;
+-
+-    const draft = getInboxVendasAgendaDraft(selectedConversation);
+-    const signature = draft
+-      ? `${selectedId}:${draft.leadId || ""}:${draft.returnAt || ""}:${draft.text}`
+-      : `${selectedId}:empty`;
+-
+-    if (autoFilledAgendaDraftSignatureRef.current === signature) return;
+-    autoFilledAgendaDraftSignatureRef.current = signature;
+-    if (!draft) return;
+-    if (sendTextDirtyRef.current) return;
+-
+-    setSendText((current) => (current.trim() ? current : draft.text));
+-  }, [selectedConversation, selectedId]);
+-
+   useEffect(() => {
+     if (humanAlertTimerRef.current !== null) {
+       window.clearTimeout(humanAlertTimerRef.current);
+@@ -4943,7 +5331,7 @@ export default function InboxClientPage() {
+     <>
+       <DashboardScaffold
+         title="Atendimento"
+-        description="Inbox unificada com conversa dominante, Recovery como contexto e atalhos operacionais enxutos."
++        description="Inbox unificada com conversa dominante, contexto financeiro real e atalhos operacionais enxutos."
+         hideHeader={true}
+         hideNavigationRail={true}
+         layoutMode="workspace"
+diff --git a/frontend/src/app/dashboard/inbox/page.module.css b/frontend/src/app/dashboard/inbox/page.module.css
+index d58bcb4..2f0270b 100644
+--- a/frontend/src/app/dashboard/inbox/page.module.css
++++ b/frontend/src/app/dashboard/inbox/page.module.css
+@@ -1749,6 +1749,8 @@
+   position: relative;
+   display: grid;
+   grid-template-columns: repeat(3, minmax(0, 1fr));
++  width: min(100%, 290px);
++  margin-inline: auto;
+   gap: 0.22rem;
+   padding: 0.14rem;
+   border-radius: 16px;
+@@ -1824,6 +1826,341 @@
+   gap: 0.42rem;
+ }
+ 
++.customerCardPanel {
++  position: relative;
++  display: grid;
++  gap: 0.72rem;
++  overflow: hidden;
++  padding: 0.78rem 0.72rem 0.76rem 0.94rem;
++  border-radius: 18px;
++  border: 1px solid color-mix(in srgb, var(--line) 78%, transparent);
++  background:
++    radial-gradient(circle at 14% 0%, color-mix(in srgb, var(--surface) 38%, transparent), transparent 34%),
++    linear-gradient(
++      145deg,
++      color-mix(in srgb, var(--surface) 78%, var(--background)),
++      color-mix(in srgb, var(--surface-soft) 52%, var(--background))
++    );
++  box-shadow:
++    inset 0 1px 0 color-mix(in srgb, var(--surface) 72%, transparent),
++    0 18px 34px color-mix(in srgb, #020617 10%, transparent);
++  transform: perspective(900px) translate3d(0, 0, 0) rotateX(0deg) rotateY(0deg);
++  transform-style: preserve-3d;
++  transition:
++    transform var(--motion-base),
++    box-shadow var(--motion-base),
++    border-color var(--motion-base),
++    background var(--motion-base);
++  will-change: transform;
++}
++
++.customerCardPanel::before {
++  content: "";
++  position: absolute;
++  inset: 0;
++  border-radius: inherit;
++  background:
++    linear-gradient(120deg, rgba(255, 255, 255, 0.18), transparent 36%),
++    radial-gradient(circle at 86% 12%, color-mix(in srgb, var(--brand) 12%, transparent), transparent 34%);
++  opacity: 0.5;
++  pointer-events: none;
++  transition: opacity var(--motion-base);
++}
++
++.customerCardPanel:hover {
++  border-color: color-mix(in srgb, var(--brand) 28%, var(--line));
++  box-shadow:
++    inset 0 1px 0 color-mix(in srgb, var(--surface) 84%, transparent),
++    0 26px 48px color-mix(in srgb, #020617 18%, transparent);
++  transform: perspective(900px) translate3d(0, -3px, 18px) rotateX(1.5deg) rotateY(-1.2deg);
++}
++
++.customerCardPanel:hover::before {
++  opacity: 0.78;
++}
++
++.customerCardAccent {
++  position: absolute;
++  inset: 0.76rem auto 0.76rem 0.52rem;
++  width: 4px;
++  border-radius: 999px;
++  background: linear-gradient(180deg, #20c780, #1d8bff);
++  box-shadow:
++    0 0 0 1px color-mix(in srgb, #20c780 20%, transparent),
++    0 12px 28px color-mix(in srgb, #20c780 26%, transparent);
++  transform: translateZ(28px);
++}
++
++.customerCardPanel > *:not(.customerCardAccent) {
++  position: relative;
++  z-index: 1;
++}
++
++.customerCardHeader,
++.customerCardReturnEditor,
++.customerCardHistoryHeader {
++  display: flex;
++  align-items: center;
++  justify-content: space-between;
++  gap: 0.65rem;
++}
++
++.customerCardHeader strong {
++  display: block;
++  color: var(--foreground);
++  font-size: 1rem;
++  line-height: 1.15;
++}
++
++.customerCardHeader span,
++.customerCardReturnLine,
++.customerCardHistoryHeader span {
++  color: var(--foreground-soft);
++  font-size: 0.76rem;
++  font-weight: 700;
++}
++
++.customerCardHeaderActions {
++  display: inline-flex;
++  align-items: center;
++  gap: 0.42rem;
++  flex-wrap: wrap;
++  justify-content: flex-end;
++}
++
++.customerCardGhostButton,
++.customerCardPillButton,
++.customerCardPrimaryAction,
++.customerCardSecondaryAction,
++.customerCardDangerAction {
++  min-height: 34px;
++  border-radius: 999px;
++  border: 1px solid color-mix(in srgb, var(--line) 82%, var(--background));
++  padding: 0.44rem 0.72rem;
++  font-size: 0.76rem;
++  font-weight: 900;
++  letter-spacing: 0;
++  transition:
++    transform var(--motion-fast),
++    box-shadow var(--motion-fast),
++    opacity var(--motion-fast);
++}
++
++.customerCardGhostButton:hover,
++.customerCardPillButton:hover,
++.customerCardPrimaryAction:hover,
++.customerCardSecondaryAction:hover,
++.customerCardDangerAction:hover {
++  transform: translate3d(0, -2px, 14px);
++  box-shadow:
++    0 14px 24px color-mix(in srgb, #020617 14%, transparent),
++    inset 0 1px 0 rgba(255, 255, 255, 0.12);
++}
++
++.customerCardGhostButton:disabled,
++.customerCardPillButton:disabled,
++.customerCardPrimaryAction:disabled,
++.customerCardSecondaryAction:disabled,
++.customerCardDangerAction:disabled {
++  cursor: not-allowed;
++  opacity: 0.58;
++  transform: none;
++}
++
++.customerCardGhostButton {
++  background: color-mix(in srgb, var(--surface) 78%, var(--background));
++  color: var(--foreground);
++}
++
++.customerCardPillButton {
++  background: color-mix(in srgb, var(--brand) 12%, var(--surface));
++  color: var(--brand-strong);
++}
++
++.customerCardReturnLine {
++  display: flex;
++  align-items: center;
++  justify-content: space-between;
++  min-height: 35px;
++  border-radius: 999px;
++  border: 1px solid color-mix(in srgb, var(--line) 76%, transparent);
++  background: color-mix(in srgb, var(--surface-soft) 78%, var(--background));
++  padding: 0.48rem 0.72rem;
++  box-shadow:
++    inset 0 1px 0 color-mix(in srgb, var(--surface) 62%, transparent),
++    0 10px 18px color-mix(in srgb, #020617 8%, transparent);
++  transform: translateZ(12px);
++}
++
++.customerCardReturnLine em {
++  color: #b91c1c;
++  font-style: normal;
++  font-weight: 900;
++}
++
++.customerCardActions {
++  display: grid;
++  grid-template-columns: repeat(2, minmax(0, 1fr));
++  gap: 0.5rem;
++}
++
++.customerCardPrimaryAction {
++  border-color: color-mix(in srgb, #20c780 42%, transparent);
++  background: linear-gradient(135deg, #22c55e, #14b87a);
++  color: #fff;
++  box-shadow: 0 12px 24px color-mix(in srgb, #16a34a 22%, transparent);
++}
++
++.customerCardSecondaryAction {
++  background: color-mix(in srgb, var(--surface) 88%, var(--background));
++  color: var(--foreground);
++}
++
++.customerCardDangerAction {
++  border-color: color-mix(in srgb, #ef4444 26%, var(--line));
++  background: color-mix(in srgb, #ef4444 8%, var(--surface));
++  color: #b91c1c;
++}
++
++.customerCardSummaryBox {
++  display: grid;
++  gap: 0.42rem;
++  border-radius: 14px;
++  border: 1px solid color-mix(in srgb, var(--line) 82%, transparent);
++  background: color-mix(in srgb, var(--surface-soft) 88%, var(--background));
++  padding: 0.62rem;
++  transform: translateZ(10px);
++  transition:
++    transform var(--motion-base),
++    box-shadow var(--motion-base),
++    border-color var(--motion-base);
++}
++
++.customerCardSummaryBox:hover {
++  border-color: color-mix(in srgb, var(--brand) 20%, var(--line));
++  box-shadow: 0 16px 28px color-mix(in srgb, #020617 10%, transparent);
++  transform: translate3d(0, -2px, 18px);
++}
++
++.customerCardSummaryBox label,
++.customerCardReturnEditor label {
++  display: grid;
++  gap: 0.34rem;
++  min-width: 0;
++  color: var(--foreground-soft);
++  font-size: 0.69rem;
++  font-weight: 900;
++  text-transform: uppercase;
++}
++
++.customerCardTextarea {
++  min-height: 94px;
++  resize: vertical;
++}
++
++.customerCardReturnEditor input {
++  min-height: 36px;
++  font-size: 0.78rem;
++}
++
++.customerCardMetrics {
++  display: grid;
++  grid-template-columns: repeat(3, minmax(0, 1fr));
++  gap: 0.48rem;
++}
++
++.customerCardMetrics span {
++  display: grid;
++  gap: 0.22rem;
++  min-height: 74px;
++  align-content: center;
++  border-radius: 14px;
++  border: 1px solid color-mix(in srgb, var(--line) 82%, transparent);
++  background: color-mix(in srgb, var(--surface) 86%, var(--background));
++  padding: 0.62rem;
++  box-shadow:
++    inset 0 1px 0 color-mix(in srgb, var(--surface) 68%, transparent),
++    0 10px 18px color-mix(in srgb, #020617 8%, transparent);
++  transform: translateZ(8px);
++  transition:
++    transform var(--motion-base),
++    box-shadow var(--motion-base),
++    border-color var(--motion-base);
++}
++
++.customerCardMetrics span:hover {
++  border-color: color-mix(in srgb, var(--brand) 22%, var(--line));
++  box-shadow:
++    inset 0 1px 0 color-mix(in srgb, var(--surface) 84%, transparent),
++    0 18px 30px color-mix(in srgb, #020617 14%, transparent);
++  transform: translate3d(0, -2px, 20px);
++}
++
++.customerCardMetrics small {
++  color: var(--foreground-muted);
++  font-size: 0.62rem;
++  font-weight: 900;
++  text-transform: uppercase;
++}
++
++.customerCardMetrics strong {
++  color: var(--foreground);
++  font-size: 0.94rem;
++}
++
++.customerCardHistory {
++  display: grid;
++  gap: 0.45rem;
++}
++
++.customerCardHistoryItem {
++  display: grid;
++  gap: 0.18rem;
++  border-left: 2px solid color-mix(in srgb, var(--brand) 50%, var(--line));
++  padding: 0.2rem 0 0.24rem 0.58rem;
++  transition:
++    transform var(--motion-fast),
++    border-color var(--motion-fast);
++}
++
++.customerCardHistoryItem:hover {
++  border-left-color: color-mix(in srgb, var(--brand) 76%, var(--line));
++  transform: translateX(2px);
++}
++
++.customerCardHistoryItem strong {
++  color: var(--foreground);
++  font-size: 0.78rem;
++}
++
++.customerCardHistoryItem p {
++  margin: 0;
++  color: var(--foreground-soft);
++  font-size: 0.73rem;
++  line-height: 1.35;
++}
++
++.customerCardHistoryItem span,
++.customerCardShortcut span {
++  color: var(--foreground-muted);
++  font-size: 0.68rem;
++  font-weight: 800;
++}
++
++.customerCardShortcut {
++  display: grid;
++  gap: 0.16rem;
++  border-radius: 14px;
++  border: 1px solid color-mix(in srgb, var(--brand) 24%, var(--line));
++  background: color-mix(in srgb, var(--brand) 6%, var(--surface));
++  padding: 0.62rem 0.7rem;
++}
++
++.customerCardShortcut strong {
++  color: var(--foreground);
++  font-size: 0.82rem;
++}
++
+ .quickActionsGrid {
+   grid-template-columns: repeat(3, minmax(0, 1fr));
+   gap: 0.52rem;
+@@ -3174,7 +3511,7 @@
+   }
+ 
+   .contextTabs {
+-    grid-template-columns: repeat(2, minmax(0, 1fr));
++    grid-template-columns: repeat(3, minmax(0, 1fr));
+   }
+ 
+   .conversationHead,
+@@ -3228,7 +3565,7 @@
+   }
+ 
+   .contextTabs {
+-    grid-template-columns: 1fr;
++    grid-template-columns: repeat(3, minmax(0, 1fr));
+   }
+ 
+   .agendaTabs {
+@@ -3927,14 +4264,6 @@
+   padding-right: 0.12rem;
+ }
+ 
+-.listHeaderActions {
+-  display: inline-flex;
+-  align-items: center;
+-  gap: 0.45rem;
+-}
+-
+-.listCommandButton,
+-.listIconButton,
+ .listSearchAction,
+ .conversationPrimaryAction {
+   border: 1px solid rgba(105, 129, 204, 0.22);
+@@ -3947,50 +4276,18 @@
+     box-shadow var(--motion-fast);
+ }
+ 
+-.listCommandButton {
+-  min-height: 34px;
+-  display: inline-flex;
+-  align-items: center;
+-  justify-content: center;
+-  padding: 0 0.74rem;
+-  border-radius: 999px;
+-  background: rgba(20, 31, 63, 0.94);
+-  color: #d8e3ff;
+-  font-size: 0.72rem;
+-  font-weight: 800;
+-}
+-
+-.listCommandButton:hover:not(:disabled),
+-.listIconButton:hover:not(:disabled),
+ .listSearchAction:hover:not(:disabled),
+ .conversationPrimaryAction:hover:not(:disabled) {
+   transform: translateY(-1px);
+   border-color: rgba(122, 149, 236, 0.38);
+ }
+ 
+-.listCommandButton:disabled,
+-.listIconButton:disabled,
+ .listSearchAction:disabled,
+ .conversationPrimaryAction:disabled {
+   opacity: 0.48;
+   cursor: not-allowed;
+ }
+ 
+-.listIconButton {
+-  width: 34px;
+-  height: 34px;
+-  display: grid;
+-  place-items: center;
+-  border-radius: 12px;
+-  background: rgba(20, 31, 63, 0.94);
+-  color: #d8e3ff;
+-}
+-
+-.listIconButton :global(svg) {
+-  width: 14px;
+-  height: 14px;
+-}
+-
+ .listMetricsGrid {
+   display: grid;
+   grid-template-columns: repeat(2, minmax(0, 1fr));
+@@ -4166,7 +4463,6 @@
+   margin-top: 0.2rem;
+ }
+ 
+-.conversationPresenceBadge,
+ .conversationContextBadge {
+   min-height: 24px;
+   display: inline-flex;
+@@ -4178,12 +4474,6 @@
+   font-weight: 800;
+ }
+ 
+-.conversationPresenceBadge {
+-  background: rgba(13, 85, 53, 0.42);
+-  color: #bfffe1;
+-  border: 1px solid rgba(25, 211, 124, 0.24);
+-}
+-
+ .conversationContextBadge {
+   background: rgba(25, 36, 74, 0.74);
+   border: 1px solid rgba(104, 127, 199, 0.18);
+@@ -4440,6 +4730,8 @@
+   position: relative;
+   display: grid;
+   grid-template-columns: repeat(var(--segment-count), minmax(0, 1fr));
++  width: min(100%, 290px);
++  margin-inline: auto;
+   padding: 0.22rem;
+   border-radius: 999px;
+   border: 1px solid rgba(101, 124, 194, 0.18);
+@@ -4495,6 +4787,57 @@
+   color: #7c8eb8;
+ }
+ 
++.customerCardPanel {
++  padding-left: 0.82rem;
++}
++
++.customerCardAccent {
++  background: linear-gradient(180deg, #22c55e, #38bdf8);
++  box-shadow: 0 0 24px rgba(34, 197, 94, 0.18);
++}
++
++.customerCardGhostButton,
++.customerCardSecondaryAction {
++  border-color: rgba(98, 120, 186, 0.18);
++  background: rgba(13, 20, 39, 0.88);
++  color: #e7efff;
++}
++
++.customerCardPillButton {
++  border-color: rgba(124, 102, 255, 0.24);
++  background: rgba(124, 102, 255, 0.12);
++  color: #d7d1ff;
++}
++
++.customerCardDangerAction {
++  border-color: rgba(248, 113, 113, 0.28);
++  background: rgba(127, 29, 29, 0.16);
++  color: #fecaca;
++}
++
++.customerCardReturnLine,
++.customerCardSummaryBox,
++.customerCardMetrics span,
++.customerCardShortcut {
++  border-color: rgba(98, 120, 186, 0.16);
++  background: rgba(13, 20, 39, 0.78);
++}
++
++.customerCardTextarea {
++  border-radius: 14px !important;
++  border: 1px solid rgba(98, 120, 186, 0.16) !important;
++  background: rgba(7, 12, 24, 0.82) !important;
++  color: #e7efff !important;
++}
++
++.customerCardTextarea::placeholder {
++  color: #7c8eb8;
++}
++
++.customerCardHistoryItem {
++  border-left-color: rgba(56, 189, 248, 0.58);
++}
++
+ .quickActionsGrid {
+   grid-template-columns: repeat(2, minmax(0, 1fr));
+ }
+@@ -4699,8 +5042,6 @@
+   box-shadow: 0 10px 18px color-mix(in srgb, var(--danger) 22%, transparent);
+ }
+ 
+-:global(html[data-theme-mode="light"]) .listCommandButton,
+-:global(html[data-theme-mode="light"]) .listIconButton,
+ :global(html[data-theme-mode="light"]) .listSearchAction {
+   border-color: color-mix(in srgb, var(--line) 88%, var(--background));
+   background: color-mix(in srgb, var(--surface) 96%, var(--background));
+@@ -4800,12 +5141,6 @@
+   color: var(--muted);
+ }
+ 
+-:global(html[data-theme-mode="light"]) .conversationPresenceBadge {
+-  color: color-mix(in srgb, var(--success) 88%, var(--foreground));
+-  background: color-mix(in srgb, var(--success) 10%, var(--background));
+-  border-color: color-mix(in srgb, var(--success) 18%, var(--background));
+-}
+-
+ :global(html[data-theme-mode="light"]) .conversationContextBadge {
+   color: color-mix(in srgb, var(--foreground) 84%, var(--muted));
+   background: color-mix(in srgb, var(--surface-raised) 94%, var(--background));
+@@ -4921,7 +5256,8 @@
+ }
+ 
+ :global(html[data-theme-mode="light"]) .whatsAppComposerInput,
+-:global(html[data-theme-mode="light"]) .internalNoteInput {
++:global(html[data-theme-mode="light"]) .internalNoteInput,
++:global(html[data-theme-mode="light"]) .customerCardTextarea {
+   border-color: color-mix(in srgb, var(--line) 88%, var(--background)) !important;
+   background: color-mix(in srgb, var(--surface) 99%, var(--background)) !important;
+   color: var(--foreground) !important;
+@@ -4929,10 +5265,77 @@
+ 
+ :global(html[data-theme-mode="light"]) .whatsAppComposerInput::placeholder,
+ :global(html[data-theme-mode="light"]) .internalNoteInput::placeholder,
++:global(html[data-theme-mode="light"]) .customerCardTextarea::placeholder,
+ :global(html[data-theme-mode="light"]) .whatsAppComposerHint {
+   color: var(--muted);
+ }
+ 
++:global(html[data-theme-mode="light"]) .customerCardHeader strong,
++:global(html[data-theme-mode="light"]) .customerCardMetrics strong,
++:global(html[data-theme-mode="light"]) .customerCardHistoryItem strong,
++:global(html[data-theme-mode="light"]) .customerCardShortcut strong {
++  color: var(--foreground);
++}
++
++:global(html[data-theme-mode="light"]) .customerCardHeader span,
++:global(html[data-theme-mode="light"]) .customerCardReturnLine,
++:global(html[data-theme-mode="light"]) .customerCardHistoryHeader span,
++:global(html[data-theme-mode="light"]) .customerCardHistoryItem p,
++:global(html[data-theme-mode="light"]) .customerCardHistoryItem span,
++:global(html[data-theme-mode="light"]) .customerCardShortcut span {
++  color: color-mix(in srgb, var(--foreground) 64%, var(--muted));
++}
++
++:global(html[data-theme-mode="light"]) .customerCardReturnLine,
++:global(html[data-theme-mode="light"]) .customerCardSummaryBox,
++:global(html[data-theme-mode="light"]) .customerCardMetrics span,
++:global(html[data-theme-mode="light"]) .customerCardShortcut {
++  border-color: color-mix(in srgb, var(--line) 88%, var(--background));
++  background:
++    linear-gradient(
++      180deg,
++      color-mix(in srgb, var(--surface) 99%, var(--background)),
++      color-mix(in srgb, var(--surface-soft) 96%, var(--background))
++    );
++  box-shadow:
++    inset 0 1px 0 rgba(255, 255, 255, 0.78),
++    0 12px 22px rgba(15, 23, 42, 0.04);
++}
++
++:global(html[data-theme-mode="light"]) .customerCardReturnLine {
++  color: color-mix(in srgb, var(--foreground) 78%, var(--muted));
++}
++
++:global(html[data-theme-mode="light"]) .customerCardGhostButton,
++:global(html[data-theme-mode="light"]) .customerCardSecondaryAction {
++  border-color: color-mix(in srgb, var(--line) 88%, var(--background));
++  background: color-mix(in srgb, var(--surface) 98%, var(--background));
++  color: var(--foreground);
++  box-shadow: 0 10px 18px rgba(15, 23, 42, 0.05);
++}
++
++:global(html[data-theme-mode="light"]) .customerCardPillButton {
++  border-color: color-mix(in srgb, var(--brand) 18%, var(--line));
++  background: color-mix(in srgb, var(--brand) 9%, var(--surface));
++  color: color-mix(in srgb, var(--brand) 74%, var(--foreground));
++}
++
++:global(html[data-theme-mode="light"]) .customerCardDangerAction {
++  border-color: color-mix(in srgb, var(--danger) 22%, var(--line));
++  background: color-mix(in srgb, var(--danger) 8%, var(--surface));
++  color: color-mix(in srgb, var(--danger) 80%, var(--foreground));
++}
++
++:global(html[data-theme-mode="light"]) .customerCardMetrics small,
++:global(html[data-theme-mode="light"]) .customerCardSummaryBox label,
++:global(html[data-theme-mode="light"]) .customerCardReturnEditor label {
++  color: color-mix(in srgb, var(--foreground) 58%, var(--muted));
++}
++
++:global(html[data-theme-mode="light"]) .customerCardHistoryItem {
++  border-left-color: color-mix(in srgb, var(--brand) 46%, var(--line));
++}
++
+ :global(html[data-theme-mode="light"]) .whatsAppDayDivider span {
+   border-color: color-mix(in srgb, var(--line) 88%, var(--background));
+   background: color-mix(in srgb, var(--surface) 96%, var(--background));
+diff --git a/frontend/src/app/dashboard/vendas/page.client.tsx b/frontend/src/app/dashboard/vendas/page.client.tsx
+index bce9f9c..787e4bf 100644
+--- a/frontend/src/app/dashboard/vendas/page.client.tsx
++++ b/frontend/src/app/dashboard/vendas/page.client.tsx
+@@ -452,18 +452,22 @@ function DateDropSlot({
+         <button
+           type="button"
+           className={styles.atendimentoShortcut}
+-          onClick={(e) => {
++          onClick={async (e) => {
+             e.stopPropagation();
+             e.preventDefault();
+-            // Navega internamente para a inbox e abre o estúdio de automação (Fluxo)
+             try {
+-              router.push("/dashboard/inbox?atendimentoTab=automation");
++              await apiFetch("/vendas/agenda/whatsapp/sync-today", { method: "POST" });
++            } catch {
++              // A propria tela de Atendimento recarrega a fila; a navegacao ainda ajuda a corrigir o fluxo.
++            }
++            try {
++              router.push("/dashboard/inbox?atendimentoQueue=scheduled&atendimentoSection=agenda");
+             } catch {
+               // fallback silencioso
+             }
+           }}
+-          title="Abrir Atendimento"
+-          aria-label="Abrir Atendimento"
++          title="Enviar cards de hoje para Atendimento / Agendamento"
++          aria-label="Enviar cards de hoje para Atendimento / Agendamento"
+         >
+           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+             <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+@@ -1106,21 +1110,20 @@ export default function VendasClientPage() {
+       ...(drafts[leadId] || { name: "", phone: "", email: "", status: "novo" as LeadStatus, nextAction: "", returnAt: "", shortNote: "" }),
+       ...(patch || {}),
+     };
++    const email = String(draft.email || "").trim();
+     setSavingLeadId(leadId);
+     setError(null);
+     try {
+-      await apiFetch(`/vendas/lead/${leadId}`, {
+-        method: "PATCH",
+-        body: JSON.stringify({
+-          name: draft.name,
+-          phone: draft.phone,
+-          email: draft.email,
+-          status: draft.status,
+-          nextAction: draft.nextAction,
+-          returnAt: draft.returnAt || "",
+-          shortNote: draft.shortNote,
+-        }),
+-      });
++      const body: Record<string, unknown> = {
++        name: draft.name,
++        phone: draft.phone,
++        email: email || null,
++        status: draft.status,
++        nextAction: draft.nextAction,
++        returnAt: draft.returnAt || "",
++        shortNote: draft.shortNote,
++      };
++      await apiFetch(`/vendas/lead/${leadId}`, { method: "PATCH", body: JSON.stringify(body) });
+       setFeedback(successMessage || "Lead atualizado com sucesso.");
+       await loadBoard();
+       // If the saved lead was being edited inline, close the inline editor
+@@ -1624,7 +1627,7 @@ export default function VendasClientPage() {
+   if (error || feedback) {
+     const compactMessage =
+       error && error.toLowerCase().includes("deve ser um e-mail válido")
+-        ? "E-mail inválido no cadastro manual."
++        ? "E-mail inválido. Remova ou informe um endereço válido."
+         : error || feedback;
+     headerActions = (
+       <div className={styles.headerNotice} data-tone={error ? "error" : "success"}>
+diff --git a/frontend/src/components/workspace/ConversationQueueFilterBar.module.css b/frontend/src/components/workspace/ConversationQueueFilterBar.module.css
+index 2ffba2a..c7bc7f4 100644
+--- a/frontend/src/components/workspace/ConversationQueueFilterBar.module.css
++++ b/frontend/src/components/workspace/ConversationQueueFilterBar.module.css
+@@ -1,6 +1,6 @@
+ .filterBar {
+-  display: flex;
+-  flex-wrap: wrap;
++  display: grid;
++  grid-template-columns: repeat(3, minmax(0, 1fr));
+   gap: 0.5rem;
+   align-items: stretch;
+   width: 100%;
+@@ -9,9 +9,8 @@
+ 
+ .queueCard {
+   position: relative;
+-  flex: 1 1 110px;
+-  min-width: 110px;
+-  max-width: 170px;
++  min-width: 0;
++  max-width: none;
+   display: grid;
+   gap: 0.18rem;
+   align-content: center;
+@@ -69,11 +68,16 @@
+ }
+ 
+ .queueTitle {
+-  font-size: 0.76rem;
++  max-width: 100%;
++  font-size: 0.68rem;
+   font-weight: 800;
+-  letter-spacing: 0.04em;
++  letter-spacing: 0.02em;
+   color: color-mix(in srgb, var(--foreground) 90%, var(--muted));
+   text-transform: none;
++  line-height: 1.05;
++  white-space: nowrap;
++  overflow: hidden;
++  text-overflow: clip;
+ }
+ 
+ .queueCount {
+@@ -133,8 +137,11 @@
+ }
+ 
+ @media (max-width: 720px) {
++  .filterBar {
++    grid-template-columns: repeat(3, minmax(0, 1fr));
++  }
++
+   .queueCard {
+-    flex-basis: calc(50% - 0.4rem);
+     min-width: 0;
+     max-width: none;
+   }
+@@ -143,12 +150,12 @@
+ /* Inbox dark premium override */
+ 
+ :global(html[data-theme-mode="dark"]) .filterBar {
++  grid-template-columns: repeat(3, minmax(0, 1fr));
+   gap: 0.42rem;
+ }
+ 
+ :global(html[data-theme-mode="dark"]) .queueCard {
+-  flex: 1 1 96px;
+-  min-width: 96px;
++  min-width: 0;
+   max-width: none;
+   justify-items: center;
+   text-align: center;
+@@ -188,7 +195,7 @@
+ }
+ 
+ :global(html[data-theme-mode="dark"]) .queueTitle {
+-  font-size: 0.73rem;
++  font-size: 0.68rem;
+   font-weight: 800;
+   color: #dbe5ff;
+   text-align: center;
+diff --git a/frontend/src/components/workspace/ConversationQueueFilterBar.tsx b/frontend/src/components/workspace/ConversationQueueFilterBar.tsx
+index 5ceea3c..e40d50d 100644
+--- a/frontend/src/components/workspace/ConversationQueueFilterBar.tsx
++++ b/frontend/src/components/workspace/ConversationQueueFilterBar.tsx
+@@ -23,7 +23,7 @@ type ConversationQueueFilterBarProps = {
+ 
+ const OPTIONS: Array<{ value: ConversationQueueFilterValue; label: string }> = [
+   { value: "all", label: "Conversas" },
+-  { value: "archived", label: "Arquivados" },
++  { value: "archived", label: "Excluídos" },
+   { value: "groups", label: "Grupos" },
+   { value: "recovery", label: "Recovery" },
+   { value: "scheduled", label: "Agendamento" },
+diff --git a/frontend/src/components/workspace/adapters/atendimento-data.ts b/frontend/src/components/workspace/adapters/atendimento-data.ts
+index c96736a..b65a28f 100644
+--- a/frontend/src/components/workspace/adapters/atendimento-data.ts
++++ b/frontend/src/components/workspace/adapters/atendimento-data.ts
+@@ -101,17 +101,12 @@ export function hasAtendimentoOpenDebt(conversation: InboxConversation) {
+ }
+ 
+ export function hasAtendimentoRecoveryContext(conversation: InboxConversation) {
+-  return (
+-    Boolean(conversation.recoveryCustomerId) ||
+-    hasAtendimentoOpenDebt(conversation) ||
+-    Boolean(String(conversation.recoveryStatus || "").trim()) ||
+-    hasAtendimentoFinancialFlowSignal(conversation)
+-  );
++  return hasAtendimentoOpenDebt(conversation);
+ }
+ 
+ export function isAtendimentoRecoveryPrimary(conversation: InboxConversation) {
+   return (
+-    conversation.routeTarget === "recovery" ||
++    (conversation.routeTarget === "recovery" && hasAtendimentoOpenDebt(conversation)) ||
+     (hasAtendimentoOpenDebt(conversation) && hasAtendimentoFinancialFlowSignal(conversation))
+   );
+ }
+@@ -422,7 +417,7 @@ export function buildAtendimentoContextSummary(input: {
+     });
+   }
+ 
+-  if (allowRecoveryCapability && conversation.latestSourceModule) {
++  if (hasRecoveryContext && conversation.latestSourceModule) {
+     summary.push({
+       label: "Origem do fluxo",
+       value: formatRecoverySourceModuleLabel(conversation.latestSourceModule),

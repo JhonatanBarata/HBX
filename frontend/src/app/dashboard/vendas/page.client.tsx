@@ -452,18 +452,22 @@ function DateDropSlot({
         <button
           type="button"
           className={styles.atendimentoShortcut}
-          onClick={(e) => {
+          onClick={async (e) => {
             e.stopPropagation();
             e.preventDefault();
-            // Navega internamente para a inbox e abre o estúdio de automação (Fluxo)
             try {
-              router.push("/dashboard/inbox?atendimentoTab=automation");
+              await apiFetch("/vendas/agenda/whatsapp/sync-today", { method: "POST" });
+            } catch {
+              // A propria tela de Atendimento recarrega a fila; a navegacao ainda ajuda a corrigir o fluxo.
+            }
+            try {
+              router.push("/dashboard/inbox?atendimentoQueue=scheduled&atendimentoSection=agenda");
             } catch {
               // fallback silencioso
             }
           }}
-          title="Abrir Atendimento"
-          aria-label="Abrir Atendimento"
+          title="Enviar cards de hoje para Atendimento / Agendamento"
+          aria-label="Enviar cards de hoje para Atendimento / Agendamento"
         >
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
             <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
@@ -1106,21 +1110,20 @@ export default function VendasClientPage() {
       ...(drafts[leadId] || { name: "", phone: "", email: "", status: "novo" as LeadStatus, nextAction: "", returnAt: "", shortNote: "" }),
       ...(patch || {}),
     };
+    const email = String(draft.email || "").trim();
     setSavingLeadId(leadId);
     setError(null);
     try {
-      await apiFetch(`/vendas/lead/${leadId}`, {
-        method: "PATCH",
-        body: JSON.stringify({
-          name: draft.name,
-          phone: draft.phone,
-          email: draft.email,
-          status: draft.status,
-          nextAction: draft.nextAction,
-          returnAt: draft.returnAt || "",
-          shortNote: draft.shortNote,
-        }),
-      });
+      const body: Record<string, unknown> = {
+        name: draft.name,
+        phone: draft.phone,
+        email: email || null,
+        status: draft.status,
+        nextAction: draft.nextAction,
+        returnAt: draft.returnAt || "",
+        shortNote: draft.shortNote,
+      };
+      await apiFetch(`/vendas/lead/${leadId}`, { method: "PATCH", body: JSON.stringify(body) });
       setFeedback(successMessage || "Lead atualizado com sucesso.");
       await loadBoard();
       // If the saved lead was being edited inline, close the inline editor
@@ -1624,7 +1627,7 @@ export default function VendasClientPage() {
   if (error || feedback) {
     const compactMessage =
       error && error.toLowerCase().includes("deve ser um e-mail válido")
-        ? "E-mail inválido no cadastro manual."
+        ? "E-mail inválido. Remova ou informe um endereço válido."
         : error || feedback;
     headerActions = (
       <div className={styles.headerNotice} data-tone={error ? "error" : "success"}>

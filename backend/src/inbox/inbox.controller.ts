@@ -76,6 +76,20 @@ export class InboxController {
     return this.inboxService.getConversationById(req.user, id);
   }
 
+  @Get('conversations/:id/status-card')
+  getStatusCard(@Req() req: any, @Param('id', ParseIntPipe) id: number) {
+    return this.inboxService.getConversationStatusCard(req.user, id);
+  }
+
+  @Patch('conversations/:id/status-card')
+  updateStatusCard(
+    @Req() req: any,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: { doNotCall?: boolean; returnAt?: string | null; observations?: string | null },
+  ) {
+    return this.inboxService.updateConversationStatusCard(req.user, id, dto || {});
+  }
+
   @Patch('conversations/:id/status')
   updateStatus(
     @Req() req: any,
@@ -83,6 +97,15 @@ export class InboxController {
     @Body() dto: UpdateConversationStatusDto,
   ) {
     return this.inboxService.updateConversationStatus(req.user, id, dto.status);
+  }
+
+  @Patch('conversations/:id/queue')
+  updateQueue(
+    @Req() req: any,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: { queue?: string },
+  ) {
+    return this.inboxService.updateConversationQueue(req.user, id, dto?.queue);
   }
 
   @Patch('conversations/:id/block')
