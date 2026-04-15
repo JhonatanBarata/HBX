@@ -160,6 +160,7 @@ export type AtendimentoBotActionGuide = {
 };
 
 export type AtendimentoRoutingRules = {
+  globalBotEnabled: boolean;
   checkRecoveryBeforeReply: boolean;
   autoRouteDebtorsToRecovery: boolean;
   autoReopenClosedConversation: boolean;
@@ -442,6 +443,14 @@ export const DEFAULT_ATENDIMENTO_BOT_CONFIG: AtendimentoBotConfig = {
         "Perfeito. Vamos iniciar seu cadastro rapido agora. Me envie seu nome completo para eu abrir a ficha inicial.",
     },
     {
+      actionId: "continue_journey",
+      title: "Continuar atendimento",
+      description: "Mantem o cliente dentro da jornada principal do Atendimento.",
+      route: "atendimento",
+      kind: "show_menu",
+      enabled: true,
+    },
+    {
       actionId: "talk_human",
       title: "Falar com atendente",
       description: "Entrega a conversa para a fila humana do Atendimento.",
@@ -519,6 +528,7 @@ export const DEFAULT_ATENDIMENTO_BOT_CONFIG: AtendimentoBotConfig = {
     },
   ],
   routingRules: {
+    globalBotEnabled: true,
     checkRecoveryBeforeReply: true,
     autoRouteDebtorsToRecovery: true,
     autoReopenClosedConversation: true,

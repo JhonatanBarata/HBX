@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import ModuleNav from "./ModuleNav";
 import { apiFetch, getToken } from "../app/dashboard/_lib/api";
 import { MASTER_CONTEXT_CHANGED_EVENT } from "../lib/masterContextEvents";
@@ -89,6 +90,11 @@ export default function DashboardScaffold({
   const [presentationConfig, setPresentationConfig] = useState<PresentationConfig | null>(null);
   const [presentationEditing, setPresentationEditing] = useState(false);
   const [navPeekOpen, setNavPeekOpen] = useState(false);
+  const [navPeekPortalReady, setNavPeekPortalReady] = useState(false);
+  const navPeekRef = useRef<HTMLDivElement | null>(null);
+  const navPeekHandleRef = useRef<HTMLButtonElement | null>(null);
+  const navPeekPanelRef = useRef<HTMLElement | null>(null);
+  const [navPeekPanelStyle, setNavPeekPanelStyle] = useState<CSSProperties | null>(null);
 
   const cancelNavPeekClose = useCallback(() => {
     if (!navPeekCloseTimerRef.current) return;
@@ -103,6 +109,39 @@ export default function DashboardScaffold({
       navPeekCloseTimerRef.current = null;
     }, delay);
   }, [cancelNavPeekClose]);
+
+  const syncNavPeekPanelPosition = useCallback(() => {
+    const rect = navPeekHandleRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const panelWidth = Math.min(320, Math.max(240, window.innerWidth - 24));
+    const left = Math.min(
+      Math.max(12, Math.round(rect.left)),
+      Math.max(12, window.innerWidth - panelWidth - 12),
+    );
+
+    setNavPeekPanelStyle({
+      top: `${Math.round(rect.bottom + 8)}px`,
+      left: `${left}px`,
+      width: `min(320px, calc(100vw - 24px))`,
+    });
+  }, []);
+
+  const openNavPeek = useCallback(() => {
+    cancelNavPeekClose();
+    syncNavPeekPanelPosition();
+    setNavPeekOpen(true);
+  }, [cancelNavPeekClose, syncNavPeekPanelPosition]);
+
+  const closeNavPeek = useCallback(() => {
+    cancelNavPeekClose();
+    setNavPeekOpen(false);
+  }, [cancelNavPeekClose]);
+
+  const toggleNavPeek = useCallback(() => {
+    cancelNavPeekClose();
+    syncNavPeekPanelPosition();
+    setNavPeekOpen((current) => !current);
+  }, [cancelNavPeekClose, syncNavPeekPanelPosition]);
 
   const loadPresentationProfile = useCallback(async () => {
     if (!authenticated) {
@@ -133,6 +172,10 @@ export default function DashboardScaffold({
       setPresentationConfig(null);
     }
   }, [authenticated]);
+
+  useEffect(() => {
+    setNavPeekPortalReady(true);
+  }, []);
 
   useEffect(() => {
     const loadTimer = window.setTimeout(() => {
@@ -211,6 +254,40 @@ export default function DashboardScaffold({
     },
     [cancelNavPeekClose],
   );
+
+  useEffect(() => {
+    if (!navPeekOpen) return;
+    const handlePointerDown = (event: MouseEvent) => {
+      const target = event.target as Node;
+      if (navPeekRef.current?.contains(target) || navPeekPanelRef.current?.contains(target)) {
+        return;
+      }
+      closeNavPeek();
+    };
+    document.addEventListener("mousedown", handlePointerDown);
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown);
+    };
+  }, [closeNavPeek, navPeekOpen]);
+
+  useEffect(() => {
+    if (!navPeekOpen) return;
+    syncNavPeekPanelPosition();
+    const handleViewportChange = () => syncNavPeekPanelPosition();
+    window.addEventListener("resize", handleViewportChange);
+    window.addEventListener("scroll", handleViewportChange, true);
+    return () => {
+      window.removeEventListener("resize", handleViewportChange);
+      window.removeEventListener("scroll", handleViewportChange, true);
+    };
+  }, [navPeekOpen, syncNavPeekPanelPosition]);
+
+  useEffect(() => {
+    if (!navPeekOpen) return;
+    if (!navPeekRef.current) {
+      closeNavPeek();
+    }
+  }, [closeNavPeek, navPeekOpen]);
 
   const updatePresentationConfig = useCallback(
     (updater: (current: PresentationConfig) => PresentationConfig) => {
@@ -306,56 +383,35 @@ export default function DashboardScaffold({
         >
           {shouldShowHoverModules ? (
             <div
+              ref={navPeekRef}
               className={styles.navPeek}
               data-open={navPeekOpen ? "true" : "false"}
-              onMouseEnter={() => {
-                cancelNavPeekClose();
-                setNavPeekOpen(true);
-              }}
+              onMouseEnter={openNavPeek}
+              onPointerEnter={openNavPeek}
               onMouseLeave={() => scheduleNavPeekClose()}
-              onFocusCapture={() => {
-                cancelNavPeekClose();
-                setNavPeekOpen(true);
-              }}
-              onBlurCapture={(event) => {
-                const nextTarget = event.relatedTarget as Node | null;
-                if (!event.currentTarget.contains(nextTarget)) {
-                  scheduleNavPeekClose(260);
-                }
-              }}
+              onPointerLeave={() => scheduleNavPeekClose()}
             >
               <button
+                ref={navPeekHandleRef}
                 type="button"
                 className={styles.navPeekHandle}
-                onClick={() => {
-                  cancelNavPeekClose();
-                  setNavPeekOpen((current) => !current);
+                onMouseEnter={openNavPeek}
+                onPointerEnter={openNavPeek}
+                onFocus={openNavPeek}
+                onClick={toggleNavPeek}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    toggleNavPeek();
+                  }
                 }}
                 aria-expanded={navPeekOpen}
                 aria-controls="workspace-hover-module-nav"
+                aria-label="Abrir modulos"
               >
                 <span className={styles.navPeekHandleEdge} aria-hidden="true" />
                 <span className={styles.navPeekHandleLabel}>Modulos</span>
               </button>
-
-              {navPeekOpen ? (
-                <aside id="workspace-hover-module-nav" className={styles.navPeekPanel}>
-                  <section className="shell-card shell-card--nav">
-                    <div className="shell-card__header">
-                      <div>
-                        <p className="shell-card__eyebrow">{resolvedNavEyebrow}</p>
-                        <strong className="shell-card__title">{resolvedNavTitle}</strong>
-                      </div>
-                    </div>
-                    <ModuleNav
-                      presentationEditing={presentationEditing}
-                      canEditPresentation={canEditPresentation}
-                      presentationConfig={presentationConfig}
-                      onUpdateModulePresentation={updateModulePresentation}
-                    />
-                  </section>
-                </aside>
-              ) : null}
             </div>
           ) : null}
 
@@ -540,6 +596,44 @@ export default function DashboardScaffold({
           </section>
         </div>
       </div>
+      {shouldShowHoverModules && navPeekPortalReady
+        ? createPortal(
+            <aside
+              ref={navPeekPanelRef}
+              id="workspace-hover-module-nav"
+              className={styles.navPeekPanel}
+              data-open={navPeekOpen ? "true" : "false"}
+              aria-hidden={!navPeekOpen}
+              style={
+                navPeekPanelStyle || {
+                  top: "calc(var(--topbar-total-height) + 8px)",
+                  left: "12px",
+                  width: "min(320px, calc(100vw - 24px))",
+                }
+              }
+              onMouseEnter={openNavPeek}
+              onPointerEnter={openNavPeek}
+              onMouseLeave={() => scheduleNavPeekClose()}
+              onPointerLeave={() => scheduleNavPeekClose()}
+            >
+              <section className="shell-card shell-card--nav">
+                <div className="shell-card__header">
+                  <div>
+                    <p className="shell-card__eyebrow">{resolvedNavEyebrow}</p>
+                    <strong className="shell-card__title">{resolvedNavTitle}</strong>
+                  </div>
+                </div>
+                <ModuleNav
+                  presentationEditing={presentationEditing}
+                  canEditPresentation={canEditPresentation}
+                  presentationConfig={presentationConfig}
+                  onUpdateModulePresentation={updateModulePresentation}
+                />
+              </section>
+            </aside>,
+            document.body,
+          )
+        : null}
     </main>
   );
 }

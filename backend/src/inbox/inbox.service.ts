@@ -1,4 +1,11 @@
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import { existsSync, mkdirSync, writeFileSync } from 'fs';
 import { extname, join } from 'path';
 import { PrismaService } from '../prisma/prisma.service';
@@ -30,7 +37,14 @@ import {
 } from './atendimento-config';
 import { CadastrosService } from '../cadastros/cadastros.service';
 import { CustomerProfileService } from '../customer-profile/customer-profile.service';
-import { WebwhatsBridgeService } from '../messaging/webwhats-bridge.service';
+import {
+  WebwhatsBridgeService,
+  WebwhatsDeleteChatResult,
+  WebwhatsFetchedMessage,
+  WebwhatsLiveChatSnapshot,
+  WebwhatsLiveConversationSnapshot,
+  WebwhatsProviderError,
+} from '../messaging/webwhats-bridge.service';
 
 @Injectable()
 export class InboxService {
@@ -397,6 +411,16 @@ export class InboxService {
         deletedRevealUntil: this.normalizeMessageMetadataText(variables?.deletedRevealUntil),
         deletedOriginalText,
         deletedOriginalMessageType,
+        isLocalHidden: Boolean(variables?.isLocalHidden || variables?.localHiddenAt),
+        localHiddenAt: this.normalizeMessageMetadataText(variables?.localHiddenAt),
+        localHiddenByUserId:
+          variables?.localHiddenByUserId === undefined || variables?.localHiddenByUserId === null
+            ? null
+            : Number(variables.localHiddenByUserId),
+        localHiddenOriginalText: this.normalizeMessageMetadataText(variables?.localHiddenOriginalText),
+        localHiddenOriginalMessageType: this.normalizeMessageMetadataText(
+          variables?.localHiddenOriginalMessageType,
+        ),
       }).filter(([, value]) => value !== null && value !== undefined && value !== ''),
     );
 
@@ -659,7 +683,7 @@ export class InboxService {
       metadata?.recoveryCustomerId || metadata?.customerId || metadata?.customer_id || '',
     ).trim();
     const digits = String(conversation?.contact || '').replace(/\D/g, '');
-    const latestSourceModule = String(conversation?.messages?.[0]?.sourceModule || '')
+    const latestSourceModule = String(metadata?.lastSourceModule || conversation?.messages?.[0]?.sourceModule || '')
       .trim()
       .toLowerCase();
 
@@ -794,7 +818,7 @@ export class InboxService {
         : null;
     const customerName =
       this.normalizeDisplayNameCandidate(
-        manualLockedName || displayName || identityRow?.name || profile?.name || null,
+        manualLockedName || identityRow?.name || profile?.name || displayName || null,
         conversation.contact,
       ) || null;
     return {
@@ -850,27 +874,410 @@ export class InboxService {
         registrationStatus: identityRow?.registrationStatus ? String(identityRow.registrationStatus) : null,
         sharedProfile: sharedProfile || null,
       },
-      messages: (conversation.messages || []).map((message: any) => {
-        const messageMetadata = this.buildConversationMessageMetadata(
-          message,
-          String(conversation.contact || ''),
-          conversationMetadata,
+      messages: (conversation.messages || [])
+        .map((message: any) => {
+          const messageMetadata = this.buildConversationMessageMetadata(
+            message,
+            String(conversation.contact || ''),
+            conversationMetadata,
+          );
+          if (messageMetadata?.isLocalHidden) return null;
+          return {
+            id: String(message.id),
+            direction: String(message.direction || '').trim().toLowerCase(),
+            content: String(messageMetadata?.resolvedText || message.body || ''),
+            createdAt: message.timestamp,
+            messageType: String(messageMetadata?.normalizedMessageType || message.messageType || 'text')
+              .trim()
+              .toLowerCase(),
+            senderType: String(message.senderType || 'system').trim().toLowerCase(),
+            status: String(message.status || 'RECEIVED').trim().toUpperCase(),
+            sourceModule: String(message.sourceModule || '').trim().toLowerCase() || null,
+            error: message.error ? String(message.error) : null,
+            metadata: messageMetadata,
+          };
+        })
+        .filter(Boolean),
+    };
+  }
+
+  private getStateConversationMetadata(raw: string | null | undefined) {
+    const metadata = { ...this.parseConversationMetadata(raw) };
+    delete metadata.whatsappName;
+    delete metadata.waNickname;
+    delete metadata.whatsappProfileName;
+    delete metadata.whatsappContactName;
+    delete metadata.whatsappAvatarUrl;
+    delete metadata.whatsappWindowActive;
+    delete metadata.whatsappUnreadCount;
+    delete metadata.whatsappArchived;
+    return metadata;
+  }
+
+  private resolveLiveUnreadCount(
+    stateMetadata: Record<string, any>,
+    snapshot: Pick<WebwhatsLiveChatSnapshot, 'unreadCount' | 'lastMessageAt'>,
+  ) {
+    const unreadCount = Math.max(0, Math.trunc(Number(snapshot.unreadCount || 0)));
+    const markedReadAt = this.normalizeMessageMetadataText(stateMetadata?.whatsappMarkedReadAt);
+    if (!markedReadAt) return unreadCount;
+
+    const markedReadTime = new Date(markedReadAt).getTime();
+    const lastMessageTime = snapshot.lastMessageAt instanceof Date ? snapshot.lastMessageAt.getTime() : NaN;
+    if (Number.isFinite(markedReadTime) && (!Number.isFinite(lastMessageTime) || lastMessageTime <= markedReadTime)) {
+      return 0;
+    }
+
+    return unreadCount;
+  }
+
+  private buildLiveConversationMetadata(
+    stateMetadata: Record<string, any>,
+    snapshot: WebwhatsLiveChatSnapshot | WebwhatsLiveConversationSnapshot,
+  ) {
+    const unreadCount = this.resolveLiveUnreadCount(stateMetadata, snapshot);
+    const metadata: Record<string, any> = {
+      ...stateMetadata,
+      whatsappRemoteJid: snapshot.remoteJid,
+      ...(snapshot.remoteJidAlt ? { whatsappRemoteJidAlt: snapshot.remoteJidAlt } : {}),
+      ...(snapshot.displayName
+        ? {
+            whatsappName: snapshot.displayName,
+            waNickname: snapshot.displayName,
+            whatsappProfileName: snapshot.displayName,
+            whatsappContactName: snapshot.displayName,
+          }
+        : {}),
+      ...(snapshot.avatarUrl ? { whatsappAvatarUrl: snapshot.avatarUrl } : {}),
+      whatsappUnreadCount: unreadCount,
+      ...(snapshot.windowActive === null ? {} : { whatsappWindowActive: snapshot.windowActive }),
+      ...(snapshot.archived === null
+        ? stateMetadata?.whatsappArchived === undefined
+          ? {}
+          : { whatsappArchived: Boolean(stateMetadata.whatsappArchived) }
+        : { whatsappArchived: snapshot.archived }),
+    };
+
+    delete metadata.whatsappLocalHiddenMessages;
+    delete metadata.whatsappMarkedReadAt;
+
+    return metadata;
+  }
+
+  private buildConversationReadModel(
+    snapshot: WebwhatsLiveConversationSnapshot | WebwhatsLiveChatSnapshot,
+    opts?: {
+      messages?: Array<Record<string, any>>;
+    },
+  ) {
+    const stateMetadata = this.getStateConversationMetadata(snapshot.conversation.metadata);
+    const mergedMetadata = this.buildLiveConversationMetadata(stateMetadata, snapshot);
+    const liveMessages =
+      'messages' in snapshot && Array.isArray(snapshot.messages)
+        ? snapshot.messages
+        : snapshot.lastMessage
+          ? [snapshot.lastMessage]
+          : [];
+    const messages =
+      opts?.messages ||
+      this.buildLiveConversationMessages(liveMessages, stateMetadata);
+    return {
+      id: snapshot.conversation.id,
+      contact: snapshot.contact || snapshot.conversation.contact,
+      metadata: JSON.stringify(mergedMetadata),
+      currentFlow: snapshot.conversation.currentFlow,
+      currentStep: snapshot.conversation.currentStep,
+      flowResult: snapshot.conversation.flowResult,
+      botActive: snapshot.conversation.botActive,
+      humanAssigned: snapshot.conversation.humanAssigned,
+      assignedUserId: snapshot.conversation.assignedUserId,
+      createdAt: snapshot.conversation.createdAt,
+      updatedAt: snapshot.lastMessageAt || snapshot.conversation.updatedAt,
+      messages,
+    };
+  }
+
+  private resolveLiveMessageDate(value: unknown) {
+    if (value instanceof Date && !Number.isNaN(value.getTime())) return value;
+    if (typeof value === 'string' && value.trim()) {
+      const parsed = new Date(value);
+      if (!Number.isNaN(parsed.getTime())) return parsed;
+    }
+    const numeric = Number(value || 0);
+    if (!numeric) return null;
+    const millis = numeric > 1_000_000_000_000 ? numeric : numeric * 1000;
+    const parsed = new Date(millis);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
+
+  private buildLiveMessageStableKey(message: WebwhatsFetchedMessage, index: number) {
+    const rawKeyId = this.normalizeMessageMetadataText(message?.key?.id || message?.id);
+    if (rawKeyId) return rawKeyId;
+    const rawPayload =
+      message && typeof message === 'object' && !Array.isArray(message)
+        ? (message as Record<string, any>)
+        : {};
+    const normalizedType = this.normalizeConversationMessageType(
+      message?.messageType,
+      rawPayload,
+      {},
+    );
+    const text = this.extractMessageTextFromPayload(
+      this.unwrapMessagePayload(rawPayload?.message || rawPayload),
+      normalizedType,
+    );
+    return [
+      String(message?.messageTimestamp || '').trim(),
+      message?.key?.fromMe ? '1' : '0',
+      normalizedType,
+      String(text || '').trim().slice(0, 80),
+      String(index),
+    ].join(':');
+  }
+
+  private buildSyntheticInboxMessageId(value: string) {
+    let hashOne = 0xdeadbeef;
+    let hashTwo = 0x41c6ce57;
+    for (let index = 0; index < value.length; index += 1) {
+      const code = value.charCodeAt(index);
+      hashOne = Math.imul(hashOne ^ code, 2654435761);
+      hashTwo = Math.imul(hashTwo ^ code, 1597334677);
+    }
+    hashOne = Math.imul(hashOne ^ (hashOne >>> 16), 2246822507) ^ Math.imul(hashTwo ^ (hashTwo >>> 13), 3266489909);
+    hashTwo = Math.imul(hashTwo ^ (hashTwo >>> 16), 2246822507) ^ Math.imul(hashOne ^ (hashOne >>> 13), 3266489909);
+    const numeric = 4294967296 * (2097151 & hashTwo) + (hashOne >>> 0);
+    return String(numeric);
+  }
+
+  private resolveLiveMessageStatus(message: WebwhatsFetchedMessage, direction: string) {
+    const statuses = [
+      this.normalizeMessageMetadataText(message?.status),
+      ...(Array.isArray(message?.MessageUpdate)
+        ? message.MessageUpdate.map((entry) => this.normalizeMessageMetadataText(entry?.status))
+        : []),
+    ]
+      .filter(Boolean)
+      .map((value) => String(value).trim().toUpperCase());
+
+    if (statuses.includes('READ')) return 'READ';
+    if (statuses.includes('DELIVERY_ACK') || statuses.includes('DELIVERED')) return 'DELIVERED';
+    if (statuses.includes('ERROR') || statuses.includes('FAILED')) return 'FAILED';
+    return direction === 'OUTBOUND' ? 'SENT' : 'RECEIVED';
+  }
+
+  private buildLiveConversationMessages(
+    messages: WebwhatsFetchedMessage[],
+    stateMetadata?: Record<string, any>,
+  ) {
+    const orderedMessages = [...(messages || [])].sort((left, right) => {
+      const leftTime = this.resolveLiveMessageDate(left?.messageTimestamp)?.getTime() || 0;
+      const rightTime = this.resolveLiveMessageDate(right?.messageTimestamp)?.getTime() || 0;
+      return leftTime - rightTime;
+    });
+    const deletedByKey = new Map<string, { deletedAt: Date; deletedBy: 'self' | 'contact' }>();
+    const localHiddenEntries = Array.isArray(stateMetadata?.whatsappLocalHiddenMessages)
+      ? stateMetadata.whatsappLocalHiddenMessages.filter(
+          (entry) => entry && typeof entry === 'object' && !Array.isArray(entry),
+        )
+      : [];
+    const localHiddenByKey = new Map<
+      string,
+      {
+        hiddenAt: string | null;
+        hiddenByUserId: number | null;
+        originalText: string | null;
+        originalMessageType: string | null;
+      }
+    >(
+      localHiddenEntries
+        .map((entry) => ({
+          key: this.normalizeMessageMetadataText((entry as Record<string, any>).key),
+          hiddenAt: this.normalizeMessageMetadataText((entry as Record<string, any>).hiddenAt),
+          hiddenByUserId:
+            (entry as Record<string, any>).hiddenByUserId === undefined ||
+            (entry as Record<string, any>).hiddenByUserId === null
+              ? null
+              : Number((entry as Record<string, any>).hiddenByUserId),
+          originalText: this.normalizeMessageMetadataText((entry as Record<string, any>).originalText),
+          originalMessageType: this.normalizeMessageMetadataText(
+            (entry as Record<string, any>).originalMessageType,
+          ),
+        }))
+        .filter((entry) => entry.key)
+        .map((entry) => [
+          String(entry.key),
+          {
+            hiddenAt: entry.hiddenAt || null,
+            hiddenByUserId: Number.isFinite(entry.hiddenByUserId) ? entry.hiddenByUserId : null,
+            originalText: entry.originalText || null,
+            originalMessageType: entry.originalMessageType || null,
+          },
+        ]),
+    );
+
+    for (const message of orderedMessages) {
+      const protocolType = this.normalizeMessageMetadataText(message?.message?.protocolMessage?.type)?.toUpperCase();
+      const revokedMessageId = this.normalizeMessageMetadataText(message?.message?.protocolMessage?.key?.id);
+      if (protocolType === 'REVOKE' && revokedMessageId) {
+        deletedByKey.set(revokedMessageId, {
+          deletedAt: this.resolveLiveMessageDate(message?.messageTimestamp) || new Date(),
+          deletedBy: message?.key?.fromMe ? 'self' : 'contact',
+        });
+      }
+    }
+
+    return orderedMessages
+      .filter((message) => {
+        const protocolType = this.normalizeMessageMetadataText(message?.message?.protocolMessage?.type)?.toUpperCase();
+        return protocolType !== 'REVOKE';
+      })
+      .map((message, index) => {
+        const rawPayload =
+          message && typeof message === 'object' && !Array.isArray(message)
+            ? (message as Record<string, any>)
+            : {};
+        const stableKey = this.buildLiveMessageStableKey(message, index);
+        const rawKeyId = this.normalizeMessageMetadataText(message?.key?.id || message?.id) || stableKey;
+        const syntheticId = this.buildSyntheticInboxMessageId(stableKey);
+        const normalizedMessageType = this.normalizeConversationMessageType(
+          message?.messageType,
+          rawPayload,
+          {},
         );
-        return {
-          id: String(message.id),
-          direction: String(message.direction || '').trim().toLowerCase(),
-          content: String(messageMetadata?.resolvedText || message.body || ''),
-          createdAt: message.timestamp,
-          messageType: String(messageMetadata?.normalizedMessageType || message.messageType || 'text')
-            .trim()
-            .toLowerCase(),
-          senderType: String(message.senderType || 'system').trim().toLowerCase(),
-          status: String(message.status || 'RECEIVED').trim().toUpperCase(),
-          sourceModule: String(message.sourceModule || '').trim().toLowerCase() || null,
-          error: message.error ? String(message.error) : null,
-          metadata: messageMetadata,
+        const deletedState = deletedByKey.get(rawKeyId);
+        const localHiddenState =
+          localHiddenByKey.get(rawKeyId) || localHiddenByKey.get(`synthetic:${syntheticId}`) || null;
+        const payload = this.unwrapMessagePayload(rawPayload?.message || rawPayload);
+        const originalText = this.extractMessageTextFromPayload(payload, normalizedMessageType);
+        const deletedAt = deletedState?.deletedAt || null;
+        const variables = {
+          ...(deletedState
+            ? {
+                isDeleted: true,
+                deletedAt: deletedAt?.toISOString() || null,
+                deletedBy: deletedState.deletedBy,
+                deletedRevealUntil: deletedAt
+                  ? new Date(deletedAt.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString()
+                  : null,
+                deletedOriginalText: originalText || null,
+                deletedOriginalMessageType: normalizedMessageType || null,
+              }
+            : {}),
+          ...(localHiddenState
+            ? {
+                isLocalHidden: true,
+                localHiddenAt: localHiddenState.hiddenAt || null,
+                localHiddenByUserId: localHiddenState.hiddenByUserId,
+                localHiddenOriginalText: localHiddenState.originalText || originalText || null,
+                localHiddenOriginalMessageType:
+                  localHiddenState.originalMessageType || normalizedMessageType || null,
+              }
+            : {}),
         };
-      }),
+        const direction = message?.key?.fromMe ? 'OUTBOUND' : 'INBOUND';
+        return {
+          id: syntheticId,
+          direction,
+          messageType: this.normalizeMessageMetadataText(message?.messageType) || normalizedMessageType || 'text',
+          body: deletedState ? '[mensagem apagada]' : '[mensagem sincronizada]',
+          senderType: direction === 'OUTBOUND' ? 'human' : 'client',
+          status: this.resolveLiveMessageStatus(message, direction),
+          sourceModule: null,
+          error: null,
+          timestamp: this.resolveLiveMessageDate(message?.messageTimestamp) || new Date(),
+          providerMessageId: this.normalizeMessageMetadataText(message?.key?.id || message?.id),
+          rawPayload: JSON.stringify(rawPayload),
+          variablesJson: Object.keys(variables).length ? JSON.stringify(variables) : null,
+        };
+      });
+  }
+
+  private async loadLiveChatsForCompany(
+    companyId: number,
+    opts?: {
+      limit?: number;
+    },
+  ) {
+    try {
+      return await this.webwhatsBridge.listLiveChats(companyId, {
+        limit: opts?.limit,
+      });
+    } catch (error) {
+      throw this.mapInboxProviderReadError(error, 'Falha ao carregar conversas do WhatsApp.');
+    }
+  }
+
+  private async loadLiveConversationForCompany(
+    companyId: number,
+    conversationId: number,
+    opts?: {
+      limit?: number;
+    },
+  ) {
+    try {
+      const conversation = await this.webwhatsBridge.getLiveConversation(companyId, {
+        conversationId,
+        limit: opts?.limit,
+      });
+      if (!conversation) {
+        throw new NotFoundException('Conversation not found');
+      }
+      return conversation;
+    } catch (error) {
+      if (error instanceof NotFoundException) {
+        throw error;
+      }
+      throw this.mapInboxProviderReadError(error, 'Falha ao carregar conversa do WhatsApp.');
+    }
+  }
+
+  private mapInboxProviderReadError(error: unknown, fallbackMessage: string) {
+    if (error instanceof WebwhatsProviderError) {
+      if (error.code === 'WEBWHATS_NOT_CONNECTED') {
+        return new ConflictException(
+          'Sessao do WhatsApp desconectada. Reconecte o dispositivo para carregar a inbox.',
+        );
+      }
+      if (error.code === 'WEBWHATS_NOT_CONFIGURED') {
+        return new ServiceUnavailableException(
+          'Integracao do WhatsApp nao configurada para esta empresa.',
+        );
+      }
+      if (error.code === 'WEBWHATS_TIMEOUT' || error.code === 'WEBWHATS_UNAVAILABLE') {
+        return new ServiceUnavailableException(
+          'WhatsApp indisponivel no momento. Tente novamente.',
+        );
+      }
+      if (error.providerMessage) {
+        return new BadRequestException(error.providerMessage);
+      }
+      return new BadRequestException(error.message || fallbackMessage);
+    }
+
+    return error instanceof Error
+      ? new BadRequestException(error.message || fallbackMessage)
+      : new BadRequestException(fallbackMessage);
+  }
+
+  private async resolveLiveConversationActionTarget(
+    companyId: number,
+    conversationId: number,
+    messageId: number,
+  ) {
+    const liveConversation = await this.loadLiveConversationForCompany(companyId, conversationId, {
+      limit: 200,
+    });
+    const stateMetadata = this.getStateConversationMetadata(liveConversation.conversation.metadata);
+    const messages = this.buildLiveConversationMessages(liveConversation.messages, stateMetadata);
+    const target = messages.find((message) => Number(message.id) === Number(messageId));
+    if (!target) {
+      throw new NotFoundException('Message not found');
+    }
+
+    return {
+      liveConversation,
+      target,
+      rawPayload: this.parseConversationMetadata(target.rawPayload),
     };
   }
 
@@ -994,43 +1401,33 @@ export class InboxService {
     options?: { take?: string | number | null },
   ) {
     const take = this.normalizeConversationTakeLimit(options?.take);
-    await this.webwhatsBridge.syncRecentChats(companyId);
-    const routingRules = await this.getRecoveryRoutingRules(companyId);
-    const rows = await this.prisma.companyConversation.findMany({
-      where: { companyId, channel: 'whatsapp' },
-      orderBy: [{ lastInteractionAt: 'desc' }, { id: 'desc' }],
-      ...(take ? { take } : {}),
-      include: {
-        messages: {
-          orderBy: { timestamp: 'desc' },
-          take: 1,
-        },
-      },
+    const liveChats = await this.loadLiveChatsForCompany(companyId, {
+      limit: take || 50,
     });
+    const routingRules = await this.getRecoveryRoutingRules(companyId);
     const identityMap = await this.loadAtendimentoIdentityMap(
       companyId,
-      rows.map((row) => String(row.contact || '')),
+      liveChats.map((row) => String(row.contact || '')),
     );
     const sharedMap = await this.loadSharedProfileMap(
       companyId,
-      rows.map((row) => String(row.contact || '')),
+      liveChats.map((row) => String(row.contact || '')),
       identityMap,
     );
     return Promise.all(
-      rows.map((row) => {
-        const phoneNormalized = this.normalizeConversationPhone(String(row.contact || '')) || '';
+      liveChats.map((row) => {
+        const conversation = this.buildConversationReadModel(row);
+        const phoneNormalized = this.normalizeConversationPhone(String(conversation.contact || '')) || '';
         const identityRow = identityMap.get(phoneNormalized);
         const sharedProfile = identityRow?.customerProfileId
           ? sharedMap.byProfileId.get(String(identityRow.customerProfileId)) ?? null
           : sharedMap.byPhoneNormalized.get(phoneNormalized) ?? null;
-        return (
-        this.mapConversation(
+        return this.mapConversation(
           companyId,
-          row,
+          conversation,
           routingRules,
-            identityRow,
-            sharedProfile,
-          )
+          identityRow,
+          sharedProfile,
         );
       }),
     );
@@ -1058,15 +1455,11 @@ export class InboxService {
   }
 
   private async getConversationByIdForCompany(companyId: number, id: number) {
-    await this.webwhatsBridge.syncConversationMessages(companyId, id);
-    const routingRules = await this.getRecoveryRoutingRules(companyId);
-    const conversation = await this.prisma.companyConversation.findFirst({
-      where: { id, companyId, channel: 'whatsapp' },
-      include: {
-        messages: { orderBy: { timestamp: 'asc' } },
-      },
+    const liveConversation = await this.loadLiveConversationForCompany(companyId, id, {
+      limit: 200,
     });
-    if (!conversation) throw new NotFoundException('Conversation not found');
+    const routingRules = await this.getRecoveryRoutingRules(companyId);
+    const conversation = this.buildConversationReadModel(liveConversation);
     const identityMap = await this.loadAtendimentoIdentityMap(companyId, [String(conversation.contact || '')]);
     const phoneNormalized = this.normalizeConversationPhone(String(conversation.contact || '')) || '';
     const identityRow = identityMap.get(phoneNormalized);
@@ -1636,25 +2029,45 @@ export class InboxService {
     const companyId = this.requireCompanyIdFromUser(user);
     const conversation = await this.ensureConversation(companyId, conversationId);
 
-    // Try to delete chat on WhatsApp side before deleting local records.
-    // If WhatsApp runtime is unavailable, keep local deletion but register warning.
+    let deleteResult: WebwhatsDeleteChatResult;
     try {
-      await this.webwhatsBridge.deleteChat(companyId, {
+      deleteResult = await this.webwhatsBridge.deleteChat(companyId, {
         conversationId: conversation.id,
       });
     } catch (error) {
       await this.logInboxEvent({
         companyId,
         event: 'conversation_delete_whatsapp_failed',
-        message: 'Falha ao excluir conversa no WhatsApp antes da remocao local.',
+        message: 'Falha ao excluir conversa no WhatsApp. Remocao local cancelada.',
         conversationId,
         phone: String(conversation.contact || '').trim(),
         result: 'warning',
-        extra: {
-          error: error instanceof Error ? error.message : 'unknown_error',
-        },
+        extra: this.buildDeleteConversationWhatsAppFailureLog(error),
       });
+      throw this.mapDeleteConversationWhatsAppError(error);
     }
+
+    const successMessage =
+      deleteResult.outcome === 'already_deleted'
+        ? 'Conversa removida do sistema. O chat ja nao existia mais no WhatsApp.'
+        : 'Conversa excluida do sistema e do WhatsApp.';
+
+    await this.logInboxEvent({
+      companyId,
+      event: 'conversation_delete_whatsapp_confirmed',
+      message:
+        deleteResult.outcome === 'already_deleted'
+          ? 'Chat ja nao existia mais no WhatsApp. Seguindo com remocao local.'
+          : 'Chat excluido no WhatsApp com sucesso.',
+      conversationId,
+      phone: String(conversation.contact || '').trim(),
+      result: deleteResult.outcome,
+      extra: {
+        outcome: deleteResult.outcome,
+        chatId: deleteResult.chatId,
+        providerMessage: deleteResult.message,
+      },
+    });
 
     await this.prisma.$transaction(async (tx) => {
       await tx.companyMessage.deleteMany({
@@ -1667,12 +2080,80 @@ export class InboxService {
     await this.logInboxEvent({
       companyId,
       event: 'conversation_deleted',
-      message: 'Conversa excluida manualmente pelo operador.',
+      message: successMessage,
       conversationId,
       phone: String(conversation.contact || '').trim(),
       result: 'deleted',
+      extra: {
+        outcome: deleteResult.outcome,
+        chatId: deleteResult.chatId,
+        providerMessage: deleteResult.message,
+      },
     });
-    return { success: true, id: String(conversation.id) };
+    return {
+      success: true,
+      id: String(conversation.id),
+      message: successMessage,
+      whatsapp: {
+        outcome: deleteResult.outcome,
+        chatId: deleteResult.chatId,
+        message: deleteResult.message,
+      },
+    };
+  }
+
+  private buildDeleteConversationWhatsAppFailureLog(error: unknown) {
+    if (error instanceof WebwhatsProviderError) {
+      return {
+        code: error.code,
+        statusCode: error.statusCode ?? null,
+        providerMessage: error.providerMessage || null,
+        error: error.message,
+      };
+    }
+
+    return {
+      error: error instanceof Error ? error.message : 'unknown_error',
+    };
+  }
+
+  private mapDeleteConversationWhatsAppError(error: unknown) {
+    if (error instanceof WebwhatsProviderError) {
+      if (error.code === 'WEBWHATS_NOT_CONNECTED') {
+        return new ConflictException(
+          'Sessao do WhatsApp desconectada. Reconecte o dispositivo antes de excluir a conversa.',
+        );
+      }
+      if (error.code === 'WEBWHATS_NOT_CONFIGURED') {
+        return new ServiceUnavailableException(
+          'Integracao do WhatsApp nao configurada para excluir conversas.',
+        );
+      }
+      if (error.code === 'WEBWHATS_TIMEOUT' || error.code === 'WEBWHATS_UNAVAILABLE') {
+        return new ServiceUnavailableException(
+          'WhatsApp indisponivel no momento para excluir a conversa. Tente novamente.',
+        );
+      }
+      if (error.providerMessage) {
+        return new BadRequestException(error.providerMessage);
+      }
+      return new BadRequestException(
+        'Falha ao excluir conversa no WhatsApp. Atualize a conversa e tente novamente.',
+      );
+    }
+
+    const rawMessage = error instanceof Error ? error.message : '';
+    if (rawMessage === 'WEBWHATS_CHAT_REMOTE_JID_MISSING') {
+      return new BadRequestException(
+        'Conversa sem identificador remoto valido para exclusao no WhatsApp.',
+      );
+    }
+    if (rawMessage === 'WEBWHATS_CONVERSATION_NOT_FOUND') {
+      return new NotFoundException('Conversa nao encontrada para exclusao.');
+    }
+    return new BadRequestException(
+      rawMessage || 'Falha ao excluir conversa no WhatsApp. Atualize a conversa e tente novamente.',
+    );
   }
 
   async markConversationAsRead(user: any, conversationId: number) {
@@ -1681,6 +2162,7 @@ export class InboxService {
     const metadata = this.parseConversationMetadata(conversation.metadata);
     const nextMetadata = {
       ...metadata,
+      whatsappMarkedReadAt: new Date().toISOString(),
       whatsappUnreadCount: 0,
     };
 
@@ -1701,10 +2183,51 @@ export class InboxService {
   ) {
     const companyId = this.requireCompanyIdFromUser(user);
     const conversation = await this.ensureConversation(companyId, conversationId);
-    await this.ensureConversationMessage(companyId, conversation.id, messageId);
+    const { liveConversation, target, rawPayload } = await this.resolveLiveConversationActionTarget(
+      companyId,
+      conversation.id,
+      messageId,
+    );
+    const currentMetadata = this.getStateConversationMetadata(liveConversation.conversation.metadata);
+    const deletedAtIso = new Date().toISOString();
+    const hiddenKey =
+      this.normalizeMessageMetadataText(target.providerMessageId) || `synthetic:${String(target.id)}`;
+    const currentHiddenEntries = Array.isArray(currentMetadata.whatsappLocalHiddenMessages)
+      ? currentMetadata.whatsappLocalHiddenMessages.filter(
+          (entry) => entry && typeof entry === 'object' && !Array.isArray(entry),
+        )
+      : [];
+    const nextHiddenEntries = [
+      ...currentHiddenEntries.filter(
+        (entry) => this.normalizeMessageMetadataText((entry as Record<string, any>).key) !== hiddenKey,
+      ),
+      {
+        key: hiddenKey,
+        hiddenAt: deletedAtIso,
+        hiddenByUserId: Number(user?.id || 0) || null,
+        originalText:
+          this.normalizeMessageMetadataText(this.parseConversationMetadata(target.variablesJson)?.localHiddenOriginalText) ||
+          this.normalizeMessageMetadataText(target.body) ||
+          this.extractMessageTextFromPayload(
+            this.unwrapMessagePayload(rawPayload?.message || rawPayload),
+            this.normalizeConversationMessageType(target.messageType, rawPayload, {}),
+          ) ||
+          null,
+        originalMessageType:
+          this.normalizeMessageMetadataText(
+            this.parseConversationMetadata(target.variablesJson)?.localHiddenOriginalMessageType,
+          ) || this.normalizeMessageMetadataText(target.messageType) || null,
+      },
+    ].slice(-500);
 
-    await this.prisma.companyMessage.delete({
-      where: { id: messageId },
+    await this.prisma.companyConversation.update({
+      where: { id: conversation.id },
+      data: {
+        metadata: JSON.stringify({
+          ...currentMetadata,
+          whatsappLocalHiddenMessages: nextHiddenEntries,
+        }),
+      },
     });
 
     return this.getConversationByIdForCompany(companyId, conversation.id);
@@ -1718,16 +2241,18 @@ export class InboxService {
   ) {
     const companyId = this.requireCompanyIdFromUser(user);
     const conversation = await this.ensureConversation(companyId, conversationId);
-    const message = await this.ensureConversationMessage(companyId, conversation.id, messageId);
+    const { liveConversation, target: message, rawPayload } = await this.resolveLiveConversationActionTarget(
+      companyId,
+      conversation.id,
+      messageId,
+    );
     const reaction = this.requireTrimmed(String(reactionRaw || ''), 'reaction');
-    const rawPayload = this.parseConversationMetadata(message.rawPayload);
     const remoteJid =
       this.normalizeMessageMetadataText(rawPayload?.key?.remoteJid) ||
-      this.normalizeMessageMetadataText(this.parseConversationMetadata(conversation.metadata)?.whatsappRemoteJid) ||
-      String(conversation.contact || '');
-    const providerKeyId =
-      this.normalizeMessageMetadataText(rawPayload?.key?.id) ||
-      this.extractWebwhatsRawMessageIdFromProviderMessageId(message.providerMessageId);
+      this.normalizeMessageMetadataText(this.parseConversationMetadata(liveConversation.conversation.metadata)?.whatsappRemoteJid) ||
+      this.normalizeMessageMetadataText(liveConversation.remoteJid) ||
+      String(liveConversation.contact || conversation.contact || '');
+    const providerKeyId = this.normalizeMessageMetadataText(rawPayload?.key?.id);
     if (!providerKeyId) {
       throw new BadRequestException('Mensagem ainda nao possui chave valida para reagir no WhatsApp.');
     }
@@ -1742,10 +2267,6 @@ export class InboxService {
           : Boolean(rawPayload?.key?.fromMe),
       reaction,
     });
-    await this.webwhatsBridge.syncConversationMessages(companyId, conversation.id, {
-      force: true,
-      limit: 200,
-    });
     return this.getConversationByIdForCompany(companyId, conversation.id);
   }
 
@@ -1756,19 +2277,21 @@ export class InboxService {
   ) {
     const companyId = this.requireCompanyIdFromUser(user);
     const conversation = await this.ensureConversation(companyId, conversationId);
-    const message = await this.ensureConversationMessage(companyId, conversation.id, messageId);
+    const { liveConversation, target: message, rawPayload } = await this.resolveLiveConversationActionTarget(
+      companyId,
+      conversation.id,
+      messageId,
+    );
     if (String(message.direction || '').trim().toUpperCase() !== 'OUTBOUND') {
       throw new BadRequestException('Apenas mensagens enviadas podem ser apagadas para todos.');
     }
 
-    const rawPayload = this.parseConversationMetadata(message.rawPayload);
     const remoteJid =
       this.normalizeMessageMetadataText(rawPayload?.key?.remoteJid) ||
-      this.normalizeMessageMetadataText(this.parseConversationMetadata(conversation.metadata)?.whatsappRemoteJid) ||
-      String(conversation.contact || '');
-    const providerKeyId =
-      this.normalizeMessageMetadataText(rawPayload?.key?.id) ||
-      this.extractWebwhatsRawMessageIdFromProviderMessageId(message.providerMessageId);
+      this.normalizeMessageMetadataText(this.parseConversationMetadata(liveConversation.conversation.metadata)?.whatsappRemoteJid) ||
+      this.normalizeMessageMetadataText(liveConversation.remoteJid) ||
+      String(liveConversation.contact || conversation.contact || '');
+    const providerKeyId = this.normalizeMessageMetadataText(rawPayload?.key?.id);
     if (!providerKeyId) {
       throw new BadRequestException('Mensagem ainda nao possui chave valida para exclusao no WhatsApp.');
     }
@@ -1782,15 +2305,6 @@ export class InboxService {
           ? true
           : Boolean(rawPayload?.key?.fromMe),
       participant: this.normalizeMessageMetadataText(rawPayload?.key?.participant),
-    });
-    await this.markStoredMessageAsDeleted(message, {
-      deletedAt: new Date(),
-      deletedBy: 'self',
-      rawPayload: rawPayload || {},
-    });
-    await this.webwhatsBridge.syncConversationMessages(companyId, conversation.id, {
-      force: true,
-      limit: 200,
     });
     return this.getConversationByIdForCompany(companyId, conversation.id);
   }

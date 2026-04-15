@@ -82,6 +82,10 @@ class UpdateAtendimentoBotActionGuideDto {
 class UpdateAtendimentoRoutingRulesDto {
   @IsBoolean()
   @IsOptional()
+  globalBotEnabled?: boolean;
+
+  @IsBoolean()
+  @IsOptional()
   checkRecoveryBeforeReply?: boolean;
 
   @IsBoolean()

@@ -1027,10 +1027,20 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
   }) {
     const interactivePayload = this.getAtendimentoButtonsInteractive(input.body, input.buttons);
     const fallbackText = this.buildButtonFallbackText(input.body, input.buttons);
+    const messageBody = interactivePayload ? input.body : fallbackText;
+    const shouldSuppress = await this.hasRecentDuplicateAtendimentoReply({
+      companyId: input.companyId,
+      contactId: input.contactId,
+      conversationId: input.conversationId,
+      body: messageBody,
+    });
+    if (shouldSuppress) {
+      return;
+    }
     await this.conversations.queueOutboundForCompany(input.companyId, {
       to: input.to,
       contactId: input.contactId,
-      body: interactivePayload ? input.body : fallbackText,
+      body: messageBody,
       messageType: interactivePayload ? 'interactive' : 'text',
       interactivePayload: interactivePayload || undefined,
       sourceModule: 'atendimento_bot',
@@ -1059,6 +1069,32 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
       },
       input.variables || {},
     );
+  }
+
+  private async hasRecentDuplicateAtendimentoReply(input: {
+    companyId: number;
+    contactId: string;
+    conversationId?: number | null;
+    body: string;
+  }) {
+    const normalizedBody = String(input.body || '').trim();
+    const normalizedContactId = String(input.contactId || '').trim();
+    if (!normalizedBody || !normalizedContactId) return false;
+    const recentWindowStart = new Date(Date.now() - 90 * 1000);
+    const duplicate = await this.prisma.companyMessage.findFirst({
+      where: {
+        companyId: input.companyId,
+        direction: 'OUTBOUND',
+        contactId: normalizedContactId,
+        body: normalizedBody,
+        sourceModule: { in: ['atendimento_bot', 'atendimento_router', 'atendimento_human'] },
+        timestamp: { gte: recentWindowStart },
+        ...(input.conversationId ? { conversationId: Number(input.conversationId) } : {}),
+      },
+      select: { id: true },
+      orderBy: { timestamp: 'desc' },
+    });
+    return Boolean(duplicate?.id);
   }
 
   private buildAtendimentoTemplateVars(input: {
@@ -2387,7 +2423,12 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
       return { handled: true, blocked: true };
     }
 
-    if (isClosedConversation && config.routingRules.autoReopenClosedConversation && conversation?.id) {
+    if (
+      isClosedConversation &&
+      config.routingRules.globalBotEnabled &&
+      config.routingRules.autoReopenClosedConversation &&
+      conversation?.id
+    ) {
       await this.updateAtendimentoConversationState(
         companyId,
         safeConversationId,
@@ -2407,6 +2448,25 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
         text: 'Cliente voltou a falar e a conversa foi reaberta automaticamente.',
         eventType: 'atendimento_reopened_auto',
       });
+    }
+
+    if (!config.routingRules.globalBotEnabled) {
+      if (conversation?.id && conversation.botActive !== false) {
+        await this.updateAtendimentoConversationState(
+          companyId,
+          safeConversationId,
+          {
+            currentFlow: ATENDIMENTO_FLOW_ID,
+            currentStep: conversation.currentStep || ATENDIMENTO_STEP.HUMAN,
+            botActive: false,
+            humanAssigned: false,
+            flowResult: null,
+          },
+          this.clearAtendimentoBlockedMetadata(metadata),
+        );
+      }
+      await setInboundMeta('atendimento_human', Boolean(normalizedText));
+      return { handled: true, humanMode: true, botSuppressed: true };
     }
 
     if (recoveryCustomer && isRecoveryConversation) {
@@ -2540,6 +2600,22 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
         result: 'received',
       });
       return { handled: true, humanMode: true };
+    }
+
+    if (!normalizedText && !rawActionId) {
+      await setInboundMeta('atendimento_bot', false);
+      await this.logWhatsAppEvent({
+        companyId,
+        scope: 'atendimento',
+        event: 'atendimento_inbound_empty_ignored',
+        message: 'Inbound sem texto e sem acao interativa foi ignorado para evitar auto-loop.',
+        conversationId: safeConversationId,
+        phone: from,
+        messageType: normalizeWhatsAppMessageType(rawPayload?.type),
+        flowStep: conversation?.currentStep || ATENDIMENTO_STEP.WELCOME,
+        result: 'ignored',
+      });
+      return { handled: true, ignoredEmptyInbound: true };
     }
 
     const vars = this.buildAtendimentoTemplateVars({
@@ -2833,10 +2909,21 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     }
 
     const greetingMessage = hasHistory ? config.returningCustomerMessage : config.welcomeMessage;
+    const renderedGreetingMessage = renderTemplate(greetingMessage, vars);
+    if (
+      await this.hasRecentDuplicateAtendimentoReply({
+        companyId,
+        contactId: from,
+        conversationId: safeConversationId,
+        body: renderedGreetingMessage,
+      })
+    ) {
+      return { handled: true, duplicateSuppressed: true };
+    }
     await this.conversations.queueOutboundForCompany(companyId, {
       to: from,
       contactId: from,
-      body: renderTemplate(greetingMessage, vars),
+      body: renderedGreetingMessage,
       messageType: 'text',
       sourceModule: 'atendimento_bot',
       senderType: 'bot',

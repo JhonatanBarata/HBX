@@ -1081,8 +1081,6 @@ export class VendasService {
       });
 
       if (timelineEvents.length) {
-    await this.syncLeadToInboxAgenda(context.companyId, updated, existing);
-
         await tx.vendasLeadTimelineEvent.createMany({
           data: timelineEvents.map((event) => ({
             leadId: existing.id,
@@ -1101,6 +1099,8 @@ export class VendasService {
         },
       });
     });
+
+    await this.syncLeadToInboxAgenda(context.companyId, updated, existing);
 
     return {
       ok: true,

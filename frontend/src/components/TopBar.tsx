@@ -227,6 +227,7 @@ export default function TopBar() {
   const [unreadInboxLoading, setUnreadInboxLoading] = useState(false);
   const [unreadInboxError, setUnreadInboxError] = useState<string | null>(null);
   const [unreadInboxEntries, setUnreadInboxEntries] = useState<TopBarUnreadEntry[]>([]);
+  const [unreadInboxCount, setUnreadInboxCount] = useState(0);
   const [incomingPopup, setIncomingPopup] = useState<TopBarIncomingPopup | null>(null);
   const [masterContextModalOpen, setMasterContextModalOpen] = useState(false);
   const [masterContextActionBusy, setMasterContextActionBusy] = useState(false);
@@ -621,6 +622,7 @@ export default function TopBar() {
     if (!authenticated) {
       setRecoveryPendingHumanCount(0);
       setAtendimentoPendingHumanCount(0);
+      setUnreadInboxCount(0);
       return;
     }
 
@@ -769,6 +771,15 @@ export default function TopBar() {
           if (cancelled) return;
 
           const rows = Array.isArray(payload) ? payload : [];
+          const unreadTotal = rows.reduce((acc, conversation) => {
+            const isAtendimento = conversation.routeTarget === "atendimento";
+            const isActive = !conversation.isBlocked && (conversation.status === "new" || conversation.status === "open");
+            if (!isAtendimento || !isActive) return acc;
+            const unread = Math.max(0, Math.trunc(Number(conversation?.metadata?.whatsappUnreadCount || 0)));
+            return acc + unread;
+          }, 0);
+          setUnreadInboxCount(unreadTotal);
+
           const pendingRows = rows.filter(
             (conversation) =>
               conversation.routeTarget === "atendimento" &&
@@ -818,6 +829,7 @@ export default function TopBar() {
         }
       } else {
         setAtendimentoPendingHumanCount(0);
+        setUnreadInboxCount(0);
         atendimentoLastSeenRef.current = new Map();
         atendimentoAlertReadyRef.current = false;
       }
@@ -1035,11 +1047,30 @@ export default function TopBar() {
     setUnreadInboxLoading(true);
     setUnreadInboxError(null);
     try {
-      const rows = await apiFetch<InboxAlertConversation[]>("/inbox/conversations?take=80");
+      const rows = await apiFetch<InboxAlertConversation[]>('/inbox/conversations');
       const normalizedRows = Array.isArray(rows) ? rows : [];
+      const unreadSummaries = normalizedRows.filter((conversation) =>
+        Math.max(0, Math.trunc(Number(conversation?.metadata?.whatsappUnreadCount || 0))) > 0,
+      );
+      const unreadTotal = unreadSummaries.reduce((acc, conversation) => {
+        const unread = Math.max(0, Math.trunc(Number(conversation?.metadata?.whatsappUnreadCount || 0)));
+        return acc + unread;
+      }, 0);
+      setUnreadInboxCount(unreadTotal);
+      const unreadConversations = await Promise.all(
+        unreadSummaries.map(async (conversation) => {
+          const conversationId = String(conversation?.id || '').trim();
+          if (!conversationId) return conversation;
+          try {
+            return await apiFetch<InboxAlertConversation>(`/inbox/conversations/${conversationId}`);
+          } catch {
+            return conversation;
+          }
+        }),
+      );
       const entries: TopBarUnreadEntry[] = [];
 
-      for (const conversation of normalizedRows) {
+      for (const conversation of unreadConversations) {
         const unreadCount = Math.max(0, Math.trunc(Number(conversation?.metadata?.whatsappUnreadCount || 0)));
         if (!unreadCount) continue;
 
@@ -1049,23 +1080,35 @@ export default function TopBar() {
         );
         const unreadMessages = (inboundMessages.length ? inboundMessages : allMessages).slice(-unreadCount);
         const baseLabel = String(conversation.customer?.name || "").trim() || conversation.customer?.phone || "Cliente";
+        if (!unreadMessages.length) {
+          entries.push({
+            conversationId: String(conversation.id),
+            conversationLabel: baseLabel,
+            messageId: `pending-${String(conversation.id)}`,
+            messagePreview: "Mensagem pendente no WhatsApp.",
+            messageAt: String(conversation.updatedAt || ""),
+            unreadCount,
+          });
+          continue;
+        }
 
         for (const message of unreadMessages) {
-          const messageId = String(message?.id || "").trim();
-          if (!messageId) continue;
+          const rawId = String(message?.id || "").trim();
+          const messageAt = String(message?.createdAt || conversation.updatedAt || "");
+          const messageId = rawId || `pending-${String(conversation.id)}-${messageAt || "now"}`;
           entries.push({
             conversationId: String(conversation.id),
             conversationLabel: baseLabel,
             messageId,
             messagePreview: String(message?.content || "Nova mensagem").trim() || "Nova mensagem",
-            messageAt: String(message?.createdAt || conversation.updatedAt || ""),
+            messageAt,
             unreadCount,
           });
         }
       }
 
       entries.sort((a, b) => new Date(b.messageAt).getTime() - new Date(a.messageAt).getTime());
-      setUnreadInboxEntries(entries.slice(0, 30));
+      setUnreadInboxEntries(entries);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Falha ao carregar mensagens não lidas.";
       setUnreadInboxError(message);
@@ -1090,10 +1133,16 @@ export default function TopBar() {
       await apiFetch(`/inbox/conversations/${conversationId}/read`, {
         method: "PATCH",
       });
-      setUnreadInboxEntries((current) =>
-        current.filter((entry) => entry.conversationId !== conversationId),
-      );
-      setAtendimentoPendingHumanCount((current) => Math.max(0, current - 1));
+      let removedUnread = 1;
+      setUnreadInboxEntries((current) => {
+        const fromConversation = current.filter((entry) => entry.conversationId === conversationId);
+        const first = fromConversation[0];
+        if (first) {
+          removedUnread = Math.max(1, Math.trunc(Number(first.unreadCount || 0)));
+        }
+        return current.filter((entry) => entry.conversationId !== conversationId);
+      });
+      setUnreadInboxCount((current) => Math.max(0, current - removedUnread));
     } catch (error) {
       const message = error instanceof Error ? error.message : "Falha ao marcar conversa como lida.";
       setUnreadInboxError(message);
@@ -1111,6 +1160,7 @@ export default function TopBar() {
       setUnreadInboxEntries((current) =>
         current.filter((row) => !(row.conversationId === entry.conversationId && row.messageId === entry.messageId)),
       );
+      setUnreadInboxCount((current) => Math.max(0, current - 1));
     } catch (error) {
       const message = error instanceof Error ? error.message : "Falha ao excluir mensagem.";
       setUnreadInboxError(message);
@@ -1559,21 +1609,21 @@ export default function TopBar() {
                 <div ref={unreadMenuRef} className="wa-unread-wrap">
                   <button
                     type="button"
-                    className={`wa-health-wrap ${atendimentoPendingHumanCount > 0 ? "wa-health-wrap--alert" : ""}`}
+                    className={`wa-health-wrap ${unreadInboxCount > 0 ? "wa-health-wrap--alert" : ""}`}
                     onClick={() => void toggleUnreadInboxPopup()}
                   >
                     <span
                       className={`wa-health wa-health--${whatsAppHealth}`}
-                      title={`${whatsAppHealthLabel} · Atendimento: ${atendimentoPendingHumanCount}`}
-                      aria-label={`${whatsAppHealthLabel} · Atendimento: ${atendimentoPendingHumanCount}`}
+                      title={`${whatsAppHealthLabel} · Não lidas: ${unreadInboxCount}`}
+                      aria-label={`${whatsAppHealthLabel} · Não lidas: ${unreadInboxCount}`}
                     >
                       <svg viewBox="0 0 24 24" aria-hidden="true">
                         <path d="M19.1 4.9A9.9 9.9 0 0 0 12 2a10 10 0 0 0-8.7 14.9L2 22l5.3-1.4A10 10 0 1 0 19.1 4.9Zm-7.1 15.4a8.2 8.2 0 0 1-4.2-1.2l-.3-.2-3.1.8.8-3-.2-.3a8.2 8.2 0 1 1 7 3.9Zm4.5-6.2c-.2-.1-1.2-.6-1.4-.7-.2-.1-.3-.1-.5.1-.1.2-.5.7-.6.8-.1.1-.2.1-.4 0s-.9-.3-1.7-1a6.4 6.4 0 0 1-1.2-1.5c-.1-.2 0-.3.1-.4l.3-.3.2-.3c.1-.1.1-.3 0-.4L10.4 8c-.1-.2-.3-.2-.4-.2h-.4c-.1 0-.4.1-.5.3-.2.2-.7.7-.7 1.6 0 1 .7 1.9.8 2 .1.1 1.3 2 3.2 2.8.5.2.9.4 1.2.5.5.1 1 .1 1.4.1.4-.1 1.2-.5 1.4-1 .2-.6.2-1 .1-1.1 0-.1-.2-.1-.4-.2Z" />
                       </svg>
                     </span>
-                    {atendimentoPendingHumanCount > 0 ? (
+                    {unreadInboxCount > 0 ? (
                       <span className="wa-health__queue-badge" aria-hidden="true">
-                        {atendimentoPendingHumanCount}
+                        {unreadInboxCount}
                       </span>
                     ) : null}
                   </button>

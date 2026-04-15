@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
 import styles from "./WhatsAppOperationalDialog.module.css";
 import {
   formatWhatsAppDateTime,
@@ -57,10 +57,42 @@ export default function WhatsAppOperationalDialog({
   onStartQrConnection,
   onDisconnectQrConnection,
 }: WhatsAppOperationalDialogProps) {
+  const [qrSuccess, setQrSuccess] = useState(false);
+  const prevModalStatusRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    const prev = prevModalStatusRef.current;
+    const curr = modalPayload?.status ?? null;
+    prevModalStatusRef.current = curr;
+    if (prev !== null && prev !== "connected" && curr === "connected") {
+      const showTimer = window.setTimeout(() => {
+        setQrSuccess(true);
+      }, 0);
+      const hideTimer = window.setTimeout(() => {
+        setQrSuccess(false);
+      }, 2400);
+      return () => {
+        window.clearTimeout(showTimer);
+        window.clearTimeout(hideTimer);
+      };
+    }
+  }, [modalPayload?.status]);
+
+  useEffect(() => {
+    if (!isOpen) {
+      prevModalStatusRef.current = null;
+      const timer = window.setTimeout(() => {
+        setQrSuccess(false);
+      }, 0);
+      return () => window.clearTimeout(timer);
+    }
+  }, [isOpen]);
+
   useEffect(() => {
     if (!isOpen) return;
 
     const handleEscape = (event: KeyboardEvent) => {
+      if (qrSuccess) return;
       if (event.key === "Escape") {
         onClose();
       }
@@ -70,7 +102,7 @@ export default function WhatsAppOperationalDialog({
     return () => {
       document.removeEventListener("keydown", handleEscape);
     };
-  }, [isOpen, onClose]);
+  }, [isOpen, onClose, qrSuccess]);
 
   if (!isOpen) return null;
 
@@ -102,7 +134,7 @@ export default function WhatsAppOperationalDialog({
     null;
 
   return (
-    <div className={styles.backdrop} onClick={onClose}>
+    <div className={styles.backdrop} onClick={qrSuccess ? undefined : onClose}>
       <div
         className={styles.dialog}
         role="dialog"
@@ -407,6 +439,22 @@ export default function WhatsAppOperationalDialog({
           )}
         </div>
       </div>
+
+      {qrSuccess && (
+        <div className={styles.qrSuccessOverlay} aria-live="assertive" role="status">
+          <div className={styles.qrSuccessCard}>
+            <div className={styles.qrSuccessIconWrap}>
+              <svg className={styles.qrSuccessCheck} viewBox="0 0 52 52" fill="none" aria-hidden="true">
+                <circle cx="26" cy="26" r="25" stroke="rgba(255,255,255,0.55)" strokeWidth="1.5" fill="rgba(255,255,255,0.12)" />
+                <path className={styles.qrCheckPath} d="M14 27l9 9 15-18" stroke="white" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </div>
+            <strong className={styles.qrSuccessTitle}>WhatsApp conectado!</strong>
+            <p className={styles.qrSuccessSubtitle}>Sessao ativa. A fila sera atualizada automaticamente.</p>
+            <div className={styles.qrSuccessBar} />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

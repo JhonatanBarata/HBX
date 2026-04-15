@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import axios, { Method } from 'axios';
+import axios, { AxiosError, Method } from 'axios';
 import { existsSync, readFileSync } from 'fs';
 import { join } from 'path';
 import { PrismaService } from '../prisma/prisma.service';
@@ -23,6 +23,49 @@ type WebwhatsRequestOptions = {
   data?: unknown;
   treatNotFoundAsNull?: boolean;
 };
+
+type WebwhatsProviderErrorCode =
+  | 'WEBWHATS_NOT_CONFIGURED'
+  | 'WEBWHATS_NOT_CONNECTED'
+  | 'WEBWHATS_TIMEOUT'
+  | 'WEBWHATS_UNAVAILABLE'
+  | 'WEBWHATS_HTTP_ERROR';
+
+export type WebwhatsConversationStateRow = {
+  id: number;
+  contact: string;
+  metadata: string | null;
+  currentFlow: string | null;
+  currentStep: string | null;
+  flowResult: string | null;
+  botActive: boolean | null;
+  humanAssigned: boolean | null;
+  assignedUserId: number | null;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+export type WebwhatsDeleteChatOutcome = 'deleted' | 'already_deleted';
+
+export type WebwhatsDeleteChatResult = {
+  outcome: WebwhatsDeleteChatOutcome;
+  chatId: string | null;
+  message: string | null;
+  raw: unknown;
+};
+
+export class WebwhatsProviderError extends Error {
+  constructor(
+    readonly code: WebwhatsProviderErrorCode,
+    message: string,
+    readonly statusCode?: number,
+    readonly providerResponse?: unknown,
+    readonly providerMessage?: string | null,
+  ) {
+    super(message);
+    this.name = 'WebwhatsProviderError';
+  }
+}
 
 type WebwhatsChatSummary = {
   remoteJid: string;
@@ -68,7 +111,7 @@ type WebwhatsContactSummary = {
   type?: string | null;
 };
 
-type WebwhatsFetchedMessage = {
+export type WebwhatsFetchedMessage = {
   id?: string | null;
   key?: {
     id?: string | null;
@@ -84,6 +127,24 @@ type WebwhatsFetchedMessage = {
   messageTimestamp?: number | string | null;
   status?: string | null;
   MessageUpdate?: Array<{ status?: string | null }> | null;
+};
+
+export type WebwhatsLiveChatSnapshot = {
+  conversation: WebwhatsConversationStateRow;
+  remoteJid: string;
+  remoteJidAlt: string | null;
+  contact: string;
+  displayName: string | null;
+  avatarUrl: string | null;
+  unreadCount: number;
+  archived: boolean | null;
+  windowActive: boolean | null;
+  lastMessageAt: Date | null;
+  lastMessage: WebwhatsFetchedMessage | null;
+};
+
+export type WebwhatsLiveConversationSnapshot = WebwhatsLiveChatSnapshot & {
+  messages: WebwhatsFetchedMessage[];
 };
 
 type WebwhatsInboundRelayInput = {
@@ -296,6 +357,210 @@ export class WebwhatsBridgeService {
     }
   }
 
+  async listLiveChats(companyId: number, opts?: { limit?: number }) {
+    const company = await this.requireConnectedCompany(companyId);
+    const [chats, contacts] = await Promise.all([
+      this.fetchChats(company.id, opts?.limit ?? 60),
+      this.getCachedContacts(company.id),
+    ]);
+    const contactsByJid = this.indexContactsByJid(contacts);
+    const snapshots: WebwhatsLiveChatSnapshot[] = [];
+
+    for (const chat of chats) {
+      const remoteJid = this.normalizeOptionalString(chat?.remoteJid);
+      if (!this.isSyncableChat(remoteJid)) continue;
+      const remoteJidAlt = this.getChatRemoteJidAlt(chat);
+      const state = await this.upsertConversationStateFromChat(
+        company.id,
+        chat,
+        contactsByJid.get(remoteJid || '') || null,
+        remoteJidAlt ? contactsByJid.get(remoteJidAlt) || null : null,
+      );
+      if (!state) continue;
+
+      const displayName =
+        this.getChatDisplayName(
+          chat,
+          contactsByJid.get(remoteJid || '') || null,
+          remoteJidAlt ? contactsByJid.get(remoteJidAlt) || null : null,
+        ) || null;
+      const lastMessageAt =
+        this.resolveMessageDate(chat?.lastMessage?.messageTimestamp || chat?.updatedAt) || null;
+
+      snapshots.push({
+        conversation: state,
+        remoteJid,
+        remoteJidAlt,
+        contact: state.contact,
+        displayName,
+        avatarUrl:
+          this.normalizeOptionalString(chat?.profilePicUrl)
+          || this.normalizeOptionalString(contactsByJid.get(remoteJid || '')?.profilePicUrl)
+          || null,
+        unreadCount: Math.max(0, Number(chat?.unreadCount || 0)),
+        archived: this.resolveChatArchivedFlag(chat),
+        windowActive:
+          chat?.windowActive === undefined || chat?.windowActive === null
+            ? null
+            : Boolean(chat.windowActive),
+        lastMessageAt,
+        lastMessage: chat?.lastMessage || null,
+      });
+    }
+
+    return snapshots.sort((left, right) => {
+      const leftTime = left.lastMessageAt?.getTime() || 0;
+      const rightTime = right.lastMessageAt?.getTime() || 0;
+      return rightTime - leftTime;
+    });
+  }
+
+  async getLiveConversation(
+    companyId: number,
+    input: {
+      conversationId: number;
+      limit?: number;
+    },
+  ): Promise<WebwhatsLiveConversationSnapshot | null> {
+    const company = await this.requireConnectedCompany(companyId);
+    const conversation = await this.prisma.companyConversation.findFirst({
+      where: { id: Number(input.conversationId || 0), companyId, channel: 'whatsapp' },
+      select: {
+        id: true,
+        contact: true,
+        metadata: true,
+        currentFlow: true,
+        currentStep: true,
+        flowResult: true,
+        botActive: true,
+        humanAssigned: true,
+        assignedUserId: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
+    if (!conversation) {
+      return null;
+    }
+
+    const metadata = this.parseMetadata(conversation.metadata);
+    let remoteJid =
+      this.normalizeOptionalString(metadata.whatsappRemoteJid)
+      || this.normalizeRemoteJid(String(conversation.contact || ''));
+    let remoteJidAlt = this.normalizeOptionalString(metadata.whatsappRemoteJidAlt) || null;
+
+    const [contacts, chats] = await Promise.all([
+      this.getCachedContacts(company.id),
+      this.fetchChats(company.id, 120),
+    ]);
+    const contactsByJid = this.indexContactsByJid(contacts);
+    const conversationKeys = Array.from(
+      new Set(
+        [remoteJid, remoteJidAlt, this.normalizeRemoteJid(String(conversation.contact || ''))]
+          .map((value) => this.normalizeOptionalString(value))
+          .filter(Boolean),
+      ),
+    ) as string[];
+    const matchingChat = chats.find((chat) => {
+      const chatRemoteJid = this.normalizeOptionalString(chat?.remoteJid);
+      const chatRemoteJidAlt = this.getChatRemoteJidAlt(chat);
+      return [chatRemoteJid, chatRemoteJidAlt].some(
+        (value) => value && conversationKeys.includes(value),
+      );
+    }) || null;
+
+    if (matchingChat) {
+      remoteJid = this.normalizeOptionalString(matchingChat.remoteJid) || remoteJid;
+      remoteJidAlt = this.getChatRemoteJidAlt(matchingChat) || remoteJidAlt;
+    }
+
+    const syncableRemoteJids = Array.from(
+      new Set([remoteJid, remoteJidAlt].map((value) => this.normalizeOptionalString(value)).filter(Boolean)),
+    ).filter((value) => this.isSyncableChat(value)) as string[];
+    if (!syncableRemoteJids.length) {
+      return null;
+    }
+
+    const [messageGroups, profilePicture] = await Promise.all([
+      Promise.all(syncableRemoteJids.map((jid) => this.fetchMessages(company.id, jid, input.limit ?? 200))),
+      this.fetchProfilePicture(company.id, syncableRemoteJids[0]),
+    ]);
+    const messagesByKey = new Map<string, WebwhatsFetchedMessage>();
+    for (const message of messageGroups.flat()) {
+      const key = this.normalizeOptionalString(message?.key?.id || message?.id || message?.messageTimestamp);
+      if (!key) continue;
+      messagesByKey.set(key, message);
+    }
+    const orderedMessages = Array.from(messagesByKey.values()).sort((left, right) => {
+      const leftTime = this.resolveMessageDate(left?.messageTimestamp)?.getTime() || 0;
+      const rightTime = this.resolveMessageDate(right?.messageTimestamp)?.getTime() || 0;
+      return leftTime - rightTime;
+    });
+
+    if (!matchingChat && orderedMessages.length === 0) {
+      return null;
+    }
+
+    const contact = this.resolvePreferredConversationContact(remoteJidAlt, remoteJid, conversation.contact);
+    const conversationState = matchingChat
+      ? await this.upsertConversationStateFromChat(
+          company.id,
+          matchingChat,
+          contactsByJid.get(remoteJid || '') || null,
+          remoteJidAlt ? contactsByJid.get(remoteJidAlt) || null : null,
+        )
+      : await this.ensureConversationState(company.id, {
+          remoteJid: remoteJid || syncableRemoteJids[0],
+          remoteJidAlt,
+          preferredContact: contact,
+        });
+    const displayName =
+      this.getChatDisplayName(
+        matchingChat || ({ remoteJid } as WebwhatsChatSummary),
+        contactsByJid.get(remoteJid || '') || null,
+        remoteJidAlt ? contactsByJid.get(remoteJidAlt) || null : null,
+      ) || null;
+    const lastMessage = matchingChat?.lastMessage || orderedMessages[orderedMessages.length - 1] || null;
+    const lastMessageAt =
+      this.resolveMessageDate(matchingChat?.lastMessage?.messageTimestamp || matchingChat?.updatedAt)
+      || this.resolveMessageDate(lastMessage?.messageTimestamp)
+      || null;
+
+    return {
+      conversation: conversationState || {
+        id: conversation.id,
+        contact,
+        metadata: conversation.metadata,
+        currentFlow: conversation.currentFlow,
+        currentStep: conversation.currentStep,
+        flowResult: conversation.flowResult,
+        botActive: conversation.botActive,
+        humanAssigned: conversation.humanAssigned,
+        assignedUserId: conversation.assignedUserId,
+        createdAt: conversation.createdAt,
+        updatedAt: conversation.updatedAt,
+      },
+      remoteJid: remoteJid || syncableRemoteJids[0],
+      remoteJidAlt,
+      contact,
+      displayName,
+      avatarUrl:
+        this.normalizeOptionalString(matchingChat?.profilePicUrl)
+        || this.normalizeOptionalString(profilePicture?.profilePictureUrl)
+        || this.normalizeOptionalString(contactsByJid.get(remoteJid || '')?.profilePicUrl)
+        || null,
+      unreadCount: Math.max(0, Number(matchingChat?.unreadCount || 0)),
+      archived: matchingChat ? this.resolveChatArchivedFlag(matchingChat) : null,
+      windowActive:
+        matchingChat?.windowActive === undefined || matchingChat?.windowActive === null
+          ? null
+          : Boolean(matchingChat.windowActive),
+      lastMessageAt,
+      lastMessage,
+      messages: orderedMessages,
+    };
+  }
+
   async listContacts(companyId: number, opts?: { force?: boolean }) {
     const company = await this.prisma.company.findUnique({
       where: { id: companyId },
@@ -334,7 +599,10 @@ export class WebwhatsBridgeService {
       },
     });
     if (!company || !this.canUseConnectedInstance(company)) {
-      throw new Error('WEBWHATS_NOT_CONNECTED');
+      throw new WebwhatsProviderError(
+        'WEBWHATS_NOT_CONNECTED',
+        'Sessao do WhatsApp desconectada.',
+      );
     }
     return company;
   }
@@ -587,7 +855,7 @@ export class WebwhatsBridgeService {
     input: {
       conversationId: number;
     },
-  ) {
+  ): Promise<WebwhatsDeleteChatResult> {
     const company = await this.requireConnectedCompany(companyId);
     const tenantKey = this.buildTenantKey(company.id);
     const conversation = await this.prisma.companyConversation.findFirst({
@@ -607,15 +875,43 @@ export class WebwhatsBridgeService {
       throw new Error('WEBWHATS_CHAT_REMOTE_JID_MISSING');
     }
 
-    // Endpoint expected by the active Webwhats runtime to delete a full chat on WhatsApp side.
-    return this.request<any>({
-      method: 'DELETE',
-      path: `/chat/deleteChat/${encodeURIComponent(tenantKey)}`,
-      purpose: 'exclusao de conversa inteira via Webwhats',
-      data: {
-        chat: remoteJid,
-      },
-    });
+    try {
+      const response = await this.request<any>({
+        method: 'POST',
+        path: `/chat/deleteChat/${encodeURIComponent(tenantKey)}`,
+        purpose: 'exclusao de conversa inteira via Webwhats',
+        data: {
+          chat: remoteJid,
+        },
+      });
+      const result = this.resolveDeleteChatResult(response, remoteJid);
+      this.logger.log(
+        `Webwhats deleteChat ok company=${companyId} conversation=${conversation.id} remoteJid=${remoteJid} outcome=${result.outcome} chatId=${result.chatId || remoteJid}`,
+      );
+      return result;
+    } catch (error) {
+      if (this.isDeleteChatAlreadyMissingError(error)) {
+        const normalizedError = this.asWebwhatsProviderError(error);
+        const result: WebwhatsDeleteChatResult = {
+          outcome: 'already_deleted',
+          chatId: remoteJid,
+          message:
+            normalizedError?.providerMessage ||
+            'Chat ja nao existia mais no WhatsApp.',
+          raw: normalizedError?.providerResponse ?? null,
+        };
+        this.logger.log(
+          `Webwhats deleteChat idempotent company=${companyId} conversation=${conversation.id} remoteJid=${remoteJid} outcome=already_deleted`,
+        );
+        return result;
+      }
+
+      const normalizedError = this.normalizeDeleteChatError(error);
+      this.logger.warn(
+        `Webwhats deleteChat failed company=${companyId} conversation=${conversation.id} remoteJid=${remoteJid} code=${normalizedError.code} status=${normalizedError.statusCode ?? 'na'} message=${normalizedError.message}`,
+      );
+      throw normalizedError;
+    }
   }
 
   async sendReaction(
@@ -801,33 +1097,288 @@ export class WebwhatsBridgeService {
   private async request<T>(options: WebwhatsRequestOptions): Promise<T | null> {
     const config = this.readConfig();
     if (!config.enabled || !config.configured || !config.internalUrl || !config.apiKey) {
-      throw new Error('WEBWHATS_NOT_CONFIGURED');
+      throw new WebwhatsProviderError(
+        'WEBWHATS_NOT_CONFIGURED',
+        'Webwhats nao configurado.',
+      );
     }
 
     const url = new URL(options.path.replace(/^\/+/, ''), `${config.internalUrl.replace(/\/+$/, '')}/`).toString();
-    const response = await axios.request<T>({
-      method: options.method,
-      url,
-      data: options.data,
-      timeout: config.timeoutMs,
-      headers: {
-        apikey: config.apiKey,
-        'Content-Type': 'application/json',
-      },
-      validateStatus: () => true,
-    });
+    try {
+      const response = await axios.request<T>({
+        method: options.method,
+        url,
+        data: options.data,
+        timeout: config.timeoutMs,
+        headers: {
+          apikey: config.apiKey,
+          'Content-Type': 'application/json',
+        },
+        validateStatus: () => true,
+      });
 
-    if (response.status === 404 && options.treatNotFoundAsNull) return null;
-    if (response.status >= 200 && response.status < 300) return response.data ?? null;
+      if (response.status === 404 && options.treatNotFoundAsNull) return null;
+      if (response.status >= 200 && response.status < 300) return response.data ?? null;
 
-    const providerMessage = this.normalizeOptionalString(
-      (response.data as any)?.message || (response.data as any)?.error || response.statusText,
+      throw this.buildProviderErrorFromResponse(
+        response.status,
+        response.data,
+        response.statusText,
+        options.purpose,
+      );
+    } catch (error) {
+      if (error instanceof WebwhatsProviderError) {
+        throw error;
+      }
+      if (axios.isAxiosError(error)) {
+        throw this.mapAxiosError(error, options.purpose);
+      }
+      throw error;
+    }
+  }
+
+  private mapAxiosError(error: AxiosError<unknown>, purpose: string) {
+    const code = String(error.code || '').trim().toUpperCase();
+    if (code === 'ECONNABORTED' || code === 'ETIMEDOUT') {
+      return new WebwhatsProviderError(
+        'WEBWHATS_TIMEOUT',
+        `Webwhats excedeu o tempo limite durante ${purpose}.`,
+      );
+    }
+
+    if (!error.response) {
+      return new WebwhatsProviderError(
+        'WEBWHATS_UNAVAILABLE',
+        `Webwhats indisponivel durante ${purpose}.`,
+      );
+    }
+
+    return this.buildProviderErrorFromResponse(
+      error.response.status,
+      error.response.data,
+      error.response.statusText,
+      purpose,
     );
-    throw new Error(
+  }
+
+  private buildProviderErrorFromResponse(
+    statusCode: number,
+    providerResponse: unknown,
+    statusText: string | null | undefined,
+    purpose: string,
+  ) {
+    const providerMessage =
+      this.extractProviderMessage(providerResponse) ||
+      this.normalizeOptionalString(statusText);
+    return new WebwhatsProviderError(
+      'WEBWHATS_HTTP_ERROR',
       providerMessage
-        ? `Webwhats falhou durante ${options.purpose}: ${providerMessage}`
-        : `Webwhats falhou durante ${options.purpose} (HTTP ${response.status})`,
+        ? `Webwhats falhou durante ${purpose}: ${providerMessage}`
+        : `Webwhats falhou durante ${purpose} (HTTP ${statusCode})`,
+      statusCode,
+      providerResponse,
+      providerMessage,
     );
+  }
+
+  private extractProviderMessage(value: unknown) {
+    if (typeof value === 'string') {
+      return this.normalizeOptionalString(value);
+    }
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      return null;
+    }
+
+    const candidateObjects = [
+      value,
+      (value as any).response,
+      (value as any).data,
+      (value as any).result,
+      (value as any).error_data,
+    ];
+
+    for (const candidate of candidateObjects) {
+      if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) continue;
+      const message = this.normalizeOptionalString(
+        (candidate as any).message ||
+          (candidate as any).error ||
+          (candidate as any).detail ||
+          (candidate as any).details ||
+          (candidate as any).reason ||
+          (candidate as any).title ||
+          (candidate as any).error_user_msg ||
+          (candidate as any).error_user_title,
+      );
+      if (message) return message;
+    }
+
+    return null;
+  }
+
+  private resolveDeleteChatResult(
+    response: unknown,
+    fallbackChatId: string,
+  ): WebwhatsDeleteChatResult {
+    const candidates = this.collectDeleteChatResponseCandidates(response);
+    const chatId =
+      candidates
+        .map((candidate) =>
+          this.normalizeOptionalString(
+            candidate.chatId ||
+              candidate.remoteJid ||
+              candidate.chat ||
+              candidate.jid ||
+              candidate.conversationId,
+          ),
+        )
+        .find(Boolean) ||
+      fallbackChatId;
+    const message =
+      candidates
+        .map((candidate) =>
+          this.normalizeOptionalString(
+            candidate.message || candidate.detail || candidate.details || candidate.reason,
+          ),
+        )
+        .find(Boolean) ||
+      null;
+
+    return {
+      outcome: this.classifyDeleteChatOutcome(response),
+      chatId,
+      message,
+      raw: response,
+    };
+  }
+
+  private classifyDeleteChatOutcome(response: unknown): WebwhatsDeleteChatOutcome {
+    const candidates = this.collectDeleteChatResponseCandidates(response);
+
+    for (const candidate of candidates) {
+      if (
+        this.normalizeOptionalBoolean(candidate.alreadyDeleted) === true ||
+        this.normalizeOptionalBoolean(candidate.notFound) === true ||
+        this.normalizeOptionalBoolean(candidate.not_exists) === true
+      ) {
+        return 'already_deleted';
+      }
+
+      const status = String(candidate.status || candidate.result || '').trim().toLowerCase();
+      if (['already_deleted', 'not_found', 'not-found', 'missing', 'gone'].includes(status)) {
+        return 'already_deleted';
+      }
+    }
+
+    const responseText = this.buildDeleteChatHaystack(response);
+    if (this.matchesDeleteChatAlreadyMissingText(responseText)) {
+      return 'already_deleted';
+    }
+
+    return 'deleted';
+  }
+
+  private collectDeleteChatResponseCandidates(response: unknown) {
+    const candidates: Array<Record<string, any>> = [];
+    const queue = [response];
+
+    while (queue.length) {
+      const current = queue.shift();
+      if (!current || typeof current !== 'object' || Array.isArray(current)) continue;
+      candidates.push(current as Record<string, any>);
+      for (const key of ['data', 'result', 'response']) {
+        const nested = (current as any)[key];
+        if (nested && typeof nested === 'object' && !Array.isArray(nested)) {
+          queue.push(nested);
+        }
+      }
+    }
+
+    return candidates;
+  }
+
+  private isDeleteChatAlreadyMissingError(error: unknown) {
+    const normalizedError = this.asWebwhatsProviderError(error);
+    const haystack = this.buildDeleteChatHaystack(
+      normalizedError?.providerMessage ||
+        normalizedError?.providerResponse ||
+        error,
+    );
+
+    if (!this.matchesDeleteChatAlreadyMissingText(haystack)) {
+      return false;
+    }
+
+    if (!normalizedError) {
+      return true;
+    }
+
+    return [400, 404, 409, 410, 422].includes(Number(normalizedError.statusCode || 0));
+  }
+
+  private matchesDeleteChatAlreadyMissingText(value: string) {
+    return /(chat|conversa|conversation|jid).*(not found|not exists|does not exist|missing|already deleted|already removed|ja apag|ja remov|nao encontrad|não encontrad)/i.test(
+      value,
+    );
+  }
+
+  private normalizeDeleteChatError(error: unknown) {
+    const normalizedError = this.asWebwhatsProviderError(error);
+    if (normalizedError) {
+      if (this.isDeleteChatSessionDisconnectedError(normalizedError)) {
+        return new WebwhatsProviderError(
+          'WEBWHATS_NOT_CONNECTED',
+          'Sessao do WhatsApp desconectada. Reconecte o dispositivo antes de excluir a conversa.',
+          normalizedError.statusCode,
+          normalizedError.providerResponse,
+          normalizedError.providerMessage,
+        );
+      }
+      return normalizedError;
+    }
+
+    const rawMessage = error instanceof Error ? error.message : 'Falha ao excluir conversa no WhatsApp.';
+    return new WebwhatsProviderError('WEBWHATS_HTTP_ERROR', rawMessage);
+  }
+
+  private isDeleteChatSessionDisconnectedError(error: WebwhatsProviderError) {
+    if (error.code === 'WEBWHATS_NOT_CONNECTED') return true;
+    const haystack = this.buildDeleteChatHaystack(
+      error.providerMessage || error.providerResponse || error.message,
+    );
+    return /(session|sessao|instance|whatsapp|device|phone).*(disconnected|not connected|closed|offline|expired|desconectad|encerrad|expirad)|qr code/i.test(
+      haystack,
+    );
+  }
+
+  private asWebwhatsProviderError(error: unknown) {
+    return error instanceof WebwhatsProviderError ? error : null;
+  }
+
+  private buildDeleteChatHaystack(value: unknown) {
+    if (typeof value === 'string') {
+      return value.toLowerCase();
+    }
+    if (!value || typeof value !== 'object') {
+      return '';
+    }
+
+    const fragments: string[] = [];
+    const queue: unknown[] = [value];
+    while (queue.length) {
+      const current = queue.shift();
+      if (!current || typeof current !== 'object' || Array.isArray(current)) continue;
+      for (const candidate of Object.values(current as Record<string, unknown>)) {
+        if (typeof candidate === 'string') {
+          fragments.push(candidate);
+          continue;
+        }
+        if (candidate && typeof candidate === 'object' && !Array.isArray(candidate)) {
+          queue.push(candidate);
+        }
+      }
+    }
+
+    return fragments.join(' | ').toLowerCase();
   }
 
   private async fetchChats(companyId: number, limit: number) {
@@ -1026,29 +1577,37 @@ export class WebwhatsBridgeService {
 
   private async consolidateDuplicateConversations(
     companyId: number,
-    rows: Array<{
-      id: number;
-      contact: string;
-      metadata: string | null;
-      humanAssigned: boolean | null;
-      lastMessageAt: Date | null;
-      lastInteractionAt: Date | null;
-    }>,
+    rows: Array<
+      WebwhatsConversationStateRow & {
+        lastMessageAt: Date | null;
+        lastInteractionAt: Date | null;
+      }
+    >,
     preferredContact: string,
     remoteJid: string,
     remoteJidAlt: string | null,
-  ) {
+  ): Promise<WebwhatsConversationStateRow | null> {
     if (rows.length <= 1) return rows[0] || null;
 
-    const canonicalContact = this.resolvePreferredConversationContact(
+    const preferredResolvedContact = this.resolvePreferredConversationContact(
       preferredContact,
       remoteJid,
       remoteJidAlt,
     );
+    const exactPreferred = rows.find((row) => String(row.contact || '') === preferredResolvedContact);
+    const phoneContact = rows.find((row) => this.isPreferredPhoneContact(row.contact));
     const canonical =
-      rows.find((row) => String(row.contact || '') === canonicalContact) ||
+      (this.isPreferredPhoneContact(preferredResolvedContact) ? exactPreferred : null) ||
+      phoneContact ||
       rows.find((row) => row.humanAssigned) ||
+      exactPreferred ||
       rows[0];
+    const canonicalContact = this.resolveStateContact(
+      preferredResolvedContact,
+      canonical.contact,
+      remoteJid,
+      remoteJidAlt,
+    );
     const duplicates = rows.filter((row) => row.id !== canonical.id);
     if (!duplicates.length) return canonical;
 
@@ -1109,15 +1668,20 @@ export class WebwhatsBridgeService {
           id: true,
           contact: true,
           metadata: true,
+          currentFlow: true,
+          currentStep: true,
+          flowResult: true,
+          botActive: true,
           humanAssigned: true,
-          lastMessageAt: true,
-          lastInteractionAt: true,
+          assignedUserId: true,
+          createdAt: true,
+          updatedAt: true,
         },
       });
     });
   }
 
-  private async upsertConversationFromChat(
+  private async upsertConversationStateFromChat(
     companyId: number,
     chat: WebwhatsChatSummary,
     primaryContact?: WebwhatsContactSummary | null,
@@ -1127,68 +1691,70 @@ export class WebwhatsBridgeService {
     if (!remoteJid) return null;
 
     const remoteJidAlt = this.getChatRemoteJidAlt(chat);
-    const contact = this.resolvePreferredConversationContact(remoteJidAlt, remoteJid);
-    const existing = await this.findConversation(companyId, remoteJid, remoteJidAlt, contact);
-    const existingMetadata = this.parseMetadata(existing?.metadata);
-    const chatDisplayName =
-      this.getChatDisplayName(chat, primaryContact, alternateContact) ||
-      this.getPersistedDisplayName(existingMetadata);
-    const archivedFlag = this.resolveChatArchivedFlag(chat);
-    const metadata = {
-      ...(existingMetadata || {}),
-      whatsappRemoteJid: remoteJid,
-      ...(remoteJidAlt ? { whatsappRemoteJidAlt: remoteJidAlt } : {}),
-      ...(chatDisplayName
-        ? {
-            whatsappName: chatDisplayName,
-            waNickname: chatDisplayName,
-            whatsappProfileName: chatDisplayName,
-            whatsappContactName: chatDisplayName,
-          }
-        : {}),
-      ...(this.normalizeOptionalString(chat.profilePicUrl)
-        ? { whatsappAvatarUrl: this.normalizeOptionalString(chat.profilePicUrl) }
-        : {}),
-      whatsappWindowActive:
-        chat.windowActive === undefined || chat.windowActive === null ? undefined : Boolean(chat.windowActive),
-      whatsappUnreadCount:
-        chat.unreadCount === undefined || chat.unreadCount === null ? undefined : Number(chat.unreadCount || 0),
-      ...(archivedFlag === null ? {} : { whatsappArchived: archivedFlag }),
-    };
-
-    const lastMessageAt = this.resolveMessageDate(chat.lastMessage?.messageTimestamp || chat.updatedAt) || new Date();
+    const preferredContact = this.resolvePreferredConversationContact(remoteJidAlt, remoteJid);
+    const existing = await this.findConversation(companyId, remoteJid, remoteJidAlt, preferredContact);
+    const contact = this.resolveStateContact(preferredContact, existing?.contact, remoteJid, remoteJidAlt);
+    const metadata = this.buildConversationStateMetadata(
+      this.parseMetadata(existing?.metadata),
+      remoteJid,
+      remoteJidAlt,
+    );
     const serializedMetadata = JSON.stringify(metadata);
-    const hasLastMessageChanged =
-      new Date(existing?.lastMessageAt || 0).getTime() !== lastMessageAt.getTime();
     const conversation = existing
-      ? !hasLastMessageChanged && String(existing.metadata || '') === serializedMetadata
-        ? { id: existing.id, metadata: existing.metadata }
+      ? String(existing.contact || '') === contact && String(existing.metadata || '') === serializedMetadata
+        ? existing
         : await this.prisma.companyConversation.update({
             where: { id: existing.id },
             data: {
+              contact,
               metadata: serializedMetadata,
-              lastMessageAt,
-              lastInteractionAt: lastMessageAt,
             },
-            select: { id: true, metadata: true },
+            select: {
+              id: true,
+              contact: true,
+              metadata: true,
+              currentFlow: true,
+              currentStep: true,
+              flowResult: true,
+              botActive: true,
+              humanAssigned: true,
+              assignedUserId: true,
+              createdAt: true,
+              updatedAt: true,
+            },
           })
-      : await this.prisma.companyConversation.create({
-          data: {
-            companyId,
-            channel: 'whatsapp',
-            contact,
-            metadata: serializedMetadata,
-            lastMessageAt,
-            lastInteractionAt: lastMessageAt,
-          },
-          select: { id: true, metadata: true },
+      : await this.createConversationStateWithRetry(companyId, {
+          contact,
+          metadata: serializedMetadata,
+          remoteJid,
+          remoteJidAlt,
         });
+
+    return conversation;
+  }
+
+  private async upsertConversationFromChat(
+    companyId: number,
+    chat: WebwhatsChatSummary,
+    primaryContact?: WebwhatsContactSummary | null,
+    alternateContact?: WebwhatsContactSummary | null,
+  ) {
+    const conversation = await this.upsertConversationStateFromChat(
+      companyId,
+      chat,
+      primaryContact,
+      alternateContact,
+    );
+    if (!conversation) return null;
+
+    const remoteJid = this.normalizeOptionalString(chat.remoteJid);
+    const remoteJidAlt = this.getChatRemoteJidAlt(chat);
 
     if (chat.lastMessage) {
       await this.upsertConversationMessage(
         companyId,
         conversation.id,
-        remoteJid,
+        remoteJid || this.normalizeOptionalString(chat.remoteJid) || '',
         chat.lastMessage,
         remoteJidAlt,
       );
@@ -1196,15 +1762,173 @@ export class WebwhatsBridgeService {
     return conversation;
   }
 
+  private async ensureConversationState(
+    companyId: number,
+    input: {
+      remoteJid: string;
+      remoteJidAlt?: string | null;
+      preferredContact: string;
+    },
+  ) {
+    const existing = await this.findConversation(
+      companyId,
+      input.remoteJid,
+      input.remoteJidAlt || null,
+      input.preferredContact,
+    );
+    const contact = this.resolveStateContact(
+      input.preferredContact,
+      existing?.contact,
+      input.remoteJid,
+      input.remoteJidAlt || null,
+    );
+    const metadata = this.buildConversationStateMetadata(
+      this.parseMetadata(existing?.metadata),
+      input.remoteJid,
+      input.remoteJidAlt || null,
+    );
+    const serializedMetadata = JSON.stringify(metadata);
+    if (existing) {
+      if (String(existing.contact || '') === contact && String(existing.metadata || '') === serializedMetadata) {
+        return existing;
+      }
+      return this.prisma.companyConversation.update({
+        where: { id: existing.id },
+        data: {
+          contact,
+          metadata: serializedMetadata,
+        },
+        select: {
+          id: true,
+          contact: true,
+          metadata: true,
+          currentFlow: true,
+          currentStep: true,
+          flowResult: true,
+          botActive: true,
+          humanAssigned: true,
+          assignedUserId: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+      });
+    }
+
+    return this.createConversationStateWithRetry(companyId, {
+      contact,
+      metadata: serializedMetadata,
+      remoteJid: input.remoteJid,
+      remoteJidAlt: input.remoteJidAlt || null,
+    });
+  }
+
+  private async createConversationStateWithRetry(
+    companyId: number,
+    input: {
+      contact: string;
+      metadata: string;
+      remoteJid: string;
+      remoteJidAlt: string | null;
+    },
+  ) {
+    const select = {
+      id: true,
+      contact: true,
+      metadata: true,
+      currentFlow: true,
+      currentStep: true,
+      flowResult: true,
+      botActive: true,
+      humanAssigned: true,
+      assignedUserId: true,
+      createdAt: true,
+      updatedAt: true,
+    } as const;
+
+    try {
+      return await this.prisma.companyConversation.create({
+        data: {
+          companyId,
+          channel: 'whatsapp',
+          contact: input.contact,
+          metadata: input.metadata,
+        },
+        select,
+      });
+    } catch (error) {
+      if (!this.isUniqueConstraintError(error)) throw error;
+      const existing = await this.findConversation(
+        companyId,
+        input.remoteJid,
+        input.remoteJidAlt,
+        input.contact,
+      );
+      if (!existing) throw error;
+      return existing;
+    }
+  }
+
+  private buildConversationStateMetadata(
+    metadata: Record<string, any>,
+    remoteJid: string,
+    remoteJidAlt: string | null,
+  ) {
+    const nextMetadata = { ...(metadata || {}) };
+    delete nextMetadata.whatsappName;
+    delete nextMetadata.waNickname;
+    delete nextMetadata.whatsappProfileName;
+    delete nextMetadata.whatsappContactName;
+    delete nextMetadata.whatsappAvatarUrl;
+    delete nextMetadata.whatsappWindowActive;
+    delete nextMetadata.whatsappUnreadCount;
+    delete nextMetadata.whatsappArchived;
+    nextMetadata.whatsappRemoteJid = remoteJid;
+    if (remoteJidAlt) {
+      nextMetadata.whatsappRemoteJidAlt = remoteJidAlt;
+    }
+    return nextMetadata;
+  }
+
+  private isPreferredPhoneContact(value: unknown) {
+    const normalized = this.normalizeOptionalString(value);
+    if (!normalized || normalized.includes('@')) return false;
+    return Boolean(normalizeWhatsAppPhone(normalized));
+  }
+
+  private resolveStateContact(
+    preferredContact: string,
+    existingContact: string | null | undefined,
+    remoteJid: string,
+    remoteJidAlt: string | null,
+  ) {
+    return this.resolvePreferredConversationContact(
+      remoteJidAlt,
+      this.isPreferredPhoneContact(existingContact) ? existingContact : null,
+      preferredContact,
+      remoteJid,
+    );
+  }
+
+  private isUniqueConstraintError(error: unknown) {
+    return Boolean(error) && typeof error === 'object' && (error as any).code === 'P2002';
+  }
+
   private async findConversation(
     companyId: number,
     remoteJid: string,
     remoteJidAlt: string | null,
     preferredContact: string,
-  ) {
+  ): Promise<WebwhatsConversationStateRow | null> {
     const digits = String(remoteJid).replace(/\D/g, '');
     const altDigits = String(remoteJidAlt || '').replace(/\D/g, '');
     const candidates = buildWhatsAppPhoneCandidates(preferredContact);
+    const metadataCandidates = Array.from(
+      new Set(
+        [remoteJid, remoteJidAlt]
+          .map((value) => this.normalizeOptionalString(value))
+          .filter(Boolean),
+      ),
+    ) as string[];
     const rows = await this.prisma.companyConversation.findMany({
       where: {
         companyId,
@@ -1216,6 +1940,7 @@ export class WebwhatsBridgeService {
           ...candidates.map((candidate) => ({ contact: candidate })),
           ...(digits ? [{ contact: { endsWith: digits } }] : []),
           ...(altDigits ? [{ contact: { endsWith: altDigits } }] : []),
+          ...metadataCandidates.map((candidate) => ({ metadata: { contains: candidate } })),
         ],
       },
       orderBy: { lastMessageAt: 'desc' },
@@ -1223,9 +1948,16 @@ export class WebwhatsBridgeService {
         id: true,
         contact: true,
         metadata: true,
+        currentFlow: true,
+        currentStep: true,
+        flowResult: true,
+        botActive: true,
         humanAssigned: true,
+        assignedUserId: true,
         lastMessageAt: true,
         lastInteractionAt: true,
+        createdAt: true,
+        updatedAt: true,
       },
     });
 
@@ -1240,6 +1972,8 @@ export class WebwhatsBridgeService {
     if (consolidated) return consolidated;
     const exactPreferred = rows.find((row) => String(row.contact || '') === preferredContact);
     if (exactPreferred) return exactPreferred;
+    const phoneContact = rows.find((row) => this.isPreferredPhoneContact(row.contact));
+    if (phoneContact) return phoneContact;
     const humanAssigned = rows.find((row) => row.humanAssigned);
     if (humanAssigned) return humanAssigned;
     return rows[0] || null;
