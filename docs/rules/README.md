@@ -27,3 +27,4 @@ Tudo que se repete entre modulos deve virar padrao documentado nesta pasta.
 ## Regras iniciais
 
 - [RULE_UI_UX_GLOBAL.md](./RULE_UI_UX_GLOBAL.md)
+- [RULE_LOGIN.md](./RULE_LOGIN.md)
