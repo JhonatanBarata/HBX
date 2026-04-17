@@ -1,5 +1,6 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { CustomerProfileService } from '../customer-profile/customer-profile.service';
+import { InboxService } from '../inbox/inbox.service';
 import { ConversationsService } from '../messaging/conversations.service';
 import { buildWhatsAppPhoneCandidates } from '../messaging/whatsapp-channel';
 import { PrismaService } from '../prisma/prisma.service';
@@ -64,7 +65,20 @@ export class VendasService {
     private readonly prisma: PrismaService,
     private readonly customerProfileService: CustomerProfileService,
     private readonly conversations: ConversationsService,
+    private readonly inboxService: InboxService,
   ) {}
+
+  async getAutomationBotConfigForUser(user: any) {
+    return this.inboxService.getBotConfig(user);
+  }
+
+  async updateAutomationBotConfigForUser(user: any, payload: unknown) {
+    return this.inboxService.updateBotConfig(user, payload);
+  }
+
+  async getAutomationAgendaForUser(user: any) {
+    return this.inboxService.getAgendaConfig(user);
+  }
 
   private normalizeText(value: unknown) {
     const normalized = String(value || '').trim();

@@ -331,7 +331,7 @@ export default function RegisterPage() {
                 ) : null}
               </div>
 
-              <div className="flex items-center justify-center gap-6 text-sm">
+              <div className="flex w-full flex-col sm:flex-row items-center sm:justify-between gap-3 text-sm">
                 {confirmationPending.canResendConfirmation ? (
                   <a
                     href="#"
@@ -340,8 +340,9 @@ export default function RegisterPage() {
                       if (!resendingConfirmation) void resendConfirmation(confirmationPending.email);
                     }}
                     className="login-link font-medium"
+                    style={{ whiteSpace: "nowrap" }}
                   >
-                    {resendingConfirmation ? "Reenviando..." : "Reenviar email"}
+                    {resendingConfirmation ? "Reenviando..." : "Reenviar e-mail"}
                   </a>
                 ) : null}
 

@@ -42,7 +42,14 @@ function createService(overrides?: Partial<Record<string, any>>) {
     ...(overrides?.conversations || {}),
   } as any;
 
-  const service = new VendasService(prisma, customerProfileService, conversations);
+  const inboxService = {
+    getBotConfig: async () => null,
+    updateBotConfig: async (_user: any, payload: unknown) => payload,
+    getAgendaConfig: async () => null,
+    ...(overrides?.inboxService || {}),
+  } as any;
+
+  const service = new VendasService(prisma, customerProfileService, conversations, inboxService);
   return { service, getOrCreateCalls, updateConversationStateCalls };
 }
 
