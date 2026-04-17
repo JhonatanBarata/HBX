@@ -12,5 +12,6 @@ import { CustomerProfileModule } from '../customer-profile/customer-profile.modu
   imports: [PrismaModule, ModulesAccessModule, MessagingModule, HbxRecoveryModule, CadastrosModule, CustomerProfileModule],
   controllers: [InboxController],
   providers: [InboxService],
+  exports: [InboxService],
 })
 export class InboxModule {}
