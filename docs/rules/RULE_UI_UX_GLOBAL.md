@@ -15,8 +15,27 @@ Isso inclui, principalmente:
 - `confirm()`;
 - `prompt()`;
 - mensagens soltas sem componente visual do HBX;
-- estados de sucesso/erro sem padrao visual;
+- estados soltos de sucesso/erro/aviso sem padrao visual;
 - botoes com variacao arbitraria de tamanho, hierarquia ou rotulo.
+
+---
+
+## Referencia visual global
+
+A tela de login atual do HBX passa a ser a referencia visual base para elementos compartilhados do sistema.
+
+Isso vale principalmente para:
+- botoes;
+- campos;
+- modais;
+- avisos;
+- confirmacoes;
+- estados desativados;
+- containers de autenticacao e foco.
+
+### Regra pratica
+
+Sempre que surgir duvida entre estilos diferentes, o executor deve aproximar o componente da linguagem visual do login, e nao improvisar uma linguagem nova.
 
 ---
 
@@ -67,45 +86,21 @@ Toda acao destrutiva deve usar um componente padronizado com:
 - estado de loading;
 - bloqueio contra clique duplo.
 
-### Exemplo de linguagem
-
-**Titulo:** Excluir arquivo?
-
-**Descricao:** Esta acao remove o arquivo permanentemente do sistema. Essa operacao nao pode ser desfeita.
-
-**Botoes:**
-- Cancelar
-- Excluir arquivo
-
 ---
 
 ## Regra 3 — Feedback de sucesso, erro e aviso deve seguir padrao unico
 
-### Sucesso
-Usar toast, banner ou estado inline com linguagem curta e direta.
+### Regra
 
-Exemplos:
-- E-mail confirmado com sucesso.
-- Arquivo excluido com sucesso.
-- Configuracao atualizada.
+Todo aviso do sistema deve seguir a linguagem visual do login e o mesmo padrao compartilhado do HBX.
 
-### Erro
-Erro deve ser humano, claro e acionavel.
+### Obrigatorio
 
-Exemplos:
-- Nao foi possivel excluir o arquivo. Tente novamente.
-- Nao foi possivel confirmar o e-mail.
-- Sua sessao expirou. Entre novamente.
-
-### Aviso
-Aviso deve orientar, nao assustar.
-
-Exemplos:
-- Voce tem alteracoes nao salvas.
-- Esta acao pode impactar automacoes ativas.
-
-### Regra de UX
-Nao exibir mensagem crua, jogada, sem componente visual do sistema.
+- sucesso deve parecer HBX;
+- erro deve parecer HBX;
+- aviso deve parecer HBX;
+- confirmacao deve parecer HBX;
+- nada pode aparecer como mensagem crua ou visual de navegador.
 
 ---
 
@@ -137,19 +132,16 @@ Exemplos:
 - Desativar
 - Cancelar integracao
 
-#### 4. Ghost / neutro
-Usado para acoes leves e pouco prioritarias.
-Exemplos:
-- Agora nao
-- Ignorar
-- Depois
+#### 4. Desativado
+Mantem forma e estrutura do botao, mas perde forca visual e interacao.
 
 ### Regras obrigatorias
 
 - nao inverter hierarquia visual de forma arbitraria;
 - nao usar botao destrutivo como se fosse botao comum;
 - nao usar mais de uma acao primaria competindo na mesma area sem motivo forte;
-- rotulo do botao deve usar verbo claro.
+- rotulo do botao deve usar verbo claro;
+- estado desativado deve parecer indisponivel, nao quebrado.
 
 ---
 
