@@ -212,7 +212,7 @@ export class MailService {
 
   private async deliverWithResend(
     summary: MailConfigurationSummary,
-    message: { from?: string; replyTo?: string; to: string; subject: string; text: string },
+    message: { from?: string; replyTo?: string; to: string; subject: string; text: string; html?: string | null },
   ) {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const { Resend } = require('resend');
@@ -224,6 +224,7 @@ export class MailService {
       to: message.to,
       subject: message.subject,
       text: message.text,
+      html: message.html || undefined,
     });
 
     if (response?.error) {
@@ -238,7 +239,7 @@ export class MailService {
   private async deliverWithSmtpFallback(
     nodemailer: any,
     summary: MailConfigurationSummary,
-    message: { from?: string; replyTo?: string; to: string; subject: string; text: string },
+    message: { from?: string; replyTo?: string; to: string; subject: string; text: string; html?: string | null },
   ) {
     const attempts = this.buildSmtpAttempts(summary);
     let lastError: unknown = null;
@@ -324,7 +325,7 @@ export class MailService {
     };
   }
 
-  async sendMail(input: { to: string; subject: string; text: string; from?: string | null; replyTo?: string | null }): Promise<MailSendResult> {
+  async sendMail(input: { to: string; subject: string; text: string; html?: string | null; from?: string | null; replyTo?: string | null }): Promise<MailSendResult> {
     const summary = this.getConfigurationSummary();
     const from = this.normalizeEnvValue(input.from) || summary.from;
     const replyTo = this.buildReplyToAddress(input.replyTo);
@@ -371,6 +372,7 @@ export class MailService {
         to: input.to,
         subject: input.subject,
         text: input.text,
+        html: input.html || undefined,
       });
 
       const previewUrl = nodemailer.getTestMessageUrl(info) || null;
@@ -401,6 +403,7 @@ export class MailService {
         to: input.to,
         subject: input.subject,
         text: input.text,
+        html: input.html || undefined,
       });
 
       return {
@@ -428,6 +431,7 @@ export class MailService {
       to: input.to,
       subject: input.subject,
       text: input.text,
+      html: input.html || undefined,
     });
 
     return {

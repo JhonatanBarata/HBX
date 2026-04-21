@@ -130,6 +130,33 @@ export class FinanceiroService {
     return this.normalizeCurrencyAmount(company?.plan?.price || 0);
   }
 
+  private resolveExtraSeatMonthlyAmount(pricingPolicy: any) {
+    return this.normalizeCurrencyAmount(
+      pricingPolicy?.extraSeatMonthlyAmount ?? process.env.HBX_EXTRA_SEAT_MONTHLY_AMOUNT ?? 0,
+    );
+  }
+
+  private buildSeatBillingSnapshot(company: any, billingCycle: string, pricingPolicy: any) {
+    const activeUsers = Array.isArray(company?.users)
+      ? company.users.filter((user: any) => Boolean(user?.isActive) && !Boolean(user?.isSystemMaster)).length
+      : 0;
+    const includedActiveUsers = 2;
+    const extraActiveUsers = Math.max(0, activeUsers - includedActiveUsers);
+    const extraSeatMonthlyAmount = this.resolveExtraSeatMonthlyAmount(pricingPolicy);
+    const cycleMultiplier = billingCycle === 'ANNUAL' ? 12 : 1;
+    const extraSeatCycleAmount = this.normalizeCurrencyAmount(
+      extraActiveUsers * extraSeatMonthlyAmount * cycleMultiplier,
+    );
+
+    return {
+      activeUsers,
+      includedActiveUsers,
+      extraActiveUsers,
+      extraSeatMonthlyAmount,
+      extraSeatCycleAmount,
+    };
+  }
+
   private resolveUserContext(user: any) {
     const companyId = Number(user?.masterContext?.active ? user?.masterContext?.companyId : user?.companyId || 0);
     const userId = Number(user?.id || 0);
@@ -252,10 +279,12 @@ export class FinanceiroService {
     const manualDiscountPercent = Math.max(0, this.normalizeCurrencyAmount(company?.manualDiscountPercent || 0));
     const referral = this.buildReferralSnapshot(company, pricingPolicy);
     const freeMonths = Math.max(0, Math.trunc(Number(company?.freeMonths || 0) || 0));
-    const baseCycleAmount =
+    const basePlanCycleAmount =
       billingCycle === 'ANNUAL'
         ? this.normalizeCurrencyAmount(monthlyValue * 12)
         : monthlyValue;
+    const seats = this.buildSeatBillingSnapshot(company, billingCycle, pricingPolicy);
+    const baseCycleAmount = this.normalizeCurrencyAmount(basePlanCycleAmount + seats.extraSeatCycleAmount);
     const annualDiscountValue =
       billingCycle === 'ANNUAL'
         ? this.normalizeCurrencyAmount(baseCycleAmount * (annualPlanDiscountPercent / 100))
@@ -301,6 +330,12 @@ export class FinanceiroService {
       referralReferrerName: referral.referrerName,
       referralCode: referral.referralCode,
       isReferral: referral.isReferral,
+      basePlanCycleAmount,
+      activeUsers: seats.activeUsers,
+      includedActiveUsers: seats.includedActiveUsers,
+      extraActiveUsers: seats.extraActiveUsers,
+      extraSeatMonthlyAmount: seats.extraSeatMonthlyAmount,
+      extraSeatCycleAmount: seats.extraSeatCycleAmount,
       baseCycleAmount,
       finalCycleAmount,
       pendingCount,
@@ -361,6 +396,9 @@ export class FinanceiroService {
           companyModules: {
             include: { systemModule: true },
             orderBy: { systemModule: { name: 'asc' } },
+          },
+          users: {
+            select: { id: true, isActive: true, isSystemMaster: true },
           },
         },
       }),
@@ -501,6 +539,9 @@ export class FinanceiroService {
         },
         companyModules: {
           include: { systemModule: true },
+        },
+        users: {
+          select: { id: true, isActive: true, isSystemMaster: true },
         },
       },
       }),
@@ -655,6 +696,9 @@ export class FinanceiroService {
           companyModules: {
             include: { systemModule: true },
             orderBy: { systemModule: { name: 'asc' } },
+          },
+          users: {
+            select: { id: true, isActive: true, isSystemMaster: true },
           },
         },
       }),
@@ -863,6 +907,9 @@ export class FinanceiroService {
         },
         companyModules: {
           include: { systemModule: true },
+        },
+        users: {
+          select: { id: true, isActive: true, isSystemMaster: true },
         },
       },
     });

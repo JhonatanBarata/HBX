@@ -1811,7 +1811,7 @@ export default function TopBar() {
                       />
                       <input
                         type="password"
-                        placeholder="Nova senha (min. 4)"
+                        placeholder="Nova senha (mín. 8)"
                         value={newPass}
                         onChange={(event) => setNewPass(event.target.value)}
                         className="field"

@@ -29,6 +29,7 @@ import {
   ChatThread,
 } from "@/components/chat/PremiumChat";
 import DashboardScaffold from "@/components/DashboardScaffold";
+import HbxConfirmDialog from "@/components/HbxConfirmDialog";
 import ConversationActionList from "@/components/workspace/ConversationActionList";
 import ConversationBadgeList from "@/components/workspace/ConversationBadgeList";
 import ConversationContextPanel from "@/components/workspace/ConversationContextPanel";
@@ -1758,6 +1759,8 @@ export default function HbxRecoveryClientPage({ embedded = false }: HbxRecoveryC
   );
   const [loadingMetaTemplates, setLoadingMetaTemplates] = useState(true);
   const [metaTemplateBusy, setMetaTemplateBusy] = useState<string | null>(null);
+  const [deleteMetaTemplateDialog, setDeleteMetaTemplateDialog] =
+    useState<RecoveryMetaTemplateItem | null>(null);
   const [templateComposer, setTemplateComposer] = useState<RecoveryTemplateComposer>(
     DEFAULT_TEMPLATE_COMPOSER,
   );
@@ -3405,13 +3408,12 @@ export default function HbxRecoveryClientPage({ embedded = false }: HbxRecoveryC
   }
 
   async function deleteMetaTemplate(template: RecoveryMetaTemplateItem) {
-    const confirmed =
-      typeof window === "undefined"
-        ? true
-        : window.confirm(
-            `Excluir o template '${template.name}' (${template.language}) na Meta e no HBX? Essa acao nao tem volta.`,
-          );
-    if (!confirmed) return;
+    setDeleteMetaTemplateDialog(template);
+  }
+
+  async function confirmDeleteMetaTemplate() {
+    const template = deleteMetaTemplateDialog;
+    if (!template) return;
 
     setMetaTemplateBusy(`delete:${template.name}:${template.language}`);
     try {
@@ -3426,6 +3428,7 @@ export default function HbxRecoveryClientPage({ embedded = false }: HbxRecoveryC
       const safePayload = normalizeMetaTemplatesPayload(payload);
       setMetaTemplates(safePayload);
       setBotConfig((current) => syncBotConfigWithMetaTemplates(current, safePayload));
+      setDeleteMetaTemplateDialog(null);
       setNotice(`Template ${template.name} excluido na Meta e removido do HBX.`);
     } catch (error) {
       const reason = error instanceof Error ? error.message : "Erro ao excluir template";
@@ -9578,6 +9581,25 @@ export default function HbxRecoveryClientPage({ embedded = false }: HbxRecoveryC
         </div>
 
       </RecoveryShell>
+
+      <HbxConfirmDialog
+        open={deleteMetaTemplateDialog !== null}
+        title="Excluir template Meta"
+        description={
+          deleteMetaTemplateDialog
+            ? `Excluir '${deleteMetaTemplateDialog.name}' (${deleteMetaTemplateDialog.language}) na Meta e no HBX? Essa ação não tem volta.`
+            : "Excluir template na Meta e no HBX?"
+        }
+        confirmLabel="Excluir template"
+        destructive
+        busy={
+          deleteMetaTemplateDialog
+            ? metaTemplateBusy === `delete:${deleteMetaTemplateDialog.name}:${deleteMetaTemplateDialog.language}`
+            : false
+        }
+        onCancel={() => setDeleteMetaTemplateDialog(null)}
+        onConfirm={() => void confirmDeleteMetaTemplate()}
+      />
 
       <ClientDrawer
         open={drawerOpen}

@@ -181,14 +181,6 @@
       "CRIAR_ALERTA": true,
       "VER_HISTORICO_FINANCEIRO": true
     },
-    "GERENTE": {
-      "CRIAR_IMPORTACAO": true,
-      "EDITAR_IMPORTACAO": true,
-      "FINALIZAR_IMPORTACAO": true,
-      "REABRIR_IMPORTACAO": false,
-      "CRIAR_ALERTA": true,
-      "VER_HISTORICO_FINANCEIRO": true
-    },
     "USUARIO": {
       "CRIAR_IMPORTACAO": true,
       "EDITAR_IMPORTACAO": true,
@@ -210,12 +202,6 @@
         "email": "dev.admin@local.hbx",
         "name": "Dev Admin",
         "role": "ADMIN"
-      },
-      {
-        "username": "dev.manager",
-        "email": "dev.manager@local.hbx",
-        "name": "Dev Manager",
-        "role": "GERENTE"
       },
       {
         "username": "dev.user",

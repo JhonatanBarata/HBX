@@ -239,6 +239,11 @@ export async function ensureMasterBillingRuntimeSchema(prisma: PrismaService) {
 
   await prisma.$executeRawUnsafe(`
     ALTER TABLE "MasterGlobalIntegrationConfig"
+    ADD COLUMN IF NOT EXISTS "extraSeatMonthlyAmount" DOUBLE PRECISION NOT NULL DEFAULT 0
+  `);
+
+  await prisma.$executeRawUnsafe(`
+    ALTER TABLE "MasterGlobalIntegrationConfig"
     ADD COLUMN IF NOT EXISTS "referralDiscountActive" BOOLEAN NOT NULL DEFAULT false
   `);
 

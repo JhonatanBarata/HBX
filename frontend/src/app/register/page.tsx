@@ -5,7 +5,8 @@ import { useRouter } from "next/navigation";
 import { setToken } from "../dashboard/_lib/api";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3000";
-const TRANSACTIONAL_SENDER_EMAIL = "barataimports@gmail.com";
+const PUBLIC_SIGNUP_ENTITY_TYPE = "PF" as const;
+const PUBLIC_SIGNUP_TRIAL_MODULE = "vendas" as const;
 
 type ApiErrorPayload = {
   message?: string | string[];
@@ -22,7 +23,7 @@ type SignupResponse = {
   canResendConfirmation?: boolean;
   entityType?: "PF" | "PJ";
   companyName?: string;
-  trialModuleSelection?: "vendas" | "recovery";
+  trialModuleSelection?: "vendas";
   acquisitionSource?: string;
   warnings?: string[];
   delivery?: {
@@ -39,35 +40,11 @@ type ConfirmationPendingState = {
   deliveryFailed: boolean;
   entityType: "PF" | "PJ" | null;
   companyName: string | null;
-  trialModuleSelection: "vendas" | "recovery" | null;
+  trialModuleSelection: "vendas" | null;
   warnings: string[];
   previewUrl: string | null;
   confirmUrl: string | null;
 };
-
-const PUBLIC_EMAIL_DOMAINS = new Set([
-  "gmail.com",
-  "googlemail.com",
-  "hotmail.com",
-  "outlook.com",
-  "outlook.com.br",
-  "live.com",
-  "live.com.br",
-  "msn.com",
-  "icloud.com",
-  "me.com",
-  "mac.com",
-  "yahoo.com",
-  "yahoo.com.br",
-  "bol.com.br",
-  "uol.com.br",
-  "terra.com.br",
-  "ig.com.br",
-  "proton.me",
-  "protonmail.com",
-  "aol.com",
-  "mail.com",
-]);
 
 function getErrorMessage(data: unknown) {
   if (!data || typeof data !== "object") return null;
@@ -80,14 +57,7 @@ function getErrorMessage(data: unknown) {
 
 export default function RegisterPage() {
   const router = useRouter();
-  const [entityType, setEntityType] = useState<"PF" | "PJ">("PJ");
   const [companyName, setCompanyName] = useState("");
-  const [name, setName] = useState("");
-  const [trialModuleSelection, setTrialModuleSelection] = useState<"vendas" | "recovery">("vendas");
-  const [acquisitionSource, setAcquisitionSource] = useState("");
-  const [acquisitionSourceDetail, setAcquisitionSourceDetail] = useState("");
-  const [referralReferrerName, setReferralReferrerName] = useState("");
-  const [referralCode, setReferralCode] = useState("");
   const [username, setUsername] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -117,12 +87,6 @@ export default function RegisterPage() {
     setMounted(true);
     return () => setMounted(false);
   }, []);
-
-  const isPj = entityType === "PJ";
-  const emailDomain = email.includes("@") ? email.split("@")[1]?.trim().toLowerCase() : "";
-  const usesPublicEmail = isPj && Boolean(emailDomain) && PUBLIC_EMAIL_DOMAINS.has(emailDomain);
-  const isReferral = acquisitionSource === "indicacao";
-  const needsSourceDetail = acquisitionSource === "outro" || acquisitionSource === "parceiro";
 
   async function resendConfirmation(targetEmail: string) {
     setConfirmationActionMessage(null);
@@ -180,45 +144,24 @@ export default function RegisterPage() {
     setConfirmationActionMessage(null);
 
     try {
+      const normalizedCompanyName = String(companyName || "").trim();
       const bodyPayload: {
-        entityType: "PF" | "PJ";
+        entityType: "PF";
         companyName: string;
         name: string;
-        trialModuleSelection: "vendas" | "recovery";
-        acquisitionSource?: string;
-        acquisitionSourceDetail?: string;
-        referralReferrerName?: string;
-        referralCode?: string;
-        username: string;
+        trialModuleSelection: "vendas";
+        username?: string;
         email: string;
         password: string;
       } = {
-        entityType,
-        companyName: isPj ? companyName : "",
-        name,
-        trialModuleSelection,
-        username,
+        entityType: PUBLIC_SIGNUP_ENTITY_TYPE,
+        companyName: normalizedCompanyName,
+        name: normalizedCompanyName,
+        trialModuleSelection: PUBLIC_SIGNUP_TRIAL_MODULE,
+        username: username.trim() || email.trim().toLowerCase(),
         email,
         password,
       };
-
-      // Only include acquisitionSource when a real value is selected (avoid sending empty string)
-      if (acquisitionSource && String(acquisitionSource).trim() !== "") {
-        bodyPayload.acquisitionSource = acquisitionSource;
-      }
-
-      if (needsSourceDetail && acquisitionSourceDetail && String(acquisitionSourceDetail).trim() !== "") {
-        bodyPayload.acquisitionSourceDetail = acquisitionSourceDetail;
-      }
-
-      if (isReferral) {
-        if (referralReferrerName && String(referralReferrerName).trim() !== "") {
-          bodyPayload.referralReferrerName = referralReferrerName;
-        }
-        if (referralCode && String(referralCode).trim() !== "") {
-          bodyPayload.referralCode = referralCode;
-        }
-      }
 
       const signupRes = await fetch(`${API_URL}/auth/signup`, {
         method: "POST",
@@ -252,12 +195,15 @@ export default function RegisterPage() {
             "Cadastro criado. Confirme seu e-mail para liberar o trial.",
           canResendConfirmation: Boolean(payload.canResendConfirmation),
           deliveryFailed: Boolean(payload.delivery?.failed),
-          entityType: payload.entityType === "PF" || payload.entityType === "PJ" ? payload.entityType : entityType,
+          entityType:
+            payload.entityType === "PF" || payload.entityType === "PJ"
+              ? payload.entityType
+              : PUBLIC_SIGNUP_ENTITY_TYPE,
           companyName: payload.companyName ? String(payload.companyName) : null,
           trialModuleSelection:
-            payload.trialModuleSelection === "vendas" || payload.trialModuleSelection === "recovery"
+            payload.trialModuleSelection === "vendas"
               ? payload.trialModuleSelection
-              : trialModuleSelection,
+              : PUBLIC_SIGNUP_TRIAL_MODULE,
           warnings: Array.isArray(payload.warnings)
             ? payload.warnings.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
             : [],
@@ -319,7 +265,7 @@ export default function RegisterPage() {
             <div className="space-y-4">
               <div className="border border-foreground/10 bg-background p-4 rounded-xl shadow-sm">
                 <p className="text-sm font-semibold">Confirmação pendente</p>
-                <p className="text-sm text-foreground/80 mt-2">E-mail enviado, e cadastro criado.</p>
+                <p className="text-sm text-foreground/80 mt-2">Cadastro criado com sucesso.</p>
                 <p className="text-sm text-foreground/80 mt-2">Confirme seu e-mail para liberar o trial.</p>
                 {confirmationPending.deliveryFailed ? (
                   <p className="text-xs text-amber-700 mt-3">
@@ -354,135 +300,26 @@ export default function RegisterPage() {
                   }}
                   className="login-link font-medium"
                 >
-                  Ir para login
+                  Ir para o login
                 </a>
               </div>
             </div>
           ) : (
             <form onSubmit={handleRegister} className="space-y-4">
               <div className="grid grid-cols-1 gap-4">
-                {!firstAccessInfo ? (
-                  <>
-                    <div className="login-field">
-                      <label className="login-label">Tipo de cadastro</label>
-                      <select
-                        className="input mt-1"
-                        value={entityType}
-                        onChange={(event) => setEntityType(event.target.value === "PF" ? "PF" : "PJ")}
-                      >
-                        <option value="PJ">Pessoa jurídica</option>
-                        <option value="PF">Pessoa física</option>
-                      </select>
-                    </div>
-
-                    <div className="login-field">
-                      <label className="login-label">Módulo inicial do trial</label>
-                      <select
-                        className="input mt-1"
-                        value={trialModuleSelection}
-                        onChange={(event) =>
-                          setTrialModuleSelection(event.target.value === "recovery" ? "recovery" : "vendas")
-                        }
-                      >
-                        <option value="vendas">Vendas</option>
-                        <option value="recovery">Recovery</option>
-                        </select>
-                      </div>
-
-                    <div className="login-field">
-                      <label className="login-label">De onde você ouviu falar da HBX?</label>
-                      <select
-                        className="input mt-1"
-                        value={acquisitionSource}
-                        onChange={(event) => setAcquisitionSource(event.target.value)}
-                      >
-                        <option value="">Prefiro não informar agora</option>
-                        <option value="google">Google</option>
-                        <option value="instagram">Instagram</option>
-                        <option value="youtube">YouTube</option>
-                        <option value="indicacao">Indicação</option>
-                        <option value="parceiro">Parceiro</option>
-                        <option value="outro">Outro</option>
-                      </select>
-                    </div>
-                  </>
-                ) : null}
-
-                {needsSourceDetail ? (
-                  <div className="login-field">
-                    <label className="login-label">Detalhe da origem</label>
-                    <input
-                      className="input mt-1"
-                      value={acquisitionSourceDetail}
-                      onChange={(event) => setAcquisitionSourceDetail(event.target.value)}
-                      placeholder="Ex: agência parceira, evento, comunidade"
-                    />
-                  </div>
-                ) : null}
-
-                {isReferral ? (
-                  <>
-                    <div className="login-field">
-                      <label className="login-label">Quem indicou?</label>
-                      <input
-                        className="input mt-1"
-                        value={referralReferrerName}
-                        onChange={(event) => setReferralReferrerName(event.target.value)}
-                        placeholder="Nome da pessoa ou empresa"
-                      />
-                    </div>
-
-                    <div className="login-field">
-                      <label className="login-label">Código de indicação</label>
-                      <input
-                        className="input mt-1"
-                        value={referralCode}
-                        onChange={(event) => setReferralCode(event.target.value)}
-                        placeholder="Opcional, se você recebeu um código"
-                      />
-                      <p className="text-xs text-foreground/60 mt-1">
-                        Basta informar quem indicou ou o código. Não é obrigatório preencher os dois.
-                      </p>
-                    </div>
-                  </>
-                ) : null}
-
-                {isPj ? (
-                  <div className="login-field">
-                    <label className="login-label">Nome da empresa</label>
-                    <input
-                      className="input mt-1"
-                      value={companyName}
-                      onChange={(event) => setCompanyName(event.target.value)}
-                      placeholder="Nome da empresa"
-                      required={!firstAccessInfo && isPj}
-                      autoComplete="organization"
-                    />
-                  </div>
-                ) : null}
-
                 <div className="login-field">
-                  <label className="login-label">{isPj ? "Nome do responsável" : "Nome completo"}</label>
+                  <label className="login-label">Nome da empresa/operação</label>
                   <input
                     className="input mt-1"
-                    value={name}
-                    onChange={(event) => setName(event.target.value)}
-                    placeholder={isPj ? "Nome do responsável" : "Seu nome completo"}
+                    value={companyName}
+                    onChange={(event) => setCompanyName(event.target.value)}
+                    placeholder="Ex: HBX Import"
+                    autoComplete="organization"
                     required
-                    autoComplete="name"
                   />
-                </div>
-
-                <div className="login-field">
-                  <label className="login-label">Usuário</label>
-                  <input
-                    className="input mt-1"
-                    value={username}
-                    onChange={(event) => setUsername(event.target.value)}
-                    placeholder="meuusuario"
-                    required
-                    autoComplete="username"
-                  />
+                  <p className="text-xs text-foreground/60 mt-1">
+                    Esse nome identifica sua área de trabalho no HBX.
+                  </p>
                 </div>
 
                 <div className="login-field">
@@ -495,11 +332,6 @@ export default function RegisterPage() {
                     required
                     autoComplete="email"
                   />
-                  {usesPublicEmail ? (
-                    <p className="text-xs border border-amber-400/30 bg-amber-500/10 text-foreground/80 p-2 rounded-lg mt-2">
-                      Conta PJ com e-mail público. Recomendamos usar um domínio corporativo.
-                    </p>
-                  ) : null}
                 </div>
 
                 <div className="login-field">
@@ -509,11 +341,11 @@ export default function RegisterPage() {
                     className="input mt-1"
                     value={password}
                     onChange={(event) => setPassword(event.target.value)}
-                    placeholder="min. 4 caracteres"
+                    placeholder="Mínimo de 8 caracteres"
                     required
                     autoComplete="new-password"
                   />
-                  <p className="text-xs text-foreground/60 mt-1">Mínimo de 4 caracteres.</p>
+                  <p className="text-xs text-foreground/60 mt-1">Mínimo de 8 caracteres.</p>
                 </div>
 
                 {error ? <p className="text-sm border border-foreground/10 bg-background p-2 rounded-xl">{error}</p> : null}
@@ -522,7 +354,7 @@ export default function RegisterPage() {
                   <div className="border-l-4 border-primary/80 bg-primary/5 p-3 rounded-md">
                     <p className="text-sm font-semibold">Primeiro acesso</p>
                     <p className="text-sm text-foreground/80 mt-1">{firstAccessInfo}</p>
-                    <p className="text-xs text-foreground/60 mt-2">Preencha seus dados para ativar a conta e continuar.</p>
+                    <p className="text-xs text-foreground/60 mt-2">Preencha os dados da conta para ativar o acesso e continuar.</p>
                   </div>
                 ) : null}
               </div>
@@ -538,7 +370,7 @@ export default function RegisterPage() {
                 <div className="text-sm text-foreground/70 text-center">
                   Já tem conta?{" "}
                   <a className="login-link font-medium ml-1" href="/login">
-                    Login
+                    Ir para o login
                   </a>
                 </div>
               </div>

@@ -49,6 +49,12 @@ type FinanceiroOverview = {
     referralCode?: string | null;
     isReferral?: boolean;
     freeMonths: number;
+    basePlanCycleAmount?: number;
+    activeUsers?: number;
+    includedActiveUsers?: number;
+    extraActiveUsers?: number;
+    extraSeatMonthlyAmount?: number;
+    extraSeatCycleAmount?: number;
     baseCycleAmount: number;
     finalCycleAmount: number;
     pendingCount: number;
@@ -345,7 +351,20 @@ export default function FinanceiroClientPage() {
       {
         label: "Valor base",
         value: formatCurrency(overview.pricing.baseCycleAmount),
-        note: overview.pricing.billingCycle === "ANNUAL" ? "ciclo anual" : "ciclo mensal",
+        note:
+          Number(overview.pricing.extraActiveUsers || 0) > 0
+            ? "plano + assentos"
+            : overview.pricing.billingCycle === "ANNUAL"
+              ? "ciclo anual"
+              : "ciclo mensal",
+      },
+      {
+        label: "Assentos",
+        value: `${overview.pricing.activeUsers ?? 0}/${overview.pricing.includedActiveUsers ?? 2}`,
+        note:
+          Number(overview.pricing.extraActiveUsers || 0) > 0
+            ? `${overview.pricing.extraActiveUsers} extra(s)`
+            : "sem extras",
       },
       {
         label: "Descontos ativos",
@@ -497,6 +516,9 @@ export default function FinanceiroClientPage() {
                   <div><span>Próximo marco</span><strong>{formatDate(overview.accountStatus.nextDueAt)}</strong></div>
                   <div><span>Origem</span><strong>{acquisitionSourceLabel(overview.company.acquisitionSource)}</strong></div>
                   <div><span>Indicação</span><strong>{overview.company.referralReferrerName || overview.company.referralCode || "Sem indicação"}</strong></div>
+                  <div><span>Usuários ativos</span><strong>{overview.pricing.activeUsers ?? 0}</strong></div>
+                  <div><span>Inclusos no plano</span><strong>{overview.pricing.includedActiveUsers ?? 2}</strong></div>
+                  <div><span>Assentos extras</span><strong>{overview.pricing.extraActiveUsers ?? 0}</strong></div>
                 </div>
                 <div className={styles.moduleRail}>
                   {overview.modules.map((item) => (
@@ -524,6 +546,10 @@ export default function FinanceiroClientPage() {
                   <div><span>Status da indicação</span><strong>{overview.pricing.isReferral ? "Elegível" : "Não aplicável"}</strong></div>
                 </div>
                 <div className={styles.summaryStack}>
+                  <p>Plano base do ciclo: {formatCurrency(overview.pricing.basePlanCycleAmount ?? overview.pricing.baseCycleAmount)}</p>
+                  <p>
+                    Assentos extras: {overview.pricing.extraActiveUsers ?? 0} x {formatCurrency(overview.pricing.extraSeatMonthlyAmount ?? 0)}/mês = {formatCurrency(overview.pricing.extraSeatCycleAmount ?? 0)} no ciclo
+                  </p>
                   <p>Base do ciclo: {formatCurrency(overview.pricing.baseCycleAmount)}</p>
                   <p>Desconto anual aplicado: {formatCurrency(overview.pricing.annualDiscountValue)}</p>
                   <p>Desconto manual aplicado: {formatCurrency(overview.pricing.manualDiscountValue)}</p>

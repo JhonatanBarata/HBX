@@ -98,7 +98,7 @@ export class UsersService {
     });
   }
 
-  async updateRole(userId: number, role: 'USER' | 'ADMIN' | 'GERENTE'): Promise<User> {
+  async updateRole(userId: number, role: 'USER' | 'ADMIN'): Promise<User> {
     return this.prisma.user.update({ where: { id: userId }, data: { role } });
   }
 

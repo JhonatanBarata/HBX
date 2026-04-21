@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import DashboardScaffold from "@/components/DashboardScaffold";
+import HbxConfirmDialog from "@/components/HbxConfirmDialog";
 import { apiFetch } from "../_lib/api";
 import { startSmartPolling } from "../_lib/polling";
 import { useRequireAuth } from "../_lib/useRequireAuth";
@@ -30,6 +31,7 @@ export default function AutoRepliesListClientPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<number | null>(null);
+  const [deleteRuleId, setDeleteRuleId] = useState<number | null>(null);
 
   const load = useCallback(async () => {
     setError(null);
@@ -52,12 +54,12 @@ export default function AutoRepliesListClientPage() {
   }, [hasToken, load]);
 
   async function removeRule(id: number) {
-    if (!confirm("Excluir esta regra?")) return;
     setBusyId(id);
     setError(null);
 
     try {
       await apiFetch(`/auto-replies/rules/${id}`, { method: "DELETE" });
+      setDeleteRuleId(null);
       await load();
     } catch (removeError) {
       const message =
@@ -114,6 +116,19 @@ export default function AutoRepliesListClientPage() {
         </article>
       </section>
 
+      <HbxConfirmDialog
+        open={deleteRuleId !== null}
+        title="Excluir regra automática"
+        description="Essa regra deixará de responder novos atendimentos imediatamente."
+        confirmLabel="Excluir regra"
+        destructive
+        busy={busyId === deleteRuleId}
+        onCancel={() => setDeleteRuleId(null)}
+        onConfirm={() => {
+          if (deleteRuleId !== null) void removeRule(deleteRuleId);
+        }}
+      />
+
       {loading ? (
         <div className="panel p-4 text-sm text-muted">Carregando regras...</div>
       ) : rules.length === 0 ? (
@@ -169,7 +184,7 @@ export default function AutoRepliesListClientPage() {
                   <button
                     type="button"
                     disabled={busyId === rule.id}
-                    onClick={() => removeRule(rule.id)}
+                    onClick={() => setDeleteRuleId(rule.id)}
                     className="btn btn-danger btn-sm"
                   >
                     {busyId === rule.id ? "Excluindo..." : "Excluir"}

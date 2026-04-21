@@ -283,6 +283,33 @@ export class ModulesService implements OnModuleInit {
     return this.normalizeCurrencyAmount(company?.plan?.price || 0);
   }
 
+  private resolveExtraSeatMonthlyAmount(pricingPolicy: any) {
+    return this.normalizeCurrencyAmount(
+      pricingPolicy?.extraSeatMonthlyAmount ?? process.env.HBX_EXTRA_SEAT_MONTHLY_AMOUNT ?? 0,
+    );
+  }
+
+  private buildSeatBillingSnapshot(company: any, billingCycle: string, pricingPolicy?: any) {
+    const activeUsers = Array.isArray(company?.users)
+      ? company.users.filter((user: any) => Boolean(user?.isActive) && !Boolean(user?.isSystemMaster)).length
+      : 0;
+    const includedActiveUsers = 2;
+    const extraActiveUsers = Math.max(0, activeUsers - includedActiveUsers);
+    const extraSeatMonthlyAmount = this.resolveExtraSeatMonthlyAmount(pricingPolicy);
+    const cycleMultiplier = billingCycle === 'ANNUAL' ? 12 : 1;
+    const extraSeatCycleAmount = this.normalizeCurrencyAmount(
+      extraActiveUsers * extraSeatMonthlyAmount * cycleMultiplier,
+    );
+
+    return {
+      activeUsers,
+      includedActiveUsers,
+      extraActiveUsers,
+      extraSeatMonthlyAmount,
+      extraSeatCycleAmount,
+    };
+  }
+
   private normalizeBillingCycle(value: unknown) {
     return String(value || '').trim().toUpperCase() === 'ANNUAL' ? 'ANNUAL' : 'MONTHLY';
   }
@@ -325,10 +352,12 @@ export class ModulesService implements OnModuleInit {
     const manualDiscountPercent = this.normalizePercentValue(company?.manualDiscountPercent || 0);
     const referral = this.buildReferralSnapshot(company, pricingPolicy);
     const freeMonths = Math.max(0, Math.trunc(Number(company?.freeMonths || 0) || 0));
-    const baseCycleAmount =
+    const basePlanCycleAmount =
       billingCycle === 'ANNUAL'
         ? this.normalizeCurrencyAmount(monthlyValue * 12)
         : monthlyValue;
+    const seats = this.buildSeatBillingSnapshot(company, billingCycle, pricingPolicy);
+    const baseCycleAmount = this.normalizeCurrencyAmount(basePlanCycleAmount + seats.extraSeatCycleAmount);
     const annualDiscountValue =
       billingCycle === 'ANNUAL'
         ? this.normalizeCurrencyAmount(baseCycleAmount * (annualPlanDiscountPercent / 100))
@@ -371,6 +400,12 @@ export class ModulesService implements OnModuleInit {
       referralReferrerName: referral.referrerName,
       referralCode: referral.referralCode,
       isReferral: referral.isReferral,
+      basePlanCycleAmount,
+      activeUsers: seats.activeUsers,
+      includedActiveUsers: seats.includedActiveUsers,
+      extraActiveUsers: seats.extraActiveUsers,
+      extraSeatMonthlyAmount: seats.extraSeatMonthlyAmount,
+      extraSeatCycleAmount: seats.extraSeatCycleAmount,
       cardConfigured: Boolean(company?.billingCardLast4),
       cardBrand: company?.billingCardBrand || null,
       cardLast4: company?.billingCardLast4 || null,
@@ -939,6 +974,7 @@ export class ModulesService implements OnModuleInit {
     masterUserId: number,
     input: {
       annualPlanDiscountPercent?: number;
+      extraSeatMonthlyAmount?: number;
       referralDiscountActive?: boolean;
       referralDiscountPercent?: number;
       referralDiscountMode?: string;
@@ -955,6 +991,10 @@ export class ModulesService implements OnModuleInit {
       input?.referralDiscountActive !== undefined
         ? Boolean(input.referralDiscountActive)
         : Boolean((current as any)?.referralDiscountActive);
+    const extraSeatMonthlyAmount =
+      input?.extraSeatMonthlyAmount !== undefined
+        ? this.normalizeCurrencyAmount(input.extraSeatMonthlyAmount)
+        : this.normalizeCurrencyAmount((current as any)?.extraSeatMonthlyAmount || 0);
     const referralDiscountPercent =
       input?.referralDiscountPercent !== undefined
         ? this.normalizePercentValue(input.referralDiscountPercent)
@@ -970,6 +1010,7 @@ export class ModulesService implements OnModuleInit {
       where: { key: current.key },
       data: {
         annualPlanDiscountPercent,
+        extraSeatMonthlyAmount,
         referralDiscountActive,
         referralDiscountPercent,
         referralDiscountMode,
@@ -982,6 +1023,7 @@ export class ModulesService implements OnModuleInit {
       action: 'MASTER_BILLING_POLICY_UPDATED',
       metadata: {
         annualPlanDiscountPercent,
+        extraSeatMonthlyAmount,
         referralDiscountActive,
         referralDiscountPercent,
         referralDiscountMode,
@@ -1658,9 +1700,19 @@ export class ModulesService implements OnModuleInit {
     return this.normalizeRequestedModuleKey(moduleKey) === 'financeiro';
   }
 
+  private isAdminUser(user: any) {
+    return String(user?.role || '').trim().toUpperCase() === 'ADMIN';
+  }
+
+  private defaultUserModuleAllowed(user: any, moduleKey: string) {
+    const normalizedKey = this.normalizeRequestedModuleKey(moduleKey);
+    if (normalizedKey === 'webscraping') return this.isAdminUser(user);
+    return true;
+  }
+
   async canUserAccessModule(userId: number, moduleKey: string) {
     await this.ensureDefaultSystemModules();
-    const { companyId, isSystemMaster } = await this.resolveUserContext(userId);
+    const { user, companyId, isSystemMaster } = await this.resolveUserContext(userId);
 
     const key = this.normalizeRequestedModuleKey(moduleKey);
     if (key === 'master' || key === 'exclusoes') return isSystemMaster;
@@ -1715,7 +1767,10 @@ export class ModulesService implements OnModuleInit {
       const availability = availabilityMap.get(this.normalizeRequestedModuleKey(moduleItem.key));
       if (availability?.blockedByEngine) continue;
 
-      if (!userAccess || Boolean(userAccess.allowed)) {
+      const userAllowed = userAccess
+        ? Boolean(userAccess.allowed)
+        : this.defaultUserModuleAllowed(user, moduleItem.key);
+      if (userAllowed) {
         return true;
       }
     }
@@ -1725,7 +1780,7 @@ export class ModulesService implements OnModuleInit {
 
   async listMyModules(userId: number) {
     await this.ensureDefaultSystemModules();
-    const { companyId, isSystemMaster } = await this.resolveUserContext(userId);
+    const { user, companyId, isSystemMaster } = await this.resolveUserContext(userId);
 
     const systemMasterModules = isSystemMaster
       ? await this.prisma.systemModule.findMany({
@@ -1834,7 +1889,9 @@ export class ModulesService implements OnModuleInit {
         };
         const userAllowed = isSystemMaster
           ? true
-          : (userAccessMap.has(row.moduleId) ? Boolean(userAccessMap.get(row.moduleId)) : true);
+          : (userAccessMap.has(row.moduleId)
+              ? Boolean(userAccessMap.get(row.moduleId))
+              : this.defaultUserModuleAllowed(user, row.systemModule.key));
         const visible = Boolean(row.enabled) && userAllowed;
         const accessible = visible && !availability.blockedByEngine;
 
@@ -1937,7 +1994,7 @@ export class ModulesService implements OnModuleInit {
           role: u.role,
           modules: modules.map((m) => ({
             key: m.key,
-            allowed: userMap.has(m.id) ? Boolean(userMap.get(m.id)) : true,
+            allowed: userMap.has(m.id) ? Boolean(userMap.get(m.id)) : this.defaultUserModuleAllowed(u, m.key),
           })),
         };
       }),

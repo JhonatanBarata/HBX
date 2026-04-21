@@ -12,8 +12,8 @@ import { MasterContextService } from '../master-context/master-context.service';
 
 class UpdateRoleDto {
 	@IsString()
-	@IsIn(['USER', 'ADMIN', 'GERENTE'])
-	role!: 'USER' | 'ADMIN' | 'GERENTE';
+	@IsIn(['USER', 'ADMIN'])
+	role!: 'USER' | 'ADMIN';
 }
 
 class CreateCompanyUserDto {
@@ -31,8 +31,8 @@ class CreateCompanyUserDto {
 
 	@IsOptional()
 	@IsString()
-	@IsIn(['USER', 'ADMIN', 'GERENTE'])
-	role?: 'USER' | 'ADMIN' | 'GERENTE';
+	@IsIn(['USER', 'ADMIN'])
+	role?: 'USER' | 'ADMIN';
 }
 
 class ToggleActiveDto {
@@ -51,12 +51,12 @@ class MasterCreateUserDto {
 
 	@IsOptional()
 	@IsString()
-	@IsIn(['USER', 'ADMIN', 'GERENTE'])
-	role?: 'USER' | 'ADMIN' | 'GERENTE';
+	@IsIn(['USER', 'ADMIN'])
+	role?: 'USER' | 'ADMIN';
 
 	@IsOptional()
 	@IsString()
-	@MinLength(4)
+	@MinLength(8)
 	password?: string;
 }
 
@@ -71,8 +71,8 @@ class MasterEditUserDto {
 
 	@IsOptional()
 	@IsString()
-	@IsIn(['USER', 'ADMIN', 'GERENTE'])
-	role?: 'USER' | 'ADMIN' | 'GERENTE';
+	@IsIn(['USER', 'ADMIN'])
+	role?: 'USER' | 'ADMIN';
 
 	@IsOptional()
 	@IsBoolean()
@@ -82,7 +82,7 @@ class MasterEditUserDto {
 class MasterResetPasswordDto {
 	@IsOptional()
 	@IsString()
-	@MinLength(4)
+	@MinLength(8)
 	password?: string;
 }
 
@@ -124,8 +124,8 @@ export class UsersController {
 		if (!companyId) throw new ForbiddenException('Company context required');
 
 		const role = String(dto?.role || '').toUpperCase();
-		if (role !== 'USER' && role !== 'ADMIN' && role !== 'GERENTE') {
-			throw new BadRequestException('role must be USER, GERENTE or ADMIN');
+		if (role !== 'USER' && role !== 'ADMIN') {
+			throw new BadRequestException('role must be USER or ADMIN');
 		}
 
 		const target = await this.usersService.findById(id);
@@ -134,7 +134,7 @@ export class UsersController {
 			throw new ForbiddenException('Usuário fora da sua empresa');
 		}
 
-		const updated = await this.usersService.updateRole(id, role as 'USER' | 'ADMIN' | 'GERENTE');
+		const updated = await this.usersService.updateRole(id, role as 'USER' | 'ADMIN');
 		return {
 			id: updated.id,
 			username: updated.username,
@@ -207,7 +207,7 @@ export class UsersController {
 
 		const tempPassword = dto.password?.trim() || `Tmp@${Math.random().toString(36).slice(2, 10)}A1`;
 		const hashed = await bcrypt.hash(tempPassword, 10);
-		const role = (dto.role || 'USER') as 'USER' | 'ADMIN' | 'GERENTE';
+		const role = (dto.role === 'ADMIN' ? 'ADMIN' : 'USER') as 'USER' | 'ADMIN';
 
 		// store the provided "name" input into the `username` column
 		const created = await this.usersService.create({
@@ -281,7 +281,7 @@ export class UsersController {
 		const tempPassword = dto.password?.trim() || `Tmp@${Math.random().toString(36).slice(2, 10)}A1`;
 		assertPasswordPolicy(tempPassword);
 		const hashed = await bcrypt.hash(tempPassword, 10);
-		const role = (dto.role || 'USER') as 'USER' | 'ADMIN' | 'GERENTE';
+		const role = (dto.role === 'ADMIN' ? 'ADMIN' : 'USER') as 'USER' | 'ADMIN';
 
 		const created = await this.usersService.create({
 			email,
@@ -346,7 +346,7 @@ export class UsersController {
 
 		if (typeof dto.role === 'string') {
 			const role = String(dto.role).toUpperCase();
-			data.role = role === 'ADMIN' || role === 'GERENTE' ? role : 'USER';
+			data.role = role === 'ADMIN' ? 'ADMIN' : 'USER';
 		}
 
 		if (typeof dto.isActive === 'boolean') {
