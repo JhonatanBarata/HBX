@@ -1,6 +1,0 @@
-{
-  "version": 3,
-  "sources": [],
-  "sections": [
-    {"offset": {"line": 28, "column": 0}, "map": {"version":3,"sources":["file:///C:/Users/Jhonatan/Desktop/App/frontend/src/app/dashboard/inbox/page.tsx"],"sourcesContent":["export const dynamic = \"force-dynamic\";\n\nimport InboxClientPage from \"./page.client\";\n\nexport default function Page() {\n  return <InboxClientPage />;\n}\n"],"names":[],"mappings":";;;;;;;AAEA;;AAFO,MAAM,UAAU;;AAIR,SAAS;IACtB,qBAAO,8OAAC,8JAAe;;;;;AACzB"}}]
-}
