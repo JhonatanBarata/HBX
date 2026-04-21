@@ -115,8 +115,11 @@ function normalizePayload(
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const [storageUserId, setStorageUserIdState] = React.useState<string | number | null>(null);
+  // Avoid reading from localStorage synchronously during initial render
+  // (prevents server/client initial state mismatches). Preferences
+  // will be synced in an effect via `refreshPreferences`.
   const [themeState, setThemeState] = React.useState<ThemePreferenceState>(() =>
-    buildThemeState(createLocalScopeState(null)),
+    buildThemeState({ system: null, company: null, user: null }),
   );
   const [ready, setReady] = React.useState(false);
   const themeStateRef = React.useRef(themeState);

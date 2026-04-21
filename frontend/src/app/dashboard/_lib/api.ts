@@ -20,8 +20,10 @@ export function getToken(): string | null {
   );
 }
 
-export function setToken(token: string) {
+export function setToken(token: string, options?: { notify?: boolean }) {
   localStorage.setItem("token", token);
+  if (options?.notify === false) return;
+
   if (typeof window !== "undefined") {
     try {
       window.dispatchEvent(new Event("auth-change"));

@@ -90,15 +90,17 @@ export function useLoginColdStart(options: UseLoginColdStartOptions) {
       getCurrentState: () => LoginState
     ): Promise<ColdStartResponse> => {
       const startTime = Date.now();
+      let timedOut = false;
 
       try {
-        abortControllerRef.current = new AbortController();
+        const controller = new AbortController();
+        abortControllerRef.current = controller;
 
         const loginPromise = fetch(`${apiUrl}/auth/login`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ username, password }),
-          signal: abortControllerRef.current.signal,
+          signal: controller.signal,
         }).then(async (res) => {
           const elapsedMs = Date.now() - startTime;
           const data = await res.json().catch(() => null);
@@ -170,11 +172,13 @@ export function useLoginColdStart(options: UseLoginColdStartOptions) {
           loginPromise,
           new Promise<ColdStartResponse>((resolve) => {
             timeoutRef.current = setTimeout(() => {
+              timedOut = true;
               resolve({
                 state: "waking_server" as LoginState,
                 message: "Servidor acordando...",
                 needsRetry: true,
               });
+              controller.abort();
             }, wakingThresholdMs);
           }),
         ]);
@@ -187,6 +191,15 @@ export function useLoginColdStart(options: UseLoginColdStartOptions) {
         return result;
       } catch (err) {
         if (err instanceof Error && err.name === "AbortError") {
+          if (timedOut) {
+            return {
+              state: "waking_server" as LoginState,
+              message: "Servidor acordando...",
+              needsRetry: true,
+              data: null,
+            };
+          }
+
           return {
             state: "error" as LoginState,
             message: "Login cancelado",

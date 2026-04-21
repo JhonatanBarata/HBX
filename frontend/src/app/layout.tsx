@@ -55,6 +55,12 @@ export default function RootLayout({
       <body
         className={`${manrope.variable} ${plusJakartaSans.variable} ${sora.variable} ${spaceGrotesk.variable} ${ibmPlexMono.variable} antialiased app-root`}
       >
+        <script
+          // inline script: read theme cookie/localStorage early and set html attributes
+          dangerouslySetInnerHTML={{
+            __html: `(function(){try{var c=function(n){var m=document.cookie.match(new RegExp('(?:^|; )'+n.replace(/([.*+?^\${}()|[\\]\\])/g,'\\$1')+'=([^;]*)'));return m?decodeURIComponent(m[1]):null};var id=c('hbx-theme-id')||(window.localStorage&&localStorage.getItem('hbx:theme-id'))||localStorage.getItem('theme');var mode=c('hbx-theme-mode')||(window.localStorage&&localStorage.getItem('hbx:theme-mode'))||localStorage.getItem('theme-mode');if(id)document.documentElement.setAttribute('data-theme',id);if(mode){document.documentElement.setAttribute('data-theme-mode',mode);document.documentElement.style.colorScheme=mode;} }catch(e){} })();`,
+          }}
+        />
         <ThemeProvider>
           <InterfaceTransitionProvider>
             <TopBar />

@@ -3,7 +3,7 @@
 import type { CSSProperties, FormEvent } from "react";
 import { useEffect, useEffectEvent, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { setToken } from "../dashboard/_lib/api";
+import { apiFetch, setToken } from "../dashboard/_lib/api";
 import { useHbxTheme } from "../../components/ThemeProvider";
 import { useLoginColdStart, type LoginState } from "../../lib/useLoginColdStart";
 import { resolveWebsiteOnlyDestination } from "../../lib/websiteLaunch";
@@ -11,7 +11,7 @@ import { resolveWebsiteOnlyDestination } from "../../lib/websiteLaunch";
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3000";
 const AUTO_LOGIN_STORAGE_KEY = "hbx_auto_login";
 const AUTO_LOGIN_RELOAD_SECONDS = 49;
-const LOGIN_SUCCESS_DELAY_MS = 1700;
+const LOGIN_SUCCESS_DELAY_MS = 3500;
 const LOGIN_VIDEO_EXPERIENCE_ENABLED = true;
 const LOGIN_IDLE_VIDEO_SRC = "/login-media/login-looping.mp4";
 const LOGIN_AUTH_VIDEO_SRC = "/login-media/login-afterauth.mp4";
@@ -38,6 +38,10 @@ type RecoverPasswordResponse = {
   message?: string;
   previewLink?: string | null;
   mailPreviewUrl?: string | null;
+};
+
+type LoginCurrentUser = {
+  isSystemMaster?: boolean;
 };
 
 type LoginParticleStyle = CSSProperties & {
@@ -104,6 +108,33 @@ function getInternalLoginDestination(data: unknown) {
   return trimmed;
 }
 
+async function resolvePostLoginDestination(data: unknown) {
+  const explicitDestination = getInternalLoginDestination(data);
+  if (explicitDestination && explicitDestination !== "/dashboard") {
+    return explicitDestination;
+  }
+
+  try {
+    const currentUser = await apiFetch<LoginCurrentUser>("/profile/current-user");
+    if (currentUser?.isSystemMaster) {
+      return "/dashboard/master";
+    }
+  } catch {
+    // Keep the login flow moving; /dashboard still resolves the safest fallback.
+  }
+
+  try {
+    const websiteDestination = await resolveWebsiteOnlyDestination();
+    if (websiteDestination) {
+      return websiteDestination;
+    }
+  } catch {
+    // ignore website-only resolution failures
+  }
+
+  return explicitDestination || "/dashboard";
+}
+
 export default function LoginPage() {
   const router = useRouter();
   const { selection, activeTheme } = useHbxTheme();
@@ -145,40 +176,22 @@ export default function LoginPage() {
   const themeModeLabel = selection.mode === "dark" ? "Escuro" : "Claro";
 
   async function completeSuccessfulLogin(token: string, data?: unknown) {
-    setToken(token);
+    setToken(token, { notify: false });
     setLoginState("success");
 
-    let redirected = false;
-    const fallbackDestination = getInternalLoginDestination(data) || "/dashboard";
+    setPlayingWelcome(true);
+    const destinationPromise = resolvePostLoginDestination(data);
+    await new Promise((resolve) => window.setTimeout(resolve, LOGIN_SUCCESS_DELAY_MS));
+    const destination = await destinationPromise;
 
-    try {
-      setPlayingWelcome(true);
-      await new Promise((resolve) => window.setTimeout(resolve, LOGIN_SUCCESS_DELAY_MS));
+    setToken(token);
 
-      if (fallbackDestination !== "/dashboard") {
-        redirected = true;
-        router.replace(fallbackDestination);
-        return;
-      }
-
-      const destination = await resolveWebsiteOnlyDestination();
-
-      if (destination) {
-        redirected = true;
-
-        if (/^https?:\/\//i.test(destination)) {
-          window.location.assign(destination);
-        } else {
-          router.replace(destination);
-        }
-
-        return;
-      }
-    } finally {
-      if (!redirected) {
-        router.replace(fallbackDestination);
-      }
+    if (/^https?:\/\//i.test(destination)) {
+      window.location.assign(destination);
+      return;
     }
+
+    router.replace(destination);
   }
 
   async function authenticate(nextUsername: string, nextPassword: string) {
