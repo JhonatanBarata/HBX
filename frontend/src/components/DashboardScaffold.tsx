@@ -30,6 +30,11 @@ type DashboardScaffoldProps = {
   layoutMode?: "default" | "workspace";
 };
 
+type NavPeekAnchorRect = Pick<DOMRect, "bottom" | "height" | "left" | "right" | "top" | "width">;
+
+const MODULES_PEEK_EVENT = "hbx:modules-peek";
+const MODULES_TRIGGER_ID = "app-modules-trigger";
+
 function buildPageKey(pathname: string) {
   const parts = pathname.split("/").filter(Boolean);
   return parts[parts.length - 1] || "dashboard";
@@ -91,8 +96,6 @@ export default function DashboardScaffold({
   const [presentationEditing, setPresentationEditing] = useState(false);
   const [navPeekOpen, setNavPeekOpen] = useState(false);
   const [navPeekPortalReady, setNavPeekPortalReady] = useState(false);
-  const navPeekRef = useRef<HTMLDivElement | null>(null);
-  const navPeekHandleRef = useRef<HTMLButtonElement | null>(null);
   const navPeekPanelRef = useRef<HTMLElement | null>(null);
   const [navPeekPanelStyle, setNavPeekPanelStyle] = useState<CSSProperties | null>(null);
 
@@ -110,25 +113,26 @@ export default function DashboardScaffold({
     }, delay);
   }, [cancelNavPeekClose]);
 
-  const syncNavPeekPanelPosition = useCallback(() => {
-    const rect = navPeekHandleRef.current?.getBoundingClientRect();
+  const syncNavPeekPanelPosition = useCallback((anchorRect?: NavPeekAnchorRect | null) => {
+    const rect =
+      anchorRect || document.getElementById(MODULES_TRIGGER_ID)?.getBoundingClientRect() || null;
     if (!rect) return;
-    const panelWidth = Math.min(320, Math.max(240, window.innerWidth - 24));
+    const panelWidth = Math.min(360, Math.max(280, window.innerWidth - 24));
     const left = Math.min(
       Math.max(12, Math.round(rect.left)),
       Math.max(12, window.innerWidth - panelWidth - 12),
     );
 
     setNavPeekPanelStyle({
-      top: `${Math.round(rect.bottom + 8)}px`,
+      top: `${Math.round(rect.bottom + 12)}px`,
       left: `${left}px`,
-      width: `min(320px, calc(100vw - 24px))`,
+      width: `min(360px, calc(100vw - 24px))`,
     });
   }, []);
 
-  const openNavPeek = useCallback(() => {
+  const openNavPeek = useCallback((anchorRect?: NavPeekAnchorRect | null) => {
     cancelNavPeekClose();
-    syncNavPeekPanelPosition();
+    syncNavPeekPanelPosition(anchorRect);
     setNavPeekOpen(true);
   }, [cancelNavPeekClose, syncNavPeekPanelPosition]);
 
@@ -137,9 +141,9 @@ export default function DashboardScaffold({
     setNavPeekOpen(false);
   }, [cancelNavPeekClose]);
 
-  const toggleNavPeek = useCallback(() => {
+  const toggleNavPeek = useCallback((anchorRect?: NavPeekAnchorRect | null) => {
     cancelNavPeekClose();
-    syncNavPeekPanelPosition();
+    syncNavPeekPanelPosition(anchorRect);
     setNavPeekOpen((current) => !current);
   }, [cancelNavPeekClose, syncNavPeekPanelPosition]);
 
@@ -256,10 +260,56 @@ export default function DashboardScaffold({
   );
 
   useEffect(() => {
+    if (typeof document === "undefined") return;
+    const root = document.documentElement;
+
+    root.dataset.hbxModulesPeekAvailable = shouldShowHoverModules ? "true" : "false";
+    root.dataset.hbxModulesPeekOpen = shouldShowHoverModules && navPeekOpen ? "true" : "false";
+
+    return () => {
+      delete root.dataset.hbxModulesPeekAvailable;
+      delete root.dataset.hbxModulesPeekOpen;
+    };
+  }, [navPeekOpen, shouldShowHoverModules]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const handleModulesPeekEvent = (nativeEvent: Event) => {
+      const event = nativeEvent as CustomEvent<{ action?: "close" | "open" | "toggle"; anchorRect?: NavPeekAnchorRect | null }>;
+
+      if (!shouldShowHoverModules) {
+        setNavPeekOpen(false);
+        return;
+      }
+
+      if (event.detail?.action === "close") {
+        closeNavPeek();
+        return;
+      }
+
+      if (event.detail?.action === "open") {
+        openNavPeek(event.detail?.anchorRect || null);
+        return;
+      }
+
+      toggleNavPeek(event.detail?.anchorRect || null);
+    };
+
+    window.addEventListener(MODULES_PEEK_EVENT, handleModulesPeekEvent as EventListener);
+    return () => {
+      window.removeEventListener(MODULES_PEEK_EVENT, handleModulesPeekEvent as EventListener);
+    };
+  }, [closeNavPeek, openNavPeek, shouldShowHoverModules, toggleNavPeek]);
+
+  useEffect(() => {
     if (!navPeekOpen) return;
     const handlePointerDown = (event: MouseEvent) => {
       const target = event.target as Node;
-      if (navPeekRef.current?.contains(target) || navPeekPanelRef.current?.contains(target)) {
+      if (
+        document.getElementById(MODULES_TRIGGER_ID)?.contains(target) ||
+        navPeekPanelRef.current?.contains(target)
+      ) {
         return;
       }
       closeNavPeek();
@@ -284,10 +334,10 @@ export default function DashboardScaffold({
 
   useEffect(() => {
     if (!navPeekOpen) return;
-    if (!navPeekRef.current) {
+    if (!shouldShowHoverModules) {
       closeNavPeek();
     }
-  }, [closeNavPeek, navPeekOpen]);
+  }, [closeNavPeek, navPeekOpen, shouldShowHoverModules]);
 
   const updatePresentationConfig = useCallback(
     (updater: (current: PresentationConfig) => PresentationConfig) => {
@@ -381,40 +431,6 @@ export default function DashboardScaffold({
           className={`workspace-shell ${isWorkspaceMode ? "workspace-shell--workspace" : ""}`}
           style={hideNavigationRail ? { gridTemplateColumns: "minmax(0, 1fr)" } : undefined}
         >
-          {shouldShowHoverModules ? (
-            <div
-              ref={navPeekRef}
-              className={styles.navPeek}
-              data-open={navPeekOpen ? "true" : "false"}
-              onMouseEnter={openNavPeek}
-              onPointerEnter={openNavPeek}
-              onMouseLeave={() => scheduleNavPeekClose()}
-              onPointerLeave={() => scheduleNavPeekClose()}
-            >
-              <button
-                ref={navPeekHandleRef}
-                type="button"
-                className={styles.navPeekHandle}
-                onMouseEnter={openNavPeek}
-                onPointerEnter={openNavPeek}
-                onFocus={openNavPeek}
-                onClick={toggleNavPeek}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" || event.key === " ") {
-                    event.preventDefault();
-                    toggleNavPeek();
-                  }
-                }}
-                aria-expanded={navPeekOpen}
-                aria-controls="workspace-hover-module-nav"
-                aria-label="Abrir modulos"
-              >
-                <span className={styles.navPeekHandleEdge} aria-hidden="true" />
-                <span className={styles.navPeekHandleLabel}>Modulos</span>
-              </button>
-            </div>
-          ) : null}
-
           {!hideNavigationRail ? (
             <aside className="workspace-rail">
               <section className="shell-card shell-card--nav">
@@ -606,13 +622,13 @@ export default function DashboardScaffold({
               aria-hidden={!navPeekOpen}
               style={
                 navPeekPanelStyle || {
-                  top: "calc(var(--topbar-total-height) + 8px)",
+                  top: "calc(var(--topbar-total-height) + 12px)",
                   left: "12px",
-                  width: "min(320px, calc(100vw - 24px))",
+                  width: "min(360px, calc(100vw - 24px))",
                 }
               }
-              onMouseEnter={openNavPeek}
-              onPointerEnter={openNavPeek}
+              onMouseEnter={() => openNavPeek()}
+              onPointerEnter={() => openNavPeek()}
               onMouseLeave={() => scheduleNavPeekClose()}
               onPointerLeave={() => scheduleNavPeekClose()}
             >

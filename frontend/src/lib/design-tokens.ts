@@ -9,6 +9,11 @@ export type HbxThemeSelection = {
   mode: HbxThemeMode;
 };
 
+export type ThemeTransitionOrigin = {
+  x: number;
+  y: number;
+};
+
 export const DEFAULT_THEME_SELECTION: HbxThemeSelection = {
   themeId: "shadcn",
   mode: "light",
@@ -36,6 +41,32 @@ function withAlpha(hex: string, alpha: number) {
   return `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${alpha})`;
 }
 
+type ThemeWaveOverlayElement = HTMLDivElement & {
+  __resetTimer?: number;
+};
+
+const THEME_WAVE_OVERLAY_ID = "hbx-theme-wave-overlay";
+
+function ensureThemeWaveOverlay() {
+  let overlay = document.getElementById(THEME_WAVE_OVERLAY_ID) as ThemeWaveOverlayElement | null;
+  if (overlay) return overlay;
+
+  overlay = document.createElement("div") as ThemeWaveOverlayElement;
+  overlay.id = THEME_WAVE_OVERLAY_ID;
+  overlay.className = "theme-wave-overlay";
+  overlay.dataset.state = "idle";
+  overlay.setAttribute("aria-hidden", "true");
+
+  ["drop", "ripple", "flood", "sheen"].forEach((part) => {
+    const node = document.createElement("span");
+    node.className = `theme-wave-overlay__${part}`;
+    overlay?.appendChild(node);
+  });
+
+  document.body.appendChild(overlay);
+  return overlay;
+}
+
 function halveCssValue(value: string) {
   const safe = String(value).trim();
   const m = /^([0-9.]+)\s*([a-z%]*)$/i.exec(safe);
@@ -46,6 +77,38 @@ function halveCssValue(value: string) {
     return `${half}${unit}`;
   }
   return `calc(${safe} / 2)`;
+}
+
+export function playThemeWaveTransition(selection: HbxThemeSelection, origin?: ThemeTransitionOrigin) {
+  if (typeof document === "undefined") return;
+
+  const theme = HBX_THEME_PALETTES[selection.themeId];
+  const palette = theme[selection.mode];
+  const overlay = ensureThemeWaveOverlay();
+  const x = origin?.x ?? window.innerWidth / 2;
+  const y = origin?.y ?? Math.min(112, window.innerHeight * 0.18);
+
+  overlay.style.setProperty("--theme-wave-x", `${Math.round(x)}px`);
+  overlay.style.setProperty("--theme-wave-y", `${Math.round(y)}px`);
+  overlay.style.setProperty("--theme-wave-brand", palette.brand);
+  overlay.style.setProperty("--theme-wave-secondary", palette.buttonAccent);
+  overlay.style.setProperty("--theme-wave-tertiary", palette.buttonSecondary);
+  overlay.style.setProperty(
+    "--theme-wave-shadow",
+    withAlpha(palette.shadow, selection.mode === "light" ? 0.18 : 0.42),
+  );
+
+  overlay.dataset.state = "idle";
+  void overlay.offsetWidth;
+  overlay.dataset.state = "active";
+
+  if (overlay.__resetTimer) {
+    window.clearTimeout(overlay.__resetTimer);
+  }
+
+  overlay.__resetTimer = window.setTimeout(() => {
+    overlay.dataset.state = "idle";
+  }, 1240);
 }
 
 export function applyThemeSelectionToDocument(selection: HbxThemeSelection) {
@@ -65,6 +128,10 @@ export function applyThemeSelectionToDocument(selection: HbxThemeSelection) {
     "--brand-solid": palette.brandStrong,
     "--brand-soft": palette.brandSoft,
     "--brand-contrast": palette.brandContrast,
+    "--button-primary": palette.buttonPrimary,
+    "--button-secondary": palette.buttonSecondary,
+    "--button-success": palette.buttonSuccess,
+    "--button-accent": palette.buttonAccent,
     "--background": palette.background,
     "--background-alt": palette.backgroundAlt,
     "--surface": palette.surface,
@@ -125,6 +192,17 @@ export function applyThemeSelectionToDocument(selection: HbxThemeSelection) {
     "--hero-outline": withAlpha(palette.brand, selection.mode === "light" ? 0.18 : 0.28),
     "--soft-ring": withAlpha(palette.brand, selection.mode === "light" ? 0.12 : 0.22),
     "--hairline": withAlpha(palette.foreground, selection.mode === "light" ? 0.06 : 0.12),
+    "--button-primary-soft": withAlpha(palette.buttonPrimary, selection.mode === "light" ? 0.18 : 0.3),
+    "--button-secondary-soft": withAlpha(
+      palette.buttonSecondary,
+      selection.mode === "light" ? 0.16 : 0.26,
+    ),
+    "--button-success-soft": withAlpha(palette.buttonSuccess, selection.mode === "light" ? 0.18 : 0.28),
+    "--button-accent-soft": withAlpha(palette.buttonAccent, selection.mode === "light" ? 0.18 : 0.3),
+    "--theme-wave-brand": palette.brand,
+    "--theme-wave-secondary": palette.buttonAccent,
+    "--theme-wave-tertiary": palette.buttonSecondary,
+    "--theme-wave-shadow": withAlpha(palette.shadow, selection.mode === "light" ? 0.18 : 0.42),
   };
 
   Object.entries(variables).forEach(([name, value]) => {

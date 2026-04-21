@@ -3,6 +3,10 @@
 import React from "react";
 import { useInterfaceTransition } from "@/components/InterfaceTransitionProvider";
 import { useHbxTheme } from "@/components/ThemeProvider";
+import {
+  playThemeWaveTransition,
+  type HbxThemeSelection,
+} from "@/lib/design-tokens";
 import { HBX_THEME_PALETTES, HBX_THEME_IDS, type HbxThemeId } from "@/lib/theme-palettes";
 import LiquidGlassSegmentedControl from "./LiquidGlassSegmentedControl";
 
@@ -17,7 +21,7 @@ export default function ThemeSwitcher() {
   const rootRef = React.useRef<HTMLDivElement | null>(null);
   const [open, setOpen] = React.useState(false);
   const { replayGlobalTransition } = useInterfaceTransition();
-  const { selection, activeTheme, setMode, setThemeId } = useHbxTheme();
+  const { selection, activeTheme, setSelection } = useHbxTheme();
 
   React.useEffect(() => {
     if (!open) return undefined;
@@ -40,9 +44,33 @@ export default function ThemeSwitcher() {
     };
   }, [open]);
 
-  function handleThemeSelection(themeId: HbxThemeId) {
-    setThemeId(themeId);
+  function resolveTransitionOrigin(target?: EventTarget | null) {
+    const sourceElement = target instanceof Element
+      ? target
+      : document.activeElement instanceof Element
+        ? document.activeElement
+        : rootRef.current;
+
+    const rect = sourceElement?.getBoundingClientRect();
+    if (!rect) {
+      return { x: window.innerWidth / 2, y: Math.min(112, window.innerHeight * 0.18) };
+    }
+
+    return {
+      x: rect.left + rect.width / 2,
+      y: rect.top + rect.height / 2,
+    };
+  }
+
+  function applySelection(nextSelection: HbxThemeSelection, target?: EventTarget | null) {
+    playThemeWaveTransition(nextSelection, resolveTransitionOrigin(target));
+    setSelection(nextSelection);
     replayGlobalTransition();
+  }
+
+  function handleThemeSelection(themeId: HbxThemeId, target?: EventTarget | null) {
+    applySelection({ themeId, mode: selection.mode }, target);
+    setOpen(false);
   }
 
   return (
@@ -83,8 +111,7 @@ export default function ThemeSwitcher() {
                 value={selection.mode}
                 ariaLabel="Modo de tema"
                 onChange={(mode) => {
-                  setMode(mode);
-                  replayGlobalTransition();
+                  applySelection({ themeId: selection.themeId, mode }, document.activeElement);
                 }}
               />
             </div>
@@ -100,7 +127,7 @@ export default function ThemeSwitcher() {
                 <button
                   key={themeId}
                   type="button"
-                  onClick={() => handleThemeSelection(themeId)}
+                  onClick={(event) => handleThemeSelection(themeId, event.currentTarget)}
                   className={`theme-card ${active ? "is-selected" : ""}`}
                   aria-pressed={active}
                 >
@@ -132,7 +159,7 @@ export default function ThemeSwitcher() {
                         <span
                           className="theme-card__previewCta"
                           style={{
-                            background: `linear-gradient(145deg, ${palette.brand}, ${palette.brandStrong})`,
+                            background: `linear-gradient(145deg, ${palette.buttonPrimary}, ${palette.buttonAccent})`,
                           }}
                         />
                       </span>
@@ -142,6 +169,14 @@ export default function ThemeSwitcher() {
                   <span className="theme-card__copy">
                     <span className="theme-card__headline">
                       <strong>{theme.label}</strong>
+                      <span>{theme.shellLabel}</span>
+                    </span>
+                    <span className="theme-card__description">{theme.description}</span>
+                    <span className="theme-card__actionsPreview" aria-hidden="true">
+                      <span className="theme-card__actionSwatch" style={{ background: palette.buttonPrimary }} />
+                      <span className="theme-card__actionSwatch" style={{ background: palette.buttonSecondary }} />
+                      <span className="theme-card__actionSwatch" style={{ background: palette.buttonSuccess }} />
+                      <span className="theme-card__actionSwatch" style={{ background: palette.buttonAccent }} />
                     </span>
                   </span>
                 </button>

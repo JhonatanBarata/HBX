@@ -68,10 +68,16 @@ function ConfirmEmailInner() {
   const [resendInfo, setResendInfo] = useState<string | null>(null);
   const [resendPreviewUrl, setResendPreviewUrl] = useState<string | null>(null);
   const [resendConfirmUrl, setResendConfirmUrl] = useState<string | null>(null);
+  const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
     setResendEmail(emailFromQuery);
   }, [emailFromQuery]);
+
+  useEffect(() => {
+    setMounted(true);
+    return () => setMounted(false);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -118,6 +124,12 @@ function ConfirmEmailInner() {
               router.replace("/dashboard");
               return;
             }
+
+            // Sem sessão: redireciona para a tela de login preenchendo o e-mail (se disponível)
+            cancelled = true;
+            const target = emailFromQuery ? `/login?email=${encodeURIComponent(emailFromQuery)}` : "/login";
+            router.replace(target);
+            return;
           } catch {
             // ignore
           }
@@ -183,14 +195,43 @@ function ConfirmEmailInner() {
   }
 
   return (
-    <main className="min-h-screen flex items-center justify-center p-6">
-      <div className="max-w-md w-full p-6 border border-foreground/10 rounded-2xl bg-background shadow-sm space-y-4">
-        <h1 className="text-2xl font-bold">Confirmar e-mail</h1>
+    <main className="login-stage" data-login-theme>
+      <div className="login-stage__grid" aria-hidden />
+      <div className="login-visuals" aria-hidden>
+        <div className="login-visuals" aria-hidden>
+          <div className="login-drop" />
+          <div className="login-drop login-drop-bottom" />
+          <div className="login-drop login-drop-left" />
+          <div className="login-drop login-drop-right" />
+        </div>
+      </div>
+
+      <div className="login-shell">
+        <div
+          className={`login-card card transition-all duration-300 max-w-md w-full p-6 ${
+            mounted ? "opacity-100 translate-y-0" : "opacity-0 translate-y-3"
+          }`}
+        >
+          <div className="login-card__chrome" aria-hidden />
+
+          <header className="login-card__header">
+            <div className="login-card__themeRow">
+              <div className="page-overline login-card__overline">Confirmar e-mail</div>
+            </div>
+            <div className="login-card__brandBlock">
+              <div className="login-card__brandMark" aria-hidden>
+                <span className="login-card__brandMarkCore">HBX</span>
+              </div>
+              <div className="login-card__themeCopy">
+                <p className="login-card__themeLabel">Confirme seu e-mail</p>
+              </div>
+            </div>
+          </header>
 
         {loading ? <p className="text-sm text-foreground/70">Validando seu link...</p> : null}
 
         {!loading && error ? (
-          <div className="text-sm border border-foreground/10 bg-background p-3 rounded-xl">
+          <div className="text-sm border bg-background p-4 rounded-xl shadow-sm outline-none ring-0" style={{ borderColor: 'var(--line)' }}>
             {error}
             {errorCode === "EMAIL_CONFIRMATION_EXPIRED" ? (
               <p className="text-xs text-foreground/60 mt-2">
@@ -201,7 +242,7 @@ function ConfirmEmailInner() {
         ) : null}
 
         {!loading && info ? (
-          <div className="text-sm border border-foreground/10 bg-background p-3 rounded-xl">
+          <div className="text-sm border bg-background p-4 rounded-xl shadow-sm outline-none ring-0" style={{ borderColor: 'var(--line)' }}>
             <p>{info}</p>
             {trialEndsAt ? (
               <p className="text-xs text-foreground/60 mt-2">
@@ -212,7 +253,7 @@ function ConfirmEmailInner() {
         ) : null}
 
         {!loading && error ? (
-          <form onSubmit={handleResend} className="space-y-3 border border-foreground/10 bg-background p-4 rounded-xl">
+          <form onSubmit={handleResend} className="space-y-3 border bg-background p-4 rounded-xl outline-none ring-0" style={{ borderColor: 'var(--line)' }}>
             <div>
               <p className="text-sm font-medium">Reenviar confirmação</p>
               <p className="text-xs text-foreground/60 mt-1">
@@ -222,11 +263,11 @@ function ConfirmEmailInner() {
               </p>
             </div>
 
-            <div>
-              <label className="text-sm font-medium">E-mail</label>
+            <div className="login-field">
+              <label className="login-label">E-mail</label>
               <input
                 type="email"
-                className="w-full mt-1 p-2 border border-foreground/10 rounded-xl bg-background"
+                className="input mt-1"
                 value={resendEmail}
                 onChange={(event) => setResendEmail(event.target.value)}
                 placeholder="email@exemplo.com"
@@ -256,7 +297,7 @@ function ConfirmEmailInner() {
 
             <button
               type="submit"
-              className="w-full py-2 rounded-xl border border-foreground/10 hover:bg-foreground/5"
+              className="btn btn-primary login-button py-3 rounded-xl w-full shadow-md disabled:opacity-50"
               disabled={resendBusy}
             >
               {resendBusy ? "Reenviando..." : "Reenviar confirmação"}
@@ -264,21 +305,29 @@ function ConfirmEmailInner() {
           </form>
         ) : null}
 
-        <div className="grid grid-cols-1 gap-2 pt-2">
-          <button
-            type="button"
-            className="w-full py-2 rounded-xl bg-secondary text-foreground hover:opacity-90"
-            onClick={() => router.push("/login")}
+        <div className="text-sm text-foreground/70 text-center pt-2">
+          <a
+            href="/login"
+            onClick={(e) => {
+              e.preventDefault();
+              router.push("/login");
+            }}
+            className="login-link font-medium"
           >
             Ir para o login
-          </button>
-          <button
-            type="button"
-            className="w-full py-2 rounded-xl border border-foreground/10 hover:bg-foreground/5"
-            onClick={() => router.push("/register")}
+          </a>
+          <span className="mx-2 text-foreground/60"> - </span>
+          <a
+            href="/register"
+            onClick={(e) => {
+              e.preventDefault();
+              router.push("/register");
+            }}
+            className="login-link font-medium"
           >
             Voltar para o cadastro
-          </button>
+          </a>
+        </div>
         </div>
       </div>
     </main>
@@ -289,9 +338,20 @@ export default function ConfirmEmailPage() {
   return (
     <Suspense
       fallback={
-        <main className="min-h-screen flex items-center justify-center p-6">
-          <div className="max-w-md w-full p-6 border border-foreground/10 rounded-2xl bg-background shadow-sm">
-            <p className="text-sm text-foreground/70">Carregando...</p>
+        <main className="login-stage" data-login-theme>
+          <div className="login-stage__grid" aria-hidden />
+          <div className="login-visuals" aria-hidden>
+            <div className="login-visuals" aria-hidden>
+              <div className="login-drop" />
+              <div className="login-drop login-drop-bottom" />
+              <div className="login-drop login-drop-left" />
+              <div className="login-drop login-drop-right" />
+            </div>
+          </div>
+          <div className="login-shell">
+            <div className="login-card card max-w-md w-full p-6">
+              <p className="text-sm text-foreground/70">Carregando...</p>
+            </div>
           </div>
         </main>
       }
