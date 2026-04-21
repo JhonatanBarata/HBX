@@ -7,13 +7,10 @@ import { apiFetch, getToken } from "../app/dashboard/_lib/api";
 import { MASTER_CONTEXT_CHANGED_EVENT } from "../lib/masterContextEvents";
 import type { PresentationConfig, PresentationModuleOverride } from "../lib/presentation-config";
 import {
-  formatCriticalEngineLabel,
   inferModuleCategory,
   isModuleBlocked,
   isModuleVisible,
   normalizeUserModuleKey,
-  resolveModuleBlockedActionLabel,
-  resolveModuleBlockedHref,
   resolveModuleHref,
   type HbxModuleCategory,
   type UserModule,
@@ -35,11 +32,21 @@ type NavItem = {
 
 const NAV_ITEMS: NavItem[] = [
   {
+    key: "vendas",
+    href: "/dashboard/vendas",
+    label: "Vendas",
+    shortLabel: "VD",
+    description: "CRM principal da operação.",
+    matcher: (route) => route.startsWith("/dashboard/vendas"),
+    category: "commercial",
+    moduleKey: "vendas",
+  },
+  {
     key: "atendimento",
     href: "/dashboard/inbox",
     label: "Atendimento",
     shortLabel: "AT",
-    description: "Inbox, agenda conectada e bot do atendimento.",
+    description: "Conversas e fila humana.",
     matcher: (route) =>
       route.startsWith("/dashboard/inbox") ||
       route.startsWith("/hbx-recovery") ||
@@ -49,21 +56,11 @@ const NAV_ITEMS: NavItem[] = [
     moduleKey: "atendimento",
   },
   {
-    key: "vendas",
-    href: "/dashboard/vendas",
-    label: "Vendas",
-    shortLabel: "VD",
-    description: "CRM agenda viva com leads, retornos e próximos passos.",
-    matcher: (route) => route.startsWith("/dashboard/vendas"),
-    category: "commercial",
-    moduleKey: "vendas",
-  },
-  {
     key: "website",
     href: "/dashboard/website",
     label: "Website",
     shortLabel: "WB",
-    description: "Abrir o site da empresa e entrar no admin com segurança.",
+    description: "Site e admin.",
     matcher: (route) => route.startsWith("/dashboard/website"),
     category: "commercial",
     moduleKey: "website",
@@ -73,7 +70,7 @@ const NAV_ITEMS: NavItem[] = [
     href: "/dashboard/webscraping",
     label: "Webscraping",
     shortLabel: "WS",
-    description: "Prospecção local integrada ao workspace.",
+    description: "Captação local.",
     matcher: (route) => route.startsWith("/dashboard/webscraping"),
     category: "commercial",
     moduleKey: "webscraping",
@@ -83,7 +80,7 @@ const NAV_ITEMS: NavItem[] = [
     href: "/dashboard/importacoes/followup-global",
     label: "Follow Up",
     shortLabel: "FU",
-    description: "Importações, histórico e follow-up global.",
+    description: "Follow-up internacional.",
     matcher: (route) =>
       route.startsWith("/dashboard/importacoes/followup-global") ||
       route.startsWith("/dashboard/importacoes/historico") ||
@@ -96,7 +93,7 @@ const NAV_ITEMS: NavItem[] = [
     href: "/dashboard/importacoes/cadastros",
     label: "Cadastro",
     shortLabel: "CD",
-    description: "Base estrutural de clientes e tabelas operacionais.",
+    description: "Base estrutural.",
     matcher: (route) => route.startsWith("/dashboard/importacoes/cadastros"),
     category: "structural",
     companyOnly: true,
@@ -106,7 +103,7 @@ const NAV_ITEMS: NavItem[] = [
     href: "/dashboard/financeiro",
     label: "Financeiro",
     shortLabel: "FN",
-    description: "Conta, cobrança, trial e regularização do acesso.",
+    description: "Cobrança e plano.",
     matcher: (route) => route.startsWith("/dashboard/financeiro"),
     category: "structural",
     moduleKey: "financeiro",
@@ -116,7 +113,7 @@ const NAV_ITEMS: NavItem[] = [
     href: "/dashboard/gerencial",
     label: "Gerencial",
     shortLabel: "GE",
-    description: "Usuários, permissões e operação da equipe.",
+    description: "Equipe e acessos.",
     matcher: (route) => route.startsWith("/dashboard/gerencial"),
     category: "structural",
     adminOnly: true,
@@ -127,7 +124,7 @@ const NAV_ITEMS: NavItem[] = [
     href: "/dashboard/whatsapp",
     label: "WhatsApp",
     shortLabel: "WA",
-    description: "Conexão rápida por QR ou Meta oficial.",
+    description: "Conexão do canal.",
     matcher: (route) => route.startsWith("/dashboard/whatsapp"),
     category: "structural",
     companyOnly: true,
@@ -137,7 +134,7 @@ const NAV_ITEMS: NavItem[] = [
     href: "/dashboard/master",
     label: "Master",
     shortLabel: "MS",
-    description: "Empresas, billing, acessos e configurações globais.",
+    description: "Controle global.",
     matcher: (route) => route.startsWith("/dashboard/master"),
     category: "system",
     adminOnly: true,
@@ -149,25 +146,53 @@ const NAV_SECTIONS: Array<{ category: HbxModuleCategory; title: string; hint: st
   {
     category: "commercial",
     title: "Módulos",
-    hint: "Áreas comercializáveis e operacionais.",
+    hint: "Operação ativa.",
   },
   {
     category: "structural",
     title: "Guias",
-    hint: "Configuração, base e apoio estrutural.",
+    hint: "Próximas etapas.",
   },
   {
     category: "system",
     title: "Sistema",
-    hint: "Operação global e contexto MASTER.",
+    hint: "Controle global.",
   },
 ];
+
+function resolveBlockedDescription(item: NavItem, moduleItem: UserModule | null, isSystemMaster: boolean) {
+  const criticalEngine = String(moduleItem?.criticalEngine || "").trim().toLowerCase();
+
+  if (!isSystemMaster && item.category === "structural") {
+    if (item.key === "financeiro") return "Disponível na próxima etapa.";
+    if (item.key === "whatsapp") return "Conexão liberada quando precisar.";
+    return "Em breve nesta operação.";
+  }
+
+  if (normalizeUserModuleKey(item.key) === "vendas") return "Conclua o setup principal.";
+  if (criticalEngine === "whatsapp") return "Aguardando conexão do canal.";
+  if (criticalEngine === "payment") return "Aguardando liberação da operação.";
+  return "Indisponível nesta fase.";
+}
 
 type ModuleNavProps = {
   presentationEditing?: boolean;
   canEditPresentation?: boolean;
   presentationConfig?: PresentationConfig | null;
   onUpdateModulePresentation?: (href: string, patch: Partial<PresentationModuleOverride>) => void;
+};
+
+type PrefetchedDashboardPayload = {
+  modules?: UserModule[];
+  profile?: {
+    role?: string | null;
+    isSystemMaster?: boolean;
+    company?: { id?: number | null } | null;
+  } | null;
+};
+
+type HbxPrefetchWindow = Window & {
+  __hbx_prefetch?: PrefetchedDashboardPayload;
 };
 
 function subscribeAuth(callback: () => void) {
@@ -220,8 +245,9 @@ export default function ModuleNav({
       }
 
       // If the app already prefetched modules/profile (e.g. DashboardScaffold), use them
-      if (typeof window !== "undefined" && (window as any).__hbx_prefetch && Array.isArray((window as any).__hbx_prefetch.modules)) {
-        const pre = (window as any).__hbx_prefetch;
+      const prefetchedWindow = typeof window !== "undefined" ? (window as HbxPrefetchWindow) : null;
+      if (prefetchedWindow?.__hbx_prefetch && Array.isArray(prefetchedWindow.__hbx_prefetch.modules)) {
+        const pre = prefetchedWindow.__hbx_prefetch;
         if (!mounted) return;
         setModules(Array.isArray(pre.modules) ? pre.modules : []);
         setUserRole(String(pre.profile?.role || null));
@@ -313,7 +339,7 @@ export default function ModuleNav({
       if (!item.moduleKey) return true;
 
       const moduleItem = modulesByKey.get(normalizeUserModuleKey(item.moduleKey));
-      if (!moduleItem) return false;
+      if (!moduleItem) return item.category !== "commercial";
       return isModuleVisible(moduleItem);
     });
   }, [hasCompany, isSystemMaster, loading, modulesByKey, userRole]);
@@ -340,23 +366,19 @@ export default function ModuleNav({
             {section.items.map((item) => {
               const active = item.matcher(pathname || "");
               const moduleItem = item.moduleKey ? modulesByKey.get(normalizeUserModuleKey(item.moduleKey)) : null;
-              const blocked = Boolean(moduleItem && isModuleBlocked(moduleItem));
+              const structuralLocked = !isSystemMaster && item.category === "structural";
+              const blocked = structuralLocked || Boolean(moduleItem && isModuleBlocked(moduleItem));
               const override = presentationConfig?.modules?.[item.href];
               const label = String(override?.label || item.label);
               const shortLabel = String(override?.shortLabel || item.shortLabel).slice(0, 4).toUpperCase();
               const description = String(
-                override?.description || moduleItem?.blockedReason || item.description,
+                blocked
+                  ? resolveBlockedDescription(item, moduleItem, isSystemMaster)
+                  : override?.description || item.description,
               );
               const href = item.moduleKey
                 ? resolveModuleHref(item.moduleKey, moduleItem?.serviceUrl || item.href)
                 : item.href;
-              const blockedHref = moduleItem ? resolveModuleBlockedHref(moduleItem) : item.href;
-              const blockedEngineLabel = moduleItem?.criticalEngine
-                ? formatCriticalEngineLabel(moduleItem.criticalEngine)
-                : null;
-              const blockedActionLabel = moduleItem
-                ? resolveModuleBlockedActionLabel(moduleItem)
-                : "Resolver";
 
               if (presentationEditing && canEditPresentation) {
                 return (
@@ -411,23 +433,18 @@ export default function ModuleNav({
 
               if (blocked) {
                 return (
-                  <Link
+                  <div
                     key={item.key}
-                    href={blockedHref}
                     className={active ? styles.moduleCardDisabledActive : styles.moduleCardDisabled}
                     data-ui-slot="module-card"
-                    aria-current={active ? "page" : undefined}
+                    aria-disabled="true"
                   >
                     <span className={styles.moduleCardBadge}>{shortLabel}</span>
                     <span className={styles.moduleCardBody}>
                       <strong>{label}</strong>
                       <small>{description}</small>
-                      {blockedEngineLabel ? <em className={styles.moduleCardMeta}>Motor crítico: {blockedEngineLabel}</em> : null}
                     </span>
-                    <span className={styles.moduleCardArrow} aria-hidden="true">
-                      {blockedActionLabel}
-                    </span>
-                  </Link>
+                  </div>
                 );
               }
 
@@ -453,7 +470,7 @@ export default function ModuleNav({
           </div>
         </section>
       ))}
-      {loading ? <p className={styles.moduleNavStatus}>Carregando navegação...</p> : null}
+      {loading ? <p className={styles.moduleNavStatus}>Carregando módulos...</p> : null}
     </nav>
   );
 }

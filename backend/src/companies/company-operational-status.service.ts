@@ -591,7 +591,16 @@ export class CompanyOperationalStatusService {
       accessChip,
     });
 
-    const statuses = [tokenChip, metaChip, webWhatsChip, paymentChip, accessChip];
+    const hideMetaOffChip = webWhatsChip.active && !officialConfigured;
+    const hidePaymentAbsentChip = accessSource === 'trial' && !effectiveMercadoPagoToken;
+
+    const statuses = [
+      tokenChip,
+      ...(hideMetaOffChip ? [] : [metaChip]),
+      webWhatsChip,
+      ...(hidePaymentAbsentChip ? [] : [paymentChip]),
+      accessChip,
+    ];
 
     return {
       companyId: Number(company?.id || 0),
