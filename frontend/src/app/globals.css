@@ -1158,6 +1158,11 @@ html[data-theme-switcher-open="true"] .app-topbar::after {
     var(--background);
 }
 
+/* fill lateral gaps with a theme-appropriate color when video doesn't cover horizontally */
+.login-video-layer {
+  background-color: color-mix(in srgb, var(--login-accent) 10%, var(--background));
+}
+
 .login-video-layer::before,
 .login-video-layer::after {
   content: "";
@@ -1192,18 +1197,36 @@ html[data-theme-switcher-open="true"] .app-topbar::after {
 }
 
 .login-video-layer__clip {
+  /* keep video height full and preserve aspect ratio (width auto)
+     so the video is never stretched; extra horizontal space shows
+     the login layer background (theme color) */
   position: absolute;
-  inset: 0;
-  width: 100%;
+  top: 0;
+  left: 50%;
   height: 100%;
-  object-fit: cover;
+  width: auto;
+  object-fit: contain;
   object-position: center center;
   filter: saturate(1.16) contrast(1.06) brightness(0.94);
-  transform: scale(var(--login-video-zoom));
+  transform: translateX(-50%) scale(var(--login-video-zoom));
   transition:
     opacity 1100ms cubic-bezier(0.22, 0.8, 0.2, 1),
     filter 1100ms cubic-bezier(0.22, 0.8, 0.2, 1),
     transform 1800ms cubic-bezier(0.18, 0.84, 0.22, 1);
+  max-height: 100%;
+  max-width: none;
+}
+
+/* On narrow viewports prefer full-bleed width */
+@media (max-width: 859px) {
+  .login-video-layer__clip {
+    left: 0;
+    transform: none;
+    width: 100%;
+    height: auto;
+    object-fit: cover;
+    object-position: center center;
+  }
 }
 
 .login-video-layer__clip--idle {
@@ -1215,7 +1238,8 @@ html[data-theme-switcher-open="true"] .app-topbar::after {
   opacity: 0;
   z-index: 2;
   filter: saturate(1.16) contrast(1.06) brightness(0.94);
-  transform: scale(1);
+  /* preserve centering when auth clip becomes visible */
+  transform: translateX(-50%) scale(1);
 }
 
 .login-video-layer__veil {
@@ -1268,16 +1292,58 @@ html[data-theme-switcher-open="true"] .app-topbar::after {
 .login-stage[data-login-video="on"][data-login-state="success"] .login-video-layer__clip--idle {
   opacity: 0;
   filter: saturate(1.18) contrast(1.08) brightness(0.72);
-  transform: scale(var(--login-video-zoom-idle-exit));
+  transform: translateX(-50%) scale(var(--login-video-zoom-idle-exit));
 }
 
 .login-stage[data-login-video="on"][data-login-state="success"] .login-video-layer__clip--auth {
   opacity: 1;
-  transform: scale(var(--login-video-zoom-success));
+  transform: translateX(-50%) scale(var(--login-video-zoom-success));
 }
 
 .login-stage[data-login-video="on"][data-login-state="success"] .login-video-layer__veil {
   opacity: 0.62;
+}
+
+/* ===== Custom adjustments per user request ===== */
+/* Hide headline and small mode badge on login/logout screens */
+.login-card__themeRow .page-overline,
+.login-card__themeRow .login-card__modeBadge {
+  display: none !important;
+}
+
+/* Slightly reduce primary login button height */
+.login-button {
+  min-height: 44px;
+  font-size: 0.95rem;
+}
+
+/* Make the small mode badge (when present elsewhere) more compact */
+.login-card__modeBadge {
+  font-size: 0.66rem;
+  padding: 0.16rem 0.5rem;
+  min-height: 24px;
+}
+
+/* Increase auth transition to 3.5s so authentication video isn't cut quickly */
+.login-stage[data-login-video="on"][data-login-state="success"] .login-video-layer__clip {
+  transition:
+    opacity 900ms cubic-bezier(0.22, 0.8, 0.2, 1),
+    filter 900ms cubic-bezier(0.22, 0.8, 0.2, 1),
+    transform 3500ms cubic-bezier(0.18, 0.84, 0.22, 1);
+}
+
+/* Ensure logout overlay video transitions span the full 5s */
+.ui-shutdown-overlay .login-stage.logout-stage .login-video-layer__clip {
+  transition:
+    opacity 1200ms cubic-bezier(0.22, 0.8, 0.2, 1),
+    filter 1200ms cubic-bezier(0.22, 0.8, 0.2, 1),
+    transform 5000ms cubic-bezier(0.18, 0.84, 0.22, 1);
+}
+
+/* keep veil breathing less aggressive when longer transitions run */
+.ui-shutdown-overlay .login-video-layer__veil,
+.login-stage[data-login-state="success"] .login-video-layer__veil {
+  animation-duration: 10s;
 }
 
 @keyframes login-video-drift {
@@ -1366,11 +1432,6 @@ html[data-theme-switcher-open="true"] .app-topbar::after {
   border-color: color-mix(in srgb, var(--login-accent) 22%, var(--line));
   backdrop-filter: blur(18px) saturate(1.2);
   -webkit-backdrop-filter: blur(18px) saturate(1.2);
-}
-
-/* Hide theme mode badge on the login card (Claro / Escuro) per request */
-.login-stage .login-card__modeBadge {
-  display: none !important;
 }
 
 .login-stage[data-login-video="on"] .input {

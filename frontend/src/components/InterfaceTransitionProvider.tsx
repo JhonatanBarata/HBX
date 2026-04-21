@@ -2,9 +2,11 @@
 
 import React from "react";
 import { usePathname } from "next/navigation";
+import { useHbxTheme } from "@/components/ThemeProvider";
 
 const ENTER_READY_DELAY_MS = 24;
-const EXIT_DURATION_MS = 2200;
+// Keep shutdown overlay visible long enough for full logout video
+const EXIT_DURATION_MS = 5000;
 const ROW_SNAP_PX = 18;
 const SHUTDOWN_PARTICLE_COUNT = 72;
 const NO_REVEAL_SELECTOR = '[data-ui-no-reveal="true"]';
@@ -122,6 +124,7 @@ export function InterfaceTransitionProvider({ children }: { children: React.Reac
   const readyTimerRef = React.useRef<number | null>(null);
   const shutdownPromiseRef = React.useRef<Promise<void> | null>(null);
   const [phase, setPhase] = React.useState<InterfaceTransitionPhase>("boot");
+  const { selection } = useHbxTheme();
 
   const applyRevealMap = React.useCallback(() => {
     const root = rootRef.current;
@@ -278,37 +281,64 @@ export function InterfaceTransitionProvider({ children }: { children: React.Reac
         {children}
 
         {phase === "shutdown" ? (
-          <div className="ui-shutdown-overlay" aria-hidden="true">
-            <div className="ui-shutdown-overlay__backdrop" />
-            <div className="ui-shutdown-overlay__glow ui-shutdown-overlay__glow--1" />
-            <div className="ui-shutdown-overlay__glow ui-shutdown-overlay__glow--2" />
+          <div className="ui-shutdown-overlay" data-ui-no-reveal="true">
+            <div
+              className="ui-shutdown-overlay__frame login-stage logout-stage"
+              data-login-theme={selection.themeId}
+              data-login-mode={selection.mode}
+              data-login-state="success"
+              data-login-video="on"
+            >
+              <div className="login-stage__grid" aria-hidden />
 
-            <div className="ui-shutdown-card">
-              <div className="ui-shutdown-card__badge">
-                <span className="ui-shutdown-card__dot" />
-                Encerrando sessão com segurança
+              <div className="login-video-layer" aria-hidden="true">
+                <video
+                  className="login-video-layer__clip login-video-layer__clip--auth"
+                  src="/login-media/login-logout.mp4"
+                  autoPlay
+                  muted
+                  loop
+                  playsInline
+                  preload="auto"
+                  onCanPlay={(event) => {
+                    event.currentTarget.play().catch(() => undefined);
+                  }}
+                />
+                <div className="login-video-layer__veil" />
               </div>
 
-              <div className="ui-shutdown-card__brand">HBX Solutions</div>
+              <div className="login-shell logout-shell">
+                <section
+                  className="login-card login-card--logout card"
+                  role="status"
+                  aria-live="polite"
+                  aria-atomic="true"
+                >
+                  <div className="login-card__chrome" aria-hidden />
 
-              <h2 className="ui-shutdown-card__title">Até já.</h2>
+                  <header className="login-card__header">
+                    <div className="login-card__themeRow">
+                      <div className="page-overline login-card__overline">Saída segura HBX</div>
+                      <span className="login-card__modeBadge">{selection.mode === "dark" ? "Escuro" : "Claro"}</span>
+                    </div>
 
-              <p className="ui-shutdown-card__text">
-                Obrigado por usar o sistema HBX. Estamos finalizando a transição da interface.
-              </p>
+                    <div className="login-card__brandBlock">
+                      <div className="login-card__brandMark" aria-hidden>
+                        <span className="login-card__brandMarkCore">HBX</span>
+                      </div>
+                      <div className="login-card__themeCopy">
+                        <p className="login-card__themeLabel">Encerrando sessão</p>
+                        <p className="login-card__themeHint">Aguarde enquanto finalizamos sua sessão com segurança.</p>
+                      </div>
+                    </div>
 
-              <div className="ui-shutdown-card__progress">
-                <span className="ui-shutdown-card__progressBar" />
-              </div>
+                    <h1 className="login-card__title">Até já.</h1>
+                  </header>
 
-              <div className="shutdown-confetti" aria-hidden>
-                {Array.from({ length: SHUTDOWN_PARTICLE_COUNT }).map((_, i) => (
-                  <span
-                    key={i}
-                    className="shutdown-confetti__piece"
-                    style={buildShutdownParticleStyle(i)}
-                  />
-                ))}
+                  <div className="msg-info">
+                    <div className="text-sm">Obrigado por usar o sistema HBX. Estamos finalizando a sessão.</div>
+                  </div>
+                </section>
               </div>
             </div>
           </div>

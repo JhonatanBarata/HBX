@@ -14,6 +14,8 @@ export const ACTIVE_THEME_USER_STORAGE_KEY = "hbx:active-user-id";
 export const HBX_THEME_ID_STORAGE_KEY = "hbx:theme-id";
 export const HBX_THEME_MODE_STORAGE_KEY = "hbx:theme-mode";
 export const HBX_THEME_CONFIG_STORAGE_KEY = "hbx:theme-config";
+export const HBX_THEME_COOKIE_ID = "hbx-theme-id";
+export const HBX_THEME_COOKIE_MODE = "hbx-theme-mode";
 
 const THEME_APPEARANCE_KEYS = [
   "buttonPrimary",
@@ -74,6 +76,30 @@ function getActiveThemeStorageUser(userId?: string | number | null) {
   }
 }
 
+function readCookie(name: string): string | null {
+  if (typeof document === "undefined") return null;
+  try {
+    const m = document.cookie.match(new RegExp("(?:^|; )" + name.replace(/([.*+?^${}()|[\\]\\])/g, "\\$1") + "=([^;]*)"));
+    return m ? decodeURIComponent(m[1]) : null;
+  } catch {
+    return null;
+  }
+}
+
+function setCookie(name: string, value: string | null, days = 365) {
+  if (typeof document === "undefined") return;
+  try {
+    if (value === null) {
+      document.cookie = `${name}=; path=/; max-age=0; SameSite=Lax`;
+      return;
+    }
+    const maxAge = days ? `; max-age=${Math.max(0, Math.trunc(days * 24 * 60 * 60))}` : "";
+    document.cookie = `${name}=${encodeURIComponent(value)}; path=/${maxAge}; SameSite=Lax`;
+  } catch {
+    // ignore cookie errors
+  }
+}
+
 export function setActiveThemeUser(userId?: string | number | null) {
   if (typeof window === "undefined") return;
   try {
@@ -95,11 +121,11 @@ function readLegacyThemeSelection(userId?: string | number | null): HbxThemeSele
     const rawThemeId =
       localStorage.getItem(buildScopedKey(HBX_THEME_ID_STORAGE_KEY, scopedUserId)) ||
       localStorage.getItem(HBX_THEME_ID_STORAGE_KEY) ||
-      localStorage.getItem("theme");
+      localStorage.getItem("theme") || readCookie(HBX_THEME_COOKIE_ID);
     const rawMode =
       localStorage.getItem(buildScopedKey(HBX_THEME_MODE_STORAGE_KEY, scopedUserId)) ||
       localStorage.getItem(HBX_THEME_MODE_STORAGE_KEY) ||
-      localStorage.getItem("theme-mode");
+      localStorage.getItem("theme-mode") || readCookie(HBX_THEME_COOKIE_MODE);
 
     if (!rawThemeId && !rawMode) {
       return null;
@@ -209,6 +235,15 @@ export function persistThemeConfig(
     localStorage.setItem("theme", nextConfig.selection?.themeId || DEFAULT_THEME_SELECTION.themeId);
     localStorage.setItem("theme-mode", nextConfig.selection?.mode || DEFAULT_THEME_SELECTION.mode);
 
+    // also persist lightweight cookies so the login / SSR-aware parts can
+    // read the preferred theme before client hydration
+    try {
+      setCookie(HBX_THEME_COOKIE_ID, nextConfig.selection?.themeId || DEFAULT_THEME_SELECTION.themeId);
+      setCookie(HBX_THEME_COOKIE_MODE, nextConfig.selection?.mode || DEFAULT_THEME_SELECTION.mode);
+    } catch {
+      // ignore cookie errors
+    }
+
     if (scopedUserId) {
       localStorage.setItem(buildScopedKey(HBX_THEME_CONFIG_STORAGE_KEY, scopedUserId), serialized);
       localStorage.setItem(buildScopedKey(HBX_THEME_ID_STORAGE_KEY, scopedUserId), nextConfig.selection?.themeId || DEFAULT_THEME_SELECTION.themeId);
@@ -232,6 +267,13 @@ export function clearStoredThemeConfig(userId?: string | number | null) {
       localStorage.removeItem(buildScopedKey(HBX_THEME_CONFIG_STORAGE_KEY, scopedUserId));
       localStorage.removeItem(buildScopedKey(HBX_THEME_ID_STORAGE_KEY, scopedUserId));
       localStorage.removeItem(buildScopedKey(HBX_THEME_MODE_STORAGE_KEY, scopedUserId));
+    }
+    try {
+      // clear cookies too
+      setCookie(HBX_THEME_COOKIE_ID, null);
+      setCookie(HBX_THEME_COOKIE_MODE, null);
+    } catch {
+      // ignore
     }
   } catch {
     // ignore storage errors
