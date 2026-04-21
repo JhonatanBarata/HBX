@@ -61,7 +61,7 @@ Credenciais padrão (se usadas as defaults dos scripts)
 Notas e dicas rápidas
 - Se preferir não usar Docker: rode Postgres localmente e aponte `DATABASE_URL` para ele; rode `npm run start:dev` no `backend`.
 - Para demos rápidos em Windows, você também pode usar `scripts/start-all.ps1` (ele orquestra componentes locais). Se houver erro ao executar, prefira `docker-compose up -d`.
-- Para reset do banco local via Prisma (usando SQLite para dev): veja `backend/README.md` (modo dry-run). No modo Docker usamos Postgres.
+- Para reset do banco local via Prisma, use o Postgres local definido em `DATABASE_URL`.
 
 Próximos passos que posso automatizar para você
 - Gerar um `scripts/demo-up.ps1` que executa os passos acima de forma automatizada (docker up + wait + seed). Quer que eu gere isso?

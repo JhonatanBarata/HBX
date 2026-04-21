@@ -7,7 +7,7 @@ export type SubscriptionStatus =
 
 export type UserRole = 'master' | 'user'
 
-export type ModuleSlug = 'master' | 'recovery' | 'music'
+export type ModuleSlug = 'master' | 'recovery'
 
 export interface ViewerProfile {
   uid: string

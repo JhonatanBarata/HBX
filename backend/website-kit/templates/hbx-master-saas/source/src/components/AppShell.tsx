@@ -19,7 +19,7 @@ export function AppShell({ title, subtitle, children }: PropsWithChildren<{ titl
           <span className="brand-lockup__mark">HBX</span>
           <span>
             <strong>HBX SaaS</strong>
-            <small>Master, Recovery e Music</small>
+            <small>Master e Recovery</small>
           </span>
         </Link>
         <nav className="app-nav">

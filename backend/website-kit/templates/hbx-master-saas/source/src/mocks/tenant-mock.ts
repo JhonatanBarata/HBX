@@ -42,8 +42,8 @@ export function buildMockTenant(viewer?: Partial<ViewerProfile>): TenantSnapshot
       },
       {
         label: 'Fluxos ativos',
-        value: '3',
-        helper: 'Master, Recovery e Music preparados na mesma base',
+        value: '2',
+        helper: 'Master e Recovery preparados na mesma base',
       },
       {
         label: 'Tempo restante de trial',
@@ -74,15 +74,6 @@ export function buildMockTenant(viewer?: Partial<ViewerProfile>): TenantSnapshot
         href: '/modulos',
         audience: 'operacao',
         statusLabel: 'Ativo para a operacao',
-      },
-      {
-        slug: 'music',
-        name: 'HBX Music',
-        description: 'Modulo em estruturacao, ja previsto para mesma arquitetura SaaS.',
-        enabled: false,
-        href: '/modulos',
-        audience: 'todos',
-        statusLabel: 'Em preparacao',
       },
     ],
   }
