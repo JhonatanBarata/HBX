@@ -365,7 +365,9 @@ export default function ModuleNav({
           <div className={styles.navSectionGrid}>
             {section.items.map((item) => {
               const active = item.matcher(pathname || "");
-              const moduleItem = item.moduleKey ? modulesByKey.get(normalizeUserModuleKey(item.moduleKey)) : null;
+              const moduleItem = item.moduleKey
+                ? (modulesByKey.get(normalizeUserModuleKey(item.moduleKey)) ?? null)
+                : null;
               const structuralLocked = !isSystemMaster && item.category === "structural";
               const blocked = structuralLocked || Boolean(moduleItem && isModuleBlocked(moduleItem));
               const override = presentationConfig?.modules?.[item.href];
