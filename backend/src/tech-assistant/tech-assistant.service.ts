@@ -26,7 +26,7 @@ const ROUTE_FILE_HINTS: Array<{ pattern: RegExp; files: string[] }> = [
   {
     pattern: /^\/dashboard\/master(?:\/|$)/i,
     files: [
-      'frontend/src/app/dashboard/master/page.client.tsx',
+      'frontend/src/app/dashboard/master/page.premium.tsx',
       'backend/src/modules/modules.controller.ts',
       'backend/src/modules/modules.service.ts',
     ],
@@ -777,7 +777,7 @@ export class TechAssistantService {
     }
     if (/master|isSystemMaster|acesso exclusivo/.test(lower)) {
       files.add('backend/src/auth/guards/master.guard.ts');
-      files.add('frontend/src/app/dashboard/master/page.client.tsx');
+      files.add('frontend/src/app/dashboard/master/page.premium.tsx');
     }
     if (/api|fetch|axios|response|status/.test(lower)) {
       files.add('frontend/src/app/dashboard/_lib/api.ts');
