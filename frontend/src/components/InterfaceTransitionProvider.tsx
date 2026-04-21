@@ -2,7 +2,6 @@
 
 import React from "react";
 import { usePathname } from "next/navigation";
-import SeamlessLoopVideo from "@/components/SeamlessLoopVideo";
 import { useHbxTheme } from "@/components/ThemeProvider";
 
 const ENTER_READY_DELAY_MS = 24;
@@ -125,7 +124,6 @@ export function InterfaceTransitionProvider({ children }: { children: React.Reac
   const readyTimerRef = React.useRef<number | null>(null);
   const shutdownPromiseRef = React.useRef<Promise<void> | null>(null);
   const [phase, setPhase] = React.useState<InterfaceTransitionPhase>("boot");
-  const [logoutVideoPulse, setLogoutVideoPulse] = React.useState(false);
   const { selection } = useHbxTheme();
 
   const applyRevealMap = React.useCallback(() => {
@@ -293,14 +291,18 @@ export function InterfaceTransitionProvider({ children }: { children: React.Reac
             >
               <div className="login-stage__grid" aria-hidden />
 
-              <div className="login-video-layer" aria-hidden="true" data-video-pulse={logoutVideoPulse ? "on" : "off"}>
-                <SeamlessLoopVideo
+              <div className="login-video-layer" aria-hidden="true">
+                <video
+                  className="login-video-layer__clip login-video-layer__clip--auth"
                   src="/login-media/login-logout.mp4"
-                  className="login-video-layer__clip login-video-layer__clip--logout-loop"
-                  enabled={phase === "shutdown"}
-                  switchIntervalMs={2500}
-                  fadeDurationMs={900}
-                  onPulseChange={setLogoutVideoPulse}
+                  autoPlay
+                  muted
+                  loop
+                  playsInline
+                  preload="auto"
+                  onCanPlay={(event) => {
+                    event.currentTarget.play().catch(() => undefined);
+                  }}
                 />
                 <div className="login-video-layer__veil" />
               </div>
