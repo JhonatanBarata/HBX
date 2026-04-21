@@ -124,12 +124,6 @@ function ConfirmEmailInner() {
               router.replace("/dashboard");
               return;
             }
-
-            // Sem sessão: redireciona para a tela de login preenchendo o e-mail (se disponível)
-            cancelled = true;
-            const target = emailFromQuery ? `/login?email=${encodeURIComponent(emailFromQuery)}` : "/login";
-            router.replace(target);
-            return;
           } catch {
             // ignore
           }
@@ -231,7 +225,7 @@ function ConfirmEmailInner() {
         {loading ? <p className="text-sm text-foreground/70">Validando seu link...</p> : null}
 
         {!loading && error ? (
-          <div className="text-sm border bg-background p-4 rounded-xl shadow-sm outline-none ring-0" style={{ borderColor: 'var(--line)' }}>
+          <div className="text-sm border border-foreground/10 bg-background p-4 rounded-xl shadow-sm outline-none ring-0">
             {error}
             {errorCode === "EMAIL_CONFIRMATION_EXPIRED" ? (
               <p className="text-xs text-foreground/60 mt-2">
@@ -242,7 +236,7 @@ function ConfirmEmailInner() {
         ) : null}
 
         {!loading && info ? (
-          <div className="text-sm border bg-background p-4 rounded-xl shadow-sm outline-none ring-0" style={{ borderColor: 'var(--line)' }}>
+          <div className="text-sm border border-foreground/10 bg-background p-4 rounded-xl shadow-sm outline-none ring-0">
             <p>{info}</p>
             {trialEndsAt ? (
               <p className="text-xs text-foreground/60 mt-2">
@@ -253,7 +247,7 @@ function ConfirmEmailInner() {
         ) : null}
 
         {!loading && error ? (
-          <form onSubmit={handleResend} className="space-y-3 border bg-background p-4 rounded-xl outline-none ring-0" style={{ borderColor: 'var(--line)' }}>
+          <form onSubmit={handleResend} className="space-y-3 border border-foreground/10 bg-background p-4 rounded-xl outline-none ring-0">
             <div>
               <p className="text-sm font-medium">Reenviar confirmação</p>
               <p className="text-xs text-foreground/60 mt-1">
