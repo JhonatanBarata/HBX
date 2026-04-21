@@ -2,7 +2,7 @@
 
 import type { CSSProperties, FormEvent } from "react";
 import { useEffect, useEffectEvent, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { setToken } from "../dashboard/_lib/api";
 import { useHbxTheme } from "../../components/ThemeProvider";
 import { useLoginColdStart, type LoginState } from "../../lib/useLoginColdStart";
@@ -372,6 +372,19 @@ export default function LoginPage() {
     };
   }, []);
 
+  // Prefill username from `email` query param when provided (visual only).
+  const searchParams = useSearchParams();
+  useEffect(() => {
+    try {
+      const emailParam = searchParams?.get("email") ?? "";
+      if (emailParam && !username) {
+        setUsername(String(emailParam).trim());
+      }
+    } catch {
+      // ignore
+    }
+  }, [searchParams, username]);
+
   useEffect(() => {
     let cancelled = false;
     const normalized = username.trim();
@@ -543,14 +556,14 @@ export default function LoginPage() {
             <form onSubmit={handleLogin} className="login-form">
               <div className="login-field">
                 <label className="login-label" htmlFor="login-username">
-                  Usuário
+                  E-mail
                 </label>
                 <input
                   id="login-username"
                   className="input"
                   value={username}
                   onChange={(event) => setUsername(event.target.value)}
-                  placeholder="Digite seu usuário"
+                  placeholder="Digite seu e-mail"
                   required
                   autoComplete="username"
                 />

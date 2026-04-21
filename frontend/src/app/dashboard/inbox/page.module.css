@@ -4953,12 +4953,239 @@
   background-clip: padding-box;
 }
 
-:global(html[data-theme-mode="light"]) .premiumInboxShell {
+:global(html[data-theme-mode="dark"]) .premiumInboxShell {
+  --inbox-bg: var(--background);
+  --inbox-bg-soft: var(--background-alt);
+  --inbox-surface: color-mix(in srgb, var(--surface) 82%, var(--background));
+  --inbox-surface-strong: color-mix(in srgb, var(--surface) 94%, var(--background));
+  --inbox-line: color-mix(in srgb, var(--line) 72%, transparent);
+  --inbox-line-strong: color-mix(in srgb, var(--brand) 34%, var(--line));
   --inbox-text: var(--foreground);
   --inbox-muted: var(--muted);
+  --inbox-accent: var(--brand);
+  --inbox-accent-strong: var(--brand-solid);
+  --inbox-teal: var(--brand);
+  --inbox-emerald: var(--success);
+  --inbox-warning: var(--warning);
+  --inbox-danger: var(--danger);
   background:
-    radial-gradient(circle at top left, color-mix(in srgb, var(--info) 12%, transparent), transparent 28%),
-    radial-gradient(circle at top right, color-mix(in srgb, var(--success) 10%, transparent), transparent 24%),
+    radial-gradient(circle at top left, color-mix(in srgb, var(--brand) 22%, transparent), transparent 28%),
+    radial-gradient(circle at top right, color-mix(in srgb, var(--brand-solid) 18%, transparent), transparent 24%),
+    linear-gradient(180deg, color-mix(in srgb, var(--background-alt) 88%, var(--background)), var(--background) 58%, color-mix(in srgb, var(--shadow) 76%, var(--background)));
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--surface-raised) 28%, transparent),
+    0 24px 64px color-mix(in srgb, var(--shadow) 48%, transparent);
+}
+
+:global(html[data-theme-mode="dark"]) .commandDock,
+:global(html[data-theme-mode="dark"]) .workspaceDockPanel,
+:global(html[data-theme-mode="dark"]) .conversationQueueMetaPopup,
+:global(html[data-theme-mode="dark"]) .botStudioChrome {
+  border-color: color-mix(in srgb, var(--brand) 24%, var(--line));
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--surface) 86%, var(--background)), color-mix(in srgb, var(--surface-soft) 72%, var(--background))),
+    radial-gradient(circle at top, color-mix(in srgb, var(--brand) 13%, transparent), transparent 42%);
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--surface-raised) 24%, transparent),
+    0 18px 42px color-mix(in srgb, var(--shadow) 36%, transparent);
+}
+
+:global(html[data-theme-mode="dark"]) .commandDockBrand {
+  border-color: color-mix(in srgb, var(--brand) 24%, var(--line));
+  background: color-mix(in srgb, var(--surface-raised) 26%, transparent);
+  color: color-mix(in srgb, var(--foreground) 74%, var(--muted));
+}
+
+:global(html[data-theme-mode="dark"]) .commandDockBrand[data-active="true"],
+:global(html[data-theme-mode="dark"]) .commandDockButton[data-active="true"],
+:global(html[data-theme-mode="dark"]) .conversationPrimaryAction,
+:global(html[data-theme-mode="dark"]) .whatsAppComposerButton,
+:global(html[data-theme-mode="dark"]) .contextTabHighlight {
+  border-color: color-mix(in srgb, var(--brand) 42%, var(--line));
+  background: linear-gradient(135deg, var(--brand), var(--brand-solid)) !important;
+  color: var(--brand-contrast) !important;
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--surface) 28%, transparent),
+    0 16px 34px color-mix(in srgb, var(--brand) 28%, transparent) !important;
+}
+
+:global(html[data-theme-mode="dark"]) .commandDockBrand[data-active="true"] {
+  animation: commandDockBrandPulseTheme 1.9s ease-in-out infinite;
+}
+
+@keyframes commandDockBrandPulseTheme {
+  0%,
+  100% {
+    transform: translateY(0) scale(1);
+    box-shadow:
+      inset 0 1px 0 color-mix(in srgb, var(--surface) 28%, transparent),
+      0 16px 34px color-mix(in srgb, var(--brand) 28%, transparent);
+  }
+
+  50% {
+    transform: translateY(-1px) scale(1.035);
+    box-shadow:
+      inset 0 1px 0 color-mix(in srgb, var(--surface) 34%, transparent),
+      0 22px 44px color-mix(in srgb, var(--brand) 38%, transparent);
+  }
+}
+
+:global(html[data-theme-mode="dark"]) .commandDockButton,
+:global(html[data-theme-mode="dark"]) .conversationQueueMetaButton,
+:global(html[data-theme-mode="dark"]) .whatsAppEmojiButton,
+:global(html[data-theme-mode="dark"]) .whatsAppAttachButton,
+:global(html[data-theme-mode="dark"]) .whatsAppReplyButtonHover {
+  border-color: color-mix(in srgb, var(--brand) 18%, var(--line));
+  background: color-mix(in srgb, var(--surface) 58%, var(--background));
+  color: color-mix(in srgb, var(--foreground) 70%, var(--muted));
+}
+
+:global(html[data-theme-mode="dark"]) .commandDockButton:hover,
+:global(html[data-theme-mode="dark"]) .conversationQueueMetaButton:hover,
+:global(html[data-theme-mode="dark"]) .conversationQueueMetaPopupAction:hover,
+:global(html[data-theme-mode="dark"]) .whatsAppEmojiButton:hover:not(:disabled),
+:global(html[data-theme-mode="dark"]) .whatsAppAttachButton:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--brand) 30%, var(--line));
+  background: color-mix(in srgb, var(--surface-raised) 66%, var(--background));
+  color: var(--foreground);
+}
+
+:global(html[data-theme-mode="dark"]) .listMetricCard,
+:global(html[data-theme-mode="dark"]) .customerCardPanel,
+:global(html[data-theme-mode="dark"]) .customerCardShortcut,
+:global(html[data-theme-mode="dark"]) .customerCardSummaryBox,
+:global(html[data-theme-mode="dark"]) .recoveryPaymentRow {
+  border-color: color-mix(in srgb, var(--brand) 20%, var(--line));
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--surface) 78%, var(--background)), color-mix(in srgb, var(--surface-soft) 68%, var(--background))),
+    radial-gradient(circle at top right, color-mix(in srgb, var(--brand) 11%, transparent), transparent 44%);
+}
+
+:global(html[data-theme-mode="dark"]) .listSearchField,
+:global(html[data-theme-mode="dark"]) .listSearchAction,
+:global(html[data-theme-mode="dark"]) .contextTabs,
+:global(html[data-theme-mode="dark"]) .whatsAppReplyBar,
+:global(html[data-theme-mode="dark"]) .whatsAppImagePreviewBar,
+:global(html[data-theme-mode="dark"]) .whatsAppReactionPickerBubble,
+:global(html[data-theme-mode="dark"]) .conversationQueueMetaPopup {
+  border-color: color-mix(in srgb, var(--brand) 20%, var(--line));
+  background: color-mix(in srgb, var(--surface) 70%, var(--background));
+  color: var(--foreground);
+}
+
+:global(html[data-theme-mode="dark"]) .listSearchIcon,
+:global(html[data-theme-mode="dark"]) .conversationQueueMetaTime,
+:global(html[data-theme-mode="dark"]) .whatsAppComposerHint {
+  color: color-mix(in srgb, var(--brand) 52%, var(--muted));
+}
+
+:global(html[data-theme-mode="dark"]) .listSearchInput,
+:global(html[data-theme-mode="dark"]) .whatsAppComposerInput,
+:global(html[data-theme-mode="dark"]) .internalNoteInput,
+:global(html[data-theme-mode="dark"]) .customerCardTextarea {
+  border-color: color-mix(in srgb, var(--brand) 22%, var(--line)) !important;
+  background: color-mix(in srgb, var(--field-surface) 86%, var(--background)) !important;
+  color: var(--foreground) !important;
+}
+
+:global(html[data-theme-mode="dark"]) .conversationQueueItem::after {
+  background:
+    radial-gradient(circle at left center, color-mix(in srgb, var(--brand) 18%, transparent), color-mix(in srgb, var(--brand) 6%, transparent) 22%, transparent 48%),
+    linear-gradient(90deg, color-mix(in srgb, var(--brand) 18%, transparent) 0%, color-mix(in srgb, var(--brand-solid) 10%, transparent) 72%, transparent 100%);
+}
+
+:global(html[data-theme-mode="dark"]) .conversationQueueItemUnread {
+  border-color: color-mix(in srgb, var(--brand) 34%, var(--line));
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--surface) 18%, transparent),
+    0 16px 28px color-mix(in srgb, var(--brand) 18%, transparent);
+}
+
+:global(html[data-theme-mode="dark"]) .conversationQueueItemUnread::before {
+  background: linear-gradient(180deg, var(--brand), var(--brand-solid));
+}
+
+:global(html[data-theme-mode="dark"]) .whatsAppConversationShell {
+  border-color: color-mix(in srgb, var(--brand) 22%, var(--line));
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--background) 88%, var(--surface)), color-mix(in srgb, var(--background) 78%, var(--surface-soft))),
+    radial-gradient(circle at top, color-mix(in srgb, var(--brand) 13%, transparent), transparent 42%);
+}
+
+:global(html[data-theme-mode="dark"]) .whatsAppConversationHeader,
+:global(html[data-theme-mode="dark"]) .whatsAppComposerForm {
+  border-color: color-mix(in srgb, var(--brand) 18%, var(--line));
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--surface) 84%, var(--background)), color-mix(in srgb, var(--surface-soft) 66%, var(--background))),
+    radial-gradient(circle at top left, color-mix(in srgb, var(--brand) 10%, transparent), transparent 36%);
+}
+
+:global(html[data-theme-mode="dark"]) .whatsAppTimeline {
+  background:
+    radial-gradient(circle at 18% 16%, color-mix(in srgb, var(--foreground) 5%, transparent) 0, color-mix(in srgb, var(--foreground) 5%, transparent) 1.7px, transparent 2.7px),
+    radial-gradient(circle at 80% 24%, color-mix(in srgb, var(--brand) 9%, transparent) 0, color-mix(in srgb, var(--brand) 9%, transparent) 2px, transparent 3px),
+    linear-gradient(180deg, color-mix(in srgb, var(--background) 92%, var(--surface)), color-mix(in srgb, var(--background) 82%, var(--surface-soft)) 55%, var(--background));
+}
+
+:global(html[data-theme-mode="dark"]) .whatsAppBubbleInbound {
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--chat-inbound) 88%, var(--background)), color-mix(in srgb, var(--surface) 62%, var(--background))),
+    radial-gradient(circle at top left, color-mix(in srgb, var(--brand) 9%, transparent), transparent 40%);
+  color: var(--foreground);
+}
+
+:global(html[data-theme-mode="dark"]) .whatsAppBubbleOutbound {
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--brand) 34%, var(--chat-outbound)), color-mix(in srgb, var(--brand-solid) 24%, var(--chat-outbound))),
+    radial-gradient(circle at top right, color-mix(in srgb, var(--brand) 18%, transparent), transparent 42%);
+  color: var(--foreground);
+}
+
+:global(html[data-theme-mode="dark"]) .conversationContextBadge,
+:global(html[data-theme-mode="dark"]) .whatsAppDayDivider span,
+:global(html[data-theme-mode="dark"]) .whatsAppReactionChip {
+  border-color: color-mix(in srgb, var(--brand) 18%, var(--line));
+  background: color-mix(in srgb, var(--surface) 66%, var(--background));
+  color: color-mix(in srgb, var(--foreground) 82%, var(--muted));
+}
+
+:global(html[data-theme-mode="dark"]) .workspaceDockBody,
+:global(html[data-theme-mode="dark"]) .whatsAppTimeline,
+:global(html[data-theme-mode="dark"]) .contextStack,
+:global(html[data-theme-mode="dark"]) .recoveryPaymentHistory,
+:global(html[data-theme-mode="dark"]) .botStudioBody,
+:global(html[data-theme-mode="dark"]) .templateCatalog {
+  scrollbar-color: color-mix(in srgb, var(--brand) 36%, transparent) transparent;
+}
+
+:global(html[data-theme-mode="dark"]) .workspaceDockBody::-webkit-scrollbar-thumb,
+:global(html[data-theme-mode="dark"]) .whatsAppTimeline::-webkit-scrollbar-thumb,
+:global(html[data-theme-mode="dark"]) .contextStack::-webkit-scrollbar-thumb,
+:global(html[data-theme-mode="dark"]) .recoveryPaymentHistory::-webkit-scrollbar-thumb,
+:global(html[data-theme-mode="dark"]) .botStudioBody::-webkit-scrollbar-thumb,
+:global(html[data-theme-mode="dark"]) .templateCatalog::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--brand) 48%, transparent), color-mix(in srgb, var(--brand-solid) 22%, transparent));
+  background-clip: padding-box;
+}
+
+:global(html[data-theme-mode="light"]) .premiumInboxShell {
+  --inbox-bg: var(--background);
+  --inbox-bg-soft: var(--background-alt);
+  --inbox-surface: color-mix(in srgb, var(--surface) 96%, var(--background));
+  --inbox-surface-strong: color-mix(in srgb, var(--surface) 99%, var(--background));
+  --inbox-line: color-mix(in srgb, var(--line) 88%, var(--background));
+  --inbox-line-strong: color-mix(in srgb, var(--brand) 24%, var(--line));
+  --inbox-text: var(--foreground);
+  --inbox-muted: var(--muted);
+  --inbox-accent: var(--brand);
+  --inbox-accent-strong: var(--brand-solid);
+  --inbox-teal: var(--brand);
+  --inbox-emerald: var(--success);
+  --inbox-warning: var(--warning);
+  --inbox-danger: var(--danger);
+  background:
+    radial-gradient(circle at top left, color-mix(in srgb, var(--brand) 12%, transparent), transparent 28%),
+    radial-gradient(circle at top right, color-mix(in srgb, var(--brand) 8%, transparent), transparent 24%),
     linear-gradient(
       180deg,
       color-mix(in srgb, var(--surface) 98%, var(--background)),
@@ -5003,8 +5230,8 @@
     radial-gradient(circle at 30% 24%, rgba(255, 255, 255, 0.68), transparent 38%),
     linear-gradient(
       145deg,
-      color-mix(in srgb, var(--brand) 92%, white),
-      color-mix(in srgb, var(--info) 84%, white)
+      color-mix(in srgb, var(--brand) 92%, var(--surface)),
+      color-mix(in srgb, var(--brand-solid) 72%, var(--surface))
     );
   color: #fff;
   box-shadow:
@@ -5040,6 +5267,25 @@
 
 :global(html[data-theme-mode="light"]) .commandDockBadge {
   box-shadow: 0 10px 18px color-mix(in srgb, var(--danger) 22%, transparent);
+}
+
+:global(html[data-theme-mode="light"]) .listMetricCard {
+  border-color: color-mix(in srgb, var(--line) 88%, var(--background));
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--surface) 99%, var(--background)),
+      color-mix(in srgb, var(--surface-soft) 96%, var(--background))
+    ),
+    radial-gradient(circle at top right, color-mix(in srgb, var(--brand) 8%, transparent), transparent 44%);
+}
+
+:global(html[data-theme-mode="light"]) .listMetricCard strong {
+  color: var(--foreground);
+}
+
+:global(html[data-theme-mode="light"]) .listMetricCard span {
+  color: var(--muted);
 }
 
 :global(html[data-theme-mode="light"]) .listSearchAction {
@@ -5089,7 +5335,7 @@
     linear-gradient(
       90deg,
       color-mix(in srgb, var(--brand) 12%, transparent) 0%,
-      color-mix(in srgb, var(--success) 10%, transparent) 72%,
+      color-mix(in srgb, var(--brand) 8%, transparent) 72%,
       transparent 100%
     );
 }
@@ -5102,7 +5348,7 @@
 }
 
 :global(html[data-theme-mode="light"]) .conversationQueueItemUnread::before {
-  background: linear-gradient(180deg, color-mix(in srgb, var(--brand) 92%, white), color-mix(in srgb, var(--success) 92%, white));
+  background: linear-gradient(180deg, color-mix(in srgb, var(--brand) 92%, var(--surface)), color-mix(in srgb, var(--brand-solid) 72%, var(--surface)));
 }
 
 :global(html[data-theme-mode="light"]) .conversationQueueItemUnread strong,
@@ -5161,6 +5407,17 @@
   border-color: color-mix(in srgb, var(--success) 16%, var(--background));
 }
 
+:global(html[data-theme-mode="light"]) .conversationPrimaryAction,
+:global(html[data-theme-mode="light"]) .whatsAppComposerButton {
+  background: linear-gradient(135deg, var(--brand), var(--brand-solid)) !important;
+  color: var(--brand-contrast) !important;
+  box-shadow: 0 14px 26px color-mix(in srgb, var(--brand) 22%, transparent) !important;
+}
+
+:global(html[data-theme-mode="light"]) .contextTabHighlight {
+  background: linear-gradient(135deg, var(--brand), var(--brand-solid));
+}
+
 :global(html[data-theme-mode="light"]) .whatsAppConversationLoadingMask {
   background:
     linear-gradient(
@@ -5201,7 +5458,7 @@
 :global(html[data-theme-mode="light"]) .whatsAppBubbleOutbound {
   background:
     linear-gradient(180deg, color-mix(in srgb, var(--chat-outbound) 98%, var(--background)), color-mix(in srgb, var(--chat-outbound) 92%, var(--background))),
-    radial-gradient(circle at top right, color-mix(in srgb, var(--success) 12%, transparent), transparent 42%);
+    radial-gradient(circle at top right, color-mix(in srgb, var(--brand) 10%, transparent), transparent 42%);
   color: var(--foreground);
 }
 

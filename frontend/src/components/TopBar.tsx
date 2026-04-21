@@ -144,6 +144,8 @@ const RECOVERY_HUMAN_QUEUE_EVENT = "hbx-recovery-human-queue";
 const ATENDIMENTO_HUMAN_QUEUE_EVENT = "atendimento-human-queue";
 const RECOVERY_QUEUE_STORAGE_KEY = "hbxRecoveryPendingHumanCount";
 const ATENDIMENTO_QUEUE_STORAGE_KEY = "atendimentoPendingHumanCount";
+const MODULES_PEEK_EVENT = "hbx:modules-peek";
+const MODULES_TRIGGER_ID = "app-modules-trigger";
 
 const hiddenRoutes = new Set(["/login", "/register", "/reset-password", "/confirm-email"]);
 
@@ -216,6 +218,8 @@ export default function TopBar() {
   const [user, setUser] = useState<User | null>(null);
   const [open, setOpen] = useState(false);
   const [modules, setModules] = useState<UserModule[]>([]);
+  const [modulesPeekAvailable, setModulesPeekAvailable] = useState(false);
+  const [modulesPeekOpen, setModulesPeekOpen] = useState(false);
   const [curPass, setCurPass] = useState("");
   const [newPass, setNewPass] = useState("");
   const [changing, setChanging] = useState(false);
@@ -263,6 +267,60 @@ export default function TopBar() {
   useEffect(() => {
     setPortalReady(true);
   }, []);
+
+  useEffect(() => {
+    if (typeof document === "undefined") return undefined;
+
+    const root = document.documentElement;
+    const syncPeekState = () => {
+      setModulesPeekAvailable(root.dataset.hbxModulesPeekAvailable === "true");
+      setModulesPeekOpen(root.dataset.hbxModulesPeekOpen === "true");
+    };
+
+    syncPeekState();
+
+    const observer = new MutationObserver(syncPeekState);
+    observer.observe(root, {
+      attributes: true,
+      attributeFilter: ["data-hbx-modules-peek-available", "data-hbx-modules-peek-open"],
+    });
+
+    return () => {
+      observer.disconnect();
+    };
+  }, []);
+
+  const handleModulesTrigger = React.useCallback(
+    (event: React.MouseEvent<HTMLButtonElement>) => {
+      if (!authenticated) {
+        router.push("/login");
+        return;
+      }
+
+      if (!modulesPeekAvailable) {
+        router.push("/dashboard");
+        return;
+      }
+
+      const rect = event.currentTarget.getBoundingClientRect();
+      window.dispatchEvent(
+        new CustomEvent(MODULES_PEEK_EVENT, {
+          detail: {
+            action: "toggle",
+            anchorRect: {
+              bottom: rect.bottom,
+              height: rect.height,
+              left: rect.left,
+              right: rect.right,
+              top: rect.top,
+              width: rect.width,
+            },
+          },
+        }),
+      );
+    },
+    [authenticated, modulesPeekAvailable, router],
+  );
 
   const refreshMasterAwareState = React.useCallback(async () => {
     const [profile, myModules] = await Promise.all([
@@ -1592,13 +1650,34 @@ export default function TopBar() {
       <div ref={topbarFrameRef} className="app-topbar__frame">
         <div className="app-topbar__inner">
           <div className="app-topbar__left">
-            <Link href={authenticated ? "/dashboard" : "/login"} className="app-brand">
-              <span className="app-brand__mark">HB</span>
-              <span className="app-brand__body">
-                <span className="app-brand__text">HBX Control Center</span>
-                <span className="app-brand__context">{accountContext}</span>
-              </span>
-            </Link>
+            <div className="app-brand">
+              <button
+                id={MODULES_TRIGGER_ID}
+                type="button"
+                className={`app-brand__mark app-brand__markButton${modulesPeekAvailable ? " is-modules" : ""}${modulesPeekOpen ? " is-open" : ""}`}
+                onClick={handleModulesTrigger}
+                aria-controls="workspace-hover-module-nav"
+                aria-expanded={modulesPeekAvailable ? modulesPeekOpen : undefined}
+                aria-label={
+                  modulesPeekAvailable
+                    ? "Abrir modulos"
+                    : authenticated
+                      ? "Ir para o dashboard"
+                      : "Ir para login"
+                }
+                title={modulesPeekAvailable ? "Modulos" : authenticated ? "Dashboard" : "Login"}
+              >
+                <span className="app-brand__markGlyph">HB</span>
+                <span className="app-brand__markBadge" aria-hidden="true" />
+              </button>
+
+              <Link href={authenticated ? "/dashboard" : "/login"} className="app-brand__bodyLink">
+                <span className="app-brand__body">
+                  <span className="app-brand__text">HBX Control Center</span>
+                  <span className="app-brand__context">{accountContext}</span>
+                </span>
+              </Link>
+            </div>
 
             {authenticated && user && !user.isSystemMaster && user.company?.id ? (
               <div className="app-topbar__signals">

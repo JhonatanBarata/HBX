@@ -298,7 +298,7 @@ export default function RegisterPage() {
                     e.preventDefault();
                     router.push("/login");
                   }}
-                  className="login-link font-medium"
+                  className="login-link font-medium sm:ml-3"
                 >
                   Ir para o login
                 </a>
