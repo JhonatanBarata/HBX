@@ -202,6 +202,16 @@ export async function ensureMasterBillingRuntimeSchema(prisma: PrismaService) {
   `);
 
   await prisma.$executeRawUnsafe(`
+    ALTER TABLE "Company"
+    ADD COLUMN IF NOT EXISTS "themePreferenceConfig" TEXT
+  `);
+
+  await prisma.$executeRawUnsafe(`
+    ALTER TABLE "User"
+    ADD COLUMN IF NOT EXISTS "themePreferenceConfig" TEXT
+  `);
+
+  await prisma.$executeRawUnsafe(`
     ALTER TABLE "SystemModule"
     ADD COLUMN IF NOT EXISTS "monthlyPrice" DOUBLE PRECISION NOT NULL DEFAULT 0
   `);
@@ -255,6 +265,11 @@ export async function ensureMasterBillingRuntimeSchema(prisma: PrismaService) {
   await prisma.$executeRawUnsafe(`
     ALTER TABLE "MasterGlobalIntegrationConfig"
     ADD COLUMN IF NOT EXISTS "referralDiscountMode" TEXT NOT NULL DEFAULT 'ONCE'
+  `);
+
+  await prisma.$executeRawUnsafe(`
+    ALTER TABLE "MasterGlobalIntegrationConfig"
+    ADD COLUMN IF NOT EXISTS "themePreferenceConfig" TEXT
   `);
 
   await prisma.$executeRawUnsafe(`

@@ -11,7 +11,7 @@ import {
 } from "react";
 import { useRouter } from "next/navigation";
 import DashboardScaffold from "@/components/DashboardScaffold";
-import { apiFetch } from "../_lib/api";
+import { apiFetch, getToken } from "../_lib/api";
 import { useRequireAuth } from "../_lib/useRequireAuth";
 import { dispatchMasterContextChanged } from "@/lib/masterContextEvents";
 import styles from "./page.module.css";
@@ -373,6 +373,62 @@ type WorkspacePayload = {
     serviceUrl?: string | null;
   }>;
 };
+
+type MasterWorkspaceBootstrap = {
+  token: string | null;
+  workspacePayload: WorkspacePayload;
+  userPayload: CurrentUser;
+};
+
+let masterWorkspaceBootstrapPromise: Promise<MasterWorkspaceBootstrap> | null = null;
+let masterWorkspaceBootstrapPromiseToken: string | null = null;
+let masterWorkspaceBootstrapSnapshot: (MasterWorkspaceBootstrap & { cachedAt: number }) | null = null;
+const MASTER_WORKSPACE_BOOTSTRAP_CACHE_MS = 5000;
+
+async function fetchMasterWorkspaceBootstrap(useCache: boolean) {
+  const token = getToken();
+  const now = Date.now();
+  const cached = masterWorkspaceBootstrapSnapshot;
+
+  if (
+    useCache &&
+    cached &&
+    cached.token === token &&
+    now - cached.cachedAt < MASTER_WORKSPACE_BOOTSTRAP_CACHE_MS
+  ) {
+    return cached;
+  }
+
+  if (useCache && masterWorkspaceBootstrapPromise && masterWorkspaceBootstrapPromiseToken === token) {
+    return masterWorkspaceBootstrapPromise;
+  }
+
+  const request = Promise.all([
+    apiFetch<WorkspacePayload>("/modules/master/workspace"),
+    apiFetch<CurrentUser>("/profile/current-user"),
+  ]).then(([workspacePayload, userPayload]) => {
+    const nextSnapshot = {
+      token,
+      workspacePayload,
+      userPayload,
+      cachedAt: Date.now(),
+    };
+    masterWorkspaceBootstrapSnapshot = nextSnapshot;
+    return nextSnapshot;
+  });
+
+  masterWorkspaceBootstrapPromise = request;
+  masterWorkspaceBootstrapPromiseToken = token;
+
+  try {
+    return await request;
+  } finally {
+    if (masterWorkspaceBootstrapPromise === request) {
+      masterWorkspaceBootstrapPromise = null;
+      masterWorkspaceBootstrapPromiseToken = null;
+    }
+  }
+}
 
 type CompanyUser = {
   id: number;
@@ -1671,10 +1727,7 @@ export default function MasterPremiumPage() {
     }
     setError(null);
     try {
-      const [workspacePayload, userPayload] = await Promise.all([
-        apiFetch<WorkspacePayload>("/modules/master/workspace"),
-        apiFetch<CurrentUser>("/profile/current-user"),
-      ]);
+      const { workspacePayload, userPayload } = await fetchMasterWorkspaceBootstrap(!background);
       setWorkspace(workspacePayload);
       setCurrentUser(userPayload);
       setModuleCatalogDrafts(buildModuleCatalogDrafts(workspacePayload));

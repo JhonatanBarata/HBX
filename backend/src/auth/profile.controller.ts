@@ -5,6 +5,7 @@ import { UsersService } from '../users/users.service';
 import { assertPasswordPolicy } from './password-policy';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { MasterContextService } from '../master-context/master-context.service';
+import { ThemePreferencesService } from './theme-preferences.service';
 
 class ChangePasswordDto {
   @IsString()
@@ -76,6 +77,7 @@ export class ProfileController {
   constructor(
     private readonly usersService: UsersService,
     private readonly masterContextService: MasterContextService,
+    private readonly themePreferencesService: ThemePreferencesService,
   ) {}
 
   private async resolveMasterContext(req: any, user: any) {
@@ -113,6 +115,21 @@ export class ProfileController {
     const user = await this.usersService.findById(req.user.id);
     const masterContext = await this.resolveMasterContext(req, user);
     return sanitizeUser(user, masterContext);
+  }
+
+  @Get('theme-preferences')
+  @UseGuards(JwtAuthGuard)
+  async getThemePreferences(@Req() req: any) {
+    return this.themePreferencesService.getThemePreferencesForUser(Number(req.user?.id));
+  }
+
+  @Patch('theme-preferences')
+  @UseGuards(JwtAuthGuard)
+  async updateThemePreferences(
+    @Req() req: any,
+    @Body() body: { scope?: string; config?: any; reset?: boolean },
+  ) {
+    return this.themePreferencesService.updateThemePreferencesForUser(Number(req.user?.id), body || {});
   }
 
   @Patch('password')

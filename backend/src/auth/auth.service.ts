@@ -493,7 +493,10 @@ export class AuthService implements OnModuleInit {
   async login(user: any, opts?: { companyId?: number }) {
     const companyId = opts?.companyId ?? user?.companyId ?? undefined;
     const payload = { sub: user.id, email: user.email, companyId };
-    return { access_token: this.jwtService.sign(payload) };
+    return {
+      access_token: this.jwtService.sign(payload),
+      next: Boolean(user?.isSystemMaster) ? '/dashboard/master' : '/dashboard',
+    };
   }
 
   // LOGIN (SaaS tenant-safe)

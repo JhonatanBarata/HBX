@@ -11,7 +11,10 @@ import { resolveWebsiteOnlyDestination } from "../../lib/websiteLaunch";
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3000";
 const AUTO_LOGIN_STORAGE_KEY = "hbx_auto_login";
 const AUTO_LOGIN_RELOAD_SECONDS = 49;
-const LOGIN_SUCCESS_DELAY_MS = 950;
+const LOGIN_SUCCESS_DELAY_MS = 1700;
+const LOGIN_VIDEO_EXPERIENCE_ENABLED = true;
+const LOGIN_IDLE_VIDEO_SRC = "/login-media/login-looping.mp4";
+const LOGIN_AUTH_VIDEO_SRC = "/login-media/login-afterauth.mp4";
 const DEFAULT_WAKING_MESSAGE =
   "Estamos iniciando o ambiente seguro. A primeira conexão pode levar alguns segundos.";
 
@@ -87,6 +90,20 @@ function getAccessToken(data: unknown) {
   return typeof token === "string" && token.trim() ? token : null;
 }
 
+function getInternalLoginDestination(data: unknown) {
+  if (!data || typeof data !== "object") return null;
+  const payload = data as {
+    next?: unknown;
+    redirectTo?: unknown;
+  };
+  const destination = payload.next ?? payload.redirectTo;
+  if (typeof destination !== "string") return null;
+
+  const trimmed = destination.trim();
+  if (!trimmed || !trimmed.startsWith("/") || trimmed.startsWith("//")) return null;
+  return trimmed;
+}
+
 export default function LoginPage() {
   const router = useRouter();
   const { selection, activeTheme } = useHbxTheme();
@@ -117,6 +134,8 @@ export default function LoginPage() {
   const [pendingConfirmationConfirmUrl, setPendingConfirmationConfirmUrl] = useState<string | null>(null);
   const [recoverPreviewLink, setRecoverPreviewLink] = useState<string | null>(null);
   const [recoverMailPreviewUrl, setRecoverMailPreviewUrl] = useState<string | null>(null);
+  const idleVideoRef = useRef<HTMLVideoElement | null>(null);
+  const authVideoRef = useRef<HTMLVideoElement | null>(null);
   const countdownRef = useRef<number | null>(null);
   const countdownIntervalRef = useRef<number | null>(null);
 
@@ -125,15 +144,23 @@ export default function LoginPage() {
   const isSuccess = loginState === "success";
   const themeModeLabel = selection.mode === "dark" ? "Escuro" : "Claro";
 
-  async function completeSuccessfulLogin(token: string) {
+  async function completeSuccessfulLogin(token: string, data?: unknown) {
     setToken(token);
     setLoginState("success");
 
     let redirected = false;
+    const fallbackDestination = getInternalLoginDestination(data) || "/dashboard";
 
     try {
       setPlayingWelcome(true);
       await new Promise((resolve) => window.setTimeout(resolve, LOGIN_SUCCESS_DELAY_MS));
+
+      if (fallbackDestination !== "/dashboard") {
+        redirected = true;
+        router.replace(fallbackDestination);
+        return;
+      }
+
       const destination = await resolveWebsiteOnlyDestination();
 
       if (destination) {
@@ -149,7 +176,7 @@ export default function LoginPage() {
       }
     } finally {
       if (!redirected) {
-        router.replace("/dashboard");
+        router.replace(fallbackDestination);
       }
     }
   }
@@ -186,7 +213,7 @@ export default function LoginPage() {
           return;
         }
 
-        await completeSuccessfulLogin(token);
+        await completeSuccessfulLogin(token, result.data);
         return;
       }
 
@@ -437,6 +464,34 @@ export default function LoginPage() {
     };
   }, [cancelLogin]);
 
+  useEffect(() => {
+    if (!LOGIN_VIDEO_EXPERIENCE_ENABLED) return;
+    const idleVideo = idleVideoRef.current;
+    if (!idleVideo) return;
+
+    idleVideo.play().catch(() => undefined);
+  }, [mounted, selection.mode, selection.themeId]);
+
+  useEffect(() => {
+    if (!LOGIN_VIDEO_EXPERIENCE_ENABLED) return;
+    const authVideo = authVideoRef.current;
+    if (!authVideo) return;
+
+    if (isSuccess || playingWelcome) {
+      // Seek to frame 0 first so the first rendered frame is ready,
+      // then play — avoids the brief black-frame flicker at crossfade start.
+      authVideo.currentTime = 0;
+      const playPromise = authVideo.play();
+      if (playPromise !== undefined) {
+        playPromise.catch(() => undefined);
+      }
+      return;
+    }
+
+    authVideo.pause();
+    authVideo.currentTime = 0;
+  }, [isSuccess, playingWelcome]);
+
   async function handleRecoverByEmail(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(null);
@@ -483,8 +538,47 @@ export default function LoginPage() {
   }
 
   return (
-    <main className="login-stage" data-login-theme={selection.themeId} data-login-mode={selection.mode} data-login-state={loginState}>
+    <main
+      className="login-stage"
+      data-login-theme={selection.themeId}
+      data-login-mode={selection.mode}
+      data-login-state={loginState}
+      data-login-video={LOGIN_VIDEO_EXPERIENCE_ENABLED ? "on" : "off"}
+    >
       <div className="login-stage__grid" aria-hidden />
+      {LOGIN_VIDEO_EXPERIENCE_ENABLED ? (
+        <div className="login-video-layer" aria-hidden="true">
+          <video
+            ref={idleVideoRef}
+            className="login-video-layer__clip login-video-layer__clip--idle"
+            src={LOGIN_IDLE_VIDEO_SRC}
+            autoPlay
+            muted
+            loop
+            playsInline
+            preload="auto"
+            onCanPlay={(event) => {
+              event.currentTarget.play().catch(() => undefined);
+            }}
+          />
+          <video
+            ref={authVideoRef}
+            className="login-video-layer__clip login-video-layer__clip--auth"
+            src={LOGIN_AUTH_VIDEO_SRC}
+            muted
+            playsInline
+            preload="auto"
+            onLoadedData={(event) => {
+              // Pre-seek to frame 0 so first frame is decoded and ready
+              event.currentTarget.currentTime = 0;
+            }}
+            onEnded={(event) => {
+              event.currentTarget.pause();
+            }}
+          />
+          <div className="login-video-layer__veil" />
+        </div>
+      ) : null}
       <div className="login-visuals" aria-hidden>
         <div
           className={`login-visuals ${playingWelcome || visualsPlayOnLoad ? "play" : ""}`}

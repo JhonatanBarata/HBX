@@ -156,10 +156,12 @@ export function useLoginColdStart(options: UseLoginColdStartOptions) {
             };
           }
 
+          const payload = data && typeof data === "object" ? data : {};
+
           return {
             state: "success" as LoginState,
             message: undefined,
-            data: { token, elapsedMs },
+            data: { ...payload, token, elapsedMs },
           };
         });
 

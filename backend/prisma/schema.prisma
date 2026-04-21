@@ -75,6 +75,7 @@ model Company {
   subscriptionStatus      String    @default("trialing") // trialing | active | past_due | canceled | expired
   billingProvider         String    @default("manual") // manual | mercadopago | stripe | apple | google
   premiumAccess           Boolean   @default(false)
+  themePreferenceConfig   String?
   billingCardBrand        String?
   billingCardLast4        String?
   billingCardHolderName   String?
@@ -599,6 +600,7 @@ model User {
   role            String           @default("USER")
   isSystemMaster  Boolean          @default(false)
   isActive        Boolean          @default(true)
+  themePreferenceConfig String?
   deactivatedAt   DateTime?
   retentionUntil  DateTime?
   createdAt       DateTime         @default(now())
@@ -866,6 +868,7 @@ model MasterGlobalIntegrationConfig {
   referralDiscountActive   Boolean  @default(false)
   referralDiscountPercent  Float    @default(0)
   referralDiscountMode     String   @default("ONCE") // ONCE | RECURRING
+  themePreferenceConfig    String?
   createdAt                DateTime @default(now())
   updatedAt                DateTime @updatedAt
 }

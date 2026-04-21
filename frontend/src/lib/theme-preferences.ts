@@ -1,9 +1,30 @@
-import { DEFAULT_THEME_SELECTION, type HbxThemeSelection } from "./design-tokens";
+import {
+  buildThemeAppearanceDefaults,
+  DEFAULT_THEME_SELECTION,
+  DEFAULT_THEME_MOTION_STYLE,
+  mergeThemeConfigChain,
+  resolveThemeConfig,
+  sanitizeThemeConfig,
+  type HbxThemeConfig,
+  type HbxThemeSelection,
+} from "./design-tokens";
 import { isHbxThemeId, isHbxThemeMode, type HbxThemeId, type HbxThemeMode } from "./theme-palettes";
 
 export const ACTIVE_THEME_USER_STORAGE_KEY = "hbx:active-user-id";
 export const HBX_THEME_ID_STORAGE_KEY = "hbx:theme-id";
 export const HBX_THEME_MODE_STORAGE_KEY = "hbx:theme-mode";
+export const HBX_THEME_CONFIG_STORAGE_KEY = "hbx:theme-config";
+
+const THEME_APPEARANCE_KEYS = [
+  "buttonPrimary",
+  "buttonSecondary",
+  "buttonSuccess",
+  "buttonAccent",
+  "selectionAccent",
+  "menuActive",
+  "menuInactive",
+  "menuDisabled",
+] as const satisfies ReadonlyArray<keyof NonNullable<HbxThemeConfig["appearance"]>>;
 
 function normalizeUserId(userId?: string | number | null) {
   return String(userId || "").trim();
@@ -67,25 +88,153 @@ export function setActiveThemeUser(userId?: string | number | null) {
   }
 }
 
-export function readStoredThemeSelection(userId?: string | number | null): HbxThemeSelection {
-  if (typeof window === "undefined") return DEFAULT_THEME_SELECTION;
-
+function readLegacyThemeSelection(userId?: string | number | null): HbxThemeSelection | null {
   const scopedUserId = getActiveThemeStorageUser(userId);
 
   try {
-    const themeId = resolveStoredThemeId(
+    const rawThemeId =
       localStorage.getItem(buildScopedKey(HBX_THEME_ID_STORAGE_KEY, scopedUserId)) ||
-        localStorage.getItem(HBX_THEME_ID_STORAGE_KEY) ||
-        localStorage.getItem("theme"),
-    );
-    const mode = resolveStoredThemeMode(
+      localStorage.getItem(HBX_THEME_ID_STORAGE_KEY) ||
+      localStorage.getItem("theme");
+    const rawMode =
       localStorage.getItem(buildScopedKey(HBX_THEME_MODE_STORAGE_KEY, scopedUserId)) ||
-        localStorage.getItem(HBX_THEME_MODE_STORAGE_KEY) ||
-        localStorage.getItem("theme-mode"),
-    );
+      localStorage.getItem(HBX_THEME_MODE_STORAGE_KEY) ||
+      localStorage.getItem("theme-mode");
+
+    if (!rawThemeId && !rawMode) {
+      return null;
+    }
+
+    const themeId = resolveStoredThemeId(rawThemeId);
+    const mode = resolveStoredThemeMode(rawMode);
     return { themeId, mode };
   } catch {
-    return DEFAULT_THEME_SELECTION;
+    return null;
+  }
+}
+
+function tryParseThemeConfig(value: string | null): HbxThemeConfig | null {
+  if (!value) return null;
+
+  try {
+    const parsed = JSON.parse(value) as HbxThemeConfig;
+    return parsed && typeof parsed === "object" ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function normalizeStoredThemeConfig(config?: HbxThemeConfig | null): HbxThemeConfig | null {
+  const sanitized = sanitizeThemeConfig(config);
+  if (!sanitized) return null;
+
+  const selection = resolveThemeConfig({ selection: sanitized.selection }).selection;
+  const defaultAppearance = buildThemeAppearanceDefaults(selection);
+  const hasResolvedAppearanceArtifact = Boolean(
+    sanitized.appearance &&
+      THEME_APPEARANCE_KEYS.every((key) => Object.prototype.hasOwnProperty.call(sanitized.appearance || {}, key)),
+  );
+
+  const appearance = sanitized.appearance
+    ? THEME_APPEARANCE_KEYS.reduce<NonNullable<HbxThemeConfig["appearance"]>>((acc, key) => {
+        const value = sanitized.appearance?.[key];
+        if (!value) return acc;
+        if (hasResolvedAppearanceArtifact && value === defaultAppearance[key]) {
+          return acc;
+        }
+        acc[key] = value;
+        return acc;
+      }, {})
+    : undefined;
+
+  const motion = sanitized.motion?.transitionStyle
+    ? hasResolvedAppearanceArtifact && sanitized.motion.transitionStyle === DEFAULT_THEME_MOTION_STYLE
+      ? undefined
+      : sanitized.motion
+    : undefined;
+
+  return (
+    sanitizeThemeConfig({
+      ...(sanitized.selection ? { selection: sanitized.selection } : {}),
+      ...(appearance && Object.keys(appearance).length ? { appearance } : {}),
+      ...(motion ? { motion } : {}),
+    }) || null
+  );
+}
+
+export function readStoredThemeConfig(userId?: string | number | null): HbxThemeConfig {
+  if (typeof window === "undefined") {
+    return {};
+  }
+
+  const scopedUserId = getActiveThemeStorageUser(userId);
+  const legacySelection = readLegacyThemeSelection(scopedUserId);
+
+  try {
+    const storedConfig = tryParseThemeConfig(
+      localStorage.getItem(buildScopedKey(HBX_THEME_CONFIG_STORAGE_KEY, scopedUserId)) ||
+        localStorage.getItem(HBX_THEME_CONFIG_STORAGE_KEY),
+    );
+    return (
+      normalizeStoredThemeConfig(
+        mergeThemeConfigChain(legacySelection ? { selection: legacySelection } : null, storedConfig),
+      ) || {}
+    );
+  } catch {
+    return legacySelection ? { selection: legacySelection } : {};
+  }
+}
+
+export function readStoredThemeSelection(userId?: string | number | null): HbxThemeSelection {
+  return resolveThemeConfig(readStoredThemeConfig(userId)).selection;
+}
+
+export function persistThemeConfig(
+  config: HbxThemeConfig,
+  userId?: string | number | null,
+) {
+  if (typeof window === "undefined") return;
+  const scopedUserId = getActiveThemeStorageUser(userId);
+
+  try {
+    const nextConfig =
+      normalizeStoredThemeConfig(mergeThemeConfigChain(readStoredThemeConfig(scopedUserId), config)) || {
+        selection: DEFAULT_THEME_SELECTION,
+      };
+    const serialized = JSON.stringify(nextConfig);
+
+    localStorage.setItem(HBX_THEME_CONFIG_STORAGE_KEY, serialized);
+    localStorage.setItem(HBX_THEME_ID_STORAGE_KEY, nextConfig.selection?.themeId || DEFAULT_THEME_SELECTION.themeId);
+    localStorage.setItem(HBX_THEME_MODE_STORAGE_KEY, nextConfig.selection?.mode || DEFAULT_THEME_SELECTION.mode);
+    localStorage.setItem("theme", nextConfig.selection?.themeId || DEFAULT_THEME_SELECTION.themeId);
+    localStorage.setItem("theme-mode", nextConfig.selection?.mode || DEFAULT_THEME_SELECTION.mode);
+
+    if (scopedUserId) {
+      localStorage.setItem(buildScopedKey(HBX_THEME_CONFIG_STORAGE_KEY, scopedUserId), serialized);
+      localStorage.setItem(buildScopedKey(HBX_THEME_ID_STORAGE_KEY, scopedUserId), nextConfig.selection?.themeId || DEFAULT_THEME_SELECTION.themeId);
+      localStorage.setItem(buildScopedKey(HBX_THEME_MODE_STORAGE_KEY, scopedUserId), nextConfig.selection?.mode || DEFAULT_THEME_SELECTION.mode);
+      localStorage.setItem(ACTIVE_THEME_USER_STORAGE_KEY, scopedUserId);
+    }
+  } catch {
+    // ignore storage errors
+  }
+}
+
+export function clearStoredThemeConfig(userId?: string | number | null) {
+  if (typeof window === "undefined") return;
+  const scopedUserId = getActiveThemeStorageUser(userId);
+
+  try {
+    localStorage.removeItem(HBX_THEME_CONFIG_STORAGE_KEY);
+    localStorage.setItem(HBX_THEME_ID_STORAGE_KEY, DEFAULT_THEME_SELECTION.themeId);
+    localStorage.setItem(HBX_THEME_MODE_STORAGE_KEY, DEFAULT_THEME_SELECTION.mode);
+    if (scopedUserId) {
+      localStorage.removeItem(buildScopedKey(HBX_THEME_CONFIG_STORAGE_KEY, scopedUserId));
+      localStorage.removeItem(buildScopedKey(HBX_THEME_ID_STORAGE_KEY, scopedUserId));
+      localStorage.removeItem(buildScopedKey(HBX_THEME_MODE_STORAGE_KEY, scopedUserId));
+    }
+  } catch {
+    // ignore storage errors
   }
 }
 
@@ -93,19 +242,5 @@ export function persistThemeSelection(
   selection: HbxThemeSelection,
   userId?: string | number | null,
 ) {
-  if (typeof window === "undefined") return;
-  const scopedUserId = getActiveThemeStorageUser(userId);
-  try {
-    localStorage.setItem(HBX_THEME_ID_STORAGE_KEY, selection.themeId);
-    localStorage.setItem(HBX_THEME_MODE_STORAGE_KEY, selection.mode);
-    localStorage.setItem("theme", selection.themeId);
-    localStorage.setItem("theme-mode", selection.mode);
-    if (scopedUserId) {
-      localStorage.setItem(buildScopedKey(HBX_THEME_ID_STORAGE_KEY, scopedUserId), selection.themeId);
-      localStorage.setItem(buildScopedKey(HBX_THEME_MODE_STORAGE_KEY, scopedUserId), selection.mode);
-      localStorage.setItem(ACTIVE_THEME_USER_STORAGE_KEY, scopedUserId);
-    }
-  } catch {
-    // ignore storage errors
-  }
+  persistThemeConfig({ selection }, userId);
 }
