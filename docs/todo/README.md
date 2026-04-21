@@ -12,4 +12,4 @@ Nao ha pendencias ativas no momento.
 
 ## Regra da pasta
 
-Nao criar TODO por executor (`codex`, `copilot`, `mini`) ou por complexidade sem uma tarefa real de produto/engenharia.
+Nao criar TODO por executor (codex, copilot, mini) ou por complexidade sem uma tarefa real de produto/engenharia.
