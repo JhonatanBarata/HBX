@@ -4,6 +4,7 @@ import type { CSSProperties, FormEvent } from "react";
 import { useEffect, useEffectEvent, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { apiFetch, setToken } from "../dashboard/_lib/api";
+import SeamlessLoopVideo from "../../components/SeamlessLoopVideo";
 import { useHbxTheme } from "../../components/ThemeProvider";
 import { useLoginColdStart, type LoginState } from "../../lib/useLoginColdStart";
 import { resolveWebsiteOnlyDestination } from "../../lib/websiteLaunch";
@@ -165,7 +166,7 @@ export default function LoginPage() {
   const [pendingConfirmationConfirmUrl, setPendingConfirmationConfirmUrl] = useState<string | null>(null);
   const [recoverPreviewLink, setRecoverPreviewLink] = useState<string | null>(null);
   const [recoverMailPreviewUrl, setRecoverMailPreviewUrl] = useState<string | null>(null);
-  const idleVideoRef = useRef<HTMLVideoElement | null>(null);
+  const [idleVideoPulse, setIdleVideoPulse] = useState(false);
   const authVideoRef = useRef<HTMLVideoElement | null>(null);
   const countdownRef = useRef<number | null>(null);
   const countdownIntervalRef = useRef<number | null>(null);
@@ -479,10 +480,7 @@ export default function LoginPage() {
 
   useEffect(() => {
     if (!LOGIN_VIDEO_EXPERIENCE_ENABLED) return;
-    const idleVideo = idleVideoRef.current;
-    if (!idleVideo) return;
-
-    idleVideo.play().catch(() => undefined);
+    setIdleVideoPulse(false);
   }, [mounted, selection.mode, selection.themeId]);
 
   useEffect(() => {
@@ -560,19 +558,14 @@ export default function LoginPage() {
     >
       <div className="login-stage__grid" aria-hidden />
       {LOGIN_VIDEO_EXPERIENCE_ENABLED ? (
-        <div className="login-video-layer" aria-hidden="true">
-          <video
-            ref={idleVideoRef}
-            className="login-video-layer__clip login-video-layer__clip--idle"
+        <div className="login-video-layer" aria-hidden="true" data-video-pulse={idleVideoPulse ? "on" : "off"}>
+          <SeamlessLoopVideo
             src={LOGIN_IDLE_VIDEO_SRC}
-            autoPlay
-            muted
-            loop
-            playsInline
-            preload="auto"
-            onCanPlay={(event) => {
-              event.currentTarget.play().catch(() => undefined);
-            }}
+            className="login-video-layer__clip login-video-layer__clip--loop"
+            enabled={!isSuccess}
+            switchIntervalMs={2500}
+            fadeDurationMs={900}
+            onPulseChange={setIdleVideoPulse}
           />
           <video
             ref={authVideoRef}
