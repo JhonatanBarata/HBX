@@ -29,3 +29,7 @@ backend/tmp/
 tmp/
 __pycache__/
 *.pyc
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3

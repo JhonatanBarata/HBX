@@ -10,10 +10,6 @@ const moduleHighlights = [
     name: 'HBX Recovery',
     description: 'Motor operacional para cobranca automatica, templates e retorno em tempo real.',
   },
-  {
-    name: 'HBX Music',
-    description: 'Modulo preparado dentro da mesma arquitetura, pronto para crescer como produto.',
-  },
 ]
 
 export function HomePage() {
