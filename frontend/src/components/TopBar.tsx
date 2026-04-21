@@ -1440,10 +1440,6 @@ export default function TopBar() {
   }
 
   const pendingHumanCount = recoveryPendingHumanCount + atendimentoPendingHumanCount;
-  const queueLabel =
-    pendingHumanCount > 0
-      ? `Atendimento: ${atendimentoPendingHumanCount} | Cobranca: ${recoveryPendingHumanCount}`
-      : null;
   const accountContext = authenticated
     ? user?.isSystemMaster
       ? user.masterContext?.active
@@ -1707,7 +1703,11 @@ export default function TopBar() {
                   ) : null}
                 </button>
 
-                {queueLabel ? <span className="app-topbar__queueLabel">{queueLabel}</span> : null}
+                {pendingHumanCount > 0 ? (
+                  <span className="app-topbar__queueLabel">
+                    Atendimento: {atendimentoPendingHumanCount} | Cobranca: {recoveryPendingHumanCount}
+                  </span>
+                ) : null}
               </div>
             ) : null}
           </div>
