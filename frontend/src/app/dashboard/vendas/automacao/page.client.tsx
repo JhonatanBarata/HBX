@@ -537,25 +537,6 @@ export default function VendasAutomationClientPage() {
       <div className={styles.shell}>
         <div className={styles.backdrop} />
         <div className={styles.page}>
-          <BotQrHero
-            connectionLabel={connectionLabel}
-            flowLabel={flowLabel}
-            publishLabel={publishLabel}
-            onOpenConnection={() => setActiveTab("connection")}
-            onOpenFlow={() => setActiveTab("flow")}
-            onOpenPublish={() => setActiveTab("publish")}
-          />
-
-          {notice ? (
-            <section className={styles.notice} data-tone={notice.tone}>
-              {notice.text}
-            </section>
-          ) : null}
-
-          {error ? <section className={styles.notice} data-tone="error">{error}</section> : null}
-
-          <BotQrFlowStrip items={BOT_QR_FLOW_STRIP} />
-
           {loading ? (
             <section className={styles.loadingCard}>Carregando configuracao atual do Bot QRCode...</section>
           ) : (
@@ -625,39 +606,6 @@ export default function VendasAutomationClientPage() {
               }
             />
           )}
-
-          <section className={styles.codexSection}>
-            <details className={styles.codexDetails}>
-              <summary className={styles.codexSummary}>Codex / implementacao cirurgica</summary>
-              <div className={styles.codexGrid}>
-                <article className={styles.codexCard}>
-                  <span className={styles.sectionEyebrow}>Ordem recomendada</span>
-                  <strong>{"1. QR -> 2. inbound -> 3. contato -> 4. nome -> 5. menu -> 6. saida"}</strong>
-                  <p>Mesma base atual do Atendimento, agora apresentada com uma trilha comercial clara dentro de Vendas.</p>
-                </article>
-                <article className={styles.codexCard}>
-                  <span className={styles.sectionEyebrow}>Arquivos</span>
-                  <strong>vendas/automacao + vendas/automation/* + inbox service atual</strong>
-                  <p>Sem schema novo, sem duplicar persistencia e sem abrir outro backend de automacao.</p>
-                </article>
-                <article className={styles.codexCard}>
-                  <span className={styles.sectionEyebrow}>Webhook QR</span>
-                  <strong>O inbound real continua vindo pelo trilho atual do WhatsApp QR.</strong>
-                  <p>CompanyConversation, CompanyMessage, CustomerProfile e as regras do Messaging seguem sendo a fonte real do fluxo.</p>
-                </article>
-                <article className={styles.codexCard}>
-                  <span className={styles.sectionEyebrow}>Condicoes do bot</span>
-                  <strong>QR-first, confirmar nome, financeiro condicional, humano e BOT_OFF.</strong>
-                  <p>Nada disso foi recriado em outro motor. A tela so organiza o que ja existe e simplifica a operacao.</p>
-                </article>
-                <article className={styles.codexCard}>
-                  <span className={styles.sectionEyebrow}>Proximo passo</span>
-                  <strong>Refinar copia, ajustar botoes e publicar com checklist visual.</strong>
-                  <p>Se precisar evoluir depois, o caminho certo e continuar sobre o mesmo contrato atual do bot.</p>
-                </article>
-              </div>
-            </details>
-          </section>
         </div>
       </div>
     </DashboardScaffold>
