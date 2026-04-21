@@ -9,12 +9,13 @@ import { RolesGuard } from './roles.guard';
 import { InternalController } from './internal.controller';
 import { MailModule } from '../mail/mail.module';
 import { MasterContextModule } from '../master-context/master-context.module';
+import { ThemePreferencesService } from './theme-preferences.service';
 
 const jwtSecret = String(process.env.JWT_SECRET || '').trim();
 
 @Module({
   imports: [UsersModule, MailModule, MasterContextModule, JwtModule.register({ secret: jwtSecret, signOptions: { expiresIn: '1d' } })],
-  providers: [AuthService, JwtStrategy, RolesGuard],
+  providers: [AuthService, JwtStrategy, RolesGuard, ThemePreferencesService],
   controllers: [AuthController, ProfileController, InternalController],
   exports: [AuthService],
 })
