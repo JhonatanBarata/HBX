@@ -1,12 +1,11 @@
-import { IsEmail, IsIn, IsNotEmpty, IsOptional, MinLength, ValidateIf } from 'class-validator';
+import { IsEmail, IsIn, IsNotEmpty, IsOptional, MinLength } from 'class-validator';
 
 export class SignupDto {
   @IsOptional()
   @IsIn(['PF', 'PJ'])
   entityType?: 'PF' | 'PJ';
 
-  @ValidateIf((dto: SignupDto) => dto.entityType === 'PJ')
-  @IsNotEmpty()
+  @IsOptional()
   companyName?: string;
 
   @IsOptional()
@@ -14,8 +13,8 @@ export class SignupDto {
   name?: string;
 
   @IsOptional()
-  @IsIn(['vendas', 'recovery'])
-  trialModuleSelection?: 'vendas' | 'recovery';
+  @IsIn(['vendas'])
+  trialModuleSelection?: 'vendas';
 
   @IsOptional()
   @IsIn(['google', 'instagram', 'youtube', 'indicacao', 'parceiro', 'outro'])
@@ -30,14 +29,14 @@ export class SignupDto {
   @IsOptional()
   referralCode?: string;
 
-  @IsNotEmpty()
-  username: string;
+  @IsOptional()
+  username?: string;
 
   @IsEmail()
   email: string;
 
   @IsNotEmpty()
-  @MinLength(4)
+  @MinLength(8)
   password: string;
 }
 
@@ -59,7 +58,7 @@ export class ResetPasswordDto {
   token: string;
 
   @IsNotEmpty()
-  @MinLength(4)
+  @MinLength(8)
   password: string;
 }
 

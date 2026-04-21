@@ -104,7 +104,7 @@ function ConfirmEmailInner() {
           const payload = (data as ConfirmEmailResponse | null) ?? null;
           setInfo(
             String(payload?.message || "").trim() ||
-              "E-mail confirmado com sucesso. Seu acesso já pode ser liberado no login.",
+              "E-mail confirmado com sucesso. Seu acesso já está liberado no login.",
           );
           setErrorCode(null);
           setTrialEndsAt(payload?.trialEndsAt ? String(payload.trialEndsAt) : null);
@@ -138,7 +138,7 @@ function ConfirmEmailInner() {
     return () => {
       cancelled = true;
     };
-  }, [token]);
+  }, [router, token]);
 
   async function handleResend(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -264,20 +264,20 @@ function ConfirmEmailInner() {
           </form>
         ) : null}
 
-        <div className="flex flex-col gap-2">
+        <div className="grid grid-cols-1 gap-2 pt-2">
           <button
             type="button"
             className="w-full py-2 rounded-xl bg-secondary text-foreground hover:opacity-90"
             onClick={() => router.push("/login")}
           >
-            Ir para login
+            Ir para o login
           </button>
           <button
             type="button"
             className="w-full py-2 rounded-xl border border-foreground/10 hover:bg-foreground/5"
             onClick={() => router.push("/register")}
           >
-            Voltar ao cadastro
+            Voltar para o cadastro
           </button>
         </div>
       </div>

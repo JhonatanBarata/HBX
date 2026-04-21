@@ -862,6 +862,7 @@ model MasterGlobalIntegrationConfig {
   mercadoPagoLibrary       String?
   whatsappLibrary          String?
   annualPlanDiscountPercent Float   @default(0)
+  extraSeatMonthlyAmount   Float    @default(0)
   referralDiscountActive   Boolean  @default(false)
   referralDiscountPercent  Float    @default(0)
   referralDiscountMode     String   @default("ONCE") // ONCE | RECURRING

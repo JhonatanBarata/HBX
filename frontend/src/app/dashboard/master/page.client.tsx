@@ -154,7 +154,7 @@ type CompanyProfileDraft = {
   premiumAccess: boolean;
 };
 
-type UserRole = "USER" | "ADMIN" | "GERENTE";
+type UserRole = "USER" | "ADMIN";
 
 type UserModalState = {
   mode: "create" | "edit" | "reset";
@@ -980,7 +980,7 @@ export default function MasterClientPage() {
       userLabel: user.username || user.email || `#${user.id}`,
       email: String(user.email || ""),
       username: String(user.username || ""),
-      role: role === "ADMIN" || role === "GERENTE" ? (role as UserRole) : "USER",
+      role: role === "ADMIN" ? "ADMIN" : "USER",
       password: "",
     });
   }
@@ -1372,7 +1372,6 @@ export default function MasterClientPage() {
                   >
                     <option value="USER">USER</option>
                     <option value="ADMIN">ADMIN</option>
-                    <option value="GERENTE">GERENTE</option>
                   </select>
                 </div>
               </>

@@ -77,7 +77,7 @@ export default function GerencialClientPage() {
   const [creatingUser, setCreatingUser] = useState(false);
   const [newUserEmail, setNewUserEmail] = useState("");
   const [newUserName, setNewUserName] = useState("");
-  const [newUserRole, setNewUserRole] = useState<"USER" | "GERENTE" | "ADMIN">("USER");
+  const [newUserRole, setNewUserRole] = useState<"USER" | "ADMIN">("USER");
   const [newUserPassword, setNewUserPassword] = useState("");
   const [createdPasswordInfo, setCreatedPasswordInfo] = useState<string | null>(null);
   const [actionInfo, setActionInfo] = useState<string | null>(null);
@@ -110,7 +110,7 @@ export default function GerencialClientPage() {
     return startSmartPolling(load, { intervalMs: 15000, immediate: true });
   }, [hasToken, load]);
 
-  async function setRole(userId: number, role: "USER" | "GERENTE" | "ADMIN") {
+  async function setRole(userId: number, role: "USER" | "ADMIN") {
     setChangingUserId(userId);
     setError(null);
     try {
@@ -141,7 +141,10 @@ export default function GerencialClientPage() {
             ...u,
             modules: u.modules.map((m) => {
               const companyMod = prev.modules.find((cm) => cm.key === m.key);
-              return { ...m, allowed: companyMod ? Boolean(companyMod.companyEnabled) : m.allowed };
+              return {
+                ...m,
+                allowed: m.key === "webscraping" ? false : companyMod ? Boolean(companyMod.companyEnabled) : m.allowed,
+              };
             }),
           };
         });
@@ -229,7 +232,7 @@ export default function GerencialClientPage() {
         method: "POST",
         body: JSON.stringify({
           email,
-          username: newUserName.trim() || undefined,
+          name: newUserName.trim() || undefined,
           role: newUserRole,
           password: newUserPassword.trim() || undefined,
         }),
@@ -372,11 +375,10 @@ export default function GerencialClientPage() {
               />
               <select
                 value={newUserRole}
-                onChange={(e) => setNewUserRole(e.target.value as "USER" | "GERENTE" | "ADMIN")}
+                onChange={(e) => setNewUserRole(e.target.value as "USER" | "ADMIN")}
                 className="h-10 rounded-xl border border-[var(--line)] bg-[var(--surface-soft)] px-3 text-sm"
               >
                 <option value="USER">USER</option>
-                <option value="GERENTE">GERENTE</option>
                 <option value="ADMIN">ADMIN</option>
               </select>
               <input
@@ -436,14 +438,6 @@ export default function GerencialClientPage() {
                         className={`btn btn-sm ${user.role === "ADMIN" ? "btn-primary" : "btn-secondary"}`}
                       >
                         ADMIN
-                      </button>
-                      <button
-                        type="button"
-                        disabled={changingUserId === user.id || !user.isActive}
-                        onClick={() => setRole(user.id, "GERENTE")}
-                        className={`btn btn-sm ${user.role === "GERENTE" ? "btn-primary" : "btn-secondary"}`}
-                      >
-                        GERENTE
                       </button>
                       <button
                         type="button"

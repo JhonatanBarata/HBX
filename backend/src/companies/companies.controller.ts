@@ -354,7 +354,7 @@ export class CompaniesController {
       const payload = await this.companiesService.removeByMaster(Number(req.user?.id), id, dto || {});
       await this.masterContextService.registerSupportAction({
         masterUserId: Number(req.user?.id),
-        companyId: Number(id),
+        companyId: null,
         scope: 'master_company',
         action: 'COMPANY_DELETED',
         severity: 'WARN',

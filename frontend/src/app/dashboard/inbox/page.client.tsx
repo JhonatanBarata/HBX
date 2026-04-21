@@ -25,6 +25,7 @@ import {
   ChatInfoCard,
 } from "@/components/chat/PremiumChat";
 import DashboardScaffold from "@/components/DashboardScaffold";
+import HbxConfirmDialog from "@/components/HbxConfirmDialog";
 import ConversationActionList from "@/components/workspace/ConversationActionList";
 import ConversationContextPanel from "@/components/workspace/ConversationContextPanel";
 import ConversationListPane from "@/components/workspace/ConversationListPane";
@@ -1910,6 +1911,9 @@ export default function InboxClientPage() {
   const [queueActionConversationId, setQueueActionConversationId] = useState<string | null>(null);
   const [queueActionMenuPosition, setQueueActionMenuPosition] = useState<QueueActionMenuPosition | null>(null);
   const [messageReactionTargetId, setMessageReactionTargetId] = useState<string | null>(null);
+  const [blockDialog, setBlockDialog] = useState<{ conversationId: string; reason: string } | null>(null);
+  const [deleteConversationDialog, setDeleteConversationDialog] = useState<{ conversationId: string } | null>(null);
+  const [deleteMessageDialog, setDeleteMessageDialog] = useState<{ messageId: string } | null>(null);
   const [revealedDeletedMessageIds, setRevealedDeletedMessageIds] = useState<Record<string, boolean>>({});
   const [customerConversationCard, setCustomerConversationCard] =
     useState<CustomerConversationCardPayload | null>(null);
@@ -2930,7 +2934,7 @@ export default function InboxClientPage() {
   const canManageAgenda = useMemo(() => {
     if (currentUserProfile?.isSystemMaster) return true;
     const role = String(currentUserProfile?.role || "").trim().toUpperCase();
-    return role === "ADMIN" || role === "GERENTE";
+    return role === "ADMIN";
   }, [currentUserProfile?.isSystemMaster, currentUserProfile?.role]);
 
   const hasRecoveryCapability = useMemo(
@@ -3493,11 +3497,16 @@ export default function InboxClientPage() {
     const targetConversation =
       conversationsRef.current.find((conversation) => conversation.id === conversationId) ||
       (selectedConversationRef.current?.id === conversationId ? selectedConversationRef.current : null);
-    const reason = window.prompt(
-      "Motivo do bloqueio:",
-      targetConversation?.blockedReason || "Bloqueado manualmente pelo operador.",
-    );
-    if (reason === null) return;
+    setBlockDialog({
+      conversationId,
+      reason: targetConversation?.blockedReason || "Bloqueado manualmente pelo operador.",
+    });
+  }, []);
+
+  const confirmBlockConversation = useCallback(async () => {
+    if (!blockDialog?.conversationId) return;
+    const conversationId = blockDialog.conversationId;
+    const reason = blockDialog.reason;
     setError(null);
     try {
       const data = await apiFetch<InboxConversation>(`/inbox/conversations/${conversationId}/block`, {
@@ -3509,13 +3518,14 @@ export default function InboxClientPage() {
       }
       setQueueActionConversationId(null);
       setQueueActionMenuPosition(null);
+      setBlockDialog(null);
       setNotice({ tone: "success", text: "Contato bloqueado no Atendimento." });
       await loadConversations({ preferredId: data.id, silent: true });
     } catch (updateError) {
       const message = updateError instanceof Error ? updateError.message : "Falha ao bloquear contato.";
       setError(message);
     }
-  }, [loadConversations]);
+  }, [blockDialog, loadConversations]);
 
   const blockConversation = useCallback(async () => {
     if (!selectedId) return;
@@ -3542,8 +3552,15 @@ export default function InboxClientPage() {
   const deleteConversationById = useCallback(
     async (conversationId: string) => {
       if (!conversationId) return;
-      const confirmed = window.confirm("Enviar esta conversa para Excluídos apenas no HBX? Nenhum comando será enviado ao WhatsApp.");
-      if (!confirmed) return;
+      setDeleteConversationDialog({ conversationId });
+    },
+    [],
+  );
+
+  const confirmDeleteConversation = useCallback(
+    async () => {
+      const conversationId = deleteConversationDialog?.conversationId;
+      if (!conversationId) return;
       setError(null);
       try {
         const response = await apiFetch<{ message?: string }>(`/inbox/conversations/${conversationId}`, {
@@ -3551,6 +3568,7 @@ export default function InboxClientPage() {
         });
         setQueueActionConversationId(null);
         setQueueActionMenuPosition(null);
+        setDeleteConversationDialog(null);
         setManualQueueOverrides((current) => {
           return { ...current, [conversationId]: "archived" };
         });
@@ -3566,7 +3584,7 @@ export default function InboxClientPage() {
         setError(message);
       }
     },
-    [loadConversations],
+    [deleteConversationDialog?.conversationId, loadConversations],
   );
 
   const reactToMessage = useCallback(
@@ -3595,8 +3613,15 @@ export default function InboxClientPage() {
   const deleteSentMessage = useCallback(
     async (messageId: string) => {
       if (!selectedId || !messageId) return;
-      const confirmed = window.confirm("Apagar esta mensagem para todos?");
-      if (!confirmed) return;
+      setDeleteMessageDialog({ messageId });
+    },
+    [selectedId],
+  );
+
+  const confirmDeleteSentMessage = useCallback(
+    async () => {
+      const messageId = deleteMessageDialog?.messageId;
+      if (!selectedId || !messageId) return;
       setError(null);
       try {
         const data = await apiFetch<InboxConversation>(
@@ -3607,6 +3632,7 @@ export default function InboxClientPage() {
         );
         setSelectedConversation(data);
         setMessageReactionTargetId(null);
+        setDeleteMessageDialog(null);
         setNotice({ tone: "success", text: "Mensagem apagada para todos." });
         await loadConversations({ preferredId: data.id, silent: true });
       } catch (deleteError) {
@@ -3614,7 +3640,7 @@ export default function InboxClientPage() {
         setError(message);
       }
     },
-    [loadConversations, selectedId],
+    [deleteMessageDialog?.messageId, loadConversations, selectedId],
   );
 
   const sendMessage = useCallback(
@@ -5572,6 +5598,47 @@ export default function InboxClientPage() {
           </div>
         </div>
       ) : null}
+
+      <HbxConfirmDialog
+        open={blockDialog !== null}
+        title="Bloquear contato"
+        description="O contato ficará bloqueado no Atendimento até ser liberado novamente."
+        confirmLabel="Bloquear"
+        destructive
+        onCancel={() => setBlockDialog(null)}
+        onConfirm={() => void confirmBlockConversation()}
+      >
+        <label className="text-xs uppercase tracking-[0.08em] font-semibold text-muted">
+          Motivo do bloqueio
+        </label>
+        <textarea
+          className="field min-h-[96px]"
+          value={blockDialog?.reason || ""}
+          onChange={(event) =>
+            setBlockDialog((current) => current ? { ...current, reason: event.target.value } : current)
+          }
+        />
+      </HbxConfirmDialog>
+
+      <HbxConfirmDialog
+        open={deleteConversationDialog !== null}
+        title="Enviar conversa para Excluídos"
+        description="A conversa será removida apenas no HBX. Nenhum comando será enviado ao WhatsApp."
+        confirmLabel="Enviar para Excluídos"
+        destructive
+        onCancel={() => setDeleteConversationDialog(null)}
+        onConfirm={() => void confirmDeleteConversation()}
+      />
+
+      <HbxConfirmDialog
+        open={deleteMessageDialog !== null}
+        title="Apagar mensagem"
+        description="A mensagem será apagada para todos quando o provedor aceitar a operação."
+        confirmLabel="Apagar para todos"
+        destructive
+        onCancel={() => setDeleteMessageDialog(null)}
+        onConfirm={() => void confirmDeleteSentMessage()}
+      />
     </>
   );
 }

@@ -73,6 +73,11 @@ class UpdateMasterBillingPolicyDto {
   annualPlanDiscountPercent?: number;
 
   @IsOptional()
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  extraSeatMonthlyAmount?: number;
+
+  @IsOptional()
   @Type(() => Boolean)
   @IsBoolean()
   referralDiscountActive?: boolean;

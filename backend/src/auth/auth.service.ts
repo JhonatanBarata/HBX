@@ -77,16 +77,12 @@ export class AuthService implements OnModuleInit {
     return normalized === 'PF' ? 'PF' : normalized === 'PJ' ? 'PJ' : null;
   }
 
-  private normalizeTrialModuleSelection(value: string | undefined) {
+  private normalizeTrialModuleSelection(value: string | undefined): 'vendas' | null {
     const normalized = String(value || '').trim().toLowerCase();
-    return normalized === 'vendas' || normalized === 'recovery' ? normalized : null;
+    return normalized === 'vendas' ? normalized : null;
   }
 
-  private resolveTrialEnabledModuleKeys(trialModuleSelection: 'vendas' | 'recovery' | null) {
-    if (trialModuleSelection === 'recovery') {
-      return ['atendimento'];
-    }
-
+  private resolveTrialEnabledModuleKeys(trialModuleSelection: 'vendas' | null) {
     if (trialModuleSelection === 'vendas') {
       return ['atendimento', 'vendas', 'webscraping'];
     }
@@ -136,6 +132,60 @@ export class AuthService implements OnModuleInit {
 
   private buildEmailConfirmationLink(rawToken: string) {
     return `${this.buildAppUrl()}/confirm-email?token=${encodeURIComponent(rawToken)}`;
+  }
+
+  private escapeHtml(value: string) {
+    return String(value || '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  private buildEmailConfirmationHtml(input: {
+    username: string;
+    companyName: string;
+    confirmationLink: string;
+  }) {
+    const username = this.escapeHtml(input.username);
+    const companyName = this.escapeHtml(input.companyName);
+    const confirmationLink = this.escapeHtml(input.confirmationLink);
+
+    return [
+      '<!DOCTYPE html>',
+      '<html lang="pt-BR">',
+      '  <body style="margin:0;padding:24px;background:#f3f6fb;font-family:Arial,Helvetica,sans-serif;color:#10213a;">',
+      '    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;margin:0 auto;background:#ffffff;border-radius:20px;overflow:hidden;border:1px solid #dbe4f0;">',
+      '      <tr>',
+      '        <td style="padding:24px 28px;background:linear-gradient(135deg,#163b7a,#26428c);color:#ffffff;">',
+      '          <div style="font-size:12px;letter-spacing:.12em;text-transform:uppercase;opacity:.78;">HBX</div>',
+      '          <h1 style="margin:12px 0 0;font-size:26px;line-height:1.2;">Confirme seu e-mail</h1>',
+      '          <p style="margin:10px 0 0;font-size:14px;line-height:1.6;opacity:.92;">Seu acesso está quase pronto. Falta só validar o endereço para liberar o trial.</p>',
+      '        </td>',
+      '      </tr>',
+      '      <tr>',
+      '        <td style="padding:28px;">',
+      `          <p style="margin:0 0 12px;font-size:16px;line-height:1.7;">Olá, <strong>${username}</strong>.</p>`,
+      `          <p style="margin:0 0 12px;font-size:15px;line-height:1.7;">O cadastro de <strong>${companyName}</strong> foi criado no HBX.</p>`,
+      '          <p style="margin:0 0 24px;font-size:15px;line-height:1.7;">Confirme seu e-mail no botão abaixo para ativar o free trial de 30 dias.</p>',
+      `          <a href="${confirmationLink}" style="display:inline-block;padding:14px 22px;border-radius:12px;background:#c9473d;color:#ffffff;text-decoration:none;font-weight:700;">Confirmar e-mail</a>`,
+      '          <p style="margin:24px 0 0;font-size:13px;line-height:1.7;color:#4f647e;">Se o botão não abrir, copie e cole este link no navegador:</p>',
+      `          <p style="margin:8px 0 0;word-break:break-all;font-size:13px;line-height:1.7;"><a href="${confirmationLink}" style="color:#26428c;">${confirmationLink}</a></p>`,
+      '        </td>',
+      '      </tr>',
+      '      <tr>',
+      '        <td style="padding:0 28px 28px;">',
+      '          <div style="padding:16px 18px;border-radius:14px;background:#f5f7fb;border:1px solid #e1e8f2;">',
+      '            <p style="margin:0 0 8px;font-size:13px;line-height:1.6;"><strong>Importante:</strong> enquanto o e-mail não for confirmado, o acesso continua bloqueado.</p>',
+      '            <p style="margin:0;font-size:13px;line-height:1.6;color:#4f647e;">Se você não solicitou esse cadastro, ignore esta mensagem.</p>',
+      '          </div>',
+      '        </td>',
+      '      </tr>',
+      '    </table>',
+      '  </body>',
+      '</html>',
+    ].join('');
   }
 
   private isProduction() {
@@ -215,7 +265,7 @@ export class AuthService implements OnModuleInit {
     username: string;
     companyName: string;
     entityType: 'PF' | 'PJ' | null;
-    trialModuleSelection: 'vendas' | 'recovery' | null;
+    trialModuleSelection: 'vendas' | null;
     acquisitionSource: string | null;
     warnings: string[];
     message?: string;
@@ -268,7 +318,7 @@ export class AuthService implements OnModuleInit {
   private async syncTrialSelectedModulesTx(
     tx: any,
     companyId: number,
-    trialModuleSelection: 'vendas' | 'recovery' | null,
+    trialModuleSelection: 'vendas' | null,
   ) {
     if (!trialModuleSelection) return;
 
@@ -348,6 +398,11 @@ export class AuthService implements OnModuleInit {
         'Enquanto o e-mail não for confirmado, o acesso continua bloqueado.',
         'Se você não solicitou esse cadastro, ignore esta mensagem.',
       ].join('\n'),
+      html: this.buildEmailConfirmationHtml({
+        username: input.username,
+        companyName: input.companyName,
+        confirmationLink,
+      }),
     });
 
     return {
@@ -506,17 +561,20 @@ export class AuthService implements OnModuleInit {
     entityType?: 'PF' | 'PJ';
     companyName?: string;
     name?: string;
-    trialModuleSelection?: 'vendas' | 'recovery';
+    trialModuleSelection?: 'vendas';
     acquisitionSource?: 'google' | 'instagram' | 'youtube' | 'indicacao' | 'parceiro' | 'outro';
     acquisitionSourceDetail?: string;
     referralReferrerName?: string;
     referralCode?: string;
-    username: string;
+    username?: string;
     email: string;
     password: string;
   }) {
-    const username = String(data.username || '').trim();
-    if (!username) throw new BadRequestException('O campo Usuário é obrigatório.');
+    const email = String(data.email || '').trim().toLowerCase();
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!email || !emailRegex.test(email)) throw new BadRequestException('E‑mail inválido. Informe um endereço de e‑mail válido para recuperação.');
+
+    const username = String(data.username || email).trim().toLowerCase();
 
     const existingUsername = await this.usersService.findByUsername(username);
     // If username exists, allow completing registration only when there is no email yet.
@@ -528,40 +586,24 @@ export class AuthService implements OnModuleInit {
       // existing user without email: proceed to attach email/password (below)
     }
 
-    const email = String(data.email || '').trim().toLowerCase();
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!email || !emailRegex.test(email)) throw new BadRequestException('E‑mail inválido. Informe um endereço de e‑mail válido para recuperação.');
-
     const existingEmail = await this.usersService.findByEmail(email);
     if (existingEmail) throw new ConflictException('Já existe uma conta com este E‑mail. Caso seja sua, use a recuperação de senha.');
 
     const password = String(data.password || '');
     assertPasswordPolicy(password);
 
-    const name = String(data.name || '').trim();
-    if (!name) {
-      throw new BadRequestException('O campo Nome é obrigatório.');
-    }
-
-    const hashed = await bcrypt.hash(password, 12);
-    const entityType = this.normalizeEntityType(data.entityType);
     const normalizedCompanyName = String(data.companyName || '').trim();
-    const trialModuleSelection = this.normalizeTrialModuleSelection(data.trialModuleSelection);
+    const normalizedName = String(data.name || '').trim();
+    const resolvedName = normalizedName || normalizedCompanyName || username;
+    const hashed = await bcrypt.hash(password, 12);
+    const entityType = this.normalizeEntityType(data.entityType) || 'PF';
+    const trialModuleSelection = this.normalizeTrialModuleSelection(data.trialModuleSelection) || 'vendas';
     const acquisitionSource = this.normalizeAcquisitionSource(data.acquisitionSource);
     const acquisitionSourceDetail = String(data.acquisitionSourceDetail || '').trim() || null;
     const referralReferrerName = String(data.referralReferrerName || '').trim() || null;
     const referralCode = String(data.referralCode || '').trim() || null;
     const usesPublicEmail = entityType === 'PJ' ? this.isPublicEmailDomain(email) : false;
-    if (!existingUsername?.companyId && !entityType) {
-      throw new BadRequestException('Selecione PF ou PJ.');
-    }
-    if (!existingUsername?.companyId && !trialModuleSelection) {
-      throw new BadRequestException('Selecione o módulo inicial do trial.');
-    }
-    if (!existingUsername?.companyId && entityType === 'PJ' && !normalizedCompanyName) {
-      throw new BadRequestException('O campo Empresa é obrigatório.');
-    }
-    const displayName = entityType === 'PF' ? normalizedCompanyName || name : this.companyDisplayName(normalizedCompanyName, username);
+    const displayName = this.companyDisplayName(normalizedCompanyName || resolvedName, username);
     const warnings = usesPublicEmail
       ? ['Conta PJ cadastrada com e-mail público. Recomendamos usar um domínio corporativo.']
       : [];
@@ -579,7 +621,7 @@ export class AuthService implements OnModuleInit {
           data: {
             email,
             password: hashed,
-            name,
+            name: resolvedName,
             emailConfirmedAt: existingUsername.emailConfirmedAt || new Date(),
             emailConfirmationToken: null,
             emailConfirmationSentAt: null,
@@ -605,7 +647,7 @@ export class AuthService implements OnModuleInit {
             acquisitionSourceDetail,
             referralReferrerName,
             referralCode,
-            primaryContactName: name,
+            primaryContactName: resolvedName,
             contactEmail: email,
             onboardingStatus: 'pending_email_confirmation',
             isActive: false,
@@ -628,7 +670,8 @@ export class AuthService implements OnModuleInit {
           data: {
             email,
             password: hashed,
-            name,
+            name: resolvedName,
+            role: 'ADMIN',
             companyId: company.id,
             emailConfirmedAt: null,
             emailConfirmationToken: tokenHash,
@@ -682,7 +725,7 @@ export class AuthService implements OnModuleInit {
           acquisitionSourceDetail,
           referralReferrerName,
           referralCode,
-          primaryContactName: name,
+          primaryContactName: resolvedName,
           contactEmail: email,
           onboardingStatus: 'pending_email_confirmation',
           isActive: false,
@@ -707,7 +750,8 @@ export class AuthService implements OnModuleInit {
           username,
           email,
           password: hashed,
-          name,
+          name: resolvedName,
+          role: 'ADMIN',
           companyId: company.id,
           emailConfirmedAt: null,
           emailConfirmationToken: tokenHash,

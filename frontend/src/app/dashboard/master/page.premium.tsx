@@ -222,6 +222,12 @@ type CompanySummary = {
     annualDiscountValue: number;
     manualDiscountPercent: number;
     manualDiscountValue: number;
+    basePlanCycleAmount?: number;
+    activeUsers?: number;
+    includedActiveUsers?: number;
+    extraActiveUsers?: number;
+    extraSeatMonthlyAmount?: number;
+    extraSeatCycleAmount?: number;
     referralDiscountPercent: number;
     referralDiscountMode: "ONCE" | "RECURRING" | string;
     referralDiscountValue: number;
@@ -349,6 +355,7 @@ type WorkspacePayload = {
     mercadoPagoConfigured: boolean;
     whatsappConfigured: boolean;
     annualPlanDiscountPercent: number;
+    extraSeatMonthlyAmount: number;
     referralDiscountActive: boolean;
     referralDiscountPercent: number;
     referralDiscountMode: "ONCE" | "RECURRING" | string;
@@ -575,7 +582,7 @@ type UserModalState = {
   userLabel?: string;
   email: string;
   username: string;
-  role: "USER" | "ADMIN" | "GERENTE";
+  role: "USER" | "ADMIN";
   password: string;
 };
 
@@ -1285,6 +1292,7 @@ function buildMasterIntegrationsDraft(workspace?: WorkspacePayload | null): Mast
     mercadoPagoConfigured: Boolean(workspace?.masterIntegrations?.mercadoPagoConfigured),
     whatsappConfigured: Boolean(workspace?.masterIntegrations?.whatsappConfigured),
     annualPlanDiscountPercent: Number(workspace?.masterIntegrations?.annualPlanDiscountPercent || 0) || 0,
+    extraSeatMonthlyAmount: Number(workspace?.masterIntegrations?.extraSeatMonthlyAmount || 0) || 0,
     referralDiscountActive: Boolean(workspace?.masterIntegrations?.referralDiscountActive),
     referralDiscountPercent: Number(workspace?.masterIntegrations?.referralDiscountPercent || 0) || 0,
     referralDiscountMode:
@@ -1628,6 +1636,7 @@ export default function MasterPremiumPage() {
     mercadoPagoConfigured: false,
     whatsappConfigured: false,
     annualPlanDiscountPercent: 0,
+    extraSeatMonthlyAmount: 0,
     referralDiscountActive: false,
     referralDiscountPercent: 0,
     referralDiscountMode: "ONCE",
@@ -2212,6 +2221,7 @@ export default function MasterPremiumPage() {
         method: "PUT",
         body: JSON.stringify({
           annualPlanDiscountPercent: Number(masterIntegrationsDraft.annualPlanDiscountPercent || 0),
+          extraSeatMonthlyAmount: Number(masterIntegrationsDraft.extraSeatMonthlyAmount || 0),
           referralDiscountActive: Boolean(masterIntegrationsDraft.referralDiscountActive),
           referralDiscountPercent: Number(masterIntegrationsDraft.referralDiscountPercent || 0),
           referralDiscountMode:
@@ -3211,6 +3221,18 @@ export default function MasterPremiumPage() {
                         }))
                       }
                     />
+                    <input
+                      className="field"
+                      inputMode="decimal"
+                      placeholder="Valor mensal por assento extra"
+                      value={String(masterIntegrationsDraft.extraSeatMonthlyAmount ?? 0)}
+                      onChange={(event) =>
+                        setMasterIntegrationsDraft((current) => ({
+                          ...current,
+                          extraSeatMonthlyAmount: Number(event.target.value || 0),
+                        }))
+                      }
+                    />
                     <select
                       className="field"
                       value={masterIntegrationsDraft.referralDiscountMode || "ONCE"}
@@ -3241,6 +3263,7 @@ export default function MasterPremiumPage() {
                   <div className={styles.summaryMeta}>
                     <p>Esse percentual entra apenas quando a empresa estiver no ciclo anual.</p>
                     <p>Hoje: {Number(masterIntegrationsDraft.annualPlanDiscountPercent || 0)}% de desconto global.</p>
+                    <p>Assento extra: {formatCurrency(Number(masterIntegrationsDraft.extraSeatMonthlyAmount || 0))}/mês após 2 usuários ativos.</p>
                     <p>
                       Indicação: {Boolean(masterIntegrationsDraft.referralDiscountActive) ? "ativa" : "inativa"} •{" "}
                       {Number(masterIntegrationsDraft.referralDiscountPercent || 0)}% •{" "}
@@ -3905,6 +3928,9 @@ export default function MasterPremiumPage() {
                         <div><span>Forma de pagamento</span><strong>{paymentMethodLabel(activeCompany.paymentMethod)}</strong></div>
                         <div><span>Provider</span><strong>{activeCompany.billingProvider || "manual"}</strong></div>
                         <div><span>Ciclo</span><strong>{activeCompany.finance.billingCycle === "ANNUAL" ? "Anual" : "Mensal"}</strong></div>
+                        <div><span>Usuários ativos</span><strong>{activeCompany.finance.activeUsers ?? 0}</strong></div>
+                        <div><span>Inclusos</span><strong>{activeCompany.finance.includedActiveUsers ?? 2}</strong></div>
+                        <div><span>Assentos extras</span><strong>{activeCompany.finance.extraActiveUsers ?? 0}</strong></div>
                         <div><span>Valor base</span><strong>{formatCurrency(activeCompany.finance.baseCycleAmount)}</strong></div>
                         <div><span>Valor final</span><strong>{formatCurrency(activeCompany.finance.finalCycleAmount)}</strong></div>
                         <div><span>Desc. anual</span><strong>{activeCompany.finance.annualPlanDiscountPercent}%</strong></div>
@@ -3922,6 +3948,9 @@ export default function MasterPremiumPage() {
                         <p>Pagamento manual pendente: {activeCompany.manualPaymentPending ? "Sim" : "Não"}</p>
                         <p>Falha recente em cartão: {activeCompany.recentCardFailure ? "Sim" : "Não"}</p>
                         <p>Cartão cadastrado: {activeCompany.finance.cardConfigured ? `${activeCompany.finance.cardBrand || "Cartão"} • **** ${activeCompany.finance.cardLast4 || "----"}` : "Não"}</p>
+                        <p>
+                          Assentos extras: {activeCompany.finance.extraActiveUsers ?? 0} x {formatCurrency(activeCompany.finance.extraSeatMonthlyAmount ?? 0)}/mês = {formatCurrency(activeCompany.finance.extraSeatCycleAmount ?? 0)} no ciclo.
+                        </p>
                         <p>Pix disponível: {activeCompany.finance.pixAvailable ? "Sim" : "Não"}</p>
                         <p>
                           Origem comercial: {acquisitionSourceLabel(activeCompany.acquisitionSource)}
@@ -4231,7 +4260,7 @@ export default function MasterPremiumPage() {
                                   userLabel: user.username || user.email || `#${user.id}`,
                                   email: user.email || "",
                                   username: user.username || "",
-                                  role: user.role === "ADMIN" || user.role === "GERENTE" ? user.role : "USER",
+                                  role: user.role === "ADMIN" ? "ADMIN" : "USER",
                                   password: "",
                                 })
                               }
@@ -4250,7 +4279,7 @@ export default function MasterPremiumPage() {
                                   userLabel: user.username || user.email || `#${user.id}`,
                                   email: user.email || "",
                                   username: user.username || "",
-                                  role: user.role === "ADMIN" || user.role === "GERENTE" ? user.role : "USER",
+                                  role: user.role === "ADMIN" ? "ADMIN" : "USER",
                                   password: "",
                                 })
                               }
@@ -5172,10 +5201,9 @@ export default function MasterPremiumPage() {
               <>
                 <input className="field" placeholder="E-mail" value={userModal.email} onChange={(event) => setUserModal((current) => current ? { ...current, email: event.target.value } : current)} />
                 <input className="field" placeholder="Nome / username" value={userModal.username} onChange={(event) => setUserModal((current) => current ? { ...current, username: event.target.value } : current)} />
-                <select className="field" value={userModal.role} onChange={(event) => setUserModal((current) => current ? { ...current, role: event.target.value as "USER" | "ADMIN" | "GERENTE" } : current)}>
+                <select className="field" value={userModal.role} onChange={(event) => setUserModal((current) => current ? { ...current, role: event.target.value as "USER" | "ADMIN" } : current)}>
                   <option value="USER">USER</option>
                   <option value="ADMIN">ADMIN</option>
-                  <option value="GERENTE">GERENTE</option>
                 </select>
               </>
             ) : null}

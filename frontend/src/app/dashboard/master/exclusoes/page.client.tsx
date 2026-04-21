@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import DashboardScaffold from "@/components/DashboardScaffold";
+import HbxConfirmDialog from "@/components/HbxConfirmDialog";
 import { apiFetch } from "../../_lib/api";
 import { useRequireAuth } from "../../_lib/useRequireAuth";
 
@@ -39,6 +40,8 @@ export default function ExclusoesMasterClientPage() {
   const [moduleKey, setModuleKey] = useState("");
   const [companyId, setCompanyId] = useState("");
   const [search, setSearch] = useState("");
+  const [deleteDialog, setDeleteDialog] = useState<{ item: DeletionItem; motivo: string } | null>(null);
+  const [batchDialog, setBatchDialog] = useState<{ confirmText: string; motivo: string } | null>(null);
 
   const query = useMemo(() => {
     const params = new URLSearchParams();
@@ -66,10 +69,7 @@ export default function ExclusoesMasterClientPage() {
     load();
   }, [hasToken, load]);
 
-  async function permanentDelete(item: DeletionItem) {
-    const motivo = (prompt(`Motivo para limpeza permanente do registro #${item.id} (opcional):`, "") || "").trim();
-    const ok = confirm(`Confirma exclusão permanente do registro #${item.id}?`);
-    if (!ok) return;
+  async function permanentDelete(item: DeletionItem, motivo: string) {
 
     setBusyId(item.id);
     setError(null);
@@ -80,6 +80,7 @@ export default function ExclusoesMasterClientPage() {
         body: JSON.stringify({ motivo: motivo || undefined }),
       });
       setInfo(`Registro #${item.id} removido da fila de exclusões.`);
+      setDeleteDialog(null);
       await load();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Falha ao excluir permanentemente");
@@ -88,17 +89,12 @@ export default function ExclusoesMasterClientPage() {
     }
   }
 
-  async function permanentDeleteBatch() {
-    const first = confirm("Confirma iniciar limpeza em lote para os filtros atuais?");
-    if (!first) return;
-
-    const secondText = (prompt('Confirmação dupla: digite pelo menos 10 caracteres para confirmar a limpeza em lote', '') || '').trim();
+  async function permanentDeleteBatch(confirmText: string, motivo: string) {
+    const secondText = confirmText.trim();
     if (secondText.length < 10) {
       setError('Confirmação inválida: digite pelo menos 10 caracteres para continuar.');
       return;
     }
-
-    const motivo = (prompt('Motivo da limpeza em lote (opcional):', '') || '').trim();
 
     setBusyBatch(true);
     setError(null);
@@ -114,6 +110,7 @@ export default function ExclusoesMasterClientPage() {
         }),
       });
       setInfo(`Limpeza em lote concluída. Registros afetados: ${payload?.affected ?? 0}.`);
+      setBatchDialog(null);
       await load();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Falha na limpeza em lote');
@@ -156,7 +153,7 @@ export default function ExclusoesMasterClientPage() {
             type="button"
             className="btn btn-danger btn-sm"
             disabled={busyBatch}
-            onClick={permanentDeleteBatch}
+            onClick={() => setBatchDialog({ confirmText: "", motivo: "" })}
           >
             {busyBatch ? 'Limpando lote...' : 'Limpeza em lote (filtros atuais)'}
           </button>
@@ -197,7 +194,7 @@ export default function ExclusoesMasterClientPage() {
                     type="button"
                     className="btn btn-danger btn-sm"
                     disabled={busyId === item.id}
-                    onClick={() => permanentDelete(item)}
+                    onClick={() => setDeleteDialog({ item, motivo: "" })}
                   >
                     {busyId === item.id ? "Limpando..." : "Excluir permanente"}
                   </button>
@@ -233,6 +230,68 @@ export default function ExclusoesMasterClientPage() {
           </div>
         </div>
       ) : null}
+
+      <HbxConfirmDialog
+        open={deleteDialog !== null}
+        title={deleteDialog ? `Excluir registro #${deleteDialog.item.id}` : "Excluir registro"}
+        description="A limpeza permanente remove o item da auditoria de exclusões. Essa ação não volta pelo HBX."
+        confirmLabel="Excluir permanente"
+        destructive
+        busy={deleteDialog ? busyId === deleteDialog.item.id : false}
+        onCancel={() => setDeleteDialog(null)}
+        onConfirm={() => {
+          if (deleteDialog) void permanentDelete(deleteDialog.item, deleteDialog.motivo.trim());
+        }}
+      >
+        <label className="text-xs uppercase tracking-[0.08em] font-semibold text-muted">
+          Motivo (opcional)
+        </label>
+        <textarea
+          className="field min-h-[96px]"
+          value={deleteDialog?.motivo || ""}
+          onChange={(event) =>
+            setDeleteDialog((current) => current ? { ...current, motivo: event.target.value } : current)
+          }
+          placeholder="Descreva por que este registro será limpo permanentemente."
+        />
+      </HbxConfirmDialog>
+
+      <HbxConfirmDialog
+        open={batchDialog !== null}
+        title="Limpeza em lote"
+        description="A limpeza usará os filtros atuais da tela. Digite uma confirmação com pelo menos 10 caracteres antes de continuar."
+        confirmLabel="Limpar lote"
+        destructive
+        busy={busyBatch}
+        confirmDisabled={!batchDialog || batchDialog.confirmText.trim().length < 10}
+        onCancel={() => setBatchDialog(null)}
+        onConfirm={() => {
+          if (batchDialog) void permanentDeleteBatch(batchDialog.confirmText, batchDialog.motivo.trim());
+        }}
+      >
+        <label className="text-xs uppercase tracking-[0.08em] font-semibold text-muted">
+          Confirmação
+        </label>
+        <input
+          className="field"
+          value={batchDialog?.confirmText || ""}
+          onChange={(event) =>
+            setBatchDialog((current) => current ? { ...current, confirmText: event.target.value } : current)
+          }
+          placeholder="Digite ao menos 10 caracteres"
+        />
+        <label className="text-xs uppercase tracking-[0.08em] font-semibold text-muted">
+          Motivo (opcional)
+        </label>
+        <textarea
+          className="field min-h-[96px]"
+          value={batchDialog?.motivo || ""}
+          onChange={(event) =>
+            setBatchDialog((current) => current ? { ...current, motivo: event.target.value } : current)
+          }
+          placeholder="Descreva o motivo da limpeza em lote."
+        />
+      </HbxConfirmDialog>
     </DashboardScaffold>
   );
 }

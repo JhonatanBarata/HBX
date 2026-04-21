@@ -13,7 +13,7 @@ class ChangePasswordDto {
 
   @IsString()
   @IsNotEmpty()
-  @MinLength(4)
+  @MinLength(8)
   newPassword: string;
 }
 

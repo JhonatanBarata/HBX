@@ -91,8 +91,8 @@ export class InboxService {
   private assertCanManageAgenda(user: any) {
     if (Boolean(user?.isSystemMaster)) return;
     const role = String(user?.role || '').trim().toUpperCase();
-    if (role === 'ADMIN' || role === 'GERENTE') return;
-    throw new ForbiddenException('Somente gerentes ou administradores podem editar a agenda.');
+    if (role === 'ADMIN') return;
+    throw new ForbiddenException('Somente administradores podem editar a agenda.');
   }
 
   private requireTrimmed(value: string, field: string): string {

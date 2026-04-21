@@ -60,7 +60,6 @@ export class ImportacoesService implements OnModuleInit, OnModuleDestroy {
   private normalizeRole(role: string | null | undefined) {
     const raw = String(role || '').trim().toUpperCase();
     if (raw === 'ADMIN') return 'ADMIN';
-    if (raw === 'GERENTE' || raw === 'MANAGER') return 'GERENTE';
     return 'USUARIO';
   }
 
@@ -184,7 +183,7 @@ export class ImportacoesService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async ensureCompanyPermissions(companyId: number) {
-    for (const role of ['ADMIN', 'GERENTE', 'USUARIO']) {
+    for (const role of ['ADMIN', 'USUARIO']) {
       for (const acao of IMPORTACAO_ACOES) {
         await this.prisma.importacaoPermissao.upsert({
           where: { empresaId_role_acao: { empresaId: companyId, role, acao } },
@@ -664,7 +663,7 @@ export class ImportacoesService implements OnModuleInit, OnModuleDestroy {
       orderBy: [{ role: 'asc' }, { acao: 'asc' }],
     });
 
-    const grouped: Record<string, Array<{ acao: string; allowed: boolean }>> = { ADMIN: [], GERENTE: [], USUARIO: [] };
+    const grouped: Record<string, Array<{ acao: string; allowed: boolean }>> = { ADMIN: [], USUARIO: [] };
     for (const row of rows) {
       if (!grouped[row.role]) grouped[row.role] = [];
       grouped[row.role].push({ acao: row.acao, allowed: row.allowed });

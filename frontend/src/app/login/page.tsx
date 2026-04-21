@@ -211,7 +211,7 @@ export default function LoginPage() {
               "firstAccess",
               JSON.stringify({
                 username: nextUsername,
-                message: result.message ?? "Complete seu cadastro.",
+                message: result.message ?? "Conclua seu cadastro para liberar o acesso.",
               }),
             );
           } catch {
@@ -524,17 +524,17 @@ export default function LoginPage() {
                 <p className="login-card__themeLabel">{activeTheme.label}</p>
                 <p className="login-card__themeHint">
                   {mode === "login"
-                    ? "Nucleo operacional pronto para autenticar com contexto, motores e trilho real de entrada."
-                    : "Recupere o acesso sem quebrar o fluxo e sem perder a operacao."}
+                    ? "Acesse sua conta com segurança e continue de onde parou."
+                    : "Recupere o acesso sem perder o contexto da sua operação."}
                 </p>
               </div>
             </div>
             <h1 className="login-card__title">
-              {mode === "login" ? "Entrar no nucleo HBX" : "Recuperar acesso com clareza"}
+              {mode === "login" ? "Entrar no HBX" : "Recuperar acesso"}
             </h1>
             {mode === "forgot" ? (
               <p className="login-card__copy login-card__copy--compact">
-                {"Informe o e-mail da conta para receber um link seguro de redefinicao sem estado ambiguo."}
+                {"Informe o e-mail da conta para receber um link seguro de redefinição."}
               </p>
             ) : null}
           </header>
@@ -590,7 +590,7 @@ export default function LoginPage() {
                   onClick={() => router.push("/register")}
                   style={{ marginLeft: 12 }}
                 >
-                  Criar conta grátis
+                  Criar conta
                 </button>
               </div>
 
@@ -663,8 +663,7 @@ export default function LoginPage() {
               {preRegistered ? (
                 <div className="msg-info" aria-live="polite">
                   <div className="text-sm">
-                    Encontramos um primeiro acesso pendente para este usuário. Continue em{" "}
-                    <strong>Registrar</strong> para finalizar seu cadastro sem perder o contexto.
+                    Encontramos um primeiro acesso pendente para este usuário. Continue no cadastro para concluir a ativação sem perder o contexto.
                   </div>
                 </div>
               ) : null}
@@ -680,7 +679,7 @@ export default function LoginPage() {
                             "firstAccess",
                             JSON.stringify({
                               username,
-                              message: "Complete seu registro.",
+                              message: "Conclua seu cadastro para ativar o acesso.",
                             }),
                           );
                         } catch {
@@ -708,7 +707,7 @@ export default function LoginPage() {
                 ) : isSubmitting ? (
                   "Autenticando..."
                 ) : preRegistered ? (
-                  "Registrar"
+                  "Concluir cadastro"
                 ) : (
                   "Entrar"
                 )}
@@ -748,7 +747,7 @@ export default function LoginPage() {
               ) : null}
 
               <button disabled={isSubmitting} className="btn btn-primary login-button">
-                {isSubmitting ? "Enviando..." : "Enviar recuperação"}
+                {isSubmitting ? "Enviando..." : "Enviar link de recuperação"}
               </button>
 
               <button
@@ -762,7 +761,7 @@ export default function LoginPage() {
                   setMode("login");
                 }}
               >
-                Voltar
+                Voltar para o login
               </button>
             </form>
           )}

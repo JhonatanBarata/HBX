@@ -212,7 +212,7 @@ export class PermissionEntryDto {
 
 export class UpdatePermissaoRoleDto {
   @IsString()
-  @IsIn(['ADMIN', 'GERENTE', 'USUARIO'])
+  @IsIn(['ADMIN', 'USUARIO'])
   role!: string;
 
   @IsArray()

@@ -48,8 +48,8 @@ function ResetPasswordInner() {
       setError("Link inválido. Solicite uma nova recuperação.");
       return;
     }
-    if (password.length < 4) {
-      setError("Senha inválida - use pelo menos 4 caracteres.");
+    if (password.length < 8) {
+      setError("Senha inválida. Use pelo menos 8 caracteres.");
       return;
     }
     if (password !== confirmPassword) {
@@ -160,7 +160,7 @@ function ResetPasswordInner() {
                   required
                   autoComplete="new-password"
                 />
-                <p className="text-xs text-foreground/60 mt-1">Mínimo de 4 caracteres.</p>
+                <p className="text-xs text-foreground/60 mt-1">Mínimo de 8 caracteres.</p>
               </div>
 
               <div>
