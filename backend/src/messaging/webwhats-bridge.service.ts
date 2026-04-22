@@ -612,7 +612,7 @@ export class WebwhatsBridgeService {
 
     const tenantKey = this.buildTenantKey(company.id);
     const target = await this.resolveSendTarget(companyId, input);
-    const response = await this.request<any>({
+    const response = await this.requestRead<any>({
       method: 'POST',
       path: `/message/sendText/${encodeURIComponent(tenantKey)}`,
       purpose: 'envio de mensagem via Webwhats',
@@ -647,7 +647,7 @@ export class WebwhatsBridgeService {
 
     const tenantKey = this.buildTenantKey(company.id);
     const target = await this.resolveSendTarget(companyId, input);
-    const response = await this.request<any>({
+    const response = await this.requestRead<any>({
       method: 'POST',
       path: `/message/sendMedia/${encodeURIComponent(tenantKey)}`,
       purpose: 'envio de midia via Webwhats',
@@ -743,7 +743,7 @@ export class WebwhatsBridgeService {
       throw new Error(`WEBWHATS_INTERACTIVE_TYPE_UNSUPPORTED:${payloadType || 'unknown'}`);
     }
 
-    const response = await this.request<any>({
+    const response = await this.requestRead<any>({
       method: 'POST',
       path,
       purpose: 'envio de interacao via Webwhats',
@@ -774,7 +774,7 @@ export class WebwhatsBridgeService {
       to: String(input.to || ''),
       conversationId: input.conversationId ?? null,
     });
-    return this.request<any>({
+    return this.requestRead<any>({
       method: 'POST',
       path: `/message/updateBlockStatus/${encodeURIComponent(tenantKey)}`,
       purpose: input.status === 'block' ? 'bloqueio de contato via Webwhats' : 'desbloqueio de contato via Webwhats',
@@ -1094,6 +1094,10 @@ export class WebwhatsBridgeService {
     return Date.now() - lastRunAt < windowMs;
   }
 
+  private sleep(ms: number) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
   private async request<T>(options: WebwhatsRequestOptions): Promise<T | null> {
     const config = this.readConfig();
     if (!config.enabled || !config.configured || !config.internalUrl || !config.apiKey) {
@@ -1135,6 +1139,40 @@ export class WebwhatsBridgeService {
       }
       throw error;
     }
+  }
+
+  private async requestRead<T>(options: WebwhatsRequestOptions): Promise<T | null> {
+    const retryDelaysMs = [0, 700, 1500];
+    let lastError: unknown = null;
+
+    for (const [attemptIndex, delayMs] of retryDelaysMs.entries()) {
+      if (delayMs > 0) {
+        await this.sleep(delayMs);
+      }
+
+      try {
+        return await this.request<T>(options);
+      } catch (error) {
+        lastError = error;
+        const shouldRetry = attemptIndex < retryDelaysMs.length - 1 && this.isTransientReadError(error);
+        if (!shouldRetry) {
+          throw error;
+        }
+        const providerError = error instanceof WebwhatsProviderError ? error : null;
+        this.logger.warn(
+          `Webwhats leitura instavel durante ${options.purpose}; retry ${attemptIndex + 1}/${retryDelaysMs.length - 1} code=${providerError?.code || 'unknown'} status=${providerError?.statusCode ?? 'na'}`,
+        );
+      }
+    }
+
+    throw lastError;
+  }
+
+  private isTransientReadError(error: unknown) {
+    if (!(error instanceof WebwhatsProviderError)) return false;
+    if (error.code === 'WEBWHATS_TIMEOUT' || error.code === 'WEBWHATS_UNAVAILABLE') return true;
+    if (error.code !== 'WEBWHATS_HTTP_ERROR') return false;
+    return [408, 425, 429, 500, 502, 503, 504].includes(Number(error.statusCode || 0));
   }
 
   private mapAxiosError(error: AxiosError<unknown>, purpose: string) {

@@ -1700,13 +1700,7 @@ export class ModulesService implements OnModuleInit {
     return this.normalizeRequestedModuleKey(moduleKey) === 'financeiro';
   }
 
-  private isAdminUser(user: any) {
-    return String(user?.role || '').trim().toUpperCase() === 'ADMIN';
-  }
-
-  private defaultUserModuleAllowed(user: any, moduleKey: string) {
-    const normalizedKey = this.normalizeRequestedModuleKey(moduleKey);
-    if (normalizedKey === 'webscraping') return this.isAdminUser(user);
+  private defaultUserModuleAllowed(_user: any, _moduleKey: string) {
     return true;
   }
 

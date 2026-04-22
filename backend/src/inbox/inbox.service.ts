@@ -1429,17 +1429,50 @@ export class InboxService {
 
   async getBootstrap(user: any, take?: string | number) {
     const companyId = this.requireCompanyIdFromUser(user);
-    const conversations = await this.listConversationSummariesForCompany(companyId, {
-      take: this.normalizeConversationTakeLimit(take, 10),
-    });
+    let conversations: any[];
+
+    try {
+      conversations = await this.listConversationSummariesForCompany(companyId, {
+        take: this.normalizeConversationTakeLimit(take, 10),
+      });
+    } catch (error) {
+      if (error instanceof ServiceUnavailableException || error instanceof ConflictException) {
+        return {
+          conversations: [],
+          selectedConversation: null,
+          providerWarning: {
+            message:
+              error instanceof ServiceUnavailableException
+                ? 'WhatsApp conectado, mas a inbox ainda nao respondeu. Tente recarregar em instantes.'
+                : 'Reconecte o WhatsApp para carregar a inbox.',
+          },
+        };
+      }
+      throw error;
+    }
+
     const firstConversationId = conversations[0]?.id ? Number(conversations[0].id) : null;
-    const selectedConversation = firstConversationId
-      ? await this.getConversationByIdForCompany(companyId, firstConversationId)
-      : null;
+    let selectedConversation: any = null;
+    let providerWarning: { message: string } | null = null;
+
+    if (firstConversationId) {
+      try {
+        selectedConversation = await this.getConversationByIdForCompany(companyId, firstConversationId);
+      } catch (error) {
+        if (error instanceof ServiceUnavailableException || error instanceof ConflictException) {
+          providerWarning = {
+            message: 'A fila carregou, mas a primeira conversa ainda nao respondeu. Tente abrir novamente em instantes.',
+          };
+        } else {
+          throw error;
+        }
+      }
+    }
 
     return {
       conversations,
       selectedConversation,
+      providerWarning,
     };
   }
 
