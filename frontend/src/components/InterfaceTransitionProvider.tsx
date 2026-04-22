@@ -8,7 +8,6 @@ const ENTER_READY_DELAY_MS = 24;
 // Keep shutdown overlay visible long enough for full logout video
 const EXIT_DURATION_MS = 5000;
 const ROW_SNAP_PX = 18;
-const SHUTDOWN_PARTICLE_COUNT = 72;
 const NO_REVEAL_SELECTOR = '[data-ui-no-reveal="true"]';
 
 const REVEAL_TARGET_SELECTOR = [
@@ -54,34 +53,10 @@ type RevealCandidate = {
   index: number;
 };
 
-type CSSVarStyle = React.CSSProperties & {
-  "--i"?: number;
-  "--spread-x"?: string;
-  "--size"?: string;
-  "--orbit-x"?: string;
-  "--orbit-y"?: string;
-  "--flare-x"?: string;
-  "--flare-y"?: string;
-  "--exit-x"?: string;
-  "--exit-y"?: string;
-  "--burst-x"?: string;
-  "--burst-y"?: string;
-};
-
-function buildShutdownParticleStyle(index: number): CSSVarStyle {
-  return {
-    "--i": index,
-    "--spread-x": `${(index * 37) % 100}%`,
-    "--size": `${6 + (index % 5) * 2}px`,
-    "--orbit-x": `${((index % 10) - 5) * 48}px`,
-    "--orbit-y": `${((index % 8) - 4) * 36}px`,
-    "--flare-x": `${((index % 11) - 6) * 86}px`,
-    "--flare-y": `${((index % 9) - 4) * 92}px`,
-    "--exit-x": `${((index % 13) - 6) * 132}px`,
-    "--exit-y": `${((index % 10) - 5) * 132}px`,
-    "--burst-x": `${((index % 2) * 2 - 1) * 80}px`,
-    "--burst-y": `${-120 - (index % 7) * 18}px`,
-  };
+declare global {
+  interface Window {
+    __hbxPreviewShutdown?: () => Promise<void>;
+  }
 }
 
 const InterfaceTransitionContext = React.createContext<InterfaceTransitionContextValue | null>(null);
@@ -124,7 +99,7 @@ export function InterfaceTransitionProvider({ children }: { children: React.Reac
   const readyTimerRef = React.useRef<number | null>(null);
   const shutdownPromiseRef = React.useRef<Promise<void> | null>(null);
   const [phase, setPhase] = React.useState<InterfaceTransitionPhase>("boot");
-  const { selection } = useHbxTheme();
+  const { selection, activeTheme } = useHbxTheme();
 
   const applyRevealMap = React.useCallback(() => {
     const root = rootRef.current;
@@ -275,6 +250,17 @@ export function InterfaceTransitionProvider({ children }: { children: React.Reac
     [phase, runGlobalShutdown, startRevealCycle],
   );
 
+  React.useEffect(() => {
+    if (process.env.NODE_ENV === "production") return undefined;
+
+    window.__hbxPreviewShutdown = () => runGlobalShutdown(async () => undefined);
+    return () => {
+      if (window.__hbxPreviewShutdown) {
+        delete window.__hbxPreviewShutdown;
+      }
+    };
+  }, [runGlobalShutdown]);
+
   return (
     <InterfaceTransitionContext.Provider value={value}>
       <div ref={rootRef} className="ui-orchestrator" data-ui-phase={phase}>
@@ -283,7 +269,7 @@ export function InterfaceTransitionProvider({ children }: { children: React.Reac
         {phase === "shutdown" ? (
           <div className="ui-shutdown-overlay" data-ui-no-reveal="true">
             <div
-              className="ui-shutdown-overlay__frame login-stage logout-stage"
+              className="ui-shutdown-overlay__frame login-stage"
               data-login-theme={selection.themeId}
               data-login-mode={selection.mode}
               data-login-state="success"
@@ -294,7 +280,7 @@ export function InterfaceTransitionProvider({ children }: { children: React.Reac
               <div className="login-video-layer" aria-hidden="true">
                 <video
                   className="login-video-layer__clip login-video-layer__clip--auth"
-                  src="/login-media/login-logout.mp4"
+                  src="/login-media/logout.mp4"
                   autoPlay
                   muted
                   loop
@@ -307,9 +293,9 @@ export function InterfaceTransitionProvider({ children }: { children: React.Reac
                 <div className="login-video-layer__veil" />
               </div>
 
-              <div className="login-shell logout-shell">
+              <div className="login-shell">
                 <section
-                  className="login-card login-card--logout card"
+                  className="login-card card"
                   role="status"
                   aria-live="polite"
                   aria-atomic="true"
@@ -327,16 +313,56 @@ export function InterfaceTransitionProvider({ children }: { children: React.Reac
                         <span className="login-card__brandMarkCore">HBX</span>
                       </div>
                       <div className="login-card__themeCopy">
-                        <p className="login-card__themeLabel">Encerrando sessão</p>
-                        <p className="login-card__themeHint">Aguarde enquanto finalizamos sua sessão com segurança.</p>
+                        <p className="login-card__themeLabel">{activeTheme.label}</p>
+                        <p className="login-card__themeHint">
+                          Acesse sua conta com segurança e continue de onde parou.
+                        </p>
                       </div>
                     </div>
 
-                    <h1 className="login-card__title">Até já.</h1>
+                    <h1 className="login-card__title">Entrar no HBX</h1>
                   </header>
 
-                  <div className="msg-info">
-                    <div className="text-sm">Obrigado por usar o sistema HBX. Estamos finalizando a sessão.</div>
+                  <div className="login-form">
+                    <div className="login-field">
+                      <label className="login-label" htmlFor="logout-username">
+                        E-mail
+                      </label>
+                      <input
+                        id="logout-username"
+                        className="input"
+                        placeholder="Digite seu e-mail"
+                        readOnly
+                        tabIndex={-1}
+                      />
+                    </div>
+
+                    <div className="login-field">
+                      <label className="login-label" htmlFor="logout-password">
+                        Senha
+                      </label>
+                      <input
+                        id="logout-password"
+                        type="password"
+                        className="input"
+                        placeholder="Digite sua senha"
+                        readOnly
+                        tabIndex={-1}
+                      />
+                    </div>
+
+                    <div className="login-actionsRow">
+                      <span className="login-link" aria-hidden>
+                        Esqueci minha senha
+                      </span>
+                      <span className="btn btn-secondary login-cta" style={{ marginLeft: 12 }} aria-hidden>
+                        Criar conta
+                      </span>
+                    </div>
+
+                    <button type="button" className="btn btn-primary login-button" aria-disabled="true" tabIndex={-1}>
+                      Finalizando...
+                    </button>
                   </div>
                 </section>
               </div>

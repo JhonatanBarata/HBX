@@ -214,7 +214,7 @@ export default function TopBar() {
   const { isShuttingDown, runGlobalShutdown } = useInterfaceTransition();
   const { setStorageUserId } = useHbxTheme();
 
-  const [authenticated, setAuthenticated] = useState(false);
+  const [authenticated, setAuthenticated] = useState<boolean | null>(null);
   const [user, setUser] = useState<User | null>(null);
   const [open, setOpen] = useState(false);
   const [modules, setModules] = useState<UserModule[]>([]);
@@ -261,6 +261,7 @@ export default function TopBar() {
   const audioArmedRef = useRef(false);
   const masterContextToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastScrollYRef = useRef(0);
+  const authResolved = authenticated !== null;
 
   usePopupTopbarLock(whatsAppDetailOpen || masterContextModalOpen);
 
@@ -292,7 +293,7 @@ export default function TopBar() {
 
   const handleModulesTrigger = React.useCallback(
     (event: React.MouseEvent<HTMLButtonElement>) => {
-      if (!authenticated) {
+      if (authenticated !== true) {
         router.push("/login");
         return;
       }
@@ -344,7 +345,7 @@ export default function TopBar() {
   }, []);
 
   const loadWhatsAppCenter = React.useCallback(async (options?: { background?: boolean }) => {
-    if (!authenticated) return null;
+    if (authenticated !== true) return null;
     if (!options?.background) setWhatsAppDetailLoading(true);
     setWhatsAppDetailError(null);
     try {
@@ -361,7 +362,7 @@ export default function TopBar() {
   }, [authenticated]);
 
   const loadWhatsAppModal = React.useCallback(async (options?: { background?: boolean; includeQr?: boolean }) => {
-    if (!authenticated) return null;
+    if (authenticated !== true) return null;
     if (!options?.background) setWhatsAppModalLoading(true);
     setWhatsAppDetailError(null);
     try {
@@ -519,7 +520,7 @@ export default function TopBar() {
     return `${preferred.label}: ${preferred.value}`;
   }, [operationalStatusMap]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     function refreshAuthState() {
       setAuthenticated(Boolean(getToken()));
     }
@@ -557,6 +558,10 @@ export default function TopBar() {
   }, []);
 
   useEffect(() => {
+    if (authenticated === null) {
+      return;
+    }
+
     if (!authenticated) {
       setUser(null);
       setModules([]);
@@ -612,6 +617,10 @@ export default function TopBar() {
   }, [setStorageUserId, user?.id]);
 
   useEffect(() => {
+    if (authenticated === null) {
+      return;
+    }
+
     if (!authenticated) {
       setOperationalStatus(null);
       return;
@@ -677,6 +686,10 @@ export default function TopBar() {
   ]);
 
   useEffect(() => {
+    if (authenticated === null) {
+      return;
+    }
+
     if (!authenticated) {
       setRecoveryPendingHumanCount(0);
       setAtendimentoPendingHumanCount(0);
@@ -741,6 +754,10 @@ export default function TopBar() {
   }, [authenticated]);
 
   useEffect(() => {
+    if (authenticated === null) {
+      return;
+    }
+
     if (!authenticated || !user || user.isSystemMaster || !user.company?.id) {
       recoveryLastSeenRef.current = new Map();
       recoveryHumanQueueRef.current = new Map();
@@ -918,6 +935,7 @@ export default function TopBar() {
   }, [pathname]);
 
   useEffect(() => {
+    if (authenticated === null) return;
     if (authenticated) return;
     setWhatsAppDetailOpen(false);
     setWhatsAppCenter(null);
@@ -1498,7 +1516,7 @@ export default function TopBar() {
   }
 
   const pendingHumanCount = recoveryPendingHumanCount + atendimentoPendingHumanCount;
-  const accountContext = authenticated
+  const accountContext = authenticated === true
     ? user?.isSystemMaster
       ? user.masterContext?.active
         ? `MASTER em ${user.masterContext.companyName || "Empresa"}`
@@ -1550,7 +1568,7 @@ export default function TopBar() {
     />
   );
   const masterContextModalNode =
-    masterContextModalOpen && authenticated && user?.isSystemMaster ? (
+    masterContextModalOpen && authenticated === true && user?.isSystemMaster ? (
       <div
         style={{
           position: "fixed",
@@ -1661,17 +1679,17 @@ export default function TopBar() {
                 aria-label={
                   modulesPeekAvailable
                     ? "Abrir modulos"
-                    : authenticated
+                    : authenticated === true
                       ? "Ir para o dashboard"
                       : "Ir para login"
                 }
-                title={modulesPeekAvailable ? "Modulos" : authenticated ? "Dashboard" : "Login"}
+                title={modulesPeekAvailable ? "Modulos" : authenticated === true ? "Dashboard" : "Login"}
               >
                 <span className="app-brand__markGlyph">HB</span>
                 <span className="app-brand__markBadge" aria-hidden="true" />
               </button>
 
-              <Link href={authenticated ? "/dashboard" : "/login"} className="app-brand__bodyLink">
+              <Link href={authenticated === true ? "/dashboard" : "/login"} className="app-brand__bodyLink">
                 <span className="app-brand__body">
                   <span className="app-brand__text">HBX Control Center</span>
                   <span className="app-brand__context">{accountContext}</span>
@@ -1679,7 +1697,7 @@ export default function TopBar() {
               </Link>
             </div>
 
-            {authenticated && user && !user.isSystemMaster && user.company?.id ? (
+            {authenticated === true && user && !user.isSystemMaster && user.company?.id ? (
               <div className="app-topbar__signals">
                 <div ref={unreadMenuRef} className="wa-unread-wrap">
                   <button
@@ -1836,7 +1854,7 @@ export default function TopBar() {
           </div>
 
           <div className="app-topbar__right">
-            {authenticated && user?.isSystemMaster ? (
+            {authenticated === true && user?.isSystemMaster ? (
               <button
                 type="button"
                 className="btn btn-secondary btn-sm"
@@ -1845,7 +1863,7 @@ export default function TopBar() {
                 Contexto
               </button>
             ) : null}
-            {authenticated && user?.isSystemMaster && user.masterContext?.active ? (
+            {authenticated === true && user?.isSystemMaster && user.masterContext?.active ? (
               <button
                 type="button"
                 className="btn btn-secondary btn-sm"
@@ -1855,7 +1873,7 @@ export default function TopBar() {
                 Sair contexto
               </button>
             ) : null}
-            {authenticated ? <ThemeSwitcher /> : null}
+            {authenticated === true ? <ThemeSwitcher /> : null}
             {user ? (
               <div ref={userMenuRef} className="app-user">
                 <button
@@ -1918,7 +1936,7 @@ export default function TopBar() {
               </div>
             ) : null}
 
-            {authenticated ? (
+            {authenticated === true ? (
               <button
                 type="button"
                 onClick={() => {
@@ -1929,11 +1947,11 @@ export default function TopBar() {
               >
                 {isShuttingDown ? "Saindo..." : "Sair"}
               </button>
-            ) : (
+            ) : authResolved ? (
               <Link href="/login" className="btn btn-secondary btn-sm">
                 Entrar
               </Link>
-            )}
+            ) : null}
           </div>
         </div>
 
