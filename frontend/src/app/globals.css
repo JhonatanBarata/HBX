@@ -1813,6 +1813,7 @@ html[data-theme-switcher-open="true"] .app-topbar::after {
   transition: box-shadow var(--motion-base), background var(--motion-base), opacity var(--motion-base), transform var(--motion-base);
 }
 
+
 .login-themePreview__switch[data-mode="light"] {
   border-color: color-mix(in srgb, var(--button-secondary) 42%, white);
   background:
@@ -1822,6 +1823,43 @@ html[data-theme-switcher-open="true"] .app-topbar::after {
     inset 0 1px 0 color-mix(in srgb, white 72%, transparent),
     0 14px 28px -18px color-mix(in srgb, var(--button-secondary) 42%, transparent),
     0 0 20px color-mix(in srgb, var(--button-accent) 18%, transparent);
+}
+
+/* Sun icon for light mode: subtle center + soft rays using a pseudo-element */
+.login-themePreview__switch[data-mode="light"] + .login-themePreview__moon[data-preview="theme"] {
+  background: radial-gradient(circle at 50% 48%, #fff4bf 0 36%, #ffd24d 38% 56%, transparent 60%);
+  box-shadow: 0 8px 18px -8px rgba(255,190,40,0.28), inset 0 1px 0 rgba(255,255,255,0.7);
+  transform: scale(1.08) translateY(-1px);
+}
+
+.login-themePreview__switch[data-mode="light"] + .login-themePreview__moon[data-preview="theme"]::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 40px;
+  height: 40px;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: repeating-conic-gradient(rgba(255,200,48,0.26) 0deg 12deg, transparent 12deg 24deg);
+  filter: blur(3px) saturate(1.1);
+  opacity: 0.86;
+  pointer-events: none;
+  z-index: -1;
+}
+
+.login-themePreview__switch[data-mode="light"] + .login-themePreview__moon[data-preview="theme"]::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 18px;
+  height: 18px;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: radial-gradient(circle at 40% 35%, #fff 0 30%, rgba(255,255,255,0.8) 31% 36%, transparent 38%), radial-gradient(circle at 50% 52%, rgba(255,210,80,0.95) 0 48%, rgba(255,180,40,0.95) 52% 100%);
+  z-index: 1;
+  pointer-events: none;
 }
 
 .login-themePreview__switch[data-mode="light"] .login-themePreview__thumb {
