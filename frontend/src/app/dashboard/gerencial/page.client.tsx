@@ -143,7 +143,7 @@ export default function GerencialClientPage() {
               const companyMod = prev.modules.find((cm) => cm.key === m.key);
               return {
                 ...m,
-                allowed: m.key === "webscraping" ? false : companyMod ? Boolean(companyMod.companyEnabled) : m.allowed,
+                allowed: companyMod ? Boolean(companyMod.companyEnabled) : m.allowed,
               };
             }),
           };

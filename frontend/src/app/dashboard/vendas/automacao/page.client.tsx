@@ -1,7 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import DashboardScaffold from "@/components/DashboardScaffold";
+import { QR_PAIRED_EVENT } from "@/components/QrPairedNextStepPrompt";
 import {
   whatsappModeLabel,
   type WhatsAppCenterPayload,
@@ -146,6 +148,7 @@ function updateButtonField(
 
 export default function VendasAutomationClientPage() {
   const hasToken = useRequireAuth();
+  const searchParams = useSearchParams();
   const [loading, setLoading] = useState(true);
   const [connectionLoading, setConnectionLoading] = useState(true);
   const [publishing, setPublishing] = useState(false);
@@ -153,7 +156,8 @@ export default function VendasAutomationClientPage() {
   const [error, setError] = useState<string | null>(null);
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const [notice, setNotice] = useState<NoticeState | null>(null);
-  const [activeTab, setActiveTab] = useState<BotQrWorkspaceTab>("flow");
+  const [activeTab, setActiveTab] = useState<BotQrWorkspaceTab>("connection");
+  const [connectionPaired, setConnectionPaired] = useState(false);
   const [draftConfig, setDraftConfig] = useState<AtendimentoBotConfig>(DEFAULT_ATENDIMENTO_BOT_CONFIG);
   const [publishedConfig, setPublishedConfig] = useState<AtendimentoBotConfig>(DEFAULT_ATENDIMENTO_BOT_CONFIG);
   const [agendaConfig, setAgendaConfig] = useState<AtendimentoAgendaConfig>(DEFAULT_ATENDIMENTO_AGENDA_CONFIG);
@@ -164,6 +168,7 @@ export default function VendasAutomationClientPage() {
   const [draftSavedAt, setDraftSavedAt] = useState<string | null>(null);
   const [publishedAt, setPublishedAt] = useState<string | null>(null);
   const [lastQuickTestAt, setLastQuickTestAt] = useState<string | null>(null);
+  const previousConnectionStatusRef = useRef<WhatsAppModalPayload["status"] | null>(null);
 
   const draftSignature = useMemo(() => JSON.stringify(draftConfig), [draftConfig]);
   const publishedSignature = useMemo(() => JSON.stringify(publishedConfig), [publishedConfig]);
@@ -349,10 +354,30 @@ export default function VendasAutomationClientPage() {
   }, [hasToken, loadAutomation, loadConnection]);
 
   useEffect(() => {
+    const requestedTab = searchParams.get("tab");
+    if (requestedTab === "connection" || requestedTab === "flow" || requestedTab === "publish") {
+      setActiveTab(requestedTab);
+    }
+  }, [searchParams]);
+
+  useEffect(() => {
     if (!notice) return;
     const timer = window.setTimeout(() => setNotice(null), 3200);
     return () => window.clearTimeout(timer);
   }, [notice]);
+
+  useEffect(() => {
+    const currentStatus = modalPayload?.status || null;
+    const previousStatus = previousConnectionStatusRef.current;
+    previousConnectionStatusRef.current = currentStatus;
+
+    if (currentStatus !== "connected" || !previousStatus || previousStatus === "connected") return;
+
+    setConnectionPaired(true);
+    window.dispatchEvent(new Event(QR_PAIRED_EVENT));
+    const timer = window.setTimeout(() => setConnectionPaired(false), 3200);
+    return () => window.clearTimeout(timer);
+  }, [modalPayload?.status]);
 
   useEffect(() => {
     if (!modalPayload?.data.available) return;
@@ -543,6 +568,7 @@ export default function VendasAutomationClientPage() {
             <BotQrWorkspace
               activeTab={activeTab}
               onTabChange={setActiveTab}
+              connectionPaired={connectionPaired}
               connectionPanel={
                 <BotQrConnectionCard
                   loading={connectionLoading}

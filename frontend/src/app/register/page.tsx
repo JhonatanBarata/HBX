@@ -292,6 +292,10 @@ export default function RegisterPage() {
                   </a>
                 ) : null}
 
+                {confirmationPending.canResendConfirmation ? (
+                  <span className="text-foreground/70">-</span>
+                ) : null}
+
                 <a
                   href="/login"
                   onClick={(e) => {

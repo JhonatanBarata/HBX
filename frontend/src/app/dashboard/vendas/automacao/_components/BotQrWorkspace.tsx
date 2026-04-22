@@ -5,6 +5,7 @@ import styles from "../page.module.css";
 type BotQrWorkspaceProps = {
   activeTab: BotQrWorkspaceTab;
   onTabChange: (tab: BotQrWorkspaceTab) => void;
+  connectionPaired?: boolean;
   connectionPanel: ReactNode;
   flowPanel: ReactNode;
   publishPanel: ReactNode;
@@ -19,6 +20,7 @@ const TABS: Array<{ id: BotQrWorkspaceTab; label: string; helper: string }> = [
 export default function BotQrWorkspace({
   activeTab,
   onTabChange,
+  connectionPaired = false,
   connectionPanel,
   flowPanel,
   publishPanel,
@@ -49,12 +51,13 @@ export default function BotQrWorkspace({
             type="button"
             className={styles.workspaceTab}
             data-active={activeTab === tab.id ? "true" : "false"}
+            data-paired={connectionPaired && tab.id === "connection" ? "true" : "false"}
             onClick={() => onTabChange(tab.id)}
             role="tab"
             aria-selected={activeTab === tab.id}
           >
             <strong>{tab.label}</strong>
-            <span>{tab.helper}</span>
+            <span>{connectionPaired && tab.id === "connection" ? "Sucessfully Paired" : tab.helper}</span>
           </button>
         ))}
       </div>

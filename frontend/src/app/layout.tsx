@@ -58,7 +58,7 @@ export default function RootLayout({
         <script
           // inline script: read theme cookie/localStorage early and set html attributes
           dangerouslySetInnerHTML={{
-            __html: `(function(){try{var c=function(n){var m=document.cookie.match(new RegExp('(?:^|; )'+n.replace(/([.*+?^\${}()|[\\]\\])/g,'\\$1')+'=([^;]*)'));return m?decodeURIComponent(m[1]):null};var id=c('hbx-theme-id')||(window.localStorage&&localStorage.getItem('hbx:theme-id'))||localStorage.getItem('theme');var mode=c('hbx-theme-mode')||(window.localStorage&&localStorage.getItem('hbx:theme-mode'))||localStorage.getItem('theme-mode');if(id)document.documentElement.setAttribute('data-theme',id);if(mode){document.documentElement.setAttribute('data-theme-mode',mode);document.documentElement.style.colorScheme=mode;} }catch(e){} })();`,
+            __html: `(function(){try{var c=function(n){var p=('; '+document.cookie).split('; '+n+'=');return p.length===2?decodeURIComponent((p.pop()||'').split(';').shift()||''):null};var id=c('hbx-theme-id')||(window.localStorage&&localStorage.getItem('hbx:theme-id'))||localStorage.getItem('theme');var mode=c('hbx-theme-mode')||(window.localStorage&&localStorage.getItem('hbx:theme-mode'))||localStorage.getItem('theme-mode');if(id)document.documentElement.setAttribute('data-theme',id);if(mode){document.documentElement.setAttribute('data-theme-mode',mode);document.documentElement.style.colorScheme=mode;} }catch(e){} })();`,
           }}
         />
         <ThemeProvider>
