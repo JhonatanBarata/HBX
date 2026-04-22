@@ -482,6 +482,10 @@ export default function LoginPage() {
     const idleVideo = idleVideoRef.current;
     if (!idleVideo) return;
 
+    try {
+      idleVideo.playbackRate = 0.5; // slow idle/login looping video to 50%
+    } catch {}
+
     idleVideo.play().catch(() => undefined);
   }, [mounted, selection.mode, selection.themeId]);
 
