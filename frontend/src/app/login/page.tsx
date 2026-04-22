@@ -1,6 +1,6 @@
 "use client";
 
-import type { CSSProperties, FormEvent } from "react";
+import type { CSSProperties, FormEvent, PointerEvent as ReactPointerEvent } from "react";
 import { useEffect, useEffectEvent, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { apiFetch, setToken } from "../dashboard/_lib/api";
@@ -289,11 +289,83 @@ export default function LoginPage() {
   const authVideoRef = useRef<HTMLVideoElement | null>(null);
   const countdownRef = useRef<number | null>(null);
   const countdownIntervalRef = useRef<number | null>(null);
+  const stageRef = useRef<HTMLElement | null>(null);
+  const pointerFrameRef = useRef<number | null>(null);
+  const pointerPositionRef = useRef<{ clientX: number; clientY: number } | null>(null);
 
   const isSubmitting = loginState === "submitting" || loginState === "waking_server";
   const isWakingServer = loginState === "waking_server";
   const isSuccess = loginState === "success";
   const themeModeLabel = selection.mode === "dark" ? "Escuro" : "Claro";
+  const loginCardVideoStyle: CSSProperties | undefined = LOGIN_VIDEO_EXPERIENCE_ENABLED
+    ? {
+        backdropFilter: "blur(2px) saturate(1.01)",
+        WebkitBackdropFilter: "blur(2px) saturate(1.01)",
+      }
+    : undefined;
+
+  function setStagePointerStyles(nextX: number, nextY: number) {
+    const stage = stageRef.current;
+    if (!stage) {
+      return;
+    }
+
+    const clampedX = Math.max(0, Math.min(1, nextX));
+    const clampedY = Math.max(0, Math.min(1, nextY));
+    const driftX = (clampedX - 0.5) * 40;
+    const driftY = (clampedY - 0.5) * 26;
+
+    stage.style.setProperty("--login-pointer-x", `${(clampedX * 100).toFixed(2)}%`);
+    stage.style.setProperty("--login-pointer-y", `${(clampedY * 100).toFixed(2)}%`);
+    stage.style.setProperty("--login-pointer-drift-x", `${driftX.toFixed(2)}px`);
+    stage.style.setProperty("--login-pointer-drift-y", `${driftY.toFixed(2)}px`);
+    stage.style.setProperty("--login-pointer-drift-x-inverse", `${(-driftX).toFixed(2)}px`);
+    stage.style.setProperty("--login-pointer-drift-y-inverse", `${(-driftY).toFixed(2)}px`);
+  }
+
+  function flushStagePointerPosition() {
+    pointerFrameRef.current = null;
+
+    const stage = stageRef.current;
+    const pointer = pointerPositionRef.current;
+
+    if (!stage || !pointer) {
+      return;
+    }
+
+    const rect = stage.getBoundingClientRect();
+    if (!rect.width || !rect.height) {
+      return;
+    }
+
+    const relativeX = (pointer.clientX - rect.left) / rect.width;
+    const relativeY = (pointer.clientY - rect.top) / rect.height;
+    setStagePointerStyles(relativeX, relativeY);
+  }
+
+  function queueStagePointerPosition(clientX: number, clientY: number) {
+    pointerPositionRef.current = { clientX, clientY };
+
+    if (pointerFrameRef.current !== null) {
+      return;
+    }
+
+    pointerFrameRef.current = window.requestAnimationFrame(() => {
+      flushStagePointerPosition();
+    });
+  }
+
+  function resetStagePointerPosition() {
+    setStagePointerStyles(0.5, 0.5);
+  }
+
+  function handleStagePointerMove(event: ReactPointerEvent<HTMLElement>) {
+    queueStagePointerPosition(event.clientX, event.clientY);
+  }
+
+  function handleStagePointerLeave() {
+    resetStagePointerPosition();
+  }
 
   async function completeSuccessfulLogin(token: string, data?: unknown) {
     setToken(token, { notify: false });
@@ -629,6 +701,25 @@ export default function LoginPage() {
     authVideo.currentTime = 0;
   }, [isSuccess, playingWelcome]);
 
+  useEffect(() => {
+    const stage = stageRef.current;
+
+    if (stage) {
+      stage.style.setProperty("--login-pointer-x", "50%");
+      stage.style.setProperty("--login-pointer-y", "50%");
+      stage.style.setProperty("--login-pointer-drift-x", "0px");
+      stage.style.setProperty("--login-pointer-drift-y", "0px");
+      stage.style.setProperty("--login-pointer-drift-x-inverse", "0px");
+      stage.style.setProperty("--login-pointer-drift-y-inverse", "0px");
+    }
+
+    return () => {
+      if (pointerFrameRef.current !== null) {
+        window.cancelAnimationFrame(pointerFrameRef.current);
+      }
+    };
+  }, []);
+
   async function handleRecoverByEmail(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(null);
@@ -676,11 +767,14 @@ export default function LoginPage() {
 
   return (
     <main
+      ref={stageRef}
       className="login-stage"
       data-login-theme={selection.themeId}
       data-login-mode={selection.mode}
       data-login-state={loginState}
       data-login-video={LOGIN_VIDEO_EXPERIENCE_ENABLED ? "on" : "off"}
+      onPointerMove={handleStagePointerMove}
+      onPointerLeave={handleStagePointerLeave}
     >
       <div className="login-stage__grid" aria-hidden />
       {LOGIN_VIDEO_EXPERIENCE_ENABLED ? (
@@ -721,6 +815,14 @@ export default function LoginPage() {
           className={`login-visuals ${playingWelcome || visualsPlayOnLoad ? "play" : ""}`}
           aria-hidden
         >
+          <div className="login-side-theme login-side-theme--left">
+            <span className="login-side-theme__ambient" />
+            <span className="login-side-theme__helix" />
+          </div>
+          <div className="login-side-theme login-side-theme--right">
+            <span className="login-side-theme__ambient" />
+            <span className="login-side-theme__helix" />
+          </div>
           <div className="login-core">
             <span className="login-core__halo" />
             <span className="login-core__pulse" />
@@ -779,6 +881,7 @@ export default function LoginPage() {
           className={`login-card card transition-all duration-300 ${
             mounted ? "opacity-100 translate-y-0" : "opacity-0 translate-y-3"
           } ${playingWelcome ? "is-exploding" : ""}`}
+          style={loginCardVideoStyle}
         >
           <div className="login-card__chrome" aria-hidden />
 
