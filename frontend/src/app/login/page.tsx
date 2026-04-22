@@ -58,6 +58,126 @@ type LoginParticleStyle = CSSProperties & {
   "--exit-y"?: string;
 };
 
+type LoginSideIcon = "headset" | "recovery" | "website" | "shield" | "building" | "pulse" | "theme";
+
+const LOGIN_SOLUTIONS: Array<{
+  icon: LoginSideIcon;
+  title: string;
+  description: string;
+}> = [
+  {
+    icon: "headset",
+    title: "Atendimento",
+    description: "Suporte rápido e humanizado sempre que precisar.",
+  },
+  {
+    icon: "recovery",
+    title: "Recovery",
+    description: "Recuperação de dados ágil e segura.",
+  },
+  {
+    icon: "website",
+    title: "Website",
+    description: "Acesse informações e novidades online.",
+  },
+];
+
+const LOGIN_TRUST_ITEMS: Array<{
+  icon: LoginSideIcon;
+  title: string;
+  description: string;
+}> = [
+  {
+    icon: "shield",
+    title: "Modo seguro ativo",
+    description: "Seus dados protegidos 24/7 com criptografia.",
+  },
+  {
+    icon: "building",
+    title: "Multiempresa",
+    description: "Gerencie múltiplas empresas em um único ambiente.",
+  },
+  {
+    icon: "pulse",
+    title: "Tempo real",
+    description: "Informações sempre atualizadas para decisões.",
+  },
+  {
+    icon: "theme",
+    title: "Light / Dark ready",
+    description: "Interface adaptável ao seu estilo.",
+  },
+];
+
+function LoginSideIconGlyph({ icon }: { icon: LoginSideIcon }) {
+  if (icon === "headset") {
+    return (
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M4.5 13.8v-2.2a7.5 7.5 0 0 1 15 0v2.2" />
+        <path d="M7.5 17.5h-1a2 2 0 0 1-2-2v-1.1a2 2 0 0 1 2-2h1v5.1Z" />
+        <path d="M16.5 17.5h1a2 2 0 0 0 2-2v-1.1a2 2 0 0 0-2-2h-1v5.1Z" />
+        <path d="M16.5 17.5c0 1.2-1.2 2-3.4 2h-1" />
+      </svg>
+    );
+  }
+
+  if (icon === "recovery") {
+    return (
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M20 12a8 8 0 0 1-13.5 5.8" />
+        <path d="M4 12A8 8 0 0 1 17.5 6.2" />
+        <path d="M17.5 2.8v3.4h-3.4" />
+        <path d="M6.5 21.2v-3.4h3.4" />
+      </svg>
+    );
+  }
+
+  if (icon === "website") {
+    return (
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Z" />
+        <path d="M3.5 12h17" />
+        <path d="M12 3a14 14 0 0 1 0 18" />
+        <path d="M12 3a14 14 0 0 0 0 18" />
+      </svg>
+    );
+  }
+
+  if (icon === "shield") {
+    return (
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M12 21s7-3.4 7-9.4V5.8L12 3 5 5.8v5.8c0 6 7 9.4 7 9.4Z" />
+        <path d="m9.2 12 1.9 1.9 4-4.2" />
+      </svg>
+    );
+  }
+
+  if (icon === "building") {
+    return (
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M4.5 20.5h15" />
+        <path d="M6 20.5V7l6-2.5 6 2.5v13.5" />
+        <path d="M9 10h.1M12 10h.1M15 10h.1M9 14h.1M12 14h.1M15 14h.1" />
+      </svg>
+    );
+  }
+
+  if (icon === "pulse") {
+    return (
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M3 13h4l2.2-5.5L14 18l2.5-5H21" />
+      </svg>
+    );
+  }
+
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M12 3v3M12 18v3M4.6 4.6l2.1 2.1M17.3 17.3l2.1 2.1M3 12h3M18 12h3M4.6 19.4l2.1-2.1M17.3 6.7l2.1-2.1" />
+      <path d="M12 16a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z" />
+    </svg>
+  );
+}
+
 function buildLoginParticleStyle(index: number): LoginParticleStyle {
   return {
     "--i": index,
@@ -627,7 +747,34 @@ export default function LoginPage() {
         </div>
       </div>
 
-      <div className="login-shell">
+      <div className="login-console">
+        <aside className="login-side login-side--left" aria-label="Soluções integradas">
+          <div className="login-side__panel">
+            <div className="login-side__header">
+              <span>Soluções integradas</span>
+            </div>
+            <div className="login-side__stack">
+              {LOGIN_SOLUTIONS.map((item) => (
+                <article key={item.title} className="login-microcard">
+                  <span className="login-microcard__icon">
+                    <LoginSideIconGlyph icon={item.icon} />
+                  </span>
+                  <span className="login-microcard__copy">
+                    <strong>{item.title}</strong>
+                    <span>{item.description}</span>
+                  </span>
+                  <span className="login-status-dot" aria-label="Operacional" />
+                </article>
+              ))}
+            </div>
+            <div className="login-side__footer">
+              <span>Todos os serviços operacionais</span>
+              <LoginSideIconGlyph icon="shield" />
+            </div>
+          </div>
+        </aside>
+
+        <div className="login-shell">
         <div
           className={`login-card card transition-all duration-300 ${
             mounted ? "opacity-100 translate-y-0" : "opacity-0 translate-y-3"
@@ -890,6 +1037,36 @@ export default function LoginPage() {
             </form>
           )}
         </div>
+      </div>
+
+        <aside className="login-side login-side--right" aria-label="Confiança e tecnologia">
+          <div className="login-side__panel">
+            <div className="login-side__header">
+              <span>Confiança e tecnologia</span>
+            </div>
+            <div className="login-trustList">
+              {LOGIN_TRUST_ITEMS.map((item) => (
+                <article key={item.title} className="login-trustItem">
+                  <span className="login-trustItem__icon">
+                    <LoginSideIconGlyph icon={item.icon} />
+                  </span>
+                  <span className="login-trustItem__copy">
+                    <strong>{item.title}</strong>
+                    <span>{item.description}</span>
+                  </span>
+                  <span className="login-status-dot" aria-label="Ativo" />
+                </article>
+              ))}
+            </div>
+            <div className="login-themePreview" aria-label={`Tema ${themeModeLabel}`}>
+              <span>Tema</span>
+              <span className="login-themePreview__switch" data-mode={selection.mode}>
+                <span className="login-themePreview__thumb" />
+              </span>
+              <span className="login-themePreview__moon" aria-hidden="true" />
+            </div>
+          </div>
+        </aside>
       </div>
     </main>
   );
