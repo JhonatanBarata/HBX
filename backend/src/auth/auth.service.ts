@@ -340,13 +340,18 @@ export class AuthService implements OnModuleInit {
 
     if (!enabledModuleRows.length) return;
 
-    await tx.companyModule.updateMany({
-      where: {
-        companyId,
-        moduleId: { in: enabledModuleRows.map((moduleRow: { id: number }) => moduleRow.id) },
-      },
-      data: { enabled: true },
-    });
+    for (const moduleRow of enabledModuleRows) {
+      await tx.companyModule.upsert({
+        where: {
+          companyId_moduleId: {
+            companyId,
+            moduleId: moduleRow.id,
+          },
+        },
+        update: { enabled: true },
+        create: { companyId, moduleId: moduleRow.id, enabled: true },
+      });
+    }
   }
 
   private async activateConfirmedTrialTx(tx: any, companyId: number, activatedAt: Date) {
