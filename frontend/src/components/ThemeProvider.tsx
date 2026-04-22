@@ -17,9 +17,7 @@ import {
   HBX_THEME_MODE_STORAGE_KEY,
   clearStoredThemeConfig,
   persistThemeConfig,
-  persistThemeSelection,
   readStoredThemeConfig,
-  readStoredThemeSelection,
   setActiveThemeUser,
 } from "@/lib/theme-preferences";
 
@@ -115,15 +113,13 @@ function normalizePayload(
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const [storageUserId, setStorageUserIdState] = React.useState<string | number | null>(null);
-  // Avoid reading from localStorage synchronously during initial render
-  // (prevents server/client initial state mismatches). Preferences
-  // will be synced in an effect via `refreshPreferences`.
   const [themeState, setThemeState] = React.useState<ThemePreferenceState>(() =>
     buildThemeState({ system: null, company: null, user: null }),
   );
   const [ready, setReady] = React.useState(false);
   const themeStateRef = React.useRef(themeState);
   const storageUserIdRef = React.useRef<string | number | null>(storageUserId);
+  const didSkipInitialDocumentApplyRef = React.useRef(false);
   const scopeRequestVersionRef = React.useRef<Record<ThemePreferenceScope, number>>({
     system: 0,
     company: 0,
@@ -144,7 +140,12 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     storageUserIdRef.current = storageUserId;
   }, [storageUserId]);
 
-  React.useEffect(() => {
+  React.useLayoutEffect(() => {
+    if (!didSkipInitialDocumentApplyRef.current) {
+      didSkipInitialDocumentApplyRef.current = true;
+      return;
+    }
+
     applyThemeConfigToDocument(themeState.resolved);
   }, [themeState.resolved]);
 
