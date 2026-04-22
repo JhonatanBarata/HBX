@@ -54,6 +54,7 @@ const LEGACY_MODULE_KEYS = structuralDefaults.legacyModuleKeys as string[];
 const RETIRED_MODULE_KEYS = Array.isArray((structuralDefaults as any).retiredModuleKeys)
   ? ((structuralDefaults as any).retiredModuleKeys as string[])
   : [];
+const TRIAL_BUNDLED_MODULE_KEYS = ['atendimento', 'vendas', 'webscraping'];
 const MODULE_DISPLAY_ORDER = [
   'atendimento',
   'vendas',
@@ -1358,6 +1359,7 @@ export class ModulesService implements OnModuleInit {
     await this.removeRetiredSystemModules();
     await this.ensureDatabaseAutomation();
     await this.syncCompanyModulesForAllCompanies();
+    await this.ensureTrialBundleForAllCompanies();
   }
 
   private normalizeKey(key: string) {
@@ -1379,6 +1381,62 @@ export class ModulesService implements OnModuleInit {
   private normalizeRequestedModuleKey(moduleKey: string) {
     const key = this.normalizeKey(moduleKey);
     return key === 'hbx_recovery' ? 'atendimento' : key;
+  }
+
+  private isTrialBundledModuleKey(moduleKey: string) {
+    return TRIAL_BUNDLED_MODULE_KEYS.includes(this.normalizeRequestedModuleKey(moduleKey));
+  }
+
+  private async ensureTrialBundleForCompany(companyId: number) {
+    const company = await this.prisma.company.findUnique({
+      where: { id: companyId },
+      select: { trialModuleSelection: true },
+    });
+    if (String(company?.trialModuleSelection || '').trim().toLowerCase() !== 'vendas') return;
+
+    const moduleRows = await this.prisma.systemModule.findMany({
+      where: {
+        companyAssignable: true,
+        key: { in: TRIAL_BUNDLED_MODULE_KEYS },
+      },
+      select: { id: true },
+    });
+    if (!moduleRows.length) return;
+
+    await this.prisma.$transaction(async (tx) => {
+      for (const moduleRow of moduleRows) {
+        await tx.companyModule.upsert({
+          where: {
+            companyId_moduleId: {
+              companyId,
+              moduleId: moduleRow.id,
+            },
+          },
+          update: { enabled: true },
+          create: { companyId, moduleId: moduleRow.id, enabled: true },
+        });
+      }
+
+      await tx.userModuleAccess.updateMany({
+        where: {
+          moduleId: { in: moduleRows.map((moduleRow) => moduleRow.id) },
+          user: { companyId },
+          allowed: false,
+        },
+        data: { allowed: true },
+      });
+    });
+  }
+
+  private async ensureTrialBundleForAllCompanies() {
+    const companies = await this.prisma.company.findMany({
+      where: { trialModuleSelection: 'vendas' },
+      select: { id: true },
+    });
+
+    for (const company of companies) {
+      await this.ensureTrialBundleForCompany(company.id);
+    }
   }
 
   private getModuleCategory(moduleKey: string): ModuleCategory {
@@ -1711,6 +1769,9 @@ export class ModulesService implements OnModuleInit {
     const key = this.normalizeRequestedModuleKey(moduleKey);
     if (key === 'master' || key === 'exclusoes') return isSystemMaster;
     if (!companyId) return false;
+    if (this.isTrialBundledModuleKey(key)) {
+      await this.ensureTrialBundleForCompany(companyId);
+    }
 
     const candidateKeys = this.getModuleCandidateKeys(key);
     const moduleItems = await this.prisma.systemModule.findMany({
@@ -1793,6 +1854,8 @@ export class ModulesService implements OnModuleInit {
         accessible: true,
       }));
     }
+
+    await this.ensureTrialBundleForCompany(companyId);
 
     const status = await this.evaluateCompanyStatus(companyId);
     if (!status.active) {
@@ -1947,6 +2010,7 @@ export class ModulesService implements OnModuleInit {
     const { user, companyId, isSystemMaster } = await this.resolveUserContext(adminUserId);
     const isAdmin = String((user as any).role || '').toUpperCase() === 'ADMIN';
     if (!companyId || (!isAdmin && !isSystemMaster)) throw new ForbiddenException('Admin role required');
+    await this.ensureTrialBundleForCompany(companyId);
 
     const [users, modules] = await Promise.all([
       this.usersService.listByCompany(companyId),
@@ -2031,6 +2095,7 @@ export class ModulesService implements OnModuleInit {
         });
       }
     });
+    await this.ensureTrialBundleForCompany(companyId);
 
     return { ok: true };
   }
@@ -3100,6 +3165,9 @@ export class ModulesService implements OnModuleInit {
         },
       },
     });
+    if (this.isTrialBundledModuleKey(moduleItem.key)) {
+      await this.ensureTrialBundleForCompany(companyId);
+    }
 
     return { ok: true, companyId: result.companyId, moduleKey: moduleItem.key, enabled: result.enabled };
   }
