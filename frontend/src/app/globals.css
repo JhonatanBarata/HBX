@@ -1080,9 +1080,9 @@ html[data-theme-switcher-open="true"] .app-topbar::after {
 .login-stage {
   --login-accent: var(--brand);
   --login-accent-alt: var(--info);
-  --login-video-zoom: 1;
-  --login-video-zoom-success: 1.005;
-  --login-video-zoom-idle-exit: 1.01;
+  --login-video-zoom: 1.1;
+  --login-video-zoom-success: 1.1;
+  --login-video-zoom-idle-exit: 1.1;
   --login-stage-top: color-mix(in srgb, var(--hero-from) 92%, var(--surface));
   --login-stage-bottom: color-mix(in srgb, var(--hero-to) 94%, var(--background));
   --login-card-top: color-mix(in srgb, var(--surface) 94%, var(--background));
@@ -1154,8 +1154,9 @@ html[data-theme-switcher-open="true"] .app-topbar::after {
   overflow: hidden;
   pointer-events: none;
   background:
-    radial-gradient(circle at center, color-mix(in srgb, var(--login-accent) 12%, transparent), transparent 48%),
-    var(--background);
+    radial-gradient(circle at center, color-mix(in srgb, var(--login-accent) 16%, transparent), transparent 50%),
+    linear-gradient(90deg, color-mix(in srgb, var(--login-accent-alt) 30%, var(--background)), color-mix(in srgb, var(--background) 96%, transparent) 22%, color-mix(in srgb, var(--background) 96%, transparent) 78%, color-mix(in srgb, var(--login-accent) 28%, var(--background))),
+    linear-gradient(180deg, color-mix(in srgb, var(--hero-from) 18%, var(--background)), color-mix(in srgb, var(--hero-to) 16%, var(--background)));
 }
 
 /* fill lateral gaps with a theme-appropriate color when video doesn't cover horizontally */
@@ -1167,33 +1168,38 @@ html[data-theme-switcher-open="true"] .app-topbar::after {
 .login-video-layer::after {
   content: "";
   position: absolute;
-  inset: 0;
-  z-index: 3;
+  top: -4%;
+  bottom: -4%;
+  width: clamp(12rem, 24vw, 24rem);
+  z-index: 0;
   pointer-events: none;
+  opacity: 0.96;
+  filter: blur(24px) saturate(1.14);
+  transition:
+    opacity 900ms cubic-bezier(0.22, 0.8, 0.2, 1),
+    filter 1200ms cubic-bezier(0.22, 0.8, 0.2, 1),
+    transform 2200ms cubic-bezier(0.18, 0.84, 0.22, 1);
+  mix-blend-mode: screen;
 }
 
 .login-video-layer::before {
-  width: min(52vw, 820px);
-  height: min(88vh, 760px);
-  inset: 50% auto auto 50%;
-  transform: translate(-50%, -46%);
-  border-radius: 42px;
+  left: -5%;
+  border-radius: 0 999px 999px 0;
   background:
-    radial-gradient(ellipse at 50% 12%, color-mix(in srgb, var(--login-accent) 14%, transparent), transparent 30%),
-    radial-gradient(ellipse at 50% 50%, color-mix(in srgb, var(--background) 99%, transparent), color-mix(in srgb, var(--background) 94%, transparent) 58%, color-mix(in srgb, var(--background) 74%, transparent) 82%, transparent 100%),
-    linear-gradient(180deg, color-mix(in srgb, var(--background) 92%, transparent), color-mix(in srgb, var(--background) 98%, transparent));
-  backdrop-filter: blur(26px) brightness(0.38) saturate(0.76);
-  -webkit-backdrop-filter: blur(26px) brightness(0.38) saturate(0.76);
-  box-shadow:
-    0 0 0 1px color-mix(in srgb, var(--login-accent) 10%, transparent),
-    0 36px 120px color-mix(in srgb, var(--background) 72%, transparent);
-  opacity: 0.98;
+    radial-gradient(ellipse at 82% 18%, color-mix(in srgb, var(--login-accent-alt) 62%, transparent), transparent 42%),
+    radial-gradient(ellipse at 86% 52%, color-mix(in srgb, var(--login-accent) 46%, transparent), transparent 58%),
+    linear-gradient(90deg, color-mix(in srgb, var(--hero-from) 88%, transparent), transparent 84%);
+  transform: translateX(0) scale(1);
 }
 
 .login-video-layer::after {
+  right: -5%;
+  border-radius: 999px 0 0 999px;
   background:
-    linear-gradient(90deg, color-mix(in srgb, var(--background) 10%, transparent), transparent 18%, transparent 82%, color-mix(in srgb, var(--background) 10%, transparent)),
-    linear-gradient(180deg, color-mix(in srgb, var(--background) 6%, transparent), transparent 18%, color-mix(in srgb, var(--background) 86%, transparent) 100%);
+    radial-gradient(ellipse at 18% 22%, color-mix(in srgb, var(--login-accent) 64%, transparent), transparent 44%),
+    radial-gradient(ellipse at 14% 52%, color-mix(in srgb, var(--login-accent-alt) 42%, transparent), transparent 60%),
+    linear-gradient(270deg, color-mix(in srgb, var(--hero-to) 86%, transparent), transparent 84%);
+  transform: translateX(0) scale(1);
 }
 
 .login-video-layer__clip {
@@ -1210,9 +1216,9 @@ html[data-theme-switcher-open="true"] .app-topbar::after {
   filter: saturate(1.16) contrast(1.06) brightness(0.94);
   transform: translateX(-50%) scale(var(--login-video-zoom));
   transition:
-    opacity 1100ms cubic-bezier(0.22, 0.8, 0.2, 1),
-    filter 1100ms cubic-bezier(0.22, 0.8, 0.2, 1),
-    transform 1800ms cubic-bezier(0.18, 0.84, 0.22, 1);
+    opacity 2200ms cubic-bezier(0.22, 0.8, 0.2, 1),
+    filter 2200ms cubic-bezier(0.22, 0.8, 0.2, 1),
+    transform 3600ms cubic-bezier(0.18, 0.84, 0.22, 1);
   max-height: 100%;
   max-width: none;
 }
@@ -1239,7 +1245,7 @@ html[data-theme-switcher-open="true"] .app-topbar::after {
   z-index: 2;
   filter: saturate(1.16) contrast(1.06) brightness(0.94);
   /* preserve centering when auth clip becomes visible */
-  transform: translateX(-50%) scale(1);
+  transform: translateX(-50%) scale(var(--login-video-zoom));
 }
 
 .login-video-layer__veil {
@@ -1251,16 +1257,19 @@ html[data-theme-switcher-open="true"] .app-topbar::after {
     radial-gradient(ellipse at 50% 54%, color-mix(in srgb, var(--background) 44%, transparent), transparent 52%),
     linear-gradient(180deg, color-mix(in srgb, var(--background) 20%, transparent) 0%, transparent 28%, color-mix(in srgb, var(--background) 70%, transparent) 100%);
   opacity: 0.78;
-  animation: login-video-veil-breathe 7.5s ease-in-out infinite;
+  animation: login-video-veil-breathe 15s ease-in-out infinite;
 }
 
 .login-stage[data-login-video="on"] {
-  background: var(--background);
+  background:
+    radial-gradient(circle at 12% 50%, color-mix(in srgb, var(--login-accent-alt) 36%, var(--background)), transparent 34%),
+    radial-gradient(circle at 88% 50%, color-mix(in srgb, var(--login-accent) 32%, var(--background)), transparent 36%),
+    linear-gradient(90deg, color-mix(in srgb, var(--hero-from) 26%, var(--background)), color-mix(in srgb, var(--background) 97%, transparent) 24%, color-mix(in srgb, var(--background) 97%, transparent) 76%, color-mix(in srgb, var(--hero-to) 24%, var(--background))),
+    linear-gradient(180deg, color-mix(in srgb, var(--hero-from) 12%, var(--background)), color-mix(in srgb, var(--hero-to) 14%, var(--background)));
 }
 
 /* User request: remove the outer rounded frame/border so only the inner card and transition video remain */
 .login-video-layer::before,
-.login-video-layer::after,
 .login-stage::before,
 .login-stage::after,
 .login-shell::before {
@@ -1292,12 +1301,20 @@ html[data-theme-switcher-open="true"] .app-topbar::after {
 .login-stage[data-login-video="on"][data-login-state="success"] .login-video-layer__clip--idle {
   opacity: 0;
   filter: saturate(1.18) contrast(1.08) brightness(0.72);
-  transform: translateX(-50%) scale(var(--login-video-zoom-idle-exit));
+  transform: translateX(-50%) scale(var(--login-video-zoom));
 }
 
 .login-stage[data-login-video="on"][data-login-state="success"] .login-video-layer__clip--auth {
   opacity: 1;
-  transform: translateX(-50%) scale(var(--login-video-zoom-success));
+  transform: translateX(-50%) scale(var(--login-video-zoom));
+}
+
+.login-stage[data-login-video="on"][data-login-state="success"] .login-video-layer::before,
+.login-stage[data-login-video="on"][data-login-state="success"] .login-video-layer::after,
+.ui-shutdown-overlay .login-video-layer::before,
+.ui-shutdown-overlay .login-video-layer::after {
+  opacity: 0.92;
+  filter: blur(38px) saturate(1.14);
 }
 
 .login-stage[data-login-video="on"][data-login-state="success"] .login-video-layer__veil {
@@ -1327,23 +1344,23 @@ html[data-theme-switcher-open="true"] .app-topbar::after {
 /* Increase auth transition to 3.5s so authentication video isn't cut quickly */
 .login-stage[data-login-video="on"][data-login-state="success"] .login-video-layer__clip {
   transition:
-    opacity 900ms cubic-bezier(0.22, 0.8, 0.2, 1),
-    filter 900ms cubic-bezier(0.22, 0.8, 0.2, 1),
-    transform 3500ms cubic-bezier(0.18, 0.84, 0.22, 1);
+    opacity 1800ms cubic-bezier(0.22, 0.8, 0.2, 1),
+    filter 1800ms cubic-bezier(0.22, 0.8, 0.2, 1),
+    transform 7000ms cubic-bezier(0.18, 0.84, 0.22, 1);
 }
 
 /* Ensure logout overlay video transitions span the full 5s */
 .ui-shutdown-overlay .login-stage.logout-stage .login-video-layer__clip {
   transition:
-    opacity 1200ms cubic-bezier(0.22, 0.8, 0.2, 1),
-    filter 1200ms cubic-bezier(0.22, 0.8, 0.2, 1),
-    transform 5000ms cubic-bezier(0.18, 0.84, 0.22, 1);
+    opacity 2400ms cubic-bezier(0.22, 0.8, 0.2, 1),
+    filter 2400ms cubic-bezier(0.22, 0.8, 0.2, 1),
+    transform 10000ms cubic-bezier(0.18, 0.84, 0.22, 1);
 }
 
 /* keep veil breathing less aggressive when longer transitions run */
 .ui-shutdown-overlay .login-video-layer__veil,
 .login-stage[data-login-state="success"] .login-video-layer__veil {
-  animation-duration: 10s;
+  animation-duration: 20s;
 }
 
 @keyframes login-video-drift {
@@ -1404,8 +1421,9 @@ html[data-theme-switcher-open="true"] .app-topbar::after {
   backdrop-filter: blur(22px);
 }
 
-.login-stage[data-login-video="on"] .login-card {
-  width: min(100%, 520px);
+.login-stage[data-login-video="on"]:not(.logout-stage) .login-card {
+  width: min(100%, 468px);
+  padding: clamp(1.3rem, 2.7vw, 2rem);
   border-color: color-mix(in srgb, var(--login-accent) 32%, var(--line));
   background:
     radial-gradient(circle at 50% 0%, color-mix(in srgb, var(--login-accent) 18%, transparent), transparent 42%),
@@ -1504,17 +1522,17 @@ html[data-theme-switcher-open="true"] .app-topbar::after {
 
 @media (min-width: 860px) {
   .login-stage[data-login-video="on"] {
-    --login-video-zoom: 1.075;
-    --login-video-zoom-success: 1.085;
-    --login-video-zoom-idle-exit: 1.1;
+    --login-video-zoom: 1.18;
+    --login-video-zoom-success: 1.18;
+    --login-video-zoom-idle-exit: 1.18;
   }
 }
 
 @media (min-width: 1280px) {
   .login-stage[data-login-video="on"] {
-    --login-video-zoom: 1.1;
-    --login-video-zoom-success: 1.11;
-    --login-video-zoom-idle-exit: 1.125;
+    --login-video-zoom: 1.21;
+    --login-video-zoom-success: 1.21;
+    --login-video-zoom-idle-exit: 1.21;
   }
 }
 
@@ -1717,7 +1735,7 @@ html[data-theme-switcher-open="true"] .app-topbar::after {
     radial-gradient(circle at 50% 50%, color-mix(in srgb, var(--login-accent-alt) 18%, transparent), transparent 62%);
   filter: blur(26px) saturate(1.15);
   opacity: 0.72;
-  animation: login-core-breathe 7.8s ease-in-out infinite;
+  animation: login-core-breathe 15.6s ease-in-out infinite;
 }
 
 .login-core__pulse {
@@ -1728,7 +1746,7 @@ html[data-theme-switcher-open="true"] .app-topbar::after {
     radial-gradient(circle at center, color-mix(in srgb, var(--login-accent-alt) 22%, transparent), transparent 58%);
   filter: blur(8px);
   opacity: 0.66;
-  animation: login-core-pulse 4.8s cubic-bezier(0.2, 0.9, 0.2, 1) infinite;
+  animation: login-core-pulse 9.6s cubic-bezier(0.2, 0.9, 0.2, 1) infinite;
 }
 
 .login-core__ring {
@@ -1852,7 +1870,7 @@ html[data-theme-switcher-open="true"] .app-topbar::after {
   height: 220px;
   background: radial-gradient(circle at 65% 72%, color-mix(in srgb, var(--login-accent-alt) 70%, var(--background)), color-mix(in srgb, var(--login-accent) 56%, transparent) 48%, transparent 70%);
   transform-origin: center bottom;
-  animation: login-drop-in-bottom 920ms cubic-bezier(0.2, 0.95, 0.2, 1) both;
+  animation: login-drop-in-bottom 1840ms cubic-bezier(0.2, 0.95, 0.2, 1) both;
   opacity: 0.95;
 }
 
@@ -1881,7 +1899,7 @@ html[data-theme-switcher-open="true"] .app-topbar::after {
   background: radial-gradient(circle at 20% 50%, color-mix(in srgb, var(--login-accent) 76%, var(--background)), color-mix(in srgb, var(--login-accent-alt) 52%, transparent) 50%, transparent 72%);
   border-radius: 48% 52% 52% 48% / 60% 60% 40% 40%;
   transform-origin: left center;
-  animation: login-drop-in-left 980ms cubic-bezier(0.2, 0.95, 0.2, 1) both;
+  animation: login-drop-in-left 1960ms cubic-bezier(0.2, 0.95, 0.2, 1) both;
   opacity: 0.9;
 }
 
@@ -1911,7 +1929,7 @@ html[data-theme-switcher-open="true"] .app-topbar::after {
   background: radial-gradient(circle at 80% 45%, color-mix(in srgb, var(--login-accent-alt) 74%, var(--background)), color-mix(in srgb, var(--login-accent) 56%, transparent) 50%, transparent 72%);
   border-radius: 52% 48% 48% 52% / 60% 60% 40% 40%;
   transform-origin: right center;
-  animation: login-drop-in-right 980ms cubic-bezier(0.2, 0.95, 0.2, 1) both;
+  animation: login-drop-in-right 1960ms cubic-bezier(0.2, 0.95, 0.2, 1) both;
   opacity: 0.9;
 }
 
@@ -1940,7 +1958,7 @@ html[data-theme-switcher-open="true"] .app-topbar::after {
   transform: rotate(-22deg) translateY(-40px);
   opacity: 0.0;
   filter: blur(1px) saturate(1.2);
-  animation: login-meteor-move 1100ms linear infinite;
+  animation: login-meteor-move 2200ms linear infinite;
   border-radius: 99px;
 }
 
@@ -1991,13 +2009,13 @@ html[data-theme-switcher-open="true"] .app-topbar::after {
 
 .login-visuals.play .login-confetti__piece {
   /* match shutdown timing/dynamics and increase dramatic stagger */
-  animation: confetti-implode 2200ms cubic-bezier(0.2,0.8,0.2,1) both;
+  animation: confetti-implode 4400ms cubic-bezier(0.2,0.8,0.2,1) both;
   animation-delay: calc((60 - var(--i)) * 12ms);
 }
 
 .login-stage[data-login-state="waking_server"] .login-core__pulse,
 .login-stage[data-login-state="waking_server"] .login-core__halo {
-  animation-duration: 2.8s;
+  animation-duration: 5.6s;
   opacity: 0.84;
 }
 
@@ -2007,14 +2025,14 @@ html[data-theme-switcher-open="true"] .app-topbar::after {
 
 .login-stage[data-login-state="success"] .login-core__halo,
 .login-visuals.play .login-core__halo {
-  animation-duration: 1.9s;
+  animation-duration: 3.8s;
   opacity: 0.98;
   filter: blur(34px) saturate(1.24);
 }
 
 .login-stage[data-login-state="success"] .login-core__pulse,
 .login-visuals.play .login-core__pulse {
-  animation-duration: 1.45s;
+  animation-duration: 2.9s;
   opacity: 1;
   transform: scale(1.12);
 }
