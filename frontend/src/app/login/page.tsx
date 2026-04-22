@@ -5,6 +5,12 @@ import { useEffect, useEffectEvent, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { apiFetch, setToken } from "../dashboard/_lib/api";
 import { useHbxTheme } from "../../components/ThemeProvider";
+import {
+  LOGIN_VIDEO_PREFERENCE_EVENT,
+  LOGIN_VIDEO_PREFERENCE_STORAGE_KEY,
+  persistLoginVideoEnabled,
+  readStoredLoginVideoEnabled,
+} from "../../lib/login-visual-preferences";
 import { useLoginColdStart, type LoginState } from "../../lib/useLoginColdStart";
 import { resolveWebsiteOnlyDestination } from "../../lib/websiteLaunch";
 
@@ -12,7 +18,7 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3000";
 const AUTO_LOGIN_STORAGE_KEY = "hbx_auto_login";
 const AUTO_LOGIN_RELOAD_SECONDS = 49;
 const LOGIN_SUCCESS_DELAY_MS = 3500;
-const LOGIN_VIDEO_EXPERIENCE_ENABLED = true;
+const LOGIN_VIDEO_EXPERIENCE_AVAILABLE = true;
 const LOGIN_IDLE_VIDEO_SRC = "/login-media/login-looping.mp4";
 const LOGIN_AUTH_VIDEO_SRC = "/login-media/login-afterauth.mp4";
 const DEFAULT_WAKING_MESSAGE =
@@ -257,7 +263,7 @@ async function resolvePostLoginDestination(data: unknown) {
 
 export default function LoginPage() {
   const router = useRouter();
-  const { selection, activeTheme } = useHbxTheme();
+  const { selection, activeTheme, setMode: setThemeMode } = useHbxTheme();
   const { executeLoginWithRetry, cancel: cancelLogin } = useLoginColdStart({
     apiUrl: API_URL,
     wakingThresholdMs: 3000,
@@ -273,8 +279,10 @@ export default function LoginPage() {
   const [wakingMessage, setWakingMessage] = useState<string | null>(null);
   const [loginState, setLoginState] = useState<LoginState>("idle");
   const [mounted, setMounted] = useState(false);
+  const [isUiReady, setIsUiReady] = useState(false);
   const [playingWelcome, setPlayingWelcome] = useState(false);
   const [visualsPlayOnLoad, setVisualsPlayOnLoad] = useState(false);
+  const [isLoginVideoEnabled, setIsLoginVideoEnabled] = useState<boolean>(false);
   const [mode, setMode] = useState<"login" | "forgot">("login");
   const [preRegistered, setPreRegistered] = useState(false);
   const [countdown, setCountdown] = useState<number | null>(null);
@@ -296,13 +304,24 @@ export default function LoginPage() {
   const isSubmitting = loginState === "submitting" || loginState === "waking_server";
   const isWakingServer = loginState === "waking_server";
   const isSuccess = loginState === "success";
+  const isLoginVideoExperienceEnabled = LOGIN_VIDEO_EXPERIENCE_AVAILABLE && isLoginVideoEnabled;
+  const shouldRenderLoginVideo = isLoginVideoExperienceEnabled && isUiReady;
   const themeModeLabel = selection.mode === "dark" ? "Escuro" : "Claro";
-  const loginCardVideoStyle: CSSProperties | undefined = LOGIN_VIDEO_EXPERIENCE_ENABLED
-    ? {
-        backdropFilter: "blur(2px) saturate(1.01)",
-        WebkitBackdropFilter: "blur(2px) saturate(1.01)",
-      }
-    : undefined;
+  const visualModeLabel = isLoginVideoExperienceEnabled ? "Vídeo ativo" : "Vídeo suave";
+  const loginCardVideoStyle: CSSProperties = {
+    backdropFilter: "blur(2px) saturate(1.01)",
+    WebkitBackdropFilter: "blur(2px) saturate(1.01)",
+  };
+
+  function handleThemeModeToggle() {
+    setThemeMode(selection.mode === "dark" ? "light" : "dark");
+  }
+
+  function handleLoginVideoToggle() {
+    const nextEnabled = !isLoginVideoExperienceEnabled;
+    setIsLoginVideoEnabled(nextEnabled);
+    persistLoginVideoEnabled(nextEnabled);
+  }
 
   function setStagePointerStyles(nextX: number, nextY: number) {
     const stage = stageRef.current;
@@ -659,18 +678,120 @@ export default function LoginPage() {
   }, [username]);
 
   useEffect(() => {
-    setMounted(true);
-    setVisualsPlayOnLoad(true);
-    const timeout = window.setTimeout(() => setVisualsPlayOnLoad(false), 2200);
+    if (!LOGIN_VIDEO_EXPERIENCE_AVAILABLE) {
+      return;
+    }
+
+    const syncStoredVideoPreference = () => {
+      setIsLoginVideoEnabled(readStoredLoginVideoEnabled());
+    };
+
+    const handlePreferenceChange = () => {
+      syncStoredVideoPreference();
+    };
+
+    const handleStorage = (event: StorageEvent) => {
+      if (
+        !event.key ||
+        event.key === LOGIN_VIDEO_PREFERENCE_STORAGE_KEY ||
+        event.key.startsWith(`${LOGIN_VIDEO_PREFERENCE_STORAGE_KEY}:`)
+      ) {
+        syncStoredVideoPreference();
+      }
+    };
+
+    syncStoredVideoPreference();
+    window.addEventListener(LOGIN_VIDEO_PREFERENCE_EVENT, handlePreferenceChange);
+    window.addEventListener("storage", handleStorage);
 
     return () => {
-      window.clearTimeout(timeout);
+      window.removeEventListener(LOGIN_VIDEO_PREFERENCE_EVENT, handlePreferenceChange);
+      window.removeEventListener("storage", handleStorage);
+    };
+  }, []);
+
+  useEffect(() => {
+    const timeoutIds: number[] = [];
+    const removeListeners: Array<() => void> = [];
+    let cancelled = false;
+
+    const withTimeout = (promise: Promise<unknown>, timeoutMs: number) =>
+      Promise.race([
+        promise,
+        new Promise<void>((resolve) => {
+          const timeoutId = window.setTimeout(resolve, timeoutMs);
+          timeoutIds.push(timeoutId);
+        }),
+      ]);
+
+    const waitForLoad = () => {
+      if (document.readyState === "complete") {
+        return Promise.resolve();
+      }
+
+      return new Promise<void>((resolve) => {
+        const handleLoad = () => {
+          resolve();
+        };
+
+        window.addEventListener("load", handleLoad, { once: true });
+        removeListeners.push(() => window.removeEventListener("load", handleLoad));
+      });
+    };
+
+    const waitForFonts = () => {
+      if (!("fonts" in document) || !document.fonts?.ready) {
+        return Promise.resolve();
+      }
+
+      return document.fonts.ready.catch(() => undefined);
+    };
+
+    const waitForSettledPaint = () =>
+      new Promise<void>((resolve) => {
+        window.requestAnimationFrame(() => {
+          window.requestAnimationFrame(() => {
+            resolve();
+          });
+        });
+      });
+
+    const armLoginUi = async () => {
+      setMounted(true);
+
+      await Promise.all([
+        waitForSettledPaint(),
+        withTimeout(waitForFonts(), 900),
+        withTimeout(waitForLoad(), 1400),
+      ]);
+
+      if (cancelled) {
+        return;
+      }
+
+      setIsUiReady(true);
+      setVisualsPlayOnLoad(true);
+
+      const timeoutId = window.setTimeout(() => {
+        if (!cancelled) {
+          setVisualsPlayOnLoad(false);
+        }
+      }, 1600);
+      timeoutIds.push(timeoutId);
+    };
+
+    void armLoginUi();
+
+    return () => {
+      cancelled = true;
+      timeoutIds.forEach((timeoutId) => window.clearTimeout(timeoutId));
+      removeListeners.forEach((removeListener) => removeListener());
       cancelLogin();
     };
   }, [cancelLogin]);
 
   useEffect(() => {
-    if (!LOGIN_VIDEO_EXPERIENCE_ENABLED) return;
+    if (!shouldRenderLoginVideo) return;
     const idleVideo = idleVideoRef.current;
     if (!idleVideo) return;
 
@@ -679,10 +800,10 @@ export default function LoginPage() {
     } catch {}
 
     idleVideo.play().catch(() => undefined);
-  }, [mounted, selection.mode, selection.themeId]);
+  }, [shouldRenderLoginVideo, mounted, selection.mode, selection.themeId]);
 
   useEffect(() => {
-    if (!LOGIN_VIDEO_EXPERIENCE_ENABLED) return;
+    if (!shouldRenderLoginVideo) return;
     const authVideo = authVideoRef.current;
     if (!authVideo) return;
 
@@ -699,7 +820,7 @@ export default function LoginPage() {
 
     authVideo.pause();
     authVideo.currentTime = 0;
-  }, [isSuccess, playingWelcome]);
+  }, [shouldRenderLoginVideo, isSuccess, playingWelcome]);
 
   useEffect(() => {
     const stage = stageRef.current;
@@ -771,13 +892,14 @@ export default function LoginPage() {
       className="login-stage"
       data-login-theme={selection.themeId}
       data-login-mode={selection.mode}
+      data-login-ready={isUiReady ? "true" : "false"}
       data-login-state={loginState}
-      data-login-video={LOGIN_VIDEO_EXPERIENCE_ENABLED ? "on" : "off"}
-      onPointerMove={handleStagePointerMove}
-      onPointerLeave={handleStagePointerLeave}
+      data-login-video={isLoginVideoExperienceEnabled ? "on" : "off"}
+      onPointerMove={isUiReady ? handleStagePointerMove : undefined}
+      onPointerLeave={isUiReady ? handleStagePointerLeave : undefined}
     >
       <div className="login-stage__grid" aria-hidden />
-      {LOGIN_VIDEO_EXPERIENCE_ENABLED ? (
+      {shouldRenderLoginVideo ? (
         <div className="login-video-layer" aria-hidden="true">
           <video
             ref={idleVideoRef}
@@ -812,7 +934,7 @@ export default function LoginPage() {
       ) : null}
       <div className="login-visuals" aria-hidden>
         <div
-          className={`login-visuals ${playingWelcome || visualsPlayOnLoad ? "play" : ""}`}
+          className={`login-visuals ${isUiReady && (playingWelcome || visualsPlayOnLoad) ? "play" : ""}`}
           aria-hidden
         >
           <div className="login-side-theme login-side-theme--left">
@@ -868,6 +990,22 @@ export default function LoginPage() {
                   <span className="login-status-dot" aria-label="Operacional" />
                 </article>
               ))}
+            </div>
+            <div className="login-themePreview login-themePreview--visual" data-preview="visual" aria-label={visualModeLabel}>
+              <span>Visual</span>
+              <button
+                type="button"
+                className="login-themePreview__switch"
+                data-preview="visual"
+                data-state={isLoginVideoExperienceEnabled ? "on" : "off"}
+                role="switch"
+                aria-checked={isLoginVideoExperienceEnabled}
+                aria-label={isLoginVideoExperienceEnabled ? "Desativar vídeo de fundo" : "Ativar vídeo de fundo"}
+                onClick={handleLoginVideoToggle}
+              >
+                <span className="login-themePreview__thumb" />
+              </button>
+              <span className="login-themePreview__moon" data-preview="visual" aria-hidden="true" />
             </div>
             <div className="login-side__footer">
               <span>Todos os serviços operacionais</span>
@@ -1161,12 +1299,21 @@ export default function LoginPage() {
                 </article>
               ))}
             </div>
-            <div className="login-themePreview" aria-label={`Tema ${themeModeLabel}`}>
+            <div className="login-themePreview" data-preview="theme" aria-label={`Tema ${themeModeLabel}`}>
               <span>Tema</span>
-              <span className="login-themePreview__switch" data-mode={selection.mode}>
+              <button
+                type="button"
+                className="login-themePreview__switch"
+                data-preview="theme"
+                data-mode={selection.mode}
+                role="switch"
+                aria-checked={selection.mode === "dark"}
+                aria-label={selection.mode === "dark" ? "Ativar tema claro" : "Ativar tema escuro"}
+                onClick={handleThemeModeToggle}
+              >
                 <span className="login-themePreview__thumb" />
-              </span>
-              <span className="login-themePreview__moon" aria-hidden="true" />
+              </button>
+              <span className="login-themePreview__moon" data-preview="theme" aria-hidden="true" />
             </div>
           </div>
         </aside>

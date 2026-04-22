@@ -3,6 +3,11 @@
 import React from "react";
 import { usePathname } from "next/navigation";
 import { useHbxTheme } from "@/components/ThemeProvider";
+import {
+  LOGIN_VIDEO_PREFERENCE_EVENT,
+  LOGIN_VIDEO_PREFERENCE_STORAGE_KEY,
+  readStoredLoginVideoEnabled,
+} from "@/lib/login-visual-preferences";
 
 const ENTER_READY_DELAY_MS = 24;
 // Keep shutdown overlay visible long enough for full logout video
@@ -99,6 +104,7 @@ export function InterfaceTransitionProvider({ children }: { children: React.Reac
   const readyTimerRef = React.useRef<number | null>(null);
   const shutdownPromiseRef = React.useRef<Promise<void> | null>(null);
   const [phase, setPhase] = React.useState<InterfaceTransitionPhase>("boot");
+  const [isLoginVideoEnabled, setIsLoginVideoEnabled] = React.useState(false);
   const { selection, activeTheme } = useHbxTheme();
   const shutdownCardStyle = React.useMemo<React.CSSProperties>(
     () => ({
@@ -258,6 +264,35 @@ export function InterfaceTransitionProvider({ children }: { children: React.Reac
   );
 
   React.useEffect(() => {
+    const syncStoredVideoPreference = () => {
+      setIsLoginVideoEnabled(readStoredLoginVideoEnabled());
+    };
+
+    const handlePreferenceChange = () => {
+      syncStoredVideoPreference();
+    };
+
+    const handleStorage = (event: StorageEvent) => {
+      if (
+        !event.key ||
+        event.key === LOGIN_VIDEO_PREFERENCE_STORAGE_KEY ||
+        event.key.startsWith(`${LOGIN_VIDEO_PREFERENCE_STORAGE_KEY}:`)
+      ) {
+        syncStoredVideoPreference();
+      }
+    };
+
+    syncStoredVideoPreference();
+    window.addEventListener(LOGIN_VIDEO_PREFERENCE_EVENT, handlePreferenceChange);
+    window.addEventListener("storage", handleStorage);
+
+    return () => {
+      window.removeEventListener(LOGIN_VIDEO_PREFERENCE_EVENT, handlePreferenceChange);
+      window.removeEventListener("storage", handleStorage);
+    };
+  }, []);
+
+  React.useEffect(() => {
     if (process.env.NODE_ENV === "production") return undefined;
 
     window.__hbxPreviewShutdown = () => runGlobalShutdown(async () => undefined);
@@ -280,25 +315,27 @@ export function InterfaceTransitionProvider({ children }: { children: React.Reac
               data-login-theme={selection.themeId}
               data-login-mode={selection.mode}
               data-login-state="success"
-              data-login-video="on"
+              data-login-video={isLoginVideoEnabled ? "on" : "off"}
             >
               <div className="login-stage__grid" aria-hidden />
 
-              <div className="login-video-layer" aria-hidden="true">
-                <video
-                  className="login-video-layer__clip login-video-layer__clip--auth"
-                  src="/login-media/logout.mp4"
-                  autoPlay
-                  muted
-                  loop
-                  playsInline
-                  preload="auto"
-                  onCanPlay={(event) => {
-                    event.currentTarget.play().catch(() => undefined);
-                  }}
-                />
-                <div className="login-video-layer__veil" />
-              </div>
+              {isLoginVideoEnabled ? (
+                <div className="login-video-layer" aria-hidden="true">
+                  <video
+                    className="login-video-layer__clip login-video-layer__clip--auth"
+                    src="/login-media/logout.mp4"
+                    autoPlay
+                    muted
+                    loop
+                    playsInline
+                    preload="auto"
+                    onCanPlay={(event) => {
+                      event.currentTarget.play().catch(() => undefined);
+                    }}
+                  />
+                  <div className="login-video-layer__veil" />
+                </div>
+              ) : null}
 
               <div className="login-shell">
                 <section
