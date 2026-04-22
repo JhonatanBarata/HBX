@@ -483,7 +483,7 @@ export default function LoginPage() {
     if (!idleVideo) return;
 
     try {
-      idleVideo.playbackRate = 0.5; // slow idle/login looping video to 50%
+      idleVideo.playbackRate = 0.75; // slow idle/login looping video to 50%
     } catch {}
 
     idleVideo.play().catch(() => undefined);

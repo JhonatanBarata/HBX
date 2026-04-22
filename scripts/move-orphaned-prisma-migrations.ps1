@@ -1,4 +1,5 @@
 $root = 'backend/prisma/migrations'
+$archiveRoot = 'backend/prisma/orphaned-migrations'
 if (-not (Test-Path $root)) {
     Write-Host "Migrations folder not found: $root"
     exit 0
@@ -15,7 +16,7 @@ if ($toRemove.Count -eq 0) {
     exit 0
 }
 $timestamp = Get-Date -Format yyyyMMddHHmmss
-$backup = Join-Path $root ('orphaned-migrations-' + $timestamp)
+$backup = Join-Path $archiveRoot $timestamp
 New-Item -ItemType Directory -Path $backup -Force | Out-Null
 foreach ($d in $toRemove) {
     $dest = Join-Path $backup $d.Name
