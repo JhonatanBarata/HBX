@@ -100,6 +100,13 @@ export function InterfaceTransitionProvider({ children }: { children: React.Reac
   const shutdownPromiseRef = React.useRef<Promise<void> | null>(null);
   const [phase, setPhase] = React.useState<InterfaceTransitionPhase>("boot");
   const { selection, activeTheme } = useHbxTheme();
+  const shutdownCardStyle = React.useMemo<React.CSSProperties>(
+    () => ({
+      backdropFilter: "blur(2px) saturate(1.01)",
+      WebkitBackdropFilter: "blur(2px) saturate(1.01)",
+    }),
+    [],
+  );
 
   const applyRevealMap = React.useCallback(() => {
     const root = rootRef.current;
@@ -296,6 +303,7 @@ export function InterfaceTransitionProvider({ children }: { children: React.Reac
               <div className="login-shell">
                 <section
                   className="login-card card"
+                  style={shutdownCardStyle}
                   role="status"
                   aria-live="polite"
                   aria-atomic="true"
@@ -314,54 +322,40 @@ export function InterfaceTransitionProvider({ children }: { children: React.Reac
                       </div>
                       <div className="login-card__themeCopy">
                         <p className="login-card__themeLabel">{activeTheme.label}</p>
-                        <p className="login-card__themeHint">
-                          Acesse sua conta com segurança e continue de onde parou.
-                        </p>
+                        <p className="login-card__themeHint">Sessão encerrada com segurança.</p>
                       </div>
                     </div>
 
-                    <h1 className="login-card__title">Entrar no HBX</h1>
+                    <h1 className="login-card__title">Até já.</h1>
                   </header>
 
                   <div className="login-form">
                     <div className="login-field">
-                      <label className="login-label" htmlFor="logout-username">
-                        E-mail
-                      </label>
-                      <input
-                        id="logout-username"
-                        className="input"
-                        placeholder="Digite seu e-mail"
-                        readOnly
-                        tabIndex={-1}
-                      />
+                      <label className="login-label" htmlFor="logout-username">Sessão</label>
+                      <input id="logout-username" className="input" placeholder="Sessão encerrada" readOnly tabIndex={-1} />
                     </div>
 
                     <div className="login-field">
-                      <label className="login-label" htmlFor="logout-password">
-                        Senha
-                      </label>
+                      <label className="login-label" htmlFor="logout-password">Até já</label>
                       <input
                         id="logout-password"
                         type="password"
                         className="input"
-                        placeholder="Digite sua senha"
+                        placeholder="Obrigado por usar o HBX"
                         readOnly
                         tabIndex={-1}
                       />
                     </div>
 
                     <div className="login-actionsRow">
-                      <span className="login-link" aria-hidden>
-                        Esqueci minha senha
-                      </span>
+                      <span className="login-link" aria-hidden>Sessão finalizada</span>
                       <span className="btn btn-secondary login-cta" style={{ marginLeft: 12 }} aria-hidden>
-                        Criar conta
+                        Fechar
                       </span>
                     </div>
 
                     <button type="button" className="btn btn-primary login-button" aria-disabled="true" tabIndex={-1}>
-                      Finalizando...
+                      Até já.
                     </button>
                   </div>
                 </section>

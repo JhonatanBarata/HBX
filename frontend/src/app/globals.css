@@ -1087,6 +1087,22 @@ html[data-theme-switcher-open="true"] .app-topbar::after {
   --login-video-veil-edge: color-mix(in srgb, var(--background) 34%, transparent);
   --login-video-veil-deep: color-mix(in srgb, var(--background) 54%, transparent);
   --login-grid-size: 36px;
+  --login-card-contrast-top: color-mix(in srgb, white 56%, transparent);
+  --login-card-contrast-bottom: color-mix(in srgb, white 34%, transparent);
+  --login-card-contrast-spot: color-mix(in srgb, white 34%, var(--button-secondary) 18%);
+  --login-card-text-shadow: 0 1px 0 color-mix(in srgb, white 58%, transparent), 0 10px 28px color-mix(in srgb, var(--background) 16%, transparent);
+  --login-card-muted-shadow: 0 1px 0 color-mix(in srgb, white 42%, transparent), 0 8px 20px color-mix(in srgb, var(--background) 12%, transparent);
+  --login-pointer-x: 50%;
+  --login-pointer-y: 50%;
+  --login-pointer-drift-x: 0px;
+  --login-pointer-drift-y: 0px;
+  --login-pointer-drift-x-inverse: 0px;
+  --login-pointer-drift-y-inverse: 0px;
+  --login-dna-primary: color-mix(in srgb, var(--button-primary) 70%, var(--button-accent));
+  --login-dna-secondary: color-mix(in srgb, var(--button-secondary) 66%, var(--button-accent));
+  --login-dna-line: color-mix(in srgb, var(--button-primary) 18%, transparent);
+  --login-dna-glow: color-mix(in srgb, var(--button-accent) 16%, transparent);
+  --login-dna-highlight: color-mix(in srgb, var(--button-secondary) 14%, transparent);
   min-height: 100dvh;
   width: 100%;
   display: grid;
@@ -1236,10 +1252,11 @@ html[data-theme-switcher-open="true"] .app-topbar::after {
 
 .login-stage[data-login-video="on"] {
   background:
+    radial-gradient(circle at var(--login-pointer-x) var(--login-pointer-y), color-mix(in srgb, var(--login-dna-highlight) 88%, transparent), transparent 18%),
+    radial-gradient(ellipse at 16% 50%, color-mix(in srgb, var(--login-dna-primary) 16%, transparent), transparent 34%),
+    radial-gradient(ellipse at 84% 50%, color-mix(in srgb, var(--login-dna-secondary) 16%, transparent), transparent 34%),
     radial-gradient(ellipse at 12% 50%, var(--login-video-side-glow), transparent 34%),
     radial-gradient(ellipse at 88% 50%, var(--login-video-side-glow), transparent 34%),
-    radial-gradient(ellipse at 18% 50%, color-mix(in srgb, var(--login-accent) 10%, transparent), transparent 40%),
-    radial-gradient(ellipse at 82% 50%, color-mix(in srgb, var(--login-accent) 10%, transparent), transparent 40%),
     linear-gradient(90deg, var(--login-video-gutter), var(--login-video-gutter-soft) 22%, var(--login-video-gutter-soft) 78%, var(--login-video-gutter)),
     linear-gradient(180deg, var(--background), var(--background-alt));
 }
@@ -1267,12 +1284,18 @@ html[data-theme-switcher-open="true"] .app-topbar::after {
 
 .login-stage[data-login-video="on"] .login-visuals {
   z-index: 3;
-  opacity: 0.56;
-  mix-blend-mode: screen;
+  opacity: 1;
+  mix-blend-mode: normal;
 }
 
 .login-stage[data-login-video="on"] .login-core {
   opacity: 0.48;
+}
+
+.login-stage[data-login-video="on"] .login-core,
+.login-stage[data-login-video="on"] .login-drop,
+.login-stage[data-login-video="on"] .login-meteor {
+  display: none;
 }
 
 .login-stage[data-login-video="on"][data-login-state="success"] .login-video-layer__clip--idle {
@@ -1522,7 +1545,7 @@ html[data-theme-switcher-open="true"] .app-topbar::after {
 
 .login-microcard {
   display: grid;
-  grid-template-columns: 42px minmax(0, 1fr) auto;
+  grid-template-columns: 63px minmax(0, 1fr) auto;
   align-items: center;
   gap: 0.75rem;
   min-height: 82px;
@@ -1541,8 +1564,8 @@ html[data-theme-switcher-open="true"] .app-topbar::after {
 .login-microcard__icon svg,
 .login-trustItem__icon svg,
 .login-side__footer svg {
-  width: 31px;
-  height: 31px;
+  width: 47px;
+  height: 47px;
   fill: none;
   stroke: currentColor;
   stroke-width: 1.7;
@@ -1596,8 +1619,8 @@ html[data-theme-switcher-open="true"] .app-topbar::after {
 
 .login-side__footer svg {
   flex: 0 0 auto;
-  width: 25px;
-  height: 25px;
+  width: 38px;
+  height: 38px;
   color: color-mix(in srgb, var(--login-accent-alt) 74%, var(--login-accent));
 }
 
@@ -1608,7 +1631,7 @@ html[data-theme-switcher-open="true"] .app-topbar::after {
 
 .login-trustItem {
   display: grid;
-  grid-template-columns: 42px minmax(0, 1fr) auto;
+  grid-template-columns: 63px minmax(0, 1fr) auto;
   align-items: center;
   gap: 0.75rem;
   padding: 0.84rem 0;
@@ -1625,6 +1648,8 @@ html[data-theme-switcher-open="true"] .app-topbar::after {
 }
 
 .login-themePreview {
+  position: relative;
+  isolation: isolate;
   display: grid;
   grid-template-columns: auto 1fr auto;
   align-items: center;
@@ -1639,6 +1664,7 @@ html[data-theme-switcher-open="true"] .app-topbar::after {
 .login-themePreview__switch {
   justify-self: center;
   position: relative;
+  overflow: hidden;
   width: 66px;
   height: 32px;
   border-radius: 999px;
@@ -1649,6 +1675,22 @@ html[data-theme-switcher-open="true"] .app-topbar::after {
   box-shadow:
     inset 0 1px 0 color-mix(in srgb, var(--surface) 32%, transparent),
     0 16px 34px -24px color-mix(in srgb, var(--button-primary) 55%, transparent);
+  transition:
+    background var(--motion-base),
+    border-color var(--motion-base),
+    box-shadow var(--motion-base),
+    transform var(--motion-base);
+  animation: login-theme-preview-glow 4.6s ease-in-out infinite;
+}
+
+.login-themePreview__switch::before {
+  content: "";
+  position: absolute;
+  inset: 1px;
+  border-radius: inherit;
+  background: linear-gradient(135deg, color-mix(in srgb, white 22%, transparent), transparent 45%, color-mix(in srgb, var(--button-secondary) 22%, transparent));
+  opacity: 0.74;
+  pointer-events: none;
 }
 
 .login-themePreview__thumb {
@@ -1663,7 +1705,12 @@ html[data-theme-switcher-open="true"] .app-topbar::after {
   box-shadow:
     0 10px 22px -12px color-mix(in srgb, var(--foreground) 46%, transparent),
     inset 0 1px 0 color-mix(in srgb, white 72%, transparent);
-  transition: left var(--motion-base), right var(--motion-base), transform var(--motion-base);
+  transition:
+    left var(--motion-base),
+    right var(--motion-base),
+    transform var(--motion-base),
+    box-shadow var(--motion-base),
+    background var(--motion-base);
 }
 
 .login-themePreview__switch[data-mode="light"] .login-themePreview__thumb {
@@ -1675,11 +1722,85 @@ html[data-theme-switcher-open="true"] .app-topbar::after {
 }
 
 .login-themePreview__moon {
+  position: relative;
   width: 18px;
   height: 18px;
   border-radius: 999px;
   box-shadow: inset -5px -3px 0 color-mix(in srgb, var(--login-accent-alt) 72%, var(--muted));
   opacity: 0.86;
+  transition: box-shadow var(--motion-base), background var(--motion-base), opacity var(--motion-base), transform var(--motion-base);
+}
+
+.login-themePreview__switch[data-mode="light"] {
+  border-color: color-mix(in srgb, var(--button-secondary) 42%, white);
+  background:
+    radial-gradient(circle at 24% 30%, color-mix(in srgb, white 74%, transparent), transparent 24%),
+    linear-gradient(135deg, color-mix(in srgb, var(--button-secondary) 54%, white), color-mix(in srgb, var(--button-accent) 38%, white) 52%, color-mix(in srgb, var(--button-primary) 46%, white));
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, white 72%, transparent),
+    0 14px 28px -18px color-mix(in srgb, var(--button-secondary) 42%, transparent),
+    0 0 20px color-mix(in srgb, var(--button-accent) 18%, transparent);
+}
+
+.login-themePreview__switch[data-mode="light"] .login-themePreview__thumb {
+  background:
+    radial-gradient(circle at 34% 34%, color-mix(in srgb, white 94%, var(--button-secondary)), transparent 28%),
+    linear-gradient(145deg, color-mix(in srgb, white 92%, var(--surface)), color-mix(in srgb, var(--button-accent) 24%, white));
+  box-shadow:
+    0 10px 24px -12px color-mix(in srgb, var(--button-secondary) 38%, transparent),
+    0 0 18px color-mix(in srgb, white 34%, transparent),
+    inset 0 1px 0 color-mix(in srgb, white 84%, transparent);
+  transform: scale(1.02);
+}
+
+.login-themePreview__switch[data-mode="light"] + .login-themePreview__moon {
+  background: radial-gradient(circle, color-mix(in srgb, white 88%, var(--button-accent)) 0 44%, transparent 45%);
+  box-shadow:
+    0 0 16px color-mix(in srgb, var(--button-accent) 22%, transparent),
+    0 0 28px color-mix(in srgb, white 26%, transparent);
+  opacity: 1;
+  transform: scale(1.04);
+}
+
+.login-themePreview__switch[data-mode="dark"] {
+  border-color: color-mix(in srgb, var(--button-primary) 32%, var(--button-accent));
+  background:
+    radial-gradient(circle at 74% 28%, color-mix(in srgb, white 18%, transparent), transparent 22%),
+    linear-gradient(135deg, color-mix(in srgb, var(--button-accent) 48%, transparent), color-mix(in srgb, var(--button-primary) 52%, transparent) 56%, color-mix(in srgb, var(--brand-solid) 56%, transparent));
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, white 18%, transparent),
+    0 16px 32px -20px color-mix(in srgb, var(--button-primary) 34%, transparent),
+    0 0 20px color-mix(in srgb, var(--button-accent) 16%, transparent);
+}
+
+.login-themePreview__switch[data-mode="dark"] .login-themePreview__thumb {
+  background:
+    radial-gradient(circle at 36% 32%, color-mix(in srgb, var(--surface) 82%, white), transparent 30%),
+    linear-gradient(145deg, color-mix(in srgb, var(--surface) 94%, var(--button-primary)), color-mix(in srgb, var(--surface-soft) 72%, var(--button-accent)));
+  box-shadow:
+    0 10px 24px -12px color-mix(in srgb, var(--button-primary) 42%, transparent),
+    0 0 20px color-mix(in srgb, var(--button-accent) 16%, transparent),
+    inset 0 1px 0 color-mix(in srgb, white 46%, transparent);
+  transform: scale(1.05);
+}
+
+.login-themePreview__switch[data-mode="dark"] + .login-themePreview__moon {
+  box-shadow:
+    inset -5px -3px 0 color-mix(in srgb, var(--button-secondary) 74%, var(--muted)),
+    0 0 16px color-mix(in srgb, var(--button-secondary) 20%, transparent);
+  opacity: 0.96;
+  transform: translateY(-1px);
+}
+
+@keyframes login-theme-preview-glow {
+  0%,
+  100% {
+    transform: translateY(0) scale(1);
+  }
+
+  50% {
+    transform: translateY(-1px) scale(1.02);
+  }
 }
 
 .login-card {
@@ -1706,40 +1827,93 @@ html[data-theme-switcher-open="true"] .app-topbar::after {
   padding: clamp(1.3rem, 2.7vw, 2rem);
   border-color: color-mix(in srgb, var(--login-accent) 32%, var(--line));
   background:
-    radial-gradient(circle at 50% 0%, color-mix(in srgb, var(--login-accent) 9%, transparent), transparent 42%),
-    linear-gradient(180deg, color-mix(in srgb, var(--surface) 17%, transparent), color-mix(in srgb, var(--surface-soft) 8%, transparent));
+    radial-gradient(circle at 50% 0%, color-mix(in srgb, var(--login-accent) 2.5%, transparent), transparent 48%),
+    linear-gradient(180deg, color-mix(in srgb, var(--surface) 14%, transparent), color-mix(in srgb, var(--surface-soft) 9%, transparent));
   box-shadow:
-    0 0 0 1px color-mix(in srgb, var(--login-accent) 18%, transparent),
-    0 40px 120px -58px color-mix(in srgb, var(--login-accent) 58%, transparent),
-    0 22px 70px -28px color-mix(in srgb, var(--background) 92%, transparent),
-    inset 0 1px 0 color-mix(in srgb, var(--surface) 38%, transparent);
-  backdrop-filter: blur(28px) saturate(1.25);
-  -webkit-backdrop-filter: blur(28px) saturate(1.25);
+    0 0 0 1px color-mix(in srgb, var(--login-accent) 7%, transparent),
+    0 26px 72px -52px color-mix(in srgb, var(--login-accent) 14%, transparent),
+    0 14px 38px -22px color-mix(in srgb, var(--background) 18%, transparent),
+    inset 0 1px 0 color-mix(in srgb, var(--surface) 5%, transparent);
+  backdrop-filter: blur(2px) saturate(1.01) !important;
+  -webkit-backdrop-filter: blur(2px) saturate(1.01) !important;
+}
+
+.login-stage[data-login-video="on"] .login-card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 50% 14%, var(--login-card-contrast-spot), transparent 36%),
+    linear-gradient(180deg, var(--login-card-contrast-top), var(--login-card-contrast-bottom));
+  opacity: 0.94;
 }
 
 .login-stage[data-login-video="on"] .login-card__chrome {
   height: 96px;
   background:
-    radial-gradient(circle at 50% 0%, color-mix(in srgb, var(--login-accent-alt) 22%, transparent), transparent 50%),
-    linear-gradient(180deg, color-mix(in srgb, var(--login-accent) 19%, transparent), color-mix(in srgb, var(--login-accent-alt) 8%, transparent) 46%, transparent 100%);
+    radial-gradient(circle at 50% 0%, color-mix(in srgb, var(--login-accent-alt) 10%, transparent), transparent 54%),
+    linear-gradient(180deg, color-mix(in srgb, var(--login-accent) 8%, transparent), color-mix(in srgb, var(--login-accent-alt) 3%, transparent) 46%, transparent 100%);
 }
 
 .login-stage[data-login-video="on"] .login-card__brandBlock,
 .login-stage[data-login-video="on"] .login-card__modeBadge {
-  background: color-mix(in srgb, var(--surface) 36%, transparent);
-  border-color: color-mix(in srgb, var(--login-accent) 22%, var(--line));
-  backdrop-filter: blur(18px) saturate(1.2);
-  -webkit-backdrop-filter: blur(18px) saturate(1.2);
+  background: color-mix(in srgb, var(--surface) 24%, transparent);
+  border-color: color-mix(in srgb, var(--login-accent) 18%, var(--line));
+  backdrop-filter: blur(6px) saturate(1.06);
+  -webkit-backdrop-filter: blur(6px) saturate(1.06);
 }
 
 .login-stage[data-login-video="on"] .input {
-  background: color-mix(in srgb, var(--field-surface) 49%, transparent) !important;
-  border-color: color-mix(in srgb, var(--login-accent) 24%, var(--line)) !important;
+  background: color-mix(in srgb, var(--field-surface) 22%, transparent) !important;
+  border-color: color-mix(in srgb, var(--login-accent) 18%, var(--line)) !important;
   box-shadow:
-    inset 0 1px 0 color-mix(in srgb, var(--surface) 24%, transparent),
-    0 14px 32px -28px color-mix(in srgb, var(--login-accent) 34%, transparent) !important;
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
+    inset 0 1px 0 color-mix(in srgb, var(--surface) 10%, transparent),
+    0 10px 22px -22px color-mix(in srgb, var(--login-accent) 10%, transparent) !important;
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+
+.login-stage[data-login-video="on"] .login-label,
+.login-stage[data-login-video="on"] .login-card__themeLabel,
+.login-stage[data-login-video="on"] .login-card__title,
+.login-stage[data-login-video="on"] .login-link,
+.login-stage[data-login-video="on"] .login-card__modeBadge {
+  color: color-mix(in srgb, var(--foreground) 94%, var(--background));
+}
+
+.login-stage[data-login-video="on"] .login-card__themeHint,
+.login-stage[data-login-video="on"] .login-card__copy,
+.login-stage[data-login-video="on"] .login-card__stat span {
+  color: color-mix(in srgb, var(--foreground) 74%, var(--muted));
+}
+
+.login-stage[data-login-video="on"] .input {
+  color: color-mix(in srgb, var(--foreground) 88%, var(--background));
+}
+
+.login-stage[data-login-video="on"] .input::placeholder {
+  color: color-mix(in srgb, var(--foreground) 52%, var(--muted));
+}
+
+.login-stage[data-login-video="on"] .login-card__title,
+.login-stage[data-login-video="on"] .login-card__themeLabel,
+.login-stage[data-login-video="on"] .login-label,
+.login-stage[data-login-video="on"] .login-link,
+.login-stage[data-login-video="on"] .login-card__modeBadge,
+.login-stage[data-login-video="on"] .login-card__brandMarkCore,
+.login-stage[data-login-video="on"] .login-card__copy,
+.login-stage[data-login-video="on"] .login-card__stat strong,
+.login-stage[data-login-video="on"] .login-card__stat span {
+  text-shadow: var(--login-card-text-shadow);
+}
+
+.login-stage[data-login-video="on"] .login-card__themeHint,
+.login-stage[data-login-video="on"] .login-microcard__copy span,
+.login-stage[data-login-video="on"] .login-trustItem__copy span,
+.login-stage[data-login-video="on"] .input::placeholder {
+  text-shadow: var(--login-card-muted-shadow);
 }
 
 .login-stage[data-login-video="on"] .btn-primary {
@@ -1971,6 +2145,118 @@ html[data-theme-switcher-open="true"] .app-topbar::after {
   pointer-events: none;
   z-index: 1;
   display: block;
+}
+
+.login-side-theme {
+  position: absolute;
+  top: 50%;
+  width: min(25vw, 340px);
+  height: min(76vh, 760px);
+  transform: translateY(-50%);
+  pointer-events: none;
+  filter: blur(4px) saturate(0.92);
+  opacity: 0.52;
+}
+
+.login-side-theme--left {
+  left: clamp(0.75rem, 3vw, 3.5rem);
+}
+
+.login-side-theme--right {
+  right: clamp(0.75rem, 3vw, 3.5rem);
+}
+
+.login-side-theme__ambient,
+.login-side-theme__helix {
+  position: absolute;
+  inset: 0;
+  border-radius: 999px;
+}
+
+.login-side-theme__ambient {
+  background:
+    radial-gradient(circle at var(--login-pointer-x) var(--login-pointer-y), color-mix(in srgb, var(--login-dna-highlight) 92%, transparent), transparent 22%),
+    radial-gradient(circle at 44% 18%, color-mix(in srgb, var(--login-dna-secondary) 24%, transparent), transparent 34%),
+    radial-gradient(circle at 58% 82%, color-mix(in srgb, var(--login-dna-primary) 22%, transparent), transparent 36%),
+    linear-gradient(180deg, transparent, color-mix(in srgb, var(--login-dna-glow) 44%, transparent) 18%, color-mix(in srgb, var(--login-dna-glow) 32%, transparent) 82%, transparent);
+  filter: blur(14px) saturate(1.06);
+  opacity: 0.68;
+  transition: transform 220ms ease, opacity 220ms ease;
+}
+
+.login-side-theme--left .login-side-theme__ambient {
+  transform: translate3d(var(--login-pointer-drift-x), var(--login-pointer-drift-y), 0);
+}
+
+.login-side-theme--right .login-side-theme__ambient {
+  transform: translate3d(var(--login-pointer-drift-x-inverse), var(--login-pointer-drift-y-inverse), 0);
+}
+
+.login-side-theme__helix {
+  background:
+    linear-gradient(116deg, transparent 24%, color-mix(in srgb, var(--login-dna-line) 42%, transparent) 30%, color-mix(in srgb, var(--login-dna-secondary) 74%, transparent) 32.5%, color-mix(in srgb, var(--login-dna-line) 42%, transparent) 35%, transparent 41%) center 0 / 100% 164px repeat-y,
+    linear-gradient(-116deg, transparent 59%, color-mix(in srgb, var(--login-dna-line) 40%, transparent) 65%, color-mix(in srgb, var(--login-dna-primary) 72%, transparent) 67.5%, color-mix(in srgb, var(--login-dna-line) 40%, transparent) 70%, transparent 76%) center 82px / 100% 164px repeat-y,
+    linear-gradient(180deg, transparent, color-mix(in srgb, var(--login-dna-line) 18%, transparent) 16%, color-mix(in srgb, var(--login-dna-line) 12%, transparent) 84%, transparent);
+  mask-image: linear-gradient(180deg, transparent 0%, black 8%, black 92%, transparent 100%);
+  opacity: 0.62;
+  animation: login-side-theme-float 13.5s ease-in-out infinite;
+}
+
+.login-side-theme__helix::before,
+.login-side-theme__helix::after {
+  content: "";
+  position: absolute;
+  top: 4%;
+  bottom: 4%;
+  width: clamp(68px, 6vw, 92px);
+  border-radius: 999px;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--login-dna-line) 22%, transparent), color-mix(in srgb, var(--login-dna-primary) 14%, transparent) 50%, color-mix(in srgb, var(--login-dna-line) 18%, transparent)),
+    radial-gradient(circle at 50% 20px, color-mix(in srgb, white 78%, var(--login-dna-secondary)) 0 5px, transparent 6px),
+    radial-gradient(circle at 50% 102px, color-mix(in srgb, var(--login-dna-primary) 78%, white) 0 6px, transparent 7px),
+    repeating-linear-gradient(180deg, color-mix(in srgb, var(--login-dna-line) 22%, transparent) 0 10px, transparent 10px 72px);
+  background-size: 100% 100%, 100% 164px, 100% 164px, 100% 164px;
+  background-repeat: no-repeat, repeat-y, repeat-y, repeat-y;
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--login-dna-line) 54%, transparent),
+    0 0 26px color-mix(in srgb, var(--login-dna-glow) 34%, transparent);
+  filter: blur(1px);
+}
+
+.login-side-theme__helix::before {
+  left: 18%;
+  animation: login-side-theme-nodes 18s linear infinite;
+}
+
+.login-side-theme__helix::after {
+  right: 18%;
+  background-position: center 0, center 82px, center 0, center 82px;
+  animation: login-side-theme-nodes 18s linear infinite reverse;
+}
+
+.login-side-theme--right .login-side-theme__helix {
+  transform: scaleX(-1);
+}
+
+@keyframes login-side-theme-float {
+  0%,
+  100% {
+    transform: translate3d(0, -12px, 0);
+  }
+
+  50% {
+    transform: translate3d(0, 10px, 0);
+  }
+}
+
+@keyframes login-side-theme-nodes {
+  from {
+    background-position: center 0, center 82px, center 0, center 0;
+  }
+
+  to {
+    background-position: center 0, center 246px, center 164px, center 164px;
+  }
 }
 
 .login-core {
@@ -2242,6 +2528,10 @@ html[data-theme-switcher-open="true"] .app-topbar::after {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .login-side-theme__ambient,
+  .login-side-theme__helix,
+  .login-side-theme__helix::before,
+  .login-side-theme__helix::after,
   .login-core__halo,
   .login-core__pulse,
   .login-core__ring,
@@ -2383,6 +2673,16 @@ html[data-theme-mode="dark"] .login-stage {
   --login-card-top: color-mix(in srgb, var(--surface) 92%, color-mix(in srgb, var(--surface) 04%, var(--background)));
   --login-card-bottom: color-mix(in srgb, var(--surface-soft) 94%, var(--background));
   --login-grid-line: color-mix(in srgb, var(--foreground) 10%, transparent);
+  --login-card-contrast-top: color-mix(in srgb, #020617 68%, transparent);
+  --login-card-contrast-bottom: color-mix(in srgb, #07101f 54%, transparent);
+  --login-card-contrast-spot: color-mix(in srgb, var(--button-primary) 22%, rgba(255, 255, 255, 0.08));
+  --login-card-text-shadow: 0 1px 0 rgba(0, 0, 0, 0.34), 0 14px 28px rgba(2, 6, 23, 0.54);
+  --login-card-muted-shadow: 0 1px 0 rgba(0, 0, 0, 0.3), 0 10px 22px rgba(2, 6, 23, 0.4);
+  --login-dna-primary: color-mix(in srgb, var(--button-primary) 74%, white 10%);
+  --login-dna-secondary: color-mix(in srgb, var(--button-accent) 58%, var(--button-secondary));
+  --login-dna-line: color-mix(in srgb, var(--button-primary) 26%, transparent);
+  --login-dna-glow: color-mix(in srgb, var(--button-accent) 24%, transparent);
+  --login-dna-highlight: color-mix(in srgb, var(--button-secondary) 18%, transparent);
 }
 
 html[data-theme-mode="dark"] .login-card__modeBadge,
@@ -2419,6 +2719,18 @@ html[data-theme-mode="light"] .login-side__panel {
   box-shadow:
     0 34px 86px -58px color-mix(in srgb, var(--foreground) 28%, transparent),
     inset 0 1px 0 color-mix(in srgb, white 46%, transparent);
+}
+
+html[data-theme-mode="light"] .login-stage[data-login-video="on"] {
+  --login-video-gutter: color-mix(in srgb, white 84%, var(--button-secondary));
+  --login-video-gutter-soft: color-mix(in srgb, white 90%, transparent);
+  --login-video-side-glow: color-mix(in srgb, var(--button-primary) 12%, transparent);
+  --login-video-center-glow: color-mix(in srgb, var(--button-accent) 10%, transparent);
+  --login-dna-primary: color-mix(in srgb, var(--button-primary) 68%, var(--button-accent));
+  --login-dna-secondary: color-mix(in srgb, var(--button-secondary) 62%, var(--button-accent));
+  --login-dna-line: color-mix(in srgb, var(--button-primary) 18%, transparent);
+  --login-dna-glow: color-mix(in srgb, var(--button-accent) 16%, transparent);
+  --login-dna-highlight: color-mix(in srgb, var(--button-secondary) 14%, transparent);
 }
 
 html[data-theme-mode="light"] .login-microcard {
@@ -2521,6 +2833,11 @@ html[data-theme="tabler"] .login-card__stat {
     padding-inline: clamp(1.1rem, 2vw, 1.8rem);
   }
 
+  .login-side-theme {
+    width: min(22vw, 280px);
+    height: min(72vh, 680px);
+  }
+
   .login-console {
     grid-template-columns: minmax(176px, 210px) minmax(440px, 540px) minmax(176px, 210px);
     gap: clamp(1.6rem, 2.6vw, 2.4rem);
@@ -2549,6 +2866,10 @@ html[data-theme="tabler"] .login-card__stat {
 }
 
 @media (max-width: 980px) {
+  .login-side-theme {
+    display: none;
+  }
+
   .login-console {
     grid-template-columns: minmax(0, 1fr);
     width: min(100%, 580px);
