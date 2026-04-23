@@ -1207,6 +1207,9 @@ export class WhatsAppModalService {
         `Modal WhatsApp status changed for company ${company.id}: ${previousStatus} -> ${snapshot.status} (${origin}).`,
       );
     }
+    if (snapshot.status === 'connected' && previousStatus !== 'connected') {
+      this.logger.log(`QR conectado para company ${company.id}.`);
+    }
 
     await this.prisma.company.update({
       where: { id: Number(company.id) },

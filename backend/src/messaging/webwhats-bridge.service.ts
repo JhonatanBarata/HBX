@@ -171,7 +171,7 @@ export class WebwhatsBridgeService {
 
   constructor(private readonly prisma: PrismaService) {}
 
-  async syncRecentChats(companyId: number, opts?: { force?: boolean; limit?: number }) {
+  async syncRecentChats(companyId: number, opts?: { force?: boolean; limit?: number; failOnError?: boolean }) {
     const company = await this.prisma.company.findUnique({
       where: { id: companyId },
       select: {
@@ -180,7 +180,15 @@ export class WebwhatsBridgeService {
         whatsappModalStatus: true,
       },
     });
-    if (!company || !this.canUseConnectedInstance(company)) return 0;
+    if (!company || !this.canUseConnectedInstance(company)) {
+      if (opts?.failOnError) {
+        throw new WebwhatsProviderError(
+          'WEBWHATS_NOT_CONNECTED',
+          'Sessao do WhatsApp desconectada. Nao foi possivel sincronizar chats recentes.',
+        );
+      }
+      return 0;
+    }
     if (!opts?.force && this.isThrottled(this.listSyncAt, companyId, 15000)) return 0;
 
     try {
@@ -203,11 +211,20 @@ export class WebwhatsBridgeService {
         synced += 1;
       }
       this.listSyncAt.set(companyId, Date.now());
+      this.logger.log(`Webwhats chats sincronizados para company ${companyId}: ${synced}.`);
       return synced;
     } catch (error: any) {
+      const message = String(error?.message || error || 'Falha ao sincronizar chats recentes do WebWhats.');
       this.logger.warn(
-        `Webwhats syncRecentChats falhou para company ${companyId}: ${String(error?.message || error)}`,
+        `Webwhats syncRecentChats falhou para company ${companyId}: ${message}`,
       );
+      if (opts?.failOnError) {
+        throw this.asWebwhatsProviderError(error)
+          || new WebwhatsProviderError(
+            'WEBWHATS_UNAVAILABLE',
+            `Falha ao sincronizar chats recentes do WebWhats: ${message}`,
+          );
+      }
       return 0;
     }
   }
@@ -561,7 +578,7 @@ export class WebwhatsBridgeService {
     };
   }
 
-  async listContacts(companyId: number, opts?: { force?: boolean }) {
+  async listContacts(companyId: number, opts?: { force?: boolean; failOnError?: boolean }) {
     const company = await this.prisma.company.findUnique({
       where: { id: companyId },
       select: {
@@ -570,12 +587,21 @@ export class WebwhatsBridgeService {
         whatsappModalStatus: true,
       },
     });
-    if (!company || !this.canUseConnectedInstance(company)) return [];
+    if (!company || !this.canUseConnectedInstance(company)) {
+      if (opts?.failOnError) {
+        throw new WebwhatsProviderError(
+          'WEBWHATS_NOT_CONNECTED',
+          'Sessao do WhatsApp desconectada. Nao foi possivel sincronizar contatos.',
+        );
+      }
+      return [];
+    }
 
     if (opts?.force) {
       const contacts = await this.fetchContacts(company.id);
       this.contactSyncAt.set(companyId, Date.now());
       this.contactCache.set(companyId, contacts);
+      this.logger.log(`Webwhats contatos sincronizados para company ${companyId}: ${contacts.length}.`);
       return contacts;
     }
 

@@ -757,6 +757,13 @@ export class CompaniesController {
     return this.whatsappModalService.restartCompanySession(companyId);
   }
 
+  @Post('me/whatsapp-modal/bootstrap')
+  @UseGuards(JwtAuthGuard)
+  async bootstrapMyWhatsAppModalSession(@Req() req: any) {
+    const companyId = await this.resolveMyWhatsAppModalCompanyIdOrThrow(req);
+    return this.companyWhatsAppCustomerSync.bootstrapAfterWhatsappConnect(companyId);
+  }
+
   @Post('me/whatsapp-center/migration-interest')
   @UseGuards(JwtAuthGuard)
   async registerMyWhatsAppMigrationInterest(
