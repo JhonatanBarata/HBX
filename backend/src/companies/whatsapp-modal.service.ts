@@ -95,6 +95,10 @@ class WhatsAppModalProviderError extends Error {
 @Injectable()
 export class WhatsAppModalService {
   private readonly logger = new Logger(WhatsAppModalService.name);
+  private readonly recentConnectAttemptAt = new Map<string, number>();
+  private readonly qrCodeCache = new Map<string, { dataUrl: string; capturedAtMs: number }>();
+  private readonly connectAttemptCooldownMs = 12000;
+  private readonly qrCodeCacheTtlMs = 45000;
 
   constructor(private readonly prisma: PrismaService) {}
 
@@ -516,6 +520,14 @@ export class WhatsAppModalService {
 
   private async connectProviderSession(company: CompanyModalFields, fallback: ModalSnapshot) {
     const tenantKey = this.buildTenantKey(company);
+    if (this.shouldThrottleConnectAttempt(tenantKey, fallback)) {
+      return this.reconcileTransientSnapshot(
+        tenantKey,
+        await this.fetchLiveSnapshot(company, { includeQr: false }),
+      );
+    }
+
+    this.recentConnectAttemptAt.set(tenantKey, Date.now());
     let payload: unknown = null;
 
     try {
@@ -537,7 +549,49 @@ export class WhatsAppModalService {
       return null;
     }
 
-    return this.extractSnapshot(payload, fallback);
+    return this.reconcileTransientSnapshot(tenantKey, await this.extractSnapshot(payload, fallback));
+  }
+
+  private shouldThrottleConnectAttempt(tenantKey: string, fallback: ModalSnapshot) {
+    if (fallback.status !== 'starting' && fallback.status !== 'waiting_qr') {
+      return false;
+    }
+
+    const lastAttemptAt = this.recentConnectAttemptAt.get(tenantKey);
+    return typeof lastAttemptAt === 'number' && Date.now() - lastAttemptAt < this.connectAttemptCooldownMs;
+  }
+
+  private reconcileTransientSnapshot(tenantKey: string, snapshot: ModalSnapshot): ModalSnapshot {
+    const normalizedStatus = snapshot.status;
+
+    if (snapshot.qrCodeDataUrl) {
+      this.qrCodeCache.set(tenantKey, {
+        dataUrl: snapshot.qrCodeDataUrl,
+        capturedAtMs: Date.now(),
+      });
+    } else if (normalizedStatus === 'starting' || normalizedStatus === 'waiting_qr') {
+      const cachedQr = this.qrCodeCache.get(tenantKey);
+      if (cachedQr && Date.now() - cachedQr.capturedAtMs <= this.qrCodeCacheTtlMs) {
+        return {
+          ...snapshot,
+          status: 'waiting_qr',
+          qrCodeDataUrl: cachedQr.dataUrl,
+        };
+      }
+    } else {
+      this.qrCodeCache.delete(tenantKey);
+    }
+
+    if (
+      normalizedStatus === 'connected'
+      || normalizedStatus === 'offline'
+      || normalizedStatus === 'disconnected'
+      || normalizedStatus === 'error'
+    ) {
+      this.recentConnectAttemptAt.delete(tenantKey);
+    }
+
+    return snapshot;
   }
 
   private normalizeDate(value: unknown) {
@@ -1258,6 +1312,7 @@ export class WhatsAppModalService {
           qrCodeDataUrl: null,
           rawStatus: null,
         };
+    snapshot = this.reconcileTransientSnapshot(tenantKey, snapshot);
 
     if (options?.includeQr && instanceExists && snapshot.status !== 'connected') {
       const connectSnapshot = await this.connectProviderSession(company, snapshot);
@@ -1272,6 +1327,7 @@ export class WhatsAppModalService {
           updatedAt: connectSnapshot.updatedAt || snapshot.updatedAt,
           rawStatus: connectSnapshot.rawStatus || snapshot.rawStatus,
         };
+        snapshot = this.reconcileTransientSnapshot(tenantKey, snapshot);
       }
     }
 
