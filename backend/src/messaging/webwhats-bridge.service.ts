@@ -1211,12 +1211,8 @@ export class WebwhatsBridgeService {
 
   private readConfig(): WebwhatsConfig {
     const enabled = String(process.env.WHATSAPP_MODAL_ENABLED || 'false').trim().toLowerCase() === 'true';
-    const internalUrl =
-      this.normalizeOptionalString(process.env.WHATSAPP_MODAL_INTERNAL_URL)
-      || this.normalizeOptionalString(process.env.WHATSAPP_MODAL_URL);
-    const apiKey =
-      this.normalizeOptionalString(process.env.WHATSAPP_MODAL_API_KEY)
-      || this.normalizeOptionalString(process.env.AUTHENTICATION_API_KEY);
+    const internalUrl = this.normalizeOptionalString(process.env.WHATSAPP_MODAL_INTERNAL_URL);
+    const apiKey = this.normalizeOptionalString(process.env.WHATSAPP_MODAL_API_KEY);
     const timeoutMs = this.clamp(
       Number(process.env.WHATSAPP_MODAL_TIMEOUT_MS || process.env.WHATSAPP_PROVIDER_TIMEOUT_MS || 12000),
       2000,
