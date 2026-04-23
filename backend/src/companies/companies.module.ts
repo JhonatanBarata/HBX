@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { CompaniesService } from './companies.service';
 import { CompaniesController } from './companies.controller';
 import { MasterContextModule } from '../master-context/master-context.module';
@@ -24,7 +24,7 @@ import { MessagingModule } from '../messaging/messaging.module';
     MasterContextModule,
     CadastrosModule,
     MailModule,
-    MessagingModule,
+    forwardRef(() => MessagingModule),
   ],
   providers: [
     CompaniesService,

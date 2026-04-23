@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { PrismaModule } from '../prisma/prisma.module';
 import { MessagingService } from './messaging.service';
 import { MessagingController } from './messaging.controller';
@@ -17,7 +17,7 @@ import { CustomerProfileModule } from '../customer-profile/customer-profile.modu
 import { WebwhatsBridgeService } from './webwhats-bridge.service';
 
 @Module({
-  imports: [PrismaModule, ModulesAccessModule, PaymentsModule, CadastrosModule, CustomerProfileModule],
+  imports: [PrismaModule, forwardRef(() => ModulesAccessModule), PaymentsModule, CadastrosModule, CustomerProfileModule],
   providers: [MessagingService, ConversationSessionsService, MessageOrchestratorService, OrderDraftsService, ConversationsService, WhatsAppStatusService, WhatsAppAuditService, WebwhatsBridgeService],
   controllers: [MessagingController, ConversationsController, WhatsAppController],
   exports: [WhatsAppStatusService, ConversationsService, WhatsAppAuditService, WebwhatsBridgeService],
