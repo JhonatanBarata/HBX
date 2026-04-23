@@ -40,6 +40,7 @@ import { CadastrosService } from '../cadastros/cadastros.service';
 import { CustomerProfileService } from '../customer-profile/customer-profile.service';
 import {
   WebwhatsBridgeService,
+  WebwhatsConversationSyncResult,
   WebwhatsFetchedMessage,
   WebwhatsLiveChatSnapshot,
   WebwhatsLiveConversationSnapshot,
@@ -91,6 +92,50 @@ export class InboxService {
     return companyId;
   }
 
+  private async syncPersistedInboxIndex(
+    companyId: number,
+    opts?: {
+      take?: string | number | null;
+    },
+  ) {
+    try {
+      const requestedTake = Number(opts?.take);
+      const limit =
+        Number.isFinite(requestedTake) && requestedTake > 0
+          ? Math.max(50, Math.min(Math.floor(requestedTake), 120))
+          : 120;
+      await this.webwhatsBridge.syncRecentChats(companyId, {
+        limit,
+        failOnError: false,
+      });
+      return null;
+    } catch (error: any) {
+      const message = String(error?.message || error || 'Falha ao sincronizar indice do WhatsApp.');
+      this.logger.warn(
+        `Inbox syncPersistedInboxIndex falhou company=${companyId}: ${message}`,
+      );
+      return message;
+    }
+  }
+
+  private async syncPersistedInboxConversation(companyId: number, conversationId: number) {
+    try {
+      await this.webwhatsBridge.syncConversationMessagesDetailed(companyId, conversationId, {
+        limit: 120,
+        fullSync: true,
+        maxPages: 40,
+        force: false,
+      });
+      return null;
+    } catch (error: any) {
+      const message = String(error?.message || error || 'Falha ao sincronizar conversa do WhatsApp.');
+      this.logger.warn(
+        `Inbox syncPersistedInboxConversation falhou company=${companyId} conversation=${conversationId}: ${message}`,
+      );
+      return message;
+    }
+  }
+
   private assertCanManageAgenda(user: any) {
     if (Boolean(user?.isSystemMaster)) return;
     const role = String(user?.role || '').trim().toUpperCase();
@@ -117,6 +162,28 @@ export class InboxService {
     } catch {
       return {};
     }
+  }
+
+  private hasPersistedWhatsAppDisplayName(metadataRaw: string | null | undefined) {
+    const metadata = this.parseConversationMetadata(metadataRaw);
+    return Boolean(
+      this.normalizeDisplayNameCandidate(
+        metadata?.whatsappContactName ||
+          metadata?.waNickname ||
+          metadata?.whatsappName ||
+          metadata?.whatsappProfileName ||
+          null,
+      ),
+    );
+  }
+
+  private hasPersistedWhatsAppAvatar(metadataRaw: string | null | undefined) {
+    const metadata = this.parseConversationMetadata(metadataRaw);
+    return Boolean(
+      String(
+        metadata?.whatsappAvatarUrl || metadata?.profilePicUrl || metadata?.avatarUrl || '',
+      ).trim(),
+    );
   }
 
   private normalizeMessageMetadataText(value: unknown) {
@@ -1438,7 +1505,7 @@ export class InboxService {
     const take = this.normalizeConversationTakeLimit(options?.take, 50) || 50;
     const rows = await this.prisma.companyConversation.findMany({
       where: { companyId, channel: 'whatsapp' },
-      orderBy: { lastMessageAt: 'desc' },
+      orderBy: [{ lastMessageAt: 'desc' }, { updatedAt: 'desc' }, { id: 'desc' }],
       take,
       select: {
         id: true,
@@ -1573,7 +1640,8 @@ export class InboxService {
 
   async getBootstrap(user: any, take?: string | number) {
     const companyId = this.requireCompanyIdFromUser(user);
-    const conversations = await this.listPersistedConversationSummariesForCompany(companyId, {
+    const providerWarning = await this.syncPersistedInboxIndex(companyId, { take });
+    let conversations = await this.listPersistedConversationSummariesForCompany(companyId, {
       take: this.normalizeConversationTakeLimit(take, 10),
     });
 
@@ -1581,18 +1649,200 @@ export class InboxService {
     let selectedConversation: any = null;
 
     if (firstConversationId) {
+      await this.syncPersistedInboxConversation(companyId, firstConversationId);
+      conversations = await this.listPersistedConversationSummariesForCompany(companyId, {
+        take: this.normalizeConversationTakeLimit(take, 10),
+      });
       selectedConversation = await this.getPersistedConversationByIdForCompany(companyId, firstConversationId);
     }
 
     return {
       conversations,
       selectedConversation,
-      providerWarning: null,
+      providerWarning,
     };
+  }
+
+  async bootstrapFullMirror(user: any, take?: string | number) {
+    const companyId = this.requireCompanyIdFromUser(user);
+    const takeLimit = Math.max(1, Math.min(Number(this.normalizeConversationTakeLimit(take, 120) || 120), 120));
+
+    this.logger.log(
+      `Inbox bootstrap inicial iniciado company=${companyId} limit=${takeLimit}.`,
+    );
+
+    try {
+      const contacts = await this.webwhatsBridge.listContacts(companyId, {
+        force: true,
+        failOnError: true,
+      });
+      this.logger.log(
+        `Inbox bootstrap contatos sincronizados company=${companyId} count=${contacts.length}.`,
+      );
+
+      const chatsSynced = await this.webwhatsBridge.syncRecentChats(companyId, {
+        force: true,
+        limit: takeLimit,
+        failOnError: true,
+      });
+      this.logger.log(
+        `Inbox bootstrap chats sincronizados company=${companyId} count=${chatsSynced}.`,
+      );
+
+      const conversationRows = await this.prisma.companyConversation.findMany({
+        where: {
+          companyId,
+          channel: 'whatsapp',
+        },
+        orderBy: [{ lastMessageAt: 'desc' }, { updatedAt: 'desc' }, { id: 'desc' }],
+        take: takeLimit,
+        select: {
+          id: true,
+          contact: true,
+          metadata: true,
+          lastMessageAt: true,
+        },
+      });
+
+      let conversationsMirrored = 0;
+      let messagesMirrored = 0;
+      let mediaMessagesMirrored = 0;
+      let pagesFetched = 0;
+      const failures: Array<{ id: number; message: string }> = [];
+      const chunkSize = 3;
+
+      for (let start = 0; start < conversationRows.length; start += chunkSize) {
+        const chunk = conversationRows.slice(start, start + chunkSize);
+        const chunkResults = await Promise.all(
+          chunk.map(async (conversation) => {
+            try {
+              const result = await this.webwhatsBridge.syncConversationMessagesDetailed(
+                companyId,
+                conversation.id,
+                {
+                  force: true,
+                  limit: 120,
+                  fullSync: true,
+                  maxPages: 80,
+                  failOnError: true,
+                },
+              );
+              return {
+                ok: true as const,
+                conversationId: conversation.id,
+                result,
+              };
+            } catch (error: any) {
+              return {
+                ok: false as const,
+                conversationId: conversation.id,
+                message: String(
+                  error?.message || error || 'Falha ao sincronizar conversa do WhatsApp.',
+                ),
+              };
+            }
+          }),
+        );
+
+        for (const chunkResult of chunkResults) {
+          if (!chunkResult.ok) {
+            failures.push({
+              id: chunkResult.conversationId,
+              message: chunkResult.message,
+            });
+            continue;
+          }
+
+          const stats: WebwhatsConversationSyncResult = chunkResult.result;
+          conversationsMirrored += 1;
+          messagesMirrored += Math.max(0, Number(stats.syncedMessages || 0));
+          mediaMessagesMirrored += Math.max(0, Number(stats.mediaMessages || 0));
+          pagesFetched += Math.max(0, Number(stats.pagesFetched || 0));
+        }
+
+        this.logger.log(
+          `Inbox bootstrap progresso company=${companyId} processed=${Math.min(
+            start + chunk.length,
+            conversationRows.length,
+          )}/${conversationRows.length} messages=${messagesMirrored} pages=${pagesFetched}.`,
+        );
+      }
+
+      if (failures.length) {
+        const failurePreview = failures
+          .slice(0, 5)
+          .map((item) => `${item.id}:${item.message}`)
+          .join(' | ');
+        this.logger.error(
+          `Inbox bootstrap falhou company=${companyId} failed=${failures.length} details=${failurePreview}`,
+        );
+        throw new ServiceUnavailableException(
+          'Falha ao espelhar nomes, fotos, historico e midias do WhatsApp. Tente novamente com o motor online.',
+        );
+      }
+
+      const refreshedRows = conversationRows.length
+        ? await this.prisma.companyConversation.findMany({
+            where: {
+              id: { in: conversationRows.map((conversation) => conversation.id) },
+            },
+            select: {
+              id: true,
+              metadata: true,
+            },
+          })
+        : [];
+      const conversationsWithNames = refreshedRows.filter((row) =>
+        this.hasPersistedWhatsAppDisplayName(row.metadata),
+      ).length;
+      const conversationsWithAvatars = refreshedRows.filter((row) =>
+        this.hasPersistedWhatsAppAvatar(row.metadata),
+      ).length;
+      const heavySync =
+        conversationsMirrored >= 12 || messagesMirrored >= 180 || pagesFetched >= 12;
+      const message = conversationRows.length
+        ? `Inbox espelhada com ${conversationsMirrored} conversa(s), ${messagesMirrored} mensagem(ns) e ${contacts.length} contato(s).`
+        : 'Motor conectado. Nenhuma conversa recente exigiu espelhamento inicial.';
+
+      this.logger.log(
+        `Inbox bootstrap concluido company=${companyId} conversations=${conversationsMirrored}/${conversationRows.length} messages=${messagesMirrored} media=${mediaMessagesMirrored} contacts=${contacts.length} names=${conversationsWithNames} avatars=${conversationsWithAvatars}.`,
+      );
+
+      return {
+        success: true,
+        connected: true,
+        engine: 'webwhats',
+        chatsSynced,
+        contactsSynced: contacts.length,
+        conversationsDiscovered: conversationRows.length,
+        conversationsMirrored,
+        messagesMirrored,
+        mediaMessagesMirrored,
+        pagesFetched,
+        conversationsWithNames,
+        conversationsWithAvatars,
+        heavySync,
+        message,
+        error: null,
+      };
+    } catch (error: any) {
+      const message = String(
+        error?.message || error || 'Falha ao executar o bootstrap inicial da Inbox.',
+      );
+      this.logger.error(`Inbox bootstrap falhou company=${companyId}: ${message}`);
+      if (error instanceof ServiceUnavailableException) {
+        throw error;
+      }
+      if (error instanceof WebwhatsProviderError) {
+        throw new ServiceUnavailableException(message);
+      }
+      throw new ServiceUnavailableException(message);
+    }
   }
 
   async listConversations(user: any, take?: string | number) {
     const companyId = this.requireCompanyIdFromUser(user);
+    await this.syncPersistedInboxIndex(companyId, { take });
     return this.listPersistedConversationSummariesForCompany(companyId, { take });
   }
 
@@ -1602,6 +1852,8 @@ export class InboxService {
 
   async getConversationById(user: any, id: number) {
     const companyId = this.requireCompanyIdFromUser(user);
+    await this.syncPersistedInboxIndex(companyId);
+    await this.syncPersistedInboxConversation(companyId, id);
     return this.getConversationByIdForCompany(companyId, id);
   }
 

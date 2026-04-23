@@ -1720,7 +1720,17 @@ export class ModulesService implements OnModuleInit {
     return this.normalizeRequestedModuleKey(moduleKey) === 'financeiro';
   }
 
-  private defaultUserModuleAllowed(_user: any, _moduleKey: string) {
+  private canUseAdminOnlyModule(user: any, moduleKey: string) {
+    const normalizedKey = this.normalizeRequestedModuleKey(moduleKey);
+    if (normalizedKey !== 'webscraping') return true;
+    const role = String(user?.role || '').trim().toUpperCase();
+    return Boolean(user?.isSystemMaster) || role === 'ADMIN';
+  }
+
+  private defaultUserModuleAllowed(user: any, moduleKey: string) {
+    if (!this.canUseAdminOnlyModule(user, moduleKey)) {
+      return false;
+    }
     return true;
   }
 
@@ -1783,6 +1793,7 @@ export class ModulesService implements OnModuleInit {
 
       const availability = availabilityMap.get(this.normalizeRequestedModuleKey(moduleItem.key));
       if (availability?.blockedByEngine) continue;
+      if (!this.canUseAdminOnlyModule(user, moduleItem.key)) continue;
 
       const userAllowed = userAccess
         ? Boolean(userAccess.allowed)
@@ -1911,7 +1922,8 @@ export class ModulesService implements OnModuleInit {
           : (userAccessMap.has(row.moduleId)
               ? Boolean(userAccessMap.get(row.moduleId))
               : this.defaultUserModuleAllowed(user, row.systemModule.key));
-        const visible = Boolean(row.enabled) && userAllowed;
+        const roleEligible = this.canUseAdminOnlyModule(user, row.systemModule.key);
+        const visible = Boolean(row.enabled) && userAllowed && roleEligible;
         const accessible = visible && !availability.blockedByEngine;
 
         return {
@@ -2014,7 +2026,9 @@ export class ModulesService implements OnModuleInit {
           role: u.role,
           modules: modules.map((m) => ({
             key: m.key,
-            allowed: userMap.has(m.id) ? Boolean(userMap.get(m.id)) : this.defaultUserModuleAllowed(u, m.key),
+            allowed:
+              this.canUseAdminOnlyModule(u, m.key) &&
+              (userMap.has(m.id) ? Boolean(userMap.get(m.id)) : this.defaultUserModuleAllowed(u, m.key)),
           })),
         };
       }),

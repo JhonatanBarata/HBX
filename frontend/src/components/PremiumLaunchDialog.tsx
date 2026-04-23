@@ -1,20 +1,52 @@
 "use client";
 
 import { createPortal } from "react-dom";
+import type { CSSProperties } from "react";
 import type { InlineLaunchNoticeState } from "./InlineLaunchNotice";
 import styles from "./PremiumLaunchDialog.module.css";
 
 type PremiumLaunchDialogProps = {
   notice: InlineLaunchNoticeState | null;
   onOpen: () => void;
+  progressLabel?: string | null;
+  progressValueLabel?: string | null;
+  detailRows?: Array<{ label: string; value: string }>;
+  celebrate?: boolean;
 };
 
-export default function PremiumLaunchDialog({ notice, onOpen }: PremiumLaunchDialogProps) {
+const CONFETTI_SEEDS = Array.from({ length: 18 }, (_, index) => index);
+
+export default function PremiumLaunchDialog({
+  notice,
+  onOpen,
+  progressLabel,
+  progressValueLabel,
+  detailRows,
+  celebrate = false,
+}: PremiumLaunchDialogProps) {
   if (!notice || typeof document === "undefined") return null;
 
   return createPortal(
     <div className={styles.backdrop} role="presentation">
       <section className={styles.dialog} data-phase={notice.phase} role="dialog" aria-modal="true" aria-live="polite">
+        {celebrate && notice.phase === "success" ? (
+          <div className="shutdown-confetti" aria-hidden="true">
+            {CONFETTI_SEEDS.map((seed) => (
+              <span
+                key={seed}
+                className="shutdown-confetti__piece"
+                style={
+                  {
+                    "--i": seed,
+                    "--size": `${10 + (seed % 4) * 3}px`,
+                    "--spread-x": `${8 + ((seed * 11) % 84)}%`,
+                  } as CSSProperties
+                }
+              />
+            ))}
+          </div>
+        ) : null}
+
         <div className={styles.hero}>
           <span className={styles.badge}>HBX Fluxo Guiado</span>
           <div className={styles.orb} aria-hidden="true">
@@ -28,13 +60,26 @@ export default function PremiumLaunchDialog({ notice, onOpen }: PremiumLaunchDia
 
         <div className={styles.progressPanel}>
           <div className={styles.progressMeta}>
-            <span>{notice.phase === "loading" ? "Preparando rota" : "Rota pronta"}</span>
-            <strong>{notice.phase === "loading" ? `${notice.progress}%` : "100%"}</strong>
+            <span>{progressLabel || (notice.phase === "loading" ? "Preparando rota" : "Rota pronta")}</span>
+            <strong>
+              {progressValueLabel || (notice.phase === "loading" ? `${notice.progress}%` : "100%")}
+            </strong>
           </div>
           <div className={styles.progressTrack} aria-hidden="true">
             <span className={styles.progressBar} style={{ width: `${notice.progress}%` }} />
           </div>
         </div>
+
+        {detailRows && detailRows.length ? (
+          <div className={styles.detailGrid}>
+            {detailRows.map((row) => (
+              <div key={`${row.label}:${row.value}`} className={styles.detailCard}>
+                <span>{row.label}</span>
+                <strong>{row.value}</strong>
+              </div>
+            ))}
+          </div>
+        ) : null}
 
         <div className={styles.footer}>
           {notice.phase === "success" ? (

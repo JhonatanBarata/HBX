@@ -17,6 +17,11 @@ function createService(overrides?: Partial<Record<string, any>>) {
       findMany: async () => [],
       ...(overrides?.vendasLead || {}),
     },
+    vendasLeadTimelineEvent: {
+      findMany: async () => [],
+      createMany: async () => ({ count: 0 }),
+      ...(overrides?.vendasLeadTimelineEvent || {}),
+    },
     companyConversation: {
       findFirst: async () => null,
       findMany: async () => [],
@@ -49,7 +54,12 @@ function createService(overrides?: Partial<Record<string, any>>) {
     ...(overrides?.inboxService || {}),
   } as any;
 
-  const service = new VendasService(prisma, customerProfileService, conversations, inboxService);
+  const webwhatsBridge = {
+    checkWhatsappNumbers: async () => [],
+    ...(overrides?.webwhatsBridge || {}),
+  } as any;
+
+  const service = new VendasService(prisma, customerProfileService, conversations, inboxService, webwhatsBridge);
   return { service, getOrCreateCalls, updateConversationStateCalls };
 }
 

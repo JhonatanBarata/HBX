@@ -92,6 +92,11 @@ type LeadItem = {
     hadPreviousContact: boolean;
     wasClosedBefore: boolean;
   };
+  whatsappAvailability?: {
+    status?: "unknown" | "available" | "unavailable";
+    checkedAt?: string | null;
+    message?: string | null;
+  } | null;
   sharedProfile?: SharedProfileSummary | null;
   timeline?: LeadTimelineEvent[];
   quickActions: string[];
@@ -110,6 +115,7 @@ type TodayAgendaSyncResponse = {
   updated?: number;
   deactivated?: number;
   skippedWithoutPhone?: number;
+  skippedWithoutWhatsapp?: number;
   message?: string | null;
 };
 
@@ -536,11 +542,13 @@ function LeadCardView({ lead, draft, blockKey, selected, saving, onFocus, onQuic
     signals.cameFromWebscraping ? "Webscraping" : null,
     signals.hadPreviousContact ? "Com histórico" : null,
     signals.wasClosedBefore ? "Já encerrado" : null,
+    lead.whatsappAvailability?.status === "unavailable" ? "Sem WhatsApp" : null,
     lead.city || null,
   ].filter(Boolean);
 
   const callUrl = buildCallUrl(draft.phone || lead.phone);
-  const whatsappUrl = buildWhatsAppUrl(draft.phone || lead.phone, draft.name || lead.name);
+  const whatsappBlocked = lead.whatsappAvailability?.status === "unavailable";
+  const whatsappUrl = whatsappBlocked ? "" : buildWhatsAppUrl(draft.phone || lead.phone, draft.name || lead.name);
   const leadSource = lead.primarySource || lead.sourceType;
 
   // inline editor mount/animation control — uses global motion timings
@@ -678,16 +686,17 @@ function LeadCardView({ lead, draft, blockKey, selected, saving, onFocus, onQuic
 
       <div className={styles.leadActionRow}>
         <a
-          className={`${styles.primaryAction} ${styles.whatsappAction}`}
+          className={`${styles.primaryAction} ${styles.whatsappAction} ${whatsappBlocked ? styles.whatsappUnavailable : ""}`}
           href={whatsappUrl || undefined}
           target={whatsappUrl ? "_blank" : undefined}
           rel={whatsappUrl ? "noreferrer" : undefined}
           aria-disabled={!whatsappUrl}
+          title={whatsappBlocked ? "Motor confirmou que este numero nao possui WhatsApp." : "Abrir conversa no WhatsApp"}
           onClick={() => {
             if (whatsappUrl) onQuickAction("tentativa_whatsapp");
           }}
         >
-          WhatsApp
+          {whatsappBlocked ? "Sem WhatsApp" : "WhatsApp"}
         </a>
         <a
           className={styles.secondaryAction}

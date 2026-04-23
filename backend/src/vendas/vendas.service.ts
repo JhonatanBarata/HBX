@@ -2,6 +2,7 @@ import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundEx
 import { CustomerProfileService } from '../customer-profile/customer-profile.service';
 import { InboxService } from '../inbox/inbox.service';
 import { ConversationsService } from '../messaging/conversations.service';
+import { WebwhatsBridgeService } from '../messaging/webwhats-bridge.service';
 import { buildWhatsAppPhoneCandidates } from '../messaging/whatsapp-channel';
 import { PrismaService } from '../prisma/prisma.service';
 import {
@@ -57,7 +58,19 @@ type VendasAgendaQueueMetadata = {
   botEntryPending?: boolean;
   manualQueueOverride?: string | null;
   manualQueueOverriddenAt?: string | null;
+  inheritedDraftMessage?: string | null;
 };
+
+type VendasWhatsappAvailabilityStatus = 'unknown' | 'available' | 'unavailable';
+
+type VendasWhatsappAvailabilityState = {
+  status: VendasWhatsappAvailabilityStatus;
+  checkedAt: string | null;
+  phoneDigits: string | null;
+  message: string | null;
+};
+
+const VENDAS_WHATSAPP_LOOKUP_SOURCE = 'webwhats_lookup';
 
 @Injectable()
 export class VendasService {
@@ -68,6 +81,7 @@ export class VendasService {
     private readonly customerProfileService: CustomerProfileService,
     private readonly conversations: ConversationsService,
     private readonly inboxService: InboxService,
+    private readonly webwhatsBridge: WebwhatsBridgeService,
   ) {}
 
   async getAutomationBotConfigForUser(user: any) {
@@ -188,7 +202,156 @@ export class VendasService {
     };
   }
 
-  private buildLeadPayload(row: any, sharedProfile?: any) {
+  private normalizeWhatsappAvailabilityStatus(value: unknown): VendasWhatsappAvailabilityStatus {
+    const normalized = String(value || '').trim().toLowerCase();
+    if (normalized === 'available') return 'available';
+    if (normalized === 'unavailable') return 'unavailable';
+    return 'unknown';
+  }
+
+  private parseWhatsappAvailabilityEvent(row: any): VendasWhatsappAvailabilityState | null {
+    if (!row) return null;
+    const sourceType = String(row?.sourceType || '').trim().toLowerCase();
+    if (sourceType !== VENDAS_WHATSAPP_LOOKUP_SOURCE) return null;
+    const status = this.normalizeWhatsappAvailabilityStatus(row?.resultLabel);
+    if (status === 'unknown') return null;
+    const description = this.normalizeText(row?.description);
+    const phoneDigits = this.normalizePhone(description) || null;
+    const checkedAt =
+      row?.createdAt instanceof Date
+        ? row.createdAt.toISOString()
+        : this.normalizeText(row?.createdAt);
+    return {
+      status,
+      checkedAt,
+      phoneDigits,
+      message: description,
+    };
+  }
+
+  private async listWhatsappAvailabilityByLeadIds(leadIds: string[]) {
+    const normalizedLeadIds = Array.from(
+      new Set(
+        (Array.isArray(leadIds) ? leadIds : [])
+          .map((value) => String(value || '').trim())
+          .filter(Boolean),
+      ),
+    );
+    const availabilityByLeadId = new Map<string, VendasWhatsappAvailabilityState>();
+    if (!normalizedLeadIds.length) return availabilityByLeadId;
+
+    const rows = await this.prisma.vendasLeadTimelineEvent.findMany({
+      where: {
+        leadId: { in: normalizedLeadIds },
+        sourceType: VENDAS_WHATSAPP_LOOKUP_SOURCE,
+      },
+      orderBy: [{ createdAt: 'desc' }],
+      select: {
+        leadId: true,
+        sourceType: true,
+        resultLabel: true,
+        description: true,
+        createdAt: true,
+      },
+    });
+
+    for (const row of rows) {
+      const leadId = String(row?.leadId || '').trim();
+      if (!leadId || availabilityByLeadId.has(leadId)) continue;
+      const parsed = this.parseWhatsappAvailabilityEvent(row);
+      if (!parsed) continue;
+      availabilityByLeadId.set(leadId, parsed);
+    }
+
+    return availabilityByLeadId;
+  }
+
+  private async ensureWhatsappAvailabilityForRows(companyId: number, userId: number, rows: any[]) {
+    const leadIds = Array.from(
+      new Set(
+        (Array.isArray(rows) ? rows : [])
+          .map((row) => String(row?.id || '').trim())
+          .filter(Boolean),
+      ),
+    );
+    const availabilityByLeadId = await this.listWhatsappAvailabilityByLeadIds(leadIds);
+    const pendingRows = (Array.isArray(rows) ? rows : []).filter((row) => {
+      const leadId = String(row?.id || '').trim();
+      const phoneDigits = this.normalizePhone(row?.phoneNormalized || row?.phone);
+      return Boolean(leadId && phoneDigits && !availabilityByLeadId.has(leadId));
+    });
+
+    if (!pendingRows.length) {
+      return availabilityByLeadId;
+    }
+
+    try {
+      const lookupResults = await this.webwhatsBridge.checkWhatsappNumbers(
+        companyId,
+        pendingRows.map((row) => row?.phoneNormalized || row?.phone || null),
+      );
+      const now = new Date();
+      const byPhoneDigits = new Map<string, (typeof lookupResults)[number]>();
+      for (const entry of lookupResults) {
+        const digits = this.normalizePhone(entry?.normalizedNumber || entry?.input);
+        if (!digits || byPhoneDigits.has(digits)) continue;
+        byPhoneDigits.set(digits, entry);
+      }
+
+      const timelineEvents: any[] = [];
+      for (const row of pendingRows) {
+        const leadId = String(row?.id || '').trim();
+        const phoneDigits = this.normalizePhone(row?.phoneNormalized || row?.phone);
+        if (!leadId || !phoneDigits || availabilityByLeadId.has(leadId)) continue;
+        const lookup = byPhoneDigits.get(phoneDigits);
+        if (!lookup) continue;
+        const status: VendasWhatsappAvailabilityStatus = lookup.exists ? 'available' : 'unavailable';
+        const phoneLabel = this.buildPreferredLeadContact(phoneDigits) || `+${phoneDigits}`;
+        const message = lookup.exists
+          ? `Consulta rapida no motor confirmou WhatsApp para ${phoneLabel}.`
+          : `Consulta rapida no motor nao encontrou WhatsApp para ${phoneLabel}.`;
+        const checkedAt = now.toISOString();
+        availabilityByLeadId.set(leadId, {
+          status,
+          checkedAt,
+          phoneDigits,
+          message,
+        });
+        timelineEvents.push({
+          leadId,
+          ...this.buildTimelineEvent({
+            eventType: 'generic',
+            title: lookup.exists ? 'WhatsApp confirmado no motor' : 'Numero sem WhatsApp no motor',
+            description: message,
+            sourceType: VENDAS_WHATSAPP_LOOKUP_SOURCE,
+            resultLabel: status,
+            createdByUserId: userId,
+          }),
+        });
+      }
+
+      if (timelineEvents.length) {
+        await this.prisma.vendasLeadTimelineEvent.createMany({
+          data: timelineEvents,
+        });
+        this.logger.log(
+          `[vendas-agenda] Verificacao de WhatsApp concluida company=${companyId} checked=${timelineEvents.length}`,
+        );
+      }
+    } catch (error: any) {
+      this.logger.warn(
+        `[vendas-agenda] Falha ao verificar WhatsApp no motor company=${companyId}: ${String(error?.message || error)}`,
+      );
+    }
+
+    return availabilityByLeadId;
+  }
+
+  private buildLeadPayload(
+    row: any,
+    sharedProfile?: any,
+    whatsappAvailability?: VendasWhatsappAvailabilityState | null,
+  ) {
     const status = this.normalizeStatus(row?.status);
     const block = this.classifyLeadBlock(row);
     const primarySource = String(row?.primarySource || row?.sourceType || 'manual');
@@ -233,6 +396,7 @@ export class VendasService {
       closedAt: row?.closedAt instanceof Date ? row.closedAt.toISOString() : null,
       createdAt: row?.createdAt instanceof Date ? row.createdAt.toISOString() : null,
       updatedAt: row?.updatedAt instanceof Date ? row.updatedAt.toISOString() : null,
+      whatsappAvailability: whatsappAvailability || null,
       signals,
       timeline,
       sharedProfile: sharedProfile || null,
@@ -357,7 +521,18 @@ export class VendasService {
     return this.classifyLeadBlock(row) === 'today';
   }
 
-  private buildSalesAgendaDraftMessage(row: any) {
+  private buildSalesAgendaDraftMessage(
+    row: any,
+    currentQueue?: VendasAgendaQueueMetadata | null,
+    options?: { draftMessageOverride?: string | null },
+  ) {
+    const sourceType = String(row?.sourceType || row?.primarySource || 'manual').trim().toLowerCase();
+    const inheritedDraftMessage = this.normalizeText(
+      options?.draftMessageOverride || currentQueue?.inheritedDraftMessage || currentQueue?.draftMessage,
+    );
+    if (sourceType === 'webscraping' && inheritedDraftMessage) {
+      return inheritedDraftMessage;
+    }
     const name = this.normalizeText(row?.name);
     if (name) {
       return `Olá, ${name}. Estou retomando nosso contato pelo HBX Vendas. Quando puder, me responda por aqui.`;
@@ -368,17 +543,20 @@ export class VendasService {
   private buildVendasAgendaQueueMetadata(
     row: any,
     currentQueue?: VendasAgendaQueueMetadata | null,
-    options?: { forceScheduled?: boolean },
+    options?: { forceScheduled?: boolean; draftMessageOverride?: string | null },
   ) {
     const manualQueueOverride = options?.forceScheduled
       ? null
       : this.normalizeText(currentQueue?.manualQueueOverride);
-    const draftMessage = this.buildSalesAgendaDraftMessage(row);
+    const draftMessage = this.buildSalesAgendaDraftMessage(row, currentQueue, options);
     const nextAction = this.normalizeText(row?.nextAction);
     const returnAt = row?.returnAt instanceof Date ? row.returnAt.toISOString() : this.parseDate(row?.returnAt)?.toISOString() || null;
     const status = this.normalizeStatus(row?.status);
     const manualSentAt = this.normalizeText(currentQueue?.manualSentAt || currentQueue?.lastManualSendAt);
     const manualSent = Boolean(currentQueue?.manualSent || manualSentAt);
+    const inheritedDraftMessage = this.normalizeText(
+      options?.draftMessageOverride || currentQueue?.inheritedDraftMessage || null,
+    );
     if (manualQueueOverride && manualQueueOverride !== 'scheduled') {
       const syncedAt = new Date().toISOString();
       return {
@@ -400,6 +578,7 @@ export class VendasService {
         botEntryPending: false,
         manualQueueOverride,
         manualQueueOverriddenAt: options?.forceScheduled ? null : this.normalizeText(currentQueue?.manualQueueOverriddenAt),
+        inheritedDraftMessage,
       } satisfies VendasAgendaQueueMetadata;
     }
     const contentChanged =
@@ -432,6 +611,7 @@ export class VendasService {
         manualQueueOverride === 'scheduled' || options?.forceScheduled
           ? null
           : this.normalizeText(currentQueue?.manualQueueOverriddenAt),
+      inheritedDraftMessage,
     } satisfies VendasAgendaQueueMetadata;
   }
 
@@ -476,7 +656,11 @@ export class VendasService {
     });
   }
 
-  private async activateLeadInInboxAgenda(companyId: number, row: any, options?: { forceScheduled?: boolean }) {
+  private async activateLeadInInboxAgenda(
+    companyId: number,
+    row: any,
+    options?: { forceScheduled?: boolean; draftMessageOverride?: string | null },
+  ) {
     const phoneRaw = row?.phoneNormalized || row?.phone;
     const contact = this.buildPreferredLeadContact(phoneRaw) || this.normalizeLeadConversationPhone(phoneRaw);
     if (!contact) {
@@ -539,13 +723,14 @@ export class VendasService {
     companyId: number,
     row: any,
     previous?: any,
-    options?: { forceScheduled?: boolean },
+    options?: { forceScheduled?: boolean; draftMessageOverride?: string | null },
   ) {
     const result = {
       activated: 0,
       updated: 0,
       deactivated: 0,
       skippedWithoutPhone: 0,
+      skippedWithoutWhatsapp: 0,
     };
 
     const currentPhone = row?.phoneNormalized || row?.phone || null;
@@ -588,6 +773,12 @@ export class VendasService {
       where: { companyId: context.companyId },
       orderBy: [{ returnAt: 'asc' }, { updatedAt: 'desc' }, { createdAt: 'desc' }],
     });
+    const todayRows = rows.filter((row) => this.shouldMirrorLeadToInboxAgenda(row));
+    const whatsappAvailabilityByLeadId = await this.ensureWhatsappAvailabilityForRows(
+      context.companyId,
+      context.userId,
+      todayRows,
+    );
 
     const rowById = new Map(rows.map((row) => [String(row.id), row]));
     const activeLeadIds = new Set<string>();
@@ -595,9 +786,14 @@ export class VendasService {
     let updated = 0;
     let deactivated = 0;
     let skippedWithoutPhone = 0;
+    let skippedWithoutWhatsapp = 0;
 
-    for (const row of rows) {
-      if (!this.shouldMirrorLeadToInboxAgenda(row)) continue;
+    for (const row of todayRows) {
+      const availability = whatsappAvailabilityByLeadId.get(String(row.id)) || null;
+      if (availability?.status === 'unavailable') {
+        skippedWithoutWhatsapp += 1;
+        continue;
+      }
       activeLeadIds.add(String(row.id));
       const syncResult = await this.syncLeadToInboxAgenda(context.companyId, row, undefined, {
         forceScheduled: true,
@@ -606,6 +802,7 @@ export class VendasService {
       updated += syncResult.updated;
       deactivated += syncResult.deactivated;
       skippedWithoutPhone += syncResult.skippedWithoutPhone;
+      skippedWithoutWhatsapp += syncResult.skippedWithoutWhatsapp;
     }
 
     const mirroredConversations = await this.prisma.companyConversation.findMany({
@@ -652,7 +849,7 @@ export class VendasService {
       deactivated += 1;
     }
 
-    const todayLeadCount = rows.filter((row) => this.shouldMirrorLeadToInboxAgenda(row)).length;
+    const todayLeadCount = todayRows.length;
     const activeMirroredConversations = await this.prisma.companyConversation.findMany({
       where: {
         companyId: context.companyId,
@@ -675,20 +872,24 @@ export class VendasService {
 
     if (todayLeadCount > 0 && mirroredLeadCount === 0) {
       this.logger.error(
-        `[vendas-agenda] Falha operacional: nenhum card de hoje foi espelhado company=${context.companyId} today=${todayLeadCount} skippedWithoutPhone=${skippedWithoutPhone}`,
+        `[vendas-agenda] Falha operacional: nenhum card de hoje foi espelhado company=${context.companyId} today=${todayLeadCount} skippedWithoutPhone=${skippedWithoutPhone} skippedWithoutWhatsapp=${skippedWithoutWhatsapp}`,
       );
       throw new BadRequestException(
-        skippedWithoutPhone > 0
+        skippedWithoutWhatsapp >= todayLeadCount
+          ? 'Nenhum card de hoje foi espelhado no Atendimento porque o motor confirmou que os numeros nao possuem WhatsApp.'
+          : skippedWithoutPhone > 0
           ? 'Nenhum card de hoje foi espelhado no Atendimento porque os leads estao sem telefone valido.'
           : 'Nenhum card de hoje foi espelhado no Atendimento.',
       );
     }
 
     const message = todayLeadCount
-      ? `${mirroredLeadCount} card(s) de hoje preparados no Atendimento com roteiro pendente para envio manual.`
+      ? skippedWithoutWhatsapp > 0
+        ? `${mirroredLeadCount} card(s) preparados no Atendimento. ${skippedWithoutWhatsapp} numero(s) ficaram fora porque o motor nao encontrou WhatsApp.`
+        : `${mirroredLeadCount} card(s) de hoje preparados no Atendimento com roteiro pendente para envio manual.`
       : 'Nao ha cards de hoje para preparar no Atendimento.';
     this.logger.log(
-      `[vendas-agenda] Espelhamento concluido company=${context.companyId} today=${todayLeadCount} mirrored=${mirroredLeadCount} activated=${activated} updated=${updated} deactivated=${deactivated} skippedWithoutPhone=${skippedWithoutPhone}`,
+      `[vendas-agenda] Espelhamento concluido company=${context.companyId} today=${todayLeadCount} mirrored=${mirroredLeadCount} activated=${activated} updated=${updated} deactivated=${deactivated} skippedWithoutPhone=${skippedWithoutPhone} skippedWithoutWhatsapp=${skippedWithoutWhatsapp}`,
     );
 
     return {
@@ -699,6 +900,7 @@ export class VendasService {
       updated,
       deactivated,
       skippedWithoutPhone,
+      skippedWithoutWhatsapp,
       message,
     };
   }
@@ -1000,6 +1202,15 @@ export class VendasService {
         },
       },
     });
+    const whatsappAvailabilityByLeadId = await this.ensureWhatsappAvailabilityForRows(
+      context.companyId,
+      context.userId,
+      rows.filter((row) => {
+        if (this.isClosedLead(row)) return false;
+        const source = String(row?.primarySource || row?.sourceType || '').trim().toLowerCase();
+        return source === 'webscraping';
+      }),
+    );
 
     const sharedMap = await this.customerProfileService.buildSharedContextRegistry(context.companyId, {
       profileIds: rows.map((row) => row.customerProfileId).filter(Boolean),
@@ -1018,7 +1229,11 @@ export class VendasService {
         row?.customerProfileId
           ? sharedMap.byProfileId.get(String(row.customerProfileId)) ?? null
           : sharedMap.byPhoneNormalized.get(String(row.phoneNormalized || '')) ?? null;
-      const payload = this.buildLeadPayload(row, sharedProfile);
+      const payload = this.buildLeadPayload(
+        row,
+        sharedProfile,
+        whatsappAvailabilityByLeadId.get(String(row.id)) || null,
+      );
       blocks[payload.block].push(payload);
     }
 
@@ -1071,6 +1286,7 @@ export class VendasService {
     let createdCount = 0;
     let updatedCount = 0;
     const importedLeads: any[] = [];
+    const importedLeadPairs: Array<{ lead: any; item: any }> = [];
 
     for (const item of incomingLeads) {
       if (!this.normalizeText(item?.phone) && !this.normalizeText(item?.phoneDigits)) {
@@ -1103,23 +1319,42 @@ export class VendasService {
       } else {
         updatedCount += 1;
       }
-      await this.syncLeadToInboxAgenda(context.companyId, result.lead, undefined, {
-        forceScheduled: true,
-      });
       importedLeads.push(result.lead);
+      importedLeadPairs.push({ lead: result.lead, item });
+    }
+
+    let skippedWithoutWhatsapp = 0;
+    const whatsappAvailabilityByLeadId = await this.ensureWhatsappAvailabilityForRows(
+      context.companyId,
+      context.userId,
+      importedLeadPairs.map((entry) => entry.lead),
+    );
+    for (const entry of importedLeadPairs) {
+      const availability = whatsappAvailabilityByLeadId.get(String(entry.lead?.id || '')) || null;
+      if (availability?.status === 'unavailable') {
+        skippedWithoutWhatsapp += 1;
+        continue;
+      }
+      await this.syncLeadToInboxAgenda(context.companyId, entry.lead, undefined, {
+        forceScheduled: true,
+        draftMessageOverride: this.normalizeText(entry.item?.scriptText),
+      });
     }
 
     return {
       ok: true,
       createdCount,
       updatedCount,
+      skippedWithoutWhatsapp,
       leads: importedLeads,
       message:
-        createdCount && updatedCount
-          ? `${createdCount} lead(s) novos e ${updatedCount} atualizado(s) no CRM de Vendas.`
-          : createdCount
-            ? `${createdCount} lead(s) enviados ao CRM de Vendas.`
-            : `${updatedCount} lead(s) já existentes foram atualizados no CRM de Vendas.`,
+        skippedWithoutWhatsapp > 0
+          ? `${createdCount + updatedCount} lead(s) processados no CRM. ${skippedWithoutWhatsapp} numero(s) foram bloqueados porque o motor nao encontrou WhatsApp.`
+          : createdCount && updatedCount
+            ? `${createdCount} lead(s) novos e ${updatedCount} atualizado(s) no CRM de Vendas.`
+            : createdCount
+              ? `${createdCount} lead(s) enviados ao CRM de Vendas.`
+              : `${updatedCount} lead(s) já existentes foram atualizados no CRM de Vendas.`,
     };
   }
 

@@ -24,6 +24,7 @@ const QUANTITY_OPTIONS = [5, 10, 15, 20];
 type CurrentUser = {
   id?: number | null;
   username?: string | null;
+  email?: string | null;
   name?: string | null;
   role?: string | null;
   isSystemMaster?: boolean;
@@ -54,6 +55,7 @@ type RuntimeResponse = {
     remainingSearches: number | null;
     dailyLimit: number | null;
     isTrialLimited: boolean;
+    accessMode: "full" | "trial" | "blocked";
   };
   diagnostics?: {
     checkedAt: string;
@@ -112,6 +114,9 @@ type SearchHistoryItem = {
   updatedAt: string;
   lastUsedAt: string;
   preview: string[];
+  scope: "company" | "global";
+  sourceLabel: string;
+  cacheValidUntil?: string | null;
 };
 
 type HistoryResponse = {
@@ -122,6 +127,7 @@ type ImportToVendasResponse = {
   ok: boolean;
   createdCount: number;
   updatedCount: number;
+  skippedWithoutWhatsapp?: number;
   message?: string;
 };
 
@@ -174,13 +180,9 @@ function buildCompanyName(currentUser: CurrentUser | null) {
   ).trim();
 }
 
-function buildSpeakerName(currentUser: CurrentUser | null) {
-  return String(currentUser?.name || currentUser?.username || "").trim();
-}
-
 function buildDefaultScriptVariables(currentUser: CurrentUser | null) {
   return {
-    speaker: buildSpeakerName(currentUser) || "Julia",
+    speaker: "",
     company: buildCompanyName(currentUser) || "HBX",
   };
 }
@@ -291,7 +293,6 @@ export default function WebscrapingClientPage() {
   const [historyItems, setHistoryItems] = useState<SearchHistoryItem[]>([]);
   const [city, setCity] = useState("");
   const [segment, setSegment] = useState("Lanchonetes");
-  const [customSegment, setCustomSegment] = useState("");
   const [quantity, setQuantity] = useState(10);
   const [minRating, setMinRating] = useState("");
   const [minReviews, setMinReviews] = useState("");
@@ -311,19 +312,19 @@ export default function WebscrapingClientPage() {
   const [feedback, setFeedback] = useState<string | null>(null);
   const [hasSearched, setHasSearched] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [panelMode, setPanelMode] = useState<"search" | "script" | "history">("search");
   const [scriptSenderDraft, setScriptSenderDraft] = useState("");
   const [scriptCompanyDraft, setScriptCompanyDraft] = useState("");
   const [appliedScriptSender, setAppliedScriptSender] = useState("");
   const [appliedScriptCompany, setAppliedScriptCompany] = useState("");
-  const [scriptPresetHydrated, setScriptPresetHydrated] = useState(false);
-  const [scriptPresetDraft, setScriptPresetDraft] = useState("");
-  const [scriptPresetText, setScriptPresetText] = useState<string | null>(null);
   const crmLaunchNotice = useQuickLaunchNotice();
 
   const runtimeReady = runtime?.native.status === "online";
   const remainingSearchesLabel = useMemo(() => {
     if (!runtime?.quota) return "-";
-    if (!runtime.quota.isTrialLimited) return "Ilimitado";
+    if (runtime.quota.accessMode === "full") return "FULL";
+    if (runtime.quota.accessMode === "blocked") return "0";
+    if (!runtime.quota.isTrialLimited) return "FULL";
     return String(Math.max(0, Number(runtime.quota.remainingSearches || 0)));
   }, [runtime?.quota]);
   const configurationPending = runtime?.native.code === "configuration_pending";
@@ -383,7 +384,7 @@ export default function WebscrapingClientPage() {
         const [runtimePayload, profilePayload, historyPayload] = await Promise.all([
           apiFetch<RuntimeResponse>("/webscraping/runtime"),
           apiFetch<CurrentUser>("/profile/current-user"),
-          apiFetch<HistoryResponse>("/webscraping/history?limit=8"),
+          apiFetch<HistoryResponse>("/webscraping/history?limit=120"),
         ]);
         if (cancelled) return;
         setRuntime(runtimePayload);
@@ -396,13 +397,7 @@ export default function WebscrapingClientPage() {
           if (lastCity && !city) setCity(String(lastCity));
           const lastSegment = localStorage.getItem("webscraping.lastSegment");
           if (lastSegment) {
-            if (SEGMENT_SUGGESTIONS.includes(String(lastSegment))) {
-              setSegment(String(lastSegment));
-              setCustomSegment("");
-            } else {
-              setSegment("Outros");
-              setCustomSegment(String(lastSegment));
-            }
+            setSegment(String(lastSegment));
           }
         } catch {
           // ignore storage errors
@@ -421,46 +416,6 @@ export default function WebscrapingClientPage() {
       cancelled = true;
     };
   }, [hasToken]);
-
-  // load script preset (try backend, fallback to localStorage)
-  useEffect(() => {
-    if (!hasToken) return;
-    if (scriptPresetHydrated) return;
-
-    let cancelled = false;
-    (async () => {
-      try {
-        const payload = await apiFetch<{ text?: string }>("/webscraping/script-preset");
-        if (cancelled) return;
-        const text = String(payload?.text || "").trim();
-        if (text) {
-          setScriptPresetText(text);
-          setScriptPresetDraft(text);
-        } else {
-          const fallback = localStorage.getItem("webscraping.scriptPreset") || "";
-          if (fallback) {
-            setScriptPresetText(fallback);
-            setScriptPresetDraft(fallback);
-          } else {
-            setScriptPresetText(null);
-            setScriptPresetDraft("");
-          }
-        }
-      } catch {
-        const fallback = localStorage.getItem("webscraping.scriptPreset") || "";
-        if (!cancelled) {
-          setScriptPresetText(fallback || null);
-          setScriptPresetDraft(fallback || "");
-        }
-      } finally {
-        if (!cancelled) setScriptPresetHydrated(true);
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [hasToken, scriptPresetHydrated]);
 
   useEffect(() => {
     if (!feedback) return;
@@ -513,19 +468,17 @@ export default function WebscrapingClientPage() {
   }, [activeQuery, city, results, searchMeta?.historyId, segment]);
 
   useEffect(() => {
-    if (scriptPresetHydrated) return;
-    setScriptSenderDraft(defaultScriptVariables.speaker);
+    const fallbackSender = String(currentUser?.email || "").trim();
+    setScriptSenderDraft("");
     setScriptCompanyDraft(defaultScriptVariables.company);
-    setAppliedScriptSender(defaultScriptVariables.speaker);
+    setAppliedScriptSender(fallbackSender);
     setAppliedScriptCompany(defaultScriptVariables.company);
-    setScriptPresetHydrated(true);
-  }, [defaultScriptVariables.company, defaultScriptVariables.speaker, scriptPresetHydrated]);
+  }, [currentUser?.email, defaultScriptVariables.company]);
 
   function buildPayload() {
-    const effectiveSegment = segment === "Outros" ? customSegment.trim() : segment.trim();
     return {
       city: city.trim(),
-      segment: effectiveSegment,
+      segment: segment.trim(),
       quantity,
       minRating: minRating ? Number(minRating) : undefined,
       minReviews: minReviews ? Number(minReviews) : undefined,
@@ -536,7 +489,7 @@ export default function WebscrapingClientPage() {
 
   async function refreshHistory() {
     try {
-      const payload = await apiFetch<HistoryResponse>("/webscraping/history?limit=8");
+      const payload = await apiFetch<HistoryResponse>("/webscraping/history?limit=120");
       setHistoryItems(payload.items || []);
     } catch {
       // no-op
@@ -571,7 +524,7 @@ export default function WebscrapingClientPage() {
       // persist last city/segment locally for quicker re-entry
       try {
         localStorage.setItem("webscraping.lastCity", String(payload.query.city || city || ""));
-        const seg = String(payload.query.segment || (segment === "Outros" ? customSegment : segment) || "");
+        const seg = String(payload.query.segment || segment || "");
         localStorage.setItem("webscraping.lastSegment", seg);
       } catch {
         // ignore storage errors
@@ -597,13 +550,7 @@ export default function WebscrapingClientPage() {
       });
       setCity(payload.query.city);
       // respect known segments and custom ones
-      if (SEGMENT_SUGGESTIONS.includes(String(payload.query.segment))) {
-        setSegment(payload.query.segment);
-        setCustomSegment("");
-      } else {
-        setSegment("Outros");
-        setCustomSegment(payload.query.segment);
-      }
+      setSegment(payload.query.segment);
       setQuantity(payload.query.quantity);
       setMinRating(payload.query.filters.minRating == null ? "" : String(payload.query.filters.minRating));
       setMinReviews(payload.query.filters.minReviews == null ? "" : String(payload.query.filters.minReviews));
@@ -619,59 +566,6 @@ export default function WebscrapingClientPage() {
       setSearchError(error instanceof Error ? error.message : "Falha ao reaproveitar pesquisa.");
     } finally {
       setHistoryBusyId(null);
-    }
-  }
-
-  async function saveScriptPreset() {
-    const text = String(scriptPresetDraft || "").trim();
-    try {
-      // try backend first
-      await apiFetch("/webscraping/script-preset", {
-        method: "PUT",
-        body: JSON.stringify({ text }),
-      });
-      setScriptPresetText(text || null);
-      setFeedback("Roteiro salvo no servidor.");
-      try {
-        localStorage.setItem("webscraping.scriptPreset", text);
-      } catch {
-        // ignore
-      }
-    } catch {
-      // fallback to localStorage only
-      try {
-        localStorage.setItem("webscraping.scriptPreset", text);
-        setScriptPresetText(text || null);
-        setFeedback("Roteiro salvo localmente (fallback).");
-      } catch {
-        setFeedback("Falha ao salvar roteiro.");
-      }
-    }
-  }
-
-  async function resetScriptPreset() {
-    const defaultText = "";
-    setScriptPresetDraft(defaultText);
-    try {
-      await apiFetch("/webscraping/script-preset", {
-        method: "PUT",
-        body: JSON.stringify({ text: defaultText }),
-      });
-      setScriptPresetText(defaultText || null);
-      setFeedback("Roteiro resetado no servidor.");
-      try {
-        localStorage.removeItem("webscraping.scriptPreset");
-      } catch {
-        // ignore
-      }
-    } catch {
-      try {
-        localStorage.removeItem("webscraping.scriptPreset");
-        setScriptPresetText(null);
-        setFeedback("Roteiro resetado localmente.");
-      } catch {
-        setFeedback("Falha ao resetar roteiro.");
-      }
     }
   }
 
@@ -749,6 +643,13 @@ export default function WebscrapingClientPage() {
             shortNote: [result.address, `Nota ${result.rating ?? "-"}`, `${result.reviews} avaliações`]
               .filter(Boolean)
               .join(" • "),
+            scriptText: buildScriptText(
+              result,
+              query.city,
+              query.segment,
+              appliedScriptSender || defaultScriptVariables.speaker,
+              appliedScriptCompany || defaultScriptVariables.company,
+            ),
           })),
         }),
       });
@@ -767,7 +668,7 @@ export default function WebscrapingClientPage() {
   }
 
   function handleApplyScriptPreset() {
-    const nextSender = scriptSenderDraft.trim() || defaultScriptVariables.speaker;
+    const nextSender = scriptSenderDraft.trim() || String(currentUser?.email || "").trim();
     const nextCompany = scriptCompanyDraft.trim() || defaultScriptVariables.company;
     setAppliedScriptSender(nextSender);
     setAppliedScriptCompany(nextCompany);
@@ -775,9 +676,9 @@ export default function WebscrapingClientPage() {
   }
 
   function handleResetScriptPreset() {
-    setScriptSenderDraft(defaultScriptVariables.speaker);
+    setScriptSenderDraft("");
     setScriptCompanyDraft(defaultScriptVariables.company);
-    setAppliedScriptSender(defaultScriptVariables.speaker);
+    setAppliedScriptSender(String(currentUser?.email || "").trim());
     setAppliedScriptCompany(defaultScriptVariables.company);
     setFeedback("Roteiro resetado para o padrao.");
   }
@@ -822,253 +723,294 @@ export default function WebscrapingClientPage() {
         ) : null}
 
         <section className={styles.runtimeVisionCard}>
-          <article className={styles.runtimeVisionMetric}>
-            <span className={styles.runtimeVisionLabel}>Pesquisas Restantes na API</span>
-            <strong className={styles.runtimeVisionValue}>{remainingSearchesLabel}</strong>
-          </article>
-          <article
-            className={styles.runtimeVisionMetric}
-            data-online={runtimeReady && !configurationPending ? "true" : "false"}
-          >
-            <span className={styles.runtimeVisionLabel}>Motor</span>
-            <strong className={styles.runtimeVisionValue}>
-              {runtimeReady && !configurationPending ? "Online" : "Offline"}
-            </strong>
-          </article>
-        </section>
-
-        <section className={styles.searchCard}>
-          <div className={styles.searchTop}>
-            <div>
-              <strong>Consulta principal</strong>
-              <p className={styles.helperText}>A entrada principal continua simples: cidade, tipo de negocio e quantidade.</p>
-            </div>
-            <div className={styles.segmentChips}>
-              {SEGMENT_SUGGESTIONS.map((option) => (
-                <button
-                  key={option}
-                  type="button"
-                  className={segment === option ? styles.segmentChipActive : styles.segmentChip}
-                  onClick={() => setSegment(option)}
-                >
-                  {option}
-                </button>
-              ))}
-            </div>
+          <div className={styles.runtimeHeader}>
+            <article className={styles.runtimeVisionMetric}>
+              <span className={styles.runtimeVisionLabel}>Pesquisas Restantes na API</span>
+              <strong className={styles.runtimeVisionValue}>{remainingSearchesLabel}</strong>
+            </article>
+            <article
+              className={styles.runtimeVisionMetric}
+              data-online={runtimeReady && !configurationPending ? "true" : "false"}
+            >
+              <span className={styles.runtimeVisionLabel}>Motor</span>
+              <strong className={styles.runtimeVisionValue}>
+                {runtimeReady && !configurationPending ? "Online" : "Offline"}
+              </strong>
+            </article>
           </div>
 
-          <div className={styles.formGrid}>
-            <label className={styles.field}>
-              <span className={styles.fieldLabel}>Cidade</span>
-              <input
-                className={styles.fieldInput}
-                value={city}
-                onChange={(event) => setCity(event.target.value)}
-                placeholder="Ex: Sao Paulo - SP"
-              />
-            </label>
-
-            <label className={styles.field}>
-              <span className={styles.fieldLabel}>Segmento / tipo de negocio</span>
-              <input
-                className={styles.fieldInput}
-                value={segment}
-                onChange={(event) => setSegment(event.target.value)}
-                placeholder="Ex: Clinicas odontologicas"
-              />
-            </label>
-
-            <label className={styles.field}>
-              <span className={styles.fieldLabel}>Quantidade</span>
-              <select
-                className={styles.fieldSelect}
-                value={quantity}
-                onChange={(event) => setQuantity(Number(event.target.value))}
-              >
-                {QUANTITY_OPTIONS.map((option) => (
-                  <option key={option} value={option}>
-                    {option} contatos
-                  </option>
-                ))}
-              </select>
-            </label>
-          </div>
-
-          <div className={styles.advancedWrap}>
+          <div className={styles.glassTabs}>
             <button
               type="button"
-              className={styles.advancedToggle}
-              onClick={() => setAdvancedOpen((value) => !value)}
+              className={panelMode === "search" ? styles.glassTabActive : styles.glassTab}
+              onClick={() => setPanelMode("search")}
             >
-              <span>Filtros avancados</span>
-              <span>{advancedOpen ? "Ocultar" : "Mostrar"}</span>
+              Consulta principal
             </button>
-
-            {advancedOpen ? (
-              <div className={styles.advancedGrid}>
-                <label className={styles.field}>
-                  <span className={styles.fieldLabel}>Nota minima</span>
-                  <input
-                    className={styles.fieldInput}
-                    type="number"
-                    min="0"
-                    max="5"
-                    step="0.1"
-                    value={minRating}
-                    onChange={(event) => setMinRating(event.target.value)}
-                    placeholder="Opcional"
-                  />
-                </label>
-
-                <label className={styles.field}>
-                  <span className={styles.fieldLabel}>Minimo de avaliacoes</span>
-                  <input
-                    className={styles.fieldInput}
-                    type="number"
-                    min="0"
-                    step="1"
-                    value={minReviews}
-                    onChange={(event) => setMinReviews(event.target.value)}
-                    placeholder="Opcional"
-                  />
-                </label>
-
-                <label className={styles.checkboxField}>
-                  <input
-                    type="checkbox"
-                    checked={onlyProbableWhatsApp}
-                    onChange={(event) => setOnlyProbableWhatsApp(event.target.checked)}
-                  />
-                  <span>Somente provavel WhatsApp</span>
-                </label>
-
-                <label className={styles.checkboxField}>
-                  <input
-                    type="checkbox"
-                    checked={onlyWithWebsite}
-                    onChange={(event) => setOnlyWithWebsite(event.target.checked)}
-                  />
-                  <span>Somente com site</span>
-                </label>
-              </div>
-            ) : null}
-          </div>
-
-          <div className={styles.searchActions}>
-            <p className={styles.helperText}>
-              O modulo prioriza reaproveitamento do historico e so complementa a busca quando realmente precisa.
-            </p>
-            <div className={styles.actionRow}>
-              <button
-                type="button"
-                className="btn btn-primary"
-                onClick={() => void handleSearch()}
-                disabled={loadingBootstrap || searching}
-              >
-                {searching ? "Buscando..." : "Buscar contatos"}
-              </button>
-              <button
-                type="button"
-                className="btn btn-secondary"
-                onClick={() => void handleExport()}
-                disabled={exporting || searching || (!activeQuery && !results.length && !city.trim())}
-              >
-                {exporting ? "Gerando Excel..." : "Exportar Excel"}
-              </button>
-            </div>
+            <button
+              type="button"
+              className={panelMode === "script" ? styles.glassTabActive : styles.glassTab}
+              onClick={() => setPanelMode("script")}
+            >
+              Guia de roteiro
+            </button>
+            <button
+              type="button"
+              className={panelMode === "history" ? styles.glassTabActive : styles.glassTab}
+              onClick={() => setPanelMode("history")}
+            >
+              Pesquisas recentes
+            </button>
           </div>
         </section>
 
-        <section className={styles.scriptGuideCard}>
-          <div className={styles.sectionHeader}>
-            <div>
-              <strong>Guia do roteiro</strong>
+        {panelMode === "search" ? (
+          <section className={styles.searchCard}>
+            <div className={styles.searchTop}>
+              <div>
+                <strong>Consulta principal</strong>
+                <p className={styles.helperText}>Cidade, segmento e quantidade. O resto fica compacto.</p>
+              </div>
+              <div className={styles.segmentChips}>
+                {SEGMENT_SUGGESTIONS.map((option) => (
+                  <button
+                    key={option}
+                    type="button"
+                    className={segment === option ? styles.segmentChipActive : styles.segmentChip}
+                    onClick={() => setSegment(option)}
+                  >
+                    {option}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className={styles.formGrid}>
+              <label className={styles.field}>
+                <span className={styles.fieldLabel}>Cidade</span>
+                <input
+                  className={styles.fieldInput}
+                  value={city}
+                  onChange={(event) => setCity(event.target.value)}
+                  placeholder="Ex: Sao Paulo - SP"
+                />
+              </label>
+
+              <label className={styles.field}>
+                <span className={styles.fieldLabel}>Segmento / tipo de negocio</span>
+                <input
+                  className={styles.fieldInput}
+                  value={segment}
+                  onChange={(event) => setSegment(event.target.value)}
+                  placeholder="Ex: Clinicas odontologicas"
+                />
+              </label>
+
+              <label className={styles.field}>
+                <span className={styles.fieldLabel}>Quantidade</span>
+                <select
+                  className={styles.fieldSelect}
+                  value={quantity}
+                  onChange={(event) => setQuantity(Number(event.target.value))}
+                >
+                  {QUANTITY_OPTIONS.map((option) => (
+                    <option key={option} value={option}>
+                      {option} contatos
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+
+            <div className={styles.advancedWrap}>
+              <button
+                type="button"
+                className={styles.advancedToggle}
+                onClick={() => setAdvancedOpen((value) => !value)}
+              >
+                <span>Filtros avancados</span>
+                <span>{advancedOpen ? "Ocultar" : "Mostrar"}</span>
+              </button>
+
+              {advancedOpen ? (
+                <div className={styles.advancedGrid}>
+                  <label className={styles.field}>
+                    <span className={styles.fieldLabel}>Nota minima</span>
+                    <input
+                      className={styles.fieldInput}
+                      type="number"
+                      min="0"
+                      max="5"
+                      step="0.1"
+                      value={minRating}
+                      onChange={(event) => setMinRating(event.target.value)}
+                      placeholder="Opcional"
+                    />
+                  </label>
+
+                  <label className={styles.field}>
+                    <span className={styles.fieldLabel}>Minimo de avaliacoes</span>
+                    <input
+                      className={styles.fieldInput}
+                      type="number"
+                      min="0"
+                      step="1"
+                      value={minReviews}
+                      onChange={(event) => setMinReviews(event.target.value)}
+                      placeholder="Opcional"
+                    />
+                  </label>
+
+                  <label className={styles.checkboxField}>
+                    <input
+                      type="checkbox"
+                      checked={onlyProbableWhatsApp}
+                      onChange={(event) => setOnlyProbableWhatsApp(event.target.checked)}
+                    />
+                    <span>Somente provavel WhatsApp</span>
+                  </label>
+
+                  <label className={styles.checkboxField}>
+                    <input
+                      type="checkbox"
+                      checked={onlyWithWebsite}
+                      onChange={(event) => setOnlyWithWebsite(event.target.checked)}
+                    />
+                    <span>Somente com site</span>
+                  </label>
+                </div>
+              ) : null}
+            </div>
+
+            <div className={styles.searchActions}>
               <p className={styles.helperText}>
-                Ajuste o nome e a empresa padrao para atualizar todas as frases carregadas com um clique.
+                Primeiro reaproveita histórico global. Só depois gasta API.
               </p>
-            </div>
-          </div>
-
-          <div className={styles.scriptGuideGrid}>
-            <div className={styles.scriptGuidePreview}>
-              <span className={styles.scriptLabel}>Frase padrao</span>
-              <p className={styles.scriptText}>{scriptGuidePreview}</p>
-            </div>
-
-            <div className={styles.scriptGuideControls}>
-              <label className={styles.field}>
-                <span className={styles.fieldLabel}>Nome de quem envia</span>
-                <input
-                  className={styles.fieldInput}
-                  value={scriptSenderDraft}
-                  onChange={(event) => setScriptSenderDraft(event.target.value)}
-                  placeholder="Ex: Pedro"
-                />
-              </label>
-
-              <label className={styles.field}>
-                <span className={styles.fieldLabel}>Empresa / marca</span>
-                <input
-                  className={styles.fieldInput}
-                  value={scriptCompanyDraft}
-                  onChange={(event) => setScriptCompanyDraft(event.target.value)}
-                  placeholder="Ex: HBX"
-                />
-              </label>
-
               <div className={styles.actionRow}>
-                <button type="button" className="btn btn-primary" onClick={handleApplyScriptPreset}>
-                  Atualizar roteiro
+                <button
+                  type="button"
+                  className={`${styles.glassButton} ${styles.glassButtonPrimary}`}
+                  onClick={() => void handleSearch()}
+                  disabled={loadingBootstrap || searching}
+                >
+                  {searching ? "Buscando..." : "Buscar contatos"}
                 </button>
-                <button type="button" className="btn btn-secondary" onClick={handleResetScriptPreset}>
-                  Resetar roteiro
+                <button
+                  type="button"
+                  className={styles.glassButton}
+                  onClick={() => void handleExport()}
+                  disabled={exporting || searching || (!activeQuery && !results.length && !city.trim())}
+                >
+                  {exporting ? "Gerando Excel..." : "Exportar Excel"}
                 </button>
               </div>
             </div>
-          </div>
-        </section>
+          </section>
+        ) : null}
 
-        <section className={styles.historyCard}>
-          <div className={styles.sectionHeader}>
-            <div>
-              <strong>Pesquisas recentes</strong>
-              <p className={styles.helperText}>Reaproveite uma pesquisa pronta sem refazer trabalho desnecessario.</p>
+        {panelMode === "script" ? (
+          <section className={styles.scriptGuideCard}>
+            <div className={styles.sectionHeader}>
+              <div>
+                <strong>Guia do roteiro</strong>
+                <p className={styles.helperText}>
+                  O nome nao vem preenchido. Você controla o que vai herdar para Vendas.
+                </p>
+              </div>
             </div>
-          </div>
 
-          {historyItems.length === 0 ? (
-            <div className={styles.emptyState}>
-              <strong>Nenhuma pesquisa salva ainda</strong>
-              <p className={styles.emptyText}>Assim que voce fizer a primeira busca, ela passa a ficar disponivel aqui para reaproveitamento rapido.</p>
-            </div>
-          ) : (
-            <div className={styles.historyGrid}>
-              {historyItems.map((item) => (
-                <article key={item.id} className={styles.historyItem}>
-                  <div className={styles.historyTop}>
-                    <div>
-                      <h2 className={styles.historyTitle}>{item.segment}</h2>
-                      <p className={styles.historyMeta}>{item.city} • {item.resultCount} contatos</p>
-                    </div>
-                    <span className={styles.historyStamp}>{formatDateTime(item.lastUsedAt)}</span>
-                  </div>
-                  <p className={styles.historyFilter}>{buildFilterSummary(item.filters)}</p>
-                  <p className={styles.historyPreview}>
-                    {item.preview.length > 0 ? item.preview.join(" • ") : "Sem preview salvo"}
-                  </p>
+            <div className={styles.scriptGuideGrid}>
+              <div className={styles.scriptGuidePreview}>
+                <span className={styles.scriptLabel}>Prévia</span>
+                <p className={styles.scriptText}>{scriptGuidePreview}</p>
+              </div>
+
+              <div className={styles.scriptGuideControls}>
+                <label className={styles.field}>
+                  <span className={styles.fieldLabel}>Nome de quem envia</span>
+                  <input
+                    className={styles.fieldInput}
+                    value={scriptSenderDraft}
+                    onChange={(event) => setScriptSenderDraft(event.target.value)}
+                    placeholder={currentUser?.email || "Digite seu nome"}
+                  />
+                </label>
+
+                <label className={styles.field}>
+                  <span className={styles.fieldLabel}>Empresa / marca</span>
+                  <input
+                    className={styles.fieldInput}
+                    value={scriptCompanyDraft}
+                    onChange={(event) => setScriptCompanyDraft(event.target.value)}
+                    placeholder="Ex: HBX"
+                  />
+                </label>
+
+                <div className={styles.actionRow}>
                   <button
                     type="button"
-                    className="btn btn-secondary"
-                    onClick={() => void handleReuseHistory(item)}
-                    disabled={historyBusyId === item.id}
+                    className={`${styles.glassButton} ${styles.glassButtonPrimary}`}
+                    onClick={handleApplyScriptPreset}
                   >
-                    {historyBusyId === item.id ? "Carregando..." : "Reaproveitar pesquisa"}
+                    Atualizar roteiro
                   </button>
-                </article>
-              ))}
+                  <button type="button" className={styles.glassButton} onClick={handleResetScriptPreset}>
+                    Resetar roteiro
+                  </button>
+                </div>
+              </div>
             </div>
-          )}
-        </section>
+          </section>
+        ) : null}
+
+        {panelMode === "history" ? (
+          <section className={styles.historyCard}>
+            <div className={styles.sectionHeader}>
+              <div>
+                <strong>Pesquisas recentes</strong>
+                <p className={styles.helperText}>Histórico completo, incluindo reaproveitamento global entre empresas.</p>
+              </div>
+            </div>
+
+            {historyItems.length === 0 ? (
+              <div className={styles.emptyState}>
+                <strong>Nenhuma pesquisa salva ainda</strong>
+                <p className={styles.emptyText}>Assim que a primeira busca rodar, ela aparece aqui para reaproveitamento rápido.</p>
+              </div>
+            ) : (
+              <div className={styles.historyList}>
+                {historyItems.map((item) => (
+                  <article key={item.id} className={styles.historyRow}>
+                    <div className={styles.historyRowMain}>
+                      <div className={styles.historyTop}>
+                        <div>
+                          <h2 className={styles.historyTitle}>{item.segment}</h2>
+                          <p className={styles.historyMeta}>
+                            {item.city} • {item.resultCount} contatos • {item.sourceLabel}
+                          </p>
+                        </div>
+                        <span className={styles.historyStamp}>{formatDateTime(item.lastUsedAt)}</span>
+                      </div>
+                      <p className={styles.historyFilter}>{buildFilterSummary(item.filters)}</p>
+                      <p className={styles.historyPreview}>
+                        {item.preview.length > 0 ? item.preview.join(" • ") : "Sem preview salvo"}
+                        {item.cacheValidUntil ? ` • válido até ${formatDateTime(item.cacheValidUntil)}` : ""}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      className={styles.glassButton}
+                      onClick={() => void handleReuseHistory(item)}
+                      disabled={historyBusyId === item.id}
+                    >
+                      {historyBusyId === item.id ? "Carregando..." : "Reaproveitar"}
+                    </button>
+                  </article>
+                ))}
+              </div>
+            )}
+          </section>
+        ) : null}
 
         {searchError ? (
           <section className={styles.errorCard}>
@@ -1097,7 +1039,7 @@ export default function WebscrapingClientPage() {
             </div>
             <button
               type="button"
-              className="btn btn-secondary"
+              className={`${styles.glassButton} ${styles.glassButtonPrimary}`}
               onClick={() => void handleSendResultsToVendas()}
               disabled={importingToVendas || !results.length}
             >
@@ -1128,7 +1070,7 @@ export default function WebscrapingClientPage() {
                 ) : null}
                 <button
                   type="button"
-                  className="btn btn-secondary"
+                  className={styles.glassButton}
                   onClick={() => void handleSendResultsToVendas()}
                   disabled={importingToVendas || !results.length}
                 >
@@ -1230,15 +1172,15 @@ export default function WebscrapingClientPage() {
                     </div>
 
                     <div className={styles.cardActions}>
-                      <a className="btn btn-primary" href={callUrl || undefined}>
+                      <a className={`${styles.glassButton} ${styles.glassButtonPrimary}`} href={callUrl || undefined}>
                         Ligar
                       </a>
-                      <a className="btn btn-secondary" href={whatsappUrl || undefined} target="_blank" rel="noreferrer">
+                      <a className={styles.glassButton} href={whatsappUrl || undefined} target="_blank" rel="noreferrer">
                         WhatsApp
                       </a>
                       <button
                         type="button"
-                        className="btn btn-secondary"
+                        className={styles.glassButton}
                         onClick={() => {
                           void copyText(result.phone);
                           setFeedback(`Numero copiado: ${result.phone}`);
@@ -1248,7 +1190,7 @@ export default function WebscrapingClientPage() {
                       </button>
                       <button
                         type="button"
-                        className="btn btn-secondary"
+                        className={styles.glassButton}
                         onClick={() => {
                           void copyText(scriptText);
                           setFeedback(`Roteiro copiado para ${result.name}.`);
@@ -1266,12 +1208,12 @@ export default function WebscrapingClientPage() {
                     {(result.website || result.googleMapsUrl) ? (
                       <div className={styles.resultLinks}>
                         {result.website ? (
-                          <a className="btn btn-secondary" href={result.website} target="_blank" rel="noreferrer">
+                          <a className={styles.glassButton} href={result.website} target="_blank" rel="noreferrer">
                             Site
                           </a>
                         ) : null}
                         {result.googleMapsUrl ? (
-                          <a className="btn btn-secondary" href={result.googleMapsUrl} target="_blank" rel="noreferrer">
+                          <a className={styles.glassButton} href={result.googleMapsUrl} target="_blank" rel="noreferrer">
                             Maps
                           </a>
                         ) : null}

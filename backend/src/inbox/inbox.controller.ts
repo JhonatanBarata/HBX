@@ -41,6 +41,11 @@ export class InboxController {
     return this.inboxService.getBootstrap(req.user, take);
   }
 
+  @Post('bootstrap/full')
+  bootstrapFull(@Req() req: any, @Query('take') take?: string) {
+    return this.inboxService.bootstrapFullMirror(req.user, take);
+  }
+
   @Get('bot-config')
   getBotConfig(@Req() req: any) {
     return this.inboxService.getBotConfig(req.user);
