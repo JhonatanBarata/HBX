@@ -39,8 +39,59 @@ export default function ConversationQueueFilterBar({
   onQueueDragLeave,
   onQueueDrop,
 }: ConversationQueueFilterBarProps) {
+  const filterBarRef = useRef<HTMLDivElement | null>(null);
+
+  const resolveQueueFromPointer = (clientX: number, clientY: number) => {
+    const root = filterBarRef.current;
+    if (!root) return null;
+
+    const cards = Array.from(root.querySelectorAll<HTMLButtonElement>(`[data-queue-value="true"]`));
+    if (!cards.length) return null;
+
+    let nearestQueue: ConversationQueueFilterValue | null = null;
+    let nearestDistance = Number.POSITIVE_INFINITY;
+
+    for (const card of cards) {
+      const rect = card.getBoundingClientRect();
+      const inside = clientX >= rect.left && clientX <= rect.right && clientY >= rect.top && clientY <= rect.bottom;
+      const queue = card.dataset.queue as ConversationQueueFilterValue | undefined;
+      if (!queue) continue;
+      if (inside) return queue;
+
+      const dx = clientX < rect.left ? rect.left - clientX : clientX > rect.right ? clientX - rect.right : 0;
+      const dy = clientY < rect.top ? rect.top - clientY : clientY > rect.bottom ? clientY - rect.bottom : 0;
+      const distance = dx * dx + dy * dy;
+      if (distance < nearestDistance) {
+        nearestDistance = distance;
+        nearestQueue = queue;
+      }
+    }
+
+    return nearestQueue;
+  };
+
   return (
-    <div className={styles.filterBar} role="tablist" aria-label="Filas de conversa">
+    <div
+      ref={filterBarRef}
+      className={styles.filterBar}
+      role="tablist"
+      aria-label="Filas de conversa"
+      onDragOver={(event) => {
+        event.preventDefault();
+        const queue = resolveQueueFromPointer(event.clientX, event.clientY);
+        if (queue) onQueueDragOver(queue);
+      }}
+      onDragLeave={(event) => {
+        const relatedTarget = event.relatedTarget;
+        if (relatedTarget instanceof Node && event.currentTarget.contains(relatedTarget)) return;
+        onQueueDragLeave();
+      }}
+      onDrop={(event) => {
+        event.preventDefault();
+        const queue = resolveQueueFromPointer(event.clientX, event.clientY) || dropOverQueue;
+        if (queue) onQueueDrop(queue);
+      }}
+    >
       {OPTIONS.map((option) => {
         const active = value === option.value;
         const dropping = dropOverQueue === option.value;
@@ -53,6 +104,8 @@ export default function ConversationQueueFilterBar({
             data-active={active ? "true" : "false"}
             data-dropover={dropping ? "true" : "false"}
             data-tone={option.value}
+            data-queue-value="true"
+            data-queue={option.value}
             onClick={() => onChange(option.value)}
             onDragOver={(event) => {
               event.preventDefault();
