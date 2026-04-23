@@ -51,6 +51,11 @@
     0 0 0 3px color-mix(in srgb, var(--brand) 28%, transparent);
 }
 
+.queueCard[data-dragging-source="true"] {
+  opacity: 0.68;
+  transform: scale(0.98);
+}
+
 .queueCard[data-tone="recovery"][data-dropover="true"] {
   border-color: color-mix(in srgb, var(--warning) 72%, var(--line));
 }
@@ -192,6 +197,11 @@
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.06),
     0 22px 32px -20px rgba(55, 82, 234, 0.68);
+}
+
+:global(html[data-theme-mode="dark"]) .queueCard[data-dragging-source="true"] {
+  opacity: 0.62;
+  transform: scale(0.985);
 }
 
 :global(html[data-theme-mode="dark"]) .queueTitle {

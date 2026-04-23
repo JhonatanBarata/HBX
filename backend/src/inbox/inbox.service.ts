@@ -832,6 +832,7 @@ export class InboxService {
           : Boolean(conversation.humanAssigned),
       createdAt: conversation.createdAt,
       updatedAt: conversation.updatedAt,
+      lastMessageAt: conversation?.lastMessageAt || null,
       currentFlow: String(conversation?.currentFlow || '').trim() || null,
       flowResult: String(conversation?.flowResult || '').trim() || null,
       routeTarget: routeContext.routeTarget,
@@ -1489,6 +1490,7 @@ export class InboxService {
         const conversation = {
           ...row,
           updatedAt: row.lastMessageAt || row.updatedAt,
+          lastMessageAt: row.lastMessageAt || null,
           messages: [...(row.messages || [])].reverse(),
         };
         const phoneNormalized = this.normalizeConversationPhone(String(conversation.contact || '')) || '';
@@ -1507,89 +1509,95 @@ export class InboxService {
     );
   }
 
-  async getBootstrap(user: any, take?: string | number) {
-    const companyId = this.requireCompanyIdFromUser(user);
-    let conversations: any[];
-
-    try {
-      conversations = await this.listConversationSummariesForCompany(companyId, {
-        take: this.normalizeConversationTakeLimit(take, 10),
-      });
-    } catch (error) {
-      if (error instanceof ServiceUnavailableException || error instanceof ConflictException) {
-        return {
-          conversations: [],
-          selectedConversation: null,
-          providerWarning: {
-            message:
-              error instanceof ServiceUnavailableException
-                ? 'WhatsApp conectado, mas a inbox ainda nao respondeu. Tente recarregar em instantes.'
-                : 'Reconecte o WhatsApp para carregar a inbox.',
+  private async getPersistedConversationByIdForCompany(companyId: number, id: number) {
+    const row = await this.prisma.companyConversation.findFirst({
+      where: { companyId, id, channel: 'whatsapp' },
+      select: {
+        id: true,
+        contact: true,
+        metadata: true,
+        currentFlow: true,
+        currentStep: true,
+        flowResult: true,
+        botActive: true,
+        humanAssigned: true,
+        assignedUserId: true,
+        createdAt: true,
+        updatedAt: true,
+        lastMessageAt: true,
+        messages: {
+          orderBy: [{ timestamp: 'asc' }, { id: 'asc' }],
+          take: 200,
+          select: {
+            id: true,
+            direction: true,
+            messageType: true,
+            body: true,
+            senderType: true,
+            status: true,
+            error: true,
+            timestamp: true,
+            sourceModule: true,
+            providerMessageId: true,
+            rawPayload: true,
+            variablesJson: true,
           },
-        };
-      }
-      throw error;
-    }
-
-    const firstConversationId = conversations[0]?.id ? Number(conversations[0].id) : null;
-    let selectedConversation: any = null;
-    let providerWarning: { message: string } | null = null;
-
-    if (firstConversationId) {
-      try {
-        selectedConversation = await this.getConversationByIdForCompany(companyId, firstConversationId);
-      } catch (error) {
-        if (error instanceof ServiceUnavailableException || error instanceof ConflictException) {
-          providerWarning = {
-            message: 'A fila carregou, mas a primeira conversa ainda nao respondeu. Tente abrir novamente em instantes.',
-          };
-        } else {
-          throw error;
-        }
-      }
-    }
-
-    return {
-      conversations,
-      selectedConversation,
-      providerWarning,
-    };
-  }
-
-  async listConversations(user: any, take?: string | number) {
-    const companyId = this.requireCompanyIdFromUser(user);
-    try {
-      return await this.listConversationSummariesForCompany(companyId, { take });
-    } catch (error) {
-      if (error instanceof ServiceUnavailableException || error instanceof ConflictException) {
-        this.logger.warn(
-          `Inbox live conversation list unavailable for company ${companyId}; falling back to persisted conversations.`,
-        );
-        return this.listPersistedConversationSummariesForCompany(companyId, { take });
-      }
-      throw error;
-    }
-  }
-
-  private async getConversationByIdForCompany(companyId: number, id: number) {
-    const liveConversation = await this.loadLiveConversationForCompany(companyId, id, {
-      limit: 200,
+        },
+      },
     });
+
+    if (!row) {
+      throw new NotFoundException('Conversation not found');
+    }
+
     const routingRules = await this.getRecoveryRoutingRules(companyId);
-    const conversation = this.buildConversationReadModel(liveConversation);
-    const identityMap = await this.loadAtendimentoIdentityMap(companyId, [String(conversation.contact || '')]);
-    const phoneNormalized = this.normalizeConversationPhone(String(conversation.contact || '')) || '';
+    const identityMap = await this.loadAtendimentoIdentityMap(companyId, [String(row.contact || '')]);
+    const phoneNormalized = this.normalizeConversationPhone(String(row.contact || '')) || '';
     const identityRow = identityMap.get(phoneNormalized);
-    const sharedMap = await this.loadSharedProfileMap(companyId, [String(conversation.contact || '')], identityMap);
+    const sharedMap = await this.loadSharedProfileMap(companyId, [String(row.contact || '')], identityMap);
+
     return this.mapConversation(
       companyId,
-      conversation,
+      {
+        ...row,
+        updatedAt: row.lastMessageAt || row.updatedAt,
+        lastMessageAt: row.lastMessageAt || null,
+      },
       routingRules,
       identityRow,
       identityRow?.customerProfileId
         ? sharedMap.byProfileId.get(String(identityRow.customerProfileId)) ?? null
         : sharedMap.byPhoneNormalized.get(phoneNormalized) ?? null,
     );
+  }
+
+  async getBootstrap(user: any, take?: string | number) {
+    const companyId = this.requireCompanyIdFromUser(user);
+    const conversations = await this.listPersistedConversationSummariesForCompany(companyId, {
+      take: this.normalizeConversationTakeLimit(take, 10),
+    });
+
+    const firstConversationId = conversations[0]?.id ? Number(conversations[0].id) : null;
+    let selectedConversation: any = null;
+
+    if (firstConversationId) {
+      selectedConversation = await this.getPersistedConversationByIdForCompany(companyId, firstConversationId);
+    }
+
+    return {
+      conversations,
+      selectedConversation,
+      providerWarning: null,
+    };
+  }
+
+  async listConversations(user: any, take?: string | number) {
+    const companyId = this.requireCompanyIdFromUser(user);
+    return this.listPersistedConversationSummariesForCompany(companyId, { take });
+  }
+
+  private async getConversationByIdForCompany(companyId: number, id: number) {
+    return this.getPersistedConversationByIdForCompany(companyId, id);
   }
 
   async getConversationById(user: any, id: number) {

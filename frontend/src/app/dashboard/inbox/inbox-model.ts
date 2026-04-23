@@ -94,6 +94,7 @@ export type InboxConversation = {
   humanAssigned: boolean | null;
   createdAt: string;
   updatedAt: string;
+  lastMessageAt: string | null;
   currentFlow: string | null;
   flowResult: string | null;
   routeTarget: InboxRouteTarget;

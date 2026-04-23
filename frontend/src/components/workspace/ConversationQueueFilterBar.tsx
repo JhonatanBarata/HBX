@@ -16,9 +16,13 @@ type ConversationQueueFilterBarProps = {
   onChange: (value: ConversationQueueFilterValue) => void;
   counts: Record<ConversationQueueFilterValue, number>;
   dropOverQueue: ConversationQueueFilterValue | null;
+  allowQueueCardDrag?: boolean;
+  draggedQueue?: ConversationQueueFilterValue | null;
   onQueueDragOver: (queue: ConversationQueueFilterValue) => void;
   onQueueDragLeave: () => void;
   onQueueDrop: (queue: ConversationQueueFilterValue) => void;
+  onQueueCardDragStart?: (queue: ConversationQueueFilterValue) => void;
+  onQueueCardDragEnd?: () => void;
 };
 
 const OPTIONS: Array<{ value: ConversationQueueFilterValue; label: string }> = [
@@ -35,9 +39,13 @@ export default function ConversationQueueFilterBar({
   onChange,
   counts,
   dropOverQueue,
+  allowQueueCardDrag = false,
+  draggedQueue = null,
   onQueueDragOver,
   onQueueDragLeave,
   onQueueDrop,
+  onQueueCardDragStart,
+  onQueueCardDragEnd,
 }: ConversationQueueFilterBarProps) {
   const filterBarRef = useRef<HTMLDivElement | null>(null);
 
@@ -101,12 +109,23 @@ export default function ConversationQueueFilterBar({
             type="button"
             role="tab"
             className={styles.queueCard}
+            draggable={allowQueueCardDrag}
             data-active={active ? "true" : "false"}
             data-dropover={dropping ? "true" : "false"}
+            data-dragging-source={draggedQueue === option.value ? "true" : "false"}
             data-tone={option.value}
             data-queue-value="true"
             data-queue={option.value}
             onClick={() => onChange(option.value)}
+            onDragStart={(event) => {
+              if (!allowQueueCardDrag) return;
+              event.dataTransfer.effectAllowed = "move";
+              event.dataTransfer.setData("text/plain", `queue:${option.value}`);
+              onQueueCardDragStart?.(option.value);
+            }}
+            onDragEnd={() => {
+              onQueueCardDragEnd?.();
+            }}
             onDragOver={(event) => {
               event.preventDefault();
               onQueueDragOver(option.value);

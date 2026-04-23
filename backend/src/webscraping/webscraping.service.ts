@@ -29,6 +29,11 @@ export type NativeRuntimeDiagnostic = {
 
 export type WebscrapingRuntimeResponse = {
   native: NativeRuntimeDiagnostic;
+  quota: {
+    remainingSearches: number | null;
+    dailyLimit: number | null;
+    isTrialLimited: boolean;
+  };
   diagnostics?: {
     checkedAt: string;
     nativeTechnicalMessage: string;
@@ -272,8 +277,9 @@ export class WebscrapingService {
 
   async getRuntime(user: any): Promise<WebscrapingRuntimeResponse> {
     const native = this.inspectNativeRuntime();
+    const quota = await this.buildRuntimeQuota(user);
     if (!this.canSeeDiagnostics(user)) {
-      return { native };
+      return { native, quota };
     }
 
     let legacy: WebscrapingRuntimeDiagnostic | null = null;
@@ -285,6 +291,7 @@ export class WebscrapingService {
 
     return {
       native,
+      quota,
       diagnostics: {
         checkedAt: new Date().toISOString(),
         nativeTechnicalMessage: this.buildNativeTechnicalMessage(native),
@@ -655,6 +662,54 @@ export class WebscrapingService {
 
   private async supportsUsageLogPersistence() {
     return this.prisma.hasTable('WebscrapingUsageLog');
+  }
+
+  private async buildRuntimeQuota(user: any) {
+    const context = this.resolveContext(user);
+    const company = await this.prisma.company.findUnique({
+      where: { id: context.companyId },
+      select: {
+        onboardingStatus: true,
+        paymentStatus: true,
+        subscriptionStatus: true,
+      },
+    });
+
+    if (!company || !this.isTrialDailyLimitedCompany(company)) {
+      return {
+        remainingSearches: null,
+        dailyLimit: null,
+        isTrialLimited: false,
+      };
+    }
+
+    const usageLogEnabled = await this.supportsUsageLogPersistence();
+    if (!usageLogEnabled) {
+      return {
+        remainingSearches: TRIAL_DAILY_MOTOR_LIMIT,
+        dailyLimit: TRIAL_DAILY_MOTOR_LIMIT,
+        isTrialLimited: true,
+      };
+    }
+
+    const dayStart = this.startOfToday();
+    const nextDayStart = this.startOfTomorrow();
+    const todayMotorExecutions = await this.prisma.webscrapingUsageLog.count({
+      where: {
+        companyId: context.companyId,
+        eventType: 'MOTOR_EXECUTED',
+        createdAt: {
+          gte: dayStart,
+          lt: nextDayStart,
+        },
+      },
+    });
+
+    return {
+      remainingSearches: Math.max(0, TRIAL_DAILY_MOTOR_LIMIT - todayMotorExecutions),
+      dailyLimit: TRIAL_DAILY_MOTOR_LIMIT,
+      isTrialLimited: true,
+    };
   }
 
   private async assertTrialDailyLimit(context: SearchExecutionContext, input: NormalizedSearchInput) {

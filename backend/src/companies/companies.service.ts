@@ -8,6 +8,8 @@ import { ensureMasterBillingRuntimeSchema } from '../modules/master-runtime';
 import { buildWhatsAppCenterSnapshot } from './whatsapp-center.util';
 import { WhatsAppModalService } from './whatsapp-modal.service';
 import { ensureWebsiteRuntimeSchema } from '../website/website-runtime';
+import { MailService } from '../mail/mail.service';
+import { ConversationsService } from '../messaging/conversations.service';
 
 export const MASTER_HARD_DELETE_CONFIRM_TEXT = 'EXCLUIR EMPRESA';
 export const MASTER_HARD_DELETE_CONFIRMATION_INVALID_MESSAGE = 'Confirmacao invalida para hard delete.';
@@ -29,6 +31,8 @@ export class CompaniesService implements OnModuleInit, OnModuleDestroy {
   constructor(
     private readonly prisma: PrismaService,
     private readonly whatsappModalService: WhatsAppModalService,
+    private readonly mail: MailService,
+    private readonly conversations: ConversationsService,
   ) {}
 
   async onModuleInit() {
@@ -52,6 +56,94 @@ export class CompaniesService implements OnModuleInit, OnModuleDestroy {
   private normalizeOptionalString(value: unknown) {
     const normalized = String(value || '').trim();
     return normalized || null;
+  }
+
+  private getSupportWhatsAppTarget() {
+    return this.normalizeOptionalString(process.env.ADMIN_SUPPORT_PHONE) || '+5519997024884';
+  }
+
+  private getSupportEmailTarget() {
+    return this.normalizeOptionalString(process.env.ADMIN_SUPPORT_EMAIL) || 'jbinformatica1100@gmail.com';
+  }
+
+  private buildWhatsAppMigrationSupportMessage(company: {
+    id: number;
+    name?: string | null;
+    slug?: string | null;
+    whatsappMigrationInterestAt?: Date | null;
+  }, source: string) {
+    const requestedAt =
+      company?.whatsappMigrationInterestAt instanceof Date
+        ? company.whatsappMigrationInterestAt.toISOString()
+        : new Date().toISOString();
+    return [
+      'Novo pedido de contato tecnico no WhatsApp HBX.',
+      `Empresa: ${String(company?.name || '').trim() || 'Sem nome'} (#${Number(company?.id || 0)})`,
+      `Slug: ${String(company?.slug || '').trim() || '-'}`,
+      `Origem: ${source}`,
+      `Solicitado em: ${requestedAt}`,
+    ].join('\n');
+  }
+
+  private async notifyWhatsAppMigrationInterest(company: {
+    id: number;
+    name?: string | null;
+    slug?: string | null;
+    whatsappMigrationInterestAt?: Date | null;
+  }, source: string) {
+    const supportPhone = this.getSupportWhatsAppTarget();
+    const supportEmail = this.getSupportEmailTarget();
+    const subject = `WhatsApp tecnico solicitado - ${String(company?.slug || company?.name || company?.id || 'empresa')}`;
+    const text = this.buildWhatsAppMigrationSupportMessage(company, source);
+    const supportTemplateName = String(process.env.WHATSAPP_SUPPORT_TEMPLATE_NAME || '').trim();
+
+    try {
+      await this.conversations.queueOutboundForCompany(Number(company.id), {
+        to: supportPhone,
+        body: text,
+        messageType: supportTemplateName ? 'template' : 'text',
+        templateName: supportTemplateName || undefined,
+        templateLanguage: supportTemplateName
+          ? String(process.env.WHATSAPP_SUPPORT_TEMPLATE_LANGUAGE || 'pt_BR')
+          : undefined,
+        sourceModule: 'support',
+      });
+      this.logger.log(
+        `[whatsapp-migration] Notificacao enviada por WhatsApp company=${company.id} target=${supportPhone}`,
+      );
+      return {
+        channel: 'whatsapp',
+        target: supportPhone,
+      };
+    } catch {
+      this.logger.warn(
+        `[whatsapp-migration] Falha ao notificar por WhatsApp company=${company.id}; tentando email`,
+      );
+      try {
+        await this.mail.sendMail({
+          to: supportEmail,
+          subject,
+          text,
+        });
+        this.logger.log(
+          `[whatsapp-migration] Notificacao enviada por email company=${company.id} target=${supportEmail}`,
+        );
+        return {
+          channel: 'email',
+          target: supportEmail,
+        };
+      } catch (mailError) {
+        this.logger.error(
+          `[whatsapp-migration] Falha ao notificar suporte company=${company.id}`,
+          mailError instanceof Error ? mailError.stack : undefined,
+        );
+        return {
+          channel: 'none',
+          target: null,
+          error: mailError instanceof Error ? mailError.message : 'notify_failed',
+        };
+      }
+    }
   }
 
   private isProduction() {
@@ -511,7 +603,12 @@ export class CompaniesService implements OnModuleInit, OnModuleDestroy {
         whatsappMigrationWorkflowStatus: 'REQUESTED',
       },
     });
-    return this.getWhatsAppCenterForCompany(updated.id);
+    const payload = await this.getWhatsAppCenterForCompany(updated.id);
+    const notification = await this.notifyWhatsAppMigrationInterest(updated, source);
+    return {
+      ...payload,
+      notification,
+    };
   }
 
   async updateWhatsAppMigrationWorkflowByMaster(

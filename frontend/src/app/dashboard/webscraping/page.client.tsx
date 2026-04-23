@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import DashboardScaffold from "@/components/DashboardScaffold";
-import InlineLaunchNotice from "@/components/InlineLaunchNotice";
+import PremiumLaunchDialog from "@/components/PremiumLaunchDialog";
 import { useQuickLaunchNotice } from "@/components/useQuickLaunchNotice";
 import { apiFetch, getToken } from "../_lib/api";
 import { useRequireAuth } from "../_lib/useRequireAuth";
@@ -50,6 +50,11 @@ type NativeRuntime = {
 
 type RuntimeResponse = {
   native: NativeRuntime;
+  quota: {
+    remainingSearches: number | null;
+    dailyLimit: number | null;
+    isTrialLimited: boolean;
+  };
   diagnostics?: {
     checkedAt: string;
     nativeTechnicalMessage: string;
@@ -152,8 +157,6 @@ type CrmPreviewItem = {
 type CrmPreviewResponse = {
   items: CrmPreviewItem[];
 };
-
-type WebscrapingCrmActionKind = "status" | "results";
 
 function normalizePhoneDigits(raw: string) {
   let digits = String(raw || "").replace(/\D/g, "");
@@ -315,14 +318,14 @@ export default function WebscrapingClientPage() {
   const [scriptPresetHydrated, setScriptPresetHydrated] = useState(false);
   const [scriptPresetDraft, setScriptPresetDraft] = useState("");
   const [scriptPresetText, setScriptPresetText] = useState<string | null>(null);
-  const [activeCrmAction, setActiveCrmAction] = useState<WebscrapingCrmActionKind | null>(null);
   const crmLaunchNotice = useQuickLaunchNotice();
 
-  const canSeeDiagnostics = useMemo(
-    () => Boolean(currentUser?.isSystemMaster) || String(currentUser?.role || "").toUpperCase() === "ADMIN",
-    [currentUser?.isSystemMaster, currentUser?.role],
-  );
   const runtimeReady = runtime?.native.status === "online";
+  const remainingSearchesLabel = useMemo(() => {
+    if (!runtime?.quota) return "-";
+    if (!runtime.quota.isTrialLimited) return "Ilimitado";
+    return String(Math.max(0, Number(runtime.quota.remainingSearches || 0)));
+  }, [runtime?.quota]);
   const configurationPending = runtime?.native.code === "configuration_pending";
   const defaultScriptVariables = useMemo(() => buildDefaultScriptVariables(currentUser), [currentUser]);
   const crmPreviewSummary = useMemo(() => {
@@ -366,7 +369,6 @@ export default function WebscrapingClientPage() {
 
   function openVendasDashboard() {
     crmLaunchNotice.clear();
-    setActiveCrmAction(null);
     router.push("/dashboard/vendas");
   }
 
@@ -712,7 +714,7 @@ export default function WebscrapingClientPage() {
     }
   }
 
-  async function handleSendResultsToVendas(origin: WebscrapingCrmActionKind) {
+  async function handleSendResultsToVendas() {
     const query = activeQuery || {
       city,
       segment,
@@ -723,7 +725,6 @@ export default function WebscrapingClientPage() {
       return;
     }
 
-    setActiveCrmAction(origin);
     crmLaunchNotice.start({
       loadingTitle: "Carregando CRM de Vendas",
       loadingDescription: "Preparando leads, reaproveitando cadastros e montando a agenda comercial.",
@@ -759,7 +760,6 @@ export default function WebscrapingClientPage() {
       });
     } catch (error) {
       crmLaunchNotice.clear();
-      setActiveCrmAction(null);
       setSearchError(error instanceof Error ? error.message : "Falha ao enviar leads para Vendas.");
     } finally {
       setImportingToVendas(false);
@@ -821,28 +821,21 @@ export default function WebscrapingClientPage() {
           </section>
         ) : null}
 
-        {canSeeDiagnostics && runtime?.diagnostics ? (
-          <section className={styles.diagnosticCard}>
-            <div className={styles.diagnosticHeader}>
-              <strong>Diagnostico discreto</strong>
-              <span className={styles.diagnosticStamp}>{formatDateTime(runtime.diagnostics.checkedAt)}</span>
-            </div>
-            <div className={styles.diagnosticGrid}>
-              <div>
-                <span className={styles.diagnosticLabel}>Nativo</span>
-                <p className={styles.diagnosticText}>{runtime.diagnostics.nativeTechnicalMessage}</p>
-              </div>
-              <div>
-                <span className={styles.diagnosticLabel}>Legado interno</span>
-                <p className={styles.diagnosticText}>
-                  {runtime.diagnostics.legacy
-                    ? `${runtime.diagnostics.legacy.status} • ${runtime.diagnostics.legacy.code}`
-                    : "Sem diagnostico do legado"}
-                </p>
-              </div>
-            </div>
-          </section>
-        ) : null}
+        <section className={styles.runtimeVisionCard}>
+          <article className={styles.runtimeVisionMetric}>
+            <span className={styles.runtimeVisionLabel}>Pesquisas Restantes na API</span>
+            <strong className={styles.runtimeVisionValue}>{remainingSearchesLabel}</strong>
+          </article>
+          <article
+            className={styles.runtimeVisionMetric}
+            data-online={runtimeReady && !configurationPending ? "true" : "false"}
+          >
+            <span className={styles.runtimeVisionLabel}>Motor</span>
+            <strong className={styles.runtimeVisionValue}>
+              {runtimeReady && !configurationPending ? "Online" : "Offline"}
+            </strong>
+          </article>
+        </section>
 
         <section className={styles.searchCard}>
           <div className={styles.searchTop}>
@@ -1105,14 +1098,11 @@ export default function WebscrapingClientPage() {
             <button
               type="button"
               className="btn btn-secondary"
-              onClick={() => void handleSendResultsToVendas("status")}
+              onClick={() => void handleSendResultsToVendas()}
               disabled={importingToVendas || !results.length}
             >
               {importingToVendas ? "Enviando..." : `Enviar ${results.length} lead(s) ao CRM`}
             </button>
-            {activeCrmAction === "status" && crmLaunchNotice.notice ? (
-              <InlineLaunchNotice notice={crmLaunchNotice.notice} onOpen={crmLaunchNotice.openNow} />
-            ) : null}
           </section>
         ) : null}
 
@@ -1139,14 +1129,11 @@ export default function WebscrapingClientPage() {
                 <button
                   type="button"
                   className="btn btn-secondary"
-                  onClick={() => void handleSendResultsToVendas("results")}
+                  onClick={() => void handleSendResultsToVendas()}
                   disabled={importingToVendas || !results.length}
                 >
                   {importingToVendas ? "Enviando..." : "Herdar no CRM"}
                 </button>
-                {activeCrmAction === "results" && crmLaunchNotice.notice ? (
-                  <InlineLaunchNotice notice={crmLaunchNotice.notice} onOpen={crmLaunchNotice.openNow} compact />
-                ) : null}
               </div>
             ) : null}
           </div>
@@ -1296,6 +1283,8 @@ export default function WebscrapingClientPage() {
             </div>
           ) : null}
         </section>
+
+        <PremiumLaunchDialog notice={crmLaunchNotice.notice} onOpen={crmLaunchNotice.openNow} />
       </div>
     </DashboardScaffold>
   );

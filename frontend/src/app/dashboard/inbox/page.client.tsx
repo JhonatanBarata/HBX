@@ -1425,15 +1425,16 @@ function mergeDuplicateInboxConversations(conversationList: InboxConversation[])
 
 function getInboxConversationActivityAt(
   conversation?:
-    | Pick<InboxConversation, "createdAt" | "blockedAt" | "messages">
+    | Pick<InboxConversation, "createdAt" | "updatedAt" | "lastMessageAt" | "blockedAt" | "messages">
     | null,
 ) {
   const messages = Array.isArray(conversation?.messages) ? conversation.messages : [];
   const candidates = [
-    messages[0]?.createdAt,
-    messages[messages.length - 1]?.createdAt,
+    conversation?.lastMessageAt,
+    conversation?.updatedAt,
     conversation?.blockedAt,
     conversation?.createdAt,
+    ...messages.map((message) => message.createdAt),
   ]
     .map((value) => String(value || "").trim())
     .filter(Boolean);
@@ -1686,6 +1687,8 @@ function didInboxConversationViewChange(
     "blockedReason",
     "humanAssigned",
     "botActive",
+    "updatedAt",
+    "lastMessageAt",
     "recoveryCustomerId",
     "recoveryCurrentStep",
     "recoveryStatus",
@@ -1896,6 +1899,7 @@ export default function InboxClientPage() {
   const [manualQueueOverrides, setManualQueueOverrides] = useState<Record<string, InboxQueue>>({});
   const [deletedConversationAliases, setDeletedConversationAliases] = useState<DeletedConversationAliasMap>({});
   const [draggedConversationId, setDraggedConversationId] = useState<string | null>(null);
+  const [draggedQueueId, setDraggedQueueId] = useState<InboxQueue | null>(null);
   const [dropOverQueue, setDropOverQueue] = useState<InboxQueue | null>(null);
   const [conversations, setConversations] = useState<InboxConversation[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -1985,6 +1989,7 @@ export default function InboxClientPage() {
   const customerReturnInputRef = useRef<HTMLInputElement | null>(null);
   const customerReturnAutoSaveTimerRef = useRef<number | null>(null);
   const conversationsRef = useRef<InboxConversation[]>([]);
+  const manualQueueOverridesRef = useRef<Record<string, InboxQueue>>({});
   const deletedConversationAliasesRef = useRef<DeletedConversationAliasMap>({});
   const selectedIdRef = useRef<string | null>(null);
   const selectedConversationRef = useRef<InboxConversation | null>(null);
@@ -2198,6 +2203,10 @@ export default function InboxClientPage() {
   useEffect(() => {
     conversationsRef.current = conversations;
   }, [conversations]);
+
+  useEffect(() => {
+    manualQueueOverridesRef.current = manualQueueOverrides;
+  }, [manualQueueOverrides]);
 
   useEffect(() => {
     inboxQueueRef.current = inboxQueue;
@@ -3458,14 +3467,18 @@ export default function InboxClientPage() {
   }, [botConfig, globalBotEnabled]);
 
   const moveConversationToQueue = useCallback(
-    async (conversationId: string, targetQueue: InboxQueue) => {
+    async (
+      conversationId: string,
+      targetQueue: InboxQueue,
+      options?: { skipReload?: boolean; skipBotSync?: boolean },
+    ) => {
       if (!conversationId || !targetQueue) return;
       const numericConversationId = Number(conversationId);
       if (!Number.isFinite(numericConversationId)) return;
 
       setError(null);
       try {
-        if (targetQueue === "bot" || targetQueue === "all") {
+        if (!options?.skipBotSync && (targetQueue === "bot" || targetQueue === "all")) {
           await apiFetch(`/inbox/conversations/bulk-bot`, {
             method: "PATCH",
             body: JSON.stringify({ ids: [numericConversationId], enabled: targetQueue === "bot" }),
@@ -3488,23 +3501,104 @@ export default function InboxClientPage() {
           [conversationId]: targetQueue,
         }));
 
-        await loadConversations({ preferredId: conversationId, silent: true });
+        if (!options?.skipReload) {
+          await loadConversations({ preferredId: conversationId, silent: true });
+        }
       } catch (moveError) {
         const message = moveError instanceof Error ? moveError.message : "Falha ao mover conversa de fila.";
         setError(message);
+        throw moveError;
       }
     },
     [loadConversations],
   );
 
+  const moveQueueToQueue = useCallback(
+    async (sourceQueue: InboxQueue, targetQueue: InboxQueue) => {
+      if (!sourceQueue || !targetQueue || sourceQueue === targetQueue) return;
+
+      const conversationIds = conversationsRef.current
+        .filter(
+          (conversation) =>
+            getInboxConversationQueue(conversation, manualQueueOverridesRef.current) === sourceQueue,
+        )
+        .map((conversation) => conversation.id)
+        .filter(Boolean);
+
+      if (!conversationIds.length) {
+        setNotice({
+          tone: "error",
+          text: `Nenhuma conversa encontrada em ${getInboxQueueLabel(sourceQueue)}.`,
+        });
+        return;
+      }
+
+      setError(null);
+      try {
+        const numericIds = conversationIds
+          .map((conversationId) => Number(conversationId))
+          .filter((conversationId) => Number.isFinite(conversationId));
+
+        if (numericIds.length && (targetQueue === "bot" || targetQueue === "all")) {
+          await apiFetch(`/inbox/conversations/bulk-bot`, {
+            method: "PATCH",
+            body: JSON.stringify({ ids: numericIds, enabled: targetQueue === "bot" }),
+          });
+        }
+
+        const moveResults = await Promise.allSettled(
+          conversationIds.map((conversationId) =>
+            moveConversationToQueue(conversationId, targetQueue, {
+              skipReload: true,
+              skipBotSync: true,
+            }),
+          ),
+        );
+
+        const failedMoves = moveResults.filter((result) => result.status === "rejected").length;
+        await loadConversations({ preferredId: selectedIdRef.current, silent: true });
+        setInboxQueue(targetQueue);
+
+        if (failedMoves > 0) {
+          const movedCount = conversationIds.length - failedMoves;
+          const message = `Falha ao mover ${failedMoves} conversa(s) de ${getInboxQueueLabel(sourceQueue)}.`;
+          setError(message);
+          setNotice({
+            tone: movedCount > 0 ? "success" : "error",
+            text:
+              movedCount > 0
+                ? `${movedCount} de ${conversationIds.length} conversa(s) foram enviadas para ${getInboxQueueLabel(targetQueue)}.`
+                : message,
+          });
+          return;
+        }
+
+        setNotice({
+          tone: "success",
+          text: `${conversationIds.length} conversa(s) enviadas para ${getInboxQueueLabel(targetQueue)}.`,
+        });
+      } catch (bulkMoveError) {
+        const message = bulkMoveError instanceof Error ? bulkMoveError.message : "Falha ao mover a fila inteira.";
+        setError(message);
+      }
+    },
+    [loadConversations, moveConversationToQueue],
+  );
+
   const handleQueueDrop = useCallback(
     (targetQueue: InboxQueue) => {
-      if (!draggedConversationId) return;
-      void moveConversationToQueue(draggedConversationId, targetQueue);
+      if (draggedQueueId) {
+        void moveQueueToQueue(draggedQueueId, targetQueue);
+      } else if (draggedConversationId) {
+        void moveConversationToQueue(draggedConversationId, targetQueue);
+      } else {
+        return;
+      }
       setDropOverQueue(null);
       setDraggedConversationId(null);
+      setDraggedQueueId(null);
     },
-    [draggedConversationId, moveConversationToQueue],
+    [draggedConversationId, draggedQueueId, moveConversationToQueue, moveQueueToQueue],
   );
 
   const blockConversationById = useCallback(async (conversationId: string) => {
@@ -3770,7 +3864,17 @@ export default function InboxClientPage() {
             value={inboxQueue as ConversationQueueFilterValue}
             counts={queueCounts as Record<ConversationQueueFilterValue, number>}
             dropOverQueue={dropOverQueue as ConversationQueueFilterValue | null}
+            allowQueueCardDrag
+            draggedQueue={draggedQueueId as ConversationQueueFilterValue | null}
             onChange={(value) => setInboxQueue(value as InboxQueue)}
+            onQueueCardDragStart={(queue) => {
+              setDraggedConversationId(null);
+              setDraggedQueueId(queue as InboxQueue);
+            }}
+            onQueueCardDragEnd={() => {
+              setDraggedQueueId(null);
+              setDropOverQueue(null);
+            }}
             onQueueDragOver={(queue) => setDropOverQueue(queue as InboxQueue)}
             onQueueDragLeave={() => setDropOverQueue(null)}
             onQueueDrop={(queue) => handleQueueDrop(queue as InboxQueue)}
@@ -3814,10 +3918,12 @@ export default function InboxClientPage() {
                     onDragStart={(event) => {
                       event.dataTransfer.effectAllowed = "move";
                       event.dataTransfer.setData("text/plain", String(conversation.id));
+                      setDraggedQueueId(null);
                       setDraggedConversationId(String(conversation.id));
                     }}
                     onDragEnd={() => {
                       setDraggedConversationId(null);
+                      setDraggedQueueId(null);
                       setDropOverQueue(null);
                     }}
                     initials={getInboxConversationInitials(conversation)}
@@ -4937,6 +5043,7 @@ export default function InboxClientPage() {
       isConversationStageSwitching,
       deleteConversationById,
       deleteSentMessage,
+      draggedQueueId,
       failedInboxMediaUrls,
       loadConversation,
       loadingConversation,
