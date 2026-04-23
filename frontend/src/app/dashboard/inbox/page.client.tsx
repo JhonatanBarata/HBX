@@ -1424,9 +1424,7 @@ function mergeDuplicateInboxConversations(conversationList: InboxConversation[])
 }
 
 function getInboxConversationActivityAt(
-  conversation?:
-    | Pick<InboxConversation, "createdAt" | "updatedAt" | "lastMessageAt" | "blockedAt" | "messages">
-    | null,
+  conversation?: Partial<Pick<InboxConversation, "createdAt" | "updatedAt" | "lastMessageAt" | "blockedAt" | "messages">> | null,
 ) {
   const messages = Array.isArray(conversation?.messages) ? conversation.messages : [];
   const candidates = [
