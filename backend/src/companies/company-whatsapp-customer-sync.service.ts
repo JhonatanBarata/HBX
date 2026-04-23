@@ -1,11 +1,11 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { CadastrosService } from '../cadastros/cadastros.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { normalizeWhatsAppDigits, normalizeWhatsAppPhone } from '../messaging/whatsapp-channel';
 import { WebwhatsBridgeService } from '../messaging/webwhats-bridge.service';
 import { CompanyOperationalStatusService } from './company-operational-status.service';
 
-type SyncEngine = 'meta' | 'webwhats';
+export type SyncEngine = 'meta' | 'webwhats';
 
 type SyncCandidate = {
   phone: string;
@@ -15,8 +15,26 @@ type SyncCandidate = {
   lastMessageAt: Date | null;
 };
 
+type SyncCompanyCustomersOptions = {
+  requiredEngine?: SyncEngine;
+  failOnEmptySource?: boolean;
+};
+
+export type WhatsAppConnectBootstrapResult = {
+  success: boolean;
+  connected: boolean;
+  bootstrapOk: boolean;
+  syncedContacts: number;
+  syncedConversations: number;
+  engine: SyncEngine | null;
+  message: string;
+  error?: string | null;
+};
+
 @Injectable()
 export class CompanyWhatsAppCustomerSyncService {
+  private readonly logger = new Logger(CompanyWhatsAppCustomerSyncService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly cadastrosService: CadastrosService,
@@ -24,7 +42,15 @@ export class CompanyWhatsAppCustomerSyncService {
     private readonly webwhatsBridge: WebwhatsBridgeService,
   ) {}
 
-  private resolveActiveEngine(status: { metaActive?: boolean; webWhatsActive?: boolean } | null): SyncEngine | null {
+  private resolveActiveEngine(
+    status: { metaActive?: boolean; webWhatsActive?: boolean } | null,
+    requiredEngine?: SyncEngine,
+  ): SyncEngine | null {
+    if (requiredEngine) {
+      if (requiredEngine === 'meta' && status?.metaActive) return 'meta';
+      if (requiredEngine === 'webwhats' && status?.webWhatsActive) return 'webwhats';
+      return null;
+    }
     if (status?.metaActive) return 'meta';
     if (status?.webWhatsActive) return 'webwhats';
     return null;
@@ -231,15 +257,15 @@ export class CompanyWhatsAppCustomerSyncService {
   }
 
   private async buildWebwhatsCandidates(companyId: number) {
-    let syncedConversations = 0;
-    try {
-      syncedConversations = await this.webwhatsBridge.syncRecentChats(companyId, { force: true, limit: 120 });
-    } catch {
-      syncedConversations = 0;
-    }
+    const syncedConversations = await this.webwhatsBridge.syncRecentChats(companyId, {
+      force: true,
+      limit: 120,
+      failOnError: true,
+    });
+    this.logger.log(`Chats sincronizados do WebWhats para company ${companyId}: ${syncedConversations}.`);
 
     const { rows, candidatesByPhone } = await this.listConversationCandidates(companyId);
-    let contacts: Array<{
+    const contacts: Array<{
       remoteJid?: string | null;
       pushName?: string | null;
       name?: string | null;
@@ -250,12 +276,8 @@ export class CompanyWhatsAppCustomerSyncService {
       notifyName?: string | null;
       verifiedName?: string | null;
       businessName?: string | null;
-    }> = [];
-    try {
-      contacts = await this.webwhatsBridge.listContacts(companyId, { force: true });
-    } catch {
-      contacts = [];
-    }
+    }> = await this.webwhatsBridge.listContacts(companyId, { force: true, failOnError: true });
+    this.logger.log(`Contatos recebidos do WebWhats para company ${companyId}: ${contacts.length}.`);
 
     const merged = new Map(candidatesByPhone);
     for (const contact of contacts) {
@@ -282,7 +304,7 @@ export class CompanyWhatsAppCustomerSyncService {
     };
   }
 
-  async syncCompanyCustomers(companyId: number) {
+  async syncCompanyCustomers(companyId: number, options?: SyncCompanyCustomersOptions) {
     const normalizedCompanyId = Number(companyId || 0);
     if (!normalizedCompanyId) {
       throw new BadRequestException('Empresa nao identificada para sincronizar clientes.');
@@ -291,14 +313,29 @@ export class CompanyWhatsAppCustomerSyncService {
     const status = await this.operationalStatus.getOperationalStatusForCompany(normalizedCompanyId, {
       refresh: true,
     });
-    const engine = this.resolveActiveEngine(status);
+    const engine = this.resolveActiveEngine(status, options?.requiredEngine);
     if (!engine) {
-      throw new BadRequestException('Nenhum motor WhatsApp ativo nesta empresa. Conecte WebWhats ou Meta antes de atualizar o cadastro.');
+      const target = options?.requiredEngine === 'webwhats'
+        ? 'WebWhats QR'
+        : options?.requiredEngine === 'meta'
+          ? 'Meta'
+          : 'WhatsApp';
+      throw new BadRequestException(`Nenhum motor ${target} ativo nesta empresa. Conecte o WhatsApp antes de atualizar o cadastro.`);
     }
 
     const source = engine === 'meta'
       ? await this.buildMetaCandidates(normalizedCompanyId)
       : await this.buildWebwhatsCandidates(normalizedCompanyId);
+
+    if (
+      options?.failOnEmptySource
+      && source.candidates.length === 0
+    ) {
+      throw new BadRequestException(
+        'WebWhats conectado, mas nenhum chat ou contato foi retornado para espelhamento local.',
+      );
+    }
+
     const existingRows = await this.cadastrosService.listRawCustomerRegistry(normalizedCompanyId);
     const existingByPhone = new Map<string, any>(
       existingRows.map((row) => [String(row.phoneNormalized || ''), row]),
@@ -358,7 +395,13 @@ export class CompanyWhatsAppCustomerSyncService {
       }
     }
 
+    const message = `Sincronizacao WhatsApp concluida: ${syncedContacts} contatos persistidos, ${source.syncedConversations} chats recentes sincronizados.`;
+    this.logger.log(
+      `Contatos sincronizados para company ${normalizedCompanyId}: scanned=${source.candidates.length}, synced=${syncedContacts}, created=${createdContacts}, updated=${updatedContacts}, unchanged=${skippedUnchanged}.`,
+    );
+
     return {
+      success: true,
       engine,
       sourceLabel: engine === 'meta' ? 'Meta' : 'WebWhats',
       activeMotors: {
@@ -375,6 +418,85 @@ export class CompanyWhatsAppCustomerSyncService {
       skippedWithoutName,
       skippedWithoutPhone,
       skippedUnchanged,
+      message,
     };
+  }
+
+  async bootstrapAfterWhatsappConnect(companyId: number): Promise<WhatsAppConnectBootstrapResult> {
+    const normalizedCompanyId = Number(companyId || 0);
+    if (!normalizedCompanyId) {
+      return {
+        success: false,
+        connected: false,
+        bootstrapOk: false,
+        syncedContacts: 0,
+        syncedConversations: 0,
+        engine: null,
+        message: 'Empresa nao identificada para executar bootstrap do WhatsApp.',
+        error: 'Empresa nao identificada para executar bootstrap do WhatsApp.',
+      };
+    }
+
+    this.logger.log(`Bootstrap WhatsApp iniciado para company ${normalizedCompanyId}.`);
+
+    let connected = false;
+
+    try {
+      const status = await this.operationalStatus.getOperationalStatusForCompany(normalizedCompanyId, {
+        refresh: true,
+      });
+
+      if (!status?.webWhatsActive) {
+        const message = 'WebWhats QR ainda nao esta conectado. Bootstrap local nao executado.';
+        this.logger.warn(`Bootstrap WhatsApp falhou para company ${normalizedCompanyId}: ${message}`);
+        return {
+          success: false,
+          connected: false,
+          bootstrapOk: false,
+          syncedContacts: 0,
+          syncedConversations: 0,
+          engine: null,
+          message,
+          error: message,
+        };
+      }
+
+      connected = true;
+      this.logger.log(`QR conectado para company ${normalizedCompanyId}.`);
+      const syncResult = await this.syncCompanyCustomers(normalizedCompanyId, {
+        requiredEngine: 'webwhats',
+        failOnEmptySource: true,
+      });
+
+      const payload: WhatsAppConnectBootstrapResult = {
+        success: true,
+        connected: true,
+        bootstrapOk: true,
+        syncedContacts: Number(syncResult.syncedContacts || 0),
+        syncedConversations: Number(syncResult.syncedConversations || 0),
+        engine: 'webwhats',
+        message: syncResult.message || 'Bootstrap WhatsApp concluido com sucesso.',
+        error: null,
+      };
+      this.logger.log(
+        `Bootstrap WhatsApp concluido para company ${normalizedCompanyId}: contacts=${payload.syncedContacts}, chats=${payload.syncedConversations}.`,
+      );
+      return payload;
+    } catch (error: any) {
+      const message = String(error?.message || 'Falha ao executar bootstrap local do WhatsApp.');
+      this.logger.error(`Bootstrap WhatsApp falhou para company ${normalizedCompanyId}: ${message}`);
+      return {
+        success: false,
+        connected,
+        bootstrapOk: false,
+        syncedContacts: 0,
+        syncedConversations: 0,
+        engine: connected ? 'webwhats' : null,
+        message: connected
+          ? 'WhatsApp conectou, mas falhou ao espelhar conversas/clientes.'
+          : 'Falha ao confirmar conexão do WhatsApp QR antes do bootstrap.',
+        error: message,
+      };
+    }
   }
 }

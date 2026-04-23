@@ -68,6 +68,29 @@ export class AuthService implements OnModuleInit {
     return normalized || username;
   }
 
+  private async findCompanyByDisplayNameTx(tx: any, displayName: string) {
+    const name = String(displayName || '').trim();
+    if (!name) return null;
+
+    return tx.company.findFirst({
+      where: {
+        name: {
+          equals: name,
+          mode: 'insensitive',
+        },
+      },
+      orderBy: { id: 'asc' },
+      select: {
+        id: true,
+        name: true,
+        onboardingStatus: true,
+        _count: {
+          select: { users: true },
+        },
+      },
+    });
+  }
+
   private addDays(date: Date, days: number) {
     return new Date(date.getTime() + days * 24 * 60 * 60 * 1000);
   }
@@ -644,6 +667,34 @@ export class AuthService implements OnModuleInit {
       const tokenHash = this.sha256(rawToken);
       const confirmationExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
       const createdPending = await this.prisma.$transaction(async (tx) => {
+        const existingCompany = await this.findCompanyByDisplayNameTx(tx, displayName);
+        if (existingCompany) {
+          const pendingEmailConfirmation =
+            String(existingCompany.onboardingStatus || '').trim().toLowerCase() === 'pending_email_confirmation';
+          const existingCompanyRole = Number(existingCompany._count?.users || 0) > 0 ? 'USER' : 'ADMIN';
+          const updated = await tx.user.update({
+            where: { id: existingUsername.id },
+            data: {
+              email,
+              password: hashed,
+              name: resolvedName,
+              role: existingCompanyRole,
+              companyId: existingCompany.id,
+              emailConfirmedAt: pendingEmailConfirmation ? null : existingUsername.emailConfirmedAt || new Date(),
+              emailConfirmationToken: pendingEmailConfirmation ? tokenHash : null,
+              emailConfirmationSentAt: pendingEmailConfirmation ? new Date() : null,
+              emailConfirmationExpiresAt: pendingEmailConfirmation ? confirmationExpiresAt : null,
+            },
+          });
+          return {
+            attachedToExistingCompany: true,
+            companyId: existingCompany.id,
+            companyName: existingCompany.name,
+            pendingEmailConfirmation,
+            user: updated,
+          };
+        }
+
         const company = await tx.company.create({
           data: {
             slug,
@@ -687,8 +738,12 @@ export class AuthService implements OnModuleInit {
             emailConfirmationExpiresAt: confirmationExpiresAt,
           },
         });
-        return { companyName: company.name };
+        return { attachedToExistingCompany: false, companyName: company.name };
       });
+
+      if ((createdPending as any).attachedToExistingCompany && !(createdPending as any).pendingEmailConfirmation) {
+        return this.login((createdPending as any).user, { companyId: (createdPending as any).companyId });
+      }
 
       const delivery = await this.dispatchEmailConfirmation({
         email,
@@ -722,6 +777,35 @@ export class AuthService implements OnModuleInit {
     const confirmationExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
 
     const created = await this.prisma.$transaction(async (tx) => {
+      const existingCompany = await this.findCompanyByDisplayNameTx(tx, displayName);
+      if (existingCompany) {
+        const pendingEmailConfirmation =
+          String(existingCompany.onboardingStatus || '').trim().toLowerCase() === 'pending_email_confirmation';
+        const existingCompanyRole = Number(existingCompany._count?.users || 0) > 0 ? 'USER' : 'ADMIN';
+        const user = await tx.user.create({
+          data: {
+            username,
+            email,
+            password: hashed,
+            name: resolvedName,
+            role: existingCompanyRole,
+            companyId: existingCompany.id,
+            emailConfirmedAt: pendingEmailConfirmation ? null : new Date(),
+            emailConfirmationToken: pendingEmailConfirmation ? tokenHash : null,
+            emailConfirmationSentAt: pendingEmailConfirmation ? new Date() : null,
+            emailConfirmationExpiresAt: pendingEmailConfirmation ? confirmationExpiresAt : null,
+          },
+        });
+
+        return {
+          attachedToExistingCompany: true,
+          companyId: existingCompany.id,
+          companyName: existingCompany.name,
+          pendingEmailConfirmation,
+          user,
+        };
+      }
+
       const company = await tx.company.create({
         data: {
           slug,
@@ -768,8 +852,12 @@ export class AuthService implements OnModuleInit {
         },
       });
 
-      return { companyName: company.name };
+      return { attachedToExistingCompany: false, companyName: company.name };
     });
+
+    if ((created as any).attachedToExistingCompany && !(created as any).pendingEmailConfirmation) {
+      return this.login((created as any).user, { companyId: (created as any).companyId });
+    }
 
     const delivery = await this.dispatchEmailConfirmation({
       email,
