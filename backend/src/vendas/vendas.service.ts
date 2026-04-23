@@ -1,4 +1,4 @@
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { CustomerProfileService } from '../customer-profile/customer-profile.service';
 import { InboxService } from '../inbox/inbox.service';
 import { ConversationsService } from '../messaging/conversations.service';
@@ -61,6 +61,8 @@ type VendasAgendaQueueMetadata = {
 
 @Injectable()
 export class VendasService {
+  private readonly logger = new Logger(VendasService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly customerProfileService: CustomerProfileService,
@@ -567,6 +569,7 @@ export class VendasService {
 
   async syncTodayAgendaForUser(user: any) {
     const context = this.resolveUserContext(user);
+    this.logger.log(`[vendas-agenda] Iniciando espelhamento de cards de hoje para company=${context.companyId}`);
     const rows = await this.prisma.vendasLead.findMany({
       where: { companyId: context.companyId },
       orderBy: [{ returnAt: 'asc' }, { updatedAt: 'desc' }, { createdAt: 'desc' }],
@@ -633,14 +636,54 @@ export class VendasService {
       deactivated += 1;
     }
 
+    const todayLeadCount = rows.filter((row) => this.shouldMirrorLeadToInboxAgenda(row)).length;
+    const activeMirroredConversations = await this.prisma.companyConversation.findMany({
+      where: {
+        companyId: context.companyId,
+        channel: 'whatsapp',
+        metadata: { contains: '"vendasAgendaQueue"' },
+      },
+      select: {
+        metadata: true,
+      },
+    });
+    const activeMirroredLeadIds = new Set<string>();
+    for (const conversation of activeMirroredConversations) {
+      const queue = this.readVendasAgendaQueueMetadata(this.parseConversationMetadata(conversation.metadata));
+      const leadId = String(queue?.leadId || '').trim();
+      if (queue?.active && leadId && activeLeadIds.has(leadId)) {
+        activeMirroredLeadIds.add(leadId);
+      }
+    }
+    const mirroredLeadCount = activeMirroredLeadIds.size;
+
+    if (todayLeadCount > 0 && mirroredLeadCount === 0) {
+      this.logger.error(
+        `[vendas-agenda] Falha operacional: nenhum card de hoje foi espelhado company=${context.companyId} today=${todayLeadCount} skippedWithoutPhone=${skippedWithoutPhone}`,
+      );
+      throw new BadRequestException(
+        skippedWithoutPhone > 0
+          ? 'Nenhum card de hoje foi espelhado no Atendimento porque os leads estao sem telefone valido.'
+          : 'Nenhum card de hoje foi espelhado no Atendimento.',
+      );
+    }
+
+    const message = todayLeadCount
+      ? `${mirroredLeadCount} card(s) de hoje preparados no Atendimento com roteiro pendente para envio manual.`
+      : 'Nao ha cards de hoje para preparar no Atendimento.';
+    this.logger.log(
+      `[vendas-agenda] Espelhamento concluido company=${context.companyId} today=${todayLeadCount} mirrored=${mirroredLeadCount} activated=${activated} updated=${updated} deactivated=${deactivated} skippedWithoutPhone=${skippedWithoutPhone}`,
+    );
+
     return {
       ok: true,
-      todayLeadCount: rows.filter((row) => this.shouldMirrorLeadToInboxAgenda(row)).length,
-      mirroredLeadCount: activeLeadIds.size,
+      todayLeadCount,
+      mirroredLeadCount,
       activated,
       updated,
       deactivated,
       skippedWithoutPhone,
+      message,
     };
   }
 

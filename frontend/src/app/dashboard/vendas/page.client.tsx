@@ -17,6 +17,8 @@ import { CSS } from "@dnd-kit/utilities";
 import { useDeferredValue, useEffect, useMemo, useRef, useState, useCallback, type CSSProperties, type FormEvent, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import DashboardScaffold from "@/components/DashboardScaffold";
+import InlineLaunchNotice, { type InlineLaunchNoticeState } from "@/components/InlineLaunchNotice";
+import { useQuickLaunchNotice } from "@/components/useQuickLaunchNotice";
 import { apiFetch } from "../_lib/api";
 import { useRequireAuth } from "../_lib/useRequireAuth";
 import { HBX_WINDOW_STANDARD } from "@/lib/hbx-window-system";
@@ -98,6 +100,17 @@ type LeadItem = {
 type BoardResponse = {
   summary: { total: number; today: number; overdue: number; scheduled: number; closed: number };
   blocks: Record<LeadBlockKey, LeadItem[]>;
+};
+
+type TodayAgendaSyncResponse = {
+  ok?: boolean;
+  todayLeadCount?: number;
+  mirroredLeadCount?: number;
+  activated?: number;
+  updated?: number;
+  deactivated?: number;
+  skippedWithoutPhone?: number;
+  message?: string | null;
 };
 
 type LeadDraft = {
@@ -374,7 +387,10 @@ function DateDropSlot({
   active,
   pulse,
   dragging,
+  todayShortcutNotice,
   ignoreClick,
+  onTodayShortcutOpen,
+  onTodayShortcut,
   onSelect,
   register,
 }: {
@@ -382,7 +398,10 @@ function DateDropSlot({
   active: boolean;
   pulse: boolean;
   dragging: boolean;
+  todayShortcutNotice: InlineLaunchNoticeState | null;
   ignoreClick: () => boolean;
+  onTodayShortcutOpen: () => void;
+  onTodayShortcut: () => void;
   onSelect: () => void;
   register: (node: HTMLElement | null) => void;
 }) {
@@ -394,8 +413,6 @@ function DateDropSlot({
     setDragRef(node);
     register(node);
   };
-
-  const router = useRouter();
 
   const rawSubtitle = String(item.subtitle || "").trim();
   let showSubtitle = Boolean(rawSubtitle);
@@ -409,7 +426,7 @@ function DateDropSlot({
     if (["sem pendencia", "fluxo principal", "sem agenda"].includes(normalized)) {
       showSubtitle = false;
     }
-  } catch (e) {
+  } catch {
     const fallback = rawSubtitle.toLowerCase().replace(/[^a-z0-9 ]/g, "").trim();
     if (["sem pendencia", "fluxo principal", "sem agenda"].includes(fallback)) {
       showSubtitle = false;
@@ -453,19 +470,10 @@ function DateDropSlot({
         <button
           type="button"
           className={styles.atendimentoShortcut}
-          onClick={async (e) => {
+          onClick={(e) => {
             e.stopPropagation();
             e.preventDefault();
-            try {
-              await apiFetch("/vendas/agenda/whatsapp/sync-today", { method: "POST" });
-            } catch {
-              // A propria tela de Atendimento recarrega a fila; a navegacao ainda ajuda a corrigir o fluxo.
-            }
-            try {
-              router.push("/dashboard/inbox?atendimentoQueue=scheduled&atendimentoSection=agenda");
-            } catch {
-              // fallback silencioso
-            }
+            onTodayShortcut();
           }}
           title="Enviar cards de hoje para Atendimento / Agendamento"
           aria-label="Enviar cards de hoje para Atendimento / Agendamento"
@@ -474,6 +482,10 @@ function DateDropSlot({
             <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
         </button>
+      ) : null}
+
+      {item.blockKey === "today" && todayShortcutNotice ? (
+        <InlineLaunchNotice notice={todayShortcutNotice} onOpen={onTodayShortcutOpen} compact />
       ) : null}
 
       <AnimatedCount value={item.count} />
@@ -773,6 +785,7 @@ function DraggableLeadCard({
 }
 
 export default function VendasClientPage() {
+  const router = useRouter();
   const hasToken = useRequireAuth();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -809,6 +822,7 @@ export default function VendasClientPage() {
   const initialAgendaSyncRef = useRef(false);
   const [visibleDateCount, setVisibleDateCount] = useState<number>(Infinity);
   const [scrollerReady, setScrollerReady] = useState(false);
+  const todayAgendaLaunchNotice = useQuickLaunchNotice();
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
   const detectDateFilterCollision = useMemo<CollisionDetection>(
     () => ({ pointerCoordinates, droppableContainers }) => {
@@ -856,6 +870,44 @@ export default function VendasClientPage() {
       // Best effort only. The per-lead sync still runs on create/update/import.
     }
   }, []);
+
+  const openInboxAgenda = useCallback(() => {
+    todayAgendaLaunchNotice.clear();
+    router.push("/dashboard/inbox?atendimentoQueue=scheduled&atendimentoSection=agenda");
+  }, [router, todayAgendaLaunchNotice]);
+
+  const handleTodayShortcut = useCallback(async () => {
+    todayAgendaLaunchNotice.start({
+      loadingTitle: "Abrindo Agendamento",
+      loadingDescription: "Enviando os cards de hoje para o chat e preparando a fila de agenda.",
+      successTitle: "Agendamento pronto",
+      successDescription: "Tudo certo. O chat de agendamento sera aberto agora.",
+      ctaLabel: "Abrir Chat de Agendamento!",
+      onOpen: openInboxAgenda,
+    });
+
+    try {
+      const syncResult = await apiFetch<TodayAgendaSyncResponse>("/vendas/agenda/whatsapp/sync-today", {
+        method: "POST",
+      });
+      const todayLeadCount = Number(syncResult?.todayLeadCount || 0);
+      const mirroredLeadCount = Number(syncResult?.mirroredLeadCount || 0);
+      if (!syncResult?.ok || (todayLeadCount > 0 && mirroredLeadCount <= 0)) {
+        throw new Error(
+          syncResult?.message ||
+            "Os cards de hoje nao foram espelhados no Atendimento. Recarregue e tente novamente.",
+        );
+      }
+      todayAgendaLaunchNotice.markSuccess({
+        successDescription: todayLeadCount
+          ? `${mirroredLeadCount} card(s) foram preparados no Atendimento com roteiro pendente para envio manual.`
+          : "Nao ha cards de hoje para preparar no Atendimento.",
+      });
+    } catch (syncError) {
+      todayAgendaLaunchNotice.clear();
+      setError(syncError instanceof Error ? syncError.message : "Falha ao abrir o chat de agendamento.");
+    }
+  }, [openInboxAgenda, todayAgendaLaunchNotice]);
 
   useEffect(() => {
     if (hasToken !== true) return;
@@ -1692,7 +1744,10 @@ export default function VendasClientPage() {
                     active={selectedDateKey === item.key}
                     pulse={pulseDateKey === item.key}
                     dragging={Boolean(activeDragLeadId || activeDragDateKey)}
+                    todayShortcutNotice={item.blockKey === "today" ? todayAgendaLaunchNotice.notice : null}
                     ignoreClick={() => performance.now() - lastDragEndedAtRef.current < 70}
+                    onTodayShortcutOpen={todayAgendaLaunchNotice.openNow}
+                    onTodayShortcut={() => void handleTodayShortcut()}
                     onSelect={() => setSelectedDateKey(item.key)}
                     register={(node) => registerDateFilterRef(item.key, node)}
                   />

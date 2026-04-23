@@ -1,7 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import DashboardScaffold from "@/components/DashboardScaffold";
+import InlineLaunchNotice from "@/components/InlineLaunchNotice";
+import { useQuickLaunchNotice } from "@/components/useQuickLaunchNotice";
 import { apiFetch, getToken } from "../_lib/api";
 import { useRequireAuth } from "../_lib/useRequireAuth";
 import styles from "./page.module.css";
@@ -150,6 +153,8 @@ type CrmPreviewResponse = {
   items: CrmPreviewItem[];
 };
 
+type WebscrapingCrmActionKind = "status" | "results";
+
 function normalizePhoneDigits(raw: string) {
   let digits = String(raw || "").replace(/\D/g, "");
   if (digits.startsWith("55") && digits.length > 11) {
@@ -276,6 +281,7 @@ async function downloadExcel(body: Record<string, unknown>) {
 }
 
 export default function WebscrapingClientPage() {
+  const router = useRouter();
   const hasToken = useRequireAuth();
   const [runtime, setRuntime] = useState<RuntimeResponse | null>(null);
   const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
@@ -309,6 +315,8 @@ export default function WebscrapingClientPage() {
   const [scriptPresetHydrated, setScriptPresetHydrated] = useState(false);
   const [scriptPresetDraft, setScriptPresetDraft] = useState("");
   const [scriptPresetText, setScriptPresetText] = useState<string | null>(null);
+  const [activeCrmAction, setActiveCrmAction] = useState<WebscrapingCrmActionKind | null>(null);
+  const crmLaunchNotice = useQuickLaunchNotice();
 
   const canSeeDiagnostics = useMemo(
     () => Boolean(currentUser?.isSystemMaster) || String(currentUser?.role || "").toUpperCase() === "ADMIN",
@@ -355,6 +363,12 @@ export default function WebscrapingClientPage() {
     results,
     segment,
   ]);
+
+  function openVendasDashboard() {
+    crmLaunchNotice.clear();
+    setActiveCrmAction(null);
+    router.push("/dashboard/vendas");
+  }
 
   useEffect(() => {
     if (hasToken !== true) return;
@@ -698,7 +712,7 @@ export default function WebscrapingClientPage() {
     }
   }
 
-  async function handleSendResultsToVendas() {
+  async function handleSendResultsToVendas(origin: WebscrapingCrmActionKind) {
     const query = activeQuery || {
       city,
       segment,
@@ -709,6 +723,15 @@ export default function WebscrapingClientPage() {
       return;
     }
 
+    setActiveCrmAction(origin);
+    crmLaunchNotice.start({
+      loadingTitle: "Carregando CRM de Vendas",
+      loadingDescription: "Preparando leads, reaproveitando cadastros e montando a agenda comercial.",
+      successTitle: "Leads prontos no CRM",
+      successDescription: "Tudo certo. A agenda comercial sera aberta agora com os cards importados.",
+      ctaLabel: "Abrir Agenda de Vendas!",
+      onOpen: openVendasDashboard,
+    });
     setImportingToVendas(true);
     setSearchError(null);
     try {
@@ -729,7 +752,14 @@ export default function WebscrapingClientPage() {
         }),
       });
       setFeedback(payload.message || "Leads enviados para o CRM de Vendas.");
+      crmLaunchNotice.markSuccess({
+        successDescription:
+          payload.message ||
+          "Tudo certo. Os leads foram enviados para Vendas e a agenda sera aberta automaticamente.",
+      });
     } catch (error) {
+      crmLaunchNotice.clear();
+      setActiveCrmAction(null);
       setSearchError(error instanceof Error ? error.message : "Falha ao enviar leads para Vendas.");
     } finally {
       setImportingToVendas(false);
@@ -1075,11 +1105,14 @@ export default function WebscrapingClientPage() {
             <button
               type="button"
               className="btn btn-secondary"
-              onClick={() => void handleSendResultsToVendas()}
+              onClick={() => void handleSendResultsToVendas("status")}
               disabled={importingToVendas || !results.length}
             >
               {importingToVendas ? "Enviando..." : `Enviar ${results.length} lead(s) ao CRM`}
             </button>
+            {activeCrmAction === "status" && crmLaunchNotice.notice ? (
+              <InlineLaunchNotice notice={crmLaunchNotice.notice} onOpen={crmLaunchNotice.openNow} />
+            ) : null}
           </section>
         ) : null}
 
@@ -1106,11 +1139,14 @@ export default function WebscrapingClientPage() {
                 <button
                   type="button"
                   className="btn btn-secondary"
-                  onClick={() => void handleSendResultsToVendas()}
+                  onClick={() => void handleSendResultsToVendas("results")}
                   disabled={importingToVendas || !results.length}
                 >
                   {importingToVendas ? "Enviando..." : "Herdar no CRM"}
                 </button>
+                {activeCrmAction === "results" && crmLaunchNotice.notice ? (
+                  <InlineLaunchNotice notice={crmLaunchNotice.notice} onOpen={crmLaunchNotice.openNow} compact />
+                ) : null}
               </div>
             ) : null}
           </div>

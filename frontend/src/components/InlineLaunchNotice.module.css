@@ -1,0 +1,90 @@
+.notice {
+  display: grid;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.82rem 0.9rem;
+  border-radius: 20px;
+  border: 1px solid color-mix(in srgb, var(--brand) 18%, var(--line));
+  background:
+    radial-gradient(circle at top right, color-mix(in srgb, var(--brand) 10%, transparent), transparent 38%),
+    linear-gradient(180deg, color-mix(in srgb, var(--surface) 98%, var(--background)), color-mix(in srgb, var(--surface-soft) 95%, var(--background)));
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--surface) 96%, var(--background)),
+    0 14px 28px -24px rgba(15, 23, 42, 0.34);
+}
+
+.notice[data-phase="success"] {
+  border-color: color-mix(in srgb, var(--success) 32%, var(--line));
+}
+
+.notice[data-compact="true"] {
+  gap: 0.42rem;
+  padding: 0.72rem 0.78rem;
+  border-radius: 18px;
+}
+
+.noticeHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.noticeTitle {
+  color: var(--foreground);
+  font-size: 0.9rem;
+  line-height: 1.1;
+}
+
+.notice[data-compact="true"] .noticeTitle {
+  font-size: 0.82rem;
+}
+
+.noticeMeta {
+  font-size: 0.74rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--brand) 88%, var(--foreground));
+}
+
+.notice[data-phase="success"] .noticeMeta {
+  color: color-mix(in srgb, var(--success) 80%, var(--foreground));
+}
+
+.noticeDescription {
+  margin: 0;
+  font-size: 0.84rem;
+  line-height: 1.35;
+  color: var(--foreground-soft);
+}
+
+.notice[data-compact="true"] .noticeDescription {
+  font-size: 0.78rem;
+}
+
+.progressTrack {
+  position: relative;
+  overflow: hidden;
+  height: 0.48rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--line) 76%, var(--background));
+}
+
+.progressBar {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--brand) 86%, white), color-mix(in srgb, var(--brand) 58%, var(--info)));
+  transition: width 180ms ease;
+}
+
+.notice[data-phase="success"] .progressBar {
+  background: linear-gradient(90deg, color-mix(in srgb, var(--success) 92%, white), color-mix(in srgb, var(--success) 72%, var(--info)));
+}
+
+@media (max-width: 720px) {
+  .notice {
+    padding: 0.74rem 0.8rem;
+  }
+}

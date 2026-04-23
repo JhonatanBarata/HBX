@@ -1113,6 +1113,15 @@ function getInboxVendasAgendaQueue(conversation?: InboxConversation | null) {
   return metadata.vendasAgendaQueue as VendasAgendaQueueMetadata;
 }
 
+function getInboxVendasAgendaPendingDraft(conversation?: InboxConversation | null) {
+  const queue = getInboxVendasAgendaQueue(conversation);
+  if (!queue || !parseInboxBooleanFlag(queue.active)) return null;
+  if (parseInboxBooleanFlag(queue.manualSent) || String(queue.manualSentAt || "").trim()) return null;
+  if (queue.draftPending === false) return null;
+  const draftMessage = String(queue.draftMessage || "").trim();
+  return draftMessage || null;
+}
+
 function isInboxGroupRemoteJid(raw: string | null | undefined) {
   const value = String(raw || "").trim().toLowerCase();
   return value.includes("@g.us");
@@ -1460,6 +1469,8 @@ function getInboxConversationPreview(conversation?: InboxConversation | null) {
   const preview = String(getMessagePreview(latestMessage) || "").trim();
   if (preview) return preview;
   if (!conversation) return "";
+  const pendingDraft = getInboxVendasAgendaPendingDraft(conversation);
+  if (pendingDraft) return `Roteiro pendente: ${pendingDraft}`;
   if (isAtendimentoAgendaConversation(conversation)) return "Agendamento em andamento";
   if (conversation.isBlocked) return "Contato bloqueado";
   if (conversation.status === "closed") return "Conversa encerrada";
@@ -2996,6 +3007,10 @@ export default function InboxClientPage() {
   const selectedConversationIsAgenda = conversationForView
     ? isAtendimentoAgendaConversation(conversationForView)
     : false;
+  const selectedVendasAgendaDraftMessage = useMemo(
+    () => getInboxVendasAgendaPendingDraft(conversationForView),
+    [conversationForView],
+  );
   const conversationMessagesForView = useMemo(
     () =>
       (Array.isArray(conversationForView?.messages) ? conversationForView.messages : []).filter(
@@ -3935,7 +3950,13 @@ export default function InboxClientPage() {
                 {loadingConversation || isInboxConversationSummaryOnly(conversationForView) ? (
                   <ChatEmptyState title="Carregando conversa">Preparando historico do cliente.</ChatEmptyState>
                 ) : conversationMessagesForView.length === 0 ? (
-                  <ChatEmptyState title="Sem mensagens">Esta conversa ainda nao tem historico registrado.</ChatEmptyState>
+                  selectedVendasAgendaDraftMessage ? (
+                    <ChatEmptyState title="Roteiro carregado">
+                      A mensagem de Vendas esta pre-carregada abaixo para envio manual.
+                    </ChatEmptyState>
+                  ) : (
+                    <ChatEmptyState title="Sem mensagens">Esta conversa ainda nao tem historico registrado.</ChatEmptyState>
+                  )
                 ) : (
                   conversationMessagesForView.map((message, index) => {
                     const tone = mapInboxBubbleTone(message);
@@ -4427,6 +4448,10 @@ export default function InboxClientPage() {
                 {selectedBlocked ? (
                   <small className={styles.whatsAppComposerHint}>
                     Contato bloqueado. Desbloqueie para responder.
+                  </small>
+                ) : selectedVendasAgendaDraftMessage ? (
+                  <small className={styles.whatsAppComposerHint}>
+                    Roteiro de Vendas carregado. Revise e envie manualmente.
                   </small>
                 ) : null}
               </form>
@@ -5278,6 +5303,17 @@ export default function InboxClientPage() {
     setQueueActionConversationId(null);
     setMessageReactionTargetId(null);
   }, [selectedId]);
+
+  useEffect(() => {
+    if (!selectedId || selectedBlocked || !selectedVendasAgendaDraftMessage) return;
+    setSendText((current) => {
+      const normalizedCurrent = String(current || "").trim();
+      if (sendTextDirtyRef.current && normalizedCurrent) return current;
+      if (normalizedCurrent && normalizedCurrent !== selectedVendasAgendaDraftMessage) return current;
+      sendTextDirtyRef.current = false;
+      return selectedVendasAgendaDraftMessage;
+    });
+  }, [selectedBlocked, selectedId, selectedVendasAgendaDraftMessage]);
 
   useEffect(() => {
     if (humanAlertTimerRef.current !== null) {
