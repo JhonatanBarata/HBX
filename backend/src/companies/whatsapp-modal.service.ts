@@ -615,10 +615,7 @@ export class WhatsAppModalService {
   }
 
   private readModalApiKey() {
-    return (
-      this.normalizeOptionalString(process.env.WHATSAPP_MODAL_API_KEY) ||
-      this.normalizeOptionalString(process.env.AUTHENTICATION_API_KEY)
-    );
+    return this.normalizeOptionalString(process.env.WHATSAPP_MODAL_API_KEY);
   }
 
   private readConfig(): ModalConfig {
@@ -630,7 +627,7 @@ export class WhatsAppModalService {
     const missingConfigKeys: string[] = [];
 
     if (!internalUrl) missingConfigKeys.push('WHATSAPP_MODAL_INTERNAL_URL');
-    if (!apiKey) missingConfigKeys.push('WHATSAPP_MODAL_API_KEY ou AUTHENTICATION_API_KEY');
+    if (!apiKey) missingConfigKeys.push('WHATSAPP_MODAL_API_KEY');
 
     const configured = Boolean(internalUrl && apiKey);
     const setupHint = !enabled
@@ -1134,7 +1131,7 @@ export class WhatsAppModalService {
     if (response.status === 401 || response.status === 403) {
       return new WhatsAppModalProviderError(
         'WHATSAPP_MODAL_NOT_CONFIGURED',
-        `Webwhats recusou a autenticacao durante ${purpose}. Verifique WHATSAPP_MODAL_API_KEY ou AUTHENTICATION_API_KEY.${suffix}`.trim(),
+        `Webwhats recusou a autenticacao durante ${purpose}. Verifique WHATSAPP_MODAL_API_KEY.${suffix}`.trim(),
         response.status,
       );
     }
