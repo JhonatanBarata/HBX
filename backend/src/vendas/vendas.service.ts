@@ -365,8 +365,14 @@ export class VendasService {
     return 'Olá. Estou retomando nosso contato pelo HBX Vendas. Quando puder, me responda por aqui.';
   }
 
-  private buildVendasAgendaQueueMetadata(row: any, currentQueue?: VendasAgendaQueueMetadata | null) {
-    const manualQueueOverride = this.normalizeText(currentQueue?.manualQueueOverride);
+  private buildVendasAgendaQueueMetadata(
+    row: any,
+    currentQueue?: VendasAgendaQueueMetadata | null,
+    options?: { forceScheduled?: boolean },
+  ) {
+    const manualQueueOverride = options?.forceScheduled
+      ? null
+      : this.normalizeText(currentQueue?.manualQueueOverride);
     const draftMessage = this.buildSalesAgendaDraftMessage(row);
     const nextAction = this.normalizeText(row?.nextAction);
     const returnAt = row?.returnAt instanceof Date ? row.returnAt.toISOString() : this.parseDate(row?.returnAt)?.toISOString() || null;
@@ -393,7 +399,7 @@ export class VendasService {
         botEligible: false,
         botEntryPending: false,
         manualQueueOverride,
-        manualQueueOverriddenAt: this.normalizeText(currentQueue?.manualQueueOverriddenAt),
+        manualQueueOverriddenAt: options?.forceScheduled ? null : this.normalizeText(currentQueue?.manualQueueOverriddenAt),
       } satisfies VendasAgendaQueueMetadata;
     }
     const contentChanged =
@@ -422,7 +428,10 @@ export class VendasService {
       botEligible: currentQueue?.botEligible === true,
       botEntryPending: currentQueue?.botEntryPending === true,
       manualQueueOverride: manualQueueOverride === 'scheduled' ? null : manualQueueOverride,
-      manualQueueOverriddenAt: manualQueueOverride === 'scheduled' ? null : this.normalizeText(currentQueue?.manualQueueOverriddenAt),
+      manualQueueOverriddenAt:
+        manualQueueOverride === 'scheduled' || options?.forceScheduled
+          ? null
+          : this.normalizeText(currentQueue?.manualQueueOverriddenAt),
     } satisfies VendasAgendaQueueMetadata;
   }
 
@@ -467,7 +476,7 @@ export class VendasService {
     });
   }
 
-  private async activateLeadInInboxAgenda(companyId: number, row: any) {
+  private async activateLeadInInboxAgenda(companyId: number, row: any, options?: { forceScheduled?: boolean }) {
     const phoneRaw = row?.phoneNormalized || row?.phone;
     const contact = this.buildPreferredLeadContact(phoneRaw) || this.normalizeLeadConversationPhone(phoneRaw);
     if (!contact) {
@@ -479,7 +488,7 @@ export class VendasService {
       (await this.conversations.getOrCreateConversationForContact(companyId, contact));
     const metadata = this.parseConversationMetadata(conversation?.metadata);
     const currentQueue = this.readVendasAgendaQueueMetadata(metadata);
-    const nextQueue = this.buildVendasAgendaQueueMetadata(row, currentQueue);
+    const nextQueue = this.buildVendasAgendaQueueMetadata(row, currentQueue, options);
     const changed = JSON.stringify(currentQueue || null) !== JSON.stringify(nextQueue);
 
     if (changed) {
@@ -526,7 +535,12 @@ export class VendasService {
     return true;
   }
 
-  private async syncLeadToInboxAgenda(companyId: number, row: any, previous?: any) {
+  private async syncLeadToInboxAgenda(
+    companyId: number,
+    row: any,
+    previous?: any,
+    options?: { forceScheduled?: boolean },
+  ) {
     const result = {
       activated: 0,
       updated: 0,
@@ -538,7 +552,7 @@ export class VendasService {
     const previousPhone = previous?.phoneNormalized || previous?.phone || null;
 
     if (this.shouldMirrorLeadToInboxAgenda(row)) {
-      const syncResult = await this.activateLeadInInboxAgenda(companyId, row);
+      const syncResult = await this.activateLeadInInboxAgenda(companyId, row, options);
       result.activated += syncResult.activated;
       result.updated += syncResult.updated;
       result.skippedWithoutPhone += syncResult.skippedWithoutPhone;
@@ -585,7 +599,9 @@ export class VendasService {
     for (const row of rows) {
       if (!this.shouldMirrorLeadToInboxAgenda(row)) continue;
       activeLeadIds.add(String(row.id));
-      const syncResult = await this.syncLeadToInboxAgenda(context.companyId, row);
+      const syncResult = await this.syncLeadToInboxAgenda(context.companyId, row, undefined, {
+        forceScheduled: true,
+      });
       activated += syncResult.activated;
       updated += syncResult.updated;
       deactivated += syncResult.deactivated;
@@ -780,7 +796,15 @@ export class VendasService {
       });
 
       if (existing) {
-        const nextStatus = status === 'encerrado' ? 'encerrado' : this.normalizeStatus(existing.status || status);
+        const existingStatus = this.normalizeStatus(existing.status || status);
+        const shouldReopenImportedLead =
+          input.sourceType === 'webscraping' &&
+          (existingStatus === 'encerrado' || Boolean(existing.closedAt));
+        const nextStatus = status === 'encerrado'
+          ? 'encerrado'
+          : shouldReopenImportedLead
+            ? status
+            : existingStatus;
         const wasClosedBefore = Boolean(existing.wasClosedBefore) || Boolean(existing.closedAt) || String(existing.status || '') === 'encerrado';
         const updateData: any = {
           customerProfileId: customerProfileId || existing.customerProfileId,
@@ -803,9 +827,7 @@ export class VendasService {
           closedAt:
             nextStatus === 'encerrado'
               ? existing.closedAt || new Date()
-              : existing.closedAt && wasClosedBefore
-                ? null
-                : null,
+              : null,
         };
 
         const updated = await this.prisma.$transaction(async (tx) => {
@@ -1081,7 +1103,9 @@ export class VendasService {
       } else {
         updatedCount += 1;
       }
-      await this.syncLeadToInboxAgenda(context.companyId, result.lead);
+      await this.syncLeadToInboxAgenda(context.companyId, result.lead, undefined, {
+        forceScheduled: true,
+      });
       importedLeads.push(result.lead);
     }
 

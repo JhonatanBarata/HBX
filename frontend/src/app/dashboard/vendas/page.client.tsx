@@ -17,7 +17,7 @@ import { CSS } from "@dnd-kit/utilities";
 import { useDeferredValue, useEffect, useMemo, useRef, useState, useCallback, type CSSProperties, type FormEvent, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import DashboardScaffold from "@/components/DashboardScaffold";
-import InlineLaunchNotice, { type InlineLaunchNoticeState } from "@/components/InlineLaunchNotice";
+import PremiumLaunchDialog from "@/components/PremiumLaunchDialog";
 import { useQuickLaunchNotice } from "@/components/useQuickLaunchNotice";
 import { apiFetch } from "../_lib/api";
 import { useRequireAuth } from "../_lib/useRequireAuth";
@@ -387,9 +387,7 @@ function DateDropSlot({
   active,
   pulse,
   dragging,
-  todayShortcutNotice,
   ignoreClick,
-  onTodayShortcutOpen,
   onTodayShortcut,
   onSelect,
   register,
@@ -398,9 +396,7 @@ function DateDropSlot({
   active: boolean;
   pulse: boolean;
   dragging: boolean;
-  todayShortcutNotice: InlineLaunchNoticeState | null;
   ignoreClick: () => boolean;
-  onTodayShortcutOpen: () => void;
   onTodayShortcut: () => void;
   onSelect: () => void;
   register: (node: HTMLElement | null) => void;
@@ -482,10 +478,6 @@ function DateDropSlot({
             <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
         </button>
-      ) : null}
-
-      {item.blockKey === "today" && todayShortcutNotice ? (
-        <InlineLaunchNotice notice={todayShortcutNotice} onOpen={onTodayShortcutOpen} compact />
       ) : null}
 
       <AnimatedCount value={item.count} />
@@ -1744,9 +1736,7 @@ export default function VendasClientPage() {
                     active={selectedDateKey === item.key}
                     pulse={pulseDateKey === item.key}
                     dragging={Boolean(activeDragLeadId || activeDragDateKey)}
-                    todayShortcutNotice={item.blockKey === "today" ? todayAgendaLaunchNotice.notice : null}
                     ignoreClick={() => performance.now() - lastDragEndedAtRef.current < 70}
-                    onTodayShortcutOpen={todayAgendaLaunchNotice.openNow}
                     onTodayShortcut={() => void handleTodayShortcut()}
                     onSelect={() => setSelectedDateKey(item.key)}
                     register={(node) => registerDateFilterRef(item.key, node)}
@@ -1851,6 +1841,8 @@ export default function VendasClientPage() {
           </div>
         </div>
       ) : null}
+
+      <PremiumLaunchDialog notice={todayAgendaLaunchNotice.notice} onOpen={todayAgendaLaunchNotice.openNow} />
 
       {commandOpen ? (
         <div className="ui-popup-backdrop" onClick={() => setCommandOpen(false)}>

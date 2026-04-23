@@ -12,9 +12,20 @@ import { WhatsAppModalService } from './whatsapp-modal.service';
 import { CadastrosModule } from '../cadastros/cadastros.module';
 import { CompanyWhatsAppCustomerSyncService } from './company-whatsapp-customer-sync.service';
 import { WebwhatsBridgeService } from '../messaging/webwhats-bridge.service';
+import { MailModule } from '../mail/mail.module';
+import { MessagingModule } from '../messaging/messaging.module';
 
 @Module({
-  imports: [PrismaModule, UsersModule, PlansModule, PaymentsModule, MasterContextModule, CadastrosModule],
+  imports: [
+    PrismaModule,
+    UsersModule,
+    PlansModule,
+    PaymentsModule,
+    MasterContextModule,
+    CadastrosModule,
+    MailModule,
+    MessagingModule,
+  ],
   providers: [
     CompaniesService,
     WhatsAppStatusService,

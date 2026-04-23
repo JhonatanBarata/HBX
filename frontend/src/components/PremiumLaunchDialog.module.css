@@ -1,0 +1,180 @@
+.backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 240;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  background:
+    radial-gradient(circle at top, rgba(89, 140, 255, 0.18), transparent 34%),
+    rgba(7, 14, 28, 0.42);
+  backdrop-filter: blur(18px) saturate(145%);
+  -webkit-backdrop-filter: blur(18px) saturate(145%);
+}
+
+.dialog {
+  width: min(100%, 520px);
+  display: grid;
+  gap: 1rem;
+  padding: 1.2rem;
+  border-radius: 30px;
+  border: 1px solid color-mix(in srgb, var(--brand) 22%, rgba(255, 255, 255, 0.7));
+  background:
+    radial-gradient(circle at top right, color-mix(in srgb, var(--brand) 14%, transparent), transparent 40%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(242, 247, 255, 0.9));
+  box-shadow:
+    0 36px 120px -52px rgba(15, 23, 42, 0.62),
+    inset 0 1px 0 rgba(255, 255, 255, 0.88);
+}
+
+.dialog[data-phase="success"] {
+  border-color: color-mix(in srgb, var(--success) 26%, rgba(255, 255, 255, 0.74));
+}
+
+.hero {
+  display: grid;
+  gap: 0.9rem;
+  justify-items: start;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 30px;
+  padding: 0.35rem 0.75rem;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--brand) 20%, var(--line));
+  background: rgba(255, 255, 255, 0.74);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--brand) 82%, var(--foreground));
+}
+
+.orb {
+  position: relative;
+  width: 74px;
+  height: 74px;
+  display: grid;
+  place-items: center;
+  border-radius: 24px;
+  background:
+    radial-gradient(circle at 32% 28%, rgba(255, 255, 255, 0.92), transparent 28%),
+    linear-gradient(145deg, color-mix(in srgb, var(--brand) 24%, white), color-mix(in srgb, var(--brand) 62%, transparent));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.92),
+    0 24px 48px -26px rgba(59, 94, 201, 0.52);
+}
+
+.orb::after {
+  content: "";
+  position: absolute;
+  inset: 8px;
+  border-radius: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.56);
+}
+
+.orbCore {
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--brand) 82%, white), color-mix(in srgb, var(--brand) 52%, var(--info)));
+  box-shadow: 0 0 0 10px rgba(86, 124, 255, 0.14);
+  animation: premium-launch-pulse 1.3s ease-in-out infinite;
+}
+
+.dialog[data-phase="success"] .orbCore {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--success) 84%, white), color-mix(in srgb, var(--success) 58%, var(--info)));
+}
+
+.copy {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.title {
+  font-size: clamp(1.2rem, 2vw, 1.5rem);
+  line-height: 1.05;
+  color: var(--foreground);
+}
+
+.description {
+  margin: 0;
+  font-size: 0.95rem;
+  line-height: 1.45;
+  color: var(--foreground-soft);
+}
+
+.progressPanel {
+  display: grid;
+  gap: 0.55rem;
+  padding: 0.9rem;
+  border-radius: 22px;
+  border: 1px solid color-mix(in srgb, var(--line) 82%, white);
+  background: rgba(255, 255, 255, 0.74);
+}
+
+.progressMeta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--foreground-soft);
+}
+
+.progressMeta strong {
+  color: var(--foreground);
+  font-size: 0.9rem;
+}
+
+.progressTrack {
+  overflow: hidden;
+  height: 0.72rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--line) 80%, white);
+}
+
+.progressBar {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--brand) 86%, white), color-mix(in srgb, var(--brand) 64%, var(--info)));
+  transition: width 180ms ease;
+}
+
+.dialog[data-phase="success"] .progressBar {
+  background: linear-gradient(90deg, color-mix(in srgb, var(--success) 86%, white), color-mix(in srgb, var(--success) 60%, var(--info)));
+}
+
+.footer {
+  display: flex;
+  justify-content: flex-end;
+}
+
+@keyframes premium-launch-pulse {
+  0%,
+  100% {
+    transform: scale(0.96);
+    box-shadow: 0 0 0 10px rgba(86, 124, 255, 0.14);
+  }
+
+  50% {
+    transform: scale(1.06);
+    box-shadow: 0 0 0 16px rgba(86, 124, 255, 0.08);
+  }
+}
+
+@media (max-width: 720px) {
+  .backdrop {
+    padding: 1rem;
+  }
+
+  .dialog {
+    padding: 1rem;
+    border-radius: 26px;
+  }
+}
