@@ -11,7 +11,6 @@ import { MasterContextService } from '../master-context/master-context.service';
 import { CompanyOperationalStatusService } from '../companies/company-operational-status.service';
 import { ensureWebsiteRuntimeSchema, listCompanyWebsiteConfigs } from '../website/website-runtime';
 import { ensureMasterBillingRuntimeSchema } from './master-runtime';
-import { probeWebscrapingRuntime, type WebscrapingRuntimeDiagnostic } from './webscraping-runtime.util';
 import { buildWhatsAppCenterSnapshot } from '../companies/whatsapp-center.util';
 import {
   getMasterGlobalIntegrationConfig,
@@ -118,9 +117,6 @@ type WebscrapingUsageSummary = ReturnType<ModulesService['buildDefaultWebscrapin
 
 @Injectable()
 export class ModulesService implements OnModuleInit {
-  private webscrapingRuntimeCache: { expiresAt: number; value: WebscrapingRuntimeDiagnostic } | null = null;
-  private webscrapingRuntimeInFlight: Promise<WebscrapingRuntimeDiagnostic> | null = null;
-
   constructor(
     private readonly prisma: PrismaService,
     private readonly integrationConnectionsService: IntegrationConnectionsService,
@@ -1452,29 +1448,6 @@ export class ModulesService implements OnModuleInit {
     return index >= 0 ? index : MODULE_DISPLAY_ORDER.length + 10;
   }
 
-  private async getCachedWebscrapingRuntime() {
-    const now = Date.now();
-    if (this.webscrapingRuntimeCache && this.webscrapingRuntimeCache.expiresAt > now) {
-      return this.webscrapingRuntimeCache.value;
-    }
-
-    if (!this.webscrapingRuntimeInFlight) {
-      this.webscrapingRuntimeInFlight = probeWebscrapingRuntime()
-        .then((value) => {
-          this.webscrapingRuntimeCache = {
-            value,
-            expiresAt: Date.now() + 30_000,
-          };
-          return value;
-        })
-        .finally(() => {
-          this.webscrapingRuntimeInFlight = null;
-        });
-    }
-
-    return this.webscrapingRuntimeInFlight;
-  }
-
   private async buildModuleAvailabilityMap(companyId: number, moduleKeys: string[]) {
     const normalizedKeys = Array.from(
       new Set((moduleKeys || []).map((moduleKey) => this.normalizeRequestedModuleKey(moduleKey)).filter(Boolean)),
@@ -1509,10 +1482,6 @@ export class ModulesService implements OnModuleInit {
     ) && Boolean(String(process.env.WHATSAPP_MODAL_INTERNAL_URL || '').trim());
     const modalConnected = String(company?.whatsappModalStatus || '').trim().toUpperCase() === 'CONNECTED';
     const hasOperationalWhatsAppEngine = officialConnected || modalConnected;
-    const webscrapingRuntime = normalizedKeys.includes('webscraping')
-      ? await this.getCachedWebscrapingRuntime()
-      : null;
-
     for (const moduleKey of normalizedKeys) {
       const category = this.getModuleCategory(moduleKey);
       let blockedByEngine = false;
@@ -1529,13 +1498,6 @@ export class ModulesService implements OnModuleInit {
           ? 'Conclua a conexão do motor de WhatsApp para liberar Atendimento.'
           : 'Configure WhatsApp/Meta para liberar Atendimento.';
         criticalEngine = 'whatsapp';
-      }
-
-      if (moduleKey === 'webscraping' && webscrapingRuntime && webscrapingRuntime.status !== 'online') {
-        blockedByEngine = true;
-        blockedCode = webscrapingRuntime.code || 'webscraping_unavailable';
-        blockedReason = webscrapingRuntime.message || 'Motor de webscraping indisponivel.';
-        criticalEngine = 'webscraping';
       }
 
       availabilityMap.set(moduleKey, {

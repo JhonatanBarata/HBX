@@ -3,6 +3,7 @@ import {
   ConflictException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
   ServiceUnavailableException,
 } from '@nestjs/common';
@@ -47,6 +48,8 @@ import {
 
 @Injectable()
 export class InboxService {
+  private readonly logger = new Logger(InboxService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly conversations: ConversationsService,
@@ -1427,6 +1430,83 @@ export class InboxService {
     );
   }
 
+  private async listPersistedConversationSummariesForCompany(
+    companyId: number,
+    options?: { take?: string | number | null },
+  ) {
+    const take = this.normalizeConversationTakeLimit(options?.take, 50) || 50;
+    const rows = await this.prisma.companyConversation.findMany({
+      where: { companyId, channel: 'whatsapp' },
+      orderBy: { lastMessageAt: 'desc' },
+      take,
+      select: {
+        id: true,
+        contact: true,
+        metadata: true,
+        currentFlow: true,
+        currentStep: true,
+        flowResult: true,
+        botActive: true,
+        humanAssigned: true,
+        assignedUserId: true,
+        createdAt: true,
+        updatedAt: true,
+        lastMessageAt: true,
+        messages: {
+          orderBy: { timestamp: 'desc' },
+          take: 1,
+          select: {
+            id: true,
+            direction: true,
+            messageType: true,
+            body: true,
+            senderType: true,
+            status: true,
+            error: true,
+            timestamp: true,
+            sourceModule: true,
+            providerMessageId: true,
+            rawPayload: true,
+            variablesJson: true,
+          },
+        },
+      },
+    });
+
+    const routingRules = await this.getRecoveryRoutingRules(companyId);
+    const identityMap = await this.loadAtendimentoIdentityMap(
+      companyId,
+      rows.map((row) => String(row.contact || '')),
+    );
+    const sharedMap = await this.loadSharedProfileMap(
+      companyId,
+      rows.map((row) => String(row.contact || '')),
+      identityMap,
+    );
+
+    return Promise.all(
+      rows.map((row) => {
+        const conversation = {
+          ...row,
+          updatedAt: row.lastMessageAt || row.updatedAt,
+          messages: [...(row.messages || [])].reverse(),
+        };
+        const phoneNormalized = this.normalizeConversationPhone(String(conversation.contact || '')) || '';
+        const identityRow = identityMap.get(phoneNormalized);
+        const sharedProfile = identityRow?.customerProfileId
+          ? sharedMap.byProfileId.get(String(identityRow.customerProfileId)) ?? null
+          : sharedMap.byPhoneNormalized.get(phoneNormalized) ?? null;
+        return this.mapConversation(
+          companyId,
+          conversation,
+          routingRules,
+          identityRow,
+          sharedProfile,
+        );
+      }),
+    );
+  }
+
   async getBootstrap(user: any, take?: string | number) {
     const companyId = this.requireCompanyIdFromUser(user);
     let conversations: any[];
@@ -1478,7 +1558,17 @@ export class InboxService {
 
   async listConversations(user: any, take?: string | number) {
     const companyId = this.requireCompanyIdFromUser(user);
-    return this.listConversationSummariesForCompany(companyId, { take });
+    try {
+      return await this.listConversationSummariesForCompany(companyId, { take });
+    } catch (error) {
+      if (error instanceof ServiceUnavailableException || error instanceof ConflictException) {
+        this.logger.warn(
+          `Inbox live conversation list unavailable for company ${companyId}; falling back to persisted conversations.`,
+        );
+        return this.listPersistedConversationSummariesForCompany(companyId, { take });
+      }
+      throw error;
+    }
   }
 
   private async getConversationByIdForCompany(companyId: number, id: number) {
