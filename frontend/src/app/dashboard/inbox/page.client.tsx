@@ -26,6 +26,8 @@ import {
 } from "@/components/chat/PremiumChat";
 import DashboardScaffold from "@/components/DashboardScaffold";
 import HbxConfirmDialog from "@/components/HbxConfirmDialog";
+import PremiumLaunchDialog from "@/components/PremiumLaunchDialog";
+import { useQuickLaunchNotice } from "@/components/useQuickLaunchNotice";
 import ConversationActionList from "@/components/workspace/ConversationActionList";
 import ConversationContextPanel from "@/components/workspace/ConversationContextPanel";
 import ConversationListPane from "@/components/workspace/ConversationListPane";
@@ -75,6 +77,7 @@ import {
   type AtendimentoBotActionGuide,
   type AtendimentoBotConfig,
   type InboxConversation,
+  type InboxFullBootstrapPayload,
   type InboxMessage,
 } from "./inbox-model";
 import styles from "./page.module.css";
@@ -232,6 +235,13 @@ const INBOX_QUEUE_ORDER: InboxQueue[] = [
 const INBOX_MANUAL_QUEUE_STORAGE_KEY = "hbx:inbox:manual-queue-overrides";
 const INBOX_DELETED_CONVERSATION_ALIASES_STORAGE_KEY = "hbx:inbox:deleted-conversation-aliases";
 const INBOX_GLOBAL_BOT_ENABLED_STORAGE_KEY = "hbx:inbox:global-bot-enabled";
+const INBOX_INITIAL_MIRROR_SESSION_KEY = "hbx:inbox:full-bootstrap:session";
+const INBOX_BOOTSTRAP_STAGE_SEQUENCE = [
+  { label: "Lendo motor", value: "01/04" },
+  { label: "Espelhando conversas", value: "02/04" },
+  { label: "Baixando historico", value: "03/04" },
+  { label: "Gravando nomes, fotos e midias", value: "04/04" },
+] as const;
 
 const ATENDIMENTO_PENDING_STORAGE_KEY = "atendimentoPendingHumanCount";
 const DEFAULT_META_TEMPLATES_PAYLOAD: RecoveryMetaTemplatesPayload = {
@@ -2002,6 +2012,14 @@ export default function InboxClientPage() {
   });
   const skipAutomationAutoOpenRef = useRef(false);
   const deferredConversationSearch = useDeferredValue(conversationSearch);
+  const inboxBootstrapLaunchNotice = useQuickLaunchNotice();
+  const [inboxBootstrapProgressLabel, setInboxBootstrapProgressLabel] = useState<string | null>(null);
+  const [inboxBootstrapProgressValueLabel, setInboxBootstrapProgressValueLabel] = useState<string | null>(null);
+  const [inboxBootstrapDetailRows, setInboxBootstrapDetailRows] = useState<
+    Array<{ label: string; value: string }>
+  >([]);
+  const [inboxBootstrapCelebrate, setInboxBootstrapCelebrate] = useState(false);
+  const inboxBootstrapStageTimerRef = useRef<number | null>(null);
 
   const markInboxMediaUrlFailed = useCallback((url?: string | null) => {
     const normalized = String(url || "").trim();
@@ -2215,8 +2233,113 @@ export default function InboxClientPage() {
     selectedConversationRef.current = selectedConversation;
   }, [selectedConversation, selectedId]);
 
+  const clearInboxBootstrapStageTimer = useCallback(() => {
+    if (inboxBootstrapStageTimerRef.current !== null && typeof window !== "undefined") {
+      window.clearInterval(inboxBootstrapStageTimerRef.current);
+    }
+    inboxBootstrapStageTimerRef.current = null;
+  }, []);
+
+  const closeInboxBootstrapLaunchDialog = useCallback(() => {
+    clearInboxBootstrapStageTimer();
+    setInboxBootstrapProgressLabel(null);
+    setInboxBootstrapProgressValueLabel(null);
+    setInboxBootstrapDetailRows([]);
+    setInboxBootstrapCelebrate(false);
+    inboxBootstrapLaunchNotice.clear();
+  }, [clearInboxBootstrapStageTimer, inboxBootstrapLaunchNotice]);
+
+  const buildInboxBootstrapDetailRows = useCallback(
+    (payload?: Partial<InboxFullBootstrapPayload> | null) => [
+      {
+        label: "Motor",
+        value: payload?.connected === false ? "Offline" : "Online",
+      },
+      {
+        label: "Contatos",
+        value: String(Math.max(0, Number(payload?.contactsSynced || 0))),
+      },
+      {
+        label: "Conversas",
+        value: `${Math.max(0, Number(payload?.conversationsMirrored || 0))}/${Math.max(
+          0,
+          Number(payload?.conversationsDiscovered || 0),
+        )}`,
+      },
+      {
+        label: "Mensagens",
+        value: String(Math.max(0, Number(payload?.messagesMirrored || 0))),
+      },
+    ],
+    [],
+  );
+
+  const runInitialInboxMirrorBootstrap = useCallback(async () => {
+    if (typeof window === "undefined") return null;
+    if (window.sessionStorage.getItem(INBOX_INITIAL_MIRROR_SESSION_KEY) === "done") {
+      return null;
+    }
+
+    clearInboxBootstrapStageTimer();
+    setInboxBootstrapCelebrate(false);
+    setInboxBootstrapDetailRows(buildInboxBootstrapDetailRows());
+    setInboxBootstrapProgressLabel(INBOX_BOOTSTRAP_STAGE_SEQUENCE[0].label);
+    setInboxBootstrapProgressValueLabel(INBOX_BOOTSTRAP_STAGE_SEQUENCE[0].value);
+    inboxBootstrapLaunchNotice.start({
+      loadingTitle: "Carregando WhatsApp",
+      loadingDescription:
+        "Baixando conversas, nomes, fotos e midias do motor para deixar a inbox pronta no backend.",
+      successTitle: "Inbox pronta",
+      successDescription: "Tudo espelhado no backend. Vamos abrir o Atendimento.",
+      ctaLabel: "Abrir inbox",
+      onOpen: closeInboxBootstrapLaunchDialog,
+    });
+
+    let stageIndex = 0;
+    inboxBootstrapStageTimerRef.current = window.setInterval(() => {
+      stageIndex = Math.min(stageIndex + 1, INBOX_BOOTSTRAP_STAGE_SEQUENCE.length - 1);
+      const stage = INBOX_BOOTSTRAP_STAGE_SEQUENCE[stageIndex];
+      setInboxBootstrapProgressLabel(stage.label);
+      setInboxBootstrapProgressValueLabel(stage.value);
+    }, 900);
+
+    try {
+      const payload = await apiFetch<InboxFullBootstrapPayload>("/inbox/bootstrap/full?take=120", {
+        method: "POST",
+      });
+      clearInboxBootstrapStageTimer();
+      setInboxBootstrapProgressLabel(
+        payload.heavySync ? "Espelhamento pesado concluido" : "Espelhamento concluido",
+      );
+      setInboxBootstrapProgressValueLabel(
+        payload.pagesFetched > 0 ? `${payload.pagesFetched} pag.` : "100%",
+      );
+      setInboxBootstrapDetailRows(buildInboxBootstrapDetailRows(payload));
+      setInboxBootstrapCelebrate(Boolean(payload.heavySync));
+      window.sessionStorage.setItem(INBOX_INITIAL_MIRROR_SESSION_KEY, "done");
+      if (payload.message) {
+        setNotice({ tone: "success", text: payload.message });
+      }
+      inboxBootstrapLaunchNotice.markSuccess({
+        successDescription:
+          payload.message ||
+          "Conversas, nomes, fotos e historico foram puxados do motor e gravados no backend.",
+      });
+      return payload;
+    } catch (bootstrapError) {
+      clearInboxBootstrapStageTimer();
+      closeInboxBootstrapLaunchDialog();
+      throw bootstrapError;
+    }
+  }, [
+    buildInboxBootstrapDetailRows,
+    clearInboxBootstrapStageTimer,
+    closeInboxBootstrapLaunchDialog,
+    inboxBootstrapLaunchNotice,
+  ]);
+
   const bootstrapInbox = useCallback(async (options?: { take?: number }) => {
-    const take = Math.max(1, Math.min(50, Number(options?.take || 10) || 10));
+    const take = Math.max(1, Math.min(50, Number(options?.take || 20) || 20));
     setBootstrapReady(false);
     setLoadingList(true);
     setLoadingConversation(true);
@@ -2667,13 +2790,27 @@ export default function InboxClientPage() {
     }
   }, []);
 
+  useEffect(() => () => clearInboxBootstrapStageTimer(), [clearInboxBootstrapStageTimer]);
+
   useEffect(() => {
     if (hasToken === false) return;
     let cancelled = false;
     let stopPolling: (() => void) | undefined;
 
     void (async () => {
-      await bootstrapInbox({ take: 10 });
+      try {
+        await runInitialInboxMirrorBootstrap();
+      } catch (bootstrapError) {
+        const backendMessage =
+          bootstrapError instanceof Error
+            ? bootstrapError.message
+            : "Falha ao espelhar nomes, fotos, historico e midias do WhatsApp.";
+        setError(
+          `WhatsApp conectou, mas falhou ao espelhar conversas, nomes, fotos e midias. ${backendMessage}`,
+        );
+      }
+      if (cancelled) return;
+      await bootstrapInbox({ take: 20 });
       if (cancelled) return;
       stopPolling = startSmartPolling(() => loadConversations({ silent: true }), {
         intervalMs: 10000,
@@ -2685,7 +2822,7 @@ export default function InboxClientPage() {
       cancelled = true;
       stopPolling?.();
     };
-  }, [bootstrapInbox, hasToken, loadConversations]);
+  }, [bootstrapInbox, hasToken, loadConversations, runInitialInboxMirrorBootstrap]);
 
   useEffect(() => {
     if (hasToken === false) return;
@@ -2806,7 +2943,7 @@ export default function InboxClientPage() {
 
   const retryConversationList = useCallback(() => {
     if (!bootstrapReady && conversationsRef.current.length === 0) {
-      void bootstrapInbox({ take: 10 });
+      void bootstrapInbox({ take: 20 });
       return;
     }
     void loadConversations({ preferredId: selectedIdRef.current });
@@ -5760,6 +5897,15 @@ export default function InboxClientPage() {
           }
         />
       </HbxConfirmDialog>
+
+      <PremiumLaunchDialog
+        notice={inboxBootstrapLaunchNotice.notice}
+        onOpen={closeInboxBootstrapLaunchDialog}
+        progressLabel={inboxBootstrapProgressLabel}
+        progressValueLabel={inboxBootstrapProgressValueLabel}
+        detailRows={inboxBootstrapDetailRows}
+        celebrate={inboxBootstrapCelebrate}
+      />
 
       <HbxConfirmDialog
         open={deleteConversationDialog !== null}

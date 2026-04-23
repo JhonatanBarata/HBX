@@ -125,6 +125,11 @@ export class ImportWebscrapingLeadItemDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(2000)
+  scriptText?: string;
+
+  @IsOptional()
+  @IsString()
   sourceHistoryId?: string;
 }
 

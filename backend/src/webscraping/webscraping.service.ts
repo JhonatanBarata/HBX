@@ -33,6 +33,7 @@ export type WebscrapingRuntimeResponse = {
     remainingSearches: number | null;
     dailyLimit: number | null;
     isTrialLimited: boolean;
+    accessMode: 'full' | 'trial' | 'blocked';
   };
   diagnostics?: {
     checkedAt: string;
@@ -91,6 +92,9 @@ export type WebscrapingHistorySummary = {
   updatedAt: string;
   lastUsedAt: string;
   preview: string[];
+  scope: 'company' | 'global';
+  sourceLabel: string;
+  cacheValidUntil?: string | null;
 };
 
 export type SearchContactsInput = {
@@ -481,27 +485,46 @@ export class WebscrapingService {
     return response;
   }
 
-  async listRecentHistoryForUser(user: any, limit = 8) {
+  async listRecentHistoryForUser(user: any, limit = 40) {
     const context = this.resolveContext(user);
     const historyEnabled = await this.supportsHistoryPersistence();
-    if (!historyEnabled) {
-      return { items: [] as WebscrapingHistorySummary[] };
-    }
+    const globalCacheEnabled = await this.supportsGlobalCachePersistence();
+    const safeLimit = Math.min(Math.max(Math.trunc(limit || 0), 1), 120);
+    const [rows, globalRows] = await Promise.all([
+      historyEnabled
+        ? this.prisma.webscrapingSearchHistory.findMany({
+            where: { companyId: context.companyId },
+            orderBy: [{ lastUsedAt: 'desc' }, { updatedAt: 'desc' }, { createdAt: 'desc' }],
+            take: safeLimit,
+            include: {
+              places: {
+                orderBy: [{ rank: 'asc' }],
+                take: 3,
+              },
+            },
+          })
+        : Promise.resolve([] as any[]),
+      globalCacheEnabled
+        ? this.prisma.webscrapingGlobalCacheEntry.findMany({
+            where: {
+              cacheValidUntil: {
+                gt: new Date(),
+              },
+            },
+            orderBy: [{ lastServedAt: 'desc' }, { updatedAt: 'desc' }, { createdAt: 'desc' }],
+            take: safeLimit,
+            include: {
+              places: {
+                orderBy: [{ rank: 'asc' }],
+                take: 3,
+              },
+            },
+          })
+        : Promise.resolve([] as any[]),
+    ]);
 
-    const rows = await this.prisma.webscrapingSearchHistory.findMany({
-      where: { companyId: context.companyId },
-      orderBy: [{ lastUsedAt: 'desc' }, { updatedAt: 'desc' }, { createdAt: 'desc' }],
-      take: Math.min(Math.max(Math.trunc(limit || 0), 1), 20),
-      include: {
-        places: {
-          orderBy: [{ rank: 'asc' }],
-          take: 3,
-        },
-      },
-    });
-
-    return {
-      items: rows.map((row) => ({
+    const items = [
+      ...rows.map((row) => ({
         id: row.id,
         city: row.city,
         segment: row.segment,
@@ -512,19 +535,81 @@ export class WebscrapingService {
         updatedAt: row.updatedAt.toISOString(),
         lastUsedAt: row.lastUsedAt.toISOString(),
         preview: row.places.map((place) => place.name).filter(Boolean),
+        scope: 'company' as const,
+        sourceLabel: 'Historico da empresa',
+        cacheValidUntil: null,
       })),
-    };
+      ...globalRows.map((row) => ({
+        id: `global:${row.id}`,
+        city: row.normalizedCity,
+        segment: row.normalizedSegment,
+        quantity: Math.min(Math.max(Math.trunc(row.resultCount || 0), 1), MAX_QUANTITY),
+        resultCount: row.resultCount,
+        filters: this.parseFiltersJson(row.filtersJson),
+        createdAt: row.createdAt.toISOString(),
+        updatedAt: row.updatedAt.toISOString(),
+        lastUsedAt: row.lastServedAt.toISOString(),
+        preview: row.places.map((place) => place.name).filter(Boolean),
+        scope: 'global' as const,
+        sourceLabel: 'Historico global',
+        cacheValidUntil: row.cacheValidUntil.toISOString(),
+      })),
+    ]
+      .sort((left, right) => new Date(right.lastUsedAt).getTime() - new Date(left.lastUsedAt).getTime())
+      .slice(0, safeLimit);
+
+    return { items };
   }
 
   async reuseHistorySearchForUser(user: any, historyId: string) {
     const context = this.resolveContext(user);
+    const normalizedHistoryId = String(historyId || '').trim();
+    const isGlobalHistory = normalizedHistoryId.startsWith('global:');
+
+    if (isGlobalHistory) {
+      const globalCacheEnabled = await this.supportsGlobalCachePersistence();
+      if (!globalCacheEnabled) {
+        throw new NotFoundException('Historico global indisponivel neste ambiente.');
+      }
+
+      const row = await this.findGlobalCacheById(normalizedHistoryId.slice('global:'.length));
+      if (!row) {
+        throw new NotFoundException('Pesquisa global nao encontrada.');
+      }
+
+      const filters = this.parseFiltersJson(row.filtersJson);
+      const normalized = this.normalizeSearchInput({
+        city: row.normalizedCity,
+        segment: row.normalizedSegment,
+        quantity: Math.min(Math.max(Math.trunc(row.resultCount || 0), 1), MAX_QUANTITY),
+        minRating: filters.minRating,
+        minReviews: filters.minReviews,
+        onlyProbableWhatsApp: filters.onlyProbableWhatsApp,
+        onlyWithWebsite: filters.onlyWithWebsite,
+      });
+      const storedResults = this.sortContacts(this.restoreGlobalCacheResults(row)).slice(0, normalized.quantity);
+
+      await this.touchGlobalCache(row.id);
+
+      const response = this.buildSearchResponse(normalized, storedResults, {
+        historyId: `global:${row.id}`,
+        source: 'global_cache',
+        reusedCount: storedResults.length,
+        fetchedCount: 0,
+        technicalCacheUsed: true,
+        technicalCacheReusedCount: storedResults.length,
+        technicalCacheValidUntil: row.cacheValidUntil.toISOString(),
+      });
+      await this.recordUsageLog(context, normalized, 'EXECUTED', response.results.length, null, response.meta);
+      return response;
+    }
+
     const historyEnabled = await this.supportsHistoryPersistence();
     if (!historyEnabled) {
       throw new NotFoundException('Historico indisponivel neste ambiente.');
     }
 
-    const row = await this.findHistoryById(context.companyId, historyId);
-
+    const row = await this.findHistoryById(context.companyId, normalizedHistoryId);
     if (!row) {
       throw new NotFoundException('Pesquisa anterior nao encontrada.');
     }
@@ -628,16 +713,21 @@ export class WebscrapingService {
   }
 
   private resolveContext(user: any): SearchExecutionContext {
-    const companyId = Number(user?.companyId || 0);
+    const masterContextCompanyId = Number(user?.masterContext?.active ? user?.masterContext?.companyId : 0);
+    const companyId = masterContextCompanyId || Number(user?.companyId || 0);
     const userId = Number(user?.id || 0);
     if (!companyId) throw new ForbiddenException('Empresa nao identificada.');
     if (!userId) throw new ForbiddenException('Usuario nao identificado.');
     return { companyId, userId, user };
   }
 
-  private canSeeDiagnostics(user: any) {
+  private canUseWebscrapingRole(user: any) {
     const role = String(user?.role || '').trim().toUpperCase();
     return Boolean(user?.isSystemMaster) || role === 'ADMIN';
+  }
+
+  private canSeeDiagnostics(user: any) {
+    return this.canUseWebscrapingRole(user);
   }
 
   private startOfToday(date = new Date()) {
@@ -652,6 +742,17 @@ export class WebscrapingService {
     const onboardingStatus = String(company?.onboardingStatus || '').trim().toLowerCase();
     const paymentStatus = String(company?.paymentStatus || '').trim().toUpperCase();
     const subscriptionStatus = String(company?.subscriptionStatus || '').trim().toLowerCase();
+    const premiumAccess = Boolean(company?.premiumAccess);
+    if (
+      premiumAccess ||
+      onboardingStatus === 'active_paid' ||
+      paymentStatus === 'PAID' ||
+      paymentStatus === 'MANUAL' ||
+      subscriptionStatus === 'active' ||
+      subscriptionStatus === 'manual'
+    ) {
+      return false;
+    }
     return (
       onboardingStatus === 'active_trial' ||
       onboardingStatus === 'pending_email_confirmation' ||
@@ -666,12 +767,21 @@ export class WebscrapingService {
 
   private async buildRuntimeQuota(user: any) {
     const context = this.resolveContext(user);
+    if (!this.canUseWebscrapingRole(user)) {
+      return {
+        remainingSearches: 0,
+        dailyLimit: 0,
+        isTrialLimited: true,
+        accessMode: 'blocked' as const,
+      };
+    }
     const company = await this.prisma.company.findUnique({
       where: { id: context.companyId },
       select: {
         onboardingStatus: true,
         paymentStatus: true,
         subscriptionStatus: true,
+        premiumAccess: true,
       },
     });
 
@@ -680,6 +790,7 @@ export class WebscrapingService {
         remainingSearches: null,
         dailyLimit: null,
         isTrialLimited: false,
+        accessMode: 'full' as const,
       };
     }
 
@@ -689,6 +800,7 @@ export class WebscrapingService {
         remainingSearches: TRIAL_DAILY_MOTOR_LIMIT,
         dailyLimit: TRIAL_DAILY_MOTOR_LIMIT,
         isTrialLimited: true,
+        accessMode: 'trial' as const,
       };
     }
 
@@ -709,10 +821,17 @@ export class WebscrapingService {
       remainingSearches: Math.max(0, TRIAL_DAILY_MOTOR_LIMIT - todayMotorExecutions),
       dailyLimit: TRIAL_DAILY_MOTOR_LIMIT,
       isTrialLimited: true,
+      accessMode: 'trial' as const,
     };
   }
 
   private async assertTrialDailyLimit(context: SearchExecutionContext, input: NormalizedSearchInput) {
+    if (!this.canUseWebscrapingRole(context.user)) {
+      throw new ForbiddenException({
+        code: 'webscraping_role_blocked',
+        message: 'O webscraping fica restrito ao ADMIN da empresa. Usuarios comuns nao usam o motor nem veem este modulo.',
+      });
+    }
     const usageLogEnabled = await this.supportsUsageLogPersistence();
     if (!usageLogEnabled) return;
 
@@ -723,6 +842,7 @@ export class WebscrapingService {
         onboardingStatus: true,
         paymentStatus: true,
         subscriptionStatus: true,
+        premiumAccess: true,
       },
     });
 
@@ -1046,6 +1166,25 @@ export class WebscrapingService {
     const row = await this.prisma.webscrapingGlobalCacheEntry.findUnique({
       where: {
         cacheSignature: String(cacheSignature || '').trim(),
+      },
+      include: {
+        places: {
+          orderBy: [{ rank: 'asc' }],
+        },
+      },
+    });
+
+    if (!row) return null;
+    if (!(row.cacheValidUntil instanceof Date) || row.cacheValidUntil.getTime() <= Date.now()) {
+      return null;
+    }
+    return row as GlobalCacheRow;
+  }
+
+  private async findGlobalCacheById(cacheId: string): Promise<GlobalCacheRow | null> {
+    const row = await this.prisma.webscrapingGlobalCacheEntry.findUnique({
+      where: {
+        id: String(cacheId || '').trim(),
       },
       include: {
         places: {

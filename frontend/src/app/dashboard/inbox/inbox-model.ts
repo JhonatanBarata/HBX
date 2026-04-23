@@ -122,6 +122,24 @@ export type InboxBootstrapPayload = {
   selectedConversation: InboxConversation | null;
 };
 
+export type InboxFullBootstrapPayload = {
+  success: boolean;
+  connected: boolean;
+  engine: string | null;
+  chatsSynced: number;
+  contactsSynced: number;
+  conversationsDiscovered: number;
+  conversationsMirrored: number;
+  messagesMirrored: number;
+  mediaMessagesMirrored: number;
+  pagesFetched: number;
+  conversationsWithNames: number;
+  conversationsWithAvatars: number;
+  heavySync: boolean;
+  message: string;
+  error?: string | null;
+};
+
 export type AtendimentoBotVariableScope = "shared" | "atendimento" | "recovery";
 
 export type AtendimentoBotVariableDefinition = {
