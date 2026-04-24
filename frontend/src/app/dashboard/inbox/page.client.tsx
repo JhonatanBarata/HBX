@@ -2013,6 +2013,7 @@ export default function InboxClientPage() {
   const skipAutomationAutoOpenRef = useRef(false);
   const deferredConversationSearch = useDeferredValue(conversationSearch);
   const inboxBootstrapLaunchNotice = useQuickLaunchNotice();
+  const initialMirrorBootstrapStartedRef = useRef(false);
   const [inboxBootstrapProgressLabel, setInboxBootstrapProgressLabel] = useState<string | null>(null);
   const [inboxBootstrapProgressValueLabel, setInboxBootstrapProgressValueLabel] = useState<string | null>(null);
   const [inboxBootstrapDetailRows, setInboxBootstrapDetailRows] = useState<
@@ -2793,7 +2794,9 @@ export default function InboxClientPage() {
   useEffect(() => () => clearInboxBootstrapStageTimer(), [clearInboxBootstrapStageTimer]);
 
   useEffect(() => {
-    if (hasToken === false) return;
+    if (hasToken !== true) return;
+    if (initialMirrorBootstrapStartedRef.current) return;
+    initialMirrorBootstrapStartedRef.current = true;
     let cancelled = false;
     let stopPolling: (() => void) | undefined;
 

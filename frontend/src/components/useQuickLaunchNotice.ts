@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { InlineLaunchNoticeState } from "./InlineLaunchNotice";
 
 type LaunchConfig = {
@@ -88,11 +88,14 @@ export function useQuickLaunchNotice() {
 
   useEffect(() => clearTimers, [clearTimers]);
 
-  return {
-    notice,
-    start,
-    markSuccess,
-    clear,
-    openNow,
-  };
+  return useMemo(
+    () => ({
+      notice,
+      start,
+      markSuccess,
+      clear,
+      openNow,
+    }),
+    [notice, start, markSuccess, clear, openNow],
+  );
 }
