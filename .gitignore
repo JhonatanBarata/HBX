@@ -11,6 +11,12 @@ postgres-data/
 **/logs/
 *.log
 .env
+.env.local
+.env.production.local
+.env.ops.local
+.env.operations.local
+backend/.env
+backend/.env.local
 **/.env.local
 **/.env.production.local
 **/.env.ops.local
@@ -34,3 +40,6 @@ __pycache__/
 *.db-journal
 *.sqlite
 *.sqlite3
+*.sql
+*.dump
+*.tar.gz

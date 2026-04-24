@@ -148,7 +148,7 @@ test('rebuildMetaTemplateRecord applies top-level media overrides over stale nor
 
   const updated = service.rebuildMetaTemplateRecord({
     ...current,
-    headerMediaUrl: 'https://hbx-1.onrender.com/hbx-recovery/public/meta-template-media/7/colsani_log4?language=pt_BR',
+    headerMediaUrl: 'https://api.hbxsystem.com.br/hbx-recovery/public/meta-template-media/7/colsani_log4?language=pt_BR',
     headerMediaFileName: 'colsani_log4.jpg',
     headerMediaContentType: 'image/jpeg',
     headerMediaBase64: 'new-base64',
@@ -156,20 +156,20 @@ test('rebuildMetaTemplateRecord applies top-level media overrides over stale nor
 
   assert.equal(
     updated.headerMediaUrl,
-    'https://hbx-1.onrender.com/hbx-recovery/public/meta-template-media/7/colsani_log4?language=pt_BR',
+    'https://api.hbxsystem.com.br/hbx-recovery/public/meta-template-media/7/colsani_log4?language=pt_BR',
   );
   assert.equal(updated.headerMediaFileName, 'colsani_log4.jpg');
   assert.equal(updated.headerMediaBase64, 'new-base64');
   assert.equal(
     updated.normalized.header.mediaUrl,
-    'https://hbx-1.onrender.com/hbx-recovery/public/meta-template-media/7/colsani_log4?language=pt_BR',
+    'https://api.hbxsystem.com.br/hbx-recovery/public/meta-template-media/7/colsani_log4?language=pt_BR',
   );
 });
 
 test('resolveTemplateHeaderMediaUrl adds deterministic version token for managed media', () => {
   const service = createService();
   const previousPublicBase = process.env.PUBLIC_API_BASE_URL;
-  process.env.PUBLIC_API_BASE_URL = 'https://hbx-1.onrender.com';
+  process.env.PUBLIC_API_BASE_URL = 'https://api.hbxsystem.com.br';
 
   try {
     const template = service.createMetaTemplateRecord({
@@ -195,7 +195,7 @@ test('resolveTemplateHeaderMediaUrl adds deterministic version token for managed
       hbxActive: true,
       lastMetaSyncAt: '2026-03-18T10:00:00.000Z',
       localMedia: {
-        headerMediaUrl: 'https://hbx-1.onrender.com/hbx-recovery/public/meta-template-media/7/colsani_log4?language=pt_BR',
+        headerMediaUrl: 'https://api.hbxsystem.com.br/hbx-recovery/public/meta-template-media/7/colsani_log4?language=pt_BR',
         headerMediaFileName: 'colsani_log4.jpg',
         headerMediaContentType: 'image/jpeg',
         headerMediaBase64: 'base64-image-a',
@@ -206,7 +206,7 @@ test('resolveTemplateHeaderMediaUrl adds deterministic version token for managed
 
     assert.match(
       String(resolvedUrl || ''),
-      /^https:\/\/hbx-1\.onrender\.com\/hbx-recovery\/public\/meta-template-media\/7\/colsani_log4\?language=pt_BR&v=[a-f0-9]{12}$/,
+      /^https:\/\/api\.hbxsystem\.com\.br\/hbx-recovery\/public\/meta-template-media\/7\/colsani_log4\?language=pt_BR&v=[a-f0-9]{12}$/,
     );
   } finally {
     if (previousPublicBase === undefined) {

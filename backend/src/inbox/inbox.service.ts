@@ -50,6 +50,8 @@ import {
 @Injectable()
 export class InboxService {
   private readonly logger = new Logger(InboxService.name);
+  private readonly backgroundInboxSyncAt = new Map<number | string, number>();
+  private readonly fullMirrorJobs = new Map<number, Promise<unknown>>();
 
   constructor(
     private readonly prisma: PrismaService,
@@ -118,6 +120,17 @@ export class InboxService {
     }
   }
 
+  private triggerBackgroundInboxIndexSync(companyId: number, opts?: { take?: string | number | null }) {
+    const key = `index:${companyId}`;
+    const lastRunAt = Number(this.backgroundInboxSyncAt.get(key) || 0);
+    if (Date.now() - lastRunAt < 30000) return;
+    this.backgroundInboxSyncAt.set(key, Date.now());
+    void this.syncPersistedInboxIndex(companyId, opts).catch((error: any) => {
+      const message = String(error?.message || error || 'Falha ao atualizar indice da Inbox em background.');
+      this.logger.warn(`Inbox background index sync falhou company=${companyId}: ${message}`);
+    });
+  }
+
   private async syncPersistedInboxConversation(companyId: number, conversationId: number) {
     try {
       await this.webwhatsBridge.syncConversationMessagesDetailed(companyId, conversationId, {
@@ -134,6 +147,19 @@ export class InboxService {
       );
       return message;
     }
+  }
+
+  private triggerBackgroundInboxConversationSync(companyId: number, conversationId: number) {
+    const key = `conversation:${companyId}:${conversationId}`;
+    const lastRunAt = Number(this.backgroundInboxSyncAt.get(key) || 0);
+    if (Date.now() - lastRunAt < 45000) return;
+    this.backgroundInboxSyncAt.set(key, Date.now());
+    void this.syncPersistedInboxConversation(companyId, conversationId).catch((error: any) => {
+      const message = String(error?.message || error || 'Falha ao atualizar conversa da Inbox em background.');
+      this.logger.warn(
+        `Inbox background conversation sync falhou company=${companyId} conversation=${conversationId}: ${message}`,
+      );
+    });
   }
 
   private assertCanManageAgenda(user: any) {
@@ -1640,7 +1666,7 @@ export class InboxService {
 
   async getBootstrap(user: any, take?: string | number) {
     const companyId = this.requireCompanyIdFromUser(user);
-    const providerWarning = await this.syncPersistedInboxIndex(companyId, { take });
+    this.triggerBackgroundInboxIndexSync(companyId, { take });
     let conversations = await this.listPersistedConversationSummariesForCompany(companyId, {
       take: this.normalizeConversationTakeLimit(take, 10),
     });
@@ -1649,17 +1675,14 @@ export class InboxService {
     let selectedConversation: any = null;
 
     if (firstConversationId) {
-      await this.syncPersistedInboxConversation(companyId, firstConversationId);
-      conversations = await this.listPersistedConversationSummariesForCompany(companyId, {
-        take: this.normalizeConversationTakeLimit(take, 10),
-      });
+      this.triggerBackgroundInboxConversationSync(companyId, firstConversationId);
       selectedConversation = await this.getPersistedConversationByIdForCompany(companyId, firstConversationId);
     }
 
     return {
       conversations,
       selectedConversation,
-      providerWarning,
+      providerWarning: null,
     };
   }
 
@@ -1667,6 +1690,49 @@ export class InboxService {
     const companyId = this.requireCompanyIdFromUser(user);
     const takeLimit = Math.max(1, Math.min(Number(this.normalizeConversationTakeLimit(take, 120) || 120), 120));
 
+    return this.runBootstrapFullMirror(companyId, takeLimit);
+  }
+
+  async bootstrapFullMirrorBackground(user: any, take?: string | number) {
+    const companyId = this.requireCompanyIdFromUser(user);
+    const takeLimit = Math.max(1, Math.min(Number(this.normalizeConversationTakeLimit(take, 120) || 120), 120));
+    const currentJob = this.fullMirrorJobs.get(companyId);
+
+    if (currentJob) {
+      return {
+        success: true,
+        connected: true,
+        engine: 'webwhats',
+        accepted: true,
+        alreadyRunning: true,
+        message: 'Espelhamento da Inbox ja esta em andamento no backend.',
+        error: null,
+      };
+    }
+
+    const job = this.runBootstrapFullMirror(companyId, takeLimit)
+      .catch((error: any) => {
+        const message = String(error?.message || error || 'Falha ao espelhar Inbox em background.');
+        this.logger.error(`Inbox bootstrap background falhou company=${companyId}: ${message}`);
+      })
+      .finally(() => {
+        this.fullMirrorJobs.delete(companyId);
+      });
+
+    this.fullMirrorJobs.set(companyId, job);
+
+    return {
+      success: true,
+      connected: true,
+      engine: 'webwhats',
+      accepted: true,
+      alreadyRunning: false,
+      message: 'Espelhamento da Inbox iniciado no backend.',
+      error: null,
+    };
+  }
+
+  private async runBootstrapFullMirror(companyId: number, takeLimit: number) {
     this.logger.log(
       `Inbox bootstrap inicial iniciado company=${companyId} limit=${takeLimit}.`,
     );
@@ -1842,7 +1908,7 @@ export class InboxService {
 
   async listConversations(user: any, take?: string | number) {
     const companyId = this.requireCompanyIdFromUser(user);
-    await this.syncPersistedInboxIndex(companyId, { take });
+    this.triggerBackgroundInboxIndexSync(companyId, { take });
     return this.listPersistedConversationSummariesForCompany(companyId, { take });
   }
 
@@ -1852,8 +1918,8 @@ export class InboxService {
 
   async getConversationById(user: any, id: number) {
     const companyId = this.requireCompanyIdFromUser(user);
-    await this.syncPersistedInboxIndex(companyId);
-    await this.syncPersistedInboxConversation(companyId, id);
+    this.triggerBackgroundInboxIndexSync(companyId);
+    this.triggerBackgroundInboxConversationSync(companyId, id);
     return this.getConversationByIdForCompany(companyId, id);
   }
 

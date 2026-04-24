@@ -1,5 +1,5 @@
 // Heuristic fix: when DIRECT_URL points to a "db." hostname that may not
-// be resolvable from some environments (e.g. Render), fallback to
+// be resolvable from some server environments, fallback to
 // using DATABASE_URL (pooler) to avoid startup failures caused by DNS
 // resolution issues. This is a conservative, opt-in override to allow
 // the runtime to start when the direct host is unreachable.

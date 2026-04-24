@@ -13,7 +13,7 @@ Este backend NestJS usa Prisma + PostgreSQL e implementa envio de mensagens via 
 - Use [.env.example](.env.example) como base.
 - Defina `DATABASE_URL` e `DIRECT_URL`.
 - Em ambiente local com um único Postgres, as duas podem apontar para a mesma URL.
-- No Render com Supabase, use a URL do Session pooler na porta `5432` para as duas variáveis.
+- Na VPS Hostinger com Supabase, use a URL do Session pooler na porta `5432` em `DATABASE_URL`.
 - Para dry-run, mantenha `WHATSAPP_ENABLED=false` (o sistema marca como enviado sem chamar a Meta).
 
 2) Instalar + migrar (sem seeds)
@@ -41,14 +41,14 @@ cd c:\Users\Jhonatan\Desktop\App\backend
 npm run whatsapp:smoke
 ```
 
-## Deploy manual Docker no Render
+## Deploy manual Docker na Hostinger
 
-- Serviço: `Web Service`
-- Runtime: `Docker`
-- Dockerfile: `backend/Dockerfile`
-- Docker build context: `backend`
+- Produção: `https://api.hbxsystem.com.br`
+- Proxy: Nginx encaminhando para o backend em `127.0.0.1:3000`
+- Runtime: Docker via `docker-compose`
+- Container esperado: `hbx-backend`
 
-Variáveis mínimas esperadas no Render:
+Variáveis mínimas esperadas na VPS:
 
 - `DATABASE_URL`
 - `DIRECT_URL`
@@ -61,6 +61,15 @@ Variáveis mínimas esperadas no Render:
 - `SMTP_PASS`
 - `MAIL_FROM` (ou `MAIL_FROM_NAME` com `SMTP_USER`)
 - `NODE_ENV=production`
+
+Na VPS atual, o rebuild manual é:
+
+```sh
+git pull
+docker-compose down
+docker-compose up -d --build
+docker ps
+```
 
 Sem SMTP real em producao, o cadastro pode ate ser salvo em `pending_email_confirmation`, mas o e-mail nao sera entregue e o trial ficara bloqueado ate a confirmacao.
 
@@ -79,9 +88,10 @@ Se AUVO ou TagPlus forem usados com chamadas HTTP reais, configure tambem as var
 - TagPlus: `TAGPLUS_API_BASE_URL`, `TAGPLUS_TEST_PATH` e `TAGPLUS_RECEIVABLES_PATH`; adicione `TAGPLUS_CUSTOMERS_PATH` se houver endpoint dedicado de clientes.
 - TagPlus: `TAGPLUS_AUTH_MODE`, `TAGPLUS_EXTERNAL_ACCOUNT_ID`, `TAGPLUS_TIMEOUT_MS`, `TAGPLUS_RETRY_ATTEMPTS`, `TAGPLUS_RETRY_BACKOFF_MS` conforme o contrato homologado.
 
-Para Supabase no Render:
+Para Supabase na Hostinger:
 
 - Use o Session pooler na porta `5432` em `DATABASE_URL`.
+- Mantenha `connection_limit=10` e `pool_timeout=60` em `DATABASE_URL`.
 - Use a mesma URL também em `DIRECT_URL` para o fluxo de `prisma migrate deploy` e runtime.
 
 O container sobe com o `CMD` do Dockerfile:
