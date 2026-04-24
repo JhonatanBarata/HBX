@@ -1030,7 +1030,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
       pushCandidate(payload);
     }
 
-    return candidates
+    const normalizedCandidates = candidates
       .map((candidate) => {
         if (!candidate || typeof candidate !== 'object') return null;
         const providerMessageId = String(
@@ -1055,6 +1055,50 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
         timestamp: Date;
         rawPayload: any;
       }>;
+
+    const updateCandidates = this.extractWebwhatsMessageCandidates(payload)
+      .flatMap((message) => {
+        const providerMessageId = String(message?.key?.id || message?.id || '').trim();
+        if (!providerMessageId) return [];
+        const baseTimestampMs = Number(message?.messageTimestamp || 0);
+        const baseTimestamp = baseTimestampMs
+          ? new Date(baseTimestampMs > 1_000_000_000_000 ? baseTimestampMs : baseTimestampMs * 1000)
+          : new Date();
+
+        return (Array.isArray(message?.MessageUpdate) ? message.MessageUpdate : [])
+          .map((entry) => {
+            const status = String(entry?.status || '').trim().toLowerCase();
+            if (!status) return null;
+            return {
+              providerMessageId,
+              status,
+              timestamp: baseTimestamp,
+              rawPayload: {
+                message,
+                update: entry,
+              },
+            };
+          })
+          .filter(Boolean) as Array<{
+            providerMessageId: string;
+            status: string;
+            timestamp: Date;
+            rawPayload: any;
+          }>;
+      });
+
+    const deduped = new Map<string, {
+      providerMessageId: string;
+      status: string;
+      timestamp: Date;
+      rawPayload: any;
+    }>();
+
+    for (const candidate of [...normalizedCandidates, ...updateCandidates]) {
+      deduped.set(`${candidate.providerMessageId}:${candidate.status}`, candidate);
+    }
+
+    return Array.from(deduped.values());
   }
 
   private getAtendimentoBlockedState(metadata: Record<string, any>) {

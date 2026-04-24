@@ -7,6 +7,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type ClipboardEvent as ReactClipboardEvent,
   type MouseEvent as ReactMouseEvent,
   type FormEvent,
   type CSSProperties,
@@ -91,7 +92,7 @@ type AtendimentoSection = "conversa" | "financeiro" | "agenda" | "automacao";
 type StatusFilter = "all" | "new" | "open" | "closed" | "blocked";
 
 type NoticeState = {
-  tone: "success" | "error";
+  tone: "success" | "error" | "info";
   text: string;
 };
 
@@ -1784,6 +1785,33 @@ function sortInboxMessagesChronologically(messages: InboxMessage[]) {
   });
 }
 
+function getInboxMessageStableKey(message?: InboxMessage | null) {
+  if (!message) return "";
+  const metadata = (message.metadata || {}) as Record<string, unknown>;
+  return String(
+    metadata.providerMessageId ||
+      metadata.rawProviderMessageId ||
+      message.id ||
+      `${message.direction}:${message.createdAt}:${message.content}`,
+  );
+}
+
+function getInboxLatestMessage(messages?: InboxMessage[] | null) {
+  const sorted = sortInboxMessagesChronologically(Array.isArray(messages) ? messages : []);
+  return sorted[sorted.length - 1] || null;
+}
+
+function isInboxInboundMessage(message?: InboxMessage | null) {
+  if (!message) return false;
+  return String(message.direction || "").trim().toLowerCase() === "inbound";
+}
+
+function formatInboxIncomingNotice(conversation: InboxConversation, message: InboxMessage) {
+  const name = resolveInboxConversationDisplayName(conversation) || "Contato";
+  const preview = getMessagePreview(message).trim() || "Nova mensagem recebida.";
+  return `${name}: ${preview.length > 90 ? `${preview.slice(0, 90)}...` : preview}`;
+}
+
 function normalizeInboxConversationList(conversationList: InboxConversation[]) {
   const normalized = (Array.isArray(conversationList) ? conversationList : [])
     .map((conversation) => normalizeInboxConversationPayload(conversation))
@@ -2051,6 +2079,7 @@ export default function InboxClientPage() {
   const deletedConversationAliasesRef = useRef<DeletedConversationAliasMap>({});
   const selectedIdRef = useRef<string | null>(null);
   const selectedConversationRef = useRef<InboxConversation | null>(null);
+  const activeConversationLatestMessageKeyRef = useRef<Record<string, string>>({});
   const inboxQueueRef = useRef<InboxQueue>("all");
   const conversationLoadTokenRef = useRef(0);
   const botConfigLoadedRef = useRef(false);
@@ -2079,6 +2108,10 @@ export default function InboxClientPage() {
       current[normalized] ? current : { ...current, [normalized]: true },
     );
   }, []);
+
+  useEffect(() => {
+    setFailedInboxMediaUrls((current) => (Object.keys(current).length ? {} : current));
+  }, [selectedId, selectedConversation?.updatedAt, selectedConversation?.messages?.length]);
 
   // Close emoji picker when clicking outside
   useEffect(() => {
@@ -2500,7 +2533,10 @@ export default function InboxClientPage() {
     }
     if (!silent && !cachedDetail) setLoadingConversation(true);
     try {
-      const rawData = await apiFetch<InboxConversation>(`/inbox/conversations/${conversationId}`);
+      const rawData = await apiFetch<InboxConversation>(`/inbox/conversations/${conversationId}`, {
+        requireAuth: true,
+        timeoutMs: 10000,
+      });
       const data = normalizeInboxConversationPayload(rawData);
       if (!data) {
         throw new Error("Conversa sem identificador valido retornada pelo servidor.");
@@ -2531,6 +2567,11 @@ export default function InboxClientPage() {
       if (detailedConversation) {
         selectedConversationRef.current = detailedConversation;
         rememberConversationDetail(detailedConversation);
+        const latestMessage = getInboxLatestMessage(detailedConversation.messages);
+        const latestKey = getInboxMessageStableKey(latestMessage);
+        if (latestKey) {
+          activeConversationLatestMessageKeyRef.current[detailedConversation.id] = latestKey;
+        }
         setOlderMessagesBefore(getInboxOldestMessageDate(detailedConversation.messages));
         setOlderMessagesHasMore((detailedConversation.messages?.length || 0) >= 50);
       }
@@ -2594,6 +2635,76 @@ export default function InboxClientPage() {
     }
   }, [loadingOlderMessages, olderMessagesBefore, rememberConversationDetail, selectedId]);
 
+  const refreshSelectedConversationMessages = useCallback(async () => {
+    const conversationId = normalizeInboxConversationId(selectedIdRef.current);
+    if (!conversationId) return;
+
+    try {
+      const currentConversation =
+        selectedConversationRef.current?.id === conversationId ? selectedConversationRef.current : null;
+      if (!currentConversation || isInboxConversationSummaryOnly(currentConversation)) {
+        await loadConversation(conversationId, { silent: true, forceRefresh: true });
+        return;
+      }
+
+      const payload = await apiFetch<InboxMessagePagePayload>(
+        `/inbox/conversations/${conversationId}/messages?limit=50`,
+        {
+          requireAuth: true,
+          timeoutMs: 8000,
+        },
+      );
+      const latestMessages = Array.isArray(payload?.messages) ? payload.messages : [];
+      if (!latestMessages.length) return;
+
+      const byId = new Map<string, InboxMessage>();
+      for (const message of [...(currentConversation.messages || []), ...latestMessages]) {
+        byId.set(String(message.id), message);
+      }
+      const nextMessages = sortInboxMessagesChronologically(Array.from(byId.values()));
+      if (areInboxMessageListsEquivalent(currentConversation.messages, nextMessages)) return;
+
+      const latestMessage = getInboxLatestMessage(nextMessages);
+      const latestKey = getInboxMessageStableKey(latestMessage);
+      const previousKey = activeConversationLatestMessageKeyRef.current[conversationId] || "";
+      const nextConversation: InboxConversation = {
+        ...currentConversation,
+        messages: nextMessages,
+        lastMessageAt: latestMessage?.createdAt || currentConversation.lastMessageAt,
+        updatedAt: latestMessage?.createdAt || currentConversation.updatedAt,
+      };
+
+      setSelectedConversation(nextConversation);
+      selectedConversationRef.current = nextConversation;
+      rememberConversationDetail(nextConversation);
+      setOlderMessagesBefore(getInboxOldestMessageDate(nextMessages));
+      setOlderMessagesHasMore((nextMessages?.length || 0) >= 50 || Boolean(payload?.hasMore));
+      setLastConversationSyncAt(new Date().toISOString());
+
+      setConversations((current) =>
+        sortInboxConversationsByActivity(current.map((conversation) =>
+          conversation.id === conversationId
+            ? {
+                ...conversation,
+                lastMessageAt: nextConversation.lastMessageAt,
+                updatedAt: nextConversation.updatedAt,
+                messages: conversation.messages,
+              }
+            : conversation,
+        )),
+      );
+
+      if (latestKey) {
+        activeConversationLatestMessageKeyRef.current[conversationId] = latestKey;
+      }
+      if (previousKey && latestKey && previousKey !== latestKey && latestMessage && isInboxInboundMessage(latestMessage)) {
+        setNotice({ tone: "info", text: formatInboxIncomingNotice(nextConversation, latestMessage) });
+      }
+    } catch (refreshError) {
+      console.warn("Falha ao atualizar mensagens da conversa aberta.", refreshError);
+    }
+  }, [loadConversation, rememberConversationDetail]);
+
   const loadConversations = useCallback(
     async (options?: { preferredId?: string | null; silent?: boolean }) => {
       const silent = options?.silent ?? false;
@@ -2601,7 +2712,10 @@ export default function InboxClientPage() {
       setError(null);
       setConversationListError(null);
       try {
-        const response = await apiFetch<InboxConversation[]>("/inbox/conversations?take=200");
+        const response = await apiFetch<InboxConversation[]>("/inbox/conversations?take=200", {
+          requireAuth: true,
+          timeoutMs: 15000,
+        });
         const data = normalizeInboxConversationList(Array.isArray(response) ? response : []).filter(
           (conversation) =>
             !isInboxConversationHiddenByDelete(conversation, deletedConversationAliasesRef.current),
@@ -2953,7 +3067,7 @@ export default function InboxClientPage() {
       await bootstrapInbox({ take: 200 });
       if (cancelled) return;
       stopPolling = startSmartPolling(() => loadConversations({ silent: true }), {
-        intervalMs: 30000,
+        intervalMs: 5000,
         immediate: false,
       });
     })();
@@ -2963,6 +3077,18 @@ export default function InboxClientPage() {
       stopPolling?.();
     };
   }, [bootstrapInbox, hasToken, loadConversations]);
+
+  useEffect(() => {
+    if (hasToken !== true) return;
+    const stopPolling = startSmartPolling(() => refreshSelectedConversationMessages(), {
+      intervalMs: 3000,
+      immediate: true,
+    });
+
+    return () => {
+      stopPolling();
+    };
+  }, [hasToken, refreshSelectedConversationMessages]);
 
   useEffect(() => {
     if (hasToken === false) return;
@@ -3318,6 +3444,10 @@ export default function InboxClientPage() {
       ),
     ),
     [conversationForView],
+  );
+  const latestVisibleMessageKey = useMemo(
+    () => getInboxMessageStableKey(getInboxLatestMessage(conversationMessagesForView)),
+    [conversationMessagesForView],
   );
   const conversationReactionIndex = useMemo(
     () => buildInboxReactionIndex(conversationForView?.messages),
@@ -4115,9 +4245,15 @@ export default function InboxClientPage() {
         sendTextDirtyRef.current = false;
         setReplyingTo(null);
         setSelectedConversation(data);
+        selectedConversationRef.current = data;
         rememberConversationDetail(data);
+        const latestMessage = getInboxLatestMessage(data.messages);
+        const latestKey = getInboxMessageStableKey(latestMessage);
+        if (latestKey) {
+          activeConversationLatestMessageKeyRef.current[data.id] = latestKey;
+        }
         setNotice({ tone: "success", text: "Mensagem manual enfileirada com sucesso." });
-        await loadConversations({ preferredId: data.id, silent: true });
+        void loadConversations({ preferredId: data.id, silent: true });
       } catch (sendError) {
         const message = sendError instanceof Error ? sendError.message : "Falha ao enviar mensagem.";
         setError(message);
@@ -4126,6 +4262,25 @@ export default function InboxClientPage() {
       }
     },
     [loadConversations, rememberConversationDetail, selectedBlocked, selectedId, sendText, replyingTo, imagePreview],
+  );
+
+  const handleComposerPaste = useCallback(
+    (event: ReactClipboardEvent<HTMLTextAreaElement>) => {
+      if (selectedBlocked || sending) return;
+
+      const clipboardItems = Array.from(event.clipboardData?.items || []);
+      const fileFromItem = clipboardItems.find((item) => item.kind === "file")?.getAsFile() || null;
+      const fileFromList = Array.from(event.clipboardData?.files || [])[0] || null;
+      const file = fileFromItem || fileFromList;
+      if (!file) return;
+
+      event.preventDefault();
+      if (imagePreview) {
+        URL.revokeObjectURL(imagePreview.url);
+      }
+      setImagePreview(createInboxAttachmentPreview(file));
+    },
+    [imagePreview, selectedBlocked, sending],
   );
 
   const inboxWorkspaceComponents = useMemo(
@@ -4848,6 +5003,7 @@ export default function InboxClientPage() {
                       sendTextDirtyRef.current = true;
                       setSendText(event.target.value);
                     }}
+                    onPaste={handleComposerPaste}
                     onPointerDown={(event) => {
                       event.stopPropagation();
                       chatComposerInputRef.current?.focus();
@@ -5731,10 +5887,18 @@ export default function InboxClientPage() {
     if (!selectedConversation || !chatTimelineRef.current) return;
     if (typeof window === "undefined") return;
     const timeline = chatTimelineRef.current;
-    window.requestAnimationFrame(() => {
+    const scrollToBottom = () => {
       timeline.scrollTop = timeline.scrollHeight;
-    });
-  }, [selectedConversation?.id, selectedConversation?.messages.length]);
+    };
+    const frame = window.requestAnimationFrame(scrollToBottom);
+    const shortTimer = window.setTimeout(scrollToBottom, 80);
+    const mediaTimer = window.setTimeout(scrollToBottom, 300);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.clearTimeout(shortTimer);
+      window.clearTimeout(mediaTimer);
+    };
+  }, [latestVisibleMessageKey, selectedConversation?.id, selectedConversation?.messages.length]);
 
   // Clear composer state when switching conversations
   useEffect(() => {
@@ -5809,7 +5973,12 @@ export default function InboxClientPage() {
       return;
     }
     setExpandedAlerts((current) => ({ ...current, system_notice: true }));
-    scheduleAlertCollapse("system_notice", noticeTimerRef);
+    if (typeof window === "undefined") return;
+    noticeTimerRef.current = window.setTimeout(() => {
+      setExpandedAlerts((current) => ({ ...current, system_notice: false }));
+      setNotice(null);
+      noticeTimerRef.current = null;
+    }, 5000);
   }, [notice]);
 
   useEffect(
@@ -5845,6 +6014,21 @@ export default function InboxClientPage() {
         layoutMode="workspace"
       >
         {error ? <div className="alert alert-error">{error}</div> : null}
+        {notice ? (
+          <div
+            className={`alert ${
+              notice.tone === "error"
+                ? "alert-error"
+                : notice.tone === "success"
+                  ? "alert-success"
+                  : "alert-info"
+            }`}
+            role="status"
+            aria-live="polite"
+          >
+            {notice.text}
+          </div>
+        ) : null}
 
         {activeTab === "messages" ? (
           <section className={styles.premiumInboxShell} data-ui-no-reveal="true">
@@ -5923,7 +6107,6 @@ export default function InboxClientPage() {
           </section>
         ) : null}
 
-        {/* Notifications removed: system updates and inbox/message alerts hidden per user request. */}
       </DashboardScaffold>
 
       {agendaStudioOpen ? (
