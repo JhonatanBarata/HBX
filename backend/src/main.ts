@@ -93,7 +93,10 @@ async function bootstrap() {
       res.setHeader('Vary', 'Origin');
       res.setHeader('Access-Control-Allow-Credentials', 'true');
       res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
-      res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization,x-master-route');
+      res.setHeader(
+        'Access-Control-Allow-Headers',
+        'Content-Type,Authorization,x-master-route,Accept,Cache-Control,Pragma',
+      );
     }
     next();
   });
@@ -180,7 +183,14 @@ async function bootstrap() {
     },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'x-master-route'],
+    allowedHeaders: [
+      'Content-Type',
+      'Authorization',
+      'x-master-route',
+      'Accept',
+      'Cache-Control',
+      'Pragma',
+    ],
     optionsSuccessStatus: 204,
     preflightContinue: false,
   });

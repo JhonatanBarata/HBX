@@ -578,9 +578,7 @@ async function readInboxRealtimeStream(input: {
     headers: {
       Accept: "text/event-stream",
       Authorization: `Bearer ${token}`,
-      "Cache-Control": "no-cache",
     },
-    cache: "no-store",
     signal: input.signal,
   });
 
