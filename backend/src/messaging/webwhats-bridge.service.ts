@@ -1440,6 +1440,23 @@ export class WebwhatsBridgeService {
     };
   }
 
+  private buildMediaDownloadRequestMessage(message: WebwhatsFetchedMessage) {
+    const key =
+      message?.key && typeof message.key === 'object' && !Array.isArray(message.key)
+        ? { ...message.key }
+        : {};
+    const payload =
+      message?.message && typeof message.message === 'object' && !Array.isArray(message.message)
+        ? { ...message.message }
+        : {};
+
+    return {
+      ...(message && typeof message === 'object' && !Array.isArray(message) ? { ...message } : {}),
+      key,
+      message: payload,
+    } satisfies Record<string, unknown>;
+  }
+
   private async resolveInboundMediaAttachment(
     companyId: number,
     conversationId: number,
@@ -1462,10 +1479,7 @@ export class WebwhatsBridgeService {
         path: `/chat/getBase64FromMediaMessage/${encodeURIComponent(tenantKey)}`,
         purpose: 'download de midia recebida',
         data: {
-          message: {
-            key: message?.key || {},
-            message: message?.message || {},
-          },
+          message: this.buildMediaDownloadRequestMessage(message),
           convertToMp4: messageType === 'video',
         },
         treatNotFoundAsNull: true,
@@ -2572,6 +2586,27 @@ export class WebwhatsBridgeService {
     return Boolean(error) && typeof error === 'object' && (error as any).code === 'P2002';
   }
 
+  private async touchConversationActivityIfNewer(
+    companyId: number,
+    conversationId: number,
+    timestamp: Date,
+  ) {
+    await this.prisma.companyConversation.updateMany({
+      where: {
+        id: conversationId,
+        companyId,
+        OR: [
+          { lastMessageAt: null },
+          { lastMessageAt: { lt: timestamp } },
+        ],
+      },
+      data: {
+        lastMessageAt: timestamp,
+        lastInteractionAt: timestamp,
+      },
+    });
+  }
+
   private async findConversation(
     companyId: number,
     remoteJid: string,
@@ -2769,13 +2804,7 @@ export class WebwhatsBridgeService {
         deletedBy: message?.key?.fromMe ? 'self' : 'contact',
         rawPayload: message || {},
       });
-      await this.prisma.companyConversation.update({
-        where: { id: conversationId },
-        data: {
-          lastMessageAt: timestamp,
-          lastInteractionAt: timestamp,
-        },
-      });
+      await this.touchConversationActivityIfNewer(companyId, conversationId, timestamp);
       return 0;
     }
 
@@ -2896,13 +2925,7 @@ export class WebwhatsBridgeService {
       }
     }
 
-    await this.prisma.companyConversation.update({
-      where: { id: conversationId },
-      data: {
-        lastMessageAt: timestamp,
-        lastInteractionAt: timestamp,
-      },
-    });
+    await this.touchConversationActivityIfNewer(companyId, conversationId, timestamp);
 
     if (
       direction === 'INBOUND'
