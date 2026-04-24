@@ -709,7 +709,7 @@
 
 .cardsGrid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(272px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(272px, 1fr));
   gap: 0.72rem;
   /* padding-top creates room for the selected card elevation (translateY(-10px))
      without overflowing into the cardsHeader above */

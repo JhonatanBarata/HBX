@@ -52,7 +52,7 @@ import {
 } from './whatsapp-channel';
 import { CadastrosService } from '../cadastros/cadastros.service';
 import { CustomerProfileService } from '../customer-profile/customer-profile.service';
-import { WebwhatsBridgeService } from './webwhats-bridge.service';
+import { WebwhatsBridgeService, type WebwhatsFetchedMessage } from './webwhats-bridge.service';
 
 function clamp(n: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, n));
@@ -689,6 +689,372 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     } catch {
       return {};
     }
+  }
+
+  private getWebwhatsWebhookSecret() {
+    return String(
+      process.env.WHATSAPP_MODAL_WEBHOOK_SECRET ||
+        process.env.WEBWHATS_WEBHOOK_SECRET ||
+        process.env.WHATSAPP_WEBWHATS_WEBHOOK_SECRET ||
+        '',
+    ).trim();
+  }
+
+  private getHeaderValue(headers: Record<string, any> | undefined, name: string) {
+    const expected = name.toLowerCase();
+    const entry = Object.entries(headers || {}).find(([key]) => key.toLowerCase() === expected);
+    const value = entry?.[1];
+    if (Array.isArray(value)) return String(value[0] || '').trim();
+    return String(value || '').trim();
+  }
+
+  private verifyWebwhatsWebhookSecret(input: {
+    headers?: Record<string, any>;
+    query?: Record<string, any>;
+    payload?: any;
+  }) {
+    const expected = this.getWebwhatsWebhookSecret();
+    if (!expected) return true;
+    const authorization = this.getHeaderValue(input.headers, 'authorization').replace(/^Bearer\s+/i, '').trim();
+    const candidates = [
+      this.getHeaderValue(input.headers, 'x-webwhats-secret'),
+      this.getHeaderValue(input.headers, 'x-hbx-webhook-secret'),
+      this.getHeaderValue(input.headers, 'x-webhook-secret'),
+      authorization,
+      String(input.query?.secret || input.query?.token || '').trim(),
+      String(input.payload?.secret || input.payload?.token || '').trim(),
+    ].filter(Boolean);
+    return candidates.some((candidate) => candidate === expected);
+  }
+
+  private safeWebhookPayload(value: unknown, depth = 0): unknown {
+    if (depth > 8) return '[max-depth]';
+    if (value === null || value === undefined) return value;
+    if (Buffer.isBuffer(value)) return `[buffer:${value.length}]`;
+    if (typeof value === 'string') {
+      const compact = value.trim();
+      if (compact.length > 600 && /^[a-zA-Z0-9+/=\s:_-]+$/.test(compact)) {
+        return `[redacted-large-string:${compact.length}]`;
+      }
+      if (compact.length > 4000) return `${compact.slice(0, 4000)}...[truncated:${compact.length}]`;
+      return value;
+    }
+    if (typeof value !== 'object') return value;
+    if (Array.isArray(value)) {
+      return value.slice(0, 80).map((item) => this.safeWebhookPayload(item, depth + 1));
+    }
+    const result: Record<string, unknown> = {};
+    for (const [key, raw] of Object.entries(value as Record<string, unknown>)) {
+      const normalizedKey = key.toLowerCase();
+      if (
+        normalizedKey.includes('token') ||
+        normalizedKey.includes('secret') ||
+        normalizedKey.includes('apikey') ||
+        normalizedKey.includes('api_key') ||
+        normalizedKey.includes('authorization') ||
+        normalizedKey.includes('password')
+      ) {
+        result[key] = '[redacted]';
+        continue;
+      }
+      result[key] = this.safeWebhookPayload(raw, depth + 1);
+    }
+    return result;
+  }
+
+  private stringifySafeWebhookPayload(payload: unknown) {
+    try {
+      return JSON.stringify(this.safeWebhookPayload(payload));
+    } catch {
+      return JSON.stringify({ error: 'payload_unserializable' });
+    }
+  }
+
+  private extractWebwhatsEventName(payload: any) {
+    return String(
+      payload?.event ||
+        payload?.eventName ||
+        payload?.type ||
+        payload?.action ||
+        payload?.data?.event ||
+        payload?.data?.eventName ||
+        'webwhats_event',
+    ).trim() || 'webwhats_event';
+  }
+
+  private parseCompanyIdCandidate(value: unknown) {
+    if (typeof value === 'number' && Number.isFinite(value) && value > 0) return Math.floor(value);
+    const normalized = String(value || '').trim();
+    if (!normalized) return null;
+    const direct = Number(normalized);
+    if (Number.isFinite(direct) && direct > 0) return Math.floor(direct);
+    const match = normalized.match(/(?:^|[^a-z0-9])company[-_: ]?(\d+)(?:$|[^a-z0-9])/i);
+    if (match?.[1]) return Number(match[1]);
+    return null;
+  }
+
+  private findWebwhatsCompanyId(payload: any, query?: Record<string, any>) {
+    const payloadCandidates = [
+      payload?.companyId,
+      payload?.company_id,
+      payload?.tenantId,
+      payload?.instance,
+      payload?.instanceName,
+      payload?.instanceId,
+      payload?.session,
+      payload?.data?.companyId,
+      payload?.data?.company_id,
+      payload?.data?.tenantId,
+      payload?.data?.instance,
+      payload?.data?.instanceName,
+      payload?.data?.instanceId,
+      payload?.data?.session,
+    ];
+    for (const candidate of payloadCandidates) {
+      const parsed = this.parseCompanyIdCandidate(candidate);
+      if (parsed) return parsed;
+    }
+
+    const stack: unknown[] = [payload];
+    let inspected = 0;
+    while (stack.length && inspected < 160) {
+      inspected += 1;
+      const current = stack.shift();
+      if (!current || typeof current !== 'object') continue;
+      if (Array.isArray(current)) {
+        stack.push(...current.slice(0, 20));
+        continue;
+      }
+      for (const [key, value] of Object.entries(current as Record<string, unknown>)) {
+        if (/company|tenant|instance|session/i.test(key)) {
+          const parsed = this.parseCompanyIdCandidate(value);
+          if (parsed) return parsed;
+        }
+        if (value && typeof value === 'object') stack.push(value);
+      }
+    }
+
+    const fallbackCandidates = [
+      query?.companyId,
+      query?.company_id,
+    ];
+    for (const candidate of fallbackCandidates) {
+      const parsed = this.parseCompanyIdCandidate(candidate);
+      if (parsed) return parsed;
+    }
+
+    return null;
+  }
+
+  private normalizeWebwhatsJid(value: unknown) {
+    const normalized = String(value || '').trim();
+    if (!normalized) return null;
+    if (normalized.includes('@')) return normalized;
+    const digits = normalized.replace(/\D/g, '');
+    if (digits.length >= 8) return `${digits}@s.whatsapp.net`;
+    return normalized;
+  }
+
+  private getWebwhatsRemoteJid(raw: any) {
+    return this.normalizeWebwhatsJid(
+      raw?.key?.remoteJid ||
+        raw?.remoteJid ||
+        raw?.remoteJidAlt ||
+        raw?.chatId ||
+        raw?.chat?.id ||
+        raw?.jid ||
+        raw?.from ||
+        raw?.to ||
+        raw?.number,
+    );
+  }
+
+  private normalizeWebwhatsMessageContent(raw: any) {
+    const direct = raw?.message;
+    if (direct && typeof direct === 'object' && !Array.isArray(direct)) {
+      if (direct.message && direct.key) return direct.message;
+      if (
+        direct.conversation ||
+        direct.extendedTextMessage ||
+        direct.imageMessage ||
+        direct.videoMessage ||
+        direct.ptvMessage ||
+        direct.documentMessage ||
+        direct.documentWithCaptionMessage ||
+        direct.audioMessage ||
+        direct.stickerMessage ||
+        direct.reactionMessage ||
+        direct.protocolMessage ||
+        direct.buttonsResponseMessage ||
+        direct.listResponseMessage ||
+        direct.templateButtonReplyMessage
+      ) {
+        return direct;
+      }
+    }
+    if (typeof direct === 'string' && direct.trim()) return { conversation: direct.trim() };
+    if (raw?.text?.body) return { conversation: String(raw.text.body).trim() };
+    if (typeof raw?.text === 'string' && raw.text.trim()) return { conversation: raw.text.trim() };
+    if (typeof raw?.body === 'string' && raw.body.trim()) return { conversation: raw.body.trim() };
+    if (typeof raw?.content === 'string' && raw.content.trim()) return { conversation: raw.content.trim() };
+    if (raw?.imageMessage || raw?.videoMessage || raw?.documentMessage || raw?.audioMessage || raw?.stickerMessage) {
+      return Object.fromEntries(
+        Object.entries({
+          imageMessage: raw.imageMessage,
+          videoMessage: raw.videoMessage,
+          documentMessage: raw.documentMessage,
+          audioMessage: raw.audioMessage,
+          stickerMessage: raw.stickerMessage,
+        }).filter(([, value]) => Boolean(value)),
+      );
+    }
+    if (raw?.image || raw?.video || raw?.document || raw?.audio || raw?.sticker) {
+      return Object.fromEntries(
+        Object.entries({
+          imageMessage: raw.image,
+          videoMessage: raw.video,
+          documentMessage: raw.document,
+          audioMessage: raw.audio,
+          stickerMessage: raw.sticker,
+        }).filter(([, value]) => Boolean(value)),
+      );
+    }
+    if (raw?.reaction) {
+      return {
+        reactionMessage: {
+          text: raw.reaction?.text || raw.reaction?.emoji || raw.reaction,
+          key: { id: raw.reaction?.message_id || raw.reaction?.messageId || raw.reaction?.key?.id },
+        },
+      };
+    }
+    if (raw?.protocolMessage) return { protocolMessage: raw.protocolMessage };
+    return {};
+  }
+
+  private inferWebwhatsMessageType(raw: any, message: Record<string, any>) {
+    const declared = String(raw?.messageType || raw?.type || raw?.kind || '').trim().toLowerCase();
+    if (declared.includes('image')) return 'image';
+    if (declared.includes('video') || declared.includes('ptv')) return 'video';
+    if (declared.includes('document') || declared.includes('file')) return 'document';
+    if (declared.includes('audio') || declared.includes('voice')) return 'audio';
+    if (declared.includes('sticker')) return 'sticker';
+    if (declared.includes('reaction')) return 'reaction';
+    if (declared.includes('delete') || declared.includes('revoke') || declared.includes('protocol')) return 'deleted';
+    if (message.imageMessage) return 'image';
+    if (message.videoMessage || message.ptvMessage) return 'video';
+    if (message.documentMessage || message.documentWithCaptionMessage) return 'document';
+    if (message.audioMessage) return 'audio';
+    if (message.stickerMessage) return 'sticker';
+    if (message.reactionMessage) return 'reaction';
+    if (message.protocolMessage) return 'deleted';
+    return 'text';
+  }
+
+  private normalizeWebwhatsMessageRecord(rawInput: any): WebwhatsFetchedMessage | null {
+    const raw = rawInput?.message?.key ? rawInput.message : rawInput;
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+    const message = this.normalizeWebwhatsMessageContent(raw);
+    const remoteJid = this.getWebwhatsRemoteJid(raw);
+    const keyId = String(raw?.key?.id || raw?.id || raw?.messageId || raw?.message_id || '').trim();
+    if (!remoteJid && !keyId && !Object.keys(message).length) return null;
+    const fromMe =
+      raw?.key?.fromMe === undefined || raw?.key?.fromMe === null
+        ? Boolean(raw?.fromMe || raw?.from_me)
+        : Boolean(raw.key.fromMe);
+    return {
+      id: keyId || null,
+      key: {
+        id: keyId || null,
+        fromMe,
+        remoteJid: remoteJid || undefined,
+        remoteJidAlt: this.normalizeWebwhatsJid(raw?.key?.remoteJidAlt || raw?.remoteJidAlt) || undefined,
+        participant: String(raw?.key?.participant || raw?.participant || '').trim() || undefined,
+      },
+      pushName:
+        String(raw?.pushName || raw?.notifyName || raw?.contactName || raw?.contact?.name || raw?._contactName || '').trim() ||
+        null,
+      messageType: this.inferWebwhatsMessageType(raw, message),
+      message,
+      messageTimestamp: raw?.messageTimestamp || raw?.timestamp || raw?.createdAt || raw?.dateTime || null,
+      status: String(raw?.status || raw?.deliveryStatus || '').trim() || null,
+      MessageUpdate: Array.isArray(raw?.MessageUpdate) ? raw.MessageUpdate : null,
+    };
+  }
+
+  private extractWebwhatsMessageCandidates(payload: any) {
+    const candidates: any[] = [];
+    const pushCandidate = (candidate: any) => {
+      if (!candidate) return;
+      if (Array.isArray(candidate)) {
+        candidates.push(...candidate);
+        return;
+      }
+      candidates.push(candidate);
+    };
+    pushCandidate(payload?.messages);
+    pushCandidate(payload?.records);
+    pushCandidate(payload?.data?.messages);
+    pushCandidate(payload?.data?.records);
+    pushCandidate(payload?.data?.message);
+    pushCandidate(payload?.message);
+    pushCandidate(payload?.data);
+    pushCandidate(payload);
+
+    const byKey = new Map<string, WebwhatsFetchedMessage>();
+    for (const candidate of candidates) {
+      const normalized = this.normalizeWebwhatsMessageRecord(candidate);
+      if (!normalized) continue;
+      const key = String(normalized.key?.id || normalized.id || normalized.messageTimestamp || JSON.stringify(normalized.key || {}));
+      byKey.set(key, normalized);
+    }
+    return Array.from(byKey.values());
+  }
+
+  private extractWebwhatsStatusCandidates(payload: any) {
+    const eventName = this.extractWebwhatsEventName(payload).toLowerCase();
+    const candidates: any[] = [];
+    const pushCandidate = (candidate: any) => {
+      if (!candidate) return;
+      if (Array.isArray(candidate)) {
+        candidates.push(...candidate);
+        return;
+      }
+      candidates.push(candidate);
+    };
+    pushCandidate(payload?.statuses);
+    pushCandidate(payload?.status);
+    pushCandidate(payload?.data?.statuses);
+    pushCandidate(payload?.data?.status);
+    if (eventName.includes('status') || eventName.includes('update')) {
+      pushCandidate(payload?.data);
+      pushCandidate(payload);
+    }
+
+    return candidates
+      .map((candidate) => {
+        if (!candidate || typeof candidate !== 'object') return null;
+        const providerMessageId = String(
+          candidate?.id ||
+            candidate?.messageId ||
+            candidate?.message_id ||
+            candidate?.key?.id ||
+            candidate?.message?.key?.id ||
+            '',
+        ).trim();
+        const status = String(candidate?.status || candidate?.deliveryStatus || candidate?.update?.status || '').trim().toLowerCase();
+        if (!providerMessageId || !status) return null;
+        const tsMs = Number(candidate?.timestamp || candidate?.messageTimestamp || 0);
+        const timestamp = tsMs
+          ? new Date(tsMs > 1_000_000_000_000 ? tsMs : tsMs * 1000)
+          : new Date();
+        return { providerMessageId, status, timestamp, rawPayload: candidate };
+      })
+      .filter(Boolean) as Array<{
+        providerMessageId: string;
+        status: string;
+        timestamp: Date;
+        rawPayload: any;
+      }>;
   }
 
   private getAtendimentoBlockedState(metadata: Record<string, any>) {
@@ -1790,6 +2156,132 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     }
 
     return { company, endpoint: null };
+  }
+
+  private async resolveCompanyForWebwhatsEvent(payload: any, query?: Record<string, any>) {
+    const companyId = this.findWebwhatsCompanyId(payload, query);
+    if (companyId) {
+      const company = await this.prisma.company.findUnique({ where: { id: companyId } });
+      if (company) return { company, source: 'company_id' };
+    }
+
+    const displayPhone = String(
+      payload?.displayPhone ||
+        payload?.display_phone_number ||
+        payload?.owner ||
+        payload?.ownerJid ||
+        payload?.data?.displayPhone ||
+        payload?.data?.display_phone_number ||
+        payload?.data?.owner ||
+        payload?.data?.ownerJid ||
+        '',
+    ).trim();
+    if (displayPhone) {
+      const resolved = await this.resolveCompanyForIncomingNumber(null, displayPhone);
+      if (resolved.company) return { company: resolved.company, source: 'display_phone', endpoint: resolved.endpoint };
+    }
+
+    return { company: null, source: 'unresolved', endpoint: null };
+  }
+
+  private buildWebwhatsProviderMessageIdCandidates(companyId: number, providerMessageId: string) {
+    const normalized = String(providerMessageId || '').trim();
+    if (!normalized) return [];
+    const candidates = new Set<string>();
+    candidates.add(normalized);
+    if (!normalized.toLowerCase().startsWith('webwhats:')) {
+      candidates.add(`webwhats:company-${companyId}:${normalized}`);
+    }
+    return Array.from(candidates);
+  }
+
+  private normalizeProviderDeliveryStatus(statusRaw: string) {
+    const status = String(statusRaw || '').trim().toLowerCase();
+    if (['read', 'played'].includes(status)) return 'read';
+    if (['delivery_ack', 'delivered', 'server_ack'].includes(status)) return 'delivered';
+    if (['sent', 'pending', 'sending'].includes(status)) return 'sent';
+    if (['failed', 'error'].includes(status)) return 'failed';
+    return status || 'received';
+  }
+
+  private async applyProviderDeliveryStatus(input: {
+    companyId: number;
+    providerMessageId: string;
+    status: string;
+    timestamp: Date;
+    rawPayload: any;
+    scope: string;
+  }) {
+    const status = this.normalizeProviderDeliveryStatus(input.status);
+    const providerIds = this.buildWebwhatsProviderMessageIdCandidates(input.companyId, input.providerMessageId);
+    if (!providerIds.length) return { updatedMessages: 0, updatedOutbound: 0, status };
+
+    const outboundUpdate: any = {
+      deliveryStatus: status,
+      lastWebhookAt: new Date(),
+      lastWebhookPayload: this.stringifySafeWebhookPayload(input.rawPayload),
+    };
+    if (status === 'delivered') {
+      outboundUpdate.deliveredAt = input.timestamp;
+      outboundUpdate.status = 'DELIVERED';
+    }
+    if (status === 'read') {
+      outboundUpdate.readAt = input.timestamp;
+      outboundUpdate.status = 'READ';
+    }
+    if (status === 'failed') {
+      outboundUpdate.failedAt = input.timestamp;
+      outboundUpdate.status = 'FAILED';
+      outboundUpdate.lastError = String(input.rawPayload?.error || input.rawPayload?.reason || 'Falha no envio via WhatsApp').trim();
+    }
+    if (status === 'sent') {
+      outboundUpdate.status = 'SENT';
+      outboundUpdate.sentAt = input.timestamp;
+    }
+
+    const messageUpdate: any = {};
+    if (status === 'delivered') messageUpdate.status = 'DELIVERED';
+    if (status === 'read') messageUpdate.status = 'READ';
+    if (status === 'failed') {
+      messageUpdate.status = 'FAILED';
+      messageUpdate.error = outboundUpdate.lastError;
+    }
+    if (status === 'sent') messageUpdate.status = 'SENT';
+    if (status === 'sent' || status === 'delivered' || status === 'read') messageUpdate.error = null;
+
+    const [outboundResult, messageResult] = await Promise.all([
+      this.prisma.outboundMessage.updateMany({
+        where: { companyId: input.companyId, providerMessageId: { in: providerIds } },
+        data: outboundUpdate,
+      }),
+      Object.keys(messageUpdate).length
+        ? this.prisma.companyMessage.updateMany({
+            where: { companyId: input.companyId, providerMessageId: { in: providerIds } },
+            data: messageUpdate,
+          })
+        : Promise.resolve({ count: 0 }),
+    ]);
+
+    await this.logWhatsAppEvent({
+      companyId: input.companyId,
+      scope: input.scope,
+      event: 'status_received',
+      message: `Status ${status} recebido do WebWhats`,
+      messageType: 'status',
+      result: status,
+      extra: {
+        providerMessageId: input.providerMessageId,
+        providerIds,
+        outboundRows: outboundResult.count,
+        companyMessageRows: messageResult.count,
+      },
+    });
+
+    return {
+      updatedOutbound: outboundResult.count,
+      updatedMessages: messageResult.count,
+      status,
+    };
   }
 
   private async queueRecoveryInteractiveMenu(companyId: number, to: string, contactId: string, customer?: any) {
@@ -3934,6 +4426,175 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  async handleWebwhatsWebhookEvent(
+    payload: any,
+    opts: {
+      rawBody?: Buffer;
+      headers?: Record<string, any>;
+      query?: Record<string, any>;
+    } = {},
+  ) {
+    const eventName = this.extractWebwhatsEventName(payload);
+    const secretOk = this.verifyWebwhatsWebhookSecret({
+      headers: opts.headers,
+      query: opts.query,
+      payload,
+    });
+    const parsedCompanyId = this.findWebwhatsCompanyId(payload, opts.query);
+
+    if (!secretOk) {
+      await this.prisma.whatsAppWebhookEvent.create({
+        data: {
+          kind: 'webwhats_rejected',
+          companyId: parsedCompanyId || undefined,
+          payload: this.stringifySafeWebhookPayload({
+            eventName,
+            reason: 'invalid_secret',
+            payload,
+          }),
+        },
+      });
+      this.logger.warn(`Webwhats webhook rejected by secret event=${eventName}`);
+      return { ok: false, discarded: true, reason: 'invalid_secret' };
+    }
+
+    const resolved = await this.resolveCompanyForWebwhatsEvent(payload, opts.query);
+    const company = resolved.company as any;
+
+    await this.prisma.whatsAppWebhookEvent.create({
+      data: {
+        kind: 'webwhats_event',
+        companyId: company?.id || parsedCompanyId || undefined,
+        payload: this.stringifySafeWebhookPayload({
+          eventName,
+          resolvedCompanyId: company?.id || parsedCompanyId || null,
+          companyResolution: resolved.source,
+          payload,
+        }),
+      },
+    });
+
+    if (!company?.id) {
+      this.logger.warn(`Webwhats webhook recebido sem empresa resolvida event=${eventName}`);
+      return {
+        ok: true,
+        discarded: true,
+        reason: 'company_unresolved',
+        eventName,
+      };
+    }
+
+    const messages = this.extractWebwhatsMessageCandidates(payload);
+    const statuses = this.extractWebwhatsStatusCandidates(payload);
+    await this.logWhatsAppEvent({
+      companyId: company.id,
+      scope: 'webwhats_webhook',
+      event: 'webhook_received',
+      message: `Webhook WebWhats recebido: ${eventName}`,
+      result: 'received',
+      extra: {
+        eventName,
+        companyResolution: resolved.source,
+        messageCandidates: messages.length,
+        statusCandidates: statuses.length,
+      },
+    });
+
+    let statusesHandled = 0;
+    let messagesHandled = 0;
+    let failures = 0;
+
+    for (const status of statuses) {
+      try {
+        await this.applyProviderDeliveryStatus({
+          companyId: company.id,
+          providerMessageId: status.providerMessageId,
+          status: status.status,
+          timestamp: status.timestamp,
+          rawPayload: status.rawPayload,
+          scope: 'webwhats_webhook',
+        });
+        statusesHandled++;
+      } catch (error: any) {
+        failures++;
+        const message = String(error?.message || error || 'Falha ao aplicar status WebWhats.');
+        this.logger.warn(`Webwhats status failed company=${company.id}: ${message}`);
+        await this.logWhatsAppEvent({
+          companyId: company.id,
+          scope: 'webwhats_webhook',
+          event: 'status_failed',
+          level: 'ERROR',
+          message,
+          messageType: 'status',
+          result: 'failed',
+          extra: {
+            providerMessageId: status.providerMessageId,
+            eventName,
+          },
+        });
+      }
+    }
+
+    for (const message of messages) {
+      try {
+        const result = await this.webwhatsBridge.ingestWebhookMessage(company.id, message, {
+          remoteJid: message.key?.remoteJid || null,
+          remoteJidAlt: message.key?.remoteJidAlt || null,
+          displayName: message.pushName || null,
+        });
+        messagesHandled++;
+        await this.logWhatsAppEvent({
+          companyId: company.id,
+          scope: 'webwhats_webhook',
+          event: 'message_persisted',
+          message: `Mensagem WebWhats ${message.messageType || 'text'} persistida`,
+          conversationId: result.conversationId || null,
+          phone: result.remoteJidAlt || result.remoteJid || null,
+          messageType: message.messageType || 'text',
+          result: 'persisted',
+          extra: {
+            eventName,
+            companyMessageId: result.companyMessageId,
+            providerMessageId: message.key?.id || message.id || null,
+            remoteJid: result.remoteJid,
+            remoteJidAlt: result.remoteJidAlt,
+          },
+        });
+      } catch (error: any) {
+        failures++;
+        const providerMessageId = String(message.key?.id || message.id || '').trim() || null;
+        const errorMessage = String(error?.message || error || 'Falha ao persistir mensagem WebWhats.');
+        this.logger.warn(
+          `Webwhats message failed company=${company.id} providerMessageId=${providerMessageId || '(missing)'}: ${errorMessage}`,
+        );
+        await this.logWhatsAppEvent({
+          companyId: company.id,
+          scope: 'webwhats_webhook',
+          event: 'message_failed',
+          level: 'ERROR',
+          message: errorMessage,
+          phone: message.key?.remoteJid || null,
+          messageType: message.messageType || 'text',
+          result: 'failed',
+          extra: {
+            eventName,
+            providerMessageId,
+            remoteJid: message.key?.remoteJid || null,
+          },
+        });
+      }
+    }
+
+    return {
+      ok: failures === 0,
+      eventName,
+      companyId: company.id,
+      messagesHandled,
+      statusesHandled,
+      failures,
+    };
+  }
+
   async handleWhatsAppWebhook(payload: any, opts: { rawBody?: Buffer; signature?: string } = {}) {
     const rawBody = opts.rawBody;
     const signature = opts.signature;
@@ -4359,7 +5020,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     });
 
     const recoveryCustomer = await this.findRecoveryCustomerByPhone(companyId, from);
-    if (['text', 'button', 'interactive', 'image', 'document', 'audio'].includes(input.inboundType)) {
+    if (['text', 'button', 'interactive', 'image', 'video', 'document', 'audio'].includes(input.inboundType)) {
       const atendimentoResult = await this.handleAtendimentoInbound({
         companyId,
         from,
@@ -4385,7 +5046,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
       }
     }
 
-    if (recoveryCustomer && ['text', 'button', 'interactive', 'image', 'document', 'audio'].includes(input.inboundType)) {
+    if (recoveryCustomer && ['text', 'button', 'interactive', 'image', 'video', 'document', 'audio'].includes(input.inboundType)) {
       await this.handleRecoveryInbound({
         companyId,
         from,

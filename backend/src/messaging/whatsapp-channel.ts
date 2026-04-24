@@ -4,8 +4,12 @@ export type WhatsAppNormalizedMessageType =
   | 'interactive'
   | 'button'
   | 'image'
+  | 'video'
   | 'document'
-  | 'audio';
+  | 'audio'
+  | 'sticker'
+  | 'reaction'
+  | 'deleted';
 
 export type WhatsAppTemplateNormalized = {
   name: string;
@@ -92,8 +96,12 @@ export function normalizeWhatsAppMessageType(typeRaw: string | null | undefined)
   if (normalized === 'interactive') return 'interactive';
   if (normalized === 'button') return 'button';
   if (normalized === 'image') return 'image';
+  if (normalized === 'video' || normalized === 'ptv') return 'video';
   if (normalized === 'document') return 'document';
   if (normalized === 'audio') return 'audio';
+  if (normalized === 'sticker') return 'sticker';
+  if (normalized === 'reaction') return 'reaction';
+  if (normalized === 'deleted' || normalized === 'protocol' || normalized === 'revoke') return 'deleted';
   return 'text';
 }
 
@@ -115,6 +123,9 @@ export function extractInboundTextFromPayload(message: any) {
   if (type === 'image') {
     return String(message?.image?.caption || '[imagem recebida]').trim() || '[imagem recebida]';
   }
+  if (type === 'video') {
+    return String(message?.video?.caption || '[video recebido]').trim() || '[video recebido]';
+  }
   if (type === 'document') {
     const fileName = String(message?.document?.filename || '').trim();
     const caption = String(message?.document?.caption || '').trim();
@@ -123,6 +134,11 @@ export function extractInboundTextFromPayload(message: any) {
   if (type === 'audio') {
     return '[audio recebido]';
   }
+  if (type === 'sticker') return '[figurinha recebida]';
+  if (type === 'reaction') {
+    return String(message?.reaction?.emoji || message?.reaction?.text || '').trim() || '[reacao recebida]';
+  }
+  if (type === 'deleted') return '[mensagem apagada]';
   return String(message?.text?.body ?? '').trim();
 }
 

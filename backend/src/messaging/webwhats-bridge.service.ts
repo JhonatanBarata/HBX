@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import axios, { AxiosError, Method } from 'axios';
-import { existsSync, readFileSync } from 'fs';
-import { join } from 'path';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
+import { extname, join } from 'path';
 import { PrismaService } from '../prisma/prisma.service';
 import { buildWhatsAppPhoneCandidates, normalizeWhatsAppPhone } from './whatsapp-channel';
 
@@ -22,6 +22,17 @@ type WebwhatsRequestOptions = {
   purpose: string;
   data?: unknown;
   treatNotFoundAsNull?: boolean;
+};
+
+type ResolvedWebwhatsMediaAttachment = {
+  kind: WebwhatsMediaType;
+  url: string;
+  previewUrl: string;
+  mimeType: string | null;
+  fileName: string | null;
+  fileSize: number | null;
+  durationSeconds: number | null;
+  isVoiceNote: boolean;
 };
 
 type WebwhatsProviderErrorCode =
@@ -1298,6 +1309,206 @@ export class WebwhatsBridgeService {
     return `${baseUrl}${pathname.startsWith('/') ? pathname : `/${pathname}`}`;
   }
 
+  private getMediaPayload(message: WebwhatsFetchedMessage, messageType?: string | null) {
+    const payload = message?.message || {};
+    const normalizedType = String(messageType || this.normalizeMessageType(message) || '').trim().toLowerCase();
+    if (normalizedType === 'image') return (payload as any).imageMessage || null;
+    if (normalizedType === 'video') return (payload as any).videoMessage || null;
+    if (normalizedType === 'document') {
+      return (
+        (payload as any).documentWithCaptionMessage?.message?.documentMessage ||
+        (payload as any).documentMessage ||
+        null
+      );
+    }
+    if (normalizedType === 'audio') return (payload as any).audioMessage || null;
+    return null;
+  }
+
+  private normalizeStoredNumber(value: unknown) {
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      return Math.max(0, Math.floor(value));
+    }
+    if (typeof value === 'string' && value.trim()) {
+      const parsed = Number(value);
+      if (Number.isFinite(parsed)) return Math.max(0, Math.floor(parsed));
+    }
+    if (value && typeof value === 'object') {
+      const low = Number((value as any).low ?? 0);
+      const high = Number((value as any).high ?? 0);
+      if (Number.isFinite(low) || Number.isFinite(high)) {
+        return Math.max(0, Math.floor((Number.isFinite(high) ? high : 0) * 4294967296 + (Number.isFinite(low) ? low : 0)));
+      }
+    }
+    return null;
+  }
+
+  private mimeToExtension(mimeType: string | null | undefined, fallbackName?: string | null) {
+    const fallbackExt = extname(String(fallbackName || '').split('?')[0]).replace(/[^a-zA-Z0-9.]/g, '').slice(0, 8);
+    if (fallbackExt) return fallbackExt;
+    const normalized = String(mimeType || '').trim().toLowerCase();
+    if (normalized.includes('jpeg') || normalized.includes('jpg')) return '.jpg';
+    if (normalized.includes('png')) return '.png';
+    if (normalized.includes('webp')) return '.webp';
+    if (normalized.includes('gif')) return '.gif';
+    if (normalized.includes('mp4')) return '.mp4';
+    if (normalized.includes('webm')) return '.webm';
+    if (normalized.includes('mpeg') || normalized.includes('mp3')) return '.mp3';
+    if (normalized.includes('ogg') || normalized.includes('opus')) return '.ogg';
+    if (normalized.includes('wav')) return '.wav';
+    if (normalized.includes('pdf')) return '.pdf';
+    return '.bin';
+  }
+
+  private extractBase64FromMediaResponse(response: unknown) {
+    if (typeof response === 'string') return response.trim() || null;
+    if (!response || typeof response !== 'object') return null;
+    const candidates = [
+      (response as any).base64,
+      (response as any).data?.base64,
+      (response as any).media?.base64,
+      (response as any).message?.base64,
+      (response as any).buffer,
+    ];
+    for (const candidate of candidates) {
+      if (Buffer.isBuffer(candidate)) return candidate.toString('base64');
+      if (typeof candidate === 'string' && candidate.trim()) return candidate.trim();
+      if (candidate && typeof candidate === 'object' && Array.isArray((candidate as any).data)) {
+        return Buffer.from((candidate as any).data).toString('base64');
+      }
+    }
+    return null;
+  }
+
+  private normalizeBase64Payload(raw: string | null | undefined) {
+    const normalized = String(raw || '').trim();
+    if (!normalized) return null;
+    const withoutPrefix = normalized.includes('base64,')
+      ? normalized.slice(normalized.indexOf('base64,') + 'base64,'.length)
+      : normalized;
+    const compact = withoutPrefix.replace(/\s+/g, '');
+    return compact || null;
+  }
+
+  private extractMediaResponseMimeType(response: unknown) {
+    if (!response || typeof response !== 'object') return null;
+    return this.normalizeOptionalString(
+      (response as any).mimetype ||
+      (response as any).mimeType ||
+      (response as any).media?.mimetype ||
+      (response as any).media?.mimeType ||
+      (response as any).data?.mimetype ||
+      (response as any).data?.mimeType,
+    );
+  }
+
+  private extractMediaResponseFileName(response: unknown) {
+    if (!response || typeof response !== 'object') return null;
+    return this.normalizeOptionalString(
+      (response as any).fileName ||
+      (response as any).filename ||
+      (response as any).media?.fileName ||
+      (response as any).media?.filename ||
+      (response as any).data?.fileName ||
+      (response as any).data?.filename,
+    );
+  }
+
+  private buildStoredMediaAttachmentFromVariables(
+    variables: Record<string, any>,
+  ): ResolvedWebwhatsMediaAttachment | null {
+    const attachment =
+      variables?.attachment && typeof variables.attachment === 'object' && !Array.isArray(variables.attachment)
+        ? variables.attachment
+        : null;
+    const url = this.normalizeOptionalString(attachment?.url || attachment?.mediaUrl || attachment?.attachmentUrl);
+    const kind = this.normalizeOptionalString(attachment?.kind);
+    if (!url || !kind || !['image', 'video', 'document', 'audio'].includes(kind)) return null;
+
+    const localPath = this.resolveUploadedMediaPath(url);
+    if (!localPath || !existsSync(localPath)) return null;
+
+    return {
+      kind: kind as WebwhatsMediaType,
+      url,
+      previewUrl: this.normalizeOptionalString(attachment?.previewUrl) || url,
+      mimeType: this.normalizeOptionalString(attachment?.mimeType),
+      fileName: this.normalizeOptionalString(attachment?.fileName),
+      fileSize: this.normalizeStoredNumber(attachment?.fileSize),
+      durationSeconds: this.normalizeStoredNumber(attachment?.durationSeconds),
+      isVoiceNote: Boolean(attachment?.isVoiceNote),
+    };
+  }
+
+  private async resolveInboundMediaAttachment(
+    companyId: number,
+    conversationId: number,
+    message: WebwhatsFetchedMessage,
+    messageType: string,
+    existingVariables?: Record<string, any>,
+  ): Promise<ResolvedWebwhatsMediaAttachment | null> {
+    if (!['image', 'video', 'document', 'audio'].includes(messageType)) return null;
+
+    const stored = this.buildStoredMediaAttachmentFromVariables(existingVariables || {});
+    if (stored) return stored;
+
+    const mediaPayload = this.getMediaPayload(message, messageType);
+    if (!mediaPayload) return null;
+
+    try {
+      const tenantKey = this.buildTenantKey(companyId);
+      const response = await this.requestRead<any>({
+        method: 'POST',
+        path: `/chat/getBase64FromMediaMessage/${encodeURIComponent(tenantKey)}`,
+        purpose: 'download de midia recebida',
+        data: {
+          message: {
+            key: message?.key || {},
+            message: message?.message || {},
+          },
+          convertToMp4: messageType === 'video',
+        },
+        treatNotFoundAsNull: true,
+      });
+      const base64 = this.normalizeBase64Payload(this.extractBase64FromMediaResponse(response));
+      if (!base64) return null;
+
+      const buffer = Buffer.from(base64, 'base64');
+      if (!buffer.length) return null;
+
+      const mimeType =
+        this.extractMediaResponseMimeType(response) ||
+        this.normalizeOptionalString((mediaPayload as any).mimetype);
+      const fileName =
+        this.extractMediaResponseFileName(response) ||
+        this.normalizeOptionalString((mediaPayload as any).fileName || (mediaPayload as any).title);
+      const keyId = this.normalizeOptionalString(message?.key?.id || message?.id) || String(Date.now());
+      const safeKey = keyId.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 80) || String(Date.now());
+      const extension = this.mimeToExtension(mimeType, fileName);
+      const uploadDir = join(process.cwd(), 'public', 'uploads', 'inbox');
+      if (!existsSync(uploadDir)) mkdirSync(uploadDir, { recursive: true });
+      const filename = `${companyId}_${conversationId}_${safeKey}${extension}`;
+      const publicUrl = `/uploads/inbox/${filename}`;
+      writeFileSync(join(uploadDir, filename), buffer);
+
+      return {
+        kind: messageType as WebwhatsMediaType,
+        url: publicUrl,
+        previewUrl: publicUrl,
+        mimeType,
+        fileName,
+        fileSize: buffer.length || this.normalizeStoredNumber((mediaPayload as any).fileLength),
+        durationSeconds: this.normalizeStoredNumber((mediaPayload as any).seconds),
+        isVoiceNote: Boolean((mediaPayload as any).ptt),
+      };
+    } catch (error: any) {
+      this.logger.warn(
+        `Webwhats media download falhou company=${companyId} conversation=${conversationId} message=${String(message?.key?.id || message?.id || '')}: ${String(error?.message || error)}`,
+      );
+      return null;
+    }
+  }
+
   private isThrottled(map: Map<number | string, number>, key: number | string, windowMs: number) {
     const lastRunAt = Number(map.get(key) || 0);
     return Date.now() - lastRunAt < windowMs;
@@ -2135,6 +2346,58 @@ export class WebwhatsBridgeService {
     return conversation;
   }
 
+  async ingestWebhookMessage(
+    companyId: number,
+    message: WebwhatsFetchedMessage,
+    opts?: {
+      remoteJid?: string | null;
+      remoteJidAlt?: string | null;
+      displayName?: string | null;
+      profilePicUrl?: string | null;
+    },
+  ) {
+    const remoteJid =
+      this.normalizeOptionalString(message?.key?.remoteJid) ||
+      this.normalizeOptionalString(opts?.remoteJid);
+    if (!remoteJid) {
+      throw new Error('WEBWHATS_WEBHOOK_REMOTE_JID_MISSING');
+    }
+    const remoteJidAlt =
+      this.normalizeOptionalString(message?.key?.remoteJidAlt) ||
+      this.normalizeOptionalString(opts?.remoteJidAlt);
+    const timestamp = this.resolveMessageDate(message?.messageTimestamp) || new Date();
+    const chat = {
+      remoteJid,
+      remoteJidAlt,
+      lastMessage: message,
+      updatedAt: timestamp,
+      pushName:
+        this.normalizeOptionalString(opts?.displayName) ||
+        this.normalizeOptionalString(message?.pushName),
+      profilePicUrl: this.normalizeOptionalString(opts?.profilePicUrl),
+    } as WebwhatsChatSummary;
+
+    const conversation = await this.upsertConversationStateFromChat(companyId, chat, null, null);
+    if (!conversation) {
+      throw new Error('WEBWHATS_WEBHOOK_CONVERSATION_UPSERT_FAILED');
+    }
+
+    const companyMessageId = await this.upsertConversationMessage(
+      companyId,
+      conversation.id,
+      remoteJid,
+      message,
+      remoteJidAlt,
+    );
+
+    return {
+      conversationId: Number(conversation.id || 0),
+      companyMessageId: Number(companyMessageId || 0) || null,
+      remoteJid,
+      remoteJidAlt,
+    };
+  }
+
   private async ensureConversationState(
     companyId: number,
     input: {
@@ -2513,7 +2776,7 @@ export class WebwhatsBridgeService {
           lastInteractionAt: timestamp,
         },
       });
-      return;
+      return 0;
     }
 
     const keyId = this.normalizeOptionalString(message?.key?.id || message?.id);
@@ -2524,6 +2787,35 @@ export class WebwhatsBridgeService {
     const status = this.normalizeStoredStatus(message, direction);
     const resolvedContact = this.buildConversationContact(remoteJidAlt || this.getMessageRemoteJidAlt(message) || remoteJid);
     const normalizedCustomerPhone = normalizeWhatsAppPhone(resolvedContact);
+    const existingMessage = rawProviderMessageId
+      ? await this.prisma.companyMessage.findUnique({
+          where: { providerMessageId: rawProviderMessageId },
+          select: { id: true, variablesJson: true },
+        })
+      : await this.prisma.companyMessage.findFirst({
+          where: {
+            companyId,
+            conversationId,
+            direction,
+            body,
+            timestamp,
+          },
+          select: { id: true, variablesJson: true },
+        });
+    const existingVariables = this.parseMetadata(existingMessage?.variablesJson);
+    const mediaAttachment = await this.resolveInboundMediaAttachment(
+      companyId,
+      conversationId,
+      message,
+      messageType,
+      existingVariables,
+    );
+    const variablesJson = mediaAttachment
+      ? JSON.stringify({
+          ...existingVariables,
+          attachment: mediaAttachment,
+        })
+      : undefined;
 
     const payload = {
       companyId,
@@ -2539,16 +2831,13 @@ export class WebwhatsBridgeService {
       provider: 'WEBWHATS',
       providerMessageId: rawProviderMessageId || undefined,
       rawPayload: JSON.stringify(message || {}),
+      ...(variablesJson ? { variablesJson } : {}),
     } as const;
 
     let persistedMessageId = 0;
     let shouldRelayInbound = false;
 
     if (rawProviderMessageId) {
-      const existing = await this.prisma.companyMessage.findUnique({
-        where: { providerMessageId: rawProviderMessageId },
-        select: { id: true },
-      });
       const persisted = await this.prisma.companyMessage.upsert({
         where: { providerMessageId: rawProviderMessageId },
         create: payload,
@@ -2563,23 +2852,14 @@ export class WebwhatsBridgeService {
           senderType: payload.senderType,
           sourceModule: payload.sourceModule,
           provider: payload.provider,
+          ...(variablesJson ? { variablesJson } : {}),
         },
         select: { id: true },
       });
       persistedMessageId = Number(persisted.id || 0);
-      shouldRelayInbound = !existing;
+      shouldRelayInbound = !existingMessage;
     } else {
-      const existing = await this.prisma.companyMessage.findFirst({
-        where: {
-          companyId,
-          conversationId,
-          direction,
-          body,
-          timestamp,
-        },
-        select: { id: true },
-      });
-      if (!existing) {
+      if (!existingMessage) {
         const created = await this.prisma.companyMessage.create({
           data: payload,
           select: { id: true },
@@ -2587,7 +2867,13 @@ export class WebwhatsBridgeService {
         persistedMessageId = Number(created.id || 0);
         shouldRelayInbound = true;
       } else {
-        persistedMessageId = Number(existing.id || 0);
+        persistedMessageId = Number(existingMessage.id || 0);
+        if (variablesJson) {
+          await this.prisma.companyMessage.update({
+            where: { id: persistedMessageId },
+            data: { variablesJson },
+          });
+        }
       }
     }
 
@@ -2627,6 +2913,8 @@ export class WebwhatsBridgeService {
         );
       }
     }
+
+    return persistedMessageId;
   }
 
   private normalizeRemoteJid(valueRaw: string) {
@@ -2709,6 +2997,11 @@ export class WebwhatsBridgeService {
     const declared = String(message?.messageType || '').trim();
     if (declared && declared !== 'conversation') {
       const lowered = declared.toLowerCase();
+      if (lowered.includes('image')) return 'image';
+      if (lowered.includes('video') || lowered.includes('ptv')) return 'video';
+      if (lowered.includes('document')) return 'document';
+      if (lowered.includes('audio')) return 'audio';
+      if (lowered.includes('sticker')) return 'sticker';
       if (lowered.includes('reaction')) return 'reaction';
       if (lowered.includes('protocol')) return 'deleted';
       return lowered;

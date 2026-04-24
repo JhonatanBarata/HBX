@@ -113,6 +113,12 @@ type OpenedInboxAsset = {
   fileName?: string | null;
 };
 
+type InboxMessagePagePayload = {
+  messages: InboxMessage[];
+  hasMore?: boolean;
+  nextBefore?: string | null;
+};
+
 type InboxAlertKind = "human_queue" | "new_message";
 
 type ActionOption = {
@@ -842,6 +848,11 @@ function buildInboxReactionIndex(messages?: InboxMessage[] | null) {
 
 function shouldHideInboxMessageFromTimeline(message?: InboxMessage | null) {
   return isInboxReactionMessage(message) && Boolean(getInboxMessageReactionTargetKeyId(message));
+}
+
+function getInboxOldestMessageDate(messages?: InboxMessage[] | null) {
+  const sorted = sortInboxMessagesChronologically(Array.isArray(messages) ? messages : []);
+  return sorted[0]?.createdAt ? String(sorted[0].createdAt) : null;
 }
 
 function canRevealDeletedInboxMessage(message?: InboxMessage | null) {
@@ -1949,6 +1960,9 @@ export default function InboxClientPage() {
   const [bootstrapReady, setBootstrapReady] = useState(false);
   const [loadingList, setLoadingList] = useState(true);
   const [loadingConversation, setLoadingConversation] = useState(false);
+  const [loadingOlderMessages, setLoadingOlderMessages] = useState(false);
+  const [olderMessagesHasMore, setOlderMessagesHasMore] = useState(false);
+  const [olderMessagesBefore, setOlderMessagesBefore] = useState<string | null>(null);
   const [loadingBot, setLoadingBot] = useState(false);
   const [savingBot, setSavingBot] = useState(false);
   const [loadingAgenda, setLoadingAgenda] = useState(false);
@@ -2412,6 +2426,8 @@ export default function InboxClientPage() {
       setSelectedId(mergedSelected?.id || preferredId);
       setSelectedConversation(mergedSelected);
       rememberConversationDetail(mergedSelected);
+      setOlderMessagesBefore(getInboxOldestMessageDate(mergedSelected?.messages));
+      setOlderMessagesHasMore((mergedSelected?.messages?.length || 0) >= 50);
       setLastConversationSyncAt(new Date().toISOString());
       setBootstrapReady(true);
     } catch (loadError) {
@@ -2436,6 +2452,8 @@ export default function InboxClientPage() {
       const message = "Conversa sem identificador valido. Recarregue a fila para sincronizar novamente.";
       setConversationDetailError(message);
       setError(message);
+      setOlderMessagesBefore(null);
+      setOlderMessagesHasMore(false);
       if (!silent) setLoadingConversation(false);
       return;
     }
@@ -2471,6 +2489,8 @@ export default function InboxClientPage() {
     }
     setConversationDetailError(null);
     if (cachedDetail && cachedDetailIsFresh && !forceRefresh) {
+      setOlderMessagesBefore(getInboxOldestMessageDate(cachedDetail.messages));
+      setOlderMessagesHasMore((cachedDetail.messages?.length || 0) >= 50);
       setLoadingConversation(false);
       setBootstrapReady(true);
       return;
@@ -2493,6 +2513,8 @@ export default function InboxClientPage() {
           setSelectedConversation(null);
           selectedIdRef.current = null;
           selectedConversationRef.current = null;
+          setOlderMessagesBefore(null);
+          setOlderMessagesHasMore(false);
         }
         return;
       }
@@ -2506,6 +2528,8 @@ export default function InboxClientPage() {
       if (detailedConversation) {
         selectedConversationRef.current = detailedConversation;
         rememberConversationDetail(detailedConversation);
+        setOlderMessagesBefore(getInboxOldestMessageDate(detailedConversation.messages));
+        setOlderMessagesHasMore((detailedConversation.messages?.length || 0) >= 50);
       }
       if (data) {
         setSelectedId(data.id);
@@ -2526,6 +2550,46 @@ export default function InboxClientPage() {
       }
     }
   }, [rememberConversationDetail]);
+
+  const loadOlderMessages = useCallback(async () => {
+    const conversationId = normalizeInboxConversationId(selectedIdRef.current || selectedId);
+    const currentConversation =
+      selectedConversationRef.current?.id === conversationId ? selectedConversationRef.current : null;
+    const before = olderMessagesBefore || getInboxOldestMessageDate(currentConversation?.messages);
+    if (!conversationId || !before || loadingOlderMessages) return;
+
+    setLoadingOlderMessages(true);
+    setConversationDetailError(null);
+    try {
+      const payload = await apiFetch<InboxMessagePagePayload>(
+        `/inbox/conversations/${conversationId}/messages?limit=50&before=${encodeURIComponent(before)}`,
+      );
+      const olderMessages = Array.isArray(payload?.messages) ? payload.messages : [];
+      const baseConversation =
+        selectedConversationRef.current?.id === conversationId ? selectedConversationRef.current : currentConversation;
+      if (!baseConversation) return;
+
+      const byId = new Map<string, InboxMessage>();
+      for (const message of [...olderMessages, ...(baseConversation.messages || [])]) {
+        byId.set(String(message.id), message);
+      }
+      const nextConversation = {
+        ...baseConversation,
+        messages: sortInboxMessagesChronologically(Array.from(byId.values())),
+      };
+      setSelectedConversation(nextConversation);
+      selectedConversationRef.current = nextConversation;
+      rememberConversationDetail(nextConversation);
+      setOlderMessagesBefore(payload?.nextBefore || getInboxOldestMessageDate(nextConversation.messages));
+      setOlderMessagesHasMore(Boolean(payload?.hasMore));
+    } catch (loadError) {
+      const message = loadError instanceof Error ? loadError.message : "Falha ao carregar mensagens antigas.";
+      setConversationDetailError(message);
+      setError(message);
+    } finally {
+      setLoadingOlderMessages(false);
+    }
+  }, [loadingOlderMessages, olderMessagesBefore, rememberConversationDetail, selectedId]);
 
   const loadConversations = useCallback(
     async (options?: { preferredId?: string | null; silent?: boolean }) => {
@@ -2585,6 +2649,8 @@ export default function InboxClientPage() {
           );
         } else if (!nextId) {
           setSelectedConversation(null);
+          setOlderMessagesBefore(null);
+          setOlderMessagesHasMore(false);
         }
 
         if (
@@ -2611,6 +2677,8 @@ export default function InboxClientPage() {
           );
           } else if (!nextSummary) {
           setSelectedConversation(null);
+          setOlderMessagesBefore(null);
+          setOlderMessagesHasMore(false);
         }
       } catch (loadError) {
         const message =
@@ -4304,7 +4372,20 @@ export default function InboxClientPage() {
                     <ChatEmptyState title="Sem mensagens">Esta conversa ainda nao tem historico registrado.</ChatEmptyState>
                   )
                 ) : (
-                  conversationMessagesForView.map((message, index) => {
+                  <>
+                    {olderMessagesHasMore ? (
+                      <div className={styles.whatsAppOlderMessagesRow}>
+                        <button
+                          type="button"
+                          className={styles.whatsAppOlderMessagesButton}
+                          onClick={() => void loadOlderMessages()}
+                          disabled={loadingOlderMessages}
+                        >
+                          {loadingOlderMessages ? "Carregando..." : "Carregar mensagens anteriores"}
+                        </button>
+                      </div>
+                    ) : null}
+                    {conversationMessagesForView.map((message, index) => {
                     const tone = mapInboxBubbleTone(message);
                     let rendered = parseInboxMessageMedia(message, conversationForView);
                     const mediaFailedInBrowser = Boolean(
@@ -4625,7 +4706,8 @@ export default function InboxClientPage() {
                         </div>
                       </div>
                     );
-                  })
+                  })}
+                  </>
                 )}
               </div>
 
@@ -5296,14 +5378,17 @@ export default function InboxClientPage() {
       draggedQueueId,
       failedInboxMediaUrls,
       loadConversation,
+      loadOlderMessages,
       loadingConversation,
       loadingCustomerConversationCard,
       loadingList,
+      loadingOlderMessages,
       markCustomerDoNotCall,
       markInboxMediaUrlFailed,
       mounted,
       openCustomerReturnPicker,
       openedAsset,
+      olderMessagesHasMore,
       queueActionConversationId,
       queueCounts,
       queueUnreadCounts,

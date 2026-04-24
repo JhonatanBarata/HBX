@@ -302,16 +302,27 @@ export class InboxService {
     if (reactionText) return reactionText;
 
     if (normalizedType === 'image') {
-      return this.normalizeMessageMetadataText((payload as any).imageMessage?.caption) || '[imagem recebida]';
+      return (
+        this.normalizeMessageMetadataText((payload as any).imageMessage?.caption) ||
+        this.normalizeMessageMetadataText((payload as any).image?.caption) ||
+        '[imagem recebida]'
+      );
     }
     if (normalizedType === 'video') {
-      return this.normalizeMessageMetadataText((payload as any).videoMessage?.caption) || '[video recebido]';
+      return (
+        this.normalizeMessageMetadataText((payload as any).videoMessage?.caption) ||
+        this.normalizeMessageMetadataText((payload as any).video?.caption) ||
+        '[video recebido]'
+      );
     }
     if (normalizedType === 'document') {
       return (
         this.normalizeMessageMetadataText((payload as any).documentMessage?.caption) ||
         this.normalizeMessageMetadataText((payload as any).documentMessage?.fileName) ||
         this.normalizeMessageMetadataText((payload as any).documentMessage?.title) ||
+        this.normalizeMessageMetadataText((payload as any).document?.caption) ||
+        this.normalizeMessageMetadataText((payload as any).document?.filename) ||
+        this.normalizeMessageMetadataText((payload as any).document?.fileName) ||
         '[documento recebido]'
       );
     }
@@ -338,6 +349,11 @@ export class InboxService {
       (payload as any).videoMessage?.contextInfo ||
       (payload as any).documentMessage?.contextInfo ||
       (payload as any).audioMessage?.contextInfo ||
+      (payload as any).image?.context ||
+      (payload as any).video?.context ||
+      (payload as any).document?.context ||
+      (payload as any).audio?.context ||
+      (payload as any).context ||
       (payload as any).buttonsResponseMessage?.contextInfo ||
       (payload as any).templateButtonReplyMessage?.contextInfo ||
       (payload as any).listResponseMessage?.contextInfo ||
@@ -433,13 +449,13 @@ export class InboxService {
 
     const mediaSource =
       normalizedMessageType === 'image'
-        ? (payload as any).imageMessage
+        ? (payload as any).imageMessage || (payload as any).image
         : normalizedMessageType === 'video'
-          ? (payload as any).videoMessage || (payload as any).ptvMessage
+          ? (payload as any).videoMessage || (payload as any).ptvMessage || (payload as any).video
           : normalizedMessageType === 'document'
-            ? (payload as any).documentMessage
+            ? (payload as any).documentMessage || (payload as any).document
             : normalizedMessageType === 'audio'
-              ? (payload as any).audioMessage
+              ? (payload as any).audioMessage || (payload as any).audio
               : null;
 
     const resolvedTextFromPayload = this.extractMessageTextFromPayload(payload, normalizedMessageType);
@@ -483,23 +499,49 @@ export class InboxService {
         pushName: this.normalizeMessageMetadataText(rawPayload?.pushName),
         senderName: this.resolveConversationMessageSenderName(conversationContact, conversationMetadata, rawPayload),
         senderPhone,
-        reactionTargetKeyId: this.normalizeMessageMetadataText((payload as any).reactionMessage?.key?.id),
+        reactionTargetKeyId: this.normalizeMessageMetadataText(
+          (payload as any).reactionMessage?.key?.id ||
+            (payload as any).reaction?.message_id ||
+            (payload as any).reaction?.messageId,
+        ),
         reactionEmoji:
           this.normalizeMessageMetadataText((payload as any).reactionMessage?.text) ||
-          this.normalizeMessageMetadataText((payload as any).reactionMessage?.emoji),
-        quotedMessageId: this.normalizeMessageMetadataText(variables?.quotedMessageId || contextInfo?.stanzaId),
+          this.normalizeMessageMetadataText((payload as any).reactionMessage?.emoji) ||
+          this.normalizeMessageMetadataText((payload as any).reaction?.emoji) ||
+          this.normalizeMessageMetadataText((payload as any).reaction?.text),
+        quotedMessageId: this.normalizeMessageMetadataText(
+          variables?.quotedMessageId || contextInfo?.stanzaId || contextInfo?.id,
+        ),
         quotedPreview: this.extractQuotedMessagePreview(contextInfo, variables),
         mediaUrl: this.normalizeMessageMetadataText(
-          attachment?.url || attachment?.mediaUrl || attachment?.attachmentUrl || mediaSource?.url,
+          attachment?.url ||
+            attachment?.mediaUrl ||
+            attachment?.attachmentUrl ||
+            mediaSource?.url ||
+            mediaSource?.mediaUrl ||
+            mediaSource?.attachmentUrl ||
+            mediaSource?.link,
         ),
-        previewUrl: this.normalizeMessageMetadataText(attachment?.previewUrl || attachment?.url || mediaSource?.url),
-        mimeType: this.normalizeMessageMetadataText(attachment?.mimeType || mediaSource?.mimetype),
+        previewUrl: this.normalizeMessageMetadataText(
+          attachment?.previewUrl ||
+            attachment?.url ||
+            mediaSource?.previewUrl ||
+            mediaSource?.url ||
+            mediaSource?.link,
+        ),
+        mimeType: this.normalizeMessageMetadataText(
+          attachment?.mimeType || mediaSource?.mimetype || mediaSource?.mime_type,
+        ),
         fileName: this.normalizeMessageMetadataText(
-          attachment?.fileName || mediaSource?.fileName || mediaSource?.title,
+          attachment?.fileName || mediaSource?.fileName || mediaSource?.filename || mediaSource?.title,
         ),
-        fileSize: this.normalizeStoredFileSize(attachment?.fileSize ?? mediaSource?.fileLength),
-        durationSeconds: this.normalizeStoredFileSize(attachment?.durationSeconds ?? mediaSource?.seconds),
-        isVoiceNote: Boolean(attachment?.isVoiceNote ?? mediaSource?.ptt),
+        fileSize: this.normalizeStoredFileSize(
+          attachment?.fileSize ?? mediaSource?.fileLength ?? mediaSource?.file_size ?? mediaSource?.filesize,
+        ),
+        durationSeconds: this.normalizeStoredFileSize(
+          attachment?.durationSeconds ?? mediaSource?.seconds ?? mediaSource?.duration,
+        ),
+        isVoiceNote: Boolean(attachment?.isVoiceNote ?? mediaSource?.ptt ?? mediaSource?.voice),
         isDeleted: Boolean(variables?.isDeleted || variables?.deletedAt),
         deletedAt: this.normalizeMessageMetadataText(variables?.deletedAt),
         deletedBy: this.normalizeMessageMetadataText(variables?.deletedBy),
@@ -1683,6 +1725,7 @@ export class InboxService {
 
   async getBootstrap(user: any, take?: string | number) {
     const companyId = this.requireCompanyIdFromUser(user);
+    await this.syncPersistedInboxIndex(companyId, { take });
     let conversations = await this.listPersistedConversationSummariesForCompany(companyId, {
       take: this.normalizeConversationTakeLimit(take, 200),
     });
@@ -1691,6 +1734,7 @@ export class InboxService {
     let selectedConversation: any = null;
 
     if (firstConversationId) {
+      await this.syncPersistedInboxConversation(companyId, firstConversationId);
       selectedConversation = await this.getPersistedConversationByIdForCompany(companyId, firstConversationId, {
         messagesLimit: 50,
       });
@@ -1925,6 +1969,7 @@ export class InboxService {
 
   async listConversations(user: any, take?: string | number) {
     const companyId = this.requireCompanyIdFromUser(user);
+    await this.syncPersistedInboxIndex(companyId, { take });
     return this.listPersistedConversationSummariesForCompany(companyId, { take });
   }
 
@@ -1934,6 +1979,7 @@ export class InboxService {
 
   async getConversationById(user: any, id: number) {
     const companyId = this.requireCompanyIdFromUser(user);
+    await this.syncPersistedInboxConversation(companyId, id);
     return this.getPersistedConversationByIdForCompany(companyId, id, { messagesLimit: 50 });
   }
 
@@ -1943,6 +1989,7 @@ export class InboxService {
     options?: { limit?: string | number | null; before?: string | null },
   ) {
     const companyId = this.requireCompanyIdFromUser(user);
+    await this.syncPersistedInboxConversation(companyId, id);
     const conversation = await this.prisma.companyConversation.findFirst({
       where: { companyId, id, channel: 'whatsapp' },
       select: {
