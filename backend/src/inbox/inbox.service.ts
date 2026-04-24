@@ -564,6 +564,39 @@ export class InboxService {
     return Object.keys(metadata).length ? metadata : null;
   }
 
+  private needsConversationMediaHydration(
+    messages: Array<{
+      messageType?: string | null;
+      body?: string | null;
+      rawPayload?: string | null;
+      variablesJson?: string | null;
+    }> | null | undefined,
+    conversationContact: string,
+    conversationMetadataRaw: string | null | undefined,
+  ) {
+    const conversationMetadata = this.parseConversationMetadata(conversationMetadataRaw);
+    return (messages || []).some((message) => {
+      const metadata = this.buildConversationMessageMetadata(
+        message,
+        String(conversationContact || ''),
+        conversationMetadata,
+      );
+      if (!metadata || metadata.isLocalHidden || metadata.isDeleted) return false;
+
+      const normalizedType = String(
+        metadata.normalizedMessageType || message?.messageType || 'text',
+      )
+        .trim()
+        .toLowerCase();
+
+      if (!['image', 'video', 'document', 'audio'].includes(normalizedType)) {
+        return false;
+      }
+
+      return !this.normalizeMessageMetadataText(metadata.mediaUrl || metadata.previewUrl);
+    });
+  }
+
   private extractWebwhatsRawMessageIdFromProviderMessageId(providerMessageIdRaw: unknown) {
     const normalized = this.normalizeMessageMetadataText(providerMessageIdRaw);
     if (!normalized) return null;
@@ -1661,7 +1694,7 @@ export class InboxService {
 
   private async getPersistedConversationByIdForCompany(companyId: number, id: number, options?: { messagesLimit?: number }) {
     const messagesLimit = this.normalizeMessagePageLimit(options?.messagesLimit, 50);
-    const row = await this.prisma.companyConversation.findFirst({
+    const loadRow = () => this.prisma.companyConversation.findFirst({
       where: { companyId, id, channel: 'whatsapp' },
       select: {
         id: true,
@@ -1697,8 +1730,20 @@ export class InboxService {
       },
     });
 
+    let row = await loadRow();
+
     if (!row) {
       throw new NotFoundException('Conversation not found');
+    }
+
+    if (this.needsConversationMediaHydration(row.messages, String(row.contact || ''), row.metadata)) {
+      const syncError = await this.syncPersistedInboxConversation(companyId, id);
+      if (!syncError) {
+        const refreshedRow = await loadRow();
+        if (refreshedRow) {
+          row = refreshedRow;
+        }
+      }
     }
 
     const routingRules = await this.getRecoveryRoutingRules(companyId);
@@ -2002,7 +2047,7 @@ export class InboxService {
 
     const limit = this.normalizeMessagePageLimit(options?.limit, 50);
     const before = this.normalizeBeforeDate(options?.before || null);
-    const rows = await this.prisma.companyMessage.findMany({
+    const loadRows = () => this.prisma.companyMessage.findMany({
       where: {
         companyId,
         conversationId: id,
@@ -2025,6 +2070,15 @@ export class InboxService {
         variablesJson: true,
       },
     });
+
+    let rows = await loadRows();
+
+    if (!before && this.needsConversationMediaHydration(rows, String(conversation.contact || ''), conversation.metadata)) {
+      const syncError = await this.syncPersistedInboxConversation(companyId, id);
+      if (!syncError) {
+        rows = await loadRows();
+      }
+    }
 
     const conversationMetadata = this.parseConversationMetadata(conversation.metadata);
     const messages = [...rows]
