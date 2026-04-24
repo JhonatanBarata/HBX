@@ -9,12 +9,14 @@ import {
   Post,
   Query,
   Req,
+  Res,
   UploadedFile,
   UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
+import type { Response } from 'express';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { InboxService } from './inbox.service';
 import { UpdateConversationStatusDto } from './dto/update-conversation-status.dto';
@@ -35,6 +37,11 @@ import { PromoteToRecoveryDto } from './dto/promote-to-recovery.dto';
 @ModuleAccess('atendimento')
 export class InboxController {
   constructor(private readonly inboxService: InboxService) {}
+
+  @Get('events')
+  streamEvents(@Req() req: any, @Res() res: Response) {
+    return this.inboxService.openRealtimeStream(req.user, req, res);
+  }
 
   @Get('bootstrap')
   getBootstrap(@Req() req: any, @Query('take') take?: string) {

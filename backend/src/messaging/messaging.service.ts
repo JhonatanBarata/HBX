@@ -53,6 +53,7 @@ import {
 import { CadastrosService } from '../cadastros/cadastros.service';
 import { CustomerProfileService } from '../customer-profile/customer-profile.service';
 import { WebwhatsBridgeService, type WebwhatsFetchedMessage } from './webwhats-bridge.service';
+import { InboxRealtimeService } from './inbox-realtime.service';
 
 function clamp(n: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, n));
@@ -174,6 +175,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     private readonly cadastrosService: CadastrosService,
     private readonly customerProfileService: CustomerProfileService,
     private readonly webwhatsBridge: WebwhatsBridgeService,
+    private readonly inboxRealtime: InboxRealtimeService,
   ) {}
 
   onModuleInit() {
@@ -2258,7 +2260,9 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
   }) {
     const status = this.normalizeProviderDeliveryStatus(input.status);
     const providerIds = this.buildWebwhatsProviderMessageIdCandidates(input.companyId, input.providerMessageId);
-    if (!providerIds.length) return { updatedMessages: 0, updatedOutbound: 0, status };
+    if (!providerIds.length) {
+      return { updatedMessages: 0, updatedOutbound: 0, status, conversationIds: [] as number[] };
+    }
 
     const outboundUpdate: any = {
       deliveryStatus: status,
@@ -2293,6 +2297,20 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     if (status === 'sent') messageUpdate.status = 'SENT';
     if (status === 'sent' || status === 'delivered' || status === 'read') messageUpdate.error = null;
 
+    const touchedMessages = Object.keys(messageUpdate).length
+      ? await this.prisma.companyMessage.findMany({
+          where: { companyId: input.companyId, providerMessageId: { in: providerIds } },
+          select: { conversationId: true },
+        })
+      : [];
+    const conversationIds = Array.from(
+      new Set(
+        touchedMessages
+          .map((message) => Number(message.conversationId))
+          .filter((conversationId) => Number.isFinite(conversationId) && conversationId > 0),
+      ),
+    );
+
     const [outboundResult, messageResult] = await Promise.all([
       this.prisma.outboundMessage.updateMany({
         where: { companyId: input.companyId, providerMessageId: { in: providerIds } },
@@ -2325,6 +2343,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
       updatedOutbound: outboundResult.count,
       updatedMessages: messageResult.count,
       status,
+      conversationIds,
     };
   }
 
@@ -4550,7 +4569,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
 
     for (const status of statuses) {
       try {
-        await this.applyProviderDeliveryStatus({
+        const statusResult = await this.applyProviderDeliveryStatus({
           companyId: company.id,
           providerMessageId: status.providerMessageId,
           status: status.status,
@@ -4559,6 +4578,14 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
           scope: 'webwhats_webhook',
         });
         statusesHandled++;
+        for (const conversationId of statusResult.conversationIds) {
+          this.inboxRealtime.publish({
+            companyId: company.id,
+            kind: 'status',
+            conversationId,
+            at: new Date().toISOString(),
+          });
+        }
       } catch (error: any) {
         failures++;
         const message = String(error?.message || error || 'Falha ao aplicar status WebWhats.');
@@ -4587,6 +4614,13 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
           displayName: message.pushName || null,
         });
         messagesHandled++;
+        this.inboxRealtime.publish({
+          companyId: company.id,
+          kind: 'message',
+          conversationId: result.conversationId,
+          messageId: result.companyMessageId,
+          at: new Date().toISOString(),
+        });
         await this.logWhatsAppEvent({
           companyId: company.id,
           scope: 'webwhats_webhook',

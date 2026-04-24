@@ -1720,7 +1720,11 @@ export default function TopBar() {
                 <span className="app-brand__markBadge" aria-hidden="true" />
               </button>
 
-              <Link href={authenticated === true ? "/dashboard" : "/login"} className="app-brand__bodyLink">
+              <Link
+                href={authenticated === true ? "/dashboard" : "/login"}
+                prefetch={false}
+                className="app-brand__bodyLink"
+              >
                 <span className="app-brand__body">
                   <span className="app-brand__text">HBX Control Center</span>
                   <span className="app-brand__context">{accountContext}</span>
@@ -1979,7 +1983,7 @@ export default function TopBar() {
                 {isShuttingDown ? "Saindo..." : "Sair"}
               </button>
             ) : authResolved ? (
-              <Link href="/login" className="btn btn-secondary btn-sm">
+              <Link href="/login" prefetch={false} className="btn btn-secondary btn-sm">
                 Entrar
               </Link>
             ) : null}

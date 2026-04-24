@@ -65,6 +65,12 @@ function createService(overrides?: Partial<Record<string, any>>) {
     ...(overrides?.audit || {}),
   } as any;
 
+  const inboxRealtime = {
+    publish: () => undefined,
+    subscribe: () => () => undefined,
+    ...(overrides?.inboxRealtime || {}),
+  } as any;
+
   const service = new MessagingService(
     prisma,
     (overrides?.sessions || {}) as any,
@@ -76,6 +82,7 @@ function createService(overrides?: Partial<Record<string, any>>) {
     (overrides?.cadastrosService || {}) as any,
     (overrides?.customerProfileService || {}) as any,
     ({ sendText: async () => undefined, ...(overrides?.webwhatsBridge || {}) } as any),
+    inboxRealtime,
   );
 
   return {

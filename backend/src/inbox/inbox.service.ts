@@ -46,6 +46,8 @@ import {
   WebwhatsLiveConversationSnapshot,
   WebwhatsProviderError,
 } from '../messaging/webwhats-bridge.service';
+import { InboxRealtimeService } from '../messaging/inbox-realtime.service';
+import type { Request, Response } from 'express';
 
 @Injectable()
 export class InboxService {
@@ -60,6 +62,7 @@ export class InboxService {
     private readonly cadastrosService: CadastrosService,
     private readonly customerProfileService: CustomerProfileService,
     private readonly webwhatsBridge: WebwhatsBridgeService,
+    private readonly inboxRealtime: InboxRealtimeService,
   ) {}
 
   private async logInboxEvent(input: {
@@ -92,6 +95,44 @@ export class InboxService {
     const companyId = Number(user?.companyId);
     if (!companyId) throw new ForbiddenException('Company context required');
     return companyId;
+  }
+
+  openRealtimeStream(user: any, req: Request, res: Response) {
+    const companyId = this.requireCompanyIdFromUser(user);
+
+    res.status(200);
+    res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-cache, no-transform');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no');
+    res.flushHeaders?.();
+
+    res.write(': inbox-stream-ready\n\n');
+
+    const unsubscribe = this.inboxRealtime.subscribe(companyId, (event) => {
+      res.write(`event: inbox\n`);
+      res.write(`data: ${JSON.stringify(event)}\n\n`);
+    });
+
+    const heartbeat = setInterval(() => {
+      try {
+        res.write(': keepalive\n\n');
+      } catch {
+        // ignore write failures; close handler will clean up
+      }
+    }, 25000);
+
+    const cleanup = () => {
+      clearInterval(heartbeat);
+      unsubscribe();
+      if (!res.writableEnded) {
+        res.end();
+      }
+    };
+
+    req.on('close', cleanup);
+    req.on('end', cleanup);
+    req.on('error', cleanup);
   }
 
   private async syncPersistedInboxIndex(
