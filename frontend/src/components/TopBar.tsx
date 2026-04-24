@@ -934,7 +934,6 @@ export default function TopBar() {
       }
     };
 
-    void pollIncomingAlerts();
     const timer = window.setInterval(() => {
       void pollIncomingAlerts();
     }, 15000);

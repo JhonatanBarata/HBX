@@ -81,6 +81,16 @@ export class InboxController {
     return this.inboxService.listConversations(req.user, take);
   }
 
+  @Get('conversations/:id/messages')
+  listConversationMessages(
+    @Req() req: any,
+    @Param('id', ParseIntPipe) id: number,
+    @Query('limit') limit?: string,
+    @Query('before') before?: string,
+  ) {
+    return this.inboxService.listConversationMessages(req.user, id, { limit, before });
+  }
+
   @Get('conversations/:id')
   getConversation(@Req() req: any, @Param('id', ParseIntPipe) id: number) {
     return this.inboxService.getConversationById(req.user, id);
