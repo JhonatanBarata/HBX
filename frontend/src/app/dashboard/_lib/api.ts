@@ -1,11 +1,25 @@
 "use client";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3000";
+const SHELL_GET_CACHE_TTL_MS = 30000;
+const SHELL_GET_CACHE_PATHS = new Set([
+  "/profile/current-user",
+  "/modules/me",
+  "/profile/theme-preferences",
+]);
 
 type ApiErrorPayload = {
   message?: string | string[];
   error?: string;
 };
+
+type ApiCacheEntry = {
+  expiresAt: number;
+  value?: unknown;
+  promise?: Promise<unknown>;
+};
+
+const apiGetCache = new Map<string, ApiCacheEntry>();
 
 function isApiErrorPayload(value: unknown): value is ApiErrorPayload {
   return Boolean(value) && typeof value === "object";
@@ -21,6 +35,7 @@ export function getToken(): string | null {
 }
 
 export function setToken(token: string, options?: { notify?: boolean }) {
+  clearApiCache();
   localStorage.setItem("token", token);
   if (options?.notify === false) return;
 
@@ -34,6 +49,7 @@ export function setToken(token: string, options?: { notify?: boolean }) {
 }
 
 export function clearToken() {
+  clearApiCache();
   localStorage.removeItem("token");
   localStorage.removeItem("access_token");
   localStorage.removeItem("accessToken");
@@ -44,6 +60,29 @@ export function clearToken() {
       // ignore event dispatch errors
     }
   }
+}
+
+export function clearApiCache(path?: string) {
+  if (!path) {
+    apiGetCache.clear();
+    return;
+  }
+
+  for (const key of Array.from(apiGetCache.keys())) {
+    if (key.includes(`|${path}`)) {
+      apiGetCache.delete(key);
+    }
+  }
+}
+
+function shouldCacheGet(path: string, init?: RequestInit & { skipAuth?: boolean }) {
+  const method = String(init?.method || "GET").toUpperCase();
+  return method === "GET" && !init?.body && SHELL_GET_CACHE_PATHS.has(path);
+}
+
+function buildCacheKey(path: string, token: string | null, init?: RequestInit & { skipAuth?: boolean }) {
+  const authKey = init?.skipAuth ? "anon" : token || "no-token";
+  return `${authKey}|${path}`;
 }
 
 function parseErrorMessage(data: unknown): string {
@@ -75,6 +114,16 @@ export async function apiFetch<T>(
 ): Promise<T> {
   const url = path.startsWith("http") ? path : `${API_URL}${path}`;
   const token = getToken();
+  const cacheable = shouldCacheGet(path, init);
+  const cacheKey = cacheable ? buildCacheKey(path, token, init) : "";
+  if (cacheable) {
+    const cached = apiGetCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) {
+      if (cached.promise) return cached.promise as Promise<T>;
+      return cached.value as T;
+    }
+    apiGetCache.delete(cacheKey);
+  }
   const isFormData = typeof FormData !== "undefined" && init?.body instanceof FormData;
 
   const headers = new Headers(init?.headers);
@@ -84,34 +133,54 @@ export async function apiFetch<T>(
   if (!init?.skipAuth && token) {
     headers.set("Authorization", `Bearer ${token}`);
   }
-  const res = await fetch(url, { ...init, headers });
+  const request = fetch(url, { ...init, headers }).then(async (res) => {
+    let data: unknown = null;
+    const text = await res.text();
+    if (text) {
+      try {
+        data = JSON.parse(text) as unknown;
+      } catch {
+        data = text;
+      }
+    }
 
-  let data: unknown = null;
-  const text = await res.text();
-  if (text) {
+    if (!res.ok) {
+      const message = typeof data === "string" ? data : parseErrorMessage(data);
+      dispatchTechAssistantApiError({
+        path,
+        url,
+        method: String(init?.method || "GET").toUpperCase(),
+        status: res.status,
+        message,
+        response:
+          typeof data === "string"
+            ? data.slice(0, 1200)
+            : JSON.stringify(data ?? null).slice(0, 1200),
+        at: new Date().toISOString(),
+      });
+      throw new Error(message);
+    }
+
+    return data as T;
+  });
+
+  if (cacheable) {
+    apiGetCache.set(cacheKey, {
+      expiresAt: Date.now() + SHELL_GET_CACHE_TTL_MS,
+      promise: request,
+    });
     try {
-      data = JSON.parse(text) as unknown;
-    } catch {
-      data = text;
+      const value = await request;
+      apiGetCache.set(cacheKey, {
+        expiresAt: Date.now() + SHELL_GET_CACHE_TTL_MS,
+        value,
+      });
+      return value;
+    } catch (error) {
+      apiGetCache.delete(cacheKey);
+      throw error;
     }
   }
 
-  if (!res.ok) {
-    const message = typeof data === "string" ? data : parseErrorMessage(data);
-    dispatchTechAssistantApiError({
-      path,
-      url,
-      method: String(init?.method || "GET").toUpperCase(),
-      status: res.status,
-      message,
-      response:
-        typeof data === "string"
-          ? data.slice(0, 1200)
-          : JSON.stringify(data ?? null).slice(0, 1200),
-      at: new Date().toISOString(),
-    });
-    throw new Error(message);
-  }
-
-  return data as T;
+  return request;
 }

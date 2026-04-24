@@ -454,6 +454,7 @@ export default function ModuleNav({
                 <Link
                   key={item.key}
                   href={href}
+                  prefetch={false}
                   className={active ? styles.moduleCardActive : styles.moduleCard}
                   data-ui-slot="module-card"
                   aria-current={active ? "page" : undefined}

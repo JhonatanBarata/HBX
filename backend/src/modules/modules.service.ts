@@ -2388,7 +2388,7 @@ export class ModulesService implements OnModuleInit {
 
     const operationalStatuses = await this.companyOperationalStatus.getOperationalStatusForCompanies(
       companyIds,
-      { validatePayments: true },
+      { validatePayments: false },
     );
     const operationalStatusByCompanyId = new Map(
       operationalStatuses.map((item) => [Number(item.companyId), item]),
