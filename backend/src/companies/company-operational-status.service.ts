@@ -12,6 +12,7 @@ import {
 } from '../modules/master-global-integrations.util';
 
 export type OperationalTone = 'green' | 'yellow' | 'red';
+export type OperationalStatusQuality = 'real' | 'partial' | 'stale';
 
 export type OperationalStatusChip = {
   key: 'token' | 'meta' | 'webwhats' | 'payment' | 'access';
@@ -22,7 +23,7 @@ export type OperationalStatusChip = {
   detail: string;
   hint: string;
   href: string;
-  quality: 'real' | 'partial';
+  quality: OperationalStatusQuality;
   source: string[];
   updatedAt: string | null;
   active: boolean;
@@ -54,6 +55,17 @@ type PaymentValidationResult = {
 
 type MasterConfig = Awaited<ReturnType<typeof getMasterGlobalIntegrationConfig>>;
 
+type TimedOperationResult = {
+  ok: boolean;
+  timedOut: boolean;
+  error: string | null;
+};
+
+type PaymentValidationCacheResult = {
+  cache: Map<string, PaymentValidationResult | null>;
+  stale: boolean;
+};
+
 @Injectable()
 export class CompanyOperationalStatusService {
   constructor(
@@ -80,6 +92,65 @@ export class CompanyOperationalStatusService {
 
   private buildOperationalChip(input: OperationalStatusChip): OperationalStatusChip {
     return input;
+  }
+
+  private resolveRefreshTimeoutMs() {
+    const raw = Number(process.env.OPERATIONAL_STATUS_REFRESH_TIMEOUT_MS || '2000');
+    if (!Number.isFinite(raw)) return 2000;
+    return Math.min(5000, Math.max(500, Math.trunc(raw)));
+  }
+
+  private async waitForTimedOperation<T>(
+    label: string,
+    operation: Promise<T>,
+    timeoutMs: number,
+  ): Promise<TimedOperationResult> {
+    let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+    const guardedOperation = operation
+      .then((): TimedOperationResult => ({ ok: true, timedOut: false, error: null }))
+      .catch((error: any): TimedOperationResult => ({
+        ok: false,
+        timedOut: false,
+        error: String(error?.message || `${label} falhou.`),
+      }));
+
+    const timeoutOperation = new Promise<TimedOperationResult>((resolve) => {
+      timeoutHandle = setTimeout(() => {
+        resolve({
+          ok: false,
+          timedOut: true,
+          error: `${label} excedeu ${timeoutMs}ms.`,
+        });
+      }, timeoutMs);
+    });
+
+    const result = await Promise.race([guardedOperation, timeoutOperation]);
+    if (timeoutHandle) clearTimeout(timeoutHandle);
+    if (result.timedOut) {
+      operation.catch(() => undefined);
+    }
+    return result;
+  }
+
+  private markStatusAsStale(status: CompanyOperationalStatus): CompanyOperationalStatus {
+    const statuses = status.statuses.map((chip) => ({
+      ...chip,
+      quality: 'stale' as OperationalStatusQuality,
+      detail: chip.detail.includes('Ultimo status salvo')
+        ? chip.detail
+        : `${chip.detail} Ultimo status salvo usado porque uma validacao externa demorou demais.`,
+      hint: chip.hint.includes('Status salvo')
+        ? chip.hint
+        : `${chip.hint} Status salvo.`,
+      source: Array.from(new Set([...chip.source, 'refresh.timeout'])),
+    }));
+
+    return {
+      ...status,
+      statuses,
+      overallLabel: status.overallLabel === 'Operando' ? 'Parcial' : status.overallLabel,
+      overallHint: `${status.overallHint} Resposta parcial com ultimo status salvo apos timeout de validacao externa.`,
+    };
   }
 
   private normalizeText(value?: unknown) {
@@ -152,9 +223,11 @@ export class CompanyOperationalStatusService {
     companies: any[],
     masterConfig: MasterConfig | null,
     validatePayments: boolean,
-  ) {
+  ): Promise<PaymentValidationCacheResult> {
     const cache = new Map<string, PaymentValidationResult | null>();
-    if (!validatePayments) return cache;
+    let stale = false;
+    if (!validatePayments) return { cache, stale };
+    const timeoutMs = this.resolveRefreshTimeoutMs();
 
     const effectiveTokens = Array.from(
       new Set(
@@ -168,7 +241,23 @@ export class CompanyOperationalStatusService {
     await Promise.all(
       effectiveTokens.map(async (token) => {
         try {
-          const profile = await this.mercadoPagoClient.validateAccessToken(token);
+          const validation = this.mercadoPagoClient.validateAccessToken(token);
+          const result = await this.waitForTimedOperation('Validacao Mercado Pago', validation, timeoutMs);
+          if (result.timedOut) {
+            stale = true;
+            cache.set(token, null);
+            return;
+          }
+          if (!result.ok) {
+            cache.set(token, {
+              ok: false,
+              email: null,
+              error: result.error || 'Falha ao validar o token de pagamento.',
+              checkedAt: new Date().toISOString(),
+            });
+            return;
+          }
+          const profile = await validation;
           cache.set(token, {
             ok: true,
             email: profile?.email ? String(profile.email) : null,
@@ -186,7 +275,7 @@ export class CompanyOperationalStatusService {
       }),
     );
 
-    return cache;
+    return { cache, stale };
   }
 
   private buildOverallHealth(input: {
@@ -452,7 +541,7 @@ export class CompanyOperationalStatusService {
     let paymentHint = company?.useMasterMercadoPagoToken
       ? 'Sem credencial MASTER.'
       : 'Sem token de pagamento.';
-    let paymentQuality: 'real' | 'partial' = 'real';
+    let paymentQuality: OperationalStatusQuality = 'real';
     let paymentUpdatedAt = this.normalizeDate(company?.mercadoPagoStatusUpdatedAt);
 
     if (effectiveMercadoPagoToken) {
@@ -623,10 +712,23 @@ export class CompanyOperationalStatusService {
   async getOperationalStatusForCompany(companyId: number, opts?: { refresh?: boolean }) {
     const normalizedCompanyId = Number(companyId || 0);
     if (!normalizedCompanyId) return null;
+    let stale = false;
 
     if (opts?.refresh) {
-      await this.whatsappStatus.getStatusForCompany(normalizedCompanyId, { refresh: true });
-      await this.whatsappModalService.getCompanyStatus(normalizedCompanyId);
+      const timeoutMs = this.resolveRefreshTimeoutMs();
+      const refreshResults = await Promise.all([
+        this.waitForTimedOperation(
+          'Validacao WhatsApp Meta',
+          this.whatsappStatus.getStatusForCompany(normalizedCompanyId, { refresh: true }),
+          timeoutMs,
+        ),
+        this.waitForTimedOperation(
+          'Validacao WebWhats',
+          this.whatsappModalService.getCompanyStatus(normalizedCompanyId),
+          timeoutMs,
+        ),
+      ]);
+      stale = refreshResults.some((result) => result.timedOut);
     }
 
     const companies = await this.companiesService.listByIdsForMaster([normalizedCompanyId]);
@@ -638,7 +740,9 @@ export class CompanyOperationalStatusService {
       masterConfig,
       Boolean(opts?.refresh),
     );
-    return this.buildStatusFromCompany(company, masterConfig, paymentValidationCache);
+    stale = stale || paymentValidationCache.stale;
+    const status = this.buildStatusFromCompany(company, masterConfig, paymentValidationCache.cache);
+    return stale ? this.markStatusAsStale(status) : status;
   }
 
   async getOperationalStatusForCompanies(
@@ -659,6 +763,6 @@ export class CompanyOperationalStatusService {
       Boolean(opts?.validatePayments),
     );
 
-    return companies.map((company) => this.buildStatusFromCompany(company, masterConfig, paymentValidationCache));
+    return companies.map((company) => this.buildStatusFromCompany(company, masterConfig, paymentValidationCache.cache));
   }
 }
