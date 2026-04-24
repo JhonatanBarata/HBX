@@ -114,6 +114,7 @@ function buildRemoteDeployCommand(appDir) {
     `git reset --hard ${remote}/${branch}`,
     'if docker compose version >/dev/null 2>&1; then DC="docker compose"; else DC="docker-compose"; fi',
     '$DC -f docker-compose.hostinger.yml down --remove-orphans',
+    '(docker rm -f hbx-backend webscraping 2>/dev/null || true)',
     '$DC -f docker-compose.hostinger.yml up -d --build',
     'docker ps',
   ].join(' && ');
