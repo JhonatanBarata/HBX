@@ -2837,27 +2837,46 @@ export class WebwhatsBridgeService {
     let persistedMessageId = 0;
     let shouldRelayInbound = false;
 
+    const updateData = {
+      body,
+      status,
+      timestamp,
+      rawPayload: payload.rawPayload,
+      conversationId,
+      companyId,
+      messageType,
+      senderType: payload.senderType,
+      sourceModule: payload.sourceModule,
+      provider: payload.provider,
+      ...(variablesJson ? { variablesJson } : {}),
+    };
+
     if (rawProviderMessageId) {
-      const persisted = await this.prisma.companyMessage.upsert({
-        where: { providerMessageId: rawProviderMessageId },
-        create: payload,
-        update: {
-          body,
-          status,
-          timestamp,
-          rawPayload: payload.rawPayload,
-          conversationId,
-          companyId,
-          messageType,
-          senderType: payload.senderType,
-          sourceModule: payload.sourceModule,
-          provider: payload.provider,
-          ...(variablesJson ? { variablesJson } : {}),
-        },
-        select: { id: true },
-      });
-      persistedMessageId = Number(persisted.id || 0);
-      shouldRelayInbound = !existingMessage;
+      if (!existingMessage) {
+        try {
+          const created = await this.prisma.companyMessage.create({
+            data: payload,
+            select: { id: true },
+          });
+          persistedMessageId = Number(created.id || 0);
+          shouldRelayInbound = true;
+        } catch (error) {
+          if (!this.isUniqueConstraintError(error)) throw error;
+          const updated = await this.prisma.companyMessage.update({
+            where: { providerMessageId: rawProviderMessageId },
+            data: updateData,
+            select: { id: true },
+          });
+          persistedMessageId = Number(updated.id || 0);
+        }
+      } else {
+        const updated = await this.prisma.companyMessage.update({
+          where: { providerMessageId: rawProviderMessageId },
+          data: updateData,
+          select: { id: true },
+        });
+        persistedMessageId = Number(updated.id || 0);
+      }
     } else {
       if (!existingMessage) {
         const created = await this.prisma.companyMessage.create({
