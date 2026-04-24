@@ -28,6 +28,39 @@ export class InternalController {
     if (!secret || secret !== expected) throw new ForbiddenException('invalid internal secret');
   }
 
+  private getWhatsAppModalConfigSummary() {
+    const enabled = ['1', 'true', 'yes', 'on'].includes(
+      String(process.env.WHATSAPP_MODAL_ENABLED || '').trim().toLowerCase(),
+    );
+    const internalUrl = String(process.env.WHATSAPP_MODAL_INTERNAL_URL || '').trim().replace(/\/+$/, '');
+    const apiKey = String(process.env.WHATSAPP_MODAL_API_KEY || '').trim();
+    const timeoutMs = Number(process.env.WHATSAPP_MODAL_TIMEOUT_MS || 15000);
+    const missing: string[] = [];
+
+    if (enabled && !internalUrl) missing.push('WHATSAPP_MODAL_INTERNAL_URL');
+    if (enabled && !apiKey) missing.push('WHATSAPP_MODAL_API_KEY');
+
+    const configured = enabled && missing.length === 0;
+    const code = !enabled
+      ? 'WHATSAPP_MODAL_DISABLED'
+      : configured
+        ? 'WHATSAPP_MODAL_READY'
+        : 'WHATSAPP_MODAL_CONFIG_INCOMPLETE';
+
+    return {
+      ok: !enabled || configured,
+      code,
+      config: {
+        enabled,
+        configured,
+        internalUrl: internalUrl || null,
+        apiKeyPresent: Boolean(apiKey),
+        timeoutMs: Number.isFinite(timeoutMs) ? timeoutMs : 15000,
+        missing,
+      },
+    };
+  }
+
   @Get('mail/config-summary')
   getTransactionalMailConfigSummary(@Headers('x-internal-secret') secret?: string) {
     this.assertInternalSecret(secret);
@@ -52,6 +85,12 @@ export class InternalController {
       code,
       config,
     };
+  }
+
+  @Get('whatsapp-modal/config-summary')
+  getWhatsAppModalConfig(@Headers('x-internal-secret') secret?: string) {
+    this.assertInternalSecret(secret);
+    return this.getWhatsAppModalConfigSummary();
   }
 
   @Post('users/:id/reset-password')

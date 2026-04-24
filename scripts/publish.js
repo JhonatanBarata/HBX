@@ -245,7 +245,18 @@ function validateBackendEnvironment() {
 function validateFileExpectations() {
   const renderYamlPath = path.join(repoRoot, 'render.yaml');
   const renderYaml = fs.readFileSync(renderYamlPath, 'utf8');
-  const requiredRenderKeys = ['DATABASE_URL', 'DIRECT_URL', 'FRONTEND_URL', 'CORS_ALLOWED_ORIGINS', 'BOOTSTRAP_SYSTEM_MASTER', 'INTEGRATION_SECRET_KEY'];
+  const requiredRenderKeys = [
+    'DATABASE_URL',
+    'DIRECT_URL',
+    'FRONTEND_URL',
+    'CORS_ALLOWED_ORIGINS',
+    'BOOTSTRAP_SYSTEM_MASTER',
+    'INTEGRATION_SECRET_KEY',
+    'WHATSAPP_MODAL_ENABLED',
+    'WHATSAPP_MODAL_INTERNAL_URL',
+    'WHATSAPP_MODAL_API_KEY',
+    'WHATSAPP_MODAL_TIMEOUT_MS',
+  ];
   const requiredRenderDockerEntries = [
     'name: hbx-backend',
     'dockerfilePath: backend/Dockerfile',
