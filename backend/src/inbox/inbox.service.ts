@@ -195,12 +195,22 @@ export class InboxService {
     const lastRunAt = Number(this.backgroundInboxSyncAt.get(key) || 0);
     if (Date.now() - lastRunAt < 45000) return;
     this.backgroundInboxSyncAt.set(key, Date.now());
-    void this.syncPersistedInboxConversation(companyId, conversationId).catch((error: any) => {
-      const message = String(error?.message || error || 'Falha ao atualizar conversa da Inbox em background.');
-      this.logger.warn(
-        `Inbox background conversation sync falhou company=${companyId} conversation=${conversationId}: ${message}`,
-      );
-    });
+    void this.syncPersistedInboxConversation(companyId, conversationId)
+      .then((syncError) => {
+        if (syncError) return;
+        this.inboxRealtime.publish({
+          companyId,
+          kind: 'conversation',
+          conversationId,
+          at: new Date().toISOString(),
+        });
+      })
+      .catch((error: any) => {
+        const message = String(error?.message || error || 'Falha ao atualizar conversa da Inbox em background.');
+        this.logger.warn(
+          `Inbox background conversation sync falhou company=${companyId} conversation=${conversationId}: ${message}`,
+        );
+      });
   }
 
   private assertCanManageAgenda(user: any) {
@@ -256,6 +266,30 @@ export class InboxService {
   private normalizeMessageMetadataText(value: unknown) {
     const normalized = String(value || '').trim();
     return normalized || null;
+  }
+
+  private normalizeStoredMediaAssetUrl(value: unknown) {
+    const normalized = this.normalizeMessageMetadataText(value);
+    if (!normalized) return null;
+    if (/^https?:\/\//i.test(normalized) || normalized.startsWith('/')) {
+      return normalized;
+    }
+
+    const relative = normalized
+      .replace(/^\.?\//, '')
+      .replace(/^public\//i, '')
+      .trim();
+    if (!relative) return null;
+
+    if (relative.startsWith('uploads/')) {
+      return `/${relative}`;
+    }
+
+    if (/^[^\\/?#:*"<>|]+\.(png|jpe?g|gif|webp|bmp|svg|mp4|webm|mov|m4v|mp3|ogg|oga|wav|m4a|opus|aac|pdf|docx?|xlsx?|csv|txt)$/i.test(relative)) {
+      return `/uploads/inbox/${relative}`;
+    }
+
+    return normalized;
   }
 
   private unwrapMessagePayload(payloadRaw: unknown): Record<string, any> {
@@ -554,7 +588,7 @@ export class InboxService {
           variables?.quotedMessageId || contextInfo?.stanzaId || contextInfo?.id,
         ),
         quotedPreview: this.extractQuotedMessagePreview(contextInfo, variables),
-        mediaUrl: this.normalizeMessageMetadataText(
+        mediaUrl: this.normalizeStoredMediaAssetUrl(
           attachment?.url ||
             attachment?.mediaUrl ||
             attachment?.attachmentUrl ||
@@ -563,7 +597,7 @@ export class InboxService {
             mediaSource?.attachmentUrl ||
             mediaSource?.link,
         ),
-        previewUrl: this.normalizeMessageMetadataText(
+        previewUrl: this.normalizeStoredMediaAssetUrl(
           attachment?.previewUrl ||
             attachment?.url ||
             mediaSource?.previewUrl ||
@@ -634,7 +668,7 @@ export class InboxService {
         return false;
       }
 
-      return !this.normalizeMessageMetadataText(metadata.mediaUrl || metadata.previewUrl);
+      return !this.normalizeStoredMediaAssetUrl(metadata.mediaUrl || metadata.previewUrl);
     });
   }
 
@@ -1778,13 +1812,7 @@ export class InboxService {
     }
 
     if (this.needsConversationMediaHydration(row.messages, String(row.contact || ''), row.metadata)) {
-      const syncError = await this.syncPersistedInboxConversation(companyId, id);
-      if (!syncError) {
-        const refreshedRow = await loadRow();
-        if (refreshedRow) {
-          row = refreshedRow;
-        }
-      }
+      this.triggerBackgroundInboxConversationSync(companyId, id);
     }
 
     const routingRules = await this.getRecoveryRoutingRules(companyId);
@@ -2115,10 +2143,7 @@ export class InboxService {
     let rows = await loadRows();
 
     if (!before && this.needsConversationMediaHydration(rows, String(conversation.contact || ''), conversation.metadata)) {
-      const syncError = await this.syncPersistedInboxConversation(companyId, id);
-      if (!syncError) {
-        rows = await loadRows();
-      }
+      this.triggerBackgroundInboxConversationSync(companyId, id);
     }
 
     const conversationMetadata = this.parseConversationMetadata(conversation.metadata);
