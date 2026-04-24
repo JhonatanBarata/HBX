@@ -49,6 +49,14 @@ services:
         sync: false
       - key: WHATSAPP_VERIFY_TOKEN
         sync: false
+      - key: WHATSAPP_MODAL_ENABLED
+        value: "true"
+      - key: WHATSAPP_MODAL_INTERNAL_URL
+        value: http://187.127.249.180:8080
+      - key: WHATSAPP_MODAL_API_KEY
+        sync: false
+      - key: WHATSAPP_MODAL_TIMEOUT_MS
+        value: "15000"
       - key: WEBSCRAPING_URL
         value: /hbx/webscraping
       - key: BOOTSTRAP_SYSTEM_MASTER

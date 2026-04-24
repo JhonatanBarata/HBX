@@ -128,6 +128,53 @@ async function verifyTransactionalMailDelivery(backendUrl, env) {
   };
 }
 
+async function verifyWhatsAppModalReadiness(backendUrl, env) {
+  const internalSecret = String(env.PROD_INTERNAL_SECRET || '').trim();
+  if (!internalSecret) {
+    return {
+      checked: false,
+      reason: 'PROD_INTERNAL_SECRET not configured',
+    };
+  }
+
+  const summary = await requestJsonWithOptions(`${backendUrl}/internal/whatsapp-modal/config-summary`, {
+    method: 'GET',
+    headers: {
+      'x-internal-secret': internalSecret,
+    },
+  });
+
+  if (!summary || typeof summary !== 'object') {
+    throw new Error('WhatsApp modal config summary returned an unexpected payload');
+  }
+
+  const enabled = Boolean(summary?.config?.enabled);
+  const configured = Boolean(summary?.config?.configured);
+  const missing = Array.isArray(summary?.config?.missing)
+    ? summary.config.missing.filter((item) => typeof item === 'string' && item.trim().length > 0)
+    : [];
+
+  if (!enabled) {
+    throw new Error('WhatsApp modal disabled in production. Expected WHATSAPP_MODAL_ENABLED=true.');
+  }
+
+  if (!configured) {
+    const suffix = missing.length ? ` Missing: ${missing.join(', ')}` : '';
+    throw new Error(`WhatsApp modal not configured in production.${suffix}`);
+  }
+
+  return {
+    checked: true,
+    code: String(summary.code || 'WHATSAPP_MODAL_READY'),
+    enabled,
+    configured,
+    internalUrl: summary?.config?.internalUrl ? String(summary.config.internalUrl) : null,
+    apiKeyPresent: Boolean(summary?.config?.apiKeyPresent),
+    timeoutMs: Number(summary?.config?.timeoutMs || 0) || null,
+    missing,
+  };
+}
+
 async function verifyProduction(inputEnv = resolveOperationsEnv()) {
   const env = inputEnv;
   const backendUrl = String(requireEnv(env, 'PROD_BACKEND_URL')).replace(/\/$/, '');
@@ -145,6 +192,7 @@ async function verifyProduction(inputEnv = resolveOperationsEnv()) {
   const backendHealth = await requestJson(`${backendUrl}/health`);
   const transactionalMail = await verifyTransactionalMailReadiness(backendUrl, env);
   const transactionalMailDelivery = await verifyTransactionalMailDelivery(backendUrl, env);
+  const whatsappModal = await verifyWhatsAppModalReadiness(backendUrl, env);
 
   if (databaseUrl) {
     const prismaEnv = {
@@ -172,6 +220,7 @@ async function verifyProduction(inputEnv = resolveOperationsEnv()) {
     backendHealth,
     transactionalMail,
     transactionalMailDelivery,
+    whatsappModal,
     frontendUrl: frontendUrl || null,
     frontendStatus,
     databaseChecked: Boolean(databaseUrl),
