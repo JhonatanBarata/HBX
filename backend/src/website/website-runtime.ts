@@ -62,7 +62,25 @@ function mapEntryRow(row: any): WebsiteAdminEntryTokenRecord {
   };
 }
 
+let websiteRuntimeEnsured = false;
+let websiteRuntimeEnsurePromise: Promise<void> | null = null;
+
 export async function ensureWebsiteRuntimeSchema(prisma: PrismaService) {
+  if (websiteRuntimeEnsured) return;
+  if (websiteRuntimeEnsurePromise) return websiteRuntimeEnsurePromise;
+
+  websiteRuntimeEnsurePromise = ensureWebsiteRuntimeSchemaUncached(prisma)
+    .then(() => {
+      websiteRuntimeEnsured = true;
+    })
+    .finally(() => {
+      websiteRuntimeEnsurePromise = null;
+    });
+
+  return websiteRuntimeEnsurePromise;
+}
+
+async function ensureWebsiteRuntimeSchemaUncached(prisma: PrismaService) {
   await prisma.$executeRawUnsafe(`
     CREATE TABLE IF NOT EXISTS "CompanyWebsiteConfig" (
       "companyId" INTEGER PRIMARY KEY REFERENCES "Company"("id") ON DELETE CASCADE,

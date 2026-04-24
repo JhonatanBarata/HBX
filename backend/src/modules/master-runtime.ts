@@ -1,6 +1,24 @@
 import { PrismaService } from '../prisma/prisma.service';
 
+let masterBillingRuntimeEnsured = false;
+let masterBillingRuntimeEnsurePromise: Promise<void> | null = null;
+
 export async function ensureMasterBillingRuntimeSchema(prisma: PrismaService) {
+  if (masterBillingRuntimeEnsured) return;
+  if (masterBillingRuntimeEnsurePromise) return masterBillingRuntimeEnsurePromise;
+
+  masterBillingRuntimeEnsurePromise = ensureMasterBillingRuntimeSchemaUncached(prisma)
+    .then(() => {
+      masterBillingRuntimeEnsured = true;
+    })
+    .finally(() => {
+      masterBillingRuntimeEnsurePromise = null;
+    });
+
+  return masterBillingRuntimeEnsurePromise;
+}
+
+async function ensureMasterBillingRuntimeSchemaUncached(prisma: PrismaService) {
   await prisma.$executeRawUnsafe(`
     ALTER TABLE "Company"
     ADD COLUMN IF NOT EXISTS "useMasterMercadoPagoToken" BOOLEAN NOT NULL DEFAULT false

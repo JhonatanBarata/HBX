@@ -479,7 +479,7 @@ export default function DashboardScaffold({
                     </button>
                   ) : null}
                   {showDashboardShortcut && !isRootDashboard ? (
-                    <Link href="/dashboard" className="btn btn-secondary btn-sm">
+                    <Link href="/dashboard" prefetch={false} className="btn btn-secondary btn-sm">
                       Voltar ao menu
                     </Link>
                   ) : null}

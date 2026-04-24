@@ -4,7 +4,7 @@ import Link from "next/link";
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { createPortal } from "react-dom";
-import { apiFetch, clearToken, getToken } from "../app/dashboard/_lib/api";
+import { apiFetch, clearApiCache, clearToken, getToken } from "../app/dashboard/_lib/api";
 import { useInterfaceTransition } from "@/components/InterfaceTransitionProvider";
 import { useHbxTheme } from "@/components/ThemeProvider";
 import { usePopupTopbarLock } from "@/lib/use-popup-topbar-lock";
@@ -138,6 +138,13 @@ type TopBarIncomingPopup = {
   preview: string;
   href: string;
   lastAt: string;
+};
+
+type HbxPrefetchWindow = Window & {
+  __hbx_prefetch?: {
+    modules: UserModule[];
+    profile: User | null;
+  };
 };
 
 const RECOVERY_HUMAN_QUEUE_EVENT = "hbx-recovery-human-queue";
@@ -330,6 +337,12 @@ export default function TopBar() {
     ]);
     setUser(profile);
     setModules(myModules || []);
+    if (typeof window !== "undefined") {
+      (window as HbxPrefetchWindow).__hbx_prefetch = {
+        modules: myModules || [],
+        profile,
+      };
+    }
   }, []);
 
   const refreshOperationalStatus = React.useCallback(async (refreshLive = false) => {
@@ -569,6 +582,9 @@ export default function TopBar() {
       setRecoveryPendingHumanCount(0);
       setAtendimentoPendingHumanCount(0);
       setStorageUserId(null);
+      if (typeof window !== "undefined") {
+        delete (window as HbxPrefetchWindow).__hbx_prefetch;
+      }
       return;
     }
 
@@ -585,6 +601,12 @@ export default function TopBar() {
           setUser(profile);
           setModules(myModules || []);
           setOperationalStatus(nextOperationalStatus);
+          if (typeof window !== "undefined") {
+            (window as HbxPrefetchWindow).__hbx_prefetch = {
+              modules: myModules || [],
+              profile,
+            };
+          }
         }
       } catch {
         if (mounted) {
@@ -599,6 +621,7 @@ export default function TopBar() {
 
     function handleMasterContextChanged(event: Event) {
       const customEvent = event as CustomEvent<MasterContextChangedDetail>;
+      clearApiCache();
       void refreshMasterAwareState().catch(() => undefined);
       void refreshOperationalStatus(false).catch(() => undefined);
       showMasterContextToast(customEvent.detail);
@@ -1441,6 +1464,12 @@ export default function TopBar() {
       ]);
       setUser(profile);
       setModules(myModules || []);
+      if (typeof window !== "undefined") {
+        (window as HbxPrefetchWindow).__hbx_prefetch = {
+          modules: myModules || [],
+          profile,
+        };
+      }
       setMasterContextModalOpen(false);
       setMasterContextReason("");
       dispatchMasterContextChanged({
@@ -1470,6 +1499,12 @@ export default function TopBar() {
       ]);
       setUser(profile);
       setModules(myModules || []);
+      if (typeof window !== "undefined") {
+        (window as HbxPrefetchWindow).__hbx_prefetch = {
+          modules: myModules || [],
+          profile,
+        };
+      }
       setMasterContextModalOpen(false);
       setMasterContextReason("");
       dispatchMasterContextChanged({
