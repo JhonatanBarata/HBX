@@ -78,6 +78,7 @@ function createService(overrides?: Partial<Record<string, any>>) {
       },
       findMany: async () => [{ ...baseConversation }],
       update: async ({ where, data }: any) => ({ ...baseConversation, id: where.id, ...data }),
+      updateMany: async () => ({ count: 0 }),
     },
     hbxRecoveryCustomer: {
       findFirst: async () => ({ clientName: 'Carlos', name: 'Carlos' }),

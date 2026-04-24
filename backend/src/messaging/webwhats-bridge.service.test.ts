@@ -140,7 +140,11 @@ test('upsertConversationMessage does not relay inbound when concurrent create al
       },
     },
     companyConversation: {
-      update: async () => ({ id: 70 }),
+      updateMany: async ({ where }: any) => {
+        assert.equal(where.id, 70);
+        assert.equal(where.companyId, 47);
+        return { count: 1 };
+      },
     },
   };
   const service = new WebwhatsBridgeService(prisma as any);
@@ -179,7 +183,11 @@ test('upsertConversationMessage relays inbound only for a newly created message'
       },
     },
     companyConversation: {
-      update: async () => ({ id: 70 }),
+      updateMany: async ({ where }: any) => {
+        assert.equal(where.id, 70);
+        assert.equal(where.companyId, 47);
+        return { count: 1 };
+      },
     },
   };
   const service = new WebwhatsBridgeService(prisma as any);
@@ -204,4 +212,57 @@ test('upsertConversationMessage relays inbound only for a newly created message'
 
   assert.equal(result, 502);
   assert.equal(calls.relays, 1);
+});
+
+test('resolveInboundMediaAttachment sends the full fetched message envelope to media download', async () => {
+  const prisma = {};
+  const service = new WebwhatsBridgeService(prisma as any);
+  let capturedData: Record<string, any> | null = null;
+
+  (service as any).requestRead = async (input: any) => {
+    capturedData = input.data;
+    return null;
+  };
+
+  const result = await (service as any).resolveInboundMediaAttachment(
+    47,
+    115,
+    {
+      id: 'MSG-MEDIA-1',
+      pushName: 'Andrea',
+      messageType: 'audio',
+      messageTimestamp: 1770000000,
+      key: {
+        id: 'MSG-MEDIA-1',
+        fromMe: false,
+        remoteJid: '5519998676859@s.whatsapp.net',
+        remoteJidAlt: '22819312251123@lid',
+      },
+      message: {
+        audioMessage: {
+          mimetype: 'audio/ogg; codecs=opus',
+          seconds: 11,
+          ptt: true,
+        },
+      },
+    },
+    'audio',
+    {},
+  );
+
+  assert.equal(result, null);
+  assert.ok(capturedData);
+  assert.equal(capturedData?.convertToMp4, false);
+  assert.equal(capturedData?.message?.id, 'MSG-MEDIA-1');
+  assert.equal(capturedData?.message?.pushName, 'Andrea');
+  assert.equal(capturedData?.message?.messageTimestamp, 1770000000);
+  assert.equal(capturedData?.message?.key?.remoteJid, '5519998676859@s.whatsapp.net');
+  assert.equal(capturedData?.message?.key?.remoteJidAlt, '22819312251123@lid');
+  assert.deepEqual(capturedData?.message?.message, {
+    audioMessage: {
+      mimetype: 'audio/ogg; codecs=opus',
+      seconds: 11,
+      ptt: true,
+    },
+  });
 });

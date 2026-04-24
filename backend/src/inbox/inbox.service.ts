@@ -772,6 +772,53 @@ export class InboxService {
     return Math.min(Math.floor(parsed), 200);
   }
 
+  private resolveLatestDate(...values: Array<Date | string | null | undefined>) {
+    let latest: Date | null = null;
+    for (const value of values) {
+      if (!value) continue;
+      const parsed = value instanceof Date ? value : new Date(String(value));
+      const time = parsed.getTime();
+      if (!Number.isFinite(time)) continue;
+      if (!latest || time > latest.getTime()) latest = parsed;
+    }
+    return latest;
+  }
+
+  private resolveConversationActivityDate(conversation: {
+    lastMessageAt?: Date | string | null;
+    updatedAt?: Date | string | null;
+    messages?: Array<{ timestamp?: Date | string | null }> | null;
+  }) {
+    const latestMessage = Array.isArray(conversation.messages) ? conversation.messages[0] : null;
+    return this.resolveLatestDate(
+      conversation.lastMessageAt,
+      latestMessage?.timestamp,
+      conversation.updatedAt,
+    );
+  }
+
+  private async repairConversationActivityIfStale(
+    companyId: number,
+    conversationId: number,
+    activityAt: Date | null,
+  ) {
+    if (!activityAt) return;
+    await this.prisma.companyConversation.updateMany({
+      where: {
+        id: conversationId,
+        companyId,
+        OR: [
+          { lastMessageAt: null },
+          { lastMessageAt: { lt: activityAt } },
+        ],
+      },
+      data: {
+        lastMessageAt: activityAt,
+        lastInteractionAt: activityAt,
+      },
+    });
+  }
+
   private normalizeBeforeDate(value: string | null | undefined) {
     const normalized = String(value || '').trim();
     if (!normalized) return null;
@@ -1759,12 +1806,26 @@ export class InboxService {
       identityMap,
     );
 
+    await Promise.all(
+      rows
+        .map((row) => ({ row, activityAt: this.resolveConversationActivityDate(row) }))
+        .filter(({ row, activityAt }) => {
+          if (!activityAt) return false;
+          if (!row.lastMessageAt) return true;
+          return activityAt.getTime() > new Date(row.lastMessageAt).getTime();
+        })
+        .map(({ row, activityAt }) =>
+          this.repairConversationActivityIfStale(companyId, row.id, activityAt),
+        ),
+    );
+
     return Promise.all(
       rows.map((row) => {
+        const activityAt = this.resolveConversationActivityDate(row);
         const conversation = {
           ...row,
-          updatedAt: row.lastMessageAt || row.updatedAt,
-          lastMessageAt: row.lastMessageAt || null,
+          updatedAt: activityAt || row.updatedAt,
+          lastMessageAt: activityAt || row.lastMessageAt || null,
           messages: [...(row.messages || [])].reverse(),
         };
         const phoneNormalized = this.normalizeConversationPhone(String(conversation.contact || '')) || '';
@@ -1836,13 +1897,15 @@ export class InboxService {
     const phoneNormalized = this.normalizeConversationPhone(String(row.contact || '')) || '';
     const identityRow = identityMap.get(phoneNormalized);
     const sharedMap = await this.loadSharedProfileMap(companyId, [String(row.contact || '')], identityMap);
+    const activityAt = this.resolveConversationActivityDate(row);
+    await this.repairConversationActivityIfStale(companyId, row.id, activityAt);
 
     return this.mapConversation(
       companyId,
       {
         ...row,
-        updatedAt: row.lastMessageAt || row.updatedAt,
-        lastMessageAt: row.lastMessageAt || null,
+        updatedAt: activityAt || row.updatedAt,
+        lastMessageAt: activityAt || row.lastMessageAt || null,
         messages: [...(row.messages || [])].reverse(),
       },
       routingRules,
