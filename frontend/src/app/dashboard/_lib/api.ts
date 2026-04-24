@@ -19,6 +19,11 @@ type ApiCacheEntry = {
   promise?: Promise<unknown>;
 };
 
+type ApiFetchInit = RequestInit & {
+  skipAuth?: boolean;
+  requireAuth?: boolean;
+};
+
 const apiGetCache = new Map<string, ApiCacheEntry>();
 
 function isApiErrorPayload(value: unknown): value is ApiErrorPayload {
@@ -75,12 +80,12 @@ export function clearApiCache(path?: string) {
   }
 }
 
-function shouldCacheGet(path: string, init?: RequestInit & { skipAuth?: boolean }) {
+function shouldCacheGet(path: string, init?: ApiFetchInit) {
   const method = String(init?.method || "GET").toUpperCase();
   return method === "GET" && !init?.body && SHELL_GET_CACHE_PATHS.has(path);
 }
 
-function buildCacheKey(path: string, token: string | null, init?: RequestInit & { skipAuth?: boolean }) {
+function buildCacheKey(path: string, token: string | null, init?: ApiFetchInit) {
   const authKey = init?.skipAuth ? "anon" : token || "no-token";
   return `${authKey}|${path}`;
 }
@@ -110,10 +115,14 @@ function dispatchTechAssistantApiError(detail: Record<string, unknown>) {
 
 export async function apiFetch<T>(
   path: string,
-  init?: RequestInit & { skipAuth?: boolean }
+  init?: ApiFetchInit
 ): Promise<T> {
+  const { skipAuth, requireAuth, ...fetchInit } = init || {};
   const url = path.startsWith("http") ? path : `${API_URL}${path}`;
   const token = getToken();
+  if (requireAuth && !skipAuth && !token) {
+    throw new Error("Sessão expirada. Faça login novamente.");
+  }
   const cacheable = shouldCacheGet(path, init);
   const cacheKey = cacheable ? buildCacheKey(path, token, init) : "";
   if (cacheable) {
@@ -124,16 +133,16 @@ export async function apiFetch<T>(
     }
     apiGetCache.delete(cacheKey);
   }
-  const isFormData = typeof FormData !== "undefined" && init?.body instanceof FormData;
+  const isFormData = typeof FormData !== "undefined" && fetchInit.body instanceof FormData;
 
-  const headers = new Headers(init?.headers);
-  if (!headers.has("Content-Type") && init?.body && !isFormData) {
+  const headers = new Headers(fetchInit.headers);
+  if (!headers.has("Content-Type") && fetchInit.body && !isFormData) {
     headers.set("Content-Type", "application/json");
   }
-  if (!init?.skipAuth && token) {
+  if (!skipAuth && token) {
     headers.set("Authorization", `Bearer ${token}`);
   }
-  const request = fetch(url, { ...init, headers }).then(async (res) => {
+  const request = fetch(url, { ...fetchInit, headers }).then(async (res) => {
     let data: unknown = null;
     const text = await res.text();
     if (text) {
@@ -149,7 +158,7 @@ export async function apiFetch<T>(
       dispatchTechAssistantApiError({
         path,
         url,
-        method: String(init?.method || "GET").toUpperCase(),
+        method: String(fetchInit.method || "GET").toUpperCase(),
         status: res.status,
         message,
         response:
