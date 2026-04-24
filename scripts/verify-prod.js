@@ -161,12 +161,28 @@ async function verifyWhatsAppModalReadiness(backendUrl, env) {
     };
   }
 
-  const summary = await requestJsonWithOptions(`${backendUrl}/internal/whatsapp-modal/config-summary`, {
+  const response = await fetch(`${backendUrl}/internal/whatsapp-modal/config-summary`, {
     method: 'GET',
     headers: {
       'x-internal-secret': internalSecret,
     },
   });
+
+  if (response.status === 404) {
+    return {
+      checked: false,
+      reason: 'Internal WhatsApp modal config endpoint not available on deployed backend',
+    };
+  }
+
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status} from ${backendUrl}/internal/whatsapp-modal/config-summary`);
+  }
+
+  const contentType = response.headers.get('content-type') || '';
+  const summary = contentType.includes('application/json')
+    ? await response.json()
+    : await response.text();
 
   if (!summary || typeof summary !== 'object') {
     throw new Error('WhatsApp modal config summary returned an unexpected payload');
