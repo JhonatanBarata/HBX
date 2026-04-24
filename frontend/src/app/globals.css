@@ -1274,17 +1274,6 @@ html[data-theme-switcher-open="true"] .app-topbar::after {
 }
 
 .login-stage[data-login-video="on"] {
-  /* Quando o vídeo está ativo, ancoramos as cores ambiente ao tom escuro do vídeo
-     (espaço/DNA roxo-azulado) independente do tema claro ou escuro.
-     Isso elimina o corte brusco entre o fundo branco (light) e as bordas do vídeo. */
-  --login-video-ambient: #070a1e;
-  --login-video-ambient-alt: #0c0820;
-  --login-video-gutter: color-mix(in srgb, var(--login-video-ambient) 84%, var(--login-accent-alt));
-  --login-video-gutter-soft: color-mix(in srgb, var(--login-video-ambient) 86%, transparent);
-  --login-video-side-glow: color-mix(in srgb, var(--login-accent-alt) 30%, transparent);
-  --login-video-center-glow: color-mix(in srgb, var(--login-accent) 18%, transparent);
-  --login-video-veil-edge: color-mix(in srgb, var(--login-video-ambient) 42%, transparent);
-  --login-video-veil-deep: color-mix(in srgb, var(--login-video-ambient) 62%, transparent);
   background:
     radial-gradient(circle at var(--login-pointer-x) var(--login-pointer-y), color-mix(in srgb, var(--login-dna-highlight) 88%, transparent), transparent 18%),
     radial-gradient(ellipse at 16% 50%, color-mix(in srgb, var(--login-dna-primary) 16%, transparent), transparent 34%),
@@ -1292,29 +1281,28 @@ html[data-theme-switcher-open="true"] .app-topbar::after {
     radial-gradient(ellipse at 12% 50%, var(--login-video-side-glow), transparent 34%),
     radial-gradient(ellipse at 88% 50%, var(--login-video-side-glow), transparent 34%),
     linear-gradient(90deg, var(--login-video-gutter), var(--login-video-gutter-soft) 22%, var(--login-video-gutter-soft) 78%, var(--login-video-gutter)),
-    linear-gradient(180deg, var(--login-video-ambient), var(--login-video-ambient-alt));
+    linear-gradient(180deg, var(--background), var(--background-alt));
 }
 
-/* Quando vídeo ativo: a camada de vídeo usa a paleta ambiente do vídeo no base,
-   eliminando o branco que vaza pelas bordas/cantos em light mode. */
+/* Quando o vídeo está ativo, a camada de vídeo some gradualmente nas bordas via mask-image.
+   O fundo do tema (branco no light, escuro no dark) aparece nas extremidades sem corte — apenas fade. */
 .login-stage[data-login-video="on"] .login-video-layer {
-  background:
-    radial-gradient(circle at 50% 50%, var(--login-video-center-glow), transparent 46%),
-    radial-gradient(ellipse at 12% 50%, var(--login-video-side-glow), transparent 34%),
-    radial-gradient(ellipse at 88% 50%, var(--login-video-side-glow), transparent 34%),
-    radial-gradient(ellipse at 18% 50%, color-mix(in srgb, var(--login-accent) 12%, transparent), transparent 40%),
-    radial-gradient(ellipse at 82% 50%, color-mix(in srgb, var(--login-accent) 12%, transparent), transparent 40%),
-    linear-gradient(90deg, var(--login-video-gutter), var(--login-video-gutter-soft) 20%, var(--login-video-gutter-soft) 80%, var(--login-video-gutter)),
-    linear-gradient(180deg, var(--login-video-ambient), var(--login-video-ambient-alt));
-  background-color: color-mix(in srgb, var(--login-accent) 10%, var(--login-video-ambient));
-}
-
-/* O veil usa var(--background) inline — substituir pela paleta ambiente quando vídeo ativo */
-.login-stage[data-login-video="on"] .login-video-layer__veil {
-  background:
-    radial-gradient(ellipse at 50% 50%, transparent 0 34%, color-mix(in srgb, var(--login-video-ambient) 14%, transparent) 52%, var(--login-video-veil-deep) 100%),
-    linear-gradient(90deg, var(--login-video-veil-edge), color-mix(in srgb, var(--login-video-ambient) 8%, transparent) 18%, color-mix(in srgb, var(--login-video-ambient) 8%, transparent) 82%, var(--login-video-veil-edge)),
-    linear-gradient(180deg, color-mix(in srgb, var(--login-video-ambient) 20%, transparent), color-mix(in srgb, var(--login-video-ambient) 44%, transparent));
+  mask-image: radial-gradient(
+    ellipse 92% 96% at 50% 50%,
+    black 28%,
+    rgba(0, 0, 0, 0.88) 50%,
+    rgba(0, 0, 0, 0.48) 68%,
+    rgba(0, 0, 0, 0.10) 84%,
+    transparent 100%
+  );
+  -webkit-mask-image: radial-gradient(
+    ellipse 92% 96% at 50% 50%,
+    black 28%,
+    rgba(0, 0, 0, 0.88) 50%,
+    rgba(0, 0, 0, 0.48) 68%,
+    rgba(0, 0, 0, 0.10) 84%,
+    transparent 100%
+  );
 }
 
 .login-stage[data-login-video="off"] {
