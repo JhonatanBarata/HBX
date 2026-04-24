@@ -268,10 +268,26 @@ export class InboxService {
     return normalized || null;
   }
 
+  private isTransientWhatsAppMediaUrl(value: string) {
+    try {
+      const parsed = new URL(value);
+      return /(^|\.)whatsapp\.net$/i.test(parsed.hostname) && !/^pps\.whatsapp\.net$/i.test(parsed.hostname);
+    } catch {
+      return false;
+    }
+  }
+
   private normalizeStoredMediaAssetUrl(value: unknown) {
     const normalized = this.normalizeMessageMetadataText(value);
     if (!normalized) return null;
-    if (/^https?:\/\//i.test(normalized) || normalized.startsWith('/')) {
+    if (/^https?:\/\//i.test(normalized)) {
+      if (this.isTransientWhatsAppMediaUrl(normalized)) {
+        return null;
+      }
+      return normalized;
+    }
+
+    if (normalized.startsWith('/')) {
       return normalized;
     }
 
