@@ -598,6 +598,21 @@ export class InboxService {
     return Math.min(Math.floor(parsed), 50);
   }
 
+  private normalizeMessagePageLimit(value: string | number | null | undefined, fallback = 50) {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      return fallback;
+    }
+    return Math.min(Math.floor(parsed), 50);
+  }
+
+  private normalizeBeforeDate(value: string | null | undefined) {
+    const normalized = String(value || '').trim();
+    if (!normalized) return null;
+    const parsed = new Date(normalized);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
+
   private normalizeDisplayNameCandidate(value: unknown, phone?: string | null) {
     const normalized = String(value || '')
       .replace(/\s+/g, ' ')
@@ -1602,7 +1617,8 @@ export class InboxService {
     );
   }
 
-  private async getPersistedConversationByIdForCompany(companyId: number, id: number) {
+  private async getPersistedConversationByIdForCompany(companyId: number, id: number, options?: { messagesLimit?: number }) {
+    const messagesLimit = this.normalizeMessagePageLimit(options?.messagesLimit, 50);
     const row = await this.prisma.companyConversation.findFirst({
       where: { companyId, id, channel: 'whatsapp' },
       select: {
@@ -1619,8 +1635,8 @@ export class InboxService {
         updatedAt: true,
         lastMessageAt: true,
         messages: {
-          orderBy: [{ timestamp: 'asc' }, { id: 'asc' }],
-          take: 200,
+          orderBy: [{ timestamp: 'desc' }, { id: 'desc' }],
+          take: messagesLimit,
           select: {
             id: true,
             direction: true,
@@ -1655,6 +1671,7 @@ export class InboxService {
         ...row,
         updatedAt: row.lastMessageAt || row.updatedAt,
         lastMessageAt: row.lastMessageAt || null,
+        messages: [...(row.messages || [])].reverse(),
       },
       routingRules,
       identityRow,
@@ -1666,7 +1683,6 @@ export class InboxService {
 
   async getBootstrap(user: any, take?: string | number) {
     const companyId = this.requireCompanyIdFromUser(user);
-    this.triggerBackgroundInboxIndexSync(companyId, { take });
     let conversations = await this.listPersistedConversationSummariesForCompany(companyId, {
       take: this.normalizeConversationTakeLimit(take, 10),
     });
@@ -1675,8 +1691,9 @@ export class InboxService {
     let selectedConversation: any = null;
 
     if (firstConversationId) {
-      this.triggerBackgroundInboxConversationSync(companyId, firstConversationId);
-      selectedConversation = await this.getPersistedConversationByIdForCompany(companyId, firstConversationId);
+      selectedConversation = await this.getPersistedConversationByIdForCompany(companyId, firstConversationId, {
+        messagesLimit: 50,
+      });
     }
 
     return {
@@ -1908,7 +1925,6 @@ export class InboxService {
 
   async listConversations(user: any, take?: string | number) {
     const companyId = this.requireCompanyIdFromUser(user);
-    this.triggerBackgroundInboxIndexSync(companyId, { take });
     return this.listPersistedConversationSummariesForCompany(companyId, { take });
   }
 
@@ -1918,9 +1934,83 @@ export class InboxService {
 
   async getConversationById(user: any, id: number) {
     const companyId = this.requireCompanyIdFromUser(user);
-    this.triggerBackgroundInboxIndexSync(companyId);
-    this.triggerBackgroundInboxConversationSync(companyId, id);
-    return this.getConversationByIdForCompany(companyId, id);
+    return this.getPersistedConversationByIdForCompany(companyId, id, { messagesLimit: 50 });
+  }
+
+  async listConversationMessages(
+    user: any,
+    id: number,
+    options?: { limit?: string | number | null; before?: string | null },
+  ) {
+    const companyId = this.requireCompanyIdFromUser(user);
+    const conversation = await this.prisma.companyConversation.findFirst({
+      where: { companyId, id, channel: 'whatsapp' },
+      select: {
+        id: true,
+        contact: true,
+        metadata: true,
+      },
+    });
+    if (!conversation) throw new NotFoundException('Conversation not found');
+
+    const limit = this.normalizeMessagePageLimit(options?.limit, 50);
+    const before = this.normalizeBeforeDate(options?.before || null);
+    const rows = await this.prisma.companyMessage.findMany({
+      where: {
+        companyId,
+        conversationId: id,
+        ...(before ? { timestamp: { lt: before } } : {}),
+      },
+      orderBy: [{ timestamp: 'desc' }, { id: 'desc' }],
+      take: limit,
+      select: {
+        id: true,
+        direction: true,
+        messageType: true,
+        body: true,
+        senderType: true,
+        status: true,
+        error: true,
+        timestamp: true,
+        sourceModule: true,
+        providerMessageId: true,
+        rawPayload: true,
+        variablesJson: true,
+      },
+    });
+
+    const conversationMetadata = this.parseConversationMetadata(conversation.metadata);
+    const messages = [...rows]
+      .reverse()
+      .map((message: any) => {
+        const messageMetadata = this.buildConversationMessageMetadata(
+          message,
+          String(conversation.contact || ''),
+          conversationMetadata,
+        );
+        if (messageMetadata?.isLocalHidden) return null;
+        return {
+          id: String(message.id),
+          direction: String(message.direction || '').trim().toLowerCase(),
+          content: String(messageMetadata?.resolvedText || message.body || ''),
+          createdAt: message.timestamp,
+          messageType: String(messageMetadata?.normalizedMessageType || message.messageType || 'text')
+            .trim()
+            .toLowerCase(),
+          senderType: String(message.senderType || 'system').trim().toLowerCase(),
+          status: String(message.status || 'RECEIVED').trim().toUpperCase(),
+          sourceModule: String(message.sourceModule || '').trim().toLowerCase() || null,
+          error: message.error ? String(message.error) : null,
+          metadata: messageMetadata,
+        };
+      })
+      .filter(Boolean);
+
+    return {
+      messages,
+      hasMore: rows.length === limit,
+      nextBefore: rows.length ? rows[rows.length - 1].timestamp : null,
+    };
   }
 
   private normalizeStatusCardPhone(value: unknown) {

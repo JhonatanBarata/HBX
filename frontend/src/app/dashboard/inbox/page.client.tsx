@@ -2807,25 +2807,13 @@ export default function InboxClientPage() {
         intervalMs: 10000,
         immediate: false,
       });
-
-      try {
-        await runInitialInboxMirrorBootstrap();
-      } catch (bootstrapError) {
-        const backendMessage =
-          bootstrapError instanceof Error
-            ? bootstrapError.message
-            : "Falha ao espelhar nomes, fotos, historico e midias do WhatsApp.";
-        setError(
-          `WhatsApp conectou, mas falhou ao espelhar conversas, nomes, fotos e midias. ${backendMessage}`,
-        );
-      }
     })();
 
     return () => {
       cancelled = true;
       stopPolling?.();
     };
-  }, [bootstrapInbox, hasToken, loadConversations, runInitialInboxMirrorBootstrap]);
+  }, [bootstrapInbox, hasToken, loadConversations]);
 
   useEffect(() => {
     if (hasToken === false) return;

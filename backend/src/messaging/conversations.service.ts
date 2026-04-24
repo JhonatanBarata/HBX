@@ -1,6 +1,5 @@
 ﻿import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { WhatsAppStatusService } from './whatsapp-status.service';
 import {
   buildWhatsAppPhoneCandidates,
   normalizeWhatsAppPhone,
@@ -54,10 +53,7 @@ export type ConversationStatePatch = {
 
 @Injectable()
 export class ConversationsService {
-  constructor(
-    private readonly prisma: PrismaService,
-    private readonly whatsappStatus: WhatsAppStatusService,
-  ) {}
+  constructor(private readonly prisma: PrismaService) {}
 
   private async supportsWhatsAppEndpointTable() {
     return this.prisma.hasTable('CompanyWhatsAppEndpoint');
@@ -374,15 +370,6 @@ export class ConversationsService {
 
     if (!hasMetaCredentials && !modalConnected) {
       throw new BadRequestException('WhatsApp nao configurado para esta empresa.');
-    }
-
-    if (hasMetaCredentials) {
-      await this.whatsappStatus.ensureConnected(companyId, {
-        endpointId: resolvedCreds.endpointId || undefined,
-        preferredModuleKey:
-          String(payload?.preferredModuleKey || '').trim().toLowerCase() || undefined,
-        sourceModule,
-      });
     }
 
     // The 24h customer service window is a Meta Cloud API restriction.
