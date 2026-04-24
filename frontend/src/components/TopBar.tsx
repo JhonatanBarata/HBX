@@ -66,7 +66,7 @@ type OperationalStatusChip = {
   value: string;
   detail: string;
   href: string;
-  quality: "real" | "partial";
+  quality: "real" | "partial" | "stale";
   source: string[];
   updatedAt: string | null;
 };
@@ -332,7 +332,7 @@ export default function TopBar() {
     setModules(myModules || []);
   }, []);
 
-  const refreshOperationalStatus = React.useCallback(async (refreshLive = true) => {
+  const refreshOperationalStatus = React.useCallback(async (refreshLive = false) => {
     try {
       const suffix = refreshLive ? "?refresh=true" : "";
       const payload = await apiFetch<OperationalStatusPayload>(`/companies/me/operational-status${suffix}`);
@@ -579,7 +579,7 @@ export default function TopBar() {
         const [profile, myModules, nextOperationalStatus] = await Promise.all([
           apiFetch<User>("/profile/current-user"),
           apiFetch<UserModule[]>("/modules/me"),
-          refreshOperationalStatus(true),
+          refreshOperationalStatus(false),
         ]);
         if (mounted) {
           setUser(profile);
@@ -600,7 +600,7 @@ export default function TopBar() {
     function handleMasterContextChanged(event: Event) {
       const customEvent = event as CustomEvent<MasterContextChangedDetail>;
       void refreshMasterAwareState().catch(() => undefined);
-      void refreshOperationalStatus(true).catch(() => undefined);
+      void refreshOperationalStatus(false).catch(() => undefined);
       showMasterContextToast(customEvent.detail);
     }
 
@@ -626,21 +626,11 @@ export default function TopBar() {
       return;
     }
 
-    let mounted = true;
-
-    const loadStatus = async () => {
-      const payload = await refreshOperationalStatus(true);
-      if (!mounted) return;
-      setOperationalStatus(payload);
-    };
-
-    void loadStatus();
     const timer = window.setInterval(() => {
-      void loadStatus();
+      void refreshOperationalStatus(false);
     }, 45000);
 
     return () => {
-      mounted = false;
       window.clearInterval(timer);
     };
   }, [authenticated, refreshOperationalStatus]);
@@ -671,7 +661,7 @@ export default function TopBar() {
           whatsAppQrRequested
           && whatsAppModal.status !== "connected",
       });
-      void refreshOperationalStatus(true);
+      void refreshOperationalStatus(false);
     }, whatsAppModal.status === "connected" ? 20000 : 9000);
 
     return () => window.clearInterval(timer);
@@ -758,7 +748,10 @@ export default function TopBar() {
       return;
     }
 
-    if (!authenticated || !user || user.isSystemMaster || !user.company?.id) {
+    const shouldPollHeavyQueues =
+      pathname.includes("/dashboard/inbox") || pathname.includes("/dashboard/recovery");
+
+    if (!authenticated || !user || user.isSystemMaster || !user.company?.id || !shouldPollHeavyQueues) {
       recoveryLastSeenRef.current = new Map();
       recoveryHumanQueueRef.current = new Map();
       recoveryAlertReadyRef.current = false;
@@ -927,7 +920,7 @@ export default function TopBar() {
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [authenticated, accessibleModules, presentIncomingPopup, user]);
+  }, [authenticated, accessibleModules, pathname, presentIncomingPopup, user]);
 
   useEffect(() => {
     setOpen(false);

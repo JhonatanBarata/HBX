@@ -6,7 +6,6 @@ import { useEffect, useMemo, useState } from "react";
 import DashboardScaffold from "@/components/DashboardScaffold";
 import { apiFetch } from "./_lib/api";
 import { useRequireAuth } from "./_lib/useRequireAuth";
-import { type WhatsAppCenterPayload } from "@/lib/whatsapp-center";
 import { resolveWebsiteOnlyDestination } from "@/lib/websiteLaunch";
 import {
   compareUserModules,
@@ -34,13 +33,6 @@ type CurrentUser = {
     trialEndsAt?: string | null;
   } | null;
 };
-
-function hasActiveWhatsAppConnection(payload: WhatsAppCenterPayload | null) {
-  if (!payload) return false;
-
-  const qrLiveStatus = String(payload.center?.qrConnection?.liveStatus || "").trim().toLowerCase();
-  return Boolean(payload.center?.official?.connected) || qrLiveStatus === "connected";
-}
 
 function getVendasFirstModule(modules: UserModule[]) {
   const vendasModule = [...modules]
@@ -97,7 +89,6 @@ export default function DashboardClientPage() {
   const [error, setError] = useState<string | null>(null);
   const [user, setUser] = useState<CurrentUser | null>(null);
   const [modules, setModules] = useState<UserModule[]>([]);
-  const [whatsAppReady, setWhatsAppReady] = useState(false);
   const [redirectingLabel, setRedirectingLabel] = useState<string | null>(null);
 
   useEffect(() => {
@@ -112,16 +103,9 @@ export default function DashboardClientPage() {
           apiFetch<UserModule[]>("/modules/me"),
         ]);
 
-        const shouldCheckWhatsApp = !me?.isSystemMaster && Boolean(me?.company?.id);
-        const whatsAppCenter = shouldCheckWhatsApp
-          ? await apiFetch<WhatsAppCenterPayload>("/companies/me/whatsapp-center").catch(() => null)
-          : null;
-
         setUser(me);
         setModules(Array.isArray(userModules) ? userModules : []);
-        setWhatsAppReady(shouldCheckWhatsApp ? hasActiveWhatsAppConnection(whatsAppCenter) : true);
       } catch (loadError) {
-        setWhatsAppReady(false);
         setError(loadError instanceof Error ? loadError.message : "Falha ao carregar o acesso inicial.");
       } finally {
         setLoading(false);
@@ -148,14 +132,6 @@ export default function DashboardClientPage() {
     if (hasToken !== true || loading || redirectingLabel) return;
 
     let cancelled = false;
-
-    if (!isSystemMaster && user?.company?.id && whatsAppReady === false) {
-      setRedirectingLabel("setup de vendas");
-      router.replace("/dashboard/vendas/automacao");
-      return () => {
-        cancelled = true;
-      };
-    }
 
     if (!preferredEntryModule) return;
 
@@ -190,7 +166,7 @@ export default function DashboardClientPage() {
     return () => {
       cancelled = true;
     };
-  }, [hasToken, isSystemMaster, loading, preferredEntryModule, redirectingLabel, router, user?.company?.id, whatsAppReady]);
+  }, [hasToken, loading, preferredEntryModule, redirectingLabel, router]);
 
   if (hasToken === null) {
     return (
