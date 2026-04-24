@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import DashboardScaffold from "@/components/DashboardScaffold";
+import LiquidGlassCard, { liquidGlassCardStyles as glassCardStyles } from "@/components/LiquidGlassCard";
 import PremiumLaunchDialog from "@/components/PremiumLaunchDialog";
 import { useQuickLaunchNotice } from "@/components/useQuickLaunchNotice";
 import { apiFetch, getToken } from "../_lib/api";
@@ -1123,103 +1124,131 @@ export default function WebscrapingClientPage() {
                 const callUrl = buildCallUrl(result);
 
                 return (
-                  <article key={`${result.name}-${result.phoneDigits}`} className={styles.resultCard}>
-                    <div className={styles.resultHeader}>
-                      <div>
-                        <h2 className={styles.resultName}>{result.name || "Empresa sem nome"}</h2>
-                        <p className={styles.resultMeta}>{result.address || "Endereco nao informado"}</p>
-                        {crmPreview?.existsInCrm ? (
-                          <p className={styles.resultMeta}>
-                            Já existe no CRM
-                            {crmPreview.leadName ? ` • ${crmPreview.leadName}` : ""}
-                            {crmPreview.statusLabel ? ` • ${crmPreview.statusLabel}` : ""}
-                          </p>
-                        ) : null}
+                  <LiquidGlassCard
+                    key={`${result.name}-${result.phoneDigits}`}
+                    as="article"
+                    accentTone={result.probableWhatsApp ? "success" : "info"}
+                    header={
+                      <div className={glassCardStyles.stack}>
+                        <span className={glassCardStyles.eyebrow}>Webscraping</span>
+                        <div>
+                          <h2 className={`${styles.resultName} ${glassCardStyles.title}`}>{result.name || "Empresa sem nome"}</h2>
+                          <p className={glassCardStyles.subtitle}>{result.address || "Endereco nao informado"}</p>
+                          {crmPreview?.existsInCrm ? (
+                            <p className={glassCardStyles.subtitle}>
+                              Já existe no CRM
+                              {crmPreview.leadName ? ` • ${crmPreview.leadName}` : ""}
+                              {crmPreview.statusLabel ? ` • ${crmPreview.statusLabel}` : ""}
+                            </p>
+                          ) : null}
+                        </div>
                       </div>
-                      <div className={styles.metaPills}>
-                        <span className={result.probableWhatsApp ? styles.resultPillOk : styles.resultPill}>
+                    }
+                    chips={
+                      <>
+                        <span className={result.probableWhatsApp ? glassCardStyles.pillStrong : glassCardStyles.pill}>
                           {result.probableWhatsApp ? "WhatsApp provavel" : "Contato telefonico"}
                         </span>
                         {crmPreview?.existsInCrm ? (
-                          <span className={styles.metaPill}>Já existe</span>
+                          <span className={glassCardStyles.pill}>Já existe</span>
                         ) : null}
                         {crmPreview?.signals?.hadPreviousContact ? (
-                          <span className={styles.metaPill}>Já teve contato</span>
+                          <span className={glassCardStyles.pill}>Já teve contato</span>
                         ) : null}
                         {crmPreview?.signals?.wasClosedBefore ? (
-                          <span className={styles.metaPill}>Encerrado antes</span>
+                          <span className={glassCardStyles.pill}>Encerrado antes</span>
                         ) : null}
                         {crmPreview?.sharedProfile?.presence?.atendimento?.present ? (
-                          <span className={styles.metaPill}>Em Atendimento</span>
+                          <span className={glassCardStyles.pill}>Em Atendimento</span>
                         ) : null}
                         {crmPreview?.sharedProfile?.presence?.recovery?.present ? (
-                          <span className={styles.metaPill}>Em Recovery</span>
+                          <span className={glassCardStyles.pill}>Em Recovery</span>
                         ) : null}
                         {crmPreview?.sharedProfile?.currentContext &&
                         crmPreview.sharedProfile.currentContext !== "neutro" ? (
-                          <span className={styles.metaPill}>
+                          <span className={glassCardStyles.pill}>
                             Contexto {formatSharedContextLabel(crmPreview.sharedProfile.currentContext)}
                           </span>
                         ) : null}
+                      </>
+                    }
+                    lead={
+                      <div className={styles.phoneRow}>
+                        <span className={`${styles.phoneValue} ${glassCardStyles.noBreak}`}>{result.phone}</span>
+                        <span className={glassCardStyles.subtitle}>
+                          Nota {result.rating ?? "-"} • {result.reviews} avaliacoes
+                        </span>
                       </div>
-                    </div>
-
-                    <div className={styles.phoneRow}>
-                      <span className={styles.phoneValue}>{result.phone}</span>
-                      <span className={styles.resultMeta}>
-                        Nota {result.rating ?? "-"} • {result.reviews} avaliacoes
-                      </span>
-                    </div>
-
-                    <div className={styles.cardActions}>
-                      <a className={`${styles.glassButton} ${styles.glassButtonPrimary}`} href={callUrl || undefined}>
-                        Ligar
-                      </a>
-                      <a className={styles.glassButton} href={whatsappUrl || undefined} target="_blank" rel="noreferrer">
-                        WhatsApp
-                      </a>
-                      <button
-                        type="button"
-                        className={styles.glassButton}
-                        onClick={() => {
-                          void copyText(result.phone);
-                          setFeedback(`Numero copiado: ${result.phone}`);
-                        }}
-                      >
-                        Copiar numero
-                      </button>
-                      <button
-                        type="button"
-                        className={styles.glassButton}
-                        onClick={() => {
-                          void copyText(scriptText);
-                          setFeedback(`Roteiro copiado para ${result.name}.`);
-                        }}
-                      >
-                        Copiar roteiro
-                      </button>
-                    </div>
-
-                    <div className={styles.scriptBox}>
-                      <span className={styles.scriptLabel}>Roteiro sugerido</span>
-                      <p className={styles.scriptText}>{scriptText}</p>
-                    </div>
-
+                    }
+                    actions={
+                      <div className={glassCardStyles.cluster}>
+                        <a className={`${glassCardStyles.actionButton} ${glassCardStyles.actionPrimary} ${glassCardStyles.noBreak}`} href={whatsappUrl || undefined} target="_blank" rel="noreferrer">
+                          WhatsApp
+                        </a>
+                        <a className={`${glassCardStyles.actionButton} ${glassCardStyles.noBreak}`} href={callUrl || undefined} aria-disabled={!callUrl}>
+                          Ligar
+                        </a>
+                        <button
+                          type="button"
+                          className={`${glassCardStyles.actionButton} ${glassCardStyles.noBreak}`}
+                          onClick={() => {
+                            void copyText(result.phone);
+                            setFeedback(`Numero copiado: ${result.phone}`);
+                          }}
+                        >
+                          Copiar numero
+                        </button>
+                        <button
+                          type="button"
+                          className={`${glassCardStyles.actionButton} ${glassCardStyles.noBreak}`}
+                          onClick={() => {
+                            void copyText(scriptText);
+                            setFeedback(`Roteiro copiado para ${result.name}.`);
+                          }}
+                        >
+                          Copiar roteiro
+                        </button>
+                      </div>
+                    }
+                    highlight={
+                      <div className={glassCardStyles.stack}>
+                        <span className={glassCardStyles.sectionLabel}>Roteiro</span>
+                        <strong className={glassCardStyles.sectionTitle}>Primeiro contato</strong>
+                        <p className={`${glassCardStyles.bodyText} ${styles.scriptText}`}>{scriptText}</p>
+                      </div>
+                    }
+                    metrics={
+                      <div className={glassCardStyles.metricGrid}>
+                        <div className={glassCardStyles.metricCard}>
+                          <span className={glassCardStyles.metricLabel}>Nota</span>
+                          <strong className={glassCardStyles.metricValue}>{result.rating ?? "-"}</strong>
+                        </div>
+                        <div className={glassCardStyles.metricCard}>
+                          <span className={glassCardStyles.metricLabel}>Avaliacoes</span>
+                          <strong className={glassCardStyles.metricValue}>{result.reviews}</strong>
+                        </div>
+                        <div className={glassCardStyles.metricCard}>
+                          <span className={glassCardStyles.metricLabel}>CRM</span>
+                          <strong className={glassCardStyles.metricValue}>{crmPreview?.statusLabel || (crmPreview?.existsInCrm ? "Ja existe" : "Novo")}</strong>
+                        </div>
+                      </div>
+                    }
+                  >
                     {(result.website || result.googleMapsUrl) ? (
-                      <div className={styles.resultLinks}>
+                      <div className={glassCardStyles.cluster}>
                         {result.website ? (
-                          <a className={styles.glassButton} href={result.website} target="_blank" rel="noreferrer">
+                          <a className={`${glassCardStyles.actionButton} ${glassCardStyles.noBreak}`} href={result.website} target="_blank" rel="noreferrer">
                             Site
                           </a>
                         ) : null}
                         {result.googleMapsUrl ? (
-                          <a className={styles.glassButton} href={result.googleMapsUrl} target="_blank" rel="noreferrer">
+                          <a className={`${glassCardStyles.actionButton} ${glassCardStyles.noBreak}`} href={result.googleMapsUrl} target="_blank" rel="noreferrer">
                             Maps
                           </a>
                         ) : null}
                       </div>
                     ) : null}
-                  </article>
+                  </LiquidGlassCard>
                 );
               })}
             </div>

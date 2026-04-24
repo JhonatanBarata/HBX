@@ -1,0 +1,420 @@
+.card {
+  --liquid-accent: color-mix(in srgb, var(--accent) 72%, var(--brand) 28%);
+  --glass-border: color-mix(in srgb, rgba(255, 255, 255, 0.88) 74%, var(--line));
+  --glass-border-strong: color-mix(in srgb, var(--liquid-accent) 24%, rgba(255, 255, 255, 0.84));
+  --glass-fill-top: color-mix(in srgb, rgba(255, 255, 255, 0.78) 54%, transparent);
+  --glass-fill-bottom: color-mix(in srgb, rgba(244, 247, 251, 0.34) 28%, transparent);
+  --glass-panel-top: color-mix(in srgb, rgba(255, 255, 255, 0.52) 48%, transparent);
+  --glass-panel-bottom: color-mix(in srgb, rgba(248, 251, 255, 0.18) 24%, transparent);
+  --glass-pill-fill: color-mix(in srgb, rgba(255, 255, 255, 0.42) 44%, transparent);
+  --glass-button-fill: color-mix(in srgb, rgba(255, 255, 255, 0.34) 42%, transparent);
+  --glass-highlight: rgba(255, 255, 255, 0.92);
+  --glass-highlight-soft: rgba(255, 255, 255, 0.42);
+  --glass-shadow: rgba(84, 101, 130, 0.24);
+  position: relative;
+  display: grid;
+  gap: 0.92rem;
+  min-height: 0;
+  overflow: hidden;
+  padding: 1rem;
+  border-radius: 30px;
+  border: 1px solid var(--glass-border);
+  background:
+    radial-gradient(circle at 12% -10%, color-mix(in srgb, var(--liquid-accent) 26%, transparent), transparent 34%),
+    radial-gradient(circle at 88% 12%, rgba(255, 255, 255, 0.96), transparent 24%),
+    radial-gradient(circle at 54% 118%, color-mix(in srgb, var(--liquid-accent) 12%, transparent), transparent 34%),
+    linear-gradient(160deg, var(--glass-fill-top), var(--glass-fill-bottom));
+  box-shadow:
+    inset 0 1px 0 var(--glass-highlight),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.26),
+    0 30px 60px -38px var(--glass-shadow),
+    0 20px 34px -26px color-mix(in srgb, var(--liquid-accent) 28%, transparent);
+  -webkit-backdrop-filter: blur(26px) saturate(190%);
+  backdrop-filter: blur(26px) saturate(190%);
+  isolation: isolate;
+  transform: translateZ(0);
+}
+
+:global(html[data-theme-mode="dark"]) .card {
+  --glass-border: color-mix(in srgb, rgba(255, 255, 255, 0.14) 76%, var(--line));
+  --glass-border-strong: color-mix(in srgb, var(--liquid-accent) 28%, rgba(255, 255, 255, 0.12));
+  --glass-fill-top: color-mix(in srgb, rgba(7, 19, 29, 0.82) 72%, transparent);
+  --glass-fill-bottom: color-mix(in srgb, rgba(9, 23, 36, 0.34) 36%, transparent);
+  --glass-panel-top: color-mix(in srgb, rgba(10, 24, 36, 0.78) 68%, transparent);
+  --glass-panel-bottom: color-mix(in srgb, rgba(4, 8, 22, 0.26) 38%, transparent);
+  --glass-pill-fill: color-mix(in srgb, rgba(8, 20, 31, 0.72) 72%, transparent);
+  --glass-button-fill: color-mix(in srgb, rgba(8, 20, 31, 0.7) 70%, transparent);
+  --glass-highlight: rgba(255, 255, 255, 0.16);
+  --glass-highlight-soft: rgba(255, 255, 255, 0.08);
+  --glass-shadow: rgba(0, 0, 0, 0.56);
+  background:
+    radial-gradient(circle at 12% -10%, color-mix(in srgb, var(--liquid-accent) 22%, transparent), transparent 34%),
+    radial-gradient(circle at 88% 12%, rgba(255, 255, 255, 0.14), transparent 24%),
+    radial-gradient(circle at 54% 118%, color-mix(in srgb, var(--liquid-accent) 14%, transparent), transparent 34%),
+    linear-gradient(160deg, var(--glass-fill-top), var(--glass-fill-bottom));
+}
+
+.card::before,
+.card::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.card::before {
+  border-radius: inherit;
+  background:
+    linear-gradient(112deg, rgba(255, 255, 255, 0.82) 0%, rgba(255, 255, 255, 0.34) 8%, rgba(255, 255, 255, 0.12) 14%, transparent 28%),
+    linear-gradient(180deg, var(--glass-highlight-soft), transparent 22%, transparent 76%, rgba(255, 255, 255, 0.12)),
+    radial-gradient(circle at 84% 8%, rgba(255, 255, 255, 0.42), transparent 20%);
+  opacity: 0.96;
+}
+
+.card::after {
+  inset: auto 22px 10px 22px;
+  height: 34px;
+  border-radius: 999px;
+  background: radial-gradient(ellipse at center, color-mix(in srgb, var(--liquid-accent) 30%, transparent), transparent 68%);
+  filter: blur(24px);
+  opacity: 0.72;
+}
+
+.card[data-accent-tone="brand"] {
+  --liquid-accent: color-mix(in srgb, var(--accent) 72%, var(--brand) 28%);
+}
+
+.card[data-accent-tone="success"] {
+  --liquid-accent: var(--success);
+}
+
+.card[data-accent-tone="info"] {
+  --liquid-accent: var(--info);
+}
+
+.card[data-accent-tone="warning"] {
+  --liquid-accent: var(--warning);
+}
+
+.card[data-accent-tone="danger"] {
+  --liquid-accent: var(--danger);
+}
+
+.accentRail {
+  position: absolute;
+  inset: 0.82rem auto 0.82rem 0.52rem;
+  width: 5px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, color-mix(in srgb, white 24%, var(--liquid-accent)), var(--liquid-accent));
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--liquid-accent) 18%, transparent),
+    0 18px 30px -16px color-mix(in srgb, var(--liquid-accent) 34%, transparent);
+}
+
+.glow {
+  position: absolute;
+  inset: -28% auto auto 48%;
+  width: 54%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: radial-gradient(circle, color-mix(in srgb, var(--liquid-accent) 14%, transparent), transparent 66%);
+  filter: blur(18px);
+  opacity: 0.86;
+  pointer-events: none;
+}
+
+.inner {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  gap: 0.92rem;
+  min-width: 0;
+}
+
+.header,
+.chips,
+.lead,
+.actions,
+.highlight,
+.metrics,
+.footer,
+.extra,
+.stack {
+  display: grid;
+  gap: 0.7rem;
+  min-width: 0;
+}
+
+.cluster,
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.55rem;
+  min-width: 0;
+}
+
+.headerAside {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.eyebrow,
+.sectionLabel,
+.metricLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.36rem;
+  min-width: 0;
+  margin: 0;
+  color: color-mix(in srgb, var(--muted) 84%, var(--foreground));
+  font-size: 0.71rem;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  word-break: normal;
+  overflow-wrap: normal;
+  hyphens: none;
+}
+
+.eyebrow::before,
+.sectionLabel::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: currentColor;
+  box-shadow: 0 0 0 4px color-mix(in srgb, currentColor 18%, transparent);
+}
+
+.title,
+.sectionTitle,
+.metricValue {
+  margin: 0;
+  color: var(--foreground);
+  word-break: normal;
+  overflow-wrap: normal;
+  hyphens: none;
+}
+
+.title {
+  max-width: 100%;
+  font-size: clamp(1.02rem, 1.7vw, 1.34rem);
+  line-height: 1.04;
+  letter-spacing: -0.03em;
+  text-wrap: balance;
+}
+
+.subtitle,
+.bodyText {
+  margin: 0;
+  color: var(--foreground-soft);
+  line-height: 1.5;
+  word-break: normal;
+  overflow-wrap: normal;
+  hyphens: none;
+}
+
+.subtitle {
+  font-size: 0.88rem;
+}
+
+.bodyText {
+  font-size: 0.92rem;
+}
+
+.pill,
+.pillStrong,
+.actionButton {
+  min-width: 0;
+  white-space: nowrap;
+  word-break: normal;
+  overflow-wrap: normal;
+  hyphens: none;
+}
+
+.pill,
+.pillStrong {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  max-width: 100%;
+  min-height: 34px;
+  padding: 0.42rem 0.82rem;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--glass-border-strong) 52%, var(--glass-border));
+  background:
+    radial-gradient(circle at top left, rgba(255, 255, 255, 0.28), transparent 42%),
+    linear-gradient(160deg, var(--glass-pill-fill), color-mix(in srgb, var(--glass-panel-bottom) 92%, transparent));
+  color: var(--foreground);
+  font-size: 0.78rem;
+  font-weight: 800;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  box-shadow:
+    inset 0 1px 0 var(--glass-highlight-soft),
+    0 14px 22px -18px color-mix(in srgb, var(--foreground) 18%, transparent);
+  -webkit-backdrop-filter: blur(18px) saturate(180%);
+  backdrop-filter: blur(18px) saturate(180%);
+}
+
+.pillStrong {
+  border-color: color-mix(in srgb, var(--liquid-accent) 38%, var(--glass-border));
+  background:
+    radial-gradient(circle at top left, rgba(255, 255, 255, 0.24), transparent 38%),
+    linear-gradient(135deg, color-mix(in srgb, var(--liquid-accent) 22%, transparent), transparent 56%),
+    linear-gradient(160deg, var(--glass-pill-fill), color-mix(in srgb, var(--glass-panel-bottom) 92%, transparent));
+  color: color-mix(in srgb, var(--liquid-accent) 82%, var(--foreground));
+}
+
+.actionButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 42px;
+  padding: 0.72rem 0.98rem;
+  border-radius: 18px;
+  border: 1px solid color-mix(in srgb, var(--glass-border-strong) 48%, var(--glass-border));
+  background:
+    radial-gradient(circle at top left, rgba(255, 255, 255, 0.3), transparent 40%),
+    linear-gradient(160deg, var(--glass-button-fill), color-mix(in srgb, var(--glass-panel-bottom) 88%, transparent));
+  color: var(--foreground);
+  font-size: 0.88rem;
+  font-weight: 800;
+  text-decoration: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+  box-shadow:
+    inset 0 1px 0 var(--glass-highlight-soft),
+    0 18px 30px -24px color-mix(in srgb, var(--foreground) 22%, transparent);
+  -webkit-backdrop-filter: blur(20px) saturate(185%);
+  backdrop-filter: blur(20px) saturate(185%);
+  transition:
+    transform var(--motion-fast),
+    border-color var(--motion-fast),
+    background var(--motion-fast),
+    box-shadow var(--motion-fast),
+    opacity var(--motion-fast);
+}
+
+.actionButton:hover {
+  transform: translateY(-1px);
+  border-color: color-mix(in srgb, var(--liquid-accent) 30%, var(--glass-border));
+  background:
+    radial-gradient(circle at top left, rgba(255, 255, 255, 0.34), transparent 38%),
+    linear-gradient(160deg, color-mix(in srgb, var(--glass-button-fill) 96%, transparent), color-mix(in srgb, var(--glass-panel-bottom) 88%, transparent));
+  box-shadow:
+    inset 0 1px 0 var(--glass-highlight),
+    0 20px 36px -24px color-mix(in srgb, var(--liquid-accent) 24%, transparent);
+}
+
+.actionButton:disabled,
+.actionButton[aria-disabled="true"] {
+  cursor: default;
+  opacity: 0.56;
+  transform: none;
+}
+
+.actionPrimary {
+  border-color: color-mix(in srgb, var(--liquid-accent) 42%, var(--glass-border));
+  background:
+    radial-gradient(circle at top left, rgba(255, 255, 255, 0.34), transparent 38%),
+    linear-gradient(135deg, color-mix(in srgb, var(--liquid-accent) 56%, transparent), color-mix(in srgb, white 10%, var(--liquid-accent))),
+    linear-gradient(160deg, color-mix(in srgb, var(--glass-button-fill) 90%, transparent), color-mix(in srgb, var(--glass-panel-bottom) 84%, transparent));
+  color: var(--brand-contrast);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.34),
+    0 22px 38px -24px color-mix(in srgb, var(--liquid-accent) 30%, transparent);
+}
+
+.actionDanger {
+  border-color: color-mix(in srgb, var(--danger) 34%, var(--line));
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--danger) 74%, transparent), color-mix(in srgb, white 8%, var(--danger))),
+    color-mix(in srgb, var(--surface) 54%, rgba(255, 255, 255, 0.06));
+  color: #fff;
+}
+
+.highlight,
+.subtlePanel,
+.metricCard {
+  border-radius: 22px;
+  border: 1px solid color-mix(in srgb, var(--glass-border-strong) 48%, var(--glass-border));
+  background:
+    radial-gradient(circle at top left, rgba(255, 255, 255, 0.3), transparent 42%),
+    linear-gradient(160deg, var(--glass-panel-top), var(--glass-panel-bottom));
+  box-shadow:
+    inset 0 1px 0 var(--glass-highlight-soft),
+    0 18px 28px -24px color-mix(in srgb, var(--foreground) 18%, transparent);
+  -webkit-backdrop-filter: blur(18px) saturate(176%);
+  backdrop-filter: blur(18px) saturate(176%);
+}
+
+.highlight,
+.subtlePanel {
+  padding: 0.84rem 0.92rem;
+}
+
+.metrics,
+.metricGrid {
+  display: grid;
+  gap: 0.6rem;
+  grid-template-columns: repeat(auto-fit, minmax(118px, 1fr));
+}
+
+.metricCard {
+  display: grid;
+  gap: 0.26rem;
+  align-content: center;
+  min-height: 90px;
+  padding: 0.8rem 0.88rem;
+}
+
+.metricLabel {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.metricValue {
+  font-size: clamp(1.02rem, 1.8vw, 1.42rem);
+  line-height: 1.06;
+}
+
+.noBreak {
+  white-space: nowrap;
+  word-break: normal;
+  overflow-wrap: normal;
+  hyphens: none;
+}
+
+@media (max-width: 720px) {
+  .card {
+    padding: 0.92rem;
+    border-radius: 24px;
+  }
+
+  .accentRail {
+    inset: 0.74rem auto 0.74rem 0.48rem;
+  }
+
+  .title {
+    font-size: 1rem;
+  }
+
+  .actionButton,
+  .pill,
+  .pillStrong {
+    max-width: 100%;
+  }
+
+  .metrics,
+  .metricGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

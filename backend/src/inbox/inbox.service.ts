@@ -595,7 +595,7 @@ export class InboxService {
     if (!Number.isFinite(parsed) || parsed <= 0) {
       return fallback;
     }
-    return Math.min(Math.floor(parsed), 50);
+    return Math.min(Math.floor(parsed), 200);
   }
 
   private normalizeMessagePageLimit(value: string | number | null | undefined, fallback = 50) {
@@ -1543,7 +1543,7 @@ export class InboxService {
     companyId: number,
     options?: { take?: string | number | null },
   ) {
-    const take = this.normalizeConversationTakeLimit(options?.take, 50) || 50;
+    const take = this.normalizeConversationTakeLimit(options?.take, 200) || 200;
     const rows = await this.prisma.companyConversation.findMany({
       where: { companyId, channel: 'whatsapp' },
       orderBy: [{ lastMessageAt: 'desc' }, { updatedAt: 'desc' }, { id: 'desc' }],
@@ -1684,7 +1684,7 @@ export class InboxService {
   async getBootstrap(user: any, take?: string | number) {
     const companyId = this.requireCompanyIdFromUser(user);
     let conversations = await this.listPersistedConversationSummariesForCompany(companyId, {
-      take: this.normalizeConversationTakeLimit(take, 10),
+      take: this.normalizeConversationTakeLimit(take, 200),
     });
 
     const firstConversationId = conversations[0]?.id ? Number(conversations[0].id) : null;
