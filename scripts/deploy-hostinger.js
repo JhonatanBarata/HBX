@@ -63,8 +63,13 @@ function ensureRequiredEnv(env) {
     'PROD_FRONTEND_URL',
   ];
 
-  for (const key of required) {
-    requireEnv(env, key);
+  const missing = required.filter((key) => !String(env[key] || '').trim());
+  if (missing.length) {
+    throw new Error([
+      `Missing required Hostinger deploy environment variable(s): ${missing.join(', ')}`,
+      'Add them to .env.production.local, .env.ops.local, or .env.operations.local.',
+      'Use .env.production.example as the placeholder reference and keep real values out of git.',
+    ].join('\n'));
   }
 
   const backendUrl = normalizeBaseUrl(env.PROD_BACKEND_URL);
