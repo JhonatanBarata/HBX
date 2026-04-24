@@ -2,7 +2,7 @@
 
 ## Overview
 
-Improved login UX for Render free tier cold starts with elegant detection and automatic retry logic. The system now gracefully handles backend wake-up delays without leaving the button stuck on generic "Entrando...".
+Improved login UX for legacy provider cold starts with elegant detection and automatic retry logic. The system now gracefully handles backend wake-up delays without leaving the button stuck on generic "Entrando...".
 
 ## What Changed
 
@@ -86,7 +86,7 @@ Shows "🔐 Autenticando..."
 Dashboard
 ```
 
-### Scenario 2: Cold Start (Render Free)
+### Scenario 2: Cold Start (Legacy Provider)
 ```
 Click "Entrar"
   ↓

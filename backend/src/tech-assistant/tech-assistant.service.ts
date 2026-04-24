@@ -743,7 +743,7 @@ export class TechAssistantService {
     if (/timeout|timed out|econnrefused|fetch failed/i.test(haystack)) {
       causes.push('Serviço dependente indisponível, URL incorreta ou operação sem tratamento de timeout.');
     }
-    if (/publish|deploy|render|build/i.test(haystack)) {
+    if (/publish|deploy|build/i.test(haystack)) {
       causes.push('Pipeline de build/publicação com pré-requisitos incompletos ou arquivo alterado fora da cadeia validada.');
     }
     if (!causes.length && input.route?.startsWith('/dashboard/master')) {
@@ -766,10 +766,12 @@ export class TechAssistantService {
     }
 
     const lower = combinedContent.toLowerCase();
-    if (/publish|deploy|render\.yaml|build/.test(lower)) {
+    if (/publish|deploy|docker-compose|hostinger|build/.test(lower)) {
       files.add('scripts/publish.js');
+      files.add('scripts/deploy-hostinger.js');
       files.add('scripts/verify-prod.js');
-      files.add('render.yaml');
+      files.add('docker-compose.yml');
+      files.add('docs/infra/HOSTINGER_DEPLOY.md');
     }
     if (/prisma|migration|database/.test(lower)) {
       files.add('backend/prisma/schema.prisma');

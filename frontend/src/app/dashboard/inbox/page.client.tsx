@@ -2305,7 +2305,7 @@ export default function InboxClientPage() {
     }, 900);
 
     try {
-      const payload = await apiFetch<InboxFullBootstrapPayload>("/inbox/bootstrap/full?take=120", {
+      const payload = await apiFetch<InboxFullBootstrapPayload>("/inbox/bootstrap/full/background?take=120", {
         method: "POST",
       });
       clearInboxBootstrapStageTimer();
@@ -2801,6 +2801,13 @@ export default function InboxClientPage() {
     let stopPolling: (() => void) | undefined;
 
     void (async () => {
+      await bootstrapInbox({ take: 20 });
+      if (cancelled) return;
+      stopPolling = startSmartPolling(() => loadConversations({ silent: true }), {
+        intervalMs: 10000,
+        immediate: false,
+      });
+
       try {
         await runInitialInboxMirrorBootstrap();
       } catch (bootstrapError) {
@@ -2812,13 +2819,6 @@ export default function InboxClientPage() {
           `WhatsApp conectou, mas falhou ao espelhar conversas, nomes, fotos e midias. ${backendMessage}`,
         );
       }
-      if (cancelled) return;
-      await bootstrapInbox({ take: 20 });
-      if (cancelled) return;
-      stopPolling = startSmartPolling(() => loadConversations({ silent: true }), {
-        intervalMs: 10000,
-        immediate: false,
-      });
     })();
 
     return () => {
