@@ -17,6 +17,7 @@ import { CSS } from "@dnd-kit/utilities";
 import { useDeferredValue, useEffect, useMemo, useRef, useState, useCallback, type CSSProperties, type FormEvent, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import DashboardScaffold from "@/components/DashboardScaffold";
+import LiquidGlassCard, { liquidGlassCardStyles as glassCardStyles } from "@/components/LiquidGlassCard";
 import PremiumLaunchDialog from "@/components/PremiumLaunchDialog";
 import { useQuickLaunchNotice } from "@/components/useQuickLaunchNotice";
 import { apiFetch } from "../_lib/api";
@@ -617,47 +618,60 @@ function LeadCardView({ lead, draft, blockKey, selected, saving, onFocus, onQuic
   }, [editing]);
 
   return (
-    <article className={styles.leadCard} data-selected={selected ? "true" : "false"} data-tone={blockKey}>
-      <div className={styles.leadAccent} />
-      <div
-        className={styles.leadMainButton}
-        role="button"
-        tabIndex={0}
-        onClick={onFocus}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" || e.key === " ") {
-            e.preventDefault();
-            onFocus();
-          }
-        }}
-      >
-        <div className={styles.leadCardTop}>
-          <div className={styles.leadIdentity}>
-            {leadSource && String(leadSource).trim().toLowerCase() !== "manual" && (
-              <span className={styles.leadEyebrow}>{sourceLabel(leadSource)}</span>
-            )}
-            <strong className={styles.leadName}>{draft.name || lead.name || "Lead sem nome"}</strong>
-            <span className={styles.returnBadge} data-tone={meta.tone}>{meta.label}</span>
-            <span className={styles.leadSubline}>
-              {lead.segment ? (
-                <>
-                  {lead.segment}
-                  {lead.city ? ` • ${lead.city}` : null}
-                </>
-              ) : lead.city ? lead.city : null}
-            </span>
+    <LiquidGlassCard
+      as="article"
+      className={styles.leadCard}
+      accentTone={
+        blockKey === "today"
+          ? "success"
+          : blockKey === "overdue"
+            ? "danger"
+            : blockKey === "scheduled"
+              ? "info"
+              : "warning"
+      }
+      data-selected={selected ? "true" : "false"}
+      data-tone={blockKey}
+      header={
+        <div
+          className={styles.leadMainButton}
+          role="button"
+          tabIndex={0}
+          onClick={onFocus}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              onFocus();
+            }
+          }}
+        >
+          <div className={styles.leadCardTop}>
+            <div className={styles.leadIdentity}>
+              {leadSource && String(leadSource).trim().toLowerCase() !== "manual" && (
+                <span className={`${styles.leadEyebrow} ${glassCardStyles.eyebrow}`}>{sourceLabel(leadSource)}</span>
+              )}
+              <strong className={`${styles.leadName} ${glassCardStyles.title}`}>{draft.name || lead.name || "Lead sem nome"}</strong>
+              <span className={`${styles.returnBadge} ${glassCardStyles.pill} ${glassCardStyles.noBreak}`} data-tone={meta.tone}>{meta.label}</span>
+              <span className={`${styles.leadSubline} ${glassCardStyles.subtitle}`}>
+                {lead.segment ? (
+                  <>
+                    {lead.segment}
+                    {lead.city ? ` • ${lead.city}` : null}
+                  </>
+                ) : lead.city ? lead.city : null}
+              </span>
+            </div>
+            <div className={glassCardStyles.headerAside}>
+              <button type="button" className={`${glassCardStyles.actionButton} ${glassCardStyles.noBreak}`} onClick={() => onEdit?.(lead.id)} aria-label="Editar">Editar</button>
+              <span className={`${styles.statusBadge} ${glassCardStyles.pill} ${glassCardStyles.noBreak}`} data-status={draft.status}>{statusLabel(draft.status)}</span>
+            </div>
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <button type="button" className={styles.ghostAction} onClick={() => onEdit?.(lead.id)} aria-label="Editar">Editar</button>
-            <span className={styles.statusBadge} data-status={draft.status}>{statusLabel(draft.status)}</span>
+          <div className={glassCardStyles.cluster}>
+            {chips.slice(0, 3).map((chip) => <span key={`${lead.id}-${chip}`} className={`${styles.memoryChip} ${glassCardStyles.pill} ${glassCardStyles.noBreak}`}>{chip}</span>)}
           </div>
         </div>
-        <div className={styles.leadChipRow}>
-          {chips.slice(0, 3).map((chip) => <span key={`${lead.id}-${chip}`} className={styles.memoryChip}>{chip}</span>)}
-        </div>
-      </div>
-
-      {editorRendered ? (
+      }
+      lead={editorRendered ? (
         <div
           ref={editorRef}
           className={styles.inlineEdit}
@@ -678,52 +692,55 @@ function LeadCardView({ lead, draft, blockKey, selected, saving, onFocus, onQuic
             <label className={styles.fieldWide}><span className={styles.fieldLabel}>Observação curta</span><textarea className={styles.fieldTextarea} rows={3} value={draft.shortNote} onChange={(e) => onDraftChange?.(lead.id, { shortNote: e.target.value })} /></label>
           </div>
           <div className={styles.detailFooterActions}>
-            <button type="button" className={styles.primaryAction} onClick={() => onSave?.(lead.id)} disabled={saving}>{saving ? "Salvando..." : "Salvar"}</button>
-            <button type="button" className={styles.secondaryAction} onClick={() => onEdit?.(null)}>Cancelar</button>
+            <button type="button" className={`${glassCardStyles.actionButton} ${glassCardStyles.actionPrimary} ${glassCardStyles.noBreak}`} onClick={() => onSave?.(lead.id)} disabled={saving}>{saving ? "Salvando..." : "Salvar"}</button>
+            <button type="button" className={`${glassCardStyles.actionButton} ${glassCardStyles.noBreak}`} onClick={() => onEdit?.(null)}>Cancelar</button>
           </div>
         </div>
       ) : null}
-
-      <div className={styles.leadActionRow}>
-        <a
-          className={`${styles.primaryAction} ${styles.whatsappAction} ${whatsappBlocked ? styles.whatsappUnavailable : ""}`}
-          href={whatsappUrl || undefined}
-          target={whatsappUrl ? "_blank" : undefined}
-          rel={whatsappUrl ? "noreferrer" : undefined}
-          aria-disabled={!whatsappUrl}
-          title={whatsappBlocked ? "Motor confirmou que este numero nao possui WhatsApp." : "Abrir conversa no WhatsApp"}
-          onClick={() => {
-            if (whatsappUrl) onQuickAction("tentativa_whatsapp");
-          }}
-        >
-          {whatsappBlocked ? "Sem WhatsApp" : "WhatsApp"}
-        </a>
-        <a
-          className={styles.secondaryAction}
-          href={callUrl || undefined}
-          aria-disabled={!callUrl}
-          onClick={() => {
-            if (callUrl) onQuickAction("tentativa_call");
-          }}
-        >
-          Ligar
-        </a>
-        {lead.quickActions.includes("amanha") ? <button type="button" className={styles.ghostAction} onClick={() => onQuickAction("amanha")} disabled={saving}>Amanhã</button> : null}
-        {lead.quickActions.includes("encerrar") ? <button type="button" className={styles.ghostAction} onClick={() => onQuickAction("encerrar")} disabled={saving}>Encerrar</button> : null}
-        {lead.quickActions.includes("reabrir") ? <button type="button" className={styles.ghostAction} onClick={() => onQuickAction("reabrir")} disabled={saving}>Reabrir</button> : null}
-      </div>
-
-      <div className={styles.leadQuickNote}>
-        <span className={styles.summaryLabel}>Resumo</span>
-        <strong className={styles.quickNoteTitle}>Leitura rápida</strong>
-        <p className={styles.quickNoteText}>{draft.shortNote || lead.shortNote || "Sem observação curta registrada."}</p>
-      </div>
-
-      <div className={styles.leadMetricsCompact}>
-        <div className={styles.leadMetricCompact}><span>Tentativas</span><strong>{lead.attemptCount || 0}</strong></div>
-        <div className={styles.leadMetricCompact}><span>Último contato</span><strong>{formatShortDate(lead.lastContactAt)}</strong></div>
-      </div>
-    </article>
+      actions={
+        <div className={styles.leadActionRow}>
+          <a
+            className={`${glassCardStyles.actionButton} ${glassCardStyles.actionPrimary} ${styles.whatsappAction} ${glassCardStyles.noBreak} ${whatsappBlocked ? styles.whatsappUnavailable : ""}`}
+            href={whatsappUrl || undefined}
+            target={whatsappUrl ? "_blank" : undefined}
+            rel={whatsappUrl ? "noreferrer" : undefined}
+            aria-disabled={!whatsappUrl}
+            title={whatsappBlocked ? "Motor confirmou que este numero nao possui WhatsApp." : "Abrir conversa no WhatsApp"}
+            onClick={() => {
+              if (whatsappUrl) onQuickAction("tentativa_whatsapp");
+            }}
+          >
+            {whatsappBlocked ? "Sem WhatsApp" : "WhatsApp"}
+          </a>
+          <a
+            className={`${glassCardStyles.actionButton} ${glassCardStyles.noBreak}`}
+            href={callUrl || undefined}
+            aria-disabled={!callUrl}
+            onClick={() => {
+              if (callUrl) onQuickAction("tentativa_call");
+            }}
+          >
+            Ligar
+          </a>
+          {lead.quickActions.includes("amanha") ? <button type="button" className={`${glassCardStyles.actionButton} ${glassCardStyles.noBreak}`} onClick={() => onQuickAction("amanha")} disabled={saving}>Amanhã</button> : null}
+          {lead.quickActions.includes("encerrar") ? <button type="button" className={`${glassCardStyles.actionButton} ${glassCardStyles.noBreak}`} onClick={() => onQuickAction("encerrar")} disabled={saving}>Encerrar</button> : null}
+          {lead.quickActions.includes("reabrir") ? <button type="button" className={`${glassCardStyles.actionButton} ${glassCardStyles.noBreak}`} onClick={() => onQuickAction("reabrir")} disabled={saving}>Reabrir</button> : null}
+        </div>
+      }
+      highlight={
+        <div className={glassCardStyles.stack}>
+          <span className={glassCardStyles.sectionLabel}>Resumo</span>
+          <strong className={glassCardStyles.sectionTitle}>Leitura rapida</strong>
+          <p className={glassCardStyles.bodyText}>{draft.shortNote || lead.shortNote || "Sem observação curta registrada."}</p>
+        </div>
+      }
+      metrics={
+        <div className={glassCardStyles.metricGrid}>
+          <div className={glassCardStyles.metricCard}><span className={glassCardStyles.metricLabel}>Tentativas</span><strong className={glassCardStyles.metricValue}>{lead.attemptCount || 0}</strong></div>
+          <div className={glassCardStyles.metricCard}><span className={glassCardStyles.metricLabel}>Ultimo contato</span><strong className={glassCardStyles.metricValue}>{formatShortDate(lead.lastContactAt)}</strong></div>
+        </div>
+      }
+    />
   );
 }
 

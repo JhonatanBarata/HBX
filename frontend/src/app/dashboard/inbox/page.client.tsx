@@ -26,6 +26,7 @@ import {
 } from "@/components/chat/PremiumChat";
 import DashboardScaffold from "@/components/DashboardScaffold";
 import HbxConfirmDialog from "@/components/HbxConfirmDialog";
+import LiquidGlassCard, { liquidGlassCardStyles as glassCardStyles } from "@/components/LiquidGlassCard";
 import PremiumLaunchDialog from "@/components/PremiumLaunchDialog";
 import { useQuickLaunchNotice } from "@/components/useQuickLaunchNotice";
 import ConversationActionList from "@/components/workspace/ConversationActionList";
@@ -2347,7 +2348,7 @@ export default function InboxClientPage() {
   ]);
 
   const bootstrapInbox = useCallback(async (options?: { take?: number }) => {
-    const take = Math.max(1, Math.min(50, Number(options?.take || 20) || 20));
+    const take = Math.max(1, Math.min(200, Number(options?.take || 200) || 200));
     setBootstrapReady(false);
     setLoadingList(true);
     setLoadingConversation(true);
@@ -2500,7 +2501,7 @@ export default function InboxClientPage() {
       setError(null);
       setConversationListError(null);
       try {
-        const response = await apiFetch<InboxConversation[]>("/inbox/conversations");
+        const response = await apiFetch<InboxConversation[]>("/inbox/conversations?take=200");
         const data = normalizeInboxConversationList(Array.isArray(response) ? response : []).filter(
           (conversation) =>
             !isInboxConversationHiddenByDelete(conversation, deletedConversationAliasesRef.current),
@@ -2845,7 +2846,7 @@ export default function InboxClientPage() {
     let stopPolling: (() => void) | undefined;
 
     void (async () => {
-      await bootstrapInbox({ take: 20 });
+      await bootstrapInbox({ take: 200 });
       if (cancelled) return;
       stopPolling = startSmartPolling(() => loadConversations({ silent: true }), {
         intervalMs: 30000,
@@ -2978,7 +2979,7 @@ export default function InboxClientPage() {
 
   const retryConversationList = useCallback(() => {
     if (!bootstrapReady && conversationsRef.current.length === 0) {
-      void bootstrapInbox({ take: 20 });
+      void bootstrapInbox({ take: 200 });
       return;
     }
     void loadConversations({ preferredId: selectedIdRef.current });
@@ -4865,143 +4866,153 @@ export default function InboxClientPage() {
                   </ChatInfoCard>
 
                   <ChatInfoCard title="Card do cliente" meta={customerConversationCard?.lead?.statusLabel || "Vendas"}>
-                    <div className={styles.customerCardPanel}>
-                      <span className={styles.customerCardAccent} aria-hidden="true" />
-                      <div className={styles.customerCardHeader}>
-                        <div>
-                          <strong>{customerCardName}</strong>
-                          <span>{customerCardPhone ? formatInboxPhoneLabel(customerCardPhone) || customerCardPhone : "Sem telefone"}</span>
+                    <LiquidGlassCard
+                      accentTone="success"
+                      header={
+                        <div className={styles.customerCardHeader}>
+                          <div>
+                            <strong className={glassCardStyles.title}>{customerCardName}</strong>
+                            <span className={glassCardStyles.subtitle}>{customerCardPhone ? formatInboxPhoneLabel(customerCardPhone) || customerCardPhone : "Sem telefone"}</span>
+                          </div>
+                          <div className={styles.customerCardHeaderActions}>
+                            <button
+                              type="button"
+                              className={`${glassCardStyles.actionButton} ${glassCardStyles.noBreak}`}
+                              onClick={() => setCustomerCardShortcutOpen((current) => !current)}
+                            >
+                              Cadastro
+                            </button>
+                            <button
+                              type="button"
+                              className={`${glassCardStyles.actionButton} ${glassCardStyles.actionPrimary} ${glassCardStyles.noBreak}`}
+                              onClick={openCustomerReturnPicker}
+                            >
+                              Retorno
+                            </button>
+                          </div>
                         </div>
-                        <div className={styles.customerCardHeaderActions}>
+                      }
+                      lead={
+                        <div className={glassCardStyles.stack}>
+                          {customerCardShortcutOpen ? (
+                            <div className={`${styles.customerCardShortcut} ${glassCardStyles.subtlePanel}`}>
+                              <strong>{customerCardName}</strong>
+                              <span>Perfil #{customerConversationCard?.customer?.profileId || "--"}</span>
+                              <span>{customerConversationCardDraft.doNotCall ? "Não ligar mais" : "Contato liberado"}</span>
+                            </div>
+                          ) : null}
+
+                          <div className={`${styles.customerCardReturnLine} ${glassCardStyles.subtlePanel}`}>
+                            <span>
+                              {customerCardReturnAt
+                                ? `Retorno ${formatShortDateTimeLabel(customerCardReturnAt, mounted)}`
+                                : `Hoje · ${formatShortDateTimeLabel(customerCardLastContactAt, mounted)}`}
+                            </span>
+                            {customerConversationCardDraft.doNotCall ? <em>Não ligar mais</em> : null}
+                          </div>
+                        </div>
+                      }
+                      actions={
+                        <div className={glassCardStyles.cluster}>
                           <button
                             type="button"
-                            className={styles.customerCardGhostButton}
-                            onClick={() => setCustomerCardShortcutOpen((current) => !current)}
+                            className={`${glassCardStyles.actionButton} ${glassCardStyles.actionPrimary} ${glassCardStyles.noBreak}`}
+                            onClick={() => {
+                              if (!customerCardPhoneDigits) return;
+                              window.open(`https://wa.me/${customerCardPhoneDigits}`, "_blank", "noopener,noreferrer");
+                            }}
+                            disabled={!customerCardPhoneDigits}
                           >
-                            Cadastro
+                            WhatsApp
                           </button>
                           <button
                             type="button"
-                            className={styles.customerCardPillButton}
-                            onClick={openCustomerReturnPicker}
+                            className={`${glassCardStyles.actionButton} ${glassCardStyles.noBreak}`}
+                            onClick={() => {
+                              if (!customerCardPhoneDigits) return;
+                              window.location.href = `tel:+${customerCardPhoneDigits}`;
+                            }}
+                            disabled={!customerCardPhoneDigits}
                           >
-                            Retorno
+                            Ligar
+                          </button>
+                          <button
+                            type="button"
+                            className={`${glassCardStyles.actionButton} ${glassCardStyles.noBreak}`}
+                            onClick={scheduleCustomerReturnTomorrow}
+                            disabled={savingCustomerConversationCard}
+                          >
+                            Amanhã
+                          </button>
+                          <button
+                            type="button"
+                            className={`${glassCardStyles.actionButton} ${glassCardStyles.actionDanger} ${glassCardStyles.noBreak}`}
+                            onClick={markCustomerDoNotCall}
+                            disabled={savingCustomerConversationCard || customerConversationCardDraft.doNotCall}
+                          >
+                            Não ligar mais
                           </button>
                         </div>
-                      </div>
+                      }
+                      highlight={
+                        <div className={glassCardStyles.stack}>
+                          <div className={styles.customerCardSummaryBox}>
+                            <label>
+                              <span>Observações</span>
+                              <textarea
+                                className={`field ${styles.customerCardTextarea}`}
+                                rows={4}
+                                value={customerConversationCardDraft.observations}
+                                onChange={(event) =>
+                                  setCustomerConversationCardDraft((current) => ({
+                                    ...current,
+                                    observations: event.target.value,
+                                  }))
+                                }
+                                placeholder="Digite o contexto comercial, combinado ou restrição..."
+                              />
+                            </label>
+                          </div>
 
-                      {customerCardShortcutOpen ? (
-                        <div className={styles.customerCardShortcut}>
-                          <strong>{customerCardName}</strong>
-                          <span>Perfil #{customerConversationCard?.customer?.profileId || "--"}</span>
-                          <span>{customerConversationCardDraft.doNotCall ? "Não ligar mais" : "Contato liberado"}</span>
+                          <div className={styles.customerCardReturnEditor}>
+                            <label>
+                              <span>Retorno</span>
+                              <input
+                                ref={customerReturnInputRef}
+                                type="datetime-local"
+                                className="field"
+                                value={customerConversationCardDraft.returnAt}
+                                onChange={(event) => handleCustomerReturnChange(event.target.value)}
+                              />
+                            </label>
+                            <button
+                              type="button"
+                              className={`${glassCardStyles.actionButton} ${glassCardStyles.noBreak}`}
+                              onClick={() => void saveCustomerConversationCard()}
+                              disabled={savingCustomerConversationCard}
+                            >
+                              {savingCustomerConversationCard ? "Salvando..." : "Salvar"}
+                            </button>
+                          </div>
                         </div>
-                      ) : null}
-
-                      <div className={styles.customerCardReturnLine}>
-                        <span>
-                          {customerCardReturnAt
-                            ? `Retorno ${formatShortDateTimeLabel(customerCardReturnAt, mounted)}`
-                            : `Hoje · ${formatShortDateTimeLabel(customerCardLastContactAt, mounted)}`}
-                        </span>
-                        {customerConversationCardDraft.doNotCall ? <em>Não ligar mais</em> : null}
-                      </div>
-
-                      <div className={styles.customerCardActions}>
-                        <button
-                          type="button"
-                          className={styles.customerCardPrimaryAction}
-                          onClick={() => {
-                            if (!customerCardPhoneDigits) return;
-                            window.open(`https://wa.me/${customerCardPhoneDigits}`, "_blank", "noopener,noreferrer");
-                          }}
-                          disabled={!customerCardPhoneDigits}
-                        >
-                          WhatsApp
-                        </button>
-                        <button
-                          type="button"
-                          className={styles.customerCardSecondaryAction}
-                          onClick={() => {
-                            if (!customerCardPhoneDigits) return;
-                            window.location.href = `tel:+${customerCardPhoneDigits}`;
-                          }}
-                          disabled={!customerCardPhoneDigits}
-                        >
-                          Ligar
-                        </button>
-                        <button
-                          type="button"
-                          className={styles.customerCardSecondaryAction}
-                          onClick={scheduleCustomerReturnTomorrow}
-                          disabled={savingCustomerConversationCard}
-                        >
-                          Amanhã
-                        </button>
-                        <button
-                          type="button"
-                          className={styles.customerCardDangerAction}
-                          onClick={markCustomerDoNotCall}
-                          disabled={savingCustomerConversationCard || customerConversationCardDraft.doNotCall}
-                        >
-                          Não ligar mais
-                        </button>
-                      </div>
-
-                      <div className={styles.customerCardSummaryBox}>
-                        <label>
-                          <span>Observações</span>
-                          <textarea
-                            className={`field ${styles.customerCardTextarea}`}
-                            rows={4}
-                            value={customerConversationCardDraft.observations}
-                            onChange={(event) =>
-                              setCustomerConversationCardDraft((current) => ({
-                                ...current,
-                                observations: event.target.value,
-                              }))
-                            }
-                            placeholder="Digite o contexto comercial, combinado ou restrição..."
-                          />
-                        </label>
-                      </div>
-
-                      <div className={styles.customerCardReturnEditor}>
-                        <label>
-                          <span>Retorno</span>
-                          <input
-                            ref={customerReturnInputRef}
-                            type="datetime-local"
-                            className="field"
-                            value={customerConversationCardDraft.returnAt}
-                            onChange={(event) => handleCustomerReturnChange(event.target.value)}
-                          />
-                        </label>
-                        <button
-                          type="button"
-                          className={styles.customerCardGhostButton}
-                          onClick={() => void saveCustomerConversationCard()}
-                          disabled={savingCustomerConversationCard}
-                        >
-                          {savingCustomerConversationCard ? "Salvando..." : "Salvar"}
-                        </button>
-                      </div>
-
-                      <div className={styles.customerCardMetrics}>
-                        <span>
-                          <small>Tentativas</small>
-                          <strong>{customerCardAttempts}</strong>
-                        </span>
-                        <span>
-                          <small>Reaparições</small>
-                          <strong>{customerCardTimesSeen}</strong>
-                        </span>
-                        <span>
-                          <small>Último contato</small>
-                          <strong>{formatShortDateTimeLabel(customerCardLastContactAt, mounted)}</strong>
-                        </span>
-                      </div>
-
+                      }
+                      metrics={
+                        <div className={glassCardStyles.metricGrid}>
+                          <div className={glassCardStyles.metricCard}>
+                            <span className={glassCardStyles.metricLabel}>Tentativas</span>
+                            <strong className={glassCardStyles.metricValue}>{customerCardAttempts}</strong>
+                          </div>
+                          <div className={glassCardStyles.metricCard}>
+                            <span className={glassCardStyles.metricLabel}>Reaparicoes</span>
+                            <strong className={glassCardStyles.metricValue}>{customerCardTimesSeen}</strong>
+                          </div>
+                          <div className={glassCardStyles.metricCard}>
+                            <span className={glassCardStyles.metricLabel}>Ultimo contato</span>
+                            <strong className={glassCardStyles.metricValue}>{formatShortDateTimeLabel(customerCardLastContactAt, mounted)}</strong>
+                          </div>
+                        </div>
+                      }
+                    >
                       <div className={styles.customerCardHistory}>
                         <div className={styles.customerCardHistoryHeader}>
                           <strong>Histórico</strong>
@@ -5021,7 +5032,7 @@ export default function InboxClientPage() {
                           <ChatFieldNote>Nenhum histórico comercial registrado para este telefone.</ChatFieldNote>
                         )}
                       </div>
-                    </div>
+                    </LiquidGlassCard>
                   </ChatInfoCard>
 
                   <ChatInfoCard title="Acoes rapidas" meta="Operacao">
