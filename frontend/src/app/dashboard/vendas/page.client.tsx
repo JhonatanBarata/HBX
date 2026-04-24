@@ -1675,7 +1675,11 @@ export default function VendasClientPage() {
             <h2 className={styles.boardTitle}>{selectedFilter.title}</h2>
           </div>
           <div className={styles.toolbar}>
-            <Link href="/dashboard/vendas/automacao" className={`${styles.secondaryAction} ${styles.toolbarHighlight}`}>
+            <Link
+              href="/dashboard/vendas/automacao"
+              prefetch={false}
+              className={`${styles.secondaryAction} ${styles.toolbarHighlight}`}
+            >
               Automacao QR
             </Link>
             <button type="button" className={`${styles.secondaryAction} ${styles.toolbarHighlight}`} onClick={() => setComposerOpen(true)}>Novo lead</button>

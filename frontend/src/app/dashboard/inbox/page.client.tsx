@@ -52,7 +52,7 @@ import {
   mapAtendimentoConversationToneToQueueTone,
 } from "@/components/workspace/adapters/atendimento";
 import { acquirePopupTopbarLock } from "@/lib/popup-visibility";
-import { apiFetch } from "../_lib/api";
+import { apiFetch, getToken } from "../_lib/api";
 import { startSmartPolling } from "../_lib/polling";
 import { useRequireAuth } from "../_lib/useRequireAuth";
 import AgendaPanel from "./_components/AgendaPanel";
@@ -118,6 +118,14 @@ type InboxMessagePagePayload = {
   messages: InboxMessage[];
   hasMore?: boolean;
   nextBefore?: string | null;
+};
+
+type InboxRealtimeEvent = {
+  companyId: number;
+  kind: "message" | "status" | "conversation";
+  conversationId?: string | number | null;
+  messageId?: string | number | null;
+  at?: string | null;
 };
 
 type InboxAlertKind = "human_queue" | "new_message";
@@ -522,6 +530,95 @@ function getWhatsAppAssetExpiryMs(raw: string) {
 function isExpiredWhatsAppAssetUrl(raw: string) {
   const expiresAt = getWhatsAppAssetExpiryMs(raw);
   return Boolean(expiresAt && expiresAt <= Date.now() + WHATSAPP_ASSET_EXPIRY_GRACE_MS);
+}
+
+function parseInboxRealtimeEventBlock(block: string) {
+  const lines = block.split("\n");
+  let eventName = "";
+  const dataLines: string[] = [];
+
+  for (const rawLine of lines) {
+    const line = rawLine.trimEnd();
+    if (!line || line.startsWith(":")) continue;
+
+    const separatorIndex = line.indexOf(":");
+    const field = separatorIndex >= 0 ? line.slice(0, separatorIndex) : line;
+    const value = separatorIndex >= 0 ? line.slice(separatorIndex + 1).trimStart() : "";
+
+    if (field === "event") {
+      eventName = value;
+      continue;
+    }
+
+    if (field === "data") {
+      dataLines.push(value);
+    }
+  }
+
+  if (eventName && eventName !== "inbox") return null;
+  if (!dataLines.length) return null;
+
+  try {
+    const payload = JSON.parse(dataLines.join("\n")) as InboxRealtimeEvent;
+    return payload && typeof payload === "object" ? payload : null;
+  } catch {
+    return null;
+  }
+}
+
+async function readInboxRealtimeStream(input: {
+  signal: AbortSignal;
+  onEvent: (event: InboxRealtimeEvent) => void;
+}) {
+  const token = getToken();
+  if (!token) return;
+
+  const response = await fetch(`${API_PUBLIC_BASE}/inbox/events`, {
+    method: "GET",
+    headers: {
+      Accept: "text/event-stream",
+      Authorization: `Bearer ${token}`,
+      "Cache-Control": "no-cache",
+    },
+    cache: "no-store",
+    signal: input.signal,
+  });
+
+  if (!response.ok) {
+    throw new Error(`Falha ao conectar stream da inbox (${response.status}).`);
+  }
+
+  const reader = response.body?.getReader();
+  if (!reader) return;
+
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  try {
+    while (!input.signal.aborted) {
+      const { value, done } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, "\n");
+
+      let boundaryIndex = buffer.indexOf("\n\n");
+      while (boundaryIndex >= 0) {
+        const block = buffer.slice(0, boundaryIndex).trim();
+        buffer = buffer.slice(boundaryIndex + 2);
+
+        if (block) {
+          const event = parseInboxRealtimeEventBlock(block);
+          if (event) {
+            input.onEvent(event);
+          }
+        }
+
+        boundaryIndex = buffer.indexOf("\n\n");
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
 }
 
 function isLikelyImageUrl(raw: string) {
@@ -2651,7 +2748,7 @@ export default function InboxClientPage() {
         `/inbox/conversations/${conversationId}/messages?limit=50`,
         {
           requireAuth: true,
-          timeoutMs: 8000,
+          timeoutMs: 15000,
         },
       );
       const latestMessages = Array.isArray(payload?.messages) ? payload.messages : [];
@@ -2701,7 +2798,9 @@ export default function InboxClientPage() {
         setNotice({ tone: "info", text: formatInboxIncomingNotice(nextConversation, latestMessage) });
       }
     } catch (refreshError) {
-      console.warn("Falha ao atualizar mensagens da conversa aberta.", refreshError);
+      if (process.env.NODE_ENV !== "production") {
+        console.warn("Falha ao atualizar mensagens da conversa aberta.", refreshError);
+      }
     }
   }, [loadConversation, rememberConversationDetail]);
 
@@ -3067,7 +3166,7 @@ export default function InboxClientPage() {
       await bootstrapInbox({ take: 200 });
       if (cancelled) return;
       stopPolling = startSmartPolling(() => loadConversations({ silent: true }), {
-        intervalMs: 5000,
+        intervalMs: 90000,
         immediate: false,
       });
     })();
@@ -3080,15 +3179,58 @@ export default function InboxClientPage() {
 
   useEffect(() => {
     if (hasToken !== true) return;
-    const stopPolling = startSmartPolling(() => refreshSelectedConversationMessages(), {
-      intervalMs: 3000,
-      immediate: true,
-    });
+    if (activeTab !== "messages") return;
+
+    const controller = new AbortController();
+    let reconnectTimer: number | null = null;
+    let scheduledRefresh: number | null = null;
+
+    const scheduleRefresh = () => {
+      if (scheduledRefresh !== null) return;
+      scheduledRefresh = window.setTimeout(() => {
+        scheduledRefresh = null;
+        void refreshSelectedConversationMessages();
+      }, 180);
+    };
+
+    const waitBeforeReconnect = () =>
+      new Promise<void>((resolve) => {
+        reconnectTimer = window.setTimeout(() => {
+          reconnectTimer = null;
+          resolve();
+        }, 2000);
+      });
+
+    const connect = async () => {
+      while (!controller.signal.aborted) {
+        try {
+          await readInboxRealtimeStream({
+            signal: controller.signal,
+            onEvent: (event) => {
+              const selectedConversationId = normalizeInboxConversationId(selectedIdRef.current);
+              const eventConversationId = normalizeInboxConversationId(event.conversationId);
+              if (!selectedConversationId || !eventConversationId) return;
+              if (selectedConversationId !== eventConversationId) return;
+              scheduleRefresh();
+            },
+          });
+        } catch {
+          // Silent reconnect: transient network hiccups should not spam the console.
+        }
+
+        if (controller.signal.aborted) return;
+        await waitBeforeReconnect();
+      }
+    };
+
+    void connect();
 
     return () => {
-      stopPolling();
+      controller.abort();
+      if (reconnectTimer !== null) window.clearTimeout(reconnectTimer);
+      if (scheduledRefresh !== null) window.clearTimeout(scheduledRefresh);
     };
-  }, [hasToken, refreshSelectedConversationMessages]);
+  }, [activeTab, hasToken, refreshSelectedConversationMessages]);
 
   useEffect(() => {
     if (hasToken === false) return;
@@ -6277,7 +6419,7 @@ export default function InboxClientPage() {
           Motivo do bloqueio
         </label>
         <textarea
-          className="field min-h-[96px]"
+          className="field min-h-24"
           value={blockDialog?.reason || ""}
           onChange={(event) =>
             setBlockDialog((current) => current ? { ...current, reason: event.target.value } : current)

@@ -128,7 +128,21 @@ function createService(overrides?: Partial<Record<string, any>>) {
     ...(overrides?.webwhatsBridge || {}),
   } as any;
 
-  const service = new InboxService(prisma, conversations, audit, cadastrosService, customerProfileService, webwhatsBridge);
+  const inboxRealtime = {
+    publish: () => undefined,
+    subscribe: () => () => undefined,
+    ...(overrides?.inboxRealtime || {}),
+  } as any;
+
+  const service = new InboxService(
+    prisma,
+    conversations,
+    audit,
+    cadastrosService,
+    customerProfileService,
+    webwhatsBridge,
+    inboxRealtime,
+  );
   return { service, prisma, conversations, auditCalls, queueCalls, conversationStateCalls, cadastrosService };
 }
 
