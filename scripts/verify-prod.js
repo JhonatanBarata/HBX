@@ -2,6 +2,12 @@
 
 const { assertNonLocalDatabaseUrl, assertNonLocalHttpUrl, requireEnv, resolveOperationsEnv, run } = require('./lib/runtime');
 
+let transactionalMailDeliveryExecuted = false;
+
+function isTruthy(value) {
+  return ['1', 'true', 'yes', 'on'].includes(String(value || '').trim().toLowerCase());
+}
+
 async function requestJson(url) {
   const response = await fetch(url, { method: 'GET' });
   if (!response.ok) {
@@ -83,7 +89,15 @@ async function verifyTransactionalMailReadiness(backendUrl, env) {
 
 async function verifyTransactionalMailDelivery(backendUrl, env) {
   const internalSecret = String(env.PROD_INTERNAL_SECRET || '').trim();
+  const deliveryTestEnabled = isTruthy(env.PROD_TRANSACTIONAL_EMAIL_TEST_ENABLED);
   const testRecipient = String(env.PROD_TRANSACTIONAL_EMAIL_TEST_TO || '').trim().toLowerCase();
+
+  if (!deliveryTestEnabled) {
+    return {
+      checked: false,
+      reason: 'PROD_TRANSACTIONAL_EMAIL_TEST_ENABLED is false',
+    };
+  }
 
   if (!internalSecret) {
     return {
@@ -98,6 +112,16 @@ async function verifyTransactionalMailDelivery(backendUrl, env) {
       reason: 'PROD_TRANSACTIONAL_EMAIL_TEST_TO not configured',
     };
   }
+
+  if (transactionalMailDeliveryExecuted) {
+    return {
+      checked: false,
+      reason: 'Transactional delivery test already executed in this process',
+      recipient: testRecipient,
+    };
+  }
+
+  transactionalMailDeliveryExecuted = true;
 
   const payload = await postJson(
     `${backendUrl}/internal/mail/test-transactional-email`,
