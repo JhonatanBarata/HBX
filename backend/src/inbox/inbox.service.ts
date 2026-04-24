@@ -1725,8 +1725,8 @@ export class InboxService {
 
   async getBootstrap(user: any, take?: string | number) {
     const companyId = this.requireCompanyIdFromUser(user);
-    await this.syncPersistedInboxIndex(companyId, { take });
-    let conversations = await this.listPersistedConversationSummariesForCompany(companyId, {
+    this.triggerBackgroundInboxIndexSync(companyId, { take });
+    const conversations = await this.listPersistedConversationSummariesForCompany(companyId, {
       take: this.normalizeConversationTakeLimit(take, 200),
     });
 
@@ -1734,7 +1734,7 @@ export class InboxService {
     let selectedConversation: any = null;
 
     if (firstConversationId) {
-      await this.syncPersistedInboxConversation(companyId, firstConversationId);
+      this.triggerBackgroundInboxConversationSync(companyId, firstConversationId);
       selectedConversation = await this.getPersistedConversationByIdForCompany(companyId, firstConversationId, {
         messagesLimit: 50,
       });
@@ -1969,7 +1969,7 @@ export class InboxService {
 
   async listConversations(user: any, take?: string | number) {
     const companyId = this.requireCompanyIdFromUser(user);
-    await this.syncPersistedInboxIndex(companyId, { take });
+    this.triggerBackgroundInboxIndexSync(companyId, { take });
     return this.listPersistedConversationSummariesForCompany(companyId, { take });
   }
 
@@ -1979,7 +1979,7 @@ export class InboxService {
 
   async getConversationById(user: any, id: number) {
     const companyId = this.requireCompanyIdFromUser(user);
-    await this.syncPersistedInboxConversation(companyId, id);
+    this.triggerBackgroundInboxConversationSync(companyId, id);
     return this.getPersistedConversationByIdForCompany(companyId, id, { messagesLimit: 50 });
   }
 
@@ -1989,7 +1989,7 @@ export class InboxService {
     options?: { limit?: string | number | null; before?: string | null },
   ) {
     const companyId = this.requireCompanyIdFromUser(user);
-    await this.syncPersistedInboxConversation(companyId, id);
+    this.triggerBackgroundInboxConversationSync(companyId, id);
     const conversation = await this.prisma.companyConversation.findFirst({
       where: { companyId, id, channel: 'whatsapp' },
       select: {

@@ -2405,6 +2405,7 @@ export default function InboxClientPage() {
     try {
       const payload = await apiFetch<InboxBootstrapPayload>(`/inbox/bootstrap?take=${take}`, {
         requireAuth: true,
+        timeoutMs: 25000,
       });
       const nextList = normalizeInboxConversationList(
         Array.isArray(payload?.conversations) ? payload.conversations : [],
