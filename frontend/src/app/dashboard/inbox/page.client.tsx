@@ -2403,7 +2403,9 @@ export default function InboxClientPage() {
     setConversationListError(null);
     setConversationDetailError(null);
     try {
-      const payload = await apiFetch<InboxBootstrapPayload>(`/inbox/bootstrap?take=${take}`);
+      const payload = await apiFetch<InboxBootstrapPayload>(`/inbox/bootstrap?take=${take}`, {
+        requireAuth: true,
+      });
       const nextList = normalizeInboxConversationList(
         Array.isArray(payload?.conversations) ? payload.conversations : [],
       ).filter(

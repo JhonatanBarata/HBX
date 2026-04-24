@@ -56,6 +56,15 @@ type ExternalRequestOptions = {
   treatNotFoundAsNull?: boolean;
 };
 
+type ProviderDiagnosticResponse = {
+  method: Method;
+  path: string;
+  url: string;
+  status: number;
+  body: unknown;
+  durationMs: number;
+};
+
 export type WhatsAppModalResponse = {
   success: boolean;
   status: WhatsAppModalStatus;
@@ -700,6 +709,7 @@ export class WhatsAppModalService {
       'MESSAGES_DELETE',
       'SEND_MESSAGE',
       'CONNECTION_UPDATE',
+      'LOGOUT_INSTANCE',
     ];
   }
 
@@ -719,17 +729,17 @@ export class WhatsAppModalService {
   }
 
   private buildProviderWebhookUrl() {
-    const explicit = this.normalizeAbsoluteWebhookUrl(
-      process.env.WHATSAPP_MODAL_WEBHOOK_URL || process.env.WEBWHATS_WEBHOOK_URL,
-    );
-    if (explicit) return explicit;
+    const publicBase = this.normalizeOptionalString(process.env.PUBLIC_API_BASE_URL);
+    if (publicBase) {
+      return this.normalizeAbsoluteWebhookUrl(`${publicBase.replace(/\/+$/, '')}/webhooks/webwhats/events`);
+    }
 
-    const publicBase = this.normalizeOptionalString(
-      process.env.PUBLIC_API_BASE_URL || process.env.API_PUBLIC_URL || process.env.BACKEND_PUBLIC_URL,
-    );
-    if (!publicBase) return null;
+    const fallbackBase = this.normalizeOptionalString(process.env.API_PUBLIC_URL || process.env.BACKEND_PUBLIC_URL);
+    if (fallbackBase) {
+      return this.normalizeAbsoluteWebhookUrl(`${fallbackBase.replace(/\/+$/, '')}/webhooks/webwhats/events`);
+    }
 
-    return this.normalizeAbsoluteWebhookUrl(`${publicBase.replace(/\/+$/, '')}/webhooks/webwhats/events`);
+    return this.normalizeAbsoluteWebhookUrl(process.env.WHATSAPP_MODAL_WEBHOOK_URL || process.env.WEBWHATS_WEBHOOK_URL);
   }
 
   private redactWebhookUrlForLog(url: string) {
@@ -744,11 +754,170 @@ export class WhatsAppModalService {
 
   private buildProviderWebhookPayload(webhookUrl: string) {
     return {
-      enabled: true,
-      url: webhookUrl,
-      events: this.buildProviderWebhookEvents(),
-      webhookByEvents: false,
-      webhookBase64: false,
+      webhook: {
+        enabled: true,
+        url: webhookUrl,
+        events: this.buildProviderWebhookEvents(),
+        byEvents: false,
+        base64: false,
+      },
+    };
+  }
+
+  private stringifyProviderBodyForLog(value: unknown, depth = 0): string {
+    try {
+      return JSON.stringify(this.sanitizeProviderBodyForLog(value, depth));
+    } catch {
+      return '{"error":"body_unserializable"}';
+    }
+  }
+
+  private sanitizeProviderBodyForLog(value: unknown, depth = 0): unknown {
+    if (depth > 8) return '[max-depth]';
+    if (value === null || value === undefined) return value;
+    if (typeof value === 'string') {
+      return value.length > 2000 ? `${value.slice(0, 2000)}...[truncated:${value.length}]` : value;
+    }
+    if (typeof value !== 'object') return value;
+    if (Array.isArray(value)) return value.slice(0, 80).map((item) => this.sanitizeProviderBodyForLog(item, depth + 1));
+
+    const output: Record<string, unknown> = {};
+    for (const [key, raw] of Object.entries(value as Record<string, unknown>)) {
+      const normalizedKey = key.toLowerCase();
+      if (
+        normalizedKey.includes('apikey') ||
+        normalizedKey.includes('api_key') ||
+        normalizedKey.includes('authorization') ||
+        normalizedKey.includes('password') ||
+        normalizedKey.includes('secret') ||
+        normalizedKey.includes('token')
+      ) {
+        output[key] = '[redacted]';
+        continue;
+      }
+      output[key] = this.sanitizeProviderBodyForLog(raw, depth + 1);
+    }
+    return output;
+  }
+
+  private getProviderRequestUrl(path: string, internalUrl: string) {
+    return `${internalUrl}${path.startsWith('/') ? path : `/${path}`}`;
+  }
+
+  private async requestProviderDiagnostic(options: ExternalRequestOptions & { instance: string }): Promise<ProviderDiagnosticResponse> {
+    const config = this.readConfig();
+    if (!config.enabled) {
+      throw new WhatsAppModalProviderError('WHATSAPP_MODAL_DISABLED', 'Integração Modal WhatsApp desativada por ambiente.');
+    }
+    if (!config.configured || !config.internalUrl) {
+      throw new WhatsAppModalProviderError('WHATSAPP_MODAL_NOT_CONFIGURED', this.buildMisconfiguredMessage(config));
+    }
+
+    const url = this.getProviderRequestUrl(options.path, config.internalUrl);
+    const startedAt = Date.now();
+
+    try {
+      const response = await axios.request({
+        method: options.method,
+        url,
+        data: options.data,
+        timeout: config.timeoutMs,
+        headers: this.buildHeaders(config.apiKey),
+        validateStatus: () => true,
+      });
+      const result = {
+        method: options.method,
+        path: options.path,
+        url,
+        status: response.status,
+        body: response.data,
+        durationMs: Date.now() - startedAt,
+      };
+      const logMessage =
+        `Modal WhatsApp ${options.purpose} instance=${options.instance} url=${url} status=${response.status} ` +
+        `durationMs=${result.durationMs} body=${this.stringifyProviderBodyForLog(response.data)}`;
+      if (response.status >= 200 && response.status < 300) {
+        this.logger.log(logMessage);
+      } else {
+        this.logger.warn(logMessage);
+      }
+      return result;
+    } catch (error) {
+      if (axios.isAxiosError(error)) {
+        const status = error.response?.status || 0;
+        this.logger.warn(
+          `Modal WhatsApp ${options.purpose} failed instance=${options.instance} url=${url} status=${status || 'n/a'} ` +
+            `body=${this.stringifyProviderBodyForLog(error.response?.data)} message=${error.message}`,
+        );
+        throw this.mapAxiosError(error, options.purpose);
+      }
+      throw error;
+    }
+  }
+
+  private parseProviderBoolean(value: unknown) {
+    if (typeof value === 'boolean') return value;
+    if (typeof value === 'number') return value !== 0;
+    const normalized = String(value ?? '').trim().toLowerCase();
+    if (['true', '1', 'yes', 'on'].includes(normalized)) return true;
+    if (['false', '0', 'no', 'off'].includes(normalized)) return false;
+    return null;
+  }
+
+  private normalizeProviderWebhookSettings(payload: unknown) {
+    const root = this.asRecord(payload) || {};
+    const webhook = this.asRecord(root.webhook);
+    const nestedWebhook = this.asRecord(webhook?.webhook);
+    const data = this.asRecord(root.data);
+    const dataWebhook = this.asRecord(data?.webhook);
+    const source = nestedWebhook || dataWebhook || webhook || data || root;
+
+    const eventsRaw = Array.isArray(source.events)
+      ? source.events
+      : Array.isArray(root.events)
+        ? root.events
+        : [];
+
+    return {
+      enabled: this.parseProviderBoolean(source.enabled ?? root.enabled),
+      url: this.firstString(source.url, root.url),
+      byEvents: this.parseProviderBoolean(
+        source.byEvents ??
+          source.webhookByEvents ??
+          source.webhook_by_events ??
+          root.byEvents ??
+          root.webhookByEvents ??
+          root.webhook_by_events,
+      ),
+      base64: this.parseProviderBoolean(
+        source.base64 ??
+          source.webhookBase64 ??
+          source.webhook_base64 ??
+          root.base64 ??
+          root.webhookBase64 ??
+          root.webhook_base64,
+      ),
+      events: eventsRaw.map((event) => String(event || '').trim().toUpperCase()).filter(Boolean),
+    };
+  }
+
+  private validateProviderWebhookSettings(payload: unknown, expectedUrl: string, requiredEvents: string[]) {
+    const settings = this.normalizeProviderWebhookSettings(payload);
+    const configuredEvents = new Set(settings.events);
+    const missingEvents = requiredEvents.filter((event) => !configuredEvents.has(event));
+    const mismatches: string[] = [];
+
+    if (settings.enabled !== true) mismatches.push(`enabled=${String(settings.enabled)}`);
+    if (settings.url !== expectedUrl) mismatches.push(`url=${settings.url || 'null'}`);
+    if (settings.byEvents !== false) mismatches.push(`byEvents=${String(settings.byEvents)}`);
+    if (settings.base64 !== false) mismatches.push(`base64=${String(settings.base64)}`);
+    if (missingEvents.length) mismatches.push(`missingEvents=${missingEvents.join(',')}`);
+
+    return {
+      ok: mismatches.length === 0,
+      settings,
+      missingEvents,
+      mismatches,
     };
   }
 
@@ -756,7 +925,7 @@ export class WhatsAppModalService {
     const webhookUrl = this.buildProviderWebhookUrl();
     if (!webhookUrl) {
       this.logger.warn(
-        'Webhook WebWhats automatico nao configurado. Defina WHATSAPP_MODAL_WEBHOOK_URL ou PUBLIC_API_BASE_URL apontando para o backend publico.',
+        'Webhook WebWhats automatico nao configurado. Defina PUBLIC_API_BASE_URL apontando para o backend publico.',
       );
       return;
     }
@@ -767,14 +936,55 @@ export class WhatsAppModalService {
     }
     this.recentWebhookConfigureAt.set(tenantKey, Date.now());
 
+    const requiredEvents = this.buildProviderWebhookEvents();
+    const setPath = `/webhook/set/${encodeURIComponent(tenantKey)}`;
+    const findPath = `/webhook/find/${encodeURIComponent(tenantKey)}`;
+
     try {
-      await this.requestProvider({
+      const setResult = await this.requestProviderDiagnostic({
         method: 'POST',
-        path: `/webhook/set/${encodeURIComponent(tenantKey)}`,
+        path: setPath,
         purpose: 'configuracao do webhook da instancia',
         data: this.buildProviderWebhookPayload(webhookUrl),
+        instance: tenantKey,
       });
-      this.logger.log(`Webhook WebWhats configurado para ${tenantKey}: ${this.redactWebhookUrlForLog(webhookUrl)}.`);
+
+      if (setResult.status < 200 || setResult.status >= 300) {
+        this.logger.warn(
+          `Webhook WebWhats set falhou instance=${tenantKey} url=${setResult.url} status=${setResult.status} ` +
+            `body=${this.stringifyProviderBodyForLog(setResult.body)}`,
+        );
+        return;
+      }
+
+      const findResult = await this.requestProviderDiagnostic({
+        method: 'GET',
+        path: findPath,
+        purpose: 'validacao do webhook da instancia',
+        instance: tenantKey,
+      });
+
+      if (findResult.status < 200 || findResult.status >= 300) {
+        this.logger.warn(
+          `Webhook WebWhats find falhou instance=${tenantKey} url=${findResult.url} status=${findResult.status} ` +
+            `body=${this.stringifyProviderBodyForLog(findResult.body)}`,
+        );
+        return;
+      }
+
+      const validation = this.validateProviderWebhookSettings(findResult.body, webhookUrl, requiredEvents);
+      if (!validation.ok) {
+        this.logger.warn(
+          `Webhook WebWhats validacao falhou instance=${tenantKey} expectedUrl=${webhookUrl} ` +
+            `mismatches=${validation.mismatches.join('; ')} body=${this.stringifyProviderBodyForLog(findResult.body)}`,
+        );
+        return;
+      }
+
+      this.logger.log(
+        `Webhook WebWhats configurado e validado instance=${tenantKey} url=${this.redactWebhookUrlForLog(webhookUrl)} ` +
+          `events=${requiredEvents.join(',')}`,
+      );
     } catch (error) {
       const providerError = this.toProviderError(error);
       this.logger.warn(
