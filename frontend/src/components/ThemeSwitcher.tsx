@@ -29,21 +29,25 @@ const THEME_SCOPE_DESCRIPTIONS: Record<ThemePreferenceScope, string> = {
 const THEME_TRANSITION_OPTIONS: ReadonlyArray<{
   id: HbxThemeMotionStyle;
   label: string;
+  controlLabel: string;
   description: string;
 }> = [
   {
     id: "liquid-glass",
     label: "Liquid Glass",
+    controlLabel: "Liquid Glass",
     description: "Vidro premium com preenchimento líquido, brilho e profundidade controlada.",
   },
   {
     id: "scroll-storytelling",
     label: "Scroll Reveal",
+    controlLabel: "Scroll Reveal",
     description: "Revela de forma mais cinematográfica, com entradas em camadas e leitura mais narrativa.",
   },
   {
     id: "micro-interactions",
     label: "Microinterações",
+    controlLabel: "Micro",
     description: "Mais contido, rápido e refinado, focado na resposta tátil da interface.",
   },
 ] as const;
@@ -80,6 +84,47 @@ const THEME_EDITOR_GROUPS: ReadonlyArray<{
 ] as const;
 
 const THEME_COUNT_LABEL = `${HBX_THEME_IDS.length} temas HBX`;
+
+function hexToRgb(hex: string) {
+  const normalized = hex.replace("#", "");
+  const safeHex =
+    normalized.length === 3
+      ? normalized
+          .split("")
+          .map((chunk) => `${chunk}${chunk}`)
+          .join("")
+      : normalized.padEnd(6, "0").slice(0, 6);
+
+  return {
+    r: Number.parseInt(safeHex.slice(0, 2), 16),
+    g: Number.parseInt(safeHex.slice(2, 4), 16),
+    b: Number.parseInt(safeHex.slice(4, 6), 16),
+  };
+}
+
+function withAlpha(hex: string, alpha: number) {
+  const rgb = hexToRgb(hex);
+  return `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${alpha})`;
+}
+
+function resolveThemeCardPreview(
+  themeId: HbxThemeId,
+  mode: HbxThemeSelection["mode"],
+  appearance?: HbxThemeAppearanceConfig,
+) {
+  const theme = HBX_THEME_PALETTES[themeId];
+  const palette = theme[mode];
+  const resolved = resolveThemeConfig({
+    selection: { themeId, mode },
+    ...(appearance ? { appearance } : {}),
+  });
+
+  return {
+    theme,
+    palette,
+    appearance: resolved.appearance,
+  };
+}
 
 export default function ThemeSwitcher() {
   const rootRef = React.useRef<HTMLDivElement | null>(null);
@@ -130,9 +175,71 @@ export default function ThemeSwitcher() {
         (selectedScopeConfig.motion && Object.keys(selectedScopeConfig.motion).length)),
   );
   const previewScopeLabel = scopeOptions.find((item) => item.id === editorScope)?.label || "Você";
+  const activeEditorPalette = React.useMemo(
+    () => HBX_THEME_PALETTES[activeEditorState.selection.themeId][activeEditorState.selection.mode],
+    [activeEditorState.selection.mode, activeEditorState.selection.themeId],
+  );
+  const activeTransitionOption = React.useMemo(
+    () =>
+      THEME_TRANSITION_OPTIONS.find((option) => option.id === activeEditorState.motion.transitionStyle) ||
+      THEME_TRANSITION_OPTIONS[0],
+    [activeEditorState.motion.transitionStyle],
+  );
   const livePreviewStyle = React.useMemo(
     () =>
       ({
+        colorScheme: activeEditorState.selection.mode,
+        "--background": activeEditorPalette.background,
+        "--background-alt": activeEditorPalette.backgroundAlt,
+        "--surface": activeEditorPalette.surface,
+        "--surface-soft": activeEditorPalette.surfaceSoft,
+        "--surface-raised": activeEditorPalette.surfaceRaised,
+        "--header-surface": activeEditorPalette.headerSurface,
+        "--nav-surface": activeEditorPalette.navSurface,
+        "--foreground": activeEditorPalette.foreground,
+        "--foreground-soft": activeEditorPalette.foregroundSoft,
+        "--muted": activeEditorPalette.muted,
+        "--line": activeEditorPalette.line,
+        "--button-primary": activeEditorState.appearance.buttonPrimary,
+        "--button-secondary": activeEditorState.appearance.buttonSecondary,
+        "--button-success": activeEditorState.appearance.buttonSuccess,
+        "--button-accent": activeEditorState.appearance.buttonAccent,
+        "--button-primary-soft": withAlpha(
+          activeEditorState.appearance.buttonPrimary,
+          activeEditorState.selection.mode === "light" ? 0.18 : 0.3,
+        ),
+        "--button-secondary-soft": withAlpha(
+          activeEditorState.appearance.buttonSecondary,
+          activeEditorState.selection.mode === "light" ? 0.16 : 0.28,
+        ),
+        "--button-success-soft": withAlpha(
+          activeEditorState.appearance.buttonSuccess,
+          activeEditorState.selection.mode === "light" ? 0.18 : 0.28,
+        ),
+        "--button-accent-soft": withAlpha(
+          activeEditorState.appearance.buttonAccent,
+          activeEditorState.selection.mode === "light" ? 0.18 : 0.3,
+        ),
+        "--selection-accent": activeEditorState.appearance.selectionAccent,
+        "--selection-accent-soft": withAlpha(
+          activeEditorState.appearance.selectionAccent,
+          activeEditorState.selection.mode === "light" ? 0.18 : 0.3,
+        ),
+        "--menu-active": activeEditorState.appearance.menuActive,
+        "--menu-active-soft": withAlpha(
+          activeEditorState.appearance.menuActive,
+          activeEditorState.selection.mode === "light" ? 0.16 : 0.28,
+        ),
+        "--menu-inactive": activeEditorState.appearance.menuInactive,
+        "--menu-inactive-soft": withAlpha(
+          activeEditorState.appearance.menuInactive,
+          activeEditorState.selection.mode === "light" ? 0.14 : 0.22,
+        ),
+        "--menu-disabled": activeEditorState.appearance.menuDisabled,
+        "--menu-disabled-soft": withAlpha(
+          activeEditorState.appearance.menuDisabled,
+          activeEditorState.selection.mode === "light" ? 0.14 : 0.24,
+        ),
         "--theme-editor-preview-primary": activeEditorState.appearance.buttonPrimary,
         "--theme-editor-preview-secondary": activeEditorState.appearance.buttonSecondary,
         "--theme-editor-preview-success": activeEditorState.appearance.buttonSuccess,
@@ -142,7 +249,7 @@ export default function ThemeSwitcher() {
         "--theme-editor-preview-menu-inactive": activeEditorState.appearance.menuInactive,
         "--theme-editor-preview-menu-disabled": activeEditorState.appearance.menuDisabled,
       }) as React.CSSProperties,
-    [activeEditorState.appearance],
+    [activeEditorPalette, activeEditorState.appearance, activeEditorState.selection.mode],
   );
 
   React.useEffect(() => {
@@ -322,8 +429,11 @@ export default function ThemeSwitcher() {
 
           <div className="theme-switcher__grid">
             {HBX_THEME_IDS.map((themeId) => {
-              const theme = HBX_THEME_PALETTES[themeId];
-              const palette = theme[selection.mode];
+              const { theme, palette, appearance } = resolveThemeCardPreview(
+                themeId,
+                selection.mode,
+                themeId === activeEditorState.selection.themeId ? activeEditorState.appearance : undefined,
+              );
               const active = selection.themeId === themeId;
 
               return (
@@ -348,21 +458,27 @@ export default function ThemeSwitcher() {
                     <span className="theme-card__previewBody">
                       <span
                         className="theme-card__previewNav"
-                        style={{ background: palette.navSurface }}
+                        style={{
+                          background: `linear-gradient(180deg, ${palette.navSurface}, ${withAlpha(appearance.selectionAccent, selection.mode === "light" ? 0.18 : 0.28)})`,
+                        }}
                       />
                       <span className="theme-card__previewStack">
                         <span
                           className="theme-card__previewMetric"
-                          style={{ background: palette.surface }}
+                          style={{
+                            background: `linear-gradient(145deg, ${withAlpha(appearance.menuActive, selection.mode === "light" ? 0.18 : 0.32)}, ${palette.surface})`,
+                          }}
                         />
                         <span
                           className="theme-card__previewMetric"
-                          style={{ background: palette.surfaceRaised }}
+                          style={{
+                            background: `linear-gradient(145deg, ${withAlpha(appearance.menuInactive, selection.mode === "light" ? 0.18 : 0.3)}, ${palette.surfaceRaised})`,
+                          }}
                         />
                         <span
                           className="theme-card__previewCta"
                           style={{
-                            background: `linear-gradient(145deg, ${palette.buttonPrimary}, ${palette.buttonAccent})`,
+                            background: `linear-gradient(145deg, ${appearance.buttonPrimary}, ${appearance.buttonAccent})`,
                           }}
                         />
                       </span>
@@ -375,12 +491,6 @@ export default function ThemeSwitcher() {
                       <span>{theme.shellLabel}</span>
                     </span>
                     <span className="theme-card__description">{theme.description}</span>
-                    <span className="theme-card__actionsPreview" aria-hidden="true">
-                      <span className="theme-card__actionSwatch" style={{ background: palette.buttonPrimary }} />
-                      <span className="theme-card__actionSwatch" style={{ background: palette.buttonSecondary }} />
-                      <span className="theme-card__actionSwatch" style={{ background: palette.buttonSuccess }} />
-                      <span className="theme-card__actionSwatch" style={{ background: palette.buttonAccent }} />
-                    </span>
                   </span>
                 </button>
               );
@@ -409,7 +519,7 @@ export default function ThemeSwitcher() {
                     onClick={() => void resetScopeConfig(editorScope)}
                     disabled={!canResetScope}
                   >
-                    Restaurar escopo
+                    Restaurar cores
                   </button>
                 </div>
               </div>
@@ -455,43 +565,50 @@ export default function ThemeSwitcher() {
                 <div className="theme-editor__sectionHeader">
                   <div>
                     <strong>Família de transição</strong>
-                    <p>Escolha a linguagem de motion do sistema.</p>
+                    <p>Escolha o comportamento visual do sistema com o mesmo padrão líquido do Inbox.</p>
                   </div>
                 </div>
 
-                <div className="theme-editor__motionGrid">
-                  {THEME_TRANSITION_OPTIONS.map((option) => {
-                    const active = activeEditorState.motion.transitionStyle === option.id;
-
-                    return (
-                      <button
-                        key={option.id}
-                        type="button"
-                        className={`theme-editor__motionCard ${active ? "is-active" : ""}`}
-                        onClick={() => updateScopeMotion(option.id)}
-                      >
-                        <strong>{option.label}</strong>
-                        <span>{option.description}</span>
-                      </button>
-                    );
-                  })}
+                <div className="theme-editor__motionSelector">
+                  <LiquidGlassSegmentedControl
+                    items={THEME_TRANSITION_OPTIONS.map((option) => ({
+                      id: option.id,
+                      label: option.controlLabel,
+                    }))}
+                    value={activeEditorState.motion.transitionStyle}
+                    ariaLabel="Família de transição do sistema"
+                    onChange={(transitionStyle) => updateScopeMotion(transitionStyle)}
+                  />
                 </div>
 
                 <div
-                  className="theme-editor__motionPreview"
+                  className="theme-editor__motionShowcase"
                   data-motion-style={activeEditorState.motion.transitionStyle}
                   style={livePreviewStyle}
                 >
-                  <span className="theme-editor__motionPreviewEyebrow">Prévia da transição</span>
-                  <div className="theme-editor__motionPreviewTrack" aria-hidden="true">
-                    <span className="theme-editor__motionPreviewPill">Painel entra</span>
-                    <span className="theme-editor__motionPreviewPill">Botão responde</span>
-                    <span className="theme-editor__motionPreviewPill">Menu ativa</span>
+                  <div className="theme-editor__motionShowcaseHeader">
+                    <div>
+                      <strong>{activeTransitionOption.label}</strong>
+                      <p>{activeTransitionOption.description}</p>
+                    </div>
+                    <span className="theme-editor__motionShowcaseBadge">Bolha líquida</span>
+                  </div>
+
+                  <div className="theme-editor__motionPreview">
+                    <span className="theme-editor__motionPreviewEyebrow">Prévia da transição</span>
+                    <div className="theme-editor__motionPreviewTrack" aria-hidden="true">
+                      <span className="theme-editor__motionPreviewBubble theme-editor__motionPreviewBubble--primary" />
+                      <span className="theme-editor__motionPreviewBubble theme-editor__motionPreviewBubble--secondary" />
+                      <span className="theme-editor__motionPreviewBubble theme-editor__motionPreviewBubble--accent" />
+                      <span className="theme-editor__motionPreviewPill">Painel entra</span>
+                      <span className="theme-editor__motionPreviewPill">Botão responde</span>
+                      <span className="theme-editor__motionPreviewPill">Menu ativa</span>
+                    </div>
                   </div>
                 </div>
 
                 <p className="theme-editor__recommendation">
-                  Recomendação HBX: Liquid Glass controlado + microinterações premium + scroll reveal leve.
+                  Recomendação HBX: vidro líquido controlado, bolha tátil no seletor e resposta consistente nos botões do sistema.
                 </p>
               </section>
 
@@ -548,10 +665,10 @@ export default function ThemeSwitcher() {
                     </div>
 
                     <div className="theme-editor__previewButtons" aria-hidden="true">
-                      <span className="theme-editor__previewButton theme-editor__previewButton--primary">Salvar</span>
-                      <span className="theme-editor__previewButton theme-editor__previewButton--secondary">Ver painel</span>
-                      <span className="theme-editor__previewButton theme-editor__previewButton--success">Confirmado</span>
-                      <span className="theme-editor__previewButton theme-editor__previewButton--accent">Destaque</span>
+                      <span className="btn btn-primary btn-sm theme-editor__previewSystemButton">Salvar</span>
+                      <span className="btn btn-secondary btn-sm theme-editor__previewSystemButton">Ver painel</span>
+                      <span className="btn btn-success btn-sm theme-editor__previewSystemButton">Confirmado</span>
+                      <span className="btn btn-accent btn-sm theme-editor__previewSystemButton">Destaque</span>
                     </div>
                   </section>
 

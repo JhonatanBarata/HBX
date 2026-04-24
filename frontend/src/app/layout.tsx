@@ -1,10 +1,7 @@
 import type { Metadata } from "next";
 import {
   IBM_Plex_Mono,
-  Manrope,
   Plus_Jakarta_Sans,
-  Sora,
-  Space_Grotesk,
 } from "next/font/google";
 import "./globals.css";
 import { InterfaceTransitionProvider } from "../components/InterfaceTransitionProvider";
@@ -14,23 +11,8 @@ import { ThemeProvider } from "../components/ThemeProvider";
 
 export const dynamic = "force-dynamic";
 
-const manrope = Manrope({
-  variable: "--font-manrope",
-  subsets: ["latin"],
-});
-
 const plusJakartaSans = Plus_Jakarta_Sans({
   variable: "--font-plus-jakarta",
-  subsets: ["latin"],
-});
-
-const sora = Sora({
-  variable: "--font-sora",
-  subsets: ["latin"],
-});
-
-const spaceGrotesk = Space_Grotesk({
-  variable: "--font-space-grotesk",
   subsets: ["latin"],
 });
 
@@ -53,7 +35,7 @@ export default function RootLayout({
   return (
     <html lang="pt-BR" suppressHydrationWarning>
       <body
-        className={`${manrope.variable} ${plusJakartaSans.variable} ${sora.variable} ${spaceGrotesk.variable} ${ibmPlexMono.variable} antialiased app-root`}
+        className={`${plusJakartaSans.variable} ${ibmPlexMono.variable} antialiased app-root`}
       >
         <script
           // inline script: read theme cookie/localStorage early and set html attributes

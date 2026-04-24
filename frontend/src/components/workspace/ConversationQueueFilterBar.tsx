@@ -15,6 +15,7 @@ type ConversationQueueFilterBarProps = {
   value: ConversationQueueFilterValue;
   onChange: (value: ConversationQueueFilterValue) => void;
   counts: Record<ConversationQueueFilterValue, number>;
+  unreadCounts?: Partial<Record<ConversationQueueFilterValue, number>>;
   dropOverQueue: ConversationQueueFilterValue | null;
   allowQueueCardDrag?: boolean;
   draggedQueue?: ConversationQueueFilterValue | null;
@@ -38,6 +39,7 @@ export default function ConversationQueueFilterBar({
   value,
   onChange,
   counts,
+  unreadCounts,
   dropOverQueue,
   allowQueueCardDrag = false,
   draggedQueue = null,
@@ -103,14 +105,17 @@ export default function ConversationQueueFilterBar({
       {OPTIONS.map((option) => {
         const active = value === option.value;
         const dropping = dropOverQueue === option.value;
+        const unreadCount = Math.max(0, Math.trunc(Number(unreadCounts?.[option.value] || 0)));
         return (
           <button
             key={option.value}
             type="button"
             role="tab"
+            aria-label={`${option.label}: ${counts[option.value] || 0}${unreadCount > 0 ? `, ${unreadCount} não lida${unreadCount === 1 ? "" : "s"}` : ""}`}
             className={styles.queueCard}
             draggable={allowQueueCardDrag}
             data-active={active ? "true" : "false"}
+            data-unread={unreadCount > 0 ? "true" : "false"}
             data-dropover={dropping ? "true" : "false"}
             data-dragging-source={draggedQueue === option.value ? "true" : "false"}
             data-tone={option.value}
@@ -136,6 +141,7 @@ export default function ConversationQueueFilterBar({
               onQueueDrop(option.value);
             }}
           >
+            {unreadCount > 0 ? <span className={styles.unreadBadge}>{unreadCount}</span> : null}
             <span className={styles.queueTitle}>{option.label}</span>
             <AnimatedQueueCount value={counts[option.value] || 0} />
             <span className={styles.receiveHint}>Solte aqui</span>

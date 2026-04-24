@@ -68,6 +68,34 @@ type ThemeWorkspace = {
   heroMinHeight: string;
 };
 
+const HBX_THEME_SHARED_CHROME = {
+  radiusXs: "8px",
+  radiusSm: "12px",
+  radiusMd: "16px",
+  radiusLg: "20px",
+  radiusXl: "28px",
+  topbarWidth: "100vw",
+  contentWidth: "100vw",
+  contentGutter: "12px",
+  topbarBlur: "28px",
+} as const satisfies ThemeChrome;
+
+const HBX_THEME_SHARED_TYPOGRAPHY = {
+  bodyFont: "var(--font-plus-jakarta)",
+  displayFont: "var(--font-plus-jakarta)",
+  monoFont: "var(--font-ibm-plex-mono)",
+  eyebrowSpacing: "0.18em",
+} as const satisfies ThemeTypography;
+
+const HBX_THEME_SHARED_WORKSPACE = {
+  railWidth: "260px",
+  contextWidth: "248px",
+  shellGap: "12px",
+  shellPadding: "12px",
+  heroColumns: "1.2fr 0.82fr",
+  heroMinHeight: "172px",
+} as const satisfies ThemeWorkspace;
+
 export type HbxThemePalette = {
   label: string;
   shortLabel: string;
@@ -94,31 +122,9 @@ export const HBX_THEME_PALETTES: Record<HbxThemeId, HbxThemePalette> = {
     shellLabel: "Blue liquid cockpit",
     densityLabel: "Panoramico",
     depthLabel: "Liquido",
-    chrome: {
-      radiusXs: "12px",
-      radiusSm: "16px",
-      radiusMd: "22px",
-      radiusLg: "28px",
-      radiusXl: "36px",
-      topbarWidth: "100vw",
-      contentWidth: "100vw",
-      contentGutter: "12px",
-      topbarBlur: "30px",
-    },
-    typography: {
-      bodyFont: "var(--font-plus-jakarta)",
-      displayFont: "var(--font-plus-jakarta)",
-      monoFont: "var(--font-ibm-plex-mono)",
-      eyebrowSpacing: "0.2em",
-    },
-    workspace: {
-      railWidth: "284px",
-      contextWidth: "286px",
-      shellGap: "14px",
-      shellPadding: "14px",
-      heroColumns: "1.34fr 0.9fr",
-      heroMinHeight: "188px",
-    },
+    chrome: HBX_THEME_SHARED_CHROME,
+    typography: HBX_THEME_SHARED_TYPOGRAPHY,
+    workspace: HBX_THEME_SHARED_WORKSPACE,
     light: {
       brand: "#245CFF",
       brandStrong: "#009FD9",
@@ -199,31 +205,9 @@ export const HBX_THEME_PALETTES: Record<HbxThemeId, HbxThemePalette> = {
     shellLabel: "Obsidian velvet shell",
     densityLabel: "Editorial",
     depthLabel: "Luminoso",
-    chrome: {
-      radiusXs: "12px",
-      radiusSm: "16px",
-      radiusMd: "22px",
-      radiusLg: "28px",
-      radiusXl: "36px",
-      topbarWidth: "100vw",
-      contentWidth: "100vw",
-      contentGutter: "12px",
-      topbarBlur: "32px",
-    },
-    typography: {
-      bodyFont: "var(--font-sora)",
-      displayFont: "var(--font-space-grotesk)",
-      monoFont: "var(--font-ibm-plex-mono)",
-      eyebrowSpacing: "0.18em",
-    },
-    workspace: {
-      railWidth: "288px",
-      contextWidth: "268px",
-      shellGap: "14px",
-      shellPadding: "14px",
-      heroColumns: "1.3fr 0.82fr",
-      heroMinHeight: "182px",
-    },
+    chrome: HBX_THEME_SHARED_CHROME,
+    typography: HBX_THEME_SHARED_TYPOGRAPHY,
+    workspace: HBX_THEME_SHARED_WORKSPACE,
     light: {
       brand: "#E941B8",
       brandStrong: "#6949F0",
@@ -304,31 +288,9 @@ export const HBX_THEME_PALETTES: Record<HbxThemeId, HbxThemePalette> = {
     shellLabel: "Neon fusion shell",
     densityLabel: "Envolvente",
     depthLabel: "Neon",
-    chrome: {
-      radiusXs: "12px",
-      radiusSm: "16px",
-      radiusMd: "22px",
-      radiusLg: "28px",
-      radiusXl: "36px",
-      topbarWidth: "100vw",
-      contentWidth: "100vw",
-      contentGutter: "10px",
-      topbarBlur: "28px",
-    },
-    typography: {
-      bodyFont: "var(--font-sora)",
-      displayFont: "var(--font-space-grotesk)",
-      monoFont: "var(--font-ibm-plex-mono)",
-      eyebrowSpacing: "0.18em",
-    },
-    workspace: {
-      railWidth: "304px",
-      contextWidth: "284px",
-      shellGap: "14px",
-      shellPadding: "12px",
-      heroColumns: "1.36fr 0.84fr",
-      heroMinHeight: "186px",
-    },
+    chrome: HBX_THEME_SHARED_CHROME,
+    typography: HBX_THEME_SHARED_TYPOGRAPHY,
+    workspace: HBX_THEME_SHARED_WORKSPACE,
     light: {
       brand: "#008EE0",
       brandStrong: "#E844C0",
