@@ -113,8 +113,8 @@ function buildRemoteDeployCommand(appDir) {
     `git fetch ${remote} ${branch}`,
     `git reset --hard ${remote}/${branch}`,
     'if docker compose version >/dev/null 2>&1; then DC="docker compose"; else DC="docker-compose"; fi',
-    '$DC down',
-    '$DC up -d --build',
+    '$DC -f docker-compose.hostinger.yml down --remove-orphans',
+    '$DC -f docker-compose.hostinger.yml up -d --build',
     'docker ps',
   ].join(' && ');
 }
