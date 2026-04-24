@@ -771,8 +771,12 @@ export default function TopBar() {
       return;
     }
 
+    // Keep the TopBar off the heavy queue readers. Inbox/recovery pages own their
+    // own data refresh, and global alerts need a lightweight counter endpoint.
     const shouldPollHeavyQueues =
-      pathname.includes("/dashboard/inbox") || pathname.includes("/dashboard/recovery");
+      process.env.NEXT_PUBLIC_ENABLE_TOPBAR_QUEUE_POLLING === "true" &&
+      !pathname.includes("/dashboard/inbox") &&
+      !pathname.includes("/dashboard/recovery");
 
     if (!authenticated || !user || user.isSystemMaster || !user.company?.id || !shouldPollHeavyQueues) {
       recoveryLastSeenRef.current = new Map();

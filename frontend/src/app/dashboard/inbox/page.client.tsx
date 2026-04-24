@@ -1997,6 +1997,8 @@ export default function InboxClientPage() {
   const customerReturnInputRef = useRef<HTMLInputElement | null>(null);
   const customerReturnAutoSaveTimerRef = useRef<number | null>(null);
   const conversationsRef = useRef<InboxConversation[]>([]);
+  const conversationDetailCacheRef = useRef<Map<string, InboxConversation>>(new Map());
+  const customerConversationCardCacheRef = useRef<Map<string, CustomerConversationCardPayload>>(new Map());
   const manualQueueOverridesRef = useRef<Record<string, InboxQueue>>({});
   const deletedConversationAliasesRef = useRef<DeletedConversationAliasMap>({});
   const selectedIdRef = useRef<string | null>(null);
@@ -2234,6 +2236,11 @@ export default function InboxClientPage() {
     selectedConversationRef.current = selectedConversation;
   }, [selectedConversation, selectedId]);
 
+  const rememberConversationDetail = useCallback((conversation?: InboxConversation | null) => {
+    if (!conversation || isInboxConversationSummaryOnly(conversation)) return;
+    conversationDetailCacheRef.current.set(conversation.id, clearInboxConversationSummaryOnly(conversation) || conversation);
+  }, []);
+
   const clearInboxBootstrapStageTimer = useCallback(() => {
     if (inboxBootstrapStageTimerRef.current !== null && typeof window !== "undefined") {
       window.clearInterval(inboxBootstrapStageTimerRef.current);
@@ -2370,6 +2377,7 @@ export default function InboxClientPage() {
       setConversations(nextList);
       setSelectedId(mergedSelected?.id || preferredId);
       setSelectedConversation(mergedSelected);
+      rememberConversationDetail(mergedSelected);
       setLastConversationSyncAt(new Date().toISOString());
       setBootstrapReady(true);
     } catch (loadError) {
@@ -2381,10 +2389,14 @@ export default function InboxClientPage() {
       setLoadingList(false);
       setLoadingConversation(false);
     }
-  }, []);
+  }, [rememberConversationDetail]);
 
-  const loadConversation = useCallback(async (id: string | null | undefined, options?: { silent?: boolean }) => {
+  const loadConversation = useCallback(async (
+    id: string | null | undefined,
+    options?: { silent?: boolean; forceRefresh?: boolean },
+  ) => {
     const silent = options?.silent ?? false;
+    const forceRefresh = options?.forceRefresh ?? false;
     const conversationId = normalizeInboxConversationId(id);
     if (!conversationId) {
       const message = "Conversa sem identificador valido. Recarregue a fila para sincronizar novamente.";
@@ -2397,18 +2409,24 @@ export default function InboxClientPage() {
     const requestToken = ++conversationLoadTokenRef.current;
     const summary =
       conversationsRef.current.find((conversation) => conversation.id === conversationId) || null;
-    const mergedSummary = mergeInboxConversationSummary(
-      summary,
-      selectedConversationRef.current?.id === conversationId &&
+    const cachedDetail =
+      conversationDetailCacheRef.current.get(conversationId) ||
+      (selectedConversationRef.current?.id === conversationId &&
         !isInboxConversationSummaryOnly(selectedConversationRef.current)
         ? selectedConversationRef.current
-        : null,
+        : null);
+    const cachedDetailIsFresh = cachedDetail
+      ? !shouldReloadInboxConversation(summary, cachedDetail)
+      : false;
+    const mergedSummary = mergeInboxConversationSummary(
+      summary,
+      cachedDetail,
     );
     setSelectedId(conversationId);
     selectedIdRef.current = conversationId;
     if (mergedSummary) {
       const nextConversation =
-        silent && selectedConversationRef.current?.id === conversationId
+        cachedDetail || (silent && selectedConversationRef.current?.id === conversationId)
           ? mergedSummary
           : markInboxConversationAsSummaryOnly(mergedSummary);
       setSelectedConversation(nextConversation);
@@ -2418,7 +2436,12 @@ export default function InboxClientPage() {
       selectedConversationRef.current = null;
     }
     setConversationDetailError(null);
-    if (!silent) setLoadingConversation(true);
+    if (cachedDetail && cachedDetailIsFresh && !forceRefresh) {
+      setLoadingConversation(false);
+      setBootstrapReady(true);
+      return;
+    }
+    if (!silent && !cachedDetail) setLoadingConversation(true);
     try {
       const rawData = await apiFetch<InboxConversation>(`/inbox/conversations/${conversationId}`);
       const data = normalizeInboxConversationPayload(rawData);
@@ -2448,6 +2471,7 @@ export default function InboxClientPage() {
       );
       if (detailedConversation) {
         selectedConversationRef.current = detailedConversation;
+        rememberConversationDetail(detailedConversation);
       }
       if (data) {
         setSelectedId(data.id);
@@ -2467,7 +2491,7 @@ export default function InboxClientPage() {
         setLoadingConversation(false);
       }
     }
-  }, []);
+  }, [rememberConversationDetail]);
 
   const loadConversations = useCallback(
     async (options?: { preferredId?: string | null; silent?: boolean }) => {
@@ -2514,7 +2538,9 @@ export default function InboxClientPage() {
           nextSummary,
           selectedConversationRef.current?.id === nextId
             ? selectedConversationRef.current
-            : null,
+            : nextId
+              ? conversationDetailCacheRef.current.get(nextId) || null
+              : null,
         );
 
         if (mergedConversation) {
@@ -2532,7 +2558,7 @@ export default function InboxClientPage() {
           nextId &&
           shouldReloadInboxConversation(nextSummary, selectedConversationRef.current)
         ) {
-          void loadConversation(nextId, { silent: true });
+          void loadConversation(nextId, { silent: true, forceRefresh: true });
         } else if (nextSummary && selectedConversationRef.current?.id === nextId) {
           setSelectedConversation((current) =>
             current && current.id === nextId
@@ -2578,12 +2604,21 @@ export default function InboxClientPage() {
       setCustomerConversationCardError(null);
       return;
     }
+    const cached = customerConversationCardCacheRef.current.get(normalizedId);
+    if (cached) {
+      setCustomerConversationCard(cached);
+      setCustomerConversationCardDraft(buildCustomerConversationCardDraft(cached));
+      setCustomerConversationCardError(null);
+      setLoadingCustomerConversationCard(false);
+      return;
+    }
     setLoadingCustomerConversationCard(true);
     setCustomerConversationCardError(null);
     try {
       const payload = await apiFetch<CustomerConversationCardPayload>(
         `/inbox/conversations/${normalizedId}/status-card`,
       );
+      customerConversationCardCacheRef.current.set(normalizedId, payload);
       setCustomerConversationCard(payload);
       setCustomerConversationCardDraft(buildCustomerConversationCardDraft(payload));
     } catch (loadError) {
@@ -2637,6 +2672,7 @@ export default function InboxClientPage() {
             body: JSON.stringify(body),
           },
         );
+        customerConversationCardCacheRef.current.set(selectedId, payload);
         setCustomerConversationCard(payload);
         setCustomerConversationCardDraft(buildCustomerConversationCardDraft(payload));
         setNotice({ tone: "success", text: "Card do cliente salvo." });
@@ -2709,6 +2745,14 @@ export default function InboxClientPage() {
     }
     if (contextTab !== "conversa") return;
     setCustomerCardShortcutOpen(false);
+    const cached = customerConversationCardCacheRef.current.get(selectedId);
+    if (cached) {
+      setCustomerConversationCard(cached);
+      setCustomerConversationCardDraft(buildCustomerConversationCardDraft(cached));
+      setCustomerConversationCardError(null);
+      setLoadingCustomerConversationCard(false);
+      return;
+    }
     setCustomerConversationCard(null);
     setCustomerConversationCardDraft({
       doNotCall: false,
@@ -2804,7 +2848,7 @@ export default function InboxClientPage() {
       await bootstrapInbox({ take: 20 });
       if (cancelled) return;
       stopPolling = startSmartPolling(() => loadConversations({ silent: true }), {
-        intervalMs: 10000,
+        intervalMs: 30000,
         immediate: false,
       });
     })();
@@ -3548,6 +3592,7 @@ export default function InboxClientPage() {
           body: JSON.stringify({ status }),
         });
         setSelectedConversation(data);
+        rememberConversationDetail(data);
         setNotice({ tone: "success", text: `Conversa atualizada para ${status}.` });
         await loadConversations({ preferredId: data.id, silent: true });
       } catch (updateError) {
@@ -3556,7 +3601,7 @@ export default function InboxClientPage() {
         setError(message);
       }
     },
-    [loadConversations, selectedId],
+    [loadConversations, rememberConversationDetail, selectedId],
   );
 
   const toggleGlobalBot = useCallback(async () => {
@@ -3617,6 +3662,7 @@ export default function InboxClientPage() {
         });
         const normalizedUpdatedConversation = normalizeInboxConversationPayload(updatedConversation);
         if (normalizedUpdatedConversation) {
+          rememberConversationDetail(normalizedUpdatedConversation);
           setSelectedConversation((current) =>
             current?.id === normalizedUpdatedConversation.id ? normalizedUpdatedConversation : current,
           );
@@ -3636,7 +3682,7 @@ export default function InboxClientPage() {
         throw moveError;
       }
     },
-    [loadConversations],
+    [loadConversations, rememberConversationDetail],
   );
 
   const moveQueueToQueue = useCallback(
@@ -3751,6 +3797,7 @@ export default function InboxClientPage() {
       if (selectedIdRef.current === conversationId) {
         setSelectedConversation(data);
       }
+      rememberConversationDetail(data);
       setQueueActionConversationId(null);
       setQueueActionMenuPosition(null);
       setBlockDialog(null);
@@ -3760,7 +3807,7 @@ export default function InboxClientPage() {
       const message = updateError instanceof Error ? updateError.message : "Falha ao bloquear contato.";
       setError(message);
     }
-  }, [blockDialog, loadConversations]);
+  }, [blockDialog, loadConversations, rememberConversationDetail]);
 
   const blockConversation = useCallback(async () => {
     if (!selectedId) return;
@@ -3775,6 +3822,7 @@ export default function InboxClientPage() {
         method: "PATCH",
       });
       setSelectedConversation(data);
+      rememberConversationDetail(data);
       setNotice({ tone: "success", text: "Contato desbloqueado no Atendimento." });
       await loadConversations({ preferredId: data.id, silent: true });
     } catch (updateError) {
@@ -3782,7 +3830,7 @@ export default function InboxClientPage() {
         updateError instanceof Error ? updateError.message : "Falha ao desbloquear contato.";
       setError(message);
     }
-  }, [loadConversations, selectedId]);
+  }, [loadConversations, rememberConversationDetail, selectedId]);
 
   const deleteConversationById = useCallback(
     async (conversationId: string) => {
@@ -3804,6 +3852,8 @@ export default function InboxClientPage() {
         setQueueActionConversationId(null);
         setQueueActionMenuPosition(null);
         setDeleteConversationDialog(null);
+        conversationDetailCacheRef.current.delete(conversationId);
+        customerConversationCardCacheRef.current.delete(conversationId);
         setManualQueueOverrides((current) => {
           return { ...current, [conversationId]: "archived" };
         });
@@ -3835,6 +3885,7 @@ export default function InboxClientPage() {
           },
         );
         setSelectedConversation(data);
+        rememberConversationDetail(data);
         setMessageReactionTargetId(null);
         await loadConversations({ preferredId: data.id, silent: true });
       } catch (reactionError) {
@@ -3842,7 +3893,7 @@ export default function InboxClientPage() {
         setError(message);
       }
     },
-    [loadConversations, selectedId],
+    [loadConversations, rememberConversationDetail, selectedId],
   );
 
   const deleteSentMessage = useCallback(
@@ -3866,6 +3917,7 @@ export default function InboxClientPage() {
           },
         );
         setSelectedConversation(data);
+        rememberConversationDetail(data);
         setMessageReactionTargetId(null);
         setDeleteMessageDialog(null);
         setNotice({ tone: "success", text: "Mensagem apagada para todos." });
@@ -3875,7 +3927,7 @@ export default function InboxClientPage() {
         setError(message);
       }
     },
-    [deleteMessageDialog?.messageId, loadConversations, selectedId],
+    [deleteMessageDialog?.messageId, loadConversations, rememberConversationDetail, selectedId],
   );
 
   const sendMessage = useCallback(
@@ -3941,6 +3993,7 @@ export default function InboxClientPage() {
         sendTextDirtyRef.current = false;
         setReplyingTo(null);
         setSelectedConversation(data);
+        rememberConversationDetail(data);
         setNotice({ tone: "success", text: "Mensagem manual enfileirada com sucesso." });
         await loadConversations({ preferredId: data.id, silent: true });
       } catch (sendError) {
@@ -3950,7 +4003,7 @@ export default function InboxClientPage() {
         setSending(false);
       }
     },
-    [loadConversations, selectedBlocked, selectedId, sendText, replyingTo, imagePreview],
+    [loadConversations, rememberConversationDetail, selectedBlocked, selectedId, sendText, replyingTo, imagePreview],
   );
 
   const inboxWorkspaceComponents = useMemo(
