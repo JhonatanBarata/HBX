@@ -96,8 +96,10 @@ class WhatsAppModalProviderError extends Error {
 export class WhatsAppModalService {
   private readonly logger = new Logger(WhatsAppModalService.name);
   private readonly recentConnectAttemptAt = new Map<string, number>();
+  private readonly recentWebhookConfigureAt = new Map<string, number>();
   private readonly qrCodeCache = new Map<string, { dataUrl: string; capturedAtMs: number }>();
   private readonly connectAttemptCooldownMs = 12000;
+  private readonly webhookConfigureCooldownMs = 60000;
   private readonly qrCodeCacheTtlMs = 45000;
 
   constructor(private readonly prisma: PrismaService) {}
@@ -204,6 +206,7 @@ export class WhatsAppModalService {
         return this.buildFailureResponse(company, storedSnapshot, error, 'Falha ao iniciar a sessão do Modal WhatsApp.');
       }
     }
+    await this.tryConfigureProviderWebhook(tenantKey, 'start');
 
     try {
       const connectSnapshot = await this.connectProviderSession(company, liveSnapshot);
@@ -346,6 +349,7 @@ export class WhatsAppModalService {
         return this.buildFailureResponse(company, storedSnapshot, error, 'Falha ao reiniciar a sessão do Modal WhatsApp.');
       }
     }
+    await this.tryConfigureProviderWebhook(tenantKey, 'restart');
 
     let optimisticSnapshot: ModalSnapshot = {
       ...storedSnapshot,
@@ -549,6 +553,8 @@ export class WhatsAppModalService {
       return null;
     }
 
+    await this.tryConfigureProviderWebhook(tenantKey, 'connect');
+
     return this.reconcileTransientSnapshot(tenantKey, await this.extractSnapshot(payload, fallback));
   }
 
@@ -676,6 +682,105 @@ export class WhatsAppModalService {
       qrcode: true,
       syncFullHistory: true,
     };
+  }
+
+  private buildProviderWebhookEvents() {
+    const configured = this.normalizeOptionalString(process.env.WHATSAPP_MODAL_WEBHOOK_EVENTS || process.env.WEBWHATS_WEBHOOK_EVENTS);
+    if (configured) {
+      const events = configured
+        .split(',')
+        .map((event) => event.trim().toUpperCase())
+        .filter(Boolean);
+      if (events.length) return events;
+    }
+
+    return [
+      'MESSAGES_UPSERT',
+      'MESSAGES_UPDATE',
+      'MESSAGES_DELETE',
+      'SEND_MESSAGE',
+      'CONNECTION_UPDATE',
+    ];
+  }
+
+  private normalizeAbsoluteWebhookUrl(value: unknown) {
+    const normalized = this.normalizeOptionalString(value);
+    if (!normalized) return null;
+
+    try {
+      const parsed = new URL(normalized);
+      if (!['http:', 'https:'].includes(parsed.protocol)) return null;
+      parsed.searchParams.delete('companyId');
+      parsed.searchParams.delete('company_id');
+      return parsed.toString();
+    } catch {
+      return null;
+    }
+  }
+
+  private buildProviderWebhookUrl() {
+    const explicit = this.normalizeAbsoluteWebhookUrl(
+      process.env.WHATSAPP_MODAL_WEBHOOK_URL || process.env.WEBWHATS_WEBHOOK_URL,
+    );
+    if (explicit) return explicit;
+
+    const publicBase = this.normalizeOptionalString(
+      process.env.PUBLIC_API_BASE_URL || process.env.API_PUBLIC_URL || process.env.BACKEND_PUBLIC_URL,
+    );
+    if (!publicBase) return null;
+
+    return this.normalizeAbsoluteWebhookUrl(`${publicBase.replace(/\/+$/, '')}/webhooks/webwhats/events`);
+  }
+
+  private redactWebhookUrlForLog(url: string) {
+    try {
+      const parsed = new URL(url);
+      if (parsed.search) parsed.search = '?[redacted]';
+      return parsed.toString();
+    } catch {
+      return '[invalid_webhook_url]';
+    }
+  }
+
+  private buildProviderWebhookPayload(webhookUrl: string) {
+    return {
+      enabled: true,
+      url: webhookUrl,
+      events: this.buildProviderWebhookEvents(),
+      webhookByEvents: false,
+      webhookBase64: false,
+    };
+  }
+
+  private async tryConfigureProviderWebhook(tenantKey: string, reason: string) {
+    const webhookUrl = this.buildProviderWebhookUrl();
+    if (!webhookUrl) {
+      this.logger.warn(
+        'Webhook WebWhats automatico nao configurado. Defina WHATSAPP_MODAL_WEBHOOK_URL ou PUBLIC_API_BASE_URL apontando para o backend publico.',
+      );
+      return;
+    }
+
+    const lastAttemptAt = this.recentWebhookConfigureAt.get(tenantKey);
+    if (typeof lastAttemptAt === 'number' && Date.now() - lastAttemptAt < this.webhookConfigureCooldownMs) {
+      return;
+    }
+    this.recentWebhookConfigureAt.set(tenantKey, Date.now());
+
+    try {
+      await this.requestProvider({
+        method: 'POST',
+        path: `/webhook/set/${encodeURIComponent(tenantKey)}`,
+        purpose: 'configuracao do webhook da instancia',
+        data: this.buildProviderWebhookPayload(webhookUrl),
+      });
+      this.logger.log(`Webhook WebWhats configurado para ${tenantKey}: ${this.redactWebhookUrlForLog(webhookUrl)}.`);
+    } catch (error) {
+      const providerError = this.toProviderError(error);
+      this.logger.warn(
+        `Webhook WebWhats nao configurado para ${tenantKey} durante ${reason}: ${providerError.message}`,
+      );
+    }
   }
 
   private normalizeStoredStatus(value: unknown): WhatsAppModalStatus {

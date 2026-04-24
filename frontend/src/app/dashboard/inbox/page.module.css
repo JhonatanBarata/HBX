@@ -497,6 +497,37 @@
   font-weight: 700;
 }
 
+.whatsAppOlderMessagesRow {
+  display: flex;
+  justify-content: center;
+  padding: 0.1rem 0 0.25rem;
+}
+
+.whatsAppOlderMessagesButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 30px;
+  padding: 0.28rem 0.72rem;
+  border-radius: 999px;
+  border: 1px solid rgba(134, 150, 160, 0.28);
+  background: rgba(17, 27, 33, 0.78);
+  color: #d1d7db;
+  font-size: 0.72rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.whatsAppOlderMessagesButton:hover:not(:disabled) {
+  background: rgba(32, 44, 51, 0.92);
+  color: #e9edef;
+}
+
+.whatsAppOlderMessagesButton:disabled {
+  cursor: wait;
+  opacity: 0.66;
+}
+
 .whatsAppMessageRow {
   display: flex;
   width: 100%;
@@ -5634,6 +5665,17 @@
   border-color: color-mix(in srgb, var(--line) 88%, var(--background));
   background: color-mix(in srgb, var(--surface) 96%, var(--background));
   color: var(--muted);
+}
+
+:global(html[data-theme-mode="light"]) .whatsAppOlderMessagesButton {
+  border-color: color-mix(in srgb, var(--line) 88%, var(--background));
+  background: color-mix(in srgb, var(--surface) 96%, var(--background));
+  color: color-mix(in srgb, var(--foreground) 72%, var(--muted));
+}
+
+:global(html[data-theme-mode="light"]) .whatsAppOlderMessagesButton:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--surface-raised) 96%, var(--background));
+  color: var(--foreground);
 }
 
 :global(html[data-theme-mode="light"]) .contextTabs {

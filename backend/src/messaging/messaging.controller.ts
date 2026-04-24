@@ -88,6 +88,21 @@ export class MessagingController {
     return this.messaging.handleWhatsAppWebhook(body, { rawBody, signature });
   }
 
+  // QR/WebWhats motor webhook events (messages, statuses, reactions, deletes).
+  @Post('webhooks/webwhats/events')
+  webwhatsEvent(
+    @Req() req: any,
+    @Body() body: any,
+    @Headers() headers: Record<string, string | string[] | undefined>,
+    @Query() query: Record<string, string | undefined>,
+  ) {
+    return this.messaging.handleWebwhatsWebhookEvent(body, {
+      rawBody: req?.rawBody,
+      headers,
+      query,
+    });
+  }
+
   // Auto-reply rules CRUD (company scoped by JWT user.companyId)
   @Post('auto-replies/rules')
   @UseGuards(JwtAuthGuard, ModuleAccessGuard)
