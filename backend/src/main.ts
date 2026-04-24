@@ -78,6 +78,25 @@ function warnIfIntegrationSecretKeyMissing() {
 async function bootstrap() {
   warnIfIntegrationSecretKeyMissing();
   const app = await NestFactory.create(AppModule, { rawBody: true });
+  const allowedOrigins = buildAllowedOrigins();
+  app.use((req: Request, res: Response, next: () => void) => {
+    const origin = normalizeOrigin(req.headers.origin as string | undefined);
+    if (
+      origin &&
+      (
+        !allowedOrigins.length ||
+        allowedOrigins.includes(origin) ||
+        isFirebaseHostingOrigin(origin)
+      )
+    ) {
+      res.setHeader('Access-Control-Allow-Origin', origin);
+      res.setHeader('Vary', 'Origin');
+      res.setHeader('Access-Control-Allow-Credentials', 'true');
+      res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization,x-master-route');
+    }
+    next();
+  });
   const webscrapingTarget = resolveWebscrapingTarget();
   const webscrapingGuard = (req: Request, res: Response, next: () => void) => {
     if (!webscrapingTarget.configError) {
@@ -146,7 +165,6 @@ async function bootstrap() {
 
   app.use('/webscraping', webscrapingConditionalProxy);
   app.use('/hbx/webscraping', webscrapingConditionalProxy);
-  const allowedOrigins = buildAllowedOrigins();
   app.enableCors({
     origin: (origin, callback) => {
       if (!origin) return callback(null, true);

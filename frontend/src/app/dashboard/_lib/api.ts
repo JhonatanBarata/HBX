@@ -22,6 +22,7 @@ type ApiCacheEntry = {
 type ApiFetchInit = RequestInit & {
   skipAuth?: boolean;
   requireAuth?: boolean;
+  timeoutMs?: number;
 };
 
 const apiGetCache = new Map<string, ApiCacheEntry>();
@@ -117,7 +118,7 @@ export async function apiFetch<T>(
   path: string,
   init?: ApiFetchInit
 ): Promise<T> {
-  const { skipAuth, requireAuth, ...fetchInit } = init || {};
+  const { skipAuth, requireAuth, timeoutMs, ...fetchInit } = init || {};
   const url = path.startsWith("http") ? path : `${API_URL}${path}`;
   const token = getToken();
   if (requireAuth && !skipAuth && !token) {
@@ -142,7 +143,25 @@ export async function apiFetch<T>(
   if (!skipAuth && token) {
     headers.set("Authorization", `Bearer ${token}`);
   }
-  const request = fetch(url, { ...fetchInit, headers }).then(async (res) => {
+  let timedOut = false;
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  let signal = fetchInit.signal;
+  if (typeof timeoutMs === "number" && timeoutMs > 0) {
+    const controller = new AbortController();
+    if (signal) {
+      if (signal.aborted) {
+        controller.abort();
+      } else {
+        signal.addEventListener("abort", () => controller.abort(), { once: true });
+      }
+    }
+    timeoutId = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, timeoutMs);
+    signal = controller.signal;
+  }
+  const request = fetch(url, { ...fetchInit, headers, signal }).then(async (res) => {
     let data: unknown = null;
     const text = await res.text();
     if (text) {
@@ -171,6 +190,13 @@ export async function apiFetch<T>(
     }
 
     return data as T;
+  }).catch((error) => {
+    if (timedOut) {
+      throw new Error("Tempo esgotado ao consultar a API.");
+    }
+    throw error;
+  }).finally(() => {
+    if (timeoutId) clearTimeout(timeoutId);
   });
 
   if (cacheable) {
