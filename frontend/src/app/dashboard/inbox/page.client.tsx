@@ -669,14 +669,33 @@ function canPreviewDocumentInOverlay(url: string, mimeType?: string | null, file
   );
 }
 
+function toUploadedInboxAssetPath(raw: string) {
+  const value = String(raw || "").trim();
+  if (!value) return "";
+  if (/^https?:\/\//i.test(value) || value.startsWith("/")) return value;
+
+  const relative = value
+    .replace(/^\.\//, "")
+    .replace(/^public\//i, "")
+    .trim();
+  if (!relative) return "";
+  if (relative.startsWith("uploads/")) return `/${relative}`;
+  if (/^[^\\/?#:*"<>|]+\.(png|jpe?g|gif|webp|bmp|svg|mp4|webm|mov|m4v|mp3|ogg|oga|wav|m4a|opus|aac|pdf|docx?|xlsx?|csv|txt)$/i.test(relative)) {
+    return `/uploads/inbox/${relative}`;
+  }
+  return "";
+}
+
 function toAbsoluteAssetUrl(raw: string) {
   const value = String(raw || "").trim();
   if (!value) return "";
+  const assetPath = toUploadedInboxAssetPath(value);
   const resolved = /^https?:\/\//i.test(value)
     ? value
-    : value.startsWith("/")
-      ? `${API_PUBLIC_BASE}${value}`
-      : value;
+    : assetPath
+      ? `${API_PUBLIC_BASE}${assetPath}`
+      : "";
+  if (!resolved) return "";
   return isExpiredWhatsAppAssetUrl(resolved) ? "" : resolved;
 }
 
@@ -847,7 +866,7 @@ function parseInboxMessageMedia(message: InboxMessage, conversation?: InboxConve
   const explicitMediaUrl = toAbsoluteAssetUrl(explicitMediaUrlRaw);
   const explicitMediaExpired = Boolean(explicitMediaUrlRaw && !explicitMediaUrl && isExpiredWhatsAppAssetUrl(explicitMediaUrlRaw));
   const firstLine = String(text.split("\n")[0] || "").trim();
-  const firstLineIsUrl = /^https?:\/\/\S+$/i.test(firstLine) || /^\/\S+$/.test(firstLine);
+  const firstLineIsUrl = Boolean(toAbsoluteAssetUrl(firstLine));
   const fallbackMediaUrlRaw = firstLineIsUrl ? firstLine : "";
   const fallbackMediaUrl = fallbackMediaUrlRaw ? toAbsoluteAssetUrl(fallbackMediaUrlRaw) : "";
   const fallbackMediaExpired = Boolean(fallbackMediaUrlRaw && !fallbackMediaUrl && isExpiredWhatsAppAssetUrl(fallbackMediaUrlRaw));
