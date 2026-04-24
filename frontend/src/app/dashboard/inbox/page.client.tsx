@@ -1438,18 +1438,35 @@ function getInboxConversationActivityAt(
   conversation?: Partial<Pick<InboxConversation, "createdAt" | "updatedAt" | "lastMessageAt" | "blockedAt" | "messages">> | null,
 ) {
   const messages = Array.isArray(conversation?.messages) ? conversation.messages : [];
-  const candidates = [
+  const messageCandidates = [
     conversation?.lastMessageAt,
-    conversation?.updatedAt,
-    conversation?.blockedAt,
-    conversation?.createdAt,
     ...messages.map((message) => message.createdAt),
   ]
     .map((value) => String(value || "").trim())
     .filter(Boolean);
 
-  if (candidates.length === 0) return "";
-  return candidates.reduce((latest, candidate) => {
+  const latestMessageAt = messageCandidates.reduce((latest, candidate) => {
+    if (!latest) return candidate;
+    const latestTime = new Date(latest).getTime();
+    const candidateTime = new Date(candidate).getTime();
+    if (!Number.isFinite(candidateTime)) return latest;
+    if (!Number.isFinite(latestTime) || candidateTime > latestTime) {
+      return candidate;
+    }
+    return latest;
+  }, "");
+  if (latestMessageAt) return latestMessageAt;
+
+  const fallbackCandidates = [
+    conversation?.updatedAt,
+    conversation?.blockedAt,
+    conversation?.createdAt,
+  ]
+    .map((value) => String(value || "").trim())
+    .filter(Boolean);
+
+  if (fallbackCandidates.length === 0) return "";
+  return fallbackCandidates.reduce((latest, candidate) => {
     if (!latest) return candidate;
     const latestTime = new Date(latest).getTime();
     const candidateTime = new Date(candidate).getTime();
@@ -1736,7 +1753,23 @@ function sortInboxConversationsByActivity(conversationList: InboxConversation[])
     const rightTime = new Date(getInboxConversationActivityAt(right)).getTime();
     const safeLeft = Number.isFinite(leftTime) ? leftTime : 0;
     const safeRight = Number.isFinite(rightTime) ? rightTime : 0;
-    return safeRight - safeLeft;
+    if (safeRight !== safeLeft) return safeRight - safeLeft;
+    const leftId = Number(left.id);
+    const rightId = Number(right.id);
+    return (Number.isFinite(rightId) ? rightId : 0) - (Number.isFinite(leftId) ? leftId : 0);
+  });
+}
+
+function sortInboxMessagesChronologically(messages: InboxMessage[]) {
+  return [...messages].sort((left, right) => {
+    const leftTime = new Date(String(left.createdAt || "")).getTime();
+    const rightTime = new Date(String(right.createdAt || "")).getTime();
+    const safeLeft = Number.isFinite(leftTime) ? leftTime : 0;
+    const safeRight = Number.isFinite(rightTime) ? rightTime : 0;
+    if (safeLeft !== safeRight) return safeLeft - safeRight;
+    const leftId = Number(left.id);
+    const rightId = Number(right.id);
+    return (Number.isFinite(leftId) ? leftId : 0) - (Number.isFinite(rightId) ? rightId : 0);
   });
 }
 
@@ -2885,7 +2918,7 @@ export default function InboxClientPage() {
   }, [conversations, manualQueueOverrides]);
 
   const queueCounts = useMemo(() => {
-  const base: Record<InboxQueue, number> = {
+    const base: Record<InboxQueue, number> = {
       all: 0,
       archived: 0,
       groups: 0,
@@ -2896,6 +2929,22 @@ export default function InboxClientPage() {
     for (const conversation of conversations) {
       const queue = queueByConversationId[conversation.id] || "all";
       base[queue] += 1;
+    }
+    return base;
+  }, [conversations, queueByConversationId]);
+
+  const queueUnreadCounts = useMemo(() => {
+    const base: Record<InboxQueue, number> = {
+      all: 0,
+      archived: 0,
+      groups: 0,
+      recovery: 0,
+      scheduled: 0,
+      bot: 0,
+    };
+    for (const conversation of conversations) {
+      const queue = queueByConversationId[conversation.id] || "all";
+      base[queue] += getInboxConversationUnreadCount(conversation);
     }
     return base;
   }, [conversations, queueByConversationId]);
@@ -3192,10 +3241,11 @@ export default function InboxClientPage() {
     [conversationForView],
   );
   const conversationMessagesForView = useMemo(
-    () =>
+    () => sortInboxMessagesChronologically(
       (Array.isArray(conversationForView?.messages) ? conversationForView.messages : []).filter(
         (message) => !shouldHideInboxMessageFromTimeline(message),
       ),
+    ),
     [conversationForView],
   );
   const conversationReactionIndex = useMemo(
@@ -4043,6 +4093,7 @@ export default function InboxClientPage() {
           <ConversationQueueFilterBar
             value={inboxQueue as ConversationQueueFilterValue}
             counts={queueCounts as Record<ConversationQueueFilterValue, number>}
+            unreadCounts={queueUnreadCounts as Record<ConversationQueueFilterValue, number>}
             dropOverQueue={dropOverQueue as ConversationQueueFilterValue | null}
             allowQueueCardDrag
             draggedQueue={draggedQueueId as ConversationQueueFilterValue | null}
@@ -4113,6 +4164,13 @@ export default function InboxClientPage() {
                     title={displayName}
                     subtitle={subtitleLabel}
                     preview={previewLabel}
+                    badges={
+                      unreadCount > 0 ? (
+                        <span className={styles.conversationUnreadBadge}>
+                          {unreadCount === 1 ? "1 não lida" : `${unreadCount} não lidas`}
+                        </span>
+                      ) : undefined
+                    }
                     meta={
                       <div className={styles.conversationQueueMetaStack}>
                         <span className={styles.conversationQueueMetaTime}>{activityAtLabel}</span>
@@ -4138,8 +4196,10 @@ export default function InboxClientPage() {
                       queueActionConversationId === conversation.id && styles.conversationQueueItemMenuOpen,
                       (conversation.isBlocked || isInboxConversationArchived(conversation))
                         && styles.conversationQueueItemMuted,
-                      unreadCount > 0 && !active && styles.conversationQueueItemUnread,
+                      unreadCount > 0 && styles.conversationQueueItemUnread,
                     )}
+                    data-unread={unreadCount > 0 ? "true" : "false"}
+                    aria-label={`${displayName}${unreadCount > 0 ? `, ${unreadCount} não lida${unreadCount === 1 ? "" : "s"}` : ""}`}
                   />
                 );
               })}
@@ -5246,6 +5306,7 @@ export default function InboxClientPage() {
       openedAsset,
       queueActionConversationId,
       queueCounts,
+      queueUnreadCounts,
       reactToMessage,
       retryConversationDetail,
       retryConversationList,

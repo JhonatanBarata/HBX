@@ -1295,6 +1295,29 @@
   color: #ffffff;
 }
 
+.conversationQueueItemUnread p {
+  font-weight: 850;
+}
+
+.conversationUnreadBadge {
+  width: fit-content;
+  display: inline-flex;
+  align-items: center;
+  min-height: 20px;
+  padding: 0.08rem 0.48rem;
+  border-radius: 999px;
+  background: #25d366;
+  color: #06281e;
+  font-size: 0.62rem;
+  font-weight: 900;
+  line-height: 1;
+  box-shadow: 0 8px 14px -10px rgba(18, 140, 126, 0.72);
+}
+
+.conversationQueueItemUnread .conversationUnreadBadge {
+  color: #06281e;
+}
+
 .conversationQueueItemMuted {
   filter: saturate(0.72);
 }
@@ -5105,6 +5128,11 @@
   background: linear-gradient(180deg, var(--brand), var(--brand-solid));
 }
 
+:global(html[data-theme-mode="dark"]) .conversationUnreadBadge {
+  background: #25d366;
+  color: #041d16;
+}
+
 :global(html[data-theme-mode="dark"]) .whatsAppConversationShell {
   border-color: color-mix(in srgb, var(--brand) 22%, var(--line));
   background:
@@ -5355,6 +5383,15 @@
 :global(html[data-theme-mode="light"]) .conversationQueueItemUnread p,
 :global(html[data-theme-mode="light"]) .conversationQueueItemUnread span {
   color: var(--foreground);
+}
+
+:global(html[data-theme-mode="light"]) .conversationQueueItemUnread p {
+  font-weight: 850;
+}
+
+:global(html[data-theme-mode="light"]) .conversationQueueItemUnread .conversationUnreadBadge {
+  background: #25d366;
+  color: #06281e;
 }
 
 :global(html[data-theme-mode="light"]) .whatsAppConversationShell {

@@ -94,7 +94,7 @@
 }
 
 .premiumBackdrop .leadCard[data-selected="true"] {
-  transform: perspective(1000px) translateY(-18px) scale(1.02) rotateX(2deg);
+  transform: perspective(1000px) translateY(-10px) scale(1.008) rotateX(1.2deg);
 }
 
 .premiumBackdrop .detailSection,
@@ -348,11 +348,12 @@
 
 .dateFilterCard {
   flex-shrink: 0;
-  min-width: 102px;
+  width: 96px;
+  min-width: 96px;
   display: grid;
-  gap: 0.2rem;
-  padding: 0.72rem 1rem 0.56rem;
-  border-radius: 20px;
+  gap: 0.14rem;
+  padding: 0.58rem 0.76rem 0.46rem;
+  border-radius: 16px;
   border: 1px solid color-mix(in srgb, var(--line) 55%, transparent);
   background:
     linear-gradient(
@@ -374,7 +375,7 @@
     box-shadow 260ms cubic-bezier(0.22, 1, 0.36, 1),
     background 240ms ease;
   /* ensure consistent card height so the count can be pushed down */
-  min-height: 96px;
+  min-height: 82px;
   align-content: start;
   position: relative; /* for absolute receiveHint */
 }
@@ -396,17 +397,17 @@
 .receiveHint {
   position: absolute;
   left: 50%;
-  bottom: 8px;
+  bottom: 6px;
   transform: translateX(-50%) translateY(6px);
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 0.08rem 0.48rem;
+  padding: 0.06rem 0.38rem;
   border-radius: 999px;
   border: 1px dashed color-mix(in srgb, var(--brand) 22%, var(--line));
   background: color-mix(in srgb, var(--brand) 6%, var(--background));
   color: color-mix(in srgb, var(--brand) 82%, var(--foreground));
-  font-size: 0.68rem;
+  font-size: 0.58rem;
   font-weight: 700;
   opacity: 0;
   pointer-events: none;
@@ -418,18 +419,18 @@
 }
 
 .dateFilterCard strong {
-  font-size: 0.82rem;
+  font-size: 0.68rem;
   font-weight: 700;
   letter-spacing: -0.01em;
 }
 
 .dateFilterCard span {
   color: color-mix(in srgb, var(--foreground-soft) 72%, var(--muted));
-  font-size: 0.72rem;
+  font-size: 0.6rem;
 }
 
 .dateFilterCard b {
-  font-size: 1.65rem;
+  font-size: 1.16rem;
   line-height: 1;
   font-weight: 900;
   letter-spacing: -0.04em;
@@ -445,9 +446,9 @@
 }
 
 .dateFilterDay {
-  font-size: 0.58rem;
+  font-size: 0.48rem;
   text-transform: uppercase;
-  letter-spacing: 0.22em;
+  letter-spacing: 0.16em;
   font-weight: 800;
   color: color-mix(in srgb, var(--brand) 90%, var(--muted));
   text-shadow: 0 0 10px color-mix(in srgb, var(--brand) 28%, transparent);
@@ -461,21 +462,21 @@
     linear-gradient(160deg, color-mix(in srgb, var(--surface-raised) 96%, var(--background)), color-mix(in srgb, var(--brand-soft) 80%, var(--surface-soft)));
   box-shadow:
     0 1px 0 color-mix(in srgb, var(--brand) 22%, transparent) inset,
-    0 30px 56px -24px color-mix(in srgb, var(--brand) 40%, transparent),
+    0 22px 40px -24px color-mix(in srgb, var(--brand) 34%, transparent),
     0 0 0 1px color-mix(in srgb, var(--brand) 22%, transparent),
-    0 6px 20px -8px rgba(15, 23, 42, 0.28);
-  transform: translateY(-2px) scale(1.014);
+    0 4px 14px -8px rgba(15, 23, 42, 0.22);
+  transform: translateY(-1px);
 }
 
 .dateFilterCard[data-active="true"]:hover {
-  transform: translateY(-3px) scale(1.018);
+  transform: translateY(-1px);
 }
 
 .dateFilterCard[data-active="true"][data-tone="overdue"] {
   border-color: color-mix(in srgb, var(--danger) 46%, var(--line));
   box-shadow:
     0 1px 0 color-mix(in srgb, var(--danger) 20%, transparent) inset,
-    0 36px 64px -24px color-mix(in srgb, var(--danger) 40%, transparent),
+    0 22px 40px -24px color-mix(in srgb, var(--danger) 34%, transparent),
     0 0 0 1px color-mix(in srgb, var(--danger) 20%, transparent);
 }
 
@@ -483,7 +484,7 @@
   border-color: color-mix(in srgb, var(--success) 42%, var(--line));
   box-shadow:
     0 1px 0 color-mix(in srgb, var(--success) 18%, transparent) inset,
-    0 36px 64px -24px color-mix(in srgb, var(--success) 38%, transparent),
+    0 22px 40px -24px color-mix(in srgb, var(--success) 32%, transparent),
     0 0 0 1px color-mix(in srgb, var(--success) 18%, transparent);
 }
 
@@ -493,9 +494,9 @@
     radial-gradient(circle at top right, color-mix(in srgb, var(--brand) 18%, transparent), transparent 34%),
     linear-gradient(180deg, color-mix(in srgb, var(--surface) 98%, var(--background)), color-mix(in srgb, var(--brand-soft) 76%, var(--surface-soft)));
   box-shadow:
-    0 28px 44px -30px color-mix(in srgb, var(--brand) 22%, transparent),
+    0 18px 32px -24px color-mix(in srgb, var(--brand) 18%, transparent),
     0 0 0 2px color-mix(in srgb, var(--brand) 28%, transparent);
-  transform: translateY(-2px) scale(1.03);
+  transform: translateY(-1px);
 }
 
 .dateFilterCard[data-dropover="true"] .receiveHint {
@@ -511,13 +512,13 @@
 /* Graphic-only +Agenda button — always visible at the end */
 .addAgendaButton {
   flex-shrink: 0;
-  min-width: 52px;
-  max-width: 64px;
+  min-width: 44px;
+  max-width: 52px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 0.9rem 0.75rem;
-  border-radius: 20px;
+  padding: 0.7rem 0.58rem;
+  border-radius: 16px;
   border: 1px dashed color-mix(in srgb, var(--brand) 42%, var(--line));
   background:
     linear-gradient(
@@ -540,32 +541,32 @@
 }
 .addAgendaButton strong {
   display: block;
-  font-size: 1.25rem;
+  font-size: 0.98rem;
   line-height: 1;
   text-align: center;
   color: color-mix(in srgb, var(--brand) 88%, var(--foreground));
 }
 .addAgendaButton:hover {
-  transform: translateY(-2px) scale(1.06);
-  box-shadow: 0 24px 44px -16px color-mix(in srgb, var(--brand) 30%, transparent);
+  transform: translateY(-1px);
+  box-shadow: 0 18px 32px -18px color-mix(in srgb, var(--brand) 24%, transparent);
   border-color: color-mix(in srgb, var(--brand) 70%, var(--line));
 }
 
 /* Atendimento shortcut shown on the 'Hoje' date card */
 .atendimentoShortcut {
   position: absolute;
-  left: 2px;
+  left: 4px;
   right: auto;
-  bottom: 2px;
-  width: 44px;
-  height: 44px;
+  bottom: 4px;
+  width: 32px;
+  height: 32px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   border-radius: 999px;
   background: linear-gradient(180deg, color-mix(in srgb, var(--brand) 84%, var(--surface-raised)), color-mix(in srgb, var(--brand-soft) 62%, var(--surface)));
   border: 1px solid color-mix(in srgb, var(--brand) 28%, var(--line));
-  box-shadow: 0 18px 34px -18px rgba(15, 23, 42, 0.34), 0 4px 10px -6px rgba(15,23,42,0.18);
+  box-shadow: 0 12px 24px -16px rgba(15, 23, 42, 0.3), 0 4px 10px -8px rgba(15,23,42,0.18);
   cursor: pointer;
   transition: transform var(--motion-fast), background var(--motion-fast), box-shadow var(--motion-fast);
   z-index: 12;
@@ -573,13 +574,13 @@
 }
 
 .atendimentoShortcut:hover {
-  transform: translateY(-4px) scale(1.02);
-  box-shadow: 0 26px 46px -22px rgba(15, 23, 42, 0.38), 0 8px 18px -8px rgba(15,23,42,0.22);
+  transform: translateY(-2px);
+  box-shadow: 0 18px 30px -18px rgba(15, 23, 42, 0.34), 0 6px 14px -8px rgba(15,23,42,0.22);
 }
 
 .atendimentoShortcut svg {
-  width: 18px;
-  height: 18px;
+  width: 10px;
+  height: 10px;
   color: white;
 }
 
@@ -601,8 +602,8 @@
 
 .stageGrid {
   display: grid;
-  grid-template-columns: minmax(0, 2.4fr) minmax(200px, 0.48fr);
-  gap: 1rem;
+  grid-template-columns: minmax(0, 1fr) minmax(220px, 252px);
+  gap: 0.8rem;
   align-items: start;
 }
 
@@ -615,7 +616,7 @@
 .detailPanel,
 .archiveSection {
   display: grid;
-  gap: 1rem;
+  gap: 0.82rem;
 }
 
 /* boardShell must allow overflow so selected cards can elevate
@@ -626,7 +627,7 @@
 
 .boardTitle {
   margin: 0.16rem 0 0;
-  font-size: 1.55rem;
+  font-size: 1.22rem;
 }
 
 .toolbar,
@@ -642,7 +643,7 @@
 /* Reduce-to-fit action buttons: force single row but allow items to shrink to fit */
 .leadActionRow {
   flex-wrap: nowrap;
-  gap: 0.45rem;
+  gap: 0.36rem;
   align-items: center;
   justify-content: flex-start;
   overflow-x: hidden;
@@ -655,15 +656,19 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  padding-inline: 0.56rem;
-  font-size: 0.95rem;
+  padding-inline: 0.44rem;
+  font-size: 0.8rem;
 }
 
-/* Make WhatsApp slightly more prominent but still shrink-to-fit */
 .leadActionRow .whatsappAction {
-  flex: 1.4 1 0;
-  min-width: 72px;
-  max-width: 360px;
+  flex: 1 1 0;
+  min-width: 56px;
+  max-width: 320px;
+}
+
+.leadActionRow > :only-child {
+  flex: 0 0 clamp(118px, 9vw, 144px);
+  max-width: clamp(118px, 9vw, 144px);
 }
 
 /* WhatsApp branded action */
@@ -704,11 +709,11 @@
 
 .cardsGrid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0.9rem;
-  /* padding-top creates room for the selected card elevation (translateY(-18px))
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 0.72rem;
+  /* padding-top creates room for the selected card elevation (translateY(-10px))
      without overflowing into the cardsHeader above */
-  padding-top: 1.5rem;
+  padding-top: 0.95rem;
 }
 
 .draggableWrap {
@@ -739,7 +744,7 @@
 
 .leadCard[data-selected="true"] {
   border-color: color-mix(in srgb, var(--glass-border-strong, var(--brand)) 72%, var(--line));
-  box-shadow: 0 30px 50px -34px color-mix(in srgb, var(--liquid-accent, var(--brand)) 26%, transparent);
+  box-shadow: 0 22px 38px -28px color-mix(in srgb, var(--liquid-accent, var(--brand)) 22%, transparent);
 }
 
 .dragOverlayCard {
@@ -820,10 +825,10 @@
 
 /* hover elevation specific to cards (stronger than generic hover) */
 .leadCard:hover {
-  transform: perspective(1000px) translateY(-14px) rotateX(2deg);
+  transform: perspective(1000px) translateY(-6px) rotateX(1.2deg);
   box-shadow:
-    0 18px 36px -6px rgba(2,6,23,0.20),
-    0 54px 120px -36px rgba(2,6,23,0.36);
+    0 14px 28px -10px rgba(2,6,23,0.18),
+    0 34px 72px -34px rgba(2,6,23,0.28);
   z-index: 6;
 }
 
@@ -833,10 +838,10 @@
   position: absolute;
   left: 12px;
   right: 12px;
-  bottom: -18px;
-  height: 28px;
+  bottom: -12px;
+  height: 20px;
   background: radial-gradient(ellipse at center, rgba(2,6,23,0.16) 0%, rgba(2,6,23,0.06) 40%, rgba(2,6,23,0) 100%);
-  filter: blur(18px);
+  filter: blur(14px);
   border-radius: 20px;
   z-index: 0;
   transition: transform 260ms, opacity 260ms;
@@ -844,16 +849,16 @@
 }
 
 .leadCard:hover::after {
-  transform: translateY(4px) scale(1.04);
-  opacity: 0.9;
+  transform: translateY(2px) scale(1.02);
+  opacity: 0.78;
 }
 
 /* selected state with stronger elevation and slightly wider accent */
 .leadCard[data-selected="true"] {
-  transform: perspective(1000px) translateY(-18px) scale(1.02) rotateX(2deg);
+  transform: perspective(1000px) translateY(-10px) scale(1.008) rotateX(1.2deg);
   box-shadow:
-    0 26px 48px -6px rgba(2,6,23,0.22),
-    0 80px 160px -44px rgba(2,6,23,0.40);
+    0 20px 38px -12px rgba(2,6,23,0.2),
+    0 52px 112px -44px rgba(2,6,23,0.32);
   z-index: 10;
 }
 
