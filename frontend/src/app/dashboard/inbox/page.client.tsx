@@ -507,6 +507,7 @@ function makeClientId(prefix: string) {
 }
 
 const API_PUBLIC_BASE = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000").replace(/\/+$/, "");
+const INBOX_RECENT_MESSAGES_LIMIT = 200;
 const WHATSAPP_ASSET_EXPIRY_GRACE_MS = 5 * 60 * 1000;
 
 function getWhatsAppAssetExpiryMs(raw: string) {
@@ -2577,7 +2578,7 @@ export default function InboxClientPage() {
       setSelectedConversation(mergedSelected);
       rememberConversationDetail(mergedSelected);
       setOlderMessagesBefore(getInboxOldestMessageDate(mergedSelected?.messages));
-      setOlderMessagesHasMore((mergedSelected?.messages?.length || 0) >= 50);
+      setOlderMessagesHasMore((mergedSelected?.messages?.length || 0) >= INBOX_RECENT_MESSAGES_LIMIT);
       setLastConversationSyncAt(new Date().toISOString());
       setBootstrapReady(true);
     } catch (loadError) {
@@ -2640,7 +2641,7 @@ export default function InboxClientPage() {
     setConversationDetailError(null);
     if (cachedDetail && cachedDetailIsFresh && !forceRefresh) {
       setOlderMessagesBefore(getInboxOldestMessageDate(cachedDetail.messages));
-      setOlderMessagesHasMore((cachedDetail.messages?.length || 0) >= 50);
+      setOlderMessagesHasMore((cachedDetail.messages?.length || 0) >= INBOX_RECENT_MESSAGES_LIMIT);
       setLoadingConversation(false);
       setBootstrapReady(true);
       return;
@@ -2687,7 +2688,7 @@ export default function InboxClientPage() {
           activeConversationLatestMessageKeyRef.current[detailedConversation.id] = latestKey;
         }
         setOlderMessagesBefore(getInboxOldestMessageDate(detailedConversation.messages));
-        setOlderMessagesHasMore((detailedConversation.messages?.length || 0) >= 50);
+        setOlderMessagesHasMore((detailedConversation.messages?.length || 0) >= INBOX_RECENT_MESSAGES_LIMIT);
       }
       if (data) {
         setSelectedId(data.id);
@@ -2720,7 +2721,7 @@ export default function InboxClientPage() {
     setConversationDetailError(null);
     try {
       const payload = await apiFetch<InboxMessagePagePayload>(
-        `/inbox/conversations/${conversationId}/messages?limit=50&before=${encodeURIComponent(before)}`,
+        `/inbox/conversations/${conversationId}/messages?limit=${INBOX_RECENT_MESSAGES_LIMIT}&before=${encodeURIComponent(before)}`,
       );
       const olderMessages = Array.isArray(payload?.messages) ? payload.messages : [];
       const baseConversation =
@@ -2762,7 +2763,7 @@ export default function InboxClientPage() {
       }
 
       const payload = await apiFetch<InboxMessagePagePayload>(
-        `/inbox/conversations/${conversationId}/messages?limit=50`,
+        `/inbox/conversations/${conversationId}/messages?limit=${INBOX_RECENT_MESSAGES_LIMIT}`,
         {
           requireAuth: true,
           timeoutMs: 15000,
@@ -2792,7 +2793,7 @@ export default function InboxClientPage() {
       selectedConversationRef.current = nextConversation;
       rememberConversationDetail(nextConversation);
       setOlderMessagesBefore(getInboxOldestMessageDate(nextMessages));
-      setOlderMessagesHasMore((nextMessages?.length || 0) >= 50 || Boolean(payload?.hasMore));
+      setOlderMessagesHasMore((nextMessages?.length || 0) >= INBOX_RECENT_MESSAGES_LIMIT || Boolean(payload?.hasMore));
       setLastConversationSyncAt(new Date().toISOString());
 
       setConversations((current) =>

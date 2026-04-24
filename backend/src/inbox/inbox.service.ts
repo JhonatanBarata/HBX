@@ -748,12 +748,12 @@ export class InboxService {
     return Math.min(Math.floor(parsed), 200);
   }
 
-  private normalizeMessagePageLimit(value: string | number | null | undefined, fallback = 50) {
+  private normalizeMessagePageLimit(value: string | number | null | undefined, fallback = 200) {
     const parsed = Number(value);
     if (!Number.isFinite(parsed) || parsed <= 0) {
       return fallback;
     }
-    return Math.min(Math.floor(parsed), 50);
+    return Math.min(Math.floor(parsed), 200);
   }
 
   private normalizeBeforeDate(value: string | null | undefined) {
@@ -1768,7 +1768,7 @@ export class InboxService {
   }
 
   private async getPersistedConversationByIdForCompany(companyId: number, id: number, options?: { messagesLimit?: number }) {
-    const messagesLimit = this.normalizeMessagePageLimit(options?.messagesLimit, 50);
+    const messagesLimit = this.normalizeMessagePageLimit(options?.messagesLimit, 200);
     const loadRow = () => this.prisma.companyConversation.findFirst({
       where: { companyId, id, channel: 'whatsapp' },
       select: {
@@ -1850,7 +1850,7 @@ export class InboxService {
     if (firstConversationId) {
       this.triggerBackgroundInboxConversationSync(companyId, firstConversationId);
       selectedConversation = await this.getPersistedConversationByIdForCompany(companyId, firstConversationId, {
-        messagesLimit: 50,
+        messagesLimit: 200,
       });
     }
 
@@ -2094,7 +2094,7 @@ export class InboxService {
   async getConversationById(user: any, id: number) {
     const companyId = this.requireCompanyIdFromUser(user);
     this.triggerBackgroundInboxConversationSync(companyId, id);
-    return this.getPersistedConversationByIdForCompany(companyId, id, { messagesLimit: 50 });
+    return this.getPersistedConversationByIdForCompany(companyId, id, { messagesLimit: 200 });
   }
 
   async listConversationMessages(
@@ -2114,7 +2114,7 @@ export class InboxService {
     });
     if (!conversation) throw new NotFoundException('Conversation not found');
 
-    const limit = this.normalizeMessagePageLimit(options?.limit, 50);
+    const limit = this.normalizeMessagePageLimit(options?.limit, 200);
     const before = this.normalizeBeforeDate(options?.before || null);
     const loadRows = () => this.prisma.companyMessage.findMany({
       where: {
