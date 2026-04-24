@@ -1,0 +1,26 @@
+services:
+  backend:
+    container_name: hbx-backend
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file:
+      - ./backend/.env
+    ports:
+      - "3000:3000"
+    networks:
+      - hbx_net
+
+  webscraping:
+    container_name: webscraping
+    build:
+      context: ./webscraping
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    networks:
+      - hbx_net
+
+networks:
+  hbx_net:
+    external: true
