@@ -1286,7 +1286,8 @@ function getInboxVendasAgendaQueue(conversation?: InboxConversation | null) {
 
 function getInboxVendasAgendaPendingDraft(conversation?: InboxConversation | null) {
   const queue = getInboxVendasAgendaQueue(conversation);
-  if (!queue || !parseInboxBooleanFlag(queue.active)) return null;
+  if (!queue) return null;
+  if (String(queue.manualQueueOverride || "").trim().toLowerCase() === "archived") return null;
   if (parseInboxBooleanFlag(queue.manualSent) || String(queue.manualSentAt || "").trim()) return null;
   if (queue.draftPending === false) return null;
   const draftMessage = String(queue.draftMessage || "").trim();
@@ -1657,7 +1658,7 @@ function getInboxConversationPreview(conversation?: InboxConversation | null) {
   if (preview) return preview;
   if (!conversation) return "";
   const pendingDraft = getInboxVendasAgendaPendingDraft(conversation);
-  if (pendingDraft) return `Roteiro pendente: ${pendingDraft}`;
+  if (pendingDraft) return "Pré-apresentação disponível";
   if (isAtendimentoAgendaConversation(conversation)) return "Agendamento em andamento";
   if (conversation.isBlocked) return "Contato bloqueado";
   if (conversation.status === "closed") return "Conversa encerrada";
@@ -4120,6 +4121,14 @@ export default function InboxClientPage() {
     [loadConversations, rememberConversationDetail, selectedId],
   );
 
+  const loadVendasPrePresentation = useCallback(() => {
+    if (!selectedId || selectedBlocked || !selectedVendasAgendaDraftMessage) return;
+    setSendText(selectedVendasAgendaDraftMessage);
+    sendTextDirtyRef.current = false;
+    chatComposerInputRef.current?.focus();
+    setNotice({ tone: "success", text: "Pré-apresentação carregada." });
+  }, [selectedBlocked, selectedId, selectedVendasAgendaDraftMessage]);
+
   const toggleGlobalBot = useCallback(async () => {
     const enabled = !globalBotEnabled;
     const nextConfig = normalizeBotConfig({
@@ -4771,6 +4780,16 @@ export default function InboxClientPage() {
                     title="Abrir automacao"
                     aria-label="Abrir automacao"
                   />
+                  {selectedVendasAgendaDraftMessage ? (
+                    <button
+                      type="button"
+                      className={styles.conversationSecondaryAction}
+                      onClick={loadVendasPrePresentation}
+                      disabled={selectedBlocked || sending}
+                    >
+                      Pré-apresentação
+                    </button>
+                  ) : null}
                   <button
                     type="button"
                     className={styles.conversationPrimaryAction}
@@ -4787,8 +4806,8 @@ export default function InboxClientPage() {
                   <ChatEmptyState title="Carregando conversa">Preparando historico do cliente.</ChatEmptyState>
                 ) : conversationMessagesForView.length === 0 ? (
                   selectedVendasAgendaDraftMessage ? (
-                    <ChatEmptyState title="Roteiro carregado">
-                      A mensagem de Vendas esta pre-carregada abaixo para envio manual.
+                    <ChatEmptyState title="Pré-apresentação disponível">
+                      A conversa ainda nao tem historico registrado.
                     </ChatEmptyState>
                   ) : (
                     <ChatEmptyState title="Sem mensagens">Esta conversa ainda nao tem historico registrado.</ChatEmptyState>
@@ -5300,9 +5319,10 @@ export default function InboxClientPage() {
                   <small className={styles.whatsAppComposerHint}>
                     Contato bloqueado. Desbloqueie para responder.
                   </small>
-                ) : selectedVendasAgendaDraftMessage ? (
+                ) : selectedVendasAgendaDraftMessage &&
+                  sendText.trim() === selectedVendasAgendaDraftMessage ? (
                   <small className={styles.whatsAppComposerHint}>
-                    Roteiro de Vendas carregado. Revise e envie manualmente.
+                    Pré-apresentação carregada. Revise e envie manualmente.
                   </small>
                 ) : null}
               </form>
@@ -5801,6 +5821,7 @@ export default function InboxClientPage() {
       draggedQueueId,
       failedInboxMediaUrls,
       loadConversation,
+      loadVendasPrePresentation,
       loadOlderMessages,
       loadingConversation,
       loadingCustomerConversationCard,
@@ -5829,6 +5850,7 @@ export default function InboxClientPage() {
       selectedConversationIsAgenda,
       selectedConversationRecoveryPrimary,
       selectedConversationStatusMeta,
+      selectedVendasAgendaDraftMessage,
       selectedId,
       selectedStatus,
       saveCustomerConversationCard,
@@ -6177,17 +6199,6 @@ export default function InboxClientPage() {
     setQueueActionConversationId(null);
     setMessageReactionTargetId(null);
   }, [selectedId]);
-
-  useEffect(() => {
-    if (!selectedId || selectedBlocked || !selectedVendasAgendaDraftMessage) return;
-    setSendText((current) => {
-      const normalizedCurrent = String(current || "").trim();
-      if (sendTextDirtyRef.current && normalizedCurrent) return current;
-      if (normalizedCurrent && normalizedCurrent !== selectedVendasAgendaDraftMessage) return current;
-      sendTextDirtyRef.current = false;
-      return selectedVendasAgendaDraftMessage;
-    });
-  }, [selectedBlocked, selectedId, selectedVendasAgendaDraftMessage]);
 
   useEffect(() => {
     if (humanAlertTimerRef.current !== null) {

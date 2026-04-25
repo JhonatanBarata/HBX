@@ -48,7 +48,7 @@ import {
 } from '../messaging/webwhats-bridge.service';
 import { InboxRealtimeService } from '../messaging/inbox-realtime.service';
 import type { Request, Response } from 'express';
-import { getBackendPublicUploadDir } from '../public-assets';
+import { getBackendPublicUploadDir, resolveBackendPublicAssetPath } from '../public-assets';
 
 @Injectable()
 export class InboxService {
@@ -327,6 +327,24 @@ export class InboxService {
       return `/uploads/inbox/${relative}`;
     }
 
+    return normalized;
+  }
+
+  private resolveStoredMediaAssetPath(value: unknown) {
+    const normalized = this.normalizeStoredMediaAssetUrl(value);
+    if (!normalized || !normalized.startsWith('/uploads/')) return null;
+    return resolveBackendPublicAssetPath(normalized);
+  }
+
+  private isMissingStoredMediaAsset(value: unknown) {
+    const localPath = this.resolveStoredMediaAssetPath(value);
+    return Boolean(localPath && !existsSync(localPath));
+  }
+
+  private normalizeAvailableStoredMediaAssetUrl(value: unknown) {
+    const normalized = this.normalizeStoredMediaAssetUrl(value);
+    if (!normalized) return null;
+    if (this.isMissingStoredMediaAsset(normalized)) return null;
     return normalized;
   }
 
@@ -626,7 +644,7 @@ export class InboxService {
           variables?.quotedMessageId || contextInfo?.stanzaId || contextInfo?.id,
         ),
         quotedPreview: this.extractQuotedMessagePreview(contextInfo, variables),
-        mediaUrl: this.normalizeStoredMediaAssetUrl(
+        mediaUrl: this.normalizeAvailableStoredMediaAssetUrl(
           attachment?.url ||
             attachment?.mediaUrl ||
             attachment?.attachmentUrl ||
@@ -635,7 +653,7 @@ export class InboxService {
             mediaSource?.attachmentUrl ||
             mediaSource?.link,
         ),
-        previewUrl: this.normalizeStoredMediaAssetUrl(
+        previewUrl: this.normalizeAvailableStoredMediaAssetUrl(
           attachment?.previewUrl ||
             attachment?.url ||
             mediaSource?.previewUrl ||
@@ -706,7 +724,8 @@ export class InboxService {
         return false;
       }
 
-      return !this.normalizeStoredMediaAssetUrl(metadata.mediaUrl || metadata.previewUrl);
+      const storedMediaUrl = this.normalizeStoredMediaAssetUrl(metadata.mediaUrl || metadata.previewUrl);
+      return !storedMediaUrl || this.isMissingStoredMediaAsset(storedMediaUrl);
     });
   }
 
@@ -2248,7 +2267,34 @@ export class InboxService {
     let rows = await loadRows();
 
     if (!before && this.needsConversationMediaHydration(rows, String(conversation.contact || ''), conversation.metadata)) {
-      this.triggerBackgroundInboxConversationSync(companyId, id);
+      const hydrateKey = `media:${companyId}:${id}`;
+      const lastHydrationAt = Number(this.backgroundInboxSyncAt.get(hydrateKey) || 0);
+      if (Date.now() - lastHydrationAt > 60000) {
+        this.backgroundInboxSyncAt.set(hydrateKey, Date.now());
+        try {
+          await this.webwhatsBridge.syncConversationMessagesDetailed(companyId, id, {
+            force: true,
+            limit: 120,
+            fullSync: true,
+            maxPages: 40,
+          });
+          rows = await loadRows();
+          this.inboxRealtime.publish({
+            companyId,
+            kind: 'conversation',
+            conversationId: id,
+            at: new Date().toISOString(),
+          });
+        } catch (error: any) {
+          const message = String(error?.message || error || 'Falha ao reidratar midia da conversa.');
+          this.logger.warn(
+            `Inbox media hydration falhou company=${companyId} conversation=${id}: ${message}`,
+          );
+          this.triggerBackgroundInboxConversationSync(companyId, id);
+        }
+      } else {
+        this.triggerBackgroundInboxConversationSync(companyId, id);
+      }
     }
 
     const conversationMetadata = this.parseConversationMetadata(conversation.metadata);
@@ -2326,6 +2372,70 @@ export class InboxService {
     return 'Novo lead';
   }
 
+  private readConversationVendasAgendaQueue(metadata: Record<string, any> | null | undefined) {
+    const queue = metadata?.vendasAgendaQueue;
+    if (!queue || typeof queue !== 'object' || Array.isArray(queue)) return null;
+    return queue as Record<string, unknown>;
+  }
+
+  private async closeLinkedVendasLeadForConversation(
+    companyId: number,
+    userId: number | null,
+    conversation: any,
+    metadata: Record<string, any>,
+    closedAt: Date,
+  ) {
+    const queue = this.readConversationVendasAgendaQueue(metadata);
+    const linkedLeadId = String(queue?.leadId || '').trim();
+    let lead = linkedLeadId
+      ? await this.prisma.vendasLead.findFirst({
+          where: { companyId, id: linkedLeadId },
+          select: { id: true },
+        })
+      : null;
+
+    if (!lead) {
+      const phoneNormalized = this.normalizeStatusCardPhone(conversation?.contact);
+      const phoneVariants = phoneNormalized ? this.getStatusCardPhoneVariants(phoneNormalized) : [];
+      if (phoneVariants.length) {
+        lead = await this.prisma.vendasLead.findFirst({
+          where: {
+            companyId,
+            phoneNormalized: { in: phoneVariants },
+          },
+          orderBy: [{ updatedAt: 'desc' }],
+          select: { id: true },
+        });
+      }
+    }
+
+    if (!lead) return null;
+
+    await this.prisma.vendasLead.update({
+      where: { id: lead.id },
+      data: {
+        status: 'encerrado',
+        nextAction: 'Encerrado no Atendimento',
+        returnAt: null,
+        lastResult: 'Encerrado no Atendimento',
+        wasClosedBefore: true,
+        closedAt,
+      },
+    });
+    await this.prisma.vendasLeadTimelineEvent.create({
+      data: {
+        leadId: lead.id,
+        eventType: 'atendimento_closed',
+        title: 'Encerrado no Atendimento',
+        description: 'Card arquivado a partir do Atendimento.',
+        statusTo: 'encerrado',
+        resultLabel: 'Arquivado',
+        createdByUserId: userId,
+      },
+    });
+    return lead.id;
+  }
+
   private async resolveStatusCardRecords(companyId: number, conversationId: number) {
     const conversation = await this.ensureConversation(companyId, conversationId);
     const phoneNormalized = this.normalizeStatusCardPhone(conversation.contact);
@@ -2377,22 +2487,39 @@ export class InboxService {
       });
     }
 
-    const lead = await this.prisma.vendasLead.findFirst({
-      where: {
-        companyId,
-        OR: [
-          { phoneNormalized: { in: phoneVariants } },
-          { customerProfileId: profile.id },
-        ],
+    const conversationMetadata = this.parseConversationMetadata(conversation.metadata);
+    const vendasAgendaQueue =
+      conversationMetadata?.vendasAgendaQueue &&
+      typeof conversationMetadata.vendasAgendaQueue === 'object' &&
+      !Array.isArray(conversationMetadata.vendasAgendaQueue)
+        ? (conversationMetadata.vendasAgendaQueue as Record<string, unknown>)
+        : null;
+    const linkedLeadId = String(vendasAgendaQueue?.leadId || '').trim();
+    const leadInclude = {
+      timelineEvents: {
+        orderBy: [{ createdAt: 'desc' as const }],
+        take: 12,
       },
-      orderBy: [{ updatedAt: 'desc' }],
-      include: {
-        timelineEvents: {
-          orderBy: [{ createdAt: 'desc' }],
-          take: 12,
+    };
+    const linkedLead = linkedLeadId
+      ? await this.prisma.vendasLead.findFirst({
+          where: { companyId, id: linkedLeadId },
+          include: leadInclude,
+        })
+      : null;
+    const lead =
+      linkedLead ||
+      (await this.prisma.vendasLead.findFirst({
+        where: {
+          companyId,
+          OR: [
+            { phoneNormalized: { in: phoneVariants } },
+            { customerProfileId: profile.id },
+          ],
         },
-      },
-    });
+        orderBy: [{ updatedAt: 'desc' }],
+        include: leadInclude,
+      }));
 
     return { conversation, phoneNormalized, profile, atendimentoCustomer, lead };
   }
@@ -3034,6 +3161,60 @@ export class InboxService {
     const normalized = String(status || '').trim().toLowerCase();
     const currentMetadata = this.parseConversationMetadata(conversation.metadata);
     const clearedMetadata = this.clearAtendimentoBlockedMetadata(currentMetadata);
+    const currentQueue = this.readConversationVendasAgendaQueue(clearedMetadata);
+    const now = new Date();
+    const nowIso = now.toISOString();
+    const nextMetadata: Record<string, unknown> =
+      normalized === 'blocked'
+        ? {
+            ...clearedMetadata,
+            atendimentoBlockedAt: nowIso,
+            atendimentoBlockedReason: 'Bloqueado manualmente pelo operador.',
+            atendimentoBlockedByUserId: Number(user?.id || 0) || null,
+          }
+        : {
+            ...clearedMetadata,
+          };
+
+    if (normalized === 'closed') {
+      nextMetadata.inboxLocalDeleted = true;
+      nextMetadata.inboxLocalDeletedAt = nowIso;
+      nextMetadata.inboxLocalDeletedByUserId = Number(user?.id || 0) || null;
+      nextMetadata.inboxManualQueueOverride = 'archived';
+      nextMetadata.inboxManualQueueOverriddenAt = nowIso;
+      nextMetadata.atendimentoClosedAt = nowIso;
+      nextMetadata.atendimentoClosedByUserId = Number(user?.id || 0) || null;
+
+      if (currentQueue) {
+        nextMetadata.vendasAgendaQueue = {
+          ...currentQueue,
+          active: false,
+          draftPending: false,
+          botEligible: false,
+          botEntryPending: false,
+          manualQueueOverride: 'archived',
+          manualQueueOverriddenAt: nowIso,
+          deactivatedAt: currentQueue.deactivatedAt || nowIso,
+          syncedAt: nowIso,
+        };
+      }
+    } else if (normalized === 'open' || normalized === 'new') {
+      nextMetadata.inboxLocalDeleted = false;
+      nextMetadata.inboxLocalDeletedAt = null;
+      nextMetadata.inboxLocalDeletedByUserId = null;
+      if (String(nextMetadata.inboxManualQueueOverride || '') === 'archived') {
+        nextMetadata.inboxManualQueueOverride = null;
+        nextMetadata.inboxManualQueueOverriddenAt = null;
+      }
+      if (currentQueue && String(currentQueue.manualQueueOverride || '') === 'archived') {
+        nextMetadata.vendasAgendaQueue = {
+          ...currentQueue,
+          manualQueueOverride: null,
+          manualQueueOverriddenAt: null,
+          syncedAt: nowIso,
+        };
+      }
+    }
 
     await this.prisma.companyConversation.update({
       where: { id },
@@ -3046,17 +3227,25 @@ export class InboxService {
             : normalized === 'blocked'
               ? 'blocked_manual'
               : null,
-        metadata:
-          normalized === 'blocked'
-            ? JSON.stringify({
-                ...clearedMetadata,
-                atendimentoBlockedAt: new Date().toISOString(),
-                atendimentoBlockedReason: 'Bloqueado manualmente pelo operador.',
-                atendimentoBlockedByUserId: Number(user?.id || 0) || null,
-              })
-            : JSON.stringify(clearedMetadata),
+        metadata: JSON.stringify(nextMetadata),
       },
     });
+    if (normalized === 'closed') {
+      try {
+        await this.closeLinkedVendasLeadForConversation(
+          companyId,
+          Number(user?.id || 0) || null,
+          conversation,
+          clearedMetadata,
+          now,
+        );
+      } catch (error: any) {
+        const message = String(error?.message || error || 'Falha ao encerrar lead vinculado.');
+        this.logger.warn(
+          `Inbox close linked lead falhou company=${companyId} conversation=${id}: ${message}`,
+        );
+      }
+    }
     await this.logInboxEvent({
       companyId,
       event: 'conversation_status_updated',
@@ -3649,7 +3838,12 @@ export class InboxService {
       !Array.isArray(conversationMetadata.vendasAgendaQueue)
         ? (conversationMetadata.vendasAgendaQueue as Record<string, unknown>)
         : null;
-    if (vendasAgendaQueue?.active) {
+    const shouldConsumeVendasAgendaDraft =
+      Boolean(vendasAgendaQueue) &&
+      String(vendasAgendaQueue?.manualQueueOverride || '').trim().toLowerCase() !== 'archived' &&
+      !vendasAgendaQueue?.manualSent &&
+      Boolean(String(vendasAgendaQueue?.draftMessage || '').trim());
+    if (shouldConsumeVendasAgendaDraft) {
       const manualSentAt = new Date().toISOString();
       await this.conversations.updateConversationState(companyId, conversationId, {
         metadata: {
