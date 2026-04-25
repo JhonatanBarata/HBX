@@ -76,6 +76,7 @@ const VENDAS_WHATSAPP_LOOKUP_SOURCE = 'webwhats_lookup';
 @Injectable()
 export class VendasService {
   private readonly logger = new Logger(VendasService.name);
+  private vendasLeadAddressColumnAvailable: boolean | null = null;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -111,6 +112,28 @@ export class VendasService {
 
   private isUniqueConstraintError(error: any) {
     return String(error?.code || '').trim().toUpperCase() === 'P2002';
+  }
+
+  private async hasVendasLeadAddressColumn() {
+    if (this.vendasLeadAddressColumnAvailable !== null) {
+      return this.vendasLeadAddressColumnAvailable;
+    }
+
+    try {
+      const rows = await this.prisma.$queryRaw<Array<{ exists: boolean }>>`
+        SELECT EXISTS (
+          SELECT 1
+          FROM information_schema.columns
+          WHERE table_name = 'VendasLead'
+            AND column_name = 'address'
+        ) AS "exists"
+      `;
+      this.vendasLeadAddressColumnAvailable = Boolean(rows?.[0]?.exists);
+    } catch {
+      this.vendasLeadAddressColumnAvailable = true;
+    }
+
+    return this.vendasLeadAddressColumnAvailable;
   }
 
   private normalizePhone(value: unknown) {
@@ -1024,7 +1047,8 @@ export class VendasService {
     const phoneNormalized = this.normalizePhone(input.phone);
     const email = this.normalizeEmail(input.email);
     const name = this.normalizeText(input.name);
-    const address = this.normalizeText(input.address);
+    const addressColumnAvailable = await this.hasVendasLeadAddressColumn();
+    const address = addressColumnAvailable ? this.normalizeText(input.address) : null;
     const shortNote = this.normalizeText(input.shortNote);
     const nextAction = this.normalizeText(input.nextAction) || 'Primeiro contato';
     const status = this.normalizeStatus(input.status);
@@ -1049,7 +1073,7 @@ export class VendasService {
       phone: this.normalizeText(input.phone),
       phoneNormalized,
       email,
-      address,
+      ...(addressColumnAvailable ? { address } : {}),
       city: this.normalizeText(input.city),
       segment: this.normalizeText(input.segment),
       status,
@@ -1082,6 +1106,7 @@ export class VendasService {
             phoneNormalized: { in: phoneNormalizedCandidates.length ? phoneNormalizedCandidates : [phoneNormalized] },
           },
           orderBy: [{ updatedAt: 'desc' }],
+          ...(addressColumnAvailable ? {} : { select: leadBaseSelectWithoutAddress }),
         });
       } catch (error: any) {
         if (!this.isMissingAddressColumnError(error)) throw error;
@@ -1117,7 +1142,7 @@ export class VendasService {
           phone: baseData.phone || existing.phone,
           phoneNormalized: baseData.phoneNormalized || existing.phoneNormalized,
           email: baseData.email || existing.email,
-          address: baseData.address || existing.address,
+          ...(addressColumnAvailable ? { address: baseData.address || existing.address } : {}),
           city: baseData.city || existing.city,
           segment: baseData.segment || existing.segment,
           nextAction: baseData.nextAction || existing.nextAction,
@@ -1154,13 +1179,17 @@ export class VendasService {
 
             return tx.vendasLead.findUniqueOrThrow({
               where: { id: existing.id },
-              include: {
-                timelineEvents: {
-                  orderBy: [{ createdAt: 'desc' }],
-                  take: 12,
-                },
-              },
-            });
+              ...(addressColumnAvailable
+                ? {
+                    include: {
+                      timelineEvents: {
+                        orderBy: [{ createdAt: 'desc' }],
+                        take: 12,
+                      },
+                    },
+                  }
+                : { select: leadWithTimelineSelectWithoutAddress }),
+            } as any);
           });
         } catch (error: any) {
           if (!this.isMissingAddressColumnError(error)) throw error;
@@ -1249,13 +1278,17 @@ export class VendasService {
 
         return tx.vendasLead.findUniqueOrThrow({
           where: { id: row.id },
-          include: {
-            timelineEvents: {
-              orderBy: [{ createdAt: 'desc' }],
-              take: 12,
-            },
-          },
-        });
+          ...(addressColumnAvailable
+            ? {
+                include: {
+                  timelineEvents: {
+                    orderBy: [{ createdAt: 'desc' }],
+                    take: 12,
+                  },
+                },
+              }
+            : { select: leadWithTimelineSelectWithoutAddress }),
+        } as any);
       });
     } catch (error: any) {
       if (this.isUniqueConstraintError(error) && !input.uniqueRetry) {
@@ -1639,11 +1672,19 @@ export class VendasService {
 
   async updateLeadForUser(user: any, leadId: string, dto: UpdateVendasLeadDto) {
     const context = this.resolveUserContext(user);
+    const addressColumnAvailable = await this.hasVendasLeadAddressColumn();
+    const leadWithTimelineSelectWithoutAddress: any = this.buildVendasLeadSelectWithoutAddress({
+      timelineEvents: {
+        orderBy: [{ createdAt: 'desc' }],
+        take: 12,
+      },
+    });
     const existing = await this.prisma.vendasLead.findFirst({
       where: {
         id: String(leadId || '').trim(),
         companyId: context.companyId,
       },
+      ...(addressColumnAvailable ? {} : { select: this.buildVendasLeadSelectWithoutAddress() }),
     });
 
     if (!existing) {
@@ -1657,7 +1698,9 @@ export class VendasService {
     const phone = dto?.phone !== undefined ? this.normalizeText(dto.phone) : existing.phone;
     const email = dto?.email !== undefined ? this.normalizeEmail(dto.email) : existing.email;
     const name = dto?.name !== undefined ? this.normalizeText(dto.name) : existing.name;
-    const address = dto?.address !== undefined ? this.normalizeText(dto.address) : existing.address;
+    const address = addressColumnAvailable
+      ? (dto?.address !== undefined ? this.normalizeText(dto.address) : existing.address)
+      : null;
     const shortNote = dto?.shortNote !== undefined ? this.normalizeText(dto.shortNote) : existing.shortNote;
     const nextAction = dto?.nextAction !== undefined ? this.normalizeText(dto.nextAction) : existing.nextAction;
     const phoneNormalized = this.normalizePhone(phone);
@@ -1764,26 +1807,28 @@ export class VendasService {
       );
     }
 
+    const updateData: any = {
+      customerProfileId,
+      name,
+      phone,
+      phoneNormalized,
+      email,
+      ...(addressColumnAvailable ? { address } : {}),
+      status: nextStatus,
+      nextAction,
+      returnAt,
+      shortNote,
+      lastContactAt: nextLastContactAt,
+      attemptCount: nextAttemptCount,
+      lastResult: nextLastResult,
+      wasClosedBefore,
+      closedAt: nextStatus === 'encerrado' ? existing.closedAt || new Date() : null,
+    };
+
     const updated = await this.prisma.$transaction(async (tx) => {
       const row = await tx.vendasLead.update({
         where: { id: existing.id },
-        data: {
-          customerProfileId,
-          name,
-          phone,
-          phoneNormalized,
-          email,
-          address,
-          status: nextStatus,
-          nextAction,
-          returnAt,
-          shortNote,
-          lastContactAt: nextLastContactAt,
-          attemptCount: nextAttemptCount,
-          lastResult: nextLastResult,
-          wasClosedBefore,
-          closedAt: nextStatus === 'encerrado' ? existing.closedAt || new Date() : null,
-        },
+        data: updateData,
       });
 
       if (timelineEvents.length) {
@@ -1797,13 +1842,17 @@ export class VendasService {
 
       return tx.vendasLead.findUniqueOrThrow({
         where: { id: row.id },
-        include: {
-          timelineEvents: {
-            orderBy: [{ createdAt: 'desc' }],
-            take: 12,
-          },
-        },
-      });
+        ...(addressColumnAvailable
+          ? {
+              include: {
+                timelineEvents: {
+                  orderBy: [{ createdAt: 'desc' }],
+                  take: 12,
+                },
+              },
+            }
+          : { select: leadWithTimelineSelectWithoutAddress }),
+      } as any);
     });
 
     await this.syncLeadToInboxAgenda(context.companyId, updated, existing);
