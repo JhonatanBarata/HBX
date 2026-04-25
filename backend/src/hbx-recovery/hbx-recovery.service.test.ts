@@ -372,9 +372,9 @@ test('createMetaTemplate omits deprecated allow_category_change and reuses pendi
       headerHandle: '',
       headerMediaUrl: '',
       bodyText:
-        'Ola, tudo bem? Aqui e da {{empresa}}.\nFalo com {{cliente}}?\nTemos um assunto referente ao servico prestado no dia {{data_servico}}, posso continuar?',
+        'Olá, tudo bem? Aqui é da {{empresa}}.\nFalo com {{cliente}}?\nTemos um assunto referente ao serviço prestado no dia {{data_servico}}, posso continuar?',
       footerText: 'Recovery Colsani',
-      buttons: ['Sim.', 'Nao, obrigado.', 'Falar com atendente.'],
+      buttons: ['Sim.', 'Não, obrigado.', 'Falar com atendente.'],
       activateInHbx: true,
       variableExamples: {
         empresa: 'Colsani',

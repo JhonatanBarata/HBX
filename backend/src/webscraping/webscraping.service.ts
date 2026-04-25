@@ -674,9 +674,9 @@ export class WebscrapingService {
     const rows = response.results.map((result) => ({
       Nome: result.name,
       Telefone: result.phone,
-      'WhatsApp provavel': result.probableWhatsApp ? 'Sim' : 'Nao',
+      'WhatsApp provável': result.probableWhatsApp ? 'Sim' : 'Não',
       Nota: result.rating ?? '',
-      Avaliacoes: result.reviews,
+      Avaliações: result.reviews,
       Endereco: result.address,
       Website: result.website ? 'Abrir site' : '',
       'Google Maps': result.googleMapsUrl ? 'Abrir mapa' : '',
@@ -1458,9 +1458,9 @@ export class WebscrapingService {
     user: any,
   ) {
     return [
-      `Oi, tudo bem? Aqui e ${this.buildSpeakerName(user)} da ${this.buildCompanyName(user)}.`,
-      `Vi a ${result.name} em ${city} e trabalho com solucao para ${segment.toLowerCase()}.`,
-      'Posso te explicar em 1 minuto e ver se faz sentido para voces?',
+      `Oi, tudo bem? Aqui é ${this.buildSpeakerName(user)} da ${this.buildCompanyName(user)}.`,
+      `Vi a ${result.name} em ${city} e trabalho com solução para ${segment.toLowerCase()}.`,
+      'Posso te explicar em 1 minuto e ver se faz sentido para vocês?',
     ].join(' ');
   }
 

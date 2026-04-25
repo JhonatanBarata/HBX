@@ -38,10 +38,10 @@ SEGMENT_OPTIONS = [
 ]
 
 DEFAULT_SCRIPT_TEMPLATE = (
-    "Oi, tudo bem? Aqui e {speaker} da {company}. "
-    "Vi a {name} em {city} e trabalho com solucao para {segment} "
+    "Oi, tudo bem? Aqui é {speaker} da {company}. "
+    "Vi a {name} em {city} e trabalho com solução para {segment} "
     "que ajuda a aumentar vendas e retorno de clientes. "
-    "Posso te explicar em 1 minuto e ver se faz sentido para voces?"
+    "Posso te explicar em 1 minuto e ver se faz sentido para vocês?"
 )
 SEARCH_HISTORY_KEY = "webscraping_search_history_v1"
 SEARCH_HISTORY_LIMIT = 10
@@ -203,10 +203,10 @@ def build_export_dataframe(
             {
                 "Nome": row["Nome"],
                 "Telefone": row["Telefone"],
-                "WhatsApp (provavel)": row["WhatsApp (provavel)"],
+                "WhatsApp (provável)": row["WhatsApp (provável)"],
                 "Porte estimado": row["Porte estimado"],
                 "Nota": row["Nota"],
-                "Avaliacoes": row["Avaliacoes"],
+                "Avaliações": row["Avaliações"],
                 "Endereco": row["Endereco"],
                 "Website": f'=HYPERLINK("{website}", "Abrir site")' if website else "",
                 "Google Maps": f'=HYPERLINK("{google_maps}", "Abrir mapa")'
@@ -280,11 +280,11 @@ def run_search(
             {
                 "Nome": details.get("name", ""),
                 "Telefone": phone,
-                "Telefone canonico": canonical_phone,
-                "WhatsApp (provavel)": "Sim" if is_likely_whatsapp(phone) else "Nao",
+                "Telefone canônico": canonical_phone,
+                "WhatsApp (provável)": "Sim" if is_likely_whatsapp(phone) else "Não",
                 "Porte estimado": estimated_size,
                 "Nota": rating,
-                "Avaliacoes": reviews,
+                "Avaliações": reviews,
                 "Endereco": details.get("formatted_address", ""),
                 "Website": details.get("website", ""),
                 "Google Maps": details.get("url", ""),
@@ -295,15 +295,15 @@ def run_search(
 
     df = pd.DataFrame(rows)
     if not df.empty:
-        df = df.sort_values(by=["Nota", "Avaliacoes"], ascending=[False, False]).reset_index(
+        df = df.sort_values(by=["Nota", "Avaliações"], ascending=[False, False]).reset_index(
             drop=True
         )
     return df
 
 
 def estimate_company_size(reviews: int) -> str:
-    # A API do Google Places nao retorna capital social.
-    # Usamos o volume de avaliacoes como proxy operacional de porte.
+    # A API do Google Places não retorna capital social.
+    # Usamos o volume de avaliações como proxy operacional de porte.
     if reviews >= 200:
         return "Grande"
     if reviews >= 50:
@@ -315,18 +315,18 @@ def main() -> None:
     st.set_page_config(page_title="Prospeccao Local", layout="wide")
     runtime_payload = inspect_google_places_runtime()
 
-    st.title("Prospeccao Local de Negocios")
+    st.title("Prospecção Local de Negócios")
     st.caption(
-        "Busque negocios por cidade e segmento com telefone valido, nota e provavel WhatsApp."
+        "Busque negócios por cidade e segmento com telefone válido, nota e provável WhatsApp."
     )
     render_runtime_banner(runtime_payload)
 
     with st.expander("Possibilidades e limites", expanded=True):
         st.markdown(
-            "- Usa API oficial (mais estavel que scraping bruto).\n"
-            "- Nem todo negocio publica telefone.\n"
-            "- WhatsApp e por heuristica (numero movel), sem confirmacao oficial.\n"
-            "- Porte estimado usa volume de avaliacoes; capital social nao e fornecido pela API."
+            "- Usa API oficial (mais estável que scraping bruto).\n"
+            "- Nem todo negócio publica telefone.\n"
+            "- WhatsApp é por heurística (número móvel), sem confirmação oficial.\n"
+            "- Porte estimado usa volume de avaliações; capital social não é fornecido pela API."
         )
 
     try:

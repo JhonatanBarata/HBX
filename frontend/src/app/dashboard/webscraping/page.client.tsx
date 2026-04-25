@@ -192,9 +192,9 @@ function buildScriptText(result: SearchResult, city: string, segment: string, sp
   const safeSpeaker = speaker.trim() || "[SEU NOME]";
   const safeCompany = company.trim() || "[SUA EMPRESA]";
   return [
-    `Oi, tudo bem? Aqui e ${safeSpeaker} da ${safeCompany}.`,
-    `Vi a ${result.name} em ${city} e trabalho com solucao para ${segment.toLowerCase()}.`,
-    "Posso te explicar em 1 minuto e ver se faz sentido para voces?",
+    `Oi, tudo bem? Aqui é ${safeSpeaker} da ${safeCompany}.`,
+    `Vi a ${result.name} em ${city} e trabalho com solução para ${segment.toLowerCase()}.`,
+    "Posso te explicar em 1 minuto e ver se faz sentido para vocês?",
   ].join(" ");
 }
 
