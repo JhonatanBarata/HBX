@@ -149,6 +149,38 @@ export class VendasService {
     }
   }
 
+  private buildVendasLeadSelectWithoutAddress(extra: Record<string, any> = {}) {
+    return {
+      id: true,
+      companyId: true,
+      customerProfileId: true,
+      sourceType: true,
+      primarySource: true,
+      sourceHistoryId: true,
+      sourceSignature: true,
+      timesSeen: true,
+      name: true,
+      phone: true,
+      phoneNormalized: true,
+      email: true,
+      city: true,
+      segment: true,
+      status: true,
+      nextAction: true,
+      returnAt: true,
+      shortNote: true,
+      lastContactAt: true,
+      attemptCount: true,
+      lastResult: true,
+      wasClosedBefore: true,
+      closedAt: true,
+      createdByUserId: true,
+      createdAt: true,
+      updatedAt: true,
+      ...extra,
+    };
+  }
+
   private startOfToday(date = new Date()) {
     return new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0, 0);
   }
@@ -784,10 +816,20 @@ export class VendasService {
   async syncTodayAgendaForUser(user: any) {
     const context = this.resolveUserContext(user);
     this.logger.log(`[vendas-agenda] Iniciando espelhamento de cards de hoje para company=${context.companyId}`);
-    const rows = await this.prisma.vendasLead.findMany({
-      where: { companyId: context.companyId },
-      orderBy: [{ returnAt: 'asc' }, { updatedAt: 'desc' }, { createdAt: 'desc' }],
-    });
+    let rows: any[] = [];
+    try {
+      rows = await this.prisma.vendasLead.findMany({
+        where: { companyId: context.companyId },
+        orderBy: [{ returnAt: 'asc' }, { updatedAt: 'desc' }, { createdAt: 'desc' }],
+      });
+    } catch (error: any) {
+      if (!this.isMissingAddressColumnError(error)) throw error;
+      rows = await this.prisma.vendasLead.findMany({
+        where: { companyId: context.companyId },
+        orderBy: [{ returnAt: 'asc' }, { updatedAt: 'desc' }, { createdAt: 'desc' }],
+        select: this.buildVendasLeadSelectWithoutAddress(),
+      });
+    }
     const todayRows = rows.filter((row) => this.shouldMirrorLeadToInboxAgenda(row));
     const whatsappAvailabilityByLeadId = await this.ensureWhatsappAvailabilityForRows(
       context.companyId,
@@ -1016,34 +1058,7 @@ export class VendasService {
       closedAt: status === 'encerrado' ? new Date() : null,
       createdByUserId: input.userId,
     };
-    const leadBaseSelectWithoutAddress: any = {
-      id: true,
-      companyId: true,
-      customerProfileId: true,
-      sourceType: true,
-      primarySource: true,
-      sourceHistoryId: true,
-      sourceSignature: true,
-      timesSeen: true,
-      name: true,
-      phone: true,
-      phoneNormalized: true,
-      email: true,
-      city: true,
-      segment: true,
-      status: true,
-      nextAction: true,
-      returnAt: true,
-      shortNote: true,
-      lastContactAt: true,
-      attemptCount: true,
-      lastResult: true,
-      wasClosedBefore: true,
-      closedAt: true,
-      createdByUserId: true,
-      createdAt: true,
-      updatedAt: true,
-    };
+    const leadBaseSelectWithoutAddress: any = this.buildVendasLeadSelectWithoutAddress();
     const leadWithTimelineSelectWithoutAddress: any = {
       ...leadBaseSelectWithoutAddress,
       timelineEvents: {
@@ -1398,38 +1413,12 @@ export class VendasService {
 
   async getBoardForUser(user: any) {
     const context = this.resolveUserContext(user);
-    const leadWithTimelineSelectWithoutAddress: any = {
-      id: true,
-      companyId: true,
-      customerProfileId: true,
-      sourceType: true,
-      primarySource: true,
-      sourceHistoryId: true,
-      sourceSignature: true,
-      timesSeen: true,
-      name: true,
-      phone: true,
-      phoneNormalized: true,
-      email: true,
-      city: true,
-      segment: true,
-      status: true,
-      nextAction: true,
-      returnAt: true,
-      shortNote: true,
-      lastContactAt: true,
-      attemptCount: true,
-      lastResult: true,
-      wasClosedBefore: true,
-      closedAt: true,
-      createdByUserId: true,
-      createdAt: true,
-      updatedAt: true,
+    const leadWithTimelineSelectWithoutAddress: any = this.buildVendasLeadSelectWithoutAddress({
       timelineEvents: {
         orderBy: [{ createdAt: 'desc' }],
         take: 12,
       },
-    };
+    });
     let rows: any[] = [];
     try {
       rows = await this.prisma.vendasLead.findMany({

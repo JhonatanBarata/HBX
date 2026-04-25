@@ -98,6 +98,86 @@ export class InboxService {
     return companyId;
   }
 
+  private normalizeVendasPhone(value: unknown) {
+    const digits = this.customerProfileService.normalizePhone(value);
+    if (!digits) return null;
+    if (!digits.startsWith('55') && (digits.length === 10 || digits.length === 11)) {
+      return `55${digits}`;
+    }
+    return digits;
+  }
+
+  private buildVendasPhoneCandidates(value: unknown) {
+    const digits = this.normalizeVendasPhone(value);
+    if (!digits) return [];
+    const candidates = new Set([digits]);
+    if (digits.startsWith('55')) candidates.add(digits.slice(2));
+    return Array.from(candidates).filter(Boolean);
+  }
+
+  private async archiveVendasLeadFromConversation(input: {
+    companyId: number;
+    userId?: number | null;
+    conversation: any;
+    metadata: Record<string, any>;
+    reason: string;
+  }) {
+    const queue =
+      input.metadata?.vendasAgendaQueue &&
+      typeof input.metadata.vendasAgendaQueue === 'object' &&
+      !Array.isArray(input.metadata.vendasAgendaQueue)
+        ? (input.metadata.vendasAgendaQueue as Record<string, unknown>)
+        : null;
+    const leadId = String(queue?.leadId || '').trim();
+    const phoneCandidates = this.buildVendasPhoneCandidates(input.conversation?.contact);
+    const lead = leadId
+      ? await this.prisma.vendasLead.findFirst({
+          where: { id: leadId, companyId: input.companyId },
+          select: { id: true, status: true, closedAt: true },
+        })
+      : phoneCandidates.length
+        ? await this.prisma.vendasLead.findFirst({
+            where: {
+              companyId: input.companyId,
+              phoneNormalized: { in: phoneCandidates },
+            },
+            orderBy: [{ updatedAt: 'desc' }],
+            select: { id: true, status: true, closedAt: true },
+          })
+        : null;
+
+    if (!lead) return null;
+
+    const now = new Date();
+    await this.prisma.$transaction(async (tx) => {
+      await tx.vendasLead.update({
+        where: { id: lead.id },
+        data: {
+          status: 'encerrado',
+          wasClosedBefore: true,
+          closedAt: lead.closedAt || now,
+          lastResult: 'Encerrado no Atendimento',
+        },
+      });
+      await tx.vendasLeadTimelineEvent.create({
+        data: {
+          leadId: lead.id,
+          eventType: 'lead_closed',
+          title: 'Lead arquivado pelo Atendimento',
+          description: input.reason,
+          sourceType: 'atendimento',
+          statusFrom: String(lead.status || 'novo'),
+          statusTo: 'encerrado',
+          resultLabel: 'Encerrado no Atendimento',
+          returnAt: null,
+          createdByUserId: Number(input.userId || 0) || null,
+        },
+      });
+    });
+
+    return lead.id;
+  }
+
   openRealtimeStream(user: any, req: Request, res: Response) {
     const companyId = this.requireCompanyIdFromUser(user);
 
@@ -3410,6 +3490,12 @@ export class InboxService {
     const companyId = this.requireCompanyIdFromUser(user);
     const conversation = await this.ensureConversation(companyId, conversationId);
     const metadata = this.parseConversationMetadata(conversation.metadata);
+    const exchangedMessages = await this.prisma.companyMessage.count({
+      where: {
+        companyId,
+        conversationId: conversation.id,
+      },
+    });
     const currentQueue =
       metadata?.vendasAgendaQueue &&
       typeof metadata.vendasAgendaQueue === 'object' &&
@@ -3437,6 +3523,76 @@ export class InboxService {
         manualQueueOverriddenAt: now,
         deactivatedAt: currentQueue.deactivatedAt || now,
         syncedAt: now,
+      };
+    }
+
+    const archivedLeadId = await this.archiveVendasLeadFromConversation({
+      companyId,
+      userId: Number(user?.id || 0) || null,
+      conversation,
+      metadata,
+      reason:
+        exchangedMessages > 0
+          ? 'Conversa encerrada no Atendimento e enviada para Excluídos no HBX.'
+          : 'Conversa sem mensagens encerrada no Atendimento; card comercial arquivado.',
+    });
+
+    if (exchangedMessages === 0) {
+      await this.prisma.$transaction(async (tx) => {
+        await tx.companyMessage.deleteMany({
+          where: {
+            companyId,
+            conversationId: conversation.id,
+          },
+        });
+        await tx.companyConversation.delete({
+          where: { id: conversation.id },
+        });
+      });
+
+      try {
+        await this.customerProfileService.upsertAtendimentoProfileState({
+          companyId,
+          phone: String(conversation.contact || '').trim(),
+          botOff: true,
+          botOffReason: 'Conversa sem mensagens removida do Atendimento.',
+          botOffAt: new Date(),
+        } as any);
+      } catch (error) {
+        await this.logInboxEvent({
+          companyId,
+          event: 'conversation_empty_delete_profile_sync_failed',
+          message: 'Falha ao persistir BOT_OFF no CustomerProfile durante remocao de conversa vazia.',
+          conversationId,
+          phone: String(conversation.contact || '').trim(),
+          result: 'warning',
+          extra: {
+            error: error instanceof Error ? error.message : 'unknown_error',
+          },
+        });
+      }
+
+      await this.logInboxEvent({
+        companyId,
+        event: 'conversation_empty_deleted',
+        message: 'Conversa sem mensagens removida do backend e card comercial arquivado.',
+        conversationId,
+        phone: String(conversation.contact || '').trim(),
+        result: 'deleted_empty',
+        extra: {
+          localOnly: true,
+          whatsappCommandSent: false,
+          archivedLeadId,
+        },
+      });
+
+      return {
+        success: true,
+        id: String(conversation.id),
+        message: 'Conversa sem mensagens removida do Atendimento e card arquivado em Vendas.',
+        deleted: true,
+        archivedLeadId,
+        localOnly: true,
       };
     }
 
@@ -3479,12 +3635,14 @@ export class InboxService {
       extra: {
         localOnly: true,
         whatsappCommandSent: false,
+        archivedLeadId,
       },
     });
     return {
       success: true,
       id: String(conversation.id),
       message: 'Conversa enviada para Excluídos apenas no HBX.',
+      archivedLeadId,
       localOnly: true,
     };
   }

@@ -31,6 +31,7 @@ export function buildAtendimentoContextActions(input: {
   openAutomation: () => void;
   openAgenda: () => void;
   updateStatus: (nextStatus: AtendimentoMutableStatus) => void | Promise<void>;
+  closeConversation: () => void | Promise<void>;
   blockConversation: () => void;
   unblockConversation: () => void;
 }): WorkspaceActionDescriptor[] {
@@ -43,6 +44,7 @@ export function buildAtendimentoContextActions(input: {
     openAutomation,
     openAgenda,
     updateStatus,
+    closeConversation,
     blockConversation,
     unblockConversation,
   } = input;
@@ -86,7 +88,7 @@ export function buildAtendimentoContextActions(input: {
         kind: "button",
         label: "Encerrar",
         tone: selectedStatus === "closed" ? "primary" : "secondary",
-        onClick: () => updateStatus("closed"),
+        onClick: closeConversation,
       },
     );
   }

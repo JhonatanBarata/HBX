@@ -4429,7 +4429,7 @@ export default function InboxClientPage() {
       if (!conversationId) return;
       setError(null);
       try {
-        const response = await apiFetch<{ message?: string }>(`/inbox/conversations/${conversationId}`, {
+        const response = await apiFetch<{ message?: string; deleted?: boolean }>(`/inbox/conversations/${conversationId}`, {
           method: "DELETE",
         });
         setQueueActionConversationId(null);
@@ -4437,16 +4437,29 @@ export default function InboxClientPage() {
         setDeleteConversationDialog(null);
         conversationDetailCacheRef.current.delete(conversationId);
         customerConversationCardCacheRef.current.delete(conversationId);
-        setManualQueueOverrides((current) => {
-          return { ...current, [conversationId]: "archived" };
-        });
+        if (response?.deleted) {
+          setConversations((current) => current.filter((conversation) => conversation.id !== conversationId));
+          if (selectedIdRef.current === conversationId) {
+            setSelectedId(null);
+            setSelectedConversation(null);
+          }
+          setManualQueueOverrides((current) => {
+            const next = { ...current };
+            delete next[conversationId];
+            return next;
+          });
+        } else {
+          setManualQueueOverrides((current) => {
+            return { ...current, [conversationId]: "archived" };
+          });
+        }
         setNotice({
           tone: "success",
           text:
             String(response?.message || "").trim() ||
             "Conversa enviada para Excluídos apenas no HBX.",
         });
-        await loadConversations({ preferredId: conversationId, silent: true });
+        await loadConversations({ preferredId: response?.deleted ? undefined : conversationId, silent: true });
       } catch (deleteError) {
         const message = deleteError instanceof Error ? deleteError.message : "Falha ao excluir conversa.";
         setError(message);
@@ -5896,6 +5909,9 @@ export default function InboxClientPage() {
                             setAgendaStudioOpen(true);
                           },
                           updateStatus,
+                          closeConversation: () => {
+                            if (selectedId) void deleteConversationById(selectedId);
+                          },
                           blockConversation,
                           unblockConversation,
                         })}
@@ -6079,6 +6095,7 @@ export default function InboxClientPage() {
       inboxQueueDiagnostics,
       isConversationStageSwitching,
       isRecording,
+      deleteConversationById,
       deleteSentMessage,
       draggedQueueId,
       failedInboxMediaUrls,
