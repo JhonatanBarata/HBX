@@ -9,6 +9,8 @@ services:
       - ./backend/.env
     ports:
       - "3000:3000"
+    volumes:
+      - ./backend/public/uploads:/app/public/uploads
     networks:
       - hbx_net
 

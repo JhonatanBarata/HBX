@@ -2250,6 +2250,7 @@ export default function InboxClientPage() {
   >([]);
   const [inboxBootstrapCelebrate, setInboxBootstrapCelebrate] = useState(false);
   const inboxBootstrapStageTimerRef = useRef<number | null>(null);
+  const inboxMediaUrlStatusRef = useRef<Record<string, "checking" | "ok" | "missing">>({});
 
   const markInboxMediaUrlFailed = useCallback((url?: string | null) => {
     const normalized = String(url || "").trim();
@@ -3725,6 +3726,63 @@ export default function InboxClientPage() {
     hasRecoveryCapability && conversationForView
       ? isAtendimentoRecoveryPrimary(conversationForView)
       : false;
+
+  useEffect(() => {
+    if (!conversationForView || !conversationMessagesForView.length) return;
+
+    const apiBase = getInboxApiBaseUrl().replace(/\/+$/, "");
+    const localPrefix = `${apiBase}/uploads/inbox/`;
+    const pending: string[] = [];
+
+    for (const message of conversationMessagesForView) {
+      const rendered = parseInboxMessageMedia(message, conversationForView);
+      const urls = [rendered.imageUrl, rendered.videoUrl, rendered.audioUrl, rendered.documentUrl]
+        .map((item) => String(item || "").trim())
+        .filter(Boolean);
+
+      for (const url of urls) {
+        if (!url.startsWith(localPrefix)) continue;
+        if (failedInboxMediaUrls[url]) continue;
+        const status = inboxMediaUrlStatusRef.current[url];
+        if (status === "ok" || status === "missing" || status === "checking") continue;
+        pending.push(url);
+      }
+    }
+
+    if (!pending.length) return;
+
+    let cancelled = false;
+    const token = getToken();
+
+    const run = async () => {
+      for (const url of pending) {
+        inboxMediaUrlStatusRef.current[url] = "checking";
+        try {
+          const response = await fetch(url, {
+            method: "HEAD",
+            headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+            credentials: "include",
+          });
+          if (cancelled) return;
+          if (!response.ok) {
+            inboxMediaUrlStatusRef.current[url] = "missing";
+            markInboxMediaUrlFailed(url);
+            continue;
+          }
+          inboxMediaUrlStatusRef.current[url] = "ok";
+        } catch {
+          if (cancelled) return;
+          inboxMediaUrlStatusRef.current[url] = "missing";
+          markInboxMediaUrlFailed(url);
+        }
+      }
+    };
+
+    void run();
+    return () => {
+      cancelled = true;
+    };
+  }, [conversationForView, conversationMessagesForView, failedInboxMediaUrls, markInboxMediaUrlFailed]);
 
   useEffect(() => {
     if (!selectedId || selectedBlocked) return;
