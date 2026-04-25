@@ -1561,6 +1561,7 @@ export default function TopBar() {
       : pendingHumanCount > 0
         ? `${pendingHumanCount} na fila`
         : "Status em leitura";
+  const visibleOperationalStatusChips = (operationalStatus?.statuses || []).filter((chip) => chip.key !== "payment");
   const whatsAppDialogNode = (
     <WhatsAppOperationalDialog
       isOpen={whatsAppDetailOpen}
@@ -1852,7 +1853,7 @@ export default function TopBar() {
 
             {operationalStatusReady ? (
               <div className="app-topbar__statusRail" aria-label="Status operacional da empresa">
-                {operationalStatus?.statuses.map((chip) => (
+                {visibleOperationalStatusChips.map((chip) => (
                   <button
                     key={chip.key}
                     type="button"

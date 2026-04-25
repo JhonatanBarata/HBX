@@ -33,19 +33,44 @@ export default function HbxConfirmDialog({
   if (!open || typeof document === "undefined") return null;
 
   return createPortal(
-    <div className="fixed inset-0 z-[140] flex items-center justify-center p-4">
+    <div
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 140,
+        display: "grid",
+        placeItems: "center",
+        padding: 16,
+      }}
+    >
       <button
         type="button"
-        className="absolute inset-0"
-        style={{ background: "color-mix(in srgb, var(--overlay) 76%, transparent)" }}
+        style={{
+          position: "absolute",
+          inset: 0,
+          border: 0,
+          background: "color-mix(in srgb, var(--overlay) 76%, transparent)",
+          cursor: busy ? "default" : "pointer",
+        }}
         aria-label="Fechar confirmação"
         onClick={busy ? undefined : onCancel}
       />
-      <section className="panel relative z-[1] w-full max-w-[520px] p-4" role="dialog" aria-modal="true">
-        <h2 className="text-lg font-semibold">{title}</h2>
-        {description ? <p className="mt-2 text-sm text-muted">{description}</p> : null}
-        {children ? <div className="mt-4 space-y-3">{children}</div> : null}
-        <div className="mt-5 flex justify-end gap-2">
+      <section
+        className="panel"
+        style={{
+          position: "relative",
+          zIndex: 1,
+          width: "min(520px, 100%)",
+          padding: 18,
+          boxShadow: "0 28px 70px color-mix(in srgb, var(--foreground) 18%, transparent)",
+        }}
+        role="dialog"
+        aria-modal="true"
+      >
+        <h2 style={{ margin: 0, fontSize: "1.05rem", fontWeight: 800 }}>{title}</h2>
+        {description ? <p className="text-muted" style={{ margin: "8px 0 0", fontSize: ".9rem" }}>{description}</p> : null}
+        {children ? <div style={{ marginTop: 14, display: "grid", gap: 12 }}>{children}</div> : null}
+        <div style={{ marginTop: 18, display: "flex", justifyContent: "flex-end", gap: 8, flexWrap: "wrap" }}>
           <button type="button" className="btn btn-secondary btn-sm" onClick={onCancel} disabled={busy}>
             {cancelLabel}
           </button>

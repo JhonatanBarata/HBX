@@ -59,6 +59,7 @@ type VendasAgendaQueueMetadata = {
   manualQueueOverride?: string | null;
   manualQueueOverriddenAt?: string | null;
   inheritedDraftMessage?: string | null;
+  whatsappAvailabilityStatus?: string | null;
 };
 
 type VendasWhatsappAvailabilityStatus = 'unknown' | 'available' | 'unavailable';
@@ -700,7 +701,12 @@ export class VendasService {
     };
   }
 
-  private async deactivateLeadInInboxAgenda(companyId: number, phoneRaw: unknown, leadId: string) {
+  private async deactivateLeadInInboxAgenda(
+    companyId: number,
+    phoneRaw: unknown,
+    leadId: string,
+    options?: { whatsappAvailabilityStatus?: VendasWhatsappAvailabilityStatus | null },
+  ) {
     const conversation = await this.findConversationByPhone(companyId, phoneRaw);
     if (!conversation) return false;
 
@@ -719,6 +725,7 @@ export class VendasService {
           draftPending: false,
           botEligible: false,
           botEntryPending: false,
+          whatsappAvailabilityStatus: options?.whatsappAvailabilityStatus || currentQueue.whatsappAvailabilityStatus || null,
           syncedAt: new Date().toISOString(),
           deactivatedAt: new Date().toISOString(),
         },
@@ -800,6 +807,9 @@ export class VendasService {
       const availability = whatsappAvailabilityByLeadId.get(String(row.id)) || null;
       if (availability?.status === 'unavailable') {
         skippedWithoutWhatsapp += 1;
+        await this.deactivateLeadInInboxAgenda(context.companyId, row?.phoneNormalized || row?.phone, String(row.id), {
+          whatsappAvailabilityStatus: 'unavailable',
+        });
         continue;
       }
       activeLeadIds.add(String(row.id));
@@ -1575,6 +1585,9 @@ export class VendasService {
       const availability = whatsappAvailabilityByLeadId.get(String(entry.lead?.id || '')) || null;
       if (availability?.status === 'unavailable') {
         skippedWithoutWhatsapp += 1;
+        await this.deactivateLeadInInboxAgenda(context.companyId, entry.lead?.phoneNormalized || entry.lead?.phone, String(entry.lead?.id || ''), {
+          whatsappAvailabilityStatus: 'unavailable',
+        });
         continue;
       }
       await this.syncLeadToInboxAgenda(context.companyId, entry.lead, undefined, {

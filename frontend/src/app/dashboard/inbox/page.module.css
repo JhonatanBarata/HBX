@@ -1394,6 +1394,23 @@
   background: linear-gradient(180deg, color-mix(in srgb, var(--danger) 42%, #fff1f2), color-mix(in srgb, var(--danger) 72%, #7f1d1d));
 }
 
+.conversationQueueItemUnavailable::after {
+  background:
+    radial-gradient(circle at left center, color-mix(in srgb, var(--danger) 18%, transparent), transparent 48%),
+    linear-gradient(90deg, color-mix(in srgb, var(--danger) 18%, transparent) 0%, color-mix(in srgb, var(--danger) 10%, transparent) 72%, transparent 100%);
+}
+
+.conversationQueueItemUnavailable.conversationQueueItemUnread::after {
+  opacity: 1;
+  transform: scaleX(1);
+}
+
+.conversationQueueItemUnavailable.conversationQueueItemUnread strong,
+.conversationQueueItemUnavailable.conversationQueueItemUnread p,
+.conversationQueueItemUnavailable.conversationQueueItemUnread span {
+  color: color-mix(in srgb, var(--danger) 82%, var(--foreground));
+}
+
 .conversationQueueItemUnavailable .conversationQueueMetaTime {
   color: color-mix(in srgb, var(--danger) 76%, #ffd7d7);
 }
@@ -5640,6 +5657,23 @@
 :global(html[data-theme-mode="light"]) .conversationQueueItemUnread .conversationUnreadBadge {
   background: #25d366;
   color: #06281e;
+}
+
+:global(html[data-theme-mode="light"]) .conversationQueueItemUnavailable.conversationQueueItemUnread::after {
+  background:
+    radial-gradient(circle at left center, color-mix(in srgb, var(--danger) 16%, transparent), transparent 48%),
+    linear-gradient(
+      90deg,
+      color-mix(in srgb, var(--danger) 12%, transparent) 0%,
+      color-mix(in srgb, var(--danger) 8%, transparent) 72%,
+      transparent 100%
+    );
+}
+
+:global(html[data-theme-mode="light"]) .conversationQueueItemUnavailable.conversationQueueItemUnread strong,
+:global(html[data-theme-mode="light"]) .conversationQueueItemUnavailable.conversationQueueItemUnread p,
+:global(html[data-theme-mode="light"]) .conversationQueueItemUnavailable.conversationQueueItemUnread span {
+  color: color-mix(in srgb, var(--danger) 84%, var(--foreground));
 }
 
 :global(html[data-theme-mode="light"]) .whatsAppConversationShell {
