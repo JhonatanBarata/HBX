@@ -334,9 +334,9 @@ export const DEFAULT_ATENDIMENTO_BOT_CONFIG: AtendimentoBotConfig = {
     makeDefaultButton('welcome_message', 'talk_human', 'Falar com atendente', 1),
   ],
   returningCustomerMessage:
-    'Que bom te ver de novo, {{cliente}}. Vou continuar daqui e te mostrar as opcoes disponiveis.',
+    'Que bom te ver de novo, {{cliente}}. Vou continuar daqui e te mostrar as opções disponíveis.',
   returningCustomerButtons: [
-    makeDefaultButton('returning_customer', 'show_main_menu', 'Ver opcoes', 0),
+    makeDefaultButton('returning_customer', 'show_main_menu', 'Ver opções', 0),
     makeDefaultButton('returning_customer', 'talk_human', 'Falar com atendente', 1),
   ],
   mainMenuPrompt: 'Escolha abaixo como deseja continuar:',
