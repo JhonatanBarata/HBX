@@ -15,7 +15,7 @@ Aplicação SaaS multi-tenant com backend NestJS, frontend Next.js, Prisma e Pos
 
 `npm run commit` faz `git add -A` na estrutura principal e cria um commit unico no `master`, sem push automatico.
 
-`npm run publish` publica somente o `HEAD` ja commitado no `master`. O script falha se houver working tree sujo, valida o projeto, cria backup do banco remoto, faz push do `master`, verifica o deploy e mantém apenas o backup remoto mais recente quando tudo termina bem. Ele não sincroniza automaticamente o banco local para produção.
+`npm run publish` publica somente o `HEAD` ja commitado no `master`. O script falha se houver working tree sujo, valida o projeto, faz push do `master`, executa o deploy Hostinger do backend/webscraping, verifica esse deploy e mantém apenas o backup remoto mais recente quando tudo termina bem. O frontend oficial em `https://www.hbxsystem.com.br` continua em Vercel e pode permanecer alguns minutos com bundle anterior mesmo depois do publish.
 
 ## Ambientes
 
@@ -44,6 +44,7 @@ Para salvar o projeto antes de formatar a maquina e reconstruir o ambiente depoi
 - `npm run up` recusa `backend/.env` apontando para banco remoto no host, para evitar abrir Prisma Studio ou ferramentas locais contra produção por engano.
 - `npm run up` valida backend em `http://localhost:3000/health` e frontend em `http://localhost:3001`; Prisma Studio vira opcional se `backend/.env` nao estiver pronto para o host.
 - `npm run publish` roda preflight de Prisma, build e coerência estrutural antes de qualquer push.
+- Mudanças em `frontend/` não entram no deploy Hostinger; a validação visual em produção depende do rollout separado da Vercel para `www.hbxsystem.com.br`.
 - `npm run publish` também faz backup remoto antes do push e só rota backups antigos quando a verificação pós-deploy passa.
 - `npm run backup:prod` e `npm run verify:prod` recusam targets locais e só aceitam URLs remotas de produção.
 - O bootstrap do usuário master é controlado por ambiente; em produção o padrão oficial continua sendo `BOOTSTRAP_SYSTEM_MASTER=false`.
