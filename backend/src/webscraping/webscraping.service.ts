@@ -16,6 +16,7 @@ const PLACES_DETAILS_URL = 'https://maps.googleapis.com/maps/api/place/details/j
 const MAX_QUANTITY = 20;
 const GLOBAL_CACHE_TTL_HOURS = 24;
 const TRIAL_DAILY_MOTOR_LIMIT = 2;
+const RECENT_HISTORY_LIMIT = 20;
 
 type RuntimeStatus = 'online' | 'degraded';
 type SearchSource = 'history' | 'google' | 'hybrid' | 'global_cache';
@@ -485,17 +486,21 @@ export class WebscrapingService {
     return response;
   }
 
-  async listRecentHistoryForUser(user: any, limit = 40) {
+  async listRecentHistoryForUser(user: any, limit = RECENT_HISTORY_LIMIT) {
     const context = this.resolveContext(user);
     const historyEnabled = await this.supportsHistoryPersistence();
     const globalCacheEnabled = await this.supportsGlobalCachePersistence();
-    const safeLimit = Math.min(Math.max(Math.trunc(limit || 0), 1), 120);
+    const safeLimit = Math.min(Math.max(Math.trunc(limit || 0), 1), RECENT_HISTORY_LIMIT);
+    if (historyEnabled) {
+      await this.pruneCompanyHistory(context.companyId, RECENT_HISTORY_LIMIT);
+    }
+    const readLimit = Math.max(safeLimit * 3, RECENT_HISTORY_LIMIT);
     const [rows, globalRows] = await Promise.all([
       historyEnabled
         ? this.prisma.webscrapingSearchHistory.findMany({
             where: { companyId: context.companyId },
             orderBy: [{ lastUsedAt: 'desc' }, { updatedAt: 'desc' }, { createdAt: 'desc' }],
-            take: safeLimit,
+            take: readLimit,
             include: {
               places: {
                 orderBy: [{ rank: 'asc' }],
@@ -512,7 +517,7 @@ export class WebscrapingService {
               },
             },
             orderBy: [{ lastServedAt: 'desc' }, { updatedAt: 'desc' }, { createdAt: 'desc' }],
-            take: safeLimit,
+            take: readLimit,
             include: {
               places: {
                 orderBy: [{ rank: 'asc' }],
@@ -523,7 +528,7 @@ export class WebscrapingService {
         : Promise.resolve([] as any[]),
     ]);
 
-    const items = [
+    const itemsWithKeys = [
       ...rows.map((row) => ({
         id: row.id,
         city: row.city,
@@ -538,6 +543,11 @@ export class WebscrapingService {
         scope: 'company' as const,
         sourceLabel: 'Historico da empresa',
         cacheValidUntil: null,
+        dedupeKey: this.buildHistoryDedupeKey({
+          city: row.city,
+          segment: row.segment,
+          filtersJson: row.filtersJson,
+        }),
       })),
       ...globalRows.map((row) => ({
         id: `global:${row.id}`,
@@ -553,10 +563,27 @@ export class WebscrapingService {
         scope: 'global' as const,
         sourceLabel: 'Historico global',
         cacheValidUntil: row.cacheValidUntil.toISOString(),
+        dedupeKey: this.buildHistoryDedupeKey({
+          city: row.normalizedCity,
+          segment: row.normalizedSegment,
+          filtersJson: row.filtersJson,
+        }),
       })),
     ]
+      .sort((left, right) => new Date(right.lastUsedAt).getTime() - new Date(left.lastUsedAt).getTime());
+
+    const uniqueItems = new Map<string, (typeof itemsWithKeys)[number]>();
+    for (const item of itemsWithKeys) {
+      const current = uniqueItems.get(item.dedupeKey);
+      if (!current || (current.scope === 'global' && item.scope === 'company')) {
+        uniqueItems.set(item.dedupeKey, item);
+      }
+    }
+
+    const items = Array.from(uniqueItems.values())
       .sort((left, right) => new Date(right.lastUsedAt).getTime() - new Date(left.lastUsedAt).getTime())
-      .slice(0, safeLimit);
+      .slice(0, safeLimit)
+      .map(({ dedupeKey: _dedupeKey, ...item }) => item);
 
     return { items };
   }
@@ -1003,6 +1030,20 @@ export class WebscrapingService {
     }
   }
 
+  private buildHistoryDedupeKey(input: {
+    city?: string | null;
+    segment?: string | null;
+    filtersJson?: string | null;
+    filters?: WebscrapingSearchFilters | null;
+  }) {
+    const filters = input.filters || this.parseFiltersJson(input.filtersJson);
+    return [
+      `city:${normalizeLookupValue(String(input.city || ''))}`,
+      `segment:${normalizeLookupValue(String(input.segment || ''))}`,
+      `filters:${JSON.stringify(filters)}`,
+    ].join('|');
+  }
+
   private buildSearchResponse(
     input: NormalizedSearchInput,
     results: WebscrapingContactResult[],
@@ -1219,6 +1260,49 @@ export class WebscrapingService {
     }).catch(() => null);
   }
 
+  private async pruneCompanyHistory(companyId: number, limit = RECENT_HISTORY_LIMIT) {
+    const rows = await this.prisma.webscrapingSearchHistory.findMany({
+      where: { companyId },
+      orderBy: [{ lastUsedAt: 'desc' }, { updatedAt: 'desc' }, { createdAt: 'desc' }],
+      take: 240,
+      select: {
+        id: true,
+        city: true,
+        segment: true,
+        filtersJson: true,
+      },
+    }).catch(() => []);
+
+    if (!rows.length) return;
+
+    const seen = new Set<string>();
+    const deleteIds: string[] = [];
+    let kept = 0;
+
+    for (const row of rows) {
+      const dedupeKey = this.buildHistoryDedupeKey({
+        city: row.city,
+        segment: row.segment,
+        filtersJson: row.filtersJson,
+      });
+      if (seen.has(dedupeKey) || kept >= limit) {
+        deleteIds.push(row.id);
+        continue;
+      }
+      seen.add(dedupeKey);
+      kept += 1;
+    }
+
+    if (deleteIds.length) {
+      await this.prisma.webscrapingSearchHistory.deleteMany({
+        where: {
+          companyId,
+          id: { in: deleteIds },
+        },
+      }).catch(() => null);
+    }
+  }
+
   private async persistHistory(
     context: SearchExecutionContext,
     input: NormalizedSearchInput,
@@ -1284,6 +1368,8 @@ export class WebscrapingService {
         where: { id: existingHistoryId },
       }).catch(() => null);
     }
+
+    await this.pruneCompanyHistory(context.companyId, RECENT_HISTORY_LIMIT);
 
     return saved.id;
   }

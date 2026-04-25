@@ -385,7 +385,7 @@ export default function WebscrapingClientPage() {
         const [runtimePayload, profilePayload, historyPayload] = await Promise.all([
           apiFetch<RuntimeResponse>("/webscraping/runtime"),
           apiFetch<CurrentUser>("/profile/current-user"),
-          apiFetch<HistoryResponse>("/webscraping/history?limit=120"),
+          apiFetch<HistoryResponse>("/webscraping/history?limit=20"),
         ]);
         if (cancelled) return;
         setRuntime(runtimePayload);
@@ -490,7 +490,7 @@ export default function WebscrapingClientPage() {
 
   async function refreshHistory() {
     try {
-      const payload = await apiFetch<HistoryResponse>("/webscraping/history?limit=120");
+      const payload = await apiFetch<HistoryResponse>("/webscraping/history?limit=20");
       setHistoryItems(payload.items || []);
     } catch {
       // no-op
