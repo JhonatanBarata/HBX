@@ -149,8 +149,8 @@ export class InboxService {
     if (!lead) return null;
 
     const now = new Date();
-    await this.prisma.$transaction(async (tx) => {
-      await tx.vendasLead.update({
+    try {
+      await this.prisma.vendasLead.update({
         where: { id: lead.id },
         data: {
           status: 'encerrado',
@@ -159,7 +159,28 @@ export class InboxService {
           lastResult: 'Encerrado no Atendimento',
         },
       });
-      await tx.vendasLeadTimelineEvent.create({
+    } catch (error) {
+      try {
+        await this.logInboxEvent({
+          companyId: input.companyId,
+          event: 'conversation_vendas_archive_failed',
+          message: 'Falha ao arquivar card de Vendas durante encerramento no Atendimento.',
+          conversationId: Number(input.conversation?.id || 0) || null,
+          phone: String(input.conversation?.contact || '').trim(),
+          result: 'warning',
+          extra: {
+            leadId: lead.id,
+            error: error instanceof Error ? error.message : 'unknown_error',
+          },
+        });
+      } catch {
+        // do not block inbox deletion because audit logging failed
+      }
+      return null;
+    }
+
+    try {
+      await this.prisma.vendasLeadTimelineEvent.create({
         data: {
           leadId: lead.id,
           eventType: 'lead_closed',
@@ -173,7 +194,24 @@ export class InboxService {
           createdByUserId: Number(input.userId || 0) || null,
         },
       });
-    });
+    } catch (error) {
+      try {
+        await this.logInboxEvent({
+          companyId: input.companyId,
+          event: 'conversation_vendas_archive_timeline_failed',
+          message: 'Card de Vendas foi arquivado, mas a timeline nao foi registrada.',
+          conversationId: Number(input.conversation?.id || 0) || null,
+          phone: String(input.conversation?.contact || '').trim(),
+          result: 'warning',
+          extra: {
+            leadId: lead.id,
+            error: error instanceof Error ? error.message : 'unknown_error',
+          },
+        });
+      } catch {
+        // do not block inbox deletion because audit logging failed
+      }
+    }
 
     return lead.id;
   }
