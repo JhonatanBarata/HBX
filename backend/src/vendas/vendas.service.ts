@@ -382,6 +382,7 @@ export class VendasService {
       phone: row?.phone ? String(row.phone) : null,
       phoneNormalized: row?.phoneNormalized ? String(row.phoneNormalized) : null,
       email: row?.email ? String(row.email) : null,
+      address: row?.address ? String(row.address) : null,
       city: row?.city ? String(row.city) : null,
       segment: row?.segment ? String(row.segment) : null,
       status,
@@ -948,6 +949,7 @@ export class VendasService {
     name?: string | null;
     phone?: string | null;
     email?: string | null;
+    address?: string | null;
     city?: string | null;
     segment?: string | null;
     status?: string | null;
@@ -958,6 +960,7 @@ export class VendasService {
     const phoneNormalized = this.normalizePhone(input.phone);
     const email = this.normalizeEmail(input.email);
     const name = this.normalizeText(input.name);
+    const address = this.normalizeText(input.address);
     const shortNote = this.normalizeText(input.shortNote);
     const nextAction = this.normalizeText(input.nextAction) || 'Primeiro contato';
     const status = this.normalizeStatus(input.status);
@@ -982,6 +985,7 @@ export class VendasService {
       phone: this.normalizeText(input.phone),
       phoneNormalized,
       email,
+      address,
       city: this.normalizeText(input.city),
       segment: this.normalizeText(input.segment),
       status,
@@ -1028,6 +1032,7 @@ export class VendasService {
           phone: baseData.phone || existing.phone,
           phoneNormalized: baseData.phoneNormalized || existing.phoneNormalized,
           email: baseData.email || existing.email,
+          address: baseData.address || existing.address,
           city: baseData.city || existing.city,
           segment: baseData.segment || existing.segment,
           nextAction: baseData.nextAction || existing.nextAction,
@@ -1271,6 +1276,7 @@ export class VendasService {
       name: dto?.name || null,
       phone: dto?.phone || null,
       email: dto?.email || null,
+      address: dto?.address || null,
       status: dto?.status || 'novo',
       nextAction: dto?.nextAction || 'Primeiro contato',
       returnAt: this.parseDate(dto?.returnAt) || new Date(),
@@ -1311,6 +1317,7 @@ export class VendasService {
         name: item?.name || null,
         phone: item?.phone || item?.phoneDigits || null,
         email: item?.email || null,
+        address: item?.address || null,
         city: item?.city || null,
         segment: item?.segment || null,
         status: 'novo',
@@ -1387,6 +1394,7 @@ export class VendasService {
     const phone = dto?.phone !== undefined ? this.normalizeText(dto.phone) : existing.phone;
     const email = dto?.email !== undefined ? this.normalizeEmail(dto.email) : existing.email;
     const name = dto?.name !== undefined ? this.normalizeText(dto.name) : existing.name;
+    const address = dto?.address !== undefined ? this.normalizeText(dto.address) : existing.address;
     const shortNote = dto?.shortNote !== undefined ? this.normalizeText(dto.shortNote) : existing.shortNote;
     const nextAction = dto?.nextAction !== undefined ? this.normalizeText(dto.nextAction) : existing.nextAction;
     const phoneNormalized = this.normalizePhone(phone);
@@ -1502,6 +1510,7 @@ export class VendasService {
           phone,
           phoneNormalized,
           email,
+          address,
           status: nextStatus,
           nextAction,
           returnAt,

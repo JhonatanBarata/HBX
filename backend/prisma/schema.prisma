@@ -746,6 +746,7 @@ model VendasLead {
   phone             String?
   phoneNormalized   String?
   email             String?
+  address           String?
   city              String?
   segment           String?
   status            String   @default("novo") // novo | contato | retorno | qualificado | encerrado

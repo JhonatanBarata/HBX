@@ -5487,7 +5487,7 @@ export default function InboxClientPage() {
                     aria-label={sending ? "Enviando mensagem" : "Enviar mensagem"}
                     title={sending ? "Enviando..." : "Enviar"}
                   >
-                    {sending ? "Enviando..." : "➤"}
+                    {sending ? <span className={styles.whatsAppComposerButtonSpinner} aria-hidden="true" /> : "➤"}
                   </button>
                 </div>
                 {selectedBlocked ? (
@@ -5597,33 +5597,6 @@ export default function InboxClientPage() {
             <div className={styles.contextStack}>
               {contextTab === "conversa" ? (
                 <div className={styles.contextGrid}>
-                  <ChatInfoCard
-                    title="Resumo do cliente"
-                    meta={
-                      selectedConversationRecoveryPrimary
-                        ? "financeiro"
-                        : selectedConversationHasRecoveryContext
-                          ? "atendimento + financeiro"
-                          : "atendimento"
-                    }
-                  >
-                    {buildAtendimentoContextSummary({
-                      conversation: selectedConversation,
-                      displayName: selectedConversationDisplayName,
-                      statusLabel: selectedConversationStatusMeta?.label ?? "-",
-                      updatedAtLabel: formatDateLabel(selectedConversation.updatedAt, mounted),
-                      blockedAtLabel: selectedBlocked
-                        ? formatDateLabel(selectedConversation.blockedAt, mounted)
-                        : null,
-                      formatCurrency,
-                      allowRecoveryCapability: hasRecoveryCapability,
-                    }).map((item) => (
-                      <p key={item.label}>
-                        <strong>{item.label}:</strong> {item.value}
-                      </p>
-                    ))}
-                  </ChatInfoCard>
-
                   <ChatInfoCard title="Card do cliente" meta={customerConversationCard?.lead?.statusLabel || "Vendas"}>
                     <LiquidGlassCard
                       accentTone="success"

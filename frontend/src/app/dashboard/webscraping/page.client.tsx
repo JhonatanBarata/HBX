@@ -639,9 +639,10 @@ export default function WebscrapingClientPage() {
             name: result.name,
             phone: result.phone,
             phoneDigits: result.phoneDigits,
+            address: result.address,
             city: query.city,
             segment: query.segment,
-            shortNote: [result.address, `Nota ${result.rating ?? "-"}`, `${result.reviews} avaliações`]
+            shortNote: [`Nota ${result.rating ?? "-"}`, `${result.reviews} avaliações`]
               .filter(Boolean)
               .join(" • "),
             scriptText: buildScriptText(

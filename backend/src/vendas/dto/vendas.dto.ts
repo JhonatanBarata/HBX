@@ -35,6 +35,11 @@ export class CreateManualVendasLeadDto {
   email?: string;
 
   @IsOptional()
+  @IsString()
+  @MaxLength(280)
+  address?: string;
+
+  @IsOptional()
   @IsIn(LEAD_STATUSES)
   status?: (typeof LEAD_STATUSES)[number];
 
@@ -68,6 +73,11 @@ export class UpdateVendasLeadDto {
   @Transform(({ value }) => optionalEmail(value))
   @IsEmail()
   email?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(280)
+  address?: string;
 
   @IsOptional()
   @IsIn(LEAD_STATUSES)
@@ -107,6 +117,11 @@ export class ImportWebscrapingLeadItemDto {
   @Transform(({ value }) => optionalEmail(value))
   @IsEmail()
   email?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(280)
+  address?: string;
 
   @IsOptional()
   @IsString()
