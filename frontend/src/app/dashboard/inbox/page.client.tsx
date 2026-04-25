@@ -52,7 +52,7 @@ import {
   mapAtendimentoConversationToneToQueueTone,
 } from "@/components/workspace/adapters/atendimento";
 import { acquirePopupTopbarLock } from "@/lib/popup-visibility";
-import { apiFetch, getToken } from "../_lib/api";
+import { apiFetch, getDashboardApiBaseUrl, getToken } from "../_lib/api";
 import { startSmartPolling } from "../_lib/polling";
 import { useRequireAuth } from "../_lib/useRequireAuth";
 import AgendaPanel from "./_components/AgendaPanel";
@@ -506,15 +506,18 @@ function makeClientId(prefix: string) {
   return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
-const API_PUBLIC_BASE = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000").replace(/\/+$/, "");
 const INBOX_RECENT_MESSAGES_LIMIT = 200;
 const WHATSAPP_ASSET_EXPIRY_GRACE_MS = 5 * 60 * 1000;
+
+function getInboxApiBaseUrl() {
+  return getDashboardApiBaseUrl();
+}
 
 function getWhatsAppAssetExpiryMs(raw: string) {
   const value = String(raw || "").trim();
   if (!value) return null;
   try {
-    const parsed = new URL(value, API_PUBLIC_BASE);
+    const parsed = new URL(value, getInboxApiBaseUrl());
     if (!/(^|\.)whatsapp\.net$/i.test(parsed.hostname)) return null;
     const rawExpiry = parsed.searchParams.get("oe");
     if (!rawExpiry) return null;
@@ -574,7 +577,7 @@ async function readInboxRealtimeStream(input: {
   const token = getToken();
   if (!token) return;
 
-  const response = await fetch(`${API_PUBLIC_BASE}/inbox/events`, {
+  const response = await fetch(`${getInboxApiBaseUrl()}/inbox/events`, {
     method: "GET",
     headers: {
       Accept: "text/event-stream",
@@ -691,10 +694,11 @@ function toAbsoluteAssetUrl(raw: string) {
   const value = String(raw || "").trim();
   if (!value) return "";
   const assetPath = toUploadedInboxAssetPath(value);
+  const apiBase = getInboxApiBaseUrl();
   const resolved = /^https?:\/\//i.test(value)
     ? value
     : assetPath
-      ? `${API_PUBLIC_BASE}${assetPath}`
+      ? `${apiBase}${assetPath}`
       : "";
   if (!resolved) return "";
   return isExpiredWhatsAppAssetUrl(resolved) ? "" : resolved;
@@ -886,8 +890,9 @@ function parseInboxMessageMedia(message: InboxMessage, conversation?: InboxConve
   const videoUrl = mediaKind === "video" && resolvedMediaUrl ? resolvedMediaUrl : null;
   const audioUrl = mediaKind === "audio" && resolvedMediaUrl ? resolvedMediaUrl : null;
   const documentUrl = mediaKind === "document" && resolvedMediaUrl ? resolvedMediaUrl : null;
+  const apiBase = getInboxApiBaseUrl();
 
-  if (resolvedMediaUrl && fallbackMediaUrl && firstLine === fallbackMediaUrl.replace(API_PUBLIC_BASE, "")) {
+  if (resolvedMediaUrl && fallbackMediaUrl && firstLine === fallbackMediaUrl.replace(apiBase, "")) {
     text = text.split("\n").slice(1).join("\n").trim();
   } else if (resolvedMediaUrl && fallbackMediaUrl && firstLineIsUrl) {
     text = text.split("\n").slice(1).join("\n").trim();

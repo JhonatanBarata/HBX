@@ -1,6 +1,7 @@
 "use client";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3000";
+const API_URL = (process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3000").replace(/\/+$/, "");
+const DASHBOARD_API_PROXY_PREFIX = "/hbx/api";
 const SHELL_GET_CACHE_TTL_MS = 30000;
 const SHELL_GET_CACHE_PATHS = new Set([
   "/profile/current-user",
@@ -26,6 +27,27 @@ type ApiFetchInit = RequestInit & {
 };
 
 const apiGetCache = new Map<string, ApiCacheEntry>();
+
+function normalizeApiBaseUrl(value: string) {
+  return String(value || "").replace(/\/+$/, "");
+}
+
+export function getDashboardApiBaseUrl() {
+  const rawBase = normalizeApiBaseUrl(API_URL);
+  if (typeof window === "undefined") return rawBase;
+
+  const sameOriginBase = `${window.location.origin}${DASHBOARD_API_PROXY_PREFIX}`;
+
+  try {
+    const resolved = new URL(rawBase || "/", window.location.origin);
+    if (resolved.origin !== window.location.origin) {
+      return sameOriginBase;
+    }
+    return normalizeApiBaseUrl(resolved.toString());
+  } catch {
+    return sameOriginBase;
+  }
+}
 
 function isApiErrorPayload(value: unknown): value is ApiErrorPayload {
   return Boolean(value) && typeof value === "object";
@@ -119,7 +141,7 @@ export async function apiFetch<T>(
   init?: ApiFetchInit
 ): Promise<T> {
   const { skipAuth, requireAuth, timeoutMs, ...fetchInit } = init || {};
-  const url = path.startsWith("http") ? path : `${API_URL}${path}`;
+  const url = path.startsWith("http") ? path : `${getDashboardApiBaseUrl()}${path}`;
   const token = getToken();
   if (requireAuth && !skipAuth && !token) {
     throw new Error("Sessão expirada. Faça login novamente.");

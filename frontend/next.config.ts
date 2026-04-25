@@ -9,6 +9,10 @@ const nextConfig: NextConfig = {
 		const backendUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3000";
 		return [
 			{
+				source: "/hbx/api/:path*",
+				destination: `${backendUrl}/:path*`,
+			},
+			{
 				source: "/hbx/static/:path*",
 				destination: `${backendUrl}/webscraping/static/:path*`,
 			},
