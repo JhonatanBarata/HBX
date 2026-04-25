@@ -130,7 +130,7 @@ export class VendasService {
       `;
       this.vendasLeadAddressColumnAvailable = Boolean(rows?.[0]?.exists);
     } catch {
-      this.vendasLeadAddressColumnAvailable = true;
+      this.vendasLeadAddressColumnAvailable = false;
     }
 
     return this.vendasLeadAddressColumnAvailable;
@@ -1044,10 +1044,18 @@ export class VendasService {
     shortNote?: string | null;
     uniqueRetry?: boolean;
   }) {
+    const leadBaseSelectWithoutAddress: any = this.buildVendasLeadSelectWithoutAddress();
+    const leadWithTimelineSelectWithoutAddress: any = {
+      ...leadBaseSelectWithoutAddress,
+      timelineEvents: {
+        orderBy: [{ createdAt: 'desc' }],
+        take: 12,
+      },
+    };
     const phoneNormalized = this.normalizePhone(input.phone);
     const email = this.normalizeEmail(input.email);
     const name = this.normalizeText(input.name);
-    const addressColumnAvailable = await this.hasVendasLeadAddressColumn();
+    const addressColumnAvailable = false;
     const address = addressColumnAvailable ? this.normalizeText(input.address) : null;
     const shortNote = this.normalizeText(input.shortNote);
     const nextAction = this.normalizeText(input.nextAction) || 'Primeiro contato';
@@ -1087,15 +1095,6 @@ export class VendasService {
       closedAt: status === 'encerrado' ? new Date() : null,
       createdByUserId: input.userId,
     };
-    const leadBaseSelectWithoutAddress: any = this.buildVendasLeadSelectWithoutAddress();
-    const leadWithTimelineSelectWithoutAddress: any = {
-      ...leadBaseSelectWithoutAddress,
-      timelineEvents: {
-        orderBy: [{ createdAt: 'desc' }],
-        take: 12,
-      },
-    };
-
     if (phoneNormalized) {
       const phoneNormalizedCandidates = this.buildLeadPhoneNormalizedCandidates(input.phone);
       let existing: any = null;
@@ -1672,7 +1671,7 @@ export class VendasService {
 
   async updateLeadForUser(user: any, leadId: string, dto: UpdateVendasLeadDto) {
     const context = this.resolveUserContext(user);
-    const addressColumnAvailable = await this.hasVendasLeadAddressColumn();
+    const addressColumnAvailable = false;
     const leadWithTimelineSelectWithoutAddress: any = this.buildVendasLeadSelectWithoutAddress({
       timelineEvents: {
         orderBy: [{ createdAt: 'desc' }],
