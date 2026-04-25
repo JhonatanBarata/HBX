@@ -2945,7 +2945,9 @@ export default function InboxClientPage() {
           setLastConversationSyncAt(new Date().toISOString());
         }
 
-        const preferredId = options?.preferredId ?? selectedIdRef.current;
+        const preferredId = options && Object.prototype.hasOwnProperty.call(options, "preferredId")
+          ? options.preferredId
+          : selectedIdRef.current;
         const selectedSummary =
           preferredId ? data.find((conversation) => conversation.id === preferredId) || null : null;
         const currentQueue = inboxQueueRef.current;
@@ -4442,6 +4444,8 @@ export default function InboxClientPage() {
           if (selectedIdRef.current === conversationId) {
             setSelectedId(null);
             setSelectedConversation(null);
+            selectedIdRef.current = null;
+            selectedConversationRef.current = null;
           }
           setManualQueueOverrides((current) => {
             const next = { ...current };
@@ -4459,7 +4463,7 @@ export default function InboxClientPage() {
             String(response?.message || "").trim() ||
             "Conversa enviada para Excluídos apenas no HBX.",
         });
-        await loadConversations({ preferredId: response?.deleted ? undefined : conversationId, silent: true });
+        await loadConversations({ preferredId: response?.deleted ? null : conversationId, silent: true });
       } catch (deleteError) {
         const message = deleteError instanceof Error ? deleteError.message : "Falha ao excluir conversa.";
         setError(message);
