@@ -125,7 +125,6 @@ type LeadDraft = {
   name: string;
   phone: string;
   email: string;
-  address: string;
   status: LeadStatus;
   nextAction: string;
   returnAt: string;
@@ -253,7 +252,6 @@ function createDraft(lead: LeadItem): LeadDraft {
     name: String(lead.name || ""),
     phone: String(lead.phone || ""),
     email: String(lead.email || ""),
-    address: String(lead.address || ""),
     status: lead.status,
     nextAction: String(lead.nextAction || ""),
     returnAt: toDatetimeLocal(lead.returnAt),
@@ -692,7 +690,6 @@ function LeadCardView({ lead, draft, blockKey, selected, saving, onFocus, onQuic
             </label>
             <label className={styles.fieldWide}><span className={styles.fieldLabel}>Próxima ação</span><input className={styles.fieldInput} value={draft.nextAction} onChange={(e) => onDraftChange?.(lead.id, { nextAction: e.target.value })} /></label>
             <label className={styles.field}><span className={styles.fieldLabel}>Retorno</span><input className={styles.fieldInput} type="datetime-local" value={draft.returnAt} onChange={(e) => onDraftChange?.(lead.id, { returnAt: e.target.value })} /></label>
-            <label className={styles.fieldWide}><span className={styles.fieldLabel}>Endereço</span><textarea className={styles.fieldTextarea} rows={3} value={draft.address} onChange={(e) => onDraftChange?.(lead.id, { address: e.target.value })} /></label>
             <label className={styles.fieldWide}><span className={styles.fieldLabel}>Observação curta</span><textarea className={styles.fieldTextarea} rows={3} value={draft.shortNote} onChange={(e) => onDraftChange?.(lead.id, { shortNote: e.target.value })} /></label>
           </div>
           <div className={styles.detailFooterActions}>
@@ -736,7 +733,7 @@ function LeadCardView({ lead, draft, blockKey, selected, saving, onFocus, onQuic
           <div className={styles.leadInfoBlock}>
             <span className={glassCardStyles.sectionLabel}>Endereço</span>
             <strong className={glassCardStyles.sectionTitle}>Localização</strong>
-            <p className={glassCardStyles.bodyText}>{draft.address || lead.address || "Sem endereço registrado."}</p>
+            <p className={glassCardStyles.bodyText}>{lead.address || "Sem endereço registrado."}</p>
           </div>
           <div className={styles.leadInfoBlock}>
             <span className={glassCardStyles.sectionLabel}>Resumo</span>
@@ -839,7 +836,6 @@ export default function VendasClientPage() {
     name: "",
     phone: "",
     email: "",
-    address: "",
     nextAction: "Primeiro contato",
     returnAt: plusDaysDatetimeLocal(0),
     shortNote: "",
@@ -1152,7 +1148,6 @@ export default function VendasClientPage() {
       const body: any = {
         name: manualLead.name || undefined,
         phone: manualLead.phone || undefined,
-        address: manualLead.address || undefined,
         nextAction: manualLead.nextAction || undefined,
         returnAt: manualLead.returnAt || undefined,
         shortNote: manualLead.shortNote || undefined,
@@ -1168,7 +1163,6 @@ export default function VendasClientPage() {
         name: "",
         phone: "",
         email: "",
-        address: "",
         nextAction: "Primeiro contato",
         returnAt: plusDaysDatetimeLocal(0),
         shortNote: "",
@@ -1186,7 +1180,7 @@ export default function VendasClientPage() {
     setDrafts((prev) => ({
       ...prev,
       [leadId]: {
-        ...(prev[leadId] || { name: "", phone: "", email: "", address: "", status: "novo" as LeadStatus, nextAction: "", returnAt: "", shortNote: "" }),
+        ...(prev[leadId] || { name: "", phone: "", email: "", status: "novo" as LeadStatus, nextAction: "", returnAt: "", shortNote: "" }),
         ...patch,
       },
     }));
@@ -1194,7 +1188,7 @@ export default function VendasClientPage() {
 
   async function saveLead(leadId: string, patch?: Partial<LeadDraft>, successMessage?: string) {
     const draft = {
-      ...(drafts[leadId] || { name: "", phone: "", email: "", address: "", status: "novo" as LeadStatus, nextAction: "", returnAt: "", shortNote: "" }),
+      ...(drafts[leadId] || { name: "", phone: "", email: "", status: "novo" as LeadStatus, nextAction: "", returnAt: "", shortNote: "" }),
       ...(patch || {}),
     };
     const email = String(draft.email || "").trim();
@@ -1205,7 +1199,6 @@ export default function VendasClientPage() {
         name: draft.name,
         phone: draft.phone,
         email: email || null,
-        address: draft.address,
         status: draft.status,
         nextAction: draft.nextAction,
         returnAt: draft.returnAt || "",
@@ -1886,7 +1879,6 @@ export default function VendasClientPage() {
               <label className={styles.field}><span className={styles.fieldLabel}>Telefone</span><input className={styles.fieldInput} value={manualLead.phone} onChange={(event) => setManualLead((prev) => ({ ...prev, phone: event.target.value }))} placeholder="Ex: (11) 99999-0000" /></label>
               <label className={styles.field}><span className={styles.fieldLabel}>E-mail</span><input className={styles.fieldInput} value={manualLead.email} onChange={(event) => setManualLead((prev) => ({ ...prev, email: event.target.value }))} placeholder="Opcional" /></label>
               <label className={styles.field}><span className={styles.fieldLabel}>Retorno</span><input className={styles.fieldInput} type="datetime-local" value={manualLead.returnAt} onChange={(event) => setManualLead((prev) => ({ ...prev, returnAt: event.target.value }))} /></label>
-              <label className={styles.fieldWide}><span className={styles.fieldLabel}>Endereço</span><textarea className={styles.fieldTextarea} rows={3} value={manualLead.address} onChange={(event) => setManualLead((prev) => ({ ...prev, address: event.target.value }))} placeholder="Endereço do cliente." /></label>
               <label className={styles.fieldWide}><span className={styles.fieldLabel}>Próxima ação</span><input className={styles.fieldInput} value={manualLead.nextAction} onChange={(event) => setManualLead((prev) => ({ ...prev, nextAction: event.target.value }))} placeholder="Ex: Primeiro contato" /></label>
               <label className={styles.fieldWide}><span className={styles.fieldLabel}>Observação</span><textarea className={styles.fieldTextarea} rows={4} value={manualLead.shortNote} onChange={(event) => setManualLead((prev) => ({ ...prev, shortNote: event.target.value }))} placeholder="Contexto rápido do lead." /></label>
               <div className={styles.formFooter}><button type="submit" className={styles.primaryAction} disabled={creatingManual}>{creatingManual ? "Criando..." : "Criar lead"}</button></div>
