@@ -3538,17 +3538,52 @@ export class InboxService {
     });
 
     if (exchangedMessages === 0) {
-      await this.prisma.$transaction(async (tx) => {
-        await tx.companyMessage.deleteMany({
-          where: {
-            companyId,
-            conversationId: conversation.id,
+      try {
+        await this.prisma.$transaction(async (tx) => {
+          await tx.companyMessage.deleteMany({
+            where: {
+              companyId,
+              conversationId: conversation.id,
+            },
+          });
+          await tx.companyConversation.delete({
+            where: { id: conversation.id },
+          });
+        });
+      } catch (error) {
+        await this.logInboxEvent({
+          companyId,
+          event: 'conversation_empty_physical_delete_failed',
+          message: 'Falha ao remover conversa vazia do backend; aplicando arquivamento local.',
+          conversationId,
+          phone: String(conversation.contact || '').trim(),
+          result: 'archive_fallback',
+          extra: {
+            error: error instanceof Error ? error.message : 'unknown_error',
+            archivedLeadId,
           },
         });
-        await tx.companyConversation.delete({
-          where: { id: conversation.id },
+
+        await this.conversations.updateConversationState(companyId, conversation.id, {
+          botActive: false,
+          humanAssigned: false,
+          flowResult: 'local_deleted',
+          metadata: {
+            ...nextMetadata,
+            inboxPhysicalDeleteFailedAt: new Date().toISOString(),
+          },
         });
-      });
+
+        return {
+          success: true,
+          id: String(conversation.id),
+          message: 'Conversa arquivada em Excluídos e card arquivado em Vendas.',
+          deleted: false,
+          archivedLeadId,
+          localOnly: true,
+          fallback: 'archived',
+        };
+      }
 
       try {
         await this.customerProfileService.upsertAtendimentoProfileState({
