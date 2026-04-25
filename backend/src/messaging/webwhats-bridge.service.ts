@@ -894,6 +894,40 @@ export class WebwhatsBridgeService {
     };
   }
 
+  async sendWhatsAppAudio(
+    companyId: number,
+    input: {
+      to: string;
+      audio: string;
+      conversationId?: number | null;
+    },
+  ) {
+    const company = await this.requireConnectedCompany(companyId);
+
+    const tenantKey = this.buildTenantKey(company.id);
+    const target = await this.resolveSendTarget(companyId, {
+      to: input.to,
+      conversationId: input.conversationId,
+    });
+    const response = await this.requestRead<any>({
+      method: 'POST',
+      path: `/message/sendWhatsAppAudio/${encodeURIComponent(tenantKey)}`,
+      purpose: 'envio de audio de voz via Webwhats',
+      data: {
+        number: target,
+        audio: this.resolveOutboundMediaInput(input.audio),
+      },
+    });
+
+    const rawMessageId = this.normalizeOptionalString(response?.key?.id || response?.id);
+    return {
+      target,
+      response,
+      rawMessageId,
+      providerMessageId: rawMessageId ? this.buildProviderMessageId(tenantKey, rawMessageId) : null,
+    };
+  }
+
   async sendInteractive(
     companyId: number,
     input: {
