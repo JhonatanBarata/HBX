@@ -2224,6 +2224,10 @@ export default function InboxClientPage() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
+  const recordingAudioContextRef = useRef<AudioContext | null>(null);
+  const recordingAnalyserRef = useRef<AnalyserNode | null>(null);
+  const recordingLevelTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const recordingMaxPeakRef = useRef(0);
   const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const recordingSecondsRef = useRef(0);
   const customerReturnInputRef = useRef<HTMLInputElement | null>(null);
@@ -4540,6 +4544,10 @@ export default function InboxClientPage() {
       clearInterval(recordingTimerRef.current);
       recordingTimerRef.current = null;
     }
+    if (recordingLevelTimerRef.current) {
+      clearInterval(recordingLevelTimerRef.current);
+      recordingLevelTimerRef.current = null;
+    }
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
       mediaRecorderRef.current.stop();
     }
@@ -4548,13 +4556,41 @@ export default function InboxClientPage() {
 
   const startRecording = useCallback(async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      setError(null);
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+          channelCount: 1,
+        },
+      });
       const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
         ? "audio/webm;codecs=opus"
         : MediaRecorder.isTypeSupported("audio/ogg;codecs=opus")
           ? "audio/ogg;codecs=opus"
           : "audio/webm";
       const recorder = new MediaRecorder(stream, { mimeType });
+      const AudioContextCtor = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+      if (AudioContextCtor) {
+        const context = new AudioContextCtor();
+        const source = context.createMediaStreamSource(stream);
+        const analyser = context.createAnalyser();
+        const samples = new Float32Array(analyser.fftSize);
+        analyser.fftSize = 2048;
+        source.connect(analyser);
+        recordingAudioContextRef.current = context;
+        recordingAnalyserRef.current = analyser;
+        recordingMaxPeakRef.current = 0;
+        recordingLevelTimerRef.current = setInterval(() => {
+          analyser.getFloatTimeDomainData(samples);
+          let peak = 0;
+          for (const value of samples) {
+            peak = Math.max(peak, Math.abs(value));
+          }
+          recordingMaxPeakRef.current = Math.max(recordingMaxPeakRef.current, peak);
+        }, 200);
+      }
       mediaRecorderRef.current = recorder;
       audioChunksRef.current = [];
       recordingSecondsRef.current = 0;
@@ -4564,9 +4600,27 @@ export default function InboxClientPage() {
         if (e.data.size > 0) audioChunksRef.current.push(e.data);
       };
       recorder.onstop = () => {
+        if (recordingLevelTimerRef.current) {
+          clearInterval(recordingLevelTimerRef.current);
+          recordingLevelTimerRef.current = null;
+        }
+        recordingAnalyserRef.current = null;
+        const audioContext = recordingAudioContextRef.current;
+        recordingAudioContextRef.current = null;
+        if (audioContext && audioContext.state !== "closed") {
+          void audioContext.close().catch(() => undefined);
+        }
         stream.getTracks().forEach((t) => t.stop());
         const baseMime = mimeType.split(";")[0];
         const blob = new Blob(audioChunksRef.current, { type: baseMime });
+        const maxPeak = recordingMaxPeakRef.current;
+        recordingMaxPeakRef.current = 0;
+        if (!blob.size || maxPeak < 0.005) {
+          setAudioPreview(null);
+          setError("Não detectei som no microfone. Verifique o dispositivo de entrada do Windows antes de gravar áudio.");
+          audioChunksRef.current = [];
+          return;
+        }
         const url = URL.createObjectURL(blob);
         setAudioPreview({ blob, url, mimeType: baseMime, seconds: recordingSecondsRef.current });
         audioChunksRef.current = [];
