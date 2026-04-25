@@ -109,6 +109,10 @@ export class VendasService {
     return message.includes('address') && (message.includes('column') || message.includes('does not exist'));
   }
 
+  private isUniqueConstraintError(error: any) {
+    return String(error?.code || '').trim().toUpperCase() === 'P2002';
+  }
+
   private normalizePhone(value: unknown) {
     const digits = this.customerProfileService.normalizePhone(value);
     if (!digits) return null;
@@ -1015,6 +1019,7 @@ export class VendasService {
     nextAction?: string | null;
     returnAt?: Date | null;
     shortNote?: string | null;
+    uniqueRetry?: boolean;
   }) {
     const phoneNormalized = this.normalizePhone(input.phone);
     const email = this.normalizeEmail(input.email);
@@ -1253,6 +1258,9 @@ export class VendasService {
         });
       });
     } catch (error: any) {
+      if (this.isUniqueConstraintError(error) && !input.uniqueRetry) {
+        return this.createOrUpdateLead({ ...input, uniqueRetry: true });
+      }
       if (!this.isMissingAddressColumnError(error)) throw error;
       const { address: _ignoredAddress, ...baseDataWithoutAddress } = baseData;
       created = await this.prisma.$transaction(async (tx) => {
@@ -1527,33 +1535,47 @@ export class VendasService {
     let updatedCount = 0;
     const importedLeads: any[] = [];
     const importedLeadPairs: Array<{ lead: any; item: any }> = [];
+    const failedImports: Array<{ name: string | null; phone: string | null; error: string }> = [];
 
     for (const item of incomingLeads) {
       if (!this.normalizeText(item?.phone) && !this.normalizeText(item?.phoneDigits)) {
         continue;
       }
 
-      const result = await this.createOrUpdateLead({
-        companyId: context.companyId,
-        userId: context.userId,
-        sourceType: 'webscraping',
-        sourceHistoryId: this.normalizeText(item?.sourceHistoryId) || this.normalizeText(dto?.sourceHistoryId),
-        sourceSignature: [this.normalizeText(item?.segment), this.normalizeText(item?.city)].filter(Boolean).join('|') || null,
-        name: item?.name || null,
-        phone: item?.phone || item?.phoneDigits || null,
-        email: item?.email || null,
-        address: item?.address || null,
-        city: item?.city || null,
-        segment: item?.segment || null,
-        status: 'novo',
-        nextAction: 'Primeiro contato',
-        returnAt: new Date(),
-        shortNote: this.buildImportedLeadNote({
+      let result: any;
+      try {
+        result = await this.createOrUpdateLead({
+          companyId: context.companyId,
+          userId: context.userId,
+          sourceType: 'webscraping',
+          sourceHistoryId: this.normalizeText(item?.sourceHistoryId) || this.normalizeText(dto?.sourceHistoryId),
+          sourceSignature: [this.normalizeText(item?.segment), this.normalizeText(item?.city)].filter(Boolean).join('|') || null,
+          name: item?.name || null,
+          phone: item?.phone || item?.phoneDigits || null,
+          email: item?.email || null,
+          address: item?.address || null,
           city: item?.city || null,
           segment: item?.segment || null,
-          shortNote: item?.shortNote || null,
-        }),
-      });
+          status: 'novo',
+          nextAction: 'Primeiro contato',
+          returnAt: new Date(),
+          shortNote: this.buildImportedLeadNote({
+            city: item?.city || null,
+            segment: item?.segment || null,
+            shortNote: item?.shortNote || null,
+          }),
+        });
+      } catch (error: any) {
+        failedImports.push({
+          name: this.normalizeText(item?.name),
+          phone: this.normalizeText(item?.phone || item?.phoneDigits),
+          error: String(error?.message || error || 'Falha ao importar lead.'),
+        });
+        this.logger.warn(
+          `[vendas-import] Lead ignorado por falha no import company=${context.companyId} phone=${this.normalizeText(item?.phone || item?.phoneDigits) || '-'} error=${String(error?.message || error)}`,
+        );
+        continue;
+      }
 
       if (result.action === 'created') {
         createdCount += 1;
@@ -1562,6 +1584,14 @@ export class VendasService {
       }
       importedLeads.push(result.lead);
       importedLeadPairs.push({ lead: result.lead, item });
+    }
+
+    if (!importedLeadPairs.length) {
+      throw new BadRequestException(
+        failedImports.length
+          ? `Nenhum lead foi importado. Primeira falha: ${failedImports[0]?.error || 'erro desconhecido'}`
+          : 'Nenhum lead valido do webscraping foi enviado para o CRM.',
+      );
     }
 
     let skippedWithoutWhatsapp = 0;
@@ -1590,8 +1620,13 @@ export class VendasService {
       createdCount,
       updatedCount,
       skippedWithoutWhatsapp,
+      failedCount: failedImports.length,
+      failedImports,
       leads: importedLeads,
       message:
+        failedImports.length > 0
+          ? `${createdCount + updatedCount} lead(s) processados no CRM. ${failedImports.length} falharam e foram ignorados.`
+          : 
         skippedWithoutWhatsapp > 0
           ? `${createdCount + updatedCount} lead(s) processados no CRM. ${skippedWithoutWhatsapp} numero(s) foram bloqueados porque o motor nao encontrou WhatsApp.`
           : createdCount && updatedCount
