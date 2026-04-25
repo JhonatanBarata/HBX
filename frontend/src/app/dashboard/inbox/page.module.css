@@ -4371,7 +4371,8 @@
 }
 
 .listSearchAction,
-.conversationPrimaryAction {
+.conversationPrimaryAction,
+.conversationSecondaryAction {
   border: 1px solid color-mix(in srgb, var(--button-secondary) 22%, var(--line));
   box-shadow: inset 0 1px 0 color-mix(in srgb, var(--surface) 22%, transparent);
   transition:
@@ -4383,13 +4384,15 @@
 }
 
 .listSearchAction:hover:not(:disabled),
-.conversationPrimaryAction:hover:not(:disabled) {
+.conversationPrimaryAction:hover:not(:disabled),
+.conversationSecondaryAction:hover:not(:disabled) {
   transform: translateY(-1px);
   border-color: color-mix(in srgb, var(--button-accent) 34%, var(--button-primary));
 }
 
 .listSearchAction:disabled,
-.conversationPrimaryAction:disabled {
+.conversationPrimaryAction:disabled,
+.conversationSecondaryAction:disabled {
   opacity: 0.48;
   cursor: not-allowed;
 }
@@ -4609,16 +4612,30 @@
   gap: 0.5rem;
 }
 
-.conversationPrimaryAction {
+.conversationPrimaryAction,
+.conversationSecondaryAction {
   min-height: 38px;
   padding: 0 0.96rem;
   border-radius: 14px;
-  background: linear-gradient(135deg, var(--button-primary), var(--button-secondary));
-  color: var(--brand-contrast);
   font-size: 0.76rem;
   font-weight: 900;
-  letter-spacing: -0.01em;
+  letter-spacing: 0;
+}
+
+.conversationPrimaryAction {
+  background: linear-gradient(135deg, var(--button-primary), var(--button-secondary));
+  color: var(--brand-contrast);
   box-shadow: 0 14px 26px color-mix(in srgb, var(--button-primary) 24%, transparent);
+}
+
+.conversationSecondaryAction {
+  border-color: color-mix(in srgb, var(--button-accent) 28%, var(--line));
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--button-accent) 12%, var(--surface)), color-mix(in srgb, var(--surface-soft) 92%, var(--background)));
+  color: color-mix(in srgb, var(--button-accent) 86%, var(--foreground));
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--surface) 40%, transparent),
+    0 12px 22px -18px color-mix(in srgb, var(--button-accent) 30%, transparent);
 }
 
 .whatsAppTimeline {

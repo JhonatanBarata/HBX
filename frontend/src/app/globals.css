@@ -984,18 +984,21 @@ html[data-theme-switcher-open="true"] .app-topbar::after {
 
 .app-topbar__statusChip,
 .app-topbar__contextCta {
+  --topbar-chip-tone: var(--button-secondary);
   min-height: 34px;
   padding: 0.34rem 0.62rem;
   border-radius: 999px;
-  border: 1px solid color-mix(in srgb, var(--line) 88%, var(--background));
+  border: 1px solid color-mix(in srgb, var(--topbar-chip-tone) 24%, var(--line));
   background:
-    linear-gradient(180deg, color-mix(in srgb, var(--surface) 97%, var(--background)), color-mix(in srgb, var(--surface-soft) 96%, var(--background)));
-  box-shadow: var(--shadow-inset), var(--shadow-xs);
+    linear-gradient(180deg, color-mix(in srgb, var(--topbar-chip-tone) 10%, var(--surface)), color-mix(in srgb, var(--surface-soft) 92%, var(--background)));
+  box-shadow:
+    var(--shadow-inset),
+    0 12px 22px -20px color-mix(in srgb, var(--topbar-chip-tone) 28%, transparent);
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 0.4rem;
-  color: var(--foreground);
+  color: color-mix(in srgb, var(--topbar-chip-tone) 88%, var(--foreground));
   transition:
     transform var(--motion-fast),
     box-shadow var(--motion-fast),
@@ -1010,7 +1013,9 @@ html[data-theme-switcher-open="true"] .app-topbar::after {
 .app-topbar__statusChip:hover,
 .app-topbar__contextCta:hover {
   transform: translateY(-1px);
-  box-shadow: var(--shadow-inset), var(--shadow-sm);
+  box-shadow:
+    var(--shadow-inset),
+    0 14px 26px -20px color-mix(in srgb, var(--topbar-chip-tone) 36%, transparent);
 }
 
 .app-topbar__statusChipLabel,
@@ -1024,29 +1029,20 @@ html[data-theme-switcher-open="true"] .app-topbar::after {
 .app-topbar__contextCta strong {
   font-size: 0.74rem;
   font-weight: 900;
-  letter-spacing: -0.03em;
+  letter-spacing: 0;
   color: var(--foreground);
 }
 
 .app-topbar__statusChip[data-tone="green"] {
-  color: var(--button-success);
-  background:
-    linear-gradient(180deg, color-mix(in srgb, var(--button-success) 12%, var(--background)), color-mix(in srgb, var(--button-success) 8%, var(--surface-soft)));
-  border-color: color-mix(in srgb, var(--button-success) 24%, var(--background));
+  --topbar-chip-tone: var(--button-success);
 }
 
 .app-topbar__statusChip[data-tone="yellow"] {
-  color: var(--warning);
-  background:
-    linear-gradient(180deg, color-mix(in srgb, var(--warning) 14%, var(--background)), color-mix(in srgb, var(--warning) 10%, var(--surface-soft)));
-  border-color: color-mix(in srgb, var(--warning) 24%, var(--background));
+  --topbar-chip-tone: var(--button-accent);
 }
 
 .app-topbar__statusChip[data-tone="red"] {
-  color: var(--danger);
-  background:
-    linear-gradient(180deg, color-mix(in srgb, var(--danger) 12%, var(--background)), color-mix(in srgb, var(--danger) 8%, var(--surface-soft)));
-  border-color: color-mix(in srgb, var(--danger) 24%, var(--background));
+  --topbar-chip-tone: var(--selection-accent);
 }
 
 .app-topbar__statusChip[data-tone="green"] .app-topbar__statusChipLabel,
