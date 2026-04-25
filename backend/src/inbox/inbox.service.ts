@@ -790,10 +790,10 @@ export class InboxService {
     messages?: Array<{ timestamp?: Date | string | null }> | null;
   }) {
     const latestMessage = Array.isArray(conversation.messages) ? conversation.messages[0] : null;
-    return this.resolveLatestDate(
-      conversation.lastMessageAt,
-      latestMessage?.timestamp,
-      conversation.updatedAt,
+    return (
+      this.resolveLatestDate(latestMessage?.timestamp)
+      || this.resolveLatestDate(conversation.lastMessageAt)
+      || this.resolveLatestDate(conversation.updatedAt)
     );
   }
 
@@ -1816,8 +1816,15 @@ export class InboxService {
         ),
     );
 
+    const sortedRows = [...rows].sort((left, right) => {
+      const leftTime = this.resolveConversationActivityDate(left)?.getTime() || 0;
+      const rightTime = this.resolveConversationActivityDate(right)?.getTime() || 0;
+      if (leftTime !== rightTime) return rightTime - leftTime;
+      return Number(right.id || 0) - Number(left.id || 0);
+    });
+
     return Promise.all(
-      rows.map((row) => {
+      sortedRows.map((row) => {
         const activityAt = this.resolveConversationActivityDate(row);
         const conversation = {
           ...row,
