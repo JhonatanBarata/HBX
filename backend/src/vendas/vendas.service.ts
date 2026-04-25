@@ -101,6 +101,13 @@ export class VendasService {
     return normalized || null;
   }
 
+  private isMissingAddressColumnError(error: any) {
+    const code = String(error?.code || '').trim().toUpperCase();
+    if (code === 'P2022') return true;
+    const message = String(error?.message || '').toLowerCase();
+    return message.includes('address') && (message.includes('column') || message.includes('does not exist'));
+  }
+
   private normalizePhone(value: unknown) {
     const digits = this.customerProfileService.normalizePhone(value);
     if (!digits) return null;
@@ -999,16 +1006,64 @@ export class VendasService {
       closedAt: status === 'encerrado' ? new Date() : null,
       createdByUserId: input.userId,
     };
+    const leadBaseSelectWithoutAddress: any = {
+      id: true,
+      companyId: true,
+      customerProfileId: true,
+      sourceType: true,
+      primarySource: true,
+      sourceHistoryId: true,
+      sourceSignature: true,
+      timesSeen: true,
+      name: true,
+      phone: true,
+      phoneNormalized: true,
+      email: true,
+      city: true,
+      segment: true,
+      status: true,
+      nextAction: true,
+      returnAt: true,
+      shortNote: true,
+      lastContactAt: true,
+      attemptCount: true,
+      lastResult: true,
+      wasClosedBefore: true,
+      closedAt: true,
+      createdByUserId: true,
+      createdAt: true,
+      updatedAt: true,
+    };
+    const leadWithTimelineSelectWithoutAddress: any = {
+      ...leadBaseSelectWithoutAddress,
+      timelineEvents: {
+        orderBy: [{ createdAt: 'desc' }],
+        take: 12,
+      },
+    };
 
     if (phoneNormalized) {
       const phoneNormalizedCandidates = this.buildLeadPhoneNormalizedCandidates(input.phone);
-      const existing = await this.prisma.vendasLead.findFirst({
-        where: {
-          companyId: input.companyId,
-          phoneNormalized: { in: phoneNormalizedCandidates.length ? phoneNormalizedCandidates : [phoneNormalized] },
-        },
-        orderBy: [{ updatedAt: 'desc' }],
-      });
+      let existing: any = null;
+      try {
+        existing = await this.prisma.vendasLead.findFirst({
+          where: {
+            companyId: input.companyId,
+            phoneNormalized: { in: phoneNormalizedCandidates.length ? phoneNormalizedCandidates : [phoneNormalized] },
+          },
+          orderBy: [{ updatedAt: 'desc' }],
+        });
+      } catch (error: any) {
+        if (!this.isMissingAddressColumnError(error)) throw error;
+        existing = await this.prisma.vendasLead.findFirst({
+          where: {
+            companyId: input.companyId,
+            phoneNormalized: { in: phoneNormalizedCandidates.length ? phoneNormalizedCandidates : [phoneNormalized] },
+          },
+          orderBy: [{ updatedAt: 'desc' }],
+          select: leadBaseSelectWithoutAddress,
+        });
+      }
 
       if (existing) {
         const existingStatus = this.normalizeStatus(existing.status || status);
@@ -1046,35 +1101,65 @@ export class VendasService {
               : null,
         };
 
-        const updated = await this.prisma.$transaction(async (tx) => {
-          await tx.vendasLead.update({
-            where: { id: existing.id },
-            data: updateData,
-          });
+        let updated: any = null;
+        try {
+          updated = await this.prisma.$transaction(async (tx) => {
+            await tx.vendasLead.update({
+              where: { id: existing.id },
+              data: updateData,
+            });
 
-          await tx.vendasLeadTimelineEvent.create({
-            data: {
-              leadId: existing.id,
-              ...this.buildTimelineEvent({
-                eventType: 'lead_reused',
-                title: 'Lead reaproveitado por deduplicacao',
-                description: `Um novo envio via ${this.formatSourceLabel(input.sourceType)} encontrou este telefone e atualizou o card existente.`,
-                sourceType: input.sourceType,
-                createdByUserId: input.userId,
-              }),
-            },
-          });
-
-          return tx.vendasLead.findUniqueOrThrow({
-            where: { id: existing.id },
-            include: {
-              timelineEvents: {
-                orderBy: [{ createdAt: 'desc' }],
-                take: 12,
+            await tx.vendasLeadTimelineEvent.create({
+              data: {
+                leadId: existing.id,
+                ...this.buildTimelineEvent({
+                  eventType: 'lead_reused',
+                  title: 'Lead reaproveitado por deduplicacao',
+                  description: `Um novo envio via ${this.formatSourceLabel(input.sourceType)} encontrou este telefone e atualizou o card existente.`,
+                  sourceType: input.sourceType,
+                  createdByUserId: input.userId,
+                }),
               },
-            },
+            });
+
+            return tx.vendasLead.findUniqueOrThrow({
+              where: { id: existing.id },
+              include: {
+                timelineEvents: {
+                  orderBy: [{ createdAt: 'desc' }],
+                  take: 12,
+                },
+              },
+            });
           });
-        });
+        } catch (error: any) {
+          if (!this.isMissingAddressColumnError(error)) throw error;
+          const { address: _ignoredAddress, ...updateDataWithoutAddress } = updateData;
+          updated = await this.prisma.$transaction(async (tx) => {
+            await tx.vendasLead.update({
+              where: { id: existing.id },
+              data: updateDataWithoutAddress,
+            });
+
+            await tx.vendasLeadTimelineEvent.create({
+              data: {
+                leadId: existing.id,
+                ...this.buildTimelineEvent({
+                  eventType: 'lead_reused',
+                  title: 'Lead reaproveitado por deduplicacao',
+                  description: `Um novo envio via ${this.formatSourceLabel(input.sourceType)} encontrou este telefone e atualizou o card existente.`,
+                  sourceType: input.sourceType,
+                  createdByUserId: input.userId,
+                }),
+              },
+            });
+
+            return tx.vendasLead.findUniqueOrThrow({
+              where: { id: existing.id },
+              select: leadWithTimelineSelectWithoutAddress,
+            });
+          });
+        }
 
         return {
           action: 'updated',
@@ -1084,13 +1169,15 @@ export class VendasService {
       }
     }
 
-    const created = await this.prisma.$transaction(async (tx) => {
-      const row = await tx.vendasLead.create({
-        data: {
-          companyId: input.companyId,
-          ...baseData,
-        },
-      });
+    let created: any = null;
+    try {
+      created = await this.prisma.$transaction(async (tx) => {
+        const row = await tx.vendasLead.create({
+          data: {
+            companyId: input.companyId,
+            ...baseData,
+          },
+        });
 
       await tx.vendasLeadTimelineEvent.createMany({
         data: [
@@ -1130,16 +1217,71 @@ export class VendasService {
         ],
       });
 
-      return tx.vendasLead.findUniqueOrThrow({
-        where: { id: row.id },
-        include: {
-          timelineEvents: {
-            orderBy: [{ createdAt: 'desc' }],
-            take: 12,
+        return tx.vendasLead.findUniqueOrThrow({
+          where: { id: row.id },
+          include: {
+            timelineEvents: {
+              orderBy: [{ createdAt: 'desc' }],
+              take: 12,
+            },
           },
-        },
+        });
       });
-    });
+    } catch (error: any) {
+      if (!this.isMissingAddressColumnError(error)) throw error;
+      const { address: _ignoredAddress, ...baseDataWithoutAddress } = baseData;
+      created = await this.prisma.$transaction(async (tx) => {
+        const row = await tx.vendasLead.create({
+          data: {
+            companyId: input.companyId,
+            ...baseDataWithoutAddress,
+          },
+        });
+
+        await tx.vendasLeadTimelineEvent.createMany({
+          data: [
+            {
+              leadId: row.id,
+              ...this.buildTimelineEvent({
+                eventType: 'lead_created',
+                title: 'Lead criado',
+                description: 'O lead entrou no CRM de Vendas e passou a fazer parte da agenda viva.',
+                createdByUserId: input.userId,
+              }),
+            },
+            {
+              leadId: row.id,
+              ...this.buildTimelineEvent({
+                eventType: 'origin_registered',
+                title: 'Origem registrada',
+                description: `Origem principal definida como ${this.formatSourceLabel(input.sourceType)}.`,
+                sourceType: input.sourceType,
+                createdByUserId: input.userId,
+              }),
+            },
+            ...(input.sourceType === 'manual' && returnAt
+              ? [
+                  {
+                    leadId: row.id,
+                    ...this.buildTimelineEvent({
+                      eventType: 'return_scheduled',
+                      title: 'Retorno agendado',
+                      description: `Primeira proxima acao definida como "${nextAction}".`,
+                      returnAt,
+                      createdByUserId: input.userId,
+                    }),
+                  },
+                ]
+              : []),
+          ],
+        });
+
+        return tx.vendasLead.findUniqueOrThrow({
+          where: { id: row.id },
+          select: leadWithTimelineSelectWithoutAddress,
+        });
+      });
+    }
 
     return {
       action: 'created',
@@ -1150,6 +1292,34 @@ export class VendasService {
 
   async previewWebscrapingImportForUser(user: any, dto: ImportWebscrapingLeadsDto) {
     const context = this.resolveUserContext(user);
+    const leadBaseSelectWithoutAddress: any = {
+      id: true,
+      companyId: true,
+      customerProfileId: true,
+      sourceType: true,
+      primarySource: true,
+      sourceHistoryId: true,
+      sourceSignature: true,
+      timesSeen: true,
+      name: true,
+      phone: true,
+      phoneNormalized: true,
+      email: true,
+      city: true,
+      segment: true,
+      status: true,
+      nextAction: true,
+      returnAt: true,
+      shortNote: true,
+      lastContactAt: true,
+      attemptCount: true,
+      lastResult: true,
+      wasClosedBefore: true,
+      closedAt: true,
+      createdByUserId: true,
+      createdAt: true,
+      updatedAt: true,
+    };
     const incomingLeads = Array.isArray(dto?.leads) ? dto.leads : [];
     const phoneNormalizeds = Array.from(
       new Set(
@@ -1168,13 +1338,26 @@ export class VendasService {
       return { items: [] };
     }
 
-    const rows = await this.prisma.vendasLead.findMany({
-      where: {
-        companyId: context.companyId,
-        phoneNormalized: { in: lookupPhoneNormalizeds.length ? lookupPhoneNormalizeds : phoneNormalizeds },
-      },
-      orderBy: [{ updatedAt: 'desc' }],
-    });
+    let rows: any[] = [];
+    try {
+      rows = await this.prisma.vendasLead.findMany({
+        where: {
+          companyId: context.companyId,
+          phoneNormalized: { in: lookupPhoneNormalizeds.length ? lookupPhoneNormalizeds : phoneNormalizeds },
+        },
+        orderBy: [{ updatedAt: 'desc' }],
+      });
+    } catch (error: any) {
+      if (!this.isMissingAddressColumnError(error)) throw error;
+      rows = await this.prisma.vendasLead.findMany({
+        where: {
+          companyId: context.companyId,
+          phoneNormalized: { in: lookupPhoneNormalizeds.length ? lookupPhoneNormalizeds : phoneNormalizeds },
+        },
+        orderBy: [{ updatedAt: 'desc' }],
+        select: leadBaseSelectWithoutAddress,
+      });
+    }
 
     const byPhone = new Map<string, any>();
     for (const row of rows) {
@@ -1205,17 +1388,60 @@ export class VendasService {
 
   async getBoardForUser(user: any) {
     const context = this.resolveUserContext(user);
-    const rows = await this.prisma.vendasLead.findMany({
-      where: { companyId: context.companyId },
-      orderBy: [{ returnAt: 'asc' }, { updatedAt: 'desc' }, { createdAt: 'desc' }],
-      take: 240,
-      include: {
-        timelineEvents: {
-          orderBy: [{ createdAt: 'desc' }],
-          take: 12,
-        },
+    const leadWithTimelineSelectWithoutAddress: any = {
+      id: true,
+      companyId: true,
+      customerProfileId: true,
+      sourceType: true,
+      primarySource: true,
+      sourceHistoryId: true,
+      sourceSignature: true,
+      timesSeen: true,
+      name: true,
+      phone: true,
+      phoneNormalized: true,
+      email: true,
+      city: true,
+      segment: true,
+      status: true,
+      nextAction: true,
+      returnAt: true,
+      shortNote: true,
+      lastContactAt: true,
+      attemptCount: true,
+      lastResult: true,
+      wasClosedBefore: true,
+      closedAt: true,
+      createdByUserId: true,
+      createdAt: true,
+      updatedAt: true,
+      timelineEvents: {
+        orderBy: [{ createdAt: 'desc' }],
+        take: 12,
       },
-    });
+    };
+    let rows: any[] = [];
+    try {
+      rows = await this.prisma.vendasLead.findMany({
+        where: { companyId: context.companyId },
+        orderBy: [{ returnAt: 'asc' }, { updatedAt: 'desc' }, { createdAt: 'desc' }],
+        take: 240,
+        include: {
+          timelineEvents: {
+            orderBy: [{ createdAt: 'desc' }],
+            take: 12,
+          },
+        },
+      });
+    } catch (error: any) {
+      if (!this.isMissingAddressColumnError(error)) throw error;
+      rows = await this.prisma.vendasLead.findMany({
+        where: { companyId: context.companyId },
+        orderBy: [{ returnAt: 'asc' }, { updatedAt: 'desc' }, { createdAt: 'desc' }],
+        take: 240,
+        select: leadWithTimelineSelectWithoutAddress,
+      });
+    }
     const whatsappAvailabilityByLeadId = await this.ensureWhatsappAvailabilityForRows(
       context.companyId,
       context.userId,
