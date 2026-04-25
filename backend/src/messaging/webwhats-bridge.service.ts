@@ -2595,10 +2595,7 @@ export class WebwhatsBridgeService {
       where: {
         id: conversationId,
         companyId,
-        OR: [
-          { lastMessageAt: null },
-          { lastMessageAt: { lt: timestamp } },
-        ],
+        lastMessageAt: { lt: timestamp },
       },
       data: {
         lastMessageAt: timestamp,

@@ -807,10 +807,7 @@ export class InboxService {
       where: {
         id: conversationId,
         companyId,
-        OR: [
-          { lastMessageAt: null },
-          { lastMessageAt: { lt: activityAt } },
-        ],
+        lastMessageAt: { lt: activityAt },
       },
       data: {
         lastMessageAt: activityAt,
