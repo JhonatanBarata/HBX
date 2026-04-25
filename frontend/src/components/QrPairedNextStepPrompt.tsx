@@ -13,8 +13,6 @@ type WhatsAppStatusPayload = {
 };
 
 const STORAGE_KEY = "hbx.qr-paired-next-step.v1";
-const SESSION_SHOWN_AT_KEY = "hbx.qr-paired-next-step.shown-at.v1";
-const REOPEN_COOLDOWN_MS = 8000;
 export const QR_PAIRED_EVENT = "hbx:qr-paired";
 
 const OPTIONS = [
@@ -45,19 +43,6 @@ function dismissPrompt() {
   window.localStorage.setItem(STORAGE_KEY, "hidden");
 }
 
-function wasShownRecently() {
-  if (typeof window === "undefined") return true;
-  const raw = window.sessionStorage.getItem(SESSION_SHOWN_AT_KEY);
-  const shownAt = raw ? Number(raw) : 0;
-  if (!Number.isFinite(shownAt) || shownAt <= 0) return false;
-  return Date.now() - shownAt < REOPEN_COOLDOWN_MS;
-}
-
-function markShownNow() {
-  if (typeof window === "undefined") return;
-  window.sessionStorage.setItem(SESSION_SHOWN_AT_KEY, String(Date.now()));
-}
-
 export default function QrPairedNextStepPrompt() {
   const router = useRouter();
   const pathname = usePathname();
@@ -75,9 +60,8 @@ export default function QrPairedNextStepPrompt() {
       try {
         const payload = await apiFetch<WhatsAppStatusPayload>("/companies/me/whatsapp-modal/status");
         if (!mounted || hasPromptDismissed()) return;
-        const shouldOpen = payload?.status === "connected" && !wasShownRecently();
+        const shouldOpen = payload?.status === "connected";
         if (shouldOpen) {
-          markShownNow();
           setOpen(true);
           return;
         }
@@ -89,7 +73,6 @@ export default function QrPairedNextStepPrompt() {
       }
     }
 
-    void loadQrStatus();
     window.addEventListener(QR_PAIRED_EVENT, loadQrStatus);
 
     return () => {
@@ -101,9 +84,7 @@ export default function QrPairedNextStepPrompt() {
   if (!open) return null;
 
   function handleClose() {
-    if (dontShowAgain) {
-      dismissPrompt();
-    }
+    dismissPrompt();
     setOpen(false);
   }
 
@@ -127,7 +108,7 @@ export default function QrPairedNextStepPrompt() {
         </button>
 
         <div className={styles.qrPromptHeader}>
-          <span className={styles.qrPromptBadge}>Sucessfully Paired</span>
+          <span className={styles.qrPromptBadge}>Conectado</span>
           <h2 id="qr-next-step-title">Escolha seu próximo passo</h2>
           <p>Seu QRCode foi confirmado. Selecione uma entrada para continuar a configuração do trial.</p>
         </div>

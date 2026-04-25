@@ -2325,6 +2325,54 @@ export class InboxService {
     return 'Novo lead';
   }
 
+  private isMissingVendasLeadAddressColumnError(error: any) {
+    const code = String(error?.code || '').trim().toUpperCase();
+    if (code === 'P2022') return true;
+    const message = String(error?.message || '').toLowerCase();
+    return message.includes('address') && (message.includes('column') || message.includes('does not exist'));
+  }
+
+  private vendasLeadStatusCardSelectWithoutAddress() {
+    return {
+      id: true,
+      companyId: true,
+      customerProfileId: true,
+      sourceType: true,
+      primarySource: true,
+      sourceHistoryId: true,
+      sourceSignature: true,
+      timesSeen: true,
+      name: true,
+      phone: true,
+      phoneNormalized: true,
+      email: true,
+      city: true,
+      segment: true,
+      status: true,
+      nextAction: true,
+      returnAt: true,
+      shortNote: true,
+      lastContactAt: true,
+      attemptCount: true,
+      lastResult: true,
+      wasClosedBefore: true,
+      closedAt: true,
+      createdByUserId: true,
+      createdAt: true,
+      updatedAt: true,
+    } as any;
+  }
+
+  private vendasLeadStatusCardSelectWithTimelineWithoutAddress() {
+    return {
+      ...this.vendasLeadStatusCardSelectWithoutAddress(),
+      timelineEvents: {
+        orderBy: [{ createdAt: 'desc' }],
+        take: 12,
+      },
+    } as any;
+  }
+
   private async resolveStatusCardRecords(companyId: number, conversationId: number) {
     const conversation = await this.ensureConversation(companyId, conversationId);
     const phoneNormalized = this.normalizeStatusCardPhone(conversation.contact);
@@ -2376,22 +2424,38 @@ export class InboxService {
       });
     }
 
-    const lead = await this.prisma.vendasLead.findFirst({
-      where: {
-        companyId,
-        OR: [
-          { phoneNormalized: { in: phoneVariants } },
-          { customerProfileId: profile.id },
-        ],
-      },
-      orderBy: [{ updatedAt: 'desc' }],
-      include: {
-        timelineEvents: {
-          orderBy: [{ createdAt: 'desc' }],
-          take: 12,
+    let lead: any = null;
+    try {
+      lead = await this.prisma.vendasLead.findFirst({
+        where: {
+          companyId,
+          OR: [
+            { phoneNormalized: { in: phoneVariants } },
+            { customerProfileId: profile.id },
+          ],
         },
-      },
-    });
+        orderBy: [{ updatedAt: 'desc' }],
+        include: {
+          timelineEvents: {
+            orderBy: [{ createdAt: 'desc' }],
+            take: 12,
+          },
+        },
+      });
+    } catch (error: any) {
+      if (!this.isMissingVendasLeadAddressColumnError(error)) throw error;
+      lead = await this.prisma.vendasLead.findFirst({
+        where: {
+          companyId,
+          OR: [
+            { phoneNormalized: { in: phoneVariants } },
+            { customerProfileId: profile.id },
+          ],
+        },
+        orderBy: [{ updatedAt: 'desc' }],
+        select: this.vendasLeadStatusCardSelectWithTimelineWithoutAddress(),
+      });
+    }
 
     return { conversation, phoneNormalized, profile, atendimentoCustomer, lead };
   }
@@ -2461,16 +2525,32 @@ export class InboxService {
     observations?: string | null;
   }) {
     const phoneVariants = this.getStatusCardPhoneVariants(input.phoneNormalized);
-    const existing = await this.prisma.vendasLead.findFirst({
-      where: {
-        companyId: input.companyId,
-        OR: [
-          { phoneNormalized: { in: phoneVariants } },
-          { customerProfileId: input.profile.id },
-        ],
-      },
-      orderBy: [{ updatedAt: 'desc' }],
-    });
+    let existing: any = null;
+    try {
+      existing = await this.prisma.vendasLead.findFirst({
+        where: {
+          companyId: input.companyId,
+          OR: [
+            { phoneNormalized: { in: phoneVariants } },
+            { customerProfileId: input.profile.id },
+          ],
+        },
+        orderBy: [{ updatedAt: 'desc' }],
+      });
+    } catch (error: any) {
+      if (!this.isMissingVendasLeadAddressColumnError(error)) throw error;
+      existing = await this.prisma.vendasLead.findFirst({
+        where: {
+          companyId: input.companyId,
+          OR: [
+            { phoneNormalized: { in: phoneVariants } },
+            { customerProfileId: input.profile.id },
+          ],
+        },
+        orderBy: [{ updatedAt: 'desc' }],
+        select: this.vendasLeadStatusCardSelectWithoutAddress(),
+      });
+    }
     const nextAction = input.status === 'encerrado'
       ? 'Não ligar mais'
       : input.returnAt
@@ -2498,8 +2578,9 @@ export class InboxService {
               ? {
                   closedAt: null,
                 }
-              : {}),
+            : {}),
         },
+        select: this.vendasLeadStatusCardSelectWithoutAddress(),
       });
     }
 
@@ -2522,6 +2603,7 @@ export class InboxService {
         closedAt: input.status === 'encerrado' ? new Date() : null,
         createdByUserId: input.userId,
       },
+      select: this.vendasLeadStatusCardSelectWithoutAddress(),
     });
   }
 

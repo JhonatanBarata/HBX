@@ -195,6 +195,7 @@ type VendasAgendaQueueMetadata = {
   botEntryPending?: boolean | string | number | null;
   manualQueueOverride?: string | null;
   manualQueueOverriddenAt?: string | null;
+  whatsappAvailabilityStatus?: string | null;
 };
 
 type CustomerConversationCardPayload = {
@@ -1121,6 +1122,24 @@ function getCustomerConversationCardWhatsappAvailability(
   return "unknown" as const;
 }
 
+function getInboxConversationWhatsappAvailabilityFromMetadata(conversation?: InboxConversation | null) {
+  const queue = getInboxVendasAgendaQueue(conversation);
+  const queueStatus = String(queue?.whatsappAvailabilityStatus || "").trim().toLowerCase();
+  if (queueStatus === "unavailable") return "unavailable" as const;
+  if (queueStatus === "available") return "available" as const;
+
+  const metadata = getInboxConversationMetadata(conversation);
+  const directStatus = String(
+    metadata?.whatsappAvailabilityStatus ||
+    metadata?.vendasWhatsappAvailabilityStatus ||
+    "",
+  ).trim().toLowerCase();
+  if (directStatus === "unavailable") return "unavailable" as const;
+  if (directStatus === "available") return "available" as const;
+
+  return "unknown" as const;
+}
+
 function getCustomerConversationCardPhoneDigits(
   payload: CustomerConversationCardPayload | null,
   conversation?: InboxConversation | null,
@@ -1182,7 +1201,9 @@ function hasConversationUnavailableWhatsapp(
   conversationId: string | null | undefined,
   cache: Map<string, CustomerConversationCardPayload>,
   currentCard: CustomerConversationCardPayload | null,
+  conversation?: InboxConversation | null,
 ) {
+  if (getInboxConversationWhatsappAvailabilityFromMetadata(conversation) === "unavailable") return true;
   const normalizedId = String(conversationId || "").trim();
   if (!normalizedId) return false;
   const payload = currentCard && String(currentCard?.lead?.id || "").trim() !== ""
@@ -3726,7 +3747,8 @@ export default function InboxClientPage() {
   const selectedConversationWhatsappAvailability =
     getCustomerConversationCardWhatsappAvailability(customerConversationCard);
   const selectedConversationWithoutWhatsapp =
-    selectedConversationWhatsappAvailability === "unavailable";
+    selectedConversationWhatsappAvailability === "unavailable" ||
+    getInboxConversationWhatsappAvailabilityFromMetadata(conversationForView) === "unavailable";
   const selectedConversationInteractionBlocked =
     selectedBlocked || selectedConversationWithoutWhatsapp;
   const customerCardCanOpenWhatsapp =
@@ -4820,6 +4842,7 @@ export default function InboxClientPage() {
                   conversation.id,
                   customerConversationCardCacheRef.current,
                   conversation.id === selectedId ? customerConversationCard : null,
+                  conversation,
                 );
                 const displayName = resolveInboxConversationDisplayName(conversation);
                 const subtitleLabel = getInboxConversationSubtitle(conversation);
