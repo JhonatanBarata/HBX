@@ -1019,11 +1019,39 @@ function formatDateLabel(dateStr: string | null | undefined, mounted: boolean) {
   return parsed.toLocaleString("pt-BR");
 }
 
+function startOfLocalDay(date: Date) {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+}
+
+function getLocalCalendarDayDistance(left: Date, right: Date) {
+  const dayMs = 24 * 60 * 60 * 1000;
+  return Math.round((startOfLocalDay(left).getTime() - startOfLocalDay(right).getTime()) / dayMs);
+}
+
 function formatTimeLabel(dateStr: string | null | undefined, mounted: boolean) {
   if (!dateStr) return "-";
   const parsed = new Date(dateStr);
+  if (Number.isNaN(parsed.getTime())) return "-";
   if (!mounted) return parsed.toISOString();
-  return parsed.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+
+  const now = new Date();
+  const dayDistance = getLocalCalendarDayDistance(now, parsed);
+  if (dayDistance <= 0) {
+    return parsed.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+  }
+  if (dayDistance === 1) {
+    return "Ontem";
+  }
+  if (dayDistance < 7) {
+    return ["domingo", "segunda", "terça", "quarta", "quinta", "sexta", "sábado"][parsed.getDay()] ||
+      parsed.toLocaleDateString("pt-BR", { weekday: "long" });
+  }
+
+  return parsed.toLocaleDateString("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "2-digit",
+  });
 }
 
 function formatShortDateTimeLabel(dateStr: string | null | undefined, mounted: boolean) {
@@ -2197,6 +2225,7 @@ export default function InboxClientPage() {
   const activeConversationLatestMessageKeyRef = useRef<Record<string, string>>({});
   const inboxQueueRef = useRef<InboxQueue>("all");
   const conversationLoadTokenRef = useRef(0);
+  const autoPrefetchedOlderMessagesRef = useRef<Record<string, true>>({});
   const botConfigLoadedRef = useRef(false);
   const agendaConfigLoadedRef = useRef(false);
   const sendTextDirtyRef = useRef(false);
@@ -3427,6 +3456,34 @@ export default function InboxClientPage() {
     filteredConversations,
     loadConversation,
     loadingConversation,
+    selectedConversation,
+    selectedId,
+  ]);
+
+  useEffect(() => {
+    if (activeTab !== "messages") return;
+    if (loadingConversation || loadingOlderMessages) return;
+    if (!olderMessagesHasMore) return;
+
+    const conversationId = normalizeInboxConversationId(selectedConversation?.id ?? selectedId);
+    if (!conversationId) return;
+
+    const activeConversation =
+      selectedConversationRef.current?.id === conversationId
+        ? selectedConversationRef.current
+        : selectedConversation;
+    const messageCount = activeConversation?.messages?.length || 0;
+    if (messageCount < INBOX_RECENT_MESSAGES_LIMIT) return;
+    if (autoPrefetchedOlderMessagesRef.current[conversationId]) return;
+
+    autoPrefetchedOlderMessagesRef.current[conversationId] = true;
+    void loadOlderMessages();
+  }, [
+    activeTab,
+    loadOlderMessages,
+    loadingConversation,
+    loadingOlderMessages,
+    olderMessagesHasMore,
     selectedConversation,
     selectedId,
   ]);
