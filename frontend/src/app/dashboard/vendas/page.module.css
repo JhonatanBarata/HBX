@@ -252,11 +252,11 @@
 .secondaryAction:hover,
 .ghostAction:hover,
 .leadCard:hover {
-  transform: translateY(-1px);
+  transform: none;
 }
 
 .dateFilterCard:hover {
-  transform: translateY(-2px);
+  transform: none;
 }
 
 .primaryAction[aria-disabled="true"],
@@ -284,6 +284,13 @@
   align-items: center;
   justify-content: space-between;
   gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.filterRailActions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.42rem;
   flex-wrap: wrap;
 }
 
@@ -348,8 +355,8 @@
 
 .dateFilterCard {
   flex-shrink: 0;
-  width: 96px;
-  min-width: 96px;
+  width: 111px;
+  min-width: 111px;
   display: grid;
   gap: 0.14rem;
   padding: 0.58rem 0.76rem 0.46rem;
@@ -370,12 +377,11 @@
   text-align: left;
   cursor: pointer;
   transition:
-    transform 260ms cubic-bezier(0.22, 1, 0.36, 1),
     border-color 220ms ease,
     box-shadow 260ms cubic-bezier(0.22, 1, 0.36, 1),
     background 240ms ease;
   /* ensure consistent card height so the count can be pushed down */
-  min-height: 82px;
+  min-height: 94px;
   align-content: start;
   position: relative; /* for absolute receiveHint */
 }
@@ -439,7 +445,7 @@
   will-change: transform, filter;
   display: inline-block;
   margin-top: 0.04rem;
-  transition: transform 180ms ease, filter 180ms ease, color 180ms ease, text-shadow 180ms ease;
+  transition: color 180ms ease, text-shadow 180ms ease;
   justify-self: center; /* center horizontally */
   margin-top: auto;    /* push the number down */
   margin-bottom: 0.04rem;
@@ -465,11 +471,11 @@
     0 22px 40px -24px color-mix(in srgb, var(--brand) 34%, transparent),
     0 0 0 1px color-mix(in srgb, var(--brand) 22%, transparent),
     0 4px 14px -8px rgba(15, 23, 42, 0.22);
-  transform: translateY(-1px);
+  transform: none;
 }
 
 .dateFilterCard[data-active="true"]:hover {
-  transform: translateY(-1px);
+  transform: none;
 }
 
 .dateFilterCard[data-active="true"][data-tone="overdue"] {
@@ -496,7 +502,7 @@
   box-shadow:
     0 18px 32px -24px color-mix(in srgb, var(--brand) 18%, transparent),
     0 0 0 2px color-mix(in srgb, var(--brand) 28%, transparent);
-  transform: translateY(-1px);
+  transform: none;
 }
 
 .dateFilterCard[data-dropover="true"] .receiveHint {
@@ -512,8 +518,8 @@
 /* Graphic-only +Agenda button — always visible at the end */
 .addAgendaButton {
   flex-shrink: 0;
-  min-width: 44px;
-  max-width: 52px;
+  min-width: 51px;
+  max-width: 60px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -547,7 +553,7 @@
   color: color-mix(in srgb, var(--brand) 88%, var(--foreground));
 }
 .addAgendaButton:hover {
-  transform: translateY(-1px);
+  transform: none;
   box-shadow: 0 18px 32px -18px color-mix(in srgb, var(--brand) 24%, transparent);
   border-color: color-mix(in srgb, var(--brand) 70%, var(--line));
 }
@@ -574,7 +580,7 @@
 }
 
 .atendimentoShortcut:hover {
-  transform: translateY(-2px);
+  transform: none;
   box-shadow: 0 18px 30px -18px rgba(15, 23, 42, 0.34), 0 6px 14px -8px rgba(15,23,42,0.22);
 }
 
@@ -1361,10 +1367,9 @@
 
 /* Odometer / KM counter roll animation */
 @keyframes odometer-rush {
-  0%   { filter: blur(0);      transform: translateY(0) scale(1);      opacity: 1; }
-  26%  { filter: blur(1.3px);  transform: translateY(-3px) scale(1.03); opacity: 0.78; }
-  68%  { filter: blur(0.8px);  transform: translateY(1px) scale(0.995); opacity: 0.92; }
-  100% { filter: blur(0);      transform: translateY(0) scale(1);      opacity: 1; }
+  0%   { opacity: 0.86; }
+  50%  { opacity: 1; }
+  100% { opacity: 1; }
 }
 
 .dateFilterCard b[data-rolling="true"] {

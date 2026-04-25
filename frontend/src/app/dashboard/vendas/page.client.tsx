@@ -910,16 +910,18 @@ export default function VendasClientPage() {
       });
       const todayLeadCount = Number(syncResult?.todayLeadCount || 0);
       const mirroredLeadCount = Number(syncResult?.mirroredLeadCount || 0);
-      if (!syncResult?.ok || (todayLeadCount > 0 && mirroredLeadCount <= 0)) {
+      if (!syncResult?.ok) {
         throw new Error(
           syncResult?.message ||
             "Os cards de hoje nao foram espelhados no Atendimento. Recarregue e tente novamente.",
         );
       }
       todayAgendaLaunchNotice.markSuccess({
-        successDescription: todayLeadCount
-          ? `${mirroredLeadCount} card(s) foram preparados no Atendimento com roteiro pendente para envio manual.`
-          : "Nao ha cards de hoje para preparar no Atendimento.",
+        successDescription:
+          String(syncResult?.message || "").trim() ||
+          (todayLeadCount
+            ? `${mirroredLeadCount} card(s) foram preparados no Atendimento com roteiro pendente para envio manual.`
+            : "Nao ha cards de hoje para preparar no Atendimento."),
       });
     } catch (syncError) {
       todayAgendaLaunchNotice.clear();
@@ -1757,6 +1759,11 @@ export default function VendasClientPage() {
             <section className={styles.filterRail}>
               <div className={styles.filterRailHeader}>
                 <div><span className={styles.panelEyebrow}>Filtro por datas</span><strong>Agenda comercial</strong></div>
+                <div className={styles.filterRailActions}>
+                  <Link href="/dashboard/vendas/automacao?tab=flow" prefetch={false} className={styles.secondaryAction}>
+                    Abrir Fluxo
+                  </Link>
+                </div>
               </div>
               <div className={styles.filterRailScroller} ref={filterScrollerRef} data-ready={scrollerReady ? "true" : undefined}>
                 {dateFilters.slice(0, visibleDateCount).map((item) => (

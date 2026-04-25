@@ -1962,6 +1962,7 @@
   display: block;
   color: var(--foreground);
   font-size: 1rem;
+  font-weight: 600;
   line-height: 1.15;
 }
 
@@ -1979,6 +1980,40 @@
   gap: 0.42rem;
   flex-wrap: wrap;
   justify-content: flex-end;
+}
+
+.customerConversationCard strong {
+  font-weight: 600;
+}
+
+.customerCardTitle {
+  font-size: 0.86rem !important;
+  font-weight: 600 !important;
+  line-height: 1.16 !important;
+  letter-spacing: 0 !important;
+  text-wrap: wrap !important;
+}
+
+.customerCardSubtitle {
+  font-size: 0.68rem !important;
+  font-weight: 600 !important;
+  line-height: 1.25 !important;
+  letter-spacing: 0 !important;
+}
+
+.customerCardMetricValue {
+  font-size: 0.86rem !important;
+  font-weight: 600 !important;
+  line-height: 1.12 !important;
+  letter-spacing: 0 !important;
+}
+
+.customerCardHistoryHeader strong,
+.customerCardHistoryItem strong,
+.customerCardShortcut strong {
+  font-size: 0.82rem;
+  font-weight: 600;
+  line-height: 1.2;
 }
 
 .customerCardGhostButton,
@@ -2162,6 +2197,14 @@
 .customerCardTextarea {
   min-height: 94px;
   resize: vertical;
+  font-size: 0.78rem !important;
+  font-weight: 500 !important;
+  line-height: 1.45 !important;
+  letter-spacing: 0 !important;
+}
+
+.customerCardTextarea::placeholder {
+  font-weight: 500 !important;
 }
 
 .customerCardReturnEditor input {
