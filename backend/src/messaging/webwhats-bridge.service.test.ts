@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import test from 'node:test';
 
 import { WebwhatsBridgeService } from './webwhats-bridge.service';
@@ -263,6 +266,109 @@ test('resolveInboundMediaAttachment sends the full fetched message envelope to m
       mimetype: 'audio/ogg; codecs=opus',
       seconds: 11,
       ptt: true,
+    },
+  });
+});
+
+test('resolveInboundMediaAttachment accepts provider data uri responses for received audio', async () => {
+  const previousCwd = process.cwd();
+  const tempDir = mkdtempSync(join(tmpdir(), 'webwhats-media-'));
+  const prisma = {};
+  const service = new WebwhatsBridgeService(prisma as any);
+  const audioBytes = Buffer.from('received audio bytes');
+
+  (service as any).requestRead = async () => ({
+    data: `data:audio/ogg; codecs=opus;base64,${audioBytes.toString('base64')}`,
+  });
+
+  try {
+    process.chdir(tempDir);
+    const result = await (service as any).resolveInboundMediaAttachment(
+      47,
+      115,
+      {
+        id: 'MSG-MEDIA-2',
+        messageType: 'audio',
+        key: {
+          id: 'MSG-MEDIA-2',
+          fromMe: false,
+          remoteJid: '5519998676859@s.whatsapp.net',
+        },
+        message: {
+          audioMessage: {
+            seconds: 9,
+            ptt: true,
+          },
+        },
+      },
+      'audio',
+      {},
+    );
+
+    const storedPath = join(tempDir, 'public', 'uploads', 'inbox', '47_115_MSG-MEDIA-2.ogg');
+    assert.equal(result?.kind, 'audio');
+    assert.equal(result?.url, '/uploads/inbox/47_115_MSG-MEDIA-2.ogg');
+    assert.equal(result?.previewUrl, '/uploads/inbox/47_115_MSG-MEDIA-2.ogg');
+    assert.equal(result?.mimeType, 'audio/ogg; codecs=opus');
+    assert.equal(result?.fileSize, audioBytes.length);
+    assert.equal(result?.durationSeconds, 9);
+    assert.equal(result?.isVoiceNote, true);
+    assert.equal(existsSync(storedPath), true);
+    assert.deepEqual(readFileSync(storedPath), audioBytes);
+  } finally {
+    process.chdir(previousCwd);
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test('resolveInboundMediaAttachment unwraps ephemeral received audio before download', async () => {
+  const prisma = {};
+  const service = new WebwhatsBridgeService(prisma as any);
+  let capturedData: Record<string, any> | null = null;
+
+  (service as any).requestRead = async (input: any) => {
+    capturedData = input.data;
+    return null;
+  };
+
+  const result = await (service as any).resolveInboundMediaAttachment(
+    47,
+    115,
+    {
+      id: 'MSG-MEDIA-3',
+      messageType: 'audio',
+      key: {
+        id: 'MSG-MEDIA-3',
+        fromMe: false,
+        remoteJid: '5519998676859@s.whatsapp.net',
+      },
+      message: {
+        ephemeralMessage: {
+          message: {
+            audioMessage: {
+              mimetype: 'audio/ogg; codecs=opus',
+              seconds: 7,
+              ptt: true,
+            },
+          },
+        },
+      },
+    },
+    'audio',
+    {},
+  );
+
+  assert.equal(result, null);
+  assert.ok(capturedData);
+  assert.deepEqual(capturedData?.message?.message, {
+    ephemeralMessage: {
+      message: {
+        audioMessage: {
+          mimetype: 'audio/ogg; codecs=opus',
+          seconds: 7,
+          ptt: true,
+        },
+      },
     },
   });
 });

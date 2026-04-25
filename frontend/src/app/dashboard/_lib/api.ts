@@ -3,10 +3,19 @@
 const API_URL = (process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3000").replace(/\/+$/, "");
 const DASHBOARD_API_PROXY_PREFIX = "/hbx/api";
 const SHELL_GET_CACHE_TTL_MS = 30000;
+const TOKEN_EXPIRY_SKEW_MS = 15000;
+const AUTH_PROBE_CACHE_TTL_MS = 5000;
+const SESSION_EXPIRED_MESSAGE = "Sessão expirada. Faça login novamente.";
 const SHELL_GET_CACHE_PATHS = new Set([
   "/profile/current-user",
   "/modules/me",
   "/profile/theme-preferences",
+]);
+const AUTH_REQUIRED_PATHS = new Set([
+  "/profile/current-user",
+  "/profile/theme-preferences",
+  "/companies/me/operational-status",
+  "/modules/me",
 ]);
 
 type ApiErrorPayload = {
@@ -20,6 +29,12 @@ type ApiCacheEntry = {
   promise?: Promise<unknown>;
 };
 
+type AuthProbeEntry = {
+  token: string;
+  expiresAt: number;
+  promise: Promise<boolean>;
+};
+
 type ApiFetchInit = RequestInit & {
   skipAuth?: boolean;
   requireAuth?: boolean;
@@ -27,6 +42,8 @@ type ApiFetchInit = RequestInit & {
 };
 
 const apiGetCache = new Map<string, ApiCacheEntry>();
+let authProbeEntry: AuthProbeEntry | null = null;
+let authChangeQueued = false;
 
 function normalizeApiBaseUrl(value: string) {
   return String(value || "").replace(/\/+$/, "");
@@ -53,16 +70,69 @@ function isApiErrorPayload(value: unknown): value is ApiErrorPayload {
   return Boolean(value) && typeof value === "object";
 }
 
+function queueAuthChangeEvent() {
+  if (typeof window === "undefined" || authChangeQueued) return;
+  authChangeQueued = true;
+  window.setTimeout(() => {
+    authChangeQueued = false;
+    try {
+      window.dispatchEvent(new Event("auth-change"));
+    } catch {
+      // ignore event dispatch errors
+    }
+  }, 0);
+}
+
+function removeStoredTokens(options?: { notify?: boolean }) {
+  if (typeof window === "undefined") return;
+  authProbeEntry = null;
+  clearApiCache();
+  localStorage.removeItem("token");
+  localStorage.removeItem("access_token");
+  localStorage.removeItem("accessToken");
+  if (options?.notify === false) return;
+  queueAuthChangeEvent();
+}
+
+function decodeJwtPayload(token: string) {
+  const parts = token.split(".");
+  if (parts.length !== 3 || !parts[1]) return null;
+  try {
+    const base64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+    const padded = base64.padEnd(Math.ceil(base64.length / 4) * 4, "=");
+    return JSON.parse(atob(padded)) as { exp?: unknown };
+  } catch {
+    return null;
+  }
+}
+
+function isExpiredJwt(token: string) {
+  const parts = token.split(".");
+  if (parts.length !== 3) return true;
+  const payload = decodeJwtPayload(token);
+  if (!payload) return true;
+  const exp = Number(payload.exp);
+  if (!Number.isFinite(exp) || exp <= 0) return false;
+  return exp * 1000 <= Date.now() + TOKEN_EXPIRY_SKEW_MS;
+}
+
 export function getToken(): string | null {
   if (typeof window === "undefined") return null;
-  return (
+  const token = (
     localStorage.getItem("token") ||
     localStorage.getItem("access_token") ||
     localStorage.getItem("accessToken")
   );
+  if (!token) return null;
+  if (isExpiredJwt(token)) {
+    removeStoredTokens();
+    return null;
+  }
+  return token;
 }
 
 export function setToken(token: string, options?: { notify?: boolean }) {
+  authProbeEntry = null;
   clearApiCache();
   localStorage.setItem("token", token);
   if (options?.notify === false) return;
@@ -77,17 +147,7 @@ export function setToken(token: string, options?: { notify?: boolean }) {
 }
 
 export function clearToken() {
-  clearApiCache();
-  localStorage.removeItem("token");
-  localStorage.removeItem("access_token");
-  localStorage.removeItem("accessToken");
-  if (typeof window !== "undefined") {
-    try {
-      window.dispatchEvent(new Event("auth-change"));
-    } catch {
-      // ignore event dispatch errors
-    }
-  }
+  removeStoredTokens();
 }
 
 export function clearApiCache(path?: string) {
@@ -111,6 +171,66 @@ function shouldCacheGet(path: string, init?: ApiFetchInit) {
 function buildCacheKey(path: string, token: string | null, init?: ApiFetchInit) {
   const authKey = init?.skipAuth ? "anon" : token || "no-token";
   return `${authKey}|${path}`;
+}
+
+function getApiPathname(path: string) {
+  if (!path || path.startsWith("http")) return path;
+  const queryIndex = path.indexOf("?");
+  return queryIndex >= 0 ? path.slice(0, queryIndex) : path;
+}
+
+function requiresAuth(path: string, init?: ApiFetchInit) {
+  if (init?.skipAuth) return false;
+  if (init?.requireAuth) return true;
+  return AUTH_REQUIRED_PATHS.has(getApiPathname(path));
+}
+
+function shouldProbeAuth(path: string, init?: ApiFetchInit) {
+  if (!requiresAuth(path, init)) return false;
+  return getApiPathname(path) !== "/profile/current-user";
+}
+
+async function ensureValidSessionForProtectedPath(
+  path: string,
+  token: string | null,
+  init?: ApiFetchInit,
+) {
+  if (!token || !shouldProbeAuth(path, init)) return;
+
+  const now = Date.now();
+  if (
+    authProbeEntry &&
+    authProbeEntry.token === token &&
+    authProbeEntry.expiresAt > now
+  ) {
+    const isValid = await authProbeEntry.promise;
+    if (!isValid) throw new Error(SESSION_EXPIRED_MESSAGE);
+    return;
+  }
+
+  const probePromise = fetch(`${getDashboardApiBaseUrl()}/profile/current-user`, {
+    method: "GET",
+    headers: {
+      Accept: "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    credentials: "include",
+  }).then((response) => {
+    if (response.status === 401) {
+      removeStoredTokens();
+      return false;
+    }
+    return true;
+  }).catch(() => true);
+
+  authProbeEntry = {
+    token,
+    expiresAt: now + AUTH_PROBE_CACHE_TTL_MS,
+    promise: probePromise,
+  };
+
+  const isValid = await probePromise;
+  if (!isValid) throw new Error(SESSION_EXPIRED_MESSAGE);
 }
 
 function parseErrorMessage(data: unknown): string {
@@ -143,9 +263,10 @@ export async function apiFetch<T>(
   const { skipAuth, requireAuth, timeoutMs, ...fetchInit } = init || {};
   const url = path.startsWith("http") ? path : `${getDashboardApiBaseUrl()}${path}`;
   const token = getToken();
-  if (requireAuth && !skipAuth && !token) {
-    throw new Error("Sessão expirada. Faça login novamente.");
+  if (!token && requiresAuth(path, { ...init, requireAuth, skipAuth })) {
+    throw new Error(SESSION_EXPIRED_MESSAGE);
   }
+  await ensureValidSessionForProtectedPath(path, token, { ...init, requireAuth, skipAuth });
   const cacheable = shouldCacheGet(path, init);
   const cacheKey = cacheable ? buildCacheKey(path, token, init) : "";
   if (cacheable) {
@@ -196,18 +317,22 @@ export async function apiFetch<T>(
 
     if (!res.ok) {
       const message = typeof data === "string" ? data : parseErrorMessage(data);
-      dispatchTechAssistantApiError({
-        path,
-        url,
-        method: String(fetchInit.method || "GET").toUpperCase(),
-        status: res.status,
-        message,
-        response:
-          typeof data === "string"
-            ? data.slice(0, 1200)
-            : JSON.stringify(data ?? null).slice(0, 1200),
-        at: new Date().toISOString(),
-      });
+      if (res.status === 401 && !skipAuth) {
+        removeStoredTokens();
+      } else {
+        dispatchTechAssistantApiError({
+          path,
+          url,
+          method: String(fetchInit.method || "GET").toUpperCase(),
+          status: res.status,
+          message,
+          response:
+            typeof data === "string"
+              ? data.slice(0, 1200)
+              : JSON.stringify(data ?? null).slice(0, 1200),
+          at: new Date().toISOString(),
+        });
+      }
       throw new Error(message);
     }
 
