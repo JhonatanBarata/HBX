@@ -409,6 +409,11 @@
   color: #8696a0 !important;
 }
 
+.whatsAppComposerButtonUnavailable:disabled {
+  background: color-mix(in srgb, var(--danger) 84%, #202c33) !important;
+  color: #fff5f5 !important;
+}
+
 .whatsAppComposerButtonSpinner {
   width: 18px;
   height: 18px;
@@ -428,6 +433,10 @@
   margin-left: 0.2rem;
   font-size: 0.74rem;
   color: #8696a0;
+}
+
+.whatsAppComposerHintUnavailable {
+  color: color-mix(in srgb, var(--danger) 74%, #ffd7d7);
 }
 
 .whatsAppEmojiWrapper {
@@ -1372,6 +1381,21 @@
 
 .conversationQueueItemMuted {
   filter: saturate(0.72);
+}
+
+.conversationQueueItemUnavailable {
+  border-color: color-mix(in srgb, var(--danger) 52%, #202c33);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.12),
+    0 16px 28px color-mix(in srgb, var(--danger) 18%, transparent);
+}
+
+.conversationQueueItemUnavailable::before {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--danger) 42%, #fff1f2), color-mix(in srgb, var(--danger) 72%, #7f1d1d));
+}
+
+.conversationQueueItemUnavailable .conversationQueueMetaTime {
+  color: color-mix(in srgb, var(--danger) 76%, #ffd7d7);
 }
 
 .conversationQueueItemMenuOpen {
@@ -4720,6 +4744,12 @@
   border-color: rgba(25, 211, 124, 0.2);
 }
 
+.conversationContextBadge[data-tone="danger"] {
+  color: #ffd7d7;
+  background: rgba(98, 24, 24, 0.44);
+  border-color: rgba(248, 113, 113, 0.26);
+}
+
 .conversationIdentitySubtitle {
   color: #91a0c3;
   font-size: 0.72rem;
@@ -5660,6 +5690,12 @@
   color: color-mix(in srgb, var(--success) 90%, var(--foreground));
   background: color-mix(in srgb, var(--success) 10%, var(--background));
   border-color: color-mix(in srgb, var(--success) 16%, var(--background));
+}
+
+:global(html[data-theme-mode="light"]) .conversationContextBadge[data-tone="danger"] {
+  color: color-mix(in srgb, var(--danger) 90%, var(--foreground));
+  background: color-mix(in srgb, var(--danger) 10%, var(--background));
+  border-color: color-mix(in srgb, var(--danger) 16%, var(--background));
 }
 
 :global(html[data-theme-mode="light"]) .conversationPrimaryAction,

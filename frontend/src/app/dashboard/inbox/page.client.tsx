@@ -48,7 +48,6 @@ import {
   getAtendimentoConversationStatusMeta,
   hasAtendimentoRecoveryContext,
   isAtendimentoAgendaConversation,
-  isAtendimentoRecoveryPrimary,
   mapAtendimentoConversationToneToQueueTone,
 } from "@/components/workspace/adapters/atendimento";
 import { acquirePopupTopbarLock } from "@/lib/popup-visibility";
@@ -1105,6 +1104,23 @@ function buildCustomerConversationCardDraft(
   };
 }
 
+function getCustomerConversationCardWhatsappAvailability(
+  payload: CustomerConversationCardPayload | null,
+) {
+  const history = Array.isArray(payload?.history) ? payload.history : [];
+  for (const event of history) {
+    const resultLabel = String(event?.resultLabel || "").trim().toLowerCase();
+    if (resultLabel === "unavailable") return "unavailable" as const;
+    if (resultLabel === "available") return "available" as const;
+
+    const title = String(event?.title || "").trim().toLowerCase();
+    if (title.includes("numero sem whatsapp no motor")) return "unavailable" as const;
+    if (title.includes("whatsapp confirmado no motor")) return "available" as const;
+  }
+
+  return "unknown" as const;
+}
+
 function getCustomerConversationCardPhoneDigits(
   payload: CustomerConversationCardPayload | null,
   conversation?: InboxConversation | null,
@@ -1160,6 +1176,19 @@ function parseInboxBooleanFlag(raw: unknown) {
   const normalized = String(raw || "").trim().toLowerCase();
   if (!normalized) return false;
   return normalized === "true" || normalized === "1" || normalized === "yes" || normalized === "sim";
+}
+
+function hasConversationUnavailableWhatsapp(
+  conversationId: string | null | undefined,
+  cache: Map<string, CustomerConversationCardPayload>,
+  currentCard: CustomerConversationCardPayload | null,
+) {
+  const normalizedId = String(conversationId || "").trim();
+  if (!normalizedId) return false;
+  const payload = currentCard && String(currentCard?.lead?.id || "").trim() !== ""
+    ? cache.get(normalizedId) || currentCard
+    : cache.get(normalizedId) || currentCard;
+  return getCustomerConversationCardWhatsappAvailability(payload) === "unavailable";
 }
 
 function isInboxConversationArchived(conversation?: InboxConversation | null) {
@@ -3694,6 +3723,14 @@ export default function InboxClientPage() {
     customerConversationCard,
     conversationForView,
   );
+  const selectedConversationWhatsappAvailability =
+    getCustomerConversationCardWhatsappAvailability(customerConversationCard);
+  const selectedConversationWithoutWhatsapp =
+    selectedConversationWhatsappAvailability === "unavailable";
+  const selectedConversationInteractionBlocked =
+    selectedBlocked || selectedConversationWithoutWhatsapp;
+  const customerCardCanOpenWhatsapp =
+    Boolean(customerCardPhoneDigits) && !selectedConversationWithoutWhatsapp;
   const customerCardReturnAt = customerConversationCard?.lead?.returnAt || null;
   const customerCardLastContactAt =
     customerConversationCard?.lead?.lastContactAt ||
@@ -3702,9 +3739,10 @@ export default function InboxClientPage() {
     null;
   const customerCardAttempts = Number(customerConversationCard?.lead?.attemptCount || 0);
   const customerCardTimesSeen = Math.max(1, Number(customerConversationCard?.lead?.timesSeen || 1));
-  const customerCardHistory = Array.isArray(customerConversationCard?.history)
-    ? customerConversationCard.history
-    : [];
+  const customerCardHistory = useMemo(
+    () => (Array.isArray(customerConversationCard?.history) ? customerConversationCard.history : []),
+    [customerConversationCard?.history],
+  );
   const selectedConversationIsAgenda = conversationForView
     ? isAtendimentoAgendaConversation(conversationForView)
     : false;
@@ -3731,10 +3769,6 @@ export default function InboxClientPage() {
   const selectedConversationHasRecoveryContext =
     hasRecoveryCapability && conversationForView
       ? hasAtendimentoRecoveryContext(conversationForView)
-      : false;
-  const selectedConversationRecoveryPrimary =
-    hasRecoveryCapability && conversationForView
-      ? isAtendimentoRecoveryPrimary(conversationForView)
       : false;
 
   useEffect(() => {
@@ -4460,7 +4494,7 @@ export default function InboxClientPage() {
   const sendMessage = useCallback(
     async (event: FormEvent<HTMLFormElement>) => {
       event.preventDefault();
-      if (!selectedId || selectedBlocked) return;
+      if (!selectedId || selectedConversationInteractionBlocked) return;
       if (!sendText.trim() && !imagePreview) return;
       setSending(true);
       setError(null);
@@ -4536,7 +4570,15 @@ export default function InboxClientPage() {
         setSending(false);
       }
     },
-    [loadConversations, rememberConversationDetail, selectedBlocked, selectedId, sendText, replyingTo, imagePreview],
+    [
+      loadConversations,
+      rememberConversationDetail,
+      selectedConversationInteractionBlocked,
+      selectedId,
+      sendText,
+      replyingTo,
+      imagePreview,
+    ],
   );
 
   const stopRecording = useCallback(() => {
@@ -4774,6 +4816,11 @@ export default function InboxClientPage() {
                   conversation,
                   hasRecoveryCapability,
                 );
+                const conversationWithoutWhatsapp = hasConversationUnavailableWhatsapp(
+                  conversation.id,
+                  customerConversationCardCacheRef.current,
+                  conversation.id === selectedId ? customerConversationCard : null,
+                );
                 const displayName = resolveInboxConversationDisplayName(conversation);
                 const subtitleLabel = getInboxConversationSubtitle(conversation);
                 const previewLabel = getInboxConversationPreview(conversation);
@@ -4801,8 +4848,12 @@ export default function InboxClientPage() {
                     }}
                     initials={getInboxConversationInitials(conversation)}
                     imageUrl={resolveInboxAvatarUrl(conversation)}
-                    label={statusMeta.shortLabel}
-                    tone={mapAtendimentoConversationToneToQueueTone(statusMeta.tone)}
+                    label={conversationWithoutWhatsapp ? "S/WA" : statusMeta.shortLabel}
+                    tone={
+                      conversationWithoutWhatsapp
+                        ? "danger"
+                        : mapAtendimentoConversationToneToQueueTone(statusMeta.tone)
+                    }
                     title={displayName}
                     subtitle={subtitleLabel}
                     preview={previewLabel}
@@ -4838,6 +4889,7 @@ export default function InboxClientPage() {
                       queueActionConversationId === conversation.id && styles.conversationQueueItemMenuOpen,
                       (conversation.isBlocked || isInboxConversationArchived(conversation))
                         && styles.conversationQueueItemMuted,
+                      conversationWithoutWhatsapp && styles.conversationQueueItemUnavailable,
                       unreadCount > 0 && styles.conversationQueueItemUnread,
                     )}
                     data-unread={unreadCount > 0 ? "true" : "false"}
@@ -4879,11 +4931,23 @@ export default function InboxClientPage() {
                   <ChatAvatar
                     initials={getInboxConversationInitials(conversationForView)}
                     imageUrl={resolveInboxAvatarUrl(conversationForView)}
-                    tone={mapAtendimentoConversationToneToQueueTone(selectedConversationStatusMeta?.tone || "bot")}
+                    tone={
+                      selectedConversationWithoutWhatsapp
+                        ? "danger"
+                        : mapAtendimentoConversationToneToQueueTone(selectedConversationStatusMeta?.tone || "bot")
+                    }
                   />
                   <div className={styles.whatsAppConversationIdentityText}>
                     <strong>{selectedConversationDisplayName}</strong>
                     <div className={styles.conversationIdentityMeta}>
+                      {selectedConversationWithoutWhatsapp ? (
+                        <span
+                          className={styles.conversationContextBadge}
+                          data-tone="danger"
+                        >
+                          Sem WhatsApp
+                        </span>
+                      ) : null}
                       {selectedConversationStatusMeta ? (
                         <span
                           className={styles.conversationContextBadge}
@@ -5420,7 +5484,7 @@ export default function InboxClientPage() {
                     aria-label="Anexar arquivo"
                     onMouseDown={(e) => e.preventDefault()}
                     onClick={() => fileInputRef.current?.click()}
-                    disabled={selectedBlocked || sending || isRecording}
+                    disabled={selectedConversationInteractionBlocked || sending || isRecording}
                   >
                     📎
                   </button>
@@ -5444,7 +5508,7 @@ export default function InboxClientPage() {
                     aria-label={isRecording ? "Parar gravação" : "Gravar áudio"}
                     onMouseDown={(e) => e.preventDefault()}
                     onClick={() => (isRecording ? stopRecording() : void startRecording())}
-                    disabled={selectedBlocked || sending}
+                    disabled={selectedConversationInteractionBlocked || sending}
                   >
                     {isRecording ? `🔴 ${recordingSeconds}s` : "🎙️"}
                   </button>
@@ -5476,16 +5540,28 @@ export default function InboxClientPage() {
                     placeholder={
                       selectedBlocked
                         ? "Contato bloqueado. Desbloqueie para responder."
+                        : selectedConversationWithoutWhatsapp
+                          ? "Número sem WhatsApp. O envio manual fica bloqueado."
                         : "Digite uma mensagem"
                     }
-                    disabled={selectedBlocked || sending}
+                    disabled={selectedConversationInteractionBlocked || sending}
                   />
                   <button
                     type="submit"
-                    className={`btn ${styles.whatsAppComposerButton}`}
-                    disabled={sending || (!sendText.trim() && !imagePreview) || selectedBlocked}
+                    className={`btn ${styles.whatsAppComposerButton} ${selectedConversationWithoutWhatsapp ? styles.whatsAppComposerButtonUnavailable : ""}`}
+                    disabled={
+                      sending
+                      || (!sendText.trim() && !imagePreview)
+                      || selectedConversationInteractionBlocked
+                    }
                     aria-label={sending ? "Enviando mensagem" : "Enviar mensagem"}
-                    title={sending ? "Enviando..." : "Enviar"}
+                    title={
+                      selectedConversationWithoutWhatsapp
+                        ? "Motor confirmou que este número não possui WhatsApp."
+                        : sending
+                          ? "Enviando..."
+                          : "Enviar"
+                    }
                   >
                     {sending ? <span className={styles.whatsAppComposerButtonSpinner} aria-hidden="true" /> : "➤"}
                   </button>
@@ -5493,6 +5569,10 @@ export default function InboxClientPage() {
                 {selectedBlocked ? (
                   <small className={styles.whatsAppComposerHint}>
                     Contato bloqueado. Desbloqueie para responder.
+                  </small>
+                ) : selectedConversationWithoutWhatsapp ? (
+                  <small className={`${styles.whatsAppComposerHint} ${styles.whatsAppComposerHintUnavailable}`}>
+                    Motor confirmou que este número não possui WhatsApp. O envio manual fica bloqueado.
                   </small>
                 ) : selectedVendasAgendaDraftMessage ? (
                   <small className={styles.whatsAppComposerHint}>
@@ -5597,9 +5677,12 @@ export default function InboxClientPage() {
             <div className={styles.contextStack}>
               {contextTab === "conversa" ? (
                 <div className={styles.contextGrid}>
-                  <ChatInfoCard title="Card do cliente" meta={customerConversationCard?.lead?.statusLabel || "Vendas"}>
+                  <ChatInfoCard
+                    title="Card do cliente"
+                    meta={selectedConversationWithoutWhatsapp ? "Sem WhatsApp" : customerConversationCard?.lead?.statusLabel || "Vendas"}
+                  >
                     <LiquidGlassCard
-                      accentTone="success"
+                      accentTone={selectedConversationWithoutWhatsapp ? "danger" : "success"}
                       header={
                         <div className={styles.customerCardHeader}>
                           <div>
@@ -5630,7 +5713,13 @@ export default function InboxClientPage() {
                             <div className={`${styles.customerCardShortcut} ${glassCardStyles.subtlePanel}`}>
                               <strong>{customerCardName}</strong>
                               <span>Perfil #{customerConversationCard?.customer?.profileId || "--"}</span>
-                              <span>{customerConversationCardDraft.doNotCall ? "Não ligar mais" : "Contato liberado"}</span>
+                              <span>
+                                {selectedConversationWithoutWhatsapp
+                                  ? "Sem WhatsApp confirmado no motor"
+                                  : customerConversationCardDraft.doNotCall
+                                    ? "Não ligar mais"
+                                    : "Contato liberado"}
+                              </span>
                             </div>
                           ) : null}
 
@@ -5640,7 +5729,9 @@ export default function InboxClientPage() {
                                 ? `Retorno ${formatShortDateTimeLabel(customerCardReturnAt, mounted)}`
                                 : `Hoje · ${formatShortDateTimeLabel(customerCardLastContactAt, mounted)}`}
                             </span>
-                            {customerConversationCardDraft.doNotCall ? <em>Não ligar mais</em> : null}
+                            {selectedConversationWithoutWhatsapp ? (
+                              <em>Sem WhatsApp</em>
+                            ) : customerConversationCardDraft.doNotCall ? <em>Não ligar mais</em> : null}
                           </div>
                         </div>
                       }
@@ -5648,14 +5739,14 @@ export default function InboxClientPage() {
                         <div className={glassCardStyles.cluster}>
                           <button
                             type="button"
-                            className={`${glassCardStyles.actionButton} ${glassCardStyles.actionPrimary} ${glassCardStyles.noBreak}`}
+                            className={`${glassCardStyles.actionButton} ${selectedConversationWithoutWhatsapp ? glassCardStyles.actionDanger : glassCardStyles.actionPrimary} ${glassCardStyles.noBreak}`}
                             onClick={() => {
-                              if (!customerCardPhoneDigits) return;
+                              if (!customerCardCanOpenWhatsapp) return;
                               window.open(`https://wa.me/${customerCardPhoneDigits}`, "_blank", "noopener,noreferrer");
                             }}
-                            disabled={!customerCardPhoneDigits}
+                            disabled={!customerCardCanOpenWhatsapp}
                           >
-                            WhatsApp
+                            {selectedConversationWithoutWhatsapp ? "Sem WhatsApp" : "WhatsApp"}
                           </button>
                           <button
                             type="button"
@@ -5943,6 +6034,7 @@ export default function InboxClientPage() {
       conversationSearch,
       contextTab,
       customerCardAttempts,
+      customerCardCanOpenWhatsapp,
       customerCardHistory,
       customerCardLastContactAt,
       customerCardName,
@@ -5954,16 +6046,16 @@ export default function InboxClientPage() {
       customerConversationCard,
       customerConversationCardDraft,
       customerConversationCardError,
-      internalNote,
       hasRecoveryCapability,
       filteredConversations,
       handleSectionChange,
+      handleComposerPaste,
       handleCustomerReturnChange,
       inboxDetailDiagnostics,
       inboxQueue,
       inboxQueueDiagnostics,
       isConversationStageSwitching,
-      deleteConversationById,
+      isRecording,
       deleteSentMessage,
       draggedQueueId,
       failedInboxMediaUrls,
@@ -5983,9 +6075,11 @@ export default function InboxClientPage() {
       queueCounts,
       queueUnreadCounts,
       reactToMessage,
+      recordingSeconds,
       retryConversationDetail,
       retryConversationList,
       revealedDeletedMessageIds,
+      selectedConversationInteractionBlocked,
       selectedBlocked,
       selectedConversation,
       conversationForView,
@@ -5994,8 +6088,9 @@ export default function InboxClientPage() {
       selectedConversationDisplayName,
       selectedConversationHasRecoveryContext,
       selectedConversationIsAgenda,
-      selectedConversationRecoveryPrimary,
       selectedConversationStatusMeta,
+      selectedConversationWithoutWhatsapp,
+      selectedVendasAgendaDraftMessage,
       selectedId,
       selectedStatus,
       saveCustomerConversationCard,
@@ -6003,20 +6098,21 @@ export default function InboxClientPage() {
       scheduleCustomerReturnTomorrow,
       dropOverQueue,
       handleQueueDrop,
-      openTemplatesSettings,
       sendMessage,
       sendText,
       sending,
-      savingBot,
       emojiPickerOpen,
       setEmojiPickerOpen,
       setOpenedAsset,
       replyingTo,
       setReplyingTo,
+      audioPreview,
       imagePreview,
+      sendAudioPreview,
       setImagePreview,
       messageReactionTargetId,
-      blockConversationById,
+      startRecording,
+      stopRecording,
       toggleQueueConversationMenu,
       unblockConversation,
       updateStatus,
