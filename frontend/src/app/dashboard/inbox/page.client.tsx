@@ -2146,6 +2146,7 @@ export default function InboxClientPage() {
   const [error, setError] = useState<string | null>(null);
   const [conversationListError, setConversationListError] = useState<string | null>(null);
   const [conversationDetailError, setConversationDetailError] = useState<string | null>(null);
+  const [inboxRealtimeFallbackActive, setInboxRealtimeFallbackActive] = useState(false);
   const [lastConversationSyncAt, setLastConversationSyncAt] = useState<string | null>(null);
   const [notice, setNotice] = useState<NoticeState | null>(null);
   const [sendText, setSendText] = useState("");
@@ -3233,9 +3234,12 @@ export default function InboxClientPage() {
     if (hasToken !== true) return;
     if (activeTab !== "messages") return;
 
+    const QUICK_STREAM_FAILURE_MS = 8000;
+    const MAX_QUICK_STREAM_FAILURES = 2;
     const controller = new AbortController();
     let reconnectTimer: number | null = null;
     let scheduledRefresh: number | null = null;
+    let consecutiveQuickFailures = 0;
 
     const scheduleRefresh = () => {
       if (scheduledRefresh !== null) return;
@@ -3253,8 +3257,24 @@ export default function InboxClientPage() {
         }, 2000);
       });
 
+    const recordStreamDisconnect = (startedAt: number) => {
+      if (controller.signal.aborted) return;
+      const lifetimeMs = Date.now() - startedAt;
+      if (lifetimeMs < QUICK_STREAM_FAILURE_MS) {
+        consecutiveQuickFailures += 1;
+        if (consecutiveQuickFailures >= MAX_QUICK_STREAM_FAILURES) {
+          setInboxRealtimeFallbackActive(true);
+        }
+        return;
+      }
+
+      consecutiveQuickFailures = 0;
+      setInboxRealtimeFallbackActive(false);
+    };
+
     const connect = async () => {
       while (!controller.signal.aborted) {
+        const startedAt = Date.now();
         try {
           await readInboxRealtimeStream({
             signal: controller.signal,
@@ -3266,8 +3286,10 @@ export default function InboxClientPage() {
               scheduleRefresh();
             },
           });
+          recordStreamDisconnect(startedAt);
         } catch {
           // Silent reconnect: transient network hiccups should not spam the console.
+          recordStreamDisconnect(startedAt);
         }
 
         if (controller.signal.aborted) return;
@@ -3283,6 +3305,26 @@ export default function InboxClientPage() {
       if (scheduledRefresh !== null) window.clearTimeout(scheduledRefresh);
     };
   }, [activeTab, hasToken, refreshSelectedConversationMessages]);
+
+  useEffect(() => {
+    if (hasToken !== true) return;
+    if (activeTab !== "messages") return;
+    if (!inboxRealtimeFallbackActive) return;
+
+    const stopConversationPolling = startSmartPolling(() => refreshSelectedConversationMessages(), {
+      intervalMs: 5000,
+      immediate: true,
+    });
+    const stopQueuePolling = startSmartPolling(() => loadConversations({ silent: true }), {
+      intervalMs: 15000,
+      immediate: true,
+    });
+
+    return () => {
+      stopConversationPolling();
+      stopQueuePolling();
+    };
+  }, [activeTab, hasToken, inboxRealtimeFallbackActive, loadConversations, refreshSelectedConversationMessages]);
 
   useEffect(() => {
     if (hasToken === false) return;

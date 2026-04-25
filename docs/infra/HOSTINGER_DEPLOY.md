@@ -53,6 +53,8 @@ npm run publish
 
 Esse script roda preflight local, faz `git push origin master`, entra na VPS via SSH, atualiza o diretório da aplicação e reconstrói o Docker.
 
+Importante: esse fluxo não publica o frontend da Vercel. Quando o commit contém mudanças em `frontend/`, o `npm run publish` só garante que backend/webscraping foram para Hostinger; o site `https://www.hbxsystem.com.br` pode continuar servindo o bundle anterior até a Vercel concluir o rollout dela.
+
 `npm run deploy:hostinger` existe como alias explícito para o mesmo fluxo.
 
 ## Deploy manual na VPS
@@ -88,6 +90,8 @@ Também valide o frontend em:
 ```text
 https://www.hbxsystem.com.br
 ```
+
+Se a mudança foi de frontend/chat, não conclua a validação só porque o publish Hostinger terminou. Confirme primeiro que a Vercel já está servindo o bundle novo.
 
 ## Troca futura de VPS
 

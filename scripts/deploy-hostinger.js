@@ -106,6 +106,38 @@ function ensureCleanWorkingTree() {
   console.log('Working tree clean.');
 }
 
+function listChangedFilesAheadOfRemote() {
+  const result = runStep('git', ['diff', '--name-only', `${remote}/${branch}..HEAD`], {
+    captureOutput: true,
+    allowFailure: true,
+  });
+
+  if (result.status !== 0) {
+    return [];
+  }
+
+  return String(result.stdout || '')
+    .split(/\r?\n/)
+    .map((value) => value.trim())
+    .filter(Boolean);
+}
+
+function printFrontendDeployNotice(config, changedFiles) {
+  const frontendFiles = changedFiles.filter((value) => value.startsWith('frontend/'));
+  if (!frontendFiles.length) return;
+
+  const preview = frontendFiles.slice(0, 5).join(', ');
+  const suffix = frontendFiles.length > 5 ? ` (+${frontendFiles.length - 5} arquivo(s))` : '';
+
+  console.warn([
+    '',
+    'Aviso operacional: este publish concluiu apenas o deploy Hostinger (backend/webscraping).',
+    `O frontend oficial em ${config.frontendUrl} continua sendo servido pela Vercel e pode permanecer com bundle anterior até o rollout externo terminar.`,
+    `Mudancas de frontend detectadas neste publish: ${preview}${suffix}`,
+    'Valide a Vercel/rollout do frontend antes de concluir que um ajuste visual ou de chat chegou em producao.',
+  ].join('\n'));
+}
+
 function buildRemoteDeployCommand(appDir) {
   return [
     'set -e',
@@ -181,6 +213,7 @@ async function main() {
   runStep('git', ['rev-parse', '--is-inside-work-tree']);
   ensureMasterBranch();
   ensureCleanWorkingTree();
+  const changedFilesAheadOfRemote = listChangedFilesAheadOfRemote();
   runStep('npm', ['--prefix', 'backend', 'run', 'prisma:generate']);
   runStep('npm', ['--prefix', 'backend', 'run', 'prisma:validate']);
   runStep('npm', ['--prefix', 'frontend', 'run', 'build']);
@@ -197,6 +230,7 @@ async function main() {
     return;
   }
   await verifyProduction(config);
+  printFrontendDeployNotice(config, changedFilesAheadOfRemote);
 
   console.log('\nHostinger deploy completed.');
 }
