@@ -5442,14 +5442,14 @@ export default function InboxClientPage() {
                           <div className={styles.customerCardHeaderActions}>
                             <button
                               type="button"
-                              className={`${glassCardStyles.actionButton} ${glassCardStyles.noBreak}`}
+                              className={`${glassCardStyles.actionButton} ${glassCardStyles.noBreak} ${styles.customerCardThemeButton} ${styles.customerCardThemeButtonSecondary}`}
                               onClick={() => setCustomerCardShortcutOpen((current) => !current)}
                             >
                               Cadastro
                             </button>
                             <button
                               type="button"
-                              className={`${glassCardStyles.actionButton} ${glassCardStyles.actionPrimary} ${glassCardStyles.noBreak}`}
+                              className={`${glassCardStyles.actionButton} ${glassCardStyles.noBreak} ${styles.customerCardThemeButton} ${styles.customerCardThemeButtonSuccess}`}
                               onClick={openCustomerReturnPicker}
                             >
                               Retorno
@@ -5478,10 +5478,10 @@ export default function InboxClientPage() {
                         </div>
                       }
                       actions={
-                        <div className={glassCardStyles.cluster}>
+                        <div className={styles.customerCardActionGrid}>
                           <button
                             type="button"
-                            className={`${glassCardStyles.actionButton} ${glassCardStyles.actionPrimary} ${glassCardStyles.noBreak}`}
+                            className={`${glassCardStyles.actionButton} ${glassCardStyles.noBreak} ${styles.customerCardThemeButton} ${styles.customerCardThemeButtonSuccess}`}
                             onClick={() => {
                               if (!customerCardPhoneDigits) return;
                               window.open(`https://wa.me/${customerCardPhoneDigits}`, "_blank", "noopener,noreferrer");
@@ -5492,7 +5492,7 @@ export default function InboxClientPage() {
                           </button>
                           <button
                             type="button"
-                            className={`${glassCardStyles.actionButton} ${glassCardStyles.noBreak}`}
+                            className={`${glassCardStyles.actionButton} ${glassCardStyles.noBreak} ${styles.customerCardThemeButton} ${styles.customerCardThemeButtonSecondary}`}
                             onClick={() => {
                               if (!customerCardPhoneDigits) return;
                               window.location.href = `tel:+${customerCardPhoneDigits}`;
@@ -5503,7 +5503,7 @@ export default function InboxClientPage() {
                           </button>
                           <button
                             type="button"
-                            className={`${glassCardStyles.actionButton} ${glassCardStyles.noBreak}`}
+                            className={`${glassCardStyles.actionButton} ${glassCardStyles.noBreak} ${styles.customerCardThemeButton} ${styles.customerCardThemeButtonWarning}`}
                             onClick={scheduleCustomerReturnTomorrow}
                             disabled={savingCustomerConversationCard}
                           >
@@ -5511,7 +5511,7 @@ export default function InboxClientPage() {
                           </button>
                           <button
                             type="button"
-                            className={`${glassCardStyles.actionButton} ${glassCardStyles.actionDanger} ${glassCardStyles.noBreak}`}
+                            className={`${glassCardStyles.actionButton} ${glassCardStyles.noBreak} ${styles.customerCardThemeButton} ${styles.customerCardThemeButtonDanger}`}
                             onClick={markCustomerDoNotCall}
                             disabled={savingCustomerConversationCard || customerConversationCardDraft.doNotCall}
                           >
@@ -5552,7 +5552,7 @@ export default function InboxClientPage() {
                             </label>
                             <button
                               type="button"
-                              className={`${glassCardStyles.actionButton} ${glassCardStyles.noBreak}`}
+                              className={`${glassCardStyles.actionButton} ${glassCardStyles.noBreak} ${styles.customerCardThemeButton} ${styles.customerCardThemeButtonPrimary}`}
                               onClick={() => void saveCustomerConversationCard()}
                               disabled={savingCustomerConversationCard}
                             >

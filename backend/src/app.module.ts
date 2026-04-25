@@ -1,6 +1,5 @@
 import { Module } from '@nestjs/common';
 import { ServeStaticModule } from '@nestjs/serve-static';
-import { join } from 'path';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { ProductsModule } from './products/product.module';
@@ -28,6 +27,7 @@ import { WebscrapingModule } from './webscraping/webscraping.module';
 import { IntegrationsModule } from './integrations/integrations.module';
 import { VendasModule } from './vendas/vendas.module';
 import { FinanceiroModule } from './financeiro/financeiro.module';
+import { getBackendPublicRoot } from './public-assets';
 
 @Module({
   imports: [
@@ -38,7 +38,7 @@ import { FinanceiroModule } from './financeiro/financeiro.module';
       },
     ]),
     ServeStaticModule.forRoot({
-      rootPath: join(__dirname, '..', 'public'),
+      rootPath: getBackendPublicRoot(),
       serveRoot: '/',
     }),
     PrismaModule,

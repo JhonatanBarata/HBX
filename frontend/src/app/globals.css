@@ -1029,10 +1029,10 @@ html[data-theme-switcher-open="true"] .app-topbar::after {
 }
 
 .app-topbar__statusChip[data-tone="green"] {
-  color: var(--success);
+  color: var(--button-success);
   background:
-    linear-gradient(180deg, color-mix(in srgb, var(--success) 12%, var(--background)), color-mix(in srgb, var(--success) 8%, var(--surface-soft)));
-  border-color: color-mix(in srgb, var(--success) 24%, var(--background));
+    linear-gradient(180deg, color-mix(in srgb, var(--button-success) 12%, var(--background)), color-mix(in srgb, var(--button-success) 8%, var(--surface-soft)));
+  border-color: color-mix(in srgb, var(--button-success) 24%, var(--background));
 }
 
 .app-topbar__statusChip[data-tone="yellow"] {

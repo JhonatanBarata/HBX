@@ -1,6 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
+import { createPortal } from "react-dom";
 
 type HbxConfirmDialogProps = {
   open: boolean;
@@ -29,13 +30,14 @@ export default function HbxConfirmDialog({
   onCancel,
   onConfirm,
 }: HbxConfirmDialogProps) {
-  if (!open) return null;
+  if (!open || typeof document === "undefined") return null;
 
-  return (
+  return createPortal(
     <div className="fixed inset-0 z-[140] flex items-center justify-center p-4">
       <button
         type="button"
-        className="absolute inset-0 bg-black/35"
+        className="absolute inset-0"
+        style={{ background: "color-mix(in srgb, var(--overlay) 76%, transparent)" }}
         aria-label="Fechar confirmação"
         onClick={busy ? undefined : onCancel}
       />
@@ -57,6 +59,7 @@ export default function HbxConfirmDialog({
           </button>
         </div>
       </section>
-    </div>
+    </div>,
+    document.body,
   );
 }

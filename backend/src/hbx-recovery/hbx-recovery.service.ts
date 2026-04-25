@@ -7,6 +7,7 @@ import { ConversationsService } from '../messaging/conversations.service';
 import { resolveWhatsAppCredentials } from '../messaging/whatsapp-credentials.util';
 import { MercadoPagoClientService } from '../payments/mercado-pago-client.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { getBackendPublicUploadDir } from '../public-assets';
 import { CreateRecoveryCustomerDto } from './dto/create-recovery-customer.dto';
 import { ListRecoveryPaymentsDto } from './dto/list-payments.dto';
 import { CreateRecoveryFlowStageDto } from './dto/create-recovery-flow-stage.dto';
@@ -1920,7 +1921,7 @@ export class HbxRecoveryService {
   }
 
   private metaTemplateUploadDir() {
-    return join(process.cwd(), 'public', 'uploads', 'hbx-recovery', 'meta-templates');
+    return getBackendPublicUploadDir('hbx-recovery', 'meta-templates');
   }
 
   private templateMediaAliasBaseName(templateNameRaw: string | null | undefined, languageRaw: string | null | undefined) {
