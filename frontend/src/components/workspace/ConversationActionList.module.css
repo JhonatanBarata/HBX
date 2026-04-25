@@ -2,18 +2,50 @@
   min-height: 72px !important;
   justify-content: flex-start !important;
   padding: 0.64rem 0.68rem !important;
-  border-radius: 22px !important;
+  border-radius: 18px !important;
+  border-color: color-mix(in srgb, var(--button-secondary) 22%, var(--line)) !important;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--surface) 96%, var(--background)), color-mix(in srgb, var(--surface-soft) 90%, var(--background))) !important;
+  color: var(--foreground) !important;
   text-align: left;
   display: grid !important;
   grid-template-columns: 34px minmax(0, 1fr);
   gap: 0.5rem;
   align-items: center;
   white-space: normal;
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--surface) 74%, transparent),
+    0 14px 24px -20px color-mix(in srgb, var(--button-primary) 20%, transparent) !important;
+}
+
+.actionButton::before,
+.actionButton::after {
+  display: none !important;
+}
+
+.actionButton[data-action-tone="primary"] {
+  border-color: color-mix(in srgb, var(--button-primary) 42%, var(--button-secondary)) !important;
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--button-primary) 88%, var(--surface)), color-mix(in srgb, var(--button-secondary) 72%, var(--surface))) !important;
+  color: var(--brand-contrast) !important;
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--surface) 28%, transparent),
+    0 18px 32px -22px color-mix(in srgb, var(--button-primary) 34%, transparent) !important;
+}
+
+.actionButton[data-action-tone="secondary"] {
+  border-color: color-mix(in srgb, var(--button-secondary) 24%, var(--line)) !important;
+}
+
+.actionButton[data-action-tone="danger"] {
+  border-color: color-mix(in srgb, var(--danger) 30%, var(--line)) !important;
+  background: color-mix(in srgb, var(--danger) 9%, var(--surface)) !important;
+  color: color-mix(in srgb, var(--danger) 88%, var(--foreground)) !important;
 }
 
 .actionButtonDanger {
-  border-color: color-mix(in srgb, var(--danger) 28%, var(--background)) !important;
-  background: color-mix(in srgb, var(--danger) 8%, var(--background)) !important;
+  border-color: color-mix(in srgb, var(--danger) 30%, var(--line)) !important;
+  background: color-mix(in srgb, var(--danger) 9%, var(--surface)) !important;
   color: color-mix(in srgb, var(--danger) 88%, var(--foreground)) !important;
 }
 
@@ -28,12 +60,23 @@
     linear-gradient(180deg, color-mix(in srgb, var(--surface) 88%, var(--background)), color-mix(in srgb, var(--surface) 72%, var(--background)));
   box-shadow:
     inset 0 1px 0 color-mix(in srgb, var(--surface) 96%, var(--background)),
-    0 8px 18px rgba(15, 23, 42, 0.06);
+    0 8px 18px color-mix(in srgb, var(--shadow) 8%, transparent);
   color: color-mix(in srgb, var(--brand) 72%, var(--foreground));
 }
 
+.actionButton[data-action-tone="primary"] .actionIcon {
+  border-color: color-mix(in srgb, var(--brand-contrast) 32%, transparent);
+  background: color-mix(in srgb, var(--brand-contrast) 18%, transparent);
+  color: var(--brand-contrast);
+}
+
+.actionButton[data-action-tone="secondary"] .actionIcon {
+  color: color-mix(in srgb, var(--button-secondary) 78%, var(--foreground));
+}
+
+.actionButton[data-action-tone="danger"] .actionIcon,
 .actionButtonDanger .actionIcon {
-  color: color-mix(in srgb, #cf5f35 74%, #7a2e1b);
+  color: color-mix(in srgb, var(--danger) 82%, var(--foreground));
 }
 
 .actionIcon svg {
@@ -60,39 +103,45 @@
   min-height: 58px !important;
   padding: 0.64rem 0.72rem !important;
   border-radius: 18px !important;
-  border: 1px solid rgba(97, 119, 184, 0.16) !important;
+  border: 1px solid color-mix(in srgb, var(--button-secondary) 22%, var(--line)) !important;
   background:
-    linear-gradient(180deg, rgba(15, 23, 47, 0.92), rgba(11, 18, 36, 0.88)) !important;
-  color: #edf3ff !important;
+    linear-gradient(180deg, color-mix(in srgb, var(--surface) 88%, var(--background)), color-mix(in srgb, var(--surface-soft) 76%, var(--background))) !important;
+  color: var(--foreground) !important;
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.04),
-    0 14px 24px -18px rgba(2, 6, 23, 0.72) !important;
+    inset 0 1px 0 color-mix(in srgb, var(--surface-raised) 18%, transparent),
+    0 14px 24px -18px color-mix(in srgb, var(--shadow) 62%, transparent) !important;
 }
 
 :global(html[data-theme-mode="dark"]) .actionButton:hover {
-  border-color: rgba(116, 142, 232, 0.32) !important;
+  border-color: color-mix(in srgb, var(--button-secondary) 34%, var(--line)) !important;
   background:
-    linear-gradient(180deg, rgba(21, 32, 64, 0.94), rgba(14, 22, 44, 0.92)) !important;
+    linear-gradient(180deg, color-mix(in srgb, var(--surface-raised) 88%, var(--background)), color-mix(in srgb, var(--surface) 82%, var(--background))) !important;
+}
+
+:global(html[data-theme-mode="dark"]) .actionButton[data-action-tone="primary"] {
+  border-color: color-mix(in srgb, var(--button-primary) 44%, var(--line)) !important;
+  background: linear-gradient(135deg, var(--button-primary), var(--button-secondary)) !important;
+  color: var(--brand-contrast) !important;
 }
 
 :global(html[data-theme-mode="dark"]) .actionButtonDanger {
-  border-color: rgba(255, 111, 145, 0.22) !important;
-  background: linear-gradient(180deg, rgba(77, 18, 41, 0.76), rgba(45, 12, 27, 0.74)) !important;
-  color: #ffd2db !important;
+  border-color: color-mix(in srgb, var(--danger) 32%, var(--line)) !important;
+  background: color-mix(in srgb, var(--danger) 14%, var(--surface)) !important;
+  color: color-mix(in srgb, var(--danger) 82%, var(--foreground)) !important;
 }
 
 :global(html[data-theme-mode="dark"]) .actionIcon {
-  border-color: rgba(102, 126, 201, 0.18);
+  border-color: color-mix(in srgb, var(--button-secondary) 20%, var(--line));
   background:
-    linear-gradient(180deg, rgba(20, 31, 63, 0.98), rgba(13, 20, 39, 0.92));
-  color: #cfe0ff;
+    linear-gradient(180deg, color-mix(in srgb, var(--surface-raised) 90%, var(--background)), color-mix(in srgb, var(--surface) 82%, var(--background)));
+  color: color-mix(in srgb, var(--button-secondary) 72%, var(--foreground));
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.05),
-    0 10px 18px -14px rgba(2, 6, 23, 0.76);
+    inset 0 1px 0 color-mix(in srgb, var(--surface) 16%, transparent),
+    0 10px 18px -14px color-mix(in srgb, var(--shadow) 70%, transparent);
 }
 
 :global(html[data-theme-mode="dark"]) .actionButtonDanger .actionIcon {
-  color: #ffb4c6;
+  color: color-mix(in srgb, var(--danger) 80%, var(--foreground));
 }
 
 :global(html[data-theme-mode="dark"]) .actionLabel {

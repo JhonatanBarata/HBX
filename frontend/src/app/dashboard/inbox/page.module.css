@@ -1823,13 +1823,12 @@
   width: calc((100% - 0.28rem) / var(--segment-count));
   transform: translateX(calc(var(--segment-index) * 100%));
   border-radius: 12px;
-  border: 1px solid color-mix(in srgb, var(--surface) 48%, var(--background));
+  border: 1px solid color-mix(in srgb, var(--selection-accent) 34%, var(--line));
   background:
-    radial-gradient(circle at top left, color-mix(in srgb, var(--surface) 68%, transparent), transparent 42%),
-    linear-gradient(180deg, color-mix(in srgb, var(--surface) 54%, var(--background)), color-mix(in srgb, var(--surface) 18%, var(--background)));
+    linear-gradient(135deg, color-mix(in srgb, var(--selection-accent) 88%, var(--button-primary)), color-mix(in srgb, var(--button-primary) 76%, var(--button-secondary)));
   box-shadow:
-    inset 0 1px 0 color-mix(in srgb, var(--surface) 94%, transparent),
-    0 8px 22px rgba(15, 23, 42, 0.08);
+    inset 0 1px 0 color-mix(in srgb, var(--surface) 34%, transparent),
+    0 8px 22px color-mix(in srgb, var(--selection-accent) 24%, transparent);
   transition: transform var(--motion-base);
   pointer-events: none;
 }
@@ -1850,7 +1849,7 @@
 }
 
 .contextTabActive {
-  color: var(--foreground);
+  color: var(--brand-contrast);
 }
 
 .contextTab:hover,
@@ -1938,10 +1937,10 @@
   inset: 0.76rem auto 0.76rem 0.52rem;
   width: 4px;
   border-radius: 999px;
-  background: linear-gradient(180deg, #20c780, #1d8bff);
+  background: linear-gradient(180deg, var(--button-success), var(--button-secondary));
   box-shadow:
-    0 0 0 1px color-mix(in srgb, #20c780 20%, transparent),
-    0 12px 28px color-mix(in srgb, #20c780 26%, transparent);
+    0 0 0 1px color-mix(in srgb, var(--button-success) 20%, transparent),
+    0 12px 28px color-mix(in srgb, var(--button-success) 26%, transparent);
   transform: translateZ(28px);
 }
 
@@ -2047,7 +2046,7 @@
 }
 
 .customerCardReturnLine em {
-  color: #b91c1c;
+  color: color-mix(in srgb, var(--danger) 86%, var(--foreground));
   font-style: normal;
   font-weight: 900;
 }
@@ -2059,10 +2058,10 @@
 }
 
 .customerCardPrimaryAction {
-  border-color: color-mix(in srgb, #20c780 42%, transparent);
-  background: linear-gradient(135deg, #22c55e, #14b87a);
-  color: #fff;
-  box-shadow: 0 12px 24px color-mix(in srgb, #16a34a 22%, transparent);
+  border-color: color-mix(in srgb, var(--button-success) 42%, var(--line));
+  background: linear-gradient(135deg, var(--button-success), color-mix(in srgb, var(--button-success) 76%, var(--button-secondary)));
+  color: var(--brand-contrast);
+  box-shadow: 0 12px 24px color-mix(in srgb, var(--button-success) 22%, transparent);
 }
 
 .customerCardSecondaryAction {
@@ -2071,9 +2070,62 @@
 }
 
 .customerCardDangerAction {
-  border-color: color-mix(in srgb, #ef4444 26%, var(--line));
-  background: color-mix(in srgb, #ef4444 8%, var(--surface));
-  color: #b91c1c;
+  border-color: color-mix(in srgb, var(--danger) 26%, var(--line));
+  background: color-mix(in srgb, var(--danger) 8%, var(--surface));
+  color: color-mix(in srgb, var(--danger) 86%, var(--foreground));
+}
+
+.customerCardActionGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.42rem;
+  min-width: 0;
+}
+
+.customerCardActionGrid > .customerCardThemeButton {
+  width: 100%;
+}
+
+.customerCardThemeButton {
+  min-width: 0 !important;
+  border-color: color-mix(in srgb, var(--button-secondary) 24%, var(--line)) !important;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--surface) 96%, var(--background)), color-mix(in srgb, var(--surface-soft) 88%, var(--background))) !important;
+  color: var(--foreground) !important;
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--surface) 72%, transparent),
+    0 12px 22px -18px color-mix(in srgb, var(--button-primary) 20%, transparent) !important;
+}
+
+.customerCardThemeButtonPrimary {
+  border-color: color-mix(in srgb, var(--button-primary) 38%, var(--button-secondary)) !important;
+  background: linear-gradient(135deg, var(--button-primary), var(--button-secondary)) !important;
+  color: var(--brand-contrast) !important;
+}
+
+.customerCardThemeButtonSecondary {
+  border-color: color-mix(in srgb, var(--button-secondary) 26%, var(--line)) !important;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--button-secondary) 10%, var(--surface)), color-mix(in srgb, var(--surface-soft) 90%, var(--background))) !important;
+  color: color-mix(in srgb, var(--button-secondary) 82%, var(--foreground)) !important;
+}
+
+.customerCardThemeButtonSuccess {
+  border-color: color-mix(in srgb, var(--button-success) 34%, var(--line)) !important;
+  background: linear-gradient(135deg, var(--button-success), color-mix(in srgb, var(--button-success) 72%, var(--button-secondary))) !important;
+  color: var(--brand-contrast) !important;
+}
+
+.customerCardThemeButtonWarning {
+  border-color: color-mix(in srgb, var(--warning) 34%, var(--line)) !important;
+  background: color-mix(in srgb, var(--warning) 12%, var(--surface)) !important;
+  color: color-mix(in srgb, var(--warning) 88%, var(--foreground)) !important;
+}
+
+.customerCardThemeButtonDanger {
+  border-color: color-mix(in srgb, var(--danger) 30%, var(--line)) !important;
+  background: color-mix(in srgb, var(--danger) 10%, var(--surface)) !important;
+  color: color-mix(in srgb, var(--danger) 88%, var(--foreground)) !important;
 }
 
 .customerCardSummaryBox {
@@ -4320,8 +4372,8 @@
 
 .listSearchAction,
 .conversationPrimaryAction {
-  border: 1px solid rgba(105, 129, 204, 0.22);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  border: 1px solid color-mix(in srgb, var(--button-secondary) 22%, var(--line));
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--surface) 22%, transparent);
   transition:
     transform var(--motion-fast),
     border-color var(--motion-fast),
@@ -4333,7 +4385,7 @@
 .listSearchAction:hover:not(:disabled),
 .conversationPrimaryAction:hover:not(:disabled) {
   transform: translateY(-1px);
-  border-color: rgba(122, 149, 236, 0.38);
+  border-color: color-mix(in srgb, var(--button-accent) 34%, var(--button-primary));
 }
 
 .listSearchAction:disabled,
@@ -4561,12 +4613,12 @@
   min-height: 38px;
   padding: 0 0.96rem;
   border-radius: 14px;
-  background: linear-gradient(135deg, rgba(52, 96, 255, 0.96), rgba(90, 45, 255, 0.92));
-  color: #fff;
+  background: linear-gradient(135deg, var(--button-primary), var(--button-secondary));
+  color: var(--brand-contrast);
   font-size: 0.76rem;
   font-weight: 900;
   letter-spacing: -0.01em;
-  box-shadow: 0 14px 26px rgba(52, 96, 255, 0.24);
+  box-shadow: 0 14px 26px color-mix(in srgb, var(--button-primary) 24%, transparent);
 }
 
 .whatsAppTimeline {
@@ -4799,8 +4851,8 @@
   left: 4px;
   width: calc((100% - 8px) / var(--segment-count));
   border-radius: 999px;
-  background: linear-gradient(135deg, rgba(42, 88, 255, 0.96), rgba(24, 173, 255, 0.8));
-  box-shadow: 0 10px 22px rgba(42, 88, 255, 0.28);
+  background: linear-gradient(135deg, var(--selection-accent), var(--button-primary));
+  box-shadow: 0 10px 22px color-mix(in srgb, var(--selection-accent) 28%, transparent);
   transform: translateX(calc(var(--segment-index) * 100%));
   transition: transform var(--motion-base);
 }
@@ -4811,13 +4863,13 @@
   min-height: 34px;
   border: none;
   background: transparent;
-  color: #8fa0c6;
+  color: color-mix(in srgb, var(--foreground) 66%, var(--muted));
   font-size: 0.72rem;
   font-weight: 800;
 }
 
 .contextTabActive {
-  color: #fff;
+  color: var(--brand-contrast);
 }
 
 .contextStack,
@@ -4846,50 +4898,50 @@
 }
 
 .customerCardAccent {
-  background: linear-gradient(180deg, #22c55e, #38bdf8);
-  box-shadow: 0 0 24px rgba(34, 197, 94, 0.18);
+  background: linear-gradient(180deg, var(--button-success), var(--button-secondary));
+  box-shadow: 0 0 24px color-mix(in srgb, var(--button-success) 18%, transparent);
 }
 
 .customerCardGhostButton,
 .customerCardSecondaryAction {
-  border-color: rgba(98, 120, 186, 0.18);
-  background: rgba(13, 20, 39, 0.88);
-  color: #e7efff;
+  border-color: color-mix(in srgb, var(--button-secondary) 18%, var(--line));
+  background: color-mix(in srgb, var(--surface) 76%, var(--background));
+  color: var(--foreground);
 }
 
 .customerCardPillButton {
-  border-color: rgba(124, 102, 255, 0.24);
-  background: rgba(124, 102, 255, 0.12);
-  color: #d7d1ff;
+  border-color: color-mix(in srgb, var(--button-accent) 24%, var(--line));
+  background: color-mix(in srgb, var(--button-accent) 12%, var(--surface));
+  color: color-mix(in srgb, var(--button-accent) 82%, var(--foreground));
 }
 
 .customerCardDangerAction {
-  border-color: rgba(248, 113, 113, 0.28);
-  background: rgba(127, 29, 29, 0.16);
-  color: #fecaca;
+  border-color: color-mix(in srgb, var(--danger) 28%, var(--line));
+  background: color-mix(in srgb, var(--danger) 12%, var(--surface));
+  color: color-mix(in srgb, var(--danger) 84%, var(--foreground));
 }
 
 .customerCardReturnLine,
 .customerCardSummaryBox,
 .customerCardMetrics span,
 .customerCardShortcut {
-  border-color: rgba(98, 120, 186, 0.16);
-  background: rgba(13, 20, 39, 0.78);
+  border-color: color-mix(in srgb, var(--button-secondary) 16%, var(--line));
+  background: color-mix(in srgb, var(--surface) 70%, var(--background));
 }
 
 .customerCardTextarea {
   border-radius: 14px !important;
-  border: 1px solid rgba(98, 120, 186, 0.16) !important;
-  background: rgba(7, 12, 24, 0.82) !important;
-  color: #e7efff !important;
+  border: 1px solid color-mix(in srgb, var(--button-secondary) 16%, var(--line)) !important;
+  background: color-mix(in srgb, var(--field-surface) 82%, var(--background)) !important;
+  color: var(--foreground) !important;
 }
 
 .customerCardTextarea::placeholder {
-  color: #7c8eb8;
+  color: var(--muted);
 }
 
 .customerCardHistoryItem {
-  border-left-color: rgba(56, 189, 248, 0.58);
+  border-left-color: color-mix(in srgb, var(--button-secondary) 58%, var(--line));
 }
 
 .quickActionsGrid {
@@ -5055,12 +5107,12 @@
 :global(html[data-theme-mode="dark"]) .conversationPrimaryAction,
 :global(html[data-theme-mode="dark"]) .whatsAppComposerButton,
 :global(html[data-theme-mode="dark"]) .contextTabHighlight {
-  border-color: color-mix(in srgb, var(--brand) 42%, var(--line));
-  background: linear-gradient(135deg, var(--brand), var(--brand-solid)) !important;
+  border-color: color-mix(in srgb, var(--selection-accent) 42%, var(--line));
+  background: linear-gradient(135deg, var(--selection-accent), var(--button-primary)) !important;
   color: var(--brand-contrast) !important;
   box-shadow:
     inset 0 1px 0 color-mix(in srgb, var(--surface) 28%, transparent),
-    0 16px 34px color-mix(in srgb, var(--brand) 28%, transparent) !important;
+    0 16px 34px color-mix(in srgb, var(--selection-accent) 28%, transparent) !important;
 }
 
 :global(html[data-theme-mode="dark"]) .commandDockBrand[data-active="true"] {
@@ -5477,13 +5529,13 @@
 
 :global(html[data-theme-mode="light"]) .conversationPrimaryAction,
 :global(html[data-theme-mode="light"]) .whatsAppComposerButton {
-  background: linear-gradient(135deg, var(--brand), var(--brand-solid)) !important;
+  background: linear-gradient(135deg, var(--button-primary), var(--button-secondary)) !important;
   color: var(--brand-contrast) !important;
-  box-shadow: 0 14px 26px color-mix(in srgb, var(--brand) 22%, transparent) !important;
+  box-shadow: 0 14px 26px color-mix(in srgb, var(--button-primary) 22%, transparent) !important;
 }
 
 :global(html[data-theme-mode="light"]) .contextTabHighlight {
-  background: linear-gradient(135deg, var(--brand), var(--brand-solid));
+  background: linear-gradient(135deg, var(--selection-accent), var(--button-primary));
 }
 
 :global(html[data-theme-mode="light"]) .whatsAppConversationLoadingMask {
@@ -5687,7 +5739,10 @@
   color: color-mix(in srgb, var(--foreground) 68%, var(--muted));
 }
 
-:global(html[data-theme-mode="light"]) .contextTabActive,
+:global(html[data-theme-mode="light"]) .contextTabActive {
+  color: var(--brand-contrast);
+}
+
 :global(html[data-theme-mode="light"]) .recoveryPaymentRow strong {
   color: var(--foreground);
 }

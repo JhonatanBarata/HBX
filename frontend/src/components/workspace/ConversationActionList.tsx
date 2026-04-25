@@ -44,7 +44,7 @@ export default function ConversationActionList({ actions }: ConversationActionLi
         );
 
         return action.kind === "link" ? (
-          <Link key={action.id} href={action.href} className={className}>
+          <Link key={action.id} href={action.href} className={className} data-action-tone={action.tone}>
             {content}
           </Link>
         ) : (
@@ -52,6 +52,7 @@ export default function ConversationActionList({ actions }: ConversationActionLi
             key={action.id}
             type="button"
             className={className}
+            data-action-tone={action.tone}
             onClick={action.onClick}
             disabled={action.disabled}
           >

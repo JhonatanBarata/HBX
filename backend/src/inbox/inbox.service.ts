@@ -48,6 +48,7 @@ import {
 } from '../messaging/webwhats-bridge.service';
 import { InboxRealtimeService } from '../messaging/inbox-realtime.service';
 import type { Request, Response } from 'express';
+import { getBackendPublicUploadDir } from '../public-assets';
 
 @Injectable()
 export class InboxService {
@@ -99,30 +100,51 @@ export class InboxService {
 
   openRealtimeStream(user: any, req: Request, res: Response) {
     const companyId = this.requireCompanyIdFromUser(user);
+    const heartbeatIntervalMs = 5000;
+    let closed = false;
+
+    const flush = () => {
+      (res as Response & { flush?: () => void }).flush?.();
+    };
+
+    const writeFrame = (frame: string) => {
+      if (closed || res.writableEnded || res.destroyed) return false;
+      try {
+        res.write(frame);
+        flush();
+        return true;
+      } catch {
+        return false;
+      }
+    };
 
     res.status(200);
     res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
     res.setHeader('Cache-Control', 'no-cache, no-transform');
     res.setHeader('Connection', 'keep-alive');
     res.setHeader('X-Accel-Buffering', 'no');
+    res.socket?.setNoDelay(true);
+    res.socket?.setKeepAlive(true);
     res.flushHeaders?.();
+    flush();
 
-    res.write(': inbox-stream-ready\n\n');
+    writeFrame(`retry: 3000\n: inbox-stream-ready\nevent: heartbeat\ndata: {"at":"${new Date().toISOString()}"}\n\n`);
 
     const unsubscribe = this.inboxRealtime.subscribe(companyId, (event) => {
-      res.write(`event: inbox\n`);
-      res.write(`data: ${JSON.stringify(event)}\n\n`);
+      if (!writeFrame(`event: inbox\ndata: ${JSON.stringify(event)}\n\n`)) {
+        cleanup();
+      }
     });
 
     const heartbeat = setInterval(() => {
-      try {
-        res.write(': keepalive\n\n');
-      } catch {
-        // ignore write failures; close handler will clean up
+      if (!writeFrame(`: keepalive\nevent: heartbeat\ndata: {"at":"${new Date().toISOString()}"}\n\n`)) {
+        cleanup();
       }
-    }, 25000);
+    }, heartbeatIntervalMs);
 
     const cleanup = () => {
+      if (closed) return;
+      closed = true;
       clearInterval(heartbeat);
       unsubscribe();
       if (!res.writableEnded) {
@@ -3700,7 +3722,7 @@ export class InboxService {
       );
     }
 
-    const uploadDir = join(process.cwd(), 'public', 'uploads', 'inbox');
+    const uploadDir = getBackendPublicUploadDir('inbox');
     if (!existsSync(uploadDir)) mkdirSync(uploadDir, { recursive: true });
 
     const safeExt = extname(file.originalname || '').replace(/[^a-zA-Z0-9.]/g, '').slice(0, 6) || '.bin';
