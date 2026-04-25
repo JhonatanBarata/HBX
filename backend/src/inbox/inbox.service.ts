@@ -47,6 +47,7 @@ import {
   WebwhatsProviderError,
 } from '../messaging/webwhats-bridge.service';
 import { InboxRealtimeService } from '../messaging/inbox-realtime.service';
+import { resolveBackendPublicAssetPath } from '../public-assets';
 import type { Request, Response } from 'express';
 
 @Injectable()
@@ -277,6 +278,16 @@ export class InboxService {
     }
   }
 
+  private normalizeExistingLocalMediaAssetUrl(value: string) {
+    const normalized = this.normalizeMessageMetadataText(value);
+    if (!normalized) return null;
+    const localPath = normalized.startsWith('/') ? normalized : `/${normalized}`;
+    if (!localPath.startsWith('/uploads/')) return localPath;
+    const diskPath = resolveBackendPublicAssetPath(localPath);
+    if (!diskPath || !existsSync(diskPath)) return null;
+    return localPath;
+  }
+
   private normalizeStoredMediaAssetUrl(value: unknown) {
     const normalized = this.normalizeMessageMetadataText(value);
     if (!normalized) return null;
@@ -284,11 +295,21 @@ export class InboxService {
       if (this.isTransientWhatsAppMediaUrl(normalized)) {
         return null;
       }
+      try {
+        const parsed = new URL(normalized);
+        const uploadsIndex = parsed.pathname.indexOf('/uploads/');
+        if (uploadsIndex >= 0) {
+          const localPath = `${parsed.pathname.slice(uploadsIndex)}${parsed.search || ''}${parsed.hash || ''}`;
+          return this.normalizeExistingLocalMediaAssetUrl(localPath) ? normalized : null;
+        }
+      } catch {
+        return normalized;
+      }
       return normalized;
     }
 
     if (normalized.startsWith('/')) {
-      return normalized;
+      return this.normalizeExistingLocalMediaAssetUrl(normalized);
     }
 
     const relative = normalized
@@ -298,11 +319,11 @@ export class InboxService {
     if (!relative) return null;
 
     if (relative.startsWith('uploads/')) {
-      return `/${relative}`;
+      return this.normalizeExistingLocalMediaAssetUrl(`/${relative}`);
     }
 
     if (/^[^\\/?#:*"<>|]+\.(png|jpe?g|gif|webp|bmp|svg|mp4|webm|mov|m4v|mp3|ogg|oga|wav|m4a|opus|aac|pdf|docx?|xlsx?|csv|txt)$/i.test(relative)) {
-      return `/uploads/inbox/${relative}`;
+      return this.normalizeExistingLocalMediaAssetUrl(`/uploads/inbox/${relative}`);
     }
 
     return normalized;

@@ -1310,19 +1310,37 @@ export class WebwhatsBridgeService {
   }
 
   private getMediaPayload(message: WebwhatsFetchedMessage, messageType?: string | null) {
-    const payload = message?.message || {};
+    const payload = this.unwrapMessagePayload(message?.message || {});
     const normalizedType = String(messageType || this.normalizeMessageType(message) || '').trim().toLowerCase();
-    if (normalizedType === 'image') return (payload as any).imageMessage || null;
-    if (normalizedType === 'video') return (payload as any).videoMessage || null;
+    if (normalizedType === 'image') return (payload as any).imageMessage || (payload as any).image || null;
+    if (normalizedType === 'video') return (payload as any).videoMessage || (payload as any).ptvMessage || (payload as any).video || null;
     if (normalizedType === 'document') {
       return (
-        (payload as any).documentWithCaptionMessage?.message?.documentMessage ||
         (payload as any).documentMessage ||
+        (payload as any).document ||
         null
       );
     }
-    if (normalizedType === 'audio') return (payload as any).audioMessage || null;
+    if (normalizedType === 'audio') return (payload as any).audioMessage || (payload as any).audio || null;
     return null;
+  }
+
+  private unwrapMessagePayload(payloadRaw: unknown): Record<string, any> {
+    const payload =
+      payloadRaw && typeof payloadRaw === 'object' && !Array.isArray(payloadRaw)
+        ? (payloadRaw as Record<string, any>)
+        : {};
+    const nested =
+      payload.ephemeralMessage?.message ||
+      payload.viewOnceMessage?.message ||
+      payload.viewOnceMessageV2?.message ||
+      payload.viewOnceMessageV2Extension?.message ||
+      payload.documentWithCaptionMessage?.message ||
+      null;
+    if (nested && typeof nested === 'object') {
+      return this.unwrapMessagePayload(nested);
+    }
+    return payload;
   }
 
   private normalizeStoredNumber(value: unknown) {
@@ -1360,22 +1378,37 @@ export class WebwhatsBridgeService {
     return '.bin';
   }
 
+  private extractBase64Candidate(candidate: unknown) {
+    if (Buffer.isBuffer(candidate)) return candidate.toString('base64');
+    if (typeof candidate === 'string' && candidate.trim()) return candidate.trim();
+    if (candidate && typeof candidate === 'object' && Array.isArray((candidate as any).data)) {
+      return Buffer.from((candidate as any).data).toString('base64');
+    }
+    return null;
+  }
+
   private extractBase64FromMediaResponse(response: unknown) {
-    if (typeof response === 'string') return response.trim() || null;
+    const direct = this.extractBase64Candidate(response);
+    if (direct) return direct;
     if (!response || typeof response !== 'object') return null;
     const candidates = [
       (response as any).base64,
+      (response as any).data,
       (response as any).data?.base64,
+      (response as any).data?.media,
       (response as any).media?.base64,
+      (response as any).media?.data,
+      (response as any).media,
       (response as any).message?.base64,
+      (response as any).message?.media,
+      (response as any).message?.data,
+      (response as any).file?.base64,
+      (response as any).file?.data,
       (response as any).buffer,
     ];
     for (const candidate of candidates) {
-      if (Buffer.isBuffer(candidate)) return candidate.toString('base64');
-      if (typeof candidate === 'string' && candidate.trim()) return candidate.trim();
-      if (candidate && typeof candidate === 'object' && Array.isArray((candidate as any).data)) {
-        return Buffer.from((candidate as any).data).toString('base64');
-      }
+      const base64 = this.extractBase64Candidate(candidate);
+      if (base64) return base64;
     }
     return null;
   }
@@ -1390,15 +1423,29 @@ export class WebwhatsBridgeService {
     return compact || null;
   }
 
+  private extractMimeTypeFromDataUri(raw: string | null | undefined) {
+    const normalized = String(raw || '').trim();
+    if (!normalized) return null;
+    const match = normalized.match(/^data:([^,]+);base64,/i);
+    return this.normalizeOptionalString(match?.[1]);
+  }
+
   private extractMediaResponseMimeType(response: unknown) {
     if (!response || typeof response !== 'object') return null;
     return this.normalizeOptionalString(
       (response as any).mimetype ||
       (response as any).mimeType ||
+      (response as any).contentType ||
       (response as any).media?.mimetype ||
       (response as any).media?.mimeType ||
+      (response as any).media?.contentType ||
       (response as any).data?.mimetype ||
-      (response as any).data?.mimeType,
+      (response as any).data?.mimeType ||
+      (response as any).data?.contentType ||
+      (response as any).message?.mimetype ||
+      (response as any).message?.mimeType ||
+      (response as any).file?.mimetype ||
+      (response as any).file?.mimeType,
     );
   }
 
@@ -1484,7 +1531,8 @@ export class WebwhatsBridgeService {
         },
         treatNotFoundAsNull: true,
       });
-      const base64 = this.normalizeBase64Payload(this.extractBase64FromMediaResponse(response));
+      const rawBase64 = this.extractBase64FromMediaResponse(response);
+      const base64 = this.normalizeBase64Payload(rawBase64);
       if (!base64) return null;
 
       const buffer = Buffer.from(base64, 'base64');
@@ -1492,6 +1540,7 @@ export class WebwhatsBridgeService {
 
       const mimeType =
         this.extractMediaResponseMimeType(response) ||
+        this.extractMimeTypeFromDataUri(rawBase64) ||
         this.normalizeOptionalString((mediaPayload as any).mimetype);
       const fileName =
         this.extractMediaResponseFileName(response) ||
@@ -3046,12 +3095,12 @@ export class WebwhatsBridgeService {
       return lowered;
     }
 
-    const payload = message?.message || {};
+    const payload = this.unwrapMessagePayload(message?.message || {});
     if (payload.extendedTextMessage) return 'text';
-    if (payload.imageMessage) return 'image';
-    if (payload.videoMessage) return 'video';
-    if (payload.documentMessage || payload.documentWithCaptionMessage) return 'document';
-    if (payload.audioMessage) return 'audio';
+    if (payload.imageMessage || (payload as any).image) return 'image';
+    if (payload.videoMessage || payload.ptvMessage || (payload as any).video) return 'video';
+    if (payload.documentMessage || (payload as any).document) return 'document';
+    if (payload.audioMessage || (payload as any).audio) return 'audio';
     if (payload.stickerMessage) return 'sticker';
     if (payload.reactionMessage) return 'reaction';
     if (String(payload.protocolMessage?.type || '').trim().toUpperCase() === 'REVOKE') return 'deleted';
@@ -3060,7 +3109,7 @@ export class WebwhatsBridgeService {
   }
 
   private extractMessageBody(message: WebwhatsFetchedMessage, normalizedType: string) {
-    const payload = message?.message || {};
+    const payload = this.unwrapMessagePayload(message?.message || {});
     const conversation = this.normalizeOptionalString((payload as any).conversation);
     const extendedText = this.normalizeOptionalString((payload as any).extendedTextMessage?.text);
     if (conversation || extendedText) return conversation || extendedText || '';
@@ -3084,9 +3133,7 @@ export class WebwhatsBridgeService {
     }
     if (normalizedType === 'document') {
       return (
-        this.normalizeOptionalString((payload as any).documentWithCaptionMessage?.message?.documentMessage?.caption)
-        || this.normalizeOptionalString((payload as any).documentWithCaptionMessage?.message?.documentMessage?.fileName)
-        || this.normalizeOptionalString((payload as any).documentMessage?.caption)
+        this.normalizeOptionalString((payload as any).documentMessage?.caption)
         || this.normalizeOptionalString((payload as any).documentMessage?.fileName)
         || '[documento recebido]'
       );

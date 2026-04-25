@@ -2257,7 +2257,6 @@ export default function InboxClientPage() {
   >([]);
   const [inboxBootstrapCelebrate, setInboxBootstrapCelebrate] = useState(false);
   const inboxBootstrapStageTimerRef = useRef<number | null>(null);
-  const inboxMediaUrlStatusRef = useRef<Record<string, "checking" | "ok" | "missing">>({});
 
   const markInboxMediaUrlFailed = useCallback((url?: string | null) => {
     const normalized = String(url || "").trim();
@@ -3735,63 +3734,6 @@ export default function InboxClientPage() {
       : false;
 
   useEffect(() => {
-    if (!conversationForView || !conversationMessagesForView.length) return;
-
-    const apiBase = getInboxApiBaseUrl().replace(/\/+$/, "");
-    const localPrefix = `${apiBase}/uploads/inbox/`;
-    const pending: string[] = [];
-
-    for (const message of conversationMessagesForView) {
-      const rendered = parseInboxMessageMedia(message, conversationForView);
-      const urls = [rendered.imageUrl, rendered.videoUrl, rendered.audioUrl, rendered.documentUrl]
-        .map((item) => String(item || "").trim())
-        .filter(Boolean);
-
-      for (const url of urls) {
-        if (!url.startsWith(localPrefix)) continue;
-        if (failedInboxMediaUrls[url]) continue;
-        const status = inboxMediaUrlStatusRef.current[url];
-        if (status === "ok" || status === "missing" || status === "checking") continue;
-        pending.push(url);
-      }
-    }
-
-    if (!pending.length) return;
-
-    let cancelled = false;
-    const token = getToken();
-
-    const run = async () => {
-      for (const url of pending) {
-        inboxMediaUrlStatusRef.current[url] = "checking";
-        try {
-          const response = await fetch(url, {
-            method: "HEAD",
-            headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-            credentials: "include",
-          });
-          if (cancelled) return;
-          if (!response.ok) {
-            inboxMediaUrlStatusRef.current[url] = "missing";
-            markInboxMediaUrlFailed(url);
-            continue;
-          }
-          inboxMediaUrlStatusRef.current[url] = "ok";
-        } catch {
-          if (cancelled) return;
-          inboxMediaUrlStatusRef.current[url] = "missing";
-          markInboxMediaUrlFailed(url);
-        }
-      }
-    };
-
-    void run();
-    return () => {
-      cancelled = true;
-    };
-  }, [conversationForView, conversationMessagesForView, failedInboxMediaUrls, markInboxMediaUrlFailed]);
-
-  useEffect(() => {
     if (!selectedId || selectedBlocked) return;
     const frame = window.requestAnimationFrame(() => {
       chatComposerInputRef.current?.focus();
@@ -5197,18 +5139,18 @@ export default function InboxClientPage() {
                                   <div className={styles.whatsAppAudioBody}>
                                     {rendered.audioUrl ? (
                                       <audio
+                                        key={rendered.audioUrl}
                                         className={styles.whatsAppAudioPlayer}
                                         controls
                                         preload="metadata"
+                                        src={rendered.audioUrl}
                                         onError={() => markInboxMediaUrlFailed(rendered.audioUrl)}
-                                      >
-                                        <source src={rendered.audioUrl} type={rendered.mimeType || undefined} />
-                                      </audio>
+                                      />
                                     ) : (
                                       <div className={styles.whatsAppAudioWavePlaceholder} />
                                     )}
                                     <span className={styles.whatsAppAudioMeta}>
-                                      {rendered.isVoiceNote ? "Mensagem de voz" : "Audio recebido"}
+                                      {rendered.isVoiceNote ? "Mensagem de voz" : "Áudio recebido"}
                                       {rendered.durationSeconds ? ` • ${formatInboxDurationLabel(rendered.durationSeconds)}` : ""}
                                     </span>
                                   </div>
@@ -5458,6 +5400,8 @@ export default function InboxClientPage() {
                     ref={chatComposerInputRef}
                     className={`field ${styles.whatsAppComposerInput}`}
                     rows={1}
+                    spellCheck={true}
+                    lang="pt-BR"
                     value={sendText}
                     onChange={(event) => {
                       sendTextDirtyRef.current = true;
