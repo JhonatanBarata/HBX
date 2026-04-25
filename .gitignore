@@ -41,5 +41,6 @@ __pycache__/
 *.sqlite
 *.sqlite3
 *.sql
+!backend/prisma/migrations/**/*.sql
 *.dump
 *.tar.gz
