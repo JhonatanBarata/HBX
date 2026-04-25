@@ -28,6 +28,58 @@ function makeConversation(overrides?: Record<string, unknown>) {
   };
 }
 
+test('sendWhatsAppAudio posts Evolution voice note payload', async () => {
+  const previousUrl = process.env.WHATSAPP_MODAL_INTERNAL_URL;
+  const previousKey = process.env.WHATSAPP_MODAL_API_KEY;
+  process.env.WHATSAPP_MODAL_INTERNAL_URL = 'http://webwhats.test';
+  process.env.WHATSAPP_MODAL_API_KEY = 'test-key';
+
+  const calls = {
+    path: null as string | null,
+    data: null as Record<string, unknown> | null,
+  };
+  const prisma = {
+    company: {
+      findUnique: async () => ({ id: 47, whatsappModalStatus: 'connected' }),
+    },
+    companyConversation: {
+      findFirst: async () => ({
+        contact: '+5511999998888',
+        metadata: JSON.stringify({
+          whatsappRemoteJid: '5511999998888@s.whatsapp.net',
+        }),
+      }),
+    },
+  };
+  const service = new WebwhatsBridgeService(prisma as any);
+
+  (service as any).requestRead = async (input: any) => {
+    calls.path = input.path;
+    calls.data = input.data;
+    return { key: { id: 'AUDIO-1' } };
+  };
+
+  try {
+    const result = await service.sendWhatsAppAudio(47, {
+      to: '+5511999998888',
+      conversationId: 115,
+      audio: 'https://cdn.example.test/audio.webm',
+    });
+
+    assert.equal(calls.path, '/message/sendWhatsAppAudio/company-47');
+    assert.deepEqual(calls.data, {
+      number: '5511999998888@s.whatsapp.net',
+      audio: 'https://cdn.example.test/audio.webm',
+    });
+    assert.equal(result.providerMessageId, 'webwhats:company-47:AUDIO-1');
+  } finally {
+    if (previousUrl === undefined) delete process.env.WHATSAPP_MODAL_INTERNAL_URL;
+    else process.env.WHATSAPP_MODAL_INTERNAL_URL = previousUrl;
+    if (previousKey === undefined) delete process.env.WHATSAPP_MODAL_API_KEY;
+    else process.env.WHATSAPP_MODAL_API_KEY = previousKey;
+  }
+});
+
 test('upsertConversationStateFromChat reuses phone conversation found by stored lid metadata', async () => {
   const existing = makeConversation();
   const calls = {

@@ -441,6 +441,7 @@ export class WhatsAppModalService {
       || (normalized.includes('session') && normalized.includes('already exists'))
       || (normalized.includes('instance') && normalized.includes('exists'))
       || (normalized.includes('session') && normalized.includes('exists'))
+      || normalized.includes('already in use')
       || normalized === 'already_exists'
       || normalized === 'conflict'
     );
@@ -1035,6 +1036,11 @@ export class WhatsAppModalService {
 
   private firstString(...values: unknown[]) {
     for (const value of values) {
+      if (Array.isArray(value)) {
+        const nested = this.firstString(...value);
+        if (nested) return nested;
+        continue;
+      }
       if (value && typeof value === 'object') continue;
       const normalized = this.normalizeOptionalString(value);
       if (normalized) return normalized;
@@ -1431,6 +1437,7 @@ export class WhatsAppModalService {
       responseBody.error,
       responseBody.detail,
       this.asRecord(responseBody.data)?.message,
+      this.asRecord(responseBody.response)?.message,
     );
     const suffix = detail ? ` ${detail}` : '';
     const normalizedPurpose = String(purpose || '').trim().toLowerCase();

@@ -4160,21 +4160,28 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
         }
         try {
           const caption = this.stripAttachmentReferenceFromBody(msg.body, attachment) || undefined;
-          const webwhatsResult = await this.webwhatsBridge.sendMedia(msg.companyId, {
-            to: msg.to,
-            conversationId,
-            mediaType: attachment.kind,
-            media: attachment.url,
-            caption,
-            fileName: attachment.fileName,
-            mimeType: attachment.mimeType,
-          });
+          const isVoiceAudio = attachment.kind === 'audio';
+          const webwhatsResult = isVoiceAudio
+            ? await this.webwhatsBridge.sendWhatsAppAudio(msg.companyId, {
+                to: msg.to,
+                conversationId,
+                audio: attachment.url,
+              })
+            : await this.webwhatsBridge.sendMedia(msg.companyId, {
+                to: msg.to,
+                conversationId,
+                mediaType: attachment.kind,
+                media: attachment.url,
+                caption,
+                fileName: attachment.fileName,
+                mimeType: attachment.mimeType,
+              });
           await markWebwhatsSent({
             requestBody: {
               number: webwhatsResult.target,
-              mediatype: attachment.kind,
+              mediatype: isVoiceAudio ? 'voice' : attachment.kind,
               mediaSource: attachment.url,
-              caption: caption || null,
+              caption: isVoiceAudio ? null : caption || null,
               fileName: attachment.fileName || null,
               mimetype: attachment.mimeType || null,
             },
@@ -4182,7 +4189,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
             providerMessageId: webwhatsResult.providerMessageId,
           });
           this.logger.log(
-            `Webwhats sent media messageId=${msg.id} providerMessageId=${webwhatsResult.providerMessageId || '(missing)'} in ${Date.now() - startedAtMs}ms`,
+            `Webwhats sent ${isVoiceAudio ? 'voice audio' : 'media'} messageId=${msg.id} providerMessageId=${webwhatsResult.providerMessageId || '(missing)'} in ${Date.now() - startedAtMs}ms`,
           );
           return;
         } catch (webwhatsError) {
