@@ -13,6 +13,8 @@ type WhatsAppStatusPayload = {
 };
 
 const STORAGE_KEY = "hbx.qr-paired-next-step.v1";
+const SESSION_SHOWN_AT_KEY = "hbx.qr-paired-next-step.shown-at.v1";
+const REOPEN_COOLDOWN_MS = 8000;
 export const QR_PAIRED_EVENT = "hbx:qr-paired";
 
 const OPTIONS = [
@@ -43,6 +45,19 @@ function dismissPrompt() {
   window.localStorage.setItem(STORAGE_KEY, "hidden");
 }
 
+function wasShownRecently() {
+  if (typeof window === "undefined") return true;
+  const raw = window.sessionStorage.getItem(SESSION_SHOWN_AT_KEY);
+  const shownAt = raw ? Number(raw) : 0;
+  if (!Number.isFinite(shownAt) || shownAt <= 0) return false;
+  return Date.now() - shownAt < REOPEN_COOLDOWN_MS;
+}
+
+function markShownNow() {
+  if (typeof window === "undefined") return;
+  window.sessionStorage.setItem(SESSION_SHOWN_AT_KEY, String(Date.now()));
+}
+
 export default function QrPairedNextStepPrompt() {
   const router = useRouter();
   const pathname = usePathname();
@@ -51,7 +66,6 @@ export default function QrPairedNextStepPrompt() {
 
   useEffect(() => {
     if (!getToken() || hasPromptDismissed()) {
-      setOpen(false);
       return;
     }
 
@@ -61,7 +75,15 @@ export default function QrPairedNextStepPrompt() {
       try {
         const payload = await apiFetch<WhatsAppStatusPayload>("/companies/me/whatsapp-modal/status");
         if (!mounted || hasPromptDismissed()) return;
-        setOpen(payload?.status === "connected");
+        const shouldOpen = payload?.status === "connected" && !wasShownRecently();
+        if (shouldOpen) {
+          markShownNow();
+          setOpen(true);
+          return;
+        }
+        if (payload?.status !== "connected") {
+          setOpen(false);
+        }
       } catch {
         if (mounted) setOpen(false);
       }

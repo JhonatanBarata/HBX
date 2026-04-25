@@ -4,7 +4,6 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 import { extname, join } from 'path';
 import { PrismaService } from '../prisma/prisma.service';
 import { buildWhatsAppPhoneCandidates, normalizeWhatsAppPhone } from './whatsapp-channel';
-import { getBackendPublicUploadDir, resolveBackendPublicAssetPath } from '../public-assets';
 
 type WebwhatsMediaType = 'image' | 'video' | 'document' | 'audio';
 
@@ -1277,7 +1276,13 @@ export class WebwhatsBridgeService {
     const pathname = this.extractMediaPathname(raw);
     if (!pathname || !pathname.startsWith('/uploads/')) return null;
 
-    return resolveBackendPublicAssetPath(pathname);
+    const normalizedRelativePath = decodeURIComponent(pathname)
+      .replace(/^\/+/, '')
+      .split('/')
+      .filter(Boolean);
+    if (!normalizedRelativePath.length) return null;
+
+    return join(process.cwd(), 'public', ...normalizedRelativePath);
   }
 
   private extractMediaPathname(raw: string) {
@@ -1494,7 +1499,7 @@ export class WebwhatsBridgeService {
       const keyId = this.normalizeOptionalString(message?.key?.id || message?.id) || String(Date.now());
       const safeKey = keyId.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 80) || String(Date.now());
       const extension = this.mimeToExtension(mimeType, fileName);
-      const uploadDir = getBackendPublicUploadDir('inbox');
+      const uploadDir = join(process.cwd(), 'public', 'uploads', 'inbox');
       if (!existsSync(uploadDir)) mkdirSync(uploadDir, { recursive: true });
       const filename = `${companyId}_${conversationId}_${safeKey}${extension}`;
       const publicUrl = `/uploads/inbox/${filename}`;

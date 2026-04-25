@@ -870,16 +870,25 @@ export class VendasService {
     }
     const mirroredLeadCount = activeMirroredLeadIds.size;
 
-    if (todayLeadCount > 0 && mirroredLeadCount === 0) {
+    const allTodaySkippedByWhatsapp =
+      todayLeadCount > 0 &&
+      mirroredLeadCount === 0 &&
+      skippedWithoutWhatsapp >= todayLeadCount;
+
+    if (todayLeadCount > 0 && mirroredLeadCount === 0 && !allTodaySkippedByWhatsapp) {
       this.logger.error(
         `[vendas-agenda] Falha operacional: nenhum card de hoje foi espelhado company=${context.companyId} today=${todayLeadCount} skippedWithoutPhone=${skippedWithoutPhone} skippedWithoutWhatsapp=${skippedWithoutWhatsapp}`,
       );
       throw new BadRequestException(
-        skippedWithoutWhatsapp >= todayLeadCount
-          ? 'Nenhum card de hoje foi espelhado no Atendimento porque o motor confirmou que os numeros nao possuem WhatsApp.'
-          : skippedWithoutPhone > 0
+        skippedWithoutPhone > 0
           ? 'Nenhum card de hoje foi espelhado no Atendimento porque os leads estao sem telefone valido.'
           : 'Nenhum card de hoje foi espelhado no Atendimento.',
+      );
+    }
+
+    if (allTodaySkippedByWhatsapp) {
+      this.logger.warn(
+        `[vendas-agenda] Todos os cards de hoje foram ignorados por falta de WhatsApp company=${context.companyId} today=${todayLeadCount} skippedWithoutWhatsapp=${skippedWithoutWhatsapp}`,
       );
     }
 
