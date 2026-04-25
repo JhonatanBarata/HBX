@@ -2154,6 +2154,9 @@ export default function InboxClientPage() {
   const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
   const [replyingTo, setReplyingTo] = useState<InboxMessage | null>(null);
   const [imagePreview, setImagePreview] = useState<InboxAttachmentPreview | null>(null);
+  const [audioPreview, setAudioPreview] = useState<{ blob: Blob; url: string; mimeType: string; seconds: number } | null>(null);
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordingSeconds, setRecordingSeconds] = useState(0);
   const [openedAsset, setOpenedAsset] = useState<OpenedInboxAsset | null>(null);
   const [failedInboxMediaUrls, setFailedInboxMediaUrls] = useState<Record<string, true>>({});
   const [queueActionConversationId, setQueueActionConversationId] = useState<string | null>(null);
@@ -2219,6 +2222,10 @@ export default function InboxClientPage() {
   const queueActionMenuRef = useRef<HTMLDivElement | null>(null);
   const messageReactionPickerRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const recordingSecondsRef = useRef(0);
   const customerReturnInputRef = useRef<HTMLInputElement | null>(null);
   const customerReturnAutoSaveTimerRef = useRef<number | null>(null);
   const conversationsRef = useRef<InboxConversation[]>([]);
@@ -4586,6 +4593,97 @@ export default function InboxClientPage() {
     [loadConversations, rememberConversationDetail, selectedBlocked, selectedId, sendText, replyingTo, imagePreview],
   );
 
+  const stopRecording = useCallback(() => {
+    if (recordingTimerRef.current) {
+      clearInterval(recordingTimerRef.current);
+      recordingTimerRef.current = null;
+    }
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+      mediaRecorderRef.current.stop();
+    }
+    setIsRecording(false);
+  }, []);
+
+  const startRecording = useCallback(async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
+        ? "audio/webm;codecs=opus"
+        : MediaRecorder.isTypeSupported("audio/ogg;codecs=opus")
+          ? "audio/ogg;codecs=opus"
+          : "audio/webm";
+      const recorder = new MediaRecorder(stream, { mimeType });
+      mediaRecorderRef.current = recorder;
+      audioChunksRef.current = [];
+      recordingSecondsRef.current = 0;
+      setRecordingSeconds(0);
+      setIsRecording(true);
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) audioChunksRef.current.push(e.data);
+      };
+      recorder.onstop = () => {
+        stream.getTracks().forEach((t) => t.stop());
+        const baseMime = mimeType.split(";")[0];
+        const blob = new Blob(audioChunksRef.current, { type: baseMime });
+        const url = URL.createObjectURL(blob);
+        setAudioPreview({ blob, url, mimeType: baseMime, seconds: recordingSecondsRef.current });
+        audioChunksRef.current = [];
+      };
+      recorder.start(200);
+      recordingTimerRef.current = setInterval(() => {
+        recordingSecondsRef.current += 1;
+        setRecordingSeconds((s) => {
+          const next = s + 1;
+          if (next >= 120) stopRecording();
+          return next;
+        });
+      }, 1000);
+    } catch {
+      setError("Microfone não acessível. Verifique as permissões do navegador.");
+    }
+  }, [stopRecording]);
+
+  const sendAudioPreview = useCallback(async () => {
+    if (!selectedId || !audioPreview) return;
+    setSending(true);
+    setError(null);
+    try {
+      const ext = audioPreview.mimeType.includes("ogg") ? ".ogg" : ".webm";
+      const file = new File([audioPreview.blob], `voz_${Date.now()}${ext}`, { type: audioPreview.mimeType });
+      const formData = new FormData();
+      formData.append("file", file);
+      const mediaResult = await apiFetch<{ url: string; filename: string; mimeType: string; size: number }>(
+        `/inbox/conversations/${selectedId}/media`,
+        { method: "POST", body: formData },
+      );
+      const data = await apiFetch<InboxConversation>(`/inbox/conversations/${selectedId}/message`, {
+        method: "POST",
+        body: JSON.stringify({
+          content: mediaResult.url,
+          attachmentKind: "audio",
+          attachmentUrl: mediaResult.url,
+          attachmentPreviewUrl: mediaResult.url,
+          attachmentMimeType: mediaResult.mimeType,
+          attachmentFileName: mediaResult.filename,
+          attachmentFileSize: mediaResult.size,
+          attachmentDurationSeconds: audioPreview.seconds,
+        }),
+      });
+      URL.revokeObjectURL(audioPreview.url);
+      setAudioPreview(null);
+      setSelectedConversation(data);
+      selectedConversationRef.current = data;
+      rememberConversationDetail(data);
+      setNotice({ tone: "success", text: "Áudio enfileirado com sucesso." });
+      void loadConversations({ preferredId: data.id, silent: true });
+    } catch (sendError) {
+      const message = sendError instanceof Error ? sendError.message : "Falha ao enviar áudio.";
+      setError(message);
+    } finally {
+      setSending(false);
+    }
+  }, [audioPreview, loadConversations, rememberConversationDetail, selectedId]);
+
   const handleComposerPaste = useCallback(
     (event: ReactClipboardEvent<HTMLTextAreaElement>) => {
       if (selectedBlocked || sending) return;
@@ -5244,6 +5342,35 @@ export default function InboxClientPage() {
                     </button>
                   </div>
                 ) : null}
+                {audioPreview ? (
+                  <div className={styles.whatsAppAudioPreviewBar}>
+                    <audio controls src={audioPreview.url} className={styles.whatsAppAudioPreviewPlayer} />
+                    <span className={styles.whatsAppAudioPreviewMeta}>
+                      🎙️ {audioPreview.seconds}s · pronto para enviar
+                    </span>
+                    <button
+                      type="button"
+                      className={`btn ${styles.whatsAppAudioPreviewSend}`}
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => void sendAudioPreview()}
+                      disabled={sending}
+                    >
+                      {sending ? "Enviando..." : "Enviar áudio"}
+                    </button>
+                    <button
+                      type="button"
+                      className={styles.whatsAppImagePreviewClose}
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => {
+                        URL.revokeObjectURL(audioPreview.url);
+                        setAudioPreview(null);
+                      }}
+                      aria-label="Cancelar áudio"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                ) : null}
                 <div className={styles.whatsAppComposerRow}>
                   <div className={styles.whatsAppEmojiWrapper} ref={emojiPickerRef}>
                     <button
@@ -5297,7 +5424,7 @@ export default function InboxClientPage() {
                     aria-label="Anexar arquivo"
                     onMouseDown={(e) => e.preventDefault()}
                     onClick={() => fileInputRef.current?.click()}
-                    disabled={selectedBlocked || sending}
+                    disabled={selectedBlocked || sending || isRecording}
                   >
                     📎
                   </button>
@@ -5314,6 +5441,17 @@ export default function InboxClientPage() {
                       e.target.value = "";
                     }}
                   />
+                  <button
+                    type="button"
+                    className={`${styles.whatsAppAttachButton} ${isRecording ? styles.whatsAppMicActive : ""}`}
+                    title={isRecording ? `Parar gravação (${recordingSeconds}s)` : "Gravar áudio"}
+                    aria-label={isRecording ? "Parar gravação" : "Gravar áudio"}
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => (isRecording ? stopRecording() : void startRecording())}
+                    disabled={selectedBlocked || sending}
+                  >
+                    {isRecording ? `🔴 ${recordingSeconds}s` : "🎙️"}
+                  </button>
                   <textarea
                     id="atendimento-chat-reply"
                     name="atendimentoChatReply"

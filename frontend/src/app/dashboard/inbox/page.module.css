@@ -4152,6 +4152,59 @@
   cursor: default;
 }
 
+.whatsAppMicActive {
+  color: #e53935;
+  background: rgba(229, 57, 53, 0.12);
+  animation: micPulse 1s ease-in-out infinite;
+}
+
+@keyframes micPulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(229, 57, 53, 0.4); }
+  50% { box-shadow: 0 0 0 6px rgba(229, 57, 53, 0); }
+}
+
+.whatsAppAudioPreviewBar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: rgba(37, 211, 102, 0.08);
+  border-top: 1px solid rgba(37, 211, 102, 0.2);
+  flex-wrap: wrap;
+}
+
+.whatsAppAudioPreviewPlayer {
+  height: 36px;
+  min-width: 160px;
+  flex: 1;
+}
+
+.whatsAppAudioPreviewMeta {
+  font-size: 0.78rem;
+  color: #8696a0;
+  white-space: nowrap;
+}
+
+.whatsAppAudioPreviewSend {
+  padding: 6px 14px;
+  font-size: 0.82rem;
+  border-radius: 8px;
+  background: #25d366;
+  color: #fff;
+  border: none;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.whatsAppAudioPreviewSend:hover:not(:disabled) {
+  background: #1da851;
+}
+
+.whatsAppAudioPreviewSend:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
 /* Radical dark-shell redesign for Atendimento/Chat */
 
 .premiumInboxShell {
