@@ -581,7 +581,7 @@
   border-color: color-mix(in srgb, var(--brand) 70%, var(--line));
 }
 
-/* Atendimento shortcut shown on the 'Hoje' date card */
+/* Inbox shortcut shown on the active date card */
 .atendimentoShortcut {
   position: absolute;
   left: 4px;

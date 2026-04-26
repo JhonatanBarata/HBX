@@ -440,6 +440,49 @@ function normalizeBoardForLocalAgenda(input: BoardResponse) {
   };
 }
 
+function markBoardLeadsInInbox(
+  board: BoardResponse | null,
+  leadIds: string[],
+  leadConversationIds?: Record<string, string | number>,
+  fallbackConversationId?: string | number | null,
+) {
+  if (!board || !leadIds.length) return board;
+  const targetIds = new Set(leadIds.map((leadId) => String(leadId || "").trim()).filter(Boolean));
+  if (!targetIds.size) return board;
+
+  let changed = false;
+  const blocks = (Object.fromEntries(
+    (["overdue", "today", "scheduled", "closed"] as LeadBlockKey[]).map((blockKey) => [
+      blockKey,
+      (board.blocks[blockKey] || []).map((lead) => {
+        if (!targetIds.has(lead.id)) return lead;
+        const conversationId = leadConversationIds?.[lead.id] || fallbackConversationId || lead.inboxConversationId || lead.atendimentoConversationId || null;
+        if (!conversationId && isLeadInInbox(lead)) return lead;
+        changed = true;
+        return {
+          ...lead,
+          isInInbox: true,
+          inboxConversationId: conversationId,
+          atendimentoConversationId: conversationId,
+          sharedProfile: {
+            ...(lead.sharedProfile || {}),
+            presence: {
+              ...(lead.sharedProfile?.presence || {}),
+              atendimento: {
+                ...(lead.sharedProfile?.presence?.atendimento || {}),
+                present: true,
+                conversationId,
+              },
+            },
+          },
+        };
+      }),
+    ]),
+  ) as BoardResponse["blocks"]);
+
+  return changed ? { ...board, blocks } : board;
+}
+
 function formatDatetimeLocal(date: Date) {
   const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
   return local.toISOString().slice(0, 16);
@@ -546,8 +589,8 @@ function DateDropSlot({
             e.preventDefault();
             onDateShortcut();
           }}
-          title="Enviar cards visíveis desta data para Atendimento"
-          aria-label="Enviar cards visíveis desta data para Atendimento"
+          title="Enviar cards visíveis desta data para Inbox"
+          aria-label="Enviar cards visíveis desta data para Inbox"
         >
           <svg width="10" height="10" viewBox="0 0 24 24" fill="none" aria-hidden="true">
             <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
@@ -992,10 +1035,10 @@ export default function VendasClientPage() {
     }
 
     todayAgendaLaunchNotice.start({
-      loadingTitle: options?.title || "Abrindo Atendimento",
+      loadingTitle: options?.title || "Abrindo Inbox",
       loadingDescription: options?.description || "Enviando os cards visíveis para o Inbox.",
       successTitle: "Inbox pronto",
-      successDescription: "Tudo certo. Os cards foram preparados no Atendimento.",
+      successDescription: "Tudo certo. Os cards foram preparados no Inbox.",
       ctaLabel: "Abrir Inbox",
       onOpen: () => openInboxAgenda(),
     });
@@ -1010,21 +1053,29 @@ export default function VendasClientPage() {
       if (!syncResult?.ok) {
         throw new Error(
           syncResult?.message ||
-            "Os cards de hoje nao foram espelhados no Atendimento. Recarregue e tente novamente.",
+            "Os cards visíveis nao foram enviados para o Inbox. Recarregue e tente novamente.",
         );
+      }
+      const firstConversationId =
+        syncResult?.conversationIds?.[0] ||
+        (syncResult?.leadConversationIds ? syncResult.leadConversationIds[visibleLeadIds[0]] : null) ||
+        null;
+      const importedLeadIds = syncResult?.leadConversationIds
+        ? Object.keys(syncResult.leadConversationIds)
+        : firstConversationId && visibleLeadIds.length === 1
+          ? visibleLeadIds
+          : [];
+      if (importedLeadIds.length) {
+        setBoard((currentBoard) => markBoardLeadsInInbox(currentBoard, importedLeadIds, syncResult?.leadConversationIds, firstConversationId));
       }
       todayAgendaLaunchNotice.markSuccess({
         successDescription:
           String(syncResult?.message || "").trim() ||
           (todayLeadCount
-            ? `${mirroredLeadCount} card(s) foram preparados no Atendimento com roteiro pendente para envio manual.`
-            : "Nao ha cards visíveis para preparar no Atendimento."),
+            ? `${mirroredLeadCount} card(s) foram preparados no Inbox com roteiro pendente para envio manual.`
+            : "Nao ha cards visíveis para preparar no Inbox."),
       });
       await loadBoard();
-      const firstConversationId =
-        syncResult?.conversationIds?.[0] ||
-        (syncResult?.leadConversationIds ? syncResult.leadConversationIds[visibleLeadIds[0]] : null) ||
-        null;
       if (options?.openAfter) openInboxAgenda(firstConversationId);
       return syncResult;
     } catch (syncError) {
@@ -1201,7 +1252,7 @@ export default function VendasClientPage() {
   const handleActiveDateShortcut = useCallback(async () => {
     if (!selectedFilter) return;
     await syncLeadsToInbox(filteredLeads, {
-      title: "Abrindo Atendimento",
+      title: "Abrindo Inbox",
       description: `Enviando os cards visíveis de ${selectedFilter.title} para o Inbox.`,
     });
   }, [filteredLeads, selectedFilter, syncLeadsToInbox]);
@@ -1422,7 +1473,7 @@ export default function VendasClientPage() {
     try {
       await syncLeadsToInbox([lead], {
         title: "Importando para Inbox",
-        description: "Preparando este card no Atendimento interno.",
+        description: "Preparando este card no Inbox interno.",
       });
     } finally {
       setSavingLeadId(null);

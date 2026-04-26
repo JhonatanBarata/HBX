@@ -81,6 +81,7 @@ type AgendaGroupEditableField =
 
 type AgendaStudioModalProps = {
   initialTab: AgendaStudioTab;
+  allowSalesTab?: boolean;
   onClose: () => void;
   agendaConfig: AtendimentoAgendaConfig;
   loadingAgenda: boolean;
@@ -617,13 +618,10 @@ function BotAgendaTab({
 }: Omit<AgendaStudioModalProps, "initialTab" | "onClose" | "savingAgenda" | "onSaveBotAgenda">) {
   const [selectedGroupId, setSelectedGroupId] = useState(agendaConfig.groups[0]?.id || "");
   const [deleteMessage, setDeleteMessage] = useState<string | null>(null);
-  const selectedGroup = agendaConfig.groups.find((group) => group.id === selectedGroupId) || agendaConfig.groups[0] || null;
-
-  useEffect(() => {
-    if (!agendaConfig.groups.some((group) => group.id === selectedGroupId)) {
-      setSelectedGroupId(agendaConfig.groups[0]?.id || "");
-    }
-  }, [agendaConfig.groups, selectedGroupId]);
+  const selectedGroupIdSafe = agendaConfig.groups.some((group) => group.id === selectedGroupId)
+    ? selectedGroupId
+    : agendaConfig.groups[0]?.id || "";
+  const selectedGroup = agendaConfig.groups.find((group) => group.id === selectedGroupIdSafe) || agendaConfig.groups[0] || null;
 
   if (loadingAgenda) return <div className={styles.emptyState}>Carregando Agenda Bot...</div>;
 
@@ -805,11 +803,16 @@ function BotAgendaTab({
 }
 
 export default function AgendaStudioModal(props: AgendaStudioModalProps) {
-  const [activeTab, setActiveTab] = useState<AgendaStudioTab>(props.initialTab);
-
-  useEffect(() => {
-    setActiveTab(props.initialTab);
-  }, [props.initialTab]);
+  const allowSalesTab = Boolean(props.allowSalesTab);
+  const initialCompatibleTab = props.initialTab === "sales" && allowSalesTab ? "sales" : "bot";
+  const [tabState, setTabState] = useState<{ source: AgendaStudioTab; value: AgendaStudioTab }>(() => ({
+    source: initialCompatibleTab,
+    value: initialCompatibleTab,
+  }));
+  const activeTab = tabState.source === initialCompatibleTab ? tabState.value : initialCompatibleTab;
+  const selectTab = (value: AgendaStudioTab) => {
+    setTabState({ source: initialCompatibleTab, value });
+  };
 
   return (
     <div className={`${styles.botStudioOverlay} ${styles.botStudioOverlayActive}`}>
@@ -819,10 +822,14 @@ export default function AgendaStudioModal(props: AgendaStudioModalProps) {
             <p className={styles.botStudioChromeEyebrow}>Agenda</p>
             <strong>{activeTab === "sales" ? "Agenda Vendas" : "Agenda Bot"}</strong>
           </div>
-          <div className={styles.agendaStudioHeaderTabs} role="tablist" aria-label="Tipo de agenda">
-            <button type="button" className={activeTab === "sales" ? styles.agendaStudioHeaderTabActive : ""} onClick={() => setActiveTab("sales")}>Agenda Vendas</button>
-            <button type="button" className={activeTab === "bot" ? styles.agendaStudioHeaderTabActive : ""} onClick={() => setActiveTab("bot")}>Agenda Bot</button>
-          </div>
+          {allowSalesTab ? (
+            <div className={styles.agendaStudioHeaderTabs} role="tablist" aria-label="Tipo de agenda">
+              <button type="button" className={activeTab === "sales" ? styles.agendaStudioHeaderTabActive : ""} onClick={() => selectTab("sales")}>Agenda Vendas</button>
+              <button type="button" className={activeTab === "bot" ? styles.agendaStudioHeaderTabActive : ""} onClick={() => selectTab("bot")}>Agenda Bot</button>
+            </div>
+          ) : (
+            <span className={styles.metaBadge}>Agenda Bot separada da Agenda Vendas</span>
+          )}
           <div className={styles.headerActions}>
             {activeTab === "bot" && props.botAgendaDirty ? (
               <button type="button" className="btn btn-primary btn-sm" onClick={props.onSaveBotAgenda} disabled={props.savingAgenda || !props.canManageAgenda}>
