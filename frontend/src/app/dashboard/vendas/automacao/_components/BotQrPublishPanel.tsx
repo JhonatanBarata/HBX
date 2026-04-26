@@ -41,7 +41,7 @@ export default function BotQrPublishPanel({
         <div className={styles.connectionHeader}>
           <div>
             <span className={styles.sectionEyebrow}>Publicacao</span>
-            <h3 className={styles.cardTitle}>Salvar, publicar e voltar ao ultimo publicado</h3>
+            <h3 className={styles.cardTitle}>Checklist final da automacao WhatsApp</h3>
           </div>
           <span className={styles.statusPill} data-active={hasUnsavedChanges ? "false" : "true"}>
             {hasUnsavedChanges ? "Rascunho com alteracoes" : "Publicado e alinhado"}
@@ -72,7 +72,7 @@ export default function BotQrPublishPanel({
             Salvar rascunho
           </button>
           <button type="button" className={styles.primaryButton} onClick={onPublish} disabled={publishing}>
-            {publishing ? "Publicando..." : "Publicar"}
+            {publishing ? "Publicando..." : "Publicar / ativar automacao"}
           </button>
           <button type="button" className={styles.ghostButton} onClick={onRestorePublished}>
             Voltar ao ultimo publicado
@@ -82,7 +82,7 @@ export default function BotQrPublishPanel({
           </button>
         </div>
 
-        <div className={styles.publishDisclaimer}>Sem envio automatico. Esta entrega publica configuracao, nao dispara mensagens.</div>
+        <div className={styles.publishDisclaimer}>Publicar salva a configuracao ativa do bot. O teste rapido valida a experiencia visual antes de operar.</div>
       </article>
 
       <article className={styles.publishChecklistCard}>

@@ -61,7 +61,6 @@ import { apiFetch, getDashboardApiBaseUrl, getToken } from "../_lib/api";
 import { startSmartPolling } from "../_lib/polling";
 import { useRequireAuth } from "../_lib/useRequireAuth";
 import AgendaStudioModal, { type AgendaStudioTab } from "./_components/AgendaStudioModal";
-import BotPanel from "./_components/BotPanel";
 import TemplatesPanel, { type TemplateComposer } from "./_components/TemplatesPanel";
 import type {
   RecoveryMetaTemplateItem,
@@ -83,7 +82,6 @@ import {
   type AtendimentoAgendaConfig,
   type AtendimentoAgendaSimulationPayload,
   type AtendimentoAgendaSimulationResult,
-  type AtendimentoBotActionGuide,
   type AtendimentoBotConfig,
   type InboxConversation,
   type InboxFullBootstrapPayload,
@@ -137,11 +135,6 @@ type InboxRealtimeEvent = {
 };
 
 type InboxAlertKind = "human_queue" | "new_message";
-
-type ActionOption = {
-  value: string;
-  label: string;
-};
 
 type AgendaGroupEditableField =
   | "title"
@@ -353,15 +346,6 @@ function getConversationNoteStorageKey(companyId: number | null | undefined, con
   if (!companyId || !conversationId) return null;
   return `hbx:inbox:note:${companyId}:${conversationId}`;
 }
-
-const ACTION_KIND_LABELS: Record<AtendimentoBotActionGuide["kind"], string> = {
-  reply: "Responder",
-  human_handoff: "Humano",
-  recovery_handoff: "Recovery",
-  close: "Encerrar",
-  show_menu: "Mostrar menu",
-  agenda: "Agenda",
-};
 
 type DockGlyph = "note" | "wallet" | "clock" | "gear" | "spark" | "user";
 
@@ -2256,7 +2240,6 @@ export default function InboxClientPage() {
   const [customerConversationCardError, setCustomerConversationCardError] = useState<string | null>(null);
   const [customerCardShortcutOpen, setCustomerCardShortcutOpen] = useState(false);
   const [agendaStudioOpen, setAgendaStudioOpen] = useState(false);
-  const [automationStudioOpen, setAutomationStudioOpen] = useState(false);
   const [templatesStudioOpen, setTemplatesStudioOpen] = useState(false);
   const [overlayVisible, setOverlayVisible] = useState(false);
   const [contextTab, setContextTab] = useState<ContextTab>("conversa");
@@ -2328,7 +2311,6 @@ export default function InboxClientPage() {
     section: null,
     at: 0,
   });
-  const skipAutomationAutoOpenRef = useRef(false);
   const deferredConversationSearch = useDeferredValue(conversationSearch);
   const inboxBootstrapLaunchNotice = useQuickLaunchNotice();
   const initialMirrorBootstrapStartedRef = useRef(false);
@@ -2439,18 +2421,9 @@ export default function InboxClientPage() {
   );
 
   useEffect(() => {
-    if (skipAutomationAutoOpenRef.current) {
-      const timer = window.setTimeout(() => {
-        skipAutomationAutoOpenRef.current = false;
-      }, 50);
-      return () => window.clearTimeout(timer);
-    }
-    if (requestedTab !== "automation" || automationStudioOpen) return;
-    setAutomationStudioOpen(true);
-    setAgendaStudioOpen(false);
-    setTemplatesStudioOpen(false);
-    setActiveTab("messages");
-  }, [automationStudioOpen, requestedTab]);
+    if (requestedTab !== "automation") return;
+    router.replace("/dashboard/vendas/automacao?tab=flow", { scroll: false });
+  }, [requestedTab, router]);
 
   useEffect(() => {
     if (requestedQueue) {
@@ -2459,7 +2432,6 @@ export default function InboxClientPage() {
     if (!requestedSection) return;
 
     setActiveTab("messages");
-    setAutomationStudioOpen(false);
     setTemplatesStudioOpen(false);
     if (requestedSection === "agenda") {
       setAgendaStudioOpen(requestedAgendaStudioOpen);
@@ -2467,13 +2439,12 @@ export default function InboxClientPage() {
       return;
     }
     if (requestedSection === "automacao") {
-      setAutomationStudioOpen(true);
-      setAgendaStudioOpen(false);
+      router.replace("/dashboard/vendas/automacao?tab=flow", { scroll: false });
       return;
     }
     setAgendaStudioOpen(false);
     setContextTab(requestedSection);
-  }, [requestedAgendaStudioOpen, requestedQueue, requestedSection]);
+  }, [requestedAgendaStudioOpen, requestedQueue, requestedSection, router]);
 
   useEffect(() => {
     setMounted(true);
@@ -2524,19 +2495,19 @@ export default function InboxClientPage() {
   }, [deletedConversationAliases]);
 
   useEffect(() => {
-    if (!agendaStudioOpen && !automationStudioOpen && !templatesStudioOpen) return;
+    if (!agendaStudioOpen && !templatesStudioOpen) return;
     const releaseTopbarLock = acquirePopupTopbarLock();
     return releaseTopbarLock;
-  }, [agendaStudioOpen, automationStudioOpen, templatesStudioOpen]);
+  }, [agendaStudioOpen, templatesStudioOpen]);
 
   useEffect(() => {
-    if (!agendaStudioOpen && !automationStudioOpen && !templatesStudioOpen) {
+    if (!agendaStudioOpen && !templatesStudioOpen) {
       setOverlayVisible(false);
       return;
     }
     const frame = window.requestAnimationFrame(() => setOverlayVisible(true));
     return () => window.cancelAnimationFrame(frame);
-  }, [agendaStudioOpen, automationStudioOpen, templatesStudioOpen]);
+  }, [agendaStudioOpen, templatesStudioOpen]);
 
 
   useEffect(() => {
@@ -3704,57 +3675,6 @@ export default function InboxClientPage() {
     [userModules, whatsappCenterPayload?.company.trialModuleSelection],
   );
 
-  const actionOptions = useMemo(() => {
-    const options = new Map<string, ActionOption>();
-
-    for (const action of botConfig.actionCatalog) {
-      if (!hasRecoveryCapability && action.route === "recovery") continue;
-      options.set(action.actionId, {
-        value: action.actionId,
-        label: `${action.title} • ${ACTION_KIND_LABELS[action.kind] || action.kind}`,
-      });
-    }
-
-    for (const group of agendaConfig.groups) {
-      const actionId = buildAgendaActionId(group.id);
-      options.set(actionId, {
-        value: actionId,
-        label: `Agenda • ${group.title}`,
-      });
-    }
-
-    [
-      ...botConfig.welcomeButtons,
-      ...botConfig.returningCustomerButtons,
-      ...botConfig.mainMenuButtons,
-      ...botConfig.recoveryDetectedButtons,
-      ...botConfig.postActionButtons,
-    ].forEach((button) => {
-      if (!options.has(button.actionId)) {
-        options.set(button.actionId, {
-          value: button.actionId,
-          label: `Acao atual • ${button.actionId}`,
-        });
-      }
-    });
-
-    return Array.from(options.values());
-  }, [
-    agendaConfig.groups,
-    botConfig.actionCatalog,
-    botConfig.mainMenuButtons,
-    botConfig.postActionButtons,
-    botConfig.recoveryDetectedButtons,
-    botConfig.returningCustomerButtons,
-    botConfig.welcomeButtons,
-    hasRecoveryCapability,
-  ]);
-
-  const agendaOptions = useMemo(
-    () => agendaConfig.groups.map((group) => ({ id: group.id, title: group.title })),
-    [agendaConfig.groups],
-  );
-
   const canManageAgenda = useMemo(() => {
     if (currentUserProfile?.isSystemMaster) return true;
     const role = String(currentUserProfile?.role || "").trim().toUpperCase();
@@ -3883,9 +3803,7 @@ export default function InboxClientPage() {
   );
   const activeDockSection = templatesStudioOpen
     ? "templates"
-    : automationStudioOpen
-      ? "automacao"
-      : agendaStudioOpen || contextTab === "agenda"
+    : agendaStudioOpen || contextTab === "agenda"
         ? "agenda"
         : contextTab === "financeiro"
           ? "financeiro"
@@ -4016,20 +3934,15 @@ export default function InboxClientPage() {
 
     const params = new URLSearchParams(searchParams?.toString() || "");
     if (nextSection === "automacao") {
-      setActiveTab("messages");
-      setAutomationStudioOpen(true);
-      setTemplatesStudioOpen(false);
-      setAgendaStudioOpen(false);
-      params.set("atendimentoTab", "automation");
+      router.push("/dashboard/vendas/automacao?tab=flow");
+      return;
     } else if (nextSection === "agenda") {
       setActiveTab("messages");
       setAgendaStudioOpen(true);
-      setAutomationStudioOpen(false);
       setTemplatesStudioOpen(false);
       setContextTab("agenda");
       params.delete("atendimentoTab");
     } else {
-      setAutomationStudioOpen(false);
       setTemplatesStudioOpen(false);
       setAgendaStudioOpen(false);
       setContextTab(nextSection);
@@ -4105,26 +4018,10 @@ export default function InboxClientPage() {
       });
       return;
     }
-    setAutomationStudioOpen(false);
     setAgendaStudioOpen(false);
     setTemplatesStudioOpen(true);
     void loadMetaTemplates();
   }, [loadMetaTemplates, providerCapabilities.canUseTemplates]);
-
-  const closeAutomationExperience = useCallback(() => {
-    // Prevent the auto-open effect from re-opening the studio while we navigate
-    skipAutomationAutoOpenRef.current = true;
-    setAutomationStudioOpen(false);
-    setTemplatesStudioOpen(false);
-    const params = new URLSearchParams(searchParams?.toString() || "");
-    params.delete("atendimentoTab");
-    const nextUrl = params.toString() ? `${pathname}?${params.toString()}` : pathname;
-    router.replace(nextUrl, { scroll: false });
-    // Ensure the skip flag is cleared after a short delay in case navigation is async
-    window.setTimeout(() => {
-      skipAutomationAutoOpenRef.current = false;
-    }, 200);
-  }, [pathname, router, searchParams]);
 
   const editMetaTemplate = useCallback((template: RecoveryMetaTemplateItem) => {
     setTemplateComposer(fillTemplateComposerFromTemplate(template));
@@ -6822,8 +6719,8 @@ export default function InboxClientPage() {
                   />
                   <DockButton
                     icon="gear"
-                    label="Automacao"
-                    active={activeDockSection === "automacao"}
+                    label="Configurar Bot"
+                    active={false}
                     badge={queueCounts.bot || null}
                     onClick={() => handleSectionChange("automacao")}
                   />
@@ -6915,48 +6812,6 @@ export default function InboxClientPage() {
           )
         : null}
 
-      {automationStudioOpen ? (
-        <div className={`${styles.botStudioOverlay} ${overlayVisible ? styles.botStudioOverlayActive : ""}`}>
-          <div className={`${styles.botStudioFrame} ${overlayVisible ? styles.botStudioFrameActive : ""}`}>
-            <div className={styles.botStudioChrome}>
-              <div>
-                <p className={styles.botStudioChromeEyebrow}>Atendimento</p>
-                <strong>Automacao</strong>
-              </div>
-              <div className={styles.headerActions}>
-                <span className={styles.metaBadge}>Fluxo principal</span>
-                <span className={styles.metaBadge}>{getProviderLabel(providerCapabilities.provider)}</span>
-                {providerCapabilities.canUseTemplates ? (
-                  <button type="button" className="btn btn-secondary btn-sm" onClick={openTemplatesSettings}>
-                    Templates Meta
-                  </button>
-                ) : null}
-                <button type="button" className="btn btn-secondary btn-sm" onClick={closeAutomationExperience}>
-                  Fechar
-                </button>
-              </div>
-            </div>
-            <div className={styles.botStudioBody}>
-              <BotPanel
-                botConfig={botConfig}
-                loadingBot={loadingBot}
-                savingBot={savingBot}
-                actionOptions={actionOptions}
-                agendaOptions={agendaOptions}
-                providerCapabilities={providerCapabilities}
-                recoveryEnabled={hasRecoveryCapability}
-                onSave={(nextConfig) => {
-                  setNotice(null);
-                  void saveBot(nextConfig);
-                }}
-                onConfigChange={syncBotConfig}
-                onOpenSettings={openTemplatesSettings}
-              />
-            </div>
-          </div>
-        </div>
-      ) : null}
-
       {templatesStudioOpen && providerCapabilities.canUseTemplates ? (
         <div className={`${styles.botStudioOverlay} ${overlayVisible ? styles.botStudioOverlayActive : ""}`}>
           <div className={`${styles.botStudioFrame} ${overlayVisible ? styles.botStudioFrameActive : ""}`}>
@@ -6977,10 +6832,10 @@ export default function InboxClientPage() {
                   className="btn btn-secondary btn-sm"
                   onClick={() => {
                     setTemplatesStudioOpen(false);
-                    setAutomationStudioOpen(true);
+                    router.push("/dashboard/vendas/automacao?tab=flow");
                   }}
                 >
-                  Fechar configuracoes
+                  Configurar Bot
                 </button>
               </div>
             </div>

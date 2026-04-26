@@ -24,7 +24,7 @@ export default function BotQrHero({
           <span className={styles.heroEyebrow}>HBX</span>
           <span className={styles.heroModule}>Modulo: Vendas</span>
         </div>
-        <h1 className={styles.heroTitle}>{"Automacao -> Bot QRCode"}</h1>
+        <h1 className={styles.heroTitle}>Automacao WhatsApp</h1>
         <p className={styles.heroText}>
           Uma casca premium, simples e pronta para vender, em cima do bot atual do Atendimento.
           Tudo parte do QR, sem recriar sistema inteiro e sem esconder automacao paralela.

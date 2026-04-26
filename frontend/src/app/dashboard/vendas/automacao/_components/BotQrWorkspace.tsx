@@ -12,8 +12,8 @@ type BotQrWorkspaceProps = {
 };
 
 const TABS: Array<{ id: BotQrWorkspaceTab; label: string; helper: string }> = [
-  { id: "connection", label: "Conexao", helper: "QR ao centro" },
-  { id: "flow", label: "Fluxo", helper: "Edicao simples" },
+  { id: "connection", label: "Conexao", helper: "QR e canal" },
+  { id: "flow", label: "Fluxo do Bot", helper: "Menu Supremo" },
   { id: "publish", label: "Publicar", helper: "Checklist final" },
 ];
 
@@ -36,15 +36,15 @@ export default function BotQrWorkspace({
     <section className={styles.workspaceSection}>
       <div className={styles.workspaceHeader}>
         <div>
-          <span className={styles.sectionEyebrow}>Workspace</span>
-          <h2 className={styles.sectionTitle}>Operacao sem JSON e sem jargao tecnico</h2>
+          <span className={styles.sectionEyebrow}>Automacao WhatsApp</span>
+          <h2 className={styles.sectionTitle}>Configure conexao, fluxo e publicacao do bot em um so lugar.</h2>
         </div>
         <p className={styles.sectionText}>
-          O operador enxerga conexao, fluxo e publicacao em uma trilha unica, com a complexidade interna escondida.
+          A tela de Vendas Automacao agora concentra o QR, o Menu Supremo do Bot e o checklist final.
         </p>
       </div>
 
-      <div className={styles.workspaceTabs} role="tablist" aria-label="Abas do Bot QRCode">
+      <div className={styles.workspaceTabs} role="tablist" aria-label="Abas da Automacao WhatsApp">
         {TABS.map((tab) => (
           <button
             key={tab.id}
@@ -57,7 +57,7 @@ export default function BotQrWorkspace({
             aria-selected={activeTab === tab.id}
           >
             <strong>{tab.label}</strong>
-            <span>{connectionPaired && tab.id === "connection" ? "Sucessfully Paired" : tab.helper}</span>
+            <span>{connectionPaired && tab.id === "connection" ? "Conectado agora" : tab.helper}</span>
           </button>
         ))}
       </div>

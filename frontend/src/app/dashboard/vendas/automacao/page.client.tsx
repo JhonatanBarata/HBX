@@ -1,9 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import DashboardScaffold from "@/components/DashboardScaffold";
 import { QR_PAIRED_EVENT } from "@/components/QrPairedNextStepPrompt";
+import { getProviderCapabilitiesFromWhatsAppCenter } from "@/lib/provider-capabilities";
 import {
   whatsappModeLabel,
   type WhatsAppCenterPayload,
@@ -17,25 +18,16 @@ import {
   normalizeAgendaConfig,
   normalizeBotConfig,
   type AtendimentoAgendaConfig,
-  type AtendimentoBotButton,
   type AtendimentoBotConfig,
 } from "../../inbox/inbox-model";
 import BotQrConnectionCard from "./_components/BotQrConnectionCard";
-import BotQrFlowStrip from "./_components/BotQrFlowStrip";
-import BotQrHero from "./_components/BotQrHero";
 import BotQrPublishPanel from "./_components/BotQrPublishPanel";
-import BotQrSimpleEditor from "./_components/BotQrSimpleEditor";
+import BotSupremeFlowWorkspace from "./_components/BotSupremeFlowWorkspace";
 import BotQrWorkspace from "./_components/BotQrWorkspace";
 import {
-  BOT_QR_FLOW_STRIP,
-  BOT_QR_PREVIEW_SCENARIOS,
   buildActionOptions,
-  buildEditorBlocks,
   buildPublicationChecklist,
   buildQuickTestCases,
-  buildScenarioPreview,
-  type BotQrButtonField,
-  type BotQrPreviewScenarioId,
   type BotQrWorkspaceTab,
 } from "./model";
 import styles from "./page.module.css";
@@ -82,15 +74,6 @@ function mergeModalPayload(
   };
 }
 
-function makeButtonId(field: string, index: number) {
-  return `${field}_${Date.now()}_${index + 1}`
-    .trim()
-    .toLowerCase()
-    .replace(/\s+/g, "_")
-    .replace(/[^a-z0-9_:-]/g, "")
-    .slice(0, 80);
-}
-
 function formatLabel(value?: string | null) {
   const normalized = String(value || "").trim();
   if (!normalized) return "-";
@@ -135,19 +118,10 @@ function clearStoredDraft() {
   window.localStorage.removeItem(DRAFT_STORAGE_KEY);
 }
 
-function updateButtonField(
-  config: AtendimentoBotConfig,
-  field: BotQrButtonField,
-  updater: (buttons: AtendimentoBotButton[]) => AtendimentoBotButton[],
-) {
-  return {
-    ...config,
-    [field]: updater([...(config[field] as AtendimentoBotButton[])]),
-  };
-}
-
 export default function VendasAutomationClientPage() {
   const hasToken = useRequireAuth();
+  const router = useRouter();
+  const pathname = usePathname();
   const searchParams = useSearchParams();
   const [loading, setLoading] = useState(true);
   const [connectionLoading, setConnectionLoading] = useState(true);
@@ -161,8 +135,6 @@ export default function VendasAutomationClientPage() {
   const [draftConfig, setDraftConfig] = useState<AtendimentoBotConfig>(DEFAULT_ATENDIMENTO_BOT_CONFIG);
   const [publishedConfig, setPublishedConfig] = useState<AtendimentoBotConfig>(DEFAULT_ATENDIMENTO_BOT_CONFIG);
   const [agendaConfig, setAgendaConfig] = useState<AtendimentoAgendaConfig>(DEFAULT_ATENDIMENTO_AGENDA_CONFIG);
-  const [selectedBlockId, setSelectedBlockId] = useState("entryGreeting");
-  const [previewScenarioId, setPreviewScenarioId] = useState<BotQrPreviewScenarioId>("new_customer");
   const [centerPayload, setCenterPayload] = useState<WhatsAppCenterPayload | null>(null);
   const [modalPayload, setModalPayload] = useState<WhatsAppModalPayload | null>(null);
   const [draftSavedAt, setDraftSavedAt] = useState<string | null>(null);
@@ -173,18 +145,22 @@ export default function VendasAutomationClientPage() {
   const draftSignature = useMemo(() => JSON.stringify(draftConfig), [draftConfig]);
   const publishedSignature = useMemo(() => JSON.stringify(publishedConfig), [publishedConfig]);
   const hasUnsavedChanges = draftSignature !== publishedSignature;
+  const providerCapabilities = useMemo(
+    () => getProviderCapabilitiesFromWhatsAppCenter(centerPayload),
+    [centerPayload],
+  );
+  const recoveryEnabled = useMemo(() => {
+    const trialModule = String(centerPayload?.company.trialModuleSelection || "").trim().toLowerCase();
+    if (trialModule === "recovery") return true;
+    return (
+      draftConfig.variableCatalog.some((item) => item.scope === "recovery") ||
+      draftConfig.actionCatalog.some((action) => action.route === "recovery")
+    );
+  }, [centerPayload?.company.trialModuleSelection, draftConfig.actionCatalog, draftConfig.variableCatalog]);
 
   const actionOptions = useMemo(
     () => buildActionOptions(draftConfig, agendaConfig),
     [agendaConfig, draftConfig],
-  );
-  const blocks = useMemo(
-    () => buildEditorBlocks(draftConfig, agendaConfig),
-    [agendaConfig, draftConfig],
-  );
-  const previewMessages = useMemo(
-    () => buildScenarioPreview(draftConfig, previewScenarioId),
-    [draftConfig, previewScenarioId],
   );
   const checklist = useMemo(
     () =>
@@ -192,8 +168,11 @@ export default function VendasAutomationClientPage() {
         qrModeSelected: centerPayload?.center.mode === "QR",
         modalAvailable: Boolean(modalPayload?.data.available),
         connectionLive: Boolean(modalPayload?.data.qrCodeDataUrl) || modalPayload?.status === "connected",
+        providerCapabilities,
+        recoveryEnabled,
+        hasUnsavedChanges,
       }),
-    [agendaConfig, centerPayload?.center.mode, draftConfig, modalPayload?.data.available, modalPayload?.data.qrCodeDataUrl, modalPayload?.status],
+    [agendaConfig, centerPayload?.center.mode, draftConfig, hasUnsavedChanges, modalPayload?.data.available, modalPayload?.data.qrCodeDataUrl, modalPayload?.status, providerCapabilities, recoveryEnabled],
   );
   const quickTests = useMemo(
     () => buildQuickTestCases(draftConfig, agendaConfig),
@@ -208,8 +187,17 @@ export default function VendasAutomationClientPage() {
     return "QR pendente";
   }, [connectionLoading, modalPayload?.data.qrCodeDataUrl, modalPayload?.status]);
 
-  const flowLabel = hasUnsavedChanges ? "Rascunho em edicao" : "Fluxo alinhado";
   const publishLabel = draftConfig.routingRules.globalBotEnabled ? "Bot ativo" : "BOT_OFF global";
+
+  const setWorkspaceTab = useCallback(
+    (tab: BotQrWorkspaceTab) => {
+      setActiveTab(tab);
+      const params = new URLSearchParams(searchParams?.toString() || "");
+      params.set("tab", tab);
+      router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+    },
+    [pathname, router, searchParams],
+  );
 
   const loadConnection = useCallback(async (background = false, includeQr = true) => {
     if (!background) setConnectionLoading(true);
@@ -256,14 +244,14 @@ export default function VendasAutomationClientPage() {
         setDraftSavedAt(storedDraft.savedAt);
         setNotice({
           tone: "info",
-          text: "Rascunho local carregado para continuar a edicao do Bot QRCode.",
+          text: "Rascunho local carregado para continuar a edicao da automacao WhatsApp.",
         });
       } else {
         setDraftConfig(normalizedBot);
         setDraftSavedAt(null);
       }
     } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : "Falha ao carregar a automacao do modulo Vendas.");
+      setError(loadError instanceof Error ? loadError.message : "Falha ao carregar a automacao WhatsApp.");
     } finally {
       setLoading(false);
     }
@@ -387,131 +375,19 @@ export default function VendasAutomationClientPage() {
     return () => window.clearInterval(interval);
   }, [loadConnection, modalPayload?.data.available, modalPayload?.status]);
 
-  useEffect(() => {
-    if (!blocks.length) return;
-    if (blocks.some((block) => block.id === selectedBlockId)) return;
-    setSelectedBlockId(blocks[0].id);
-  }, [blocks, selectedBlockId]);
-
-  const handleMessageChange = useCallback(
-    (blockId: string, value: string) => {
-      const block = blocks.find((item) => item.id === blockId);
-      if (!block?.messageField) return;
-      setDraftConfig((current) => ({
-        ...current,
-        [block.messageField]: value,
-      }));
-    },
-    [blocks],
-  );
-
-  const handleButtonTitleChange = useCallback(
-    (blockId: string, index: number, value: string) => {
-      const block = blocks.find((item) => item.id === blockId);
-      if (!block?.buttonsField) return;
-      setDraftConfig((current) =>
-        updateButtonField(current, block.buttonsField as BotQrButtonField, (buttons) =>
-          buttons.map((button, buttonIndex) =>
-            buttonIndex === index ? { ...button, title: value } : button,
-          ),
-        ),
-      );
-    },
-    [blocks],
-  );
-
-  const handleButtonActionChange = useCallback(
-    (blockId: string, index: number, actionId: string) => {
-      const block = blocks.find((item) => item.id === blockId);
-      if (!block?.buttonsField) return;
-      const selectedAction = actionOptions.find((option) => option.value === actionId) || actionOptions[0] || null;
-      if (!selectedAction) return;
-
-      setDraftConfig((current) =>
-        updateButtonField(current, block.buttonsField as BotQrButtonField, (buttons) =>
-          buttons.map((button, buttonIndex) =>
-            buttonIndex === index
-              ? {
-                  ...button,
-                  actionId: selectedAction.value,
-                  nextNodeId: selectedAction.nextNodeId,
-                }
-              : button,
-          ),
-        ),
-      );
-    },
-    [actionOptions, blocks],
-  );
-
-  const handleAddButton = useCallback(
-    (blockId: string) => {
-      const block = blocks.find((item) => item.id === blockId);
-      const selectedAction = actionOptions.find((option) => option.enabled) || actionOptions[0] || null;
-      if (!block?.buttonsField || !selectedAction) return;
-
-      setDraftConfig((current) =>
-        updateButtonField(current, block.buttonsField as BotQrButtonField, (buttons) => [
-          ...buttons,
-          {
-            buttonId: makeButtonId(String(block.buttonsField), buttons.length),
-            actionId: selectedAction.value,
-            title: selectedAction.label.replace(/^Agenda • /, ""),
-            nextNodeId: selectedAction.nextNodeId,
-          },
-        ]),
-      );
-    },
-    [actionOptions, blocks],
-  );
-
-  const handleRemoveButton = useCallback(
-    (blockId: string, index: number) => {
-      const block = blocks.find((item) => item.id === blockId);
-      if (!block?.buttonsField) return;
-      setDraftConfig((current) =>
-        updateButtonField(current, block.buttonsField as BotQrButtonField, (buttons) =>
-          buttons.filter((_, buttonIndex) => buttonIndex !== index),
-        ),
-      );
-    },
-    [blocks],
-  );
-
-  const handleToggleFinance = useCallback((enabled: boolean) => {
-    setDraftConfig((current) => ({
-      ...current,
-      routingRules: {
-        ...current.routingRules,
-        checkRecoveryBeforeReply: enabled,
-        autoRouteDebtorsToRecovery: enabled,
-      },
-    }));
-  }, []);
-
-  const handleToggleBotOff = useCallback((enabled: boolean) => {
-    setDraftConfig((current) => ({
-      ...current,
-      routingRules: {
-        ...current.routingRules,
-        globalBotEnabled: !enabled,
-      },
-    }));
-  }, []);
-
   const handleSaveDraft = useCallback(() => {
     const savedAt = writeStoredDraft(draftConfig);
     setDraftSavedAt(savedAt);
-    setNotice({ tone: "success", text: "Rascunho salvo localmente nesta operacao." });
+    setNotice({ tone: "success", text: "Rascunho salvo localmente nesta automacao." });
   }, [draftConfig]);
 
-  const handlePublish = useCallback(async () => {
+  const saveBotConfig = useCallback(async (nextConfig: AtendimentoBotConfig, successText: string) => {
     setPublishing(true);
     setError(null);
     try {
       const payload = await apiFetch<AtendimentoBotConfig>("/vendas/automation/bot-config", {
         method: "PATCH",
-        body: JSON.stringify(draftConfig),
+        body: JSON.stringify(nextConfig),
       });
       const normalized = normalizeBotConfig(payload);
       setDraftConfig(normalized);
@@ -519,16 +395,21 @@ export default function VendasAutomationClientPage() {
       setPublishedAt(new Date().toISOString());
       clearStoredDraft();
       setDraftSavedAt(null);
-      setNotice({ tone: "success", text: "Bot QRCode publicado com sucesso." });
+      setNotice({ tone: "success", text: successText });
     } catch (publishError) {
       const message =
-        publishError instanceof Error ? publishError.message : "Falha ao publicar o Bot QRCode.";
+        publishError instanceof Error ? publishError.message : "Falha ao salvar a automacao WhatsApp.";
       setError(message);
       setNotice({ tone: "error", text: message });
     } finally {
       setPublishing(false);
     }
-  }, [draftConfig]);
+  }, []);
+
+  const handlePublish = useCallback(
+    async () => saveBotConfig(draftConfig, "Automacao WhatsApp publicada com sucesso."),
+    [draftConfig, saveBotConfig],
+  );
 
   const handleRestorePublished = useCallback(() => {
     setDraftConfig(publishedConfig);
@@ -543,14 +424,14 @@ export default function VendasAutomationClientPage() {
     setLastQuickTestAt(executedAt);
     setNotice({
       tone: passed === quickTests.length ? "success" : "info",
-      text: `Teste rapido executado: ${passed}/${quickTests.length} cenario(s) validado(s).`,
+      text: `Teste rapido executado: ${passed}/${quickTests.length} item(ns) validado(s).`,
     });
   }, [quickTests]);
 
   if (hasToken === null) {
     return (
-      <DashboardScaffold title="Automacao QRCode" description="Carregando automacao do modulo Vendas." hideHeader={true}>
-        <section className={styles.loadingCard}>Carregando Bot QRCode...</section>
+      <DashboardScaffold title="Automacao WhatsApp" description="Carregando automacao do modulo Vendas." hideHeader={true}>
+        <section className={styles.loadingCard}>Carregando Automacao WhatsApp...</section>
       </DashboardScaffold>
     );
   }
@@ -558,16 +439,18 @@ export default function VendasAutomationClientPage() {
   if (!hasToken) return null;
 
   return (
-    <DashboardScaffold title="Automacao QRCode" hideHeader={true}>
+    <DashboardScaffold title="Automacao WhatsApp" hideHeader={true}>
       <div className={styles.shell}>
         <div className={styles.backdrop} />
         <div className={styles.page}>
+          {notice ? <section className={styles.notice} data-tone={notice.tone}>{notice.text}</section> : null}
+          {error ? <section className={styles.notice} data-tone="error">{error}</section> : null}
           {loading ? (
-            <section className={styles.loadingCard}>Carregando configuracao atual do Bot QRCode...</section>
+            <section className={styles.loadingCard}>Carregando configuracao atual da Automacao WhatsApp...</section>
           ) : (
             <BotQrWorkspace
               activeTab={activeTab}
-              onTabChange={setActiveTab}
+              onTabChange={setWorkspaceTab}
               connectionPaired={connectionPaired}
               connectionPanel={
                 <BotQrConnectionCard
@@ -595,22 +478,17 @@ export default function VendasAutomationClientPage() {
                 />
               }
               flowPanel={
-                <BotQrSimpleEditor
-                  blocks={blocks}
-                  selectedBlockId={selectedBlockId}
-                  onSelectBlock={setSelectedBlockId}
+                <BotSupremeFlowWorkspace
+                  botConfig={draftConfig}
+                  agendaConfig={agendaConfig}
+                  loadingBot={loading}
+                  savingBot={publishing}
                   actionOptions={actionOptions}
-                  previewScenarioId={previewScenarioId}
-                  previewScenarios={BOT_QR_PREVIEW_SCENARIOS}
-                  previewMessages={previewMessages}
-                  onPreviewScenarioChange={setPreviewScenarioId}
-                  onMessageChange={handleMessageChange}
-                  onButtonTitleChange={handleButtonTitleChange}
-                  onButtonActionChange={handleButtonActionChange}
-                  onAddButton={handleAddButton}
-                  onRemoveButton={handleRemoveButton}
-                  onToggleFinance={handleToggleFinance}
-                  onToggleBotOff={handleToggleBotOff}
+                  providerCapabilities={providerCapabilities}
+                  recoveryEnabled={recoveryEnabled}
+                  hasUnsavedChanges={hasUnsavedChanges}
+                  onSave={(nextConfig) => void saveBotConfig(nextConfig, "Editor do bot salvo com sucesso.")}
+                  onConfigChange={setDraftConfig}
                 />
               }
               publishPanel={
