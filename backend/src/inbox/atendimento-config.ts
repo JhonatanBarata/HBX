@@ -13,6 +13,7 @@ export const ATENDIMENTO_BOT_ACTION_IDS = [
   'close_topic',
   'enter_recovery',
   'show_main_menu',
+  'schedule_service',
 ] as const;
 
 export type AtendimentoBotActionId = (typeof ATENDIMENTO_BOT_ACTION_IDS)[number];
@@ -255,6 +256,15 @@ const DEFAULT_ACTION_CATALOG: AtendimentoBotActionGuide[] = [
     kind: 'show_menu',
     enabled: true,
   },
+  {
+    actionId: 'schedule_service',
+    title: 'Agendar',
+    description: 'Despacha o cliente para a Agenda Bot operacional configurada.',
+    route: 'atendimento',
+    kind: 'agenda',
+    enabled: true,
+    agendaGroupId: 'agenda_tecnicos',
+  },
 ];
 
 function normalizeButtonId(value: unknown, fallback: string) {
@@ -284,6 +294,8 @@ function resolveDefaultAtendimentoNextNodeId(actionIdRaw: string | null | undefi
       return 'recoveryDetectedMessage';
     case 'start_quick_registration':
       return 'registrationCapture';
+    case 'schedule_service':
+      return 'agendaDispatch';
     default:
       if (actionId.startsWith('agenda:')) return 'agendaDispatch';
       return 'postActionPrompt';
@@ -340,12 +352,16 @@ export const DEFAULT_ATENDIMENTO_BOT_CONFIG: AtendimentoBotConfig = {
     makeDefaultButton('returning_customer', 'talk_human', 'Falar com atendente', 1),
   ],
   mainMenuPrompt: 'Escolha abaixo como deseja continuar:',
-  mainMenuButtons: [makeDefaultButton('main_menu', 'talk_human', 'Falar com atendente', 0)],
+  mainMenuButtons: [
+    makeDefaultButton('main_menu', 'talk_human', 'Falar com atendente', 0),
+    makeDefaultButton('main_menu', 'schedule_service', 'Agendar visita', 1),
+  ],
   recoveryDetectedMessage:
     'Localizei um cadastro com valor em aberto de {{valor_formatado}} no Recovery. Podemos conversar sobre isso agora ou prefere falar com um atendente?',
   recoveryDetectedButtons: [
     makeDefaultButton('recovery_detected', 'enter_recovery', 'Falar sobre o debito', 0),
     makeDefaultButton('recovery_detected', 'talk_human', 'Falar com atendente', 1),
+    makeDefaultButton('recovery_detected', 'schedule_service', 'Agendar visita', 2),
   ],
   postActionPrompt: 'Se precisar de mais alguma coisa, posso continuar por aqui.',
   postActionButtons: [
@@ -357,19 +373,19 @@ export const DEFAULT_ATENDIMENTO_BOT_CONFIG: AtendimentoBotConfig = {
   blockedMessage: 'Este contato esta bloqueado no Atendimento.',
 };
 
-const DEFAULT_SALES_AGENDA_GROUP: AtendimentoAgendaGroup = {
-  id: 'agenda_vendas',
-  slug: 'vendas',
-  title: 'Vendas',
-  description: 'Horarios publicos do atendimento comercial.',
-  buttonLabel: 'Vendas',
+const DEFAULT_BOT_AGENDA_GROUP: AtendimentoAgendaGroup = {
+  id: 'agenda_tecnicos',
+  slug: 'tecnicos',
+  title: 'Técnicos',
+  description: 'Horários para visita técnica, instalação, manutenção e suporte.',
+  buttonLabel: 'Técnicos',
   actionType: 'abrir_agenda',
-  linkedAgendaId: 'agenda_vendas',
+  linkedAgendaId: 'agenda_tecnicos',
   customActionKey: null,
   sortOrder: 0,
   introMessage:
-    'Esses sao os horarios disponiveis para {{agenda_nome}}.\n\n{{agenda_slots}}',
-  emptyMessage: 'No momento nao ha horarios ativos para Vendas.',
+    'Esses são os horários disponíveis para {{agenda_nome}}.\n\n{{agenda_slots}}',
+  emptyMessage: 'No momento não há horários ativos para Técnicos.',
   linkedEmail: '',
   linkedUserName: '',
   connectionStatus: 'not_linked',
@@ -381,10 +397,10 @@ const DEFAULT_SALES_AGENDA_GROUP: AtendimentoAgendaGroup = {
   suggestedSlotsCount: 3,
   fallbackFutureSlotsCount: 3,
   noImmediateAvailabilityMessage:
-    'Nao encontrei disponibilidade imediata para Vendas. Vou priorizar os proximos horarios futuros.',
+    'Não encontrei disponibilidade imediata para Técnicos. Vou priorizar os próximos horários futuros.',
   slots: [
     {
-      id: 'agenda_vendas_seg_0900',
+      id: 'agenda_tecnicos_seg_0900',
       label: 'Segunda 09:00-11:00',
       dayOfWeek: 1,
       startTime: '09:00',
@@ -392,7 +408,7 @@ const DEFAULT_SALES_AGENDA_GROUP: AtendimentoAgendaGroup = {
       enabled: true,
     },
     {
-      id: 'agenda_vendas_qua_1400',
+      id: 'agenda_tecnicos_qua_1400',
       label: 'Quarta 14:00-16:00',
       dayOfWeek: 3,
       startTime: '14:00',
@@ -428,7 +444,7 @@ export const DEFAULT_ATENDIMENTO_AGENDA_CONFIG: AtendimentoAgendaConfig = {
     cancellationNotFound:
       'Nao encontrei agendamento ativo para este cliente. Se quiser, posso te mostrar novas opcoes de horario.',
   },
-  groups: [DEFAULT_SALES_AGENDA_GROUP],
+  groups: [DEFAULT_BOT_AGENDA_GROUP],
   holidays: [],
 };
 
@@ -710,7 +726,9 @@ function normalizeActionCatalog(value: unknown) {
         (item as any)?.responseMessage,
         defaults.get(actionId)?.responseMessage || '',
       ),
-      agendaGroupId: normalizeText((item as any)?.agendaGroupId) || null,
+      agendaGroupId:
+        normalizeText((item as any)?.agendaGroupId) ||
+        (actionId === 'schedule_service' ? 'agenda_tecnicos' : null),
       custom: Boolean((item as any)?.custom ?? defaults.get(actionId)?.custom ?? false),
     });
   }

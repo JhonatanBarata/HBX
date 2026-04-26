@@ -538,12 +538,12 @@ export const DEFAULT_ATENDIMENTO_BOT_CONFIG: AtendimentoBotConfig = {
     },
     {
       actionId: "schedule_service",
-      title: "Agendar",
-      description: "Despacha o cliente para a agenda operacional configurada.",
+      title: "Agendar visita",
+      description: "Despacha o cliente para a Agenda Bot operacional configurada.",
       route: "atendimento",
       kind: "agenda",
       enabled: true,
-      agendaGroupId: null,
+      agendaGroupId: "agenda_tecnicos",
     },
   ],
   routingRules: {
@@ -566,7 +566,7 @@ export const DEFAULT_ATENDIMENTO_BOT_CONFIG: AtendimentoBotConfig = {
   mainMenuPrompt: "Escolha abaixo como deseja continuar no Atendimento:",
   mainMenuButtons: [
     makeDefaultButton("main_menu", "show_main_menu", "Suporte", 0),
-    makeDefaultButton("main_menu", "schedule_service", "Agendar", 1),
+    makeDefaultButton("main_menu", "schedule_service", "Agendar visita", 1),
     makeDefaultButton("main_menu", "enter_recovery", "Financeiro", 2),
     makeDefaultButton("main_menu", "talk_human", "Falar com atendente", 3),
   ],
@@ -580,7 +580,7 @@ export const DEFAULT_ATENDIMENTO_BOT_CONFIG: AtendimentoBotConfig = {
     makeDefaultButton("recovery_detected", "negotiate_debt", "Negociar", 2),
     makeDefaultButton("recovery_detected", "continue_attendance", "Continuar atendimento", 3),
     makeDefaultButton("recovery_detected", "talk_human", "Falar com atendente", 4),
-    makeDefaultButton("recovery_detected", "schedule_service", "Agendar", 5),
+    makeDefaultButton("recovery_detected", "schedule_service", "Agendar visita", 5),
   ],
   postActionPrompt: "Se precisar, posso continuar pelo Atendimento, voltar ao financeiro ou encaminhar para agenda e humano.",
   postActionButtons: [
@@ -592,19 +592,19 @@ export const DEFAULT_ATENDIMENTO_BOT_CONFIG: AtendimentoBotConfig = {
   blockedMessage: "Este contato esta bloqueado no Atendimento.",
 };
 
-const DEFAULT_SALES_AGENDA_GROUP: AtendimentoAgendaGroup = {
-  id: "agenda_vendas",
-  slug: "vendas",
-  title: "Vendas",
-  description: "Horarios publicos do atendimento comercial.",
-  buttonLabel: "Vendas",
+const DEFAULT_BOT_AGENDA_GROUP: AtendimentoAgendaGroup = {
+  id: "agenda_tecnicos",
+  slug: "tecnicos",
+  title: "Técnicos",
+  description: "Horários para visita técnica, instalação, manutenção e suporte.",
+  buttonLabel: "Técnicos",
   actionType: "abrir_agenda",
-  linkedAgendaId: "agenda_vendas",
+  linkedAgendaId: "agenda_tecnicos",
   customActionKey: null,
   sortOrder: 0,
   introMessage:
-    "Esses sao os horarios disponiveis para {{agenda_nome}}.\n\n{{agenda_slots}}",
-  emptyMessage: "No momento nao ha horarios ativos para Vendas.",
+    "Esses são os horários disponíveis para {{agenda_nome}}.\n\n{{agenda_slots}}",
+  emptyMessage: "No momento não há horários ativos para Técnicos.",
   linkedEmail: "",
   linkedUserName: "",
   connectionStatus: "not_linked",
@@ -616,10 +616,10 @@ const DEFAULT_SALES_AGENDA_GROUP: AtendimentoAgendaGroup = {
   suggestedSlotsCount: 3,
   fallbackFutureSlotsCount: 3,
   noImmediateAvailabilityMessage:
-    "Nao encontrei disponibilidade imediata para Vendas. Vou priorizar os proximos horarios futuros.",
+    "Não encontrei disponibilidade imediata para Técnicos. Vou priorizar os próximos horários futuros.",
   slots: [
     {
-      id: "agenda_vendas_seg_0900",
+      id: "agenda_tecnicos_seg_0900",
       label: "Segunda 09:00-11:00",
       dayOfWeek: 1,
       startTime: "09:00",
@@ -627,7 +627,7 @@ const DEFAULT_SALES_AGENDA_GROUP: AtendimentoAgendaGroup = {
       enabled: true,
     },
     {
-      id: "agenda_vendas_qua_1400",
+      id: "agenda_tecnicos_qua_1400",
       label: "Quarta 14:00-16:00",
       dayOfWeek: 3,
       startTime: "14:00",
@@ -663,7 +663,7 @@ export const DEFAULT_ATENDIMENTO_AGENDA_CONFIG: AtendimentoAgendaConfig = {
     cancellationNotFound:
       "Nao encontrei agendamento ativo para este cliente. Se quiser, posso te mostrar novas opcoes de horario.",
   },
-  groups: [DEFAULT_SALES_AGENDA_GROUP],
+  groups: [DEFAULT_BOT_AGENDA_GROUP],
   holidays: [],
 };
 
@@ -883,7 +883,9 @@ export function normalizeBotConfig(
             : "reply",
           enabled: item.enabled ?? true,
           responseMessage: String(item.responseMessage || "").trim(),
-          agendaGroupId: String(item.agendaGroupId || "").trim() || null,
+          agendaGroupId:
+            String(item.agendaGroupId || "").trim() ||
+            (String(item.actionId || "").trim() === "schedule_service" ? "agenda_tecnicos" : null),
           custom: Boolean(item.custom),
         }),
       ),

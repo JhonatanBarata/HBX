@@ -2579,6 +2579,43 @@
   flex-wrap: wrap;
 }
 
+.agendaWindowSwitch {
+  display: inline-flex;
+  gap: 0.25rem;
+  padding: 0.22rem;
+  border-radius: 999px;
+  border: 1px solid rgba(100, 123, 195, 0.18);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.agendaWindowSwitch button {
+  min-height: 30px;
+  padding: 0.28rem 0.62rem;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: #aebce2;
+  font-size: 0.75rem;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.agendaWindowSwitchActive {
+  background: rgba(94, 124, 255, 0.82) !important;
+  color: #ffffff !important;
+}
+
+.salesAgendaFailureList {
+  display: grid;
+  gap: 0.32rem;
+  padding: 0.68rem 0.76rem;
+  border-radius: 14px;
+  border: 1px solid rgba(239, 68, 68, 0.24);
+  background: rgba(239, 68, 68, 0.1);
+  color: #fecaca;
+  font-size: 0.82rem;
+}
+
 .salesAgendaGrid {
   display: grid;
   grid-template-columns: repeat(5, minmax(180px, 1fr)) minmax(220px, 0.8fr);
@@ -6243,6 +6280,7 @@
 }
 
 :global(html[data-theme-mode="light"]) .agendaStudioHeaderTabs button,
+:global(html[data-theme-mode="light"]) .agendaWindowSwitch button,
 :global(html[data-theme-mode="light"]) .salesAgendaMetric span,
 :global(html[data-theme-mode="light"]) .salesAgendaConfig span,
 :global(html[data-theme-mode="light"]) .botAgendaFormGrid span,
@@ -6250,6 +6288,16 @@
 :global(html[data-theme-mode="light"]) .botAgendaGuideCard small,
 :global(html[data-theme-mode="light"]) .botAgendaLinkedAccount small {
   color: var(--muted);
+}
+
+:global(html[data-theme-mode="light"]) .agendaWindowSwitch,
+:global(html[data-theme-mode="light"]) .salesAgendaFailureList {
+  border-color: color-mix(in srgb, var(--line) 86%, var(--background));
+  background: color-mix(in srgb, var(--surface) 94%, var(--background));
+}
+
+:global(html[data-theme-mode="light"]) .salesAgendaFailureList {
+  color: color-mix(in srgb, var(--danger) 86%, var(--foreground));
 }
 
 :global(html[data-theme-mode="light"]) .salesAgendaMetric strong,
