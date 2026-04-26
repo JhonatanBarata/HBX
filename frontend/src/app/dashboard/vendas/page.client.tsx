@@ -28,6 +28,7 @@ import styles from "./page.module.css";
 type LeadStatus = "novo" | "contato" | "retorno" | "qualificado" | "encerrado";
 type LeadBlockKey = "today" | "overdue" | "scheduled" | "closed";
 type DateFilterKey = "overdue" | "today" | `scheduled:${string}`;
+type WhatsappFilter = "all" | "with" | "without";
 type LeadTimelineEventType =
   | "lead_created"
   | "origin_registered"
@@ -179,6 +180,12 @@ const BLOCK_LABELS: Record<LeadBlockKey, string> = {
   closed: "Encerrados",
 };
 
+const WHATSAPP_FILTER_LABELS: Record<WhatsappFilter, string> = {
+  all: "Whatsapp",
+  with: "Com WhatsApp",
+  without: "Sem WhatsApp",
+};
+
 function formatDateTime(value?: string | null) {
   const parsed = value ? new Date(value) : null;
   return parsed && !Number.isNaN(parsed.getTime())
@@ -226,6 +233,23 @@ function buildWhatsAppUrl(phone?: string | null, leadName?: string | null) {
     ? `Olá, ${leadName}. Estou retomando nosso contato pelo HBX Vendas.`
     : "Olá. Estou retomando nosso contato pelo HBX Vendas.";
   return `https://wa.me/55${digits}?text=${encodeURIComponent(message)}`;
+}
+
+function getLeadWhatsappStatus(lead: LeadItem) {
+  return lead.whatsappAvailability?.status || "unknown";
+}
+
+function matchesWhatsappFilter(lead: LeadItem, filter: WhatsappFilter) {
+  const status = getLeadWhatsappStatus(lead);
+  if (filter === "with") return status === "available";
+  if (filter === "without") return status === "unavailable";
+  return true;
+}
+
+function nextWhatsappFilter(current: WhatsappFilter): WhatsappFilter {
+  if (current === "all") return "with";
+  if (current === "with") return "without";
+  return "all";
 }
 
 function sourceLabel(value?: string | null) {
@@ -633,6 +657,7 @@ function LeadCardView({ lead, draft, blockKey, selected, saving, onFocus, onQuic
       }
       data-selected={selected ? "true" : "false"}
       data-tone={blockKey}
+      data-whatsapp={getLeadWhatsappStatus(lead)}
       header={
         <div
           className={styles.leadMainButton}
@@ -823,6 +848,7 @@ export default function VendasClientPage() {
   const [showClosed, setShowClosed] = useState(false);
   const [commandOpen, setCommandOpen] = useState(false);
   const [commandQuery, setCommandQuery] = useState("");
+  const [whatsappFilter, setWhatsappFilter] = useState<WhatsappFilter>("all");
   const [selectedDateKey, setSelectedDateKey] = useState<DateFilterKey>("today");
   const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null);
   const [editingLeadId, setEditingLeadId] = useState<string | null>(null);
@@ -903,6 +929,19 @@ export default function VendasClientPage() {
   }, [router, todayAgendaLaunchNotice]);
 
   const handleTodayShortcut = useCallback(async () => {
+    const filteredTodayLeadIds =
+      whatsappFilter === "all"
+        ? []
+        : (board?.blocks.today || [])
+            .filter((lead) => matchesWhatsappFilter(lead, whatsappFilter))
+            .map((lead) => lead.id);
+    const syncBody =
+      whatsappFilter === "all"
+        ? undefined
+        : JSON.stringify({
+            leadIds: filteredTodayLeadIds,
+          });
+
     todayAgendaLaunchNotice.start({
       loadingTitle: "Abrindo Agendamento",
       loadingDescription: "Enviando os cards de hoje para o chat e preparando a fila de agenda.",
@@ -915,6 +954,7 @@ export default function VendasClientPage() {
     try {
       const syncResult = await apiFetch<TodayAgendaSyncResponse>("/vendas/agenda/whatsapp/sync-today", {
         method: "POST",
+        body: syncBody,
       });
       const todayLeadCount = Number(syncResult?.todayLeadCount || 0);
       const mirroredLeadCount = Number(syncResult?.mirroredLeadCount || 0);
@@ -935,7 +975,7 @@ export default function VendasClientPage() {
       todayAgendaLaunchNotice.clear();
       setError(syncError instanceof Error ? syncError.message : "Falha ao abrir o chat de agendamento.");
     }
-  }, [openInboxAgenda, todayAgendaLaunchNotice]);
+  }, [board?.blocks.today, openInboxAgenda, todayAgendaLaunchNotice, whatsappFilter]);
 
   useEffect(() => {
     if (hasToken !== true) return;
@@ -1090,10 +1130,14 @@ export default function VendasClientPage() {
 
   const filteredLeads = useMemo(() => {
     if (!board || !selectedFilter) return [];
-    if (selectedFilter.key === "overdue") return board.blocks.overdue || [];
-    if (selectedFilter.key === "today") return board.blocks.today || [];
-    return (board.blocks.scheduled || []).filter((lead) => buildLocalDateKey(lead.returnAt || lead.updatedAt) === selectedFilter.isoDate);
-  }, [board, selectedFilter]);
+    const scopedLeads =
+      selectedFilter.key === "overdue"
+        ? board.blocks.overdue || []
+        : selectedFilter.key === "today"
+          ? board.blocks.today || []
+          : (board.blocks.scheduled || []).filter((lead) => buildLocalDateKey(lead.returnAt || lead.updatedAt) === selectedFilter.isoDate);
+    return scopedLeads.filter((lead) => matchesWhatsappFilter(lead, whatsappFilter));
+  }, [board, selectedFilter, whatsappFilter]);
 
   useEffect(() => {
     setSelectedLeadId((current) => {
@@ -1122,8 +1166,8 @@ export default function VendasClientPage() {
     const calculate = () => {
       // ~64px for "+" button + 12px gap reserved at the end
       const PLUS_RESERVED = 76;
-      // 104px min card width + 12px gap = 116px per slot
-      const CARD_SLOT = 116;
+      // 120px min card width + 12px gap = 132px per slot
+      const CARD_SLOT = 132;
       const fits = Math.max(2, Math.floor((el.clientWidth - PLUS_RESERVED) / CARD_SLOT));
       setVisibleDateCount(fits);
       setScrollerReady(true);
@@ -1685,15 +1729,17 @@ export default function VendasClientPage() {
             <h2 className={styles.boardTitle}>{selectedFilter.title}</h2>
           </div>
           <div className={styles.toolbar}>
-            <Link
-              href="/dashboard/vendas/automacao"
-              prefetch={false}
-              className={`${styles.secondaryAction} ${styles.toolbarHighlight}`}
-            >
-              Automacao QR
-            </Link>
             <button type="button" className={`${styles.secondaryAction} ${styles.toolbarHighlight}`} onClick={() => setComposerOpen(true)}>Novo lead</button>
-            <button type="button" className={`${styles.secondaryAction} ${styles.toolbarHighlight}`} onClick={() => setCommandOpen(true)}>Buscar</button>
+            <button
+              type="button"
+              className={`${styles.secondaryAction} ${styles.toolbarHighlight} ${styles.whatsappFilterButton}`}
+              data-active={whatsappFilter !== "all" ? "true" : "false"}
+              onClick={() => setWhatsappFilter((current) => nextWhatsappFilter(current))}
+              aria-pressed={whatsappFilter !== "all"}
+              title="Alternar filtro com WhatsApp / sem WhatsApp"
+            >
+              {WHATSAPP_FILTER_LABELS[whatsappFilter]}
+            </button>
             <button type="button" className={styles.secondaryAction} onClick={() => setShowClosed((current) => !current)}>
               {showClosed ? "Ocultar arquivo" : `Arquivo (${closedLeads.length})`}
             </button>
@@ -1768,8 +1814,8 @@ export default function VendasClientPage() {
               <div className={styles.filterRailHeader}>
                 <div><span className={styles.panelEyebrow}>Filtro por datas</span><strong>Agenda comercial</strong></div>
                 <div className={styles.filterRailActions}>
-                  <Link href="/dashboard/vendas/automacao?tab=flow" prefetch={false} className={styles.secondaryAction}>
-                    Abrir Fluxo
+                  <Link href="/dashboard/inbox?atendimentoQueue=scheduled&atendimentoSection=agenda&agendaStudio=1" prefetch={false} className={styles.secondaryAction}>
+                    Agenda
                   </Link>
                 </div>
               </div>
@@ -1868,21 +1914,29 @@ export default function VendasClientPage() {
       </DndContext>
 
       {composerOpen ? (
-        <div className="ui-popup-backdrop" onClick={() => setComposerOpen(false)}>
-          <div className={styles.modalCard} onClick={(event) => event.stopPropagation()}>
-            <div className={styles.sectionTopline}>
-              <div><span className={styles.panelEyebrow}>Novo lead manual</span><strong>Cadastro rápido</strong></div>
-              <button type="button" className={styles.secondaryAction} onClick={() => setComposerOpen(false)}>Fechar</button>
+        <div className={`${styles.systemPopupOverlay} ${styles.systemPopupOverlayActive}`} onClick={() => setComposerOpen(false)}>
+          <div className={styles.systemPopupFrame} onClick={(event) => event.stopPropagation()} role="dialog" aria-modal="true" aria-labelledby="new-lead-title">
+            <div className={styles.systemPopupChrome}>
+              <div>
+                <p className={styles.systemPopupEyebrow}>Vendas</p>
+                <strong id="new-lead-title">Novo lead</strong>
+              </div>
+              <div className={styles.systemPopupActions}>
+                <span className={styles.metaBadge}>Cadastro rápido</span>
+                <button type="button" className="btn btn-secondary btn-sm" onClick={() => setComposerOpen(false)}>Fechar</button>
+              </div>
             </div>
-            <form className={styles.composerForm} onSubmit={handleCreateManual}>
-              <label className={styles.field}><span className={styles.fieldLabel}>Nome</span><input className={styles.fieldInput} value={manualLead.name} onChange={(event) => setManualLead((prev) => ({ ...prev, name: event.target.value }))} placeholder="Ex: Clínica Horizonte" /></label>
-              <label className={styles.field}><span className={styles.fieldLabel}>Telefone</span><input className={styles.fieldInput} value={manualLead.phone} onChange={(event) => setManualLead((prev) => ({ ...prev, phone: event.target.value }))} placeholder="Ex: (11) 99999-0000" /></label>
-              <label className={styles.field}><span className={styles.fieldLabel}>E-mail</span><input className={styles.fieldInput} value={manualLead.email} onChange={(event) => setManualLead((prev) => ({ ...prev, email: event.target.value }))} placeholder="Opcional" /></label>
-              <label className={styles.field}><span className={styles.fieldLabel}>Retorno</span><input className={styles.fieldInput} type="datetime-local" value={manualLead.returnAt} onChange={(event) => setManualLead((prev) => ({ ...prev, returnAt: event.target.value }))} /></label>
-              <label className={styles.fieldWide}><span className={styles.fieldLabel}>Próxima ação</span><input className={styles.fieldInput} value={manualLead.nextAction} onChange={(event) => setManualLead((prev) => ({ ...prev, nextAction: event.target.value }))} placeholder="Ex: Primeiro contato" /></label>
-              <label className={styles.fieldWide}><span className={styles.fieldLabel}>Observação</span><textarea className={styles.fieldTextarea} rows={4} value={manualLead.shortNote} onChange={(event) => setManualLead((prev) => ({ ...prev, shortNote: event.target.value }))} placeholder="Contexto rápido do lead." /></label>
-              <div className={styles.formFooter}><button type="submit" className={styles.primaryAction} disabled={creatingManual}>{creatingManual ? "Criando..." : "Criar lead"}</button></div>
-            </form>
+            <div className={styles.systemPopupBody}>
+              <form className={styles.composerForm} onSubmit={handleCreateManual}>
+                <label className={styles.field}><span className={styles.fieldLabel}>Nome</span><input className={styles.fieldInput} value={manualLead.name} onChange={(event) => setManualLead((prev) => ({ ...prev, name: event.target.value }))} placeholder="Ex: Clínica Horizonte" /></label>
+                <label className={styles.field}><span className={styles.fieldLabel}>Telefone</span><input className={styles.fieldInput} value={manualLead.phone} onChange={(event) => setManualLead((prev) => ({ ...prev, phone: event.target.value }))} placeholder="Ex: (11) 99999-0000" /></label>
+                <label className={styles.field}><span className={styles.fieldLabel}>E-mail</span><input className={styles.fieldInput} value={manualLead.email} onChange={(event) => setManualLead((prev) => ({ ...prev, email: event.target.value }))} placeholder="Opcional" /></label>
+                <label className={styles.field}><span className={styles.fieldLabel}>Retorno</span><input className={styles.fieldInput} type="datetime-local" value={manualLead.returnAt} onChange={(event) => setManualLead((prev) => ({ ...prev, returnAt: event.target.value }))} /></label>
+                <label className={styles.fieldWide}><span className={styles.fieldLabel}>Próxima ação</span><input className={styles.fieldInput} value={manualLead.nextAction} onChange={(event) => setManualLead((prev) => ({ ...prev, nextAction: event.target.value }))} placeholder="Ex: Primeiro contato" /></label>
+                <label className={styles.fieldWide}><span className={styles.fieldLabel}>Observação</span><textarea className={styles.fieldTextarea} rows={4} value={manualLead.shortNote} onChange={(event) => setManualLead((prev) => ({ ...prev, shortNote: event.target.value }))} placeholder="Contexto rápido do lead." /></label>
+                <div className={styles.formFooter}><button type="submit" className={styles.primaryAction} disabled={creatingManual}>{creatingManual ? "Criando..." : "Criar lead"}</button></div>
+              </form>
+            </div>
           </div>
         </div>
       ) : null}

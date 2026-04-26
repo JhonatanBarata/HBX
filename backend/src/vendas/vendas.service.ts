@@ -840,7 +840,7 @@ export class VendasService {
     return result;
   }
 
-  async syncTodayAgendaForUser(user: any) {
+  async syncTodayAgendaForUser(user: any, options?: { leadIds?: string[] }) {
     const context = this.resolveUserContext(user);
     this.logger.log(`[vendas-agenda] Iniciando espelhamento de cards de hoje para company=${context.companyId}`);
     let rows: any[] = [];
@@ -857,7 +857,19 @@ export class VendasService {
         select: this.buildVendasLeadSelectWithoutAddress(),
       });
     }
-    const todayRows = rows.filter((row) => this.shouldMirrorLeadToInboxAgenda(row));
+    const requestedLeadIds = Array.isArray(options?.leadIds)
+      ? new Set(
+          (options?.leadIds || [])
+            .map((leadId) => String(leadId || '').trim())
+            .filter(Boolean),
+        )
+      : null;
+    const filteredSync = Boolean(requestedLeadIds);
+    const todayRows = rows.filter((row) => {
+      if (!this.shouldMirrorLeadToInboxAgenda(row)) return false;
+      if (!requestedLeadIds) return true;
+      return requestedLeadIds.has(String(row?.id || '').trim());
+    });
     const whatsappAvailabilityByLeadId = await this.ensureWhatsappAvailabilityForRows(
       context.companyId,
       context.userId,
@@ -911,6 +923,7 @@ export class VendasService {
       if (!queue?.active) continue;
 
       const leadId = String(queue.leadId || '').trim();
+      if (filteredSync && leadId && !requestedLeadIds?.has(leadId)) continue;
       const linkedLead = leadId ? rowById.get(leadId) || null : null;
       const shouldStayActive =
         Boolean(linkedLead) &&
