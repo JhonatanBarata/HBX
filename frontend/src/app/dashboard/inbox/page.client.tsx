@@ -2207,6 +2207,7 @@ export default function InboxClientPage() {
   const [loadingAgenda, setLoadingAgenda] = useState(false);
   const [savingAgenda, setSavingAgenda] = useState(false);
   const [agendaDirty, setAgendaDirty] = useState(false);
+  const [botConfigDirtyFromAgendaReset, setBotConfigDirtyFromAgendaReset] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [conversationListError, setConversationListError] = useState<string | null>(null);
   const [conversationDetailError, setConversationDetailError] = useState<string | null>(null);
@@ -4186,6 +4187,7 @@ export default function InboxClientPage() {
       canManageAgenda={canManageAgenda}
       onAddGroup={addAgendaGroup}
       onRemoveGroup={removeAgendaGroup}
+      onResetBotAgenda={resetBotAgendaToDefault}
       onLinkCurrentUser={linkAgendaToCurrentUser}
       onSaveBotAgenda={() => {
         setNotice(null);
@@ -6249,6 +6251,18 @@ export default function InboxClientPage() {
     });
   }, []);
 
+  const resetBotAgendaToDefault = useCallback(() => {
+    setAgendaDirty(true);
+    setBotConfigDirtyFromAgendaReset(true);
+    setAgendaConfig(normalizeAgendaConfig(DEFAULT_ATENDIMENTO_AGENDA_CONFIG));
+    setBotConfig((current) => ({
+      ...current,
+      actionCatalog: current.actionCatalog.map((action) =>
+        action.actionId === "schedule_service" ? { ...action, agendaGroupId: "agenda_tecnicos" } : action,
+      ),
+    }));
+  }, []);
+
   const updateAgendaGroup = useCallback(
     (
       groupId: string,
@@ -6439,6 +6453,14 @@ export default function InboxClientPage() {
         method: "PATCH",
         body: JSON.stringify(agendaConfig),
       });
+      if (botConfigDirtyFromAgendaReset) {
+        const botPayload = await apiFetch<AtendimentoBotConfig>("/inbox/bot-config", {
+          method: "PATCH",
+          body: JSON.stringify(botConfig),
+        });
+        setBotConfig(normalizeBotConfig(botPayload));
+        setBotConfigDirtyFromAgendaReset(false);
+      }
       setAgendaConfig(normalizeAgendaConfig(payload));
       setAgendaDirty(false);
       setNotice({ tone: "success", text: "Agenda salva com sucesso." });
@@ -6448,7 +6470,7 @@ export default function InboxClientPage() {
     } finally {
       setSavingAgenda(false);
     }
-  }, [agendaConfig]);
+  }, [agendaConfig, botConfig, botConfigDirtyFromAgendaReset]);
 
   const simulateAgendaFlow = useCallback(
     async (payload: AtendimentoAgendaSimulationPayload) => {

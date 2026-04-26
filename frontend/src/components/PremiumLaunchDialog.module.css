@@ -30,11 +30,25 @@
   overflow: hidden;
 }
 
+.dialogGlow {
+  position: absolute;
+  inset: -1px;
+  pointer-events: none;
+  background:
+    linear-gradient(120deg, transparent 0%, rgba(255, 255, 255, 0.48) 22%, transparent 44%),
+    radial-gradient(circle at 16% 18%, color-mix(in srgb, var(--brand) 20%, transparent), transparent 28%);
+  opacity: 0.58;
+  transform: translateX(-36%);
+  animation: popupaviso-sheen 2.4s ease-in-out infinite;
+}
+
 .dialog[data-phase="success"] {
   border-color: color-mix(in srgb, var(--success) 26%, rgba(255, 255, 255, 0.74));
 }
 
 .hero {
+  position: relative;
+  z-index: 1;
   display: grid;
   gap: 0.9rem;
   justify-items: start;
@@ -110,6 +124,8 @@
 }
 
 .progressPanel {
+  position: relative;
+  z-index: 1;
   display: grid;
   gap: 0.55rem;
   padding: 0.9rem;
@@ -153,11 +169,15 @@
 }
 
 .footer {
+  position: relative;
+  z-index: 1;
   display: flex;
   justify-content: flex-end;
 }
 
 .detailGrid {
+  position: relative;
+  z-index: 1;
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.75rem;
@@ -184,6 +204,20 @@
 .detailCard strong {
   font-size: 1rem;
   color: var(--foreground);
+}
+
+@keyframes popupaviso-sheen {
+  0%,
+  55%,
+  100% {
+    transform: translateX(-44%);
+    opacity: 0.18;
+  }
+
+  28% {
+    transform: translateX(42%);
+    opacity: 0.56;
+  }
 }
 
 @keyframes premium-launch-pulse {

@@ -1,8 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import PremiumLaunchDialog from "@/components/PremiumLaunchDialog";
 import { apiFetch } from "../../_lib/api";
 import {
+  DEFAULT_ATENDIMENTO_AGENDA_CONFIG,
   formatAgendaPreview,
   formatWeekday,
   type AtendimentoAgendaConfig,
@@ -90,6 +92,7 @@ type AgendaStudioModalProps = {
   onSaveBotAgenda: () => void;
   onAddGroup: () => void;
   onRemoveGroup: (groupId: string) => void;
+  onResetBotAgenda: () => void;
   onLinkCurrentUser: (groupId: string) => void;
   onUpdateGroup: (
     groupId: string,
@@ -284,14 +287,20 @@ export function distributeSalesCards(
 }
 
 export function canDeleteAgendaGuide(group: AtendimentoAgendaGroup) {
-  void group;
-  // TODO: substituir por validação backend baseada em agendamento futuro ativo vinculado à guia.
-  // Horários configurados não bloqueiam exclusão por si só.
-  const hasFutureLinkedBooking = false;
+  if (group.id === DEFAULT_ATENDIMENTO_AGENDA_CONFIG.groups[0]?.id) {
+    return {
+      allowed: false,
+      reason: "A guia padrão Técnicos não pode ser excluída. Desative ou edite a guia, se necessário.",
+    };
+  }
+  const hasActiveSlots = group.slots.some((slot) => slot.enabled);
+  // TODO: trocar este bloqueio seguro por validação backend de agendamento futuro ativo vinculado à guia.
+  // Horários configurados bloqueiam por enquanto porque ainda não há checagem real de vínculo futuro.
+  const hasFutureLinkedBooking = hasActiveSlots;
   return {
     allowed: !hasFutureLinkedBooking,
     reason: hasFutureLinkedBooking
-      ? "Esta guia possui agendamentos futuros vinculados. Finalize, mova ou cancele esses horários antes de excluir."
+      ? "Esta guia possui horários ativos. Desative os horários antes de excluir, até a validação de agendamentos futuros estar disponível."
       : "",
   };
 }
@@ -344,7 +353,7 @@ function SalesAgendaTab() {
   const slotsByDay = useMemo(() => {
     const map = new Map<string, typeof slots>();
     slots.forEach((slot) => map.set(slot.dateKey, [...(map.get(slot.dateKey) || []), slot]));
-    return Array.from(map.entries()).slice(0, 5);
+    return Array.from(map.entries());
   }, [slots]);
   const plannedBySlot = useMemo(() => {
     const map = new Map<string, PlannedSalesLead[]>();
@@ -422,6 +431,25 @@ function SalesAgendaTab() {
 
   return (
     <div className={styles.agendaStudioTabBody}>
+      {savingProgress ? (
+        <PremiumLaunchDialog
+          notice={{
+            phase: "loading",
+            progress: Math.max(4, Math.min(100, Math.round((savingProgress.done / Math.max(1, savingProgress.total)) * 100))),
+            title: "Aplicando Agenda Vendas",
+            description: "Salvando os horários dos cards internos sem acionar a Agenda Bot.",
+            ctaLabel: "Concluir",
+          }}
+          onOpen={() => undefined}
+          progressLabel="Salvando cards"
+          progressValueLabel={`${savingProgress.done} de ${savingProgress.total}`}
+          loadingLabel="Aplicando..."
+          detailRows={[
+            { label: "Agenda", value: "Vendas" },
+            { label: "Origem", value: "Cards internos" },
+          ]}
+        />
+      ) : null}
       <section className={styles.salesAgendaSummaryGrid}>
         {[
           ["Cards herdados", summary.inherited],
@@ -499,7 +527,6 @@ function SalesAgendaTab() {
           <button type="button" className="btn btn-primary btn-sm" onClick={applyPlan} disabled={saving || loading}>{saving ? "Aplicando..." : "Aplicar organização"}</button>
           <button type="button" className="btn btn-secondary btn-sm" onClick={clearPreview} disabled={loading}>Limpar prévia</button>
         </div>
-        {savingProgress ? <div className={styles.inlineNote}>Salvando {savingProgress.done} de {savingProgress.total}</div> : null}
         {message ? <div className={styles.inlineNote}>{message}</div> : null}
         {failedSaves.length ? (
           <div className={styles.salesAgendaFailureList}>
@@ -581,6 +608,7 @@ function BotAgendaTab({
   currentUserName,
   onAddGroup,
   onRemoveGroup,
+  onResetBotAgenda,
   onLinkCurrentUser,
   onUpdateGroup,
   onAddSlot,
@@ -608,7 +636,22 @@ function BotAgendaTab({
               <span className={styles.sectionEyebrow}>Agenda Bot</span>
               <strong>Guias do bot</strong>
             </div>
-            <button type="button" className="btn btn-secondary btn-sm" onClick={onAddGroup} disabled={!canManageAgenda}>Nova guia</button>
+            <div className={styles.headerActions}>
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                disabled={!canManageAgenda}
+                onClick={() => {
+                  if (!window.confirm("Resetar a Agenda Bot para a guia padrão Técnicos? As guias antigas serão removidas da configuração local e você ainda precisa salvar.")) return;
+                  onResetBotAgenda();
+                  setSelectedGroupId(DEFAULT_ATENDIMENTO_AGENDA_CONFIG.groups[0]?.id || "");
+                  setDeleteMessage(null);
+                }}
+              >
+                Resetar padrão
+              </button>
+              <button type="button" className="btn btn-secondary btn-sm" onClick={onAddGroup} disabled={!canManageAgenda}>Nova guia</button>
+            </div>
           </div>
           {agendaConfig.groups.map((group) => (
             <button
@@ -673,14 +716,6 @@ function BotAgendaTab({
                 <input className="field" value={selectedGroup.buttonLabel} disabled={!canManageAgenda} onChange={(event) => onUpdateGroup(selectedGroup.id, "buttonLabel", event.target.value)} />
               </label>
               <label>
-                <span>Slug</span>
-                <input className="field" value={selectedGroup.slug} disabled={!canManageAgenda} onChange={(event) => onUpdateGroup(selectedGroup.id, "slug", event.target.value)} />
-              </label>
-              <label>
-                <span>Agenda vinculada</span>
-                <input className="field" value={selectedGroup.linkedAgendaId} disabled={!canManageAgenda} onChange={(event) => onUpdateGroup(selectedGroup.id, "linkedAgendaId", event.target.value)} />
-              </label>
-              <label>
                 <span>Cor</span>
                 <input className="field" type="color" value={selectedGroup.accentColor} disabled={!canManageAgenda} onChange={(event) => onUpdateGroup(selectedGroup.id, "accentColor", event.target.value)} />
               </label>
@@ -689,6 +724,20 @@ function BotAgendaTab({
                 <input className="field" type="number" min={1} max={10} value={selectedGroup.suggestedSlotsCount} disabled={!canManageAgenda} onChange={(event) => onUpdateGroup(selectedGroup.id, "suggestedSlotsCount", Number(event.target.value) || 3)} />
               </label>
             </div>
+
+            <details className={styles.botAgendaAdvanced}>
+              <summary>Avançado</summary>
+              <div className={styles.botAgendaFormGrid}>
+                <label>
+                  <span>Slug</span>
+                  <input className="field" value={selectedGroup.slug} disabled={!canManageAgenda} onChange={(event) => onUpdateGroup(selectedGroup.id, "slug", event.target.value)} />
+                </label>
+                <label>
+                  <span>Agenda vinculada</span>
+                  <input className="field" value={selectedGroup.linkedAgendaId} disabled={!canManageAgenda} onChange={(event) => onUpdateGroup(selectedGroup.id, "linkedAgendaId", event.target.value)} />
+                </label>
+              </div>
+            </details>
 
             <div className={styles.salesAgendaWeekdays}>
               {WEEKDAY_OPTIONS.map((day) => {

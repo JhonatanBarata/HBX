@@ -12,6 +12,7 @@ type PremiumLaunchDialogProps = {
   progressValueLabel?: string | null;
   detailRows?: Array<{ label: string; value: string }>;
   celebrate?: boolean;
+  loadingLabel?: string;
 };
 
 const CONFETTI_SEEDS = Array.from({ length: 18 }, (_, index) => index);
@@ -23,12 +24,14 @@ export default function PremiumLaunchDialog({
   progressValueLabel,
   detailRows,
   celebrate = false,
+  loadingLabel = "Carregando ambiente...",
 }: PremiumLaunchDialogProps) {
   if (!notice || typeof document === "undefined") return null;
 
   return createPortal(
-    <div className={styles.backdrop} role="presentation">
+    <div className={styles.backdrop} role="presentation" data-component="popupaviso">
       <section className={styles.dialog} data-phase={notice.phase} role="dialog" aria-modal="true" aria-live="polite">
+        <span className={styles.dialogGlow} aria-hidden="true" />
         {celebrate && notice.phase === "success" ? (
           <div className="shutdown-confetti" aria-hidden="true">
             {CONFETTI_SEEDS.map((seed) => (
@@ -88,7 +91,7 @@ export default function PremiumLaunchDialog({
             </button>
           ) : (
             <button type="button" className="btn btn-secondary" disabled>
-              Carregando ambiente...
+              {loadingLabel}
             </button>
           )}
         </div>
