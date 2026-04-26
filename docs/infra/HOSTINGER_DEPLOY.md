@@ -55,6 +55,7 @@ Fluxo normal de producao:
 - bloqueia deploy se `DATABASE_URL`, `DIRECT_URL`, `PROD_DATABASE_URL` ou `PROD_DIRECT_URL` apontarem para `supabase.com`;
 - valida `hbx-postgres` e `hbx_prod`;
 - valida que o container `hbx-postgres` esta running;
+- remove somente containers antigos de servico (`hbx-backend` e `webscraping`) se houver conflito de nome;
 - sobe apenas `backend` e `webscraping`;
 - verifica `https://api.hbxsystem.com.br/health`.
 
