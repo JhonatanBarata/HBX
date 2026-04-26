@@ -46,6 +46,8 @@ type SalesAgendaSettings = {
   workdays: number[];
 };
 
+type SalesAgendaWindowDays = 7 | 14 | 30;
+
 type PlannedSalesLead = SalesLead & {
   sourceBlock: LeadBlockKey | "unscheduled";
   plannedAt: string | null;
@@ -173,7 +175,7 @@ export function buildUsefulTimeSlots(settings: SalesAgendaSettings, daysToBuild 
   let usefulDays = 0;
   let guard = 0;
 
-  while (usefulDays < daysToBuild && guard < 60) {
+  while (usefulDays < daysToBuild && guard < 240) {
     const dateKey = toLocalDateKey(dayCursor);
     if (settings.workdays.includes(dayCursor.getDay())) {
       for (let cursor = startMinutes; cursor + settings.durationMinutes <= endMinutes; cursor += settings.durationMinutes) {
@@ -194,6 +196,29 @@ export function buildUsefulTimeSlots(settings: SalesAgendaSettings, daysToBuild 
   }
 
   return slots;
+}
+
+function countSlotsPerUsefulDay(settings: SalesAgendaSettings) {
+  const startMinutes = toMinutes(settings.startTime);
+  const endMinutes = toMinutes(settings.endTime);
+  const lunchStart = toMinutes(settings.lunchStart);
+  const lunchEnd = toMinutes(settings.lunchEnd);
+  let count = 0;
+  for (let cursor = startMinutes; cursor + settings.durationMinutes <= endMinutes; cursor += settings.durationMinutes) {
+    const crossesLunch = settings.lunchEnabled && cursor < lunchEnd && cursor + settings.durationMinutes > lunchStart;
+    if (!crossesLunch) count += 1;
+  }
+  return Math.max(1, count);
+}
+
+function countCalendarDaysUntil(dateTime: string | null | undefined) {
+  const parsed = parseDate(dateTime);
+  if (!parsed) return 0;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const target = new Date(parsed);
+  target.setHours(0, 0, 0, 0);
+  return Math.max(0, Math.ceil((target.getTime() - today.getTime()) / 86400000)) + 1;
 }
 
 export function summarizeSalesAgenda(board: SalesBoardResponse | null) {
@@ -230,7 +255,7 @@ export function distributeSalesCards(
   currentPlan: Record<string, string | null>,
   fixedLeadIds: Set<string>,
 ) {
-  const slots = buildUsefulTimeSlots(settings, Math.max(10, Math.ceil(leads.length / 6) + 3));
+  const slots = buildUsefulTimeSlots(settings, Math.max(10, Math.ceil(leads.length / countSlotsPerUsefulDay(settings)) + 3));
   const usedSlots = new Set(
     leads
       .filter((lead) => fixedLeadIds.has(lead.id) && currentPlan[lead.id])
@@ -259,10 +284,13 @@ export function distributeSalesCards(
 }
 
 export function canDeleteAgendaGuide(group: AtendimentoAgendaGroup) {
-  const hasFutureAvailability = group.slots.some((slot) => slot.enabled);
+  void group;
+  // TODO: substituir por validação backend baseada em agendamento futuro ativo vinculado à guia.
+  // Horários configurados não bloqueiam exclusão por si só.
+  const hasFutureLinkedBooking = false;
   return {
-    allowed: !hasFutureAvailability,
-    reason: hasFutureAvailability
+    allowed: !hasFutureLinkedBooking,
+    reason: hasFutureLinkedBooking
       ? "Esta guia possui agendamentos futuros vinculados. Finalize, mova ou cancele esses horários antes de excluir."
       : "",
   };
@@ -274,9 +302,12 @@ function SalesAgendaTab() {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [settings, setSettings] = useState<SalesAgendaSettings>(DEFAULT_SALES_SETTINGS);
+  const [windowDays, setWindowDays] = useState<SalesAgendaWindowDays>(14);
   const [plan, setPlan] = useState<Record<string, string | null>>({});
   const [fixedLeadIds, setFixedLeadIds] = useState<Set<string>>(() => new Set());
   const [dragLeadId, setDragLeadId] = useState<string | null>(null);
+  const [savingProgress, setSavingProgress] = useState<{ done: number; total: number } | null>(null);
+  const [failedSaves, setFailedSaves] = useState<Array<{ id: string; name: string; error: string }>>([]);
 
   useEffect(() => {
     let active = true;
@@ -304,7 +335,12 @@ function SalesAgendaTab() {
 
   const summary = useMemo(() => summarizeSalesAgenda(board), [board]);
   const leads = useMemo(() => collectSalesLeads(board), [board]);
-  const slots = useMemo(() => buildUsefulTimeSlots(settings, 7), [settings]);
+  const visibleDaysToBuild = useMemo(() => {
+    const requiredByVolume = Math.ceil(leads.length / countSlotsPerUsefulDay(settings));
+    const requiredByPlan = Math.max(0, ...Object.values(plan).map((plannedAt) => countCalendarDaysUntil(plannedAt)));
+    return Math.max(windowDays, requiredByVolume, requiredByPlan, 1);
+  }, [leads.length, plan, settings, windowDays]);
+  const slots = useMemo(() => buildUsefulTimeSlots(settings, visibleDaysToBuild), [settings, visibleDaysToBuild]);
   const slotsByDay = useMemo(() => {
     const map = new Map<string, typeof slots>();
     slots.forEach((slot) => map.set(slot.dateKey, [...(map.get(slot.dateKey) || []), slot]));
@@ -320,8 +356,10 @@ function SalesAgendaTab() {
     return map;
   }, [leads, plan]);
 
-  const organize = () => {
-    setPlan(distributeSalesCards(leads, settings, plan, fixedLeadIds));
+  const organize = (mode: "preserve" | "all" = "preserve") => {
+    const fixedSet = mode === "all" ? new Set<string>() : fixedLeadIds;
+    setPlan(distributeSalesCards(leads, settings, plan, fixedSet));
+    if (mode === "all") setFixedLeadIds(new Set());
     setMessage("Prévia criada. Revise os horários antes de aplicar.");
   };
 
@@ -342,21 +380,38 @@ function SalesAgendaTab() {
       return;
     }
     setSaving(true);
+    setSavingProgress({ done: 0, total: changed.length });
+    setFailedSaves([]);
     setMessage(null);
+    const failures: Array<{ id: string; name: string; error: string }> = [];
+    let saved = 0;
     try {
       for (const lead of changed) {
-        await apiFetch(`/vendas/lead/${lead.id}`, {
-          method: "PATCH",
-          body: JSON.stringify({ returnAt: plan[lead.id] || "" }),
-        });
+        try {
+          await apiFetch(`/vendas/lead/${lead.id}`, {
+            method: "PATCH",
+            body: JSON.stringify({ returnAt: plan[lead.id] || "" }),
+          });
+          saved += 1;
+        } catch (error) {
+          failures.push({
+            id: lead.id,
+            name: lead.name || "Lead sem nome",
+            error: error instanceof Error ? error.message : "Falha ao salvar card.",
+          });
+        } finally {
+          setSavingProgress({ done: saved + failures.length, total: changed.length });
+        }
       }
-      setMessage(`${changed.length} card(s) atualizados na Agenda Vendas.`);
       const payload = await apiFetch<SalesBoardResponse>("/vendas/board");
       setBoard(payload);
+      setFailedSaves(failures);
+      setMessage(failures.length ? `${saved} card(s) salvos. ${failures.length} falharam.` : `${saved} card(s) atualizados na Agenda Vendas.`);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Falha ao aplicar organização.");
     } finally {
       setSaving(false);
+      setSavingProgress(null);
     }
   };
 
@@ -432,11 +487,27 @@ function SalesAgendaTab() {
         </div>
 
         <div className={styles.salesAgendaActions}>
-          <button type="button" className="btn btn-secondary btn-sm" onClick={organize} disabled={loading || !leads.length}>Organizar automaticamente</button>
+          <div className={styles.agendaWindowSwitch}>
+            {([7, 14, 30] as SalesAgendaWindowDays[]).map((days) => (
+              <button key={days} type="button" className={windowDays === days ? styles.agendaWindowSwitchActive : ""} onClick={() => setWindowDays(days)}>
+                {days} dias
+              </button>
+            ))}
+          </div>
+          <button type="button" className="btn btn-secondary btn-sm" onClick={() => organize("preserve")} disabled={loading || !leads.length}>Organizar automaticamente</button>
+          <button type="button" className="btn btn-secondary btn-sm" onClick={() => organize("all")} disabled={loading || !leads.length}>Reorganizar tudo</button>
           <button type="button" className="btn btn-primary btn-sm" onClick={applyPlan} disabled={saving || loading}>{saving ? "Aplicando..." : "Aplicar organização"}</button>
           <button type="button" className="btn btn-secondary btn-sm" onClick={clearPreview} disabled={loading}>Limpar prévia</button>
         </div>
+        {savingProgress ? <div className={styles.inlineNote}>Salvando {savingProgress.done} de {savingProgress.total}</div> : null}
         {message ? <div className={styles.inlineNote}>{message}</div> : null}
+        {failedSaves.length ? (
+          <div className={styles.salesAgendaFailureList}>
+            {failedSaves.map((failure) => (
+              <span key={failure.id}>{failure.name}: {failure.error}</span>
+            ))}
+          </div>
+        ) : null}
       </section>
 
       <section className={styles.salesAgendaGrid}>
