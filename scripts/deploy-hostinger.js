@@ -5,13 +5,29 @@ const {
   assertNonLocalHttpUrl,
   loadEnvFromFiles,
   repoRoot,
-  requireEnv,
   run,
 } = require('./lib/runtime');
 
 const remote = 'origin';
 const branch = 'master';
-const isDryRun = process.argv.includes('--dry-run');
+const rawArgs = process.argv.slice(2).map((arg) => String(arg || '').trim()).filter(Boolean);
+
+function parseMode() {
+  const wantsDryRun = rawArgs.some((arg) => ['d', 'dry-run', '--dry-run'].includes(arg.toLowerCase()));
+  const wantsForce = rawArgs.some((arg) => ['f', 'force', '--force'].includes(arg.toLowerCase()));
+
+  if (wantsDryRun && wantsForce) {
+    throw new Error('Use only one publish mode at a time: dry-run or force.');
+  }
+
+  if (wantsDryRun) return 'dry-run';
+  if (wantsForce) return 'force';
+  return 'normal';
+}
+
+function isTruthy(value) {
+  return ['1', 'true', 'yes', 'on'].includes(String(value || '').trim().toLowerCase());
+}
 
 function logStage(title) {
   console.log(`\n=== ${title} ===`);
@@ -32,11 +48,6 @@ function loadOperationsEnv() {
 
 function runStep(command, args, options = {}) {
   console.log(`\n> ${[command, ...args].join(' ')}`);
-
-  if (isDryRun && options.skipInDryRun) {
-    console.log('[dry-run] skipped');
-    return { status: 0, stdout: '', stderr: '' };
-  }
 
   return run(command, args, {
     cwd: repoRoot,
@@ -83,6 +94,7 @@ function ensureRequiredEnv(env) {
     appDir: String(env.HOSTINGER_APP_DIR).trim(),
     backendUrl,
     frontendUrl,
+    forceReboot: isTruthy(env.FORCE_REBOOT_HOSTINGER),
   };
 }
 
@@ -90,20 +102,26 @@ function ensureMasterBranch() {
   const result = runStep('git', ['branch', '--show-current'], { captureOutput: true });
   const currentBranch = String(result.stdout || '').trim();
   if (currentBranch !== branch) {
-    throw new Error(`Deploy Hostinger only runs from ${branch}. Current branch: ${currentBranch || '(detached HEAD)'}`);
+    throw new Error(`Publish Hostinger only runs from ${branch}. Current branch: ${currentBranch || '(detached HEAD)'}`);
   }
 }
 
-function ensureCleanWorkingTree() {
+function ensureCleanWorkingTree(mode) {
   const result = runStep('git', ['status', '--short'], { captureOutput: true });
   const status = String(result.stdout || '').trim();
 
-  if (status) {
-    console.log(status);
-    throw new Error('Deploy Hostinger requires a clean working tree. Commit first, then run npm run publish.');
+  if (!status) {
+    console.log('Working tree clean.');
+    return;
   }
 
-  console.log('Working tree clean.');
+  console.log(status);
+  if (mode === 'dry-run') {
+    console.log('[dry-run] Working tree is dirty. Normal/force publish would stop here.');
+    return;
+  }
+
+  throw new Error('Publish Hostinger requires a clean working tree. Run npm run commit first, then npm run publish.');
 }
 
 function listChangedFilesAheadOfRemote() {
@@ -131,31 +149,75 @@ function printFrontendDeployNotice(config, changedFiles) {
 
   console.warn([
     '',
-    'Aviso operacional: este publish concluiu apenas o deploy Hostinger (backend/webscraping).',
-    `O frontend oficial em ${config.frontendUrl} continua sendo servido pela Vercel e pode permanecer com bundle anterior até o rollout externo terminar.`,
+    'Aviso operacional: este publish conclui apenas Hostinger (backend/webscraping).',
+    `O frontend oficial em ${config.frontendUrl} continua sendo servido pela Vercel e pode permanecer com bundle anterior ate o rollout externo terminar.`,
     `Mudancas de frontend detectadas neste publish: ${preview}${suffix}`,
-    'Valide a Vercel/rollout do frontend antes de concluir que um ajuste visual ou de chat chegou em producao.',
   ].join('\n'));
 }
 
-function buildRemoteDeployCommand(appDir) {
-  return [
-    'set -e',
-    `cd ${shellSingleQuote(appDir)}`,
+function buildRemoteDeployScript(config, mode) {
+  const isForce = mode === 'force';
+  const rebootValue = isForce && config.forceReboot ? 'true' : 'false';
+
+  const lines = [
+    'set -eu',
+    `APP_DIR=${shellSingleQuote(config.appDir)}`,
+    `BACKEND_URL=${shellSingleQuote(config.backendUrl)}`,
+    `FRONTEND_URL=${shellSingleQuote(config.frontendUrl)}`,
+    `FORCE_REBOOT_HOSTINGER=${shellSingleQuote(rebootValue)}`,
+    'cd "$APP_DIR"',
     `git fetch ${remote} ${branch}`,
     `git reset --hard ${remote}/${branch}`,
-    'if docker compose version >/dev/null 2>&1; then DC="docker compose"; else DC="docker-compose"; fi',
-    '$DC -f docker-compose.hostinger.yml down --remove-orphans',
-    '(docker rm -f hbx-backend webscraping 2>/dev/null || true)',
-    '$DC -f docker-compose.hostinger.yml up -d --build',
-    'docker ps',
-  ].join(' && ');
+    'if [ ! -f backend/.env ]; then echo "ERRO: backend/.env nao existe na VPS."; exit 1; fi',
+    'ENV_DB_LINES="$(awk -F= \'/^[[:space:]]*(DATABASE_URL|DIRECT_URL|PROD_DATABASE_URL|PROD_DIRECT_URL)[[:space:]]*=/{print $0}\' backend/.env)"',
+    'if printf "%s\\n" "$ENV_DB_LINES" | grep -Eiq "supabase\\.com"; then echo "ERRO: backend/.env aponta DATABASE_URL/DIRECT_URL para Supabase. Deploy bloqueado."; exit 1; fi',
+    'if ! printf "%s\\n" "$ENV_DB_LINES" | grep -q "hbx-postgres"; then echo "ERRO: backend/.env precisa apontar para hbx-postgres."; exit 1; fi',
+    'if ! printf "%s\\n" "$ENV_DB_LINES" | grep -q "hbx_prod"; then echo "ERRO: backend/.env precisa apontar para o banco hbx_prod."; exit 1; fi',
+    'if ! docker inspect -f "{{.State.Running}}" hbx-postgres 2>/dev/null | grep -q true; then echo "ERRO: container hbx-postgres nao esta running."; exit 1; fi',
+    'if docker network inspect hbx_net >/dev/null 2>&1; then export HBX_DOCKER_NETWORK=hbx_net; elif docker network inspect hbx-net >/dev/null 2>&1; then export HBX_DOCKER_NETWORK=hbx-net; else echo "ERRO: rede Docker hbx_net/hbx-net nao encontrada."; exit 1; fi',
+    'if docker-compose --version >/dev/null 2>&1; then DC="docker-compose"; elif docker compose version >/dev/null 2>&1; then DC="docker compose"; else echo "ERRO: docker-compose nao encontrado."; exit 1; fi',
+    'echo "Banco esperado: hbx-postgres/hbx_prod"',
+    'echo "Backend URL: $BACKEND_URL"',
+    'echo "Frontend URL: $FRONTEND_URL"',
+    'echo "Rede Docker: $HBX_DOCKER_NETWORK"',
+  ];
+
+  if (isForce) {
+    lines.push(
+      '$DC -f docker-compose.hostinger.yml down --remove-orphans',
+      '$DC -f docker-compose.hostinger.yml build --no-cache backend webscraping || echo "Aviso: build --no-cache falhou; tentando up -d --build."',
+      '$DC -f docker-compose.hostinger.yml up -d --build backend webscraping',
+      'docker restart hbx-backend webscraping',
+      'docker image prune -f',
+      'docker builder prune -f || true',
+      'if [ "$FORCE_REBOOT_HOSTINGER" = "true" ]; then echo "FORCE_REBOOT_HOSTINGER=true: reiniciando VPS."; (sudo reboot || reboot); else echo "Reboot da VPS ignorado. Defina FORCE_REBOOT_HOSTINGER=true para habilitar."; fi',
+    );
+  } else {
+    lines.push('$DC -f docker-compose.hostinger.yml up -d --build backend webscraping');
+  }
+
+  lines.push(
+    'echo "Containers ativos:"',
+    'docker ps --format "table {{.Names}}\\t{{.Status}}\\t{{.Ports}}" | grep -E "NAMES|hbx-backend|webscraping|hbx-postgres" || true',
+  );
+
+  return lines.join('\n');
 }
 
-function deployOnHostinger(config) {
+function printDryRun(config, mode) {
+  console.log('\n[dry-run] No git push, no SSH execution, no docker-compose down/up on Hostinger.');
+  console.log('[dry-run] Would run: git push origin master');
+  console.log(`[dry-run] Would SSH into: ${config.sshUser}@${config.sshHost}`);
+  console.log('[dry-run] Would execute this remote script:');
+  console.log('--- remote script start ---');
+  console.log(buildRemoteDeployScript(config, mode));
+  console.log('--- remote script end ---');
+}
+
+function deployOnHostinger(config, mode) {
   const sshTarget = `${config.sshUser}@${config.sshHost}`;
-  const remoteCommand = buildRemoteDeployCommand(config.appDir);
-  runStep('ssh', [sshTarget, remoteCommand], { skipInDryRun: true });
+  const remoteScript = buildRemoteDeployScript(config, mode);
+  runStep('ssh', [sshTarget, 'bash', '-lc', shellSingleQuote(remoteScript)]);
 }
 
 async function requestWithRetry(url, options = {}) {
@@ -184,13 +246,13 @@ async function requestWithRetry(url, options = {}) {
 async function verifyProduction(config) {
   const healthUrl = `${config.backendUrl}/health`;
 
-  console.log(`\n> HEAD ${healthUrl}`);
-  const healthResponse = await requestWithRetry(healthUrl, { method: 'HEAD' });
+  console.log(`\n> GET ${healthUrl}`);
+  const healthResponse = await requestWithRetry(healthUrl, { method: 'GET' });
   console.log(`Health OK: HTTP ${healthResponse.status}`);
 
-  console.log(`\n> HEAD ${healthUrl} with Origin ${config.frontendUrl}`);
+  console.log(`\n> GET ${healthUrl} with Origin ${config.frontendUrl}`);
   const corsResponse = await requestWithRetry(healthUrl, {
-    method: 'HEAD',
+    method: 'GET',
     headers: {
       Origin: config.frontendUrl,
     },
@@ -206,29 +268,36 @@ async function verifyProduction(config) {
 }
 
 async function main() {
+  const mode = parseMode();
   const env = loadOperationsEnv();
   const config = ensureRequiredEnv(env);
 
-  logStage('Local Preflight');
+  logStage(`Local Preflight (${mode})`);
+  console.log('Banco esperado: hbx-postgres/hbx_prod');
+  console.log(`Backend URL: ${config.backendUrl}`);
+  console.log(`Frontend URL: ${config.frontendUrl}`);
   runStep('git', ['rev-parse', '--is-inside-work-tree']);
   ensureMasterBranch();
-  ensureCleanWorkingTree();
+  ensureCleanWorkingTree(mode);
   const changedFilesAheadOfRemote = listChangedFilesAheadOfRemote();
   runStep('npm', ['--prefix', 'backend', 'run', 'prisma:generate']);
   runStep('npm', ['--prefix', 'backend', 'run', 'prisma:validate']);
+  runStep('npm', ['--prefix', 'backend', 'run', 'build']);
   runStep('npm', ['--prefix', 'frontend', 'run', 'build']);
 
-  logStage('Git Push');
-  runStep('git', ['push', remote, branch], { skipInDryRun: true });
-
-  logStage('Hostinger Deploy');
-  deployOnHostinger(config);
-
-  logStage('Production Verify');
-  if (isDryRun) {
-    console.log('[dry-run] skipped');
+  if (mode === 'dry-run') {
+    logStage('Dry Run Plan');
+    printDryRun(config, 'normal');
     return;
   }
+
+  logStage('Git Push');
+  runStep('git', ['push', remote, branch]);
+
+  logStage(`Hostinger Deploy (${mode})`);
+  deployOnHostinger(config, mode);
+
+  logStage('Production Verify');
   await verifyProduction(config);
   printFrontendDeployNotice(config, changedFilesAheadOfRemote);
 

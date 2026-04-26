@@ -2184,6 +2184,10 @@ export default function InboxClientPage() {
     () => String(searchParams?.get("returnTo") || "").trim(),
     [searchParams],
   );
+  const requestedConversationId = useMemo(
+    () => normalizeInboxConversationId(searchParams?.get("conversationId") || searchParams?.get("selectedConversationId")),
+    [searchParams],
+  );
   const [mounted, setMounted] = useState(false);
   const [activeTab, setActiveTab] = useState<InboxTab>(requestedTab);
   const [inboxQueue, setInboxQueue] = useState<InboxQueue>("all");
@@ -3040,6 +3044,13 @@ export default function InboxClientPage() {
     },
     [loadConversation],
   );
+
+  useEffect(() => {
+    if (hasToken !== true || !requestedConversationId) return;
+    setActiveTab("messages");
+    void loadConversations({ preferredId: requestedConversationId, silent: true });
+    void loadConversation(requestedConversationId, { silent: true });
+  }, [hasToken, loadConversation, loadConversations, requestedConversationId]);
 
   const loadCustomerConversationCard = useCallback(async (conversationId: string | null | undefined) => {
     const normalizedId = normalizeInboxConversationId(conversationId);

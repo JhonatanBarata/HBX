@@ -1,3 +1,5 @@
+version: "3.8"
+
 services:
   backend:
     container_name: hbx-backend
@@ -25,4 +27,5 @@ services:
 
 networks:
   hbx_net:
-    external: true
+    external:
+      name: ${HBX_DOCKER_NETWORK:-hbx_net}

@@ -1,141 +1,124 @@
 # Deploy Hostinger
 
-Este é o fluxo principal de produção do HBX desde a migração do backend para a VPS Hostinger.
+Fluxo oficial de producao do HBX para backend e webscraping na VPS Hostinger.
 
 ## Arquitetura atual
 
 - Frontend: Vercel em `https://www.hbxsystem.com.br`
-- Backend: VPS Hostinger em `https://api.hbxsystem.com.br`
-- Banco: Supabase remoto
-- DNS: Cloudflare com A record `api` apontando para o IP da VPS Hostinger
-- Proxy: Nginx na VPS encaminhando `api.hbxsystem.com.br` para o NestJS em `127.0.0.1:3000`
-- HTTPS: Certbot habilitado para `api.hbxsystem.com.br`
-- Container: Docker rodando o backend no container `hbx-backend`
+- Backend: Hostinger em `https://api.hbxsystem.com.br`
+- Webscraping: Hostinger, via `docker-compose.hostinger.yml`
+- Banco: Postgres local da VPS no container `hbx-postgres`, banco `hbx_prod`
+- Rede Docker: externa, `hbx_net` ou `hbx-net`
+- Compose da VPS: `/usr/bin/docker-compose 1.29.2`
 
-## Domínios oficiais
+O frontend nao e publicado pela Hostinger. Mudancas em `frontend/` dependem do deploy da Vercel.
 
-- API: `https://api.hbxsystem.com.br`
-- Frontend: `https://www.hbxsystem.com.br`
+## Comandos oficiais
 
-## Variáveis e segurança
+```powershell
+npm run commit -- "feat: minha mensagem"
+npm run publish
+npm run publish:d
+npm run publish:f
+```
 
-Use `.env.hostinger.example` como referência para o ambiente da VPS e `.env.production.example` como referência para comandos operacionais locais.
+Atalhos equivalentes:
 
-Arquivos locais com valores reais nunca devem ser commitados:
+```powershell
+npm run publish -- d
+npm run publish -- f
+```
 
+## `npm run commit`
+
+Cria apenas um backup local no git:
+
+- roda `git status` antes e depois;
+- roda `git add -A`;
+- aceita mensagem por argumento;
+- gera mensagem com timestamp se nenhuma mensagem for enviada;
+- nao faz push;
+- nao faz deploy;
+- bloqueia `.env` reais, backups, dumps, bancos locais e arquivos sensiveis conhecidos.
+
+## `npm run publish`
+
+Fluxo normal de producao:
+
+- exige branch `master`;
+- exige working tree limpa;
+- roda validacoes/builds locais;
+- faz `git push origin master` sem force;
+- acessa a Hostinger por SSH;
+- roda `git fetch origin master` e `git reset --hard origin/master`;
+- valida que `backend/.env` existe na VPS;
+- bloqueia deploy se `DATABASE_URL`, `DIRECT_URL`, `PROD_DATABASE_URL` ou `PROD_DIRECT_URL` apontarem para `supabase.com`;
+- valida `hbx-postgres` e `hbx_prod`;
+- valida que o container `hbx-postgres` esta running;
+- sobe apenas `backend` e `webscraping`;
+- verifica `https://api.hbxsystem.com.br/health`.
+
+Durante o deploy o script mostra:
+
+- Banco esperado: `hbx-postgres/hbx_prod`
+- Backend URL
+- Frontend URL
+- Containers ativos
+
+## `npm run publish:d`
+
+Dry-run completo:
+
+- imprime o que faria;
+- roda validacoes/builds locais;
+- nao faz `git push`;
+- nao executa SSH remoto;
+- nao derruba containers;
+- nao recria containers.
+
+## `npm run publish:f`
+
+Modo force:
+
+- faz tudo do publish normal;
+- roda `docker-compose down --remove-orphans`;
+- tenta `docker-compose build --no-cache backend webscraping`;
+- roda `docker-compose up -d --build backend webscraping`;
+- reinicia `hbx-backend` e `webscraping`;
+- roda `docker image prune -f`;
+- tenta `docker builder prune -f`;
+- nao remove volumes;
+- nao remove `hbx-postgres`;
+- nao remove `hbx-postgres-data`;
+- nao usa `docker system prune --volumes`;
+- so reinicia a VPS se `FORCE_REBOOT_HOSTINGER=true` estiver definido no env operacional local.
+
+## Variaveis reais
+
+O `.env` real do backend fica somente no servidor:
+
+```text
+backend/.env
+```
+
+Ele deve apontar para o Postgres local do Docker:
+
+```env
+DATABASE_URL=postgresql://hbx_user:...@hbx-postgres:5432/hbx_prod?schema=public&connection_limit=10&pool_timeout=60
+DIRECT_URL=postgresql://hbx_user:...@hbx-postgres:5432/hbx_prod?schema=public
+```
+
+Arquivos reais que nunca devem ir para o git:
+
+- `.env`
+- `.env.local`
 - `.env.production.local`
 - `.env.ops.local`
 - `.env.operations.local`
 - `backend/.env`
-- `backend/.env.local`
+- backups
+- dumps
+- `postgres-data`
+- senhas, tokens e chaves reais
 
-A `DATABASE_URL` de produção deve manter o pool saudável para Supabase:
-
-```env
-?sslmode=require&connection_limit=10&pool_timeout=60
-```
-
-Não commitar `.env` reais, senhas, tokens, backups, `postgres-data`, dumps ou arquivos locais.
-
-## Fluxo pós-commit
-
-Fluxo correto:
-
-```text
-local -> git push -> VPS -> git pull/reset -> docker-compose rebuild
-```
-
-Depois de commitar no `master`, o deploy automatizado local deve ser feito com o comando padrão:
-
-```powershell
-npm run publish
-```
-
-Esse script roda preflight local, faz `git push origin master`, entra na VPS via SSH, atualiza o diretório da aplicação e reconstrói o Docker.
-
-Importante: esse fluxo não publica o frontend da Vercel. Quando o commit contém mudanças em `frontend/`, o `npm run publish` só garante que backend/webscraping foram para Hostinger; o site `https://www.hbxsystem.com.br` pode continuar servindo o bundle anterior até a Vercel concluir o rollout dela.
-
-`npm run deploy:hostinger` existe como alias explícito para o mesmo fluxo.
-
-## Deploy manual na VPS
-
-Na VPS atual o comando disponível é `docker-compose`, não `docker compose`.
-
-```bash
-cd /caminho/do/app
-git pull
-docker-compose down
-docker-compose up -d --build
-docker ps
-```
-
-Se a VPS futura tiver o plugin novo, `docker compose` também pode ser usado. Para a VPS atual, mantenha `docker-compose`.
-
-## Testes de produção
-
-Teste health direto:
-
-```bash
-curl -I https://api.hbxsystem.com.br/health
-```
-
-Teste CORS a partir do frontend oficial:
-
-```bash
-curl -I -H "Origin: https://www.hbxsystem.com.br" https://api.hbxsystem.com.br/health
-```
-
-Também valide o frontend em:
-
-```text
-https://www.hbxsystem.com.br
-```
-
-Se a mudança foi de frontend/chat, não conclua a validação só porque o publish Hostinger terminou. Confirme primeiro que a Vercel já está servindo o bundle novo.
-
-## Troca futura de VPS
-
-Para trocar de VPS sem mudar os domínios públicos:
-
-1. Subir a nova VPS com Docker, Nginx e Certbot.
-2. Restaurar o backup necessário do app/configuração e confirmar `.env` real fora do git.
-3. Rodar o backend em `127.0.0.1:3000`.
-4. Apontar o A record `api` no Cloudflare para o novo IP.
-5. Reemitir ou validar o certificado HTTPS do `api.hbxsystem.com.br`.
-6. Rodar os testes de health e CORS.
-
-O frontend não precisa trocar a URL se `https://api.hbxsystem.com.br` continuar como domínio oficial.
-
-## Checklist antes de remover o provedor antigo
-
-- Confirmar que `https://api.hbxsystem.com.br/health` responde pela VPS Hostinger.
-- Confirmar CORS com `Origin: https://www.hbxsystem.com.br`.
-- Confirmar que o Cloudflare aponta `api` para o IP da VPS Hostinger.
-- Confirmar que Nginx faz proxy para `127.0.0.1:3000`.
-- Confirmar que Certbot/HTTPS está válido para `api.hbxsystem.com.br`.
-- Confirmar que o container `hbx-backend` está rodando.
-- Confirmar que o frontend Vercel usa `NEXT_PUBLIC_API_URL=https://api.hbxsystem.com.br`.
-- Confirmar que o banco usado é o Supabase remoto correto.
-- Confirmar que `DATABASE_URL` usa `connection_limit=10` e `pool_timeout=60`.
-- Confirmar que não há webhooks ou integrações externas apontando para domínio antigo.
-- Confirmar backup recente antes de remover qualquer serviço antigo.
-
-## Checklist antes de refund/troca de VPS
-
-- Criar backup do banco/Supabase ou confirmar restore point.
-- Salvar inventário de variáveis reais fora do git.
-- Exportar ou documentar configuração Nginx do `api.hbxsystem.com.br`.
-- Confirmar que Certbot pode ser refeito na nova VPS.
-- Confirmar que o repositório está atualizado no remoto.
-- Confirmar que `docker-compose.yml` e Dockerfile constroem o backend.
-- Confirmar que backups, dumps e dados locais não foram commitados.
-- Testar restauração em nova VPS antes de desligar a antiga, quando possível.
-
-## Comando oficial
-
-```powershell
-npm run commit
-npm run publish
-```
-
-`npm run commit` continua criando o commit no `master`. `npm run publish` agora publica no Hostinger.
+Use `.env.production.example` para variaveis operacionais locais e `.env.hostinger.example` como referencia do `backend/.env` da VPS.

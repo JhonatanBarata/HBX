@@ -29,6 +29,7 @@ type LeadStatus = "novo" | "contato" | "retorno" | "qualificado" | "encerrado";
 type LeadBlockKey = "today" | "overdue" | "scheduled" | "closed";
 type DateFilterKey = "overdue" | "today" | `scheduled:${string}`;
 type WhatsappFilter = "all" | "with" | "without";
+type InboxFilter = "all" | "in" | "out";
 type LeadTimelineEventType =
   | "lead_created"
   | "origin_registered"
@@ -61,7 +62,7 @@ type SharedProfileSummary = {
   currentContext?: "vendas" | "atendimento" | "recovery" | "neutro" | string | null;
   presence?: {
     vendas?: { present?: boolean; status?: string | null };
-    atendimento?: { present?: boolean; lastContactAt?: string | null };
+    atendimento?: { present?: boolean; customerId?: string | null; conversationId?: string | number | null; lastContactAt?: string | null };
     recovery?: { present?: boolean; status?: string | null; openAmount?: number | null };
   };
 };
@@ -100,6 +101,9 @@ type LeadItem = {
     checkedAt?: string | null;
     message?: string | null;
   } | null;
+  isInInbox?: boolean;
+  inboxConversationId?: string | number | null;
+  atendimentoConversationId?: string | number | null;
   sharedProfile?: SharedProfileSummary | null;
   timeline?: LeadTimelineEvent[];
   quickActions: string[];
@@ -114,6 +118,8 @@ type TodayAgendaSyncResponse = {
   ok?: boolean;
   todayLeadCount?: number;
   mirroredLeadCount?: number;
+  conversationIds?: Array<string | number>;
+  leadConversationIds?: Record<string, string | number>;
   activated?: number;
   updated?: number;
   deactivated?: number;
@@ -150,6 +156,7 @@ type LeadCardView = {
   saving: boolean;
   onFocus: () => void;
   onQuickAction: (action: string) => void;
+  onInboxAction: (lead: LeadItem) => void;
   onEdit?: (id: string | null) => void;
   onDraftChange?: (leadId: string, patch: Partial<LeadDraft>) => void;
   onSave?: (leadId: string) => void;
@@ -184,6 +191,12 @@ const WHATSAPP_FILTER_LABELS: Record<WhatsappFilter, string> = {
   all: "Whatsapp",
   with: "Com WhatsApp",
   without: "Sem WhatsApp",
+};
+
+const INBOX_FILTER_LABELS: Record<InboxFilter, string> = {
+  all: "Inbox: Todos",
+  in: "Inbox: No Inbox",
+  out: "Inbox: Fora do Inbox",
 };
 
 function formatDateTime(value?: string | null) {
@@ -244,6 +257,36 @@ function matchesWhatsappFilter(lead: LeadItem, filter: WhatsappFilter) {
   if (filter === "with") return status === "available";
   if (filter === "without") return status === "unavailable";
   return true;
+}
+
+function isLeadInInbox(lead: LeadItem) {
+  return Boolean(
+    lead.isInInbox ||
+      lead.inboxConversationId ||
+      lead.atendimentoConversationId ||
+      lead.sharedProfile?.presence?.atendimento?.present,
+  );
+}
+
+function getLeadInboxConversationId(lead: LeadItem) {
+  return String(
+    lead.inboxConversationId ||
+      lead.atendimentoConversationId ||
+      lead.sharedProfile?.presence?.atendimento?.conversationId ||
+      "",
+  ).trim();
+}
+
+function matchesInboxFilter(lead: LeadItem, filter: InboxFilter) {
+  if (filter === "in") return isLeadInInbox(lead);
+  if (filter === "out") return !isLeadInInbox(lead);
+  return true;
+}
+
+function nextInboxFilter(current: InboxFilter): InboxFilter {
+  if (current === "all") return "in";
+  if (current === "in") return "out";
+  return "all";
 }
 
 function nextWhatsappFilter(current: WhatsappFilter): WhatsappFilter {
@@ -420,7 +463,7 @@ function DateDropSlot({
   pulse,
   dragging,
   ignoreClick,
-  onTodayShortcut,
+  onDateShortcut,
   onSelect,
   register,
 }: {
@@ -429,7 +472,7 @@ function DateDropSlot({
   pulse: boolean;
   dragging: boolean;
   ignoreClick: () => boolean;
-  onTodayShortcut: () => void;
+  onDateShortcut: () => void;
   onSelect: () => void;
   register: (node: HTMLElement | null) => void;
 }) {
@@ -494,17 +537,17 @@ function DateDropSlot({
       <strong>{item.title}</strong>
       {showSubtitle ? <span>{item.subtitle}</span> : null}
 
-      {item.blockKey === "today" ? (
+      {active ? (
         <button
           type="button"
           className={styles.atendimentoShortcut}
           onClick={(e) => {
             e.stopPropagation();
             e.preventDefault();
-            onTodayShortcut();
+            onDateShortcut();
           }}
-          title="Enviar cards de hoje para Atendimento / Agendamento"
-          aria-label="Enviar cards de hoje para Atendimento / Agendamento"
+          title="Enviar cards visíveis desta data para Atendimento"
+          aria-label="Enviar cards visíveis desta data para Atendimento"
         >
           <svg width="10" height="10" viewBox="0 0 24 24" fill="none" aria-hidden="true">
             <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
@@ -555,7 +598,7 @@ function AnimatedCount({ value }: { value: number }) {
   return <b data-rolling={rolling ? "true" : "false"}>{displayed}</b>;
 }
 
-function LeadCardView({ lead, draft, blockKey, selected, saving, onFocus, onQuickAction, onEdit, onDraftChange, onSave, editing }: LeadCardView) {
+function LeadCardView({ lead, draft, blockKey, selected, saving, onFocus, onQuickAction, onInboxAction, onEdit, onDraftChange, onSave, editing }: LeadCardView) {
   const meta = returnMeta(lead, draft, blockKey);
   const signals = lead.signals || {
     alreadyExisted: Boolean((lead.timesSeen || 0) > 1),
@@ -576,6 +619,7 @@ function LeadCardView({ lead, draft, blockKey, selected, saving, onFocus, onQuic
   const whatsappBlocked = lead.whatsappAvailability?.status === "unavailable";
   const whatsappUrl = whatsappBlocked ? "" : buildWhatsAppUrl(draft.phone || lead.phone, draft.name || lead.name);
   const leadSource = lead.primarySource || lead.sourceType;
+  const inInbox = isLeadInInbox(lead);
 
   // inline editor mount/animation control — uses global motion timings
   const editorRef = useRef<HTMLDivElement | null>(null);
@@ -689,7 +733,19 @@ function LeadCardView({ lead, draft, blockKey, selected, saving, onFocus, onQuic
             </div>
             <div className={glassCardStyles.headerAside}>
               <button type="button" className={`${glassCardStyles.actionButton} ${glassCardStyles.noBreak}`} onClick={() => onEdit?.(lead.id)} aria-label="Editar">Editar</button>
-              <span className={`${styles.statusBadge} ${glassCardStyles.pill} ${glassCardStyles.noBreak}`} data-status={draft.status}>{statusLabel(draft.status)}</span>
+              <button
+                type="button"
+                className={`${styles.inboxLeadButton} ${glassCardStyles.actionButton} ${glassCardStyles.noBreak}`}
+                data-state={inInbox ? "in" : "out"}
+                onPointerDown={(event) => event.stopPropagation()}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onInboxAction(lead);
+                }}
+                disabled={saving || blockKey === "closed"}
+              >
+                {inInbox ? "Inbox" : "Importar"}
+              </button>
             </div>
           </div>
           <div className={glassCardStyles.cluster}>
@@ -787,6 +843,7 @@ function DraggableLeadCard({
   hidden,
   onFocus,
   onQuickAction,
+  onInboxAction,
   onEdit,
   onDraftChange,
   onSave,
@@ -826,6 +883,7 @@ function DraggableLeadCard({
         saving={saving}
         onFocus={onFocus}
         onQuickAction={onQuickAction}
+        onInboxAction={onInboxAction}
         onEdit={onEdit}
         onDraftChange={onDraftChange}
         onSave={onSave}
@@ -850,6 +908,7 @@ export default function VendasClientPage() {
   const [commandOpen, setCommandOpen] = useState(false);
   const [commandQuery, setCommandQuery] = useState("");
   const [whatsappFilter, setWhatsappFilter] = useState<WhatsappFilter>("all");
+  const [inboxFilter, setInboxFilter] = useState<InboxFilter>("all");
   const [selectedDateKey, setSelectedDateKey] = useState<DateFilterKey>("today");
   const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null);
   const [editingLeadId, setEditingLeadId] = useState<string | null>(null);
@@ -872,7 +931,6 @@ export default function VendasClientPage() {
   const archiveRef = useRef<HTMLElement | null>(null);
   const lastDragEndedAtRef = useRef(0);
   const filterScrollerRef = useRef<HTMLDivElement | null>(null);
-  const initialAgendaSyncRef = useRef(false);
   const [visibleDateCount, setVisibleDateCount] = useState<number>(Infinity);
   const [scrollerReady, setScrollerReady] = useState(false);
   const todayAgendaLaunchNotice = useQuickLaunchNotice();
@@ -916,46 +974,36 @@ export default function VendasClientPage() {
     }
   }
 
-  const syncTodayAgendaToInbox = useCallback(async () => {
-    try {
-      await apiFetch("/vendas/agenda/whatsapp/sync-today", { method: "POST" });
-    } catch {
-      // Best effort only. The per-lead sync still runs on create/update/import.
-    }
-  }, []);
-
-  const openInboxAgenda = useCallback(() => {
+  const openInboxAgenda = useCallback((conversationId?: string | number | null) => {
     todayAgendaLaunchNotice.clear();
-    router.push("/dashboard/inbox?atendimentoQueue=scheduled&atendimentoSection=agenda");
+    const params = new URLSearchParams({
+      atendimentoQueue: "scheduled",
+      atendimentoSection: "conversa",
+    });
+    if (conversationId) params.set("conversationId", String(conversationId));
+    router.push(`/dashboard/inbox?${params.toString()}`);
   }, [router, todayAgendaLaunchNotice]);
 
-  const handleTodayShortcut = useCallback(async () => {
-    const filteredTodayLeadIds =
-      whatsappFilter === "all"
-        ? []
-        : (board?.blocks.today || [])
-            .filter((lead) => matchesWhatsappFilter(lead, whatsappFilter))
-            .map((lead) => lead.id);
-    const syncBody =
-      whatsappFilter === "all"
-        ? undefined
-        : JSON.stringify({
-            leadIds: filteredTodayLeadIds,
-          });
+  const syncLeadsToInbox = useCallback(async (leads: LeadItem[], options?: { openAfter?: boolean; title?: string; description?: string }) => {
+    const visibleLeadIds = leads.map((lead) => lead.id).filter(Boolean);
+    if (!visibleLeadIds.length) {
+      setFeedback("Nenhum card visível para importar ao Inbox.");
+      return null;
+    }
 
     todayAgendaLaunchNotice.start({
-      loadingTitle: "Abrindo Agendamento",
-      loadingDescription: "Enviando os cards de hoje para o chat e preparando a fila de agenda.",
-      successTitle: "Agendamento pronto",
-      successDescription: "Tudo certo. O chat de agendamento sera aberto agora.",
-      ctaLabel: "Abrir Chat de Agendamento!",
-      onOpen: openInboxAgenda,
+      loadingTitle: options?.title || "Abrindo Atendimento",
+      loadingDescription: options?.description || "Enviando os cards visíveis para o Inbox.",
+      successTitle: "Inbox pronto",
+      successDescription: "Tudo certo. Os cards foram preparados no Atendimento.",
+      ctaLabel: "Abrir Inbox",
+      onOpen: () => openInboxAgenda(),
     });
 
     try {
       const syncResult = await apiFetch<TodayAgendaSyncResponse>("/vendas/agenda/whatsapp/sync-today", {
         method: "POST",
-        body: syncBody,
+        body: JSON.stringify({ leadIds: visibleLeadIds }),
       });
       const todayLeadCount = Number(syncResult?.todayLeadCount || 0);
       const mirroredLeadCount = Number(syncResult?.mirroredLeadCount || 0);
@@ -970,13 +1018,21 @@ export default function VendasClientPage() {
           String(syncResult?.message || "").trim() ||
           (todayLeadCount
             ? `${mirroredLeadCount} card(s) foram preparados no Atendimento com roteiro pendente para envio manual.`
-            : "Nao ha cards de hoje para preparar no Atendimento."),
+            : "Nao ha cards visíveis para preparar no Atendimento."),
       });
+      await loadBoard();
+      const firstConversationId =
+        syncResult?.conversationIds?.[0] ||
+        (syncResult?.leadConversationIds ? syncResult.leadConversationIds[visibleLeadIds[0]] : null) ||
+        null;
+      if (options?.openAfter) openInboxAgenda(firstConversationId);
+      return syncResult;
     } catch (syncError) {
       todayAgendaLaunchNotice.clear();
-      setError(syncError instanceof Error ? syncError.message : "Falha ao abrir o chat de agendamento.");
+      setError(syncError instanceof Error ? syncError.message : "Falha ao importar cards para o Inbox.");
+      return null;
     }
-  }, [board?.blocks.today, openInboxAgenda, todayAgendaLaunchNotice, whatsappFilter]);
+  }, [openInboxAgenda, todayAgendaLaunchNotice]);
 
   useEffect(() => {
     if (hasToken !== true) return;
@@ -990,12 +1046,6 @@ export default function VendasClientPage() {
     if (mode !== "sales") return;
     router.replace("/dashboard/inbox?atendimentoQueue=scheduled&atendimentoSection=agenda&agendaStudio=1&agendaMode=sales&returnTo=%2Fdashboard%2Fvendas");
   }, [hasToken, router, searchParams]);
-
-  useEffect(() => {
-    if (hasToken !== true || initialAgendaSyncRef.current) return;
-    initialAgendaSyncRef.current = true;
-    void syncTodayAgendaToInbox();
-  }, [hasToken, syncTodayAgendaToInbox]);
 
   useEffect(() => {
     if (!feedback) return;
@@ -1145,8 +1195,16 @@ export default function VendasClientPage() {
         : selectedFilter.key === "today"
           ? board.blocks.today || []
           : (board.blocks.scheduled || []).filter((lead) => buildLocalDateKey(lead.returnAt || lead.updatedAt) === selectedFilter.isoDate);
-    return scopedLeads.filter((lead) => matchesWhatsappFilter(lead, whatsappFilter));
-  }, [board, selectedFilter, whatsappFilter]);
+    return scopedLeads.filter((lead) => matchesWhatsappFilter(lead, whatsappFilter) && matchesInboxFilter(lead, inboxFilter));
+  }, [board, selectedFilter, whatsappFilter, inboxFilter]);
+
+  const handleActiveDateShortcut = useCallback(async () => {
+    if (!selectedFilter) return;
+    await syncLeadsToInbox(filteredLeads, {
+      title: "Abrindo Atendimento",
+      description: `Enviando os cards visíveis de ${selectedFilter.title} para o Inbox.`,
+    });
+  }, [filteredLeads, selectedFilter, syncLeadsToInbox]);
 
   useEffect(() => {
     setSelectedLeadId((current) => {
@@ -1352,6 +1410,22 @@ export default function VendasClientPage() {
     }
     if (action === "reabrir") {
       await saveLead(lead.id, { status: "retorno", nextAction: currentDraft.nextAction || "Retomar lead", returnAt: plusDaysDatetimeLocal(1) });
+    }
+  }
+
+  async function handleLeadInboxAction(lead: LeadItem) {
+    if (isLeadInInbox(lead)) {
+      openInboxAgenda(getLeadInboxConversationId(lead) || null);
+      return;
+    }
+    setSavingLeadId(lead.id);
+    try {
+      await syncLeadsToInbox([lead], {
+        title: "Importando para Inbox",
+        description: "Preparando este card no Atendimento interno.",
+      });
+    } finally {
+      setSavingLeadId(null);
     }
   }
 
@@ -1643,6 +1717,7 @@ export default function VendasClientPage() {
       saving: savingLeadId === lead.id,
       onFocus: () => focusLead(lead.id),
       onQuickAction: (action: string) => void runQuickAction(lead, action),
+      onInboxAction: (targetLead: LeadItem) => void handleLeadInboxAction(targetLead),
       onEdit: (id: string | null) => {
         setEditingLeadId((cur) => (cur === id ? null : id));
         if (id) focusLead(id);
@@ -1749,6 +1824,16 @@ export default function VendasClientPage() {
             >
               {WHATSAPP_FILTER_LABELS[whatsappFilter]}
             </button>
+            <button
+              type="button"
+              className={`${styles.secondaryAction} ${styles.toolbarHighlight} ${styles.inboxFilterButton}`}
+              data-active={inboxFilter !== "all" ? "true" : "false"}
+              onClick={() => setInboxFilter((current) => nextInboxFilter(current))}
+              aria-pressed={inboxFilter !== "all"}
+              title="Alternar filtro de presença no Inbox"
+            >
+              {INBOX_FILTER_LABELS[inboxFilter]}
+            </button>
             <button type="button" className={styles.secondaryAction} onClick={() => setShowClosed((current) => !current)}>
               {showClosed ? "Ocultar arquivo" : `Arquivo (${closedLeads.length})`}
             </button>
@@ -1837,7 +1922,7 @@ export default function VendasClientPage() {
                     pulse={pulseDateKey === item.key}
                     dragging={Boolean(activeDragLeadId || activeDragDateKey)}
                     ignoreClick={() => performance.now() - lastDragEndedAtRef.current < 70}
-                    onTodayShortcut={() => void handleTodayShortcut()}
+                    onDateShortcut={() => void handleActiveDateShortcut()}
                     onSelect={() => setSelectedDateKey(item.key)}
                     register={(node) => registerDateFilterRef(item.key, node)}
                   />
@@ -1892,6 +1977,7 @@ export default function VendasClientPage() {
                 saving={savingLeadId === activeDragLead.id}
                 onFocus={() => focusLead(activeDragLead.id)}
                 onQuickAction={(action) => void runQuickAction(activeDragLead, action)}
+                onInboxAction={(targetLead) => void handleLeadInboxAction(targetLead)}
               />
             </div>
           ) : activeDragDateItem ? (
@@ -1917,6 +2003,7 @@ export default function VendasClientPage() {
               saving={false}
               onFocus={() => {}}
               onQuickAction={() => {}}
+              onInboxAction={() => {}}
             />
           </div>
         ) : null}
