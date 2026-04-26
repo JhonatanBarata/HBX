@@ -57,8 +57,8 @@ export class VendasController {
   }
 
   @Post('agenda/whatsapp/sync-today')
-  syncTodayAgenda(@Req() req: any) {
-    return this.vendasService.syncTodayAgendaForUser(req.user);
+  syncTodayAgenda(@Req() req: any, @Body() body?: { leadIds?: string[] }) {
+    return this.vendasService.syncTodayAgendaForUser(req.user, body || undefined);
   }
 
   @Post('lead/:leadId/attempt')

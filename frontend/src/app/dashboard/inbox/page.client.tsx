@@ -2171,6 +2171,10 @@ export default function InboxClientPage() {
     () => normalizeAtendimentoSectionParam(searchParams?.get("atendimentoSection")),
     [searchParams],
   );
+  const requestedAgendaStudioOpen = useMemo(
+    () => searchParams?.get("agendaStudio") === "1",
+    [searchParams],
+  );
   const [mounted, setMounted] = useState(false);
   const [activeTab, setActiveTab] = useState<InboxTab>(requestedTab);
   const [inboxQueue, setInboxQueue] = useState<InboxQueue>("all");
@@ -2434,7 +2438,7 @@ export default function InboxClientPage() {
     setAutomationStudioOpen(false);
     setTemplatesStudioOpen(false);
     if (requestedSection === "agenda") {
-      setAgendaStudioOpen(false);
+      setAgendaStudioOpen(requestedAgendaStudioOpen);
       setContextTab("agenda");
       return;
     }
@@ -2445,7 +2449,7 @@ export default function InboxClientPage() {
     }
     setAgendaStudioOpen(false);
     setContextTab(requestedSection);
-  }, [requestedQueue, requestedSection]);
+  }, [requestedAgendaStudioOpen, requestedQueue, requestedSection]);
 
   useEffect(() => {
     setMounted(true);

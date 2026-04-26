@@ -327,6 +327,8 @@
   overflow-x: auto;
   /* create a bit more top breathing room so elevated/active cards don't get visually clipped */
   padding-top: 0.56rem;
+  padding-left: 0.14rem;
+  padding-right: 0.14rem;
   padding-bottom: 0.18rem;
   flex-wrap: nowrap;
   scrollbar-width: none;
@@ -368,8 +370,8 @@
 
 .dateFilterCard {
   flex-shrink: 0;
-  width: 111px;
-  min-width: 111px;
+  width: 120px;
+  min-width: 120px;
   display: grid;
   grid-template-rows: auto auto 1fr auto;
   gap: 0.18rem;
@@ -443,9 +445,9 @@
   font-weight: 900;
   line-height: 1.12;
   letter-spacing: 0;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
 }
 
 .dateFilterCard span {
@@ -727,6 +729,14 @@
   pointer-events: none;
 }
 
+.whatsappFilterButton[data-active="true"] {
+  border-color: color-mix(in srgb, #25d366 34%, var(--line));
+  background:
+    radial-gradient(circle at top left, color-mix(in srgb, #25d366 16%, transparent), transparent 44%),
+    color-mix(in srgb, var(--surface) 88%, var(--background));
+  color: color-mix(in srgb, #128c7e 82%, var(--foreground));
+}
+
 .whatsappUnavailable {
   background:
     radial-gradient(circle at top left, rgba(255, 255, 255, 0.26), transparent 38%),
@@ -810,6 +820,20 @@
 .leadCard[data-selected="true"] {
   border-color: color-mix(in srgb, var(--glass-border-strong, var(--brand)) 72%, var(--line));
   box-shadow: 0 22px 38px -28px color-mix(in srgb, var(--liquid-accent, var(--brand)) 22%, transparent);
+}
+
+.leadCard[data-whatsapp="available"] {
+  border-color: color-mix(in srgb, #25d366 34%, var(--line));
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--surface) 98%, white 2%), color-mix(in srgb, var(--surface-soft) 94%, var(--background))),
+    radial-gradient(circle at 18% 0%, color-mix(in srgb, #25d366 12%, transparent), transparent 42%);
+}
+
+.leadCard[data-whatsapp="unavailable"] {
+  border-color: color-mix(in srgb, var(--danger) 34%, var(--line));
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--surface) 98%, white 2%), color-mix(in srgb, var(--surface-soft) 94%, var(--background))),
+    radial-gradient(circle at 18% 0%, color-mix(in srgb, var(--danger) 12%, transparent), transparent 42%);
 }
 
 .dragOverlayCard {
@@ -1392,6 +1416,128 @@
   gap: 0.9rem;
 }
 
+.systemPopupOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: grid;
+  padding: 1rem;
+  background: rgba(2, 6, 20, 0.72);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--motion-base);
+}
+
+.systemPopupOverlayActive {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.systemPopupFrame {
+  min-height: min(680px, calc(100vh - 2rem));
+  align-self: center;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  border-radius: 28px;
+  overflow: hidden;
+  border: 1px solid rgba(100, 123, 195, 0.22);
+  background: linear-gradient(180deg, rgba(8, 13, 29, 0.98), rgba(10, 16, 34, 0.96));
+  box-shadow: 0 28px 68px rgba(2, 6, 23, 0.56);
+  transform: translateY(0) scale(1);
+}
+
+.systemPopupChrome {
+  min-height: 74px;
+  display: flex;
+  justify-content: space-between;
+  gap: 0.8rem;
+  align-items: center;
+  flex-wrap: wrap;
+  padding: 0.7rem 0.76rem;
+  border-bottom: 1px solid rgba(100, 123, 195, 0.16);
+  background: rgba(10, 16, 34, 0.88);
+}
+
+.systemPopupChrome strong {
+  display: block;
+  color: #edf3ff;
+  font-size: 0.94rem;
+  line-height: 1.08;
+}
+
+.systemPopupEyebrow {
+  margin: 0 0 0.1rem;
+  font-size: 0.62rem;
+  font-weight: 900;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #edf3ff;
+}
+
+.systemPopupActions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  flex-wrap: wrap;
+}
+
+.systemPopupBody {
+  min-height: 0;
+  overflow: auto;
+  padding: 0.82rem;
+}
+
+.systemPopupBody .composerForm {
+  padding: 0.2rem;
+}
+
+.metaBadge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 30px;
+  padding: 0.34rem 0.76rem;
+  border-radius: 999px;
+  border: 1px solid rgba(100, 123, 195, 0.18);
+  background: rgba(17, 27, 54, 0.88);
+  color: #edf3ff;
+  font-size: 0.72rem;
+  font-weight: 900;
+}
+
+:global(html[data-theme-mode="light"]) .systemPopupOverlay {
+  background: rgba(238, 242, 249, 0.72);
+}
+
+:global(html[data-theme-mode="light"]) .systemPopupFrame {
+  border-color: color-mix(in srgb, var(--line) 88%, var(--background));
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--surface) 99%, var(--background)),
+      color-mix(in srgb, var(--surface-soft) 97%, var(--background))
+    );
+  box-shadow: 0 28px 68px rgba(15, 23, 42, 0.16);
+}
+
+:global(html[data-theme-mode="light"]) .systemPopupChrome {
+  border-bottom-color: color-mix(in srgb, var(--line) 88%, var(--background));
+  background: color-mix(in srgb, var(--surface-raised) 96%, var(--background));
+}
+
+:global(html[data-theme-mode="light"]) .systemPopupChrome strong,
+:global(html[data-theme-mode="light"]) .systemPopupEyebrow,
+:global(html[data-theme-mode="light"]) .metaBadge {
+  color: var(--foreground);
+}
+
+:global(html[data-theme-mode="light"]) .metaBadge {
+  border-color: color-mix(in srgb, var(--line) 88%, var(--background));
+  background: color-mix(in srgb, var(--surface-raised) 96%, var(--background));
+}
+
 .emptyPanel,
 .detailEmpty,
 .emptyBoard {
@@ -1537,7 +1683,20 @@
   }
 
   .dateFilterCard {
-    min-width: 118px;
+    min-width: 120px;
+  }
+
+  .systemPopupOverlay {
+    padding: 0.6rem;
+  }
+
+  .systemPopupFrame {
+    min-height: calc(100vh - 1.2rem);
+  }
+
+  .systemPopupActions {
+    width: 100%;
+    justify-content: flex-end;
   }
 
   .detailHero,
