@@ -28,6 +28,7 @@ import { IntegrationsModule } from './integrations/integrations.module';
 import { VendasModule } from './vendas/vendas.module';
 import { FinanceiroModule } from './financeiro/financeiro.module';
 import { getBackendPublicRoot } from './public-assets';
+import { AdminModule } from './admin/admin.module';
 
 @Module({
   imports: [
@@ -64,6 +65,7 @@ import { getBackendPublicRoot } from './public-assets';
     IntegrationsModule,
     VendasModule,
     FinanceiroModule,
+    AdminModule,
   ],
   controllers: [AppController],
   providers: [

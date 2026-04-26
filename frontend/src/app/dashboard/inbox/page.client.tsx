@@ -51,6 +51,12 @@ import {
   mapAtendimentoConversationToneToQueueTone,
 } from "@/components/workspace/adapters/atendimento";
 import { acquirePopupTopbarLock } from "@/lib/popup-visibility";
+import {
+  getProviderCapabilitiesFromWhatsAppCenter,
+  getProviderLabel,
+  type ProviderCapabilities,
+} from "@/lib/provider-capabilities";
+import type { WhatsAppCenterPayload } from "@/lib/whatsapp-center";
 import { apiFetch, getDashboardApiBaseUrl, getToken } from "../_lib/api";
 import { startSmartPolling } from "../_lib/polling";
 import { useRequireAuth } from "../_lib/useRequireAuth";
@@ -2268,6 +2274,7 @@ export default function InboxClientPage() {
   const [templateComposer, setTemplateComposer] = useState<TemplateComposer>(
     DEFAULT_TEMPLATE_COMPOSER,
   );
+  const [whatsappCenterPayload, setWhatsappCenterPayload] = useState<WhatsAppCenterPayload | null>(null);
   const [currentUserProfile, setCurrentUserProfile] = useState<CurrentUserProfile | null>(null);
   const [userModules, setUserModules] = useState<UserModule[]>([]);
   const [expandedAlerts, setExpandedAlerts] = useState<Record<InboxAlertKind | "system_notice", boolean>>({
@@ -3296,6 +3303,15 @@ export default function InboxClientPage() {
     }
   }, []);
 
+  const loadWhatsAppCenter = useCallback(async () => {
+    try {
+      const data = await apiFetch<WhatsAppCenterPayload>("/companies/me/whatsapp-center");
+      setWhatsappCenterPayload(data || null);
+    } catch {
+      setWhatsappCenterPayload(null);
+    }
+  }, []);
+
   useEffect(() => () => clearInboxBootstrapStageTimer(), [clearInboxBootstrapStageTimer]);
 
   useEffect(() => {
@@ -3418,8 +3434,8 @@ export default function InboxClientPage() {
 
   useEffect(() => {
     if (hasToken === false) return;
-    void Promise.all([loadCurrentUser(), loadUserModules()]);
-  }, [hasToken, loadCurrentUser, loadUserModules]);
+    void Promise.all([loadCurrentUser(), loadUserModules(), loadWhatsAppCenter()]);
+  }, [hasToken, loadCurrentUser, loadUserModules, loadWhatsAppCenter]);
 
   useEffect(() => {
     if (hasToken === false) return;
@@ -3673,10 +3689,19 @@ export default function InboxClientPage() {
     [pendingAtendimentoConversations],
   );
 
+  const hasRecoveryCapability = useMemo(
+    () =>
+      userModules.some(
+        (module) => module.accessible && module.key === "hbx_recovery",
+      ),
+    [userModules],
+  );
+
   const actionOptions = useMemo(() => {
     const options = new Map<string, ActionOption>();
 
     for (const action of botConfig.actionCatalog) {
+      if (!hasRecoveryCapability && action.route === "recovery") continue;
       options.set(action.actionId, {
         value: action.actionId,
         label: `${action.title} • ${ACTION_KIND_LABELS[action.kind] || action.kind}`,
@@ -3715,6 +3740,7 @@ export default function InboxClientPage() {
     botConfig.recoveryDetectedButtons,
     botConfig.returningCustomerButtons,
     botConfig.welcomeButtons,
+    hasRecoveryCapability,
   ]);
 
   const agendaOptions = useMemo(
@@ -3728,12 +3754,9 @@ export default function InboxClientPage() {
     return role === "ADMIN";
   }, [currentUserProfile?.isSystemMaster, currentUserProfile?.role]);
 
-  const hasRecoveryCapability = useMemo(
-    () =>
-      userModules.some(
-        (module) => module.accessible && (module.key === "atendimento" || module.key === "hbx_recovery"),
-      ),
-    [userModules],
+  const providerCapabilities = useMemo<ProviderCapabilities>(
+    () => getProviderCapabilitiesFromWhatsAppCenter(whatsappCenterPayload),
+    [whatsappCenterPayload],
   );
 
   const conversationForView = useMemo(
@@ -3849,6 +3872,11 @@ export default function InboxClientPage() {
           : "conversa";
 
   useEffect(() => {
+    if (hasRecoveryCapability || contextTab !== "financeiro") return;
+    setContextTab("conversa");
+  }, [contextTab, hasRecoveryCapability]);
+
+  useEffect(() => {
     if (typeof window === "undefined") return;
     if (!noteStorageKey) {
       setInternalNote("");
@@ -3952,6 +3980,14 @@ export default function InboxClientPage() {
   ]);
 
   const handleSectionChange = useCallback((nextSection: AtendimentoSection) => {
+    if (nextSection === "financeiro" && !hasRecoveryCapability) {
+      setNotice({
+        tone: "info",
+        text: "Recovery nao esta liberado no plano desta empresa.",
+      });
+      return;
+    }
+
     const now = Date.now();
     if (lastSectionChangeRef.current.section === nextSection && now - lastSectionChangeRef.current.at < 400) {
       return;
@@ -3981,7 +4017,7 @@ export default function InboxClientPage() {
     }
     const nextUrl = params.toString() ? `${pathname}?${params.toString()}` : pathname;
     router.replace(nextUrl, { scroll: false });
-  }, [pathname, router, searchParams]);
+  }, [hasRecoveryCapability, pathname, router, searchParams]);
 
   const resetTemplateComposer = useCallback(() => {
     setTemplateComposer(DEFAULT_TEMPLATE_COMPOSER);
@@ -3989,6 +4025,10 @@ export default function InboxClientPage() {
   }, []);
 
   const loadMetaTemplates = useCallback(async (refresh = false) => {
+    if (!providerCapabilities.canUseTemplates) {
+      setLoadingTemplates(false);
+      return;
+    }
     setLoadingTemplates(true);
     try {
       const query = refresh ? "?refresh=true" : "";
@@ -4005,9 +4045,16 @@ export default function InboxClientPage() {
     } finally {
       setLoadingTemplates(false);
     }
-  }, []);
+  }, [providerCapabilities.canUseTemplates]);
 
   const syncMetaTemplatesNow = useCallback(async () => {
+    if (!providerCapabilities.canUseTemplates) {
+      setNotice({
+        tone: "info",
+        text: "Templates oficiais sao exclusivos do canal Meta WhatsApp Oficial.",
+      });
+      return;
+    }
     setSyncingTemplates(true);
     try {
       const payload = await apiFetch<RecoveryMetaTemplatesPayload>("/hbx-recovery/meta-templates/sync", {
@@ -4027,14 +4074,22 @@ export default function InboxClientPage() {
     } finally {
       setSyncingTemplates(false);
     }
-  }, []);
+  }, [providerCapabilities.canUseTemplates]);
 
   const openTemplatesSettings = useCallback(() => {
+    if (!providerCapabilities.canUseTemplates) {
+      setTemplatesStudioOpen(false);
+      setNotice({
+        tone: "info",
+        text: "No canal Evolution, o bot usa apenas mensagens simples e menu numerado.",
+      });
+      return;
+    }
     setAutomationStudioOpen(false);
     setAgendaStudioOpen(false);
     setTemplatesStudioOpen(true);
     void loadMetaTemplates();
-  }, [loadMetaTemplates]);
+  }, [loadMetaTemplates, providerCapabilities.canUseTemplates]);
 
   const closeAutomationExperience = useCallback(() => {
     // Prevent the auto-open effect from re-opening the studio while we navigate
@@ -4058,6 +4113,13 @@ export default function InboxClientPage() {
 
   const toggleTemplateActivation = useCallback(
     async (template: RecoveryMetaTemplateItem, active: boolean) => {
+      if (!providerCapabilities.canUseTemplates) {
+        setNotice({
+          tone: "info",
+          text: "Templates oficiais sao exclusivos do canal Meta WhatsApp Oficial.",
+        });
+        return;
+      }
       try {
         const payload = await apiFetch<RecoveryMetaTemplatesPayload>(
           "/hbx-recovery/meta-templates/activation",
@@ -4083,10 +4145,17 @@ export default function InboxClientPage() {
         setNotice({ tone: "error", text: message });
       }
     },
-    [],
+    [providerCapabilities.canUseTemplates],
   );
 
   const deleteMetaTemplate = useCallback(async (template: RecoveryMetaTemplateItem) => {
+    if (!providerCapabilities.canUseTemplates) {
+      setNotice({
+        tone: "info",
+        text: "Templates oficiais sao exclusivos do canal Meta WhatsApp Oficial.",
+      });
+      return;
+    }
     const deletingKey = `${template.name}:${template.language}`;
     setDeletingTemplateId(deletingKey);
     try {
@@ -4110,9 +4179,16 @@ export default function InboxClientPage() {
     } finally {
       setDeletingTemplateId(null);
     }
-  }, [editingTemplateLabel, resetTemplateComposer]);
+  }, [editingTemplateLabel, providerCapabilities.canUseTemplates, resetTemplateComposer]);
 
   const createMetaTemplate = useCallback(async () => {
+    if (!providerCapabilities.canUseTemplates) {
+      setNotice({
+        tone: "info",
+        text: "Templates oficiais sao exclusivos do canal Meta WhatsApp Oficial.",
+      });
+      return;
+    }
     const normalizedName = String(templateComposer.name || "")
       .trim()
       .toLowerCase()
@@ -4157,13 +4233,18 @@ export default function InboxClientPage() {
     } finally {
       setCreatingTemplate(false);
     }
-  }, [resetTemplateComposer, templateComposer]);
+  }, [providerCapabilities.canUseTemplates, resetTemplateComposer, templateComposer]);
 
   useEffect(() => {
     if (!templatesStudioOpen) return;
     if (metaTemplates.templates.length > 0) return;
     void loadMetaTemplates();
   }, [loadMetaTemplates, metaTemplates.templates.length, templatesStudioOpen]);
+
+  useEffect(() => {
+    if (providerCapabilities.canUseTemplates || !templatesStudioOpen) return;
+    setTemplatesStudioOpen(false);
+  }, [providerCapabilities.canUseTemplates, templatesStudioOpen]);
 
   const initialAgendaStudioTab = useMemo<AgendaStudioTab>(
     () => (requestedAgendaMode === "sales" ? "sales" : "bot"),
@@ -4188,6 +4269,7 @@ export default function InboxClientPage() {
   const renderAgendaPanel = () => (
     <AgendaStudioModal
       initialTab={initialAgendaStudioTab}
+      allowSalesTab={requestedAgendaMode === "sales"}
       onClose={closeAgendaStudio}
       agendaConfig={agendaConfig}
       loadingAgenda={loadingAgenda}
@@ -6701,13 +6783,15 @@ export default function InboxClientPage() {
                     badge={newInboundConversations.length || null}
                     onClick={() => handleSectionChange("conversa")}
                   />
-                  <DockButton
-                    icon="wallet"
-                    label="Financeiro"
-                    active={activeDockSection === "financeiro"}
-                    badge={queueCounts.recovery || null}
-                    onClick={() => handleSectionChange("financeiro")}
-                  />
+                  {hasRecoveryCapability ? (
+                    <DockButton
+                      icon="wallet"
+                      label="Financeiro"
+                      active={activeDockSection === "financeiro"}
+                      badge={queueCounts.recovery || null}
+                      onClick={() => handleSectionChange("financeiro")}
+                    />
+                  ) : null}
                   <DockButton
                     icon="clock"
                     label="Agenda"
@@ -6722,13 +6806,15 @@ export default function InboxClientPage() {
                     badge={queueCounts.bot || null}
                     onClick={() => handleSectionChange("automacao")}
                   />
-                  <DockButton
-                    icon="spark"
-                    label="Templates"
-                    active={activeDockSection === "templates"}
-                    badge={metaTemplates.counters.approved || null}
-                    onClick={openTemplatesSettings}
-                  />
+                  {providerCapabilities.canUseTemplates ? (
+                    <DockButton
+                      icon="spark"
+                      label="Templates"
+                      active={activeDockSection === "templates"}
+                      badge={metaTemplates.counters.approved || null}
+                      onClick={openTemplatesSettings}
+                    />
+                  ) : null}
                 </div>
                 <div className={styles.commandDockBottom}>
                   <DockButton
@@ -6818,9 +6904,12 @@ export default function InboxClientPage() {
               </div>
               <div className={styles.headerActions}>
                 <span className={styles.metaBadge}>Fluxo principal</span>
-                <button type="button" className="btn btn-secondary btn-sm" onClick={openTemplatesSettings}>
-                  Configuracoes
-                </button>
+                <span className={styles.metaBadge}>{getProviderLabel(providerCapabilities.provider)}</span>
+                {providerCapabilities.canUseTemplates ? (
+                  <button type="button" className="btn btn-secondary btn-sm" onClick={openTemplatesSettings}>
+                    Templates Meta
+                  </button>
+                ) : null}
                 <button type="button" className="btn btn-secondary btn-sm" onClick={closeAutomationExperience}>
                   Fechar
                 </button>
@@ -6833,6 +6922,8 @@ export default function InboxClientPage() {
                 savingBot={savingBot}
                 actionOptions={actionOptions}
                 agendaOptions={agendaOptions}
+                providerCapabilities={providerCapabilities}
+                recoveryEnabled={hasRecoveryCapability}
                 onSave={(nextConfig) => {
                   setNotice(null);
                   void saveBot(nextConfig);
@@ -6845,7 +6936,7 @@ export default function InboxClientPage() {
         </div>
       ) : null}
 
-      {templatesStudioOpen ? (
+      {templatesStudioOpen && providerCapabilities.canUseTemplates ? (
         <div className={`${styles.botStudioOverlay} ${overlayVisible ? styles.botStudioOverlayActive : ""}`}>
           <div className={`${styles.botStudioFrame} ${overlayVisible ? styles.botStudioFrameActive : ""}`}>
             <div className={styles.botStudioChrome}>

@@ -3034,6 +3034,9 @@ export default function MasterPremiumPage() {
           <Link href="/dashboard/master/assistente-tecnico" className="btn btn-secondary btn-sm">
             Assistente Técnico
           </Link>
+          <Link href="/dashboard/master/sistema" className="btn btn-secondary btn-sm">
+            Sistema
+          </Link>
           <Link href="/dashboard/master/exclusoes" className="btn btn-secondary btn-sm">
             Exclusões
           </Link>

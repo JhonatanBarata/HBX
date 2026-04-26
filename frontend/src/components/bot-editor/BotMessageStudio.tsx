@@ -123,6 +123,7 @@ type BotMessageStudioProps = {
   previewFooter?: string | null;
   previewFallbackText: string;
   previewNote?: string | null;
+  textMenuMode?: boolean;
   templateStart?: BotStudioTemplateStart | null;
   templateOptions?: BotStudioTemplateOption[];
   onSelectTemplateOption?: (templateId: string) => void;
@@ -224,6 +225,7 @@ export default function BotMessageStudio(props: BotMessageStudioProps) {
     catalogVariables,
     onAppendVariable,
     previewFooter,
+    textMenuMode = false,
     templateStart,
     templateOptions = [],
     onSelectTemplateOption,
@@ -548,7 +550,11 @@ export default function BotMessageStudio(props: BotMessageStudioProps) {
                 <div className={`${styles.messageBubble} ${styles.outboundBubble}`}>
                   <p>{getPreviewMessage(node, index)}</p>
                   <span className={styles.bubbleMeta}>Agora</span>
-                  {isLastStep && node.buttons.length > 0 ? (
+                  {isLastStep && node.buttons.length > 0 && textMenuMode ? (
+                    <div className={styles.previewFallback}>
+                      {node.buttons.map((button, buttonIndex) => `${buttonIndex + 1}. ${button.title}`).join("\n")}
+                    </div>
+                  ) : isLastStep && node.buttons.length > 0 ? (
                     <div className={styles.previewButtonList}>
                       {node.buttons.map((button) => (
                         <button

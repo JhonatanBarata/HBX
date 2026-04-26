@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import BotMessageStudio from "@/components/bot-editor/BotMessageStudio";
 import recoveryStyles from "@/app/hbx-recovery/page.module.css";
+import { getProviderLabel, type ProviderCapabilities } from "@/lib/provider-capabilities";
 import {
   buildAgendaActionId,
   createCustomAction,
@@ -144,6 +145,8 @@ type BotPanelProps = {
   savingBot: boolean;
   actionOptions: ActionOption[];
   agendaOptions: Array<{ id: string; title: string }>;
+  providerCapabilities: ProviderCapabilities;
+  recoveryEnabled: boolean;
   onSave: (config: AtendimentoBotConfig) => void;
   onConfigChange: (config: AtendimentoBotConfig) => void;
   onOpenSettings?: () => void;
@@ -152,6 +155,17 @@ type BotPanelProps = {
 function buildFallbackText(message: string, buttons: Array<{ title: string }>) {
   const lines = buttons.map((button, index) => `${index + 1}. ${button.title}`).join("\n");
   return lines ? `${message}\n\n${lines}`.trim() : message;
+}
+
+function isRecoveryActionId(actionId: string | null | undefined) {
+  const normalized = String(actionId || "").trim();
+  return [
+    "enter_recovery",
+    "view_payments",
+    "pay_now",
+    "negotiate_debt",
+    "continue_attendance",
+  ].includes(normalized);
 }
 
 function makeClientId(prefix: string) {
@@ -253,6 +267,8 @@ export default function BotPanel({
   savingBot,
   actionOptions,
   agendaOptions,
+  providerCapabilities,
+  recoveryEnabled,
   onSave,
   onConfigChange,
   onOpenSettings,
@@ -311,18 +327,35 @@ export default function BotPanel({
     return draftConfig;
   }, [draftConfig, draftConfigSignature, onConfigChange, propConfigSignature]);
 
+  const canUseOfficialButtons = providerCapabilities.canUseOfficialButtons;
+  const providerLabel = getProviderLabel(providerCapabilities.provider);
+  const channelStartMessage =
+    "Qual canal você usa?\n\n1. Evolution WhatsApp\n2. Meta WhatsApp Oficial";
+  const channelFallbackNote = canUseOfficialButtons
+    ? "Canal Meta ativo: botoes e listas oficiais ficam liberados quando usados no envio."
+    : "Canal Evolution ativo: o cliente responde digitando o numero da opcao.";
+  const getCompatibleButtons = useCallback(
+    (buttons: AtendimentoBotButton[]) =>
+      buttons.filter((button) => {
+        if (!recoveryEnabled && isRecoveryActionId(button.actionId)) return false;
+        return true;
+      }),
+    [recoveryEnabled],
+  );
+
   const selectedScenario =
     BOT_SCENARIOS.find((scenario) => scenario.id === selectedScenarioId) || null;
   const selectedButtons =
     selectedScenario?.supportsButtons && selectedScenario.buttonSection
-      ? draftConfig[selectedScenario.buttonSection]
+      ? getCompatibleButtons(draftConfig[selectedScenario.buttonSection])
       : [];
   const messageType =
-    selectedScenario?.supportsButtons && selectedButtons.length > 0 ? "buttons" : "simple";
+    canUseOfficialButtons && selectedScenario?.supportsButtons && selectedButtons.length > 0 ? "buttons" : "simple";
 
   const actionById = useMemo(() => {
     const next: Record<string, { actionId: string; title: string; description: string; routeLabel: string; typeLabel: string; enabled: boolean }> = {};
     for (const action of draftConfig.actionCatalog) {
+      if (!recoveryEnabled && action.route === "recovery") continue;
       next[action.actionId] = {
         actionId: action.actionId,
         title: action.title,
@@ -344,11 +377,11 @@ export default function BotPanel({
       };
     }
     return next;
-  }, [agendaOptions, draftConfig.actionCatalog]);
+  }, [agendaOptions, draftConfig.actionCatalog, recoveryEnabled]);
 
   const buttonTargetOptions = useMemo(
     () => [
-      ...BOT_SCENARIOS.map((scenario) => ({
+      ...BOT_SCENARIOS.filter((scenario) => recoveryEnabled || !scenario.scopes.includes("recovery")).map((scenario) => ({
         value: scenario.id,
         label: scenario.label,
         description: scenario.description,
@@ -373,28 +406,33 @@ export default function BotPanel({
         label: "Despacho para agenda",
         description: "Encaminha o cliente para a agenda operacional selecionada.",
       },
-      {
-        value: "paymentHistory",
-        label: "Historico de pagamentos",
-        description: "Consulta pagamentos aprovados, pendentes e comprovacoes recentes.",
-      },
-      {
-        value: "paymentAction",
-        label: "Gerar link ou registrar acao",
-        description: "Executa pagar agora, registrar promessa ou outra acao financeira.",
-      },
-      {
-        value: "negotiationAction",
-        label: "Negociar",
-        description: "Registra negociacao financeira e devolve o cliente ao mesmo fluxo.",
-      },
+      ...(recoveryEnabled
+        ? [
+            {
+              value: "paymentHistory",
+              label: "Historico de pagamentos",
+              description: "Consulta pagamentos aprovados, pendentes e comprovacoes recentes.",
+            },
+            {
+              value: "paymentAction",
+              label: "Gerar link ou registrar acao",
+              description: "Executa pagar agora, registrar promessa ou outra acao financeira.",
+            },
+            {
+              value: "negotiationAction",
+              label: "Negociar",
+              description: "Registra negociacao financeira e devolve o cliente ao mesmo fluxo.",
+            },
+          ]
+        : []),
     ],
-    [],
+    [recoveryEnabled],
   );
 
   const studioVariables = useMemo(
     () =>
       draftConfig.variableCatalog
+        .filter((item) => recoveryEnabled || item.scope !== "recovery")
         .filter((item) => !selectedScenario || selectedScenario.scopes.includes(item.scope) || item.scope === "shared")
         .map((item) => ({
           key: item.key,
@@ -419,7 +457,7 @@ export default function BotPanel({
                 : "Dados operacionais do Atendimento",
           required: item.required,
         })),
-    [draftConfig.variableCatalog, selectedScenario],
+    [draftConfig.variableCatalog, recoveryEnabled, selectedScenario],
   );
 
   const flowScenarios = useMemo(
@@ -446,23 +484,23 @@ export default function BotPanel({
 
       const gateNode = {
         id: "entry_gate",
-        label: "Entrada WhatsApp",
-        description: "Ponto inicial do canal antes da leitura de cadastro e contexto financeiro.",
+        label: "Qual canal você usa?",
+        description: "A experiencia do bot comeca pela escolha do canal e libera apenas recursos compativeis.",
         badge: "Entrada",
-        nodeKind: "template" as const,
+        nodeKind: "decision" as const,
         supportsButtons: false,
         editable: false,
-        messageText: "Mensagem inbound recebida no Atendimento.",
+        messageText: `${channelStartMessage}\n\nCanal ativo: ${providerLabel}.`,
         buttons: [
           {
-            buttonId: "start_lookup",
-            actionId: "start_lookup",
-            title: "Iniciar leitura",
+            buttonId: "channel_selected",
+            actionId: "channel_selected",
+            title: providerLabel,
             nextNodeId: "identify_customer",
             nextLabel: "Identificar cliente",
           },
         ],
-        toneLabel: "Tronco principal do Atendimento",
+        toneLabel: channelFallbackNote,
         position: nodePositions.entry_gate,
       };
 
@@ -530,8 +568,8 @@ export default function BotPanel({
               buttonId: "debt_detected",
               actionId: "debt_detected",
               title: "Com debito",
-              nextNodeId: "recoveryDetectedMessage",
-              nextLabel: "Resumo financeiro",
+              nextNodeId: recoveryEnabled ? "recoveryDetectedMessage" : "mainMenuPrompt",
+              nextLabel: recoveryEnabled ? "Resumo financeiro" : "Triagem de atendimento",
             },
             {
               buttonId: "no_debt",
@@ -667,12 +705,12 @@ export default function BotPanel({
               : scenario.id === "mainMenuPrompt" || scenario.id === "recoveryDetectedMessage"
                 ? ("decision" as const)
                 : ("message" as const),
-        supportsButtons: scenario.supportsButtons,
+        supportsButtons: canUseOfficialButtons && scenario.supportsButtons,
         editable: true,
         messageText: String(draftConfig[scenario.id] || ""),
         buttons:
           scenario.supportsButtons && scenario.buttonSection
-            ? draftConfig[scenario.buttonSection].map((button) => ({
+            ? getCompatibleButtons(draftConfig[scenario.buttonSection]).map((button) => ({
                 ...button,
                 nextNodeId: String(button.nextNodeId || resolveAtendimentoNextNode(String(button.actionId))),
                 nextLabel: getAtendimentoNodeLabel(String(button.nextNodeId || resolveAtendimentoNextNode(String(button.actionId)))),
@@ -687,37 +725,50 @@ export default function BotPanel({
         position: nodePositions[scenario.id],
       }));
 
-      return [gateNode, ...decisionNodes, ...scenarioNodes, ...syntheticActionNodes];
+      const recoveryNodeIds = new Set(["recoveryDetectedMessage", "paymentHistory", "paymentAction", "negotiationAction"]);
+      return [gateNode, ...decisionNodes, ...scenarioNodes, ...syntheticActionNodes].filter(
+        (node) => recoveryEnabled || !recoveryNodeIds.has(node.id),
+      );
     },
-    [draftConfig],
+    [
+      canUseOfficialButtons,
+      channelFallbackNote,
+      channelStartMessage,
+      draftConfig,
+      getCompatibleButtons,
+      providerLabel,
+      recoveryEnabled,
+    ],
   );
 
   const catalogVariables = useMemo(
     () =>
-      draftConfig.variableCatalog.map((item) => ({
-        key: item.key,
-        label: item.label,
-        example: item.example,
-        scopeLabel: VARIABLE_SCOPE_LABELS[item.scope],
-        categoryLabel:
-          item.key === "empresa"
-            ? "Empresa"
-            : item.key === "cliente"
-              ? "Cliente"
+      draftConfig.variableCatalog
+        .filter((item) => recoveryEnabled || item.scope !== "recovery")
+        .map((item) => ({
+          key: item.key,
+          label: item.label,
+          example: item.example,
+          scopeLabel: VARIABLE_SCOPE_LABELS[item.scope],
+          categoryLabel:
+            item.key === "empresa"
+              ? "Empresa"
+              : item.key === "cliente"
+                ? "Cliente"
+                : item.scope === "recovery"
+                  ? "Financeiro"
+                  : item.scope === "atendimento"
+                    ? "Atendimento"
+                    : "Sistema",
+          originLabel:
+            item.scope === "shared"
+              ? "Contexto automatico da empresa logada"
               : item.scope === "recovery"
-                ? "Financeiro"
-                : item.scope === "atendimento"
-                  ? "Atendimento"
-                  : "Sistema",
-        originLabel:
-          item.scope === "shared"
-            ? "Contexto automatico da empresa logada"
-            : item.scope === "recovery"
-              ? "Contexto financeiro com debito, status e historico"
-              : "Dados operacionais do Atendimento",
-        required: item.required,
-      })),
-    [draftConfig.variableCatalog],
+                ? "Contexto financeiro com debito, status e historico"
+                : "Dados operacionais do Atendimento",
+          required: item.required,
+        })),
+    [draftConfig.variableCatalog, recoveryEnabled],
   );
 
   const flowEdges = useMemo(
@@ -736,14 +787,16 @@ export default function BotPanel({
   );
 
   const catalogActions = useMemo(() => {
-    const base = draftConfig.actionCatalog.map((action) => ({
-      actionId: action.actionId,
-      title: action.title,
-      description: action.description,
-      routeLabel: VARIABLE_SCOPE_LABELS[action.route],
-      typeLabel: ACTION_KIND_LABELS[action.kind],
-      enabled: action.enabled,
-    }));
+    const base = draftConfig.actionCatalog
+      .filter((action) => recoveryEnabled || action.route !== "recovery")
+      .map((action) => ({
+        actionId: action.actionId,
+        title: action.title,
+        description: action.description,
+        routeLabel: VARIABLE_SCOPE_LABELS[action.route],
+        typeLabel: ACTION_KIND_LABELS[action.kind],
+        enabled: action.enabled,
+      }));
     const agendas = agendaOptions.map((agenda) => ({
       actionId: buildAgendaActionId(agenda.id),
       title: agenda.title,
@@ -753,7 +806,7 @@ export default function BotPanel({
       enabled: true,
     }));
     return [...base, ...agendas];
-  }, [agendaOptions, draftConfig.actionCatalog]);
+  }, [agendaOptions, draftConfig.actionCatalog, recoveryEnabled]);
 
   const publicationChecks = useMemo(
     () => [
@@ -772,8 +825,18 @@ export default function BotPanel({
       {
         id: "financial_branch",
         label: "Ramo financeiro",
-        description: "O contexto financeiro precisa continuar disponivel sem virar um builder paralelo.",
-        ok: draftConfig.recoveryDetectedButtons.length > 0,
+        description: recoveryEnabled
+          ? "O contexto financeiro precisa continuar disponivel sem virar um builder paralelo."
+          : "Recovery nao esta liberado neste plano e fica fora do menu clicavel.",
+        ok: recoveryEnabled ? draftConfig.recoveryDetectedButtons.length > 0 : true,
+      },
+      {
+        id: "provider_capabilities",
+        label: "Capacidade do canal",
+        description: canUseOfficialButtons
+          ? "Meta ativo: botoes oficiais e templates Meta podem ser usados."
+          : "Evolution ativo: mensagens simples com menu numerado e fallback por texto.",
+        ok: true,
       },
       {
         id: "shared_actions",
@@ -787,6 +850,8 @@ export default function BotPanel({
       draftConfig.mainMenuButtons.length,
       draftConfig.recoveryDetectedButtons.length,
       draftConfig.welcomeMessage,
+      canUseOfficialButtons,
+      recoveryEnabled,
     ],
   );
 
@@ -927,6 +992,7 @@ export default function BotPanel({
   }, [updateDraftConfig]);
 
   const handleMessageTypeChange = (nextType: "simple" | "buttons") => {
+    if (nextType === "buttons" && !canUseOfficialButtons) return;
     if (!selectedScenario?.supportsButtons || !selectedScenario.buttonSection) return;
     if (nextType === "simple") {
       for (let index = selectedButtons.length - 1; index >= 0; index -= 1) {
@@ -944,7 +1010,7 @@ export default function BotPanel({
       <BotMessageStudio
         eyebrow="Atendimento"
         title="Fluxo principal"
-        description="Atendimento com ramo financeiro condicional na mesma arvore."
+        description={`Canal ativo: ${providerLabel}. ${channelFallbackNote}`}
         flowScenarios={flowScenarios}
         flowEdges={flowEdges}
         flowOrientation="vertical"
@@ -989,20 +1055,21 @@ export default function BotPanel({
         }}
         previewText={selectedScenario ? renderPreviewText(String(draftConfig[selectedScenario.id] || ""), draftConfig) : "Entrada inicial do canal."}
         previewFooter="HBX Atendimento"
+        textMenuMode={!canUseOfficialButtons}
         previewFallbackText={
           selectedScenario
             ? buildFallbackText(renderPreviewText(String(draftConfig[selectedScenario.id] || ""), draftConfig), selectedButtons)
             : "Entrada inicial do canal."
         }
-        previewNote="O fallback textual continua disponivel para canais ou cenarios sem suporte a botoes."
+        previewNote={channelFallbackNote}
         publicationChecks={publicationChecks}
         publicationTitle="Publicacao do fluxo principal"
         publicationDescription="Valide o tronco principal, o ramo financeiro e as saidas compartilhadas antes de salvar."
         primaryActionLabel={savingBot ? "Salvando..." : "Salvar editor"}
         onPrimaryAction={() => onSave(flushDraftConfig())}
         primaryActionDisabled={savingBot || loadingBot}
-        secondaryActionLabel={onOpenSettings ? "Configuracoes" : undefined}
-        onSecondaryAction={onOpenSettings}
+        secondaryActionLabel={onOpenSettings && providerCapabilities.canUseTemplates ? "Templates Meta" : undefined}
+        onSecondaryAction={providerCapabilities.canUseTemplates ? onOpenSettings : undefined}
         variablesTabExtra={
           <article className={recoveryStyles.botStepCard}>
             <div className={recoveryStyles.botStepHeader}>
@@ -1151,7 +1218,9 @@ export default function BotPanel({
                           value={action.route}
                           onChange={(event) => updateActionGuide(action.actionId, "route", event.target.value)}
                         >
-                          {Object.entries(VARIABLE_SCOPE_LABELS).map(([value, label]) => (
+                          {Object.entries(VARIABLE_SCOPE_LABELS)
+                            .filter(([value]) => recoveryEnabled || value !== "recovery")
+                            .map(([value, label]) => (
                             <option key={value} value={value}>
                               {label}
                             </option>
