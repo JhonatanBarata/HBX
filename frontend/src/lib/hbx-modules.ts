@@ -58,6 +58,7 @@ export function resolveModuleHref(key: string, fallback?: string | null) {
     follow_up_internacional: "/dashboard/importacoes/followup-global",
     master: "/dashboard/master",
     exclusoes: "/dashboard/master/exclusoes",
+    whatsapp: "/dashboard/whatsapp",
   };
 
   return routes[normalized] || String(fallback || "").trim() || "/dashboard";
