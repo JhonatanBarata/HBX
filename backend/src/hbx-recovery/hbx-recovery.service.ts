@@ -42,6 +42,10 @@ import {
   resolveCompanyMercadoPagoAccess,
 } from '../modules/master-global-integrations.util';
 import { CadastrosService } from '../cadastros/cadastros.service';
+import {
+  META_TEMPLATES_REQUIRED_MESSAGE,
+  resolveProviderCapabilitiesFromCompany,
+} from '../inbox/atendimento-config';
 
 type RecoveryPaymentRecord = { id: string; label: string; date: string; amount: number; status: string };
 type RecoveryDelayRecord = { id: string; period: string; daysLate: number; outcome: string };
@@ -136,6 +140,17 @@ export class HbxRecoveryService {
     const companyId = Number(user?.companyId || 0);
     if (!companyId) throw new ForbiddenException('Company context required');
     return companyId;
+  }
+
+  private async assertMetaTemplatesAllowed(companyId: number) {
+    const company = await this.prisma.company.findUnique({
+      where: { id: companyId },
+      select: { whatsappConnectionMode: true },
+    });
+    const providerCapabilities = resolveProviderCapabilitiesFromCompany(company);
+    if (!providerCapabilities.canUseTemplates) {
+      throw new BadRequestException(META_TEMPLATES_REQUIRED_MESSAGE);
+    }
   }
 
   private requireText(value: string, field: string) {
@@ -1572,6 +1587,7 @@ export class HbxRecoveryService {
 
   private async resolveMetaTemplateContext(companyId: number, opts?: MetaTemplateScopeOptions) {
     const moduleKey = this.normalizeMetaTemplateModuleKey(opts?.moduleKey);
+    await this.assertMetaTemplatesAllowed(companyId);
     const companyRow = (await this.prisma.hasTable('CompanyWhatsAppEndpoint'))
       ? await this.prisma.company.findUnique({
           where: { id: companyId },
@@ -2396,6 +2412,7 @@ export class HbxRecoveryService {
 
   async syncMetaTemplates(user: any, opts?: MetaTemplateScopeOptions) {
     const companyId = this.requireCompanyIdFromUser(user);
+    await this.assertMetaTemplatesAllowed(companyId);
     const moduleKey = this.normalizeMetaTemplateModuleKey(opts?.moduleKey);
     try {
       const registry = await this.syncMetaTemplatesByCompanyId(companyId, { moduleKey });
@@ -2418,6 +2435,7 @@ export class HbxRecoveryService {
     opts?: MetaTemplateScopeOptions,
   ) {
     const companyId = this.requireCompanyIdFromUser(user);
+    await this.assertMetaTemplatesAllowed(companyId);
     const moduleKey = this.normalizeMetaTemplateModuleKey(opts?.moduleKey);
     const name = String(dto?.name || '').trim();
     const language = String(dto?.language || '').trim() || 'pt_BR';
@@ -2493,6 +2511,7 @@ export class HbxRecoveryService {
 
   async createMetaTemplate(user: any, dto: CreateMetaTemplateDto, opts?: MetaTemplateScopeOptions) {
     const companyId = this.requireCompanyIdFromUser(user);
+    await this.assertMetaTemplatesAllowed(companyId);
     const moduleKey = this.normalizeMetaTemplateModuleKey(opts?.moduleKey);
     const nameRaw = this.normalizeTemplateNameForMeta(dto?.name || '');
     if (!nameRaw || !/^[a-z0-9_]+$/.test(nameRaw)) {
@@ -2706,6 +2725,7 @@ export class HbxRecoveryService {
 
   async deleteMetaTemplate(user: any, dto: DeleteMetaTemplateDto, opts?: MetaTemplateScopeOptions) {
     const companyId = this.requireCompanyIdFromUser(user);
+    await this.assertMetaTemplatesAllowed(companyId);
     const moduleKey = this.normalizeMetaTemplateModuleKey(opts?.moduleKey);
     const name = String(dto?.name || '').trim();
     const language = String(dto?.language || 'pt_BR').trim() || 'pt_BR';
@@ -2779,6 +2799,7 @@ export class HbxRecoveryService {
     opts?: MetaTemplateScopeOptions,
   ) {
     const companyId = this.requireCompanyIdFromUser(user);
+    await this.assertMetaTemplatesAllowed(companyId);
     const moduleKey = this.normalizeMetaTemplateModuleKey(opts?.moduleKey);
     if (!file) {
       throw new BadRequestException('Selecione uma imagem para upload.');
@@ -3645,6 +3666,7 @@ export class HbxRecoveryService {
 
   async startTemplateFlow(user: any, customerId: string) {
     const companyId = this.requireCompanyIdFromUser(user);
+    await this.assertMetaTemplatesAllowed(companyId);
     const currentCustomer = await this.findCustomer(companyId, customerId);
     const customer =
       currentCustomer.automationEnabled === false

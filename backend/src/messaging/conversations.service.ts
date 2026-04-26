@@ -6,6 +6,10 @@ import {
 } from './whatsapp-channel';
 import { resolveWhatsAppCredentials } from './whatsapp-credentials.util';
 import { applyMasterWhatsAppCredentials } from '../modules/master-global-integrations.util';
+import {
+  META_TEMPLATES_REQUIRED_MESSAGE,
+  resolveProviderCapabilitiesFromCompany,
+} from '../inbox/atendimento-config';
 
 function requireCompanyIdFromUser(user: any): number {
   const companyId = Number(user?.companyId);
@@ -293,6 +297,25 @@ export class ConversationsService {
     return 'text';
   }
 
+  private renderInteractiveFallbackText(payload: Record<string, any> | null | undefined, fallbackBody: string) {
+    const body = String(payload?.body?.text || fallbackBody || '').trim();
+    const labels: string[] = [];
+    const buttons = Array.isArray(payload?.action?.buttons) ? payload.action.buttons : [];
+    for (const button of buttons) {
+      const title = String(button?.reply?.title || button?.title || '').trim();
+      if (title) labels.push(title);
+    }
+    const sections = Array.isArray(payload?.action?.sections) ? payload.action.sections : [];
+    for (const section of sections) {
+      for (const row of Array.isArray(section?.rows) ? section.rows : []) {
+        const title = String(row?.title || '').trim();
+        if (title) labels.push(title);
+      }
+    }
+    if (!labels.length) return body;
+    return `${body}\n\n${labels.map((label, index) => `${index + 1}. ${label}`).join('\n')}`.trim();
+  }
+
   private async hasOpenCustomerServiceWindow(companyId: number, conversationId: number): Promise<boolean> {
     const lastInbound = await this.prisma.companyMessage.findFirst({
       where: { companyId, conversationId, direction: 'INBOUND' },
@@ -307,7 +330,7 @@ export class ConversationsService {
     const companyId = Number(companyIdInput);
     const to = normalizeWhatsAppContact(payload?.to || '');
     const at = payload?.at ?? new Date();
-    const messageType = this.normalizeMessageType(payload?.messageType);
+    let messageType = this.normalizeMessageType(payload?.messageType);
     const templateName = String(payload?.templateName || '').trim();
     const templateLanguage = String(payload?.templateLanguage || 'pt_BR').trim();
     const sourceModule = String(payload?.sourceModule || 'atendimento').trim().toLowerCase() || 'atendimento';
@@ -319,7 +342,7 @@ export class ConversationsService {
         .trim()
         .toLowerCase() || 'system';
     const bodyFromPayload = String(payload?.body || '').trim();
-    const body = messageType === 'template' ? (bodyFromPayload || `[template:${templateName || 'unknown'}]`) : bodyFromPayload;
+    let body = messageType === 'template' ? (bodyFromPayload || `[template:${templateName || 'unknown'}]`) : bodyFromPayload;
     const contactId = String(payload?.contactId || to).trim();
     const variablesJson = payload?.variables === undefined ? null : JSON.stringify(payload.variables || {});
 
@@ -340,6 +363,14 @@ export class ConversationsService {
         });
     const { company } = await applyMasterWhatsAppCredentials(this.prisma, companyRow);
     if (!company) throw new NotFoundException(`Company with id ${companyId} not found`);
+    const providerCapabilities = resolveProviderCapabilitiesFromCompany(company);
+    if (messageType === 'template' && !providerCapabilities.canUseTemplates) {
+      throw new BadRequestException(META_TEMPLATES_REQUIRED_MESSAGE);
+    }
+    if (messageType === 'interactive' && !providerCapabilities.canUseOfficialButtons) {
+      body = this.renderInteractiveFallbackText(payload?.interactivePayload || null, body);
+      messageType = 'text';
+    }
 
     let conversation = null as any;
     if (Number(payload?.conversationId || 0) > 0) {
@@ -367,14 +398,18 @@ export class ConversationsService {
         .trim()
         .toUpperCase() === 'CONNECTED';
     const hasMetaCredentials = Boolean(resolvedCreds.phoneNumberId);
+    const evolutionChannel = providerCapabilities.provider === 'evolution';
 
-    if (!hasMetaCredentials && !modalConnected) {
+    if (evolutionChannel && !modalConnected) {
+      throw new BadRequestException('WhatsApp Evolution nao configurado para esta empresa.');
+    }
+    if (!evolutionChannel && !hasMetaCredentials) {
       throw new BadRequestException('WhatsApp nao configurado para esta empresa.');
     }
 
     // The 24h customer service window is a Meta Cloud API restriction.
     // If modal/webwhats is connected, allow free-form text queueing.
-    if (!modalConnected) {
+    if (!evolutionChannel) {
       const openWindow = await this.hasOpenCustomerServiceWindow(companyId, conversation.id);
       if (!openWindow && messageType !== 'template') {
         throw new BadRequestException('Fora da janela de 24h. Use template aprovado pela Meta.');

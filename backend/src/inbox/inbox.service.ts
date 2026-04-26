@@ -30,11 +30,14 @@ import {
   buildAtendimentoAgendaActionId,
   normalizeAtendimentoAgendaConfig,
   normalizeAtendimentoBotConfig,
+  resolveProviderCapabilitiesFromCompany,
+  sanitizeAtendimentoBotConfigForTenant,
   type AtendimentoAgendaConfig,
   type AtendimentoAgendaGroup,
   type AtendimentoAgendaSlot,
   type AtendimentoBotButton,
   type AtendimentoBotConfig,
+  type ProviderCapabilities,
 } from './atendimento-config';
 import { CadastrosService } from '../cadastros/cadastros.service';
 import { CustomerProfileService } from '../customer-profile/customer-profile.service';
@@ -1092,12 +1095,49 @@ export class InboxService {
       ATENDIMENTO_BOT_CONFIG_CHANNEL,
       ATENDIMENTO_BOT_CONFIG_TITLE,
     );
-    if (!row?.template) return DEFAULT_ATENDIMENTO_BOT_CONFIG;
-    try {
-      return normalizeAtendimentoBotConfig(JSON.parse(row.template));
-    } catch {
-      return DEFAULT_ATENDIMENTO_BOT_CONFIG;
+    const tenantContext = await this.resolveAtendimentoBotSanitizationContext(companyId);
+    if (!row?.template) {
+      return sanitizeAtendimentoBotConfigForTenant(DEFAULT_ATENDIMENTO_BOT_CONFIG, tenantContext);
     }
+    try {
+      return sanitizeAtendimentoBotConfigForTenant(
+        normalizeAtendimentoBotConfig(JSON.parse(row.template)),
+        tenantContext,
+      );
+    } catch {
+      return sanitizeAtendimentoBotConfigForTenant(DEFAULT_ATENDIMENTO_BOT_CONFIG, tenantContext);
+    }
+  }
+
+  private async resolveAtendimentoBotSanitizationContext(companyId: number): Promise<{
+    providerCapabilities: ProviderCapabilities;
+    recoveryEnabled: boolean;
+  }> {
+    const [company, recoveryModule] = await Promise.all([
+      this.prisma.company.findUnique({
+        where: { id: companyId },
+        select: {
+          whatsappConnectionMode: true,
+          trialModuleSelection: true,
+        },
+      }),
+      this.prisma.companyModule?.findFirst
+        ? this.prisma.companyModule.findFirst({
+            where: {
+              companyId,
+              enabled: true,
+              systemModule: { key: 'hbx_recovery' },
+            },
+            select: { id: true },
+          })
+        : Promise.resolve(null),
+    ]);
+    return {
+      providerCapabilities: resolveProviderCapabilitiesFromCompany(company),
+      recoveryEnabled:
+        Boolean(recoveryModule?.id) ||
+        String(company?.trialModuleSelection || '').trim().toLowerCase() === 'recovery',
+    };
   }
 
   private async getAgendaConfigByCompanyId(companyId: number): Promise<AtendimentoAgendaConfig> {
@@ -2885,6 +2925,12 @@ export class InboxService {
       allowedActionIds,
       usedButtonIds,
     );
+    this.validateAtendimentoButtons(
+      config.returningCustomerButtons,
+      'mensagem de retorno',
+      allowedActionIds,
+      usedButtonIds,
+    );
     this.validateAtendimentoButtons(config.mainMenuButtons, 'menu principal', allowedActionIds, usedButtonIds);
     this.validateAtendimentoButtons(
       config.recoveryDetectedButtons,
@@ -2902,7 +2948,11 @@ export class InboxService {
 
   async updateBotConfig(user: any, payload: unknown) {
     const companyId = this.requireCompanyIdFromUser(user);
-    const normalized = normalizeAtendimentoBotConfig(payload || {});
+    const tenantContext = await this.resolveAtendimentoBotSanitizationContext(companyId);
+    const normalized = sanitizeAtendimentoBotConfigForTenant(
+      normalizeAtendimentoBotConfig(payload || {}),
+      tenantContext,
+    );
     const agendaConfig = await this.getAgendaConfigByCompanyId(companyId);
     this.validateAtendimentoBotConfig(normalized, agendaConfig);
     await this.saveConfigRow(

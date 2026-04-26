@@ -333,7 +333,7 @@ export default function BotPanel({
     "Qual canal você usa?\n\n1. Evolution WhatsApp\n2. Meta WhatsApp Oficial";
   const channelFallbackNote = canUseOfficialButtons
     ? "Canal Meta ativo: botoes e listas oficiais ficam liberados quando usados no envio."
-    : "Canal Evolution ativo: o cliente responde digitando o numero da opcao.";
+    : "Evolution: cliente responde digitando o número.";
   const getCompatibleButtons = useCallback(
     (buttons: AtendimentoBotButton[]) =>
       buttons.filter((button) => {
@@ -835,7 +835,7 @@ export default function BotPanel({
         label: "Capacidade do canal",
         description: canUseOfficialButtons
           ? "Meta ativo: botoes oficiais e templates Meta podem ser usados."
-          : "Evolution ativo: mensagens simples com menu numerado e fallback por texto.",
+          : "Evolution: cliente responde digitando o número.",
         ok: true,
       },
       {
