@@ -1,128 +1,542 @@
 .page {
   display: grid;
-  gap: 1rem;
+  gap: 1.2rem;
+  color: var(--foreground);
 }
 
-.stateCard {
-  display: grid;
-  gap: 1rem;
-  padding: 1.2rem;
-  border-radius: 28px;
-  border: 1px solid color-mix(in srgb, var(--line) 86%, var(--background));
+.hero,
+.tutorialShell,
+.tutorialCard,
+.moduleRail,
+.moduleCard,
+.blockedSection,
+.loadingHero,
+.emptyState,
+.alertCard {
+  border: 1px solid color-mix(in srgb, var(--line) 76%, transparent);
   background:
-    radial-gradient(circle at top right, color-mix(in srgb, var(--brand) 10%, transparent), transparent 30%),
-    linear-gradient(180deg, color-mix(in srgb, var(--surface) 98%, var(--background)), color-mix(in srgb, var(--surface-raised) 96%, var(--background)));
-  box-shadow: var(--shadow-inset), var(--shadow-sm);
+    linear-gradient(180deg, color-mix(in srgb, var(--surface) 96%, var(--background)), color-mix(in srgb, var(--surface-soft) 88%, var(--background))),
+    radial-gradient(circle at top right, color-mix(in srgb, var(--brand) 10%, transparent), transparent 34%);
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--surface-raised) 42%, transparent),
+    0 24px 70px -48px color-mix(in srgb, var(--shadow) 64%, transparent);
 }
 
-.stateHeader {
+.hero {
+  position: relative;
+  overflow: hidden;
   display: grid;
-  gap: 0.5rem;
+  grid-template-columns: minmax(0, 1.45fr) minmax(300px, 0.75fr);
+  gap: 1rem;
+  min-height: 320px;
+  border-radius: 32px;
+  padding: clamp(1.2rem, 2.8vw, 2rem);
 }
 
-.eyebrow {
-  margin: 0;
-  font-size: 0.73rem;
+.hero::before {
+  content: "";
+  position: absolute;
+  inset: -35% auto auto -12%;
+  width: 420px;
+  height: 420px;
+  border-radius: 999px;
+  background:
+    radial-gradient(circle, color-mix(in srgb, var(--brand) 24%, transparent), transparent 68%);
+  pointer-events: none;
+}
+
+.heroContent,
+.heroMetrics {
+  position: relative;
+  z-index: 1;
+}
+
+.heroContent {
+  display: grid;
+  align-content: center;
+  gap: 1rem;
+}
+
+.heroBadge,
+.eyebrow,
+.moduleCard span,
+.sectionTitle span {
+  display: inline-flex;
+  width: fit-content;
+  align-items: center;
+  min-height: 28px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--brand) 22%, var(--line));
+  background: color-mix(in srgb, var(--brand) 10%, var(--surface));
+  color: color-mix(in srgb, var(--brand) 80%, var(--foreground));
+  padding: 0.3rem 0.72rem;
+  font-size: 0.72rem;
   font-weight: 900;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: var(--muted);
 }
 
-.title {
+.hero h1,
+.tutorialHeader h2,
+.emptyState h2,
+.loadingHero h1 {
   margin: 0;
-  font-size: clamp(1.7rem, 3vw, 2.5rem);
-  line-height: 1.02;
+  color: var(--foreground);
   letter-spacing: -0.04em;
-  color: var(--foreground);
 }
 
-.lead {
-  margin: 0;
+.hero h1 {
   max-width: 760px;
+  font-size: clamp(2.3rem, 5.2vw, 4.9rem);
+  line-height: 0.93;
+}
+
+.hero p,
+.tutorialHeader p,
+.lessonBlock p,
+.stepPanel li,
+.tipPanel li,
+.mistakePanel li,
+.moduleCard p,
+.blockedCard p,
+.emptyState p,
+.loadingHero p {
+  margin: 0;
   color: var(--muted);
-  line-height: 1.6;
+  line-height: 1.62;
 }
 
-.reasonList {
-  display: grid;
-  gap: 0.75rem;
+.hero p {
+  max-width: 760px;
+  font-size: 1.02rem;
 }
 
-.reasonItem {
-  padding: 0.9rem 1rem;
-  border-radius: 18px;
-  border: 1px solid color-mix(in srgb, var(--line) 84%, var(--background));
-  background: color-mix(in srgb, var(--surface-soft) 92%, var(--background));
-  color: var(--foreground);
-  line-height: 1.55;
-}
-
-.actionRow {
+.heroActions,
+.topTabs,
+.tutorialHeader,
+.sectionTitle,
+.blockedCard,
+.cardActions {
   display: flex;
+  align-items: center;
+  gap: 0.75rem;
   flex-wrap: wrap;
-  gap: 0.7rem;
 }
 
-.blockedList {
+.primaryButton,
+.secondaryButton,
+.cardLink {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 42px;
+  border-radius: 16px;
+  border: 1px solid color-mix(in srgb, var(--line) 84%, transparent);
+  padding: 0.68rem 1rem;
+  font-weight: 900;
+  text-decoration: none;
+  transition:
+    transform 160ms ease,
+    box-shadow 160ms ease,
+    border-color 160ms ease,
+    background 160ms ease;
+}
+
+.primaryButton {
+  border-color: color-mix(in srgb, var(--brand) 48%, var(--line));
+  background: linear-gradient(135deg, var(--brand), var(--brand-solid, var(--brand)));
+  color: var(--brand-contrast, #fff);
+  box-shadow: 0 20px 40px -26px color-mix(in srgb, var(--brand) 80%, transparent);
+}
+
+.secondaryButton,
+.cardLink {
+  background: color-mix(in srgb, var(--surface-raised) 78%, transparent);
+  color: var(--foreground);
+}
+
+.primaryButton:hover,
+.secondaryButton:hover,
+.cardLink:hover,
+.topTabs button:hover,
+.moduleRail button:hover {
+  transform: translateY(-1px);
+}
+
+.primaryButton:focus-visible,
+.secondaryButton:focus-visible,
+.cardLink:focus-visible,
+.topTabs button:focus-visible,
+.moduleRail button:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--brand) 40%, transparent);
+  outline-offset: 3px;
+}
+
+.heroMetrics {
   display: grid;
   gap: 0.8rem;
+  align-content: center;
 }
 
-.blockedItem {
+.heroMetrics article {
   display: grid;
-  gap: 0.45rem;
-  padding: 1rem 1.05rem;
-  border-radius: 20px;
-  border: 1px dashed color-mix(in srgb, var(--warning) 42%, var(--line));
-  background: color-mix(in srgb, var(--warning-soft) 70%, var(--surface));
+  gap: 0.24rem;
+  min-height: 92px;
+  border: 1px solid color-mix(in srgb, var(--line) 72%, transparent);
+  border-radius: 22px;
+  padding: 1rem;
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--surface) 92%, transparent), color-mix(in srgb, var(--surface-raised) 76%, transparent));
 }
 
-.blockedItem p {
-  margin: 0;
+.heroMetrics span,
+.heroMetrics small {
   color: var(--muted);
-  line-height: 1.55;
+  font-size: 0.78rem;
+  font-weight: 800;
 }
 
-.blockedActions {
-  display: flex;
-  flex-wrap: wrap;
+.heroMetrics strong {
+  color: var(--foreground);
+  font-size: clamp(1.3rem, 2.2vw, 2rem);
+  line-height: 1;
+}
+
+.topTabs {
+  width: fit-content;
+  border: 1px solid color-mix(in srgb, var(--line) 78%, transparent);
+  border-radius: 999px;
+  padding: 0.35rem;
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  box-shadow: var(--shadow-inset);
+}
+
+.topTabs button {
+  min-height: 38px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  padding: 0.55rem 1rem;
+  cursor: pointer;
+  font-weight: 900;
+}
+
+.topTabs button[data-active="true"] {
+  background: color-mix(in srgb, var(--brand) 14%, var(--surface-raised));
+  color: var(--foreground);
+  box-shadow: 0 16px 30px -26px color-mix(in srgb, var(--brand) 72%, transparent);
+}
+
+.tutorialShell {
+  display: grid;
+  grid-template-columns: minmax(230px, 290px) minmax(0, 1fr);
+  gap: 1rem;
+  border-radius: 30px;
+  padding: 1rem;
+}
+
+.moduleRail {
+  display: grid;
+  align-content: start;
+  gap: 0.7rem;
+  border-radius: 24px;
+  padding: 0.8rem;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--surface-raised) 88%, var(--surface)), color-mix(in srgb, var(--surface) 92%, var(--background)));
+}
+
+.moduleRail button {
+  display: grid;
+  gap: 0.25rem;
+  width: 100%;
+  border: 1px solid color-mix(in srgb, var(--line) 74%, transparent);
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--surface) 82%, transparent);
+  color: var(--foreground);
+  padding: 0.9rem;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    transform 160ms ease,
+    border-color 160ms ease,
+    background 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.moduleRail button[data-active="true"] {
+  border-color: color-mix(in srgb, var(--brand) 38%, var(--line));
+  background:
+    radial-gradient(circle at top right, color-mix(in srgb, var(--brand) 16%, transparent), transparent 54%),
+    color-mix(in srgb, var(--brand) 9%, var(--surface));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--brand) 12%, transparent);
+}
+
+.moduleRail strong {
+  color: var(--foreground);
+}
+
+.moduleRail span {
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1.42;
+}
+
+.tutorialCard {
+  display: grid;
+  gap: 1rem;
+  border-radius: 26px;
+  padding: clamp(1rem, 2vw, 1.3rem);
+}
+
+.tutorialHeader {
+  justify-content: space-between;
+  align-items: flex-start;
+}
+
+.tutorialHeader h2 {
+  margin-top: 0.35rem;
+  font-size: clamp(1.7rem, 3vw, 2.7rem);
+}
+
+.lessonGrid,
+.assistGrid,
+.modulesGrid,
+.blockedGrid {
+  display: grid;
+  gap: 1rem;
+}
+
+.lessonGrid,
+.assistGrid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.lessonBlock,
+.stepPanel,
+.tipPanel,
+.mistakePanel,
+.moduleCard,
+.blockedCard {
+  border: 1px solid color-mix(in srgb, var(--line) 74%, transparent);
+  border-radius: 22px;
+  background: color-mix(in srgb, var(--surface) 82%, transparent);
+  padding: 1rem;
+}
+
+.lessonBlock {
+  display: grid;
   gap: 0.55rem;
 }
 
-.blockedTop {
-  display: flex;
-  flex-wrap: wrap;
+.lessonBlock span,
+.sectionTitle span {
+  width: 34px;
+  height: 34px;
+  justify-content: center;
+  padding: 0;
+  border-radius: 12px;
+  letter-spacing: 0;
+}
+
+.lessonBlock h3,
+.stepPanel h3,
+.tipPanel h3,
+.mistakePanel h3,
+.moduleCard h3,
+.blockedSection h2 {
+  margin: 0;
+  color: var(--foreground);
+}
+
+.stepPanel {
+  display: grid;
+  gap: 0.9rem;
+}
+
+.sectionTitle {
   align-items: center;
-  justify-content: space-between;
+}
+
+.stepList,
+.tipPanel ul,
+.mistakePanel ul {
+  display: grid;
   gap: 0.75rem;
+  margin: 0;
+  padding-left: 1.35rem;
 }
 
-.blockedTop strong {
-  color: var(--foreground);
+.stepList li::marker {
+  color: var(--brand);
+  font-weight: 900;
 }
 
-.blockedPill {
-  display: inline-flex;
-  align-items: center;
-  padding: 0.3rem 0.6rem;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--warning) 12%, var(--surface-raised));
-  border: 1px solid color-mix(in srgb, var(--warning) 24%, var(--line));
-  color: var(--foreground);
-  font-size: 0.72rem;
-  font-weight: 800;
-  letter-spacing: 0.06em;
+.tipPanel {
+  border-color: color-mix(in srgb, var(--success) 24%, var(--line));
+  background: color-mix(in srgb, var(--success) 8%, var(--surface));
+}
+
+.mistakePanel {
+  border-color: color-mix(in srgb, var(--warning) 28%, var(--line));
+  background: color-mix(in srgb, var(--warning) 9%, var(--surface));
+}
+
+.modulesGrid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.moduleCard {
+  display: grid;
+  align-content: space-between;
+  gap: 1rem;
+  min-height: 220px;
+  border-radius: 24px;
+}
+
+.moduleCard span {
+  margin-bottom: 0.55rem;
+}
+
+.cardLink {
+  width: fit-content;
+}
+
+.blockedSection {
+  display: grid;
+  gap: 1rem;
+  border-radius: 28px;
+  padding: 1rem;
+  border-color: color-mix(in srgb, var(--warning) 28%, var(--line));
+}
+
+.blockedGrid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.blockedCard {
+  justify-content: space-between;
+  align-items: flex-start;
+  background: color-mix(in srgb, var(--warning) 8%, var(--surface));
+}
+
+.emptyState,
+.loadingHero {
+  display: grid;
+  place-items: start;
+  gap: 0.8rem;
+  border-radius: 30px;
+  padding: clamp(1.2rem, 3vw, 2rem);
+  min-height: 260px;
+}
+
+.emptyState span {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 900;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
 }
 
-@media (max-width: 640px) {
-  .stateCard {
-    padding: 1rem;
-    border-radius: 22px;
+.loadingHero {
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+}
+
+.loadingOrb {
+  width: 68px;
+  height: 68px;
+  border-radius: 999px;
+  background:
+    radial-gradient(circle at 35% 30%, color-mix(in srgb, var(--surface) 80%, white), transparent 32%),
+    conic-gradient(from 140deg, var(--brand), color-mix(in srgb, var(--brand) 20%, transparent), var(--brand));
+  box-shadow: 0 0 0 10px color-mix(in srgb, var(--brand) 8%, transparent);
+  animation: pulse 1.6s ease-in-out infinite;
+}
+
+.loadingCard {
+  display: grid;
+  place-items: center;
+  min-height: 180px;
+  border-radius: 24px;
+  border: 1px solid color-mix(in srgb, var(--line) 76%, transparent);
+  background: color-mix(in srgb, var(--surface) 92%, var(--background));
+  color: var(--muted);
+}
+
+.alertCard {
+  border-color: color-mix(in srgb, var(--danger) 34%, var(--line));
+  border-radius: 20px;
+  padding: 0.9rem 1rem;
+  color: color-mix(in srgb, var(--danger) 72%, var(--foreground));
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 0.78;
   }
 
-  .actionRow {
-    flex-direction: column;
+  50% {
+    transform: scale(1.05);
+    opacity: 1;
+  }
+}
+
+@media (max-width: 1120px) {
+  .hero,
+  .tutorialShell {
+    grid-template-columns: 1fr;
+  }
+
+  .moduleRail {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .modulesGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 760px) {
+  .hero,
+  .tutorialShell,
+  .tutorialCard,
+  .blockedSection {
+    border-radius: 22px;
+    padding: 1rem;
+  }
+
+  .heroMetrics,
+  .moduleRail,
+  .lessonGrid,
+  .assistGrid,
+  .modulesGrid,
+  .blockedGrid,
+  .loadingHero {
+    grid-template-columns: 1fr;
+  }
+
+  .hero h1 {
+    font-size: 2.35rem;
+  }
+
+  .topTabs {
+    width: 100%;
+  }
+
+  .topTabs button {
+    flex: 1;
+  }
+
+  .tutorialHeader {
+    align-items: stretch;
+  }
+
+  .primaryButton,
+  .secondaryButton,
+  .cardLink {
+    width: 100%;
   }
 }
