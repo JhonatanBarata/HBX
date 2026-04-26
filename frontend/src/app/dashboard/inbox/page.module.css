@@ -2618,7 +2618,8 @@
 
 .salesAgendaGrid {
   display: grid;
-  grid-template-columns: repeat(5, minmax(180px, 1fr)) minmax(220px, 0.8fr);
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(190px, 1fr);
   gap: 0.75rem;
   align-items: start;
   overflow-x: auto;
@@ -2747,6 +2748,26 @@
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 0.72rem;
+}
+
+.botAgendaAdvanced {
+  display: grid;
+  gap: 0.75rem;
+  padding: 0.72rem;
+  border-radius: 14px;
+  border: 1px solid rgba(100, 123, 195, 0.14);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.botAgendaAdvanced summary {
+  cursor: pointer;
+  color: #dce7ff;
+  font-size: 0.82rem;
+  font-weight: 900;
+}
+
+.botAgendaAdvanced[open] summary {
+  margin-bottom: 0.72rem;
 }
 
 .botAgendaSlotRow {
@@ -6273,6 +6294,7 @@
 :global(html[data-theme-mode="light"]) .botAgendaEditor,
 :global(html[data-theme-mode="light"]) .botAgendaGuideCard,
 :global(html[data-theme-mode="light"]) .botAgendaSlotRow,
+:global(html[data-theme-mode="light"]) .botAgendaAdvanced,
 :global(html[data-theme-mode="light"]) .botAgendaLinkedAccount,
 :global(html[data-theme-mode="light"]) .salesAgendaSlot {
   border-color: color-mix(in srgb, var(--line) 86%, var(--background));
@@ -6306,6 +6328,7 @@
 :global(html[data-theme-mode="light"]) .botAgendaEditorHeader strong,
 :global(html[data-theme-mode="light"]) .botAgendaSlotsHeader strong,
 :global(html[data-theme-mode="light"]) .botAgendaLinkedAccount strong,
+:global(html[data-theme-mode="light"]) .botAgendaAdvanced summary,
 :global(html[data-theme-mode="light"]) .botAgendaGuideCard strong {
   color: var(--foreground);
 }
