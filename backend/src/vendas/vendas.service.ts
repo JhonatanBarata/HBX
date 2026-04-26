@@ -418,6 +418,7 @@ export class VendasService {
     row: any,
     sharedProfile?: any,
     whatsappAvailability?: VendasWhatsappAvailabilityState | null,
+    inboxPresence?: { conversationId?: string | number | null } | null,
   ) {
     const status = this.normalizeStatus(row?.status);
     const block = this.classifyLeadBlock(row);
@@ -465,6 +466,9 @@ export class VendasService {
       createdAt: row?.createdAt instanceof Date ? row.createdAt.toISOString() : null,
       updatedAt: row?.updatedAt instanceof Date ? row.updatedAt.toISOString() : null,
       whatsappAvailability: whatsappAvailability || null,
+      isInInbox: Boolean(inboxPresence?.conversationId || sharedProfile?.presence?.atendimento?.present),
+      inboxConversationId: inboxPresence?.conversationId ? String(inboxPresence.conversationId) : null,
+      atendimentoConversationId: inboxPresence?.conversationId ? String(inboxPresence.conversationId) : null,
       signals,
       timeline,
       sharedProfile: sharedProfile || null,
@@ -632,7 +636,7 @@ export class VendasService {
         active: false,
         leadId: String(row?.id || '').trim() || currentQueue?.leadId || null,
         sourceModule: 'vendas',
-        sourceBlock: 'today',
+        sourceBlock: this.classifyLeadBlock(row),
         status,
         nextAction,
         returnAt,
@@ -661,7 +665,7 @@ export class VendasService {
       active: true,
       leadId: String(row?.id || '').trim() || null,
       sourceModule: 'vendas',
-      sourceBlock: 'today',
+      sourceBlock: this.classifyLeadBlock(row),
       status,
       nextAction,
       returnAt,
@@ -757,6 +761,7 @@ export class VendasService {
       activated: currentQueue?.active ? 0 : 1,
       updated: currentQueue?.active && changed ? 1 : 0,
       skippedWithoutPhone: 0,
+      conversationId: conversation.id,
     };
   }
 
@@ -805,16 +810,18 @@ export class VendasService {
       deactivated: 0,
       skippedWithoutPhone: 0,
       skippedWithoutWhatsapp: 0,
+      conversationId: null as string | number | null,
     };
 
     const currentPhone = row?.phoneNormalized || row?.phone || null;
     const previousPhone = previous?.phoneNormalized || previous?.phone || null;
 
-    if (this.shouldMirrorLeadToInboxAgenda(row)) {
+    if (options?.forceScheduled || this.shouldMirrorLeadToInboxAgenda(row)) {
       const syncResult = await this.activateLeadInInboxAgenda(companyId, row, options);
       result.activated += syncResult.activated;
       result.updated += syncResult.updated;
       result.skippedWithoutPhone += syncResult.skippedWithoutPhone;
+      result.conversationId = syncResult.conversationId || null;
     } else {
       const deactivated = await this.deactivateLeadInInboxAgenda(
         companyId,
@@ -866,9 +873,11 @@ export class VendasService {
       : null;
     const filteredSync = Boolean(requestedLeadIds);
     const todayRows = rows.filter((row) => {
-      if (!this.shouldMirrorLeadToInboxAgenda(row)) return false;
-      if (!requestedLeadIds) return true;
-      return requestedLeadIds.has(String(row?.id || '').trim());
+      if (requestedLeadIds) {
+        if (this.isClosedLead(row)) return false;
+        return requestedLeadIds.has(String(row?.id || '').trim());
+      }
+      return this.shouldMirrorLeadToInboxAgenda(row);
     });
     const whatsappAvailabilityByLeadId = await this.ensureWhatsappAvailabilityForRows(
       context.companyId,
@@ -883,6 +892,8 @@ export class VendasService {
     let deactivated = 0;
     let skippedWithoutPhone = 0;
     let skippedWithoutWhatsapp = 0;
+    const conversationIds = new Set<string>();
+    const leadConversationIds: Record<string, string> = {};
 
     for (const row of todayRows) {
       const availability = whatsappAvailabilityByLeadId.get(String(row.id)) || null;
@@ -897,6 +908,12 @@ export class VendasService {
       const syncResult = await this.syncLeadToInboxAgenda(context.companyId, row, undefined, {
         forceScheduled: true,
       });
+      const conversationIdRaw = 'conversationId' in syncResult ? syncResult.conversationId : null;
+      if (conversationIdRaw) {
+        const conversationId = String(conversationIdRaw);
+        conversationIds.add(conversationId);
+        leadConversationIds[String(row.id)] = conversationId;
+      }
       activated += syncResult.activated;
       updated += syncResult.updated;
       deactivated += syncResult.deactivated;
@@ -927,7 +944,7 @@ export class VendasService {
       const linkedLead = leadId ? rowById.get(leadId) || null : null;
       const shouldStayActive =
         Boolean(linkedLead) &&
-        this.shouldMirrorLeadToInboxAgenda(linkedLead) &&
+        (filteredSync ? !this.isClosedLead(linkedLead) : this.shouldMirrorLeadToInboxAgenda(linkedLead)) &&
         this.conversationMatchesLeadPhone(conversation.contact, linkedLead);
 
       if (shouldStayActive) continue;
@@ -981,8 +998,12 @@ export class VendasService {
       );
       throw new BadRequestException(
         skippedWithoutPhone > 0
-          ? 'Nenhum card de hoje foi espelhado no Atendimento porque os leads estao sem telefone valido.'
-          : 'Nenhum card de hoje foi espelhado no Atendimento.',
+          ? filteredSync
+            ? 'Nenhum card selecionado foi espelhado no Atendimento porque os leads estao sem telefone valido.'
+            : 'Nenhum card de hoje foi espelhado no Atendimento porque os leads estao sem telefone valido.'
+          : filteredSync
+            ? 'Nenhum card selecionado foi espelhado no Atendimento.'
+            : 'Nenhum card de hoje foi espelhado no Atendimento.',
       );
     }
 
@@ -995,8 +1016,12 @@ export class VendasService {
     const message = todayLeadCount
       ? skippedWithoutWhatsapp > 0
         ? `${mirroredLeadCount} card(s) preparados no Atendimento. ${skippedWithoutWhatsapp} numero(s) ficaram fora porque o motor nao encontrou WhatsApp.`
-        : `${mirroredLeadCount} card(s) de hoje preparados no Atendimento com roteiro pendente para envio manual.`
-      : 'Nao ha cards de hoje para preparar no Atendimento.';
+        : filteredSync
+          ? `${mirroredLeadCount} card(s) selecionados preparados no Atendimento com roteiro pendente para envio manual.`
+          : `${mirroredLeadCount} card(s) de hoje preparados no Atendimento com roteiro pendente para envio manual.`
+      : filteredSync
+        ? 'Nao ha cards selecionados para preparar no Atendimento.'
+        : 'Nao ha cards de hoje para preparar no Atendimento.';
     this.logger.log(
       `[vendas-agenda] Espelhamento concluido company=${context.companyId} today=${todayLeadCount} mirrored=${mirroredLeadCount} activated=${activated} updated=${updated} deactivated=${deactivated} skippedWithoutPhone=${skippedWithoutPhone} skippedWithoutWhatsapp=${skippedWithoutWhatsapp}`,
     );
@@ -1005,6 +1030,8 @@ export class VendasService {
       ok: true,
       todayLeadCount,
       mirroredLeadCount,
+      conversationIds: Array.from(conversationIds),
+      leadConversationIds,
       activated,
       updated,
       deactivated,
@@ -1508,6 +1535,27 @@ export class VendasService {
       profileIds: rows.map((row) => row.customerProfileId).filter(Boolean),
       phoneNormalizeds: rows.map((row) => row.phoneNormalized || row.phone).filter(Boolean),
     });
+    const leadInboxPresence = new Map<string, { conversationId: string }>();
+    const leadIds = rows.map((row) => String(row?.id || '').trim()).filter(Boolean);
+    if (leadIds.length) {
+      const mirroredConversations = await this.prisma.companyConversation.findMany({
+        where: {
+          companyId: context.companyId,
+          channel: 'whatsapp',
+          metadata: { contains: '"vendasAgendaQueue"' },
+        },
+        select: {
+          id: true,
+          metadata: true,
+        },
+      });
+      for (const conversation of mirroredConversations) {
+        const queue = this.readVendasAgendaQueueMetadata(this.parseConversationMetadata(conversation.metadata));
+        const leadId = String(queue?.leadId || '').trim();
+        if (!queue?.active || !leadId || !leadIds.includes(leadId)) continue;
+        leadInboxPresence.set(leadId, { conversationId: String(conversation.id) });
+      }
+    }
 
     const blocks = {
       today: [] as any[],
@@ -1525,6 +1573,7 @@ export class VendasService {
         row,
         sharedProfile,
         whatsappAvailabilityByLeadId.get(String(row.id)) || null,
+        leadInboxPresence.get(String(row.id)) || null,
       );
       blocks[payload.block].push(payload);
     }

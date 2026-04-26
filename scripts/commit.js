@@ -1,10 +1,10 @@
 'use strict';
 
-const { repoRoot, run } = require('./lib/runtime');
+const { formatTimestamp, repoRoot, run } = require('./lib/runtime');
 
 const args = process.argv.slice(2);
 const isDryRun = args.includes('--dry-run');
-const defaultCommitMessage = 'chore: update app master state';
+const defaultCommitMessage = () => `chore: backup local ${formatTimestamp()}`;
 
 function readArgValue(flagName) {
   const direct = args.find((arg) => arg.startsWith(`${flagName}=`));
@@ -28,7 +28,7 @@ function getCommitMessage() {
 
   const positionalArgs = args.filter((arg) => !arg.startsWith('--'));
   const positionalMessage = positionalArgs.join(' ').trim();
-  return positionalMessage || defaultCommitMessage;
+  return positionalMessage || defaultCommitMessage();
 }
 
 function runStep(command, commandArgs, options = {}) {
@@ -47,18 +47,6 @@ function runStep(command, commandArgs, options = {}) {
   }
 }
 
-function ensureMasterBranch() {
-  const branchResult = run('git', ['branch', '--show-current'], {
-    cwd: repoRoot,
-    captureOutput: true,
-  });
-  const currentBranch = String(branchResult.stdout || '').trim();
-
-  if (currentBranch !== 'master') {
-    throw new Error(`Commit only runs from master. Current branch: ${currentBranch || '(detached HEAD)'}`);
-  }
-}
-
 function ensureNoMergeConflicts() {
   const conflictsResult = run('git', ['diff', '--name-only', '--diff-filter=U'], {
     cwd: repoRoot,
@@ -71,22 +59,102 @@ function ensureNoMergeConflicts() {
   }
 }
 
+function normalizeStatusPath(line) {
+  const pathPart = String(line || '').slice(3).trim();
+  if (pathPart.includes(' -> ')) {
+    return pathPart.split(' -> ').map((value) => value.trim().replace(/^"|"$/g, ''));
+  }
+  return [pathPart.replace(/^"|"$/g, '')];
+}
+
+function isForbiddenCommitPath(filePath) {
+  const normalized = String(filePath || '').replace(/\\/g, '/').toLowerCase();
+  const fileName = normalized.split('/').pop() || '';
+
+  if (!normalized) {
+    return false;
+  }
+
+  if (normalized.endsWith('.example')) {
+    return false;
+  }
+
+  if (normalized === '.env' || normalized.includes('/.env') || fileName.startsWith('.env.')) {
+    return true;
+  }
+
+  if (normalized.startsWith('backups/') || normalized.startsWith('postgres-data/')) {
+    return true;
+  }
+
+  if (
+    normalized.endsWith('.dump')
+    || normalized.endsWith('.tar.gz')
+    || normalized.endsWith('.bak')
+    || normalized.endsWith('.backup')
+    || normalized.endsWith('.sqlite')
+    || normalized.endsWith('.sqlite3')
+    || normalized.endsWith('.db')
+  ) {
+    return true;
+  }
+
+  if (normalized.endsWith('.sql') && !normalized.startsWith('backend/prisma/migrations/')) {
+    return true;
+  }
+
+  return false;
+}
+
+function ensureNoForbiddenFilesInStatus(statusText) {
+  const forbidden = String(statusText || '')
+    .split(/\r?\n/)
+    .flatMap(normalizeStatusPath)
+    .filter(isForbiddenCommitPath);
+
+  if (forbidden.length) {
+    throw new Error([
+      'Commit blocked because sensitive or production data files were detected:',
+      ...forbidden.map((filePath) => `- ${filePath}`),
+      'Keep real .env files, backups, dumps, local databases, and secrets out of git.',
+    ].join('\n'));
+  }
+}
+
+function printGitStatus(label) {
+  console.log(`\n${label}`);
+  const result = runStep('git', ['status', '--short', '--branch'], { captureOutput: true });
+  const output = String(result.stdout || '').trim();
+  console.log(output || 'Working tree clean.');
+  return output;
+}
+
+function getCurrentBranch() {
+  const result = run('git', ['branch', '--show-current'], {
+    cwd: repoRoot,
+    captureOutput: true,
+  });
+  return String(result.stdout || '').trim() || '(detached HEAD)';
+}
+
 function main() {
   const commitMessage = getCommitMessage();
 
   runStep('git', ['rev-parse', '--is-inside-work-tree']);
-  ensureMasterBranch();
   ensureNoMergeConflicts();
 
-  const statusBefore = run('git', ['status', '--short'], {
-    cwd: repoRoot,
-    captureOutput: true,
-  });
-  const currentChanges = String(statusBefore.stdout || '').trim();
+  const statusBefore = printGitStatus('Status before commit');
+  const currentChanges = statusBefore
+    .split(/\r?\n/)
+    .filter((line) => line && !line.startsWith('##'))
+    .join('\n')
+    .trim();
+
   if (!currentChanges) {
-    console.log('No local changes to commit.');
+    console.log('\nNenhuma mudanca local para commitar.');
     return;
   }
+  ensureNoForbiddenFilesInStatus(currentChanges);
 
   if (isDryRun) {
     console.log('\nDry run only. The following changes would be included by git add -A:');
@@ -117,7 +185,13 @@ function main() {
     console.log(output);
   }
 
-  console.log(`\nCommit created on master with message: ${commitMessage}`);
+  console.log(`\nCommit created on ${getCurrentBranch()} with message: ${commitMessage}`);
+  printGitStatus('Status after commit');
 }
 
-main();
+try {
+  main();
+} catch (error) {
+  console.error(error && error.message ? error.message : error);
+  process.exit(1);
+}

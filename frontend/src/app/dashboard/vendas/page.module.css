@@ -737,6 +737,19 @@
   color: color-mix(in srgb, #128c7e 82%, var(--foreground));
 }
 
+.inboxFilterButton[data-active="true"],
+.inboxLeadButton[data-state="in"] {
+  border-color: color-mix(in srgb, var(--brand) 34%, var(--line));
+  background:
+    radial-gradient(circle at top left, color-mix(in srgb, var(--brand) 16%, transparent), transparent 44%),
+    color-mix(in srgb, var(--surface) 88%, var(--background));
+  color: color-mix(in srgb, var(--brand) 88%, var(--foreground));
+}
+
+.inboxLeadButton[data-state="out"] {
+  color: color-mix(in srgb, var(--success) 88%, var(--foreground));
+}
+
 .whatsappUnavailable {
   background:
     radial-gradient(circle at top left, rgba(255, 255, 255, 0.26), transparent 38%),
