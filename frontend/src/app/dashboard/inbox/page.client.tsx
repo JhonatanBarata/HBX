@@ -54,7 +54,7 @@ import { acquirePopupTopbarLock } from "@/lib/popup-visibility";
 import { apiFetch, getDashboardApiBaseUrl, getToken } from "../_lib/api";
 import { startSmartPolling } from "../_lib/polling";
 import { useRequireAuth } from "../_lib/useRequireAuth";
-import AgendaPanel from "./_components/AgendaPanel";
+import AgendaStudioModal, { type AgendaStudioTab } from "./_components/AgendaStudioModal";
 import BotPanel from "./_components/BotPanel";
 import TemplatesPanel, { type TemplateComposer } from "./_components/TemplatesPanel";
 import type {
@@ -88,6 +88,7 @@ type InboxQueue = "all" | "groups" | "recovery" | "scheduled" | "bot" | "archive
 type ContextTab = "conversa" | "financeiro" | "agenda";
 type QueueActionMenuPosition = { top: number; left: number };
 type AtendimentoSection = "conversa" | "financeiro" | "agenda" | "automacao";
+type AgendaMode = "sales" | "bot";
 type StatusFilter = "all" | "new" | "open" | "closed" | "blocked";
 
 type NoticeState = {
@@ -2175,6 +2176,14 @@ export default function InboxClientPage() {
     () => searchParams?.get("agendaStudio") === "1",
     [searchParams],
   );
+  const requestedAgendaMode = useMemo<AgendaMode>(
+    () => (searchParams?.get("agendaMode") === "sales" ? "sales" : "bot"),
+    [searchParams],
+  );
+  const requestedAgendaReturnTo = useMemo(
+    () => String(searchParams?.get("returnTo") || "").trim(),
+    [searchParams],
+  );
   const [mounted, setMounted] = useState(false);
   const [activeTab, setActiveTab] = useState<InboxTab>(requestedTab);
   const [inboxQueue, setInboxQueue] = useState<InboxQueue>("all");
@@ -2197,6 +2206,7 @@ export default function InboxClientPage() {
   const [savingBot, setSavingBot] = useState(false);
   const [loadingAgenda, setLoadingAgenda] = useState(false);
   const [savingAgenda, setSavingAgenda] = useState(false);
+  const [agendaDirty, setAgendaDirty] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [conversationListError, setConversationListError] = useState<string | null>(null);
   const [conversationDetailError, setConversationDetailError] = useState<string | null>(null);
@@ -3246,6 +3256,7 @@ export default function InboxClientPage() {
     try {
       const data = await apiFetch<AtendimentoAgendaConfig>("/inbox/agenda");
       setAgendaConfig(normalizeAgendaConfig(data));
+      setAgendaDirty(false);
       agendaConfigLoadedRef.current = true;
     } catch (loadError) {
       const message = loadError instanceof Error ? loadError.message : "Falha ao carregar agenda.";
@@ -4142,20 +4153,41 @@ export default function InboxClientPage() {
     void loadMetaTemplates();
   }, [loadMetaTemplates, metaTemplates.templates.length, templatesStudioOpen]);
 
+  const initialAgendaStudioTab = useMemo<AgendaStudioTab>(
+    () => (requestedAgendaMode === "sales" ? "sales" : "bot"),
+    [requestedAgendaMode],
+  );
+
+  const closeAgendaStudio = useCallback(() => {
+    setAgendaStudioOpen(false);
+    if (requestedAgendaMode === "sales") {
+      router.push(requestedAgendaReturnTo || "/dashboard/vendas");
+      return;
+    }
+
+    const params = new URLSearchParams(searchParams?.toString() || "");
+    params.delete("agendaStudio");
+    params.delete("agendaMode");
+    params.delete("returnTo");
+    const nextUrl = params.toString() ? `${pathname}?${params.toString()}` : pathname;
+    router.replace(nextUrl, { scroll: false });
+  }, [pathname, requestedAgendaMode, requestedAgendaReturnTo, router, searchParams]);
+
   const renderAgendaPanel = () => (
-    <AgendaPanel
+    <AgendaStudioModal
+      initialTab={initialAgendaStudioTab}
+      onClose={closeAgendaStudio}
       agendaConfig={agendaConfig}
       loadingAgenda={loadingAgenda}
       savingAgenda={savingAgenda}
+      botAgendaDirty={agendaDirty}
       currentUserEmail={String(currentUserProfile?.email || "")}
       currentUserName={String(currentUserProfile?.name || "")}
-      currentUserRole={String(currentUserProfile?.role || "")}
       canManageAgenda={canManageAgenda}
       onAddGroup={addAgendaGroup}
-      onMoveGroup={moveAgendaGroup}
       onRemoveGroup={removeAgendaGroup}
       onLinkCurrentUser={linkAgendaToCurrentUser}
-      onSave={() => {
+      onSaveBotAgenda={() => {
         setNotice(null);
         void saveAgenda();
       }}
@@ -4163,11 +4195,6 @@ export default function InboxClientPage() {
       onAddSlot={addAgendaSlot}
       onRemoveSlot={removeAgendaSlot}
       onUpdateSlot={updateAgendaSlot}
-      onUpdateHolidays={updateAgendaHolidays}
-      onLoadHolidays={loadAgendaHolidaysFromAPI}
-      onUpdateInitialMessage={updateAgendaInitialMessage}
-      onUpdateFlowMessage={updateAgendaFlowMessage}
-      onSimulate={simulateAgendaFlow}
     />
   );
 
@@ -6168,6 +6195,7 @@ export default function InboxClientPage() {
   );
 
   const addAgendaGroup = useCallback(() => {
+    setAgendaDirty(true);
     setAgendaConfig((current) => ({
       ...current,
       groups: [
@@ -6204,6 +6232,7 @@ export default function InboxClientPage() {
   }, [currentUserProfile?.email, currentUserProfile?.name]);
 
   const removeAgendaGroup = useCallback((groupId: string) => {
+    setAgendaDirty(true);
     const actionId = buildAgendaActionId(groupId);
     setAgendaConfig((current) => ({
       ...current,
@@ -6226,6 +6255,7 @@ export default function InboxClientPage() {
       field: AgendaGroupEditableField,
       value: string | boolean | number | number[],
     ) => {
+      setAgendaDirty(true);
       setAgendaConfig((current) => ({
         ...current,
         groups: current.groups.map((group) =>
@@ -6237,6 +6267,7 @@ export default function InboxClientPage() {
   );
 
   const moveAgendaGroup = useCallback((groupId: string, direction: -1 | 1) => {
+    setAgendaDirty(true);
     setAgendaConfig((current) => {
       const index = current.groups.findIndex((group) => group.id === groupId);
       const nextIndex = index + direction;
@@ -6258,6 +6289,7 @@ export default function InboxClientPage() {
     (groupId: string) => {
       const email = String(currentUserProfile?.email || "").trim().toLowerCase();
       if (!email) return;
+      setAgendaDirty(true);
       setAgendaConfig((current) => ({
         ...current,
         groups: current.groups.map((group) =>
@@ -6276,6 +6308,7 @@ export default function InboxClientPage() {
   );
 
   const addAgendaSlot = useCallback((groupId: string) => {
+    setAgendaDirty(true);
     setAgendaConfig((current) => ({
       ...current,
       groups: current.groups.map((group) =>
@@ -6300,6 +6333,7 @@ export default function InboxClientPage() {
   }, []);
 
   const removeAgendaSlot = useCallback((groupId: string, slotId: string) => {
+    setAgendaDirty(true);
     setAgendaConfig((current) => ({
       ...current,
       groups: current.groups.map((group) =>
@@ -6317,6 +6351,7 @@ export default function InboxClientPage() {
       field: "label" | "dayOfWeek" | "startTime" | "endTime" | "enabled",
       value: string | number | boolean,
     ) => {
+      setAgendaDirty(true);
       setAgendaConfig((current) => ({
         ...current,
         groups: current.groups.map((group) =>
@@ -6346,6 +6381,7 @@ export default function InboxClientPage() {
       field: keyof AtendimentoAgendaConfig["initialMessage"],
       value: string,
     ) => {
+      setAgendaDirty(true);
       setAgendaConfig((current) => ({
         ...current,
         initialMessage: {
@@ -6362,6 +6398,7 @@ export default function InboxClientPage() {
       field: keyof AtendimentoAgendaConfig["flowMessages"],
       value: string,
     ) => {
+      setAgendaDirty(true);
       setAgendaConfig((current) => ({
         ...current,
         flowMessages: {
@@ -6382,6 +6419,7 @@ export default function InboxClientPage() {
         setError("Nenhum feriado encontrado para o ano atual.");
         return;
       }
+      setAgendaDirty(true);
       setAgendaConfig((current) => ({
         ...current,
         holidays: Array.from(new Set([...current.holidays, ...holidays])).sort(),
@@ -6402,6 +6440,7 @@ export default function InboxClientPage() {
         body: JSON.stringify(agendaConfig),
       });
       setAgendaConfig(normalizeAgendaConfig(payload));
+      setAgendaDirty(false);
       setNotice({ tone: "success", text: "Agenda salva com sucesso." });
     } catch (saveError) {
       const message = saveError instanceof Error ? saveError.message : "Falha ao salvar agenda.";
@@ -6685,23 +6724,7 @@ export default function InboxClientPage() {
       </DashboardScaffold>
 
       {agendaStudioOpen ? (
-        <div className={`${styles.botStudioOverlay} ${overlayVisible ? styles.botStudioOverlayActive : ""}`}>
-          <div className={`${styles.botStudioFrame} ${overlayVisible ? styles.botStudioFrameActive : ""}`}>
-            <div className={styles.botStudioChrome}>
-              <div>
-                <p className={styles.botStudioChromeEyebrow}>Atendimento</p>
-                <strong>Agenda operacional</strong>
-              </div>
-              <div className={styles.headerActions}>
-                <span className={styles.metaBadge}>{agendaConfig.groups.length} guias ativas</span>
-                <button type="button" className="btn btn-secondary btn-sm" onClick={() => setAgendaStudioOpen(false)}>
-                  Fechar
-                </button>
-              </div>
-            </div>
-            <div className={styles.botStudioBody}>{renderAgendaPanel()}</div>
-          </div>
-        </div>
+        renderAgendaPanel()
       ) : null}
 
       {typeof document !== "undefined" &&
