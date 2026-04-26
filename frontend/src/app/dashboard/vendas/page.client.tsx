@@ -15,7 +15,7 @@ import {
 } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
 import { useDeferredValue, useEffect, useMemo, useRef, useState, useCallback, type CSSProperties, type FormEvent, type ReactNode } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import DashboardScaffold from "@/components/DashboardScaffold";
 import LiquidGlassCard, { liquidGlassCardStyles as glassCardStyles } from "@/components/LiquidGlassCard";
 import PremiumLaunchDialog from "@/components/PremiumLaunchDialog";
@@ -837,6 +837,7 @@ function DraggableLeadCard({
 
 export default function VendasClientPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const hasToken = useRequireAuth();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -981,6 +982,14 @@ export default function VendasClientPage() {
     if (hasToken !== true) return;
     void loadBoard();
   }, [hasToken]);
+
+  useEffect(() => {
+    if (hasToken !== true) return;
+    if (searchParams?.get("agendaStudio") !== "1") return;
+    const mode = searchParams?.get("agendaMode") || "sales";
+    if (mode !== "sales") return;
+    router.replace("/dashboard/inbox?atendimentoQueue=scheduled&atendimentoSection=agenda&agendaStudio=1&agendaMode=sales&returnTo=%2Fdashboard%2Fvendas");
+  }, [hasToken, router, searchParams]);
 
   useEffect(() => {
     if (hasToken !== true || initialAgendaSyncRef.current) return;
@@ -1814,8 +1823,8 @@ export default function VendasClientPage() {
               <div className={styles.filterRailHeader}>
                 <div><span className={styles.panelEyebrow}>Filtro por datas</span><strong>Agenda comercial</strong></div>
                 <div className={styles.filterRailActions}>
-                  <Link href="/dashboard/inbox?atendimentoQueue=scheduled&atendimentoSection=agenda&agendaStudio=1" prefetch={false} className={styles.secondaryAction}>
-                    Agenda
+                  <Link href="/dashboard/inbox?atendimentoQueue=scheduled&atendimentoSection=agenda&agendaStudio=1&agendaMode=sales&returnTo=%2Fdashboard%2Fvendas" prefetch={false} className={styles.secondaryAction}>
+                    Agenda Vendas
                   </Link>
                 </div>
               </div>

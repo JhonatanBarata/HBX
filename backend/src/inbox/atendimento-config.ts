@@ -357,6 +357,51 @@ export const DEFAULT_ATENDIMENTO_BOT_CONFIG: AtendimentoBotConfig = {
   blockedMessage: 'Este contato esta bloqueado no Atendimento.',
 };
 
+const DEFAULT_SALES_AGENDA_GROUP: AtendimentoAgendaGroup = {
+  id: 'agenda_vendas',
+  slug: 'vendas',
+  title: 'Vendas',
+  description: 'Horarios publicos do atendimento comercial.',
+  buttonLabel: 'Vendas',
+  actionType: 'abrir_agenda',
+  linkedAgendaId: 'agenda_vendas',
+  customActionKey: null,
+  sortOrder: 0,
+  introMessage:
+    'Esses sao os horarios disponiveis para {{agenda_nome}}.\n\n{{agenda_slots}}',
+  emptyMessage: 'No momento nao ha horarios ativos para Vendas.',
+  linkedEmail: '',
+  linkedUserName: '',
+  connectionStatus: 'not_linked',
+  accentColor: '#4da36f',
+  isActive: true,
+  workdays: [1, 2, 3, 4, 5],
+  visibleBusinessDays: 7,
+  searchWindowDays: 7,
+  suggestedSlotsCount: 3,
+  fallbackFutureSlotsCount: 3,
+  noImmediateAvailabilityMessage:
+    'Nao encontrei disponibilidade imediata para Vendas. Vou priorizar os proximos horarios futuros.',
+  slots: [
+    {
+      id: 'agenda_vendas_seg_0900',
+      label: 'Segunda 09:00-11:00',
+      dayOfWeek: 1,
+      startTime: '09:00',
+      endTime: '11:00',
+      enabled: true,
+    },
+    {
+      id: 'agenda_vendas_qua_1400',
+      label: 'Quarta 14:00-16:00',
+      dayOfWeek: 3,
+      startTime: '14:00',
+      endTime: '16:00',
+      enabled: true,
+    },
+  ],
+};
+
 export const DEFAULT_ATENDIMENTO_AGENDA_CONFIG: AtendimentoAgendaConfig = {
   timezone: 'America/Sao_Paulo',
   initialMessage: {
@@ -383,7 +428,11 @@ export const DEFAULT_ATENDIMENTO_AGENDA_CONFIG: AtendimentoAgendaConfig = {
     cancellationNotFound:
       'Nao encontrei agendamento ativo para este cliente. Se quiser, posso te mostrar novas opcoes de horario.',
   },
-  groups: [
+  groups: [DEFAULT_SALES_AGENDA_GROUP],
+  holidays: [],
+};
+
+const LEGACY_ATENDIMENTO_AGENDA_GROUPS: AtendimentoAgendaGroup[] = [
     {
       id: 'agenda_tecnicos',
       slug: 'tecnicos',
@@ -543,9 +592,8 @@ export const DEFAULT_ATENDIMENTO_AGENDA_CONFIG: AtendimentoAgendaConfig = {
         'Nao foi possivel localizar compromisso imediato para cancelamento.',
       slots: [],
     },
-  ],
-  holidays: [],
-};
+];
+void LEGACY_ATENDIMENTO_AGENDA_GROUPS;
 
 function normalizeText(value: unknown, fallback = '') {
   return String(value ?? fallback).trim();
