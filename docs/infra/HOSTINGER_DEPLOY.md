@@ -8,7 +8,7 @@ Fluxo oficial de producao do HBX para backend e webscraping na VPS Hostinger.
 - Backend: Hostinger em `https://api.hbxsystem.com.br`
 - Webscraping: Hostinger, via `docker-compose.hostinger.yml`
 - Banco: Postgres local da VPS no container `hbx-postgres`, banco `hbx_prod`
-- Rede Docker: externa, `hbx_net` ou `hbx-net`
+- Rede Docker: externa, preferindo a rede onde `hbx-postgres` ja esta conectado (`hbx_net` ou `hbx-net`)
 - Compose da VPS: `/usr/bin/docker-compose 1.29.2`
 
 O frontend nao e publicado pela Hostinger. Mudancas em `frontend/` dependem do deploy da Vercel.
