@@ -19,6 +19,43 @@ export const ATENDIMENTO_BOT_ACTION_IDS = [
 export type AtendimentoBotActionId = (typeof ATENDIMENTO_BOT_ACTION_IDS)[number];
 export type AtendimentoBotAnyActionId = AtendimentoBotActionId | string;
 
+export type ChannelProvider = 'evolution' | 'meta';
+
+export type ProviderCapabilities = {
+  provider: ChannelProvider;
+  canUseTemplates: boolean;
+  canUseOfficialButtons: boolean;
+  canUseRecoveryTemplates: boolean;
+  canUseAgendaBot: boolean;
+};
+
+export const EVOLUTION_PROVIDER_CAPABILITIES: ProviderCapabilities = {
+  provider: 'evolution',
+  canUseTemplates: false,
+  canUseOfficialButtons: false,
+  canUseRecoveryTemplates: false,
+  canUseAgendaBot: true,
+};
+
+export const META_PROVIDER_CAPABILITIES: ProviderCapabilities = {
+  provider: 'meta',
+  canUseTemplates: true,
+  canUseOfficialButtons: true,
+  canUseRecoveryTemplates: true,
+  canUseAgendaBot: true,
+};
+
+export const META_TEMPLATES_REQUIRED_MESSAGE =
+  'Templates oficiais exigem Meta WhatsApp Oficial.';
+
+export const ATENDIMENTO_RECOVERY_ACTION_IDS = [
+  'enter_recovery',
+  'view_payments',
+  'pay_now',
+  'negotiate_debt',
+  'continue_attendance',
+] as const;
+
 export type AtendimentoBotVariableScope = 'shared' | 'atendimento' | 'recovery';
 
 export type AtendimentoBotVariableDefinition = {
@@ -821,6 +858,137 @@ export function normalizeAtendimentoBotConfig(
     blockedMessage: normalizeText(
       config.blockedMessage,
       DEFAULT_ATENDIMENTO_BOT_CONFIG.blockedMessage,
+    ),
+  };
+}
+
+export function getProviderCapabilities(provider: ChannelProvider): ProviderCapabilities {
+  return provider === 'meta'
+    ? { ...META_PROVIDER_CAPABILITIES }
+    : { ...EVOLUTION_PROVIDER_CAPABILITIES };
+}
+
+export function resolveProviderCapabilitiesFromCompany(company: {
+  whatsappConnectionMode?: string | null;
+} | null | undefined): ProviderCapabilities {
+  const mode = String(company?.whatsappConnectionMode || '').trim().toUpperCase();
+  return getProviderCapabilities(mode === 'OFFICIAL' ? 'meta' : 'evolution');
+}
+
+export function isAtendimentoRecoveryActionId(value: unknown) {
+  const normalized = normalizeActionId(value, '');
+  if (!normalized) return false;
+  if ((ATENDIMENTO_RECOVERY_ACTION_IDS as readonly string[]).includes(normalized)) return true;
+  return (
+    normalized.includes('recovery') ||
+    normalized.includes('payment') ||
+    normalized.includes('payments') ||
+    normalized.includes('debt') ||
+    normalized.includes('financeiro') ||
+    normalized.includes('financial')
+  );
+}
+
+function isAtendimentoAgendaActionId(value: unknown) {
+  const normalized = normalizeActionId(value, '');
+  return normalized === 'schedule_service' || normalized.startsWith('agenda:');
+}
+
+function isSanitizedRecoveryAction(action: AtendimentoBotActionGuide) {
+  return (
+    action.route === 'recovery' ||
+    action.kind === 'recovery_handoff' ||
+    isAtendimentoRecoveryActionId(action.actionId)
+  );
+}
+
+function isSanitizedAgendaAction(action: AtendimentoBotActionGuide) {
+  return action.kind === 'agenda' || isAtendimentoAgendaActionId(action.actionId);
+}
+
+function sanitizeButtonListForAllowedActions(
+  buttons: AtendimentoBotButton[],
+  allowedActionIds: Set<string>,
+  fallback: AtendimentoBotButton[] = [],
+) {
+  const sanitize = (items: AtendimentoBotButton[]) =>
+    (items || [])
+      .filter((button) => {
+        const actionId = normalizeActionId(button.actionId, '');
+        return actionId && allowedActionIds.has(actionId);
+      })
+      .map((button) => ({
+        ...button,
+        actionId: normalizeActionId(button.actionId, ''),
+      }));
+
+  const filtered = sanitize(buttons);
+  return filtered.length ? filtered : sanitize(fallback);
+}
+
+export function sanitizeAtendimentoBotConfigForTenant(
+  config: Partial<AtendimentoBotConfig> | null | undefined,
+  options: {
+    providerCapabilities: ProviderCapabilities;
+    recoveryEnabled: boolean;
+  },
+): AtendimentoBotConfig {
+  const normalized = normalizeAtendimentoBotConfig(config || {});
+  const providerCapabilities = options.providerCapabilities || EVOLUTION_PROVIDER_CAPABILITIES;
+  const recoveryEnabled = Boolean(options.recoveryEnabled);
+
+  const actionCatalog = (normalized.actionCatalog || []).filter((action) => {
+    if (!recoveryEnabled && isSanitizedRecoveryAction(action)) return false;
+    if (!providerCapabilities.canUseAgendaBot && isSanitizedAgendaAction(action)) return false;
+    return true;
+  });
+  const allowedActionIds = new Set(
+    actionCatalog
+      .map((action) => normalizeActionId(action.actionId, ''))
+      .filter(Boolean),
+  );
+
+  return {
+    ...normalized,
+    variableCatalog: recoveryEnabled
+      ? normalized.variableCatalog
+      : normalized.variableCatalog.filter((item) => item.scope !== 'recovery'),
+    actionCatalog,
+    routingRules: {
+      ...normalized.routingRules,
+      checkRecoveryBeforeReply: recoveryEnabled
+        ? normalized.routingRules.checkRecoveryBeforeReply
+        : false,
+      autoRouteDebtorsToRecovery: recoveryEnabled
+        ? normalized.routingRules.autoRouteDebtorsToRecovery
+        : false,
+    },
+    welcomeButtons: sanitizeButtonListForAllowedActions(
+      normalized.welcomeButtons,
+      allowedActionIds,
+      normalized.welcomeButtons.length ? DEFAULT_ATENDIMENTO_BOT_CONFIG.welcomeButtons : [],
+    ),
+    returningCustomerButtons: sanitizeButtonListForAllowedActions(
+      normalized.returningCustomerButtons,
+      allowedActionIds,
+      DEFAULT_ATENDIMENTO_BOT_CONFIG.returningCustomerButtons,
+    ),
+    mainMenuButtons: sanitizeButtonListForAllowedActions(
+      normalized.mainMenuButtons,
+      allowedActionIds,
+      DEFAULT_ATENDIMENTO_BOT_CONFIG.mainMenuButtons,
+    ),
+    recoveryDetectedButtons: recoveryEnabled
+      ? sanitizeButtonListForAllowedActions(
+          normalized.recoveryDetectedButtons,
+          allowedActionIds,
+          DEFAULT_ATENDIMENTO_BOT_CONFIG.recoveryDetectedButtons,
+        )
+      : [],
+    postActionButtons: sanitizeButtonListForAllowedActions(
+      normalized.postActionButtons,
+      allowedActionIds,
+      DEFAULT_ATENDIMENTO_BOT_CONFIG.postActionButtons,
     ),
   };
 }

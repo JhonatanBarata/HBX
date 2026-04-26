@@ -28,15 +28,20 @@ import {
   ATENDIMENTO_BUTTON_ID_PREFIX,
   DEFAULT_ATENDIMENTO_AGENDA_CONFIG,
   DEFAULT_ATENDIMENTO_BOT_CONFIG,
+  META_TEMPLATES_REQUIRED_MESSAGE,
   buildAtendimentoAgendaActionId,
+  isAtendimentoRecoveryActionId,
   normalizeAtendimentoAgendaConfig,
   normalizeAtendimentoBotConfig,
   parseAtendimentoAgendaActionId,
+  resolveProviderCapabilitiesFromCompany,
+  sanitizeAtendimentoBotConfigForTenant,
   type AtendimentoAgendaConfig,
   type AtendimentoAgendaGroup,
   type AtendimentoBotActionGuide,
   type AtendimentoBotButton,
   type AtendimentoBotConfig,
+  type ProviderCapabilities,
 } from '../inbox/atendimento-config';
 import {
   applyMasterWhatsAppCredentials,
@@ -246,6 +251,37 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
 
     const resolved = await applyMasterWhatsAppCredentials(this.prisma, company);
     return resolved.company || null;
+  }
+
+  private async resolveAtendimentoBotSanitizationContext(companyId: number): Promise<{
+    providerCapabilities: ProviderCapabilities;
+    recoveryEnabled: boolean;
+  }> {
+    const [company, recoveryModule] = await Promise.all([
+      this.prisma.company.findUnique({
+        where: { id: companyId },
+        select: {
+          whatsappConnectionMode: true,
+          trialModuleSelection: true,
+        },
+      }),
+      this.prisma.companyModule?.findFirst
+        ? this.prisma.companyModule.findFirst({
+            where: {
+              companyId,
+              enabled: true,
+              systemModule: { key: 'hbx_recovery' },
+            },
+            select: { id: true },
+          })
+        : Promise.resolve(null),
+    ]);
+    return {
+      providerCapabilities: resolveProviderCapabilitiesFromCompany(company),
+      recoveryEnabled:
+        Boolean(recoveryModule?.id) ||
+        String(company?.trialModuleSelection || '').trim().toLowerCase() === 'recovery',
+    };
   }
 
   private computeWebhookSignature(rawBody: Buffer): string {
@@ -541,6 +577,23 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     return `${normalizedBody}\n\n${labels.map((label, index) => `${index + 1}. ${label}`).join('\n')}`.trim();
   }
 
+  private buildInteractiveFallbackText(payload: Record<string, any> | null | undefined, fallbackBody: string) {
+    const body = String(payload?.body?.text || fallbackBody || '').trim();
+    const labels: string[] = [];
+    for (const button of Array.isArray(payload?.action?.buttons) ? payload.action.buttons : []) {
+      const title = String(button?.reply?.title || button?.title || '').trim();
+      if (title) labels.push(title);
+    }
+    for (const section of Array.isArray(payload?.action?.sections) ? payload.action.sections : []) {
+      for (const row of Array.isArray(section?.rows) ? section.rows : []) {
+        const title = String(row?.title || '').trim();
+        if (title) labels.push(title);
+      }
+    }
+    if (!labels.length) return body;
+    return `${body}\n\n${labels.map((label, index) => `${index + 1}. ${label}`).join('\n')}`.trim();
+  }
+
   private flattenRecoveryButtons(config: RecoveryBotConfig) {
     return [
       ...(config.mainMenuButtons || []),
@@ -556,10 +609,41 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
   private flattenAtendimentoButtons(config: AtendimentoBotConfig) {
     return [
       ...(config.welcomeButtons || []),
+      ...(config.returningCustomerButtons || []),
       ...(config.mainMenuButtons || []),
       ...(config.recoveryDetectedButtons || []),
       ...(config.postActionButtons || []),
     ];
+  }
+
+  private pickNumberedButtonAction<TButton extends { actionId?: string | null }>(
+    rawText: string | null | undefined,
+    buttons: TButton[],
+  ) {
+    const index = Number(String(rawText || '').trim());
+    if (!Number.isInteger(index) || index < 1) return '';
+    return String((buttons || [])[index - 1]?.actionId || '').trim().toLowerCase();
+  }
+
+  private getRecoveryButtonsForStep(config: RecoveryBotConfig, step?: string | null): RecoveryBotButton[] {
+    const normalized = String(step || '').trim().toLowerCase();
+    if (normalized === RECOVERY_STEP.DECLINE_MENU) return config.declineMenuButtons || [];
+    if (normalized === RECOVERY_STEP.FOLLOWUP_PICK) return config.followupButtons || [];
+    if (normalized === RECOVERY_STEP.VIEWING_AMOUNT) return config.valueButtons || [];
+    if (normalized === RECOVERY_STEP.CHOOSING_INSTALLMENTS) return config.installmentButtons || [];
+    if (normalized === RECOVERY_STEP.CONFIRMING_INSTALLMENTS) return config.installmentConfirmButtons || [];
+    if (normalized === RECOVERY_STEP.LINK_GENERATED_CASH || normalized === RECOVERY_STEP.LINK_GENERATED_INSTALLMENTS) {
+      return config.postLinkButtons || [];
+    }
+    return config.mainMenuButtons || [];
+  }
+
+  private getAtendimentoButtonsForStep(config: AtendimentoBotConfig, step?: string | null): AtendimentoBotButton[] {
+    const normalized = String(step || '').trim().toLowerCase();
+    if (normalized === ATENDIMENTO_STEP.RECOVERY_GATE) return config.recoveryDetectedButtons || [];
+    if (normalized === ATENDIMENTO_STEP.AGENDA) return config.postActionButtons || [];
+    if (normalized === ATENDIMENTO_STEP.WELCOME) return config.welcomeButtons || [];
+    return config.mainMenuButtons || [];
   }
 
   private toRecoveryButtonId(buttonId: string) {
@@ -1498,7 +1582,11 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
-  private async getAtendimentoBotConfig(companyId: number): Promise<AtendimentoBotConfig> {
+  private async getAtendimentoBotConfig(
+    companyId: number,
+    tenantContext?: { providerCapabilities: ProviderCapabilities; recoveryEnabled: boolean },
+  ): Promise<AtendimentoBotConfig> {
+    const context = tenantContext || (await this.resolveAtendimentoBotSanitizationContext(companyId));
     const row = await this.prisma.hbxRecoveryFlowStage.findFirst({
       where: {
         companyId,
@@ -1507,11 +1595,16 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
       },
       orderBy: { updatedAt: 'desc' },
     });
-    if (!row?.template) return DEFAULT_ATENDIMENTO_BOT_CONFIG;
+    if (!row?.template) {
+      return sanitizeAtendimentoBotConfigForTenant(DEFAULT_ATENDIMENTO_BOT_CONFIG, context);
+    }
     try {
-      return normalizeAtendimentoBotConfig(JSON.parse(row.template));
+      return sanitizeAtendimentoBotConfigForTenant(
+        normalizeAtendimentoBotConfig(JSON.parse(row.template)),
+        context,
+      );
     } catch {
-      return DEFAULT_ATENDIMENTO_BOT_CONFIG;
+      return sanitizeAtendimentoBotConfigForTenant(DEFAULT_ATENDIMENTO_BOT_CONFIG, context);
     }
   }
 
@@ -1649,6 +1742,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     };
 
     mergeButtons(config.welcomeButtons || []);
+    mergeButtons(config.returningCustomerButtons || []);
     mergeButtons(config.mainMenuButtons || []);
     mergeButtons(config.recoveryDetectedButtons || []);
     mergeButtons(config.postActionButtons || []);
@@ -1673,12 +1767,18 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     rawPayload: any,
     normalizedText: string,
     agendaConfig: AtendimentoAgendaConfig,
+    currentStep?: string | null,
   ) {
     const direct = this.resolveAtendimentoActionIdFromButtonId(config, rawActionId);
     if (direct) return direct;
     const aliasMap = this.buildAtendimentoActionAliasMap(config, agendaConfig);
     const normalizedPayloadText = this.normalizeActionLabel(extractInboundTextFromPayload(rawPayload));
     if (normalizedPayloadText && aliasMap[normalizedPayloadText]) return aliasMap[normalizedPayloadText];
+    const numberedAction = this.pickNumberedButtonAction(
+      normalizedText,
+      this.getAtendimentoButtonsForStep(config, currentStep),
+    );
+    if (numberedAction) return numberedAction;
     if (normalizedText && aliasMap[this.normalizeActionLabel(normalizedText)]) {
       return aliasMap[this.normalizeActionLabel(normalizedText)];
     }
@@ -1737,7 +1837,10 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     buttons: AtendimentoBotButton[];
     variables?: Record<string, unknown>;
   }) {
-    const interactivePayload = this.getAtendimentoButtonsInteractive(input.body, input.buttons);
+    const tenantContext = await this.resolveAtendimentoBotSanitizationContext(input.companyId);
+    const interactivePayload = tenantContext.providerCapabilities.canUseOfficialButtons
+      ? this.getAtendimentoButtonsInteractive(input.body, input.buttons)
+      : null;
     const fallbackText = this.buildButtonFallbackText(input.body, input.buttons);
     const messageBody = interactivePayload ? input.body : fallbackText;
     const shouldSuppress = await this.hasRecentDuplicateAtendimentoReply({
@@ -1914,6 +2017,19 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     customer: any;
     metadata?: Record<string, any>;
   }) {
+    const tenantContext = await this.resolveAtendimentoBotSanitizationContext(input.companyId);
+    if (!tenantContext.recoveryEnabled) {
+      const atendimentoConfig = await this.getAtendimentoBotConfig(input.companyId, tenantContext);
+      await this.routeAtendimentoToHumanQueue({
+        companyId: input.companyId,
+        conversationId: input.conversationId,
+        from: input.from,
+        config: atendimentoConfig,
+        metadata: input.metadata,
+        reason: 'recovery_sem_plano',
+      });
+      return;
+    }
     await this.queueRecoveryInteractiveMenu(
       input.companyId,
       input.from,
@@ -2634,6 +2750,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     config: RecoveryBotConfig,
     rawPayload?: any,
     normalizedText?: string,
+    currentStep?: string | null,
   ): string {
     const directButtonAction = this.resolveRecoveryActionIdFromButtonId(config, rawActionId);
     if (directButtonAction) return directButtonAction;
@@ -2649,6 +2766,12 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     const aliasMap = this.buildRecoveryActionAliasMap(config);
     const directByLabel = aliasMap[this.normalizeActionLabel(rawActionId)];
     if (directByLabel) return directByLabel;
+
+    const numberedAction = this.pickNumberedButtonAction(
+      normalizedText,
+      this.getRecoveryButtonsForStep(config, currentStep),
+    );
+    if (numberedAction) return numberedAction;
 
     if (String(rawPayload?.type || '').trim().toLowerCase() !== 'button') {
       const freeTextAction = aliasMap[this.normalizeActionLabel(normalizedText || '')];
@@ -2737,7 +2860,6 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     const config = await this.getRecoveryBotConfig(companyId);
     const normalizedText = String(text || '').trim().toLowerCase();
     const rawActionId = this.extractInteractiveReplyId(rawPayload);
-    const interactiveId = this.normalizeRecoveryActionId(rawActionId, config, rawPayload, normalizedText);
     const safeConversationId = Number(conversationId || 0);
     const conversation = safeConversationId
       ? await this.prisma.companyConversation.findFirst({
@@ -2752,6 +2874,30 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
           },
         })
       : null;
+    const tenantContext = await this.resolveAtendimentoBotSanitizationContext(companyId);
+    if (!tenantContext.recoveryEnabled) {
+      await this.prisma.companyMessage.update({
+        where: { id: inboundMessageId },
+        data: { sourceModule: 'atendimento_human', isComplaint: false },
+      });
+      const atendimentoConfig = await this.getAtendimentoBotConfig(companyId, tenantContext);
+      await this.routeAtendimentoToHumanQueue({
+        companyId,
+        conversationId: safeConversationId,
+        from,
+        config: atendimentoConfig,
+        metadata: this.parseConversationMetadata(conversation?.metadata),
+        reason: 'recovery_sem_plano',
+      });
+      return { handled: true, recoveryBlocked: true };
+    }
+    const interactiveId = this.normalizeRecoveryActionId(
+      rawActionId,
+      config,
+      rawPayload,
+      normalizedText,
+      conversation?.currentStep,
+    );
     const flowMeta = this.parseConversationMetadata(conversation?.metadata);
     const blockedState = this.getRecoveryBlockedState(flowMeta);
 
@@ -3202,7 +3348,8 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     rawPayload?: any;
   }) {
     const { companyId, from, text, conversationId, inboundMessageId, company, recoveryCustomer, rawPayload } = input;
-    const config = await this.getAtendimentoBotConfig(companyId);
+    const tenantContext = await this.resolveAtendimentoBotSanitizationContext(companyId);
+    const config = await this.getAtendimentoBotConfig(companyId, tenantContext);
     const agendaConfig = await this.getAtendimentoAgendaConfig(companyId);
     const normalizedText = String(text || '').trim().toLowerCase();
     const rawActionId = this.extractInteractiveReplyId(rawPayload);
@@ -3251,6 +3398,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
       rawPayload,
       normalizedText,
       agendaConfig,
+      conversation?.currentStep,
     );
     const actionGuide = this.getAtendimentoActionGuide(config, actionId);
     const messageCount = safeConversationId
@@ -3342,6 +3490,22 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     });
     if (vendasAgendaBotGate?.handled) {
       return vendasAgendaBotGate;
+    }
+
+    if (
+      !tenantContext.recoveryEnabled &&
+      (isRecoveryConversation || isAtendimentoRecoveryActionId(actionId) || actionGuide?.kind === 'recovery_handoff')
+    ) {
+      await setInboundMeta('atendimento_human', true);
+      await this.routeAtendimentoToHumanQueue({
+        companyId,
+        conversationId: safeConversationId,
+        from,
+        config,
+        metadata,
+        reason: 'recovery_sem_plano',
+      });
+      return { handled: true, recoveryBlocked: true };
     }
 
     if (recoveryCustomer && isRecoveryConversation) {
@@ -4090,11 +4254,23 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     const startedAtMs = Date.now();
 
     try {
-      const messageType = String(msg.messageType || 'text').toLowerCase();
+      let messageType = String(msg.messageType || 'text').toLowerCase();
+      let dispatchBody = String(msg.body || '');
       const conversationId = Number(msg.message?.conversationId || 0) || null;
       const dispatchVariables = this.parseJsonPayload<Record<string, any>>(msg.message?.variablesJson, {});
       const attachment = this.extractWebwhatsAttachment(dispatchVariables);
-      const webwhatsAvailable = this.webwhatsBridge.isDispatchAvailable((company as any)?.whatsappModalStatus);
+      const providerCapabilities = resolveProviderCapabilitiesFromCompany(company);
+      const webwhatsAvailable =
+        providerCapabilities.provider === 'evolution' &&
+        this.webwhatsBridge.isDispatchAvailable((company as any)?.whatsappModalStatus);
+      if (messageType === 'template' && !providerCapabilities.canUseTemplates) {
+        throw new Error(META_TEMPLATES_REQUIRED_MESSAGE);
+      }
+      if (messageType === 'interactive' && !providerCapabilities.canUseOfficialButtons) {
+        const interactivePayload = this.parseJsonPayload<Record<string, any>>(msg.templateComponents, {});
+        dispatchBody = this.buildInteractiveFallbackText(interactivePayload, dispatchBody);
+        messageType = 'text';
+      }
 
       const markWebwhatsSent = async (input: {
         requestBody: Record<string, unknown>;
@@ -4204,11 +4380,11 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
         try {
           const webwhatsResult = await this.webwhatsBridge.sendText(msg.companyId, {
             to: msg.to,
-            text: msg.body,
+            text: dispatchBody,
             conversationId,
           });
           await markWebwhatsSent({
-            requestBody: { number: webwhatsResult.target, text: msg.body },
+            requestBody: { number: webwhatsResult.target, text: dispatchBody },
             response: webwhatsResult.response,
             providerMessageId: webwhatsResult.providerMessageId,
           });
@@ -4260,7 +4436,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
             finishedAt: new Date(),
             success: true,
             httpStatus: 200,
-            requestBody: JSON.stringify({ dryRun: true, to: msg.to, body: msg.body, messageType: msg.messageType }),
+            requestBody: JSON.stringify({ dryRun: true, to: msg.to, body: dispatchBody, messageType }),
             responseBody: 'WHATSAPP_ENABLED=false (dry-run)',
           },
         });
@@ -4310,7 +4486,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
         requestBody.interactive = interactivePayload;
       } else {
         requestBody.type = 'text';
-        requestBody.text = { body: msg.body };
+        requestBody.text = { body: dispatchBody };
       }
 
       this.logger.log(`WhatsApp send attempt ${attemptNo} -> messageId=${msg.id} to=${msg.to}`);
@@ -5131,7 +5307,12 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
       }
     }
 
-    if (recoveryCustomer && ['text', 'button', 'interactive', 'image', 'video', 'document', 'audio'].includes(input.inboundType)) {
+    const tenantContext = await this.resolveAtendimentoBotSanitizationContext(companyId);
+    if (
+      tenantContext.recoveryEnabled &&
+      recoveryCustomer &&
+      ['text', 'button', 'interactive', 'image', 'video', 'document', 'audio'].includes(input.inboundType)
+    ) {
       await this.handleRecoveryInbound({
         companyId,
         from,

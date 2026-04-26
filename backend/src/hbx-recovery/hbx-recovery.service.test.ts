@@ -302,7 +302,7 @@ test('createMetaTemplate omits deprecated allow_category_change and reuses pendi
 
   service.prisma = {
     company: {
-      findUnique: async () => ({ name: 'Colsani' }),
+      findUnique: async () => ({ name: 'Colsani', whatsappConnectionMode: 'OFFICIAL' }),
     },
   };
   service.getMetaTemplateRegistry = async () => ({

@@ -71,6 +71,7 @@ import {
   ATENDIMENTO_QUEUE_EVENT,
   DEFAULT_ATENDIMENTO_AGENDA_CONFIG,
   DEFAULT_ATENDIMENTO_BOT_CONFIG,
+  META_TEMPLATES_REQUIRED_MESSAGE,
   buildAgendaActionId,
   fetchBrazilianHolidays,
   formatCurrency,
@@ -78,6 +79,7 @@ import {
   type InboxBootstrapPayload,
   normalizeAgendaConfig,
   normalizeBotConfig,
+  sanitizeAtendimentoBotConfigForTenant,
   type AtendimentoAgendaConfig,
   type AtendimentoAgendaSimulationPayload,
   type AtendimentoAgendaSimulationResult,
@@ -3690,11 +3692,16 @@ export default function InboxClientPage() {
   );
 
   const hasRecoveryCapability = useMemo(
-    () =>
-      userModules.some(
+    () => {
+      const trialModule = String(whatsappCenterPayload?.company.trialModuleSelection || "")
+        .trim()
+        .toLowerCase();
+      if (trialModule === "recovery") return true;
+      return userModules.some(
         (module) => module.accessible && module.key === "hbx_recovery",
-      ),
-    [userModules],
+      );
+    },
+    [userModules, whatsappCenterPayload?.company.trialModuleSelection],
   );
 
   const actionOptions = useMemo(() => {
@@ -3758,6 +3765,19 @@ export default function InboxClientPage() {
     () => getProviderCapabilitiesFromWhatsAppCenter(whatsappCenterPayload),
     [whatsappCenterPayload],
   );
+
+  const sanitizeBotConfigForCurrentTenant = useCallback(
+    (config: Partial<AtendimentoBotConfig> | null | undefined) =>
+      sanitizeAtendimentoBotConfigForTenant(config, {
+        providerCapabilities,
+        recoveryEnabled: hasRecoveryCapability,
+      }),
+    [hasRecoveryCapability, providerCapabilities],
+  );
+
+  useEffect(() => {
+    setBotConfig((current) => sanitizeBotConfigForCurrentTenant(current));
+  }, [sanitizeBotConfigForCurrentTenant]);
 
   const conversationForView = useMemo(
     () => {
@@ -4051,7 +4071,7 @@ export default function InboxClientPage() {
     if (!providerCapabilities.canUseTemplates) {
       setNotice({
         tone: "info",
-        text: "Templates oficiais sao exclusivos do canal Meta WhatsApp Oficial.",
+        text: META_TEMPLATES_REQUIRED_MESSAGE,
       });
       return;
     }
@@ -4081,7 +4101,7 @@ export default function InboxClientPage() {
       setTemplatesStudioOpen(false);
       setNotice({
         tone: "info",
-        text: "No canal Evolution, o bot usa apenas mensagens simples e menu numerado.",
+        text: META_TEMPLATES_REQUIRED_MESSAGE,
       });
       return;
     }
@@ -4116,7 +4136,7 @@ export default function InboxClientPage() {
       if (!providerCapabilities.canUseTemplates) {
         setNotice({
           tone: "info",
-          text: "Templates oficiais sao exclusivos do canal Meta WhatsApp Oficial.",
+          text: META_TEMPLATES_REQUIRED_MESSAGE,
         });
         return;
       }
@@ -4152,7 +4172,7 @@ export default function InboxClientPage() {
     if (!providerCapabilities.canUseTemplates) {
       setNotice({
         tone: "info",
-        text: "Templates oficiais sao exclusivos do canal Meta WhatsApp Oficial.",
+        text: META_TEMPLATES_REQUIRED_MESSAGE,
       });
       return;
     }
@@ -4185,7 +4205,7 @@ export default function InboxClientPage() {
     if (!providerCapabilities.canUseTemplates) {
       setNotice({
         tone: "info",
-        text: "Templates oficiais sao exclusivos do canal Meta WhatsApp Oficial.",
+        text: META_TEMPLATES_REQUIRED_MESSAGE,
       });
       return;
     }
@@ -4317,7 +4337,7 @@ export default function InboxClientPage() {
 
   const toggleGlobalBot = useCallback(async () => {
     const enabled = !globalBotEnabled;
-    const nextConfig = normalizeBotConfig({
+    const nextConfig = sanitizeBotConfigForCurrentTenant({
       ...botConfig,
       routingRules: {
         ...botConfig.routingRules,
@@ -4331,7 +4351,7 @@ export default function InboxClientPage() {
         method: "PATCH",
         body: JSON.stringify(nextConfig),
       });
-      const normalized = normalizeBotConfig(payload);
+      const normalized = sanitizeBotConfigForCurrentTenant(payload);
       writeStoredGlobalBotEnabled(normalized.routingRules.globalBotEnabled !== false);
       setBotConfig(normalized);
       setNotice({
@@ -4346,7 +4366,7 @@ export default function InboxClientPage() {
     } finally {
       setSavingBot(false);
     }
-  }, [botConfig, globalBotEnabled]);
+  }, [botConfig, globalBotEnabled, sanitizeBotConfigForCurrentTenant]);
 
   const moveConversationToQueue = useCallback(
     async (
@@ -6549,9 +6569,9 @@ export default function InboxClientPage() {
       if (botConfigDirtyFromAgendaReset) {
         const botPayload = await apiFetch<AtendimentoBotConfig>("/inbox/bot-config", {
           method: "PATCH",
-          body: JSON.stringify(botConfig),
+          body: JSON.stringify(sanitizeBotConfigForCurrentTenant(botConfig)),
         });
-        setBotConfig(normalizeBotConfig(botPayload));
+        setBotConfig(sanitizeBotConfigForCurrentTenant(botPayload));
         setBotConfigDirtyFromAgendaReset(false);
       }
       setAgendaConfig(normalizeAgendaConfig(payload));
@@ -6563,7 +6583,7 @@ export default function InboxClientPage() {
     } finally {
       setSavingAgenda(false);
     }
-  }, [agendaConfig, botConfig, botConfigDirtyFromAgendaReset]);
+  }, [agendaConfig, botConfig, botConfigDirtyFromAgendaReset, sanitizeBotConfigForCurrentTenant]);
 
   const simulateAgendaFlow = useCallback(
     async (payload: AtendimentoAgendaSimulationPayload) => {
@@ -6576,18 +6596,19 @@ export default function InboxClientPage() {
   );
 
   const syncBotConfig = useCallback((nextConfig: AtendimentoBotConfig) => {
-    setBotConfig(nextConfig);
-  }, []);
+    setBotConfig(sanitizeBotConfigForCurrentTenant(nextConfig));
+  }, [sanitizeBotConfigForCurrentTenant]);
 
   const saveBot = useCallback(async (nextConfig: AtendimentoBotConfig = botConfig) => {
     setSavingBot(true);
     setError(null);
+    const sanitizedNextConfig = sanitizeBotConfigForCurrentTenant(nextConfig);
     try {
       const payload = await apiFetch<AtendimentoBotConfig>("/inbox/bot-config", {
         method: "PATCH",
-        body: JSON.stringify(nextConfig),
+        body: JSON.stringify(sanitizedNextConfig),
       });
-      const normalized = normalizeBotConfig(payload);
+      const normalized = sanitizeBotConfigForCurrentTenant(payload);
       writeStoredGlobalBotEnabled(normalized.routingRules.globalBotEnabled !== false);
       setBotConfig(normalized);
       setNotice({ tone: "success", text: "Editor do bot salvo com sucesso." });
@@ -6597,7 +6618,7 @@ export default function InboxClientPage() {
     } finally {
       setSavingBot(false);
     }
-  }, [botConfig]);
+  }, [botConfig, sanitizeBotConfigForCurrentTenant]);
 
   function scheduleAlertCollapse(
     key: InboxAlertKind | "system_notice",

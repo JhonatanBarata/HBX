@@ -350,7 +350,10 @@ test('handleAtendimentoInbound enters the Vendas agenda bot gate and opens the m
   assert.equal(queueCalls.length, 1);
   assert.equal((queueCalls[0].payload as any).sourceModule, 'atendimento_bot');
   assert.equal((queueCalls[0].payload as any).flowState.currentStep, 'menu_principal');
-  assert.equal((queueCalls[0].payload as any).body, 'Escolha abaixo como deseja continuar:');
+  assert.equal(
+    (queueCalls[0].payload as any).body,
+    'Escolha abaixo como deseja continuar:\n\n1. Falar com atendente\n2. Agendar visita',
+  );
   assert.equal(conversationStateCalls.length, 1);
   assert.equal((conversationStateCalls[0].payload as any).humanAssigned, false);
   assert.equal((conversationStateCalls[0].payload as any).botActive, true);

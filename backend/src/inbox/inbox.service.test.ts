@@ -70,6 +70,13 @@ function createService(overrides?: Partial<Record<string, any>>) {
       create: async ({ data }: any) => ({ id: 'debt-1', ...data }),
       update: async ({ where, data }: any) => ({ id: where.id, ...data }),
     },
+    vendasLead: {
+      findFirst: async () => null,
+      update: async ({ where, data }: any) => ({ id: where.id, ...data }),
+    },
+    vendasLeadTimelineEvent: {
+      create: async ({ data }: any) => ({ id: 'event-1', ...data }),
+    },
     companyConversation: {
       findFirst: async ({ where }: any) => {
         if (Number(where?.id || 42) === 42 && Number(where?.companyId || 7) === 7) return { ...baseConversation };
@@ -118,6 +125,8 @@ function createService(overrides?: Partial<Record<string, any>>) {
       byProfileId: new Map(),
       byPhoneNormalized: new Map(),
     }),
+    normalizePhone: (phone: string) => String(phone || '').replace(/\D/g, '').slice(-13),
+    upsertAtendimentoProfileState: async (input: Record<string, unknown>) => ({ id: 'profile-1', ...input }),
     ...(overrides?.customerProfileService || {}),
   } as any;
 
@@ -387,12 +396,13 @@ test('unblockConversation clears BOT_OFF on CustomerProfile', async () => {
   assert.equal(profileStateCalls[0].botOff, false);
 });
 
-test('deleteConversation removes local records after WhatsApp confirms deletion', async () => {
+test('deleteConversation archives conversations with history locally', async () => {
   const messageDeleteCalls: Array<Record<string, unknown>> = [];
   const conversationDeleteCalls: Array<Record<string, unknown>> = [];
-  const { service, auditCalls } = createService({
+  const { service, auditCalls, conversationStateCalls } = createService({
     prisma: {
       companyMessage: {
+        count: async () => 3,
         deleteMany: async (input: Record<string, unknown>) => {
           messageDeleteCalls.push(input);
           return { count: 3 };
@@ -431,26 +441,23 @@ test('deleteConversation removes local records after WhatsApp confirms deletion'
   const result = await service.deleteConversation({ companyId: 7 }, 42);
 
   assert.equal(result.success, true);
-  assert.equal(result.message, 'Conversa excluida do sistema e do WhatsApp.');
-  assert.equal(messageDeleteCalls.length, 1);
-  assert.deepEqual(messageDeleteCalls[0], {
-    where: { companyId: 7, conversationId: 42 },
-  });
-  assert.equal(conversationDeleteCalls.length, 1);
-  assert.deepEqual(conversationDeleteCalls[0], {
-    where: { id: 42 },
-  });
-  assert.equal(auditCalls.length, 2);
-  assert.equal(auditCalls[0].event, 'conversation_delete_whatsapp_confirmed');
-  assert.equal(auditCalls[1].event, 'conversation_deleted');
+  assert.equal(result.message, 'Conversa enviada para Excluídos apenas no HBX.');
+  assert.equal(result.localOnly, true);
+  assert.equal(messageDeleteCalls.length, 0);
+  assert.equal(conversationDeleteCalls.length, 0);
+  assert.equal(conversationStateCalls.length, 1);
+  assert.equal((conversationStateCalls[0].payload as any).flowResult, 'local_deleted');
+  assert.equal(auditCalls.length, 1);
+  assert.equal(auditCalls[0].event, 'conversation_local_deleted');
 });
 
-test('deleteConversation keeps idempotent success when WhatsApp chat is already gone', async () => {
+test('deleteConversation keeps local archive success without WhatsApp command', async () => {
   const messageDeleteCalls: Array<Record<string, unknown>> = [];
   const conversationDeleteCalls: Array<Record<string, unknown>> = [];
-  const { service, auditCalls } = createService({
+  const { service, auditCalls, conversationStateCalls } = createService({
     prisma: {
       companyMessage: {
+        count: async () => 2,
         deleteMany: async (input: Record<string, unknown>) => {
           messageDeleteCalls.push(input);
           return { count: 2 };
@@ -489,23 +496,23 @@ test('deleteConversation keeps idempotent success when WhatsApp chat is already 
   const result = await service.deleteConversation({ companyId: 7 }, 42);
 
   assert.equal(result.success, true);
-  assert.equal(
-    result.message,
-    'Conversa removida do sistema. O chat ja nao existia mais no WhatsApp.',
-  );
-  assert.equal(messageDeleteCalls.length, 1);
-  assert.equal(conversationDeleteCalls.length, 1);
-  assert.equal(auditCalls.length, 2);
-  assert.equal(auditCalls[0].event, 'conversation_delete_whatsapp_confirmed');
-  assert.equal(auditCalls[1].event, 'conversation_deleted');
+  assert.equal(result.message, 'Conversa enviada para Excluídos apenas no HBX.');
+  assert.equal(result.localOnly, true);
+  assert.equal(messageDeleteCalls.length, 0);
+  assert.equal(conversationDeleteCalls.length, 0);
+  assert.equal(conversationStateCalls.length, 1);
+  assert.equal((conversationStateCalls[0].payload as any).flowResult, 'local_deleted');
+  assert.equal(auditCalls.length, 1);
+  assert.equal(auditCalls[0].event, 'conversation_local_deleted');
 });
 
-test('deleteConversation does not remove local records when WhatsApp session is disconnected', async () => {
+test('deleteConversation ignores disconnected WhatsApp session and archives locally', async () => {
   const messageDeleteCalls: Array<Record<string, unknown>> = [];
   const conversationDeleteCalls: Array<Record<string, unknown>> = [];
-  const { service, auditCalls } = createService({
+  const { service, auditCalls, conversationStateCalls } = createService({
     prisma: {
       companyMessage: {
+        count: async () => 2,
         deleteMany: async (input: Record<string, unknown>) => {
           messageDeleteCalls.push(input);
           return { count: 0 };
@@ -541,22 +548,15 @@ test('deleteConversation does not remove local records when WhatsApp session is 
     },
   });
 
-  await assert.rejects(
-    () => service.deleteConversation({ companyId: 7 }, 42),
-    (error: any) => {
-      assert.equal(error?.name, 'ConflictException');
-      assert.equal(
-        error?.message,
-        'Sessao do WhatsApp desconectada. Reconecte o dispositivo antes de excluir a conversa.',
-      );
-      return true;
-    },
-  );
+  const result = await service.deleteConversation({ companyId: 7 }, 42);
 
+  assert.equal(result.success, true);
+  assert.equal(result.localOnly, true);
   assert.equal(messageDeleteCalls.length, 0);
   assert.equal(conversationDeleteCalls.length, 0);
+  assert.equal(conversationStateCalls.length, 1);
   assert.equal(auditCalls.length, 1);
-  assert.equal(auditCalls[0].event, 'conversation_delete_whatsapp_failed');
+  assert.equal(auditCalls[0].event, 'conversation_local_deleted');
 });
 
 test('getConversationById exposes customer identity fields from AtendimentoCustomer and CustomerProfile', async () => {
