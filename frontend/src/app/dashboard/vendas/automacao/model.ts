@@ -5,6 +5,7 @@ import {
   type AtendimentoBotButton,
   type AtendimentoBotConfig,
 } from "../../inbox/inbox-model";
+import type { ProviderCapabilities } from "@/lib/provider-capabilities";
 
 export type BotQrWorkspaceTab = "connection" | "flow" | "publish";
 
@@ -778,6 +779,9 @@ export function buildPublicationChecklist(
     qrModeSelected: boolean;
     modalAvailable: boolean;
     connectionLive: boolean;
+    providerCapabilities: ProviderCapabilities;
+    recoveryEnabled: boolean;
+    hasUnsavedChanges: boolean;
   },
 ): BotQrChecklistItem[] {
   const humanRouteReady =
@@ -792,18 +796,18 @@ export function buildPublicationChecklist(
   return [
     {
       id: "qr-first",
-      label: "QR como trilha principal",
+      label: "Conexao ativa",
       description: input.qrModeSelected
-        ? "A central ja esta posicionada em QR como caminho principal desta entrega."
-        : "Selecione QR como trilha principal para deixar o produto coerente com a proposta comercial.",
+        ? "A central esta posicionada no caminho QR/Evolution para operar agora."
+        : "Selecione ou mantenha um canal configurado antes de publicar.",
       ok: input.qrModeSelected,
     },
     {
       id: "qr-connection",
-      label: "Conexao pronta para operar",
+      label: "Canal configurado",
       description: input.connectionLive
-        ? "O QR ja esta vivo ou pronto para leitura dentro da mesma casca operacional."
-        : "A tela continua operavel, mas ainda falta ativar ou renovar a conexao QR.",
+        ? "O QR esta vivo ou pronto para leitura dentro da mesma tela."
+        : "Ainda falta ativar ou renovar a conexao antes da operacao real.",
       ok: input.modalAvailable,
     },
     {
@@ -814,15 +818,25 @@ export function buildPublicationChecklist(
     },
     {
       id: "main-menu",
-      label: "Menu principal legivel",
+      label: "Fluxo salvo",
       description: "O menu principal precisa expor saidas claras em linguagem operacional.",
-      ok: (config.mainMenuButtons || []).length >= 1,
+      ok: (config.mainMenuButtons || []).length >= 1 && !input.hasUnsavedChanges,
+    },
+    {
+      id: "templates",
+      label: "Templates somente se Meta",
+      description: input.providerCapabilities.canUseTemplates
+        ? "Canal Meta ativo: templates oficiais podem ser usados quando aprovados."
+        : "Canal Evolution ativo: templates oficiais ficam bloqueados.",
+      ok: true,
     },
     {
       id: "finance",
-      label: "Financeiro representado",
-      description: "O ramo financeiro segue no mesmo produto, sem abrir outro backend ou outro editor gigante.",
-      ok: financeReady,
+      label: "Recovery por plano",
+      description: input.recoveryEnabled
+        ? "Recovery liberado: financeiro pode aparecer conforme as regras do fluxo."
+        : "Recovery nao liberado: opcoes financeiras oficiais ficam ocultas para o cliente.",
+      ok: input.recoveryEnabled ? financeReady : true,
     },
     {
       id: "human-handoff",
@@ -832,8 +846,8 @@ export function buildPublicationChecklist(
     },
     {
       id: "agenda",
-      label: "Agenda conectada ao retorno",
-      description: "A agenda continua usando a base atual e devolve o cliente para a continuidade do fluxo.",
+      label: "Agenda Bot publica",
+      description: "A Agenda Bot aparece como guia publica; Agenda Vendas permanece interna.",
       ok: agendaReady,
     },
     {
@@ -844,8 +858,8 @@ export function buildPublicationChecklist(
     },
     {
       id: "no-auto-send",
-      label: "Sem envio automatico",
-      description: "Publicar salva configuracao; nao dispara mensagens sozinho nem esconde automacao paralela.",
+      label: "Teste de envio",
+      description: "Use o teste rapido visual antes de ativar a automacao no dia a dia.",
       ok: true,
     },
   ];

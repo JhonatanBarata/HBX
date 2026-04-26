@@ -329,8 +329,7 @@ export default function BotPanel({
 
   const canUseOfficialButtons = providerCapabilities.canUseOfficialButtons;
   const providerLabel = getProviderLabel(providerCapabilities.provider);
-  const channelStartMessage =
-    "Qual canal você usa?\n\n1. Evolution WhatsApp\n2. Meta WhatsApp Oficial";
+  const channelStartMessage = `Canal configurado: ${providerLabel}`;
   const channelFallbackNote = canUseOfficialButtons
     ? "Canal Meta ativo: botoes e listas oficiais ficam liberados quando usados no envio."
     : "Evolution: cliente responde digitando o número.";
@@ -484,8 +483,8 @@ export default function BotPanel({
 
       const gateNode = {
         id: "entry_gate",
-        label: "Qual canal você usa?",
-        description: "A experiencia do bot comeca pela escolha do canal e libera apenas recursos compativeis.",
+        label: "Canal configurado",
+        description: "A experiencia do bot segue o canal ativo e libera apenas recursos compativeis.",
         badge: "Entrada",
         nodeKind: "decision" as const,
         supportsButtons: false,
