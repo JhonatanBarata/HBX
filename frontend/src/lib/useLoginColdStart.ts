@@ -141,7 +141,7 @@ export function useLoginColdStart(options: UseLoginColdStartOptions) {
                 data?.message ||
                 data?.error ||
                 "Erro ao autenticar. Verifique suas credenciais.",
-              data: null,
+              data,
             };
           }
 
