@@ -7,7 +7,7 @@ Fluxo oficial de producao do HBX para backend e webscraping na VPS Hostinger.
 - Frontend: Vercel em `https://www.hbxsystem.com.br`
 - Backend: Hostinger em `https://api.hbxsystem.com.br`
 - Webscraping: Hostinger, via `docker-compose.hostinger.yml`
-- Webwhats: servico systemd separado, normalmente em `/opt/webwhats` com service `evolution`
+- Webwhats: servico separado em `/opt/Webwhats`; se nao houver systemd, o publish reinicia o processo `node dist/main.js`
 - Banco: Postgres local da VPS no container `hbx-postgres`, banco `hbx_prod`
 - Rede Docker: externa, preferindo a rede onde `hbx-postgres` ja esta conectado (`hbx_net` ou `hbx-net`)
 - Compose da VPS: `/usr/bin/docker-compose 1.29.2`
@@ -141,9 +141,9 @@ Variaveis principais:
 
 ```env
 WEBWHATS_REPO_PATH=../Webwhats
-WEBWHATS_APP_DIR=/opt/webwhats
-WEBWHATS_RUN_USER=webwhats
-WEBWHATS_SYSTEMD_SERVICE=evolution
+WEBWHATS_APP_DIR=/opt/Webwhats
+WEBWHATS_RUN_USER=root
+WEBWHATS_SYSTEMD_SERVICE=
 WEBWHATS_GIT_REMOTE=origin
 WEBWHATS_GIT_BRANCH=master
 ```
