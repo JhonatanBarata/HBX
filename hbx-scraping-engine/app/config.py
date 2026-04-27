@@ -18,6 +18,8 @@ class Settings(BaseSettings):
     concurrency: int = Field(5, alias="HBX_SCRAPING_CONCURRENCY")
     cache_ttl_hours: int = Field(24, alias="HBX_SCRAPING_CACHE_TTL_HOURS")
     max_discovery_results: int = Field(120, alias="HBX_SCRAPING_MAX_DISCOVERY_RESULTS")
+    agenda_max_pages: int = Field(20, alias="HBX_AGENDA_MAX_PAGES")
+    agenda_request_delay_ms: int = Field(500, alias="HBX_AGENDA_REQUEST_DELAY_MS")
     max_page_bytes: int = 1_500_000
 
 

@@ -9,15 +9,26 @@ BLOCKED_EXTENSIONS = (".pdf", ".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg", 
 
 
 def build_queries(segment: str, city: str, state: str, target_type: str = "pj") -> list[str]:
+    if target_type == "agenda_pf":
+        return [
+            f"{city} {state} telefone",
+            f"agenda telefônica {city} {state}",
+            f"lista telefônica {city} {state}",
+            f"contatos {city} {state} telefone",
+            f"telefones úteis {city} {state}",
+            f"nomes telefone {city} {state}",
+            f"whatsapp {city} {state}",
+        ]
     if target_type == "pf":
         return [
-            f"{segment} {city} {state} telefone",
-            f"{segment} {city} {state} whatsapp",
-            f"{segment} {city} {state} contato",
-            f"{segment} em {city} telefone",
-            f"interessados em {segment} {city} telefone",
+            f"consultor {segment} {city} {state} telefone",
+            f"corretor {segment} {city} {state} whatsapp",
+            f"vendedor {segment} {city} {state} telefone",
+            f"representante {segment} {city} {state} whatsapp",
             f"consultor {segment} {city} telefone",
-            f"vendedor {segment} {city} telefone",
+            f"corretor {segment} {city} telefone",
+            f"vendedor {segment} {city} whatsapp",
+            f"{segment} {city} {state} whatsapp",
         ]
     return [
         f"{segment} {city} {state} telefone",
@@ -45,6 +56,8 @@ def _is_allowed_url(url: str) -> bool:
 
 
 def discovery_target(limit: int, max_discovery_results: int, target_type: str = "pj") -> int:
+    if target_type == "agenda_pf":
+        return min(max_discovery_results, max(60, limit * 4))
     multiplier = 5 if target_type == "pf" else 4
     minimum = 60 if target_type == "pf" else 40
     return min(max_discovery_results, max(minimum, limit * multiplier))

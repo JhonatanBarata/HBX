@@ -6,7 +6,7 @@ from urllib.parse import urlparse
 from bs4 import BeautifulSoup
 
 from .filters import domain_from_url, is_blocked_domain, is_directory_domain
-from .normalizer import clean_name, extract_phone_from_url, format_phone, normalize_phone_digits
+from .normalizer import clean_name, extract_phone_from_url, fallback_name, format_phone, normalize_phone_digits
 
 PHONE_RE = re.compile(r"(?<!\d)(?:\+?55\s*)?(?:\(\d{2}\)|\d{2}[\s.-]+)\s*9?\d{4}[-.\s]+\d{4}(?!\d)")
 
@@ -76,21 +76,21 @@ def _official_website(page_url: str, jsonld_url: str | None, directory: bool) ->
     return None if directory else f"{urlparse(page_url).scheme}://{urlparse(page_url).netloc}"
 
 
-def _title_name(soup: BeautifulSoup) -> str | None:
+def _title_name(soup: BeautifulSoup, target_type: str = "pj") -> str | None:
     h1 = soup.find("h1")
     if h1:
-        name = clean_name(h1.get_text(" ", strip=True))
+        name = clean_name(h1.get_text(" ", strip=True), allow_generic=target_type == "pf")
         if name:
             return name
     og_title = soup.find("meta", attrs={"property": "og:title"})
     if og_title:
-        name = clean_name(og_title.get("content"))
+        name = clean_name(og_title.get("content"), allow_generic=target_type == "pf")
         if name:
             return name
-    return clean_name(soup.title.get_text(" ", strip=True) if soup.title else None)
+    return clean_name(soup.title.get_text(" ", strip=True) if soup.title else None, allow_generic=target_type == "pf")
 
 
-def parse_page(html: str, url: str) -> tuple[list[dict], str]:
+def parse_page(html: str, url: str, target_type: str = "pj", city: str | None = None) -> tuple[list[dict], str]:
     soup = BeautifulSoup(html, "lxml")
     directory = is_directory_url(url)
     page_domain = domain_from_url(url)
@@ -108,7 +108,7 @@ def parse_page(html: str, url: str) -> tuple[list[dict], str]:
             types = {str(t).lower() for t in _as_list(item.get("@type"))}
             if not (types & {"localbusiness", "organization", "professionalservice", "store", "autorepair", "restaurant"} or item.get("telephone")):
                 continue
-            name = clean_name(item.get("name"))
+            name = fallback_name(item.get("name"), city, target_type)
             address = _jsonld_address(item.get("address"))
             rating, reviews = _jsonld_rating(item)
             website = _official_website(url, item.get("url"), directory)
@@ -133,7 +133,7 @@ def parse_page(html: str, url: str) -> tuple[list[dict], str]:
     for tag in soup(["script", "style", "noscript"]):
         tag.decompose()
     visible_text = soup.get_text(" ", strip=True)[:20000]
-    fallback_name = _title_name(soup)
+    resolved_fallback_name = fallback_name(_title_name(soup, target_type), city, target_type)
     fallback_website = _official_website(url, None, directory)
     phones: set[str] = set()
     for link in soup.find_all("a", href=True):
@@ -146,10 +146,10 @@ def parse_page(html: str, url: str) -> tuple[list[dict], str]:
             phones.add(digits)
 
     for digits in phones:
-        if fallback_name:
+        if resolved_fallback_name:
             contacts.append(
                 {
-                    "name": fallback_name,
+                    "name": resolved_fallback_name,
                     "phone": format_phone(digits),
                     "phoneDigits": digits,
                     "rating": None,

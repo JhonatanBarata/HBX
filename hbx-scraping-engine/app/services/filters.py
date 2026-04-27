@@ -12,6 +12,13 @@ BLOCKED_HOST_PARTS = (
     "facebook.com",
     "querobolsa.com.br",
 )
+PF_TECHNICAL_BLOCKED_HOST_PARTS = (
+    "google.",
+    "maps.google",
+    "youtube.com",
+    "youtu.be",
+    "tiktok.com",
+)
 
 DIRECTORY_HOST_HINTS = (
     "guia",
@@ -31,6 +38,18 @@ DIRECTORY_HOST_HINTS = (
     "lista11",
 )
 
+PF_WEAK_HOST_PARTS = (
+    "exame.com",
+    "mises.org.br",
+    "buzzero.com",
+    "americana.sp.gov.br",
+    "saudeamericana.com.br",
+    "saudepets.com.br",
+    "conveniocrcsp.com.br",
+    "plano-de-saude-saopaulo.com.br",
+    "compareplanodesaude.com.br",
+)
+
 GENERIC_NAME_EXACT = {
     "contato",
     "home",
@@ -39,6 +58,11 @@ GENERIC_NAME_EXACT = {
     "telefone",
     "enderecos",
     "categorias",
+    "negocios",
+    "negocio",
+    "curso online",
+    "relacao de unidades",
+    "protecao que voce pode confiar",
     "oficina mecanica",
     "mecanica em americana",
     "manutencao de confianca para seu automovel",
@@ -51,7 +75,51 @@ GENERIC_NAME_PREFIXES = (
     "oficina mecanica em ",
     "oficina mecanica e ",
     "mecanica em ",
+    "como funciona",
+    "como realmente funciona",
+    "vale a pena",
+    "relacao de unidades",
+    "secretaria municipal",
+    "curso online",
+    "negocios",
 )
+
+PF_GENERIC_PREFIXES = (
+    "como ",
+    "como funciona",
+    "como realmente funciona",
+    "vale a pena",
+    "veja ",
+    "foi demitido",
+    "voce sabe",
+    "cupom ",
+    "protecao ",
+    "relacao de unidades",
+    "secretaria municipal",
+    "secretaria de ",
+    "curso online",
+    "cursos ",
+    "portal ",
+    "maior academia",
+    "plano municipal",
+    "plano ",
+    "planos de saude",
+    "plano de saude",
+)
+PF_ROLE_TOKENS = {"consultor", "consultora", "corretor", "vendedor", "vendedora", "representante"}
+PF_COMPANY_TOKENS = {
+    "corretora",
+    "seguros",
+    "seguro",
+    "clinica",
+    "convenio",
+    "hospital",
+    "unimed",
+    "hapvida",
+    "samaritano",
+    "ltda",
+    "empresa",
+}
 
 NATIONAL_PHONE_PREFIXES = ("0800", "0300", "3003", "3004", "4000", "4002", "4003", "4004")
 
@@ -111,10 +179,22 @@ def is_blocked_domain(url_or_host: str | None) -> bool:
     return any(part in host for part in BLOCKED_HOST_PARTS)
 
 
+def is_pf_technical_blocked_domain(url_or_host: str | None) -> bool:
+    value = str(url_or_host or "").lower()
+    host = domain_from_url(value) or value
+    return any(part in host for part in PF_TECHNICAL_BLOCKED_HOST_PARTS)
+
+
 def is_directory_domain(url_or_host: str | None) -> bool:
     value = str(url_or_host or "").lower()
     host = domain_from_url(value) or value
     return any(hint in host for hint in DIRECTORY_HOST_HINTS)
+
+
+def is_pf_weak_domain(url_or_host: str | None) -> bool:
+    value = str(url_or_host or "").lower()
+    host = domain_from_url(value) or value
+    return any(part in host for part in PF_WEAK_HOST_PARTS)
 
 
 def is_generic_name(name: str | None, city: str | None = None, target_type: str = "pj", segment: str | None = None) -> bool:
@@ -136,7 +216,9 @@ def is_generic_name(name: str | None, city: str | None = None, target_type: str 
         if key in generic_segment_names:
             return True
     if target_type == "pf":
-        return key in {"contato", "home", "inicio", "pagina inicial", "telefone", "enderecos", "categorias"} or key == "manutencao de confianca para seu automovel"
+        if key in GENERIC_NAME_EXACT or key in {"contato", "home", "inicio", "pagina inicial", "telefone", "enderecos", "categorias"}:
+            return True
+        return any(key.startswith(prefix) for prefix in PF_GENERIC_PREFIXES)
     if key in GENERIC_NAME_EXACT:
         return True
     if city_key and key in {f"mecanica em {city_key}", f"oficina mecanica em {city_key}", f"oficinas mecanicas em {city_key}"}:
@@ -171,3 +253,49 @@ def phone_ddd(digits: str | None) -> str:
 def is_mobile_phone(digits: str | None) -> bool:
     value = re.sub(r"\D", "", str(digits or ""))
     return len(value) == 11 and value[2] == "9"
+
+
+def has_pf_role_text(value: str | None) -> bool:
+    key = text_key(value)
+    words = set(key.split())
+    return bool(words & PF_ROLE_TOKENS)
+
+
+def looks_like_company_or_institution_name(name: str | None) -> bool:
+    key = text_key(name)
+    words = set(key.split())
+    if bool(words & PF_COMPANY_TOKENS):
+        return True
+    return any(marker in key for marker in (" s a", " sa ", "mei", "eireli"))
+
+
+def looks_like_person_name(name: str | None) -> bool:
+    key = text_key(name)
+    if not key:
+        return False
+    words = key.split()
+    if len(words) < 2 or len(words) > 5:
+        return False
+    blocked = {
+        "plano",
+        "planos",
+        "saude",
+        "secretaria",
+        "municipal",
+        "unimed",
+        "hapvida",
+        "clinica",
+        "hospital",
+        "portal",
+        "curso",
+        "cursos",
+        "seguro",
+        "seguros",
+        "corretora",
+        "empresa",
+        "academia",
+        "noticias",
+    }
+    if any(word in blocked for word in words):
+        return False
+    return all(word.isalpha() and len(word) >= 2 for word in words)
