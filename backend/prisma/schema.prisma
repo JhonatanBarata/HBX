@@ -651,12 +651,10 @@ model WebscrapingSearchPlace {
   name             String
   phone            String
   phoneDigits      String
-  probableWhatsApp Boolean  @default(false)
   rating           Float?
   reviews          Int      @default(0)
   address          String
   website          String
-  googleMapsUrl    String
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
@@ -692,12 +690,10 @@ model WebscrapingGlobalCachePlace {
   name             String
   phone            String
   phoneDigits      String
-  probableWhatsApp Boolean  @default(false)
   rating           Float?
   reviews          Int      @default(0)
   address          String
   website          String
-  googleMapsUrl    String
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
@@ -747,6 +743,9 @@ model VendasLead {
   phoneNormalized   String?
   email             String?
   address           String?
+  website           String?
+  rating            Float?
+  reviews           Int      @default(0)
   city              String?
   segment           String?
   status            String   @default("novo") // novo | contato | retorno | qualificado | encerrado

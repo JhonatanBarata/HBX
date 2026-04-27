@@ -4,9 +4,12 @@ import {
   IsArray,
   IsEmail,
   IsIn,
+  IsInt,
+  IsNumber,
   IsOptional,
   IsString,
   MaxLength,
+  Min,
   ValidateNested,
 } from 'class-validator';
 
@@ -38,6 +41,23 @@ export class CreateManualVendasLeadDto {
   @IsString()
   @MaxLength(280)
   address?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  website?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 1 })
+  @Min(0)
+  rating?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  reviews?: number;
 
   @IsOptional()
   @IsIn(LEAD_STATUSES)
@@ -125,6 +145,23 @@ export class ImportWebscrapingLeadItemDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(500)
+  website?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 1 })
+  @Min(0)
+  rating?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  reviews?: number;
+
+  @IsOptional()
+  @IsString()
   @MaxLength(120)
   city?: string;
 
@@ -154,7 +191,7 @@ export class ImportWebscrapingLeadsDto {
   sourceHistoryId?: string;
 
   @IsArray()
-  @ArrayMaxSize(20)
+  @ArrayMaxSize(50)
   @ValidateNested({ each: true })
   @Type(() => ImportWebscrapingLeadItemDto)
   leads!: ImportWebscrapingLeadItemDto[];

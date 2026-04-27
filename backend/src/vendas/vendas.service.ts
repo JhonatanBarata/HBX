@@ -190,6 +190,9 @@ export class VendasService {
       phone: true,
       phoneNormalized: true,
       email: true,
+      website: true,
+      rating: true,
+      reviews: true,
       city: true,
       segment: true,
       status: true,
@@ -451,6 +454,9 @@ export class VendasService {
       phoneNormalized: row?.phoneNormalized ? String(row.phoneNormalized) : null,
       email: row?.email ? String(row.email) : null,
       address: row?.address ? String(row.address) : null,
+      website: row?.website ? String(row.website) : null,
+      rating: row?.rating == null ? null : Number(row.rating),
+      reviews: Math.max(0, Math.trunc(Number(row?.reviews || 0) || 0)),
       city: row?.city ? String(row.city) : null,
       segment: row?.segment ? String(row.segment) : null,
       status,
@@ -1076,6 +1082,9 @@ export class VendasService {
     phone?: string | null;
     email?: string | null;
     address?: string | null;
+    website?: string | null;
+    rating?: number | null;
+    reviews?: number | null;
     city?: string | null;
     segment?: string | null;
     status?: string | null;
@@ -1095,8 +1104,15 @@ export class VendasService {
     const phoneNormalized = this.normalizePhone(input.phone);
     const email = this.normalizeEmail(input.email);
     const name = this.normalizeText(input.name);
-    const addressColumnAvailable = false;
+    const addressColumnAvailable = await this.hasVendasLeadAddressColumn();
     const address = addressColumnAvailable ? this.normalizeText(input.address) : null;
+    const website = this.normalizeText(input.website);
+    const rating = input.rating == null || !Number.isFinite(Number(input.rating))
+      ? null
+      : Math.min(Math.max(Number(Number(input.rating).toFixed(1)), 0), 5);
+    const reviews = input.reviews == null || !Number.isFinite(Number(input.reviews))
+      ? 0
+      : Math.max(0, Math.trunc(Number(input.reviews)));
     const shortNote = this.normalizeText(input.shortNote);
     const nextAction = this.normalizeText(input.nextAction) || 'Primeiro contato';
     const status = this.normalizeStatus(input.status);
@@ -1122,6 +1138,9 @@ export class VendasService {
       phoneNormalized,
       email,
       ...(addressColumnAvailable ? { address } : {}),
+      website,
+      rating,
+      reviews,
       city: this.normalizeText(input.city),
       segment: this.normalizeText(input.segment),
       status,
@@ -1182,6 +1201,9 @@ export class VendasService {
           phoneNormalized: baseData.phoneNormalized || existing.phoneNormalized,
           email: baseData.email || existing.email,
           ...(addressColumnAvailable ? { address: baseData.address || existing.address } : {}),
+          website: baseData.website || existing.website,
+          rating: baseData.rating ?? existing.rating ?? null,
+          reviews: Math.max(Math.trunc(Number(baseData.reviews || 0) || 0), Math.trunc(Number(existing.reviews || 0) || 0)),
           city: baseData.city || existing.city,
           segment: baseData.segment || existing.segment,
           nextAction: baseData.nextAction || existing.nextAction,
@@ -1604,6 +1626,9 @@ export class VendasService {
       phone: dto?.phone || null,
       email: dto?.email || null,
       address: dto?.address || null,
+      website: dto?.website || null,
+      rating: dto?.rating ?? null,
+      reviews: dto?.reviews ?? null,
       status: dto?.status || 'novo',
       nextAction: dto?.nextAction || 'Primeiro contato',
       returnAt: this.parseDate(dto?.returnAt) || new Date(),
@@ -1632,7 +1657,15 @@ export class VendasService {
     const failedImports: Array<{ name: string | null; phone: string | null; error: string }> = [];
 
     for (const item of incomingLeads) {
-      if (!this.normalizeText(item?.phone) && !this.normalizeText(item?.phoneDigits)) {
+      const itemName = this.normalizeText(item?.name);
+      const itemPhone = this.normalizeText(item?.phone);
+      const itemPhoneDigits = this.normalizeText(item?.phoneDigits);
+      if (!itemName || !itemPhone || !itemPhoneDigits) {
+        failedImports.push({
+          name: itemName,
+          phone: itemPhone || itemPhoneDigits,
+          error: 'Lead do webscraping sem nome, telefone ou telefone normalizado.',
+        });
         continue;
       }
 
@@ -1644,20 +1677,19 @@ export class VendasService {
           sourceType: 'webscraping',
           sourceHistoryId: this.normalizeText(item?.sourceHistoryId) || this.normalizeText(dto?.sourceHistoryId),
           sourceSignature: [this.normalizeText(item?.segment), this.normalizeText(item?.city)].filter(Boolean).join('|') || null,
-          name: item?.name || null,
-          phone: item?.phone || item?.phoneDigits || null,
+          name: itemName,
+          phone: itemPhone || itemPhoneDigits,
           email: item?.email || null,
           address: item?.address || null,
+          website: item?.website || null,
+          rating: item?.rating ?? null,
+          reviews: item?.reviews ?? null,
           city: item?.city || null,
           segment: item?.segment || null,
           status: 'novo',
           nextAction: 'Primeiro contato',
           returnAt: new Date(),
-          shortNote: this.buildImportedLeadNote({
-            city: item?.city || null,
-            segment: item?.segment || null,
-            shortNote: item?.shortNote || null,
-          }),
+          shortNote: null,
         });
       } catch (error: any) {
         failedImports.push({
@@ -1733,7 +1765,7 @@ export class VendasService {
 
   async updateLeadForUser(user: any, leadId: string, dto: UpdateVendasLeadDto) {
     const context = this.resolveUserContext(user);
-    const addressColumnAvailable = false;
+    const addressColumnAvailable = await this.hasVendasLeadAddressColumn();
     const leadWithTimelineSelectWithoutAddress: any = this.buildVendasLeadSelectWithoutAddress({
       timelineEvents: {
         orderBy: [{ createdAt: 'desc' }],

@@ -37,11 +37,6 @@ class WebscrapingSearchDto {
   @IsOptional()
   @Type(() => Boolean)
   @IsBoolean()
-  onlyProbableWhatsApp?: boolean;
-
-  @IsOptional()
-  @Type(() => Boolean)
-  @IsBoolean()
   onlyWithWebsite?: boolean;
 }
 
