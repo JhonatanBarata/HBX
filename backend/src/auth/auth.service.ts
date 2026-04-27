@@ -603,7 +603,7 @@ export class AuthService implements OnModuleInit {
   // - Client sends only username + password.
   // - We resolve tenant internally from the authenticated user record (user.companyId).
   // - We intentionally do not allow choosing company or providing companyId/companySlug.
-  async loginWithUsername(username: string, password: string, opts?: { userAgent?: string; ip?: string }) {
+  async loginWithUsername(username: string, password: string, opts?: { forceSession?: boolean; userAgent?: string; ip?: string }) {
     const normalized = String(username || '').trim();
     const pass = String(password || '');
     if (!normalized || !pass) {
@@ -651,6 +651,38 @@ export class AuthService implements OnModuleInit {
     const isSystemMaster = Boolean(user.isSystemMaster);
     if (!companyId && !isSystemMaster) {
       throw new UnauthorizedException('Conta sem empresa vinculada');
+    }
+
+    if (!opts?.forceSession && user.currentSessionId) {
+      const activeSession = await this.prisma.authSession.findFirst({
+        where: {
+          id: user.currentSessionId,
+          userId: user.id,
+          revokedAt: null,
+          expiresAt: { gt: new Date() },
+        },
+        select: {
+          id: true,
+          createdAt: true,
+          lastSeenAt: true,
+          expiresAt: true,
+          userAgent: true,
+        },
+      });
+
+      if (activeSession) {
+        throw new ConflictException({
+          code: 'SESSION_ALREADY_ACTIVE',
+          message: 'Usuário conectado em outra máquina.',
+          forceAvailable: true,
+          activeSession: {
+            createdAt: activeSession.createdAt,
+            lastSeenAt: activeSession.lastSeenAt,
+            expiresAt: activeSession.expiresAt,
+            userAgent: activeSession.userAgent,
+          },
+        });
+      }
     }
 
     return this.login(user, { companyId: companyId || undefined, userAgent: opts?.userAgent, ip: opts?.ip });

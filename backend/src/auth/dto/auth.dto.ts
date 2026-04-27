@@ -1,4 +1,4 @@
-import { IsEmail, IsIn, IsNotEmpty, IsOptional, MinLength } from 'class-validator';
+import { IsBoolean, IsEmail, IsIn, IsNotEmpty, IsOptional, MinLength } from 'class-validator';
 
 export class SignupDto {
   @IsOptional()
@@ -46,6 +46,10 @@ export class LoginDto {
 
   @IsNotEmpty()
   password: string;
+
+  @IsOptional()
+  @IsBoolean()
+  forceSession?: boolean;
 }
 
 export class RecoverPasswordDto {

@@ -87,6 +87,7 @@ export function useLoginColdStart(options: UseLoginColdStartOptions) {
     async (
       username: string,
       password: string,
+      forceSession: boolean,
       getCurrentState: () => LoginState
     ): Promise<ColdStartResponse> => {
       const startTime = Date.now();
@@ -99,7 +100,7 @@ export function useLoginColdStart(options: UseLoginColdStartOptions) {
         const loginPromise = fetch(`${apiUrl}/auth/login`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ username, password }),
+          body: JSON.stringify({ username, password, forceSession }),
           signal: controller.signal,
         }).then(async (res) => {
           const elapsedMs = Date.now() - startTime;
@@ -121,7 +122,7 @@ export function useLoginColdStart(options: UseLoginColdStartOptions) {
               return {
                 state: "error" as LoginState,
                 message: "Usuário inexistente",
-                data: null,
+                data,
               };
             }
 
@@ -129,7 +130,7 @@ export function useLoginColdStart(options: UseLoginColdStartOptions) {
               return {
                 state: "error" as LoginState,
                 message: data?.message ?? "Senha incorreta",
-                data: null,
+                data,
               };
             }
 
@@ -225,13 +226,14 @@ export function useLoginColdStart(options: UseLoginColdStartOptions) {
     async (
       username: string,
       password: string,
+      forceSession = false,
       onPhaseUpdate?: (phase: LoginPhaseUpdate) => void
     ): Promise<ColdStartResponse> => {
       retryCountRef.current = 0;
       onPhaseUpdate?.({ state: "submitting" });
 
       while (retryCountRef.current < maxRetries) {
-        const response = await attemptLogin(username, password, () => "submitting");
+        const response = await attemptLogin(username, password, forceSession, () => "submitting");
 
         if (response.state === "success" || response.state === "error") {
           retryCountRef.current = 0;
