@@ -1,10 +1,34 @@
 'use strict';
 
-const { formatTimestamp, repoRoot, run } = require('./lib/runtime');
+const path = require('path');
+const {
+  formatTimestamp,
+  loadEnvFromFiles,
+  repoRoot,
+  run,
+} = require('./lib/runtime');
+const {
+  isWebwhatsRepoAvailable,
+  resolveWebwhatsRepoPath,
+  shouldUseWebwhats,
+} = require('./lib/webwhats-release');
 
 const args = process.argv.slice(2);
 const isDryRun = args.includes('--dry-run');
 const defaultCommitMessage = () => `chore: backup local ${formatTimestamp()}`;
+
+function loadCommitEnv() {
+  const files = [
+    path.join(repoRoot, '.env.production.local'),
+    path.join(repoRoot, '.env.ops.local'),
+    path.join(repoRoot, '.env.operations.local'),
+  ];
+
+  return {
+    ...loadEnvFromFiles(files),
+    ...process.env,
+  };
+}
 
 function readArgValue(flagName) {
   const direct = args.find((arg) => arg.startsWith(`${flagName}=`));
@@ -37,7 +61,7 @@ function runStep(command, commandArgs, options = {}) {
 
   try {
     return run(command, commandArgs, {
-      cwd: repoRoot,
+      cwd: options.cwd || repoRoot,
       captureOutput: options.captureOutput,
       allowFailure: options.allowFailure,
     });
@@ -47,9 +71,9 @@ function runStep(command, commandArgs, options = {}) {
   }
 }
 
-function ensureNoMergeConflicts() {
+function ensureNoMergeConflicts(cwd = repoRoot) {
   const conflictsResult = run('git', ['diff', '--name-only', '--diff-filter=U'], {
-    cwd: repoRoot,
+    cwd,
     captureOutput: true,
   });
   const conflicts = String(conflictsResult.stdout || '').trim();
@@ -67,9 +91,10 @@ function normalizeStatusPath(line) {
   return [pathPart.replace(/^"|"$/g, '')];
 }
 
-function isForbiddenCommitPath(filePath) {
+function isForbiddenCommitPath(filePath, options = {}) {
   const normalized = String(filePath || '').replace(/\\/g, '/').toLowerCase();
   const fileName = normalized.split('/').pop() || '';
+  const allowedSqlPrefixes = options.allowedSqlPrefixes || ['backend/prisma/migrations/'];
 
   if (!normalized) {
     return false;
@@ -99,18 +124,18 @@ function isForbiddenCommitPath(filePath) {
     return true;
   }
 
-  if (normalized.endsWith('.sql') && !normalized.startsWith('backend/prisma/migrations/')) {
+  if (normalized.endsWith('.sql') && !allowedSqlPrefixes.some((prefix) => normalized.startsWith(prefix))) {
     return true;
   }
 
   return false;
 }
 
-function ensureNoForbiddenFilesInStatus(statusText) {
+function ensureNoForbiddenFilesInStatus(statusText, options = {}) {
   const forbidden = String(statusText || '')
     .split(/\r?\n/)
     .flatMap(normalizeStatusPath)
-    .filter(isForbiddenCommitPath);
+    .filter((filePath) => isForbiddenCommitPath(filePath, options));
 
   if (forbidden.length) {
     throw new Error([
@@ -121,29 +146,27 @@ function ensureNoForbiddenFilesInStatus(statusText) {
   }
 }
 
-function printGitStatus(label) {
+function printGitStatus(label, cwd = repoRoot) {
   console.log(`\n${label}`);
-  const result = runStep('git', ['status', '--short', '--branch'], { captureOutput: true });
+  const result = runStep('git', ['status', '--short', '--branch'], { cwd, captureOutput: true });
   const output = String(result.stdout || '').trim();
   console.log(output || 'Working tree clean.');
   return output;
 }
 
-function getCurrentBranch() {
+function getCurrentBranch(cwd = repoRoot) {
   const result = run('git', ['branch', '--show-current'], {
-    cwd: repoRoot,
+    cwd,
     captureOutput: true,
   });
   return String(result.stdout || '').trim() || '(detached HEAD)';
 }
 
-function main() {
-  const commitMessage = getCommitMessage();
+function commitRepository(config) {
+  runStep('git', ['rev-parse', '--is-inside-work-tree'], { cwd: config.cwd });
+  ensureNoMergeConflicts(config.cwd);
 
-  runStep('git', ['rev-parse', '--is-inside-work-tree']);
-  ensureNoMergeConflicts();
-
-  const statusBefore = printGitStatus('Status before commit');
+  const statusBefore = printGitStatus(`Status before commit (${config.label})`, config.cwd);
   const currentChanges = statusBefore
     .split(/\r?\n/)
     .filter((line) => line && !line.startsWith('##'))
@@ -151,20 +174,23 @@ function main() {
     .trim();
 
   if (!currentChanges) {
-    console.log('\nNenhuma mudanca local para commitar.');
-    return;
+    console.log(`\nNenhuma mudanca local para commitar em ${config.label}.`);
+    return false;
   }
-  ensureNoForbiddenFilesInStatus(currentChanges);
+  ensureNoForbiddenFilesInStatus(currentChanges, {
+    allowedSqlPrefixes: config.allowedSqlPrefixes,
+  });
 
   if (isDryRun) {
-    console.log('\nDry run only. The following changes would be included by git add -A:');
+    console.log(`\nDry run only (${config.label}). The following changes would be included by git add -A:`);
     console.log(currentChanges);
-    console.log(`\nCommit message: ${commitMessage}`);
-    return;
+    console.log(`\nCommit message: ${config.commitMessage}`);
+    return false;
   }
 
-  runStep('git', ['add', '-A']);
-  const commitResult = runStep('git', ['commit', '-m', commitMessage], {
+  runStep('git', ['add', '-A'], { cwd: config.cwd });
+  const commitResult = runStep('git', ['commit', '-m', config.commitMessage], {
+    cwd: config.cwd,
     captureOutput: true,
     allowFailure: true,
   });
@@ -185,8 +211,45 @@ function main() {
     console.log(output);
   }
 
-  console.log(`\nCommit created on ${getCurrentBranch()} with message: ${commitMessage}`);
-  printGitStatus('Status after commit');
+  console.log(`\nCommit created on ${getCurrentBranch(config.cwd)} (${config.label}) with message: ${config.commitMessage}`);
+  printGitStatus(`Status after commit (${config.label})`, config.cwd);
+  return true;
+}
+
+function main() {
+  const commitMessage = getCommitMessage();
+  const commitEnv = loadCommitEnv();
+  const webwhatsRepoPath = resolveWebwhatsRepoPath(commitEnv);
+  const includeWebwhats = shouldUseWebwhats(commitEnv, 'WEBWHATS_COMMIT_ENABLED', webwhatsRepoPath);
+  const repositories = [
+    {
+      label: 'HBX',
+      cwd: repoRoot,
+      commitMessage,
+      allowedSqlPrefixes: ['backend/prisma/migrations/'],
+    },
+  ];
+
+  if (includeWebwhats) {
+    if (!isWebwhatsRepoAvailable(webwhatsRepoPath)) {
+      throw new Error(`WEBWHATS_COMMIT_ENABLED is enabled, but no Webwhats git repository was found at: ${webwhatsRepoPath}`);
+    }
+
+    repositories.push({
+      label: 'Webwhats',
+      cwd: webwhatsRepoPath,
+      commitMessage,
+      allowedSqlPrefixes: ['prisma/mysql-migrations/', 'prisma/postgresql-migrations/'],
+    });
+  } else {
+    console.log(`\nWebwhats commit skipped. Repository not found at ${webwhatsRepoPath} or WEBWHATS_COMMIT_ENABLED=false.`);
+  }
+
+  const created = repositories.map(commitRepository).filter(Boolean);
+
+  if (!created.length && !isDryRun) {
+    console.log('\nNenhuma mudanca local para commitar.');
+  }
 }
 
 try {

@@ -25,6 +25,7 @@ temp_*.json
 index 26-01 com auth.txt
 
 backups/
+/Webwhats/
 
 systeminfo.txt
 msinfo-completo.txt
