@@ -38,6 +38,8 @@ const REVEAL_TARGET_SELECTOR = [
   ".msg-info",
   ".msg-error",
   ".page-overline",
+  ".page-content > *",
+  '[data-ui-reveal-target="true"]',
   '[data-ui-slot="module-card"]',
 ].join(", ");
 

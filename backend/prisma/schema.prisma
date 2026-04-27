@@ -600,10 +600,14 @@ model User {
   role            String           @default("USER")
   isSystemMaster  Boolean          @default(false)
   isActive        Boolean          @default(true)
+  currentSession  AuthSession?     @relation("CurrentUserSession", fields: [currentSessionId], references: [id], onDelete: SetNull)
+  currentSessionId String?         @unique
+  sessionVersion  Int              @default(0)
   themePreferenceConfig String?
   deactivatedAt   DateTime?
   retentionUntil  DateTime?
   createdAt       DateTime         @default(now())
+  authSessions    AuthSession[]    @relation("UserAuthSessions")
   productVersions ProductVersion[]
   passwordResets  PasswordReset[]
   moduleAccesses  UserModuleAccess[]
@@ -617,6 +621,23 @@ model User {
   masterSupportAuditLogs MasterSupportAuditLog[] @relation("MasterSupportAuditLogUser")
   webscrapingSearchHistories WebscrapingSearchHistory[]
   webscrapingUsageLogs WebscrapingUsageLog[]
+}
+
+model AuthSession {
+  id             String    @id @default(cuid())
+  user           User      @relation("UserAuthSessions", fields: [userId], references: [id], onDelete: Cascade)
+  userId         Int
+  createdAt      DateTime  @default(now())
+  lastSeenAt     DateTime  @default(now())
+  expiresAt      DateTime
+  revokedAt      DateTime?
+  revokedReason  String?
+  userAgent      String?
+  ipHash         String?
+  currentForUser User?     @relation("CurrentUserSession")
+
+  @@index([userId, revokedAt])
+  @@index([expiresAt])
 }
 
 model WebscrapingSearchHistory {

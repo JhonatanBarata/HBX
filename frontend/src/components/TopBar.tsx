@@ -1085,10 +1085,17 @@ export default function TopBar() {
 
   async function handleLogout() {
     await runGlobalShutdown(async () => {
-      clearToken();
-      setAuthenticated(false);
-      setUser(null);
-      router.push("/login");
+      try {
+        await apiFetch("/auth/logout", {
+          method: "POST",
+          requireAuth: true,
+        });
+      } finally {
+        clearToken();
+        setAuthenticated(false);
+        setUser(null);
+        router.push("/login");
+      }
     });
   }
 

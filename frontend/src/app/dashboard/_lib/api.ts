@@ -83,6 +83,13 @@ function queueAuthChangeEvent() {
   }, 0);
 }
 
+function redirectToLogin() {
+  if (typeof window === "undefined") return;
+  const currentPath = `${window.location.pathname}${window.location.search}`;
+  if (window.location.pathname === "/login") return;
+  window.location.assign(`/login?from=${encodeURIComponent(currentPath)}`);
+}
+
 function removeStoredTokens(options?: { notify?: boolean }) {
   if (typeof window === "undefined") return;
   authProbeEntry = null;
@@ -92,6 +99,11 @@ function removeStoredTokens(options?: { notify?: boolean }) {
   localStorage.removeItem("accessToken");
   if (options?.notify === false) return;
   queueAuthChangeEvent();
+}
+
+function handleUnauthorized() {
+  removeStoredTokens();
+  redirectToLogin();
 }
 
 function decodeJwtPayload(token: string) {
@@ -217,7 +229,7 @@ async function ensureValidSessionForProtectedPath(
     credentials: "include",
   }).then((response) => {
     if (response.status === 401) {
-      removeStoredTokens();
+      handleUnauthorized();
       return false;
     }
     return true;
@@ -318,7 +330,7 @@ export async function apiFetch<T>(
     if (!res.ok) {
       const message = typeof data === "string" ? data : parseErrorMessage(data);
       if (res.status === 401 && !skipAuth) {
-        removeStoredTokens();
+        handleUnauthorized();
       } else {
         dispatchTechAssistantApiError({
           path,
