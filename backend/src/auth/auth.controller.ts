@@ -30,6 +30,7 @@ export class AuthController {
   @Throttle({ default: { limit: 10, ttl: 60 } })
   async login(@Body() dto: LoginDto, @Req() req: any) {
     return this.authService.loginWithUsername(dto.username, dto.password, {
+      forceSession: Boolean(dto.forceSession),
       userAgent: req?.headers?.['user-agent'],
       ip: req?.ip || req?.headers?.['x-forwarded-for'] || req?.socket?.remoteAddress,
     });

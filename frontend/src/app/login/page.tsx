@@ -29,8 +29,15 @@ type ApiErrorPayload = {
   error?: string;
   needsRegistration?: boolean;
   needsEmailConfirmation?: boolean;
+  forceAvailable?: boolean;
   email?: string | null;
   code?: string;
+  activeSession?: {
+    createdAt?: string | null;
+    lastSeenAt?: string | null;
+    expiresAt?: string | null;
+    userAgent?: string | null;
+  } | null;
   previewLink?: string | null;
   mailPreviewUrl?: string | null;
   delivery?: {
@@ -291,6 +298,8 @@ export default function LoginPage() {
   const [pendingConfirmationBusy, setPendingConfirmationBusy] = useState(false);
   const [pendingConfirmationPreviewUrl, setPendingConfirmationPreviewUrl] = useState<string | null>(null);
   const [pendingConfirmationConfirmUrl, setPendingConfirmationConfirmUrl] = useState<string | null>(null);
+  const [activeSessionConflict, setActiveSessionConflict] = useState(false);
+  const [forceActiveSession, setForceActiveSession] = useState(false);
   const [recoverPreviewLink, setRecoverPreviewLink] = useState<string | null>(null);
   const [recoverMailPreviewUrl, setRecoverMailPreviewUrl] = useState<string | null>(null);
   const idleVideoRef = useRef<HTMLVideoElement | null>(null);
@@ -405,7 +414,7 @@ export default function LoginPage() {
     router.replace(destination);
   }
 
-  async function authenticate(nextUsername: string, nextPassword: string) {
+  async function authenticate(nextUsername: string, nextPassword: string, forceSession = false) {
     setError(null);
     setInfo(null);
     setWakingMessage(null);
@@ -413,10 +422,13 @@ export default function LoginPage() {
     setPendingConfirmationMessage(null);
     setPendingConfirmationPreviewUrl(null);
     setPendingConfirmationConfirmUrl(null);
+    if (!forceSession) {
+      setActiveSessionConflict(false);
+    }
     setLoginState("submitting");
 
     try {
-      const result = await executeLoginWithRetry(nextUsername, nextPassword, (phase) => {
+      const result = await executeLoginWithRetry(nextUsername, nextPassword, forceSession, (phase) => {
         if (phase.state === "waking_server") {
           setWakingMessage(phase.message ?? DEFAULT_WAKING_MESSAGE);
           setLoginState("waking_server");
@@ -429,6 +441,8 @@ export default function LoginPage() {
       });
 
       if (result.state === "success") {
+        setActiveSessionConflict(false);
+        setForceActiveSession(false);
         const token = getAccessToken(result.data);
 
         if (!token) {
@@ -445,6 +459,12 @@ export default function LoginPage() {
         const payload = result.data && typeof result.data === "object" ? (result.data as ApiErrorPayload) : null;
         setError(result.message ?? "Erro ao autenticar.");
         setLoginState("error");
+
+        if (payload?.code === "SESSION_ALREADY_ACTIVE" || payload?.forceAvailable) {
+          setActiveSessionConflict(true);
+          setForceActiveSession(false);
+          setError("Usuário conectado em outra máquina.");
+        }
 
         if (payload?.needsEmailConfirmation) {
           setPendingConfirmationEmail(
@@ -534,7 +554,7 @@ export default function LoginPage() {
 
   function handleLogin(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    void authenticate(username, password);
+    void authenticate(username, password, activeSessionConflict && forceActiveSession);
   }
 
   useEffect(() => {
@@ -1061,7 +1081,11 @@ export default function LoginPage() {
                   id="login-username"
                   className="input"
                   value={username}
-                  onChange={(event) => setUsername(event.target.value)}
+                  onChange={(event) => {
+                    setUsername(event.target.value);
+                    setActiveSessionConflict(false);
+                    setForceActiveSession(false);
+                  }}
                   placeholder="Digite seu e-mail"
                   required
                   autoComplete="username"
@@ -1077,7 +1101,11 @@ export default function LoginPage() {
                   type="password"
                   className="input"
                   value={password}
-                  onChange={(event) => setPassword(event.target.value)}
+                  onChange={(event) => {
+                    setPassword(event.target.value);
+                    setActiveSessionConflict(false);
+                    setForceActiveSession(false);
+                  }}
                   placeholder="Digite sua senha"
                   required
                   autoComplete="current-password"
@@ -1125,6 +1153,19 @@ export default function LoginPage() {
               {error ? (
                 <div className="msg-error">
                   <div className="text-sm">{error}</div>
+                  {activeSessionConflict ? (
+                    <label className="mt-3 flex items-start gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={forceActiveSession}
+                        onChange={(event) => setForceActiveSession(event.target.checked)}
+                        className="mt-1"
+                      />
+                      <span>
+                        Forçar entrada e desconectar a sessão aberta em outra máquina.
+                      </span>
+                    </label>
+                  ) : null}
                 </div>
               ) : null}
 
@@ -1218,6 +1259,8 @@ export default function LoginPage() {
                   "Iniciando ambiente..."
                 ) : isSubmitting ? (
                   "Autenticando..."
+                ) : activeSessionConflict && forceActiveSession ? (
+                  "Forçar entrada"
                 ) : preRegistered ? (
                   "Concluir cadastro"
                 ) : (
