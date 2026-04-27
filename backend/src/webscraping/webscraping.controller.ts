@@ -56,6 +56,15 @@ export class WebscrapingController {
     return this.webscrapingService.getRuntime(req.user);
   }
 
+  @Get('cities')
+  cities(@Query('q') query?: string, @Query('limit') limit?: string) {
+    const parsedLimit = limit ? Number(limit) : undefined;
+    return this.webscrapingService.listBrazilianCities(
+      query,
+      Number.isFinite(parsedLimit) ? parsedLimit : undefined,
+    );
+  }
+
   @Post('search')
   search(@Req() req: any, @Body() dto: WebscrapingSearchDto) {
     return this.webscrapingService.searchContactsForUser(req.user, dto);

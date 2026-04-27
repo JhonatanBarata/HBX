@@ -124,6 +124,11 @@ type HistoryResponse = {
   items: SearchHistoryItem[];
 };
 
+type CitiesResponse = {
+  items: string[];
+  total: number;
+};
+
 type ImportToVendasResponse = {
   ok: boolean;
   createdCount: number;
@@ -171,6 +176,15 @@ function normalizePhoneDigits(raw: string) {
     digits = digits.slice(2);
   }
   return digits;
+}
+
+function normalizeCityLookup(value: string) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function buildCompanyName(currentUser: CurrentUser | null) {
@@ -292,6 +306,9 @@ export default function WebscrapingClientPage() {
   const [runtime, setRuntime] = useState<RuntimeResponse | null>(null);
   const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
   const [historyItems, setHistoryItems] = useState<SearchHistoryItem[]>([]);
+  const [cityOptions, setCityOptions] = useState<string[]>([]);
+  const [citiesLoading, setCitiesLoading] = useState(false);
+  const [citySuggestionsOpen, setCitySuggestionsOpen] = useState(false);
   const [city, setCity] = useState("");
   const [segment, setSegment] = useState("Lanchonetes");
   const [quantity, setQuantity] = useState(10);
@@ -330,6 +347,32 @@ export default function WebscrapingClientPage() {
   }, [runtime?.quota]);
   const configurationPending = runtime?.native.code === "configuration_pending";
   const defaultScriptVariables = useMemo(() => buildDefaultScriptVariables(currentUser), [currentUser]);
+  const cityExactOption = useMemo(() => {
+    const normalizedCity = normalizeCityLookup(city);
+    if (!normalizedCity) return "";
+    return cityOptions.find((option) => normalizeCityLookup(option) === normalizedCity) || "";
+  }, [city, cityOptions]);
+  const citySuggestionItems = useMemo(() => {
+    const normalizedCity = normalizeCityLookup(city);
+    if (!normalizedCity) return [];
+
+    return cityOptions
+      .map((option) => ({
+        option,
+        normalized: normalizeCityLookup(option),
+      }))
+      .filter((item) => item.normalized.includes(normalizedCity))
+      .sort((left, right) => {
+        const leftStarts = left.normalized.startsWith(normalizedCity) ? 0 : 1;
+        const rightStarts = right.normalized.startsWith(normalizedCity) ? 0 : 1;
+        return leftStarts - rightStarts || left.option.localeCompare(right.option, "pt-BR");
+      })
+      .slice(0, 8)
+      .map((item) => item.option);
+  }, [city, cityOptions]);
+  const shouldShowCitySuggestions =
+    citySuggestionsOpen && city.trim().length >= 2 && citySuggestionItems.length > 0 && !cityExactOption;
+  const citySelectionPending = cityOptions.length > 0 && city.trim().length > 0 && !cityExactOption;
   const crmPreviewSummary = useMemo(() => {
     const items = Object.values(crmPreviewByPhone);
     return {
@@ -412,6 +455,34 @@ export default function WebscrapingClientPage() {
         }
       }
     })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [hasToken]);
+
+  useEffect(() => {
+    if (hasToken !== true) return;
+
+    let cancelled = false;
+    setCitiesLoading(true);
+
+    apiFetch<CitiesResponse>("/webscraping/cities?limit=6000")
+      .then((payload) => {
+        if (!cancelled) {
+          setCityOptions(payload.items || []);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setCityOptions([]);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setCitiesLoading(false);
+        }
+      });
 
     return () => {
       cancelled = true;
@@ -506,6 +577,17 @@ export default function WebscrapingClientPage() {
       return;
     }
 
+    const selectedCity = cityExactOption || (cityOptions.length === 0 ? city.trim() : "");
+    if (citySelectionPending || !selectedCity) {
+      if (citySuggestionItems.length > 0) {
+        setSearchError("Selecione a cidade com UF na lista para evitar ambiguidade.");
+      } else {
+        setSearchError("Selecione uma cidade existente na lista.");
+      }
+      setCitySuggestionsOpen(true);
+      return;
+    }
+
     if (!segment.trim()) {
       setSearchError("Informe o segmento.");
       return;
@@ -515,7 +597,7 @@ export default function WebscrapingClientPage() {
     try {
       const payload = await apiFetch<SearchResponse>("/webscraping/search", {
         method: "POST",
-        body: JSON.stringify(buildPayload()),
+        body: JSON.stringify({ ...buildPayload(), city: selectedCity }),
       });
       setResults(payload.results || []);
       setActiveQuery(payload.query);
@@ -571,8 +653,9 @@ export default function WebscrapingClientPage() {
   }
 
   async function handleExport() {
+    const selectedCity = cityExactOption || (cityOptions.length === 0 ? city.trim() : "");
     const query = activeQuery || {
-      city,
+      city: selectedCity,
       segment,
       quantity,
       filters: {
@@ -584,7 +667,12 @@ export default function WebscrapingClientPage() {
     };
 
     if (!query.city.trim() || !query.segment.trim()) {
-      setSearchError("Preencha cidade e segmento antes de exportar.");
+      setSearchError(
+        city.trim() && !query.city.trim()
+          ? "Selecione a cidade com UF na lista antes de exportar."
+          : "Preencha cidade e segmento antes de exportar.",
+      );
+      setCitySuggestionsOpen(Boolean(city.trim() && !query.city.trim()));
       return;
     }
 
@@ -788,15 +876,59 @@ export default function WebscrapingClientPage() {
             </div>
 
             <div className={styles.formGrid}>
-              <label className={styles.field}>
-                <span className={styles.fieldLabel}>Cidade</span>
+              <div className={styles.field}>
+                <label className={styles.fieldLabel} htmlFor="webscraping-city">
+                  Cidade
+                </label>
                 <input
+                  id="webscraping-city"
                   className={styles.fieldInput}
                   value={city}
-                  onChange={(event) => setCity(event.target.value)}
-                  placeholder="Ex: Sao Paulo - SP"
+                  onChange={(event) => {
+                    setCity(event.target.value);
+                    setCitySuggestionsOpen(true);
+                  }}
+                  onFocus={() => setCitySuggestionsOpen(true)}
+                  onBlur={() => window.setTimeout(() => setCitySuggestionsOpen(false), 120)}
+                  placeholder="Digite e selecione: Rio Claro - SP"
+                  autoComplete="off"
+                  role="combobox"
+                  aria-autocomplete="list"
+                  aria-expanded={shouldShowCitySuggestions}
+                  aria-controls="webscraping-city-suggestions"
                 />
-              </label>
+                {shouldShowCitySuggestions ? (
+                  <div
+                    id="webscraping-city-suggestions"
+                    className={styles.citySuggestions}
+                    role="listbox"
+                  >
+                    {citySuggestionItems.map((option) => (
+                      <button
+                        key={option}
+                        type="button"
+                        className={styles.citySuggestion}
+                        onMouseDown={(event) => {
+                          event.preventDefault();
+                          setCity(option);
+                          setCitySuggestionsOpen(false);
+                        }}
+                        role="option"
+                        aria-selected={option === cityExactOption}
+                      >
+                        {option}
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+                <p className={styles.fieldHint}>
+                  {citiesLoading
+                    ? "Carregando cidades..."
+                    : citySelectionPending
+                      ? "Escolha uma opcao com UF antes de buscar."
+                      : "Use a UF para diferenciar cidades com o mesmo nome."}
+                </p>
+              </div>
 
               <label className={styles.field}>
                 <span className={styles.fieldLabel}>Segmento / tipo de negocio</span>
