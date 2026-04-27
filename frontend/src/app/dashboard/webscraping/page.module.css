@@ -330,14 +330,34 @@
 }
 
 .fieldHint {
+  min-height: 1rem;
   font-size: 0.78rem;
   line-height: 1.25;
+}
+
+.cityInputWrap {
+  position: relative;
+}
+
+.cityInputWrap .fieldInput {
+  padding-right: 2.3rem;
+}
+
+.cityInputArrow {
+  position: absolute;
+  right: 0.95rem;
+  top: 50%;
+  transform: translateY(-52%);
+  color: var(--muted);
+  font-size: 1.05rem;
+  font-weight: 900;
+  pointer-events: none;
 }
 
 .citySuggestions {
   position: absolute;
   z-index: 20;
-  top: calc(100% - 0.1rem);
+  top: calc(100% - 1rem);
   left: 0;
   right: 0;
   display: grid;
@@ -351,7 +371,8 @@
   box-shadow: var(--shadow-md);
 }
 
-.citySuggestion {
+.citySuggestion,
+.citySuggestionActive {
   min-height: 38px;
   border: 0;
   border-radius: 12px;
@@ -364,9 +385,14 @@
 }
 
 .citySuggestion:hover,
-.citySuggestion:focus {
+.citySuggestion:focus,
+.citySuggestionActive {
   outline: none;
   background: color-mix(in srgb, var(--brand) 12%, var(--surface));
+}
+
+.citySuggestionActive {
+  color: var(--foreground);
 }
 
 .advancedWrap {

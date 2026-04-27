@@ -306,6 +306,7 @@ export default function WebscrapingClientPage() {
   const [cityOptions, setCityOptions] = useState<string[]>([]);
   const [citiesLoading, setCitiesLoading] = useState(false);
   const [citySuggestionsOpen, setCitySuggestionsOpen] = useState(false);
+  const [activeCitySuggestionIndex, setActiveCitySuggestionIndex] = useState(0);
   const [city, setCity] = useState("");
   const [segment, setSegment] = useState("Lanchonetes");
   const [quantity, setQuantity] = useState(10);
@@ -369,6 +370,9 @@ export default function WebscrapingClientPage() {
   const shouldShowCitySuggestions =
     citySuggestionsOpen && city.trim().length >= 2 && citySuggestionItems.length > 0 && !cityExactOption;
   const citySelectionPending = cityOptions.length > 0 && city.trim().length > 0 && !cityExactOption;
+  const activeCitySuggestion = shouldShowCitySuggestions
+    ? citySuggestionItems[Math.min(activeCitySuggestionIndex, citySuggestionItems.length - 1)] || ""
+    : "";
   const crmPreviewSummary = useMemo(() => {
     const items = Object.values(crmPreviewByPhone);
     return {
@@ -490,6 +494,10 @@ export default function WebscrapingClientPage() {
   }, [feedback]);
 
   useEffect(() => {
+    setActiveCitySuggestionIndex(0);
+  }, [city]);
+
+  useEffect(() => {
     const query = activeQuery || (city.trim() && segment.trim() ? { city, segment } : null);
     if (!results.length || !query) {
       setCrmPreviewByPhone({});
@@ -550,6 +558,40 @@ export default function WebscrapingClientPage() {
       minReviews: minReviews ? Number(minReviews) : undefined,
       onlyWithWebsite,
     };
+  }
+
+  function selectCitySuggestion(option: string) {
+    setCity(option);
+    setCitySuggestionsOpen(false);
+    setActiveCitySuggestionIndex(0);
+  }
+
+  function handleCityKeyDown(event: React.KeyboardEvent<HTMLInputElement>) {
+    if (!shouldShowCitySuggestions) return;
+
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      setActiveCitySuggestionIndex((current) => Math.min(current + 1, citySuggestionItems.length - 1));
+      return;
+    }
+
+    if (event.key === "ArrowUp") {
+      event.preventDefault();
+      setActiveCitySuggestionIndex((current) => Math.max(current - 1, 0));
+      return;
+    }
+
+    if (event.key === "Enter") {
+      event.preventDefault();
+      if (activeCitySuggestion) {
+        selectCitySuggestion(activeCitySuggestion);
+      }
+      return;
+    }
+
+    if (event.key === "Escape") {
+      setCitySuggestionsOpen(false);
+    }
   }
 
   async function refreshHistory() {
@@ -873,41 +915,46 @@ export default function WebscrapingClientPage() {
                 <label className={styles.fieldLabel} htmlFor="webscraping-city">
                   Cidade
                 </label>
-                <input
-                  id="webscraping-city"
-                  className={styles.fieldInput}
-                  value={city}
-                  onChange={(event) => {
-                    setCity(event.target.value);
-                    setCitySuggestionsOpen(true);
-                  }}
-                  onFocus={() => setCitySuggestionsOpen(true)}
-                  onBlur={() => window.setTimeout(() => setCitySuggestionsOpen(false), 120)}
-                  placeholder="Digite e selecione: Rio Claro - SP"
-                  autoComplete="off"
-                  role="combobox"
-                  aria-autocomplete="list"
-                  aria-expanded={shouldShowCitySuggestions}
-                  aria-controls="webscraping-city-suggestions"
-                />
+                <div className={styles.cityInputWrap}>
+                  <input
+                    id="webscraping-city"
+                    className={styles.fieldInput}
+                    value={city}
+                    onChange={(event) => {
+                      setCity(event.target.value);
+                      setCitySuggestionsOpen(true);
+                    }}
+                    onFocus={() => setCitySuggestionsOpen(true)}
+                    onBlur={() => window.setTimeout(() => setCitySuggestionsOpen(false), 120)}
+                    onKeyDown={handleCityKeyDown}
+                    placeholder="Digite e selecione: Rio Claro - SP"
+                    autoComplete="off"
+                    role="combobox"
+                    aria-autocomplete="list"
+                    aria-expanded={shouldShowCitySuggestions}
+                    aria-controls="webscraping-city-suggestions"
+                    aria-activedescendant={activeCitySuggestion ? `webscraping-city-option-${activeCitySuggestionIndex}` : undefined}
+                  />
+                  <span className={styles.cityInputArrow} aria-hidden="true">⌄</span>
+                </div>
                 {shouldShowCitySuggestions ? (
                   <div
                     id="webscraping-city-suggestions"
                     className={styles.citySuggestions}
                     role="listbox"
                   >
-                    {citySuggestionItems.map((option) => (
+                    {citySuggestionItems.map((option, index) => (
                       <button
                         key={option}
+                        id={`webscraping-city-option-${index}`}
                         type="button"
-                        className={styles.citySuggestion}
+                        className={index === activeCitySuggestionIndex ? styles.citySuggestionActive : styles.citySuggestion}
                         onMouseDown={(event) => {
                           event.preventDefault();
-                          setCity(option);
-                          setCitySuggestionsOpen(false);
+                          selectCitySuggestion(option);
                         }}
                         role="option"
-                        aria-selected={option === cityExactOption}
+                        aria-selected={index === activeCitySuggestionIndex}
                       >
                         {option}
                       </button>
