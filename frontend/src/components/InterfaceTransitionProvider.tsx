@@ -10,8 +10,8 @@ import {
 } from "@/lib/login-visual-preferences";
 
 const ENTER_READY_DELAY_MS = 24;
-// Keep shutdown overlay visible long enough for full logout video
-const EXIT_DURATION_MS = 5000;
+// Keep shutdown feedback visible without delaying the login return.
+const EXIT_DURATION_MS = 4500;
 const ROW_SNAP_PX = 18;
 const NO_REVEAL_SELECTOR = '[data-ui-no-reveal="true"]';
 

@@ -7,6 +7,7 @@ Fluxo oficial de producao do HBX para backend e webscraping na VPS Hostinger.
 - Frontend: Vercel em `https://www.hbxsystem.com.br`
 - Backend: Hostinger em `https://api.hbxsystem.com.br`
 - Webscraping: Hostinger, via `docker-compose.hostinger.yml`
+- Webwhats: servico systemd separado, normalmente em `/opt/webwhats` com service `evolution`
 - Banco: Postgres local da VPS no container `hbx-postgres`, banco `hbx_prod`
 - Rede Docker: externa, preferindo a rede onde `hbx-postgres` ja esta conectado (`hbx_net` ou `hbx-net`)
 - Compose da VPS: `/usr/bin/docker-compose 1.29.2`
@@ -37,6 +38,7 @@ Cria apenas um backup local no git:
 - roda `git add -A`;
 - aceita mensagem por argumento;
 - gera mensagem com timestamp se nenhuma mensagem for enviada;
+- se `../Webwhats` existir, repete o mesmo fluxo em commit separado no repositorio Webwhats;
 - nao faz push;
 - nao faz deploy;
 - bloqueia `.env` reais, backups, dumps, bancos locais e arquivos sensiveis conhecidos.
@@ -47,8 +49,10 @@ Fluxo normal de producao:
 
 - exige branch `master`;
 - exige working tree limpa;
-- roda validacoes/builds locais;
-- faz `git push origin master` sem force;
+- exige working tree limpa tambem no Webwhats quando `../Webwhats` existir;
+- roda validacoes/builds locais de HBX e Webwhats;
+- faz `git push origin master` sem force nos repositorios aplicaveis;
+- publica Webwhats por SSH antes do HBX, usando `npm ci`, `npm run build`, `npm run db:generate`, `npm run db:deploy` e `systemctl restart`;
 - acessa a Hostinger por SSH;
 - roda `git fetch origin master` e `git reset --hard origin/master`;
 - valida que `backend/.env` existe na VPS;
@@ -64,6 +68,7 @@ Durante o deploy o script mostra:
 - Banco esperado: `hbx-postgres/hbx_prod`
 - Backend URL
 - Frontend URL
+- Configuracao remota do Webwhats quando habilitado
 - Containers ativos
 
 ## `npm run publish:d`
@@ -123,3 +128,24 @@ Arquivos reais que nunca devem ir para o git:
 - senhas, tokens e chaves reais
 
 Use `.env.production.example` para variaveis operacionais locais e `.env.hostinger.example` como referencia do `backend/.env` da VPS.
+
+## Webwhats no publish
+
+Por padrao, o publish inclui o Webwhats quando o repositorio local existe em `../Webwhats`. Para desabilitar temporariamente:
+
+```env
+WEBWHATS_DEPLOY_ENABLED=false
+```
+
+Variaveis principais:
+
+```env
+WEBWHATS_REPO_PATH=../Webwhats
+WEBWHATS_APP_DIR=/opt/webwhats
+WEBWHATS_RUN_USER=webwhats
+WEBWHATS_SYSTEMD_SERVICE=evolution
+WEBWHATS_GIT_REMOTE=origin
+WEBWHATS_GIT_BRANCH=master
+```
+
+Se `WEBWHATS_SSH_HOST` e `WEBWHATS_SSH_USER` nao forem definidos, o script usa `HOSTINGER_SSH_HOST` e `HOSTINGER_SSH_USER`.

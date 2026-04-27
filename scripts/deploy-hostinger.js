@@ -7,6 +7,12 @@ const {
   repoRoot,
   run,
 } = require('./lib/runtime');
+const {
+  isTruthy,
+  isWebwhatsRepoAvailable,
+  resolveWebwhatsRepoPath,
+  shouldUseWebwhats,
+} = require('./lib/webwhats-release');
 
 const remote = 'origin';
 const branch = 'master';
@@ -23,10 +29,6 @@ function parseMode() {
   if (wantsDryRun) return 'dry-run';
   if (wantsForce) return 'force';
   return 'normal';
-}
-
-function isTruthy(value) {
-  return ['1', 'true', 'yes', 'on'].includes(String(value || '').trim().toLowerCase());
 }
 
 function logStage(title) {
@@ -50,7 +52,7 @@ function runStep(command, args, options = {}) {
   console.log(`\n> ${[command, ...args].join(' ')}`);
 
   return run(command, args, {
-    cwd: repoRoot,
+    cwd: options.cwd || repoRoot,
     captureOutput: options.captureOutput,
     allowFailure: options.allowFailure,
     env: options.env,
@@ -98,34 +100,35 @@ function ensureRequiredEnv(env) {
   };
 }
 
-function ensureMasterBranch() {
-  const result = runStep('git', ['branch', '--show-current'], { captureOutput: true });
+function ensureGitBranch(expectedBranch, cwd = repoRoot, label = 'HBX') {
+  const result = runStep('git', ['branch', '--show-current'], { cwd, captureOutput: true });
   const currentBranch = String(result.stdout || '').trim();
-  if (currentBranch !== branch) {
-    throw new Error(`Publish Hostinger only runs from ${branch}. Current branch: ${currentBranch || '(detached HEAD)'}`);
+  if (currentBranch !== expectedBranch) {
+    throw new Error(`Publish ${label} only runs from ${expectedBranch}. Current branch: ${currentBranch || '(detached HEAD)'}`);
   }
 }
 
-function ensureCleanWorkingTree(mode) {
-  const result = runStep('git', ['status', '--short'], { captureOutput: true });
+function ensureCleanWorkingTree(mode, cwd = repoRoot, label = 'HBX') {
+  const result = runStep('git', ['status', '--short'], { cwd, captureOutput: true });
   const status = String(result.stdout || '').trim();
 
   if (!status) {
-    console.log('Working tree clean.');
+    console.log(`${label} working tree clean.`);
     return;
   }
 
   console.log(status);
   if (mode === 'dry-run') {
-    console.log('[dry-run] Working tree is dirty. Normal/force publish would stop here.');
+    console.log(`[dry-run] ${label} working tree is dirty. Normal/force publish would stop here.`);
     return;
   }
 
-  throw new Error('Publish Hostinger requires a clean working tree. Run npm run commit first, then npm run publish.');
+  throw new Error(`Publish requires a clean ${label} working tree. Run npm run commit first, then npm run publish.`);
 }
 
-function listChangedFilesAheadOfRemote() {
-  const result = runStep('git', ['diff', '--name-only', `${remote}/${branch}..HEAD`], {
+function listChangedFilesAheadOfRemote(cwd = repoRoot, gitRemote = remote, gitBranch = branch) {
+  const result = runStep('git', ['diff', '--name-only', `${gitRemote}/${gitBranch}..HEAD`], {
+    cwd,
     captureOutput: true,
     allowFailure: true,
   });
@@ -207,6 +210,113 @@ function buildRemoteDeployScript(config, mode) {
   return lines.join('\n');
 }
 
+function resolveWebwhatsDeployConfig(env, hostingerConfig) {
+  const repoPath = resolveWebwhatsRepoPath(env);
+  const includeWebwhats = shouldUseWebwhats(env, 'WEBWHATS_DEPLOY_ENABLED', repoPath);
+
+  if (!includeWebwhats) {
+    console.log(`Webwhats deploy skipped. Repository not found at ${repoPath} or WEBWHATS_DEPLOY_ENABLED=false.`);
+    return null;
+  }
+
+  if (!isWebwhatsRepoAvailable(repoPath)) {
+    throw new Error(`WEBWHATS_DEPLOY_ENABLED is enabled, but no Webwhats git repository was found at: ${repoPath}`);
+  }
+
+  const sshHost = String(env.WEBWHATS_SSH_HOST || hostingerConfig.sshHost || '').trim();
+  const sshUser = String(env.WEBWHATS_SSH_USER || hostingerConfig.sshUser || '').trim();
+  if (!sshHost || !sshUser) {
+    throw new Error('Missing Webwhats SSH config. Define WEBWHATS_SSH_HOST/WEBWHATS_SSH_USER or HOSTINGER_SSH_HOST/HOSTINGER_SSH_USER.');
+  }
+
+  return {
+    repoPath,
+    gitRemote: String(env.WEBWHATS_GIT_REMOTE || remote).trim(),
+    gitBranch: String(env.WEBWHATS_GIT_BRANCH || branch).trim(),
+    sshHost,
+    sshUser,
+    sshPort: String(env.WEBWHATS_SSH_PORT || '').trim(),
+    appDir: String(env.WEBWHATS_APP_DIR || '/opt/webwhats').trim(),
+    runUser: String(env.WEBWHATS_RUN_USER || 'webwhats').trim(),
+    serviceName: String(env.WEBWHATS_SYSTEMD_SERVICE || 'evolution').trim(),
+  };
+}
+
+function buildSshArgs(config, remoteScript) {
+  const sshArgs = [];
+  if (config.sshPort) {
+    sshArgs.push('-p', config.sshPort);
+  }
+  sshArgs.push(`${config.sshUser}@${config.sshHost}`, 'bash', '-lc', shellSingleQuote(remoteScript));
+  return sshArgs;
+}
+
+function buildWebwhatsRemoteDeployScript(config) {
+  const lines = [
+    'set -eu',
+    `APP_DIR=${shellSingleQuote(config.appDir)}`,
+    `RUN_USER=${shellSingleQuote(config.runUser)}`,
+    `SERVICE_NAME=${shellSingleQuote(config.serviceName)}`,
+    `GIT_REMOTE=${shellSingleQuote(config.gitRemote)}`,
+    `GIT_BRANCH=${shellSingleQuote(config.gitBranch)}`,
+    'cd "$APP_DIR"',
+    'if [ ! -f package.json ]; then echo "ERRO: package.json do Webwhats nao encontrado em $APP_DIR."; exit 1; fi',
+    'if [ ! -f .env ]; then echo "ERRO: .env do Webwhats nao existe no servidor."; exit 1; fi',
+    'run_as_service_user() { if command -v sudo >/dev/null 2>&1; then sudo -u "$RUN_USER" "$@"; else "$@"; fi; }',
+    'run_systemctl() { if command -v sudo >/dev/null 2>&1; then sudo systemctl "$@"; else systemctl "$@"; fi; }',
+    'run_as_service_user git fetch "$GIT_REMOTE" "$GIT_BRANCH"',
+    'run_as_service_user git checkout "$GIT_BRANCH"',
+    'run_as_service_user git reset --hard "$GIT_REMOTE/$GIT_BRANCH"',
+    'run_as_service_user npm ci',
+    'run_as_service_user npm run build',
+    'run_as_service_user npm run db:generate',
+    'run_as_service_user npm run db:deploy',
+    'run_systemctl restart "$SERVICE_NAME"',
+    'run_systemctl is-active --quiet "$SERVICE_NAME"',
+    'echo "Webwhats service ativo: $SERVICE_NAME"',
+  ];
+
+  return lines.join('\n');
+}
+
+function printWebwhatsDryRun(config) {
+  if (!config) return;
+
+  console.log('[dry-run] Would run: git push ' + `${config.gitRemote} ${config.gitBranch} from ${config.repoPath}`);
+  console.log(`[dry-run] Would SSH into Webwhats: ${config.sshUser}@${config.sshHost}`);
+  console.log('[dry-run] Would execute this Webwhats remote script:');
+  console.log('--- webwhats remote script start ---');
+  console.log(buildWebwhatsRemoteDeployScript(config));
+  console.log('--- webwhats remote script end ---');
+}
+
+function validateWebwhatsLocal(config, mode) {
+  if (!config) return;
+
+  logStage(`Webwhats Local Preflight (${mode})`);
+  console.log(`Webwhats repo: ${config.repoPath}`);
+  console.log(`Webwhats branch: ${config.gitBranch}`);
+  console.log(`Webwhats remoto: ${config.sshUser}@${config.sshHost}:${config.appDir}`);
+  runStep('git', ['rev-parse', '--is-inside-work-tree'], { cwd: config.repoPath });
+  ensureGitBranch(config.gitBranch, config.repoPath, 'Webwhats');
+  ensureCleanWorkingTree(mode, config.repoPath, 'Webwhats');
+  runStep('npm', ['run', 'typecheck'], { cwd: config.repoPath });
+  runStep('npm', ['run', 'build'], { cwd: config.repoPath });
+}
+
+function pushWebwhats(config) {
+  if (!config) return;
+
+  runStep('git', ['push', config.gitRemote, config.gitBranch], { cwd: config.repoPath });
+}
+
+function deployWebwhats(config) {
+  if (!config) return;
+
+  const remoteScript = buildWebwhatsRemoteDeployScript(config);
+  runStep('ssh', buildSshArgs(config, remoteScript));
+}
+
 function printDryRun(config, mode) {
   console.log('\n[dry-run] No git push, no SSH execution, no docker-compose down/up on Hostinger.');
   console.log('[dry-run] Would run: git push origin master');
@@ -274,28 +384,35 @@ async function main() {
   const mode = parseMode();
   const env = loadOperationsEnv();
   const config = ensureRequiredEnv(env);
+  const webwhatsConfig = resolveWebwhatsDeployConfig(env, config);
 
   logStage(`Local Preflight (${mode})`);
   console.log('Banco esperado: hbx-postgres/hbx_prod');
   console.log(`Backend URL: ${config.backendUrl}`);
   console.log(`Frontend URL: ${config.frontendUrl}`);
   runStep('git', ['rev-parse', '--is-inside-work-tree']);
-  ensureMasterBranch();
+  ensureGitBranch(branch);
   ensureCleanWorkingTree(mode);
   const changedFilesAheadOfRemote = listChangedFilesAheadOfRemote();
   runStep('npm', ['--prefix', 'backend', 'run', 'prisma:generate']);
   runStep('npm', ['--prefix', 'backend', 'run', 'prisma:validate']);
   runStep('npm', ['--prefix', 'backend', 'run', 'build']);
   runStep('npm', ['--prefix', 'frontend', 'run', 'build']);
+  validateWebwhatsLocal(webwhatsConfig, mode);
 
   if (mode === 'dry-run') {
     logStage('Dry Run Plan');
+    printWebwhatsDryRun(webwhatsConfig);
     printDryRun(config, 'normal');
     return;
   }
 
   logStage('Git Push');
   runStep('git', ['push', remote, branch]);
+  pushWebwhats(webwhatsConfig);
+
+  logStage('Webwhats Deploy');
+  deployWebwhats(webwhatsConfig);
 
   logStage(`Hostinger Deploy (${mode})`);
   deployOnHostinger(config, mode);
