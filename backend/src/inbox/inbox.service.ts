@@ -1970,45 +1970,98 @@ export class InboxService {
     options?: { take?: string | number | null; skip?: string | number | null },
   ) {
     const take = this.normalizeConversationTakeLimit(options?.take, 200) || 200;
-    const skip = this.normalizeConversationSkip(options?.skip);
-    const rows = await this.prisma.companyConversation.findMany({
-      where: { companyId, channel: 'whatsapp' },
-      orderBy: [{ lastMessageAt: 'desc' }, { updatedAt: 'desc' }, { id: 'desc' }],
-      take,
-      skip,
-      select: {
-        id: true,
-        contact: true,
-        metadata: true,
-        currentFlow: true,
-        currentStep: true,
-        flowResult: true,
-        botActive: true,
-        humanAssigned: true,
-        assignedUserId: true,
-        createdAt: true,
-        updatedAt: true,
-        lastMessageAt: true,
-        messages: {
-          orderBy: { timestamp: 'desc' },
-          take: 1,
-          select: {
-            id: true,
-            direction: true,
-            messageType: true,
-            body: true,
-            senderType: true,
-            status: true,
-            error: true,
-            timestamp: true,
-            sourceModule: true,
-            providerMessageId: true,
-            rawPayload: true,
-            variablesJson: true,
+    const visibleSkip = this.normalizeConversationSkip(options?.skip);
+    const rows: Array<{
+      id: number;
+      contact: string;
+      metadata: unknown;
+      currentFlow: string | null;
+      currentStep: string | null;
+      flowResult: string | null;
+      botActive: boolean;
+      humanAssigned: boolean;
+      assignedUserId: number | null;
+      createdAt: Date;
+      updatedAt: Date;
+      lastMessageAt: Date | null;
+      messages: Array<{
+        id: number;
+        direction: string;
+        messageType: string | null;
+        body: string | null;
+        senderType: string | null;
+        status: string | null;
+        error: string | null;
+        timestamp: Date;
+        sourceModule: string | null;
+        providerMessageId: string | null;
+        rawPayload: unknown;
+        variablesJson: unknown;
+      }>;
+    }> = [];
+    const queryTake = Math.max(take, 40);
+    let querySkip = 0;
+    let visibleSeen = 0;
+
+    while (rows.length < take) {
+      const chunk = await this.prisma.companyConversation.findMany({
+        where: { companyId, channel: 'whatsapp' },
+        orderBy: [{ lastMessageAt: 'desc' }, { updatedAt: 'desc' }, { id: 'desc' }],
+        take: queryTake,
+        skip: querySkip,
+        select: {
+          id: true,
+          contact: true,
+          metadata: true,
+          currentFlow: true,
+          currentStep: true,
+          flowResult: true,
+          botActive: true,
+          humanAssigned: true,
+          assignedUserId: true,
+          createdAt: true,
+          updatedAt: true,
+          lastMessageAt: true,
+          messages: {
+            orderBy: { timestamp: 'desc' },
+            take: 1,
+            select: {
+              id: true,
+              direction: true,
+              messageType: true,
+              body: true,
+              senderType: true,
+              status: true,
+              error: true,
+              timestamp: true,
+              sourceModule: true,
+              providerMessageId: true,
+              rawPayload: true,
+              variablesJson: true,
+            },
           },
         },
-      },
-    });
+      });
+
+      if (!chunk.length) break;
+      querySkip += chunk.length;
+
+      for (const row of chunk) {
+        const metadata = this.parseConversationMetadata(row.metadata);
+        if (this.parseBooleanMetadataFlag(metadata.whatsappConversationDeleted || metadata.inboxWhatsAppDeleted)) {
+          continue;
+        }
+        if (visibleSeen < visibleSkip) {
+          visibleSeen += 1;
+          continue;
+        }
+        rows.push(row);
+        visibleSeen += 1;
+        if (rows.length >= take) break;
+      }
+
+      if (chunk.length < queryTake) break;
+    }
 
     const routingRules = await this.getRecoveryRoutingRules(companyId);
     const identityMap = await this.loadAtendimentoIdentityMap(
@@ -2034,12 +2087,7 @@ export class InboxService {
         ),
     );
 
-    const visibleRows = rows.filter((row) => {
-      const metadata = this.parseConversationMetadata(row.metadata);
-      return !this.parseBooleanMetadataFlag(metadata.whatsappConversationDeleted || metadata.inboxWhatsAppDeleted);
-    });
-
-    const sortedRows = [...visibleRows].sort((left, right) => {
+    const sortedRows = [...rows].sort((left, right) => {
       const leftTime = this.resolveConversationActivityDate(left)?.getTime() || 0;
       const rightTime = this.resolveConversationActivityDate(right)?.getTime() || 0;
       if (leftTime !== rightTime) return rightTime - leftTime;
