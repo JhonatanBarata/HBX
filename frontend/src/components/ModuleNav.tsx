@@ -97,6 +97,7 @@ const NAV_ITEMS: NavItem[] = [
     matcher: (route) => route.startsWith("/dashboard/importacoes/cadastros"),
     category: "structural",
     companyOnly: true,
+    moduleKey: "cadastro",
   },
   {
     key: "financeiro",
@@ -128,6 +129,7 @@ const NAV_ITEMS: NavItem[] = [
     matcher: (route) => route.startsWith("/dashboard/whatsapp"),
     category: "structural",
     companyOnly: true,
+    moduleKey: "whatsapp",
   },
   {
     key: "master",
@@ -339,7 +341,7 @@ export default function ModuleNav({
       if (!item.moduleKey) return true;
 
       const moduleItem = modulesByKey.get(normalizeUserModuleKey(item.moduleKey));
-      if (!moduleItem) return item.category !== "commercial";
+      if (!moduleItem) return false;
       return isModuleVisible(moduleItem);
     });
   }, [hasCompany, isSystemMaster, loading, modulesByKey, userRole]);
@@ -368,8 +370,7 @@ export default function ModuleNav({
               const moduleItem = item.moduleKey
                 ? (modulesByKey.get(normalizeUserModuleKey(item.moduleKey)) ?? null)
                 : null;
-              const structuralLocked = !isSystemMaster && item.category === "structural";
-              const blocked = structuralLocked || Boolean(moduleItem && isModuleBlocked(moduleItem));
+              const blocked = Boolean(moduleItem && isModuleBlocked(moduleItem));
               const override = presentationConfig?.modules?.[item.href];
               const label = String(override?.label || item.label);
               const shortLabel = String(override?.shortLabel || item.shortLabel).slice(0, 4).toUpperCase();

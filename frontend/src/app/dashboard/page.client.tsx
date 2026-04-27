@@ -42,6 +42,13 @@ type TutorialContent = {
   mistakes: string[];
 };
 
+type StepVisual = {
+  from: string;
+  to: string;
+  title: string;
+  lines: string[];
+};
+
 const MODULE_FALLBACK_NAMES: Record<string, string> = {
   atendimento: "Atendimento",
   vendas: "Vendas",
@@ -278,6 +285,269 @@ const TUTORIALS: Record<string, TutorialContent> = {
   },
 };
 
+const STEP_VISUALS: Record<string, StepVisual[]> = {
+  vendas: [
+    {
+      from: "Fila de leads",
+      to: "Lead aberto",
+      title: "Vendas",
+      lines: ["Novos leads", "Contato de hoje", "Atrasados"],
+    },
+    {
+      from: "Sem retorno",
+      to: "Proxima acao salva",
+      title: "Lead",
+      lines: ["Ligar hoje", "Enviar mensagem", "Retornar depois"],
+    },
+    {
+      from: "Dados incompletos",
+      to: "Cadastro revisado",
+      title: "Dados do lead",
+      lines: ["Nome", "Telefone", "Origem"],
+    },
+    {
+      from: "Lead qualificado",
+      to: "Conversa no Inbox",
+      title: "Encaminhar",
+      lines: ["Enviar para Inbox", "Historico junto", "Atendente continua"],
+    },
+    {
+      from: "Webscraping",
+      to: "Agenda comercial",
+      title: "Origem",
+      lines: ["Contato encontrado", "Virou lead", "Entrou no funil"],
+    },
+  ],
+  webscraping: [
+    {
+      from: "Cidade",
+      to: "Busca pronta",
+      title: "Nova busca",
+      lines: ["Sao Paulo", "Campinas", "Belo Horizonte"],
+    },
+    {
+      from: "Segmento",
+      to: "Publico filtrado",
+      title: "Segmento",
+      lines: ["Clinicas", "Oficinas", "Mercados"],
+    },
+    {
+      from: "Quantidade",
+      to: "Resultados limpos",
+      title: "Filtros",
+      lines: ["50 contatos", "Com telefone", "Com cidade"],
+    },
+    {
+      from: "Busca repetida",
+      to: "Historico/cache",
+      title: "Historico",
+      lines: ["Busca salva", "Reusar lista", "Evitar duplicar"],
+    },
+    {
+      from: "Resultados",
+      to: "Excel ou Vendas",
+      title: "Saida",
+      lines: ["Exportar Excel", "Enviar para Vendas", "Trabalhar leads"],
+    },
+  ],
+  atendimento: [
+    {
+      from: "Fila do Inbox",
+      to: "Conversa aberta",
+      title: "Inbox",
+      lines: ["Novas", "Em atendimento", "Arquivadas"],
+    },
+    {
+      from: "Mensagem solta",
+      to: "Cliente com contexto",
+      title: "Cliente",
+      lines: ["Historico", "Dados", "Ultimas mensagens"],
+    },
+    {
+      from: "Cliente aguardando",
+      to: "Resposta registrada",
+      title: "Resposta",
+      lines: ["Mensagem enviada", "Combinado salvo", "Status atualizado"],
+    },
+    {
+      from: "Canal offline",
+      to: "WhatsApp online",
+      title: "Canal",
+      lines: ["Conexao ativa", "Envio liberado", "Operacao online"],
+    },
+    {
+      from: "Bot respondeu",
+      to: "Humano assume",
+      title: "Handoff",
+      lines: ["Bot atende", "Cliente pede ajuda", "Atendente continua"],
+    },
+  ],
+  financeiro: [
+    {
+      from: "Resumo geral",
+      to: "Status do cliente",
+      title: "Financeiro",
+      lines: ["Pendente", "Pago", "Atrasado"],
+    },
+    {
+      from: "Pendencia",
+      to: "Detalhe aberto",
+      title: "Cobranca",
+      lines: ["Cliente", "Valor", "Vencimento"],
+    },
+    {
+      from: "Pagamento recebido",
+      to: "Regularizacao",
+      title: "Atualizar",
+      lines: ["Registrar", "Confirmar", "Status em dia"],
+    },
+    {
+      from: "Lista grande",
+      to: "Filtro aplicado",
+      title: "Filtros",
+      lines: ["Periodo", "Cliente", "Status"],
+    },
+  ],
+  website: [
+    {
+      from: "Entrada publica",
+      to: "Pagina revisada",
+      title: "Website",
+      lines: ["Pagina", "Area publica", "Contato"],
+    },
+    {
+      from: "Dados antigos",
+      to: "Informacoes atuais",
+      title: "Conteudo",
+      lines: ["Telefone", "Identidade", "Chamada"],
+    },
+    {
+      from: "Operacao mudou",
+      to: "Publico coerente",
+      title: "Revisao",
+      lines: ["Oferta", "Contato", "Proximo passo"],
+    },
+  ],
+  gerencial: [
+    {
+      from: "Dados soltos",
+      to: "Indicadores",
+      title: "Gerencial",
+      lines: ["Volume", "Status", "Resultado"],
+    },
+    {
+      from: "Modulo por modulo",
+      to: "Comparativo",
+      title: "Visao",
+      lines: ["Vendas", "Atendimento", "Financeiro"],
+    },
+    {
+      from: "Duvida de prioridade",
+      to: "Acao do time",
+      title: "Decisao",
+      lines: ["Gargalo", "Prioridade", "Proxima acao"],
+    },
+  ],
+  master: [
+    {
+      from: "Empresas",
+      to: "Empresa selecionada",
+      title: "Master",
+      lines: ["Empresa", "Plano", "Responsavel"],
+    },
+    {
+      from: "Acesso atual",
+      to: "Modulo liberado",
+      title: "Modulos",
+      lines: ["Permissoes", "Integracoes", "Acessos"],
+    },
+    {
+      from: "Alerta",
+      to: "Configuracao revisada",
+      title: "Operacao",
+      lines: ["Pagamento", "WhatsApp", "Usuarios"],
+    },
+    {
+      from: "Mudanca revisada",
+      to: "Salvo",
+      title: "Confirmar",
+      lines: ["Conferir", "Salvar", "Acompanhar"],
+    },
+  ],
+  exclusoes: [
+    {
+      from: "Registro sensivel",
+      to: "Analise aberta",
+      title: "Auditoria",
+      lines: ["Registro", "Origem", "Responsavel"],
+    },
+    {
+      from: "Acao pendente",
+      to: "Impacto revisado",
+      title: "Conferencia",
+      lines: ["Historico", "Impacto", "Motivo"],
+    },
+    {
+      from: "Duvida",
+      to: "Acao confirmada",
+      title: "Exclusao",
+      lines: ["Revisar", "Confirmar", "Registrar"],
+    },
+  ],
+  follow_up_internacional: [
+    {
+      from: "Importacao",
+      to: "Lista de follow-up",
+      title: "Global",
+      lines: ["Origem", "Pais", "Contato"],
+    },
+    {
+      from: "Registro",
+      to: "Proxima etapa",
+      title: "Acompanhamento",
+      lines: ["Status", "Responsavel", "Data"],
+    },
+    {
+      from: "Observacao nova",
+      to: "Historico atualizado",
+      title: "Registro",
+      lines: ["Nota", "Retorno", "Pendencia"],
+    },
+    {
+      from: "Lista cheia",
+      to: "Filtro certo",
+      title: "Filtros",
+      lines: ["Pais", "Origem", "Periodo"],
+    },
+  ],
+  whatsapp: [
+    {
+      from: "Canal",
+      to: "Status online",
+      title: "WhatsApp",
+      lines: ["Conectado", "Atencao", "Offline"],
+    },
+    {
+      from: "Sem conexao",
+      to: "QR ou canal oficial",
+      title: "Conectar",
+      lines: ["QR Code", "Meta Oficial", "Instancia"],
+    },
+    {
+      from: "Falha de envio",
+      to: "Diagnostico",
+      title: "Saude",
+      lines: ["Envio", "Recebimento", "Alertas"],
+    },
+    {
+      from: "Operacao parada",
+      to: "Inbox e bot ativos",
+      title: "Impacto",
+      lines: ["Inbox", "Bot", "Mensagens"],
+    },
+  ],
+};
+
 function resolveDisplayName(user: CurrentUser | null) {
   return String(user?.name || user?.username || user?.company?.name || "bem-vindo").trim();
 }
@@ -318,6 +588,18 @@ function formatBlockedReason(moduleItem: UserModule) {
   if (engine.toLowerCase() === "whatsapp") return "Conecte ou revise o WhatsApp para liberar este modulo.";
   if (engine.toLowerCase() === "payment") return "Revise o financeiro para liberar este modulo.";
   return "Existe uma configuracao pendente antes de usar este modulo.";
+}
+
+function getStepVisual(moduleKey: string, index: number, step: string): StepVisual {
+  const visuals = STEP_VISUALS[moduleKey] || [];
+  return (
+    visuals[index] || {
+      from: `Passo ${index + 1}`,
+      to: "Concluido",
+      title: "Guia",
+      lines: [step, "Salvar", "Continuar"],
+    }
+  );
 }
 
 export default function DashboardClientPage() {
@@ -398,6 +680,7 @@ export default function DashboardClientPage() {
   );
 
   const selectedTutorial = selectedModule ? getTutorialForModule(selectedModule) : null;
+  const selectedModuleKey = normalizeUserModuleKey(selectedModule?.key || "");
 
   const openFirstTutorial = useCallback(() => {
     setActiveTab("tutorial");
@@ -441,10 +724,10 @@ export default function DashboardClientPage() {
             <section className={styles.hero}>
               <div className={styles.heroContent}>
                 <span className={styles.heroBadge}>Central de tutorial</span>
-                <h1>Bem-vindo ao painel HBX</h1>
+                <h1>Painel HBX</h1>
                 <p>
-                  Ola, {resolveDisplayName(user)}. Aprenda a usar seus modulos ativos em poucos minutos,
-                  com passos simples e atalhos para abrir cada area real do sistema.
+                  Ola, {resolveDisplayName(user)}. Veja seus modulos ativos e siga tutoriais visuais
+                  com pequenos prints do caminho dentro do sistema.
                 </p>
                 <div className={styles.heroActions}>
                   <button type="button" className={styles.primaryButton} onClick={openFirstTutorial}>
@@ -469,12 +752,12 @@ export default function DashboardClientPage() {
                 <article>
                   <span>Modulos ativos</span>
                   <strong>{tutorialModules.length}</strong>
-                  <small>Disponiveis para tutorial</small>
+                  <small>para tutorial</small>
                 </article>
                 <article>
                   <span>Comece por</span>
                   <strong>{recommendedModule ? getModuleDisplayName(recommendedModule) : "Aguardando liberacao"}</strong>
-                  <small>Atalho recomendado</small>
+                  <small>recomendado</small>
                 </article>
                 <article>
                   <span>Precisam configurar</span>
@@ -516,7 +799,7 @@ export default function DashboardClientPage() {
                           <button
                             key={`${moduleItem.key}-${moduleItem.name}`}
                             type="button"
-                            data-active={normalizeUserModuleKey(selectedModule?.key || "") === normalized ? "true" : "false"}
+                            data-active={selectedModuleKey === normalized ? "true" : "false"}
                             onClick={() => setActiveModuleKey(normalized)}
                           >
                             <strong>{getModuleDisplayName(moduleItem)}</strong>
@@ -560,11 +843,35 @@ export default function DashboardClientPage() {
                             <span>03</span>
                             <h3>Passo a passo</h3>
                           </div>
-                          <ol className={styles.stepList}>
-                            {selectedTutorial.steps.map((step) => (
-                              <li key={step}>{step}</li>
-                            ))}
-                          </ol>
+                          <div className={styles.visualStepList}>
+                            {selectedTutorial.steps.map((step, index) => {
+                              const visual = getStepVisual(selectedModuleKey, index, step);
+                              return (
+                                <article key={step} className={styles.visualStep}>
+                                  <div className={styles.stepCopy}>
+                                    <span>{String(index + 1).padStart(2, "0")}</span>
+                                    <p>{step}</p>
+                                  </div>
+                                  <div className={styles.stepMockup} aria-label={`Print guia: ${visual.from} para ${visual.to}`}>
+                                    <div className={styles.mockHeader}>
+                                      <i />
+                                      <strong>{visual.title}</strong>
+                                    </div>
+                                    <div className={styles.mockBody}>
+                                      {visual.lines.slice(0, 3).map((line) => (
+                                        <span key={line}>{line}</span>
+                                      ))}
+                                    </div>
+                                  </div>
+                                  <div className={styles.stepBridge} aria-hidden="true">
+                                    <small>{visual.from}</small>
+                                    <b>{"->"}</b>
+                                    <small>{visual.to}</small>
+                                  </div>
+                                </article>
+                              );
+                            })}
+                          </div>
                         </section>
 
                         <div className={styles.assistGrid}>
