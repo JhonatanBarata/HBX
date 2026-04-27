@@ -8,6 +8,8 @@ export type InlineLaunchNoticeState = {
   title: string;
   description: string;
   ctaLabel: string;
+  statusLabel?: string;
+  activityTick?: number;
 };
 
 type InlineLaunchNoticeProps = {
@@ -31,6 +33,7 @@ export default function InlineLaunchNotice({ notice, onOpen, compact = false }: 
           {notice.phase === "loading" ? `${notice.progress}%` : "Sucesso"}
         </span>
       </div>
+      {notice.statusLabel ? <p className={styles.noticeDescription}>{notice.statusLabel}</p> : null}
       <p className={styles.noticeDescription}>{notice.description}</p>
       <div className={styles.progressTrack} aria-hidden="true">
         <span className={styles.progressBar} style={{ width: `${notice.progress}%` }} />
