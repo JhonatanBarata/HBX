@@ -1,195 +1,259 @@
 .page {
   display: grid;
   gap: 1rem;
+  color: var(--foreground);
 }
 
-.hero,
+.commandCard,
 .searchCard,
 .scriptGuideCard,
 .historyCard,
 .resultsCard,
-.runtimeVisionCard,
 .statusCard,
 .errorCard,
 .successCard,
-.diagnosticCard,
 .loadingCard {
-  border-radius: 28px;
   border: 1px solid color-mix(in srgb, var(--line) 84%, var(--background));
+  border-radius: 28px;
   background:
     radial-gradient(circle at top right, color-mix(in srgb, var(--brand) 10%, transparent), transparent 34%),
     linear-gradient(180deg, color-mix(in srgb, var(--surface) 98%, var(--background)), color-mix(in srgb, var(--surface-soft) 94%, var(--background)));
-  box-shadow: var(--shadow-inset), var(--shadow-xs);
+  box-shadow:
+    var(--shadow-inset),
+    0 24px 70px -46px color-mix(in srgb, var(--brand) 48%, transparent);
 }
 
-.hero,
-.runtimeVisionCard,
-.statusCard,
-.errorCard,
-.successCard,
-.diagnosticCard,
-.loadingCard,
+.commandCard,
 .searchCard,
 .scriptGuideCard,
 .historyCard,
-.resultsCard {
+.resultsCard,
+.statusCard,
+.errorCard,
+.successCard,
+.loadingCard {
   padding: 1.1rem;
 }
 
-.hero {
+.commandCard {
   display: grid;
-  gap: 1rem;
+  gap: 0.9rem;
 }
 
-.runtimeVisionCard {
+.commandGrid {
   display: grid;
+  grid-template-columns: minmax(180px, 220px) minmax(0, 1fr);
   gap: 0.8rem;
 }
 
-.runtimeHeader {
-  display: grid;
-  gap: 0.8rem;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-
-.runtimeCompactHeader {
-  display: grid;
-  grid-template-columns: minmax(160px, 220px) minmax(0, 1fr);
-  gap: 0.8rem;
-  align-items: stretch;
-}
-
-.runtimeVisionMetric,
 .quotaCard {
   display: grid;
-  gap: 0.45rem;
-  min-height: 72px;
-  padding: 0.78rem 0.9rem;
-  border-radius: 18px;
-  border: 1px solid color-mix(in srgb, var(--line) 84%, var(--background));
-  background: color-mix(in srgb, var(--surface-raised) 72%, transparent);
+  min-height: 78px;
   align-content: center;
-  -webkit-backdrop-filter: blur(18px) saturate(140%);
-  backdrop-filter: blur(18px) saturate(140%);
+  gap: 0.4rem;
+  border: 1px solid color-mix(in srgb, var(--brand) 18%, var(--line));
+  border-radius: 20px;
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--brand) 10%, transparent), transparent),
+    color-mix(in srgb, var(--surface-raised) 82%, var(--background));
+  padding: 0.85rem 0.95rem;
 }
 
-.runtimeVisionMetric[data-online="true"] {
-  border-color: color-mix(in srgb, #10b981 34%, var(--line));
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, #10b981 12%, transparent);
-}
-
-.runtimeVisionMetric[data-online="false"] {
-  border-color: color-mix(in srgb, #f59e0b 34%, var(--line));
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, #f59e0b 10%, transparent);
-}
-
-.runtimeVisionLabel {
-  font-size: 0.76rem;
+.cardEyebrow,
+.fieldLabel {
+  display: block;
+  color: color-mix(in srgb, var(--brand) 72%, var(--muted));
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
-  letter-spacing: 0.08em;
-  font-weight: 800;
-  color: var(--muted);
 }
 
-.runtimeVisionValue {
-  font-size: clamp(1.55rem, 3vw, 2.35rem);
-  line-height: 1;
+.sectionTitle,
+.statusTitle {
+  display: block;
   color: var(--foreground);
+  font-weight: 900;
+}
+
+.sectionTitle {
+  margin-top: 0.18rem;
+  font-size: clamp(1.05rem, 1.6vw, 1.32rem);
+  line-height: 1.1;
 }
 
 .quotaValue {
-  font-size: 1.45rem;
-  line-height: 1;
   color: var(--foreground);
+  font-size: 1.65rem;
+  font-weight: 950;
+  line-height: 1;
 }
 
-.motorStatusGrid {
+.motorStatusGrid,
+.engineSelector {
   display: grid;
-  gap: 0.55rem;
+  gap: 0.65rem;
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
 .motorStatus,
-.motorStatusActive {
+.motorStatusActive,
+.engineOption,
+.engineOptionActive {
+  position: relative;
   display: grid;
-  gap: 0.18rem;
-  min-height: 72px;
-  padding: 0.65rem 0.75rem;
-  border-radius: 18px;
-  border: 1px solid color-mix(in srgb, var(--line) 82%, var(--background));
-  background: color-mix(in srgb, var(--surface) 78%, transparent);
+  min-width: 0;
+  border: 1px solid color-mix(in srgb, var(--line) 84%, var(--background));
   color: var(--foreground);
   text-align: left;
   cursor: pointer;
-  align-content: center;
+  transition:
+    transform 160ms ease,
+    box-shadow 160ms ease,
+    border-color 160ms ease,
+    background 160ms ease;
 }
 
-.motorStatus span,
-.motorStatusActive span {
-  font-size: 0.68rem;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  font-weight: 900;
-  color: var(--muted);
-}
-
-.motorStatus strong,
-.motorStatusActive strong {
-  font-size: 0.94rem;
-  line-height: 1.05;
-}
-
-.motorStatus small,
-.motorStatusActive small {
-  color: var(--foreground-soft);
-  font-size: 0.72rem;
-  line-height: 1.15;
-}
-
+.motorStatus,
 .motorStatusActive {
-  border-color: color-mix(in srgb, var(--brand) 38%, var(--line));
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--brand) 12%, transparent);
+  min-height: 78px;
+  align-content: center;
+  gap: 0.2rem;
+  border-radius: 20px;
+  background: color-mix(in srgb, var(--surface) 82%, transparent);
+  padding: 0.75rem 2.25rem 0.75rem 0.85rem;
+}
+
+.motorStatus:hover,
+.motorStatusActive:hover,
+.engineOption:hover,
+.engineOptionActive:hover,
+.segmentChip:hover,
+.segmentChipActive:hover,
+.glassButton:hover,
+.glassButtonPrimary:hover,
+.historyRow:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 18px 42px -32px color-mix(in srgb, var(--brand) 58%, transparent);
+}
+
+.motorStatus:focus-visible,
+.motorStatusActive:focus-visible,
+.engineOption:focus-visible,
+.engineOptionActive:focus-visible,
+.segmentChip:focus-visible,
+.segmentChipActive:focus-visible,
+.glassButton:focus-visible,
+.glassButtonPrimary:focus-visible,
+.citySuggestion:focus-visible,
+.citySuggestionActive:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--brand) 24%, transparent);
+  outline-offset: 2px;
+}
+
+.motorStatusActive,
+.engineOptionActive {
+  border-color: color-mix(in srgb, var(--brand) 44%, var(--line));
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--brand) 16%, transparent), color-mix(in srgb, var(--info) 8%, transparent)),
+    color-mix(in srgb, var(--surface) 88%, transparent);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--brand) 13%, transparent),
+    0 20px 48px -38px color-mix(in srgb, var(--brand) 68%, transparent);
 }
 
 .motorStatus[data-status="online"],
 .motorStatusActive[data-status="online"] {
-  border-color: color-mix(in srgb, #10b981 38%, var(--line));
+  border-color: color-mix(in srgb, var(--success) 42%, var(--line));
 }
 
-.motorStatus[data-status="offline"],
-.motorStatusActive[data-status="offline"],
-.motorStatus[data-status="bug"],
-.motorStatusActive[data-status="bug"] {
-  border-color: color-mix(in srgb, #ef4444 38%, var(--line));
+.motorStatus[data-status="danger"],
+.motorStatusActive[data-status="danger"] {
+  border-color: color-mix(in srgb, var(--danger) 42%, var(--line));
 }
 
-.motorStatus[data-status="unknown"],
-.motorStatusActive[data-status="unknown"] {
-  border-color: color-mix(in srgb, #f59e0b 32%, var(--line));
-}
-
-.glassTabs {
-  display: flex;
-  gap: 0.7rem;
-  flex-wrap: wrap;
-}
-
-.glassTab,
-.glassTabActive,
-.glassButton,
-.glassButtonPrimary {
+.motorCode,
+.engineStatus {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
+  gap: 0.35rem;
+  color: color-mix(in srgb, var(--brand) 72%, var(--muted));
+  font-size: 0.68rem;
+  font-weight: 950;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.motorStatus strong,
+.motorStatusActive strong {
+  overflow-wrap: anywhere;
+  font-size: 0.95rem;
+  line-height: 1.05;
+}
+
+.motorStatus small,
+.motorStatusActive small,
+.engineOption span,
+.engineOptionActive span,
+.engineOption small,
+.engineOptionActive small {
+  color: var(--foreground-soft);
+  font-size: 0.78rem;
+  line-height: 1.2;
+}
+
+.clickIcon {
+  position: absolute;
+  top: 0.75rem;
+  right: 0.75rem;
+  color: color-mix(in srgb, var(--brand) 70%, var(--foreground));
+  opacity: 0;
+  transition: opacity 160ms ease;
+}
+
+.motorStatus:hover .clickIcon,
+.motorStatusActive .clickIcon,
+.engineOption:hover .clickIcon,
+.engineOptionActive .clickIcon {
+  opacity: 1;
+}
+
+.modeTabs,
+.segmentChips,
+.searchActions,
+.sectionHeader,
+.actionRow,
+.historyTop,
+.metaPills {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.7rem;
+}
+
+.modeTabs {
+  justify-content: flex-start;
+}
+
+.modeTab,
+.modeTabActive,
+.glassButton,
+.glassButtonPrimary,
+.segmentChip,
+.segmentChipActive {
+  display: inline-flex;
   min-height: 42px;
+  align-items: center;
+  justify-content: center;
+  gap: 0.48rem;
+  border: 1px solid color-mix(in srgb, var(--line) 82%, var(--background));
   border-radius: 999px;
-  border: 1px solid color-mix(in srgb, var(--line) 72%, var(--background));
-  background: color-mix(in srgb, var(--surface) 58%, transparent);
+  background: color-mix(in srgb, var(--surface) 72%, transparent);
   color: var(--foreground);
-  padding: 0.72rem 1rem;
-  font-weight: 800;
-  font-size: 0.92rem;
   cursor: pointer;
+  font-size: 0.9rem;
+  font-weight: 850;
   text-decoration: none;
   transition:
     transform 160ms ease,
@@ -197,276 +261,134 @@
     border-color 160ms ease,
     background 160ms ease,
     opacity 160ms ease;
-  -webkit-backdrop-filter: blur(18px) saturate(145%);
-  backdrop-filter: blur(18px) saturate(145%);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.42),
-    0 14px 34px -24px rgba(15, 23, 42, 0.32);
 }
 
-.glassTab:hover,
-.glassTabActive:hover,
-.glassButton:hover,
-.glassButtonPrimary:hover {
-  transform: translateY(-1px);
+.modeTab,
+.modeTabActive {
+  padding: 0.68rem 1rem;
 }
 
-.glassTabActive,
-.glassButtonPrimary {
-  border-color: color-mix(in srgb, var(--brand) 36%, var(--line));
-  background:
-    linear-gradient(135deg, color-mix(in srgb, var(--brand) 20%, transparent), color-mix(in srgb, #7dd3fc 12%, transparent)),
-    color-mix(in srgb, var(--surface) 62%, transparent);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.48),
-    0 18px 42px -26px color-mix(in srgb, var(--brand) 28%, transparent);
-}
-
-.glassButton:disabled,
-.glassButtonPrimary:disabled,
-.glassTab:disabled,
-.glassTabActive:disabled {
-  opacity: 0.56;
-  cursor: default;
-  transform: none;
-}
-
-.heroCopy {
-  display: grid;
-  gap: 0.55rem;
-}
-
-.eyebrow {
-  font-size: 0.78rem;
-  text-transform: uppercase;
-  letter-spacing: 0.12em;
-  color: var(--muted);
-  font-weight: 800;
-}
-
-.heroTitle {
-  margin: 0;
-  font-size: clamp(1.8rem, 3vw, 2.55rem);
-  line-height: 0.98;
-}
-
-.heroText,
-.helperText,
-.fieldHint,
-.statusText,
-.historyFilter,
-.historyPreview,
-.emptyText,
-.diagnosticText,
-.resultMeta,
-.scriptText {
-  margin: 0;
-  color: var(--foreground-soft);
-}
-
-.heroStats,
-.searchTop,
-.searchActions,
-.sectionHeader,
-.resultHeader,
-.cardActions,
-.resultLinks,
-.metaPills,
-.historyTop,
-.diagnosticHeader,
-.actionRow,
-.segmentChips {
-  display: flex;
-  gap: 0.7rem;
-  align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
-}
-
-.heroStats {
-  align-items: stretch;
-}
-
-.metricCard {
-  flex: 1 1 180px;
-  min-width: 170px;
-  padding: 0.95rem 1rem;
-  border-radius: 20px;
-  border: 1px solid color-mix(in srgb, var(--brand) 18%, var(--line));
-  background: color-mix(in srgb, var(--surface-raised) 88%, var(--background));
-}
-
-.metricLabel,
-.fieldLabel,
-.scriptLabel,
-.diagnosticLabel {
-  display: block;
-  font-size: 0.74rem;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  font-weight: 800;
-  color: var(--muted);
-}
-
-.metricValue,
-.statusTitle {
-  display: block;
-  color: var(--foreground);
-}
-
-.metricValue {
-  margin-top: 0.25rem;
-  font-size: 1rem;
-}
-
-.statusCard,
-.errorCard,
-.successCard {
-  display: flex;
-  gap: 0.9rem;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.statusPill,
-.metaPill,
-.resultPill,
-.resultPillOk,
-.historyStamp,
-.diagnosticStamp,
-.segmentChip,
+.modeTabActive,
+.glassButtonPrimary,
 .segmentChipActive {
-  min-height: 34px;
-  padding: 0.42rem 0.8rem;
-  border-radius: 999px;
-  border: 1px solid color-mix(in srgb, var(--line) 84%, var(--background));
-  background: color-mix(in srgb, var(--surface) 72%, var(--background));
-  font-size: 0.76rem;
-  font-weight: 800;
+  border-color: color-mix(in srgb, var(--brand) 42%, var(--line));
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--brand) 86%, var(--info)), color-mix(in srgb, var(--brand-solid) 72%, var(--brand)));
+  color: var(--brand-contrast);
+  box-shadow: 0 18px 42px -30px color-mix(in srgb, var(--brand) 70%, transparent);
 }
 
-.statusPill,
-.metaPill,
-.historyStamp,
-.diagnosticStamp,
-.segmentChip {
-  color: var(--foreground-soft);
-}
-
-.segmentChip {
-  cursor: pointer;
-}
-
-.segmentChipActive,
-.resultPillOk {
-  color: #0f766e;
-  border-color: color-mix(in srgb, #10b981 32%, var(--background));
-  background: color-mix(in srgb, #d1fae5 82%, var(--background));
-}
-
-.resultPill {
-  color: #92400e;
-  border-color: color-mix(in srgb, #f59e0b 32%, var(--background));
-  background: color-mix(in srgb, #fef3c7 84%, var(--background));
-}
-
-.formGrid,
-.advancedGrid {
+.searchCard,
+.scriptGuideCard,
+.historyCard,
+.resultsCard {
   display: grid;
-  gap: 0.8rem;
-}
-
-.formGrid {
-  align-items: start;
-  grid-template-columns: minmax(190px, 1fr) minmax(240px, 1fr) minmax(150px, 0.72fr);
-}
-
-.engineSelector {
-  display: grid;
-  gap: 0.7rem;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1rem;
 }
 
 .engineOption,
 .engineOptionActive {
-  display: grid;
-  gap: 0.32rem;
-  min-height: 92px;
-  padding: 0.82rem 0.9rem;
-  border-radius: 18px;
-  border: 1px solid color-mix(in srgb, var(--line) 82%, var(--background));
-  background: color-mix(in srgb, var(--surface) 80%, transparent);
-  color: var(--foreground);
-  cursor: pointer;
-  text-align: left;
+  min-height: 112px;
   align-content: center;
-  transition:
-    border-color 160ms ease,
-    background 160ms ease,
-    box-shadow 160ms ease,
-    transform 160ms ease;
+  gap: 0.35rem;
+  border-radius: 20px;
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  padding: 0.9rem 2.3rem 0.9rem 0.95rem;
 }
 
-.engineOption:hover,
-.engineOptionActive:hover {
-  transform: translateY(-1px);
+.engineOption strong,
+.engineOptionActive strong {
+  color: var(--foreground);
+  font-size: 1rem;
+  line-height: 1.1;
 }
 
-.engineOption span,
-.engineOptionActive span {
-  color: var(--foreground-soft);
-  font-size: 0.82rem;
-  line-height: 1.25;
+.guideStrip {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
-.engineOptionActive {
-  border-color: color-mix(in srgb, var(--brand) 38%, var(--line));
-  background:
-    linear-gradient(135deg, color-mix(in srgb, var(--brand) 16%, transparent), color-mix(in srgb, #7dd3fc 10%, transparent)),
-    color-mix(in srgb, var(--surface) 86%, transparent);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--brand) 12%, transparent);
+.guideStep {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0.75rem;
+  border: 1px solid color-mix(in srgb, var(--brand) 18%, var(--line));
+  border-radius: 20px;
+  background: color-mix(in srgb, var(--brand) 7%, var(--surface));
+  padding: 0.82rem 0.9rem;
+}
+
+.guideStep span {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--brand) 82%, var(--brand-solid));
+  color: var(--brand-contrast);
+  font-weight: 950;
+}
+
+.guideStep strong {
+  min-width: 0;
+  color: var(--foreground);
+  font-size: 0.9rem;
+  line-height: 1.2;
+}
+
+.formGrid,
+.advancedGrid,
+.scriptGuideGrid,
+.skeletonGrid {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.formGrid {
+  align-items: start;
+  grid-template-columns: minmax(220px, 1fr) minmax(240px, 1fr) minmax(160px, 0.72fr);
 }
 
 .advancedGrid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  margin-top: 0.8rem;
 }
 
 .field {
-  display: grid;
-  gap: 0.45rem;
   position: relative;
+  display: grid;
+  gap: 0.42rem;
+  min-width: 0;
 }
 
 .fieldInput,
 .fieldSelect {
-  min-height: 48px;
   width: 100%;
-  border-radius: 16px;
+  min-height: 48px;
   border: 1px solid color-mix(in srgb, var(--line) 82%, var(--background));
+  border-radius: 16px;
   background: color-mix(in srgb, var(--field-surface) 94%, var(--background));
   color: var(--foreground);
-  padding: 0.76rem 0.92rem;
-}
-
-.formGrid .field {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  gap: 0.32rem;
-}
-
-.formGrid .fieldInput,
-.formGrid .fieldSelect {
-  min-height: 42px;
-  border-radius: 14px;
-  padding: 0.58rem 0.82rem;
+  padding: 0.75rem 0.9rem;
 }
 
 .fieldInput:focus,
 .fieldSelect:focus {
-  outline: 2px solid color-mix(in srgb, var(--brand) 20%, transparent);
-  border-color: color-mix(in srgb, var(--brand) 38%, var(--line));
+  border-color: color-mix(in srgb, var(--brand) 42%, var(--line));
+  outline: 3px solid color-mix(in srgb, var(--brand) 16%, transparent);
+}
+
+.fieldHint,
+.helperText,
+.statusText,
+.historyFilter,
+.historyPreview,
+.emptyText,
+.scriptText {
+  margin: 0;
+  color: var(--foreground-soft);
 }
 
 .fieldHint {
@@ -480,35 +402,33 @@
 }
 
 .cityInputWrap .fieldInput {
-  padding-right: 2.3rem;
+  padding-right: 2.55rem;
 }
 
 .cityInputArrow {
   position: absolute;
-  right: 0.95rem;
   top: 50%;
-  transform: translateY(-52%);
-  color: var(--muted);
-  font-size: 1.05rem;
-  font-weight: 900;
+  right: 0.95rem;
+  color: color-mix(in srgb, var(--brand) 66%, var(--muted));
   pointer-events: none;
+  transform: translateY(-50%);
 }
 
 .citySuggestions {
   position: absolute;
   z-index: 20;
   top: calc(100% - 1rem);
-  left: 0;
   right: 0;
+  left: 0;
   display: grid;
-  gap: 0.25rem;
   max-height: 260px;
   overflow: auto;
-  padding: 0.35rem;
+  gap: 0.25rem;
+  border: 1px solid color-mix(in srgb, var(--line) 86%, var(--background));
   border-radius: 16px;
-  border: 1px solid color-mix(in srgb, var(--line) 84%, var(--background));
   background: color-mix(in srgb, var(--surface-raised) 98%, var(--background));
   box-shadow: var(--shadow-md);
+  padding: 0.35rem;
 }
 
 .citySuggestion,
@@ -519,81 +439,50 @@
   background: transparent;
   color: var(--foreground);
   cursor: pointer;
-  font-weight: 750;
+  font-weight: 800;
   padding: 0.55rem 0.7rem;
   text-align: left;
 }
 
 .citySuggestion:hover,
-.citySuggestion:focus,
 .citySuggestionActive {
-  outline: none;
   background: color-mix(in srgb, var(--brand) 12%, var(--surface));
 }
 
-.citySuggestionActive {
-  color: var(--foreground);
-}
-
 .advancedWrap {
-  padding-top: 0.4rem;
   border-top: 1px solid color-mix(in srgb, var(--line) 78%, var(--background));
-}
-
-.filterNotice {
-  grid-column: 1 / -1;
-  display: grid;
-  gap: 0.3rem;
-  padding: 0.85rem 0.95rem;
-  border-radius: 16px;
-  border: 1px solid color-mix(in srgb, var(--line) 82%, var(--background));
-  background: color-mix(in srgb, var(--surface) 86%, transparent);
-}
-
-.filterNotice p {
-  margin: 0;
-  color: var(--foreground-soft);
-}
-
-.scriptGuideGrid {
-  display: grid;
-  gap: 0.85rem;
-  grid-template-columns: minmax(0, 1.3fr) minmax(320px, 0.9fr);
-}
-
-.scriptGuidePreview,
-.scriptGuideControls {
-  display: grid;
-  gap: 0.75rem;
-  padding: 0.95rem;
-  border-radius: 22px;
-  border: 1px solid color-mix(in srgb, var(--line) 84%, var(--background));
-  background: color-mix(in srgb, var(--surface) 98%, var(--background));
+  padding-top: 0.45rem;
 }
 
 .advancedToggle {
-  width: 100%;
-  border: 0;
-  background: transparent;
-  padding: 0;
   display: flex;
+  width: 100%;
   align-items: center;
   justify-content: space-between;
+  border: 0;
+  background: transparent;
   color: var(--foreground);
-  font-weight: 800;
   cursor: pointer;
+  font-weight: 900;
+  padding: 0;
+}
+
+.checkboxField,
+.filterNotice,
+.noticeInline,
+.emptyState {
+  border: 1px solid color-mix(in srgb, var(--line) 84%, var(--background));
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--surface-raised) 82%, var(--background));
 }
 
 .checkboxField {
-  min-height: 48px;
   display: flex;
-  gap: 0.6rem;
+  min-height: 48px;
   align-items: center;
-  padding: 0.75rem 0.9rem;
-  border-radius: 16px;
-  border: 1px solid color-mix(in srgb, var(--line) 82%, var(--background));
-  background: color-mix(in srgb, var(--field-surface) 94%, var(--background));
+  gap: 0.6rem;
   color: var(--foreground);
+  padding: 0.75rem 0.9rem;
 }
 
 .checkboxField input {
@@ -601,47 +490,72 @@
   height: 16px;
 }
 
-.historyGrid,
-.resultsGrid,
-.skeletonGrid {
+.filterNotice {
   display: grid;
-  gap: 0.85rem;
+  grid-column: 1 / -1;
+  gap: 0.3rem;
+  padding: 0.85rem 0.95rem;
 }
 
-.historyGrid,
-.resultsGrid {
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+.filterNotice p {
+  margin: 0;
+  color: var(--foreground-soft);
 }
 
-.skeletonGrid {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+.noticeInline {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  gap: 0.6rem;
+  border-color: color-mix(in srgb, var(--warning) 28%, var(--line));
+  background: color-mix(in srgb, var(--warning) 10%, var(--surface));
+  color: color-mix(in srgb, var(--warning) 76%, var(--foreground));
+  padding: 0.66rem 0.86rem;
+  font-weight: 850;
 }
 
-.historyItem,
-.resultCard,
-.resultSkeleton {
-  border-radius: 22px;
-  border: 1px solid color-mix(in srgb, var(--line) 84%, var(--background));
-  background: color-mix(in srgb, var(--surface) 98%, var(--background));
-  padding: 0.95rem;
+.glassButton,
+.glassButtonPrimary {
+  padding: 0.72rem 1rem;
 }
 
-.historyItem,
-.resultCard,
-.resultSkeleton,
-.emptyState {
+.glassButton:disabled,
+.glassButtonPrimary:disabled {
+  cursor: default;
+  opacity: 0.55;
+  transform: none;
+}
+
+.scriptGuideGrid {
+  grid-template-columns: minmax(0, 1.25fr) minmax(320px, 0.9fr);
+}
+
+.scriptGuidePreview,
+.scriptGuideControls {
   display: grid;
   gap: 0.75rem;
+  border: 1px solid color-mix(in srgb, var(--line) 84%, var(--background));
+  border-radius: 22px;
+  background: color-mix(in srgb, var(--surface) 96%, var(--background));
+  padding: 1rem;
 }
 
-.historyTitle,
-.resultName {
-  margin: 0;
-  font-size: 1rem;
-  line-height: 1.15;
+.scriptGuidePreview {
+  border-color: color-mix(in srgb, var(--brand) 24%, var(--line));
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--brand) 9%, transparent), transparent),
+    color-mix(in srgb, var(--surface) 96%, var(--background));
 }
 
-.historyList {
+.scriptText {
+  font-size: 0.96rem;
+  line-height: 1.65;
+}
+
+.historyList,
+.historyRowMain,
+.resultsGrid,
+.emptyState {
   display: grid;
   gap: 0.8rem;
 }
@@ -649,62 +563,110 @@
 .historyRow {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  gap: 0.8rem;
   align-items: center;
-  padding: 0.92rem 1rem;
-  border-radius: 22px;
+  gap: 0.85rem;
   border: 1px solid color-mix(in srgb, var(--line) 82%, var(--background));
-  background: color-mix(in srgb, var(--surface) 92%, transparent);
-  -webkit-backdrop-filter: blur(16px) saturate(140%);
-  backdrop-filter: blur(16px) saturate(140%);
+  border-radius: 22px;
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  padding: 0.95rem 1rem;
+  transition:
+    transform 160ms ease,
+    box-shadow 160ms ease,
+    border-color 160ms ease,
+    background 160ms ease;
 }
 
-.historyRowMain {
+.historyRow:hover {
+  border-color: color-mix(in srgb, var(--brand) 34%, var(--line));
+  background: color-mix(in srgb, var(--brand) 7%, var(--surface));
+}
+
+.historyTitle,
+.resultName {
+  margin: 0;
+  color: var(--foreground);
+  font-size: 1rem;
+  line-height: 1.15;
+}
+
+.historyMeta {
+  margin: 0.18rem 0 0;
+  color: var(--foreground-soft);
+}
+
+.historyStamp,
+.metaPill {
+  display: inline-flex;
+  min-height: 34px;
+  align-items: center;
+  border: 1px solid color-mix(in srgb, var(--line) 84%, var(--background));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface) 76%, var(--background));
+  color: var(--foreground-soft);
+  font-size: 0.76rem;
+  font-weight: 850;
+  padding: 0.42rem 0.8rem;
+}
+
+.resultsGrid {
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+}
+
+.resultSkeleton {
   display: grid;
-  gap: 0.42rem;
+  gap: 0.75rem;
+  border: 1px solid color-mix(in srgb, var(--line) 84%, var(--background));
+  border-radius: 22px;
+  background: color-mix(in srgb, var(--surface) 96%, var(--background));
+  padding: 0.95rem;
 }
 
-.historyMeta,
-.resultMeta {
-  margin-top: 0.18rem;
+.emptyState {
+  border-style: dashed;
+  border-color: color-mix(in srgb, var(--brand) 24%, var(--line));
+  background: color-mix(in srgb, var(--brand) 6%, var(--surface));
+  padding: 1.1rem;
 }
 
-.historyPreview {
-  font-size: 0.92rem;
+.statusCard,
+.errorCard,
+.successCard {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.9rem;
+}
+
+.errorCard {
+  border-color: color-mix(in srgb, var(--danger) 38%, var(--line));
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--danger) 10%, transparent), transparent),
+    color-mix(in srgb, var(--surface) 96%, var(--background));
+}
+
+.successCard {
+  border-color: color-mix(in srgb, var(--success) 34%, var(--line));
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--success) 10%, transparent), transparent),
+    color-mix(in srgb, var(--surface) 96%, var(--background));
 }
 
 .phoneRow {
   display: flex;
-  gap: 0.75rem;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  flex-wrap: wrap;
+  gap: 0.75rem;
 }
 
 .phoneValue {
-  font-size: 1rem;
-  font-weight: 800;
   color: var(--foreground);
+  font-size: 1rem;
+  font-weight: 900;
 }
 
-.scriptBox {
-  padding: 0.8rem;
-  border-radius: 18px;
-  border: 1px solid color-mix(in srgb, var(--line) 84%, var(--background));
-  background: color-mix(in srgb, var(--surface-soft) 90%, var(--background));
-}
-
-.emptyState {
-  padding: 1.1rem;
-  border-radius: 22px;
-  border: 1px dashed color-mix(in srgb, var(--line) 86%, var(--background));
-  background: color-mix(in srgb, var(--surface-soft) 88%, var(--background));
-}
-
-.diagnosticGrid {
-  display: grid;
-  gap: 0.9rem;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+.skeletonGrid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .skeletonTitle,
@@ -723,18 +685,18 @@
 }
 
 .skeletonTitle {
-  height: 18px;
   width: 42%;
+  height: 18px;
 }
 
 .skeletonLine {
-  height: 14px;
   width: 78%;
+  height: 14px;
 }
 
 .skeletonLineShort {
-  height: 14px;
   width: 58%;
+  height: 14px;
 }
 
 .skeletonField {
@@ -751,55 +713,55 @@
   }
 }
 
-@media (max-width: 1024px) {
-  .runtimeHeader,
-  .runtimeCompactHeader,
+@media (max-width: 1180px) {
+  .commandGrid,
   .formGrid,
-  .engineSelector,
-  .advancedGrid,
-  .scriptGuideGrid,
-  .diagnosticGrid,
-  .skeletonGrid {
+  .scriptGuideGrid {
     grid-template-columns: 1fr;
   }
 
-  .motorStatusGrid {
+  .motorStatusGrid,
+  .engineSelector {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
-@media (max-width: 720px) {
-  .hero,
+@media (max-width: 780px) {
+  .commandCard,
   .searchCard,
   .scriptGuideCard,
   .historyCard,
   .resultsCard,
-  .runtimeVisionCard,
   .statusCard,
   .errorCard,
   .successCard,
-  .diagnosticCard,
   .loadingCard {
+    border-radius: 22px;
     padding: 0.95rem;
   }
 
-  .historyGrid,
+  .motorStatusGrid,
+  .engineSelector,
+  .guideStrip,
+  .advancedGrid,
+  .skeletonGrid,
   .resultsGrid {
     grid-template-columns: 1fr;
   }
 
+  .sectionHeader,
+  .searchActions,
+  .statusCard,
+  .errorCard,
+  .successCard,
   .historyRow {
+    align-items: stretch;
     grid-template-columns: 1fr;
   }
 
-  .runtimeVisionMetric,
-  .quotaCard,
-  .motorStatus,
-  .motorStatusActive {
-    min-height: 64px;
-  }
-
-  .motorStatusGrid {
-    grid-template-columns: 1fr;
+  .actionRow,
+  .glassButton,
+  .glassButtonPrimary {
+    width: 100%;
   }
 }

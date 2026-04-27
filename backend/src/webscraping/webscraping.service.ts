@@ -164,6 +164,10 @@ type SearchExecutionOptions = {
   historyIdHint?: string;
 };
 
+type NormalizeSearchInputOptions = {
+  allowMissingHbxState?: boolean;
+};
+
 type UsageEventType = 'EXECUTED' | 'MOTOR_EXECUTED' | 'BLOCKED_DAILY_LIMIT';
 
 type UsageExecutionMeta = {
@@ -312,6 +316,14 @@ function safeInteger(value: unknown, fallback = 0) {
   const numeric = toNumberOrNull(value);
   if (numeric == null) return fallback;
   return Math.max(0, Math.trunc(numeric));
+}
+
+function formatCityWithState(city: string, state: string | null | undefined) {
+  const safeCity = String(city || '').trim();
+  const safeState = String(state || '').trim().toUpperCase();
+  if (!safeCity || !safeState) return safeCity;
+  if (new RegExp(`\\s-\\s${safeState}$`, 'i').test(safeCity)) return safeCity;
+  return `${safeCity} - ${safeState}`;
 }
 
 @Injectable()
@@ -633,26 +645,32 @@ export class WebscrapingService {
     ]);
 
     const itemsWithKeys = [
-      ...rows.map((row) => ({
-        id: row.id,
-        city: row.city,
-        segment: row.segment,
-        quantity: row.quantity,
-        resultCount: row.resultCount,
-        filters: this.parseFiltersJson(row.filtersJson),
-        createdAt: row.createdAt.toISOString(),
-        updatedAt: row.updatedAt.toISOString(),
-        lastUsedAt: row.lastUsedAt.toISOString(),
-        preview: row.places.map((place) => place.name).filter(Boolean),
-        scope: 'company' as const,
-        sourceLabel: 'Historico da empresa',
-        cacheValidUntil: null,
-        dedupeKey: this.buildHistoryDedupeKey({
-          city: row.city,
+      ...rows.map((row) => {
+        const options = this.parseSearchOptionsJson(row.filtersJson, row.searchSignature);
+        const state = options.state || this.extractSignaturePart(row.searchSignature, 'state').toUpperCase();
+        return {
+          id: row.id,
+          city: formatCityWithState(row.city, state),
           segment: row.segment,
-          filtersJson: row.filtersJson,
-        }),
-      })),
+          quantity: row.quantity,
+          resultCount: row.resultCount,
+          filters: options.filters,
+          createdAt: row.createdAt.toISOString(),
+          updatedAt: row.updatedAt.toISOString(),
+          lastUsedAt: row.lastUsedAt.toISOString(),
+          preview: row.places.map((place) => place.name).filter(Boolean),
+          scope: 'company' as const,
+          sourceLabel: options.engine === 'hbx' ? 'Historico HBX Scraping' : 'Historico da empresa',
+          cacheValidUntil: null,
+          dedupeKey: this.buildHistoryDedupeKey({
+            city: row.city,
+            state,
+            segment: row.segment,
+            filtersJson: row.filtersJson,
+            searchSignature: row.searchSignature,
+          }),
+        };
+      }),
       ...globalRows.map((row) => ({
         id: `global:${row.id}`,
         city: row.normalizedCity,
@@ -671,6 +689,7 @@ export class WebscrapingService {
           city: row.normalizedCity,
           segment: row.normalizedSegment,
           filtersJson: row.filtersJson,
+          searchSignature: row.cacheSignature,
         }),
       })),
     ]
@@ -708,18 +727,22 @@ export class WebscrapingService {
         throw new NotFoundException('Pesquisa global nao encontrada.');
       }
 
-      const parsedOptions = this.parseSearchOptionsJson(row.filtersJson);
+      const parsedOptions = this.parseSearchOptionsJson(row.filtersJson, row.cacheSignature);
       const filters = parsedOptions.filters;
-      const normalized = this.normalizeSearchInput({
-        city: row.normalizedCity,
-        segment: row.normalizedSegment,
-        quantity: Math.min(Math.max(Math.trunc(row.resultCount || 0), 1), MAX_QUANTITY),
-        engine: parsedOptions.engine,
-        targetType: parsedOptions.targetType,
-        minRating: filters.minRating,
-        minReviews: filters.minReviews,
-        onlyWithWebsite: filters.onlyWithWebsite,
-      });
+      const normalized = this.normalizeSearchInput(
+        {
+          city: row.normalizedCity,
+          state: parsedOptions.state,
+          segment: row.normalizedSegment,
+          quantity: Math.min(Math.max(Math.trunc(row.resultCount || 0), 1), MAX_QUANTITY),
+          engine: parsedOptions.engine,
+          targetType: parsedOptions.targetType,
+          minRating: filters.minRating,
+          minReviews: filters.minReviews,
+          onlyWithWebsite: filters.onlyWithWebsite,
+        },
+        { allowMissingHbxState: true },
+      );
       const storedResults = this.sortContacts(this.restoreGlobalCacheResults(row)).slice(0, normalized.quantity);
 
       await this.touchGlobalCache(row.id);
@@ -747,18 +770,22 @@ export class WebscrapingService {
       throw new NotFoundException('Pesquisa anterior nao encontrada.');
     }
 
-    const parsedOptions = this.parseSearchOptionsJson(row.filtersJson);
+    const parsedOptions = this.parseSearchOptionsJson(row.filtersJson, row.searchSignature);
     const filters = parsedOptions.filters;
-    const normalized = this.normalizeSearchInput({
-      city: row.city,
-      segment: row.segment,
-      quantity: row.quantity,
-      engine: parsedOptions.engine,
-      targetType: parsedOptions.targetType,
-      minRating: filters.minRating,
-      minReviews: filters.minReviews,
-      onlyWithWebsite: filters.onlyWithWebsite,
-    });
+    const normalized = this.normalizeSearchInput(
+      {
+        city: row.city,
+        state: parsedOptions.state || this.extractSignaturePart(row.searchSignature, 'state').toUpperCase(),
+        segment: row.segment,
+        quantity: row.quantity,
+        engine: parsedOptions.engine,
+        targetType: parsedOptions.targetType,
+        minRating: filters.minRating,
+        minReviews: filters.minReviews,
+        onlyWithWebsite: filters.onlyWithWebsite,
+      },
+      { allowMissingHbxState: true },
+    );
     const storedResults = this.sortContacts(this.restoreStoredResults(row)).slice(0, normalized.quantity);
 
     await this.touchHistory(row.id, context.userId);
@@ -1120,7 +1147,10 @@ export class WebscrapingService {
     };
   }
 
-  private normalizeSearchInput(input: SearchContactsInput): NormalizedSearchInput {
+  private normalizeSearchInput(
+    input: SearchContactsInput,
+    options: NormalizeSearchInputOptions = {},
+  ): NormalizedSearchInput {
     const engine = normalizeEngine(input.engine);
     const targetType = normalizeTargetType(input.targetType);
     const rawCity = String(input.city || '').trim();
@@ -1136,7 +1166,7 @@ export class WebscrapingService {
       throw new BadRequestException('Cidade obrigatoria.');
     }
 
-    if (engine === 'hbx' && !state) {
+    if (engine === 'hbx' && !state && !options.allowMissingHbxState) {
       throw new BadRequestException('Estado obrigatorio para o motor HBX.');
     }
 
@@ -1153,6 +1183,7 @@ export class WebscrapingService {
       ...filters,
       engine,
       targetType,
+      state,
     });
     const normalizedCity = normalizeLookupValue(city);
     const normalizedSegment = normalizeLookupValue(segment);
@@ -1217,17 +1248,25 @@ export class WebscrapingService {
     }
   }
 
-  private parseSearchOptionsJson(raw: string | null | undefined) {
+  private parseSearchOptionsJson(raw: string | null | undefined, signature?: string | null) {
     try {
       const parsed = raw ? JSON.parse(raw) : {};
+      const parsedState = String(parsed?.state || '').trim().toUpperCase();
+      const parsedEngine = parsed?.engine == null || parsed.engine === ''
+        ? this.extractSignaturePart(signature, 'engine')
+        : parsed.engine;
+      const parsedTargetType = parsed?.targetType == null || parsed.targetType === ''
+        ? this.extractSignaturePart(signature, 'targetType')
+        : parsed.targetType;
       return {
         filters: {
           minRating: this.normalizeMinRating(parsed?.minRating),
           minReviews: this.normalizeMinReviews(parsed?.minReviews),
           onlyWithWebsite: Boolean(parsed?.onlyWithWebsite),
         },
-        engine: normalizeEngine(parsed?.engine),
-        targetType: normalizeTargetType(parsed?.targetType),
+        engine: normalizeEngine(parsedEngine),
+        targetType: normalizeTargetType(parsedTargetType),
+        state: parsedState || this.extractSignaturePart(signature, 'state').toUpperCase(),
       };
     } catch {
       return {
@@ -1238,25 +1277,38 @@ export class WebscrapingService {
         },
         engine: 'google' as WebscrapingEngine,
         targetType: 'pj' as HbxTargetType,
+        state: this.extractSignaturePart(signature, 'state').toUpperCase(),
       };
     }
   }
 
   private buildHistoryDedupeKey(input: {
     city?: string | null;
+    state?: string | null;
     segment?: string | null;
     filtersJson?: string | null;
+    searchSignature?: string | null;
     filters?: WebscrapingSearchFilters | null;
   }) {
-    const parsed = this.parseSearchOptionsJson(input.filtersJson);
+    const parsed = this.parseSearchOptionsJson(input.filtersJson, input.searchSignature);
     const filters = input.filters || parsed.filters;
+    const state = String(input.state || parsed.state || '').trim().toUpperCase();
     return [
       `engine:${parsed.engine}`,
       `targetType:${parsed.targetType}`,
       `city:${normalizeLookupValue(String(input.city || ''))}`,
+      `state:${normalizeLookupValue(state)}`,
       `segment:${normalizeLookupValue(String(input.segment || ''))}`,
       `filters:${JSON.stringify(filters)}`,
     ].join('|');
+  }
+
+  private extractSignaturePart(signature: string | null | undefined, key: string) {
+    const prefix = `${key}:`;
+    const part = String(signature || '')
+      .split('|')
+      .find((item) => item.startsWith(prefix));
+    return part ? part.slice(prefix.length).trim() : '';
   }
 
   private buildSearchResponse(
@@ -1483,6 +1535,7 @@ export class WebscrapingService {
         city: true,
         segment: true,
         filtersJson: true,
+        searchSignature: true,
       },
     }).catch(() => []);
 
@@ -1495,8 +1548,10 @@ export class WebscrapingService {
     for (const row of rows) {
       const dedupeKey = this.buildHistoryDedupeKey({
         city: row.city,
+        state: this.extractSignaturePart(row.searchSignature, 'state').toUpperCase(),
         segment: row.segment,
         filtersJson: row.filtersJson,
+        searchSignature: row.searchSignature,
       });
       if (seen.has(dedupeKey) || kept >= limit) {
         deleteIds.push(row.id);
