@@ -20,6 +20,7 @@ import { buildImportacaoPermissaoRows } from '../bootstrap/company-structural-de
 @Injectable()
 export class AuthService implements OnModuleInit {
   private readonly logger = new Logger(AuthService.name);
+  private readonly sessionTtlMs = 15 * 60 * 1000;
 
   constructor(
     private usersService: UsersService,
@@ -93,6 +94,23 @@ export class AuthService implements OnModuleInit {
 
   private addDays(date: Date, days: number) {
     return new Date(date.getTime() + days * 24 * 60 * 60 * 1000);
+  }
+
+  private addSessionTtl(date: Date) {
+    return new Date(date.getTime() + this.sessionTtlMs);
+  }
+
+  private hashIp(ip: string | undefined) {
+    const normalized = String(ip || '').trim();
+    if (!normalized) return null;
+
+    const secret = String(process.env.SESSION_IP_HASH_SECRET || process.env.JWT_SECRET || '').trim();
+    return crypto.createHmac('sha256', secret || 'hbx-session-ip').update(normalized).digest('hex');
+  }
+
+  private normalizeUserAgent(userAgent: string | undefined) {
+    const normalized = String(userAgent || '').trim();
+    return normalized ? normalized.slice(0, 512) : null;
   }
 
   private normalizeEntityType(value: string | undefined) {
@@ -518,12 +536,66 @@ export class AuthService implements OnModuleInit {
     return null;
   }
 
-  async login(user: any, opts?: { companyId?: number }) {
-    const companyId = opts?.companyId ?? user?.companyId ?? undefined;
-    const payload = { sub: user.id, email: user.email, companyId };
+  async login(user: any, opts?: { companyId?: number; userAgent?: string; ip?: string }) {
+    const now = new Date();
+    const expiresAt = this.addSessionTtl(now);
+    const sessionContext = await this.prisma.$transaction(async (tx) => {
+      await tx.authSession.updateMany({
+        where: {
+          userId: Number(user.id),
+          revokedAt: null,
+        },
+        data: {
+          revokedAt: now,
+          revokedReason: 'replaced_by_login',
+        },
+      });
+
+      const updatedUser = await tx.user.update({
+        where: { id: Number(user.id) },
+        data: {
+          currentSessionId: null,
+          sessionVersion: { increment: 1 },
+        },
+        select: {
+          id: true,
+          email: true,
+          companyId: true,
+          isSystemMaster: true,
+          sessionVersion: true,
+        },
+      });
+
+      const session = await tx.authSession.create({
+        data: {
+          userId: updatedUser.id,
+          lastSeenAt: now,
+          expiresAt,
+          userAgent: this.normalizeUserAgent(opts?.userAgent),
+          ipHash: this.hashIp(opts?.ip),
+        },
+        select: { id: true },
+      });
+
+      await tx.user.update({
+        where: { id: updatedUser.id },
+        data: { currentSessionId: session.id },
+      });
+
+      return { user: updatedUser, sessionId: session.id };
+    });
+
+    const companyId = opts?.companyId ?? sessionContext.user.companyId ?? undefined;
+    const payload = {
+      sub: sessionContext.user.id,
+      email: sessionContext.user.email,
+      companyId,
+      sid: sessionContext.sessionId,
+      sv: sessionContext.user.sessionVersion,
+    };
     return {
       access_token: this.jwtService.sign(payload),
-      next: Boolean(user?.isSystemMaster) ? '/dashboard/master' : '/dashboard',
+      next: Boolean(sessionContext.user?.isSystemMaster) ? '/dashboard/master' : '/dashboard',
     };
   }
 
@@ -531,7 +603,7 @@ export class AuthService implements OnModuleInit {
   // - Client sends only username + password.
   // - We resolve tenant internally from the authenticated user record (user.companyId).
   // - We intentionally do not allow choosing company or providing companyId/companySlug.
-  async loginWithUsername(username: string, password: string) {
+  async loginWithUsername(username: string, password: string, opts?: { userAgent?: string; ip?: string }) {
     const normalized = String(username || '').trim();
     const pass = String(password || '');
     if (!normalized || !pass) {
@@ -581,7 +653,42 @@ export class AuthService implements OnModuleInit {
       throw new UnauthorizedException('Conta sem empresa vinculada');
     }
 
-    return this.login(user, { companyId: companyId || undefined });
+    return this.login(user, { companyId: companyId || undefined, userAgent: opts?.userAgent, ip: opts?.ip });
+  }
+
+  async logoutCurrentSession(user: any) {
+    const userId = Number(user?.id || 0);
+    const sessionId = String(user?.sessionId || user?.authSessionId || '').trim();
+    if (!userId || !sessionId) {
+      throw new UnauthorizedException('Sessão inválida');
+    }
+
+    const now = new Date();
+    await this.prisma.$transaction(async (tx) => {
+      await tx.authSession.updateMany({
+        where: {
+          id: sessionId,
+          userId,
+          revokedAt: null,
+        },
+        data: {
+          revokedAt: now,
+          revokedReason: 'logout',
+        },
+      });
+
+      await tx.user.updateMany({
+        where: {
+          id: userId,
+          currentSessionId: sessionId,
+        },
+        data: {
+          currentSessionId: null,
+        },
+      });
+    });
+
+    return { ok: true };
   }
 
   // SIGNUP (SaaS)
