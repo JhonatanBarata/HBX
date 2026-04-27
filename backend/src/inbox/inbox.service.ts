@@ -935,6 +935,14 @@ export class InboxService {
     return Math.min(Math.floor(parsed), 200);
   }
 
+  private normalizeConversationSkip(value: string | number | null | undefined) {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      return 0;
+    }
+    return Math.min(Math.floor(parsed), 5000);
+  }
+
   private normalizeMessagePageLimit(value: string | number | null | undefined, fallback = 20) {
     const parsed = Number(value);
     if (!Number.isFinite(parsed) || parsed <= 0) {
@@ -1959,13 +1967,15 @@ export class InboxService {
 
   private async listPersistedConversationSummariesForCompany(
     companyId: number,
-    options?: { take?: string | number | null },
+    options?: { take?: string | number | null; skip?: string | number | null },
   ) {
     const take = this.normalizeConversationTakeLimit(options?.take, 200) || 200;
+    const skip = this.normalizeConversationSkip(options?.skip);
     const rows = await this.prisma.companyConversation.findMany({
       where: { companyId, channel: 'whatsapp' },
       orderBy: [{ lastMessageAt: 'desc' }, { updatedAt: 'desc' }, { id: 'desc' }],
       take,
+      skip,
       select: {
         id: true,
         contact: true,
@@ -2377,10 +2387,10 @@ export class InboxService {
     }
   }
 
-  async listConversations(user: any, take?: string | number) {
+  async listConversations(user: any, options?: { take?: string | number | null; skip?: string | number | null }) {
     const companyId = this.requireCompanyIdFromUser(user);
-    this.triggerBackgroundInboxIndexSync(companyId, { take });
-    return this.listPersistedConversationSummariesForCompany(companyId, { take });
+    this.triggerBackgroundInboxIndexSync(companyId, { take: options?.take });
+    return this.listPersistedConversationSummariesForCompany(companyId, options);
   }
 
   private async getConversationByIdForCompany(companyId: number, id: number) {
