@@ -88,7 +88,7 @@ const SEARCH_MODE_OPTIONS: Array<{
   {
     id: "hbx_pf",
     label: "HBX Scraping PF",
-    description: "Garimpo de telefones por nicho, até 100",
+    description: "Pessoas por perfil, nicho e DDD, até 100",
     engine: "hbx",
     targetType: "pf",
     quantityOptions: [20, 50, 75, 100],
@@ -97,7 +97,7 @@ const SEARCH_MODE_OPTIONS: Array<{
   {
     id: "hbx_agenda_pf",
     label: "HBX Agenda PF",
-    description: "Agenda pública por cidade, até 100",
+    description: "Agenda pública por cidade; só nomes de pessoa",
     engine: "hbx",
     targetType: "agenda_pf",
     quantityOptions: [20, 50, 75, 100],
@@ -300,9 +300,14 @@ function buildScriptText(result: SearchResult, city: string, segment: string, sp
   ].join(" ");
 }
 
+function isLikelyMobileWhatsapp(raw: string) {
+  const digits = normalizePhoneDigits(raw);
+  return /^[1-9]{2}9\d{8}$/.test(digits);
+}
+
 function buildWhatsAppUrl(result: SearchResult, scriptText: string) {
   const digits = normalizePhoneDigits(result.phoneDigits || result.phone);
-  if (!digits) return "";
+  if (!isLikelyMobileWhatsapp(digits)) return "";
   return `https://wa.me/55${digits}?text=${encodeURIComponent(scriptText)}`;
 }
 
@@ -349,6 +354,69 @@ function normalizeTargetTypeValue(value: unknown): HbxTargetType {
   const normalized = String(value || "").trim().toLowerCase();
   if (normalized === "pf" || normalized === "agenda_pf") return normalized;
   return "pj";
+}
+
+function isPeopleTargetType(value?: HbxTargetType | null) {
+  return value === "pf" || value === "agenda_pf";
+}
+
+function isLikelyPersonLeadName(value: string) {
+  const raw = String(value || "").trim();
+  if (!raw) return false;
+
+  const normalized = normalizeCityLookup(raw).replace(/[^\w\s]/g, " ").replace(/\s+/g, " ").trim();
+  if (!normalized) return false;
+
+  const exactBlocked = new Set([
+    "acesso rapido",
+    "agenda telefonica",
+    "agenda telefonica em excel",
+    "contato encontrado",
+    "contato encontrado araras",
+    "curso online",
+    "home",
+    "pagina inicial",
+    "relacao de unidades",
+    "secretaria municipal",
+  ]);
+  if (exactBlocked.has(normalized)) return false;
+
+  const blockedFragments = [
+    "acesso rapido",
+    "agenda telefonica",
+    "catalogo",
+    "clinica",
+    "construtora",
+    "curso",
+    "empresa",
+    "excel",
+    "hospital",
+    "lista telefonica",
+    "noticia",
+    "oficina",
+    "pagina inicial",
+    "prefeitura",
+    "relacao de unidades",
+    "secretaria",
+    "telefone",
+    "telefones",
+  ];
+  if (blockedFragments.some((fragment) => normalized.includes(fragment))) return false;
+
+  const meaningfulWords = normalized
+    .split(" ")
+    .filter((word) => word && !["a", "as", "da", "das", "de", "do", "dos", "e", "em", "na", "no"].includes(word));
+
+  if (meaningfulWords.length < 2 || meaningfulWords.length > 6) return false;
+  if (meaningfulWords.some((word) => /\d/.test(word))) return false;
+
+  const shortWords = meaningfulWords.filter((word) => word.length <= 2);
+  return shortWords.length < meaningfulWords.length;
+}
+
+function filterResultsForTarget(results: SearchResult[], targetType: HbxTargetType) {
+  if (!isPeopleTargetType(targetType)) return results;
+  return results.filter((result) => isLikelyPersonLeadName(result.name));
 }
 
 function getSearchMode(engine: WebscrapingEngine, targetType: HbxTargetType) {
@@ -496,6 +564,7 @@ export default function WebscrapingClientPage() {
   const [appliedScriptSender, setAppliedScriptSender] = useState("");
   const [appliedScriptCompany, setAppliedScriptCompany] = useState("");
   const crmLaunchNotice = useQuickLaunchNotice();
+  const scrapingLaunchNotice = useQuickLaunchNotice();
 
   const runtimeReady = runtime?.native.status === "online";
   const selectedSearchMode = useMemo(() => getSearchMode(engine, targetType), [engine, targetType]);
@@ -571,9 +640,21 @@ export default function WebscrapingClientPage() {
       };
     });
   }, [configurationPending, motorHealthByMode, runtimeReady, selectedSearchMode.id]);
+  const resultTargetType = useMemo(() => {
+    if (!activeQuery) return targetType;
+    if (activeQuery.engine === "hbx" || isPeopleTargetType(activeQuery.targetType)) {
+      return normalizeTargetTypeValue(activeQuery.targetType);
+    }
+    return "pj";
+  }, [activeQuery, targetType]);
+  const qualifiedResults = useMemo(
+    () => filterResultsForTarget(results, resultTargetType),
+    [resultTargetType, results],
+  );
+  const hiddenGenericResultsCount = Math.max(0, results.length - qualifiedResults.length);
   const scriptGuidePreview = useMemo(() => {
     const previewResult: SearchResult = {
-      name: results[0]?.name || "Big Hugo Lanchonete",
+      name: qualifiedResults[0]?.name || "Joao Silva",
       phone: "",
       phoneDigits: "",
       rating: null,
@@ -603,7 +684,7 @@ export default function WebscrapingClientPage() {
     effectiveDdd,
     pfMode,
     pfRole,
-    results,
+    qualifiedResults,
     segment,
     targetType,
   ]);
@@ -611,6 +692,13 @@ export default function WebscrapingClientPage() {
   function openVendasDashboard() {
     crmLaunchNotice.clear();
     router.push("/dashboard/vendas");
+  }
+
+  function focusScrapingResults() {
+    scrapingLaunchNotice.clear();
+    window.requestAnimationFrame(() => {
+      resultsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
   }
 
   useEffect(() => {
@@ -713,11 +801,11 @@ export default function WebscrapingClientPage() {
 
   useEffect(() => {
     const query = activeQuery || (city.trim() && (effectiveSegment || agendaMode) ? { city, segment: effectiveSegment, targetType } : null);
-    if (!results.length || !query) {
+    if (!qualifiedResults.length || !query) {
       setCrmPreviewByPhone({});
       return;
     }
-    const leadSegment = getVisualSegment(query.segment, query.targetType || targetType);
+    const leadSegment = getVisualSegment(query.segment, activeQuery ? resultTargetType : targetType);
 
     let cancelled = false;
 
@@ -727,7 +815,7 @@ export default function WebscrapingClientPage() {
           method: "POST",
           body: JSON.stringify({
             sourceHistoryId: searchMeta?.historyId || undefined,
-            leads: results.map((result) => ({
+            leads: qualifiedResults.map((result) => ({
               name: result.name,
               phone: result.phone,
               phoneDigits: result.phoneDigits,
@@ -754,7 +842,7 @@ export default function WebscrapingClientPage() {
     return () => {
       cancelled = true;
     };
-  }, [activeQuery, agendaMode, city, effectiveSegment, results, searchMeta?.historyId, targetType]);
+  }, [activeQuery, agendaMode, city, effectiveSegment, qualifiedResults, resultTargetType, searchMeta?.historyId, targetType]);
 
   useEffect(() => {
     const fallbackSender = String(currentUser?.email || "").trim();
@@ -765,10 +853,23 @@ export default function WebscrapingClientPage() {
   }, [currentUser?.email, defaultScriptVariables.company]);
 
   function buildPayload() {
-    return {
+    const basePayload = {
       city: city.trim(),
       segment: effectiveSegment,
       quantity,
+    };
+
+    if (engine === "google") {
+      return {
+        ...basePayload,
+        minRating: minRating ? Number(minRating) : undefined,
+        minReviews: minReviews ? Number(minReviews) : undefined,
+        onlyWithWebsite,
+      };
+    }
+
+    return {
+      ...basePayload,
       engine,
       targetType,
       minRating: targetType === "pj" && minRating ? Number(minRating) : undefined,
@@ -871,6 +972,18 @@ export default function WebscrapingClientPage() {
       return;
     }
 
+    const searchModeSnapshot = selectedSearchMode;
+    const requestedSegment = effectiveSegment || getVisualSegment(segment, targetType) || searchModeSnapshot.label;
+    scrapingLaunchNotice.start({
+      loadingTitle: "Scraping em andamento",
+      loadingDescription: `Consultando ${searchModeSnapshot.label} para ${requestedSegment} em ${selectedCity}.`,
+      successTitle: "Busca concluída",
+      successDescription: "Resultados recebidos, deduplicados e prontos para análise.",
+      ctaLabel: "Ver resultados",
+      autoOpenDelayMs: 650,
+      onOpen: focusScrapingResults,
+    });
+
     setSearching(true);
     try {
       const payload = await apiFetch<SearchResponse>("/webscraping/search", {
@@ -885,6 +998,20 @@ export default function WebscrapingClientPage() {
       setActiveQuery(payload.query);
       setSearchMeta(payload.meta);
       setHasSearched(true);
+      const responseTargetType =
+        payload.query.engine === "hbx" || isPeopleTargetType(payload.query.targetType)
+          ? normalizeTargetTypeValue(payload.query.targetType)
+          : "pj";
+      const displayResults = filterResultsForTarget(payload.results || [], responseTargetType);
+      const hiddenCount = Math.max(0, (payload.results || []).length - displayResults.length);
+      scrapingLaunchNotice.markSuccess({
+        successDescription:
+          displayResults.length
+            ? `${displayResults.length} contato(s) qualificados para ${getVisualSegment(payload.query.segment, responseTargetType)} em ${payload.query.city}${hiddenCount ? `; ${hiddenCount} genérico(s) ocultado(s).` : "."}`
+            : hiddenCount
+              ? `${hiddenCount} telefone(s) foram encontrados, mas sem nome de pessoa claro para virar card.`
+            : `Busca concluída em ${payload.query.city}, mas nenhum telefone válido entrou nos resultados.`,
+      });
       await refreshHistory();
       // persist last city/segment locally for quicker re-entry
       try {
@@ -915,6 +1042,7 @@ export default function WebscrapingClientPage() {
           ? `${baseMessage} O Motor W pode estar indisponível ou sobrecarregado; tente reduzir a quantidade, trocar o nicho ou usar HBX Agenda PF.`
           : baseMessage,
       );
+      scrapingLaunchNotice.clear();
     } finally {
       setSearching(false);
     }
@@ -979,7 +1107,8 @@ export default function WebscrapingClientPage() {
       },
     };
 
-    const queryTargetType = normalizeTargetTypeValue(query.targetType || targetType);
+    const queryEngine = normalizeEngineValue(query.engine || engine);
+    const queryTargetType = queryEngine === "google" ? "pj" : normalizeTargetTypeValue(query.targetType || targetType);
 
     if (!query.city.trim() || (queryTargetType !== "agenda_pf" && !query.segment.trim())) {
       setSearchError(
@@ -994,16 +1123,19 @@ export default function WebscrapingClientPage() {
     setExporting(true);
     setSearchError(null);
     try {
-      await downloadExcel({
+      const exportPayload: Record<string, unknown> = {
         city: query.city,
         segment: queryTargetType === "agenda_pf" && !query.segment.trim() ? "" : query.segment,
         quantity: query.quantity,
-        engine: normalizeEngineValue(query.engine || engine),
-        targetType: queryTargetType,
         minRating: queryTargetType === "pj" ? query.filters.minRating ?? undefined : undefined,
         minReviews: queryTargetType === "pj" ? query.filters.minReviews ?? undefined : undefined,
         onlyWithWebsite: queryTargetType === "pj" ? query.filters.onlyWithWebsite : undefined,
-      });
+      };
+      if (queryEngine === "hbx") {
+        exportPayload.engine = "hbx";
+        exportPayload.targetType = queryTargetType;
+      }
+      await downloadExcel(exportPayload);
       setFeedback("Excel gerado com sucesso.");
       await refreshHistory();
     } catch (error) {
@@ -1019,10 +1151,14 @@ export default function WebscrapingClientPage() {
       segment: effectiveSegment,
       targetType,
     };
-    const leadSegment = getVisualSegment(query.segment, query.targetType || targetType);
+    const leadSegment = getVisualSegment(query.segment, activeQuery ? resultTargetType : targetType);
 
-    if (!results.length || !query.city.trim() || !leadSegment.trim()) {
-      setSearchError("Faça uma busca antes de enviar leads para Vendas.");
+    if (!qualifiedResults.length || !query.city.trim() || !leadSegment.trim()) {
+      setSearchError(
+        results.length && !qualifiedResults.length
+          ? "Encontramos telefones, mas nenhum resultado tinha nome de pessoa claro para enviar ao CRM."
+          : "Faça uma busca antes de enviar leads para Vendas.",
+      );
       return;
     }
 
@@ -1041,7 +1177,7 @@ export default function WebscrapingClientPage() {
         method: "POST",
         body: JSON.stringify({
           sourceHistoryId: searchMeta?.historyId || undefined,
-          leads: results.map((result) => ({
+          leads: qualifiedResults.map((result) => ({
             name: result.name,
             phone: result.phone,
             phoneDigits: result.phoneDigits,
@@ -1354,6 +1490,7 @@ export default function WebscrapingClientPage() {
                     </option>
                   ))}
                 </select>
+                <p className={styles.fieldHint}>Limite deste motor: {maxQuantity} contatos.</p>
               </label>
             </div>
 
@@ -1563,7 +1700,7 @@ export default function WebscrapingClientPage() {
           </section>
         ) : null}
 
-        {!searching && results.length > 0 ? (
+        {!searching && qualifiedResults.length > 0 ? (
           <section className={styles.statusCard}>
             <div>
               <strong className={styles.statusTitle}>Pronto para entrar no CRM agenda viva</strong>
@@ -1578,9 +1715,9 @@ export default function WebscrapingClientPage() {
               type="button"
               className={`${styles.glassButton} ${styles.glassButtonPrimary}`}
               onClick={() => void handleSendResultsToVendas()}
-              disabled={importingToVendas || !results.length}
+              disabled={importingToVendas || !qualifiedResults.length}
             >
-              {importingToVendas ? "Enviando..." : `Enviar ${results.length} lead(s) ao CRM`}
+              {importingToVendas ? "Enviando..." : `Enviar ${qualifiedResults.length} lead(s) ao CRM`}
             </button>
           </section>
         ) : null}
@@ -1591,7 +1728,7 @@ export default function WebscrapingClientPage() {
               <strong>Resultados</strong>
               <p className={styles.helperText}>
                 {searchMeta && activeQuery
-                  ? `${results.length} contatos para ${getVisualSegment(activeQuery.segment, activeQuery.targetType)} em ${activeQuery.city}. Fonte: ${searchSourceLabel(searchMeta.source)}.`
+                  ? `${qualifiedResults.length} contatos qualificados para ${getVisualSegment(activeQuery.segment, resultTargetType)} em ${activeQuery.city}. Fonte: ${searchSourceLabel(searchMeta.source)}${hiddenGenericResultsCount ? `; ${hiddenGenericResultsCount} genérico(s) ocultado(s).` : "."}`
                   : "Os contatos qualificados vao aparecer aqui com acoes rapidas e roteiro pronto."}
               </p>
             </div>
@@ -1609,7 +1746,7 @@ export default function WebscrapingClientPage() {
                   type="button"
                   className={styles.glassButton}
                   onClick={() => void handleSendResultsToVendas()}
-                  disabled={importingToVendas || !results.length}
+                  disabled={importingToVendas || !qualifiedResults.length}
                 >
                   {importingToVendas ? "Enviando..." : "Herdar no CRM"}
                 </button>
@@ -1636,6 +1773,16 @@ export default function WebscrapingClientPage() {
             </div>
           ) : null}
 
+          {!searching && results.length > 0 && qualifiedResults.length === 0 ? (
+            <div className={styles.emptyState}>
+              <strong>Nenhum nome de pessoa identificado</strong>
+              <p className={styles.emptyText}>
+                O motor encontrou telefone, mas os nomes vieram como pagina, agenda, empresa ou instituicao. Para PF,
+                tente um perfil como consultor/corretor/vendedor e um nicho com DDD local.
+              </p>
+            </div>
+          ) : null}
+
           {!searching && results.length === 0 && !hasSearched ? (
             <div className={styles.emptyState}>
               <strong>Pronto para sua proxima busca</strong>
@@ -1643,9 +1790,9 @@ export default function WebscrapingClientPage() {
             </div>
           ) : null}
 
-          {!searching && results.length > 0 ? (
+          {!searching && qualifiedResults.length > 0 ? (
             <div className={styles.resultsGrid}>
-              {results.map((result) => {
+              {qualifiedResults.map((result) => {
                 const queryCity = activeQuery?.city || city;
                 const querySegment = getVisualSegment(activeQuery?.segment || segment, activeQuery?.targetType || targetType);
                 const crmPreview = crmPreviewByPhone[String(result.phoneDigits || "").trim()] || null;
@@ -1716,9 +1863,11 @@ export default function WebscrapingClientPage() {
                     }
                     actions={
                       <div className={glassCardStyles.cluster}>
-                        <a className={`${glassCardStyles.actionButton} ${glassCardStyles.actionPrimary} ${glassCardStyles.noBreak}`} href={whatsappUrl || undefined} target="_blank" rel="noreferrer">
-                          WhatsApp
-                        </a>
+                        {whatsappUrl ? (
+                          <a className={`${glassCardStyles.actionButton} ${glassCardStyles.actionPrimary} ${glassCardStyles.noBreak}`} href={whatsappUrl} target="_blank" rel="noreferrer">
+                            WhatsApp
+                          </a>
+                        ) : null}
                         <a className={`${glassCardStyles.actionButton} ${glassCardStyles.noBreak}`} href={callUrl || undefined} aria-disabled={!callUrl}>
                           Ligar
                         </a>
@@ -1782,6 +1931,18 @@ export default function WebscrapingClientPage() {
           ) : null}
         </section>
 
+        <PremiumLaunchDialog
+          notice={scrapingLaunchNotice.notice}
+          onOpen={scrapingLaunchNotice.openNow}
+          progressLabel={scrapingLaunchNotice.notice?.phase === "loading" ? "Raspando páginas públicas" : "Resultados prontos"}
+          loadingLabel="Scraping em andamento..."
+          detailRows={[
+            { label: "Motor", value: `${selectedSearchMode.motorCode} · ${selectedSearchMode.label}` },
+            { label: "Cidade", value: cityExactOption || city || "-" },
+            { label: "Busca", value: effectiveSegment || getVisualSegment(segment, targetType) || "Agenda PF" },
+            { label: "Quantidade", value: `${quantity} contato(s)` },
+          ]}
+        />
         <PremiumLaunchDialog notice={crmLaunchNotice.notice} onOpen={crmLaunchNotice.openNow} />
       </div>
     </DashboardScaffold>

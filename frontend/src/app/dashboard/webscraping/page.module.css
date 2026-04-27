@@ -377,7 +377,8 @@
 }
 
 .formGrid {
-  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  align-items: start;
+  grid-template-columns: minmax(190px, 1fr) minmax(240px, 1fr) minmax(150px, 0.72fr);
 }
 
 .engineSelector {
@@ -446,6 +447,20 @@
   background: color-mix(in srgb, var(--field-surface) 94%, var(--background));
   color: var(--foreground);
   padding: 0.76rem 0.92rem;
+}
+
+.formGrid .field {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 0.32rem;
+}
+
+.formGrid .fieldInput,
+.formGrid .fieldSelect {
+  min-height: 42px;
+  border-radius: 14px;
+  padding: 0.58rem 0.82rem;
 }
 
 .fieldInput:focus,
