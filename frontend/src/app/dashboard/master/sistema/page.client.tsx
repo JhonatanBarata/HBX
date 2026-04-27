@@ -294,7 +294,7 @@ export default function SystemHealthClientPage() {
           <div>
             <h2 className="text-lg font-semibold">Containers</h2>
             <p className="text-sm text-muted mt-1">
-              {data?.containers?.note || "docker stats --no-stream para hbx-backend, hbx-postgres e webscraping."}
+              {data?.containers?.note || "docker stats --no-stream para hbx-backend, hbx-postgres, webscraping e hbx-scraping-engine."}
             </p>
           </div>
           <span className={`text-sm font-semibold ${statusClass(data?.containers?.status)}`}>

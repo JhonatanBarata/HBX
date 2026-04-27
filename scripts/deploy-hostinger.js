@@ -152,7 +152,7 @@ function printFrontendDeployNotice(config, changedFiles) {
 
   console.warn([
     '',
-    'Aviso operacional: este publish conclui apenas Hostinger (backend/webscraping).',
+    'Aviso operacional: este publish conclui apenas Hostinger (backend/webscraping/HBX Scraping Engine).',
     `O frontend oficial em ${config.frontendUrl} continua sendo servido pela Vercel e pode permanecer com bundle anterior ate o rollout externo terminar.`,
     `Mudancas de frontend detectadas neste publish: ${preview}${suffix}`,
   ].join('\n'));
@@ -189,22 +189,22 @@ function buildRemoteDeployScript(config, mode) {
   if (isForce) {
     lines.push(
       '$DC -f docker-compose.hostinger.yml down --remove-orphans',
-      'docker rm -f hbx-backend webscraping 2>/dev/null || true',
-      '$DC -f docker-compose.hostinger.yml build --no-cache backend webscraping || echo "Aviso: build --no-cache falhou; tentando up -d --build."',
-      '$DC -f docker-compose.hostinger.yml up -d --build backend webscraping',
-      'docker restart hbx-backend webscraping',
+    'docker rm -f hbx-backend webscraping hbx-scraping-engine 2>/dev/null || true',
+    '$DC -f docker-compose.hostinger.yml build --no-cache backend webscraping hbx-scraping-engine || echo "Aviso: build --no-cache falhou; tentando up -d --build."',
+    '$DC -f docker-compose.hostinger.yml up -d --build backend webscraping hbx-scraping-engine',
+    'docker restart hbx-backend webscraping hbx-scraping-engine',
       'docker image prune -f',
       'docker builder prune -f || true',
       'if [ "$FORCE_REBOOT_HOSTINGER" = "true" ]; then echo "FORCE_REBOOT_HOSTINGER=true: reiniciando VPS."; (sudo reboot || reboot); else echo "Reboot da VPS ignorado. Defina FORCE_REBOOT_HOSTINGER=true para habilitar."; fi',
     );
   } else {
-    lines.push('docker rm -f hbx-backend webscraping 2>/dev/null || true');
-    lines.push('$DC -f docker-compose.hostinger.yml up -d --build backend webscraping');
+    lines.push('docker rm -f hbx-backend webscraping hbx-scraping-engine 2>/dev/null || true');
+    lines.push('$DC -f docker-compose.hostinger.yml up -d --build backend webscraping hbx-scraping-engine');
   }
 
   lines.push(
     'echo "Containers ativos:"',
-    'docker ps --format "table {{.Names}}\\t{{.Status}}\\t{{.Ports}}" | grep -E "NAMES|hbx-backend|webscraping|hbx-postgres" || true',
+    'docker ps --format "table {{.Names}}\\t{{.Status}}\\t{{.Ports}}" | grep -E "NAMES|hbx-backend|webscraping|hbx-scraping-engine|hbx-postgres" || true',
   );
 
   return lines.join('\n');

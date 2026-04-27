@@ -15,7 +15,7 @@ Aplicação SaaS multi-tenant com backend NestJS, frontend Next.js, Prisma e Pos
 
 `npm run commit` faz `git add -A` na estrutura principal e cria um commit unico no `master`, sem push automatico.
 
-`npm run publish` publica somente o `HEAD` ja commitado no `master`. O script falha se houver working tree sujo, valida o projeto, faz push do `master`, executa o deploy Hostinger do backend/webscraping, verifica esse deploy e mantém apenas o backup remoto mais recente quando tudo termina bem. O frontend oficial em `https://www.hbxsystem.com.br` continua em Vercel e pode permanecer alguns minutos com bundle anterior mesmo depois do publish.
+`npm run publish` publica somente o `HEAD` ja commitado no `master`. O script falha se houver working tree sujo, valida o projeto, faz push do `master`, executa o deploy Hostinger do backend/webscraping/HBX Scraping Engine, verifica esse deploy e mantém apenas o backup remoto mais recente quando tudo termina bem. O frontend oficial em `https://www.hbxsystem.com.br` continua em Vercel e pode permanecer alguns minutos com bundle anterior mesmo depois do publish.
 
 ## Ambientes
 

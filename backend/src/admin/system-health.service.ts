@@ -19,7 +19,7 @@ const COMMAND_TIMEOUT_MS = 3500;
 const MAX_ERROR_LINES = 30;
 const MAX_LINE_LENGTH = 700;
 const LOG_TAIL_BYTES = 160 * 1024;
-const DOCKER_CONTAINERS = ['hbx-backend', 'hbx-postgres', 'webscraping'];
+const DOCKER_CONTAINERS = ['hbx-backend', 'hbx-postgres', 'webscraping', 'hbx-scraping-engine'];
 
 function normalizeOutput(value: unknown) {
   return String(value || '').replace(/\r\n/g, '\n').trim();

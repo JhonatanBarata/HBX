@@ -59,8 +59,8 @@ Fluxo normal de producao:
 - bloqueia deploy se `DATABASE_URL`, `DIRECT_URL`, `PROD_DATABASE_URL` ou `PROD_DIRECT_URL` apontarem para `supabase.com`;
 - valida `hbx-postgres` e `hbx_prod`;
 - valida que o container `hbx-postgres` esta running;
-- remove somente containers antigos de servico (`hbx-backend` e `webscraping`) se houver conflito de nome;
-- sobe apenas `backend` e `webscraping`;
+- remove somente containers antigos de servico (`hbx-backend`, `webscraping` e `hbx-scraping-engine`) se houver conflito de nome;
+- sobe apenas `backend`, `webscraping` e `hbx-scraping-engine`;
 - verifica `https://api.hbxsystem.com.br/health`.
 
 Durante o deploy o script mostra:
@@ -88,9 +88,9 @@ Modo force:
 
 - faz tudo do publish normal;
 - roda `docker-compose down --remove-orphans`;
-- tenta `docker-compose build --no-cache backend webscraping`;
-- roda `docker-compose up -d --build backend webscraping`;
-- reinicia `hbx-backend` e `webscraping`;
+- tenta `docker-compose build --no-cache backend webscraping hbx-scraping-engine`;
+- roda `docker-compose up -d --build backend webscraping hbx-scraping-engine`;
+- reinicia `hbx-backend`, `webscraping` e `hbx-scraping-engine`;
 - roda `docker image prune -f`;
 - tenta `docker builder prune -f`;
 - nao remove volumes;
