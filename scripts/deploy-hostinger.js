@@ -236,9 +236,9 @@ function resolveWebwhatsDeployConfig(env, hostingerConfig) {
     sshHost,
     sshUser,
     sshPort: String(env.WEBWHATS_SSH_PORT || '').trim(),
-    appDir: String(env.WEBWHATS_APP_DIR || '/opt/webwhats').trim(),
-    runUser: String(env.WEBWHATS_RUN_USER || 'webwhats').trim(),
-    serviceName: String(env.WEBWHATS_SYSTEMD_SERVICE || 'evolution').trim(),
+    appDir: String(env.WEBWHATS_APP_DIR || '/opt/Webwhats').trim(),
+    runUser: String(env.WEBWHATS_RUN_USER || 'root').trim(),
+    serviceName: String(env.WEBWHATS_SYSTEMD_SERVICE || '').trim(),
   };
 }
 
@@ -262,8 +262,10 @@ function buildWebwhatsRemoteDeployScript(config) {
     'cd "$APP_DIR"',
     'if [ ! -f package.json ]; then echo "ERRO: package.json do Webwhats nao encontrado em $APP_DIR."; exit 1; fi',
     'if [ ! -f .env ]; then echo "ERRO: .env do Webwhats nao existe no servidor."; exit 1; fi',
-    'run_as_service_user() { if command -v sudo >/dev/null 2>&1; then sudo -u "$RUN_USER" "$@"; else "$@"; fi; }',
+    'run_as_service_user() { if [ -n "$RUN_USER" ] && [ "$RUN_USER" != "root" ] && id "$RUN_USER" >/dev/null 2>&1 && command -v sudo >/dev/null 2>&1; then sudo -u "$RUN_USER" "$@"; else "$@"; fi; }',
     'run_systemctl() { if command -v sudo >/dev/null 2>&1; then sudo systemctl "$@"; else systemctl "$@"; fi; }',
+    'find_webwhats_pids() { for pid in $(pgrep -f "node .*dist/main.js|node dist/main.js" || true); do cwd="$(readlink "/proc/$pid/cwd" 2>/dev/null || true)"; if [ "$cwd" = "$APP_DIR" ]; then echo "$pid"; fi; done; }',
+    'restart_without_systemd() { mkdir -p logs; old_pids="$(find_webwhats_pids | tr "\\n" " " | xargs || true)"; if [ -n "$old_pids" ]; then echo "Parando Webwhats antigo: $old_pids"; kill $old_pids 2>/dev/null || true; fi; for i in 1 2 3 4 5; do sleep 1; old_pids="$(find_webwhats_pids | tr "\\n" " " | xargs || true)"; [ -z "$old_pids" ] && break; done; old_pids="$(find_webwhats_pids | tr "\\n" " " | xargs || true)"; if [ -n "$old_pids" ]; then kill -9 $old_pids 2>/dev/null || true; fi; run_as_service_user sh -lc "cd \\"$APP_DIR\\" && nohup npm run start:prod > logs/webwhats.log 2>&1 &"; sleep 3; new_pids="$(find_webwhats_pids | tr "\\n" " " | xargs || true)"; if [ -z "$new_pids" ]; then echo "ERRO: Webwhats nao iniciou."; tail -80 logs/webwhats.log 2>/dev/null || true; exit 1; fi; echo "Webwhats process ativo: $new_pids"; }',
     'run_as_service_user git fetch "$GIT_REMOTE" "$GIT_BRANCH"',
     'run_as_service_user git checkout "$GIT_BRANCH"',
     'run_as_service_user git reset --hard "$GIT_REMOTE/$GIT_BRANCH"',
@@ -271,9 +273,7 @@ function buildWebwhatsRemoteDeployScript(config) {
     'run_as_service_user npm run build',
     'run_as_service_user npm run db:generate',
     'run_as_service_user npm run db:deploy',
-    'run_systemctl restart "$SERVICE_NAME"',
-    'run_systemctl is-active --quiet "$SERVICE_NAME"',
-    'echo "Webwhats service ativo: $SERVICE_NAME"',
+    'if [ -n "$SERVICE_NAME" ] && systemctl list-unit-files --type=service | grep -q "^$SERVICE_NAME.service"; then run_systemctl restart "$SERVICE_NAME"; run_systemctl is-active --quiet "$SERVICE_NAME"; echo "Webwhats service ativo: $SERVICE_NAME"; else echo "Webwhats sem systemd configurado; reiniciando processo node direto."; restart_without_systemd; fi',
   ];
 
   return lines.join('\n');
