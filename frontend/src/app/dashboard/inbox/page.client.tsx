@@ -1497,9 +1497,15 @@ function isInboxConversationHiddenByDelete(
   conversation: InboxConversation | null | undefined,
   deletedAliases: DeletedConversationAliasMap,
 ) {
-  void conversation;
-  void deletedAliases;
-  return false;
+  if (!conversation) return false;
+  const metadata = getInboxConversationMetadata(conversation);
+  if (
+    parseInboxBooleanFlag(metadata?.whatsappConversationDeleted) ||
+    parseInboxBooleanFlag(metadata?.inboxWhatsAppDeleted)
+  ) {
+    return true;
+  }
+  return getInboxConversationIdentityAliases(conversation).some((alias) => Boolean(deletedAliases[alias]));
 }
 
 function getInboxConversationQualityScore(conversation: InboxConversation) {
@@ -2237,6 +2243,7 @@ export default function InboxClientPage() {
   const [messageReactionTargetId, setMessageReactionTargetId] = useState<string | null>(null);
   const [blockDialog, setBlockDialog] = useState<{ conversationId: string; reason: string } | null>(null);
   const [deleteConversationDialog, setDeleteConversationDialog] = useState<{ conversationId: string } | null>(null);
+  const [whatsappDeleteConversationDialog, setWhatsappDeleteConversationDialog] = useState<{ conversationId: string } | null>(null);
   const [deleteMessageDialog, setDeleteMessageDialog] = useState<{ messageId: string } | null>(null);
   const [revealedDeletedMessageIds, setRevealedDeletedMessageIds] = useState<Record<string, boolean>>({});
   const [customerConversationCard, setCustomerConversationCard] =
@@ -4526,6 +4533,75 @@ export default function InboxClientPage() {
       }
     },
     [deleteConversationDialog?.conversationId, loadConversations],
+  );
+
+  const deleteConversationFromWhatsAppById = useCallback(
+    async (conversationId: string) => {
+      if (!conversationId) return;
+      setWhatsappDeleteConversationDialog({ conversationId });
+    },
+    [],
+  );
+
+  const confirmDeleteConversationFromWhatsApp = useCallback(
+    async () => {
+      const conversationId = whatsappDeleteConversationDialog?.conversationId;
+      if (!conversationId) return;
+      setError(null);
+      try {
+        const targetConversation =
+          conversationsRef.current.find((conversation) => conversation.id === conversationId) ||
+          (selectedConversationRef.current?.id === conversationId ? selectedConversationRef.current : null);
+        const response = await apiFetch<{ message?: string; deleted?: boolean; whatsappDeleted?: boolean }>(
+          `/inbox/conversations/${conversationId}/whatsapp-delete`,
+          {
+            method: "POST",
+          },
+        );
+        const deletedAt = new Date().toISOString();
+        const aliases = getInboxConversationIdentityAliases(targetConversation);
+        if (aliases.length) {
+          setDeletedConversationAliases((current) => {
+            const next = { ...current };
+            aliases.forEach((alias) => {
+              next[alias] = deletedAt;
+            });
+            return next;
+          });
+        }
+        setQueueActionConversationId(null);
+        setQueueActionMenuPosition(null);
+        setWhatsappDeleteConversationDialog(null);
+        conversationDetailCacheRef.current.delete(conversationId);
+        customerConversationCardCacheRef.current.delete(conversationId);
+        setConversations((current) => current.filter((conversation) => conversation.id !== conversationId));
+        if (selectedIdRef.current === conversationId) {
+          setSelectedId(null);
+          setSelectedConversation(null);
+          selectedIdRef.current = null;
+          selectedConversationRef.current = null;
+        }
+        setManualQueueOverrides((current) => {
+          const next = { ...current };
+          delete next[conversationId];
+          return next;
+        });
+        setNotice({
+          tone: "success",
+          text:
+            String(response?.message || "").trim() ||
+            "Conversa apagada da conta WhatsApp conectada.",
+        });
+        await loadConversations({ preferredId: null, silent: true });
+      } catch (deleteError) {
+        const message =
+          deleteError instanceof Error
+            ? deleteError.message
+            : "Falha ao apagar conversa no WhatsApp conectado.";
+        setError(message);
+      }
+    },
+    [loadConversations, whatsappDeleteConversationDialog?.conversationId],
   );
 
   const reactToMessage = useCallback(
@@ -6840,6 +6916,21 @@ export default function InboxClientPage() {
               >
                 Excluir
               </button>
+              <button
+                type="button"
+                className={`${styles.conversationQueueMetaPopupAction} ${styles.conversationQueueMetaPopupActionDanger}`}
+                onMouseDown={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                }}
+                onClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  void deleteConversationFromWhatsAppById(queueActionConversationId);
+                }}
+              >
+                Apagar conversa
+              </button>
             </div>,
             document.body,
           )
@@ -6933,6 +7024,16 @@ export default function InboxClientPage() {
         destructive
         onCancel={() => setDeleteConversationDialog(null)}
         onConfirm={() => void confirmDeleteConversation()}
+      />
+
+      <HbxConfirmDialog
+        open={whatsappDeleteConversationDialog !== null}
+        title="Apagar conversa"
+        description="Isso apagará a conversa da conta WhatsApp conectada. Não apaga mensagens do aparelho do cliente."
+        confirmLabel="Apagar conversa"
+        destructive
+        onCancel={() => setWhatsappDeleteConversationDialog(null)}
+        onConfirm={() => void confirmDeleteConversationFromWhatsApp()}
       />
 
       <HbxConfirmDialog

@@ -1128,18 +1128,59 @@ export class WebwhatsBridgeService {
     const remoteJid =
       this.normalizeOptionalString(metadata.whatsappRemoteJid) ||
       this.normalizeRemoteJid(String(conversation.contact || ''));
+    const remoteJidAlt =
+      this.normalizeOptionalString(metadata.whatsappRemoteJidAlt) || null;
 
     if (!remoteJid) {
       throw new Error('WEBWHATS_CHAT_REMOTE_JID_MISSING');
     }
 
     try {
+      const [chats, lastMessageRows] = await Promise.all([
+        this.fetchChats(company.id, 120),
+        this.prisma.companyMessage.findMany({
+          where: {
+            companyId,
+            conversationId: conversation.id,
+            rawPayload: { not: null },
+          },
+          orderBy: [{ timestamp: 'desc' }, { createdAt: 'desc' }],
+          take: 20,
+          select: {
+            rawPayload: true,
+          },
+        }),
+      ]);
+      const matchingChat =
+        chats.find((chat) => {
+          const chatRemoteJid = this.normalizeOptionalString(chat?.remoteJid);
+          const chatRemoteJidAlt = this.getChatRemoteJidAlt(chat);
+          return [chatRemoteJid, chatRemoteJidAlt].some(
+            (value) => value && [remoteJid, remoteJidAlt].includes(value),
+          );
+        }) || null;
+      const lastMessagePayload = this.buildChatDeleteLastMessagePayload(
+        matchingChat?.lastMessage,
+      ) || lastMessageRows
+        .map((row) => this.buildChatDeleteLastMessagePayload(this.parseMetadata(row?.rawPayload)))
+        .find(Boolean);
+      if (!lastMessagePayload) {
+        throw new WebwhatsProviderError(
+          'WEBWHATS_HTTP_ERROR',
+          'Não foi possível apagar: última mensagem real do chat não encontrada.',
+          400,
+          { message: 'Não foi possível apagar: última mensagem real do chat não encontrada.' },
+          'Não foi possível apagar: última mensagem real do chat não encontrada.',
+        );
+      }
+
       const response = await this.request<any>({
         method: 'POST',
-        path: `/chat/deleteChat/${encodeURIComponent(tenantKey)}`,
+        path: `/chat/delete/${encodeURIComponent(tenantKey)}`,
         purpose: 'exclusao de conversa inteira via Webwhats',
         data: {
-          chat: remoteJid,
+          remoteJid,
+          lastMessage: lastMessagePayload,
         },
       });
       const result = this.resolveDeleteChatResult(response, remoteJid);
@@ -1858,6 +1899,10 @@ export class WebwhatsBridgeService {
         normalizedError?.providerResponse ||
         error,
     );
+
+    if (/ultima mensagem real|última mensagem real/i.test(haystack)) {
+      return false;
+    }
 
     if (!this.matchesDeleteChatAlreadyMissingText(haystack)) {
       return false;
@@ -2793,6 +2838,34 @@ export class WebwhatsBridgeService {
           ? lastMessageRow.timestamp.getTime()
           : Date.now()) / 1000,
       ),
+    };
+  }
+
+  private buildChatDeleteLastMessagePayload(lastMessage: any) {
+    const key = lastMessage?.key;
+    const keyId = this.normalizeOptionalString(key?.id);
+    const keyRemoteJid = this.normalizeOptionalString(key?.remoteJid);
+    const timestampRaw = lastMessage?.messageTimestamp;
+    const messageTimestamp = Number(timestampRaw);
+    if (!keyId || !keyRemoteJid || typeof key?.fromMe !== 'boolean') {
+      return null;
+    }
+    if (timestampRaw === undefined || timestampRaw === null || !Number.isFinite(messageTimestamp)) {
+      return null;
+    }
+
+    return {
+      key: {
+        ...key,
+        id: keyId,
+        remoteJid: keyRemoteJid,
+        fromMe: key.fromMe,
+        participant:
+          key.participant === null
+            ? null
+            : this.normalizeOptionalString(key.participant),
+      },
+      messageTimestamp,
     };
   }
 
