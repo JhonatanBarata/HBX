@@ -9,6 +9,10 @@ services:
     restart: unless-stopped
     env_file:
       - ./backend/.env
+    depends_on:
+      - hbx-scraping-engine
+    environment:
+      HBX_SCRAPING_ENGINE_URL: http://hbx-scraping-engine:8001
     ports:
       - "3000:3000"
     volumes:
@@ -22,6 +26,25 @@ services:
       context: ./webscraping
       dockerfile: Dockerfile
     restart: unless-stopped
+    networks:
+      - hbx_net
+
+  hbx-scraping-engine:
+    container_name: hbx-scraping-engine
+    build:
+      context: ./hbx-scraping-engine
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      HBX_SCRAPING_USER_AGENT: ${HBX_SCRAPING_USER_AGENT:-HBX-Scraping/0.1 contato@hbxsystem.com.br}
+      HBX_SCRAPING_TIMEOUT_SECONDS: ${HBX_SCRAPING_TIMEOUT_SECONDS:-10}
+      HBX_SCRAPING_CONCURRENCY: ${HBX_SCRAPING_CONCURRENCY:-5}
+      HBX_SCRAPING_CACHE_TTL_HOURS: ${HBX_SCRAPING_CACHE_TTL_HOURS:-24}
+      HBX_SCRAPING_MAX_DISCOVERY_RESULTS: ${HBX_SCRAPING_MAX_DISCOVERY_RESULTS:-120}
+      HBX_AGENDA_MAX_PAGES: ${HBX_AGENDA_MAX_PAGES:-20}
+      HBX_AGENDA_REQUEST_DELAY_MS: ${HBX_AGENDA_REQUEST_DELAY_MS:-500}
+    volumes:
+      - ./hbx-scraping-engine/data:/app/data
     networks:
       - hbx_net
 
