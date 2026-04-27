@@ -297,9 +297,9 @@ export class InboxService {
   private async syncPersistedInboxConversation(companyId: number, conversationId: number) {
     try {
       await this.webwhatsBridge.syncConversationMessagesDetailed(companyId, conversationId, {
-        limit: 120,
+        limit: 20,
         fullSync: true,
-        maxPages: 40,
+        maxPages: 1,
         force: false,
       });
       return null;
@@ -319,7 +319,7 @@ export class InboxService {
     this.backgroundInboxSyncAt.set(key, Date.now());
     try {
       await this.webwhatsBridge.syncConversationMessagesDetailed(companyId, conversationId, {
-        limit: 120,
+        limit: 20,
         fullSync: false,
         maxPages: 1,
         force: true,
@@ -935,12 +935,12 @@ export class InboxService {
     return Math.min(Math.floor(parsed), 200);
   }
 
-  private normalizeMessagePageLimit(value: string | number | null | undefined, fallback = 200) {
+  private normalizeMessagePageLimit(value: string | number | null | undefined, fallback = 20) {
     const parsed = Number(value);
     if (!Number.isFinite(parsed) || parsed <= 0) {
       return fallback;
     }
-    return Math.min(Math.floor(parsed), 200);
+    return Math.min(Math.floor(parsed), 60);
   }
 
   private resolveLatestDate(...values: Array<Date | string | null | undefined>) {
@@ -2062,7 +2062,7 @@ export class InboxService {
   }
 
   private async getPersistedConversationByIdForCompany(companyId: number, id: number, options?: { messagesLimit?: number }) {
-    const messagesLimit = this.normalizeMessagePageLimit(options?.messagesLimit, 200);
+    const messagesLimit = this.normalizeMessagePageLimit(options?.messagesLimit, 20);
     const loadRow = () => this.prisma.companyConversation.findFirst({
       where: { companyId, id, channel: 'whatsapp' },
       select: {
@@ -2146,7 +2146,7 @@ export class InboxService {
     if (firstConversationId) {
       this.triggerBackgroundInboxConversationSync(companyId, firstConversationId);
       selectedConversation = await this.getPersistedConversationByIdForCompany(companyId, firstConversationId, {
-        messagesLimit: 200,
+        messagesLimit: 20,
       });
     }
 
@@ -2389,9 +2389,8 @@ export class InboxService {
 
   async getConversationById(user: any, id: number) {
     const companyId = this.requireCompanyIdFromUser(user);
-    await this.syncLatestInboxConversationWindow(companyId, id);
-    this.triggerBackgroundInboxConversationSync(companyId, id);
-    return this.getPersistedConversationByIdForCompany(companyId, id, { messagesLimit: 200 });
+    void this.syncLatestInboxConversationWindow(companyId, id);
+    return this.getPersistedConversationByIdForCompany(companyId, id, { messagesLimit: 20 });
   }
 
   async listConversationMessages(
@@ -2402,9 +2401,8 @@ export class InboxService {
     const companyId = this.requireCompanyIdFromUser(user);
     const before = this.normalizeBeforeDate(options?.before || null);
     if (!before) {
-      await this.syncLatestInboxConversationWindow(companyId, id);
+      void this.syncLatestInboxConversationWindow(companyId, id);
     }
-    this.triggerBackgroundInboxConversationSync(companyId, id);
     const conversation = await this.prisma.companyConversation.findFirst({
       where: { companyId, id, channel: 'whatsapp' },
       select: {
@@ -2415,7 +2413,7 @@ export class InboxService {
     });
     if (!conversation) throw new NotFoundException('Conversation not found');
 
-    const limit = this.normalizeMessagePageLimit(options?.limit, 200);
+    const limit = this.normalizeMessagePageLimit(options?.limit, 20);
     const loadRows = () => this.prisma.companyMessage.findMany({
       where: {
         companyId,
