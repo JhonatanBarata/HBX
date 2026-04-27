@@ -1,6 +1,6 @@
 import { Body, Controller, Get, Param, Post, Query, Req, Res, UseGuards } from '@nestjs/common';
 import { Type } from 'class-transformer';
-import { IsBoolean, IsInt, IsNumber, IsOptional, IsString, Max, Min } from 'class-validator';
+import { IsBoolean, IsIn, IsInt, IsNumber, IsOptional, IsString, Max, Min } from 'class-validator';
 import type { Response } from 'express';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { ModuleAccess } from '../modules/module-feature.decorator';
@@ -11,14 +11,27 @@ class WebscrapingSearchDto {
   @IsString()
   city!: string;
 
+  @IsOptional()
   @IsString()
-  segment!: string;
+  state?: string;
+
+  @IsOptional()
+  @IsString()
+  segment?: string;
 
   @Type(() => Number)
   @IsInt()
   @Min(1)
-  @Max(20)
+  @Max(100)
   quantity!: number;
+
+  @IsOptional()
+  @IsIn(['google', 'hbx'])
+  engine?: 'google' | 'hbx';
+
+  @IsOptional()
+  @IsIn(['pj', 'pf', 'agenda_pf'])
+  targetType?: 'pj' | 'pf' | 'agenda_pf';
 
   @IsOptional()
   @Type(() => Number)

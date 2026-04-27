@@ -506,3 +506,176 @@ test('exportacao XLSX nativa gera arquivo com colunas esperadas', async () => {
     else process.env.GOOGLE_PLACES_API_KEY = previousGoogleKey;
   }
 });
+
+test('engine google continua como padrao e limita quantidade a 20', async () => {
+  const previousGoogleKey = process.env.GOOGLE_PLACES_API_KEY;
+  process.env.GOOGLE_PLACES_API_KEY = 'test-key';
+
+  const previousFetch = global.fetch;
+  const searchBodies: any[] = [];
+  global.fetch = (async (input: any, init?: any) => {
+    const url = String(input);
+    if (url.includes('places:searchText')) {
+      searchBodies.push(JSON.parse(String(init?.body || '{}')));
+      return createResponse(200, {
+        places: [{ id: 'place-1', displayName: { text: 'Clinica Centro' } }],
+      }) as any;
+    }
+    return createResponse(200, {
+      displayName: { text: 'Clinica Centro' },
+      internationalPhoneNumber: '+55 11 99888-7766',
+      nationalPhoneNumber: '(11) 99888-7766',
+      formattedAddress: 'Rua Central, 100',
+      rating: 4.7,
+      userRatingCount: 142,
+    }) as any;
+  }) as any;
+
+  const service = new WebscrapingService(createPrisma());
+
+  try {
+    const response = await service.searchContactsForUser(createUser(), {
+      city: 'Sao Paulo - SP',
+      segment: 'Clinicas',
+      quantity: 50,
+    });
+
+    assert.equal(response.query.engine, 'google');
+    assert.equal(response.query.targetType, 'pj');
+    assert.equal(response.query.quantity, 20);
+    assert.equal(response.meta.source, 'google');
+    assert.equal(searchBodies[0].pageSize, 20);
+  } finally {
+    global.fetch = previousFetch;
+    if (previousGoogleKey === undefined) delete process.env.GOOGLE_PLACES_API_KEY;
+    else process.env.GOOGLE_PLACES_API_KEY = previousGoogleKey;
+  }
+});
+
+test('engine hbx chama motor local e aceita agenda_pf sem segmento', async () => {
+  const previousEngineUrl = process.env.HBX_SCRAPING_ENGINE_URL;
+  process.env.HBX_SCRAPING_ENGINE_URL = 'http://localhost:8001';
+
+  const previousFetch = global.fetch;
+  const calls: Array<{ url: string; body: any }> = [];
+  global.fetch = (async (input: any, init?: any) => {
+    calls.push({
+      url: String(input),
+      body: JSON.parse(String(init?.body || '{}')),
+    });
+    return createResponse(200, {
+      engine: 'hbx_scraping',
+      count: 1,
+      results: [
+        {
+          name: 'Contato Limeira',
+          phone: '(19) 99999-0000',
+          phoneDigits: '19999990000',
+          rating: null,
+          reviews: null,
+          address: null,
+          website: null,
+          source: 'hbx_agenda:web',
+          score: 12,
+          cpf: 'nao-deve-sair',
+          cnpj: 'nao-deve-sair',
+          document: 'nao-deve-sair',
+          probableWhatsApp: true,
+          googleMapsUrl: 'https://maps.google.com/example',
+        },
+      ],
+    }) as any;
+  }) as any;
+
+  const service = new WebscrapingService(createPrisma());
+
+  try {
+    const response = await service.searchContactsForUser(createUser(), {
+      city: 'Limeira',
+      state: 'SP',
+      engine: 'hbx',
+      targetType: 'agenda_pf',
+      quantity: 150,
+    });
+
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].url, 'http://localhost:8001/search');
+    assert.deepEqual(calls[0].body, {
+      city: 'Limeira',
+      state: 'SP',
+      segment: '',
+      targetType: 'agenda_pf',
+      limit: 100,
+      fresh: false,
+    });
+    assert.equal(response.query.engine, 'hbx');
+    assert.equal(response.query.targetType, 'agenda_pf');
+    assert.equal(response.query.quantity, 100);
+    assert.equal(response.meta.source, 'hbx');
+    assert.equal(response.results.length, 1);
+    assert.equal(response.results[0].name, 'Contato Limeira');
+    assert.equal(response.results[0].phoneDigits, '19999990000');
+    assert.equal(response.results[0].rating, null);
+    assert.equal(response.results[0].reviews, null);
+    assert.equal(response.results[0].address, null);
+    assert.equal(response.results[0].website, null);
+    assert.equal('cpf' in response.results[0], false);
+    assert.equal('cnpj' in response.results[0], false);
+    assert.equal('document' in response.results[0], false);
+    assert.equal('probableWhatsApp' in response.results[0], false);
+    assert.equal('googleMapsUrl' in response.results[0], false);
+  } finally {
+    global.fetch = previousFetch;
+    if (previousEngineUrl === undefined) delete process.env.HBX_SCRAPING_ENGINE_URL;
+    else process.env.HBX_SCRAPING_ENGINE_URL = previousEngineUrl;
+  }
+});
+
+test('engine hbx aplica limite 50 para pj e envia targetType', async () => {
+  const previousEngineUrl = process.env.HBX_SCRAPING_ENGINE_URL;
+  process.env.HBX_SCRAPING_ENGINE_URL = 'http://localhost:8001/';
+
+  const previousFetch = global.fetch;
+  const calls: any[] = [];
+  global.fetch = (async (input: any, init?: any) => {
+    calls.push({
+      url: String(input),
+      body: JSON.parse(String(init?.body || '{}')),
+    });
+    return createResponse(200, {
+      results: [
+        {
+          name: 'Oficina Centro',
+          phone: '(19) 3333-4444',
+          phoneDigits: '1933334444',
+          source: 'hbx_scraping:web',
+          score: 70,
+        },
+      ],
+    }) as any;
+  }) as any;
+
+  const service = new WebscrapingService(createPrisma());
+
+  try {
+    const response = await service.searchContactsForUser(createUser(), {
+      city: 'Americana - SP',
+      segment: 'oficina mecanica',
+      engine: 'hbx',
+      targetType: 'pj',
+      quantity: 80,
+    });
+
+    assert.equal(calls[0].url, 'http://localhost:8001/search');
+    assert.equal(calls[0].body.city, 'Americana');
+    assert.equal(calls[0].body.state, 'SP');
+    assert.equal(calls[0].body.targetType, 'pj');
+    assert.equal(calls[0].body.limit, 50);
+    assert.equal(response.query.quantity, 50);
+    assert.equal(response.results.length, 1);
+  } finally {
+    global.fetch = previousFetch;
+    if (previousEngineUrl === undefined) delete process.env.HBX_SCRAPING_ENGINE_URL;
+    else process.env.HBX_SCRAPING_ENGINE_URL = previousEngineUrl;
+  }
+});
