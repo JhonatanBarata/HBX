@@ -7,7 +7,7 @@
     "start": "node -r ./scripts/fix-direct-url dist/main.js",
     "start:prod": "node -r ./scripts/fix-direct-url dist/main.js",
     "start:dev": "ts-node-dev --respawn --transpile-only --require dotenv/config src/main.ts",
-    "prisma:generate": "prisma generate --schema=./prisma/schema.prisma",
+    "prisma:generate": "prisma generate --schema=./prisma/schema.prisma --no-hints",
     "prisma:validate": "prisma validate --schema=./prisma/schema.prisma",
     "prebuild": "npm run prisma:generate",
     "build": "tsc -p tsconfig.json",

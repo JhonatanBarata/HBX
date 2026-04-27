@@ -6,7 +6,7 @@ ENV PYTHONUNBUFFERED=1
 WORKDIR /app
 
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir --disable-pip-version-check --root-user-action=ignore --quiet -r requirements.txt
 
 COPY app ./app
 COPY .env.example ./.env.example

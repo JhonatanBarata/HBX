@@ -3,11 +3,11 @@ FROM node:20
 WORKDIR /app
 
 COPY backend/package*.json ./
-RUN npm ci --no-audit --no-fund
+RUN npm ci --no-audit --no-fund --loglevel=error
 
 COPY backend/ ./
 
-RUN npx prisma generate --schema=./prisma/schema.prisma
+RUN npx prisma generate --schema=./prisma/schema.prisma --no-hints
 RUN npm run build
 
 EXPOSE 3000

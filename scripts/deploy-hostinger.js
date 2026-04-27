@@ -35,6 +35,22 @@ function logStage(title) {
   console.log(`\n=== ${title} ===`);
 }
 
+function quietToolEnv(extra = {}) {
+  return {
+    ...process.env,
+    PRISMA_HIDE_UPDATE_MESSAGE: 'true',
+    NPM_CONFIG_AUDIT: 'false',
+    NPM_CONFIG_FUND: 'false',
+    NPM_CONFIG_LOGLEVEL: 'error',
+    NPM_CONFIG_UPDATE_NOTIFIER: 'false',
+    npm_config_audit: 'false',
+    npm_config_fund: 'false',
+    npm_config_loglevel: 'error',
+    npm_config_update_notifier: 'false',
+    ...extra,
+  };
+}
+
 function loadOperationsEnv() {
   const files = [
     path.join(repoRoot, '.env.production.local'),
@@ -49,7 +65,7 @@ function loadOperationsEnv() {
 }
 
 function runStep(command, args, options = {}) {
-  console.log(`\n> ${[command, ...args].join(' ')}`);
+  console.log(`\n> ${options.label || [command, ...args].join(' ')}`);
 
   return run(command, args, {
     cwd: options.cwd || repoRoot,
@@ -143,6 +159,43 @@ function listChangedFilesAheadOfRemote(cwd = repoRoot, gitRemote = remote, gitBr
     .filter(Boolean);
 }
 
+function listCommitsAheadOfRemote(cwd = repoRoot, gitRemote = remote, gitBranch = branch) {
+  const result = runStep('git', ['log', '--oneline', `${gitRemote}/${gitBranch}..HEAD`], {
+    cwd,
+    captureOutput: true,
+    allowFailure: true,
+  });
+
+  if (result.status !== 0) {
+    return [];
+  }
+
+  return String(result.stdout || '')
+    .split(/\r?\n/)
+    .map((value) => value.trim())
+    .filter(Boolean);
+}
+
+function printPublishedChanges(commits, changedFiles) {
+  if (!commits.length && !changedFiles.length) {
+    console.log('\nMudancas publicadas: nenhum commit local novo; deploy reaplicou o HEAD atual.');
+    return;
+  }
+
+  const commitPreview = commits.slice(0, 5);
+  const commitSuffix = commits.length > 5 ? ` (+${commits.length - 5} commit(s))` : '';
+  const filePreview = changedFiles.slice(0, 8);
+  const fileSuffix = changedFiles.length > 8 ? ` (+${changedFiles.length - 8} arquivo(s))` : '';
+
+  console.log('\nMudancas publicadas:');
+  if (commitPreview.length) {
+    console.log(`Commits: ${commitPreview.join(' | ')}${commitSuffix}`);
+  }
+  if (filePreview.length) {
+    console.log(`Arquivos: ${filePreview.join(', ')}${fileSuffix}`);
+  }
+}
+
 function printFrontendDeployNotice(config, changedFiles) {
   const frontendFiles = changedFiles.filter((value) => value.startsWith('frontend/'));
   if (!frontendFiles.length) return;
@@ -150,7 +203,7 @@ function printFrontendDeployNotice(config, changedFiles) {
   const preview = frontendFiles.slice(0, 5).join(', ');
   const suffix = frontendFiles.length > 5 ? ` (+${frontendFiles.length - 5} arquivo(s))` : '';
 
-  console.warn([
+  console.log([
     '',
     'Aviso operacional: este publish conclui apenas Hostinger (backend/webscraping/HBX Scraping Engine).',
     `O frontend oficial em ${config.frontendUrl} continua sendo servido pela Vercel e pode permanecer com bundle anterior ate o rollout externo terminar.`,
@@ -180,6 +233,7 @@ function buildRemoteDeployScript(config, mode) {
     'POSTGRES_NETWORK="$(docker inspect hbx-postgres --format \'{{range $name, $_ := .NetworkSettings.Networks}}{{println $name}}{{end}}\' | grep -E \'^hbx[-_]net$\' | head -n 1 || true)"',
     'if [ -n "$POSTGRES_NETWORK" ]; then export HBX_DOCKER_NETWORK="$POSTGRES_NETWORK"; elif docker network inspect hbx_net >/dev/null 2>&1; then export HBX_DOCKER_NETWORK=hbx_net; elif docker network inspect hbx-net >/dev/null 2>&1; then export HBX_DOCKER_NETWORK=hbx-net; else echo "ERRO: rede Docker hbx_net/hbx-net nao encontrada."; exit 1; fi',
     'if docker-compose --version >/dev/null 2>&1; then DC="docker-compose"; elif docker compose version >/dev/null 2>&1; then DC="docker compose"; else echo "ERRO: docker-compose nao encontrado."; exit 1; fi',
+    'run_filtered() { set +e; "$@" 2>&1 | sed \'/legacy builder is deprecated/d;/Install the buildx component/d;/docs.docker.com\\/go\\/buildx/d\'; status="${PIPESTATUS[0]}"; set -e; return "$status"; }',
     'echo "Banco esperado: hbx-postgres/hbx_prod"',
     'echo "Backend URL: $BACKEND_URL"',
     'echo "Frontend URL: $FRONTEND_URL"',
@@ -190,8 +244,8 @@ function buildRemoteDeployScript(config, mode) {
     lines.push(
       '$DC -f docker-compose.hostinger.yml down --remove-orphans',
     'docker rm -f hbx-backend webscraping hbx-scraping-engine 2>/dev/null || true',
-    '$DC -f docker-compose.hostinger.yml build --no-cache backend webscraping hbx-scraping-engine || echo "Aviso: build --no-cache falhou; tentando up -d --build."',
-    '$DC -f docker-compose.hostinger.yml up -d --build backend webscraping hbx-scraping-engine',
+    'run_filtered $DC -f docker-compose.hostinger.yml build --no-cache backend webscraping hbx-scraping-engine || echo "Aviso: build --no-cache falhou; tentando up -d --build."',
+    'run_filtered $DC -f docker-compose.hostinger.yml up -d --build backend webscraping hbx-scraping-engine',
     'docker restart hbx-backend webscraping hbx-scraping-engine',
       'docker image prune -f',
       'docker builder prune -f || true',
@@ -199,7 +253,7 @@ function buildRemoteDeployScript(config, mode) {
     );
   } else {
     lines.push('docker rm -f hbx-backend webscraping hbx-scraping-engine 2>/dev/null || true');
-    lines.push('$DC -f docker-compose.hostinger.yml up -d --build backend webscraping hbx-scraping-engine');
+    lines.push('run_filtered $DC -f docker-compose.hostinger.yml up -d --build backend webscraping hbx-scraping-engine');
   }
 
   lines.push(
@@ -259,6 +313,12 @@ function buildWebwhatsRemoteDeployScript(config) {
     `SERVICE_NAME=${shellSingleQuote(config.serviceName)}`,
     `GIT_REMOTE=${shellSingleQuote(config.gitRemote)}`,
     `GIT_BRANCH=${shellSingleQuote(config.gitBranch)}`,
+    'export HUSKY=0',
+    'export NPM_CONFIG_AUDIT=false',
+    'export NPM_CONFIG_FUND=false',
+    'export NPM_CONFIG_LOGLEVEL=error',
+    'export NPM_CONFIG_UPDATE_NOTIFIER=false',
+    'export PRISMA_HIDE_UPDATE_MESSAGE=true',
     'cd "$APP_DIR"',
     'if [ ! -f package.json ]; then echo "ERRO: package.json do Webwhats nao encontrado em $APP_DIR."; exit 1; fi',
     'if [ ! -f .env ]; then echo "ERRO: .env do Webwhats nao existe no servidor."; exit 1; fi',
@@ -270,10 +330,10 @@ function buildWebwhatsRemoteDeployScript(config) {
     'run_as_service_user git fetch "$GIT_REMOTE" "$GIT_BRANCH"',
     'run_as_service_user git checkout "$GIT_BRANCH"',
     'run_as_service_user git reset --hard "$GIT_REMOTE/$GIT_BRANCH"',
-    'run_as_service_user npm ci',
-    'run_as_service_user npm run build',
-    'run_as_service_user npm run db:generate',
-    'run_as_service_user npm run db:deploy',
+    'run_as_service_user env HUSKY=0 NPM_CONFIG_AUDIT=false NPM_CONFIG_FUND=false NPM_CONFIG_LOGLEVEL=error NPM_CONFIG_UPDATE_NOTIFIER=false npm ci --no-audit --no-fund --loglevel=error',
+    'run_as_service_user env NPM_CONFIG_AUDIT=false NPM_CONFIG_FUND=false NPM_CONFIG_LOGLEVEL=error NPM_CONFIG_UPDATE_NOTIFIER=false npm run build -- --silent',
+    'run_as_service_user env PRISMA_HIDE_UPDATE_MESSAGE=true node runWithProvider.js "npx prisma generate --schema ./prisma/DATABASE_PROVIDER-schema.prisma --no-hints"',
+    'run_as_service_user env PRISMA_HIDE_UPDATE_MESSAGE=true npm run db:deploy',
     'if [ -n "$SERVICE_NAME" ] && systemctl list-unit-files --type=service | grep -q "^$SERVICE_NAME.service"; then run_systemctl restart "$SERVICE_NAME"; run_systemctl is-active --quiet "$SERVICE_NAME"; echo "Webwhats service ativo: $SERVICE_NAME"; elif command -v pm2 >/dev/null 2>&1 && pm2 describe webwhats >/dev/null 2>&1; then restart_with_pm2; else echo "Webwhats sem systemd/PM2 configurado; reiniciando processo node direto."; restart_without_systemd; fi',
   ];
 
@@ -285,10 +345,14 @@ function printWebwhatsDryRun(config) {
 
   console.log('[dry-run] Would run: git push ' + `${config.gitRemote} ${config.gitBranch} from ${config.repoPath}`);
   console.log(`[dry-run] Would SSH into Webwhats: ${config.sshUser}@${config.sshHost}`);
-  console.log('[dry-run] Would execute this Webwhats remote script:');
-  console.log('--- webwhats remote script start ---');
-  console.log(buildWebwhatsRemoteDeployScript(config));
-  console.log('--- webwhats remote script end ---');
+  console.log('[dry-run] Would run Webwhats remote deploy: fetch/reset, npm ci, build, db generate/deploy, restart.');
+  if (isTruthy(process.env.PUBLISH_VERBOSE_DRY_RUN)) {
+    console.log('--- webwhats remote script start ---');
+    console.log(buildWebwhatsRemoteDeployScript(config));
+    console.log('--- webwhats remote script end ---');
+  } else {
+    console.log('[dry-run] Set PUBLISH_VERBOSE_DRY_RUN=true to print the full Webwhats remote script.');
+  }
 }
 
 function validateWebwhatsLocal(config, mode) {
@@ -301,37 +365,50 @@ function validateWebwhatsLocal(config, mode) {
   runStep('git', ['rev-parse', '--is-inside-work-tree'], { cwd: config.repoPath });
   ensureGitBranch(config.gitBranch, config.repoPath, 'Webwhats');
   ensureCleanWorkingTree(mode, config.repoPath, 'Webwhats');
-  runStep('npm', ['run', 'typecheck'], { cwd: config.repoPath });
-  runStep('npm', ['run', 'build'], { cwd: config.repoPath });
+  const env = quietToolEnv();
+  runStep('npm', ['run', 'typecheck'], { cwd: config.repoPath, env });
+  runStep('npm', ['run', 'build', '--', '--silent'], { cwd: config.repoPath, env });
+  runStep('npm', ['run', 'lint:check'], { cwd: config.repoPath, env });
 }
 
 function pushWebwhats(config) {
   if (!config) return;
 
-  runStep('git', ['push', config.gitRemote, config.gitBranch], { cwd: config.repoPath });
+  runStep('git', ['push', config.gitRemote, config.gitBranch], {
+    cwd: config.repoPath,
+    env: quietToolEnv({ HUSKY: '0' }),
+  });
 }
 
 function deployWebwhats(config) {
   if (!config) return;
 
   const remoteScript = buildWebwhatsRemoteDeployScript(config);
-  runStep('ssh', buildSshArgs(config, remoteScript));
+  runStep('ssh', buildSshArgs(config, remoteScript), {
+    label: `ssh ${config.sshUser}@${config.sshHost} Webwhats deploy`,
+  });
 }
 
 function printDryRun(config, mode) {
   console.log('\n[dry-run] No git push, no SSH execution, no docker-compose down/up on Hostinger.');
   console.log('[dry-run] Would run: git push origin master');
   console.log(`[dry-run] Would SSH into: ${config.sshUser}@${config.sshHost}`);
-  console.log('[dry-run] Would execute this remote script:');
-  console.log('--- remote script start ---');
-  console.log(buildRemoteDeployScript(config, mode));
-  console.log('--- remote script end ---');
+  console.log('[dry-run] Would run Hostinger remote deploy: fetch/reset, validate env/db/docker, build/up services, list containers.');
+  if (isTruthy(process.env.PUBLISH_VERBOSE_DRY_RUN)) {
+    console.log('--- remote script start ---');
+    console.log(buildRemoteDeployScript(config, mode));
+    console.log('--- remote script end ---');
+  } else {
+    console.log('[dry-run] Set PUBLISH_VERBOSE_DRY_RUN=true to print the full Hostinger remote script.');
+  }
 }
 
 function deployOnHostinger(config, mode) {
   const sshTarget = `${config.sshUser}@${config.sshHost}`;
   const remoteScript = buildRemoteDeployScript(config, mode);
-  runStep('ssh', [sshTarget, 'bash', '-lc', shellSingleQuote(remoteScript)]);
+  runStep('ssh', [sshTarget, 'bash', '-lc', shellSingleQuote(remoteScript)], {
+    label: `ssh ${sshTarget} Hostinger deploy (${mode})`,
+  });
 }
 
 async function requestWithRetry(url, options = {}) {
@@ -395,10 +472,12 @@ async function main() {
   ensureGitBranch(branch);
   ensureCleanWorkingTree(mode);
   const changedFilesAheadOfRemote = listChangedFilesAheadOfRemote();
-  runStep('npm', ['--prefix', 'backend', 'run', 'prisma:generate']);
-  runStep('npm', ['--prefix', 'backend', 'run', 'prisma:validate']);
-  runStep('npm', ['--prefix', 'backend', 'run', 'build']);
-  runStep('npm', ['--prefix', 'frontend', 'run', 'build']);
+  const commitsAheadOfRemote = listCommitsAheadOfRemote();
+  const toolEnv = quietToolEnv();
+  runStep('npm', ['--prefix', 'backend', 'run', 'prisma:generate'], { env: toolEnv });
+  runStep('npm', ['--prefix', 'backend', 'run', 'prisma:validate'], { env: toolEnv });
+  runStep('npm', ['--prefix', 'backend', 'run', 'build'], { env: toolEnv });
+  runStep('npm', ['--prefix', 'frontend', 'run', 'build'], { env: toolEnv });
   validateWebwhatsLocal(webwhatsConfig, mode);
 
   if (mode === 'dry-run') {
@@ -420,6 +499,7 @@ async function main() {
 
   logStage('Production Verify');
   await verifyProduction(config);
+  printPublishedChanges(commitsAheadOfRemote, changedFilesAheadOfRemote);
   printFrontendDeployNotice(config, changedFilesAheadOfRemote);
 
   console.log('\nHostinger deploy completed.');
