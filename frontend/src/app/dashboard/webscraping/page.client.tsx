@@ -982,6 +982,16 @@ export default function WebscrapingClientPage() {
       ctaLabel: "Ver resultados",
       autoOpenDelayMs: 650,
       onOpen: focusScrapingResults,
+      progressSteps: [
+        "Iniciando consulta...",
+        "Buscando fontes públicas...",
+        "Baixando páginas encontradas...",
+        "Extraindo telefones...",
+        "Deduplicando contatos...",
+        "Qualificando nomes...",
+        "Montando cards...",
+        "Aguardando resposta final...",
+      ],
     });
 
     setSearching(true);
