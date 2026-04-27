@@ -679,3 +679,195 @@ test('engine hbx aplica limite 50 para pj e envia targetType', async () => {
     else process.env.HBX_SCRAPING_ENGINE_URL = previousEngineUrl;
   }
 });
+
+test('busca hbx persiste estado no historico para permitir reaproveitamento', async () => {
+  const previousEngineUrl = process.env.HBX_SCRAPING_ENGINE_URL;
+  process.env.HBX_SCRAPING_ENGINE_URL = 'http://localhost:8001';
+
+  const previousFetch = global.fetch;
+  global.fetch = (async () =>
+    createResponse(200, {
+      results: [
+        {
+          name: 'Maria Oliveira',
+          phone: '(19) 99999-1234',
+          phoneDigits: '19999991234',
+          source: 'hbx_scraping:web',
+          score: 60,
+        },
+      ],
+    }) as any) as any;
+
+  const upsertCalls: any[] = [];
+  const service = new WebscrapingService(createPrisma({
+    webscrapingSearchHistory: {
+      findFirst: async () => null,
+      findUnique: async () => null,
+      findMany: async () => [],
+      update: async ({ where, data }: any) => ({ id: where.id, ...data }),
+      upsert: async (input: any) => {
+        upsertCalls.push(input);
+        return { id: 'history-hbx-1' };
+      },
+      delete: async () => null,
+    },
+  }));
+
+  try {
+    const response = await service.searchContactsForUser(createUser(), {
+      city: 'Araras - SP',
+      segment: 'plano de saude',
+      engine: 'hbx',
+      targetType: 'pf',
+      quantity: 20,
+    });
+
+    assert.equal(response.meta.historyId, 'history-hbx-1');
+    assert.equal(upsertCalls.length, 1);
+    const filtersJson = JSON.parse(upsertCalls[0].create.filtersJson);
+    assert.equal(filtersJson.engine, 'hbx');
+    assert.equal(filtersJson.targetType, 'pf');
+    assert.equal(filtersJson.state, 'SP');
+    assert.match(upsertCalls[0].create.searchSignature, /state:sp/);
+  } finally {
+    global.fetch = previousFetch;
+    if (previousEngineUrl === undefined) delete process.env.HBX_SCRAPING_ENGINE_URL;
+    else process.env.HBX_SCRAPING_ENGINE_URL = previousEngineUrl;
+  }
+});
+
+test('reaproveitar historico hbx recupera estado salvo na assinatura antiga', async () => {
+  const previousFetch = global.fetch;
+  const fetchSpy: string[] = [];
+  global.fetch = (async () => {
+    fetchSpy.push('called');
+    return createResponse(500, {}) as any;
+  }) as any;
+
+  const service = new WebscrapingService(createPrisma({
+    webscrapingSearchHistory: {
+      findFirst: async () => ({
+        id: 'history-hbx-old',
+        userId: 9,
+        city: 'Araras',
+        segment: 'plano de saude',
+        quantity: 20,
+        filtersJson: JSON.stringify({
+          minRating: null,
+          minReviews: null,
+          onlyWithWebsite: false,
+          engine: 'hbx',
+          targetType: 'pf',
+        }),
+        searchSignature: 'engine:hbx|targetType:pf|city:araras|state:sp|segment:plano de saude|quantity:20|filters:{}',
+        resultCount: 1,
+        createdAt: new Date('2026-04-27T20:00:00.000Z'),
+        updatedAt: new Date('2026-04-27T20:00:00.000Z'),
+        lastUsedAt: new Date('2026-04-27T20:00:00.000Z'),
+        places: [
+          {
+            id: 'place-row-hbx-1',
+            placeId: 'hbx:pf:19999991234',
+            rank: 1,
+            name: 'Maria Oliveira',
+            phone: '(19) 99999-1234',
+            phoneDigits: '19999991234',
+            rating: null,
+            reviews: 0,
+            address: '',
+            website: '',
+            source: 'hbx_scraping:web',
+            score: 60,
+          },
+        ],
+      }),
+      findUnique: async () => null,
+      findMany: async () => [],
+      update: async ({ where, data }: any) => ({ id: where.id, ...data }),
+      upsert: async () => ({ id: 'history-hbx-old' }),
+      delete: async () => null,
+    },
+  }));
+
+  try {
+    const response = await service.reuseHistorySearchForUser(createUser(), 'history-hbx-old');
+
+    assert.equal(response.query.engine, 'hbx');
+    assert.equal(response.query.targetType, 'pf');
+    assert.equal(response.query.city, 'Araras');
+    assert.equal(response.query.state, 'SP');
+    assert.equal(response.meta.source, 'history');
+    assert.equal(response.results.length, 1);
+    assert.equal(response.results[0].name, 'Maria Oliveira');
+    assert.equal(fetchSpy.length, 0);
+  } finally {
+    global.fetch = previousFetch;
+  }
+});
+
+test('reaproveitar historico hbx antigo sem estado nao retorna 400', async () => {
+  const previousFetch = global.fetch;
+  const fetchSpy: string[] = [];
+  global.fetch = (async () => {
+    fetchSpy.push('called');
+    return createResponse(500, {}) as any;
+  }) as any;
+
+  const service = new WebscrapingService(createPrisma({
+    webscrapingSearchHistory: {
+      findFirst: async () => ({
+        id: 'history-hbx-no-state',
+        userId: 9,
+        city: 'Araras',
+        segment: 'Clinicas',
+        quantity: 20,
+        filtersJson: JSON.stringify({
+          minRating: null,
+          minReviews: null,
+          onlyWithWebsite: false,
+          engine: 'hbx',
+          targetType: 'pj',
+        }),
+        searchSignature: 'engine:hbx|targetType:pj|city:araras|segment:clinicas|quantity:20|filters:{}',
+        resultCount: 1,
+        createdAt: new Date('2026-04-27T20:00:00.000Z'),
+        updatedAt: new Date('2026-04-27T20:00:00.000Z'),
+        lastUsedAt: new Date('2026-04-27T20:00:00.000Z'),
+        places: [
+          {
+            id: 'place-row-hbx-no-state',
+            placeId: 'hbx:pj:19999991234',
+            rank: 1,
+            name: 'Clinica Araras',
+            phone: '(19) 99999-1234',
+            phoneDigits: '19999991234',
+            rating: null,
+            reviews: 0,
+            address: '',
+            website: '',
+            source: 'hbx_scraping:web',
+            score: 60,
+          },
+        ],
+      }),
+      findUnique: async () => null,
+      findMany: async () => [],
+      update: async ({ where, data }: any) => ({ id: where.id, ...data }),
+      upsert: async () => ({ id: 'history-hbx-no-state' }),
+      delete: async () => null,
+    },
+  }));
+
+  try {
+    const response = await service.reuseHistorySearchForUser(createUser(), 'history-hbx-no-state');
+
+    assert.equal(response.query.engine, 'hbx');
+    assert.equal(response.query.state, null);
+    assert.equal(response.meta.source, 'history');
+    assert.equal(response.results.length, 1);
+    assert.equal(response.results[0].name, 'Clinica Araras');
+    assert.equal(fetchSpy.length, 0);
+  } finally {
+    global.fetch = previousFetch;
+  }
+});

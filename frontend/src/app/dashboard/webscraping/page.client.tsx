@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import DashboardScaffold from "@/components/DashboardScaffold";
 import LiquidGlassCard, { liquidGlassCardStyles as glassCardStyles } from "@/components/LiquidGlassCard";
@@ -468,6 +468,163 @@ function motorStatusLabel(status: MotorHealth) {
   if (status === "offline") return "Caiu";
   if (status === "bug") return "Com bug";
   return "Aguardando teste";
+}
+
+function motorStatusTone(status: MotorHealth) {
+  if (status === "online") return "online";
+  if (status === "offline" || status === "bug") return "danger";
+  return "idle";
+}
+
+function searchModeTitle(option: (typeof SEARCH_MODE_OPTIONS)[number]) {
+  if (option.id === "google_pj") return "Google oficial";
+  if (option.id === "hbx_pj") return "Empresas locais";
+  if (option.id === "hbx_pf") return "Pessoas por perfil";
+  return "Agenda pública por cidade";
+}
+
+function searchModeLimit(option: (typeof SEARCH_MODE_OPTIONS)[number]) {
+  const max = option.quantityOptions[option.quantityOptions.length - 1] || 20;
+  if (option.id === "hbx_agenda_pf") return "Só nomes de pessoa";
+  return `Até ${max} resultados`;
+}
+
+function searchModeGuide(option: (typeof SEARCH_MODE_OPTIONS)[number]) {
+  if (option.id === "hbx_pf") {
+    return {
+      input: "Cidade, perfil, nicho e DDD",
+      output: "Pessoas qualificadas por contexto",
+      action: "WhatsApp, roteiro e CRM",
+    };
+  }
+
+  if (option.id === "hbx_agenda_pf") {
+    return {
+      input: "Cidade e rótulo opcional",
+      output: "Nomes públicos por cidade",
+      action: "Qualificar e herdar no CRM",
+    };
+  }
+
+  if (option.id === "hbx_pj") {
+    return {
+      input: "Cidade, segmento e filtros",
+      output: "Empresas locais deduplicadas",
+      action: "Exportar ou enviar ao CRM",
+    };
+  }
+
+  return {
+    input: "Cidade, segmento e filtros",
+    output: "Resultados oficiais do Google",
+    action: "Exportar com controle de cota",
+  };
+}
+
+type IconName =
+  | "alert"
+  | "book"
+  | "check"
+  | "chevron"
+  | "clock"
+  | "cursor"
+  | "download"
+  | "play"
+  | "search"
+  | "spark"
+  | "user"
+  | "wifi"
+  | "zap";
+
+function Icon({ name, size = 18, className = "" }: { name: IconName; size?: number; className?: string }) {
+  const paths: Record<IconName, ReactNode> = {
+    alert: (
+      <>
+        <path d="M12 9v4" />
+        <path d="M12 17h.01" />
+        <path d="M10.3 3.7 2.4 17.5A2 2 0 0 0 4.1 20h15.8a2 2 0 0 0 1.7-2.5L13.7 3.7a2 2 0 0 0-3.4 0Z" />
+      </>
+    ),
+    book: (
+      <>
+        <path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v16H6.5A2.5 2.5 0 0 0 4 21.5Z" />
+        <path d="M4 5.5v16" />
+        <path d="M8 7h8" />
+        <path d="M8 11h7" />
+      </>
+    ),
+    check: (
+      <>
+        <circle cx="12" cy="12" r="9" />
+        <path d="m8 12 2.5 2.5L16.5 9" />
+      </>
+    ),
+    chevron: <path d="m6 9 6 6 6-6" />,
+    clock: (
+      <>
+        <circle cx="12" cy="12" r="9" />
+        <path d="M12 7v5l3 2" />
+      </>
+    ),
+    cursor: (
+      <>
+        <path d="M4 3 15.5 14.5 11 15.5 9.5 20 4 3Z" />
+        <path d="m13 13 5 5" />
+      </>
+    ),
+    download: (
+      <>
+        <path d="M12 3v12" />
+        <path d="m7 10 5 5 5-5" />
+        <path d="M5 21h14" />
+      </>
+    ),
+    play: <path d="M7 5v14l12-7L7 5Z" />,
+    search: (
+      <>
+        <circle cx="11" cy="11" r="7" />
+        <path d="m16.5 16.5 4 4" />
+      </>
+    ),
+    spark: (
+      <>
+        <path d="M12 2 14.4 8.1 21 10.5 14.4 12.9 12 19 9.6 12.9 3 10.5 9.6 8.1 12 2Z" />
+        <path d="M19 2v4" />
+        <path d="M21 4h-4" />
+      </>
+    ),
+    user: (
+      <>
+        <circle cx="12" cy="8" r="4" />
+        <path d="M4 21a8 8 0 0 1 16 0" />
+      </>
+    ),
+    wifi: (
+      <>
+        <path d="M5 13a10 10 0 0 1 14 0" />
+        <path d="M8.5 16.5a5 5 0 0 1 7 0" />
+        <path d="M12 20h.01" />
+      </>
+    ),
+    zap: <path d="M13 2 4 14h7l-1 8 10-13h-7l0-7Z" />,
+  };
+
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      {paths[name]}
+    </svg>
+  );
 }
 
 function buildFilterSummary(filters: SearchFilters) {
@@ -1276,10 +1433,10 @@ export default function WebscrapingClientPage() {
           </section>
         ) : null}
 
-        <section className={styles.runtimeVisionCard}>
-          <div className={styles.runtimeCompactHeader}>
+        <section className={styles.commandCard}>
+          <div className={styles.commandGrid}>
             <article className={styles.quotaCard}>
-              <span className={styles.runtimeVisionLabel}>Pesquisas na API oficial</span>
+              <span className={styles.cardEyebrow}>Pesquisas na API oficial</span>
               <strong className={styles.quotaValue}>{remainingSearchesLabel}</strong>
             </article>
 
@@ -1289,37 +1446,41 @@ export default function WebscrapingClientPage() {
                   key={item.id}
                   type="button"
                   className={item.active ? styles.motorStatusActive : styles.motorStatus}
-                  data-status={item.status}
+                  data-status={motorStatusTone(item.status)}
                   onClick={() => handleSearchModeChange(item.id)}
                 >
-                  <span>{item.motorCode}</span>
+                  <span className={styles.motorCode}>{item.motorCode}</span>
                   <strong>{motorStatusLabel(item.status)}</strong>
                   <small>{item.label}</small>
+                  <Icon name="cursor" size={16} className={styles.clickIcon} />
                 </button>
               ))}
             </div>
           </div>
 
-          <div className={styles.glassTabs}>
+          <div className={styles.modeTabs} role="tablist" aria-label="Webscraping">
             <button
               type="button"
-              className={panelMode === "search" ? styles.glassTabActive : styles.glassTab}
+              className={panelMode === "search" ? styles.modeTabActive : styles.modeTab}
               onClick={() => setPanelMode("search")}
             >
+              <Icon name="search" size={16} />
               Consulta principal
             </button>
             <button
               type="button"
-              className={panelMode === "script" ? styles.glassTabActive : styles.glassTab}
+              className={panelMode === "script" ? styles.modeTabActive : styles.modeTab}
               onClick={() => setPanelMode("script")}
             >
+              <Icon name="book" size={16} />
               Guia de roteiro
             </button>
             <button
               type="button"
-              className={panelMode === "history" ? styles.glassTabActive : styles.glassTab}
+              className={panelMode === "history" ? styles.modeTabActive : styles.modeTab}
               onClick={() => setPanelMode("history")}
             >
+              <Icon name="clock" size={16} />
               Pesquisas recentes
             </button>
           </div>
@@ -1327,12 +1488,10 @@ export default function WebscrapingClientPage() {
 
         {panelMode === "search" ? (
           <section className={styles.searchCard}>
-            <div className={styles.searchTop}>
+            <div className={styles.sectionHeader}>
               <div>
-                <strong>Consulta principal</strong>
-                <p className={styles.helperText}>
-                  {selectedSearchMode.label}: {selectedSearchMode.description}.
-                </p>
+                <span className={styles.cardEyebrow}>Consulta principal</span>
+                <strong className={styles.sectionTitle}>{selectedSearchMode.label}</strong>
               </div>
               <div className={styles.segmentChips}>
                 {activeSegmentSuggestions.map((option) => (
@@ -1358,9 +1517,24 @@ export default function WebscrapingClientPage() {
                   role="radio"
                   aria-checked={selectedSearchMode.id === option.id}
                 >
+                  <span className={styles.engineStatus}>
+                    <Icon name={selectedSearchMode.id === option.id ? "check" : "zap"} size={15} />
+                    {option.motorCode}
+                  </span>
                   <strong>{option.label}</strong>
-                  <span>{option.description}</span>
+                  <span>{searchModeTitle(option)}</span>
+                  <small>{searchModeLimit(option)}</small>
+                  <Icon name="cursor" size={16} className={styles.clickIcon} />
                 </button>
+              ))}
+            </div>
+
+            <div className={styles.guideStrip} aria-label="Guia do motor selecionado">
+              {Object.entries(searchModeGuide(selectedSearchMode)).map(([key, value], index) => (
+                <article key={key} className={styles.guideStep}>
+                  <span>{index + 1}</span>
+                  <strong>{value}</strong>
+                </article>
               ))}
             </div>
 
@@ -1389,7 +1563,7 @@ export default function WebscrapingClientPage() {
                     aria-controls="webscraping-city-suggestions"
                     aria-activedescendant={activeCitySuggestion ? `webscraping-city-option-${activeCitySuggestionIndex}` : undefined}
                   />
-                  <span className={styles.cityInputArrow} aria-hidden="true">⌄</span>
+                  <Icon name="chevron" size={18} className={styles.cityInputArrow} />
                 </div>
                 {shouldShowCitySuggestions ? (
                   <div
@@ -1567,9 +1741,10 @@ export default function WebscrapingClientPage() {
             </div>
 
             <div className={styles.searchActions}>
-              <p className={styles.helperText}>
-                Primeiro reaproveita histórico global. Só depois gasta API.
-              </p>
+              <div className={styles.noticeInline}>
+                <Icon name="alert" size={18} />
+                <span>Primeiro reaproveita histórico global. Só depois gasta API.</span>
+              </div>
               <div className={styles.actionRow}>
                 <button
                   type="button"
@@ -1577,6 +1752,7 @@ export default function WebscrapingClientPage() {
                   onClick={() => void handleSearch()}
                   disabled={loadingBootstrap || searching}
                 >
+                  <Icon name="play" size={18} />
                   {searching ? "Buscando..." : "Buscar contatos"}
                 </button>
                 <button
@@ -1585,6 +1761,7 @@ export default function WebscrapingClientPage() {
                   onClick={() => void handleExport()}
                   disabled={exporting || searching || (!activeQuery && !results.length && !city.trim())}
                 >
+                  <Icon name="download" size={18} />
                   {exporting ? "Gerando Excel..." : "Exportar Excel"}
                 </button>
               </div>
@@ -1596,16 +1773,14 @@ export default function WebscrapingClientPage() {
           <section className={styles.scriptGuideCard}>
             <div className={styles.sectionHeader}>
               <div>
-                <strong>Guia do roteiro</strong>
-                <p className={styles.helperText}>
-                  O nome nao vem preenchido. Você controla o que vai herdar para Vendas.
-                </p>
+                <span className={styles.cardEyebrow}>Guia de roteiro</span>
+                <strong className={styles.sectionTitle}>Primeiro contato</strong>
               </div>
             </div>
 
             <div className={styles.scriptGuideGrid}>
               <div className={styles.scriptGuidePreview}>
-                <span className={styles.scriptLabel}>Prévia</span>
+                <span className={styles.cardEyebrow}>Prévia</span>
                 <p className={styles.scriptText}>{scriptGuidePreview}</p>
               </div>
 
@@ -1636,9 +1811,11 @@ export default function WebscrapingClientPage() {
                     className={`${styles.glassButton} ${styles.glassButtonPrimary}`}
                     onClick={handleApplyScriptPreset}
                   >
+                    <Icon name="check" size={18} />
                     Atualizar roteiro
                   </button>
                   <button type="button" className={styles.glassButton} onClick={handleResetScriptPreset}>
+                    <Icon name="clock" size={18} />
                     Resetar roteiro
                   </button>
                 </div>
@@ -1651,8 +1828,8 @@ export default function WebscrapingClientPage() {
           <section className={styles.historyCard}>
             <div className={styles.sectionHeader}>
               <div>
-                <strong>Pesquisas recentes</strong>
-                <p className={styles.helperText}>Histórico completo, incluindo reaproveitamento global entre empresas.</p>
+                <span className={styles.cardEyebrow}>Pesquisas recentes</span>
+                <strong className={styles.sectionTitle}>Histórico reaproveitável</strong>
               </div>
             </div>
 
@@ -1687,6 +1864,7 @@ export default function WebscrapingClientPage() {
                       onClick={() => void handleReuseHistory(item)}
                       disabled={historyBusyId === item.id}
                     >
+                      <Icon name="cursor" size={18} />
                       {historyBusyId === item.id ? "Carregando..." : "Reaproveitar"}
                     </button>
                   </article>
@@ -1727,6 +1905,7 @@ export default function WebscrapingClientPage() {
               onClick={() => void handleSendResultsToVendas()}
               disabled={importingToVendas || !qualifiedResults.length}
             >
+              <Icon name="spark" size={18} />
               {importingToVendas ? "Enviando..." : `Enviar ${qualifiedResults.length} lead(s) ao CRM`}
             </button>
           </section>
@@ -1735,11 +1914,12 @@ export default function WebscrapingClientPage() {
         <section ref={resultsRef} className={styles.resultsCard}>
           <div className={styles.sectionHeader}>
             <div>
-              <strong>Resultados</strong>
+              <span className={styles.cardEyebrow}>Resultados</span>
+              <strong className={styles.sectionTitle}>Contatos qualificados</strong>
               <p className={styles.helperText}>
                 {searchMeta && activeQuery
                   ? `${qualifiedResults.length} contatos qualificados para ${getVisualSegment(activeQuery.segment, resultTargetType)} em ${activeQuery.city}. Fonte: ${searchSourceLabel(searchMeta.source)}${hiddenGenericResultsCount ? `; ${hiddenGenericResultsCount} genérico(s) ocultado(s).` : "."}`
-                  : "Os contatos qualificados vao aparecer aqui com acoes rapidas e roteiro pronto."}
+                  : "Pronto para receber contatos com ações rápidas e roteiro pronto."}
               </p>
             </div>
             {searchMeta ? (
@@ -1758,6 +1938,7 @@ export default function WebscrapingClientPage() {
                   onClick={() => void handleSendResultsToVendas()}
                   disabled={importingToVendas || !qualifiedResults.length}
                 >
+                  <Icon name="spark" size={18} />
                   {importingToVendas ? "Enviando..." : "Herdar no CRM"}
                 </button>
               </div>
