@@ -312,6 +312,28 @@ export class InboxService {
     }
   }
 
+  private async syncLatestInboxConversationWindow(companyId: number, conversationId: number) {
+    const key = `conversation-latest:${companyId}:${conversationId}`;
+    const lastRunAt = Number(this.backgroundInboxSyncAt.get(key) || 0);
+    if (Date.now() - lastRunAt < 8000) return null;
+    this.backgroundInboxSyncAt.set(key, Date.now());
+    try {
+      await this.webwhatsBridge.syncConversationMessagesDetailed(companyId, conversationId, {
+        limit: 120,
+        fullSync: false,
+        maxPages: 1,
+        force: true,
+      });
+      return null;
+    } catch (error: any) {
+      const message = String(error?.message || error || 'Falha ao sincronizar janela recente da conversa.');
+      this.logger.warn(
+        `Inbox syncLatestInboxConversationWindow falhou company=${companyId} conversation=${conversationId}: ${message}`,
+      );
+      return message;
+    }
+  }
+
   private triggerBackgroundInboxConversationSync(companyId: number, conversationId: number) {
     const key = `conversation:${companyId}:${conversationId}`;
     const lastRunAt = Number(this.backgroundInboxSyncAt.get(key) || 0);
@@ -2367,6 +2389,7 @@ export class InboxService {
 
   async getConversationById(user: any, id: number) {
     const companyId = this.requireCompanyIdFromUser(user);
+    await this.syncLatestInboxConversationWindow(companyId, id);
     this.triggerBackgroundInboxConversationSync(companyId, id);
     return this.getPersistedConversationByIdForCompany(companyId, id, { messagesLimit: 200 });
   }
@@ -2377,6 +2400,10 @@ export class InboxService {
     options?: { limit?: string | number | null; before?: string | null },
   ) {
     const companyId = this.requireCompanyIdFromUser(user);
+    const before = this.normalizeBeforeDate(options?.before || null);
+    if (!before) {
+      await this.syncLatestInboxConversationWindow(companyId, id);
+    }
     this.triggerBackgroundInboxConversationSync(companyId, id);
     const conversation = await this.prisma.companyConversation.findFirst({
       where: { companyId, id, channel: 'whatsapp' },
@@ -2389,7 +2416,6 @@ export class InboxService {
     if (!conversation) throw new NotFoundException('Conversation not found');
 
     const limit = this.normalizeMessagePageLimit(options?.limit, 200);
-    const before = this.normalizeBeforeDate(options?.before || null);
     const loadRows = () => this.prisma.companyMessage.findMany({
       where: {
         companyId,
