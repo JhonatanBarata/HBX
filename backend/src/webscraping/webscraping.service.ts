@@ -53,7 +53,6 @@ export type WebscrapingRuntimeResponse = {
 export type WebscrapingSearchFilters = {
   minRating: number | null;
   minReviews: number | null;
-  onlyProbableWhatsApp: boolean;
   onlyWithWebsite: boolean;
 };
 
@@ -62,12 +61,10 @@ export type WebscrapingContactResult = {
   name: string;
   phone: string;
   phoneDigits: string;
-  probableWhatsApp: boolean;
   rating: number | null;
   reviews: number;
   address: string;
   website: string;
-  googleMapsUrl: string;
 };
 
 export type WebscrapingSearchResponse = {
@@ -111,7 +108,6 @@ export type SearchContactsInput = {
   quantity: number;
   minRating?: number | null;
   minReviews?: number | null;
-  onlyProbableWhatsApp?: boolean;
   onlyWithWebsite?: boolean;
 };
 
@@ -126,7 +122,6 @@ type PlaceDetails = {
   formattedPhoneNumber: string;
   website: string;
   formattedAddress: string;
-  url: string;
   rating: number | null;
   userRatingsTotal: number | null;
 };
@@ -182,12 +177,10 @@ type SearchHistoryRow = {
     name: string;
     phone: string;
     phoneDigits: string;
-    probableWhatsApp: boolean;
     rating: number | null;
     reviews: number;
     address: string;
     website: string;
-    googleMapsUrl: string;
   }>;
 };
 
@@ -210,12 +203,10 @@ type GlobalCacheRow = {
     name: string;
     phone: string;
     phoneDigits: string;
-    probableWhatsApp: boolean;
     rating: number | null;
     reviews: number;
     address: string;
     website: string;
-    googleMapsUrl: string;
   }>;
 };
 
@@ -644,7 +635,6 @@ export class WebscrapingService {
         quantity: Math.min(Math.max(Math.trunc(row.resultCount || 0), 1), MAX_QUANTITY),
         minRating: filters.minRating,
         minReviews: filters.minReviews,
-        onlyProbableWhatsApp: filters.onlyProbableWhatsApp,
         onlyWithWebsite: filters.onlyWithWebsite,
       });
       const storedResults = this.sortContacts(this.restoreGlobalCacheResults(row)).slice(0, normalized.quantity);
@@ -681,7 +671,6 @@ export class WebscrapingService {
       quantity: row.quantity,
       minRating: filters.minRating,
       minReviews: filters.minReviews,
-      onlyProbableWhatsApp: filters.onlyProbableWhatsApp,
       onlyWithWebsite: filters.onlyWithWebsite,
     });
     const storedResults = this.sortContacts(this.restoreStoredResults(row)).slice(0, normalized.quantity);
@@ -707,12 +696,10 @@ export class WebscrapingService {
     const rows = response.results.map((result) => ({
       Nome: result.name,
       Telefone: result.phone,
-      'WhatsApp provável': result.probableWhatsApp ? 'Sim' : 'Não',
       Nota: result.rating ?? '',
       Avaliações: result.reviews,
       Endereco: result.address,
       Website: result.website ? 'Abrir site' : '',
-      'Google Maps': result.googleMapsUrl ? 'Abrir mapa' : '',
       'Roteiro pronto': this.buildScriptText(result, response.query.city, response.query.segment, user),
     }));
 
@@ -720,12 +707,10 @@ export class WebscrapingService {
     worksheet['!cols'] = [
       { wch: 28 },
       { wch: 18 },
-      { wch: 18 },
       { wch: 10 },
       { wch: 12 },
       { wch: 42 },
       { wch: 14 },
-      { wch: 16 },
       { wch: 68 },
     ];
 
@@ -743,19 +728,11 @@ export class WebscrapingService {
       }
 
       if (result.website) {
-        const cell = worksheet[`G${rowIndex}`] || { t: 's', v: 'Abrir site' };
+        const cell = worksheet[`F${rowIndex}`] || { t: 's', v: 'Abrir site' };
         cell.t = 's';
         cell.v = 'Abrir site';
         cell.l = { Target: result.website, Tooltip: 'Abrir site' };
-        worksheet[`G${rowIndex}`] = cell;
-      }
-
-      if (result.googleMapsUrl) {
-        const cell = worksheet[`H${rowIndex}`] || { t: 's', v: 'Abrir mapa' };
-        cell.t = 's';
-        cell.v = 'Abrir mapa';
-        cell.l = { Target: result.googleMapsUrl, Tooltip: 'Abrir mapa' };
-        worksheet[`H${rowIndex}`] = cell;
+        worksheet[`F${rowIndex}`] = cell;
       }
     });
 
@@ -1055,7 +1032,6 @@ export class WebscrapingService {
     const filters: WebscrapingSearchFilters = {
       minRating: this.normalizeMinRating(input.minRating),
       minReviews: this.normalizeMinReviews(input.minReviews),
-      onlyProbableWhatsApp: coerceBoolean(input.onlyProbableWhatsApp),
       onlyWithWebsite: coerceBoolean(input.onlyWithWebsite),
     };
     const filtersJson = JSON.stringify(filters);
@@ -1102,14 +1078,12 @@ export class WebscrapingService {
       return {
         minRating: this.normalizeMinRating(parsed?.minRating),
         minReviews: this.normalizeMinReviews(parsed?.minReviews),
-        onlyProbableWhatsApp: Boolean(parsed?.onlyProbableWhatsApp),
         onlyWithWebsite: Boolean(parsed?.onlyWithWebsite),
       };
     } catch {
       return {
         minRating: null,
         minReviews: null,
-        onlyProbableWhatsApp: false,
         onlyWithWebsite: false,
       };
     }
@@ -1161,12 +1135,10 @@ export class WebscrapingService {
       name: place.name,
       phone: place.phone,
       phoneDigits: place.phoneDigits,
-      probableWhatsApp: Boolean(place.probableWhatsApp),
       rating: place.rating == null ? null : Number(place.rating),
       reviews: Math.max(0, Math.trunc(place.reviews || 0)),
       address: place.address || '',
       website: place.website || '',
-      googleMapsUrl: place.googleMapsUrl || '',
     }));
   }
 
@@ -1177,12 +1149,10 @@ export class WebscrapingService {
       name: place.name,
       phone: place.phone,
       phoneDigits: place.phoneDigits,
-      probableWhatsApp: Boolean(place.probableWhatsApp),
       rating: place.rating == null ? null : Number(place.rating),
       reviews: Math.max(0, Math.trunc(place.reviews || 0)),
       address: place.address || '',
       website: place.website || '',
-      googleMapsUrl: place.googleMapsUrl || '',
     }));
   }
 
@@ -1193,9 +1163,6 @@ export class WebscrapingService {
     if (filters.minReviews != null && result.reviews < filters.minReviews) {
       return false;
     }
-    if (filters.onlyProbableWhatsApp && !result.probableWhatsApp) {
-      return false;
-    }
     if (filters.onlyWithWebsite && !String(result.website || '').trim()) {
       return false;
     }
@@ -1204,9 +1171,6 @@ export class WebscrapingService {
 
   private sortContacts(results: WebscrapingContactResult[]) {
     return [...results].sort((left, right) => {
-      if (Number(right.probableWhatsApp) !== Number(left.probableWhatsApp)) {
-        return Number(right.probableWhatsApp) - Number(left.probableWhatsApp);
-      }
       const ratingDelta = (right.rating || 0) - (left.rating || 0);
       if (ratingDelta !== 0) return ratingDelta;
       if (right.reviews !== left.reviews) return right.reviews - left.reviews;
@@ -1401,12 +1365,10 @@ export class WebscrapingService {
       name: result.name,
       phone: result.phone,
       phoneDigits: result.phoneDigits,
-      probableWhatsApp: result.probableWhatsApp,
       rating: result.rating,
       reviews: result.reviews,
       address: result.address,
       website: result.website,
-      googleMapsUrl: result.googleMapsUrl,
     }));
 
     const saved = await this.prisma.webscrapingSearchHistory.upsert({
@@ -1472,12 +1434,10 @@ export class WebscrapingService {
       name: result.name,
       phone: result.phone,
       phoneDigits: result.phoneDigits,
-      probableWhatsApp: result.probableWhatsApp,
       rating: result.rating,
       reviews: result.reviews,
       address: result.address,
       website: result.website,
-      googleMapsUrl: result.googleMapsUrl,
     }));
 
     const saved = await this.prisma.webscrapingGlobalCacheEntry.upsert({
@@ -1614,12 +1574,10 @@ export class WebscrapingService {
       name: details.name || candidate.name || '',
       phone: resolvedPhone,
       phoneDigits,
-      probableWhatsApp: isLikelyWhatsapp(resolvedPhone),
       rating: toNumberOrNull(details.rating),
       reviews: Math.max(0, Math.trunc(toNumberOrNull(details.userRatingsTotal) || 0)),
       address: details.formattedAddress || '',
       website: details.website || '',
-      googleMapsUrl: details.url || '',
     };
   }
 
@@ -1670,7 +1628,6 @@ export class WebscrapingService {
           'internationalPhoneNumber',
           'websiteUri',
           'formattedAddress',
-          'googleMapsUri',
           'rating',
           'userRatingCount',
         ].join(','),
@@ -1694,7 +1651,6 @@ export class WebscrapingService {
       formattedPhoneNumber: String(data?.nationalPhoneNumber || '').trim(),
       website: String(data?.websiteUri || '').trim(),
       formattedAddress: String(data?.formattedAddress || '').trim(),
-      url: String(data?.googleMapsUri || '').trim(),
       rating: toNumberOrNull(data?.rating),
       userRatingsTotal: toNumberOrNull(data?.userRatingCount),
     };
@@ -1736,7 +1692,6 @@ export class WebscrapingService {
         'formatted_phone_number',
         'website',
         'formatted_address',
-        'url',
         'rating',
         'user_ratings_total',
       ].join(','),
@@ -1756,7 +1711,6 @@ export class WebscrapingService {
       formattedPhoneNumber: String(result?.formatted_phone_number || '').trim(),
       website: String(result?.website || '').trim(),
       formattedAddress: String(result?.formatted_address || '').trim(),
-      url: String(result?.url || '').trim(),
       rating: toNumberOrNull(result?.rating),
       userRatingsTotal: toNumberOrNull(result?.user_ratings_total),
     };

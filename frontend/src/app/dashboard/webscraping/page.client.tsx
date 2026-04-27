@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import DashboardScaffold from "@/components/DashboardScaffold";
 import LiquidGlassCard, { liquidGlassCardStyles as glassCardStyles } from "@/components/LiquidGlassCard";
@@ -39,7 +39,6 @@ type CurrentUser = {
 type SearchFilters = {
   minRating: number | null;
   minReviews: number | null;
-  onlyProbableWhatsApp: boolean;
   onlyWithWebsite: boolean;
 };
 
@@ -77,12 +76,10 @@ type SearchResult = {
   name: string;
   phone: string;
   phoneDigits: string;
-  probableWhatsApp: boolean;
   rating: number | null;
   reviews: number;
   address: string;
   website: string;
-  googleMapsUrl: string;
 };
 
 type SearchResponse = {
@@ -256,7 +253,6 @@ function buildFilterSummary(filters: SearchFilters) {
   const parts: string[] = [];
   if (filters.minRating != null) parts.push(`nota >= ${filters.minRating.toFixed(1)}`);
   if (filters.minReviews != null) parts.push(`${filters.minReviews}+ avaliacoes`);
-  if (filters.onlyProbableWhatsApp) parts.push("WhatsApp provavel");
   if (filters.onlyWithWebsite) parts.push("com site");
   return parts.length ? parts.join(" • ") : "Sem filtros avancados";
 }
@@ -303,6 +299,7 @@ async function downloadExcel(body: Record<string, unknown>) {
 export default function WebscrapingClientPage() {
   const router = useRouter();
   const hasToken = useRequireAuth();
+  const resultsRef = useRef<HTMLElement | null>(null);
   const [runtime, setRuntime] = useState<RuntimeResponse | null>(null);
   const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
   const [historyItems, setHistoryItems] = useState<SearchHistoryItem[]>([]);
@@ -314,7 +311,6 @@ export default function WebscrapingClientPage() {
   const [quantity, setQuantity] = useState(10);
   const [minRating, setMinRating] = useState("");
   const [minReviews, setMinReviews] = useState("");
-  const [onlyProbableWhatsApp, setOnlyProbableWhatsApp] = useState(false);
   const [onlyWithWebsite, setOnlyWithWebsite] = useState(false);
   const [results, setResults] = useState<SearchResult[]>([]);
   const [activeQuery, setActiveQuery] = useState<SearchResponse["query"] | null>(null);
@@ -386,12 +382,10 @@ export default function WebscrapingClientPage() {
       name: results[0]?.name || "Big Hugo Lanchonete",
       phone: "",
       phoneDigits: "",
-      probableWhatsApp: true,
       rating: null,
       reviews: 0,
       address: "",
       website: "",
-      googleMapsUrl: "",
     };
     return buildScriptText(
       previewResult,
@@ -554,7 +548,6 @@ export default function WebscrapingClientPage() {
       quantity,
       minRating: minRating ? Number(minRating) : undefined,
       minReviews: minReviews ? Number(minReviews) : undefined,
-      onlyProbableWhatsApp,
       onlyWithWebsite,
     };
   }
@@ -637,7 +630,6 @@ export default function WebscrapingClientPage() {
       setQuantity(payload.query.quantity);
       setMinRating(payload.query.filters.minRating == null ? "" : String(payload.query.filters.minRating));
       setMinReviews(payload.query.filters.minReviews == null ? "" : String(payload.query.filters.minReviews));
-      setOnlyProbableWhatsApp(Boolean(payload.query.filters.onlyProbableWhatsApp));
       setOnlyWithWebsite(Boolean(payload.query.filters.onlyWithWebsite));
       setResults(payload.results || []);
       setActiveQuery(payload.query);
@@ -645,6 +637,9 @@ export default function WebscrapingClientPage() {
       setHasSearched(true);
       setFeedback(`Pesquisa reaproveitada: ${payload.query.segment} em ${payload.query.city}.`);
       await refreshHistory();
+      window.requestAnimationFrame(() => {
+        resultsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      });
     } catch (error) {
       setSearchError(error instanceof Error ? error.message : "Falha ao reaproveitar pesquisa.");
     } finally {
@@ -661,7 +656,6 @@ export default function WebscrapingClientPage() {
       filters: {
         minRating: minRating ? Number(minRating) : null,
         minReviews: minReviews ? Number(minReviews) : null,
-        onlyProbableWhatsApp,
         onlyWithWebsite,
       },
     };
@@ -685,7 +679,6 @@ export default function WebscrapingClientPage() {
         quantity: query.quantity,
         minRating: query.filters.minRating ?? undefined,
         minReviews: query.filters.minReviews ?? undefined,
-        onlyProbableWhatsApp: query.filters.onlyProbableWhatsApp,
         onlyWithWebsite: query.filters.onlyWithWebsite,
       });
       setFeedback("Excel gerado com sucesso.");
@@ -728,11 +721,11 @@ export default function WebscrapingClientPage() {
             phone: result.phone,
             phoneDigits: result.phoneDigits,
             address: result.address,
+            website: result.website,
+            rating: result.rating,
+            reviews: result.reviews,
             city: query.city,
             segment: query.segment,
-            shortNote: [`Nota ${result.rating ?? "-"}`, `${result.reviews} avaliações`]
-              .filter(Boolean)
-              .join(" • "),
             scriptText: buildScriptText(
               result,
               query.city,
@@ -998,15 +991,6 @@ export default function WebscrapingClientPage() {
                   <label className={styles.checkboxField}>
                     <input
                       type="checkbox"
-                      checked={onlyProbableWhatsApp}
-                      onChange={(event) => setOnlyProbableWhatsApp(event.target.checked)}
-                    />
-                    <span>Somente provavel WhatsApp</span>
-                  </label>
-
-                  <label className={styles.checkboxField}>
-                    <input
-                      type="checkbox"
                       checked={onlyWithWebsite}
                       onChange={(event) => setOnlyWithWebsite(event.target.checked)}
                     />
@@ -1182,7 +1166,7 @@ export default function WebscrapingClientPage() {
           </section>
         ) : null}
 
-        <section className={styles.resultsCard}>
+        <section ref={resultsRef} className={styles.resultsCard}>
           <div className={styles.sectionHeader}>
             <div>
               <strong>Resultados</strong>
@@ -1260,7 +1244,7 @@ export default function WebscrapingClientPage() {
                   <LiquidGlassCard
                     key={`${result.name}-${result.phoneDigits}`}
                     as="article"
-                    accentTone={result.probableWhatsApp ? "success" : "info"}
+                    accentTone="success"
                     header={
                       <div className={glassCardStyles.stack}>
                         <span className={glassCardStyles.eyebrow}>Webscraping</span>
@@ -1279,9 +1263,7 @@ export default function WebscrapingClientPage() {
                     }
                     chips={
                       <>
-                        <span className={result.probableWhatsApp ? glassCardStyles.pillStrong : glassCardStyles.pill}>
-                          {result.probableWhatsApp ? "WhatsApp provavel" : "Contato telefonico"}
-                        </span>
+                        <span className={glassCardStyles.pillStrong}>Telefone validado</span>
                         {crmPreview?.existsInCrm ? (
                           <span className={glassCardStyles.pill}>Já existe</span>
                         ) : null}
@@ -1367,18 +1349,11 @@ export default function WebscrapingClientPage() {
                       </div>
                     }
                   >
-                    {(result.website || result.googleMapsUrl) ? (
+                    {result.website ? (
                       <div className={glassCardStyles.cluster}>
-                        {result.website ? (
-                          <a className={`${glassCardStyles.actionButton} ${glassCardStyles.noBreak}`} href={result.website} target="_blank" rel="noreferrer">
-                            Site
-                          </a>
-                        ) : null}
-                        {result.googleMapsUrl ? (
-                          <a className={`${glassCardStyles.actionButton} ${glassCardStyles.noBreak}`} href={result.googleMapsUrl} target="_blank" rel="noreferrer">
-                            Maps
-                          </a>
-                        ) : null}
+                        <a className={`${glassCardStyles.actionButton} ${glassCardStyles.noBreak}`} href={result.website} target="_blank" rel="noreferrer">
+                          Site
+                        </a>
                       </div>
                     ) : null}
                   </LiquidGlassCard>

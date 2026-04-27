@@ -220,6 +220,10 @@ type CustomerConversationCardPayload = {
     attemptCount?: number | null;
     timesSeen?: number | null;
     sourceType?: string | null;
+    address?: string | null;
+    website?: string | null;
+    rating?: number | null;
+    reviews?: number | null;
     shortNote?: string | null;
     lastContactAt?: string | null;
     updatedAt?: string | null;
@@ -1096,6 +1100,14 @@ function buildCustomerConversationCardDraft(
     returnAt: formatDateTimeLocalValue(payload?.lead?.returnAt || null),
     observations: String(payload?.customer?.observations || payload?.lead?.shortNote || ""),
   };
+}
+
+function buildCustomerLeadWebscrapingSummary(payload: CustomerConversationCardPayload | null) {
+  const lead = payload?.lead;
+  const parts: string[] = [];
+  if (lead?.rating != null) parts.push(`Nota ${Number(lead.rating).toFixed(1)}`);
+  if (Number(lead?.reviews || 0) > 0) parts.push(`${Number(lead?.reviews)} avaliações`);
+  return parts.join(" • ");
 }
 
 function getCustomerConversationCardWhatsappAvailability(
@@ -3753,6 +3765,7 @@ export default function InboxClientPage() {
     null;
   const customerCardAttempts = Number(customerConversationCard?.lead?.attemptCount || 0);
   const customerCardTimesSeen = Math.max(1, Number(customerConversationCard?.lead?.timesSeen || 1));
+  const customerCardWebscrapingSummary = buildCustomerLeadWebscrapingSummary(customerConversationCard);
   const customerCardHistory = useMemo(
     () => (Array.isArray(customerConversationCard?.history) ? customerConversationCard.history : []),
     [customerConversationCard?.history],
@@ -5863,6 +5876,25 @@ export default function InboxClientPage() {
                       highlight={
                         <div className={glassCardStyles.stack}>
                           <div className={styles.customerCardSummaryBox}>
+                            {customerConversationCard?.lead?.address ? (
+                              <div className={glassCardStyles.subtlePanel}>
+                                <span className={glassCardStyles.sectionLabel}>Endereço</span>
+                                <p className={glassCardStyles.bodyText}>{customerConversationCard.lead.address}</p>
+                              </div>
+                            ) : null}
+                            {customerCardWebscrapingSummary ? (
+                              <div className={glassCardStyles.subtlePanel}>
+                                <span className={glassCardStyles.sectionLabel}>Webscraping</span>
+                                <p className={glassCardStyles.bodyText}>{customerCardWebscrapingSummary}</p>
+                              </div>
+                            ) : null}
+                            {customerConversationCard?.lead?.website ? (
+                              <div className={glassCardStyles.cluster}>
+                                <a className={`${glassCardStyles.actionButton} ${glassCardStyles.noBreak}`} href={customerConversationCard.lead.website} target="_blank" rel="noreferrer">
+                                  Site
+                                </a>
+                              </div>
+                            ) : null}
                             <label>
                               <span>Observações</span>
                               <textarea
@@ -6129,6 +6161,7 @@ export default function InboxClientPage() {
       customerCardReturnAt,
       customerCardShortcutOpen,
       customerCardTimesSeen,
+      customerCardWebscrapingSummary,
       customerConversationCard,
       customerConversationCardDraft,
       customerConversationCardError,

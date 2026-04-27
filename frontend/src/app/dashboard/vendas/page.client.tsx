@@ -77,6 +77,9 @@ type LeadItem = {
   phone?: string | null;
   email?: string | null;
   address?: string | null;
+  website?: string | null;
+  rating?: number | null;
+  reviews?: number | null;
   city?: string | null;
   segment?: string | null;
   status: LeadStatus;
@@ -324,6 +327,13 @@ function createDraft(lead: LeadItem): LeadDraft {
     returnAt: toDatetimeLocal(lead.returnAt),
     shortNote: String(lead.shortNote || ""),
   };
+}
+
+function buildLeadWebscrapingSummary(lead: LeadItem) {
+  const parts: string[] = [];
+  if (lead.rating != null) parts.push(`Nota ${Number(lead.rating).toFixed(1)}`);
+  if (Number(lead.reviews || 0) > 0) parts.push(`${Number(lead.reviews)} avaliações`);
+  return parts.join(" • ");
 }
 
 function hydrateDrafts(board: BoardResponse | null) {
@@ -663,6 +673,7 @@ function LeadCardView({ lead, draft, blockKey, selected, saving, onFocus, onQuic
   const whatsappUrl = whatsappBlocked ? "" : buildWhatsAppUrl(draft.phone || lead.phone, draft.name || lead.name);
   const leadSource = lead.primarySource || lead.sourceType;
   const inInbox = isLeadInInbox(lead);
+  const webscrapingSummary = buildLeadWebscrapingSummary(lead);
 
   // inline editor mount/animation control — uses global motion timings
   const editorRef = useRef<HTMLDivElement | null>(null);
@@ -862,7 +873,7 @@ function LeadCardView({ lead, draft, blockKey, selected, saving, onFocus, onQuic
           <div className={styles.leadInfoBlock}>
             <span className={glassCardStyles.sectionLabel}>Resumo</span>
             <strong className={glassCardStyles.sectionTitle}>Leitura rapida</strong>
-            <p className={glassCardStyles.bodyText}>{draft.shortNote || lead.shortNote || "Sem observação curta registrada."}</p>
+            <p className={glassCardStyles.bodyText}>{draft.shortNote || lead.shortNote || webscrapingSummary || "Sem observação curta registrada."}</p>
           </div>
         </div>
       }
@@ -870,9 +881,19 @@ function LeadCardView({ lead, draft, blockKey, selected, saving, onFocus, onQuic
         <div className={glassCardStyles.metricGrid}>
           <div className={glassCardStyles.metricCard}><span className={glassCardStyles.metricLabel}>Tentativas</span><strong className={glassCardStyles.metricValue}>{lead.attemptCount || 0}</strong></div>
           <div className={glassCardStyles.metricCard}><span className={glassCardStyles.metricLabel}>Ultimo contato</span><strong className={glassCardStyles.metricValue}>{formatShortDate(lead.lastContactAt)}</strong></div>
+          {lead.rating != null ? <div className={glassCardStyles.metricCard}><span className={glassCardStyles.metricLabel}>Nota</span><strong className={glassCardStyles.metricValue}>{Number(lead.rating).toFixed(1)}</strong></div> : null}
+          {Number(lead.reviews || 0) > 0 ? <div className={glassCardStyles.metricCard}><span className={glassCardStyles.metricLabel}>Avaliacoes</span><strong className={glassCardStyles.metricValue}>{lead.reviews}</strong></div> : null}
         </div>
       }
-    />
+    >
+      {lead.website ? (
+        <div className={glassCardStyles.cluster}>
+          <a className={`${glassCardStyles.actionButton} ${glassCardStyles.noBreak}`} href={lead.website} target="_blank" rel="noreferrer">
+            Site
+          </a>
+        </div>
+      ) : null}
+    </LiquidGlassCard>
   );
 }
 

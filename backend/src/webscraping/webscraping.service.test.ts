@@ -103,7 +103,6 @@ test('busca valida retorna contatos e persiste historico nativo', async () => {
       nationalPhoneNumber: '(11) 99888-7766',
       websiteUri: 'https://clinica.example.com',
       formattedAddress: 'Rua Central, 100',
-      googleMapsUri: 'https://maps.google.com/?q=clinica',
       rating: 4.7,
       userRatingCount: 142,
     }) as any;
@@ -179,7 +178,6 @@ test('pesquisa repetida reaproveita historico sem chamar Google novamente', asyn
         filtersJson: JSON.stringify({
           minRating: null,
           minReviews: null,
-          onlyProbableWhatsApp: false,
           onlyWithWebsite: false,
         }),
         searchSignature: 'signature',
@@ -195,12 +193,10 @@ test('pesquisa repetida reaproveita historico sem chamar Google novamente', asyn
             name: 'Clinica Centro',
             phone: '+55 11 99888-7766',
             phoneDigits: '11998887766',
-            probableWhatsApp: true,
             rating: 4.7,
             reviews: 142,
             address: 'Rua Central, 100',
             website: 'https://clinica.example.com',
-            googleMapsUrl: 'https://maps.google.com/?q=clinica',
           },
         ],
       }),
@@ -269,7 +265,6 @@ test('reaproveitar historico ignora limite do trial e devolve resultado salvo', 
         filtersJson: JSON.stringify({
           minRating: null,
           minReviews: null,
-          onlyProbableWhatsApp: false,
           onlyWithWebsite: false,
         }),
         searchSignature: 'signature',
@@ -285,12 +280,10 @@ test('reaproveitar historico ignora limite do trial e devolve resultado salvo', 
             name: 'BRUNAO LANCHES',
             phone: '+55 19 99888-7766',
             phoneDigits: '19998887766',
-            probableWhatsApp: true,
             rating: 4.7,
             reviews: 142,
             address: 'Rua Central, 100',
             website: 'https://lanches.example.com',
-            googleMapsUrl: 'https://maps.google.com/?q=lanches',
           },
         ],
       }),
@@ -345,7 +338,6 @@ test('cache tecnico global reaproveita busca publica entre empresas sem chamar G
         filtersJson: JSON.stringify({
           minRating: null,
           minReviews: null,
-          onlyProbableWhatsApp: false,
           onlyWithWebsite: false,
         }),
         resultCount: 1,
@@ -362,12 +354,10 @@ test('cache tecnico global reaproveita busca publica entre empresas sem chamar G
             name: 'Clinica Centro',
             phone: '+55 11 99888-7766',
             phoneDigits: '11998887766',
-            probableWhatsApp: true,
             rating: 4.7,
             reviews: 142,
             address: 'Rua Central, 100',
             website: 'https://clinica.example.com',
-            googleMapsUrl: 'https://maps.google.com/?q=clinica',
           },
         ],
       }),
@@ -466,7 +456,6 @@ test('exportacao XLSX nativa gera arquivo com colunas esperadas', async () => {
         filtersJson: JSON.stringify({
           minRating: null,
           minReviews: null,
-          onlyProbableWhatsApp: false,
           onlyWithWebsite: false,
         }),
         searchSignature: 'signature',
@@ -482,12 +471,10 @@ test('exportacao XLSX nativa gera arquivo com colunas esperadas', async () => {
             name: 'Oficina Centro',
             phone: '+55 19 99888-7766',
             phoneDigits: '19998887766',
-            probableWhatsApp: true,
             rating: 4.5,
             reviews: 87,
             address: 'Av. Brasil, 500',
             website: 'https://oficina.example.com',
-            googleMapsUrl: 'https://maps.google.com/?q=oficina',
           },
         ],
       }),
@@ -511,8 +498,8 @@ test('exportacao XLSX nativa gera arquivo com colunas esperadas', async () => {
     assert.equal(worksheet.A2?.v, 'Oficina Centro');
     assert.equal(worksheet.B2?.v, '+55 19 99888-7766');
     assert.match(String(worksheet.B2?.l?.Target || ''), /^https:\/\/wa\.me\/5519998887766\?text=/);
-    assert.equal(worksheet.G2?.v, 'Abrir site');
-    assert.equal(worksheet.H2?.v, 'Abrir mapa');
+    assert.equal(worksheet.F2?.v, 'Abrir site');
+    assert.match(String(worksheet.G2?.v || ''), /Oficina Centro/);
     assert.match(exported.filename, /^prospeccao-/);
   } finally {
     if (previousGoogleKey === undefined) delete process.env.GOOGLE_PLACES_API_KEY;
