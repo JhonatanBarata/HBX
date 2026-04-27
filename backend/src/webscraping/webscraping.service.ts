@@ -17,9 +17,16 @@ const MAX_QUANTITY = 20;
 const GLOBAL_CACHE_TTL_HOURS = 24;
 const TRIAL_DAILY_MOTOR_LIMIT = 2;
 const RECENT_HISTORY_LIMIT = 20;
+const IBGE_CITIES_URL = 'https://servicodados.ibge.gov.br/api/v1/localidades/municipios?orderBy=nome';
+const CITY_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 
 type RuntimeStatus = 'online' | 'degraded';
 type SearchSource = 'history' | 'google' | 'hybrid' | 'global_cache';
+
+let cityCache: {
+  loadedAt: number;
+  items: string[];
+} | null = null;
 
 export type NativeRuntimeDiagnostic = {
   status: RuntimeStatus;
@@ -321,6 +328,32 @@ export class WebscrapingService {
       code: 'ok',
       message: 'Busca nativa pronta para prospeccao.',
       googleApiKeyConfigured: true,
+    };
+  }
+
+  async listBrazilianCities(query?: string, limit = 80) {
+    const items = await this.loadBrazilianCities();
+    const normalizedQuery = normalizeLookupValue(String(query || ''));
+    const safeLimit = Math.min(Math.max(Math.trunc(limit || 0), 1), 6000);
+
+    const filtered = normalizedQuery
+      ? items
+          .map((city) => ({
+            city,
+            normalized: normalizeLookupValue(city),
+          }))
+          .filter((item) => item.normalized.includes(normalizedQuery))
+          .sort((left, right) => {
+            const leftStarts = left.normalized.startsWith(normalizedQuery) ? 0 : 1;
+            const rightStarts = right.normalized.startsWith(normalizedQuery) ? 0 : 1;
+            return leftStarts - rightStarts || left.city.localeCompare(right.city, 'pt-BR');
+          })
+          .map((item) => item.city)
+      : items;
+
+    return {
+      items: filtered.slice(0, safeLimit),
+      total: filtered.length,
     };
   }
 
@@ -952,6 +985,58 @@ export class WebscrapingService {
       code: 'configuration_pending',
       message: 'Modulo temporariamente em configuracao.',
     });
+  }
+
+  private async loadBrazilianCities() {
+    const now = Date.now();
+    if (cityCache && now - cityCache.loadedAt < CITY_CACHE_TTL_MS) {
+      return cityCache.items;
+    }
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8000);
+    let response: Response;
+    try {
+      response = await fetch(IBGE_CITIES_URL, { signal: controller.signal });
+    } catch {
+      throw new ServiceUnavailableException({
+        code: 'cities_unavailable',
+        message: 'Nao foi possivel carregar a lista de cidades do IBGE.',
+      });
+    } finally {
+      clearTimeout(timeout);
+    }
+
+    if (!response.ok) {
+      throw new ServiceUnavailableException({
+        code: 'cities_unavailable',
+        message: 'Nao foi possivel carregar a lista de cidades do IBGE.',
+      });
+    }
+
+    const payload = await response.json();
+    if (!Array.isArray(payload)) {
+      throw new ServiceUnavailableException({
+        code: 'cities_unavailable',
+        message: 'Resposta inesperada ao carregar cidades do IBGE.',
+      });
+    }
+
+    const items = payload
+      .map((city: any) => {
+        const name = String(city?.nome || '').trim();
+        const uf = String(city?.microrregiao?.mesorregiao?.UF?.sigla || '').trim();
+        return name && uf ? `${name} - ${uf}` : '';
+      })
+      .filter(Boolean)
+      .sort((left: string, right: string) => left.localeCompare(right, 'pt-BR'));
+
+    cityCache = {
+      loadedAt: now,
+      items,
+    };
+
+    return items;
   }
 
   private normalizeSearchInput(input: SearchContactsInput): NormalizedSearchInput {
