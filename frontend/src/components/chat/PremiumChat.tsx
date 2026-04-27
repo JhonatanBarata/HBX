@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type ButtonHTMLAttributes, type HTMLAttributes, type ReactNode } from "react";
+import { forwardRef, useState, type ButtonHTMLAttributes, type HTMLAttributes, type ReactNode } from "react";
 import styles from "./PremiumChat.module.css";
 
 function cx(...values: Array<string | false | null | undefined>) {
@@ -254,15 +254,17 @@ export function ChatBadge({
   );
 }
 
-export function ChatQueue({
+export const ChatQueue = forwardRef<HTMLDivElement, HTMLAttributes<HTMLDivElement>>(function ChatQueue({
   children,
   className,
-}: {
-  children: ReactNode;
-  className?: string;
-}) {
-  return <div className={cx(styles.queue, className)}>{children}</div>;
-}
+  ...props
+}, ref) {
+  return (
+    <div ref={ref} className={cx(styles.queue, className)} {...props}>
+      {children}
+    </div>
+  );
+});
 
 export function ChatQueueItem({
   initials,

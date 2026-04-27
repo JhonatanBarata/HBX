@@ -84,8 +84,8 @@ export class InboxController {
   }
 
   @Get('conversations')
-  listConversations(@Req() req: any, @Query('take') take?: string) {
-    return this.inboxService.listConversations(req.user, take);
+  listConversations(@Req() req: any, @Query('take') take?: string, @Query('skip') skip?: string) {
+    return this.inboxService.listConversations(req.user, { take, skip });
   }
 
   @Get('conversations/:id/messages')

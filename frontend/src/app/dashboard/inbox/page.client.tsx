@@ -504,7 +504,8 @@ function makeClientId(prefix: string) {
 }
 
 const INBOX_RECENT_MESSAGES_LIMIT = 20;
-const INBOX_CONVERSATION_LIST_LIMIT = 80;
+const INBOX_CONVERSATION_LIST_LIMIT = 20;
+const INBOX_CONVERSATION_AUTOFILL_MAX = 120;
 const WHATSAPP_ASSET_EXPIRY_GRACE_MS = 5 * 60 * 1000;
 
 function getInboxApiBaseUrl() {
@@ -1982,6 +1983,16 @@ function sortInboxConversationsByActivity(conversationList: InboxConversation[])
   });
 }
 
+function countInboxConversationsInQueue(
+  conversationList: InboxConversation[],
+  queue: InboxQueue,
+  manualQueueOverrides?: Record<string, InboxQueue>,
+) {
+  return conversationList.reduce((total, conversation) => {
+    return getInboxConversationQueue(conversation, manualQueueOverrides) === queue ? total + 1 : total;
+  }, 0);
+}
+
 function sortInboxMessagesChronologically(messages: InboxMessage[]) {
   return [...messages].sort((left, right) => {
     const leftTime = new Date(String(left.createdAt || "")).getTime();
@@ -2213,6 +2224,8 @@ export default function InboxClientPage() {
   const [selectedConversation, setSelectedConversation] = useState<InboxConversation | null>(null);
   const [bootstrapReady, setBootstrapReady] = useState(false);
   const [loadingList, setLoadingList] = useState(true);
+  const [loadingMoreConversations, setLoadingMoreConversations] = useState(false);
+  const [conversationListHasMore, setConversationListHasMore] = useState(false);
   const [loadingConversation, setLoadingConversation] = useState(false);
   const [loadingOlderMessages, setLoadingOlderMessages] = useState(false);
   const [olderMessagesHasMore, setOlderMessagesHasMore] = useState(false);
@@ -2314,6 +2327,8 @@ export default function InboxClientPage() {
   const customerReturnInputRef = useRef<HTMLInputElement | null>(null);
   const customerReturnAutoSaveTimerRef = useRef<number | null>(null);
   const conversationsRef = useRef<InboxConversation[]>([]);
+  const loadingMoreConversationsRef = useRef(false);
+  const conversationListHasMoreRef = useRef(false);
   const conversationDetailCacheRef = useRef<Map<string, InboxConversation>>(new Map());
   const customerConversationCardCacheRef = useRef<Map<string, CustomerConversationCardPayload>>(new Map());
   const manualQueueOverridesRef = useRef<Record<string, InboxQueue>>({});
@@ -2534,6 +2549,14 @@ export default function InboxClientPage() {
   }, [conversations]);
 
   useEffect(() => {
+    loadingMoreConversationsRef.current = loadingMoreConversations;
+  }, [loadingMoreConversations]);
+
+  useEffect(() => {
+    conversationListHasMoreRef.current = conversationListHasMore;
+  }, [conversationListHasMore]);
+
+  useEffect(() => {
     manualQueueOverridesRef.current = manualQueueOverrides;
   }, [manualQueueOverrides]);
 
@@ -2699,6 +2722,7 @@ export default function InboxClientPage() {
       rememberConversationDetail(mergedSelected);
       setOlderMessagesBefore(getInboxOldestMessageDate(mergedSelected?.messages));
       setOlderMessagesHasMore((mergedSelected?.messages?.length || 0) >= INBOX_RECENT_MESSAGES_LIMIT);
+      setConversationListHasMore(nextList.length >= take);
       setLastConversationSyncAt(new Date().toISOString());
       setBootstrapReady(true);
     } catch (loadError) {
@@ -2952,24 +2976,41 @@ export default function InboxClientPage() {
   }, [loadConversation, rememberConversationDetail]);
 
   const loadConversations = useCallback(
-    async (options?: { preferredId?: string | null; silent?: boolean }) => {
+    async (options?: { preferredId?: string | null; silent?: boolean; append?: boolean }) => {
       const silent = options?.silent ?? false;
-      if (!silent) setLoadingList(true);
+      const append = options?.append ?? false;
+      const currentList = conversationsRef.current;
+      const take = append
+        ? INBOX_CONVERSATION_LIST_LIMIT
+        : Math.max(
+            INBOX_CONVERSATION_LIST_LIMIT,
+            Math.min(120, currentList.length || INBOX_CONVERSATION_LIST_LIMIT),
+          );
+      const skip = append ? currentList.length : 0;
+      if (append) {
+        if (loadingMoreConversationsRef.current || !conversationListHasMoreRef.current) return;
+        setLoadingMoreConversations(true);
+      } else if (!silent) {
+        setLoadingList(true);
+      }
       setError(null);
       setConversationListError(null);
       try {
         const response = await apiFetch<InboxConversation[]>(
-          `/inbox/conversations?take=${INBOX_CONVERSATION_LIST_LIMIT}`,
+          `/inbox/conversations?take=${take}&skip=${skip}`,
           {
             requireAuth: true,
             timeoutMs: 15000,
           },
         );
-        const data = normalizeInboxConversationList(Array.isArray(response) ? response : []).filter(
+        const page = normalizeInboxConversationList(Array.isArray(response) ? response : []).filter(
           (conversation) =>
             !isInboxConversationHiddenByDelete(conversation, deletedConversationAliasesRef.current),
         );
-        const currentList = conversationsRef.current;
+        const data = append
+          ? normalizeInboxConversationList([...currentList, ...page])
+          : page;
+        setConversationListHasMore(Array.isArray(response) && response.length >= take);
         const listChanged = !areInboxConversationListsEquivalent(currentList, data);
 
         if (listChanged) {
@@ -2980,6 +3021,7 @@ export default function InboxClientPage() {
         if (listChanged || currentList.length === 0) {
           setLastConversationSyncAt(new Date().toISOString());
         }
+        if (append) return;
 
         const preferredId = options && Object.prototype.hasOwnProperty.call(options, "preferredId")
           ? options.preferredId
@@ -3057,10 +3099,15 @@ export default function InboxClientPage() {
         }
       } finally {
         if (!silent) setLoadingList(false);
+        if (append) setLoadingMoreConversations(false);
       }
     },
     [loadConversation],
   );
+
+  const loadMoreConversations = useCallback(() => {
+    void loadConversations({ silent: true, append: true });
+  }, [loadConversations]);
 
   useEffect(() => {
     if (hasToken !== true || !requestedConversationId) return;
@@ -3441,6 +3488,34 @@ export default function InboxClientPage() {
       stopQueuePolling();
     };
   }, [activeTab, hasToken, inboxRealtimeFallbackActive, loadConversations, refreshSelectedConversationMessages]);
+
+  useEffect(() => {
+    if (!bootstrapReady) return;
+    if (activeTab !== "messages") return;
+    if (inboxQueue !== "all") return;
+    if (conversationSearch.trim()) return;
+    if (!conversationListHasMore || loadingMoreConversations) return;
+    if (conversations.length >= INBOX_CONVERSATION_AUTOFILL_MAX) return;
+
+    const visibleConversations = countInboxConversationsInQueue(
+      conversations,
+      inboxQueue,
+      manualQueueOverrides,
+    );
+    if (visibleConversations >= INBOX_CONVERSATION_LIST_LIMIT) return;
+
+    loadMoreConversations();
+  }, [
+    activeTab,
+    bootstrapReady,
+    conversationListHasMore,
+    conversationSearch,
+    conversations,
+    inboxQueue,
+    loadMoreConversations,
+    loadingMoreConversations,
+    manualQueueOverrides,
+  ]);
 
   useEffect(() => {
     if (hasToken === false) return;
@@ -4990,7 +5065,14 @@ export default function InboxClientPage() {
           ) : filteredConversations.length === 0 ? (
             <ChatEmptyState title="Nenhuma conversa encontrada">Ajuste o filtro ou aguarde novas mensagens entrarem na fila.</ChatEmptyState>
           ) : (
-            <ChatQueue className={styles.conversationList}>
+            <ChatQueue
+              className={styles.conversationList}
+              onScroll={(event) => {
+                const target = event.currentTarget;
+                const remaining = target.scrollHeight - target.scrollTop - target.clientHeight;
+                if (remaining < 96) loadMoreConversations();
+              }}
+            >
               {filteredConversations.map((conversation, idx) => {
                 const active = conversation.id === selectedId;
                 const unreadCount = getInboxConversationUnreadCount(conversation);
@@ -5080,6 +5162,18 @@ export default function InboxClientPage() {
                   />
                 );
               })}
+              {conversationListHasMore ? (
+                <div className={styles.whatsAppOlderMessagesRow}>
+                  <button
+                    type="button"
+                    className={styles.whatsAppOlderMessagesButton}
+                    onClick={loadMoreConversations}
+                    disabled={loadingMoreConversations}
+                  >
+                    {loadingMoreConversations ? "Carregando..." : "Carregar mais conversas"}
+                  </button>
+                </div>
+              ) : null}
             </ChatQueue>
           )}
         </ConversationListPane>
@@ -6252,6 +6346,7 @@ export default function InboxClientPage() {
       customerConversationCard,
       customerConversationCardDraft,
       customerConversationCardError,
+      conversationListHasMore,
       hasRecoveryCapability,
       filteredConversations,
       handleSectionChange,
@@ -6267,10 +6362,12 @@ export default function InboxClientPage() {
       draggedQueueId,
       failedInboxMediaUrls,
       loadConversation,
+      loadMoreConversations,
       loadOlderMessages,
       loadingConversation,
       loadingCustomerConversationCard,
       loadingList,
+      loadingMoreConversations,
       loadingOlderMessages,
       markCustomerDoNotCall,
       markInboxMediaUrlFailed,
