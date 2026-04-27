@@ -16,6 +16,13 @@ def test_pf_allows_limit_up_to_100() -> None:
     assert request.limit == 100
 
 
+def test_agenda_pf_allows_empty_segment() -> None:
+    request = SearchRequest(city="Limeira", state="SP", targetType="agenda_pf", limit=50)
+
+    assert request.segment == ""
+    assert request.targetType == "agenda_pf"
+
+
 def test_pj_rejects_limit_above_50() -> None:
     with pytest.raises(ValueError):
         SearchRequest(city="Americana", state="SP", segment="oficina mecanica", targetType="pj", limit=51)

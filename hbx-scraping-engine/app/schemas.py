@@ -2,24 +2,29 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-TargetType = Literal["pj", "pf"]
+TargetType = Literal["pj", "pf", "agenda_pf"]
 
 
 class SearchRequest(BaseModel):
     city: str
     state: str
-    segment: str
+    segment: str = ""
     targetType: TargetType = "pj"
     limit: int = Field(10, ge=1, le=100)
     fresh: bool = False
 
-    @field_validator("city", "state", "segment")
+    @field_validator("city", "state")
     @classmethod
     def required_text(cls, value: str) -> str:
         cleaned = " ".join(str(value or "").split())
         if not cleaned:
             raise ValueError("campo obrigatorio")
         return cleaned
+
+    @field_validator("segment")
+    @classmethod
+    def normalize_segment(cls, value: str) -> str:
+        return " ".join(str(value or "").split())
 
     @field_validator("state")
     @classmethod
@@ -28,7 +33,9 @@ class SearchRequest(BaseModel):
 
     @model_validator(mode="after")
     def validate_limit_by_target_type(self) -> "SearchRequest":
-        max_limit = 100 if self.targetType == "pf" else 50
+        if self.targetType != "agenda_pf" and not self.segment:
+            raise ValueError("segment é obrigatorio")
+        max_limit = 100 if self.targetType in {"pf", "agenda_pf"} else 50
         if self.limit > max_limit:
             raise ValueError(f"limit maximo para targetType={self.targetType} é {max_limit}")
         return self
@@ -37,7 +44,7 @@ class SearchRequest(BaseModel):
 class QueryPayload(BaseModel):
     city: str
     state: str
-    segment: str
+    segment: str = ""
     targetType: TargetType = "pj"
     limit: int
 

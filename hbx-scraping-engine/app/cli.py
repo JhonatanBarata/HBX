@@ -10,8 +10,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="HBX Scraping Engine CLI")
     parser.add_argument("--city", required=True)
     parser.add_argument("--state", required=True)
-    parser.add_argument("--segment", required=True)
-    parser.add_argument("--target-type", choices=("pj", "pf"), default="pj")
+    parser.add_argument("--segment", default="")
+    parser.add_argument("--target-type", choices=("pj", "pf", "agenda_pf"), default="pj")
     parser.add_argument("--limit", type=int, default=10)
     parser.add_argument("--fresh", action="store_true")
     return parser

@@ -51,15 +51,26 @@ def extract_phone_from_url(value: str) -> str | None:
     return None
 
 
-def clean_name(raw: str | None) -> str | None:
+def clean_name(raw: str | None, allow_generic: bool = False) -> str | None:
     text = re.sub(r"\s+", " ", str(raw or "")).strip(" -|:/\t\r\n")
     if not text:
         return None
     text = re.split(r"\s+[-|]\s+", text)[0].strip()
     text = re.sub(r"\b(telefone|contato|endere[cç]o|google maps|facebook|instagram)\b.*$", "", text, flags=re.I).strip(" -|:")
-    if not text or is_generic_name(text) or len(text) < 2:
+    if not text or (is_generic_name(text) and not allow_generic) or len(text) < 2:
         return None
     return text[:160]
+
+
+def fallback_name(raw: str | None, city: str | None, target_type: str = "pj") -> str | None:
+    flexible = target_type in {"pf", "agenda_pf"}
+    name = clean_name(raw, allow_generic=flexible)
+    if name and (not flexible or not is_generic_name(name, city, target_type)):
+        return name
+    if flexible:
+        city_name = " ".join(str(city or "").split()) or "local"
+        return f"Contato encontrado - {city_name}"
+    return None
 
 
 def dedupe_contacts(items: list[dict], city: str | None = None, target_type: str = "pj") -> list[dict]:
@@ -68,8 +79,10 @@ def dedupe_contacts(items: list[dict], city: str | None = None, target_type: str
     deduped: list[dict] = []
     for item in items:
         digits = normalize_phone_digits(item.get("phoneDigits") or item.get("phone"))
-        name = clean_name(item.get("name"))
-        if not digits or not name or digits in seen or is_generic_name(name, city, target_type):
+        name = fallback_name(item.get("name"), city, target_type)
+        if not digits or not name or digits in seen:
+            continue
+        if target_type != "pf" and is_generic_name(name, city, target_type):
             continue
         domain = str(item.get("_domain") or domain_from_url(item.get("website")) or "").lower()
         name_key = text_key(name)

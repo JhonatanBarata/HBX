@@ -1,6 +1,17 @@
 import re
 
-from .filters import expected_ddds, is_blocked_domain, is_directory_domain, is_generic_name, is_mobile_phone, phone_ddd
+from .filters import (
+    expected_ddds,
+    is_blocked_domain,
+    is_directory_domain,
+    is_generic_name,
+    is_mobile_phone,
+    is_pf_weak_domain,
+    has_pf_role_text,
+    looks_like_person_name,
+    looks_like_company_or_institution_name,
+    phone_ddd,
+)
 
 
 def _tokens(value: str) -> set[str]:
@@ -25,26 +36,34 @@ def score_contact(contact: dict, city: str, state: str, segment: str, page_text:
     expected = expected_ddds(city, state)
     ddd = phone_ddd(contact.get("phoneDigits"))
     if target_type == "pf":
-        if contact.get("phoneDigits"):
-            score += 55
+        local_ddd = bool(expected and ddd in expected)
         if is_mobile_phone(contact.get("phoneDigits")):
+            score += 55
+        elif contact.get("phoneDigits"):
+            score += 25
+            score -= 15
+        if local_ddd:
             score += 20
-        if expected and ddd in expected:
-            score += 15
         elif ddd:
-            score -= 10
-        if city_l in page_l or city_l in address_l or city_l in name_l or state_l in page_l or state_l in address_l:
-            score += 20
-        if name and not is_generic_name(name, city, "pf", segment) and len(name) > 2:
+            score -= 30
+        if looks_like_person_name(name):
             score += 15
-        else:
-            score -= 45
-        if website:
+        if any(token in page_l or token in name_l for token in ("consultor", "corretor", "vendedor", "representante", "whatsapp")):
+            score += 10
+        if city_l in page_l or city_l in address_l or city_l in name_l or state_l in page_l or state_l in address_l:
+            score += 10
+        if is_generic_name(name, city, "pf", segment):
+            score -= 15
+        if name and not is_generic_name(name, city, "pf", segment) and len(name) > 2:
             score += 5
-        if address:
-            score += 5
+        if not looks_like_person_name(name) and not has_pf_role_text(name):
+            score -= 10
+        if looks_like_company_or_institution_name(name):
+            score -= 10
         if is_blocked_domain(website) or is_blocked_domain(page_url):
             score -= 100
+        if is_pf_weak_domain(website) or is_pf_weak_domain(page_url):
+            score -= 40
         if is_directory or is_directory_domain(website) or is_directory_domain(page_url):
             score -= 10
         return max(0, min(100, score))

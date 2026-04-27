@@ -1,7 +1,7 @@
 from app.schemas import ContactResult
 from app.services.discovery import _is_allowed_url
-from app.services.filters import is_generic_name
-from app.services.normalizer import dedupe_contacts, format_phone, normalize_phone_digits
+from app.services.filters import is_generic_name, is_pf_technical_blocked_domain
+from app.services.normalizer import dedupe_contacts, fallback_name, format_phone, normalize_phone_digits
 
 
 def test_normalize_phone_digits_removes_country_code() -> None:
@@ -36,6 +36,11 @@ def test_dedupe_contacts_by_phone_digits() -> None:
     assert contacts[0]["phoneDigits"] == "19999999999"
 
 
+def test_pf_uses_fallback_for_generic_name() -> None:
+    assert fallback_name("Contato", "Americana", "pf") == "Contato encontrado - Americana"
+    assert fallback_name("", "Americana", "pf") == "Contato encontrado - Americana"
+
+
 def test_dedupe_limits_same_domain_and_name_to_two_phones() -> None:
     contacts = dedupe_contacts(
         [
@@ -56,9 +61,14 @@ def test_blocks_generic_names_and_bad_domains() -> None:
     assert is_generic_name("Americana", "Americana", "pf")
     assert is_generic_name("Categorias", "Americana", "pf")
     assert is_generic_name("Planos de Saúde em Americana", "Americana", "pf", "plano de saúde")
+    assert is_generic_name("Negócios", "Americana", "pf")
+    assert is_generic_name("Curso Online", "Americana", "pf")
+    assert is_generic_name("Relação de Unidades", "Americana", "pf")
     assert is_generic_name("Manutenção de confiança para seu Automóvel !", "Americana")
     assert not _is_allowed_url("https://querobolsa.com.br/cursos/engenharia-mecanica")
     assert not _is_allowed_url("https://instagram.com/oficina")
+    assert is_pf_technical_blocked_domain("https://youtube.com/watch?v=1")
+    assert not is_pf_technical_blocked_domain("https://exame.com/noticia")
 
 
 def test_schema_forbids_removed_fields() -> None:

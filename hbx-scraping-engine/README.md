@@ -45,6 +45,8 @@ HBX_SCRAPING_TIMEOUT_SECONDS=10
 HBX_SCRAPING_CONCURRENCY=5
 HBX_SCRAPING_CACHE_TTL_HOURS=24
 HBX_SCRAPING_MAX_DISCOVERY_RESULTS=120
+HBX_AGENDA_MAX_PAGES=20
+HBX_AGENDA_REQUEST_DELAY_MS=500
 ```
 
 ## Testar CLI
@@ -53,11 +55,12 @@ HBX_SCRAPING_MAX_DISCOVERY_RESULTS=120
 python -m app.cli --city "Americana" --state "SP" --segment "oficina mecanica" --limit 10 --fresh
 ```
 
-Use `--target-type pj` para empresas locais ou `--target-type pf` para garimpo de nome + telefone de pessoa física, sem CPF/documento:
+Use `--target-type pj` para empresas locais, `--target-type pf` para garimpo flexível de nome + telefone de pessoa física, ou `--target-type agenda_pf` para agenda telefônica pública por cidade, sem CPF/documento:
 
 ```powershell
 python -m app.cli --city "Americana" --state "SP" --segment "oficina mecanica" --target-type pj --limit 10 --fresh
 python -m app.cli --city "Americana" --state "SP" --segment "plano de saúde" --target-type pf --limit 50 --fresh
+python -m app.cli --city "Limeira" --state "SP" --target-type agenda_pf --limit 50 --fresh
 ```
 
 O CLI imprime JSON formatado:
@@ -107,6 +110,14 @@ curl -X POST http://localhost:8001/search `
   -d "{\"city\":\"Americana\",\"state\":\"SP\",\"segment\":\"oficina mecanica\",\"targetType\":\"pj\",\"limit\":10,\"fresh\":true}"
 ```
 
+Agenda pública:
+
+```powershell
+curl -X POST http://localhost:8001/search `
+  -H "Content-Type: application/json" `
+  -d "{\"city\":\"Limeira\",\"state\":\"SP\",\"targetType\":\"agenda_pf\",\"limit\":50,\"fresh\":true}"
+```
+
 ## Cache local
 
 O motor cria um SQLite local em:
@@ -120,7 +131,7 @@ Tabelas:
 - `search_runs`
 - `contacts`
 
-Quando `fresh=false`, o motor pode reutilizar uma pesquisa recente com mesma `city`, `state`, `segment`, `targetType` e `limit`. Quando `fresh=true`, ele faz nova descoberta e scraping.
+Quando `fresh=false`, o motor pode reutilizar uma pesquisa recente com mesma `city`, `state`, `segment`, `targetType` e `limit`. Quando `fresh=true`, ele faz nova descoberta e scraping. O modo `agenda_pf` usa cache separado de `pf` e `pj`.
 
 ## Como funciona
 
@@ -132,6 +143,8 @@ Quando `fresh=false`, o motor pode reutilizar uma pesquisa recente com mesma `ci
 6. Normaliza telefones brasileiros para `phoneDigits` com DDD, sem `+55`.
 7. Remove contatos sem `name`, `phone` e `phoneDigits`.
 8. Deduplica por `phoneDigits`, calcula `score` e ordena por score desc.
+
+No modo `pf`, o score só ordena: qualquer contato com `phone` e `phoneDigits` válidos pode entrar. No modo `agenda_pf`, a primeira fonte implementada é ABC Telefones (`hbx_agenda:abctelefonos`), com limite de páginas e delay configuráveis.
 
 Sites que bloqueiam scraping, exigem login, captcha, Cloudflare ou proteção antibot são ignorados.
 
