@@ -503,7 +503,8 @@ function makeClientId(prefix: string) {
   return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
-const INBOX_RECENT_MESSAGES_LIMIT = 200;
+const INBOX_RECENT_MESSAGES_LIMIT = 20;
+const INBOX_CONVERSATION_LIST_LIMIT = 80;
 const WHATSAPP_ASSET_EXPIRY_GRACE_MS = 5 * 60 * 1000;
 
 function getInboxApiBaseUrl() {
@@ -2322,7 +2323,6 @@ export default function InboxClientPage() {
   const activeConversationLatestMessageKeyRef = useRef<Record<string, string>>({});
   const inboxQueueRef = useRef<InboxQueue>("all");
   const conversationLoadTokenRef = useRef(0);
-  const autoPrefetchedOlderMessagesRef = useRef<Record<string, true>>({});
   const botConfigLoadedRef = useRef(false);
   const agendaConfigLoadedRef = useRef(false);
   const sendTextDirtyRef = useRef(false);
@@ -2657,7 +2657,13 @@ export default function InboxClientPage() {
   ]);
 
   const bootstrapInbox = useCallback(async (options?: { take?: number }) => {
-    const take = Math.max(1, Math.min(200, Number(options?.take || 200) || 200));
+    const take = Math.max(
+      1,
+      Math.min(
+        120,
+        Number(options?.take || INBOX_CONVERSATION_LIST_LIMIT) || INBOX_CONVERSATION_LIST_LIMIT,
+      ),
+    );
     setBootstrapReady(false);
     setLoadingList(true);
     setLoadingConversation(true);
@@ -2831,6 +2837,9 @@ export default function InboxClientPage() {
     const before = olderMessagesBefore || getInboxOldestMessageDate(currentConversation?.messages);
     if (!conversationId || !before || loadingOlderMessages) return;
 
+    const timeline = chatTimelineRef.current;
+    const previousScrollHeight = timeline?.scrollHeight || 0;
+    const previousScrollTop = timeline?.scrollTop || 0;
     setLoadingOlderMessages(true);
     setConversationDetailError(null);
     try {
@@ -2855,6 +2864,12 @@ export default function InboxClientPage() {
       rememberConversationDetail(nextConversation);
       setOlderMessagesBefore(payload?.nextBefore || getInboxOldestMessageDate(nextConversation.messages));
       setOlderMessagesHasMore(Boolean(payload?.hasMore));
+      if (timeline && typeof window !== "undefined") {
+        window.requestAnimationFrame(() => {
+          const nextScrollHeight = timeline.scrollHeight;
+          timeline.scrollTop = Math.max(0, nextScrollHeight - previousScrollHeight + previousScrollTop);
+        });
+      }
     } catch (loadError) {
       const message = loadError instanceof Error ? loadError.message : "Falha ao carregar mensagens antigas.";
       setConversationDetailError(message);
@@ -2943,10 +2958,13 @@ export default function InboxClientPage() {
       setError(null);
       setConversationListError(null);
       try {
-        const response = await apiFetch<InboxConversation[]>("/inbox/conversations?take=200", {
-          requireAuth: true,
-          timeoutMs: 15000,
-        });
+        const response = await apiFetch<InboxConversation[]>(
+          `/inbox/conversations?take=${INBOX_CONVERSATION_LIST_LIMIT}`,
+          {
+            requireAuth: true,
+            timeoutMs: 15000,
+          },
+        );
         const data = normalizeInboxConversationList(Array.isArray(response) ? response : []).filter(
           (conversation) =>
             !isInboxConversationHiddenByDelete(conversation, deletedConversationAliasesRef.current),
@@ -3314,7 +3332,7 @@ export default function InboxClientPage() {
     let stopPolling: (() => void) | undefined;
 
     void (async () => {
-      await bootstrapInbox({ take: 200 });
+      await bootstrapInbox({ take: INBOX_CONVERSATION_LIST_LIMIT });
       if (cancelled) return;
       stopPolling = startSmartPolling(() => loadConversations({ silent: true }), {
         intervalMs: 90000,
@@ -3559,7 +3577,7 @@ export default function InboxClientPage() {
 
   const retryConversationList = useCallback(() => {
     if (!bootstrapReady && conversationsRef.current.length === 0) {
-      void bootstrapInbox({ take: 200 });
+      void bootstrapInbox({ take: INBOX_CONVERSATION_LIST_LIMIT });
       return;
     }
     void loadConversations({ preferredId: selectedIdRef.current });
@@ -3607,30 +3625,23 @@ export default function InboxClientPage() {
 
   useEffect(() => {
     if (activeTab !== "messages") return;
-    if (loadingConversation || loadingOlderMessages) return;
-    if (!olderMessagesHasMore) return;
+    const timeline = chatTimelineRef.current;
+    if (!timeline) return;
 
-    const conversationId = normalizeInboxConversationId(selectedConversation?.id ?? selectedId);
-    if (!conversationId) return;
+    const handleScroll = () => {
+      if (timeline.scrollTop > 80) return;
+      if (loadingConversation || loadingOlderMessages || !olderMessagesHasMore) return;
+      void loadOlderMessages();
+    };
 
-    const activeConversation =
-      selectedConversationRef.current?.id === conversationId
-        ? selectedConversationRef.current
-        : selectedConversation;
-    const messageCount = activeConversation?.messages?.length || 0;
-    if (messageCount < INBOX_RECENT_MESSAGES_LIMIT) return;
-    if (autoPrefetchedOlderMessagesRef.current[conversationId]) return;
-
-    autoPrefetchedOlderMessagesRef.current[conversationId] = true;
-    void loadOlderMessages();
+    timeline.addEventListener("scroll", handleScroll, { passive: true });
+    return () => timeline.removeEventListener("scroll", handleScroll);
   }, [
     activeTab,
     loadOlderMessages,
     loadingConversation,
     loadingOlderMessages,
     olderMessagesHasMore,
-    selectedConversation,
-    selectedId,
   ]);
 
   const pendingAtendimentoConversations = useMemo(
@@ -6654,7 +6665,7 @@ export default function InboxClientPage() {
       window.clearTimeout(shortTimer);
       window.clearTimeout(mediaTimer);
     };
-  }, [latestVisibleMessageKey, selectedConversation?.id, selectedConversation?.messages.length]);
+  }, [latestVisibleMessageKey, selectedConversation?.id]);
 
   // Clear composer state when switching conversations
   useEffect(() => {
