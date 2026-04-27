@@ -52,12 +52,20 @@
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
-.runtimeVisionMetric {
+.runtimeCompactHeader {
+  display: grid;
+  grid-template-columns: minmax(160px, 220px) minmax(0, 1fr);
+  gap: 0.8rem;
+  align-items: stretch;
+}
+
+.runtimeVisionMetric,
+.quotaCard {
   display: grid;
   gap: 0.45rem;
-  min-height: 96px;
-  padding: 0.95rem 1rem;
-  border-radius: 22px;
+  min-height: 72px;
+  padding: 0.78rem 0.9rem;
+  border-radius: 18px;
   border: 1px solid color-mix(in srgb, var(--line) 84%, var(--background));
   background: color-mix(in srgb, var(--surface-raised) 72%, transparent);
   align-content: center;
@@ -87,6 +95,77 @@
   font-size: clamp(1.55rem, 3vw, 2.35rem);
   line-height: 1;
   color: var(--foreground);
+}
+
+.quotaValue {
+  font-size: 1.45rem;
+  line-height: 1;
+  color: var(--foreground);
+}
+
+.motorStatusGrid {
+  display: grid;
+  gap: 0.55rem;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.motorStatus,
+.motorStatusActive {
+  display: grid;
+  gap: 0.18rem;
+  min-height: 72px;
+  padding: 0.65rem 0.75rem;
+  border-radius: 18px;
+  border: 1px solid color-mix(in srgb, var(--line) 82%, var(--background));
+  background: color-mix(in srgb, var(--surface) 78%, transparent);
+  color: var(--foreground);
+  text-align: left;
+  cursor: pointer;
+  align-content: center;
+}
+
+.motorStatus span,
+.motorStatusActive span {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: 900;
+  color: var(--muted);
+}
+
+.motorStatus strong,
+.motorStatusActive strong {
+  font-size: 0.94rem;
+  line-height: 1.05;
+}
+
+.motorStatus small,
+.motorStatusActive small {
+  color: var(--foreground-soft);
+  font-size: 0.72rem;
+  line-height: 1.15;
+}
+
+.motorStatusActive {
+  border-color: color-mix(in srgb, var(--brand) 38%, var(--line));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--brand) 12%, transparent);
+}
+
+.motorStatus[data-status="online"],
+.motorStatusActive[data-status="online"] {
+  border-color: color-mix(in srgb, #10b981 38%, var(--line));
+}
+
+.motorStatus[data-status="offline"],
+.motorStatusActive[data-status="offline"],
+.motorStatus[data-status="bug"],
+.motorStatusActive[data-status="bug"] {
+  border-color: color-mix(in srgb, #ef4444 38%, var(--line));
+}
+
+.motorStatus[data-status="unknown"],
+.motorStatusActive[data-status="unknown"] {
+  border-color: color-mix(in srgb, #f59e0b 32%, var(--line));
 }
 
 .glassTabs {
@@ -298,7 +377,7 @@
 }
 
 .formGrid {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
 }
 
 .engineSelector {
@@ -444,6 +523,21 @@
 .advancedWrap {
   padding-top: 0.4rem;
   border-top: 1px solid color-mix(in srgb, var(--line) 78%, var(--background));
+}
+
+.filterNotice {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 0.3rem;
+  padding: 0.85rem 0.95rem;
+  border-radius: 16px;
+  border: 1px solid color-mix(in srgb, var(--line) 82%, var(--background));
+  background: color-mix(in srgb, var(--surface) 86%, transparent);
+}
+
+.filterNotice p {
+  margin: 0;
+  color: var(--foreground-soft);
 }
 
 .scriptGuideGrid {
@@ -644,6 +738,7 @@
 
 @media (max-width: 1024px) {
   .runtimeHeader,
+  .runtimeCompactHeader,
   .formGrid,
   .engineSelector,
   .advancedGrid,
@@ -651,6 +746,10 @@
   .diagnosticGrid,
   .skeletonGrid {
     grid-template-columns: 1fr;
+  }
+
+  .motorStatusGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
@@ -678,7 +777,14 @@
     grid-template-columns: 1fr;
   }
 
-  .runtimeVisionMetric {
-    min-height: 98px;
+  .runtimeVisionMetric,
+  .quotaCard,
+  .motorStatus,
+  .motorStatusActive {
+    min-height: 64px;
+  }
+
+  .motorStatusGrid {
+    grid-template-columns: 1fr;
   }
 }

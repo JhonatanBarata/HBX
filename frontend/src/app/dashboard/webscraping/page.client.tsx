@@ -20,6 +20,39 @@ const SEGMENT_SUGGESTIONS = [
   "Pet shop",
   "Outros",
 ];
+const PF_NICHE_SUGGESTIONS = [
+  "plano de saúde",
+  "seguros",
+  "consórcio",
+  "imóveis",
+  "energia solar",
+  "crédito",
+  "estética",
+  "serviços",
+];
+const PF_ROLE_OPTIONS = [
+  "consultor",
+  "corretor",
+  "vendedor",
+  "representante",
+  "autônomo",
+  "prestador",
+];
+const COMMON_CITY_DDD: Record<string, string> = {
+  "americana - sp": "19",
+  americana: "19",
+  "araras - sp": "19",
+  araras: "19",
+  "campinas - sp": "19",
+  campinas: "19",
+  "limeira - sp": "19",
+  limeira: "19",
+  "ribeirao preto - sp": "16",
+  "ribeirão preto - sp": "16",
+  "rio claro - sp": "19",
+  "sao paulo - sp": "11",
+  "são paulo - sp": "11",
+};
 
 type WebscrapingEngine = "google" | "hbx";
 type HbxTargetType = "pj" | "pf" | "agenda_pf";
@@ -32,6 +65,7 @@ const SEARCH_MODE_OPTIONS: Array<{
   engine: WebscrapingEngine;
   targetType: HbxTargetType;
   quantityOptions: number[];
+  motorCode: "MOTOR X" | "MOTOR Y" | "MOTOR W" | "MOTOR Z";
 }> = [
   {
     id: "google_pj",
@@ -40,6 +74,7 @@ const SEARCH_MODE_OPTIONS: Array<{
     engine: "google",
     targetType: "pj",
     quantityOptions: [5, 10, 15, 20],
+    motorCode: "MOTOR X",
   },
   {
     id: "hbx_pj",
@@ -48,6 +83,7 @@ const SEARCH_MODE_OPTIONS: Array<{
     engine: "hbx",
     targetType: "pj",
     quantityOptions: [10, 20, 30, 50],
+    motorCode: "MOTOR Y",
   },
   {
     id: "hbx_pf",
@@ -56,6 +92,7 @@ const SEARCH_MODE_OPTIONS: Array<{
     engine: "hbx",
     targetType: "pf",
     quantityOptions: [20, 50, 75, 100],
+    motorCode: "MOTOR W",
   },
   {
     id: "hbx_agenda_pf",
@@ -64,8 +101,11 @@ const SEARCH_MODE_OPTIONS: Array<{
     engine: "hbx",
     targetType: "agenda_pf",
     quantityOptions: [20, 50, 75, 100],
+    motorCode: "MOTOR Z",
   },
 ];
+
+type MotorHealth = "online" | "offline" | "bug" | "unknown";
 
 type CurrentUser = {
   id?: number | null;
@@ -324,6 +364,44 @@ function getVisualSegment(segment: string | null | undefined, targetType?: HbxTa
   return targetType === "agenda_pf" ? "Agenda PF" : "";
 }
 
+function inferDddFromCity(value: string) {
+  const normalized = normalizeCityLookup(value);
+  if (!normalized) return "";
+  return COMMON_CITY_DDD[normalized] || COMMON_CITY_DDD[normalized.replace(/\s+-\s+[a-z]{2}$/i, "")] || "";
+}
+
+function normalizeDdd(value: string) {
+  return String(value || "").replace(/\D/g, "").slice(0, 2);
+}
+
+function buildPfSegment(role: string, niche: string, ddd: string) {
+  const parts = [role.trim(), niche.trim()].filter(Boolean);
+  const base = parts.join(" ");
+  const normalizedDdd = normalizeDdd(ddd);
+  return normalizedDdd ? `${base} DDD ${normalizedDdd}`.trim() : base;
+}
+
+function parsePfSegment(value: string) {
+  let normalized = String(value || "").trim();
+  const dddMatch = normalized.match(/\bDDD\s*(\d{2})\b/i);
+  const ddd = dddMatch ? dddMatch[1] : "";
+  normalized = normalized.replace(/\bDDD\s*\d{2}\b/gi, "").trim();
+  const role = PF_ROLE_OPTIONS.find((option) => normalizeCityLookup(normalized).startsWith(`${normalizeCityLookup(option)} `));
+  const niche = role ? normalized.slice(role.length).trim() : normalized;
+  return {
+    role: role || "consultor",
+    niche,
+    ddd,
+  };
+}
+
+function motorStatusLabel(status: MotorHealth) {
+  if (status === "online") return "Online";
+  if (status === "offline") return "Caiu";
+  if (status === "bug") return "Com bug";
+  return "Aguardando teste";
+}
+
 function buildFilterSummary(filters: SearchFilters) {
   const parts: string[] = [];
   if (filters.minRating != null) parts.push(`nota >= ${filters.minRating.toFixed(1)}`);
@@ -386,6 +464,14 @@ export default function WebscrapingClientPage() {
   const [segment, setSegment] = useState("Lanchonetes");
   const [engine, setEngine] = useState<WebscrapingEngine>("google");
   const [targetType, setTargetType] = useState<HbxTargetType>("pj");
+  const [pfRole, setPfRole] = useState("consultor");
+  const [pfDdd, setPfDdd] = useState("");
+  const [motorHealthByMode, setMotorHealthByMode] = useState<Record<SearchModeId, MotorHealth>>({
+    google_pj: "unknown",
+    hbx_pj: "unknown",
+    hbx_pf: "unknown",
+    hbx_agenda_pf: "unknown",
+  });
   const [quantity, setQuantity] = useState(10);
   const [minRating, setMinRating] = useState("");
   const [minReviews, setMinReviews] = useState("");
@@ -416,6 +502,7 @@ export default function WebscrapingClientPage() {
   const quantityOptions = selectedSearchMode.quantityOptions;
   const maxQuantity = quantityOptions[quantityOptions.length - 1] || 20;
   const agendaMode = engine === "hbx" && targetType === "agenda_pf";
+  const pfMode = engine === "hbx" && targetType === "pf";
   const segmentLabel = getVisualSegment(segment, targetType);
   const remainingSearchesLabel = useMemo(() => {
     if (!runtime?.quota) return "-";
@@ -431,6 +518,14 @@ export default function WebscrapingClientPage() {
     if (!normalizedCity) return "";
     return cityOptions.find((option) => normalizeCityLookup(option) === normalizedCity) || "";
   }, [city, cityOptions]);
+  const inferredDdd = useMemo(() => inferDddFromCity(cityExactOption || city), [city, cityExactOption]);
+  const effectiveDdd = normalizeDdd(pfDdd) || inferredDdd;
+  const effectiveSegment = useMemo(() => {
+    if (pfMode) return buildPfSegment(pfRole, segment, effectiveDdd);
+    if (agendaMode && !segment.trim()) return "";
+    return segment.trim();
+  }, [agendaMode, effectiveDdd, pfMode, pfRole, segment]);
+  const activeSegmentSuggestions = pfMode ? PF_NICHE_SUGGESTIONS : SEGMENT_SUGGESTIONS;
   const citySuggestionItems = useMemo(() => {
     const normalizedCity = normalizeCityLookup(city);
     if (!normalizedCity) return [];
@@ -463,6 +558,19 @@ export default function WebscrapingClientPage() {
       previouslyClosed: items.filter((item) => item.signals?.wasClosedBefore).length,
     };
   }, [crmPreviewByPhone]);
+  const motorStatusItems = useMemo(() => {
+    return SEARCH_MODE_OPTIONS.map((option) => {
+      let status = motorHealthByMode[option.id] || "unknown";
+      if (option.id === "google_pj") {
+        status = runtimeReady && !configurationPending ? "online" : "offline";
+      }
+      return {
+        ...option,
+        status,
+        active: selectedSearchMode.id === option.id,
+      };
+    });
+  }, [configurationPending, motorHealthByMode, runtimeReady, selectedSearchMode.id]);
   const scriptGuidePreview = useMemo(() => {
     const previewResult: SearchResult = {
       name: results[0]?.name || "Big Hugo Lanchonete",
@@ -473,10 +581,13 @@ export default function WebscrapingClientPage() {
       address: "",
       website: "",
     };
+    const previewSegment = pfMode
+      ? buildPfSegment(pfRole, segment || "plano de saúde", effectiveDdd)
+      : getVisualSegment(activeQuery?.segment ?? segment, activeQuery?.targetType || targetType) || "Lanchonetes";
     return buildScriptText(
       previewResult,
       (activeQuery?.city || city || "Rio Claro").trim(),
-      getVisualSegment(activeQuery?.segment ?? segment, activeQuery?.targetType || targetType) || "Lanchonetes",
+      previewSegment,
       appliedScriptSender || defaultScriptVariables.speaker,
       appliedScriptCompany || defaultScriptVariables.company,
     );
@@ -489,6 +600,9 @@ export default function WebscrapingClientPage() {
     city,
     defaultScriptVariables.company,
     defaultScriptVariables.speaker,
+    effectiveDdd,
+    pfMode,
+    pfRole,
     results,
     segment,
     targetType,
@@ -529,6 +643,10 @@ export default function WebscrapingClientPage() {
           const lastTargetType = normalizeTargetTypeValue(localStorage.getItem("webscraping.lastTargetType"));
           setEngine(lastEngine);
           setTargetType(lastEngine === "google" ? "pj" : lastTargetType);
+          const lastPfRole = localStorage.getItem("webscraping.pfRole");
+          if (lastPfRole && PF_ROLE_OPTIONS.includes(lastPfRole)) setPfRole(lastPfRole);
+          const lastPfDdd = normalizeDdd(localStorage.getItem("webscraping.pfDdd") || "");
+          if (lastPfDdd) setPfDdd(lastPfDdd);
         } catch {
           // ignore storage errors
         }
@@ -594,7 +712,7 @@ export default function WebscrapingClientPage() {
   }, [city]);
 
   useEffect(() => {
-    const query = activeQuery || (city.trim() && (segment.trim() || agendaMode) ? { city, segment, targetType } : null);
+    const query = activeQuery || (city.trim() && (effectiveSegment || agendaMode) ? { city, segment: effectiveSegment, targetType } : null);
     if (!results.length || !query) {
       setCrmPreviewByPhone({});
       return;
@@ -636,7 +754,7 @@ export default function WebscrapingClientPage() {
     return () => {
       cancelled = true;
     };
-  }, [activeQuery, agendaMode, city, results, searchMeta?.historyId, segment, targetType]);
+  }, [activeQuery, agendaMode, city, effectiveSegment, results, searchMeta?.historyId, targetType]);
 
   useEffect(() => {
     const fallbackSender = String(currentUser?.email || "").trim();
@@ -649,13 +767,13 @@ export default function WebscrapingClientPage() {
   function buildPayload() {
     return {
       city: city.trim(),
-      segment: agendaMode && !segment.trim() ? "" : segment.trim(),
+      segment: effectiveSegment,
       quantity,
       engine,
       targetType,
-      minRating: minRating ? Number(minRating) : undefined,
-      minReviews: minReviews ? Number(minReviews) : undefined,
-      onlyWithWebsite,
+      minRating: targetType === "pj" && minRating ? Number(minRating) : undefined,
+      minReviews: targetType === "pj" && minReviews ? Number(minReviews) : undefined,
+      onlyWithWebsite: targetType === "pj" ? onlyWithWebsite : undefined,
     };
   }
 
@@ -663,6 +781,15 @@ export default function WebscrapingClientPage() {
     const nextMode = SEARCH_MODE_OPTIONS.find((option) => option.id === modeId) || SEARCH_MODE_OPTIONS[0];
     setEngine(nextMode.engine);
     setTargetType(nextMode.targetType);
+    if (nextMode.targetType === "pf" && SEGMENT_SUGGESTIONS.includes(segment)) {
+      setSegment("plano de saúde");
+    }
+    if (nextMode.targetType === "agenda_pf" && SEGMENT_SUGGESTIONS.includes(segment)) {
+      setSegment("");
+    }
+    if (nextMode.targetType === "pj" && !segment.trim()) {
+      setSegment("Lanchonetes");
+    }
     setQuantity((current) => {
       const nextMax = nextMode.quantityOptions[nextMode.quantityOptions.length - 1] || current;
       if (current > nextMax) return nextMax;
@@ -734,7 +861,12 @@ export default function WebscrapingClientPage() {
       return;
     }
 
-    if (!agendaMode && !segment.trim()) {
+    if (pfMode && !segment.trim()) {
+      setSearchError("Informe o nicho ou serviço para encontrar pessoas. Ex: plano de saúde, seguros, imóveis.");
+      return;
+    }
+
+    if (!agendaMode && !pfMode && !segment.trim()) {
       setSearchError("Informe o segmento.");
       return;
     }
@@ -745,6 +877,10 @@ export default function WebscrapingClientPage() {
         method: "POST",
         body: JSON.stringify({ ...buildPayload(), city: selectedCity }),
       });
+      setMotorHealthByMode((current) => ({
+        ...current,
+        [selectedSearchMode.id]: "online",
+      }));
       setResults(payload.results || []);
       setActiveQuery(payload.query);
       setSearchMeta(payload.meta);
@@ -753,10 +889,14 @@ export default function WebscrapingClientPage() {
       // persist last city/segment locally for quicker re-entry
       try {
         localStorage.setItem("webscraping.lastCity", String(payload.query.city || city || ""));
-        const seg = String(payload.query.segment || segment || "");
+        const seg = normalizeTargetTypeValue(payload.query.targetType || targetType) === "pf"
+          ? segment
+          : String(payload.query.segment || segment || "");
         localStorage.setItem("webscraping.lastSegment", seg);
         localStorage.setItem("webscraping.lastEngine", String(payload.query.engine || engine));
         localStorage.setItem("webscraping.lastTargetType", String(payload.query.targetType || targetType));
+        localStorage.setItem("webscraping.pfRole", pfRole);
+        localStorage.setItem("webscraping.pfDdd", normalizeDdd(pfDdd));
       } catch {
         // ignore storage errors
       }
@@ -765,7 +905,16 @@ export default function WebscrapingClientPage() {
       setActiveQuery(null);
       setSearchMeta(null);
       setHasSearched(true);
-      setSearchError(error instanceof Error ? error.message : "Falha ao buscar contatos.");
+      setMotorHealthByMode((current) => ({
+        ...current,
+        [selectedSearchMode.id]: "bug",
+      }));
+      const baseMessage = error instanceof Error ? error.message : "Falha ao buscar contatos.";
+      setSearchError(
+        pfMode
+          ? `${baseMessage} O Motor W pode estar indisponível ou sobrecarregado; tente reduzir a quantidade, trocar o nicho ou usar HBX Agenda PF.`
+          : baseMessage,
+      );
     } finally {
       setSearching(false);
     }
@@ -785,7 +934,14 @@ export default function WebscrapingClientPage() {
       setEngine(restoredEngine);
       setTargetType(restoredTargetType);
       // respect known segments and custom ones
-      setSegment(payload.query.segment);
+      if (restoredTargetType === "pf") {
+        const parsedPf = parsePfSegment(payload.query.segment);
+        setPfRole(parsedPf.role);
+        setPfDdd(parsedPf.ddd);
+        setSegment(parsedPf.niche);
+      } else {
+        setSegment(payload.query.segment);
+      }
       setQuantity(payload.query.quantity);
       setMinRating(payload.query.filters.minRating == null ? "" : String(payload.query.filters.minRating));
       setMinReviews(payload.query.filters.minReviews == null ? "" : String(payload.query.filters.minReviews));
@@ -812,7 +968,7 @@ export default function WebscrapingClientPage() {
     const selectedCity = cityExactOption || (cityOptions.length === 0 ? city.trim() : "");
     const query = activeQuery || {
       city: selectedCity,
-      segment,
+      segment: effectiveSegment,
       quantity,
       engine,
       targetType,
@@ -844,9 +1000,9 @@ export default function WebscrapingClientPage() {
         quantity: query.quantity,
         engine: normalizeEngineValue(query.engine || engine),
         targetType: queryTargetType,
-        minRating: query.filters.minRating ?? undefined,
-        minReviews: query.filters.minReviews ?? undefined,
-        onlyWithWebsite: query.filters.onlyWithWebsite,
+        minRating: queryTargetType === "pj" ? query.filters.minRating ?? undefined : undefined,
+        minReviews: queryTargetType === "pj" ? query.filters.minReviews ?? undefined : undefined,
+        onlyWithWebsite: queryTargetType === "pj" ? query.filters.onlyWithWebsite : undefined,
       });
       setFeedback("Excel gerado com sucesso.");
       await refreshHistory();
@@ -860,7 +1016,7 @@ export default function WebscrapingClientPage() {
   async function handleSendResultsToVendas() {
     const query = activeQuery || {
       city,
-      segment,
+      segment: effectiveSegment,
       targetType,
     };
     const leadSegment = getVisualSegment(query.segment, query.targetType || targetType);
@@ -975,20 +1131,27 @@ export default function WebscrapingClientPage() {
         ) : null}
 
         <section className={styles.runtimeVisionCard}>
-          <div className={styles.runtimeHeader}>
-            <article className={styles.runtimeVisionMetric}>
-              <span className={styles.runtimeVisionLabel}>Pesquisas Restantes na API</span>
-              <strong className={styles.runtimeVisionValue}>{remainingSearchesLabel}</strong>
+          <div className={styles.runtimeCompactHeader}>
+            <article className={styles.quotaCard}>
+              <span className={styles.runtimeVisionLabel}>Pesquisas na API oficial</span>
+              <strong className={styles.quotaValue}>{remainingSearchesLabel}</strong>
             </article>
-            <article
-              className={styles.runtimeVisionMetric}
-              data-online={runtimeReady && !configurationPending ? "true" : "false"}
-            >
-              <span className={styles.runtimeVisionLabel}>Motor</span>
-              <strong className={styles.runtimeVisionValue}>
-                {runtimeReady && !configurationPending ? "Online" : "Offline"}
-              </strong>
-            </article>
+
+            <div className={styles.motorStatusGrid} aria-label="Status dos motores">
+              {motorStatusItems.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  className={item.active ? styles.motorStatusActive : styles.motorStatus}
+                  data-status={item.status}
+                  onClick={() => handleSearchModeChange(item.id)}
+                >
+                  <span>{item.motorCode}</span>
+                  <strong>{motorStatusLabel(item.status)}</strong>
+                  <small>{item.label}</small>
+                </button>
+              ))}
+            </div>
           </div>
 
           <div className={styles.glassTabs}>
@@ -1026,7 +1189,7 @@ export default function WebscrapingClientPage() {
                 </p>
               </div>
               <div className={styles.segmentChips}>
-                {SEGMENT_SUGGESTIONS.map((option) => (
+                {activeSegmentSuggestions.map((option) => (
                   <button
                     key={option}
                     type="button"
@@ -1115,22 +1278,68 @@ export default function WebscrapingClientPage() {
                 </p>
               </div>
 
+              {pfMode ? (
+                <label className={styles.field}>
+                  <span className={styles.fieldLabel}>Perfil da pessoa</span>
+                  <select
+                    className={styles.fieldSelect}
+                    value={pfRole}
+                    onChange={(event) => setPfRole(event.target.value)}
+                  >
+                    {PF_ROLE_OPTIONS.map((option) => (
+                      <option key={option} value={option}>
+                        {option}
+                      </option>
+                    ))}
+                  </select>
+                  <p className={styles.fieldHint}>Use perfis que aparecem em páginas públicas.</p>
+                </label>
+              ) : null}
+
               <label className={styles.field}>
                 <span className={styles.fieldLabel}>
-                  {agendaMode ? "Segmento opcional" : "Segmento / tipo de negocio"}
+                  {pfMode ? "Nicho / serviço para PF" : agendaMode ? "Segmento opcional" : "Segmento / tipo de negocio"}
                 </span>
                 <input
                   className={styles.fieldInput}
                   value={segment}
                   onChange={(event) => setSegment(event.target.value)}
-                  placeholder={agendaMode ? "Opcional. Ex: Agenda PF" : "Ex: Clinicas odontologicas"}
+                  placeholder={
+                    pfMode
+                      ? "Ex: plano de saúde, seguros, imóveis"
+                      : agendaMode
+                        ? "Opcional. Ex: Agenda PF"
+                        : "Ex: Clinicas odontologicas"
+                  }
                 />
+                {pfMode ? (
+                  <p className={styles.fieldHint}>
+                    Pesquisa enviada: {effectiveSegment || "informe um nicho"}
+                  </p>
+                ) : null}
                 {agendaMode ? (
                   <p className={styles.fieldHint}>
                     {segment.trim() ? `Rótulo visual: ${segmentLabel}` : "Sem segmento: será exibido como Agenda PF."}
                   </p>
                 ) : null}
               </label>
+
+              {pfMode ? (
+                <label className={styles.field}>
+                  <span className={styles.fieldLabel}>DDD local</span>
+                  <input
+                    className={styles.fieldInput}
+                    value={pfDdd}
+                    onChange={(event) => setPfDdd(normalizeDdd(event.target.value))}
+                    placeholder={inferredDdd ? `Detectado: ${inferredDdd}` : "Ex: 19"}
+                    inputMode="numeric"
+                    maxLength={2}
+                  />
+                  <p className={styles.fieldHint}>
+                    {effectiveDdd ? `Priorizando telefones DDD ${effectiveDdd}.` : "Opcional, mas melhora a relevância regional."}
+                  </p>
+                </label>
+              ) : null}
 
               <label className={styles.field}>
                 <span className={styles.fieldLabel}>Quantidade</span>
@@ -1160,41 +1369,52 @@ export default function WebscrapingClientPage() {
 
               {advancedOpen ? (
                 <div className={styles.advancedGrid}>
-                  <label className={styles.field}>
-                    <span className={styles.fieldLabel}>Nota minima</span>
-                    <input
-                      className={styles.fieldInput}
-                      type="number"
-                      min="0"
-                      max="5"
-                      step="0.1"
-                      value={minRating}
-                      onChange={(event) => setMinRating(event.target.value)}
-                      placeholder="Opcional"
-                    />
-                  </label>
+                  {targetType === "pj" ? (
+                    <>
+                      <label className={styles.field}>
+                        <span className={styles.fieldLabel}>Nota minima</span>
+                        <input
+                          className={styles.fieldInput}
+                          type="number"
+                          min="0"
+                          max="5"
+                          step="0.1"
+                          value={minRating}
+                          onChange={(event) => setMinRating(event.target.value)}
+                          placeholder="Opcional"
+                        />
+                      </label>
 
-                  <label className={styles.field}>
-                    <span className={styles.fieldLabel}>Minimo de avaliacoes</span>
-                    <input
-                      className={styles.fieldInput}
-                      type="number"
-                      min="0"
-                      step="1"
-                      value={minReviews}
-                      onChange={(event) => setMinReviews(event.target.value)}
-                      placeholder="Opcional"
-                    />
-                  </label>
+                      <label className={styles.field}>
+                        <span className={styles.fieldLabel}>Minimo de avaliacoes</span>
+                        <input
+                          className={styles.fieldInput}
+                          type="number"
+                          min="0"
+                          step="1"
+                          value={minReviews}
+                          onChange={(event) => setMinReviews(event.target.value)}
+                          placeholder="Opcional"
+                        />
+                      </label>
 
-                  <label className={styles.checkboxField}>
-                    <input
-                      type="checkbox"
-                      checked={onlyWithWebsite}
-                      onChange={(event) => setOnlyWithWebsite(event.target.checked)}
-                    />
-                    <span>Somente com site</span>
-                  </label>
+                      <label className={styles.checkboxField}>
+                        <input
+                          type="checkbox"
+                          checked={onlyWithWebsite}
+                          onChange={(event) => setOnlyWithWebsite(event.target.checked)}
+                        />
+                        <span>Somente com site</span>
+                      </label>
+                    </>
+                  ) : (
+                    <div className={styles.filterNotice}>
+                      <strong>Filtros de PF</strong>
+                      <p>
+                        PF não usa nota, avaliações ou site como corte. A relevância vem de perfil, nicho, cidade e DDD.
+                      </p>
+                    </div>
+                  )}
                 </div>
               ) : null}
             </div>
