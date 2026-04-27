@@ -154,6 +154,11 @@ export class InboxController {
     return this.inboxService.deleteConversation(req.user, id);
   }
 
+  @Post('conversations/:id/whatsapp-delete')
+  deleteConversationFromWhatsApp(@Req() req: any, @Param('id', ParseIntPipe) id: number) {
+    return this.inboxService.deleteConversationFromWhatsApp(req.user, id);
+  }
+
   @Patch('conversations/:id/read')
   markConversationAsRead(@Req() req: any, @Param('id', ParseIntPipe) id: number) {
     return this.inboxService.markConversationAsRead(req.user, id);

@@ -363,6 +363,13 @@ export class InboxService {
     }
   }
 
+  private parseBooleanMetadataFlag(value: unknown) {
+    if (typeof value === 'boolean') return value;
+    if (typeof value === 'number') return value === 1;
+    const normalized = String(value || '').trim().toLowerCase();
+    return ['true', '1', 'yes', 'sim'].includes(normalized);
+  }
+
   private hasPersistedWhatsAppDisplayName(metadataRaw: string | null | undefined) {
     const metadata = this.parseConversationMetadata(metadataRaw);
     return Boolean(
@@ -1995,7 +2002,12 @@ export class InboxService {
         ),
     );
 
-    const sortedRows = [...rows].sort((left, right) => {
+    const visibleRows = rows.filter((row) => {
+      const metadata = this.parseConversationMetadata(row.metadata);
+      return !this.parseBooleanMetadataFlag(metadata.whatsappConversationDeleted || metadata.inboxWhatsAppDeleted);
+    });
+
+    const sortedRows = [...visibleRows].sort((left, right) => {
       const leftTime = this.resolveConversationActivityDate(left)?.getTime() || 0;
       const rightTime = this.resolveConversationActivityDate(right)?.getTime() || 0;
       if (leftTime !== rightTime) return rightTime - leftTime;
@@ -3774,6 +3786,83 @@ export class InboxService {
       message: 'Conversa enviada para Excluídos apenas no HBX.',
       archivedLeadId,
       localOnly: true,
+    };
+  }
+
+  async deleteConversationFromWhatsApp(user: any, conversationId: number) {
+    const companyId = this.requireCompanyIdFromUser(user);
+    const conversation = await this.ensureConversation(companyId, conversationId);
+    const metadata = this.parseConversationMetadata(conversation.metadata);
+
+    let providerResult: unknown = null;
+    try {
+      providerResult = await this.webwhatsBridge.deleteChat(companyId, {
+        conversationId: conversation.id,
+      });
+    } catch (error) {
+      const providerError = error instanceof WebwhatsProviderError ? error : null;
+      const message =
+        providerError?.providerMessage ||
+        providerError?.message ||
+        (error instanceof Error ? error.message : 'Falha ao apagar conversa no WhatsApp.');
+
+      await this.logInboxEvent({
+        companyId,
+        event: 'conversation_whatsapp_delete_failed',
+        message: 'Falha tecnica ao apagar conversa na conta WhatsApp conectada.',
+        conversationId: conversation.id,
+        phone: String(conversation.contact || '').trim(),
+        result: 'failed',
+        extra: {
+          code: providerError?.code || 'unknown',
+          statusCode: providerError?.statusCode || null,
+          providerMessage: providerError?.providerMessage || null,
+          error: message,
+        },
+      });
+
+      if (providerError?.statusCode === 400) {
+        throw new BadRequestException(message);
+      }
+      if (providerError?.code === 'WEBWHATS_NOT_CONNECTED') {
+        throw new ServiceUnavailableException(message);
+      }
+      throw new ServiceUnavailableException(message);
+    }
+
+    const deletedAt = new Date().toISOString();
+    await this.conversations.updateConversationState(companyId, conversation.id, {
+      botActive: false,
+      humanAssigned: false,
+      flowResult: 'whatsapp_deleted',
+      metadata: {
+        ...metadata,
+        whatsappConversationDeleted: true,
+        inboxWhatsAppDeleted: true,
+        inboxWhatsAppDeletedAt: deletedAt,
+        inboxWhatsAppDeletedByUserId: Number(user?.id || 0) || null,
+      },
+    });
+
+    await this.logInboxEvent({
+      companyId,
+      event: 'conversation_whatsapp_deleted',
+      message: 'Conversa apagada da conta WhatsApp conectada e ocultada no HBX.',
+      conversationId: conversation.id,
+      phone: String(conversation.contact || '').trim(),
+      result: 'deleted',
+      extra: {
+        providerResult,
+      },
+    });
+
+    return {
+      success: true,
+      id: String(conversation.id),
+      deleted: true,
+      whatsappDeleted: true,
+      hidden: true,
+      message: 'Conversa apagada da conta WhatsApp conectada.',
     };
   }
 
