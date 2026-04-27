@@ -1,5 +1,8 @@
 FROM node:20
 
+ENV NPM_CONFIG_UPDATE_NOTIFIER=false \
+    npm_config_update_notifier=false
+
 WORKDIR /app
 
 COPY backend/package*.json ./
