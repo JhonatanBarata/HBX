@@ -12,9 +12,9 @@ type BotQrWorkspaceProps = {
 };
 
 const TABS: Array<{ id: BotQrWorkspaceTab; label: string; helper: string }> = [
-  { id: "connection", label: "Conexao", helper: "QR e canal" },
-  { id: "flow", label: "Fluxo do Bot", helper: "Menu Supremo" },
-  { id: "publish", label: "Publicar", helper: "Checklist final" },
+  { id: "connection", label: "Status", helper: "WhatsApp" },
+  { id: "flow", label: "BOT", helper: "Fluxo" },
+  { id: "publish", label: "OK", helper: "Publicar" },
 ];
 
 export default function BotQrWorkspace({
@@ -37,11 +37,8 @@ export default function BotQrWorkspace({
       <div className={styles.workspaceHeader}>
         <div>
           <span className={styles.sectionEyebrow}>Automacao WhatsApp</span>
-          <h2 className={styles.sectionTitle}>Configure conexao, fluxo e publicacao do bot em um so lugar.</h2>
+          <h2 className={styles.sectionTitle}>BOT</h2>
         </div>
-        <p className={styles.sectionText}>
-          A tela de Vendas Automacao agora concentra o QR, o Menu Supremo do Bot e o checklist final.
-        </p>
       </div>
 
       <div className={styles.workspaceTabs} role="tablist" aria-label="Abas da Automacao WhatsApp">
