@@ -5,6 +5,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import DashboardScaffold from "@/components/DashboardScaffold";
 import { QR_PAIRED_EVENT } from "@/components/QrPairedNextStepPrompt";
 import { getProviderCapabilitiesFromWhatsAppCenter } from "@/lib/provider-capabilities";
+import type { UserModule } from "@/lib/hbx-modules";
 import {
   whatsappModeLabel,
   type WhatsAppCenterPayload,
@@ -136,6 +137,7 @@ export default function VendasAutomationClientPage() {
   const [agendaConfig, setAgendaConfig] = useState<AtendimentoAgendaConfig>(DEFAULT_ATENDIMENTO_AGENDA_CONFIG);
   const [centerPayload, setCenterPayload] = useState<WhatsAppCenterPayload | null>(null);
   const [modalPayload, setModalPayload] = useState<WhatsAppModalPayload | null>(null);
+  const [userModules, setUserModules] = useState<UserModule[]>([]);
   const [draftSavedAt, setDraftSavedAt] = useState<string | null>(null);
   const [publishedAt, setPublishedAt] = useState<string | null>(null);
   const [lastQuickTestAt, setLastQuickTestAt] = useState<string | null>(null);
@@ -151,11 +153,8 @@ export default function VendasAutomationClientPage() {
   const recoveryEnabled = useMemo(() => {
     const trialModule = String(centerPayload?.company.trialModuleSelection || "").trim().toLowerCase();
     if (trialModule === "recovery") return true;
-    return (
-      draftConfig.variableCatalog.some((item) => item.scope === "recovery") ||
-      draftConfig.actionCatalog.some((action) => action.route === "recovery")
-    );
-  }, [centerPayload?.company.trialModuleSelection, draftConfig.actionCatalog, draftConfig.variableCatalog]);
+    return userModules.some((module) => module.accessible && module.key === "hbx_recovery");
+  }, [centerPayload?.company.trialModuleSelection, userModules]);
 
   const checklist = useMemo(
     () =>
@@ -334,6 +333,9 @@ export default function VendasAutomationClientPage() {
     if (hasToken !== true) return;
     void loadAutomation();
     void loadConnection(false, true);
+    void apiFetch<UserModule[]>("/modules/me")
+      .then((modules) => setUserModules(Array.isArray(modules) ? modules : []))
+      .catch(() => setUserModules([]));
   }, [hasToken, loadAutomation, loadConnection]);
 
   useEffect(() => {
