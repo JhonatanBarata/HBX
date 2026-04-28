@@ -1,0 +1,415 @@
+.page {
+  min-height: 100vh;
+  padding: 28px;
+  color: #10213a;
+  background:
+    linear-gradient(135deg, rgba(16, 33, 58, 0.97), rgba(21, 75, 89, 0.94) 46%, rgba(245, 247, 251, 1) 46.2%),
+    #f5f7fb;
+}
+
+.hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 380px);
+  gap: 22px;
+  max-width: 1260px;
+  margin: 0 auto 22px;
+  align-items: stretch;
+}
+
+.heroCopy,
+.promisePanel,
+.signupPanel,
+.planArea {
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 8px;
+  box-shadow: 0 24px 70px -42px rgba(6, 18, 33, 0.68);
+}
+
+.heroCopy {
+  padding: clamp(26px, 5vw, 52px);
+  color: #ffffff;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.03)),
+    rgba(7, 23, 39, 0.38);
+}
+
+.eyebrow,
+.sectionHeader span,
+.selectedSummary span {
+  display: inline-flex;
+  width: fit-content;
+  min-height: 24px;
+  align-items: center;
+  border-radius: 999px;
+  padding: 3px 10px;
+  background: rgba(240, 183, 77, 0.14);
+  color: #f0b74d;
+  font-size: 0.74rem;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.heroCopy h1 {
+  max-width: 760px;
+  margin: 16px 0 14px;
+  font-size: clamp(2.4rem, 6vw, 5.2rem);
+  line-height: 0.96;
+  letter-spacing: 0;
+}
+
+.heroCopy p {
+  max-width: 680px;
+  margin: 0;
+  color: rgba(255, 255, 255, 0.82);
+  font-size: 1.04rem;
+  line-height: 1.65;
+}
+
+.flow {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 28px;
+}
+
+.flow div {
+  min-height: 78px;
+  padding: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.flow strong {
+  display: block;
+  color: #f0b74d;
+  font-size: 1.2rem;
+}
+
+.flow span {
+  display: block;
+  margin-top: 8px;
+  color: #ffffff;
+  font-weight: 750;
+}
+
+.promisePanel {
+  display: grid;
+  gap: 10px;
+  align-content: end;
+  padding: 24px;
+  background: #ffffff;
+}
+
+.promisePanel span,
+.summaryBox span,
+.muted {
+  color: #66768c;
+}
+
+.promisePanel strong {
+  color: #10213a;
+  font-size: 1.65rem;
+  line-height: 1.08;
+}
+
+.promisePanel p,
+.selectedSummary p,
+.form label span,
+.planCard p,
+.planCard small,
+.confirmation p,
+.infoBox p,
+.loginLink {
+  margin: 0;
+  color: #627086;
+  line-height: 1.55;
+}
+
+.contentGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 440px);
+  gap: 22px;
+  max-width: 1260px;
+  margin: 0 auto;
+  align-items: start;
+}
+
+.planArea,
+.signupPanel {
+  background: rgba(255, 255, 255, 0.94);
+  border-color: rgba(16, 33, 58, 0.1);
+}
+
+.planArea {
+  padding: 22px;
+}
+
+.sectionHeader {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 16px;
+}
+
+.sectionHeader h2 {
+  margin: 8px 0 0;
+  color: #10213a;
+  font-size: clamp(1.5rem, 3vw, 2.4rem);
+  letter-spacing: 0;
+}
+
+.plansGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.planCard {
+  position: relative;
+  display: grid;
+  min-height: 430px;
+  align-content: start;
+  gap: 13px;
+  padding: 18px;
+  border: 1px solid rgba(16, 33, 58, 0.1);
+  border-radius: 8px;
+  background: #ffffff;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.planCard[data-featured="true"] {
+  border-color: rgba(201, 71, 61, 0.38);
+  background: linear-gradient(180deg, #ffffff 0%, #fff8f6 100%);
+}
+
+.planCard[data-selected="true"] {
+  outline: 3px solid rgba(201, 71, 61, 0.22);
+  border-color: #c9473d;
+}
+
+.planCard[data-disabled="true"] {
+  cursor: not-allowed;
+  opacity: 0.66;
+  background: #eef2f6;
+}
+
+.badge {
+  width: fit-content;
+  min-height: 24px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: rgba(25, 111, 117, 0.11);
+  color: #196f75;
+  font-size: 0.73rem;
+  font-weight: 850;
+}
+
+.planCard strong {
+  color: #10213a;
+  font-size: 1.22rem;
+}
+
+.planCard em {
+  color: #10213a;
+  font-style: normal;
+  font-size: 1.7rem;
+  font-weight: 900;
+  line-height: 1.05;
+}
+
+.planCard ul {
+  display: grid;
+  gap: 9px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.planCard li {
+  position: relative;
+  padding-left: 16px;
+  color: #2f4057;
+  font-size: 0.92rem;
+}
+
+.planCard li::before {
+  content: "";
+  position: absolute;
+  top: 0.62em;
+  left: 0;
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: #c9473d;
+}
+
+.planAction {
+  display: grid;
+  min-height: 40px;
+  margin-top: auto;
+  place-items: center;
+  border-radius: 8px;
+  background: #10213a;
+  color: #ffffff;
+  font-weight: 850;
+}
+
+.planCard[data-selected="true"] .planAction {
+  background: #c9473d;
+}
+
+.signupPanel {
+  position: sticky;
+  top: 18px;
+  padding: 22px;
+}
+
+.form,
+.confirmation {
+  display: grid;
+  gap: 16px;
+}
+
+.selectedSummary,
+.summaryBox,
+.infoBox {
+  display: grid;
+  gap: 8px;
+  padding: 14px;
+  border: 1px solid rgba(16, 33, 58, 0.1);
+  border-radius: 8px;
+  background: #f6f9fb;
+}
+
+.selectedSummary strong,
+.confirmation h2 {
+  color: #10213a;
+  font-size: 1.38rem;
+}
+
+.form label {
+  display: grid;
+  gap: 7px;
+}
+
+.form input {
+  width: 100%;
+  min-height: 46px;
+  border: 1px solid rgba(16, 33, 58, 0.16);
+  border-radius: 8px;
+  padding: 0 13px;
+  color: #10213a;
+  background: #ffffff;
+  outline: none;
+}
+
+.form input:focus {
+  border-color: #196f75;
+  box-shadow: 0 0 0 3px rgba(25, 111, 117, 0.12);
+}
+
+.primaryButton,
+.secondaryButton {
+  min-height: 46px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  padding: 0 16px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.primaryButton {
+  color: #ffffff;
+  background: #c9473d;
+}
+
+.primaryButton:disabled,
+.secondaryButton:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+
+.secondaryButton {
+  color: #10213a;
+  background: #ffffff;
+  border-color: rgba(16, 33, 58, 0.16);
+}
+
+.errorBox,
+.warningText {
+  margin: 0;
+  border: 1px solid rgba(201, 71, 61, 0.26);
+  border-radius: 8px;
+  padding: 11px 12px;
+  background: #fff3f1;
+  color: #9f2e25;
+}
+
+.summaryBox {
+  grid-template-columns: 1fr;
+}
+
+.summaryBox div {
+  display: grid;
+  gap: 3px;
+}
+
+.summaryBox strong {
+  color: #10213a;
+}
+
+.confirmActions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.loginLink {
+  text-align: center;
+}
+
+.loginLink a {
+  color: #196f75;
+  font-weight: 850;
+}
+
+@media (max-width: 1120px) {
+  .hero,
+  .contentGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .plansGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .signupPanel {
+    position: static;
+  }
+}
+
+@media (max-width: 720px) {
+  .page {
+    padding: 14px;
+    background: #f5f7fb;
+  }
+
+  .heroCopy {
+    padding: 24px;
+    background: #10213a;
+  }
+
+  .flow,
+  .plansGrid,
+  .confirmActions {
+    grid-template-columns: 1fr;
+  }
+
+  .planCard {
+    min-height: auto;
+  }
+}

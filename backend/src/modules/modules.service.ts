@@ -22,6 +22,15 @@ import {
   serializeMasterGlobalIntegrationConfig,
   serializeMasterIntegrationLibrariesForStorage,
 } from './master-global-integrations.util';
+import {
+  COMMERCIAL_ENTITLEMENT_KEYS,
+  COMMERCIAL_PLAN_ENTITLEMENT_KEYS,
+  COMMERCIAL_PLAN_KEYS,
+  COMMERCIAL_PLAN_MODULE_KEYS,
+  getCommercialPlanMonthlyPrice,
+  normalizeCommercialPlanKey,
+  type ActiveCommercialPlanKey,
+} from '../commercial-plans/commercial-plan-catalog';
 
 type DefaultModuleDef = {
   key: string;
@@ -287,16 +296,8 @@ export class ModulesService implements OnModuleInit {
   }
 
   private resolveCompanyMonthlyValue(company: any) {
-    const enabledModuleTotal = Array.isArray(company?.companyModules)
-      ? company.companyModules
-          .filter((row: any) => row?.enabled && row?.systemModule?.companyAssignable)
-          .reduce(
-            (total: number, row: any) => total + this.normalizeCurrencyAmount(row?.systemModule?.monthlyPrice || 0),
-            0,
-          )
-      : 0;
-    if (enabledModuleTotal > 0) {
-      return this.normalizeCurrencyAmount(enabledModuleTotal);
+    if (company?.selectedPlanKey) {
+      return this.normalizeCurrencyAmount(getCommercialPlanMonthlyPrice(normalizeCommercialPlanKey(company.selectedPlanKey)));
     }
     return this.normalizeCurrencyAmount(company?.plan?.price || 0);
   }
@@ -672,7 +673,7 @@ export class ModulesService implements OnModuleInit {
           FROM "WebscrapingUsageLog" l
           LEFT JOIN "User" u ON u."id" = l."userId"
           WHERE l."companyId" IN (${Prisma.join(companyIds.map((id) => Number(id)))})
-            AND l."eventType" IN ('EXECUTED', 'MOTOR_EXECUTED')
+            AND l."eventType" IN ('EXECUTED', 'GOOGLE_SEARCH_EXECUTED')
           ORDER BY l."companyId", l."createdAt" DESC
         `,
       ),
@@ -683,7 +684,7 @@ export class ModulesService implements OnModuleInit {
       if (!companyId) continue;
       const current = summaries.get(companyId) || this.buildDefaultWebscrapingUsageSummary();
       const eventType = String(log.eventType || '').trim().toUpperCase();
-      if (eventType === 'EXECUTED' || eventType === 'MOTOR_EXECUTED') {
+      if (eventType === 'EXECUTED' || eventType === 'GOOGLE_SEARCH_EXECUTED') {
         current.searchesToday += 1;
         current.totalReusedToday += Math.max(0, Math.trunc(Number(log.reusedCount || 0)));
         current.fetchedToday += Math.max(0, Math.trunc(Number(log.fetchedCount || 0)));
@@ -1692,6 +1693,9 @@ export class ModulesService implements OnModuleInit {
     const now = Date.now();
     const paymentStatus = String(company.paymentStatus || '').trim().toUpperCase();
     const subscriptionStatus = String(company.subscriptionStatus || '').trim().toLowerCase();
+    if (paymentStatus === 'PENDING' || subscriptionStatus === 'pending_checkout') {
+      return { exists: true, active: false };
+    }
     const trialExpired = Boolean(
       company.trialEndsAt &&
       company.trialEndsAt.getTime() < now &&
@@ -1761,6 +1765,7 @@ export class ModulesService implements OnModuleInit {
     const key = this.normalizeRequestedModuleKey(moduleKey);
     if (key === 'master' || key === 'exclusoes') return isSystemMaster;
     if (!companyId) return false;
+    if (this.isFinanceModuleKey(key)) return true;
     if (this.isTrialBundledModuleKey(key)) {
       await this.ensureTrialBundleForCompany(companyId);
     }
@@ -2271,6 +2276,7 @@ export class ModulesService implements OnModuleInit {
             price: this.normalizeCurrencyAmount(company.plan.price || 0),
           }
         : null,
+      selectedPlanKey: company.selectedPlanKey || null,
       monthlyValue,
       finance,
       billingSituation,
@@ -2346,11 +2352,7 @@ export class ModulesService implements OnModuleInit {
         masterCredentialLabel: selectedMercadoPagoCredential?.label || null,
       },
       modules: activeModules,
-      modulesTotalMonthlyValue: this.normalizeCurrencyAmount(
-        enabledModules
-          .filter((module: any) => module.enabled)
-          .reduce((total: number, module: any) => total + this.normalizeCurrencyAmount(module.monthlyPrice || 0), 0),
-      ),
+      modulesTotalMonthlyValue: 0,
       auditCount: companyAuditRows.length,
     };
   }
@@ -3381,6 +3383,124 @@ export class ModulesService implements OnModuleInit {
       action: 'grant',
       days,
     });
+  }
+
+  private async syncCompanyModulesForPlanTx(tx: any, companyId: number, planKey: ActiveCommercialPlanKey) {
+    const moduleKeys = COMMERCIAL_PLAN_MODULE_KEYS[planKey] || [];
+    const moduleRows = moduleKeys.length
+      ? await tx.systemModule.findMany({
+          where: { companyAssignable: true, key: { in: moduleKeys } },
+          select: { id: true },
+        })
+      : [];
+
+    await tx.companyModule.updateMany({ where: { companyId }, data: { enabled: false } });
+    for (const moduleRow of moduleRows) {
+      await tx.companyModule.upsert({
+        where: { companyId_moduleId: { companyId, moduleId: moduleRow.id } },
+        update: { enabled: true },
+        create: { companyId, moduleId: moduleRow.id, enabled: true },
+      });
+    }
+  }
+
+  private async syncCompanyEntitlementsForPlanTx(
+    tx: any,
+    companyId: number,
+    planKey: ActiveCommercialPlanKey,
+    status: 'paid' | 'manual' | 'trialing' | 'pending_checkout',
+    source: string,
+    periodStart: Date | null,
+    periodEnd: Date | null,
+  ) {
+    const activeKeys = new Set(COMMERCIAL_PLAN_ENTITLEMENT_KEYS[planKey] || []);
+    const allKeys = [
+      COMMERCIAL_ENTITLEMENT_KEYS.VENDAS,
+      COMMERCIAL_ENTITLEMENT_KEYS.ATENDIMENTO_CHAT,
+      COMMERCIAL_ENTITLEMENT_KEYS.WEBSCRAPING,
+      COMMERCIAL_ENTITLEMENT_KEYS.BOT_IA,
+    ];
+
+    for (const key of allKeys) {
+      const active = activeKeys.has(key);
+      await tx.companyCommercialEntitlement.upsert({
+        where: { companyId_key: { companyId, key } },
+        update: {
+          status: active ? status : 'canceled',
+          source: active ? source : 'master_plan_change',
+          currentPeriodStart: active ? periodStart : null,
+          currentPeriodEnd: active ? periodEnd : null,
+          metadataJson: JSON.stringify({
+            selectedPlanKey: planKey,
+            changedBy: 'master',
+            changedAt: new Date().toISOString(),
+          }),
+        },
+        create: {
+          companyId,
+          key,
+          status: active ? status : 'canceled',
+          source: active ? source : 'master_plan_change',
+          currentPeriodStart: active ? periodStart : null,
+          currentPeriodEnd: active ? periodEnd : null,
+          metadataJson: JSON.stringify({
+            selectedPlanKey: planKey,
+            changedBy: 'master',
+            changedAt: new Date().toISOString(),
+          }),
+        },
+      });
+    }
+  }
+
+  async setCompanyPlanByMaster(masterUserId: number, companyId: number, planKey: string) {
+    await this.assertMasterUser(masterUserId);
+    const normalizedPlanKey = normalizeCommercialPlanKey(planKey);
+    const company = await this.prisma.company.findUnique({ where: { id: companyId } });
+    if (!company) throw new BadRequestException('Empresa nao encontrada');
+
+    const previousState = this.buildCompanyAccessAuditSnapshot(company);
+    const now = new Date();
+    const periodEnd = this.addDays(now, 30);
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.company.update({
+        where: { id: companyId },
+        data: {
+          selectedPlanKey: normalizedPlanKey,
+          trialModuleSelection: normalizedPlanKey === COMMERCIAL_PLAN_KEYS.PADRAO ? 'vendas' : null,
+          isActive: true,
+          onboardingStatus: 'active_paid',
+          paymentStatus: 'MANUAL',
+          subscriptionStatus: 'manual',
+          premiumAccess: true,
+          trialStartsAt: null,
+          trialEndsAt: null,
+          subscriptionCurrentPeriodStart: now,
+          subscriptionCurrentPeriodEnd: periodEnd,
+          deactivatedAt: null,
+        },
+      });
+      await this.syncCompanyModulesForPlanTx(tx, companyId, normalizedPlanKey);
+      await this.syncCompanyEntitlementsForPlanTx(tx, companyId, normalizedPlanKey, 'manual', 'master_plan_change', now, periodEnd);
+    });
+
+    await this.masterContextService.registerSupportAction({
+      masterUserId,
+      companyId,
+      scope: 'master_plan',
+      action: 'COMMERCIAL_PLAN_CHANGED',
+      metadata: {
+        previousPlanKey: company.selectedPlanKey || null,
+        currentPlanKey: normalizedPlanKey,
+        previousState,
+        currentState: this.buildCompanyAccessAuditSnapshot(
+          await this.prisma.company.findUnique({ where: { id: companyId } }),
+        ),
+      },
+    });
+
+    return { ok: true, companyId, planKey: normalizedPlanKey };
   }
 
   async setPaymentStatus(masterUserId: number, companyId: number, paymentStatus: string) {

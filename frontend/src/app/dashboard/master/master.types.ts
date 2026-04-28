@@ -188,6 +188,7 @@ export type CompanySummary = {
     name: string;
     price: number;
   } | null;
+  selectedPlanKey?: "hbx_lite" | "hbx_padrao" | "hbx_melhor" | string | null;
   monthlyValue: number;
   billingSituation?: MasterBillingSituation | null;
   paymentStatus: string;

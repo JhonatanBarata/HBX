@@ -16,6 +16,7 @@ model Company {
   entityType              String    @default("PJ") // PF | PJ
   slug                    String?   @unique
   trialModuleSelection    String? // vendas | recovery
+  selectedPlanKey         String? // hbx_lite | hbx_padrao | hbx_melhor
   signupUsesPublicEmail   Boolean   @default(false)
   acquisitionSource       String?
   acquisitionSourceDetail String?
@@ -132,6 +133,7 @@ model Company {
   webscrapingUsageLogs WebscrapingUsageLog[]
   vendasLeads         VendasLead[]
   commercialEntitlements CompanyCommercialEntitlement[]
+  commercialUsageLogs CompanyCommercialUsageLog[]
   trialPhoneUsages    TrialPhoneUsage[]
 }
 
@@ -151,6 +153,21 @@ model CompanyCommercialEntitlement {
   @@unique([companyId, key])
   @@index([companyId, status])
   @@index([key, status])
+}
+
+model CompanyCommercialUsageLog {
+  id           String   @id @default(cuid())
+  company      Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companyId    Int
+  userId       Int?
+  planKey      String?
+  eventType    String
+  source       String?
+  metadataJson String?
+  createdAt    DateTime @default(now())
+
+  @@index([companyId, eventType, createdAt])
+  @@index([planKey, eventType, createdAt])
 }
 
 model TrialPhoneUsage {

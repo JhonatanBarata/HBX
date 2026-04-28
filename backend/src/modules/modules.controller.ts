@@ -3,7 +3,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { ModulesService } from './modules.service';
 import { ModuleAccessGuard } from './module-access.guard';
 import { ModuleAccess } from './module-feature.decorator';
-import { IsBoolean, IsInt, IsNumber, IsOptional, IsString, Max, Min } from 'class-validator';
+import { IsBoolean, IsIn, IsInt, IsNumber, IsOptional, IsString, Max, Min } from 'class-validator';
 import { MasterGuard } from '../auth/guards/master.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { Admin } from '../auth/admin.decorator';
@@ -12,6 +12,7 @@ import { IntegrationSyncDto } from '../integrations/dto/integration-sync.dto';
 import { IsArray, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
 import { probeWebscrapingRuntime } from './webscraping-runtime.util';
+import { COMMERCIAL_PLAN_KEYS } from '../commercial-plans/commercial-plan-catalog';
 
 class ModulePermissionDto {
   @IsString()
@@ -142,6 +143,12 @@ class GrantTrialDto {
 class SetPaymentStatusDto {
   @IsString()
   paymentStatus!: string;
+}
+
+class SetCompanyPlanDto {
+  @IsString()
+  @IsIn([COMMERCIAL_PLAN_KEYS.LITE, COMMERCIAL_PLAN_KEYS.PADRAO, COMMERCIAL_PLAN_KEYS.MELHOR])
+  planKey!: string;
 }
 
 class RecordManualPaymentDto {
@@ -419,6 +426,16 @@ export class ModulesController {
     @Body() dto: SetCompanyModuleDto,
   ) {
     return this.modulesService.setCompanyModuleByMaster(Number(req.user?.id), companyId, dto?.moduleKey, Boolean(dto?.enabled));
+  }
+
+  @Put('master/company/:companyId/plan')
+  @UseGuards(JwtAuthGuard, MasterGuard)
+  setCompanyPlan(
+    @Req() req: any,
+    @Param('companyId', ParseIntPipe) companyId: number,
+    @Body() dto: SetCompanyPlanDto,
+  ) {
+    return this.modulesService.setCompanyPlanByMaster(Number(req.user?.id), companyId, dto?.planKey);
   }
 
   @Put('master/company/:companyId/global-token-usage')

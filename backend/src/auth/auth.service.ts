@@ -16,7 +16,16 @@ import { MailService } from '../mail/mail.service';
 import * as crypto from 'crypto';
 import { assertPasswordPolicy } from './password-policy';
 import { buildImportacaoPermissaoRows } from '../bootstrap/company-structural-defaults';
-import { COMMERCIAL_ENTITLEMENT_KEYS } from '../commercial-plans/commercial-plan-catalog';
+import {
+  COMMERCIAL_ENTITLEMENT_KEYS,
+  COMMERCIAL_PLAN_ENTITLEMENT_KEYS,
+  COMMERCIAL_PLAN_KEYS,
+  COMMERCIAL_PLAN_MODULE_KEYS,
+  PENDING_COMMERCIAL_ENTITLEMENT_STATUS,
+  normalizeCommercialPlanKey,
+  type ActiveCommercialPlanKey,
+  type CommercialPlanKey,
+} from '../commercial-plans/commercial-plan-catalog';
 
 @Injectable()
 export class AuthService implements OnModuleInit {
@@ -124,12 +133,24 @@ export class AuthService implements OnModuleInit {
     return normalized === 'vendas' ? normalized : null;
   }
 
+  private normalizeSelectedPlanKey(value: string | undefined): ActiveCommercialPlanKey {
+    return normalizeCommercialPlanKey(value);
+  }
+
+  private resolveTrialModuleForPlan(planKey: ActiveCommercialPlanKey): 'vendas' | null {
+    return planKey === COMMERCIAL_PLAN_KEYS.PADRAO ? 'vendas' : null;
+  }
+
   private resolveTrialEnabledModuleKeys(trialModuleSelection: 'vendas' | null) {
     if (trialModuleSelection === 'vendas') {
       return ['atendimento', 'vendas', 'webscraping'];
     }
 
     return [] as string[];
+  }
+
+  private resolvePlanModuleKeys(planKey: ActiveCommercialPlanKey) {
+    return COMMERCIAL_PLAN_MODULE_KEYS[planKey] || [];
   }
 
   private normalizeAcquisitionSource(value: string | undefined) {
@@ -203,14 +224,14 @@ export class AuthService implements OnModuleInit {
       '        <td style="padding:24px 28px;background:linear-gradient(135deg,#163b7a,#26428c);color:#ffffff;">',
       '          <div style="font-size:12px;letter-spacing:.12em;text-transform:uppercase;opacity:.78;">HBX</div>',
       '          <h1 style="margin:12px 0 0;font-size:26px;line-height:1.2;">Confirme seu e-mail</h1>',
-      '          <p style="margin:10px 0 0;font-size:14px;line-height:1.6;opacity:.92;">Seu acesso está quase pronto. Falta só validar o endereço para liberar o trial.</p>',
+      '          <p style="margin:10px 0 0;font-size:14px;line-height:1.6;opacity:.92;">Seu acesso está quase pronto. Falta só validar o endereço para continuar.</p>',
       '        </td>',
       '      </tr>',
       '      <tr>',
       '        <td style="padding:28px;">',
       `          <p style="margin:0 0 12px;font-size:16px;line-height:1.7;">Olá, <strong>${username}</strong>.</p>`,
       `          <p style="margin:0 0 12px;font-size:15px;line-height:1.7;">O cadastro de <strong>${companyName}</strong> foi criado no HBX.</p>`,
-      '          <p style="margin:0 0 24px;font-size:15px;line-height:1.7;">Confirme seu e-mail no botão abaixo para ativar o free trial de 30 dias.</p>',
+      '          <p style="margin:0 0 24px;font-size:15px;line-height:1.7;">Confirme seu e-mail no botão abaixo para continuar o onboarding da conta.</p>',
       `          <a href="${confirmationLink}" style="display:inline-block;padding:14px 22px;border-radius:12px;background:#c9473d;color:#ffffff;text-decoration:none;font-weight:700;">Confirmar e-mail</a>`,
       '          <p style="margin:24px 0 0;font-size:13px;line-height:1.7;color:#4f647e;">Se o botão não abrir, copie e cole este link no navegador:</p>',
       `          <p style="margin:8px 0 0;word-break:break-all;font-size:13px;line-height:1.7;"><a href="${confirmationLink}" style="color:#26428c;">${confirmationLink}</a></p>`,
@@ -287,7 +308,7 @@ export class AuthService implements OnModuleInit {
   }
 
   private emailConfirmationDeliveryFailureMessage() {
-    return 'Cadastro criado, mas não conseguimos enviar o e-mail de confirmação agora. Reenvie a confirmação para liberar o trial.';
+    return 'Cadastro criado, mas não conseguimos enviar o e-mail de confirmação agora. Reenvie a confirmação para continuar.';
   }
 
   private resendConfirmationDeliveryFailureMessage() {
@@ -308,6 +329,7 @@ export class AuthService implements OnModuleInit {
     companyName: string;
     entityType: 'PF' | 'PJ' | null;
     trialModuleSelection: 'vendas' | null;
+    selectedPlanKey: CommercialPlanKey;
     acquisitionSource: string | null;
     warnings: string[];
     message?: string;
@@ -326,6 +348,7 @@ export class AuthService implements OnModuleInit {
       companyName: input.companyName,
       entityType: input.entityType,
       trialModuleSelection: input.trialModuleSelection,
+      selectedPlanKey: input.selectedPlanKey,
       acquisitionSource: input.acquisitionSource,
       warnings: input.warnings,
       canResendConfirmation: true,
@@ -337,6 +360,13 @@ export class AuthService implements OnModuleInit {
         errorMessage: input.deliveryErrorMessage || null,
       },
     };
+  }
+
+  private pendingConfirmationSuccessMessage(planKey: CommercialPlanKey) {
+    if (normalizeCommercialPlanKey(planKey) === COMMERCIAL_PLAN_KEYS.PADRAO) {
+      return 'Cadastro criado. Confirme seu e-mail para começar o trial gratuito de 30 dias.';
+    }
+    return 'Cadastro criado. Confirme seu e-mail para seguir para o checkout no Financeiro.';
   }
 
   private async seedDefaultCompanyModulesTx(tx: any, companyId: number) {
@@ -396,15 +426,144 @@ export class AuthService implements OnModuleInit {
     }
   }
 
+  private async syncPlanModulesTx(tx: any, companyId: number, planKey: ActiveCommercialPlanKey) {
+    const enabledKeys = this.resolvePlanModuleKeys(planKey);
+    const enabledModuleRows = enabledKeys.length
+      ? await tx.systemModule.findMany({
+          where: {
+            companyAssignable: true,
+            key: { in: enabledKeys },
+          },
+          select: { id: true },
+        })
+      : [];
+
+    await tx.companyModule.updateMany({
+      where: { companyId },
+      data: { enabled: false },
+    });
+
+    for (const moduleRow of enabledModuleRows) {
+      await tx.companyModule.upsert({
+        where: {
+          companyId_moduleId: {
+            companyId,
+            moduleId: moduleRow.id,
+          },
+        },
+        update: { enabled: true },
+        create: { companyId, moduleId: moduleRow.id, enabled: true },
+      });
+    }
+  }
+
+  private async upsertEntitlementTx(
+    tx: any,
+    companyId: number,
+    key: string,
+    status: string,
+    source: string,
+    periodStart: Date | null,
+    periodEnd: Date | null,
+    metadata: Record<string, unknown>,
+  ) {
+    await tx.companyCommercialEntitlement.upsert({
+      where: {
+        companyId_key: {
+          companyId,
+          key,
+        },
+      },
+      update: {
+        status,
+        source,
+        currentPeriodStart: periodStart,
+        currentPeriodEnd: periodEnd,
+        metadataJson: JSON.stringify(metadata),
+      },
+      create: {
+        companyId,
+        key,
+        status,
+        source,
+        currentPeriodStart: periodStart,
+        currentPeriodEnd: periodEnd,
+        metadataJson: JSON.stringify(metadata),
+      },
+    });
+  }
+
+  private async createPendingCheckoutEntitlementsTx(
+    tx: any,
+    companyId: number,
+    planKey: ActiveCommercialPlanKey,
+    selectedAt: Date,
+  ) {
+    const metadata = {
+      selectedPlanKey: planKey,
+      selectedAt: selectedAt.toISOString(),
+      state: 'pending_checkout',
+    };
+    const activeKeys = new Set(COMMERCIAL_PLAN_ENTITLEMENT_KEYS[planKey] || []);
+    const allKeys = [
+      COMMERCIAL_ENTITLEMENT_KEYS.VENDAS,
+      COMMERCIAL_ENTITLEMENT_KEYS.ATENDIMENTO_CHAT,
+      COMMERCIAL_ENTITLEMENT_KEYS.WEBSCRAPING,
+      COMMERCIAL_ENTITLEMENT_KEYS.BOT_IA,
+    ];
+
+    for (const key of allKeys) {
+      await this.upsertEntitlementTx(
+        tx,
+        companyId,
+        key,
+        activeKeys.has(key) ? PENDING_COMMERCIAL_ENTITLEMENT_STATUS : 'canceled',
+        activeKeys.has(key) ? 'checkout' : 'plan_change',
+        null,
+        null,
+        key === COMMERCIAL_ENTITLEMENT_KEYS.BOT_IA
+          ? { ...metadata, botRelease: 'after_payment' }
+          : metadata,
+      );
+    }
+  }
+
   private async activateConfirmedTrialTx(tx: any, companyId: number, activatedAt: Date) {
-    const trialEndsAt = this.addDays(activatedAt, 30);
     const company = await tx.company.findUnique({
       where: { id: companyId },
-      select: { trialModuleSelection: true },
+      select: { selectedPlanKey: true, trialModuleSelection: true },
     });
+    const selectedPlanKey = this.normalizeSelectedPlanKey(company?.selectedPlanKey || undefined);
+
+    if (selectedPlanKey !== COMMERCIAL_PLAN_KEYS.PADRAO) {
+      await tx.company.update({
+        where: { id: companyId },
+        data: {
+          selectedPlanKey,
+          trialModuleSelection: null,
+          onboardingStatus: 'pending_checkout',
+          isActive: false,
+          paymentStatus: 'PENDING',
+          subscriptionStatus: 'pending_checkout',
+          premiumAccess: false,
+          trialStartsAt: null,
+          trialEndsAt: null,
+          subscriptionCurrentPeriodStart: null,
+          subscriptionCurrentPeriodEnd: null,
+          deactivatedAt: activatedAt,
+        },
+      });
+      await this.syncPlanModulesTx(tx, companyId, selectedPlanKey);
+      await tx.companyModule.updateMany({ where: { companyId }, data: { enabled: false } });
+      await this.createPendingCheckoutEntitlementsTx(tx, companyId, selectedPlanKey, activatedAt);
+      return null;
+    }
+
+    const trialEndsAt = this.addDays(activatedAt, 30);
     await tx.company.update({
       where: { id: companyId },
       data: {
+        selectedPlanKey,
         onboardingStatus: 'active_trial',
         isActive: true,
         paymentStatus: 'TRIAL',
@@ -423,38 +582,22 @@ export class AuthService implements OnModuleInit {
       this.normalizeTrialModuleSelection(company?.trialModuleSelection || undefined),
     );
     if (this.normalizeTrialModuleSelection(company?.trialModuleSelection || undefined) === 'vendas') {
-      await tx.companyCommercialEntitlement.upsert({
-        where: {
-          companyId_key: {
-            companyId,
-            key: COMMERCIAL_ENTITLEMENT_KEYS.VENDAS,
-          },
-        },
-        update: {
-          status: 'trialing',
-          source: 'trial',
-          currentPeriodStart: activatedAt,
-          currentPeriodEnd: trialEndsAt,
-          metadataJson: JSON.stringify({
-            selectedPlanKey: 'hbx_vendas',
-            activatedBy: 'email_confirmation',
-            activatedAt: activatedAt.toISOString(),
-          }),
-        },
-        create: {
+      for (const entitlementKey of COMMERCIAL_PLAN_ENTITLEMENT_KEYS[COMMERCIAL_PLAN_KEYS.PADRAO]) {
+        await this.upsertEntitlementTx(
+          tx,
           companyId,
-          key: COMMERCIAL_ENTITLEMENT_KEYS.VENDAS,
-          status: 'trialing',
-          source: 'trial',
-          currentPeriodStart: activatedAt,
-          currentPeriodEnd: trialEndsAt,
-          metadataJson: JSON.stringify({
-            selectedPlanKey: 'hbx_vendas',
+          entitlementKey,
+          'trialing',
+          'trial',
+          activatedAt,
+          trialEndsAt,
+          {
+            selectedPlanKey: COMMERCIAL_PLAN_KEYS.PADRAO,
             activatedBy: 'email_confirmation',
             activatedAt: activatedAt.toISOString(),
-          }),
-        },
-      });
+          },
+        );
+      }
     }
     return trialEndsAt;
   }
@@ -468,12 +611,12 @@ export class AuthService implements OnModuleInit {
     const confirmationLink = this.buildEmailConfirmationLink(input.rawToken);
     const mailResult = await this.mail.sendMail({
       to: input.to,
-      subject: 'Confirme seu e-mail para ativar o trial HBX',
+      subject: 'Confirme seu e-mail para continuar no HBX',
       text: [
         `Olá, ${input.username}!`,
         '',
         `Seu cadastro da ${input.companyName} foi criado no HBX.`,
-        'Confirme seu e-mail no link abaixo para ativar o free trial de 30 dias:',
+        'Confirme seu e-mail no link abaixo para continuar o onboarding da conta:',
         confirmationLink,
         '',
         'Enquanto o e-mail não for confirmado, o acesso continua bloqueado.',
@@ -767,6 +910,7 @@ export class AuthService implements OnModuleInit {
     companyName?: string;
     name?: string;
     trialModuleSelection?: 'vendas';
+    selectedPlanKey?: CommercialPlanKey;
     acquisitionSource?: 'google' | 'instagram' | 'youtube' | 'indicacao' | 'parceiro' | 'outro';
     acquisitionSourceDetail?: string;
     referralReferrerName?: string;
@@ -802,7 +946,8 @@ export class AuthService implements OnModuleInit {
     const resolvedName = normalizedName || normalizedCompanyName || username;
     const hashed = await bcrypt.hash(password, 12);
     const entityType = this.normalizeEntityType(data.entityType) || 'PF';
-    const trialModuleSelection = this.normalizeTrialModuleSelection(data.trialModuleSelection) || 'vendas';
+    const selectedPlanKey = this.normalizeSelectedPlanKey(data.selectedPlanKey);
+    const trialModuleSelection = this.resolveTrialModuleForPlan(selectedPlanKey);
     const acquisitionSource = this.normalizeAcquisitionSource(data.acquisitionSource);
     const acquisitionSourceDetail = String(data.acquisitionSourceDetail || '').trim() || null;
     const referralReferrerName = String(data.referralReferrerName || '').trim() || null;
@@ -875,6 +1020,7 @@ export class AuthService implements OnModuleInit {
             name: displayName,
             entityType: entityType || 'PJ',
             trialModuleSelection,
+            selectedPlanKey,
             signupUsesPublicEmail: usesPublicEmail,
             acquisitionSource,
             acquisitionSourceDetail,
@@ -897,7 +1043,7 @@ export class AuthService implements OnModuleInit {
           skipDuplicates: true,
         });
         await this.seedDefaultCompanyModulesTx(tx, company.id);
-        await this.syncTrialSelectedModulesTx(tx, company.id, trialModuleSelection);
+        await this.syncPlanModulesTx(tx, company.id, selectedPlanKey);
         await tx.user.update({
           where: { id: existingUsername.id },
           data: {
@@ -932,11 +1078,12 @@ export class AuthService implements OnModuleInit {
         companyName: createdPending.companyName,
         entityType,
         trialModuleSelection,
+        selectedPlanKey,
         acquisitionSource,
         warnings,
         message: delivery.failed
           ? this.emailConfirmationDeliveryFailureMessage()
-          : 'Cadastro criado. Confirme seu e-mail para liberar nosso trial:',
+          : this.pendingConfirmationSuccessMessage(selectedPlanKey),
         previewUrl: delivery.previewUrl,
         confirmUrl: delivery.confirmUrl,
         deliveryFailed: delivery.failed,
@@ -986,6 +1133,7 @@ export class AuthService implements OnModuleInit {
           name: displayName,
           entityType: entityType || 'PJ',
           trialModuleSelection,
+          selectedPlanKey,
           signupUsesPublicEmail: usesPublicEmail,
           acquisitionSource,
           acquisitionSourceDetail,
@@ -1009,7 +1157,7 @@ export class AuthService implements OnModuleInit {
         skipDuplicates: true,
       });
       await this.seedDefaultCompanyModulesTx(tx, company.id);
-      await this.syncTrialSelectedModulesTx(tx, company.id, trialModuleSelection);
+      await this.syncPlanModulesTx(tx, company.id, selectedPlanKey);
 
       const user = await tx.user.create({
         data: {
@@ -1046,11 +1194,12 @@ export class AuthService implements OnModuleInit {
       companyName: created.companyName,
       entityType,
       trialModuleSelection,
+      selectedPlanKey,
       acquisitionSource,
       warnings,
       message: delivery.failed
         ? this.emailConfirmationDeliveryFailureMessage()
-        : 'Cadastro criado. Confirme seu e-mail para liberar o trial.',
+        : this.pendingConfirmationSuccessMessage(selectedPlanKey),
       previewUrl: delivery.previewUrl,
       confirmUrl: delivery.confirmUrl,
       deliveryFailed: delivery.failed,
@@ -1112,9 +1261,11 @@ export class AuthService implements OnModuleInit {
 
     return {
       ok: true,
-      status: user.companyId ? 'active_trial' : 'confirmed',
+      status: user.companyId ? (trialEndsAt ? 'active_trial' : 'pending_checkout') : 'confirmed',
       message: user.companyId
-        ? 'E-mail confirmado. O free trial de 30 dias já está ativo.'
+        ? trialEndsAt
+          ? 'E-mail confirmado. O trial gratuito de 30 dias já está ativo.'
+          : 'E-mail confirmado. Finalize o pagamento no Financeiro para liberar o plano.'
         : 'E-mail confirmado com sucesso.',
       trialStartsAt: user.companyId ? confirmedAt.toISOString() : null,
       trialEndsAt: trialEndsAt ? trialEndsAt.toISOString() : null,

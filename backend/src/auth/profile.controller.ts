@@ -20,6 +20,10 @@ class ChangePasswordDto {
 
 function sanitizeUser(user: any, masterContext?: any) {
   if (!user) return null;
+  const trialEndsAt = user.company?.trialEndsAt instanceof Date ? user.company.trialEndsAt : null;
+  const trialRemainingDays = trialEndsAt
+    ? Math.max(0, Math.ceil((trialEndsAt.getTime() - Date.now()) / (24 * 60 * 60 * 1000)))
+    : null;
   return {
     id: user.id,
     username: user.username,
@@ -39,7 +43,11 @@ function sanitizeUser(user: any, masterContext?: any) {
           premiumAccess: Boolean(user.company.premiumAccess),
           trialStartsAt: user.company.trialStartsAt ?? null,
           trialEndsAt: user.company.trialEndsAt ?? null,
+          trialRemainingDays,
+          subscriptionCurrentPeriodStart: user.company.subscriptionCurrentPeriodStart ?? null,
+          subscriptionCurrentPeriodEnd: user.company.subscriptionCurrentPeriodEnd ?? null,
           trialModuleSelection: user.company.trialModuleSelection ?? null,
+          selectedPlanKey: user.company.selectedPlanKey ?? null,
           whatsappConnectionMode: user.company.whatsappConnectionMode ?? null,
           whatsappTemporaryStatus: user.company.whatsappTemporaryStatus ?? null,
           whatsappMigrationInterestAt: user.company.whatsappMigrationInterestAt ?? null,

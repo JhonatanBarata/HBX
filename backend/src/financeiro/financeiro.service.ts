@@ -10,11 +10,15 @@ import {
 import { MercadoPagoClientService } from '../payments/mercado-pago-client.service';
 import {
   COMMERCIAL_ENTITLEMENT_KEYS,
+  COMMERCIAL_PLAN_ENTITLEMENT_KEYS,
+  COMMERCIAL_PLAN_MODULE_KEYS,
   COMMERCIAL_PLAN_KEYS,
   COMMERCIAL_PRICING,
+  getCommercialPlanMonthlyPrice,
+  getCommercialPlanTitle,
   isCommercialEntitlementActive,
-  parseCommercialMetadata,
-  resolveBotAiIntroCyclesRemaining,
+  normalizeCommercialPlanKey as normalizeCatalogCommercialPlanKey,
+  type ActiveCommercialPlanKey,
 } from '../commercial-plans/commercial-plan-catalog';
 
 type BillingLedgerEntryRow = {
@@ -133,37 +137,25 @@ export class FinanceiroService {
   }
 
   private resolveCommercialMonthlyValue(company: any) {
+    const selectedPlanKey = normalizeCatalogCommercialPlanKey(company?.selectedPlanKey);
     const entitlements = Array.isArray(company?.commercialEntitlements)
       ? company.commercialEntitlements
       : [];
     const findEntitlement = (key: string) =>
       entitlements.find((row: any) => String(row?.key || '').trim().toLowerCase() === key && this.isCommercialEntitlementUsable(row));
     const vendas = findEntitlement(COMMERCIAL_ENTITLEMENT_KEYS.VENDAS);
-    const botIa = vendas ? findEntitlement(COMMERCIAL_ENTITLEMENT_KEYS.BOT_IA) : null;
-    if (!vendas) return null;
+    const botIa = findEntitlement(COMMERCIAL_ENTITLEMENT_KEYS.BOT_IA);
+    const hasCommercialState = Boolean(company?.selectedPlanKey || vendas || botIa);
+    if (!hasCommercialState) return null;
 
-    if (botIa) {
-      const introCyclesRemaining = resolveBotAiIntroCyclesRemaining(botIa.metadataJson);
-      const introActive = introCyclesRemaining > 0;
-      return {
-        planKey: COMMERCIAL_PLAN_KEYS.VENDAS_IA,
-        title: 'HBX Vendas + IA',
-        monthlyValue: introActive ? COMMERCIAL_PRICING.comboIntroMonthly : COMMERCIAL_PRICING.comboRegularMonthly,
-        referenceLabel: 'HBX Vendas + IA',
-        chargeDescription: introActive
-          ? 'HBX Vendas + IA - 3 primeiras mensalidades com 50% de desconto no BOT Inteligente'
-          : 'HBX Vendas + IA',
-        introCyclesRemaining,
-      };
-    }
-
+    const planKey = botIa && !company?.selectedPlanKey ? COMMERCIAL_PLAN_KEYS.MELHOR : selectedPlanKey;
+    const title = getCommercialPlanTitle(planKey);
     return {
-      planKey: COMMERCIAL_PLAN_KEYS.VENDAS,
-      title: 'HBX Vendas',
-      monthlyValue: COMMERCIAL_PRICING.vendasMonthly,
-      referenceLabel: 'HBX Vendas',
-      chargeDescription: 'HBX Vendas',
-      introCyclesRemaining: 0,
+      planKey,
+      title,
+      monthlyValue: getCommercialPlanMonthlyPrice(planKey),
+      referenceLabel: title,
+      chargeDescription: title,
     };
   }
 
@@ -181,51 +173,99 @@ export class FinanceiroService {
     );
   }
 
-  private async consumeBotAiIntroCycleIfNeeded(tx: any, companyId: number, charge: any, paidAt: Date) {
-    if (this.normalizeCurrencyAmount(charge?.amount || 0) <= 0) return;
-    const entitlement = await tx.companyCommercialEntitlement.findUnique({
+  private normalizeCommercialPlanKey(value: unknown): ActiveCommercialPlanKey {
+    return normalizeCatalogCommercialPlanKey(value);
+  }
+
+  private async syncPaidPlanModulesTx(tx: any, companyId: number, planKey: string) {
+    const moduleKeys = COMMERCIAL_PLAN_MODULE_KEYS[this.normalizeCommercialPlanKey(planKey)] || [];
+    const moduleRows = moduleKeys.length
+      ? await tx.systemModule.findMany({
+          where: {
+            companyAssignable: true,
+            key: { in: moduleKeys },
+          },
+          select: { id: true },
+        })
+      : [];
+
+    await tx.companyModule.updateMany({ where: { companyId }, data: { enabled: false } });
+    for (const moduleRow of moduleRows) {
+      await tx.companyModule.upsert({
+        where: {
+          companyId_moduleId: {
+            companyId,
+            moduleId: moduleRow.id,
+          },
+        },
+        update: { enabled: true },
+        create: { companyId, moduleId: moduleRow.id, enabled: true },
+      });
+    }
+  }
+
+  private async upsertPaidEntitlementTx(
+    tx: any,
+    companyId: number,
+    key: string,
+    paidAt: Date,
+    periodEnd: Date,
+    metadata: Record<string, unknown>,
+  ) {
+    await tx.companyCommercialEntitlement.upsert({
       where: {
         companyId_key: {
           companyId,
-          key: COMMERCIAL_ENTITLEMENT_KEYS.BOT_IA,
+          key,
         },
       },
-    });
-    if (!entitlement) return;
-
-    const metadata = parseCommercialMetadata(entitlement.metadataJson);
-    const alreadyConsumedChargeId = String(metadata.lastConsumedIntroChargeId || '').trim();
-    if (alreadyConsumedChargeId && alreadyConsumedChargeId === String(charge?.id || '')) return;
-
-    const remaining = Math.max(0, Math.trunc(Number(metadata.introCyclesRemaining || 0) || 0));
-    if (remaining <= 0) return;
-
-    await tx.companyCommercialEntitlement.update({
-      where: { id: entitlement.id },
-      data: {
-        metadataJson: JSON.stringify({
-          ...metadata,
-          introCyclesRemaining: Math.max(0, remaining - 1),
-          lastConsumedIntroChargeId: String(charge?.id || ''),
-          lastConsumedIntroPaymentId: String(charge?.mpPaymentId || ''),
-          lastConsumedIntroAt: paidAt.toISOString(),
-        }),
+      update: {
+        status: 'paid',
+        source: 'checkout',
+        currentPeriodStart: paidAt,
+        currentPeriodEnd: periodEnd,
+        metadataJson: JSON.stringify(metadata),
+      },
+      create: {
+        companyId,
+        key,
+        status: 'paid',
+        source: 'checkout',
+        currentPeriodStart: paidAt,
+        currentPeriodEnd: periodEnd,
+        metadataJson: JSON.stringify(metadata),
       },
     });
   }
 
-  private resolveLegacyCompanyMonthlyValue(company: any) {
-    const enabledModuleTotal = Array.isArray(company?.companyModules)
-      ? company.companyModules
-          .filter((row: any) => row?.enabled && row?.systemModule?.companyAssignable)
-          .reduce(
-            (total: number, row: any) => total + this.normalizeCurrencyAmount(row?.systemModule?.monthlyPrice || 0),
-            0,
-          )
-      : 0;
-    if (enabledModuleTotal > 0) {
-      return this.normalizeCurrencyAmount(enabledModuleTotal);
+  private async syncPaidCommercialEntitlementsTx(tx: any, companyId: number, planKey: string, paidAt: Date, periodEnd: Date) {
+    const normalizedPlanKey = this.normalizeCommercialPlanKey(planKey);
+    const metadata = {
+      selectedPlanKey: normalizedPlanKey,
+      paidAt: paidAt.toISOString(),
+      activatedBy: 'financeiro_checkout',
+    };
+    const activeKeys = new Set(COMMERCIAL_PLAN_ENTITLEMENT_KEYS[normalizedPlanKey] || []);
+    const allKeys = [
+      COMMERCIAL_ENTITLEMENT_KEYS.VENDAS,
+      COMMERCIAL_ENTITLEMENT_KEYS.ATENDIMENTO_CHAT,
+      COMMERCIAL_ENTITLEMENT_KEYS.WEBSCRAPING,
+      COMMERCIAL_ENTITLEMENT_KEYS.BOT_IA,
+    ];
+
+    for (const key of allKeys) {
+      if (activeKeys.has(key)) {
+        await this.upsertPaidEntitlementTx(tx, companyId, key, paidAt, periodEnd, metadata);
+      } else {
+        await tx.companyCommercialEntitlement.updateMany({
+          where: { companyId, key },
+          data: { status: 'canceled', source: 'checkout', currentPeriodStart: null, currentPeriodEnd: null },
+        });
+      }
     }
+  }
+
+  private resolveLegacyCompanyMonthlyValue(company: any) {
     return this.normalizeCurrencyAmount(company?.plan?.price || 0);
   }
 
@@ -372,10 +412,9 @@ export class FinanceiroService {
     const commercialPlan = this.resolveCommercialMonthlyValue(company);
     const monthlyValue = commercialPlan?.monthlyValue ?? this.resolveLegacyCompanyMonthlyValue(company);
     const billingCycle = this.normalizeBillingCycle(company?.billingCycle);
-    const annualPlanDiscountPercent = Math.max(
-      0,
-      this.normalizeCurrencyAmount(pricingPolicy?.annualPlanDiscountPercent || 0),
-    );
+    const annualPlanDiscountPercent = commercialPlan
+      ? COMMERCIAL_PRICING.annualDiscountPercent
+      : Math.max(0, this.normalizeCurrencyAmount(pricingPolicy?.annualPlanDiscountPercent || 0));
     const manualDiscountPercent = Math.max(0, this.normalizeCurrencyAmount(company?.manualDiscountPercent || 0));
     const referral = this.buildReferralSnapshot(company, pricingPolicy);
     const freeMonths = Math.max(0, Math.trunc(Number(company?.freeMonths || 0) || 0));
@@ -601,10 +640,13 @@ export class FinanceiroService {
     const billingCycle = this.normalizeBillingCycle(charge?.billingCycle);
     const periodEnd = this.computePeriodEnd(paidAt, billingCycle);
     const referral = this.buildReferralSnapshot(company, masterConfig);
+    const selectedPlanKey = this.normalizeCommercialPlanKey(company.selectedPlanKey);
     await this.prisma.$transaction(async (tx) => {
       await tx.company.update({
         where: { id: companyId },
         data: {
+          selectedPlanKey,
+          trialModuleSelection: selectedPlanKey === COMMERCIAL_PLAN_KEYS.PADRAO ? 'vendas' : null,
           isActive: true,
           onboardingStatus: 'active_paid',
           paymentStatus: 'PAID',
@@ -621,24 +663,8 @@ export class FinanceiroService {
           deactivatedAt: null,
         },
       });
-      await tx.companyModule.updateMany({
-        where: { companyId },
-        data: { enabled: true },
-      });
-      await tx.companyCommercialEntitlement.updateMany({
-        where: {
-          companyId,
-          key: { in: [COMMERCIAL_ENTITLEMENT_KEYS.VENDAS, COMMERCIAL_ENTITLEMENT_KEYS.BOT_IA] },
-          status: { in: ['active', 'trialing', 'paid', 'manual'] },
-        },
-        data: {
-          status: 'paid',
-          source: 'checkout',
-          currentPeriodStart: paidAt,
-          currentPeriodEnd: periodEnd,
-        },
-      });
-      await this.consumeBotAiIntroCycleIfNeeded(tx, companyId, charge, paidAt);
+      await this.syncPaidPlanModulesTx(tx, companyId, selectedPlanKey);
+      await this.syncPaidCommercialEntitlementsTx(tx, companyId, selectedPlanKey, paidAt, periodEnd);
     });
   }
 
@@ -854,6 +880,7 @@ export class FinanceiroService {
         billingCycle: pricing.billingCycle,
         billingProvider: company.billingProvider,
         subscriptionStatus: company.subscriptionStatus,
+        selectedPlanKey: company.selectedPlanKey || pricing.commercialPlan?.planKey || null,
         premiumAccess: Boolean(company.premiumAccess),
         trialStartsAt: company.trialStartsAt instanceof Date ? company.trialStartsAt.toISOString() : null,
         trialEndsAt: company.trialEndsAt instanceof Date ? company.trialEndsAt.toISOString() : null,

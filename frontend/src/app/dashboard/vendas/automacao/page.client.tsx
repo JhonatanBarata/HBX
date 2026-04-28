@@ -288,7 +288,7 @@ export default function VendasAutomationClientPage() {
       if (redirectTo) {
         setNotice({
           tone: "info",
-          text: "O BOT Inteligente faz parte do HBX Vendas + IA.",
+          text: "O BOT Inteligente faz parte do HBX Melhor.",
         });
         router.push(redirectTo);
         return;
@@ -433,7 +433,7 @@ export default function VendasAutomationClientPage() {
     if (!botAiActive) {
       setNotice({
         tone: "info",
-        text: "O BOT Inteligente faz parte do HBX Vendas + IA.",
+        text: "O BOT Inteligente faz parte do HBX Melhor.",
       });
       openBotPlans();
       return;
@@ -457,7 +457,7 @@ export default function VendasAutomationClientPage() {
       if (redirectTo) {
         setNotice({
           tone: "info",
-          text: "O BOT Inteligente faz parte do HBX Vendas + IA.",
+          text: "O BOT Inteligente faz parte do HBX Melhor.",
         });
         router.push(redirectTo);
         return;
@@ -496,7 +496,7 @@ export default function VendasAutomationClientPage() {
   const renderBotPlanPaywall = () => (
     <section className={styles.botPlanPaywall}>
       <span className={styles.sectionEyebrow}>Plano necessário</span>
-      <h3>O BOT Inteligente faz parte do HBX Vendas + IA</h3>
+      <h3>O BOT Inteligente faz parte do HBX Melhor</h3>
       <p>Para configurar ou ativar o bot, escolha o plano que mostra o valor antes da ativação.</p>
       <button type="button" className={styles.primaryButton} onClick={openBotPlans}>
         Ver planos

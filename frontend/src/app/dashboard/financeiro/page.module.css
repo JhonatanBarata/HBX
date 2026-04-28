@@ -7,6 +7,7 @@
 .panelCard,
 .errorCard,
 .successCard,
+.checkoutNotice,
 .loadingCard {
   border-radius: 28px;
   border: 1px solid color-mix(in srgb, var(--line) 84%, var(--background));
@@ -15,6 +16,36 @@
     linear-gradient(180deg, color-mix(in srgb, var(--surface) 98%, var(--background)), color-mix(in srgb, var(--surface-soft) 94%, var(--background)));
   box-shadow: var(--shadow-inset), var(--shadow-xs);
   padding: 1.1rem;
+}
+
+.checkoutNotice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  border-color: color-mix(in srgb, #c9473d 28%, var(--line));
+}
+
+.checkoutNotice strong {
+  display: block;
+  color: var(--foreground);
+}
+
+.checkoutNotice p {
+  margin: 0.22rem 0 0;
+  color: var(--foreground-soft);
+}
+
+.checkoutNotice a {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  border-radius: 12px;
+  padding: 0 0.9rem;
+  color: #ffffff;
+  background: #c9473d;
+  font-weight: 850;
 }
 
 .hero {
@@ -217,6 +248,32 @@
   margin-top: 0.8rem;
 }
 
+.checkoutSummary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.75rem;
+  margin-top: 0.9rem;
+  padding: 0.9rem;
+  border-radius: 20px;
+  border: 1px solid color-mix(in srgb, #0f766e 24%, var(--line));
+  background: color-mix(in srgb, #0f766e 7%, var(--surface-raised));
+}
+
+.checkoutSummary div {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.checkoutSummary span {
+  color: var(--foreground-soft);
+  font-size: 0.78rem;
+  font-weight: 750;
+}
+
+.checkoutSummary strong {
+  color: var(--foreground);
+}
+
 .checkoutCard,
 .chargePanel,
 .pixPanel {
@@ -232,6 +289,68 @@
   align-items: center;
   justify-content: space-between;
   flex-wrap: wrap;
+}
+
+.creditCardPanel {
+  background:
+    radial-gradient(circle at top left, color-mix(in srgb, #10b981 12%, transparent), transparent 34%),
+    linear-gradient(180deg, color-mix(in srgb, var(--surface) 99%, var(--background)), color-mix(in srgb, var(--surface-soft) 96%, var(--background)));
+}
+
+.cardPreview {
+  display: grid;
+  gap: 1rem;
+  min-height: 174px;
+  margin-top: 0.85rem;
+  padding: 1.05rem;
+  border-radius: 22px;
+  color: #f8fafc;
+  background:
+    linear-gradient(135deg, rgba(15, 118, 110, 0.96), rgba(15, 23, 42, 0.96)),
+    #0f172a;
+  box-shadow: 0 26px 56px -40px rgba(15, 23, 42, 0.78);
+}
+
+.cardPreview span {
+  color: #bfeee5;
+  font-size: 0.78rem;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.cardPreview strong {
+  align-self: center;
+  color: #ffffff;
+  font-size: clamp(1.25rem, 2.6vw, 1.75rem);
+  letter-spacing: 0.08em;
+}
+
+.cardPreview div,
+.securityStrip {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
+
+.cardPreview small {
+  color: #d8f7f1;
+  font-weight: 800;
+}
+
+.securityStrip {
+  margin-top: 0.85rem;
+  padding: 0.75rem;
+  border-radius: 18px;
+  border: 1px solid color-mix(in srgb, #10b981 22%, var(--line));
+  background: color-mix(in srgb, #10b981 8%, var(--surface-raised));
+}
+
+.securityStrip span {
+  color: var(--foreground-soft);
+  font-size: 0.78rem;
+  font-weight: 850;
 }
 
 .chargePanel {
@@ -274,7 +393,8 @@
   .grid,
   .infoGrid,
   .formGrid,
-  .checkoutGrid {
+  .checkoutGrid,
+  .checkoutSummary {
     grid-template-columns: 1fr;
   }
 

@@ -7,14 +7,28 @@ import {
   buildCommercialPlansCatalog,
 } from './commercial-plan-catalog';
 
-test('HBX commercial catalog exposes fixed prices and unavailable recovery', () => {
-  assert.equal(COMMERCIAL_PRICING.vendasMonthly, 89.90);
-  assert.equal(COMMERCIAL_PRICING.botAiMonthly, 39.90);
-  assert.equal(COMMERCIAL_PRICING.comboIntroMonthly, 109.85);
-  assert.equal(COMMERCIAL_PRICING.comboRegularMonthly, 129.80);
+test('HBX commercial catalog exposes package prices and quotas', () => {
+  assert.equal(COMMERCIAL_PRICING.liteMonthly, 29.90);
+  assert.equal(COMMERCIAL_PRICING.padraoMonthly, 79.90);
+  assert.equal(COMMERCIAL_PRICING.melhorMonthly, 109.90);
+  assert.equal(COMMERCIAL_PRICING.annualDiscountPercent, 10);
 
   const catalog = buildCommercialPlansCatalog();
-  const recovery = catalog.find((plan) => plan.key === COMMERCIAL_PLAN_KEYS.RECOVERY);
-  assert.equal(recovery?.status, 'unavailable');
-  assert.equal(recovery?.monthlyPrice, null);
+  assert.equal(catalog.length, 3);
+
+  const lite = catalog.find((plan) => plan.key === COMMERCIAL_PLAN_KEYS.LITE);
+  assert.equal(lite?.monthlyPrice, 29.90);
+  assert.equal(lite?.status, 'available');
+  assert.equal(lite?.quotas?.googleSearchesPerDay, 0);
+
+  const padrao = catalog.find((plan) => plan.key === COMMERCIAL_PLAN_KEYS.PADRAO);
+  assert.equal(padrao?.monthlyPrice, 79.90);
+  assert.equal(padrao?.trialDays, 30);
+  assert.equal(padrao?.recommended, true);
+  assert.equal(padrao?.quotas?.googleSearchesPerDay, 2);
+
+  const melhor = catalog.find((plan) => plan.key === COMMERCIAL_PLAN_KEYS.MELHOR);
+  assert.equal(melhor?.monthlyPrice, 109.90);
+  assert.equal(melhor?.trialDays, 0);
+  assert.equal(melhor?.quotas?.googleSearchesPerDay, 6);
 });

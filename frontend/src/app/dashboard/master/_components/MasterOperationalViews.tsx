@@ -246,7 +246,6 @@ function ModuleEditor({
   const [draft, setDraft] = useState({
     name: moduleItem.name,
     description: moduleItem.description || "",
-    monthlyPrice: String(moduleItem.monthlyPrice || 0),
     defaultEnabled: Boolean(moduleItem.defaultEnabled),
     companyAssignable: Boolean(moduleItem.companyAssignable),
   });
@@ -262,7 +261,6 @@ function ModuleEditor({
         body: JSON.stringify({
           name: draft.name.trim(),
           description: draft.description.trim(),
-          monthlyPrice: Number(String(draft.monthlyPrice).replace(",", ".")) || 0,
           defaultEnabled: draft.defaultEnabled,
           companyAssignable: draft.companyAssignable,
         }),
@@ -295,7 +293,6 @@ function ModuleEditor({
       {error ? <div className="alert alert-error">{error}</div> : null}
       <div className={styles.formGrid}>
         <input className="field" value={draft.name} onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))} placeholder="Nome" />
-        <input className="field" value={draft.monthlyPrice} onChange={(event) => setDraft((current) => ({ ...current, monthlyPrice: event.target.value }))} placeholder="Preço mensal" />
         <textarea className="field" rows={3} value={draft.description} onChange={(event) => setDraft((current) => ({ ...current, description: event.target.value }))} placeholder="Descrição" />
         <div className={styles.secondaryCell}>
           <label className={styles.inlineCheck}>
@@ -304,7 +301,7 @@ function ModuleEditor({
           </label>
           <label className={styles.inlineCheck}>
             <input type="checkbox" checked={draft.companyAssignable} onChange={(event) => setDraft((current) => ({ ...current, companyAssignable: event.target.checked }))} />
-            <span>Vendável/atribuível para clientes</span>
+            <span>Atribuível por plano ou override</span>
           </label>
         </div>
       </div>
@@ -457,8 +454,8 @@ function ClientDrawer({
                 <section className={styles.summaryCard}>
                   <div className={styles.panelCardHeader}>
                     <div>
-                      <p className={styles.sectionEyebrow}>Módulos do cliente</p>
-                      <h3>{formatCurrency(company.modulesTotalMonthlyValue || 0)} em módulos ativos</h3>
+                      <p className={styles.sectionEyebrow}>Permissões do cliente</p>
+                      <h3>Derivadas do plano comercial</h3>
                     </div>
                     <Link href={operationHref(company, "modules")} className="btn btn-primary btn-sm">Editar módulos na operação</Link>
                   </div>
@@ -467,7 +464,7 @@ function ClientDrawer({
                       <article key={moduleItem.key} className={styles.userCard}>
                         <strong>{moduleItem.name}</strong>
                         <span className={badgeClass(moduleItem.enabled ? "success" : "neutral")}>{moduleItem.enabled ? "Ativo" : "Inativo"}</span>
-                        <p>{formatCurrency(moduleItem.monthlyPrice || 0)}/mês</p>
+                        <p>Permissão interna</p>
                       </article>
                     ))}
                   </div>
@@ -860,12 +857,12 @@ export default function MasterOperationalView({ area }: { area: MasterArea }) {
             <section className={styles.tableSection}>
               <div className={styles.tableWrap}>
                 <table className={styles.masterTable}>
-                  <thead><tr><th>Módulo</th><th>Preço</th><th>Padrão</th><th>Vendável</th><th>Clientes usando</th><th>Ação</th></tr></thead>
+                  <thead><tr><th>Módulo</th><th>Tipo</th><th>Padrão</th><th>Atribuível</th><th>Clientes usando</th><th>Ação</th></tr></thead>
                   <tbody>
                     {(workspace?.systemModules || []).map((moduleItem) => (
                       <tr key={moduleItem.key}>
                         <td><div className={styles.secondaryCell}><strong>{moduleItem.name}</strong><span>{moduleItem.description || moduleItem.key}</span></div></td>
-                        <td>{formatCurrency(moduleItem.monthlyPrice)}</td>
+                        <td>Permissão interna</td>
                         <td><span className={badgeClass(moduleItem.defaultEnabled ? "success" : "neutral")}>{moduleItem.defaultEnabled ? "Sim" : "Não"}</span></td>
                         <td><span className={badgeClass(moduleItem.companyAssignable ? "success" : "warning")}>{moduleItem.companyAssignable ? "Sim" : "Não"}</span></td>
                         <td>{moduleClientCount(moduleItem.key, companies)}</td>
@@ -879,20 +876,20 @@ export default function MasterOperationalView({ area }: { area: MasterArea }) {
             <section className={styles.summaryCard}>
               <div className={styles.panelCardHeader}>
                 <div>
-                  <p className={styles.sectionEyebrow}>Total financeiro por cliente</p>
-                  <h3>Módulos ativos e ciclo atual</h3>
+                  <p className={styles.sectionEyebrow}>Plano por cliente</p>
+                  <h3>Pacote comercial e ciclo atual</h3>
                 </div>
               </div>
               <div className={styles.tableWrap}>
                 <table className={styles.historyTable}>
-                  <thead><tr><th>Cliente</th><th>Plano</th><th>Módulos ativos</th><th>Total módulos</th><th>Ciclo atual</th><th>Ação</th></tr></thead>
+                  <thead><tr><th>Cliente</th><th>Plano</th><th>Permissões ativas</th><th>Valor do pacote</th><th>Ciclo atual</th><th>Ação</th></tr></thead>
                   <tbody>
                     {companies.map((company) => (
                       <tr key={company.id}>
                         <td>{company.name}</td>
                         <td>{company.plan?.name || "Sem plano"}</td>
                         <td>{company.modules.filter((moduleItem) => moduleItem.enabled).map((moduleItem) => moduleItem.name).join(", ") || "Nenhum"}</td>
-                        <td>{formatCurrency(company.modulesTotalMonthlyValue || 0)}</td>
+                        <td>{formatCurrency(company.monthlyValue || 0)}</td>
                         <td>{formatCurrency(company.billingSituation?.currentCycleAmount ?? company.finance.finalCycleAmount)}</td>
                         <td><button type="button" className="btn btn-secondary btn-sm" onClick={() => openClient(company, "modules")}>Ver cliente</button></td>
                       </tr>

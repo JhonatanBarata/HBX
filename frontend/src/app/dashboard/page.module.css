@@ -12,7 +12,8 @@
 .blockedSection,
 .loadingHero,
 .emptyState,
-.alertCard {
+.alertCard,
+.commercialBanner {
   border: 1px solid color-mix(in srgb, var(--line) 76%, transparent);
   background:
     linear-gradient(180deg, color-mix(in srgb, var(--surface) 96%, var(--background)), color-mix(in srgb, var(--surface-soft) 88%, var(--background))),
@@ -20,6 +21,50 @@
   box-shadow:
     inset 0 1px 0 color-mix(in srgb, var(--surface-raised) 42%, transparent),
     0 24px 70px -48px color-mix(in srgb, var(--shadow) 64%, transparent);
+}
+
+.commercialBanner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  border-radius: 16px;
+  padding: 1rem 1.1rem;
+}
+
+.commercialBanner strong {
+  display: block;
+  color: var(--foreground);
+  font-size: 1rem;
+}
+
+.commercialBanner p {
+  margin: 0.22rem 0 0;
+  color: var(--muted);
+}
+
+.commercialBanner a {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  border-radius: 10px;
+  padding: 0 0.9rem;
+  color: #ffffff;
+  background: #c9473d;
+  font-weight: 850;
+}
+
+.commercialBanner[data-tone="trial"] {
+  border-color: color-mix(in srgb, #196f75 30%, var(--line));
+}
+
+.commercialBanner[data-tone="pending"] {
+  border-color: color-mix(in srgb, #c9473d 32%, var(--line));
+}
+
+.commercialBanner[data-tone="paid"] {
+  border-color: color-mix(in srgb, #16a34a 28%, var(--line));
 }
 
 .hero {
