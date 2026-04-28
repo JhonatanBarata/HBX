@@ -13,13 +13,13 @@ type Props = {
 };
 
 export const BUILDER_VARIABLES: BuilderVariable[] = [
-  { token: "cumprimentacao", label: "Cumprimentacao", smart: true },
+  { token: "cumprimentacao", label: "Cumprimentação", smart: true },
   { token: "cliente", label: "Cliente" },
   { token: "empresa", label: "Empresa" },
-  { token: "funcionario", label: "Funcionario" },
+  { token: "funcionario", label: "Funcionário" },
   { token: "valor_formatado", label: "Valor em aberto" },
   { token: "agenda_nome", label: "Agenda" },
-  { token: "agenda_slots", label: "Horarios" },
+  { token: "agenda_slots", label: "Horários" },
 ];
 
 export function getVariableLabel(token: string) {

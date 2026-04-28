@@ -5,6 +5,7 @@ import styles from "./ConversationBuilder.module.css";
 type Props = {
   scene: ConversationScene;
   config: AtendimentoBotConfig;
+  channelLabel: string;
   recoveryEnabled: boolean;
   onConfigChange: (config: AtendimentoBotConfig) => void;
   onSceneRuleChange: (conditionType: string, enabled: boolean, metadata?: Record<string, unknown>) => void;
@@ -19,6 +20,7 @@ function findSceneRule(config: AtendimentoBotConfig, scene: ConversationScene) {
 export default function SceneIntelligencePanel({
   scene,
   config,
+  channelLabel,
   recoveryEnabled,
   onConfigChange,
   onSceneRuleChange,
@@ -133,7 +135,7 @@ export default function SceneIntelligencePanel({
       </div>
 
       <div className={styles.intelligenceTags}>
-        <span>canal Meta/QR pelo preview</span>
+        <span>canal: {channelLabel}</span>
         <span>modulo Vendas</span>
         <span>recoveryEnabled: {recoveryEnabled ? "sim" : "nao"}</span>
       </div>

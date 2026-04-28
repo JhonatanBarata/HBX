@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState, type ClipboardEvent, type MouseEvent } from "react";
 import type { AtendimentoBotConfig } from "../../../inbox/inbox-model";
 import type {
   ConversationDestinationId,
@@ -15,6 +15,7 @@ type Props = {
   scene: ConversationScene;
   config: AtendimentoBotConfig;
   destinationOptions: ConversationDestinationOption[];
+  channelLabel: string;
   recoveryEnabled: boolean;
   onTitleChange: (title: string) => void;
   onMessageChange: (message: string) => void;
@@ -26,6 +27,13 @@ type Props = {
   onRemoveButton: (index: number) => void;
   onSceneRuleChange: (conditionType: string, enabled: boolean, metadata?: Record<string, unknown>) => void;
 };
+
+const ENTRY_OUTPUTS = [
+  ["Cliente novo", "Cliente novo"],
+  ["Cliente localizado", "Cliente localizado"],
+  ["Fora de horario", "Fora de horario"],
+  ["Bloqueado", "Bloqueado"],
+];
 
 function destinationFromAction(actionId: string): ConversationDestinationId {
   const normalized = String(actionId || "").trim().toLowerCase();
@@ -52,10 +60,104 @@ function usedVariables(message: string) {
   );
 }
 
+function escapeHtml(value: string) {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function renderTokenizedMessage(message: string) {
+  const parts: string[] = [];
+  let lastIndex = 0;
+  const regex = /\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g;
+  let match: RegExpExecArray | null;
+
+  while ((match = regex.exec(message))) {
+    parts.push(escapeHtml(message.slice(lastIndex, match.index)));
+    const token = match[1];
+    parts.push(
+      `<span class="${styles.messageToken}" data-token="${escapeHtml(token)}" contenteditable="false">` +
+        `${escapeHtml(getVariableLabel(token))}</span>`,
+    );
+    lastIndex = match.index + match[0].length;
+  }
+
+  parts.push(escapeHtml(message.slice(lastIndex)));
+  return parts.join("").replace(/\n/g, "<br>");
+}
+
+function serializeEditorNode(node: ChildNode): string {
+  if (node.nodeType === Node.TEXT_NODE) return node.textContent || "";
+  if (!(node instanceof HTMLElement)) return "";
+  const token = node.dataset.token;
+  if (token) return `{{${token}}}`;
+  if (node.tagName === "BR") return "\n";
+  return Array.from(node.childNodes).map(serializeEditorNode).join("");
+}
+
+function MessageTokenEditor({
+  value,
+  disabled,
+  onChange,
+  onGreetingClick,
+}: {
+  value: string;
+  disabled: boolean;
+  onChange: (message: string) => void;
+  onGreetingClick: () => void;
+}) {
+  const editorRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const editor = editorRef.current;
+    if (!editor || document.activeElement === editor) return;
+    editor.innerHTML = renderTokenizedMessage(value);
+  }, [value]);
+
+  const emitChange = () => {
+    const editor = editorRef.current;
+    if (!editor) return;
+    onChange(Array.from(editor.childNodes).map(serializeEditorNode).join(""));
+  };
+
+  const handlePaste = (event: ClipboardEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    document.execCommand("insertText", false, event.clipboardData.getData("text/plain"));
+  };
+
+  const handleClick = (event: MouseEvent<HTMLDivElement>) => {
+    const target = event.target;
+    if (target instanceof HTMLElement && target.dataset.token === "cumprimentacao") {
+      onGreetingClick();
+    }
+  };
+
+  return (
+    <div
+      ref={editorRef}
+      className={styles.messageEditor}
+      contentEditable={!disabled}
+      data-empty={!value.trim() ? "true" : "false"}
+      role="textbox"
+      aria-label="Mensagem"
+      aria-multiline="true"
+      suppressContentEditableWarning={true}
+      tabIndex={disabled ? -1 : 0}
+      onClick={handleClick}
+      onInput={emitChange}
+      onBlur={emitChange}
+      onPaste={handlePaste}
+    />
+  );
+}
+
 export default function SceneInspector({
   scene,
   config,
   destinationOptions,
+  channelLabel,
   recoveryEnabled,
   onTitleChange,
   onMessageChange,
@@ -71,12 +173,13 @@ export default function SceneInspector({
   const [intelligenceOpen, setIntelligenceOpen] = useState(false);
   const locked = Boolean(scene.lockedReason);
   const variables = usedVariables(scene.message);
+  const sectionTitle = scene.id === "entry" ? "Saidas" : "Respostas";
 
   return (
     <aside className={styles.inspectorPanel}>
       <header className={styles.panelHeader}>
         <div>
-          <span className={styles.eyebrow}>SceneInspector</span>
+          <span className={styles.eyebrow}>Editor</span>
           <strong>{scene.displayTitle}</strong>
         </div>
       </header>
@@ -89,15 +192,16 @@ export default function SceneInspector({
           <input value={scene.displayTitle} disabled={locked} onChange={(event) => onTitleChange(event.target.value)} />
         </label>
 
-        <label className={styles.fieldBlock}>
+        <section className={styles.fieldBlock}>
           <span>Mensagem</span>
-          <textarea
+          <MessageTokenEditor
+            key={scene.id}
             value={scene.message}
             disabled={locked}
-            rows={8}
-            onChange={(event) => onMessageChange(event.target.value)}
+            onChange={onMessageChange}
+            onGreetingClick={() => setGreetingOpen(true)}
           />
-        </label>
+        </section>
 
         <section className={styles.variableSection}>
           <div className={styles.inlineHeader}>
@@ -132,7 +236,7 @@ export default function SceneInspector({
 
         <section className={styles.buttonEditor}>
           <div className={styles.inlineHeader}>
-            <span>Respostas</span>
+            <span>{sectionTitle}</span>
             {scene.buttonsField ? (
               <button type="button" className={styles.smallButton} disabled={locked} onClick={onAddButton}>
                 Adicionar
@@ -140,7 +244,16 @@ export default function SceneInspector({
             ) : null}
           </div>
 
-          {scene.buttonsField ? (
+          {scene.id === "entry" ? (
+            <div className={styles.outputRows}>
+              {ENTRY_OUTPUTS.map(([label, destination]) => (
+                <div key={label} className={styles.outputRow}>
+                  <strong>{label}</strong>
+                  <span>{destination}</span>
+                </div>
+              ))}
+            </div>
+          ) : scene.buttonsField ? (
             <div className={styles.buttonRows}>
               {scene.buttons.length ? (
                 scene.buttons.map((button, index) => (
@@ -173,7 +286,7 @@ export default function SceneInspector({
               )}
             </div>
           ) : (
-            <div className={styles.emptyState}>Este bloco nao usa botoes.</div>
+            <div className={styles.emptyState}>Este bloco segue pela condicao do fluxo.</div>
           )}
         </section>
 
@@ -190,6 +303,7 @@ export default function SceneInspector({
             <SceneIntelligencePanel
               scene={scene}
               config={config}
+              channelLabel={channelLabel}
               recoveryEnabled={recoveryEnabled}
               onConfigChange={onConfigChange}
               onSceneRuleChange={onSceneRuleChange}

@@ -10,6 +10,7 @@ type Props = {
   providerCapabilities: ProviderCapabilities;
   recoveryEnabled: boolean;
   period: ConversationPreviewPeriod;
+  previewRun: number;
   onPeriodChange: (period: ConversationPreviewPeriod) => void;
 };
 
@@ -42,18 +43,22 @@ export default function WhatsAppFlowPreview({
   providerCapabilities,
   recoveryEnabled,
   period,
+  previewRun,
   onPeriodChange,
 }: Props) {
   const isMeta = providerCapabilities.canUseOfficialButtons;
-  const buttons = scene.buttons.filter((button) => recoveryEnabled || !isRecoveryAction(button.actionId));
-  const text = renderMessage(config, scene.message, period) || "Mensagem do bloco";
+  const lockedRecovery = scene.id === "recovery" && !recoveryEnabled;
+  const buttons = lockedRecovery ? [] : scene.buttons.filter((button) => recoveryEnabled || !isRecoveryAction(button.actionId));
+  const text = lockedRecovery
+    ? "Recovery indisponivel neste plano."
+    : renderMessage(config, scene.message, period) || "Mensagem do bloco";
 
   return (
     <aside className={styles.previewPanel}>
       <header className={styles.panelHeader}>
         <div>
-          <span className={styles.eyebrow}>WhatsAppPreview</span>
-          <strong>{isMeta ? "Meta" : "QR/Evolution"}</strong>
+          <span className={styles.eyebrow}>WhatsApp</span>
+          <strong>{isMeta ? "Meta: botoes" : "QR/Evolution: lista"}</strong>
         </div>
       </header>
 
@@ -69,7 +74,7 @@ export default function WhatsAppFlowPreview({
         </button>
       </div>
 
-      <div className={styles.phoneFrame} key={`${scene.id}-${period}-${isMeta ? "meta" : "qr"}`}>
+      <div className={styles.phoneFrame} key={`${scene.id}-${period}-${previewRun}-${isMeta ? "meta" : "qr"}`}>
         <div className={styles.phoneTopbar}>
           <span className={styles.phoneAvatar}>HBX</span>
           <div>
