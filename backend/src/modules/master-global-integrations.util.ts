@@ -222,10 +222,10 @@ export function serializeMasterGlobalIntegrationConfig(config: any) {
       accessTokenPreview: previewSecret(entry.accessToken),
       configured: Boolean(normalize(entry.accessToken)),
     })),
-    whatsappLibrary: normalized.whatsappLibrary.map((entry) => ({
+    whatsappLibrary: normalized.whatsappLibrary.map(({ accessToken, ...entry }) => ({
       ...entry,
-      accessTokenPreview: previewSecret(entry.accessToken),
-      configured: Boolean(normalize(entry.accessToken) && normalize(entry.phoneNumberId)),
+      accessTokenPreview: previewSecret(accessToken),
+      configured: Boolean(normalize(accessToken) && normalize(entry.phoneNumberId)),
     })),
     createdAt: normalized.createdAt,
     updatedAt: normalized.updatedAt,

@@ -4,9 +4,15 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import DashboardScaffold from "@/components/DashboardScaffold";
 import { QR_PAIRED_EVENT } from "@/components/QrPairedNextStepPrompt";
+import {
+  getBotAiPlanRedirectFromError,
+  hasBotAi,
+  type CommercialPlansPayload,
+} from "@/lib/commercial-plans";
 import { getProviderCapabilitiesFromWhatsAppCenter } from "@/lib/provider-capabilities";
 import type { UserModule } from "@/lib/hbx-modules";
 import {
+  getWhatsAppModalPlanRedirect,
   whatsappModeLabel,
   type WhatsAppCenterPayload,
   type WhatsAppModalPayload,
@@ -43,6 +49,7 @@ type StoredDraft = {
 };
 
 const DRAFT_STORAGE_KEY = "hbx.vendas.automacao.bot-qrcode.draft.v1";
+const BOT_PLAN_HREF = "/dashboard/planos?intent=bot_ia&from=vendas_automacao";
 
 function shouldLoadModalQr(nextPayload: WhatsAppModalPayload | null, includeQr: boolean) {
   if (!includeQr || !nextPayload?.data.available) return false;
@@ -137,6 +144,7 @@ export default function VendasAutomationClientPage() {
   const [agendaConfig, setAgendaConfig] = useState<AtendimentoAgendaConfig>(DEFAULT_ATENDIMENTO_AGENDA_CONFIG);
   const [centerPayload, setCenterPayload] = useState<WhatsAppCenterPayload | null>(null);
   const [modalPayload, setModalPayload] = useState<WhatsAppModalPayload | null>(null);
+  const [commercialPlans, setCommercialPlans] = useState<CommercialPlansPayload | null>(null);
   const [userModules, setUserModules] = useState<UserModule[]>([]);
   const [draftSavedAt, setDraftSavedAt] = useState<string | null>(null);
   const [publishedAt, setPublishedAt] = useState<string | null>(null);
@@ -150,6 +158,7 @@ export default function VendasAutomationClientPage() {
     () => getProviderCapabilitiesFromWhatsAppCenter(centerPayload),
     [centerPayload],
   );
+  const botAiActive = hasBotAi(commercialPlans);
   const recoveryEnabled = useMemo(() => {
     const trialModule = String(centerPayload?.company.trialModuleSelection || "").trim().toLowerCase();
     if (trialModule === "recovery") return true;
@@ -183,6 +192,24 @@ export default function VendasAutomationClientPage() {
 
   const publishLabel = draftConfig.routingRules.globalBotEnabled ? "Bot ativo" : "BOT_OFF global";
 
+  const openBotPlans = useCallback(() => {
+    router.push(BOT_PLAN_HREF);
+  }, [router]);
+
+  const handleModalPlanRedirect = useCallback(
+    (payload: WhatsAppModalPayload | null) => {
+      const redirectTo = getWhatsAppModalPlanRedirect(payload);
+      if (!redirectTo) return false;
+      setNotice({
+        tone: "error",
+        text: "Este WhatsApp já utilizou o trial. Para continuar usando o HBX com este número, escolha um plano.",
+      });
+      router.push(redirectTo);
+      return true;
+    },
+    [router],
+  );
+
   const setWorkspaceTab = useCallback(
     (tab: BotQrWorkspaceTab) => {
       setActiveTab(tab);
@@ -208,6 +235,7 @@ export default function VendasAutomationClientPage() {
 
       setCenterPayload(centerData);
       setModalPayload(nextModal);
+      handleModalPlanRedirect(nextModal);
     } catch (loadError) {
       setConnectionError(
         loadError instanceof Error ? loadError.message : "Falha ao carregar a conexao QR atual.",
@@ -215,22 +243,33 @@ export default function VendasAutomationClientPage() {
     } finally {
       if (!background) setConnectionLoading(false);
     }
-  }, []);
+  }, [handleModalPlanRedirect]);
 
   const loadAutomation = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const [botPayload, agendaPayload] = await Promise.all([
-        apiFetch<AtendimentoBotConfig>("/vendas/automation/bot-config"),
+      const [plansPayload, agendaPayload] = await Promise.all([
+        apiFetch<CommercialPlansPayload>("/commercial-plans/me"),
         apiFetch<AtendimentoAgendaConfig>("/vendas/automation/agenda"),
       ]);
-      const normalizedBot = normalizeBotConfig(botPayload);
+      setCommercialPlans(plansPayload);
       const normalizedAgenda = normalizeAgendaConfig(agendaPayload);
+      setAgendaConfig(normalizedAgenda);
+
+      if (!hasBotAi(plansPayload)) {
+        setPublishedConfig(DEFAULT_ATENDIMENTO_BOT_CONFIG);
+        setDraftConfig(DEFAULT_ATENDIMENTO_BOT_CONFIG);
+        setPublishedAt(null);
+        setDraftSavedAt(null);
+        return;
+      }
+
+      const botPayload = await apiFetch<AtendimentoBotConfig>("/vendas/automation/bot-config");
+      const normalizedBot = normalizeBotConfig(botPayload);
       const storedDraft = readStoredDraft();
 
       setPublishedConfig(normalizedBot);
-      setAgendaConfig(normalizedAgenda);
       setPublishedAt(new Date().toISOString());
 
       if (storedDraft) {
@@ -245,11 +284,20 @@ export default function VendasAutomationClientPage() {
         setDraftSavedAt(null);
       }
     } catch (loadError) {
+      const redirectTo = getBotAiPlanRedirectFromError(loadError, BOT_PLAN_HREF);
+      if (redirectTo) {
+        setNotice({
+          tone: "info",
+          text: "O BOT Inteligente faz parte do HBX Vendas + IA.",
+        });
+        router.push(redirectTo);
+        return;
+      }
       setError(loadError instanceof Error ? loadError.message : "Falha ao carregar a automacao WhatsApp.");
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [router]);
 
   const ensureQrModeSelected = useCallback(async () => {
     if (centerPayload?.center.mode === "QR") return centerPayload;
@@ -265,11 +313,13 @@ export default function VendasAutomationClientPage() {
     if (!shouldLoadModalQr(statusPayload, true)) return statusPayload;
     try {
       const qrPayload = await apiFetch<WhatsAppModalPayload>("/companies/me/whatsapp-modal/qr");
-      return mergeModalPayload(statusPayload, qrPayload);
+      const merged = mergeModalPayload(statusPayload, qrPayload);
+      handleModalPlanRedirect(merged);
+      return merged;
     } catch {
       return statusPayload;
     }
-  }, []);
+  }, [handleModalPlanRedirect]);
 
   const runConnectionAction = useCallback(
     async (action: "generate_qr" | "reconnect" | "disconnect") => {
@@ -300,6 +350,7 @@ export default function VendasAutomationClientPage() {
 
         const nextPayload = action === "disconnect" ? response : await fetchModalQrOnce(response);
         setModalPayload(nextPayload);
+        if (handleModalPlanRedirect(nextPayload)) return;
         void loadConnection(true, action !== "disconnect");
 
         setNotice({
@@ -326,7 +377,7 @@ export default function VendasAutomationClientPage() {
         setConnectionAction(null);
       }
     },
-    [ensureQrModeSelected, fetchModalQrOnce, loadConnection, modalPayload],
+    [ensureQrModeSelected, fetchModalQrOnce, handleModalPlanRedirect, loadConnection, modalPayload],
   );
 
   useEffect(() => {
@@ -379,6 +430,14 @@ export default function VendasAutomationClientPage() {
   }, [draftConfig]);
 
   const saveBotConfig = useCallback(async (nextConfig: AtendimentoBotConfig, successText: string) => {
+    if (!botAiActive) {
+      setNotice({
+        tone: "info",
+        text: "O BOT Inteligente faz parte do HBX Vendas + IA.",
+      });
+      openBotPlans();
+      return;
+    }
     setPublishing(true);
     setError(null);
     try {
@@ -394,6 +453,15 @@ export default function VendasAutomationClientPage() {
       setDraftSavedAt(null);
       setNotice({ tone: "success", text: successText });
     } catch (publishError) {
+      const redirectTo = getBotAiPlanRedirectFromError(publishError, BOT_PLAN_HREF);
+      if (redirectTo) {
+        setNotice({
+          tone: "info",
+          text: "O BOT Inteligente faz parte do HBX Vendas + IA.",
+        });
+        router.push(redirectTo);
+        return;
+      }
       const message =
         publishError instanceof Error ? publishError.message : "Falha ao salvar a automacao WhatsApp.";
       setError(message);
@@ -401,7 +469,7 @@ export default function VendasAutomationClientPage() {
     } finally {
       setPublishing(false);
     }
-  }, []);
+  }, [botAiActive, openBotPlans, router]);
 
   const handlePublish = useCallback(
     async () => saveBotConfig(draftConfig, "Automacao WhatsApp publicada com sucesso."),
@@ -424,6 +492,17 @@ export default function VendasAutomationClientPage() {
       text: `Teste rapido executado: ${passed}/${quickTests.length} item(ns) validado(s).`,
     });
   }, [quickTests]);
+
+  const renderBotPlanPaywall = () => (
+    <section className={styles.botPlanPaywall}>
+      <span className={styles.sectionEyebrow}>Plano necessário</span>
+      <h3>O BOT Inteligente faz parte do HBX Vendas + IA</h3>
+      <p>Para configurar ou ativar o bot, escolha o plano que mostra o valor antes da ativação.</p>
+      <button type="button" className={styles.primaryButton} onClick={openBotPlans}>
+        Ver planos
+      </button>
+    </section>
+  );
 
   if (hasToken === null) {
     return (
@@ -475,34 +554,38 @@ export default function VendasAutomationClientPage() {
                 />
               }
               flowPanel={
-                <ConversationBuilder
-                  botConfig={draftConfig}
-                  agendaConfig={agendaConfig}
-                  providerCapabilities={providerCapabilities}
-                  publishing={publishing}
-                  recoveryEnabled={recoveryEnabled}
-                  hasUnsavedChanges={hasUnsavedChanges}
-                  onConfigChange={setDraftConfig}
-                  onSaveDraft={handleSaveDraft}
-                  onSave={(nextConfig) => void saveBotConfig(nextConfig, "Bot publicado.")}
-                />
+                botAiActive ? (
+                  <ConversationBuilder
+                    botConfig={draftConfig}
+                    agendaConfig={agendaConfig}
+                    providerCapabilities={providerCapabilities}
+                    publishing={publishing}
+                    recoveryEnabled={recoveryEnabled}
+                    hasUnsavedChanges={hasUnsavedChanges}
+                    onConfigChange={setDraftConfig}
+                    onSaveDraft={handleSaveDraft}
+                    onSave={(nextConfig) => void saveBotConfig(nextConfig, "Bot publicado.")}
+                  />
+                ) : renderBotPlanPaywall()
               }
               publishPanel={
-                <BotQrPublishPanel
-                  checklist={checklist}
-                  quickTests={quickTests}
-                  draftSavedAtLabel={formatLabel(draftSavedAt)}
-                  publishedAtLabel={formatLabel(publishedAt)}
-                  lastQuickTestLabel={formatLabel(lastQuickTestAt)}
-                  publishing={publishing}
-                  hasUnsavedChanges={hasUnsavedChanges}
-                  botStatusLabel={publishLabel}
-                  connectionStatusLabel={connectionLabel}
-                  onSaveDraft={handleSaveDraft}
-                  onPublish={() => void handlePublish()}
-                  onRestorePublished={handleRestorePublished}
-                  onRunQuickTest={handleRunQuickTest}
-                />
+                botAiActive ? (
+                  <BotQrPublishPanel
+                    checklist={checklist}
+                    quickTests={quickTests}
+                    draftSavedAtLabel={formatLabel(draftSavedAt)}
+                    publishedAtLabel={formatLabel(publishedAt)}
+                    lastQuickTestLabel={formatLabel(lastQuickTestAt)}
+                    publishing={publishing}
+                    hasUnsavedChanges={hasUnsavedChanges}
+                    botStatusLabel={publishLabel}
+                    connectionStatusLabel={connectionLabel}
+                    onSaveDraft={handleSaveDraft}
+                    onPublish={() => void handlePublish()}
+                    onRestorePublished={handleRestorePublished}
+                    onRunQuickTest={handleRunQuickTest}
+                  />
+                ) : renderBotPlanPaywall()
               }
             />
           )}

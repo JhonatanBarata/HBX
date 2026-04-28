@@ -10,6 +10,7 @@ import {
 import { existsSync, mkdirSync, writeFileSync } from 'fs';
 import { extname, join } from 'path';
 import { PrismaService } from '../prisma/prisma.service';
+import { CommercialPlansService } from '../commercial-plans/commercial-plans.service';
 import { ConversationsService } from '../messaging/conversations.service';
 import { WhatsAppAuditService } from '../messaging/whatsapp-audit.service';
 import {
@@ -67,6 +68,7 @@ export class InboxService {
     private readonly customerProfileService: CustomerProfileService,
     private readonly webwhatsBridge: WebwhatsBridgeService,
     private readonly inboxRealtime: InboxRealtimeService,
+    private readonly commercialPlansService: CommercialPlansService,
   ) {}
 
   private async logInboxEvent(input: {
@@ -390,6 +392,72 @@ export class InboxService {
     if (typeof value === 'number') return value === 1;
     const normalized = String(value || '').trim().toLowerCase();
     return ['true', '1', 'yes', 'sim'].includes(normalized);
+  }
+
+  private getNestedMetadataRecord(value: unknown): Record<string, any> | null {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+    return value as Record<string, any>;
+  }
+
+  private isConversationMetadataInTrash(metadata: Record<string, any>, flowResult?: string | null) {
+    const vendasAgendaQueue = this.getNestedMetadataRecord(metadata?.vendasAgendaQueue);
+    const manualQueue = String(
+      metadata?.inboxManualQueueOverride || vendasAgendaQueue?.manualQueueOverride || '',
+    ).trim().toLowerCase();
+
+    return (
+      manualQueue === 'archived' ||
+      String(flowResult || '').trim().toLowerCase() === 'local_deleted' ||
+      [
+        metadata?.inboxLocalDeleted,
+        metadata?.localDeleted,
+        metadata?.whatsappArchived,
+        metadata?.chatArchived,
+        metadata?.isArchived,
+        metadata?.archived,
+        metadata?.whatsappChatArchived,
+      ].some((value) => this.parseBooleanMetadataFlag(value))
+    );
+  }
+
+  private isConversationKnownWithoutWhatsapp(metadata: Record<string, any>) {
+    const vendasAgendaQueue = this.getNestedMetadataRecord(metadata?.vendasAgendaQueue);
+    const status = String(
+      metadata?.whatsappAvailabilityStatus ||
+        metadata?.vendasWhatsappAvailabilityStatus ||
+        vendasAgendaQueue?.whatsappAvailabilityStatus ||
+        '',
+    ).trim().toLowerCase();
+    return status === 'unavailable';
+  }
+
+  private canTrashDeleteFallbackToLocal(error: unknown) {
+    const providerError = error instanceof WebwhatsProviderError ? error : null;
+    const code = String((providerError as any)?.code || (error as any)?.code || '').trim().toUpperCase();
+    if (code === 'WEBWHATS_NOT_CONNECTED') return false;
+    const message = String(
+      providerError?.providerMessage ||
+        providerError?.message ||
+        (error instanceof Error ? error.message : ''),
+    ).toLowerCase();
+
+    return (
+      code.includes('REMOTE_JID_MISSING') ||
+      code.includes('CONVERSATION_NOT_FOUND') ||
+      code.includes('CHAT_REMOTE_JID_MISSING') ||
+      message.includes('última mensagem real') ||
+      message.includes('ultima mensagem real') ||
+      message.includes('last message') ||
+      message.includes('chat ja nao existia') ||
+      message.includes('chat já não existia') ||
+      message.includes('chat não encontrada') ||
+      message.includes('chat nao encontrada') ||
+      message.includes('chat not found') ||
+      message.includes('already deleted') ||
+      message.includes('already removed') ||
+      message.includes('nao encontrad') ||
+      message.includes('não encontrad')
+    );
   }
 
   private hasPersistedWhatsAppDisplayName(metadataRaw: string | null | undefined) {
@@ -3122,6 +3190,7 @@ export class InboxService {
 
   async getBotConfig(user: any) {
     const companyId = this.requireCompanyIdFromUser(user);
+    await this.commercialPlansService.assertBotAiEntitlementForCompany(companyId);
     return this.getBotConfigByCompanyId(companyId);
   }
 
@@ -3192,6 +3261,7 @@ export class InboxService {
 
   async updateBotConfig(user: any, payload: unknown) {
     const companyId = this.requireCompanyIdFromUser(user);
+    await this.commercialPlansService.assertBotAiEntitlementForCompany(companyId);
     const tenantContext = await this.resolveAtendimentoBotSanitizationContext(companyId);
     const normalized = sanitizeAtendimentoBotConfigForTenant(
       normalizeAtendimentoBotConfig(payload || {}),
@@ -3228,6 +3298,9 @@ export class InboxService {
 
   async bulkSetBotActive(user: any, dto: { ids?: number[]; enabled?: boolean }) {
     const companyId = this.requireCompanyIdFromUser(user);
+    if (dto?.enabled !== false) {
+      await this.commercialPlansService.assertBotAiEntitlementForCompany(companyId);
+    }
     const ids = Array.isArray(dto?.ids) ? dto.ids.map((v) => Number(v)).filter((v) => Number.isFinite(v)) : [];
     if (!ids.length) {
       throw new BadRequestException('ids is required');
@@ -4088,6 +4161,139 @@ export class InboxService {
       whatsappDeleted: true,
       hidden: true,
       message: 'Conversa apagada da conta WhatsApp conectada.',
+    };
+  }
+
+  private async purgeInboxConversationLocally(companyId: number, conversationId: number) {
+    await this.prisma.$transaction(async (tx) => {
+      await tx.companyMessage.deleteMany({
+        where: {
+          companyId,
+          conversationId,
+        },
+      });
+      await tx.companyConversation.deleteMany({
+        where: {
+          id: conversationId,
+          companyId,
+          channel: 'whatsapp',
+        },
+      });
+    });
+  }
+
+  async emptyTrash(user: any) {
+    const companyId = this.requireCompanyIdFromUser(user);
+    const rows = await this.prisma.companyConversation.findMany({
+      where: { companyId, channel: 'whatsapp' },
+      orderBy: [{ updatedAt: 'asc' }, { id: 'asc' }],
+      select: {
+        id: true,
+        contact: true,
+        metadata: true,
+        flowResult: true,
+      },
+    });
+
+    const trashRows = rows
+      .map((row) => ({
+        ...row,
+        metadataParsed: this.parseConversationMetadata(row.metadata),
+      }))
+      .filter((row) => this.isConversationMetadataInTrash(row.metadataParsed, row.flowResult));
+
+    const failures: Array<{ id: string; message: string }> = [];
+    const removedIds: string[] = [];
+    let whatsappDeleted = 0;
+    let localOnlyDeleted = 0;
+
+    for (const row of trashRows) {
+      const metadata = row.metadataParsed;
+      let mode: 'whatsapp' | 'local' = 'local';
+      const alreadyDeletedFromWhatsapp = this.parseBooleanMetadataFlag(
+        metadata?.whatsappConversationDeleted || metadata?.inboxWhatsAppDeleted,
+      );
+      const knownWithoutWhatsapp = this.isConversationKnownWithoutWhatsapp(metadata);
+
+      if (!alreadyDeletedFromWhatsapp && !knownWithoutWhatsapp) {
+        try {
+          await this.webwhatsBridge.deleteChat(companyId, {
+            conversationId: row.id,
+          });
+          mode = 'whatsapp';
+        } catch (error) {
+          if (!this.canTrashDeleteFallbackToLocal(error)) {
+            const message =
+              error instanceof WebwhatsProviderError
+                ? error.providerMessage || error.message
+                : error instanceof Error
+                  ? error.message
+                  : 'Falha ao apagar conversa.';
+            failures.push({ id: String(row.id), message });
+            await this.logInboxEvent({
+              companyId,
+              event: 'conversation_trash_empty_failed',
+              message: 'Falha ao esvaziar conversa em Excluídos.',
+              conversationId: row.id,
+              phone: String(row.contact || '').trim(),
+              result: 'failed',
+              extra: {
+                error: message,
+              },
+            });
+            continue;
+          }
+          mode = 'local';
+        }
+      }
+
+      try {
+        await this.logInboxEvent({
+          companyId,
+          event: 'conversation_trash_emptied',
+          message:
+            mode === 'whatsapp'
+              ? 'Conversa apagada no WhatsApp e removida de Excluídos.'
+              : 'Conversa removida localmente de Excluídos.',
+          conversationId: row.id,
+          phone: String(row.contact || '').trim(),
+          result: mode,
+          extra: {
+            whatsappCommandSent: mode === 'whatsapp',
+            alreadyDeletedFromWhatsapp,
+            knownWithoutWhatsapp,
+          },
+        });
+        await this.purgeInboxConversationLocally(companyId, row.id);
+        removedIds.push(String(row.id));
+        if (mode === 'whatsapp') {
+          whatsappDeleted += 1;
+        } else {
+          localOnlyDeleted += 1;
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Falha ao remover conversa localmente.';
+        failures.push({ id: String(row.id), message });
+      }
+    }
+
+    const failed = failures.length;
+    const purged = removedIds.length;
+    return {
+      success: failed === 0,
+      total: trashRows.length,
+      purged,
+      whatsappDeleted,
+      localOnlyDeleted,
+      failed,
+      removedIds,
+      failures: failures.slice(0, 10),
+      message:
+        failed > 0
+          ? `Lixeira parcialmente esvaziada: ${purged} removida(s), ${failed} com falha.`
+          : purged > 0
+            ? `Lixeira esvaziada: ${purged} conversa(s) removida(s).`
+            : 'Lixeira já estava vazia.',
     };
   }
 

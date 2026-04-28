@@ -9,6 +9,7 @@ import { useInterfaceTransition } from "@/components/InterfaceTransitionProvider
 import { useHbxTheme } from "@/components/ThemeProvider";
 import { usePopupTopbarLock } from "@/lib/use-popup-topbar-lock";
 import {
+  getWhatsAppModalPlanRedirect,
   type WhatsAppCenterPayload,
   type WhatsAppDiagnosticFocus,
   type WhatsAppModalPayload,
@@ -396,6 +397,10 @@ export default function TopBar() {
       }
 
       setWhatsAppModal(nextPayload);
+      const planRedirect = getWhatsAppModalPlanRedirect(nextPayload);
+      if (planRedirect) {
+        router.push(planRedirect);
+      }
       return nextPayload;
     } catch (error) {
       const message = error instanceof Error ? error.message : "Falha ao carregar a conexão rápida por QR.";
@@ -404,7 +409,7 @@ export default function TopBar() {
     } finally {
       if (!options?.background) setWhatsAppModalLoading(false);
     }
-  }, [authenticated]);
+  }, [authenticated, router]);
 
   const waitForWhatsAppModalQr = React.useCallback(async (statusPayload: WhatsAppModalPayload) => {
     let latestPayload = statusPayload;
@@ -413,6 +418,11 @@ export default function TopBar() {
       const qrPayload = await apiFetch<WhatsAppModalPayload>("/companies/me/whatsapp-modal/qr");
       latestPayload = mergeModalPayload(latestPayload, qrPayload);
       setWhatsAppModal(latestPayload);
+      const planRedirect = getWhatsAppModalPlanRedirect(latestPayload);
+      if (planRedirect) {
+        router.push(planRedirect);
+        return latestPayload;
+      }
       if (latestPayload.data.qrCodeDataUrl || latestPayload.status === "connected") {
         return latestPayload;
       }
@@ -420,7 +430,7 @@ export default function TopBar() {
     }
 
     return latestPayload;
-  }, []);
+  }, [router]);
 
   const showMasterContextToast = React.useCallback((detail?: MasterContextChangedDetail | null) => {
     const mode = detail?.mode;
@@ -1378,6 +1388,12 @@ export default function TopBar() {
         nextPayload = await waitForWhatsAppModalQr(response);
       }
       setWhatsAppModal(nextPayload);
+      const planRedirect = getWhatsAppModalPlanRedirect(nextPayload);
+      if (planRedirect) {
+        setWhatsAppDetailError(nextPayload.message);
+        router.push(planRedirect);
+        return;
+      }
       void loadWhatsAppCenter({ background: true });
       setWhatsAppDetailFocus("qr");
       setWhatsAppDetailMessage(

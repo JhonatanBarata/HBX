@@ -52,6 +52,11 @@ import {
 } from "@/components/workspace/adapters/atendimento";
 import { acquirePopupTopbarLock } from "@/lib/popup-visibility";
 import {
+  getBotAiPlanRedirectFromError,
+  hasBotAi,
+  type CommercialPlansPayload,
+} from "@/lib/commercial-plans";
+import {
   getProviderCapabilitiesFromWhatsAppCenter,
   getProviderLabel,
   type ProviderCapabilities,
@@ -100,6 +105,18 @@ type StatusFilter = "all" | "new" | "open" | "closed" | "blocked";
 type NoticeState = {
   tone: "success" | "error" | "info";
   text: string;
+};
+
+type EmptyTrashResponse = {
+  success?: boolean;
+  total?: number;
+  purged?: number;
+  whatsappDeleted?: number;
+  localOnlyDeleted?: number;
+  failed?: number;
+  removedIds?: string[];
+  message?: string;
+  failures?: Array<{ id?: string; message?: string }>;
 };
 
 type InboxAttachmentPreview = {
@@ -253,6 +270,7 @@ const INBOX_QUEUE_ORDER: InboxQueue[] = [
   "scheduled",
   "bot",
 ];
+const INBOX_BOT_PLAN_HREF = "/dashboard/planos?intent=bot_ia&from=inbox_bot";
 
 const INBOX_MANUAL_QUEUE_STORAGE_KEY = "hbx:inbox:manual-queue-overrides";
 const INBOX_DELETED_CONVERSATION_ALIASES_STORAGE_KEY = "hbx:inbox:deleted-conversation-aliases";
@@ -2247,6 +2265,7 @@ export default function InboxClientPage() {
   const [inboxRealtimeFallbackActive, setInboxRealtimeFallbackActive] = useState(false);
   const [lastConversationSyncAt, setLastConversationSyncAt] = useState<string | null>(null);
   const [notice, setNotice] = useState<NoticeState | null>(null);
+  const [commercialPlans, setCommercialPlans] = useState<CommercialPlansPayload | null>(null);
   const [sendText, setSendText] = useState("");
   const [sending, setSending] = useState(false);
   const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
@@ -2264,6 +2283,8 @@ export default function InboxClientPage() {
   const [deleteConversationDialog, setDeleteConversationDialog] = useState<{ conversationId: string } | null>(null);
   const [whatsappDeleteConversationDialog, setWhatsappDeleteConversationDialog] = useState<{ conversationId: string } | null>(null);
   const [deleteMessageDialog, setDeleteMessageDialog] = useState<{ messageId: string } | null>(null);
+  const [emptyTrashDialogOpen, setEmptyTrashDialogOpen] = useState(false);
+  const [emptyingTrash, setEmptyingTrash] = useState(false);
   const [revealedDeletedMessageIds, setRevealedDeletedMessageIds] = useState<Record<string, boolean>>({});
   const [customerConversationCard, setCustomerConversationCard] =
     useState<CustomerConversationCardPayload | null>(null);
@@ -2314,6 +2335,7 @@ export default function InboxClientPage() {
   const humanAlertTimerRef = useRef<number | null>(null);
   const newAlertTimerRef = useRef<number | null>(null);
   const noticeTimerRef = useRef<number | null>(null);
+  const errorTimerRef = useRef<number | null>(null);
   const skipNotePersistRef = useRef(false);
   const chatTimelineRef = useRef<HTMLDivElement | null>(null);
   const chatComposerInputRef = useRef<HTMLTextAreaElement | null>(null);
@@ -2360,6 +2382,32 @@ export default function InboxClientPage() {
   >([]);
   const [inboxBootstrapCelebrate, setInboxBootstrapCelebrate] = useState(false);
   const inboxBootstrapStageTimerRef = useRef<number | null>(null);
+  const botAiActive = hasBotAi(commercialPlans);
+
+  const openBotPlans = useCallback(() => {
+    setNotice({
+      tone: "info",
+      text: "O BOT Inteligente faz parte do HBX Vendas + IA.",
+    });
+    router.push(INBOX_BOT_PLAN_HREF);
+  }, [router]);
+
+  const openBotPlansFromError = useCallback((error: unknown) => {
+    const redirectTo = getBotAiPlanRedirectFromError(error, INBOX_BOT_PLAN_HREF);
+    if (!redirectTo) return false;
+    setNotice({
+      tone: "info",
+      text: "O BOT Inteligente faz parte do HBX Vendas + IA.",
+    });
+    router.push(redirectTo);
+    return true;
+  }, [router]);
+
+  const requireBotAi = useCallback(() => {
+    if (botAiActive) return true;
+    openBotPlans();
+    return false;
+  }, [botAiActive, openBotPlans]);
 
   const markInboxMediaUrlFailed = useCallback((url?: string | null) => {
     const normalized = String(url || "").trim();
@@ -2461,8 +2509,9 @@ export default function InboxClientPage() {
 
   useEffect(() => {
     if (requestedTab !== "automation") return;
-    router.replace("/dashboard/vendas/automacao?tab=flow", { scroll: false });
-  }, [requestedTab, router]);
+    if (!commercialPlans) return;
+    router.replace(botAiActive ? "/dashboard/vendas/automacao?tab=flow" : INBOX_BOT_PLAN_HREF, { scroll: false });
+  }, [botAiActive, commercialPlans, requestedTab, router]);
 
   useEffect(() => {
     if (requestedQueue) {
@@ -2478,12 +2527,13 @@ export default function InboxClientPage() {
       return;
     }
     if (requestedSection === "automacao") {
-      router.replace("/dashboard/vendas/automacao?tab=flow", { scroll: false });
+      if (!commercialPlans) return;
+      router.replace(botAiActive ? "/dashboard/vendas/automacao?tab=flow" : INBOX_BOT_PLAN_HREF, { scroll: false });
       return;
     }
     setAgendaStudioOpen(false);
     setContextTab(requestedSection);
-  }, [requestedAgendaStudioOpen, requestedQueue, requestedSection, router]);
+  }, [botAiActive, commercialPlans, requestedAgendaStudioOpen, requestedQueue, requestedSection, router]);
 
   useEffect(() => {
     setMounted(true);
@@ -3300,8 +3350,23 @@ export default function InboxClientPage() {
     };
   }, []);
 
+  const loadCommercialPlans = useCallback(async () => {
+    try {
+      const data = await apiFetch<CommercialPlansPayload>("/commercial-plans/me");
+      setCommercialPlans(data);
+      return data;
+    } catch {
+      setCommercialPlans(null);
+      return null;
+    }
+  }, []);
+
   const loadBotConfig = useCallback(async (options?: { force?: boolean }) => {
     if (botConfigLoadedRef.current && !options?.force) return;
+    if (commercialPlans && !hasBotAi(commercialPlans)) {
+      setBotConfig(DEFAULT_ATENDIMENTO_BOT_CONFIG);
+      return;
+    }
     setLoadingBot(true);
     try {
       const data = await apiFetch<AtendimentoBotConfig>("/inbox/bot-config");
@@ -3310,12 +3375,13 @@ export default function InboxClientPage() {
       setBotConfig(normalized);
       botConfigLoadedRef.current = true;
     } catch (loadError) {
+      if (openBotPlansFromError(loadError)) return;
       const message = loadError instanceof Error ? loadError.message : "Falha ao carregar editor.";
       setError(message);
     } finally {
       setLoadingBot(false);
     }
-  }, []);
+  }, [commercialPlans, openBotPlansFromError]);
 
   useEffect(() => {
     const stored = readStoredGlobalBotEnabled();
@@ -3524,13 +3590,15 @@ export default function InboxClientPage() {
 
   useEffect(() => {
     if (hasToken === false) return;
-    void Promise.all([loadCurrentUser(), loadUserModules(), loadWhatsAppCenter()]);
-  }, [hasToken, loadCurrentUser, loadUserModules, loadWhatsAppCenter]);
+    void Promise.all([loadCurrentUser(), loadUserModules(), loadWhatsAppCenter(), loadCommercialPlans()]);
+  }, [hasToken, loadCommercialPlans, loadCurrentUser, loadUserModules, loadWhatsAppCenter]);
 
   useEffect(() => {
     if (hasToken === false) return;
+    if (!commercialPlans) return;
+    if (!hasBotAi(commercialPlans)) return;
     void loadBotConfig();
-  }, [hasToken, loadBotConfig]);
+  }, [commercialPlans, hasToken, loadBotConfig]);
 
   useEffect(() => {
     if (hasToken === false) return;
@@ -3578,7 +3646,7 @@ export default function InboxClientPage() {
     return base;
   }, [conversations, queueByConversationId]);
 
-  const globalBotEnabled = botConfig.routingRules.globalBotEnabled !== false;
+  const globalBotEnabled = botAiActive && botConfig.routingRules.globalBotEnabled !== false;
 
   const filteredConversations = useMemo(() => {
     const normalizedSearch = deferredConversationSearch.trim().toLowerCase();
@@ -4045,6 +4113,7 @@ export default function InboxClientPage() {
 
     const params = new URLSearchParams(searchParams?.toString() || "");
     if (nextSection === "automacao") {
+      if (!requireBotAi()) return;
       router.push("/dashboard/vendas/automacao?tab=flow");
       return;
     } else if (nextSection === "agenda") {
@@ -4061,7 +4130,7 @@ export default function InboxClientPage() {
     }
     const nextUrl = params.toString() ? `${pathname}?${params.toString()}` : pathname;
     router.replace(nextUrl, { scroll: false });
-  }, [hasRecoveryCapability, pathname, router, searchParams]);
+  }, [hasRecoveryCapability, pathname, requireBotAi, router, searchParams]);
 
   const resetTemplateComposer = useCallback(() => {
     setTemplateComposer(DEFAULT_TEMPLATE_COMPOSER);
@@ -4344,6 +4413,7 @@ export default function InboxClientPage() {
   );
 
   const toggleGlobalBot = useCallback(async () => {
+    if (!requireBotAi()) return;
     const enabled = !globalBotEnabled;
     const nextConfig = sanitizeBotConfigForCurrentTenant({
       ...botConfig,
@@ -4369,12 +4439,16 @@ export default function InboxClientPage() {
           : "BOT global desativado para novas mensagens.",
       });
     } catch (toggleError) {
+      if (openBotPlansFromError(toggleError)) {
+        setBotConfig(botConfig);
+        return;
+      }
       setError(toggleError instanceof Error ? toggleError.message : "Falha ao atualizar BOT global.");
       setBotConfig(botConfig);
     } finally {
       setSavingBot(false);
     }
-  }, [botConfig, globalBotEnabled, sanitizeBotConfigForCurrentTenant]);
+  }, [botConfig, globalBotEnabled, openBotPlansFromError, requireBotAi, sanitizeBotConfigForCurrentTenant]);
 
   const moveConversationToQueue = useCallback(
     async (
@@ -4385,6 +4459,7 @@ export default function InboxClientPage() {
       if (!conversationId || !targetQueue) return;
       const numericConversationId = Number(conversationId);
       if (!Number.isFinite(numericConversationId)) return;
+      if (targetQueue === "bot" && !requireBotAi()) return;
 
       setError(null);
       try {
@@ -4416,12 +4491,13 @@ export default function InboxClientPage() {
           await loadConversations({ preferredId: conversationId, silent: true });
         }
       } catch (moveError) {
+        if (openBotPlansFromError(moveError)) return;
         const message = moveError instanceof Error ? moveError.message : "Falha ao mover conversa de fila.";
         setError(message);
         throw moveError;
       }
     },
-    [loadConversations, rememberConversationDetail],
+    [loadConversations, openBotPlansFromError, rememberConversationDetail, requireBotAi],
   );
 
   const moveQueueToQueue = useCallback(
@@ -4443,6 +4519,7 @@ export default function InboxClientPage() {
         });
         return;
       }
+      if (targetQueue === "bot" && !requireBotAi()) return;
 
       setError(null);
       try {
@@ -4489,11 +4566,12 @@ export default function InboxClientPage() {
           text: `${conversationIds.length} conversa(s) enviadas para ${getInboxQueueLabel(targetQueue)}.`,
         });
       } catch (bulkMoveError) {
+        if (openBotPlansFromError(bulkMoveError)) return;
         const message = bulkMoveError instanceof Error ? bulkMoveError.message : "Falha ao mover a fila inteira.";
         setError(message);
       }
     },
-    [loadConversations, moveConversationToQueue],
+    [loadConversations, moveConversationToQueue, openBotPlansFromError, requireBotAi],
   );
 
   const handleQueueDrop = useCallback(
@@ -4694,6 +4772,58 @@ export default function InboxClientPage() {
     },
     [loadConversations, whatsappDeleteConversationDialog?.conversationId],
   );
+
+  const openEmptyTrashDialog = useCallback(() => {
+    if (emptyingTrash) return;
+    if (queueCounts.archived <= 0) {
+      setNotice({ tone: "info", text: "Excluídos já está vazio." });
+      return;
+    }
+    setEmptyTrashDialogOpen(true);
+  }, [emptyingTrash, queueCounts.archived]);
+
+  const confirmEmptyTrash = useCallback(async () => {
+    if (emptyingTrash) return;
+    setEmptyingTrash(true);
+    setError(null);
+    try {
+      const response = await apiFetch<EmptyTrashResponse>("/inbox/conversations/empty-trash", {
+        method: "POST",
+      });
+      const removedIds = new Set((response.removedIds || []).map((id) => String(id)));
+      if (removedIds.size > 0) {
+        setConversations((current) => current.filter((conversation) => !removedIds.has(conversation.id)));
+        removedIds.forEach((id) => {
+          conversationDetailCacheRef.current.delete(id);
+          customerConversationCardCacheRef.current.delete(id);
+        });
+        if (selectedIdRef.current && removedIds.has(selectedIdRef.current)) {
+          setSelectedId(null);
+          setSelectedConversation(null);
+          selectedIdRef.current = null;
+          selectedConversationRef.current = null;
+        }
+        setManualQueueOverrides((current) => {
+          const next = { ...current };
+          removedIds.forEach((id) => {
+            delete next[id];
+          });
+          return next;
+        });
+      }
+      setEmptyTrashDialogOpen(false);
+      setNotice({
+        tone: Number(response.failed || 0) > 0 ? "info" : "success",
+        text: String(response.message || "").trim() || "Lixeira esvaziada.",
+      });
+      await loadConversations({ preferredId: null, silent: true });
+    } catch (deleteError) {
+      const message = deleteError instanceof Error ? deleteError.message : "Falha ao esvaziar Excluídos.";
+      setError(message);
+    } finally {
+      setEmptyingTrash(false);
+    }
+  }, [emptyingTrash, loadConversations]);
 
   const reactToMessage = useCallback(
     async (messageId: string, reaction: string) => {
@@ -6680,6 +6810,10 @@ export default function InboxClientPage() {
   const saveAgenda = useCallback(async () => {
     setSavingAgenda(true);
     setError(null);
+    if (botConfigDirtyFromAgendaReset && !requireBotAi()) {
+      setSavingAgenda(false);
+      return;
+    }
     try {
       const payload = await apiFetch<AtendimentoAgendaConfig>("/inbox/agenda", {
         method: "PATCH",
@@ -6697,12 +6831,13 @@ export default function InboxClientPage() {
       setAgendaDirty(false);
       setNotice({ tone: "success", text: "Agenda salva com sucesso." });
     } catch (saveError) {
+      if (openBotPlansFromError(saveError)) return;
       const message = saveError instanceof Error ? saveError.message : "Falha ao salvar agenda.";
       setError(message);
     } finally {
       setSavingAgenda(false);
     }
-  }, [agendaConfig, botConfig, botConfigDirtyFromAgendaReset, sanitizeBotConfigForCurrentTenant]);
+  }, [agendaConfig, botConfig, botConfigDirtyFromAgendaReset, openBotPlansFromError, requireBotAi, sanitizeBotConfigForCurrentTenant]);
 
   const simulateAgendaFlow = useCallback(
     async (payload: AtendimentoAgendaSimulationPayload) => {
@@ -6719,6 +6854,7 @@ export default function InboxClientPage() {
   }, [sanitizeBotConfigForCurrentTenant]);
 
   const saveBot = useCallback(async (nextConfig: AtendimentoBotConfig = botConfig) => {
+    if (!requireBotAi()) return;
     setSavingBot(true);
     setError(null);
     const sanitizedNextConfig = sanitizeBotConfigForCurrentTenant(nextConfig);
@@ -6732,12 +6868,13 @@ export default function InboxClientPage() {
       setBotConfig(normalized);
       setNotice({ tone: "success", text: "Editor do bot salvo com sucesso." });
     } catch (saveError) {
+      if (openBotPlansFromError(saveError)) return;
       const message = saveError instanceof Error ? saveError.message : "Falha ao salvar editor.";
       setError(message);
     } finally {
       setSavingBot(false);
     }
-  }, [botConfig, sanitizeBotConfigForCurrentTenant]);
+  }, [botConfig, openBotPlansFromError, requireBotAi, sanitizeBotConfigForCurrentTenant]);
 
   function scheduleAlertCollapse(
     key: InboxAlertKind | "system_notice",
@@ -6850,9 +6987,22 @@ export default function InboxClientPage() {
     }, 5000);
   }, [notice]);
 
+  useEffect(() => {
+    if (errorTimerRef.current !== null) {
+      window.clearTimeout(errorTimerRef.current);
+      errorTimerRef.current = null;
+    }
+    if (!error) return;
+    if (typeof window === "undefined") return;
+    errorTimerRef.current = window.setTimeout(() => {
+      setError(null);
+      errorTimerRef.current = null;
+    }, 6500);
+  }, [error]);
+
   useEffect(
     () => () => {
-      [humanAlertTimerRef, newAlertTimerRef, noticeTimerRef].forEach((timerRef) => {
+      [humanAlertTimerRef, newAlertTimerRef, noticeTimerRef, errorTimerRef].forEach((timerRef) => {
         if (timerRef.current !== null) {
           window.clearTimeout(timerRef.current);
         }
@@ -6873,6 +7023,11 @@ export default function InboxClientPage() {
 
   if (!hasToken) return null;
 
+  const systemFeedbackItems: NoticeState[] = [
+    ...(error ? [{ tone: "error" as const, text: error }] : []),
+    ...(notice ? [notice] : []),
+  ];
+
   return (
     <>
       <DashboardScaffold
@@ -6882,23 +7037,6 @@ export default function InboxClientPage() {
         hideNavigationRail={true}
         layoutMode="workspace"
       >
-        {error ? <div className="alert alert-error">{error}</div> : null}
-        {notice ? (
-          <div
-            className={`alert ${
-              notice.tone === "error"
-                ? "alert-error"
-                : notice.tone === "success"
-                  ? "alert-success"
-                  : "alert-info"
-            }`}
-            role="status"
-            aria-live="polite"
-          >
-            {notice.text}
-          </div>
-        ) : null}
-
         {activeTab === "messages" ? (
           <section className={styles.premiumInboxShell} data-ui-no-reveal="true">
             <section className={styles.inboxCanvas}>
@@ -6909,8 +7047,20 @@ export default function InboxClientPage() {
                     className={styles.commandDockBrand}
                     data-active={globalBotEnabled ? "true" : "false"}
                     onClick={() => void toggleGlobalBot()}
-                    aria-label={globalBotEnabled ? "Desativar BOT global" : "Ativar BOT global"}
-                    title={globalBotEnabled ? "BOT global ativo" : "BOT global desativado"}
+                    aria-label={
+                      botAiActive
+                        ? globalBotEnabled
+                          ? "Desativar BOT global"
+                          : "Ativar BOT global"
+                        : "Ver planos do BOT Inteligente"
+                    }
+                    title={
+                      botAiActive
+                        ? globalBotEnabled
+                          ? "BOT global ativo"
+                          : "BOT global desativado"
+                        : "O BOT Inteligente faz parte do HBX Vendas + IA"
+                    }
                   >
                     <span>Hbot</span>
                   </button>
@@ -6957,6 +7107,23 @@ export default function InboxClientPage() {
                   ) : null}
                 </div>
                 <div className={styles.commandDockBottom}>
+                  <button
+                    type="button"
+                    className={styles.commandDockTrashButton}
+                    onClick={openEmptyTrashDialog}
+                    disabled={emptyingTrash || queueCounts.archived <= 0}
+                    aria-label="Esvaziar Excluídos"
+                    title={
+                      queueCounts.archived > 0
+                        ? `Esvaziar Excluídos (${queueCounts.archived})`
+                        : "Excluídos vazio"
+                    }
+                  >
+                    <ChatGlyph name="trash" />
+                    {queueCounts.archived > 0 ? (
+                      <span className={styles.commandDockTrashBadge}>{queueCounts.archived}</span>
+                    ) : null}
+                  </button>
                   <DockButton
                     icon="user"
                     label="Operador"
@@ -6981,6 +7148,36 @@ export default function InboxClientPage() {
         ) : null}
 
       </DashboardScaffold>
+
+      {typeof document !== "undefined" && systemFeedbackItems.length > 0
+        ? createPortal(
+            <div className={styles.systemToastDock} aria-live="polite">
+              {systemFeedbackItems.map((item, index) => (
+                <div
+                  key={`${item.tone}-${item.text}-${index}`}
+                  className={`${styles.notificationCard} ${styles.systemToast} ${
+                    item.tone === "error"
+                      ? styles.systemToastError
+                      : item.tone === "success"
+                        ? styles.systemToastSuccess
+                        : styles.systemToastInfo
+                  }`}
+                  role={item.tone === "error" ? "alert" : "status"}
+                >
+                  <span className={styles.systemToastEyebrow}>
+                    {item.tone === "error"
+                      ? "Atenção"
+                      : item.tone === "success"
+                        ? "Confirmado"
+                        : "Aviso"}
+                  </span>
+                  <strong>{item.text}</strong>
+                </div>
+              ))}
+            </div>,
+            document.body,
+          )
+        : null}
 
       {agendaStudioOpen ? (
         renderAgendaPanel()
@@ -7128,6 +7325,27 @@ export default function InboxClientPage() {
         detailRows={inboxBootstrapDetailRows}
         celebrate={inboxBootstrapCelebrate}
       />
+
+      <HbxConfirmDialog
+        open={emptyTrashDialogOpen}
+        title="Esvaziar Excluídos"
+        description="O HBX vai apagar os chats existentes no WhatsApp e remover localmente as conversas que já não existem no aparelho conectado."
+        confirmLabel="Esvaziar lixeira"
+        destructive
+        busy={emptyingTrash}
+        confirmDisabled={queueCounts.archived <= 0}
+        onCancel={() => setEmptyTrashDialogOpen(false)}
+        onConfirm={() => void confirmEmptyTrash()}
+      >
+        <div className={styles.emptyTrashSummary}>
+          <span>{queueCounts.archived} conversa(s) em Excluídos</span>
+          {emptyingTrash ? (
+            <strong>Processando limpeza. Isso pode levar alguns segundos.</strong>
+          ) : (
+            <strong>Esta ação limpa definitivamente a fila Excluídos.</strong>
+          )}
+        </div>
+      </HbxConfirmDialog>
 
       <HbxConfirmDialog
         open={deleteConversationDialog !== null}

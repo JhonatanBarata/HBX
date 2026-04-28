@@ -110,6 +110,15 @@ const NAV_ITEMS: NavItem[] = [
     moduleKey: "financeiro",
   },
   {
+    key: "planos",
+    href: "/dashboard/planos",
+    label: "Planos",
+    shortLabel: "PL",
+    description: "Escolha Vendas, IA ou veja disponibilidade.",
+    matcher: (route) => route.startsWith("/dashboard/planos"),
+    category: "structural",
+  },
+  {
     key: "gerencial",
     href: "/dashboard/gerencial",
     label: "Gerencial",

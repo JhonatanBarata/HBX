@@ -59,6 +59,10 @@ import { CadastrosService } from '../cadastros/cadastros.service';
 import { CustomerProfileService } from '../customer-profile/customer-profile.service';
 import { WebwhatsBridgeService, type WebwhatsFetchedMessage } from './webwhats-bridge.service';
 import { InboxRealtimeService } from './inbox-realtime.service';
+import {
+  COMMERCIAL_ENTITLEMENT_KEYS,
+  isCommercialEntitlementActive,
+} from '../commercial-plans/commercial-plan-catalog';
 
 function clamp(n: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, n));
@@ -314,6 +318,55 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
         Boolean(recoveryModule?.id) ||
         String(company?.trialModuleSelection || '').trim().toLowerCase() === 'recovery',
     };
+  }
+
+  private isCompanyTrialingVendas(company: any) {
+    const trialEndsAt = company?.trialEndsAt instanceof Date ? company.trialEndsAt : null;
+    if (trialEndsAt && trialEndsAt.getTime() < Date.now()) return false;
+    return (
+      String(company?.trialModuleSelection || '').trim().toLowerCase() === COMMERCIAL_ENTITLEMENT_KEYS.VENDAS &&
+      (
+        String(company?.paymentStatus || '').trim().toUpperCase() === 'TRIAL' ||
+        String(company?.subscriptionStatus || '').trim().toLowerCase() === 'trialing' ||
+        String(company?.onboardingStatus || '').trim().toLowerCase() === 'active_trial'
+      )
+    );
+  }
+
+  private isCommercialEntitlementUsable(row: any) {
+    const status = String(row?.status || '').trim().toLowerCase();
+    if (!isCommercialEntitlementActive(status)) return false;
+    if (status === 'trialing' && row?.currentPeriodEnd instanceof Date) {
+      return row.currentPeriodEnd.getTime() >= Date.now();
+    }
+    return true;
+  }
+
+  private async hasCommercialBotAiEntitlementForCompany(companyId: number) {
+    const company = await this.prisma.company.findUnique({
+      where: { id: Number(companyId) },
+      select: {
+        trialModuleSelection: true,
+        paymentStatus: true,
+        subscriptionStatus: true,
+        onboardingStatus: true,
+        trialEndsAt: true,
+        commercialEntitlements: {
+          select: {
+            key: true,
+            status: true,
+            currentPeriodEnd: true,
+          },
+        },
+      },
+    });
+    const entitlements = Array.isArray(company?.commercialEntitlements)
+      ? company.commercialEntitlements
+      : [];
+    const has = (key: string) =>
+      entitlements.some((row: any) => String(row?.key || '').trim().toLowerCase() === key && this.isCommercialEntitlementUsable(row));
+    const vendas = has(COMMERCIAL_ENTITLEMENT_KEYS.VENDAS) || this.isCompanyTrialingVendas(company);
+    return vendas && has(COMMERCIAL_ENTITLEMENT_KEYS.BOT_IA);
   }
 
   private computeWebhookSignature(rawBody: Buffer): string {
@@ -3381,7 +3434,17 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
   }) {
     const { companyId, from, text, conversationId, inboundMessageId, company, recoveryCustomer, rawPayload } = input;
     const tenantContext = await this.resolveAtendimentoBotSanitizationContext(companyId);
-    const config = await this.getAtendimentoBotConfig(companyId, tenantContext);
+    const configuredBot = await this.getAtendimentoBotConfig(companyId, tenantContext);
+    const botAiEnabled = await this.hasCommercialBotAiEntitlementForCompany(companyId);
+    const config = botAiEnabled
+      ? configuredBot
+      : {
+          ...configuredBot,
+          routingRules: {
+            ...configuredBot.routingRules,
+            globalBotEnabled: false,
+          },
+        };
     const agendaConfig = await this.getAtendimentoAgendaConfig(companyId);
     const normalizedText = String(text || '').trim().toLowerCase();
     const rawActionId = this.extractInteractiveReplyId(rawPayload);

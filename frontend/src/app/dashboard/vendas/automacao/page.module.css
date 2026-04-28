@@ -90,6 +90,36 @@
   color: var(--text-soft);
 }
 
+.botPlanPaywall {
+  min-height: 420px;
+  display: grid;
+  align-content: center;
+  justify-items: start;
+  gap: 0.85rem;
+  padding: clamp(1.2rem, 3vw, 2rem);
+  border: 1px solid rgba(245, 158, 11, 0.26);
+  border-radius: 24px;
+  background: linear-gradient(180deg, rgba(10, 20, 30, 0.92), rgba(8, 16, 24, 0.84));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.04),
+    0 24px 64px -36px rgba(2, 6, 23, 0.82);
+}
+
+.botPlanPaywall h3 {
+  max-width: 18ch;
+  margin: 0;
+  color: #f8fafc;
+  font-size: clamp(1.6rem, 3vw, 2.5rem);
+  line-height: 1;
+}
+
+.botPlanPaywall p {
+  max-width: 56ch;
+  margin: 0;
+  color: var(--text-soft);
+  line-height: 1.6;
+}
+
 .hero {
   display: grid;
   grid-template-columns: minmax(0, 1.9fr) minmax(280px, 0.95fr);

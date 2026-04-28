@@ -16,6 +16,7 @@ import { MailService } from '../mail/mail.service';
 import * as crypto from 'crypto';
 import { assertPasswordPolicy } from './password-policy';
 import { buildImportacaoPermissaoRows } from '../bootstrap/company-structural-defaults';
+import { COMMERCIAL_ENTITLEMENT_KEYS } from '../commercial-plans/commercial-plan-catalog';
 
 @Injectable()
 export class AuthService implements OnModuleInit {
@@ -421,6 +422,40 @@ export class AuthService implements OnModuleInit {
       companyId,
       this.normalizeTrialModuleSelection(company?.trialModuleSelection || undefined),
     );
+    if (this.normalizeTrialModuleSelection(company?.trialModuleSelection || undefined) === 'vendas') {
+      await tx.companyCommercialEntitlement.upsert({
+        where: {
+          companyId_key: {
+            companyId,
+            key: COMMERCIAL_ENTITLEMENT_KEYS.VENDAS,
+          },
+        },
+        update: {
+          status: 'trialing',
+          source: 'trial',
+          currentPeriodStart: activatedAt,
+          currentPeriodEnd: trialEndsAt,
+          metadataJson: JSON.stringify({
+            selectedPlanKey: 'hbx_vendas',
+            activatedBy: 'email_confirmation',
+            activatedAt: activatedAt.toISOString(),
+          }),
+        },
+        create: {
+          companyId,
+          key: COMMERCIAL_ENTITLEMENT_KEYS.VENDAS,
+          status: 'trialing',
+          source: 'trial',
+          currentPeriodStart: activatedAt,
+          currentPeriodEnd: trialEndsAt,
+          metadataJson: JSON.stringify({
+            selectedPlanKey: 'hbx_vendas',
+            activatedBy: 'email_confirmation',
+            activatedAt: activatedAt.toISOString(),
+          }),
+        },
+      });
+    }
     return trialEndsAt;
   }
 

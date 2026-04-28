@@ -17,6 +17,8 @@ import {
   HBX_THEME_MODE_STORAGE_KEY,
   clearStoredThemeConfig,
   persistThemeConfig,
+  persistResolvedThemeConfig,
+  readCachedResolvedThemeConfig,
   readStoredThemeConfig,
   setActiveThemeUser,
 } from "@/lib/theme-preferences";
@@ -88,6 +90,21 @@ function createLocalScopeState(userId?: string | number | null) {
   } satisfies Record<ThemePreferenceScope, HbxThemeConfig | null>;
 }
 
+function buildCachedThemeState(
+  scopes: Record<ThemePreferenceScope, HbxThemeConfig | null>,
+  cachedConfig: HbxThemeConfig,
+  permissions?: Partial<ThemePreferencePermissions>,
+): ThemePreferenceState {
+  return {
+    scopes,
+    resolved: resolveThemeConfig(cachedConfig),
+    permissions: {
+      ...DEFAULT_PERMISSIONS,
+      ...(permissions || {}),
+    },
+  };
+}
+
 function normalizePayload(
   payload: ThemePreferencePayload | null | undefined,
   fallbackScopes: Record<ThemePreferenceScope, HbxThemeConfig | null>,
@@ -150,19 +167,32 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   }, [themeState.resolved]);
 
   const refreshPreferences = React.useCallback(async () => {
+    const token = getToken();
     const localScopes = createLocalScopeState(storageUserIdRef.current);
+    const cachedResolved = token ? readCachedResolvedThemeConfig(storageUserIdRef.current) : null;
+
     commitThemeState(
-      buildThemeState(
-        {
-          system: themeStateRef.current.scopes.system,
-          company: themeStateRef.current.scopes.company,
-          user: localScopes.user,
-        },
-        themeStateRef.current.permissions,
-      ),
+      cachedResolved
+        ? buildCachedThemeState(
+            {
+              system: themeStateRef.current.scopes.system,
+              company: themeStateRef.current.scopes.company,
+              user: localScopes.user,
+            },
+            cachedResolved,
+            themeStateRef.current.permissions,
+          )
+        : buildThemeState(
+            {
+              system: themeStateRef.current.scopes.system,
+              company: themeStateRef.current.scopes.company,
+              user: localScopes.user,
+            },
+            themeStateRef.current.permissions,
+          ),
     );
 
-    if (!getToken()) {
+    if (!token) {
       commitThemeState(buildThemeState(localScopes));
       setReady(true);
       return;
@@ -170,7 +200,8 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
 
     try {
       const payload = await apiFetch<ThemePreferencePayload>("/profile/theme-preferences");
-      commitThemeState(normalizePayload(payload, localScopes));
+      const nextState = commitThemeState(normalizePayload(payload, localScopes));
+      persistResolvedThemeConfig(nextState.resolved, storageUserIdRef.current);
     } catch {
       commitThemeState(buildThemeState(localScopes, { isAuthenticated: Boolean(getToken()) }));
     } finally {
@@ -210,7 +241,8 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
         ...currentState.scopes,
         [scope]: mergeThemeConfigChain(currentState.scopes[scope], config),
       };
-      commitThemeState(buildThemeState(optimisticScopes, currentState.permissions));
+      const optimisticState = commitThemeState(buildThemeState(optimisticScopes, currentState.permissions));
+      persistResolvedThemeConfig(optimisticState.resolved, storageUserIdRef.current);
 
       if (scope === "user") {
         persistThemeConfig(optimisticScopes.user || {}, storageUserIdRef.current);
@@ -240,7 +272,8 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
           user: scope === "user" ? optimisticScopes.user : latestState.scopes.user,
         };
 
-        commitThemeState(normalizePayload(payload, fallbackScopes));
+        const nextState = commitThemeState(normalizePayload(payload, fallbackScopes));
+        persistResolvedThemeConfig(nextState.resolved, storageUserIdRef.current);
       } catch {
         // keep optimistic local state when remote persistence is unavailable
       }
@@ -255,7 +288,8 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
         ...currentState.scopes,
         [scope]: null,
       };
-      commitThemeState(buildThemeState(optimisticScopes, currentState.permissions));
+      const optimisticState = commitThemeState(buildThemeState(optimisticScopes, currentState.permissions));
+      persistResolvedThemeConfig(optimisticState.resolved, storageUserIdRef.current);
 
       if (scope === "user") {
         clearStoredThemeConfig(storageUserIdRef.current);
@@ -285,7 +319,8 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
           user: scope === "user" ? optimisticScopes.user : latestState.scopes.user,
         };
 
-        commitThemeState(normalizePayload(payload, fallbackScopes));
+        const nextState = commitThemeState(normalizePayload(payload, fallbackScopes));
+        persistResolvedThemeConfig(nextState.resolved, storageUserIdRef.current);
       } catch {
         // keep optimistic local state when remote persistence is unavailable
       }

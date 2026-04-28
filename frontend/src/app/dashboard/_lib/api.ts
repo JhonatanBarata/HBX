@@ -21,6 +21,15 @@ const AUTH_REQUIRED_PATHS = new Set([
 type ApiErrorPayload = {
   message?: string | string[];
   error?: string;
+  code?: string;
+  redirectTo?: string;
+};
+
+export type ApiFetchError = Error & {
+  status?: number;
+  code?: string;
+  redirectTo?: string;
+  payload?: unknown;
 };
 
 type ApiCacheEntry = {
@@ -345,7 +354,14 @@ export async function apiFetch<T>(
           at: new Date().toISOString(),
         });
       }
-      throw new Error(message);
+      const apiError = new Error(message) as ApiFetchError;
+      apiError.status = res.status;
+      apiError.payload = data;
+      if (isApiErrorPayload(data)) {
+        apiError.code = typeof data.code === "string" ? data.code : undefined;
+        apiError.redirectTo = typeof data.redirectTo === "string" ? data.redirectTo : undefined;
+      }
+      throw apiError;
     }
 
     return data as T;

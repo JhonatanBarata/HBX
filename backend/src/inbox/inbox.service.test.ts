@@ -144,6 +144,11 @@ function createService(overrides?: Partial<Record<string, any>>) {
     ...(overrides?.inboxRealtime || {}),
   } as any;
 
+  const commercialPlansService = {
+    assertBotAiEntitlementForCompany: async () => true,
+    ...(overrides?.commercialPlansService || {}),
+  } as any;
+
   const service = new InboxService(
     prisma,
     conversations,
@@ -152,6 +157,7 @@ function createService(overrides?: Partial<Record<string, any>>) {
     customerProfileService,
     webwhatsBridge,
     inboxRealtime,
+    commercialPlansService,
   );
   return { service, prisma, conversations, auditCalls, queueCalls, conversationStateCalls, cadastrosService };
 }

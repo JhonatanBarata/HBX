@@ -4,11 +4,12 @@ import { InboxModule } from '../inbox/inbox.module';
 import { MessagingModule } from '../messaging/messaging.module';
 import { PrismaModule } from '../prisma/prisma.module';
 import { ModulesAccessModule } from '../modules/modules.module';
+import { CommercialPlansModule } from '../commercial-plans/commercial-plans.module';
 import { VendasController } from './vendas.controller';
 import { VendasService } from './vendas.service';
 
 @Module({
-  imports: [PrismaModule, CustomerProfileModule, ModulesAccessModule, MessagingModule, InboxModule],
+  imports: [PrismaModule, CustomerProfileModule, ModulesAccessModule, MessagingModule, InboxModule, CommercialPlansModule],
   controllers: [VendasController],
   providers: [VendasService],
   exports: [VendasService],

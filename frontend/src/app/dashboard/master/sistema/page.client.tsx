@@ -209,8 +209,8 @@ export default function SystemHealthClientPage() {
   if (!allowed) {
     return (
       <DashboardScaffold
-        title="Saúde do Sistema"
-        description="Acesso exclusivo do usuário MASTER."
+        title="Hostinger e Saúde do Sistema"
+        description="Acesso exclusivo do usuário MASTER para verificar a VPS Hostinger."
         actions={<Link href="/dashboard/master" className="btn btn-secondary btn-sm">Voltar ao Master</Link>}
       >
         <section className="panel p-4">
@@ -222,10 +222,13 @@ export default function SystemHealthClientPage() {
 
   return (
     <DashboardScaffold
-      title="Saúde do Sistema"
-      description="Consulta on-demand das métricas atuais da VPS e serviços HBX."
+      title="Hostinger e Saúde do Sistema"
+      description="Consulta on-demand das métricas atuais da VPS Hostinger e serviços HBX."
       actions={
         <div className="flex flex-wrap gap-2 justify-end">
+          <a href="https://api.hbxsystem.com.br/health" target="_blank" rel="noreferrer" className="btn btn-secondary btn-sm">
+            Health API
+          </a>
           <button type="button" className="btn btn-primary btn-sm" onClick={loadHealth} disabled={loading}>
             {loading ? "Atualizando..." : "Atualizar"}
           </button>

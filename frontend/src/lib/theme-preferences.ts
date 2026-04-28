@@ -14,6 +14,7 @@ export const ACTIVE_THEME_USER_STORAGE_KEY = "hbx:active-user-id";
 export const HBX_THEME_ID_STORAGE_KEY = "hbx:theme-id";
 export const HBX_THEME_MODE_STORAGE_KEY = "hbx:theme-mode";
 export const HBX_THEME_CONFIG_STORAGE_KEY = "hbx:theme-config";
+export const HBX_THEME_RESOLVED_CONFIG_STORAGE_KEY = "hbx:theme-resolved-config";
 export const HBX_THEME_COOKIE_ID = "hbx-theme-id";
 export const HBX_THEME_COOKIE_MODE = "hbx-theme-mode";
 
@@ -214,6 +215,48 @@ export function readStoredThemeConfig(userId?: string | number | null): HbxTheme
 
 export function readStoredThemeSelection(userId?: string | number | null): HbxThemeSelection {
   return resolveThemeConfig(readStoredThemeConfig(userId)).selection;
+}
+
+export function readCachedResolvedThemeConfig(userId?: string | number | null): HbxThemeConfig | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  const scopedUserId = getActiveThemeStorageUser(userId);
+
+  try {
+    return normalizeStoredThemeConfig(
+      tryParseThemeConfig(
+        localStorage.getItem(buildScopedKey(HBX_THEME_RESOLVED_CONFIG_STORAGE_KEY, scopedUserId)) ||
+          localStorage.getItem(HBX_THEME_RESOLVED_CONFIG_STORAGE_KEY),
+      ),
+    );
+  } catch {
+    return null;
+  }
+}
+
+export function persistResolvedThemeConfig(
+  config: HbxThemeConfig,
+  userId?: string | number | null,
+) {
+  if (typeof window === "undefined") return;
+  const scopedUserId = getActiveThemeStorageUser(userId);
+
+  try {
+    const nextConfig = normalizeStoredThemeConfig(config);
+    if (!nextConfig) return;
+
+    const serialized = JSON.stringify(nextConfig);
+    localStorage.setItem(HBX_THEME_RESOLVED_CONFIG_STORAGE_KEY, serialized);
+
+    if (scopedUserId) {
+      localStorage.setItem(buildScopedKey(HBX_THEME_RESOLVED_CONFIG_STORAGE_KEY, scopedUserId), serialized);
+      localStorage.setItem(ACTIVE_THEME_USER_STORAGE_KEY, scopedUserId);
+    }
+  } catch {
+    // ignore storage errors
+  }
 }
 
 export function persistThemeConfig(

@@ -1,10 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import DashboardScaffold from "@/components/DashboardScaffold";
 import { apiFetch } from "../_lib/api";
 import { useRequireAuth } from "../_lib/useRequireAuth";
 import {
+  getWhatsAppModalPlanRedirect,
   type WhatsAppModalPayload,
   type WhatsAppCenterPayload,
 } from "@/lib/whatsapp-center";
@@ -26,6 +28,7 @@ type QrBootstrapStage = "idle" | "connecting" | "mirroring" | "ready" | "error";
 
 export default function WhatsAppCenterClientPage() {
   const hasToken = useRequireAuth();
+  const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [modalLoading, setModalLoading] = useState(true);
   const [saving, setSaving] = useState<string | null>(null);
@@ -168,12 +171,17 @@ export default function WhatsAppCenterClientPage() {
       }
 
       setModalPayload(nextPayload);
+      const planRedirect = getWhatsAppModalPlanRedirect(nextPayload);
+      if (planRedirect) {
+        router.push(planRedirect);
+        return;
+      }
     } catch (loadError) {
       setModalError(loadError instanceof Error ? loadError.message : "Falha ao carregar a conexão rápida por QR.");
     } finally {
       if (!background) setModalLoading(false);
     }
-  }, []);
+  }, [router]);
 
   async function ensureQrModeSelected() {
     if (payload?.center.mode === "QR") {
@@ -228,6 +236,12 @@ export default function WhatsAppCenterClientPage() {
       }
 
       setModalPayload(nextPayload);
+      const planRedirect = getWhatsAppModalPlanRedirect(nextPayload);
+      if (planRedirect) {
+        setModalError(nextPayload.message);
+        router.push(planRedirect);
+        return;
+      }
       void loadCenter(true);
       if (!response.success) {
         setQrBootstrapStage(action === "connect" ? "error" : "idle");
