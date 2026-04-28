@@ -1,4 +1,5 @@
 import { IsBoolean, IsEmail, IsIn, IsNotEmpty, IsOptional, MinLength } from 'class-validator';
+import { COMMERCIAL_PLAN_KEYS, type CommercialPlanKey } from '../../commercial-plans/commercial-plan-catalog';
 
 export class SignupDto {
   @IsOptional()
@@ -15,6 +16,10 @@ export class SignupDto {
   @IsOptional()
   @IsIn(['vendas'])
   trialModuleSelection?: 'vendas';
+
+  @IsOptional()
+  @IsIn([COMMERCIAL_PLAN_KEYS.LITE, COMMERCIAL_PLAN_KEYS.PADRAO, COMMERCIAL_PLAN_KEYS.MELHOR])
+  selectedPlanKey?: CommercialPlanKey;
 
   @IsOptional()
   @IsIn(['google', 'instagram', 'youtube', 'indicacao', 'parceiro', 'outro'])

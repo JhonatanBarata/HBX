@@ -1,76 +1,150 @@
 .page {
   min-height: calc(100vh - var(--topbar-total-height, 72px));
   padding: 24px;
-  color: #111827;
+  color: #132033;
   background:
-    linear-gradient(180deg, #f8fafc 0%, #eef4f7 42%, #f6f8fb 100%);
+    radial-gradient(circle at 12% 8%, rgba(16, 185, 129, 0.12), transparent 28%),
+    linear-gradient(135deg, #f7fafc 0%, #edf4f7 45%, #f8fafc 100%);
 }
 
 .hero,
+.billingBand,
 .intentCard,
 .notice,
 .loadingCard {
-  border: 1px solid rgba(15, 23, 42, 0.1);
+  border: 1px solid rgba(19, 32, 51, 0.1);
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.9);
-  box-shadow: 0 18px 48px -38px rgba(15, 23, 42, 0.55);
+  background: rgba(255, 255, 255, 0.88);
+  box-shadow: 0 24px 72px -52px rgba(19, 32, 51, 0.65);
 }
 
 .hero {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(240px, 320px);
-  gap: 20px;
-  align-items: end;
-  padding: 24px;
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 340px);
+  gap: 24px;
+  align-items: stretch;
+  padding: 28px;
+  overflow: hidden;
 }
 
-.eyebrow {
+.heroCopy {
+  display: grid;
+  align-content: center;
+  gap: 16px;
+}
+
+.eyebrow,
+.planHeader small,
+.backLabel {
   display: inline-flex;
   align-items: center;
+  width: fit-content;
   min-height: 26px;
-  padding: 3px 10px;
+  padding: 4px 10px;
   border-radius: 999px;
-  border: 1px solid rgba(14, 116, 144, 0.2);
-  background: rgba(14, 116, 144, 0.08);
-  color: #0e7490;
+  border: 1px solid rgba(13, 148, 136, 0.22);
+  background: rgba(13, 148, 136, 0.08);
+  color: #0f766e;
   font-size: 0.76rem;
-  font-weight: 800;
+  font-weight: 850;
   text-transform: uppercase;
 }
 
 .hero h1 {
-  margin: 12px 0 8px;
+  max-width: 920px;
+  margin: 0;
   color: #0f172a;
-  font-size: clamp(2rem, 4vw, 3.8rem);
+  font-size: clamp(2.35rem, 5vw, 4.6rem);
   line-height: 0.98;
 }
 
 .hero p,
+.billingBand p,
 .intentCard p,
-.planCard p,
-.adminHint {
+.flipCard p,
+.adminHint,
+.equivalent {
   margin: 0;
-  color: #475569;
+  color: #526274;
   line-height: 1.55;
+}
+
+.flow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.flow span {
+  min-height: 34px;
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: #132033;
+  color: #f8fafc;
+  font-size: 0.86rem;
+  font-weight: 800;
 }
 
 .statusPanel {
   display: grid;
-  gap: 6px;
-  padding: 16px;
+  gap: 8px;
+  align-content: end;
+  padding: 20px;
   border-radius: 8px;
-  border: 1px solid rgba(15, 23, 42, 0.1);
-  background: #0f172a;
+  background: linear-gradient(145deg, #132033 0%, #183b4d 100%);
   color: #f8fafc;
 }
 
 .statusPanel span,
 .statusPanel small {
-  color: #cbd5e1;
+  color: #c8d7e5;
 }
 
 .statusPanel strong {
-  font-size: 1.25rem;
+  font-size: 1.45rem;
+}
+
+.billingBand {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  align-items: center;
+  margin-top: 18px;
+  padding: 16px;
+}
+
+.billingBand strong {
+  display: block;
+  margin-bottom: 4px;
+  color: #0f172a;
+}
+
+.segmented {
+  display: inline-grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid rgba(19, 32, 51, 0.12);
+  border-radius: 8px;
+  background: #eef4f7;
+}
+
+.segmented button {
+  min-height: 38px;
+  border: 0;
+  border-radius: 7px;
+  padding: 0 14px;
+  cursor: pointer;
+  color: #526274;
+  background: transparent;
+  font-weight: 850;
+  white-space: nowrap;
+}
+
+.segmented button[data-active="true"] {
+  color: #0f172a;
+  background: #ffffff;
+  box-shadow: 0 10px 24px -18px rgba(15, 23, 42, 0.55);
 }
 
 .intentCard,
@@ -81,13 +155,7 @@
 }
 
 .intentCard {
-  border-color: rgba(14, 116, 144, 0.22);
-}
-
-.intentCard[data-tone="danger"],
-.notice[data-tone="error"] {
-  border-color: rgba(220, 38, 38, 0.25);
-  background: #fff7f7;
+  border-color: rgba(13, 148, 136, 0.24);
 }
 
 .intentCard strong {
@@ -96,14 +164,31 @@
   color: #0f172a;
 }
 
+.inlineCta {
+  display: inline-flex;
+  align-items: center;
+  min-height: 38px;
+  margin-top: 12px;
+  border-radius: 8px;
+  padding: 0 12px;
+  color: #ffffff;
+  background: #0f766e;
+  font-weight: 850;
+}
+
 .notice[data-tone="success"] {
-  border-color: rgba(22, 163, 74, 0.25);
+  border-color: rgba(22, 163, 74, 0.24);
   background: #f0fdf4;
 }
 
 .notice[data-tone="info"] {
   border-color: rgba(14, 116, 144, 0.25);
   background: #ecfeff;
+}
+
+.notice[data-tone="error"] {
+  border-color: rgba(220, 38, 38, 0.25);
+  background: #fff7f7;
 }
 
 .loadingCard {
@@ -116,61 +201,108 @@
 .planGrid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 16px;
-  margin-top: 18px;
+  gap: 18px;
+  margin-top: 20px;
 }
 
-.planCard {
+.flipCard {
+  min-height: 430px;
+  perspective: 1200px;
+}
+
+.flipInner {
+  position: relative;
+  height: 100%;
+  min-height: 430px;
+  transition: transform 520ms ease;
+  transform-style: preserve-3d;
+}
+
+.flipCard:hover .flipInner,
+.flipCard:focus-within .flipInner {
+  transform: rotateY(180deg);
+}
+
+.cardFace,
+.cardFaceBack {
+  position: absolute;
+  inset: 0;
   display: grid;
   gap: 16px;
   align-content: start;
-  min-height: 440px;
-  padding: 20px;
-  border: 1px solid rgba(15, 23, 42, 0.1);
+  padding: 22px;
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.96);
-  box-shadow: 0 22px 60px -42px rgba(15, 23, 42, 0.6);
+  border: 1px solid rgba(19, 32, 51, 0.12);
+  overflow: hidden;
+  backface-visibility: hidden;
+  box-shadow: 0 28px 72px -48px rgba(15, 23, 42, 0.72);
 }
 
-.planCard[data-featured="true"] {
-  border-color: rgba(14, 116, 144, 0.34);
-  background: linear-gradient(180deg, #ffffff 0%, #f0fdff 100%);
+.cardFace {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(247, 250, 252, 0.96));
 }
 
-.planCard[data-disabled="true"] {
-  background: #f8fafc;
+.cardFaceBack {
+  transform: rotateY(180deg);
+  background: linear-gradient(145deg, #10213a, #0f766e);
+  color: #f8fafc;
+}
+
+.flipCard[data-featured="true"] .cardFace,
+.flipCard[data-featured="true"] .cardFaceBack {
+  border-color: rgba(13, 148, 136, 0.4);
+  box-shadow: 0 34px 88px -52px rgba(13, 148, 136, 0.78);
 }
 
 .planHeader {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
-  gap: 10px;
+  gap: 12px;
 }
 
 .planHeader span {
   color: #0f172a;
-  font-size: 1.08rem;
-  font-weight: 850;
-}
-
-.planHeader small {
-  padding: 4px 8px;
-  border-radius: 999px;
-  background: rgba(14, 116, 144, 0.1);
-  color: #0e7490;
-  font-size: 0.75rem;
-  font-weight: 800;
-  white-space: nowrap;
+  font-size: 1.25rem;
+  font-weight: 900;
 }
 
 .price {
+  display: grid;
+  gap: 2px;
   color: #0f172a;
-  font-size: clamp(1.35rem, 2.4vw, 2rem);
-  line-height: 1.12;
+  font-size: clamp(1.9rem, 3.4vw, 2.75rem);
+  line-height: 1;
 }
 
-.planCard ul {
+.price span {
+  color: #526274;
+  font-size: 0.95rem;
+  font-weight: 800;
+}
+
+.primaryButton {
+  width: 100%;
+  min-height: 46px;
+  margin-top: auto;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: #ffffff;
+  background: #0f766e;
+  cursor: pointer;
+  font-weight: 900;
+}
+
+.primaryButton:hover:not(:disabled) {
+  background: #115e59;
+}
+
+.primaryButton:disabled {
+  cursor: not-allowed;
+  opacity: 0.68;
+}
+
+.cardFaceBack ul {
   display: grid;
   gap: 10px;
   margin: 0;
@@ -178,13 +310,13 @@
   list-style: none;
 }
 
-.planCard li {
-  padding-left: 18px;
+.cardFaceBack li {
   position: relative;
-  color: #334155;
+  padding-left: 18px;
+  color: #eef7f4;
 }
 
-.planCard li::before {
+.cardFaceBack li::before {
   content: "";
   position: absolute;
   left: 0;
@@ -192,63 +324,12 @@
   width: 7px;
   height: 7px;
   border-radius: 999px;
-  background: #0e7490;
+  background: #99f6e4;
 }
 
-.breakdown {
-  display: grid;
-  gap: 8px;
-  padding: 12px;
-  border-radius: 8px;
-  border: 1px solid rgba(15, 23, 42, 0.1);
-  background: rgba(255, 255, 255, 0.72);
-}
-
-.breakdown div {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  color: #475569;
-}
-
-.breakdown strong {
-  color: #0f172a;
-  text-align: right;
-}
-
-.legal {
-  font-weight: 700;
-}
-
-.primaryButton,
-.disabledButton {
-  width: 100%;
-  min-height: 44px;
-  margin-top: auto;
-  border-radius: 8px;
-  border: 1px solid transparent;
-  font-weight: 850;
-}
-
-.primaryButton {
-  cursor: pointer;
-  color: #ffffff;
-  background: #0f766e;
-}
-
-.primaryButton:hover:not(:disabled) {
-  background: #115e59;
-}
-
-.primaryButton:disabled,
-.disabledButton:disabled {
-  cursor: not-allowed;
-  opacity: 0.68;
-}
-
-.disabledButton {
-  color: #64748b;
-  background: #e2e8f0;
+.cardFaceBack p {
+  color: #d8f3ee;
+  font-weight: 750;
 }
 
 .adminHint {
@@ -261,8 +342,9 @@
     grid-template-columns: 1fr;
   }
 
-  .planCard {
-    min-height: unset;
+  .flipCard,
+  .flipInner {
+    min-height: 390px;
   }
 }
 
@@ -271,18 +353,19 @@
     padding: 14px;
   }
 
-  .hero {
+  .hero,
+  .billingBand {
     grid-template-columns: 1fr;
+    flex-direction: column;
+    align-items: stretch;
     padding: 18px;
   }
 
-  .planHeader,
-  .breakdown div {
-    align-items: flex-start;
+  .planHeader {
     flex-direction: column;
   }
 
-  .breakdown strong {
-    text-align: left;
+  .segmented {
+    width: 100%;
   }
 }

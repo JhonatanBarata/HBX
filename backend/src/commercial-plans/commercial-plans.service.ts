@@ -10,18 +10,23 @@ import { PrismaService } from '../prisma/prisma.service';
 import {
   BOT_IA_PLAN_REQUIRED_PAYLOAD,
   COMMERCIAL_ENTITLEMENT_KEYS,
+  COMMERCIAL_PLAN_MODULE_KEYS,
+  COMMERCIAL_PLAN_ENTITLEMENT_KEYS,
   COMMERCIAL_PLAN_KEYS,
-  buildBotAiIntroMetadata,
+  PENDING_COMMERCIAL_ENTITLEMENT_STATUS,
   buildCommercialPlansCatalog,
   isCommercialEntitlementActive,
-  parseCommercialMetadata,
+  normalizeCommercialPlanKey,
+  type ActiveCommercialPlanKey,
   type CommercialEntitlementKey,
   type CommercialPlanKey,
 } from './commercial-plan-catalog';
 
 type CommercialCurrentState = {
-  planKey: CommercialPlanKey | null;
+  planKey: ActiveCommercialPlanKey | null;
   entitlements: Record<CommercialEntitlementKey, boolean>;
+  selectedPlanKey: ActiveCommercialPlanKey | null;
+  onboardingStatus: string | null;
   subscriptionStatus: string | null;
   paymentStatus: string | null;
   trialEndsAt: string | null;
@@ -88,23 +93,43 @@ export class CommercialPlansService {
 
     return {
       vendas,
+      atendimento_chat: has(COMMERCIAL_ENTITLEMENT_KEYS.ATENDIMENTO_CHAT) || this.isCompanyTrialingVendas(company),
+      webscraping: has(COMMERCIAL_ENTITLEMENT_KEYS.WEBSCRAPING) || this.isCompanyTrialingVendas(company),
       bot_ia: botIa,
       recovery: false,
     };
   }
 
+  private normalizePlanKey(value: unknown): ActiveCommercialPlanKey | null {
+    if (!String(value || '').trim()) return null;
+    return normalizeCommercialPlanKey(value);
+  }
+
+  private isSupportedPlanKey(value: unknown): value is ActiveCommercialPlanKey {
+    const normalized = String(value || '').trim().toLowerCase();
+    return normalized === COMMERCIAL_PLAN_KEYS.LITE ||
+      normalized === COMMERCIAL_PLAN_KEYS.PADRAO ||
+      normalized === COMMERCIAL_PLAN_KEYS.MELHOR;
+  }
+
   private buildCurrentState(company: any): CommercialCurrentState {
     const entitlements = this.resolveEntitlements(company);
-    const planKey = entitlements.bot_ia
-      ? COMMERCIAL_PLAN_KEYS.VENDAS_IA
+    const inferredPlanKey = entitlements.bot_ia
+      ? COMMERCIAL_PLAN_KEYS.MELHOR
+      : entitlements.webscraping && entitlements.vendas && !this.isCompanyTrialingVendas(company) && this.normalizePlanKey(company?.selectedPlanKey) === COMMERCIAL_PLAN_KEYS.LITE
+        ? COMMERCIAL_PLAN_KEYS.LITE
       : entitlements.vendas
-        ? COMMERCIAL_PLAN_KEYS.VENDAS
+        ? COMMERCIAL_PLAN_KEYS.PADRAO
         : null;
+    const selectedPlanKey = this.normalizePlanKey(company?.selectedPlanKey);
+    const planKey = selectedPlanKey || inferredPlanKey;
     const isTrial = this.isCompanyTrialingVendas(company);
 
     return {
       planKey,
       entitlements,
+      selectedPlanKey,
+      onboardingStatus: company?.onboardingStatus || null,
       subscriptionStatus: company?.subscriptionStatus || null,
       paymentStatus: company?.paymentStatus || null,
       trialEndsAt: company?.trialEndsAt instanceof Date ? company.trialEndsAt.toISOString() : null,
@@ -130,7 +155,7 @@ export class CommercialPlansService {
       plans: buildCommercialPlansCatalog(),
       permissions: {
         canSelectPlan: user ? this.canSelectPlans(user) : false,
-        selectPlanDeniedMessage: 'Peça para um administrador ativar este plano.',
+        selectPlanDeniedMessage: 'Peça para um administrador selecionar este plano.',
       },
     };
   }
@@ -195,7 +220,47 @@ export class CommercialPlansService {
     return this.isCompanyTrialingVendas(company) ? 'trialing' : 'active';
   }
 
-  private buildSelectionMetadata(planKey: CommercialPlanKey, selectedByUserId: number) {
+  private canStartVendasTrial(company: any) {
+    if (company?.trialStartsAt || company?.trialEndsAt) return false;
+    const paymentStatus = String(company?.paymentStatus || '').trim().toUpperCase();
+    const subscriptionStatus = String(company?.subscriptionStatus || '').trim().toLowerCase();
+    if (paymentStatus === 'EXPIRED' || subscriptionStatus === 'expired') return false;
+    return true;
+  }
+
+  private addDays(date: Date, days: number) {
+    return new Date(date.getTime() + days * 24 * 60 * 60 * 1000);
+  }
+
+  private async syncPlanModulesTx(tx: any, companyId: number, planKey: ActiveCommercialPlanKey, enabled: boolean) {
+    const enabledKeys = enabled ? (COMMERCIAL_PLAN_MODULE_KEYS[planKey] || []) : [];
+    const enabledModuleRows = enabledKeys.length
+      ? await tx.systemModule.findMany({
+          where: {
+            companyAssignable: true,
+            key: { in: enabledKeys },
+          },
+          select: { id: true },
+        })
+      : [];
+
+    await tx.companyModule.updateMany({ where: { companyId }, data: { enabled: false } });
+
+    for (const moduleRow of enabledModuleRows) {
+      await tx.companyModule.upsert({
+        where: {
+          companyId_moduleId: {
+            companyId,
+            moduleId: moduleRow.id,
+          },
+        },
+        update: { enabled: true },
+        create: { companyId, moduleId: moduleRow.id, enabled: true },
+      });
+    }
+  }
+
+  private buildSelectionMetadata(planKey: ActiveCommercialPlanKey, selectedByUserId: number) {
     return {
       selectedPlanKey: planKey,
       selectedAt: new Date().toISOString(),
@@ -203,28 +268,91 @@ export class CommercialPlansService {
     };
   }
 
+  private async syncEntitlementsTx(
+    tx: any,
+    companyId: number,
+    planKey: ActiveCommercialPlanKey,
+    status: string,
+    source: string,
+    periodStart: Date | null,
+    periodEnd: Date | null,
+    metadata: Record<string, unknown>,
+  ) {
+    const activeKeys = new Set(COMMERCIAL_PLAN_ENTITLEMENT_KEYS[planKey] || []);
+    const allKeys = [
+      COMMERCIAL_ENTITLEMENT_KEYS.VENDAS,
+      COMMERCIAL_ENTITLEMENT_KEYS.ATENDIMENTO_CHAT,
+      COMMERCIAL_ENTITLEMENT_KEYS.WEBSCRAPING,
+      COMMERCIAL_ENTITLEMENT_KEYS.BOT_IA,
+    ];
+
+    for (const key of allKeys) {
+      if (activeKeys.has(key)) {
+        await tx.companyCommercialEntitlement.upsert({
+          where: { companyId_key: { companyId, key } },
+          update: {
+            status,
+            source,
+            currentPeriodStart: periodStart,
+            currentPeriodEnd: periodEnd,
+            metadataJson: JSON.stringify(metadata),
+          },
+          create: {
+            companyId,
+            key,
+            status,
+            source,
+            currentPeriodStart: periodStart,
+            currentPeriodEnd: periodEnd,
+            metadataJson: JSON.stringify(metadata),
+          },
+        });
+      } else {
+        await tx.companyCommercialEntitlement.upsert({
+          where: { companyId_key: { companyId, key } },
+          update: {
+            status: 'canceled',
+            source: 'plan_change',
+            currentPeriodStart: null,
+            currentPeriodEnd: null,
+            metadataJson: JSON.stringify({
+              ...metadata,
+              removedByPlanKey: planKey,
+            }),
+          },
+          create: {
+            companyId,
+            key,
+            status: 'canceled',
+            source: 'plan_change',
+            currentPeriodStart: null,
+            currentPeriodEnd: null,
+            metadataJson: JSON.stringify({
+              ...metadata,
+              removedByPlanKey: planKey,
+            }),
+          },
+        });
+      }
+    }
+  }
+
   async selectPlanForUser(user: any, planKey: CommercialPlanKey) {
     const context = this.resolveUserContext(user);
     if (!context.canSelectPlan) {
       throw new ForbiddenException({
         code: 'PLAN_SELECTION_ADMIN_REQUIRED',
-        message: 'Peça para um administrador ativar este plano.',
+        message: 'Peça para um administrador selecionar este plano.',
       });
     }
 
-    if (planKey === COMMERCIAL_PLAN_KEYS.RECOVERY) {
-      throw new ConflictException({
-        code: 'PLAN_UNAVAILABLE',
-        message: 'HBX Recovery: indisponível',
-      });
-    }
-
-    if (planKey !== COMMERCIAL_PLAN_KEYS.VENDAS && planKey !== COMMERCIAL_PLAN_KEYS.VENDAS_IA) {
+    if (!this.isSupportedPlanKey(planKey)) {
       throw new BadRequestException({
         code: 'INVALID_COMMERCIAL_PLAN',
         message: 'Plano HBX inválido.',
       });
     }
+    const normalizedPlanKey = normalizeCommercialPlanKey(planKey);
 
     const updatedCompany = await this.prisma.$transaction(async (tx) => {
       const company = await tx.company.findUnique({
@@ -233,79 +361,88 @@ export class CommercialPlansService {
       });
       if (!company) throw new BadRequestException('Empresa nao encontrada.');
 
-      const selectionStatus = this.resolveSelectionStatus(company);
+      const now = new Date();
+      const startsTrial = normalizedPlanKey === COMMERCIAL_PLAN_KEYS.PADRAO && this.canStartVendasTrial(company);
+      const currentSubscriptionStatus = String(company.subscriptionStatus || '').trim().toLowerCase();
+      const currentPaymentStatus = String(company.paymentStatus || '').trim().toUpperCase();
+      const currentSelectedPlanKey = this.normalizePlanKey(company.selectedPlanKey);
+      const preserveExistingAccess =
+        currentSelectedPlanKey === normalizedPlanKey &&
+        (currentSubscriptionStatus === 'active' ||
+          currentSubscriptionStatus === 'trialing' ||
+          currentPaymentStatus === 'PAID' ||
+          currentPaymentStatus === 'TRIAL');
+      const selectionStatus = startsTrial
+        ? 'trialing'
+        : preserveExistingAccess
+          ? currentSubscriptionStatus === 'trialing' || currentPaymentStatus === 'TRIAL'
+            ? 'trialing'
+            : 'paid'
+          : PENDING_COMMERCIAL_ENTITLEMENT_STATUS;
       const selectionSource = selectionStatus === 'trialing' ? 'trial' : 'checkout';
-      const periodStart = company.trialStartsAt || company.subscriptionCurrentPeriodStart || new Date();
-      const periodEnd = company.trialEndsAt || company.subscriptionCurrentPeriodEnd || null;
+      const periodStart = startsTrial
+        ? now
+        : preserveExistingAccess
+          ? company.trialStartsAt || company.subscriptionCurrentPeriodStart || null
+          : null;
+      const periodEnd = startsTrial
+        ? this.addDays(now, 30)
+        : preserveExistingAccess
+          ? company.trialEndsAt || company.subscriptionCurrentPeriodEnd || null
+          : null;
 
-      await tx.companyCommercialEntitlement.upsert({
-        where: {
-          companyId_key: {
-            companyId: context.companyId,
-            key: COMMERCIAL_ENTITLEMENT_KEYS.VENDAS,
-          },
-        },
-        update: {
-          status: selectionStatus,
-          source: selectionSource,
-          currentPeriodStart: periodStart,
-          currentPeriodEnd: periodEnd,
-          metadataJson: JSON.stringify(this.buildSelectionMetadata(planKey, context.userId)),
-        },
-        create: {
-          companyId: context.companyId,
-          key: COMMERCIAL_ENTITLEMENT_KEYS.VENDAS,
-          status: selectionStatus,
-          source: selectionSource,
-          currentPeriodStart: periodStart,
-          currentPeriodEnd: periodEnd,
-          metadataJson: JSON.stringify(this.buildSelectionMetadata(planKey, context.userId)),
-        },
+      await tx.company.update({
+        where: { id: context.companyId },
+        data: startsTrial
+          ? {
+              selectedPlanKey: normalizedPlanKey,
+              billingCycle: 'MONTHLY',
+              trialModuleSelection: 'vendas',
+              onboardingStatus: 'active_trial',
+              isActive: true,
+              paymentStatus: 'TRIAL',
+              subscriptionStatus: 'trialing',
+              premiumAccess: true,
+              trialStartsAt: periodStart,
+              trialEndsAt: periodEnd,
+              subscriptionCurrentPeriodStart: null,
+              subscriptionCurrentPeriodEnd: null,
+              deactivatedAt: null,
+            }
+          : {
+              selectedPlanKey: normalizedPlanKey,
+              trialModuleSelection: normalizedPlanKey === COMMERCIAL_PLAN_KEYS.PADRAO ? 'vendas' : null,
+              onboardingStatus:
+                String(company.onboardingStatus || '').trim().toLowerCase() === 'active_paid'
+                  ? company.onboardingStatus
+                  : 'pending_checkout',
+              paymentStatus: 'PENDING',
+              subscriptionStatus:
+                currentSubscriptionStatus === 'active' || currentSubscriptionStatus === 'trialing'
+                  ? company.subscriptionStatus
+                  : 'pending_checkout',
+              premiumAccess:
+                currentSubscriptionStatus === 'active' || currentSubscriptionStatus === 'trialing' || Boolean(company.premiumAccess),
+              isActive:
+                currentSubscriptionStatus === 'active' ||
+                currentSubscriptionStatus === 'trialing' ||
+                Boolean(company.isActive && company.premiumAccess),
+              deactivatedAt:
+                currentSubscriptionStatus === 'active' || currentSubscriptionStatus === 'trialing' ? company.deactivatedAt : now,
+            },
       });
 
-      if (planKey === COMMERCIAL_PLAN_KEYS.VENDAS_IA) {
-        const existingBot = company.commercialEntitlements.find(
-          (row: any) => String(row?.key || '').trim().toLowerCase() === COMMERCIAL_ENTITLEMENT_KEYS.BOT_IA,
-        );
-        const existingMetadata = parseCommercialMetadata(existingBot?.metadataJson);
-        const introMetadata = buildBotAiIntroMetadata();
-        const introCyclesRemaining = Number.isFinite(Number(existingMetadata.introCyclesRemaining))
-          ? Math.max(0, Math.trunc(Number(existingMetadata.introCyclesRemaining)))
-          : introMetadata.introCyclesRemaining;
-
-        await tx.companyCommercialEntitlement.upsert({
-          where: {
-            companyId_key: {
-              companyId: context.companyId,
-              key: COMMERCIAL_ENTITLEMENT_KEYS.BOT_IA,
-            },
-          },
-          update: {
-            status: 'active',
-            source: 'checkout',
-            currentPeriodStart: periodStart,
-            currentPeriodEnd: periodEnd,
-            metadataJson: JSON.stringify({
-              ...introMetadata,
-              ...existingMetadata,
-              introCyclesRemaining,
-              ...this.buildSelectionMetadata(planKey, context.userId),
-            }),
-          },
-          create: {
-            companyId: context.companyId,
-            key: COMMERCIAL_ENTITLEMENT_KEYS.BOT_IA,
-            status: 'active',
-            source: 'checkout',
-            currentPeriodStart: periodStart,
-            currentPeriodEnd: periodEnd,
-            metadataJson: JSON.stringify({
-              ...introMetadata,
-              ...this.buildSelectionMetadata(planKey, context.userId),
-            }),
-          },
-        });
-      }
+      await this.syncPlanModulesTx(tx, context.companyId, normalizedPlanKey, startsTrial || preserveExistingAccess);
+      await this.syncEntitlementsTx(
+        tx,
+        context.companyId,
+        normalizedPlanKey,
+        selectionStatus,
+        selectionSource,
+        periodStart,
+        periodEnd,
+        this.buildSelectionMetadata(normalizedPlanKey, context.userId),
+      );
 
       return tx.company.findUniqueOrThrow({
         where: { id: context.companyId },
@@ -315,7 +452,7 @@ export class CommercialPlansService {
 
     return {
       ok: true,
-      selectedPlanKey: planKey,
+      selectedPlanKey: normalizedPlanKey,
       ...this.buildPayload(updatedCompany, user),
     };
   }

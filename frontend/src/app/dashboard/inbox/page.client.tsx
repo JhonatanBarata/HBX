@@ -2387,7 +2387,7 @@ export default function InboxClientPage() {
   const openBotPlans = useCallback(() => {
     setNotice({
       tone: "info",
-      text: "O BOT Inteligente faz parte do HBX Vendas + IA.",
+      text: "O BOT Inteligente faz parte do HBX Melhor.",
     });
     router.push(INBOX_BOT_PLAN_HREF);
   }, [router]);
@@ -2397,7 +2397,7 @@ export default function InboxClientPage() {
     if (!redirectTo) return false;
     setNotice({
       tone: "info",
-      text: "O BOT Inteligente faz parte do HBX Vendas + IA.",
+      text: "O BOT Inteligente faz parte do HBX Melhor.",
     });
     router.push(redirectTo);
     return true;
@@ -7059,7 +7059,7 @@ export default function InboxClientPage() {
                         ? globalBotEnabled
                           ? "BOT global ativo"
                           : "BOT global desativado"
-                        : "O BOT Inteligente faz parte do HBX Vendas + IA"
+                        : "O BOT Inteligente faz parte do HBX Melhor"
                     }
                   >
                     <span>Hbot</span>

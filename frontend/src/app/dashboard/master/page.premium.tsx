@@ -85,6 +85,16 @@ const TABS: Array<{ id: DrawerTab; label: string }> = [
   { id: "danger", label: "Perigo" },
 ];
 
+const COMMERCIAL_PLAN_OPTIONS = [
+  { key: "hbx_lite", label: "HBX Lite", price: "R$ 29,90/mês" },
+  { key: "hbx_padrao", label: "HBX Padrão", price: "R$ 79,90/mês" },
+  { key: "hbx_melhor", label: "HBX Melhor", price: "R$ 109,90/mês" },
+] as const;
+
+function commercialPlanLabel(value?: string | null) {
+  return COMMERCIAL_PLAN_OPTIONS.find((item) => item.key === value)?.label || "Sem plano comercial";
+}
+
 function normalizeDrawerTab(value?: string | null): DrawerTab {
   const normalized = String(value || "").trim().toLowerCase();
   if (normalized === "finance") return "finance";
@@ -96,30 +106,6 @@ function normalizeDrawerTab(value?: string | null): DrawerTab {
   if (normalized === "audit") return "audit";
   if (normalized === "danger") return "danger";
   return "summary";
-}
-
-function formatCurrencyInput(value?: number | null) {
-  return Number(value || 0).toLocaleString("pt-BR", {
-    style: "currency",
-    currency: "BRL",
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
-}
-
-function normalizeCurrencyInput(raw: string) {
-  const digits = String(raw || "").replace(/\D+/g, "");
-  const amount = Number(digits || 0) / 100;
-  return formatCurrencyInput(amount);
-}
-
-function parseCurrencyInput(raw: string) {
-  const normalized = String(raw || "")
-    .replace(/[^\d,.-]/g, "")
-    .replace(/\./g, "")
-    .replace(",", ".");
-  const amount = Number(normalized);
-  return Number.isFinite(amount) ? amount : 0;
 }
 
 function formatDate(value?: string | null) {
@@ -726,7 +712,7 @@ function buildModuleCatalogDrafts(workspace?: WorkspacePayload | null): Record<s
       key: moduleItem.key,
       name: moduleItem.name,
       description: moduleItem.description || "",
-      monthlyPrice: formatCurrencyInput(moduleItem.monthlyPrice ?? 0),
+      monthlyPrice: "0",
       companyAssignable: Boolean(moduleItem.companyAssignable),
       defaultEnabled: Boolean(moduleItem.defaultEnabled),
     },
@@ -1359,7 +1345,6 @@ export default function MasterPremiumPage() {
         body: JSON.stringify({
           name: draft.name.trim(),
           description: draft.description.trim(),
-          monthlyPrice: parseCurrencyInput(draft.monthlyPrice),
           defaultEnabled: draft.defaultEnabled,
         }),
       });
@@ -1929,6 +1914,23 @@ export default function MasterPremiumPage() {
       await refreshAll(companyId);
     } catch (actionError) {
       setError(actionError instanceof Error ? actionError.message : "Falha ao atualizar módulo.");
+    } finally {
+      setBusyAction(null);
+    }
+  }
+
+  async function changeCompanyPlan(companyId: number, planKey: string) {
+    setBusyAction(`plan-${companyId}`);
+    setError(null);
+    try {
+      await apiFetch(`/modules/master/company/${companyId}/plan`, {
+        method: "PUT",
+        body: JSON.stringify({ planKey }),
+      });
+      setMessage("Plano comercial atualizado. Acessos derivados do pacote foram sincronizados.");
+      await refreshAll(companyId);
+    } catch (actionError) {
+      setError(actionError instanceof Error ? actionError.message : "Falha ao trocar plano comercial.");
     } finally {
       setBusyAction(null);
     }
@@ -3518,24 +3520,43 @@ export default function MasterPremiumPage() {
                   <section className={styles.summaryCard}>
                     <div className={styles.panelCardHeader}>
                       <div>
-                        <p className={styles.sectionEyebrow}>Produtos habilitados</p>
-                        <h3>Módulos</h3>
+                        <p className={styles.sectionEyebrow}>Plano comercial</p>
+                        <h3>{commercialPlanLabel(activeCompany.selectedPlanKey)}</h3>
                       </div>
                       <div className={styles.summaryMeta}>
-                        <p>Total mensal dos ativos: {formatCurrency(activeCompany.modules.filter((module) => module.enabled).reduce((total, module) => total + Number(module.monthlyPrice || 0), 0))}</p>
+                        <p>Valor do pacote: {formatCurrency(activeCompany.monthlyValue || 0)}/mês</p>
                       </div>
+                    </div>
+                    <div className={styles.formGrid}>
+                      <label>
+                        <span>Trocar plano da empresa</span>
+                        <select
+                          className="field"
+                          value={activeCompany.selectedPlanKey || ""}
+                          disabled={busyAction === `plan-${activeCompany.id}`}
+                          onChange={(event) => void changeCompanyPlan(activeCompany.id, event.target.value)}
+                        >
+                          <option value="" disabled>Selecione um pacote</option>
+                          {COMMERCIAL_PLAN_OPTIONS.map((plan) => (
+                            <option key={plan.key} value={plan.key}>
+                              {plan.label} • {plan.price}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
                     </div>
                     {!companyHasOperationalAccess(activeCompany) ? (
                       <div className="alert alert-error">
                         Esta empresa está sem acesso liberado. Os módulos só podem ser operados quando houver trial ativo ou cobrança ativa.
                       </div>
                     ) : null}
+                    <p className={styles.helperText}>Módulos abaixo são permissões internas derivadas do plano. Alterações manuais continuam possíveis apenas como exceção auditável.</p>
                     <div className={styles.moduleList}>
                       {activeCompany.modules.map((module) => (
                         <label key={module.key} className={styles.moduleToggle}>
                           <div>
                             <strong>{module.name}</strong>
-                            <p>{module.key} • {formatCurrency(module.monthlyPrice || 0)}/mês</p>
+                            <p>{module.key} • permissão interna</p>
                           </div>
                           <button type="button" className={module.enabled ? styles.toggleOn : styles.toggleOff} onClick={() => toggleModule(activeCompany.id, module.key, module.enabled)} disabled={!companyHasOperationalAccess(activeCompany)}>
                             {module.enabled ? "Ativo" : "Desativado"}
@@ -4353,11 +4374,11 @@ export default function MasterPremiumPage() {
         </div>
       </ModalShell>
 
-      <ModalShell open={moduleCatalogOpen} onClose={() => setModuleCatalogOpen(false)} title="Módulos comercializáveis" subtitle="Defina aqui apenas os módulos que podem ser liberados para empresas e entram na cobrança mensal." wide>
+      <ModalShell open={moduleCatalogOpen} onClose={() => setModuleCatalogOpen(false)} title="Permissões internas" subtitle="Módulos podem ser liberados por plano ou por override auditável; preço fica no pacote comercial." wide>
         <div className={styles.modalBody}>
           <div className={styles.contextBannerStrong}>
-            <strong>Catálogo financeiro do HBX</strong>
-            <span>Itens internos do MASTER e ferramentas operacionais não aparecem aqui nem entram na mensalidade das empresas.</span>
+            <strong>Catálogo operacional do HBX</strong>
+            <span>Módulo não é produto vendido. O cliente compra Lite, Padrão ou Melhor.</span>
           </div>
           <div className={styles.moduleCatalogGrid}>
             {commercialModuleDrafts.map((moduleItem) => (
@@ -4367,7 +4388,6 @@ export default function MasterPremiumPage() {
                   <p>{moduleItem.key}</p>
                 </div>
                 <input className="field" placeholder="Nome do módulo" value={moduleItem.name} onChange={(event) => setModuleCatalogDrafts((current) => ({ ...current, [moduleItem.key]: { ...current[moduleItem.key], name: event.target.value } }))} />
-                <input className="field" inputMode="numeric" placeholder="R$ 0,00" value={moduleItem.monthlyPrice} onChange={(event) => setModuleCatalogDrafts((current) => ({ ...current, [moduleItem.key]: { ...current[moduleItem.key], monthlyPrice: normalizeCurrencyInput(event.target.value) } }))} />
                 <textarea className="field" placeholder="Descrição" rows={3} value={moduleItem.description} onChange={(event) => setModuleCatalogDrafts((current) => ({ ...current, [moduleItem.key]: { ...current[moduleItem.key], description: event.target.value } }))} />
                 <select className="field" value={moduleItem.defaultEnabled ? "enabled" : "disabled"} onChange={(event) => setModuleCatalogDrafts((current) => ({ ...current, [moduleItem.key]: { ...current[moduleItem.key], defaultEnabled: event.target.value === "enabled" } }))}>
                   <option value="enabled">Ativo por padrão</option>

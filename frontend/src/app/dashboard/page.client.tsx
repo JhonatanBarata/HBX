@@ -26,9 +26,13 @@ type CurrentUser = {
   company?: {
     id: number;
     name?: string | null;
+    onboardingStatus?: string | null;
     paymentStatus?: string | null;
     subscriptionStatus?: string | null;
     trialEndsAt?: string | null;
+    trialRemainingDays?: number | null;
+    subscriptionCurrentPeriodEnd?: string | null;
+    selectedPlanKey?: string | null;
   } | null;
 };
 
@@ -552,6 +556,43 @@ function resolveDisplayName(user: CurrentUser | null) {
   return String(user?.name || user?.username || user?.company?.name || "bem-vindo").trim();
 }
 
+function commercialBanner(user: CurrentUser | null) {
+  const company = user?.company;
+  if (!company) return null;
+  const onboardingStatus = String(company.onboardingStatus || "").trim().toLowerCase();
+  const paymentStatus = String(company.paymentStatus || "").trim().toUpperCase();
+  const subscriptionStatus = String(company.subscriptionStatus || "").trim().toLowerCase();
+  if (subscriptionStatus === "trialing" || paymentStatus === "TRIAL" || onboardingStatus === "active_trial") {
+    const days = typeof company.trialRemainingDays === "number" ? company.trialRemainingDays : null;
+    return {
+      tone: "trial",
+      title: `Trial ativo${days !== null ? ` — ${days} dias restantes` : ""}`,
+      text: "Sem cobrança automática.",
+      href: "/dashboard/financeiro",
+      cta: "Ver financeiro",
+    };
+  }
+  if (subscriptionStatus === "pending_checkout" || paymentStatus === "PENDING" || onboardingStatus === "pending_checkout") {
+    return {
+      tone: "pending",
+      title: "Pagamento pendente",
+      text: "Finalize PIX ou cartão para liberar o plano.",
+      href: "/dashboard/financeiro",
+      cta: "Finalizar checkout",
+    };
+  }
+  if (subscriptionStatus === "active" || paymentStatus === "PAID") {
+    return {
+      tone: "paid",
+      title: "Plano ativo",
+      text: "Seu ciclo pago está liberado.",
+      href: "/dashboard/financeiro",
+      cta: "Gerenciar plano",
+    };
+  }
+  return null;
+}
+
 function getModuleDisplayName(moduleItem: UserModule) {
   const normalized = normalizeUserModuleKey(moduleItem.key);
   return String(moduleItem.name || MODULE_FALLBACK_NAMES[normalized] || moduleItem.key).trim();
@@ -681,6 +722,7 @@ export default function DashboardClientPage() {
 
   const selectedTutorial = selectedModule ? getTutorialForModule(selectedModule) : null;
   const selectedModuleKey = normalizeUserModuleKey(selectedModule?.key || "");
+  const banner = commercialBanner(user);
 
   const openFirstTutorial = useCallback(() => {
     setActiveTab("tutorial");
@@ -719,6 +761,16 @@ export default function DashboardClientPage() {
               <div className={styles.alertCard} role="alert">
                 Nao foi possivel carregar tudo agora. {error}
               </div>
+            ) : null}
+
+            {banner ? (
+              <section className={styles.commercialBanner} data-tone={banner.tone}>
+                <div>
+                  <strong>{banner.title}</strong>
+                  <p>{banner.text}</p>
+                </div>
+                <Link href={banner.href}>{banner.cta}</Link>
+              </section>
             ) : null}
 
             <section className={styles.hero}>

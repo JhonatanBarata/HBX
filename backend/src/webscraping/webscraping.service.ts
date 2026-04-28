@@ -8,6 +8,12 @@ import {
 import * as XLSX from 'xlsx';
 import { probeWebscrapingRuntime, type WebscrapingRuntimeDiagnostic } from '../modules/webscraping-runtime.util';
 import { PrismaService } from '../prisma/prisma.service';
+import {
+  COMMERCIAL_PLAN_QUOTAS,
+  COMMERCIAL_PLAN_KEYS,
+  GOOGLE_DAILY_LIMIT_REACHED_MESSAGE,
+  normalizeCommercialPlanKey,
+} from '../commercial-plans/commercial-plan-catalog';
 
 const PLACES_NEW_TEXT_SEARCH_URL = 'https://places.googleapis.com/v1/places:searchText';
 const PLACES_NEW_DETAILS_URL = 'https://places.googleapis.com/v1/places';
@@ -18,7 +24,6 @@ const HBX_PJ_MAX_QUANTITY = 50;
 const HBX_PEOPLE_MAX_QUANTITY = 100;
 const DEFAULT_HBX_SCRAPING_ENGINE_URL = 'http://localhost:8001';
 const GLOBAL_CACHE_TTL_HOURS = 24;
-const TRIAL_DAILY_MOTOR_LIMIT = 2;
 const RECENT_HISTORY_LIMIT = 20;
 const IBGE_CITIES_URL = 'https://servicodados.ibge.gov.br/api/v1/localidades/municipios?orderBy=nome';
 const CITY_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
@@ -46,7 +51,7 @@ export type WebscrapingRuntimeResponse = {
     remainingSearches: number | null;
     dailyLimit: number | null;
     isTrialLimited: boolean;
-    accessMode: 'full' | 'trial' | 'blocked';
+    accessMode: 'plan' | 'blocked';
   };
   diagnostics?: {
     checkedAt: string;
@@ -168,7 +173,7 @@ type NormalizeSearchInputOptions = {
   allowMissingHbxState?: boolean;
 };
 
-type UsageEventType = 'EXECUTED' | 'MOTOR_EXECUTED' | 'BLOCKED_DAILY_LIMIT';
+type UsageEventType = 'EXECUTED' | 'GOOGLE_SEARCH_EXECUTED' | 'BLOCKED_DAILY_LIMIT';
 
 type UsageExecutionMeta = {
   source?: SearchSource;
@@ -442,8 +447,6 @@ export class WebscrapingService {
       const seenPhones = new Set(results.map((item) => item.phoneDigits).filter(Boolean));
       let fetchedCount = 0;
 
-      await this.assertTrialDailyLimit(context, normalized);
-
       const hbxResults = await this.searchHbxEngine(normalized);
       for (const mapped of hbxResults) {
         if (results.length >= normalized.quantity) break;
@@ -467,7 +470,7 @@ export class WebscrapingService {
         technicalCacheReusedCount: 0,
         technicalCacheValidUntil: null,
       });
-      await this.recordUsageLog(context, normalized, 'MOTOR_EXECUTED', response.results.length, null, response.meta);
+      await this.recordUsageLog(context, normalized, 'EXECUTED', response.results.length, null, response.meta);
       this.logSearchResult(normalized, response.results.length);
       return response;
     }
@@ -546,7 +549,7 @@ export class WebscrapingService {
       throw this.buildConfigurationUnavailableError();
     }
 
-    await this.assertTrialDailyLimit(context, normalized);
+    await this.assertGoogleDailyQuota(context, normalized);
 
     for (const candidateLimit of this.buildCandidateSteps(normalized.quantity)) {
       if (results.length >= normalized.quantity) break;
@@ -597,7 +600,7 @@ export class WebscrapingService {
             ? this.buildGlobalCacheValidUntil().toISOString()
             : null,
     });
-    await this.recordUsageLog(context, normalized, 'MOTOR_EXECUTED', response.results.length, null, response.meta);
+    await this.recordUsageLog(context, normalized, 'GOOGLE_SEARCH_EXECUTED', response.results.length, null, response.meta);
     this.logSearchResult(normalized, response.results.length);
     return response;
   }
@@ -888,27 +891,9 @@ export class WebscrapingService {
     return new Date(date.getFullYear(), date.getMonth(), date.getDate() + 1, 0, 0, 0, 0);
   }
 
-  private isTrialDailyLimitedCompany(company: any) {
-    const onboardingStatus = String(company?.onboardingStatus || '').trim().toLowerCase();
-    const paymentStatus = String(company?.paymentStatus || '').trim().toUpperCase();
-    const subscriptionStatus = String(company?.subscriptionStatus || '').trim().toLowerCase();
-    const premiumAccess = Boolean(company?.premiumAccess);
-    if (
-      premiumAccess ||
-      onboardingStatus === 'active_paid' ||
-      paymentStatus === 'PAID' ||
-      paymentStatus === 'MANUAL' ||
-      subscriptionStatus === 'active' ||
-      subscriptionStatus === 'manual'
-    ) {
-      return false;
-    }
-    return (
-      onboardingStatus === 'active_trial' ||
-      onboardingStatus === 'pending_email_confirmation' ||
-      paymentStatus === 'TRIAL' ||
-      subscriptionStatus === 'trialing'
-    );
+  private resolveGoogleSearchesPerDay(company: any) {
+    const planKey = normalizeCommercialPlanKey(company?.selectedPlanKey);
+    return COMMERCIAL_PLAN_QUOTAS[planKey]?.googleSearchesPerDay ?? COMMERCIAL_PLAN_QUOTAS[COMMERCIAL_PLAN_KEYS.PADRAO].googleSearchesPerDay;
   }
 
   private async supportsUsageLogPersistence() {
@@ -932,34 +917,37 @@ export class WebscrapingService {
         paymentStatus: true,
         subscriptionStatus: true,
         premiumAccess: true,
+        selectedPlanKey: true,
       },
     });
 
-    if (!company || !this.isTrialDailyLimitedCompany(company)) {
+    const dailyLimit = company ? this.resolveGoogleSearchesPerDay(company) : 0;
+
+    if (!company) {
       return {
-        remainingSearches: null,
-        dailyLimit: null,
+        remainingSearches: 0,
+        dailyLimit: 0,
         isTrialLimited: false,
-        accessMode: 'full' as const,
+        accessMode: 'blocked' as const,
       };
     }
 
     const usageLogEnabled = await this.supportsUsageLogPersistence();
     if (!usageLogEnabled) {
       return {
-        remainingSearches: TRIAL_DAILY_MOTOR_LIMIT,
-        dailyLimit: TRIAL_DAILY_MOTOR_LIMIT,
+        remainingSearches: dailyLimit,
+        dailyLimit,
         isTrialLimited: true,
-        accessMode: 'trial' as const,
+        accessMode: 'plan' as const,
       };
     }
 
     const dayStart = this.startOfToday();
     const nextDayStart = this.startOfTomorrow();
-    const todayMotorExecutions = await this.prisma.webscrapingUsageLog.count({
+    const todayGoogleExecutions = await this.prisma.webscrapingUsageLog.count({
       where: {
         companyId: context.companyId,
-        eventType: 'MOTOR_EXECUTED',
+        eventType: 'GOOGLE_SEARCH_EXECUTED',
         createdAt: {
           gte: dayStart,
           lt: nextDayStart,
@@ -968,14 +956,14 @@ export class WebscrapingService {
     });
 
     return {
-      remainingSearches: Math.max(0, TRIAL_DAILY_MOTOR_LIMIT - todayMotorExecutions),
-      dailyLimit: TRIAL_DAILY_MOTOR_LIMIT,
+      remainingSearches: Math.max(0, dailyLimit - todayGoogleExecutions),
+      dailyLimit,
       isTrialLimited: true,
-      accessMode: 'trial' as const,
+      accessMode: 'plan' as const,
     };
   }
 
-  private async assertTrialDailyLimit(context: SearchExecutionContext, input: NormalizedSearchInput) {
+  private async assertGoogleDailyQuota(context: SearchExecutionContext, input: NormalizedSearchInput) {
     if (!this.canUseWebscrapingRole(context.user)) {
       throw new ForbiddenException({
         code: 'webscraping_role_blocked',
@@ -993,19 +981,20 @@ export class WebscrapingService {
         paymentStatus: true,
         subscriptionStatus: true,
         premiumAccess: true,
+        selectedPlanKey: true,
       },
     });
 
-    if (!company || !this.isTrialDailyLimitedCompany(company)) {
-      return;
-    }
+    const dailyLimit = company ? this.resolveGoogleSearchesPerDay(company) : 0;
+
+    if (!company) return;
 
     const dayStart = this.startOfToday();
     const nextDayStart = this.startOfTomorrow();
-    const todayMotorExecutions = await this.prisma.webscrapingUsageLog.count({
+    const todayGoogleExecutions = await this.prisma.webscrapingUsageLog.count({
       where: {
         companyId: context.companyId,
-        eventType: 'MOTOR_EXECUTED',
+        eventType: 'GOOGLE_SEARCH_EXECUTED',
         createdAt: {
           gte: dayStart,
           lt: nextDayStart,
@@ -1013,14 +1002,17 @@ export class WebscrapingService {
       },
     });
 
-    if (todayMotorExecutions < TRIAL_DAILY_MOTOR_LIMIT) {
+    if (dailyLimit > 0 && todayGoogleExecutions < dailyLimit) {
       return;
     }
 
-    const message = `No free trial, o webscraping permite ${TRIAL_DAILY_MOTOR_LIMIT} usos do motor por dia. Reaproveitamentos nao contam. Volte amanha ou ative uma conta paga.`;
+    const planKey = normalizeCommercialPlanKey(company.selectedPlanKey);
+    const message = planKey === COMMERCIAL_PLAN_KEYS.LITE
+      ? 'O HBX Lite nao inclui buscas no motor Google. Use motores gratuitos/HBX/cache ou faça upgrade.'
+      : `${GOOGLE_DAILY_LIMIT_REACHED_MESSAGE} Seu plano permite ${dailyLimit} busca(s) Google por dia. Motores gratuitos/HBX/cache continuam disponíveis.`;
     await this.recordUsageLog(context, input, 'BLOCKED_DAILY_LIMIT', 0, message);
     throw new ForbiddenException({
-      code: 'trial_daily_limit_reached',
+      code: 'google_daily_limit_reached',
       message,
     });
   }
@@ -1465,7 +1457,7 @@ export class WebscrapingService {
   }
 
   private isExecutedUsageEvent(eventType: UsageEventType) {
-    return eventType === 'EXECUTED' || eventType === 'MOTOR_EXECUTED';
+    return eventType === 'EXECUTED' || eventType === 'GOOGLE_SEARCH_EXECUTED';
   }
 
   private async findGlobalCacheBySignature(cacheSignature: string): Promise<GlobalCacheRow | null> {

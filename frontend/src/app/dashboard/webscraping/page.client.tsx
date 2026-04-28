@@ -140,7 +140,7 @@ type RuntimeResponse = {
     remainingSearches: number | null;
     dailyLimit: number | null;
     isTrialLimited: boolean;
-    accessMode: "full" | "trial" | "blocked";
+    accessMode: "plan" | "blocked";
   };
   diagnostics?: {
     checkedAt: string;
@@ -732,9 +732,7 @@ export default function WebscrapingClientPage() {
   const segmentLabel = getVisualSegment(segment, targetType);
   const remainingSearchesLabel = useMemo(() => {
     if (!runtime?.quota) return "-";
-    if (runtime.quota.accessMode === "full") return "FULL";
     if (runtime.quota.accessMode === "blocked") return "0";
-    if (!runtime.quota.isTrialLimited) return "FULL";
     return String(Math.max(0, Number(runtime.quota.remainingSearches || 0)));
   }, [runtime?.quota]);
   const configurationPending = runtime?.native.code === "configuration_pending";

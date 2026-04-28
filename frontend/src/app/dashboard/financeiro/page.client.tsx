@@ -18,6 +18,7 @@ type FinanceiroOverview = {
     billingCycle: "MONTHLY" | "ANNUAL";
     billingProvider?: string | null;
     subscriptionStatus?: string | null;
+    selectedPlanKey?: string | null;
     premiumAccess?: boolean;
     trialStartsAt?: string | null;
     trialEndsAt?: string | null;
@@ -63,6 +64,14 @@ type FinanceiroOverview = {
     refundAmount: number;
     cardConfigured: boolean;
     pixAvailable: boolean;
+    commercialPlan?: {
+      planKey: string;
+      title: string;
+      monthlyValue: number;
+      referenceLabel: string;
+      chargeDescription: string;
+      introCyclesRemaining?: number;
+    } | null;
   };
   paymentOptions: {
     selectedMethod: string;
@@ -168,6 +177,7 @@ function subscriptionLabel(value?: string | null) {
   const normalized = String(value || "").trim().toLowerCase();
   if (normalized === "trialing") return "Free trial";
   if (normalized === "active") return "Ativa";
+  if (normalized === "pending_checkout") return "Checkout pendente";
   if (normalized === "past_due") return "Em atraso";
   if (normalized === "canceled") return "Cancelada";
   if (normalized === "expired") return "Expirada";
@@ -200,6 +210,12 @@ function referralModeLabel(value?: string | null) {
   return String(value || "").trim().toUpperCase() === "RECURRING" ? "recorrente" : "único";
 }
 
+function isPendingCheckout(overview: FinanceiroOverview | null) {
+  const paymentStatus = String(overview?.company.paymentStatus || "").trim().toUpperCase();
+  const subscriptionStatus = String(overview?.company.subscriptionStatus || "").trim().toLowerCase();
+  return paymentStatus === "PENDING" || subscriptionStatus === "pending_checkout";
+}
+
 export default function FinanceiroClientPage() {
   const hasToken = useRequireAuth();
   const searchParams = useSearchParams();
@@ -213,11 +229,13 @@ export default function FinanceiroClientPage() {
     billingCycle: "MONTHLY",
   });
   const [cardForm, setCardForm] = useState({
+    cardNumber: "",
     brand: "",
     last4: "",
     holderName: "",
     expMonth: "",
     expYear: "",
+    cvv: "",
   });
 
   async function startCheckout(paymentMethod: "PIX" | "CARD") {
@@ -282,11 +300,13 @@ export default function FinanceiroClientPage() {
         billingCycle: payload.company.billingCycle || "MONTHLY",
       });
       setCardForm({
+        cardNumber: payload.paymentOptions.card.last4 ? `•••• •••• •••• ${payload.paymentOptions.card.last4}` : "",
         brand: payload.paymentOptions.card.brand || "",
         last4: payload.paymentOptions.card.last4 || "",
         holderName: payload.paymentOptions.card.holderName || "",
         expMonth: payload.paymentOptions.card.expMonth ? String(payload.paymentOptions.card.expMonth) : "",
         expYear: payload.paymentOptions.card.expYear ? String(payload.paymentOptions.card.expYear) : "",
+        cvv: "",
       });
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Falha ao carregar o Financeiro.");
@@ -387,6 +407,7 @@ export default function FinanceiroClientPage() {
       },
     ];
   }, [overview]);
+  const pendingCheckout = isPendingCheckout(overview);
 
   async function savePreferences(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -411,11 +432,12 @@ export default function FinanceiroClientPage() {
     setSaving("card");
     setError(null);
     try {
+      const last4 = (cardForm.cardNumber.replace(/\D/g, "").slice(-4) || cardForm.last4).slice(-4);
       await apiFetch("/financeiro/card", {
         method: "PUT",
         body: JSON.stringify({
           brand: cardForm.brand,
-          last4: cardForm.last4,
+          last4,
           holderName: cardForm.holderName,
           expMonth: Number(cardForm.expMonth),
           expYear: Number(cardForm.expYear),
@@ -494,6 +516,15 @@ export default function FinanceiroClientPage() {
 
         {error ? <section className={styles.errorCard}>{error}</section> : null}
         {message ? <section className={styles.successCard}>{message}</section> : null}
+        {pendingCheckout ? (
+          <section className={styles.checkoutNotice}>
+            <div>
+              <strong>Pagamento pendente</strong>
+              <p>Finalize PIX ou cartão para liberar o plano selecionado. Selecionar plano não gerou cobrança automática.</p>
+            </div>
+            <a href="#financeiro-payment">Finalizar checkout</a>
+          </section>
+        ) : null}
 
         {loading || !overview ? (
           <section className={styles.loadingCard}>Carregando painel financeiro...</section>
@@ -508,7 +539,7 @@ export default function FinanceiroClientPage() {
                   </div>
                 </div>
                 <div className={styles.infoGrid}>
-                  <div><span>Plano atual</span><strong>{overview.company.plan?.name || "Sem plano"}</strong></div>
+                  <div><span>Plano selecionado</span><strong>{overview.pricing.commercialPlan?.title || overview.company.plan?.name || "Sem plano"}</strong></div>
                   <div><span>Status</span><strong>{subscriptionLabel(overview.company.subscriptionStatus)}</strong></div>
                   <div><span>Forma atual</span><strong>{paymentMethodLabel(overview.company.paymentMethod)}</strong></div>
                   <div><span>Provider</span><strong>{overview.company.billingProvider || "manual"}</strong></div>
@@ -636,11 +667,11 @@ export default function FinanceiroClientPage() {
                 </div>
               </form>
 
-              <form className={styles.panelCard} onSubmit={saveCard}>
+              <form className={`${styles.panelCard} ${styles.creditCardPanel}`} onSubmit={saveCard}>
                 <div className={styles.sectionHeader}>
                   <div>
-                    <strong>Cartão cadastrado</strong>
-                    <p className={styles.helperText}>Troque ou remova o cartão salvo sem pressão visual nem checkout pesado.</p>
+                    <strong>Cartão de crédito</strong>
+                    <p className={styles.helperText}>Dados organizados para checkout recorrente. A cobrança só acontece ao iniciar o pagamento.</p>
                   </div>
                   {overview.paymentOptions.card.configured ? (
                     <span className={styles.statusPill}>
@@ -651,14 +682,33 @@ export default function FinanceiroClientPage() {
                   )}
                 </div>
 
+                <div className={styles.cardPreview}>
+                  <span>HBX secure card</span>
+                  <strong>{cardForm.cardNumber || "•••• •••• •••• ••••"}</strong>
+                  <div>
+                    <small>{cardForm.holderName || "TITULAR DO CARTÃO"}</small>
+                    <small>{cardForm.expMonth || "MM"}/{cardForm.expYear || "AAAA"}</small>
+                  </div>
+                </div>
+
                 <div className={styles.formGrid}>
+                  <label className={styles.fieldWide}>
+                    <span className={styles.fieldLabel}>Número do cartão</span>
+                    <input
+                      className={styles.fieldInput}
+                      inputMode="numeric"
+                      value={cardForm.cardNumber}
+                      onChange={(event) => {
+                        const digits = event.target.value.replace(/\D/g, "").slice(0, 19);
+                        const grouped = digits.replace(/(.{4})/g, "$1 ").trim();
+                        setCardForm((current) => ({ ...current, cardNumber: grouped, last4: digits.slice(-4) }));
+                      }}
+                      placeholder="0000 0000 0000 0000"
+                    />
+                  </label>
                   <label className={styles.field}>
                     <span className={styles.fieldLabel}>Bandeira</span>
                     <input className={styles.fieldInput} value={cardForm.brand} onChange={(event) => setCardForm((current) => ({ ...current, brand: event.target.value }))} placeholder="Ex: Visa" />
-                  </label>
-                  <label className={styles.field}>
-                    <span className={styles.fieldLabel}>Final</span>
-                    <input className={styles.fieldInput} value={cardForm.last4} onChange={(event) => setCardForm((current) => ({ ...current, last4: event.target.value.replace(/\D/g, "").slice(-4) }))} placeholder="1234" />
                   </label>
                   <label className={styles.fieldWide}>
                     <span className={styles.fieldLabel}>Titular</span>
@@ -672,10 +722,19 @@ export default function FinanceiroClientPage() {
                     <span className={styles.fieldLabel}>Ano</span>
                     <input className={styles.fieldInput} value={cardForm.expYear} onChange={(event) => setCardForm((current) => ({ ...current, expYear: event.target.value.replace(/\D/g, "").slice(0, 4) }))} placeholder="2028" />
                   </label>
+                  <label className={styles.field}>
+                    <span className={styles.fieldLabel}>CVV</span>
+                    <input className={styles.fieldInput} value={cardForm.cvv} onChange={(event) => setCardForm((current) => ({ ...current, cvv: event.target.value.replace(/\D/g, "").slice(0, 4) }))} placeholder="123" />
+                  </label>
+                </div>
+                <div className={styles.securityStrip}>
+                  <span>Ambiente seguro</span>
+                  <span>Checkout Mercado Pago</span>
+                  <span>Sem cobrança ao salvar</span>
                 </div>
                 <div className={styles.formActions}>
                   <button type="submit" className="btn btn-primary" disabled={saving === "card"}>
-                    {saving === "card" ? "Salvando..." : overview.paymentOptions.card.configured ? "Trocar cartão" : "Salvar cartão"}
+                    {saving === "card" ? "Salvando..." : overview.paymentOptions.card.configured ? "Atualizar cartão" : "Salvar cartão"}
                   </button>
                   <button type="button" className="btn btn-secondary" disabled={saving === "remove-card" || !overview.paymentOptions.card.configured} onClick={() => void removeCard()}>
                     {saving === "remove-card" ? "Removendo..." : "Remover cartão"}
@@ -694,6 +753,24 @@ export default function FinanceiroClientPage() {
                   <span className={overview.latestCharge?.status === "approved" ? styles.statusPill : styles.mutedPill}>
                     {overview.latestCharge ? chargeStatusLabel(overview.latestCharge.status) : "Sem cobrança ativa"}
                   </span>
+                </div>
+                <div className={styles.checkoutSummary}>
+                  <div>
+                    <span>Plano</span>
+                    <strong>{overview.pricing.commercialPlan?.title || overview.company.plan?.name || "Plano HBX"}</strong>
+                  </div>
+                  <div>
+                    <span>Ciclo</span>
+                    <strong>{overview.pricing.billingCycle === "ANNUAL" ? "Anual" : "Mensal"}</strong>
+                  </div>
+                  <div>
+                    <span>Desconto anual</span>
+                    <strong>{overview.pricing.billingCycle === "ANNUAL" ? `${overview.pricing.annualPlanDiscountPercent}%` : "Não aplicado"}</strong>
+                  </div>
+                  <div>
+                    <span>Total do checkout</span>
+                    <strong>{formatCurrency(overview.pricing.finalCycleAmount)}</strong>
+                  </div>
                 </div>
                 <div className={styles.checkoutGrid}>
                   <article className={styles.checkoutCard}>
