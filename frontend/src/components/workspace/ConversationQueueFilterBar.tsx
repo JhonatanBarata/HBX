@@ -32,7 +32,7 @@ const OPTIONS: Array<{ value: ConversationQueueFilterValue; label: string }> = [
   { value: "groups", label: "Grupos" },
   { value: "recovery", label: "Recovery" },
   { value: "scheduled", label: "Agendamento" },
-  { value: "bot", label: "BOT" },
+  { value: "bot", label: "Bot" },
 ];
 
 export default function ConversationQueueFilterBar({

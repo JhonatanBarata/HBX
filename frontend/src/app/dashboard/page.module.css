@@ -13,7 +13,9 @@
 .loadingHero,
 .emptyState,
 .alertCard,
-.commercialBanner {
+.commercialBanner,
+.firstWinPanel,
+.firstWinAction {
   border: 1px solid color-mix(in srgb, var(--line) 76%, transparent);
   background:
     linear-gradient(180deg, color-mix(in srgb, var(--surface) 96%, var(--background)), color-mix(in srgb, var(--surface-soft) 88%, var(--background))),
@@ -65,6 +67,82 @@
 
 .commercialBanner[data-tone="paid"] {
   border-color: color-mix(in srgb, #16a34a 28%, var(--line));
+}
+
+.firstWinPanel {
+  display: grid;
+  grid-template-columns: minmax(260px, 0.8fr) minmax(0, 1.2fr);
+  gap: 1rem;
+  align-items: stretch;
+  border-radius: 24px;
+  padding: clamp(1rem, 2vw, 1.25rem);
+  overflow: hidden;
+}
+
+.firstWinCopy {
+  display: grid;
+  align-content: center;
+  gap: 0.7rem;
+}
+
+.firstWinCopy h2 {
+  max-width: 520px;
+  margin: 0;
+  color: var(--foreground);
+  font-size: clamp(1.65rem, 3vw, 2.55rem);
+  line-height: 1;
+  letter-spacing: 0;
+}
+
+.firstWinCopy p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.62;
+}
+
+.firstWinActions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.firstWinAction {
+  display: grid;
+  gap: 0.35rem;
+  min-height: 112px;
+  align-content: center;
+  border-radius: 18px;
+  padding: 0.95rem;
+  text-decoration: none;
+  transition:
+    transform 160ms ease,
+    border-color 160ms ease,
+    box-shadow 160ms ease,
+    background 160ms ease;
+}
+
+.firstWinAction[data-primary="true"] {
+  border-color: color-mix(in srgb, var(--success) 34%, var(--line));
+  background:
+    radial-gradient(circle at top right, color-mix(in srgb, var(--success) 16%, transparent), transparent 46%),
+    color-mix(in srgb, var(--surface) 88%, transparent);
+}
+
+.firstWinAction strong {
+  color: var(--foreground);
+  font-size: 0.98rem;
+}
+
+.firstWinAction span {
+  color: var(--muted);
+  font-size: 0.85rem;
+  line-height: 1.45;
+}
+
+.firstWinAction:hover {
+  transform: translateY(-2px);
+  border-color: color-mix(in srgb, var(--brand) 32%, var(--line));
+  box-shadow: 0 22px 42px -32px color-mix(in srgb, var(--brand) 58%, transparent);
 }
 
 .hero {
@@ -666,7 +744,8 @@
 
 @media (max-width: 1120px) {
   .hero,
-  .tutorialShell {
+  .tutorialShell,
+  .firstWinPanel {
     grid-template-columns: 1fr;
   }
 
@@ -697,6 +776,7 @@
   }
 
   .heroMetrics,
+  .firstWinActions,
   .moduleRail,
   .lessonGrid,
   .assistGrid,

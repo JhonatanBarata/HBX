@@ -164,11 +164,11 @@ export default function WhatsAppConnectionWizard({
                 onClick={connectQr}
                 disabled={!canUseQr || modalSaving !== null || showQrLoader || qrReady}
               >
-                {qrReady ? "BOT" : qrCode ? "ATUALIZAR" : "GERAR"}
+                {qrReady ? "Bot" : qrCode ? "ATUALIZAR" : "GERAR"}
               </button>
             ) : (
               <Link className={styles.primaryAction} href="/dashboard/vendas/automacao?tab=flow">
-                BOT
+                Bot
               </Link>
             )}
 
@@ -199,7 +199,7 @@ export default function WhatsAppConnectionWizard({
           <div className={styles.actionRow}>
             {metaReady ? (
               <Link className={styles.primaryAction} href="/dashboard/vendas/automacao?tab=flow">
-                BOT
+                Bot
               </Link>
             ) : (
               <button

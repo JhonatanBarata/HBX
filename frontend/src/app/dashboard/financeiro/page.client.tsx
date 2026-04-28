@@ -216,6 +216,13 @@ function isPendingCheckout(overview: FinanceiroOverview | null) {
   return paymentStatus === "PENDING" || subscriptionStatus === "pending_checkout";
 }
 
+function includedAccessLabel(planKey?: string | null) {
+  const normalized = String(planKey || "").trim().toLowerCase();
+  if (normalized === "hbx_lite") return "Vendas e motores gratuitos";
+  if (normalized === "hbx_melhor") return "Vendas, Atendimento Chat e Bot";
+  return "Vendas e Atendimento Chat";
+}
+
 export default function FinanceiroClientPage() {
   const hasToken = useRequireAuth();
   const searchParams = useSearchParams();
@@ -520,9 +527,18 @@ export default function FinanceiroClientPage() {
           <section className={styles.checkoutNotice}>
             <div>
               <strong>Pagamento pendente</strong>
-              <p>Finalize PIX ou cartão para liberar o plano selecionado. Selecionar plano não gerou cobrança automática.</p>
+              <p>Finalize o pagamento para liberar seu acesso. Selecionar plano não gerou cobrança automática.</p>
             </div>
             <a href="#financeiro-payment">Finalizar checkout</a>
+          </section>
+        ) : null}
+        {overview?.company.subscriptionStatus === "trialing" ? (
+          <section className={styles.checkoutNotice} data-tone="trial">
+            <div>
+              <strong>Seu trial de 30 dias foi iniciado</strong>
+              <p>Você não será cobrado automaticamente. Quando quiser continuar, escolha PIX ou cartão com segurança.</p>
+            </div>
+            <a href="#financeiro-payment">Ver opções</a>
           </section>
         ) : null}
 
@@ -535,7 +551,7 @@ export default function FinanceiroClientPage() {
                 <div className={styles.sectionHeader}>
                   <div>
                     <strong>Conta atual</strong>
-                    <p className={styles.helperText}>Plano, status e módulos já liberados para operação.</p>
+                    <p className={styles.helperText}>Plano, status e acessos já liberados para operação.</p>
                   </div>
                 </div>
                 <div className={styles.infoGrid}>
@@ -747,8 +763,8 @@ export default function FinanceiroClientPage() {
               <article id="financeiro-payment" className={styles.panelCard}>
                 <div className={styles.sectionHeader}>
                   <div>
-                    <strong>Pagamento em tempo real</strong>
-                    <p className={styles.helperText}>Gere PIX com QR Code/copia e cola ou abra o checkout seguro de cartão.</p>
+                    <strong>Finalize sua contratação com segurança</strong>
+                    <p className={styles.helperText}>Seu plano será liberado automaticamente após a confirmação do pagamento.</p>
                   </div>
                   <span className={overview.latestCharge?.status === "approved" ? styles.statusPill : styles.mutedPill}>
                     {overview.latestCharge ? chargeStatusLabel(overview.latestCharge.status) : "Sem cobrança ativa"}
@@ -766,6 +782,10 @@ export default function FinanceiroClientPage() {
                   <div>
                     <span>Desconto anual</span>
                     <strong>{overview.pricing.billingCycle === "ANNUAL" ? `${overview.pricing.annualPlanDiscountPercent}%` : "Não aplicado"}</strong>
+                  </div>
+                  <div>
+                    <span>Inclui</span>
+                    <strong>{includedAccessLabel(overview.company.selectedPlanKey || overview.pricing.commercialPlan?.planKey)}</strong>
                   </div>
                   <div>
                     <span>Total do checkout</span>

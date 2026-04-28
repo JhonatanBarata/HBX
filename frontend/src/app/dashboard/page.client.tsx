@@ -186,7 +186,7 @@ const TUTORIALS: Record<string, TutorialContent> = {
       "Abra Gerencial quando quiser entender o panorama antes de decidir prioridades.",
     steps: [
       "Veja os indicadores principais do dia ou periodo.",
-      "Compare volume, status e resultados por modulo.",
+      "Compare volume, status e resultados por área.",
       "Use os sinais para decidir onde o time deve atuar primeiro.",
     ],
     tips: [
@@ -202,22 +202,22 @@ const TUTORIALS: Record<string, TutorialContent> = {
   },
   master: {
     purpose:
-      "Gerenciar empresas, modulos, integracoes, permissoes e operacao geral do sistema.",
+      "Gerenciar empresas, acessos, integrações, permissões e operação geral do sistema.",
     start:
       "Use Master para liberar acessos, revisar empresas e acompanhar configuracoes sensiveis.",
     steps: [
       "Escolha a empresa ou contexto que precisa ajustar.",
-      "Revise modulos ativos, permissoes e integracoes.",
+      "Revise acessos ativos, permissões e integrações.",
       "Acompanhe alertas operacionais antes de liberar mudancas.",
       "Salve apenas configuracoes revisadas.",
     ],
     tips: [
       "Use Master com cuidado: ele afeta outras empresas.",
-      "Confira empresa selecionada antes de alterar modulo.",
+      "Confira empresa selecionada antes de alterar acesso.",
       "Documente mudancas sensiveis.",
     ],
     mistakes: [
-      "Alterar modulo da empresa errada.",
+      "Alterar acesso da empresa errada.",
       "Liberar integracao sem validar credenciais.",
       "Mudar permissao sem saber quem usa o acesso.",
     ],
@@ -440,7 +440,7 @@ const STEP_VISUALS: Record<string, StepVisual[]> = {
       lines: ["Volume", "Status", "Resultado"],
     },
     {
-      from: "Modulo por modulo",
+      from: "Área por área",
       to: "Comparativo",
       title: "Visao",
       lines: ["Vendas", "Atendimento", "Financeiro"],
@@ -461,8 +461,8 @@ const STEP_VISUALS: Record<string, StepVisual[]> = {
     },
     {
       from: "Acesso atual",
-      to: "Modulo liberado",
-      title: "Modulos",
+      to: "Acesso liberado",
+      title: "Acessos",
       lines: ["Permissoes", "Integracoes", "Acessos"],
     },
     {
@@ -602,14 +602,14 @@ function getTutorialForModule(moduleItem: UserModule): TutorialContent {
   const normalized = normalizeUserModuleKey(moduleItem.key);
   return (
     TUTORIALS[normalized] || {
-      purpose: String(moduleItem.description || "Este modulo ajuda sua operacao em uma etapa especifica do HBX."),
-      start: "Abra o modulo, revise as informacoes principais e siga as acoes sugeridas na tela.",
+      purpose: String(moduleItem.description || "Este acesso ajuda sua operação em uma etapa específica do HBX."),
+      start: "Abra a área, revise as informações principais e siga as ações sugeridas na tela.",
       steps: [
         "Confira o que aparece na primeira tela.",
         "Abra um registro ou card para ver detalhes.",
         "Salve mudancas importantes antes de sair.",
       ],
-      tips: ["Use este modulo junto com os demais para manter a operacao organizada."],
+      tips: ["Use esta área junto com as demais para manter a operação organizada."],
       mistakes: ["Avancar sem ler os avisos da tela."],
     }
   );
@@ -626,9 +626,9 @@ function formatBlockedReason(moduleItem: UserModule) {
   const reason = String(moduleItem.blockedReason || "").trim();
   if (reason) return reason;
   const engine = String(moduleItem.criticalEngine || "").trim();
-  if (engine.toLowerCase() === "whatsapp") return "Conecte ou revise o WhatsApp para liberar este modulo.";
-  if (engine.toLowerCase() === "payment") return "Revise o financeiro para liberar este modulo.";
-  return "Existe uma configuracao pendente antes de usar este modulo.";
+  if (engine.toLowerCase() === "whatsapp") return "Conecte ou revise o WhatsApp para liberar este acesso.";
+  if (engine.toLowerCase() === "payment") return "Revise o financeiro para liberar este acesso.";
+  return "Existe uma configuração pendente antes de usar este acesso.";
 }
 
 function getStepVisual(moduleKey: string, index: number, step: string): StepVisual {
@@ -722,6 +722,9 @@ export default function DashboardClientPage() {
 
   const selectedTutorial = selectedModule ? getTutorialForModule(selectedModule) : null;
   const selectedModuleKey = normalizeUserModuleKey(selectedModule?.key || "");
+  const atendimentoLiberado = tutorialModules.some(
+    (moduleItem) => normalizeUserModuleKey(moduleItem.key) === "atendimento",
+  );
   const banner = commercialBanner(user);
 
   const openFirstTutorial = useCallback(() => {
@@ -744,14 +747,14 @@ export default function DashboardClientPage() {
   if (!hasToken) return null;
 
   return (
-    <DashboardScaffold title="Painel HBX" description="Tutorial dos seus modulos ativos.">
+    <DashboardScaffold title="Painel HBX" description="Guia dos seus acessos ativos.">
       <div className={styles.page}>
         {loading ? (
           <section className={styles.loadingHero} aria-live="polite">
             <div className={styles.loadingOrb} />
             <div>
-              <p className={styles.eyebrow}>Preparando tutorial</p>
-              <h1>Carregando seus modulos ativos...</h1>
+              <p className={styles.eyebrow}>Preparando guia</p>
+              <h1>Carregando seus acessos ativos...</h1>
               <p>Estamos montando um guia simples com base nos acessos liberados para sua empresa.</p>
             </div>
           </section>
@@ -773,17 +776,54 @@ export default function DashboardClientPage() {
               </section>
             ) : null}
 
+            {!isSystemMaster ? (
+              <section className={styles.firstWinPanel}>
+                <div className={styles.firstWinCopy}>
+                  <span className={styles.heroBadge}>Primeiro ganho</span>
+                  <h2>Vamos gerar sua primeira oportunidade de venda?</h2>
+                  <p>
+                    Em poucos minutos você pode encontrar contatos, salvar leads e começar a acompanhar retornos.
+                  </p>
+                </div>
+                <div className={styles.firstWinActions}>
+                  <Link href="/dashboard/webscraping" className={styles.firstWinAction} data-primary="true">
+                    <strong>Encontrar novos clientes</strong>
+                    <span>Busque contatos por cidade e segmento.</span>
+                  </Link>
+                  <Link href="/dashboard/vendas" className={styles.firstWinAction}>
+                    <strong>Organizar minhas vendas</strong>
+                    <span>Salve leads e marque o próximo retorno.</span>
+                  </Link>
+                  <Link
+                    href={atendimentoLiberado ? "/dashboard/inbox" : "/dashboard/planos"}
+                    className={styles.firstWinAction}
+                  >
+                    <strong>Configurar atendimento</strong>
+                    <span>
+                      {atendimentoLiberado
+                        ? "Centralize conversas para não perder vendas."
+                        : "Atendimento Chat está disponível no Padrão e Melhor."}
+                    </span>
+                  </Link>
+                  <Link href="/dashboard/planos" className={styles.firstWinAction}>
+                    <strong>Conhecer os planos</strong>
+                    <span>Compare acessos, buscas Google por dia e pagamento.</span>
+                  </Link>
+                </div>
+              </section>
+            ) : null}
+
             <section className={styles.hero}>
               <div className={styles.heroContent}>
-                <span className={styles.heroBadge}>Central de tutorial</span>
+                <span className={styles.heroBadge}>Guia do sistema</span>
                 <h1>Painel HBX</h1>
                 <p>
-                  Ola, {resolveDisplayName(user)}. Veja seus modulos ativos e siga tutoriais visuais
+                  Olá, {resolveDisplayName(user)}. Veja seus acessos liberados e siga tutoriais visuais
                   com pequenos prints do caminho dentro do sistema.
                 </p>
                 <div className={styles.heroActions}>
                   <button type="button" className={styles.primaryButton} onClick={openFirstTutorial}>
-                    Comecar tutorial
+                    Começar tutorial
                   </button>
                   {recommendedModule ? (
                     <Link
@@ -802,9 +842,9 @@ export default function DashboardClientPage() {
 
               <div className={styles.heroMetrics} aria-label="Resumo do painel">
                 <article>
-                  <span>Modulos ativos</span>
+                  <span>Acessos ativos</span>
                   <strong>{tutorialModules.length}</strong>
-                  <small>para tutorial</small>
+                  <small>para começar</small>
                 </article>
                 <article>
                   <span>Comece por</span>
@@ -836,7 +876,7 @@ export default function DashboardClientPage() {
                 role="tab"
                 aria-selected={activeTab === "modules"}
               >
-                Meus modulos
+                Meus acessos
               </button>
             </div>
 
@@ -844,7 +884,7 @@ export default function DashboardClientPage() {
               <section className={styles.tutorialShell}>
                 {tutorialModules.length ? (
                   <>
-                    <aside className={styles.moduleRail} aria-label="Modulos ativos">
+                    <aside className={styles.moduleRail} aria-label="Acessos ativos">
                       {tutorialModules.map((moduleItem) => {
                         const normalized = normalizeUserModuleKey(moduleItem.key);
                         return (
@@ -855,7 +895,7 @@ export default function DashboardClientPage() {
                             onClick={() => setActiveModuleKey(normalized)}
                           >
                             <strong>{getModuleDisplayName(moduleItem)}</strong>
-                            <span>{moduleItem.description || "Guia rapido do modulo"}</span>
+                            <span>{moduleItem.description || "Guia rápido do acesso"}</span>
                           </button>
                         );
                       })}
@@ -867,13 +907,13 @@ export default function DashboardClientPage() {
                           <div>
                             <span className={styles.eyebrow}>Tutorial ativo</span>
                             <h2>{getModuleDisplayName(selectedModule)}</h2>
-                            <p>{selectedModule.description || "Aprenda o fluxo principal deste modulo."}</p>
+                            <p>{selectedModule.description || "Aprenda o fluxo principal deste acesso."}</p>
                           </div>
                           <Link
                             href={resolveModuleHref(selectedModule.key, selectedModule.serviceUrl)}
                             className={styles.primaryButton}
                           >
-                            Abrir modulo
+                            Abrir
                           </Link>
                         </div>
 
@@ -949,10 +989,10 @@ export default function DashboardClientPage() {
                   </>
                 ) : (
                   <section className={styles.emptyState}>
-                    <span>Nenhum modulo ativo ainda</span>
-                    <h2>Seu tutorial aparece assim que os modulos forem liberados.</h2>
+                    <span>Nenhum acesso ativo ainda</span>
+                    <h2>Seu guia aparece assim que seu acesso for liberado.</h2>
                     <p>
-                      Fale com o responsavel pela conta para ativar os modulos da empresa. Se voce for master,
+                      Fale com o responsável pela conta para liberar o plano da empresa. Se você for master,
                       abra o Master para liberar acessos.
                     </p>
                     {isSystemMaster ? (
@@ -973,7 +1013,7 @@ export default function DashboardClientPage() {
                       <p>{moduleItem.description || getTutorialForModule(moduleItem).purpose}</p>
                     </div>
                     <Link href={resolveModuleHref(moduleItem.key, moduleItem.serviceUrl)} className={styles.cardLink}>
-                      Abrir modulo
+                      Abrir
                     </Link>
                   </article>
                 ))}
@@ -984,7 +1024,7 @@ export default function DashboardClientPage() {
               <section className={styles.blockedSection}>
                 <div className={styles.sectionTitle}>
                   <span>!</span>
-                  <h2>Modulos que precisam atencao</h2>
+                  <h2>Acessos que precisam de atenção</h2>
                 </div>
                 <div className={styles.blockedGrid}>
                   {blockedModules.map((moduleItem) => (

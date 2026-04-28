@@ -114,7 +114,7 @@ const NAV_ITEMS: NavItem[] = [
     href: "/dashboard/planos",
     label: "Planos",
     shortLabel: "PL",
-    description: "Escolha Vendas, IA ou veja disponibilidade.",
+    description: "Escolha Vendas, Atendimento ou veja disponibilidade.",
     matcher: (route) => route.startsWith("/dashboard/planos"),
     category: "structural",
   },

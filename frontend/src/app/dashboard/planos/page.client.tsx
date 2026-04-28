@@ -32,34 +32,59 @@ const FALLBACK_PLANS: Record<CommercialPlanKey, CommercialPlan> = {
     title: "HBX Lite",
     status: "available",
     monthlyPrice: 29.9,
-    headline: "Entrada enxuta para operar vendas sem Bot.",
+    headline: "Comece a organizar suas vendas pagando pouco.",
+    description: "Para quem quer registrar oportunidades, usar prospecção básica e começar sem complexidade.",
     annualDiscountPercent: 10,
     trialDays: 0,
     quotas: { googleSearchesPerDay: 0 },
-    features: ["Vendas", "Webscraping free/HBX/cache", "Google: 0 buscas por dia", "Sem Atendimento Chat", "Sem Bot"],
+    features: [
+      "Vendas organizadas em um só lugar",
+      "Prospecção com motores gratuitos/HBX/cache",
+      "Ideal para começar com baixo custo",
+      "Buscas Google/dia: 0",
+      "Sem atendimento chat",
+      "Sem Bot",
+    ],
+    legalCopy: "Liberação após pagamento confirmado.",
   },
   hbx_padrao: {
     key: "hbx_padrao",
     title: "HBX Padrão",
     status: "available",
     monthlyPrice: 79.9,
-    headline: "O plano principal para vender e atender com trial seguro.",
+    headline: "Encontre clientes e atenda melhor todos os dias.",
+    description: "O plano principal para pequenos negócios que querem vender mais com rotina simples.",
     annualDiscountPercent: 10,
     recommended: true,
     trialDays: 30,
     quotas: { googleSearchesPerDay: 2 },
-    features: ["Vendas", "Atendimento Chat", "30 dias de trial sem cartão", "Google: 2 buscas por dia", "Sem Bot"],
+    features: [
+      "30 dias grátis, sem cobrança automática",
+      "Vendas + Atendimento Chat",
+      "Buscas Google/dia: 2",
+      "Motores gratuitos/HBX/cache liberados",
+      "Ideal para começar a vender com constância",
+    ],
+    legalCopy: "30 dias grátis, sem cartão e sem cobrança automática.",
   },
   hbx_melhor: {
     key: "hbx_melhor",
     title: "HBX Melhor",
     status: "available",
     monthlyPrice: 109.9,
-    headline: "Pacote completo com Bot Inteligente liberado após pagamento.",
+    headline: "Mais volume, atendimento e automação no mesmo pacote.",
+    description: "Para quem quer operar com mais buscas, atendimento liberado e Bot de atendimento.",
     annualDiscountPercent: 10,
     trialDays: 0,
     quotas: { googleSearchesPerDay: 6 },
-    features: ["Vendas", "Atendimento Chat", "Bot Inteligente", "Google: 6 buscas por dia", "Sem trial"],
+    features: [
+      "Vendas + Atendimento Chat",
+      "Bot de atendimento",
+      "Buscas Google/dia: 6",
+      "Motores gratuitos/HBX/cache liberados",
+      "Pacote mais completo",
+    ],
+    legalCopy: "Liberação após pagamento confirmado.",
   },
 };
 
@@ -180,8 +205,8 @@ export default function PlanosClientPage() {
         <section className={styles.hero}>
           <div className={styles.heroCopy}>
             <span className={styles.eyebrow}>Pacotes HBX</span>
-            <h1>Escolha o plano certo sem cobrança automática.</h1>
-            <p>O Master troca o plano comercial da empresa; módulos são permissões internas derivadas do pacote.</p>
+            <h1>Escolha o pacote certo para vender mais.</h1>
+            <p>Compare acesso, buscas Google por dia e atendimento antes de contratar. Selecionar um plano nunca gera cobrança automática.</p>
             <div className={styles.flow}>
               <span>1. Plano</span>
               <span>2. Checkout</span>
@@ -195,14 +220,14 @@ export default function PlanosClientPage() {
             <strong>{getCommercialPlanTitle(payload?.current.planKey || payload?.current.selectedPlanKey || null)}</strong>
             {currentTrialLabel ? <small>{currentTrialLabel}</small> : null}
             {pendingCheckout ? <small>Pagamento pendente — finalize PIX ou cartão.</small> : null}
-            {!currentTrialLabel && !pendingCheckout ? <small>{botActive ? "Bot liberado" : vendasActive ? "Acessos derivados do plano" : "Sem plano ativo"}</small> : null}
+            {!currentTrialLabel && !pendingCheckout ? <small>{botActive ? "Bot liberado" : vendasActive ? "Plano com acesso liberado" : "Sem plano ativo"}</small> : null}
           </aside>
         </section>
 
         <section className={styles.billingBand}>
           <div>
-            <strong>Contratação por pacote</strong>
-            <p>Não existe preço por módulo. O Financeiro cobra somente o valor do plano selecionado.</p>
+            <strong>Pagamento seguro</strong>
+            <p>Desconto anual aplicado automaticamente. Plano pode ser alterado pelo administrador quando precisar.</p>
           </div>
           <div className={styles.segmented} role="tablist" aria-label="Ciclo de cobrança">
             <button type="button" data-active={billingCycle === "MONTHLY"} onClick={() => setBillingCycle("MONTHLY")}>Mensal</button>
@@ -220,8 +245,8 @@ export default function PlanosClientPage() {
 
         {intent === "bot_ia" ? (
           <section className={styles.intentCard}>
-            <strong>O BOT Inteligente faz parte do HBX Melhor</strong>
-            <p>Para configurar o Bot, escolha o plano Melhor e finalize o pagamento antes de usar a IA.</p>
+            <strong>Bot de atendimento está disponível no HBX Melhor</strong>
+            <p>Escolha o plano Melhor e finalize o pagamento para liberar automação de atendimento.</p>
           </section>
         ) : null}
 
@@ -243,7 +268,7 @@ export default function PlanosClientPage() {
                     <div className={styles.cardFace}>
                       <div className={styles.planHeader}>
                         <span>{plan.title}</span>
-                        <small>{plan.key === "hbx_lite" ? "Mais barato" : plan.key === "hbx_padrao" ? "Mais escolhido" : "Bot incluso"}</small>
+                        <small>{plan.key === "hbx_lite" ? "Entrada" : plan.key === "hbx_padrao" ? "Mais escolhido" : "Mais completo"}</small>
                       </div>
                       <strong className={styles.price}>
                         {billingCycle === "ANNUAL" ? money(cycleAmount) : money(plan.monthlyPrice)}
@@ -251,15 +276,8 @@ export default function PlanosClientPage() {
                       </strong>
                       {billingCycle === "ANNUAL" ? <p className={styles.equivalent}>{money(monthlyEquivalent)}/mês equivalente com 10% de desconto</p> : null}
                       <p>{plan.headline}</p>
-                      <button
-                        type="button"
-                        className={styles.primaryButton}
-                        disabled={active || saving}
-                        onClick={() => void selectPlan(plan.key)}
-                      >
-                        {active ? "Plano ativo" : saving ? "Abrindo checkout..." : "Contratar"}
-                      </button>
-                      {!canSelectPlan && !active ? <small className={styles.adminHint}>{adminDeniedMessage}</small> : null}
+                      {plan.description ? <p className={styles.planDescription}>{plan.description}</p> : null}
+                      <small className={styles.planLegal}>{plan.legalCopy || (plan.key === "hbx_padrao" ? "30 dias grátis, sem cartão e sem cobrança automática." : "Liberação após pagamento confirmado.")}</small>
                     </div>
                     <div className={styles.cardFaceBack}>
                       <span className={styles.backLabel}>Inclui</span>
@@ -269,10 +287,26 @@ export default function PlanosClientPage() {
                         ))}
                       </ul>
                       <p>
-                        Google: {plan.quotas?.googleSearchesPerDay ?? FALLBACK_PLANS[plan.key].quotas?.googleSearchesPerDay} busca(s)/dia.
-                        Motores free/HBX/cache não consomem essa quota.
+                        Buscas Google/dia: {plan.quotas?.googleSearchesPerDay ?? FALLBACK_PLANS[plan.key].quotas?.googleSearchesPerDay}.
+                        Motores gratuitos: liberados.
                       </p>
                     </div>
+                  </div>
+                  <div className={styles.cardActionDock}>
+                    <button
+                      type="button"
+                      className={styles.primaryButton}
+                      disabled={active || saving}
+                      onClick={() => void selectPlan(plan.key)}
+                    >
+                      {active ? "Plano ativo" : saving ? "Abrindo checkout..." : "Contratar"}
+                    </button>
+                    <small>
+                      {plan.key === "hbx_padrao"
+                        ? "Sem cobrança automática no trial."
+                        : "Liberação após pagamento confirmado."}
+                    </small>
+                    {!canSelectPlan && !active ? <small className={styles.adminHint}>{adminDeniedMessage}</small> : null}
                   </div>
                 </article>
               );

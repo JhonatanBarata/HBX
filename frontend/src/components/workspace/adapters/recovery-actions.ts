@@ -36,8 +36,8 @@ export function buildRecoveryQuickActions(input: {
 
   return [
     createAction("assign_human", "Assumir atendimento", "secondary"),
-    createAction("pause_bot", "Pausar BOT", "secondary"),
-    createAction("resume_bot", "Reativar BOT", "secondary"),
+    createAction("pause_bot", "Pausar Bot", "secondary"),
+    createAction("resume_bot", "Reativar Bot", "secondary"),
     createAction("generate_cash_link", "Gerar link a vista", "primary"),
     createAction("generate_credit_link", "Pagar no credito", "primary"),
     createAction("block_interaction", "Bloquear cliente", "danger"),
