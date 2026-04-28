@@ -4182,119 +4182,44 @@ export class InboxService {
     });
   }
 
-  async emptyTrash(user: any) {
+  async purgeConversationFromTrash(user: any, conversationId: number) {
     const companyId = this.requireCompanyIdFromUser(user);
-    const rows = await this.prisma.companyConversation.findMany({
-      where: { companyId, channel: 'whatsapp' },
-      orderBy: [{ updatedAt: 'asc' }, { id: 'asc' }],
-      select: {
-        id: true,
-        contact: true,
-        metadata: true,
-        flowResult: true,
+    const conversation = await this.ensureConversation(companyId, conversationId);
+    const metadata = this.parseConversationMetadata(conversation.metadata);
+
+    if (!this.isConversationMetadataInTrash(metadata, conversation.flowResult)) {
+      throw new BadRequestException('Envie a conversa para Excluídos antes da exclusão permanente.');
+    }
+
+    await this.logInboxEvent({
+      companyId,
+      event: 'conversation_trash_purged_local',
+      message: 'Conversa removida permanentemente de Excluídos apenas no HBX.',
+      conversationId: conversation.id,
+      phone: String(conversation.contact || '').trim(),
+      result: 'local_purged',
+      extra: {
+        localOnly: true,
+        whatsappCommandSent: false,
       },
     });
 
-    const trashRows = rows
-      .map((row) => ({
-        ...row,
-        metadataParsed: this.parseConversationMetadata(row.metadata),
-      }))
-      .filter((row) => this.isConversationMetadataInTrash(row.metadataParsed, row.flowResult));
+    await this.purgeInboxConversationLocally(companyId, conversation.id);
 
-    const failures: Array<{ id: string; message: string }> = [];
-    const removedIds: string[] = [];
-    let whatsappDeleted = 0;
-    let localOnlyDeleted = 0;
-
-    for (const row of trashRows) {
-      const metadata = row.metadataParsed;
-      let mode: 'whatsapp' | 'local' = 'local';
-      const alreadyDeletedFromWhatsapp = this.parseBooleanMetadataFlag(
-        metadata?.whatsappConversationDeleted || metadata?.inboxWhatsAppDeleted,
-      );
-      const knownWithoutWhatsapp = this.isConversationKnownWithoutWhatsapp(metadata);
-
-      if (!alreadyDeletedFromWhatsapp && !knownWithoutWhatsapp) {
-        try {
-          await this.webwhatsBridge.deleteChat(companyId, {
-            conversationId: row.id,
-          });
-          mode = 'whatsapp';
-        } catch (error) {
-          if (!this.canTrashDeleteFallbackToLocal(error)) {
-            const message =
-              error instanceof WebwhatsProviderError
-                ? error.providerMessage || error.message
-                : error instanceof Error
-                  ? error.message
-                  : 'Falha ao apagar conversa.';
-            failures.push({ id: String(row.id), message });
-            await this.logInboxEvent({
-              companyId,
-              event: 'conversation_trash_empty_failed',
-              message: 'Falha ao esvaziar conversa em Excluídos.',
-              conversationId: row.id,
-              phone: String(row.contact || '').trim(),
-              result: 'failed',
-              extra: {
-                error: message,
-              },
-            });
-            continue;
-          }
-          mode = 'local';
-        }
-      }
-
-      try {
-        await this.logInboxEvent({
-          companyId,
-          event: 'conversation_trash_emptied',
-          message:
-            mode === 'whatsapp'
-              ? 'Conversa apagada no WhatsApp e removida de Excluídos.'
-              : 'Conversa removida localmente de Excluídos.',
-          conversationId: row.id,
-          phone: String(row.contact || '').trim(),
-          result: mode,
-          extra: {
-            whatsappCommandSent: mode === 'whatsapp',
-            alreadyDeletedFromWhatsapp,
-            knownWithoutWhatsapp,
-          },
-        });
-        await this.purgeInboxConversationLocally(companyId, row.id);
-        removedIds.push(String(row.id));
-        if (mode === 'whatsapp') {
-          whatsappDeleted += 1;
-        } else {
-          localOnlyDeleted += 1;
-        }
-      } catch (error) {
-        const message = error instanceof Error ? error.message : 'Falha ao remover conversa localmente.';
-        failures.push({ id: String(row.id), message });
-      }
-    }
-
-    const failed = failures.length;
-    const purged = removedIds.length;
     return {
-      success: failed === 0,
-      total: trashRows.length,
-      purged,
-      whatsappDeleted,
-      localOnlyDeleted,
-      failed,
-      removedIds,
-      failures: failures.slice(0, 10),
-      message:
-        failed > 0
-          ? `Lixeira parcialmente esvaziada: ${purged} removida(s), ${failed} com falha.`
-          : purged > 0
-            ? `Lixeira esvaziada: ${purged} conversa(s) removida(s).`
-            : 'Lixeira já estava vazia.',
+      success: true,
+      id: String(conversation.id),
+      deleted: true,
+      localOnly: true,
+      message: 'Conversa removida permanentemente de Excluídos apenas no HBX.',
     };
+  }
+
+  async emptyTrash(user: any) {
+    this.requireCompanyIdFromUser(user);
+    throw new BadRequestException(
+      'Limpeza em lote desativada. Exclua permanentemente uma conversa por vez em Excluídos.',
+    );
   }
 
   async markConversationAsRead(user: any, conversationId: number) {

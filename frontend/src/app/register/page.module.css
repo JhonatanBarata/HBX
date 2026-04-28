@@ -1,194 +1,249 @@
 .page {
   min-height: 100vh;
-  padding: 28px;
-  color: #10213a;
+  padding: 24px;
+  color: #111827;
   background:
-    linear-gradient(135deg, rgba(16, 33, 58, 0.97), rgba(21, 75, 89, 0.94) 46%, rgba(245, 247, 251, 1) 46.2%),
-    #f5f7fb;
+    linear-gradient(180deg, #f7f9fc 0%, #eef3f7 58%, #ffffff 100%),
+    #f7f9fc;
 }
 
-.hero {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(280px, 380px);
-  gap: 22px;
-  max-width: 1260px;
-  margin: 0 auto 22px;
-  align-items: stretch;
+.topbar {
+  display: flex;
+  width: min(1240px, 100%);
+  margin: 0 auto 24px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
 }
 
-.heroCopy,
-.promisePanel,
-.signupPanel,
-.planArea {
-  border: 1px solid rgba(255, 255, 255, 0.18);
+.brand {
+  display: inline-grid;
+  width: 48px;
+  height: 48px;
+  place-items: center;
+  border: 1px solid rgba(17, 24, 39, 0.1);
   border-radius: 8px;
-  box-shadow: 0 24px 70px -42px rgba(6, 18, 33, 0.68);
-}
-
-.heroCopy {
-  padding: clamp(26px, 5vw, 52px);
   color: #ffffff;
-  background:
-    linear-gradient(135deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.03)),
-    rgba(7, 23, 39, 0.38);
+  background: #111827;
+  box-shadow: 0 18px 38px -28px rgba(17, 24, 39, 0.85);
+  font-weight: 900;
+  text-decoration: none;
 }
 
-.eyebrow,
-.sectionHeader span,
-.selectedSummary span {
+.stepper {
   display: inline-flex;
-  width: fit-content;
-  min-height: 24px;
+  min-height: 42px;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid rgba(17, 24, 39, 0.1);
+  border-radius: 999px;
+  padding: 4px;
+  background: rgba(255, 255, 255, 0.82);
+  box-shadow: 0 18px 55px -44px rgba(17, 24, 39, 0.6);
+}
+
+.stepper span {
+  display: inline-flex;
+  min-height: 32px;
   align-items: center;
   border-radius: 999px;
-  padding: 3px 10px;
-  background: rgba(240, 183, 77, 0.14);
-  color: #f0b74d;
-  font-size: 0.74rem;
-  font-weight: 850;
-  text-transform: uppercase;
+  padding: 0 13px;
+  color: #64748b;
+  font-size: 0.82rem;
+  font-weight: 800;
+  white-space: nowrap;
 }
 
-.heroCopy h1 {
-  max-width: 760px;
-  margin: 16px 0 14px;
-  font-size: clamp(2.4rem, 6vw, 5.2rem);
-  line-height: 0.96;
-  letter-spacing: 0;
-}
-
-.heroCopy p {
-  max-width: 680px;
-  margin: 0;
-  color: rgba(255, 255, 255, 0.82);
-  font-size: 1.04rem;
-  line-height: 1.65;
-}
-
-.flow {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 10px;
-  margin-top: 28px;
-}
-
-.flow div {
-  min-height: 78px;
-  padding: 14px;
-  border: 1px solid rgba(255, 255, 255, 0.18);
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.08);
-}
-
-.flow strong {
-  display: block;
-  color: #f0b74d;
-  font-size: 1.2rem;
-}
-
-.flow span {
-  display: block;
-  margin-top: 8px;
+.stepper span[data-active="true"] {
   color: #ffffff;
-  font-weight: 750;
-}
-
-.promisePanel {
-  display: grid;
-  gap: 10px;
-  align-content: end;
-  padding: 24px;
-  background: #ffffff;
-}
-
-.promisePanel span,
-.summaryBox span,
-.muted {
-  color: #66768c;
-}
-
-.promisePanel strong {
-  color: #10213a;
-  font-size: 1.65rem;
-  line-height: 1.08;
-}
-
-.promisePanel p,
-.selectedSummary p,
-.form label span,
-.planCard p,
-.planCard small,
-.confirmation p,
-.infoBox p,
-.loginLink {
-  margin: 0;
-  color: #627086;
-  line-height: 1.55;
+  background: #111827;
 }
 
 .contentGrid {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(320px, 440px);
-  gap: 22px;
-  max-width: 1260px;
+  grid-template-columns: minmax(0, 1fr) minmax(330px, 410px);
+  gap: 24px;
+  width: min(1240px, 100%);
   margin: 0 auto;
   align-items: start;
 }
 
-.planArea,
-.signupPanel {
-  background: rgba(255, 255, 255, 0.94);
-  border-color: rgba(16, 33, 58, 0.1);
-}
-
 .planArea {
-  padding: 22px;
+  display: grid;
+  gap: 22px;
 }
 
-.sectionHeader {
+.heroCopy {
+  overflow: hidden;
+  position: relative;
+  min-height: 260px;
+  border: 1px solid rgba(17, 24, 39, 0.08);
+  border-radius: 8px;
+  padding: clamp(28px, 5vw, 56px);
+  color: #ffffff;
+  background:
+    linear-gradient(135deg, rgba(17, 24, 39, 0.98), rgba(18, 78, 91, 0.96) 58%, rgba(185, 59, 49, 0.9)),
+    #111827;
+  box-shadow: 0 28px 80px -54px rgba(17, 24, 39, 0.9);
+}
+
+.heroCopy::after {
+  content: "";
+  position: absolute;
+  right: 38px;
+  bottom: 32px;
+  width: min(32vw, 360px);
+  height: 96px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 8px;
+  background:
+    linear-gradient(90deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0.04)),
+    repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.26) 0 1px, transparent 1px 56px);
+  opacity: 0.54;
+}
+
+.eyebrow,
+.sectionKicker,
+.selectedSummary span {
+  display: inline-flex;
+  width: fit-content;
+  min-height: 26px;
+  align-items: center;
+  border-radius: 999px;
+  padding: 4px 11px;
+  color: #b93b31;
+  background: rgba(185, 59, 49, 0.1);
+  font-size: 0.74rem;
+  font-weight: 900;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.heroCopy .eyebrow {
+  color: #ffdf99;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.heroCopy h1 {
+  position: relative;
+  z-index: 1;
+  max-width: 720px;
+  margin: 16px 0 12px;
+  font-size: clamp(2.25rem, 5.8vw, 4.9rem);
+  line-height: 0.98;
+  letter-spacing: 0;
+}
+
+.heroCopy p {
+  position: relative;
+  z-index: 1;
+  max-width: 600px;
+  margin: 0;
+  color: rgba(255, 255, 255, 0.84);
+  font-size: 1.02rem;
+  line-height: 1.6;
+}
+
+.planToolbar {
   display: flex;
   align-items: end;
   justify-content: space-between;
   gap: 18px;
-  margin-bottom: 16px;
 }
 
-.sectionHeader h2 {
+.planToolbar h2 {
   margin: 8px 0 0;
-  color: #10213a;
-  font-size: clamp(1.5rem, 3vw, 2.4rem);
+  color: #111827;
+  font-size: clamp(1.5rem, 3vw, 2.25rem);
+  line-height: 1.08;
   letter-spacing: 0;
+}
+
+.billingToggle {
+  display: inline-flex;
+  min-height: 46px;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid rgba(17, 24, 39, 0.1);
+  border-radius: 999px;
+  padding: 4px;
+  background: #ffffff;
+  box-shadow: 0 20px 60px -48px rgba(17, 24, 39, 0.7);
+}
+
+.billingToggle button {
+  min-height: 36px;
+  border: 0;
+  border-radius: 999px;
+  padding: 0 15px;
+  color: #475569;
+  background: transparent;
+  font-weight: 900;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.billingToggle button[data-active="true"] {
+  color: #ffffff;
+  background: #111827;
+}
+
+.billingToggle span {
+  margin-left: 4px;
+  color: #ffcf70;
+  font-size: 0.72rem;
 }
 
 .plansGrid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  align-items: stretch;
 }
 
 .planCard {
   position: relative;
   display: grid;
-  min-height: 430px;
+  min-height: 512px;
   align-content: start;
-  gap: 13px;
-  padding: 18px;
-  border: 1px solid rgba(16, 33, 58, 0.1);
+  gap: 15px;
+  border: 1px solid rgba(17, 24, 39, 0.11);
   border-radius: 8px;
-  background: #ffffff;
+  padding: 22px;
   color: inherit;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 24px 72px -58px rgba(17, 24, 39, 0.82);
   text-align: left;
   cursor: pointer;
+  transition:
+    border-color 160ms ease,
+    box-shadow 160ms ease,
+    transform 160ms ease;
+}
+
+.planCard:hover,
+.planCard:focus-visible {
+  border-color: rgba(18, 78, 91, 0.42);
+  box-shadow: 0 30px 86px -58px rgba(17, 24, 39, 0.94);
+  outline: none;
+  transform: translateY(-2px);
 }
 
 .planCard[data-featured="true"] {
-  border-color: rgba(201, 71, 61, 0.38);
-  background: linear-gradient(180deg, #ffffff 0%, #fff8f6 100%);
+  border-color: rgba(185, 59, 49, 0.5);
+  background:
+    linear-gradient(180deg, #ffffff 0%, #fff9f4 100%);
+  box-shadow:
+    0 0 0 4px rgba(185, 59, 49, 0.08),
+    0 34px 86px -54px rgba(185, 59, 49, 0.72);
 }
 
 .planCard[data-selected="true"] {
-  outline: 3px solid rgba(201, 71, 61, 0.22);
-  border-color: #c9473d;
+  border-color: #b93b31;
+  box-shadow:
+    0 0 0 4px rgba(185, 59, 49, 0.12),
+    0 34px 88px -56px rgba(17, 24, 39, 0.86);
 }
 
 .planCard[data-disabled="true"] {
@@ -198,32 +253,105 @@
 }
 
 .badge {
+  display: inline-flex;
   width: fit-content;
-  min-height: 24px;
-  padding: 3px 9px;
+  min-height: 27px;
+  align-items: center;
   border-radius: 999px;
-  background: rgba(25, 111, 117, 0.11);
-  color: #196f75;
+  padding: 4px 10px;
+  color: #124e5b;
+  background: rgba(18, 78, 91, 0.1);
   font-size: 0.73rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.planCard[data-featured="true"] .badge {
+  color: #ffffff;
+  background: #b93b31;
+}
+
+.planTitle {
+  display: grid;
+  gap: 6px;
+}
+
+.planTitle strong {
+  color: #111827;
+  font-size: 1.32rem;
+  line-height: 1.12;
+}
+
+.planTitle small,
+.planNote,
+.billingHint,
+.planDetail,
+.form label span,
+.confirmation p,
+.infoBox p,
+.loginLink,
+.muted {
+  margin: 0;
+  color: #64748b;
+  line-height: 1.5;
+}
+
+.planTitle small {
+  color: #b93b31;
+  font-weight: 900;
+}
+
+.priceBlock {
+  display: flex;
+  min-height: 58px;
+  align-items: baseline;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.priceBlock em {
+  color: #111827;
+  font-size: clamp(2rem, 3vw, 2.75rem);
+  font-style: normal;
+  font-weight: 950;
+  line-height: 0.98;
+}
+
+.priceBlock span {
+  color: #475569;
+  font-size: 0.95rem;
   font-weight: 850;
 }
 
-.planCard strong {
-  color: #10213a;
-  font-size: 1.22rem;
+.billingHint {
+  display: inline-flex;
+  width: fit-content;
+  min-height: 30px;
+  align-items: center;
+  border: 1px solid rgba(18, 78, 91, 0.13);
+  border-radius: 999px;
+  padding: 4px 10px;
+  color: #124e5b;
+  background: rgba(18, 78, 91, 0.07);
+  font-size: 0.8rem;
+  font-weight: 850;
 }
 
-.planCard em {
-  color: #10213a;
-  font-style: normal;
-  font-size: 1.7rem;
-  font-weight: 900;
-  line-height: 1.05;
+.planCard[data-featured="true"] .billingHint {
+  border-color: rgba(185, 59, 49, 0.18);
+  color: #9b2f27;
+  background: rgba(185, 59, 49, 0.08);
+}
+
+.planDetail {
+  min-height: 48px;
+  color: #475569;
+  font-size: 0.94rem;
 }
 
 .planCard ul {
   display: grid;
-  gap: 9px;
+  gap: 10px;
   margin: 0;
   padding: 0;
   list-style: none;
@@ -231,41 +359,83 @@
 
 .planCard li {
   position: relative;
-  padding-left: 16px;
-  color: #2f4057;
-  font-size: 0.92rem;
+  padding-left: 24px;
+  color: #253247;
+  font-size: 0.93rem;
+  font-weight: 750;
+  line-height: 1.35;
 }
 
 .planCard li::before {
   content: "";
   position: absolute;
-  top: 0.62em;
+  top: 0.24em;
   left: 0;
-  width: 7px;
-  height: 7px;
+  width: 16px;
+  height: 16px;
   border-radius: 999px;
-  background: #c9473d;
+  background:
+    linear-gradient(135deg, #ffffff 0 45%, transparent 46%),
+    #124e5b;
+  box-shadow: inset 0 0 0 4px #124e5b;
+}
+
+.planCard[data-featured="true"] li::before {
+  background:
+    linear-gradient(135deg, #ffffff 0 45%, transparent 46%),
+    #b93b31;
+  box-shadow: inset 0 0 0 4px #b93b31;
+}
+
+.planNote {
+  display: block;
+  min-height: 40px;
+  color: #64748b;
+  font-size: 0.82rem;
 }
 
 .planAction {
   display: grid;
-  min-height: 40px;
+  min-height: 46px;
   margin-top: auto;
   place-items: center;
   border-radius: 8px;
-  background: #10213a;
   color: #ffffff;
-  font-weight: 850;
+  background: #111827;
+  font-weight: 950;
 }
 
+.planCard[data-featured="true"] .planAction,
 .planCard[data-selected="true"] .planAction {
-  background: #c9473d;
+  background: #b93b31;
+}
+
+.trustStrip {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.trustStrip span {
+  min-height: 42px;
+  border: 1px solid rgba(17, 24, 39, 0.09);
+  border-radius: 8px;
+  padding: 11px 12px;
+  color: #475569;
+  background: rgba(255, 255, 255, 0.72);
+  font-size: 0.84rem;
+  font-weight: 850;
+  text-align: center;
 }
 
 .signupPanel {
   position: sticky;
-  top: 18px;
+  top: 20px;
+  border: 1px solid rgba(17, 24, 39, 0.1);
+  border-radius: 8px;
   padding: 22px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 34px 90px -62px rgba(17, 24, 39, 0.95);
 }
 
 .form,
@@ -279,16 +449,24 @@
 .infoBox {
   display: grid;
   gap: 8px;
-  padding: 14px;
-  border: 1px solid rgba(16, 33, 58, 0.1);
+  border: 1px solid rgba(17, 24, 39, 0.09);
   border-radius: 8px;
-  background: #f6f9fb;
+  padding: 15px;
+  background: #f8fafc;
 }
 
 .selectedSummary strong,
 .confirmation h2 {
-  color: #10213a;
-  font-size: 1.38rem;
+  margin: 0;
+  color: #111827;
+  font-size: 1.45rem;
+  line-height: 1.15;
+}
+
+.selectedSummary p {
+  margin: 0;
+  color: #475569;
+  line-height: 1.5;
 }
 
 .form label {
@@ -298,33 +476,36 @@
 
 .form input {
   width: 100%;
-  min-height: 46px;
-  border: 1px solid rgba(16, 33, 58, 0.16);
+  min-height: 48px;
+  border: 1px solid rgba(17, 24, 39, 0.14);
   border-radius: 8px;
   padding: 0 13px;
-  color: #10213a;
+  color: #111827;
   background: #ffffff;
+  font: inherit;
   outline: none;
 }
 
 .form input:focus {
-  border-color: #196f75;
-  box-shadow: 0 0 0 3px rgba(25, 111, 117, 0.12);
+  border-color: #124e5b;
+  box-shadow: 0 0 0 4px rgba(18, 78, 91, 0.12);
 }
 
 .primaryButton,
 .secondaryButton {
-  min-height: 46px;
+  min-height: 48px;
   border: 1px solid transparent;
   border-radius: 8px;
   padding: 0 16px;
-  font-weight: 900;
+  font: inherit;
+  font-weight: 950;
   cursor: pointer;
 }
 
 .primaryButton {
   color: #ffffff;
-  background: #c9473d;
+  background: #b93b31;
+  box-shadow: 0 18px 34px -26px rgba(185, 59, 49, 0.82);
 }
 
 .primaryButton:disabled,
@@ -334,19 +515,20 @@
 }
 
 .secondaryButton {
-  color: #10213a;
+  color: #111827;
   background: #ffffff;
-  border-color: rgba(16, 33, 58, 0.16);
+  border-color: rgba(17, 24, 39, 0.14);
 }
 
 .errorBox,
 .warningText {
   margin: 0;
-  border: 1px solid rgba(201, 71, 61, 0.26);
+  border: 1px solid rgba(185, 59, 49, 0.24);
   border-radius: 8px;
   padding: 11px 12px;
-  background: #fff3f1;
-  color: #9f2e25;
+  color: #9b2f27;
+  background: #fff5f2;
+  line-height: 1.45;
 }
 
 .summaryBox {
@@ -356,10 +538,36 @@
 .summaryBox div {
   display: grid;
   gap: 3px;
+  min-width: 0;
+}
+
+.summaryBox span {
+  color: #64748b;
+  font-size: 0.82rem;
+  font-weight: 800;
 }
 
 .summaryBox strong {
-  color: #10213a;
+  overflow-wrap: anywhere;
+  color: #111827;
+}
+
+.confirmBadges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.confirmBadges span {
+  display: inline-flex;
+  min-height: 30px;
+  align-items: center;
+  border-radius: 999px;
+  padding: 4px 10px;
+  color: #124e5b;
+  background: rgba(18, 78, 91, 0.09);
+  font-size: 0.8rem;
+  font-weight: 900;
 }
 
 .confirmActions {
@@ -373,18 +581,24 @@
 }
 
 .loginLink a {
-  color: #196f75;
-  font-weight: 850;
+  color: #124e5b;
+  font-weight: 900;
+}
+
+@media (min-width: 1121px) {
+  .planCard[data-featured="true"] {
+    transform: translateY(-8px);
+  }
+
+  .planCard[data-featured="true"]:hover,
+  .planCard[data-featured="true"]:focus-visible {
+    transform: translateY(-10px);
+  }
 }
 
 @media (max-width: 1120px) {
-  .hero,
   .contentGrid {
     grid-template-columns: 1fr;
-  }
-
-  .plansGrid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .signupPanel {
@@ -392,24 +606,75 @@
   }
 }
 
-@media (max-width: 720px) {
-  .page {
-    padding: 14px;
-    background: #f5f7fb;
-  }
-
-  .heroCopy {
-    padding: 24px;
-    background: #10213a;
-  }
-
-  .flow,
-  .plansGrid,
-  .confirmActions {
+@media (max-width: 920px) {
+  .plansGrid {
     grid-template-columns: 1fr;
   }
 
   .planCard {
     min-height: auto;
+  }
+
+  .trustStrip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 720px) {
+  .page {
+    padding: 14px;
+  }
+
+  .topbar {
+    margin-bottom: 14px;
+    align-items: flex-start;
+  }
+
+  .stepper {
+    max-width: calc(100vw - 88px);
+    overflow-x: auto;
+    justify-content: flex-start;
+  }
+
+  .heroCopy {
+    min-height: auto;
+    padding: 26px 20px;
+  }
+
+  .heroCopy::after {
+    display: none;
+  }
+
+  .heroCopy h1 {
+    font-size: clamp(2.1rem, 13vw, 3.35rem);
+  }
+
+  .planToolbar {
+    display: grid;
+    align-items: start;
+  }
+
+  .billingToggle {
+    width: 100%;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .billingToggle button {
+    padding: 0 10px;
+  }
+
+  .planCard,
+  .signupPanel {
+    padding: 18px;
+  }
+
+  .priceBlock em {
+    font-size: 2.15rem;
+  }
+
+  .trustStrip,
+  .confirmActions {
+    grid-template-columns: 1fr;
   }
 }

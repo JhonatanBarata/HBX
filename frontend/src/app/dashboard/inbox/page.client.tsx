@@ -107,18 +107,6 @@ type NoticeState = {
   text: string;
 };
 
-type EmptyTrashResponse = {
-  success?: boolean;
-  total?: number;
-  purged?: number;
-  whatsappDeleted?: number;
-  localOnlyDeleted?: number;
-  failed?: number;
-  removedIds?: string[];
-  message?: string;
-  failures?: Array<{ id?: string; message?: string }>;
-};
-
 type InboxAttachmentPreview = {
   file: File;
   url: string;
@@ -2286,8 +2274,8 @@ export default function InboxClientPage() {
   const [blockDialog, setBlockDialog] = useState<{ conversationId: string; reason: string } | null>(null);
   const [deleteConversationDialog, setDeleteConversationDialog] = useState<{ conversationId: string } | null>(null);
   const [whatsappDeleteConversationDialog, setWhatsappDeleteConversationDialog] = useState<{ conversationId: string } | null>(null);
+  const [purgeConversationDialog, setPurgeConversationDialog] = useState<{ conversationId: string } | null>(null);
   const [deleteMessageDialog, setDeleteMessageDialog] = useState<{ messageId: string } | null>(null);
-  const [emptyTrashDialogOpen, setEmptyTrashDialogOpen] = useState(false);
 
   useEffect(() => {
     if (!requestedSupportPhone) return;
@@ -2299,7 +2287,6 @@ export default function InboxClientPage() {
       text: "Suporte HBX preparado no Inbox. Use a busca para localizar ou iniciar o contato.",
     });
   }, [requestedSupportPhone]);
-  const [emptyingTrash, setEmptyingTrash] = useState(false);
   const [revealedDeletedMessageIds, setRevealedDeletedMessageIds] = useState<Record<string, boolean>>({});
   const [customerConversationCard, setCustomerConversationCard] =
     useState<CustomerConversationCardPayload | null>(null);
@@ -4788,31 +4775,39 @@ export default function InboxClientPage() {
     [loadConversations, whatsappDeleteConversationDialog?.conversationId],
   );
 
-  const openEmptyTrashDialog = useCallback(() => {
-    if (emptyingTrash) return;
+  const openArchivedQueue = useCallback(() => {
+    setActiveTab("messages");
+    setInboxQueue("archived");
     if (queueCounts.archived <= 0) {
-      setNotice({ tone: "info", text: "Excluídos já está vazio." });
-      return;
+      setNotice({ tone: "info", text: "Excluídos está vazio." });
     }
-    setEmptyTrashDialogOpen(true);
-  }, [emptyingTrash, queueCounts.archived]);
+  }, [queueCounts.archived]);
 
-  const confirmEmptyTrash = useCallback(async () => {
-    if (emptyingTrash) return;
-    setEmptyingTrash(true);
-    setError(null);
-    try {
-      const response = await apiFetch<EmptyTrashResponse>("/inbox/conversations/empty-trash", {
-        method: "POST",
-      });
-      const removedIds = new Set((response.removedIds || []).map((id) => String(id)));
-      if (removedIds.size > 0) {
-        setConversations((current) => current.filter((conversation) => !removedIds.has(conversation.id)));
-        removedIds.forEach((id) => {
-          conversationDetailCacheRef.current.delete(id);
-          customerConversationCardCacheRef.current.delete(id);
-        });
-        if (selectedIdRef.current && removedIds.has(selectedIdRef.current)) {
+  const purgeConversationById = useCallback(
+    async (conversationId: string) => {
+      if (!conversationId) return;
+      setPurgeConversationDialog({ conversationId });
+    },
+    [],
+  );
+
+  const confirmPurgeConversation = useCallback(
+    async () => {
+      const conversationId = purgeConversationDialog?.conversationId;
+      if (!conversationId) return;
+      setError(null);
+      try {
+        const response = await apiFetch<{ message?: string; deleted?: boolean }>(
+          `/inbox/conversations/${conversationId}/purge`,
+          { method: "DELETE" },
+        );
+        setQueueActionConversationId(null);
+        setQueueActionMenuPosition(null);
+        setPurgeConversationDialog(null);
+        conversationDetailCacheRef.current.delete(conversationId);
+        customerConversationCardCacheRef.current.delete(conversationId);
+        setConversations((current) => current.filter((conversation) => conversation.id !== conversationId));
+        if (selectedIdRef.current === conversationId) {
           setSelectedId(null);
           setSelectedConversation(null);
           selectedIdRef.current = null;
@@ -4820,25 +4815,26 @@ export default function InboxClientPage() {
         }
         setManualQueueOverrides((current) => {
           const next = { ...current };
-          removedIds.forEach((id) => {
-            delete next[id];
-          });
+          delete next[conversationId];
           return next;
         });
+        setNotice({
+          tone: "success",
+          text:
+            String(response?.message || "").trim() ||
+            "Conversa removida permanentemente de Excluídos apenas no HBX.",
+        });
+        await loadConversations({ preferredId: null, silent: true });
+      } catch (deleteError) {
+        const message =
+          deleteError instanceof Error
+            ? deleteError.message
+            : "Falha ao excluir permanentemente a conversa.";
+        setError(message);
       }
-      setEmptyTrashDialogOpen(false);
-      setNotice({
-        tone: Number(response.failed || 0) > 0 ? "info" : "success",
-        text: String(response.message || "").trim() || "Lixeira esvaziada.",
-      });
-      await loadConversations({ preferredId: null, silent: true });
-    } catch (deleteError) {
-      const message = deleteError instanceof Error ? deleteError.message : "Falha ao esvaziar Excluídos.";
-      setError(message);
-    } finally {
-      setEmptyingTrash(false);
-    }
-  }, [emptyingTrash, loadConversations]);
+    },
+    [loadConversations, purgeConversationDialog?.conversationId],
+  );
 
   const reactToMessage = useCallback(
     async (messageId: string, reaction: string) => {
@@ -7042,6 +7038,8 @@ export default function InboxClientPage() {
     ...(error ? [{ tone: "error" as const, text: error }] : []),
     ...(notice ? [notice] : []),
   ];
+  const queueActionConversationIsArchived =
+    queueActionConversationId ? queueByConversationId[queueActionConversationId] === "archived" : false;
 
   return (
     <>
@@ -7125,12 +7123,11 @@ export default function InboxClientPage() {
                   <button
                     type="button"
                     className={styles.commandDockTrashButton}
-                    onClick={openEmptyTrashDialog}
-                    disabled={emptyingTrash || queueCounts.archived <= 0}
-                    aria-label="Esvaziar Excluídos"
+                    onClick={openArchivedQueue}
+                    aria-label="Abrir Excluídos"
                     title={
                       queueCounts.archived > 0
-                        ? `Esvaziar Excluídos (${queueCounts.archived})`
+                        ? `Abrir Excluídos (${queueCounts.archived})`
                         : "Excluídos vazio"
                     }
                   >
@@ -7236,10 +7233,14 @@ export default function InboxClientPage() {
                 onClick={(event) => {
                   event.preventDefault();
                   event.stopPropagation();
+                  if (queueActionConversationIsArchived) {
+                    void purgeConversationById(queueActionConversationId);
+                    return;
+                  }
                   void deleteConversationById(queueActionConversationId);
                 }}
               >
-                Excluir
+                {queueActionConversationIsArchived ? "Excluir permanente" : "Excluir"}
               </button>
               <button
                 type="button"
@@ -7342,27 +7343,6 @@ export default function InboxClientPage() {
       />
 
       <HbxConfirmDialog
-        open={emptyTrashDialogOpen}
-        title="Esvaziar Excluídos"
-        description="O HBX vai apagar os chats existentes no WhatsApp e remover localmente as conversas que já não existem no aparelho conectado."
-        confirmLabel="Esvaziar lixeira"
-        destructive
-        busy={emptyingTrash}
-        confirmDisabled={queueCounts.archived <= 0}
-        onCancel={() => setEmptyTrashDialogOpen(false)}
-        onConfirm={() => void confirmEmptyTrash()}
-      >
-        <div className={styles.emptyTrashSummary}>
-          <span>{queueCounts.archived} conversa(s) em Excluídos</span>
-          {emptyingTrash ? (
-            <strong>Processando limpeza. Isso pode levar alguns segundos.</strong>
-          ) : (
-            <strong>Esta ação limpa definitivamente a fila Excluídos.</strong>
-          )}
-        </div>
-      </HbxConfirmDialog>
-
-      <HbxConfirmDialog
         open={deleteConversationDialog !== null}
         title="Enviar conversa para Excluídos"
         description="A conversa será removida apenas no HBX. Nenhum comando será enviado ao WhatsApp."
@@ -7380,6 +7360,16 @@ export default function InboxClientPage() {
         destructive
         onCancel={() => setWhatsappDeleteConversationDialog(null)}
         onConfirm={() => void confirmDeleteConversationFromWhatsApp()}
+      />
+
+      <HbxConfirmDialog
+        open={purgeConversationDialog !== null}
+        title="Excluir permanentemente"
+        description="A conversa será removida definitivamente apenas do HBX. Nenhum comando será enviado ao WhatsApp."
+        confirmLabel="Excluir permanentemente"
+        destructive
+        onCancel={() => setPurgeConversationDialog(null)}
+        onConfirm={() => void confirmPurgeConversation()}
       />
 
       <HbxConfirmDialog
