@@ -142,6 +142,14 @@ export type WebwhatsFetchedMessage = {
   MessageUpdate?: Array<{ status?: string | null }> | null;
 };
 
+export type WebwhatsNormalizedIncomingKind = 'text' | 'media' | 'interactive_received' | 'unknown';
+
+export type WebwhatsNormalizedIncomingMessage = {
+  text: string;
+  kind: WebwhatsNormalizedIncomingKind;
+  metadata: Record<string, any>;
+};
+
 export type WebwhatsLiveChatSnapshot = {
   conversation: WebwhatsConversationStateRow;
   remoteJid: string;
@@ -1416,6 +1424,283 @@ export class WebwhatsBridgeService {
       return this.unwrapMessagePayload(nested);
     }
     return payload;
+  }
+
+  private isRecord(value: unknown): value is Record<string, any> {
+    return Boolean(value && typeof value === 'object' && !Array.isArray(value));
+  }
+
+  private normalizeInteractiveText(value: unknown) {
+    if (typeof value === 'string') return this.normalizeOptionalString(value);
+    if (typeof value === 'number' || typeof value === 'boolean') {
+      return this.normalizeOptionalString(String(value));
+    }
+    if (!this.isRecord(value)) return null;
+    return (
+      this.normalizeOptionalString(value.text) ||
+      this.normalizeOptionalString(value.body) ||
+      this.normalizeOptionalString(value.title) ||
+      this.normalizeOptionalString(value.displayText) ||
+      this.normalizeOptionalString(value.buttonText) ||
+      this.normalizeOptionalString(value.selectedDisplayText) ||
+      this.normalizeOptionalString(value.name) ||
+      null
+    );
+  }
+
+  private parseInteractiveParamsJson(value: unknown): Record<string, any> | null {
+    const raw = this.normalizeOptionalString(value);
+    if (!raw) return null;
+    try {
+      const parsed = JSON.parse(raw);
+      return this.isRecord(parsed) ? parsed : null;
+    } catch {
+      return null;
+    }
+  }
+
+  private collectInteractiveOptions(value: unknown, output: string[] = [], depth = 0) {
+    if (depth > 8 || output.length >= 30) return output;
+    if (!value) return output;
+
+    if (Array.isArray(value)) {
+      for (const item of value) this.collectInteractiveOptions(item, output, depth + 1);
+      return output;
+    }
+
+    if (!this.isRecord(value)) return output;
+
+    const optionText =
+      this.normalizeOptionalString(value.displayText) ||
+      this.normalizeInteractiveText(value.buttonText) ||
+      this.normalizeOptionalString(value.title) ||
+      this.normalizeOptionalString(value.name) ||
+      this.normalizeOptionalString(value.text);
+    if (optionText && !output.includes(optionText)) output.push(optionText);
+
+    const params = this.parseInteractiveParamsJson(value.buttonParamsJson);
+    if (params) {
+      const paramsText =
+        this.normalizeOptionalString(params.display_text) ||
+        this.normalizeOptionalString(params.displayText) ||
+        this.normalizeOptionalString(params.title) ||
+        this.normalizeOptionalString(params.text) ||
+        this.normalizeOptionalString(params.name);
+      if (paramsText && !output.includes(paramsText)) output.push(paramsText);
+    }
+
+    const nestedCandidates = [
+      value.buttons,
+      value.button,
+      value.sections,
+      value.rows,
+      value.hydratedTemplate,
+      value.nativeFlowMessage?.buttons,
+      value.hydratedButtons,
+      value.templateButtons,
+      value.quickReplyButton,
+      value.urlButton,
+      value.callButton,
+    ];
+    for (const candidate of nestedCandidates) this.collectInteractiveOptions(candidate, output, depth + 1);
+    return output;
+  }
+
+  private findFirstInteractiveText(value: unknown, keys: string[], depth = 0): string | null {
+    if (depth > 8 || !value) return null;
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        const found = this.findFirstInteractiveText(item, keys, depth + 1);
+        if (found) return found;
+      }
+      return null;
+    }
+    if (!this.isRecord(value)) return null;
+
+    for (const key of keys) {
+      const found = this.normalizeInteractiveText(value[key]);
+      if (found) return found;
+    }
+    for (const child of Object.values(value)) {
+      const found = this.findFirstInteractiveText(child, keys, depth + 1);
+      if (found) return found;
+    }
+    return null;
+  }
+
+  private getInteractivePayload(payload: Record<string, any>) {
+    const interactive =
+      payload.interactiveMessage ||
+      payload.buttonsMessage ||
+      payload.templateMessage ||
+      payload.listMessage ||
+      payload.hydratedTemplate ||
+      payload.nativeFlowMessage ||
+      payload.buttonsResponseMessage ||
+      payload.listResponseMessage ||
+      payload.templateButtonReplyMessage ||
+      payload.interactiveResponseMessage ||
+      null;
+
+    if (interactive) return interactive;
+
+    const viewOncePayload =
+      payload.viewOnceMessage?.message ||
+      payload.viewOnceMessageV2?.message ||
+      payload.viewOnceMessageV2Extension?.message ||
+      null;
+    if (this.isRecord(viewOncePayload)) return this.getInteractivePayload(viewOncePayload);
+
+    return null;
+  }
+
+  private resolveInteractivePayloadKind(payload: Record<string, any>, messageType?: string | null) {
+    const declared = String(messageType || '').trim().toLowerCase();
+    if (payload.interactiveMessage || declared.includes('interactive')) return 'interactiveMessage';
+    if (payload.buttonsMessage || payload.buttonsResponseMessage || declared.includes('button')) return 'buttonsMessage';
+    if (payload.templateMessage || payload.templateButtonReplyMessage || declared.includes('template')) return 'templateMessage';
+    if (payload.listMessage || payload.listResponseMessage || declared.includes('list')) return 'listMessage';
+    if (payload.hydratedTemplate) return 'hydratedTemplate';
+    if (payload.nativeFlowMessage || declared.includes('nativeflow')) return 'nativeFlowMessage';
+    if (payload.interactiveResponseMessage) return 'interactiveResponseMessage';
+    return declared || 'unknown';
+  }
+
+  private buildInteractiveDisplayText(input: {
+    body?: string | null;
+    title?: string | null;
+    footer?: string | null;
+    options?: string[];
+  }) {
+    const lines = ['Mensagem interativa recebida:'];
+    const content = [input.title, input.body, input.footer]
+      .map((item) => this.normalizeOptionalString(item))
+      .filter(Boolean) as string[];
+    if (content.length) {
+      lines.push('', ...content);
+    }
+    const options = Array.from(new Set((input.options || []).map((item) => this.normalizeOptionalString(item)).filter(Boolean) as string[]));
+    if (options.length) {
+      lines.push('', 'Opções:', ...options.map((option) => `• ${option}`));
+    }
+    return lines.join('\n').trim();
+  }
+
+  private sanitizeIncomingPayloadForMetadata(value: unknown, depth = 0): unknown {
+    if (depth > 5) return '[truncated]';
+    if (value === null || value === undefined) return value;
+    if (typeof value === 'string') {
+      return value.length > 500 ? `${value.slice(0, 500)}...[truncated]` : value;
+    }
+    if (typeof value !== 'object') return value;
+    if (Array.isArray(value)) {
+      return value.slice(0, 10).map((item) => this.sanitizeIncomingPayloadForMetadata(item, depth + 1));
+    }
+    const redactedKeyPattern = /(jid|phone|number|participant|remote|url|mediaKey|fileSha|thumbnail|jpegThumbnail|directPath|base64|binary)/i;
+    const entries = Object.entries(value as Record<string, any>).slice(0, 50).map(([key, item]) => [
+      key,
+      redactedKeyPattern.test(key) ? '[redacted]' : this.sanitizeIncomingPayloadForMetadata(item, depth + 1),
+    ]);
+    return Object.fromEntries(entries);
+  }
+
+  private isInteractiveMessageType(value: unknown) {
+    const normalized = String(value || '').trim().toLowerCase();
+    return (
+      normalized.includes('interactive') ||
+      normalized.includes('template') ||
+      normalized.includes('button') ||
+      normalized.includes('list') ||
+      normalized.includes('nativeflow')
+    );
+  }
+
+  private shouldLogIncomingInteractiveNormalization(
+    normalized: WebwhatsNormalizedIncomingMessage,
+    messageType: string,
+    text: string,
+  ) {
+    return (
+      normalized.kind === 'interactive_received' ||
+      this.isInteractiveMessageType(messageType) ||
+      String(text || '').trim().toLowerCase() === '[interacao recebida]'
+    );
+  }
+
+  private normalizeIncomingWhatsAppMessage(message: WebwhatsFetchedMessage): WebwhatsNormalizedIncomingMessage {
+    const payload = this.unwrapMessagePayload(message?.message || {});
+    const messageType = this.normalizeMessageType(message);
+    const declaredType = this.normalizeOptionalString(message?.messageType);
+    const conversation = this.normalizeOptionalString((payload as any).conversation);
+    const extendedText = this.normalizeOptionalString((payload as any).extendedTextMessage?.text);
+    if (conversation || extendedText) {
+      return { text: conversation || extendedText || '', kind: 'text', metadata: {} };
+    }
+
+    const reactionText =
+      this.normalizeOptionalString((payload as any).reactionMessage?.text)
+      || this.normalizeOptionalString((payload as any).reactionMessage?.emoji);
+    if (reactionText) return { text: reactionText, kind: 'text', metadata: {} };
+
+    if (['image', 'video', 'document', 'audio', 'sticker', 'poll', 'deleted'].includes(messageType)) {
+      return {
+        text: this.extractMessageBody(message, messageType),
+        kind: ['image', 'video', 'document', 'audio', 'sticker'].includes(messageType) ? 'media' : 'text',
+        metadata: {},
+      };
+    }
+
+    const interactivePayload = this.getInteractivePayload(payload);
+    if (interactivePayload || this.isInteractiveMessageType(messageType) || this.isInteractiveMessageType(declaredType)) {
+      const interactiveRoot = this.isRecord(interactivePayload) ? interactivePayload : payload;
+      const body =
+        this.findFirstInteractiveText(interactiveRoot, ['body', 'contentText', 'hydratedContentText', 'text', 'caption', 'description']) ||
+        this.normalizeOptionalString((interactiveRoot as any).hydratedContentText) ||
+        null;
+      const title =
+        this.findFirstInteractiveText(interactiveRoot, ['title', 'header', 'hydratedTitle']) ||
+        null;
+      const footer =
+        this.findFirstInteractiveText(interactiveRoot, ['footer', 'footerText', 'hydratedFooterText']) ||
+        null;
+      const options = this.collectInteractiveOptions(interactiveRoot)
+        .filter((option) => option !== body && option !== title && option !== footer);
+      const text = body || title || footer || options.length
+        ? this.buildInteractiveDisplayText({ body, title, footer, options })
+        : '[interacao recebida]';
+
+      return {
+        text,
+        kind: 'interactive_received',
+        metadata: {
+          kind: 'interactive_received',
+          normalizedMessageType: 'interactive',
+          rawMessageType: declaredType || messageType || null,
+          interactivePayloadKind: this.resolveInteractivePayloadKind(payload, declaredType || messageType),
+          extracted: {
+            title,
+            body,
+            footer,
+            options,
+            hasText: text !== '[interacao recebida]',
+          },
+          payloadKeys: Object.keys(payload).slice(0, 30),
+          rawPayloadSanitized: this.sanitizeIncomingPayloadForMetadata(message || {}),
+        },
+      };
+    }
+
+    return {
+      text: this.extractMessageBody(message, messageType),
+      kind: messageType === 'text' ? 'text' : 'unknown',
+      metadata: messageType === 'text' ? {} : {
+        kind: 'unknown',
+        normalizedMessageType: messageType || 'unknown',
+        rawMessageType: declaredType || null,
+        payloadKeys: Object.keys(payload).slice(0, 30),
+        rawPayloadSanitized: this.sanitizeIncomingPayloadForMetadata(message || {}),
+      },
+    };
   }
 
   private normalizeStoredNumber(value: unknown) {
@@ -2964,8 +3249,9 @@ export class WebwhatsBridgeService {
     const keyId = this.normalizeOptionalString(message?.key?.id || message?.id);
     const rawProviderMessageId = keyId ? this.buildProviderMessageId(this.buildTenantKey(companyId), keyId) : null;
     const direction = message?.key?.fromMe ? 'OUTBOUND' : 'INBOUND';
-    const messageType = this.normalizeMessageType(message);
-    const body = this.extractMessageBody(message, messageType);
+    const normalizedIncoming = this.normalizeIncomingWhatsAppMessage(message);
+    const messageType = normalizedIncoming.kind === 'interactive_received' ? 'interactive' : this.normalizeMessageType(message);
+    const body = normalizedIncoming.text || this.extractMessageBody(message, messageType);
     const status = this.normalizeStoredStatus(message, direction);
     const resolvedContact = this.buildConversationContact(remoteJidAlt || this.getMessageRemoteJidAlt(message) || remoteJid);
     const normalizedCustomerPhone = normalizeWhatsAppPhone(resolvedContact);
@@ -2992,12 +3278,30 @@ export class WebwhatsBridgeService {
       messageType,
       existingVariables,
     );
-    const variablesJson = mediaAttachment
-      ? JSON.stringify({
-          ...existingVariables,
-          attachment: mediaAttachment,
-        })
-      : undefined;
+    const incomingNormalization =
+      normalizedIncoming.kind === 'interactive_received' || normalizedIncoming.kind === 'unknown'
+        ? {
+            incomingNormalization: {
+              ...normalizedIncoming.metadata,
+              text: body,
+            },
+          }
+        : {};
+    const mergedVariables = {
+      ...existingVariables,
+      ...incomingNormalization,
+      ...(mediaAttachment ? { attachment: mediaAttachment } : {}),
+    };
+    const variablesJson =
+      mediaAttachment || Object.keys(incomingNormalization).length
+        ? JSON.stringify(mergedVariables)
+        : undefined;
+
+    if (direction === 'INBOUND' && this.shouldLogIncomingInteractiveNormalization(normalizedIncoming, messageType, body)) {
+      this.logger.warn(
+        `Webwhats inbound interactive normalization company=${companyId} conversation=${conversationId} messageType=${messageType} providerId=${rawProviderMessageId || keyId || 'unknown'} kind=${normalizedIncoming.kind} textLength=${String(body || '').length} payloadKind=${String(normalizedIncoming.metadata?.interactivePayloadKind || 'unknown')} optionCount=${Number(normalizedIncoming.metadata?.extracted?.options?.length || 0)} fallback=${String(body || '').trim().toLowerCase() === '[interacao recebida]'}`,
+      );
+    }
 
     const payload = {
       companyId,
@@ -3199,6 +3503,7 @@ export class WebwhatsBridgeService {
       if (lowered.includes('sticker')) return 'sticker';
       if (lowered.includes('reaction')) return 'reaction';
       if (lowered.includes('protocol')) return 'deleted';
+      if (this.isInteractiveMessageType(lowered)) return 'interactive';
       return lowered;
     }
 
@@ -3212,6 +3517,7 @@ export class WebwhatsBridgeService {
     if (payload.reactionMessage) return 'reaction';
     if (String(payload.protocolMessage?.type || '').trim().toUpperCase() === 'REVOKE') return 'deleted';
     if (payload.pollCreationMessage || payload.pollCreationMessageV3) return 'poll';
+    if (this.getInteractivePayload(payload)) return 'interactive';
     return 'text';
   }
 
@@ -3253,6 +3559,10 @@ export class WebwhatsBridgeService {
         || this.normalizeOptionalString((payload as any).pollCreationMessageV3?.name)
         || '[enquete recebida]'
       );
+    }
+    if (normalizedType === 'interactive') {
+      const normalized = this.normalizeIncomingWhatsAppMessage(message);
+      return normalized.text || '[interacao recebida]';
     }
 
     return '[mensagem sincronizada]';

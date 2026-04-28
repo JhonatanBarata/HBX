@@ -551,6 +551,138 @@ export class InboxService {
     return normalized || 'text';
   }
 
+  private isMetadataRecord(value: unknown): value is Record<string, any> {
+    return Boolean(value && typeof value === 'object' && !Array.isArray(value));
+  }
+
+  private normalizeInteractiveMetadataText(value: unknown) {
+    if (typeof value === 'string') return this.normalizeMessageMetadataText(value);
+    if (typeof value === 'number' || typeof value === 'boolean') {
+      return this.normalizeMessageMetadataText(String(value));
+    }
+    if (!this.isMetadataRecord(value)) return null;
+    return (
+      this.normalizeMessageMetadataText(value.text) ||
+      this.normalizeMessageMetadataText(value.body) ||
+      this.normalizeMessageMetadataText(value.title) ||
+      this.normalizeMessageMetadataText(value.displayText) ||
+      this.normalizeMessageMetadataText(value.buttonText) ||
+      this.normalizeMessageMetadataText(value.selectedDisplayText) ||
+      this.normalizeMessageMetadataText(value.name) ||
+      null
+    );
+  }
+
+  private parseInteractiveButtonParams(value: unknown) {
+    const raw = this.normalizeMessageMetadataText(value);
+    if (!raw) return null;
+    try {
+      const parsed = JSON.parse(raw);
+      return this.isMetadataRecord(parsed) ? parsed : null;
+    } catch {
+      return null;
+    }
+  }
+
+  private collectInteractiveMetadataOptions(value: unknown, output: string[] = [], depth = 0) {
+    if (depth > 8 || output.length >= 30 || !value) return output;
+    if (Array.isArray(value)) {
+      for (const item of value) this.collectInteractiveMetadataOptions(item, output, depth + 1);
+      return output;
+    }
+    if (!this.isMetadataRecord(value)) return output;
+
+    const optionText =
+      this.normalizeMessageMetadataText(value.displayText) ||
+      this.normalizeInteractiveMetadataText(value.buttonText) ||
+      this.normalizeMessageMetadataText(value.title) ||
+      this.normalizeMessageMetadataText(value.name) ||
+      this.normalizeMessageMetadataText(value.text);
+    if (optionText && !output.includes(optionText)) output.push(optionText);
+
+    const params = this.parseInteractiveButtonParams(value.buttonParamsJson);
+    const paramsText =
+      this.normalizeMessageMetadataText(params?.display_text) ||
+      this.normalizeMessageMetadataText(params?.displayText) ||
+      this.normalizeMessageMetadataText(params?.title) ||
+      this.normalizeMessageMetadataText(params?.text) ||
+      this.normalizeMessageMetadataText(params?.name);
+    if (paramsText && !output.includes(paramsText)) output.push(paramsText);
+
+    for (const candidate of [
+      value.buttons,
+      value.button,
+      value.sections,
+      value.rows,
+      value.hydratedTemplate,
+      value.nativeFlowMessage?.buttons,
+      value.hydratedButtons,
+      value.templateButtons,
+      value.quickReplyButton,
+      value.urlButton,
+      value.callButton,
+    ]) {
+      this.collectInteractiveMetadataOptions(candidate, output, depth + 1);
+    }
+    return output;
+  }
+
+  private findFirstInteractiveMetadataText(value: unknown, keys: string[], depth = 0): string | null {
+    if (depth > 8 || !value) return null;
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        const found = this.findFirstInteractiveMetadataText(item, keys, depth + 1);
+        if (found) return found;
+      }
+      return null;
+    }
+    if (!this.isMetadataRecord(value)) return null;
+
+    for (const key of keys) {
+      const found = this.normalizeInteractiveMetadataText(value[key]);
+      if (found) return found;
+    }
+    for (const child of Object.values(value)) {
+      const found = this.findFirstInteractiveMetadataText(child, keys, depth + 1);
+      if (found) return found;
+    }
+    return null;
+  }
+
+  private getInteractiveMetadataPayload(payload: Record<string, any>) {
+    return (
+      payload.interactiveMessage ||
+      payload.buttonsMessage ||
+      payload.templateMessage ||
+      payload.listMessage ||
+      payload.hydratedTemplate ||
+      payload.nativeFlowMessage ||
+      payload.buttonsResponseMessage ||
+      payload.listResponseMessage ||
+      payload.templateButtonReplyMessage ||
+      payload.interactiveResponseMessage ||
+      null
+    );
+  }
+
+  private formatInteractiveMetadataText(payload: Record<string, any>) {
+    const interactivePayload = this.getInteractiveMetadataPayload(payload);
+    const root = this.isMetadataRecord(interactivePayload) ? interactivePayload : payload;
+    const body = this.findFirstInteractiveMetadataText(root, ['body', 'contentText', 'hydratedContentText', 'text', 'caption', 'description']);
+    const title = this.findFirstInteractiveMetadataText(root, ['title', 'header', 'hydratedTitle']);
+    const footer = this.findFirstInteractiveMetadataText(root, ['footer', 'footerText', 'hydratedFooterText']);
+    const options = this.collectInteractiveMetadataOptions(root).filter(
+      (option) => option !== body && option !== title && option !== footer,
+    );
+    if (!body && !title && !footer && !options.length) return null;
+
+    const lines = ['Mensagem interativa recebida:'];
+    const content = [title, body, footer].filter(Boolean) as string[];
+    if (content.length) lines.push('', ...content);
+    if (options.length) lines.push('', 'Opções:', ...options.map((option) => `• ${option}`));
+    return lines.join('\n').trim();
+  }
+
   private extractMessageTextFromPayload(payloadRaw: unknown, normalizedType: string) {
     const payload = this.unwrapMessagePayload(payloadRaw);
     if (normalizedType === 'deleted') return '[mensagem apagada]';
@@ -596,6 +728,7 @@ export class InboxService {
         this.normalizeMessageMetadataText((payload as any).templateButtonReplyMessage?.selectedDisplayText) ||
         this.normalizeMessageMetadataText((payload as any).listResponseMessage?.title) ||
         this.normalizeMessageMetadataText((payload as any).interactiveResponseMessage?.nativeFlowResponseMessage?.paramsJson) ||
+        this.formatInteractiveMetadataText(payload) ||
         '[interacao recebida]'
       );
     }
@@ -720,10 +853,16 @@ export class InboxService {
               ? (payload as any).audioMessage || (payload as any).audio
               : null;
 
-    const resolvedTextFromPayload = this.extractMessageTextFromPayload(payload, normalizedMessageType);
+    const incomingNormalization =
+      variables?.incomingNormalization && typeof variables.incomingNormalization === 'object'
+        ? (variables.incomingNormalization as Record<string, any>)
+        : {};
+    const resolvedTextFromNormalization = this.normalizeMessageMetadataText(incomingNormalization.text);
+    const resolvedTextFromPayload = resolvedTextFromNormalization || this.extractMessageTextFromPayload(payload, normalizedMessageType);
     const storedBody = String(message?.body || '').trim();
+    const storedBodyLower = storedBody.toLowerCase();
     const resolvedText =
-      !storedBody || storedBody.toLowerCase() === '[mensagem sincronizada]'
+      !storedBody || storedBodyLower === '[mensagem sincronizada]' || storedBodyLower === '[interacao recebida]'
         ? resolvedTextFromPayload
         : storedBody;
     const contextInfo = this.getMessageContextInfo(payload);
@@ -746,6 +885,8 @@ export class InboxService {
     const metadata = Object.fromEntries(
       Object.entries({
         normalizedMessageType,
+        incomingMessageKind: this.normalizeMessageMetadataText(incomingNormalization.kind),
+        interactivePayloadKind: this.normalizeMessageMetadataText(incomingNormalization.interactivePayloadKind),
         rawMessageType: this.normalizeMessageMetadataText(String(message?.messageType || '').toLowerCase()),
         resolvedText,
         providerMessageId,
