@@ -28,7 +28,7 @@ export default function PublishMapReview({
 }: Props) {
   if (!open) return null;
 
-  const dynamicEdges = edges.filter((edge) => edge.kind === "button").slice(0, 18);
+  const dynamicEdges = edges.filter((edge) => edge.kind === "choice" || edge.kind === "blocked").slice(0, 18);
 
   return (
     <div className={styles.reviewBackdrop} role="presentation" onMouseDown={onClose}>
@@ -42,7 +42,7 @@ export default function PublishMapReview({
         <header className={styles.reviewHeader}>
           <div>
             <span className={styles.eyebrow}>Revisar mapa</span>
-            <h3 id="review-map-title">Organograma completo</h3>
+            <h3 id="review-map-title">Fluxo completo</h3>
           </div>
           <button type="button" className={styles.iconButton} onClick={onClose} aria-label="Fechar">
             x

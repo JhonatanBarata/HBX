@@ -100,7 +100,7 @@ export type ConversationEdge = {
   to: ConversationSceneId;
   label: string;
   blocked?: boolean;
-  kind: "condition" | "button";
+  kind: "main" | "choice" | "smart" | "blocked" | "error";
 };
 
 type Props = {
@@ -411,13 +411,13 @@ function updateSceneRule(
 function buildEdges(scenes: ConversationScene[], recoveryEnabled: boolean): ConversationEdge[] {
   const sceneById = new Map(scenes.map((scene) => [scene.id, scene]));
   const edges: ConversationEdge[] = [
-    { id: "entry-new", from: "entry", to: "new_customer", label: "novo", kind: "condition" },
-    { id: "entry-found", from: "entry", to: "located_customer", label: "localizado", kind: "condition" },
-    { id: "entry-hours", from: "entry", to: "out_of_hours", label: "fora horario", kind: "condition" },
-    { id: "entry-off", from: "entry", to: "blocked", label: "BOT_OFF", kind: "condition", blocked: false },
-    { id: "located-menu", from: "located_customer", to: "main_menu", label: "menu", kind: "condition" },
-    { id: "located-recovery", from: "located_customer", to: "recovery", label: "debito", kind: "condition", blocked: !recoveryEnabled },
-    { id: "agenda-post", from: "agenda", to: "post_action", label: "retorno", kind: "condition" },
+    { id: "entry-new", from: "entry", to: "new_customer", label: "Cliente novo", kind: "main" },
+    { id: "entry-found", from: "entry", to: "located_customer", label: "Cliente localizado", kind: "main" },
+    { id: "entry-hours", from: "entry", to: "out_of_hours", label: "Fora de horario", kind: "smart" },
+    { id: "entry-off", from: "entry", to: "blocked", label: "BOT_OFF", kind: "smart" },
+    { id: "located-menu", from: "located_customer", to: "main_menu", label: "Menu", kind: "main" },
+    { id: "located-recovery", from: "located_customer", to: "recovery", label: "Debito", kind: "smart", blocked: !recoveryEnabled },
+    { id: "agenda-post", from: "agenda", to: "post_action", label: "Retorno", kind: "main" },
   ];
 
   for (const scene of scenes) {
@@ -432,7 +432,7 @@ function buildEdges(scenes: ConversationScene[], recoveryEnabled: boolean): Conv
         from: scene.id,
         to,
         label: String(button.title || getDestinationLabel(button.actionId, recoveryEnabled)).trim(),
-        kind: "button",
+        kind: blocked ? "blocked" : button.actionId ? "choice" : "error",
         blocked,
       });
     });
@@ -456,6 +456,7 @@ export default function ConversationBuilder({
   const [previewPeriod, setPreviewPeriod] = useState<ConversationPreviewPeriod>("morning");
   const [reviewOpen, setReviewOpen] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [previewRun, setPreviewRun] = useState(0);
 
   const scenes = useMemo<ConversationScene[]>(
     () =>
@@ -469,7 +470,7 @@ export default function ConversationBuilder({
           message: getSceneMessage(botConfig, blueprint.source),
           buttons: getSceneButtons(botConfig, blueprint.buttonsField),
           enabled: blueprint.id === "blocked" ? disabledByBotOff : !lockedByRecovery && (rule?.enabled ?? true),
-          lockedReason: lockedByRecovery ? "Recovery bloqueado para este plano." : undefined,
+          lockedReason: lockedByRecovery ? "Recovery indisponivel" : undefined,
         };
       }),
     [botConfig, recoveryEnabled],
@@ -540,6 +541,12 @@ export default function ConversationBuilder({
     onConfigChange(updateSceneRule(botConfig, selectedScene.id, conditionType, enabled, metadata));
   };
 
+  const handleTestBot = () => {
+    setSelectedSceneId("entry");
+    setPreviewPeriod("morning");
+    setPreviewRun((value) => value + 1);
+  };
+
   return (
     <section className={styles.builderShell}>
       <header className={styles.builderTopbar}>
@@ -551,11 +558,20 @@ export default function ConversationBuilder({
           <span className={styles.saveState} data-dirty={hasUnsavedChanges ? "true" : "false"}>
             {hasUnsavedChanges ? "Rascunho alterado" : "Fluxo salvo"}
           </span>
+          <button type="button" className={styles.secondaryButton} onClick={onSaveDraft}>
+            Salvar rascunho
+          </button>
+          <button type="button" className={styles.secondaryButton} onClick={handleTestBot}>
+            Testar bot
+          </button>
           <button type="button" className={styles.secondaryButton} onClick={() => setAdvancedOpen((value) => !value)}>
             Editor avancado
           </button>
           <button type="button" className={styles.primaryButton} onClick={() => setReviewOpen(true)}>
             Revisar mapa
+          </button>
+          <button type="button" className={styles.primaryButton} disabled={publishing} onClick={() => setReviewOpen(true)}>
+            {publishing ? "Publicando..." : "Publicar"}
           </button>
         </div>
       </header>
@@ -565,6 +581,7 @@ export default function ConversationBuilder({
           scene={selectedScene}
           config={botConfig}
           destinationOptions={destinationOptions}
+          channelLabel={providerCapabilities.canUseOfficialButtons ? "Meta" : "QR/Evolution"}
           recoveryEnabled={recoveryEnabled}
           onTitleChange={updateSelectedTitle}
           onMessageChange={updateSelectedMessage}
@@ -591,6 +608,7 @@ export default function ConversationBuilder({
           providerCapabilities={providerCapabilities}
           recoveryEnabled={recoveryEnabled}
           period={previewPeriod}
+          previewRun={previewRun}
           onPeriodChange={setPreviewPeriod}
         />
       </div>

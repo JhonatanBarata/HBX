@@ -205,6 +205,7 @@
 
 .fieldBlock input,
 .fieldBlock textarea,
+.messageEditor,
 .buttonRow input,
 .destinationPicker select,
 .greetingForm input,
@@ -235,8 +236,22 @@
   resize: vertical;
 }
 
+.messageEditor {
+  min-height: 154px;
+  padding: .8rem;
+  line-height: 1.48;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.messageEditor[data-empty="true"]::before {
+  content: "Digite a mensagem deste bloco";
+  color: var(--muted);
+}
+
 .fieldBlock input:focus,
 .fieldBlock textarea:focus,
+.messageEditor:focus,
 .buttonRow input:focus,
 .destinationPicker select:focus,
 .greetingForm input:focus,
@@ -296,6 +311,24 @@
   background: color-mix(in srgb, var(--selection-accent-soft) 44%, var(--surface));
 }
 
+.messageToken {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  min-height: 25px;
+  margin: 0 .12rem;
+  padding: 0 .48rem;
+  border-radius: var(--radius-md);
+  border: 1px solid color-mix(in srgb, var(--selection-accent) 42%, var(--line));
+  background: color-mix(in srgb, var(--selection-accent-soft) 54%, var(--surface));
+  color: var(--foreground);
+  font-size: .82rem;
+  font-weight: 950;
+  white-space: nowrap;
+  vertical-align: middle;
+  user-select: none;
+}
+
 .greetingPopover {
   position: absolute;
   z-index: 20;
@@ -353,6 +386,46 @@
 .buttonRows {
   display: grid;
   gap: .55rem;
+}
+
+.outputRows {
+  display: grid;
+  gap: .45rem;
+}
+
+.outputRow {
+  min-height: 42px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: .45rem;
+  padding: .55rem;
+  border-radius: var(--radius-md);
+  border: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
+  background: color-mix(in srgb, var(--surface-soft) 68%, transparent);
+  font-size: .82rem;
+}
+
+.outputRow::before {
+  content: "";
+  grid-column: 2;
+  width: 18px;
+  height: 2px;
+  border-radius: 99px;
+  background: color-mix(in srgb, var(--selection-accent) 68%, var(--line));
+}
+
+.outputRow strong,
+.outputRow span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.outputRow span {
+  justify-self: end;
+  color: var(--foreground-soft);
+  font-weight: 900;
 }
 
 .buttonRow {
@@ -464,10 +537,11 @@
   min-height: 660px;
   overflow: auto;
   background:
-    linear-gradient(color-mix(in srgb, var(--line) 22%, transparent) 1px, transparent 1px),
-    linear-gradient(90deg, color-mix(in srgb, var(--line) 22%, transparent) 1px, transparent 1px),
-    color-mix(in srgb, var(--background-alt) 58%, var(--surface));
-  background-size: 38px 38px;
+    linear-gradient(color-mix(in srgb, var(--line) 14%, transparent) 1px, transparent 1px),
+    linear-gradient(90deg, color-mix(in srgb, var(--line) 14%, transparent) 1px, transparent 1px),
+    radial-gradient(circle at 52% 40%, color-mix(in srgb, var(--surface-soft) 46%, transparent), transparent 38%),
+    color-mix(in srgb, var(--background-alt) 78%, var(--background));
+  background-size: 42px 42px, 42px 42px, auto, auto;
 }
 
 .canvasLines {
@@ -480,21 +554,49 @@
 }
 
 .edgeGroup {
-  color: color-mix(in srgb, var(--foreground-soft) 45%, transparent);
+  color: color-mix(in srgb, var(--selection-accent) 70%, var(--foreground-soft));
+}
+
+.edgeGroup[data-kind="choice"] {
+  color: color-mix(in srgb, var(--button-success) 76%, var(--foreground-soft));
+}
+
+.edgeGroup[data-kind="smart"] {
+  color: color-mix(in srgb, var(--button-accent) 76%, var(--foreground-soft));
+}
+
+.edgeGroup[data-kind="blocked"] {
+  color: color-mix(in srgb, var(--muted) 78%, transparent);
+}
+
+.edgeGroup[data-kind="error"] {
+  color: color-mix(in srgb, var(--button-accent) 64%, var(--foreground));
 }
 
 .edgeGroup path {
   fill: none;
   stroke: currentColor;
-  stroke-width: 2;
+  stroke-width: 2.45;
   stroke-linecap: round;
   stroke-dasharray: 0;
-  transition: stroke-width 180ms ease, color 180ms ease, opacity 180ms ease;
+  filter: drop-shadow(0 4px 8px color-mix(in srgb, currentColor 18%, transparent));
+  transition: stroke-width 180ms ease, color 180ms ease, opacity 180ms ease, stroke-dasharray 180ms ease;
 }
 
 .edgeGroup circle {
   fill: currentColor;
   transition: r 180ms ease, color 180ms ease, opacity 180ms ease;
+}
+
+.edgeGroup text {
+  fill: var(--foreground);
+  paint-order: stroke;
+  stroke: color-mix(in srgb, var(--background-alt) 88%, transparent);
+  stroke-width: 5px;
+  font-size: 11px;
+  font-weight: 950;
+  letter-spacing: 0;
+  pointer-events: none;
 }
 
 .edgeGroup[data-selected="true"] {
@@ -507,7 +609,7 @@
 
 .edgeGroup[data-blocked="true"] {
   color: color-mix(in srgb, var(--muted) 70%, transparent);
-  opacity: .48;
+  opacity: .64;
 }
 
 .edgeGroup[data-blocked="true"] path {
@@ -524,7 +626,7 @@
   align-content: center;
   padding: .65rem;
   border-radius: var(--radius-lg);
-  background: color-mix(in srgb, var(--surface-raised) 92%, var(--background));
+  background: color-mix(in srgb, var(--surface-raised) 84%, var(--background));
   text-align: left;
   box-shadow: var(--shadow-xs);
   animation: nodeIn 190ms ease both;
@@ -539,6 +641,9 @@
 }
 
 .canvasNode strong {
+  display: flex;
+  align-items: center;
+  gap: .28rem;
   font-size: .86rem;
 }
 
@@ -557,16 +662,44 @@
 
 .canvasNode[data-selected="true"] {
   border-color: color-mix(in srgb, var(--selection-accent) 70%, var(--line));
-  box-shadow: var(--shadow-md), 0 0 0 4px var(--selection-accent-soft);
-  transform: translateY(-2px);
+  background: color-mix(in srgb, var(--surface-raised) 96%, var(--selection-accent-soft));
+  box-shadow: var(--shadow-lg), 0 0 0 5px var(--selection-accent-soft);
+  transform: translateY(-3px) scale(1.02);
+  z-index: 3;
+}
+
+.canvasNode[data-dimmed="true"] {
+  opacity: .62;
+  box-shadow: none;
 }
 
 .canvasNode[data-blocked="true"] {
-  opacity: .56;
+  opacity: .58;
 }
 
 .canvasNode[data-blocked="true"] .nodeStatus {
   background: var(--muted);
+}
+
+.nodeLock {
+  position: relative;
+  flex: 0 0 auto;
+  width: 12px;
+  height: 10px;
+  border: 2px solid currentColor;
+  border-radius: 3px;
+}
+
+.nodeLock::before {
+  content: "";
+  position: absolute;
+  left: 1px;
+  top: -8px;
+  width: 6px;
+  height: 7px;
+  border: 2px solid currentColor;
+  border-bottom: 0;
+  border-radius: 8px 8px 0 0;
 }
 
 .previewPanel {
