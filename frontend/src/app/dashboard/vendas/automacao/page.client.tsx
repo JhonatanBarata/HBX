@@ -23,7 +23,7 @@ import {
 } from "../../inbox/inbox-model";
 import BotQrConnectionCard from "./_components/BotQrConnectionCard";
 import BotQrPublishPanel from "./_components/BotQrPublishPanel";
-import BotAutomationPremiumEntry from "./_components/BotAutomationPremiumEntry";
+import ConversationBuilder from "./_components/ConversationBuilder";
 import BotQrWorkspace from "./_components/BotQrWorkspace";
 import {
   buildPublicationChecklist,
@@ -340,7 +340,7 @@ export default function VendasAutomationClientPage() {
 
   useEffect(() => {
     const requestedTab = searchParams.get("tab");
-    if (requestedTab === "connection" || requestedTab === "flow" || requestedTab === "publish") {
+    if (requestedTab === "flow" || requestedTab === "publish") {
       setActiveTab(requestedTab);
     }
   }, [searchParams]);
@@ -475,16 +475,15 @@ export default function VendasAutomationClientPage() {
                 />
               }
               flowPanel={
-                <BotAutomationPremiumEntry
+                <ConversationBuilder
                   botConfig={draftConfig}
                   agendaConfig={agendaConfig}
-                  centerPayload={centerPayload}
-                  modalPayload={modalPayload}
                   providerCapabilities={providerCapabilities}
                   publishing={publishing}
                   recoveryEnabled={recoveryEnabled}
                   hasUnsavedChanges={hasUnsavedChanges}
                   onConfigChange={setDraftConfig}
+                  onSaveDraft={handleSaveDraft}
                   onSave={(nextConfig) => void saveBotConfig(nextConfig, "Bot publicado.")}
                 />
               }

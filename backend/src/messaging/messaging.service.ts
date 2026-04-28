@@ -110,8 +110,40 @@ function isWithinHourWindow(hour: number, startHour: number, endHour: number): b
   return hour >= startHour || hour < endHour;
 }
 
-function renderTemplate(template: string, vars: Record<string, string>): string {
-  return template.replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (_m, key) => vars[key] ?? '');
+function getAtendimentoGreetingConfig(config?: Partial<AtendimentoBotConfig> | null) {
+  const greeting = config?.smartVariables?.greeting || {};
+  const normalizeHour = (value: unknown, fallback: number) => {
+    const normalized = Math.trunc(Number(value));
+    return Number.isFinite(normalized) ? clamp(normalized, 0, 23) : fallback;
+  };
+  return {
+    timezone: String(greeting.timezone || 'America/Sao_Paulo').trim() || 'America/Sao_Paulo',
+    morning: String(greeting.morning || 'Bom dia').trim() || 'Bom dia',
+    afternoon: String(greeting.afternoon || 'Boa tarde').trim() || 'Boa tarde',
+    night: String(greeting.night || 'Boa noite').trim() || 'Boa noite',
+    morningStartHour: normalizeHour(greeting.morningStartHour, 3),
+    afternoonStartHour: normalizeHour(greeting.afternoonStartHour, 12),
+    nightStartHour: normalizeHour(greeting.nightStartHour, 18),
+  };
+}
+
+function computeAtendimentoGreeting(config?: Partial<AtendimentoBotConfig> | null): string {
+  const greeting = getAtendimentoGreetingConfig(config);
+  const hour = getLocalHour(greeting.timezone);
+  if (hour >= greeting.nightStartHour || hour < greeting.morningStartHour) return greeting.night;
+  if (hour >= greeting.afternoonStartHour) return greeting.afternoon;
+  return greeting.morning;
+}
+
+function renderTemplate(
+  template: string,
+  vars: Record<string, string>,
+  config?: Partial<AtendimentoBotConfig> | null,
+): string {
+  return template.replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (_m, key) => {
+    if (key === 'cumprimentacao') return vars[key] ?? computeAtendimentoGreeting(config);
+    return vars[key] ?? '';
+  });
 }
 
 const RECOVERY_FLOW_ID = 'cobranca_recovery_whatsapp_hibrido';
@@ -1453,7 +1485,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
       to: input.from,
       contactId: input.from,
       conversationId: input.conversationId,
-      body: renderTemplate(input.config.mainMenuPrompt, vars),
+      body: renderTemplate(input.config.mainMenuPrompt, vars, input.config),
       step: ATENDIMENTO_STEP.MAIN_MENU,
       buttons: input.config.mainMenuButtons,
       variables: metadataPatch,
@@ -1965,13 +1997,13 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     if (!group) return '';
     const preview = this.buildAgendaPreview(group);
     if (!preview) {
-      return renderTemplate(group.emptyMessage || 'Nenhum horario disponivel no momento.', vars);
+      return renderTemplate(group.emptyMessage || 'Nenhum horario disponivel no momento.', vars, config);
     }
     return renderTemplate(group.introMessage || config.postActionPrompt, {
       ...vars,
       agenda_nome: group.title,
       agenda_slots: preview,
-    }).concat(`\n\n${preview}`);
+    }, config).concat(`\n\n${preview}`);
   }
 
   private async routeAtendimentoToHumanQueue(input: {
@@ -3563,7 +3595,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
         await this.conversations.queueOutboundForCompany(companyId, {
           to: from,
           contactId: from,
-          body: renderTemplate(config.closeTopicMessage, recoveryVars),
+          body: renderTemplate(config.closeTopicMessage, recoveryVars, config),
           messageType: 'text',
           sourceModule: 'atendimento_router',
           senderType: 'bot',
@@ -3597,7 +3629,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
         to: from,
         contactId: from,
         conversationId: safeConversationId,
-        body: renderTemplate(config.recoveryDetectedMessage, recoveryVars),
+        body: renderTemplate(config.recoveryDetectedMessage, recoveryVars, config),
         step: ATENDIMENTO_STEP.RECOVERY_GATE,
         buttons: config.recoveryDetectedButtons,
         variables: {
@@ -3670,7 +3702,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
         to: from,
         contactId: from,
         conversationId: safeConversationId,
-        body: renderTemplate(config.mainMenuPrompt, vars),
+        body: renderTemplate(config.mainMenuPrompt, vars, config),
         step: ATENDIMENTO_STEP.MAIN_MENU,
         buttons: config.mainMenuButtons,
         variables: vars,
@@ -3701,7 +3733,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
       await this.conversations.queueOutboundForCompany(companyId, {
         to: from,
         contactId: from,
-        body: renderTemplate(config.closeTopicMessage, vars),
+        body: renderTemplate(config.closeTopicMessage, vars, config),
         messageType: 'text',
         sourceModule: 'atendimento_bot',
         senderType: 'bot',
@@ -3752,7 +3784,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
           to: from,
           contactId: from,
           conversationId: safeConversationId,
-          body: renderTemplate(config.postActionPrompt, agendaVars),
+          body: renderTemplate(config.postActionPrompt, agendaVars, config),
           step: ATENDIMENTO_STEP.AGENDA,
           buttons: config.postActionButtons,
           variables: agendaVars,
@@ -3782,7 +3814,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
       await this.conversations.queueOutboundForCompany(companyId, {
         to: from,
         contactId: from,
-        body: renderTemplate(reply, vars),
+        body: renderTemplate(reply, vars, config),
         messageType: 'text',
         sourceModule: 'atendimento_bot',
         senderType: 'bot',
@@ -3801,7 +3833,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
           to: from,
           contactId: from,
           conversationId: safeConversationId,
-          body: renderTemplate(config.postActionPrompt, vars),
+          body: renderTemplate(config.postActionPrompt, vars, config),
           step: ATENDIMENTO_STEP.MAIN_MENU,
           buttons: config.postActionButtons,
           variables: vars,
@@ -3945,7 +3977,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
         to: from,
         contactId: from,
         conversationId: safeConversationId,
-        body: renderTemplate(config.welcomeMessage, vars),
+        body: renderTemplate(config.welcomeMessage, vars, config),
         step: ATENDIMENTO_STEP.WELCOME,
         buttons: config.welcomeButtons,
         variables: vars,
@@ -3954,7 +3986,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     }
 
     const greetingMessage = hasHistory ? config.returningCustomerMessage : config.welcomeMessage;
-    const renderedGreetingMessage = renderTemplate(greetingMessage, vars);
+    const renderedGreetingMessage = renderTemplate(greetingMessage, vars, config);
     if (
       await this.hasRecentDuplicateAtendimentoReply({
         companyId,
@@ -4128,12 +4160,13 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  private normalizeWebwhatsAttachmentKind(value: unknown): 'image' | 'video' | 'document' | 'audio' | null {
+  private normalizeWebwhatsAttachmentKind(value: unknown): 'image' | 'video' | 'document' | 'audio' | 'sticker' | null {
     const normalized = String(value || '').trim().toLowerCase();
     if (normalized === 'image') return 'image';
     if (normalized === 'video') return 'video';
     if (normalized === 'document' || normalized === 'file') return 'document';
     if (normalized === 'audio') return 'audio';
+    if (normalized === 'sticker') return 'sticker';
     return null;
   }
 
@@ -4155,7 +4188,9 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     let inferredKind = explicitKind;
     const sourceForInference = `${mimeType || ''} ${fileName || ''} ${url}`.toLowerCase();
     if (!inferredKind) {
-      if (mimeType?.startsWith('image/') || /\.(png|jpe?g|gif|webp|bmp|svg)(\?|$)/.test(sourceForInference)) {
+      if (mimeType === 'image/webp' || /\.webp(\?|$)/.test(sourceForInference)) {
+        inferredKind = 'sticker';
+      } else if (mimeType?.startsWith('image/') || /\.(png|jpe?g|gif|bmp|svg)(\?|$)/.test(sourceForInference)) {
         inferredKind = 'image';
       } else if (mimeType?.startsWith('video/') || /\.(mp4|webm|mov|m4v)(\?|$)/.test(sourceForInference)) {
         inferredKind = 'video';

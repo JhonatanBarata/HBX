@@ -105,7 +105,7 @@ type NoticeState = {
 type InboxAttachmentPreview = {
   file: File;
   url: string;
-  kind: "image" | "video" | "document" | "audio";
+  kind: "image" | "video" | "document" | "audio" | "sticker";
   mimeType: string;
   size: number;
   fileName: string;
@@ -797,6 +797,7 @@ function formatInboxDurationLabel(raw: unknown) {
 function resolveInboxAttachmentKind(file: { type?: string | null; name?: string | null }) {
   const mimeType = String(file?.type || "").trim().toLowerCase();
   const name = String(file?.name || "").trim().toLowerCase();
+  if (mimeType === "image/webp" || /\.webp$/.test(name)) return "sticker" as const;
   if (mimeType.startsWith("image/")) return "image" as const;
   if (mimeType.startsWith("video/")) return "video" as const;
   if (mimeType.startsWith("audio/")) return "audio" as const;
@@ -886,6 +887,7 @@ function parseInboxMessageMedia(message: InboxMessage, conversation?: InboxConve
   const resolvedMediaUrl = explicitMediaUrl || fallbackMediaUrl;
   const mediaExpired = explicitMediaExpired || fallbackMediaExpired;
   const imageUrl = mediaKind === "image" && resolvedMediaUrl ? resolvedMediaUrl : null;
+  const stickerUrl = mediaKind === "sticker" && resolvedMediaUrl ? resolvedMediaUrl : null;
   const videoUrl = mediaKind === "video" && resolvedMediaUrl ? resolvedMediaUrl : null;
   const audioUrl = mediaKind === "audio" && resolvedMediaUrl ? resolvedMediaUrl : null;
   const documentUrl = mediaKind === "document" && resolvedMediaUrl ? resolvedMediaUrl : null;
@@ -913,7 +915,7 @@ function parseInboxMessageMedia(message: InboxMessage, conversation?: InboxConve
 
   return {
     kind: mediaKind,
-    imageUrl,
+    imageUrl: imageUrl || stickerUrl,
     videoUrl,
     audioUrl,
     documentUrl,
@@ -925,7 +927,10 @@ function parseInboxMessageMedia(message: InboxMessage, conversation?: InboxConve
     quotedText: String(metadata?.quotedPreview || quotedParts.quotedText || "").trim() || null,
     senderName,
     senderColor: senderName ? getInboxGroupSenderColor(String(metadata?.senderPhone || senderName || message.id)) : null,
-    text: text || (rawContent ? String(getMessagePreview(message) || "").trim() : String(getMessagePreview(message) || "").trim()),
+    text:
+      mediaKind === "sticker" && String(text || "").trim().toLowerCase() === "[figurinha recebida]"
+        ? ""
+        : text || (rawContent ? String(getMessagePreview(message) || "").trim() : String(getMessagePreview(message) || "").trim()),
     isDeleted: false,
     mediaExpired,
     deletedOriginalText: null,
@@ -5417,7 +5422,7 @@ export default function InboxClientPage() {
                                     ? styles.whatsAppBubbleSystem
                                     : styles.whatsAppBubbleInbound
                               } ${rendered.imageUrl ? styles.whatsAppBubbleWithMedia : ""} ${
-                                ["image", "video", "document", "audio"].includes(String(rendered.kind || ""))
+                                ["image", "video", "document", "audio", "sticker"].includes(String(rendered.kind || ""))
                                   ? styles.whatsAppBubbleWithAttachment
                                   : ""
                               }`}
@@ -5646,7 +5651,7 @@ export default function InboxClientPage() {
                 ) : null}
                 {imagePreview ? (
                   <div className={styles.whatsAppImagePreviewBar}>
-                    {imagePreview.kind === "image" ? (
+                    {imagePreview.kind === "image" || imagePreview.kind === "sticker" ? (
                       <img src={imagePreview.url} alt="preview" className={styles.whatsAppImagePreviewThumb} />
                     ) : (
                       <div className={styles.whatsAppAttachmentPreviewIcon}>

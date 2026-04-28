@@ -12,7 +12,6 @@ type BotQrWorkspaceProps = {
 };
 
 const TABS: Array<{ id: BotQrWorkspaceTab; label: string; helper: string }> = [
-  { id: "connection", label: "Status", helper: "WhatsApp" },
   { id: "flow", label: "BOT", helper: "Fluxo" },
   { id: "publish", label: "OK", helper: "Publicar" },
 ];
@@ -25,12 +24,8 @@ export default function BotQrWorkspace({
   flowPanel,
   publishPanel,
 }: BotQrWorkspaceProps) {
-  const currentPanel =
-    activeTab === "connection"
-      ? connectionPanel
-      : activeTab === "publish"
-        ? publishPanel
-        : flowPanel;
+  void connectionPanel;
+  const currentPanel = activeTab === "publish" ? publishPanel : flowPanel;
 
   return (
     <section className={styles.workspaceSection}>

@@ -5,7 +5,7 @@ import { extname, join } from 'path';
 import { PrismaService } from '../prisma/prisma.service';
 import { buildWhatsAppPhoneCandidates, normalizeWhatsAppPhone } from './whatsapp-channel';
 
-type WebwhatsMediaType = 'image' | 'video' | 'document' | 'audio';
+type WebwhatsMediaType = 'image' | 'video' | 'document' | 'audio' | 'sticker';
 
 type WebwhatsConfig = {
   enabled: boolean;
@@ -1405,6 +1405,7 @@ export class WebwhatsBridgeService {
       );
     }
     if (normalizedType === 'audio') return (payload as any).audioMessage || (payload as any).audio || null;
+    if (normalizedType === 'sticker') return (payload as any).stickerMessage || (payload as any).sticker || null;
     return null;
   }
 
@@ -1830,7 +1831,7 @@ export class WebwhatsBridgeService {
         : null;
     const url = this.normalizeOptionalString(attachment?.url || attachment?.mediaUrl || attachment?.attachmentUrl);
     const kind = this.normalizeOptionalString(attachment?.kind);
-    if (!url || !kind || !['image', 'video', 'document', 'audio'].includes(kind)) return null;
+    if (!url || !kind || !['image', 'video', 'document', 'audio', 'sticker'].includes(kind)) return null;
 
     const localPath = this.resolveUploadedMediaPath(url);
     if (!localPath || !existsSync(localPath)) return null;
@@ -1871,7 +1872,7 @@ export class WebwhatsBridgeService {
     messageType: string,
     existingVariables?: Record<string, any>,
   ): Promise<ResolvedWebwhatsMediaAttachment | null> {
-    if (!['image', 'video', 'document', 'audio'].includes(messageType)) return null;
+    if (!['image', 'video', 'document', 'audio', 'sticker'].includes(messageType)) return null;
 
     const stored = this.buildStoredMediaAttachmentFromVariables(existingVariables || {});
     if (stored) return stored;

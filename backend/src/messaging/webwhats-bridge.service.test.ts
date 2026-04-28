@@ -80,6 +80,62 @@ test('sendWhatsAppAudio posts Evolution voice note payload', async () => {
   }
 });
 
+test('sendMedia posts sticker payload through Webwhats', async () => {
+  const previousUrl = process.env.WHATSAPP_MODAL_INTERNAL_URL;
+  const previousKey = process.env.WHATSAPP_MODAL_API_KEY;
+  process.env.WHATSAPP_MODAL_INTERNAL_URL = 'http://webwhats.test';
+  process.env.WHATSAPP_MODAL_API_KEY = 'test-key';
+
+  const calls = {
+    path: null as string | null,
+    data: null as Record<string, unknown> | null,
+  };
+  const prisma = {
+    company: {
+      findUnique: async () => ({ id: 47, whatsappModalStatus: 'connected' }),
+    },
+    companyConversation: {
+      findFirst: async () => ({
+        contact: '+5511999998888',
+        metadata: JSON.stringify({
+          whatsappRemoteJid: '5511999998888@s.whatsapp.net',
+        }),
+      }),
+    },
+  };
+  const service = new WebwhatsBridgeService(prisma as any);
+
+  (service as any).requestRead = async (input: any) => {
+    calls.path = input.path;
+    calls.data = input.data;
+    return { key: { id: 'STICKER-OUT-1' } };
+  };
+
+  try {
+    const result = await service.sendMedia(47, {
+      to: '+5511999998888',
+      conversationId: 115,
+      mediaType: 'sticker',
+      media: 'https://cdn.example.test/sticker.webp',
+      mimeType: 'image/webp',
+    });
+
+    assert.equal(calls.path, '/message/sendMedia/company-47');
+    assert.deepEqual(calls.data, {
+      number: '5511999998888@s.whatsapp.net',
+      mediatype: 'sticker',
+      media: 'https://cdn.example.test/sticker.webp',
+      mimetype: 'image/webp',
+    });
+    assert.equal(result.providerMessageId, 'webwhats:company-47:STICKER-OUT-1');
+  } finally {
+    if (previousUrl === undefined) delete process.env.WHATSAPP_MODAL_INTERNAL_URL;
+    else process.env.WHATSAPP_MODAL_INTERNAL_URL = previousUrl;
+    if (previousKey === undefined) delete process.env.WHATSAPP_MODAL_API_KEY;
+    else process.env.WHATSAPP_MODAL_API_KEY = previousKey;
+  }
+});
+
 test('upsertConversationStateFromChat reuses phone conversation found by stored lid metadata', async () => {
   const existing = makeConversation();
   const calls = {
@@ -367,6 +423,53 @@ test('resolveInboundMediaAttachment accepts provider data uri responses for rece
     assert.equal(result?.isVoiceNote, true);
     assert.equal(existsSync(storedPath), true);
     assert.deepEqual(readFileSync(storedPath), audioBytes);
+  } finally {
+    process.chdir(previousCwd);
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test('resolveInboundMediaAttachment stores received sticker media', async () => {
+  const previousCwd = process.cwd();
+  const tempDir = mkdtempSync(join(tmpdir(), 'webwhats-sticker-'));
+  const service = new WebwhatsBridgeService({} as any);
+  const stickerBytes = Buffer.from('received sticker bytes');
+
+  (service as any).requestRead = async () => ({
+    data: `data:image/webp;base64,${stickerBytes.toString('base64')}`,
+  });
+
+  try {
+    process.chdir(tempDir);
+    const result = await (service as any).resolveInboundMediaAttachment(
+      47,
+      115,
+      {
+        id: 'MSG-STICKER-1',
+        messageType: 'sticker',
+        key: {
+          id: 'MSG-STICKER-1',
+          fromMe: false,
+          remoteJid: '5519998676859@s.whatsapp.net',
+        },
+        message: {
+          stickerMessage: {
+            mimetype: 'image/webp',
+            fileLength: stickerBytes.length,
+          },
+        },
+      },
+      'sticker',
+      {},
+    );
+
+    const storedPath = join(tempDir, 'public', 'uploads', 'inbox', '47_115_MSG-STICKER-1.webp');
+    assert.equal(result?.kind, 'sticker');
+    assert.equal(result?.url, '/uploads/inbox/47_115_MSG-STICKER-1.webp');
+    assert.equal(result?.mimeType, 'image/webp');
+    assert.equal(result?.fileSize, stickerBytes.length);
+    assert.equal(existsSync(storedPath), true);
+    assert.deepEqual(readFileSync(storedPath), stickerBytes);
   } finally {
     process.chdir(previousCwd);
     rmSync(tempDir, { recursive: true, force: true });
