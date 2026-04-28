@@ -509,7 +509,7 @@ export class InboxService {
     const attachmentKind = String((variables?.attachment as any)?.kind || variables?.attachmentKind || '')
       .trim()
       .toLowerCase();
-    if (['image', 'video', 'document', 'audio'].includes(attachmentKind)) {
+    if (['image', 'video', 'document', 'audio', 'sticker'].includes(attachmentKind)) {
       return attachmentKind;
     }
 
@@ -851,7 +851,9 @@ export class InboxService {
             ? (payload as any).documentMessage || (payload as any).document
             : normalizedMessageType === 'audio'
               ? (payload as any).audioMessage || (payload as any).audio
-              : null;
+              : normalizedMessageType === 'sticker'
+                ? (payload as any).stickerMessage || (payload as any).sticker
+                : null;
 
     const incomingNormalization =
       variables?.incomingNormalization && typeof variables.incomingNormalization === 'object'

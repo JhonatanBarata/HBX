@@ -1,0 +1,920 @@
+.builderShell {
+  min-height: min(860px, calc(100vh - 64px));
+  display: grid;
+  gap: .85rem;
+  color: var(--foreground);
+}
+
+.builderTopbar,
+.inspectorPanel,
+.canvasPanel,
+.previewPanel,
+.advancedPanel,
+.reviewModal {
+  border: 1px solid color-mix(in srgb, var(--line) 78%, transparent);
+  background: color-mix(in srgb, var(--surface-raised) 88%, var(--background));
+  box-shadow: var(--shadow-sm);
+}
+
+.builderTopbar {
+  min-height: 74px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: .9rem 1rem;
+  border-radius: var(--panel-radius);
+}
+
+.builderTopbar h2,
+.reviewHeader h3,
+.advancedHeader h3 {
+  margin: .12rem 0 0;
+  line-height: 1.08;
+  letter-spacing: 0;
+}
+
+.eyebrow {
+  color: var(--foreground-soft);
+  font-size: .7rem;
+  font-weight: 900;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.topbarActions,
+.reviewActions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: .55rem;
+}
+
+.primaryButton,
+.secondaryButton,
+.smallButton,
+.iconButton,
+.intelligenceToggle,
+.variableChip,
+.usedVariable,
+.periodTabs button,
+.canvasNode,
+.officialButtons button,
+.greetingModes button {
+  color: var(--foreground);
+  font: inherit;
+  border: 1px solid color-mix(in srgb, var(--line) 76%, transparent);
+  cursor: pointer;
+  transition:
+    transform 170ms ease,
+    border-color 170ms ease,
+    background 170ms ease,
+    box-shadow 170ms ease,
+    opacity 170ms ease;
+}
+
+.primaryButton,
+.secondaryButton,
+.smallButton,
+.intelligenceToggle {
+  min-height: 40px;
+  display: inline-grid;
+  place-items: center;
+  padding: 0 .85rem;
+  border-radius: var(--radius-md);
+  font-weight: 900;
+}
+
+.primaryButton {
+  background: linear-gradient(135deg, var(--button-primary), var(--button-accent));
+  color: var(--background);
+  box-shadow: var(--shadow-xs);
+}
+
+.secondaryButton,
+.smallButton,
+.intelligenceToggle {
+  background: color-mix(in srgb, var(--surface-soft) 72%, transparent);
+}
+
+.primaryButton:hover,
+.secondaryButton:hover,
+.smallButton:hover,
+.iconButton:hover,
+.intelligenceToggle:hover,
+.variableChip:hover,
+.usedVariable:hover,
+.canvasNode:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+}
+
+.primaryButton:disabled,
+.secondaryButton:disabled,
+.smallButton:disabled,
+.iconButton:disabled,
+.variableChip:disabled {
+  opacity: .5;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+.saveState {
+  min-height: 32px;
+  display: inline-grid;
+  place-items: center;
+  padding: 0 .7rem;
+  border-radius: var(--radius-md);
+  border: 1px solid color-mix(in srgb, var(--button-success) 42%, var(--line));
+  background: color-mix(in srgb, var(--button-success) 12%, var(--surface));
+  font-size: .75rem;
+  font-weight: 900;
+}
+
+.saveState[data-dirty="true"] {
+  border-color: color-mix(in srgb, var(--button-accent) 46%, var(--line));
+  background: color-mix(in srgb, var(--button-accent) 12%, var(--surface));
+}
+
+.liveBuilderGrid {
+  display: grid;
+  grid-template-columns: minmax(280px, 320px) minmax(560px, 1fr) minmax(300px, 350px);
+  gap: .85rem;
+  align-items: stretch;
+}
+
+.inspectorPanel,
+.canvasPanel,
+.previewPanel {
+  min-height: 720px;
+  border-radius: var(--panel-radius);
+  overflow: hidden;
+}
+
+.inspectorPanel,
+.previewPanel {
+  position: sticky;
+  top: .85rem;
+}
+
+.panelHeader,
+.advancedHeader,
+.reviewHeader,
+.popoverHeader,
+.inlineHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .75rem;
+}
+
+.panelHeader {
+  min-height: 60px;
+  padding: .85rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 72%, transparent);
+}
+
+.panelHeader strong,
+.inlineHeader span {
+  display: block;
+  font-weight: 1000;
+}
+
+.inspectorBody {
+  display: grid;
+  gap: .85rem;
+  padding: .85rem;
+}
+
+.fieldBlock {
+  display: grid;
+  gap: .35rem;
+}
+
+.fieldBlock span,
+.destinationPicker span,
+.greetingForm label,
+.hourRule label {
+  color: var(--foreground-soft);
+  font-size: .74rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.fieldBlock input,
+.fieldBlock textarea,
+.buttonRow input,
+.destinationPicker select,
+.greetingForm input,
+.hourRule input {
+  width: 100%;
+  border: 1px solid color-mix(in srgb, var(--line) 76%, transparent);
+  border-radius: var(--radius-md);
+  background: var(--field-surface, color-mix(in srgb, var(--background-alt) 74%, var(--surface)));
+  color: var(--foreground);
+  font: inherit;
+  outline: none;
+  transition: border-color 160ms ease, box-shadow 160ms ease, background 160ms ease;
+}
+
+.fieldBlock input,
+.buttonRow input,
+.destinationPicker select,
+.greetingForm input,
+.hourRule input {
+  min-height: 40px;
+  padding: 0 .7rem;
+}
+
+.fieldBlock textarea {
+  min-height: 150px;
+  padding: .75rem;
+  line-height: 1.45;
+  resize: vertical;
+}
+
+.fieldBlock input:focus,
+.fieldBlock textarea:focus,
+.buttonRow input:focus,
+.destinationPicker select:focus,
+.greetingForm input:focus,
+.hourRule input:focus {
+  border-color: color-mix(in srgb, var(--selection-accent) 64%, var(--line));
+  box-shadow: 0 0 0 3px var(--selection-accent-soft);
+}
+
+.lockedNotice,
+.emptyState {
+  padding: .7rem;
+  border-radius: var(--radius-md);
+  border: 1px solid color-mix(in srgb, var(--line) 72%, transparent);
+  background: color-mix(in srgb, var(--surface-soft) 74%, transparent);
+  color: var(--foreground-soft);
+  font-size: .84rem;
+}
+
+.variableSection,
+.buttonEditor,
+.intelligenceShell {
+  position: relative;
+  display: grid;
+  gap: .6rem;
+  padding: .75rem;
+  border-radius: var(--radius-lg);
+  border: 1px solid color-mix(in srgb, var(--line) 72%, transparent);
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+}
+
+.variableChips,
+.usedVariables,
+.intelligenceTags {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: .4rem;
+}
+
+.variableChip,
+.usedVariable {
+  min-height: 30px;
+  padding: 0 .58rem;
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--brand-soft) 42%, var(--surface));
+  font-size: .76rem;
+  font-weight: 900;
+  animation: chipIn 170ms ease both;
+}
+
+.variableChip[data-smart="true"] {
+  border-color: color-mix(in srgb, var(--button-accent) 52%, var(--line));
+  background: color-mix(in srgb, var(--button-accent) 12%, var(--surface));
+}
+
+.usedVariable {
+  background: color-mix(in srgb, var(--selection-accent-soft) 44%, var(--surface));
+}
+
+.greetingPopover {
+  position: absolute;
+  z-index: 20;
+  left: .75rem;
+  right: .75rem;
+  top: 100%;
+  display: grid;
+  gap: .7rem;
+  padding: .8rem;
+  border-radius: var(--radius-lg);
+  border: 1px solid color-mix(in srgb, var(--selection-accent) 44%, var(--line));
+  background: color-mix(in srgb, var(--surface-raised) 96%, var(--background));
+  box-shadow: var(--shadow-lg);
+  animation: popIn 160ms ease both;
+}
+
+.greetingModes {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: .5rem;
+}
+
+.greetingModes button,
+.greetingModes span {
+  display: grid;
+  gap: .2rem;
+  min-height: 72px;
+  padding: .65rem;
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--surface-soft) 78%, transparent);
+}
+
+.greetingModes span {
+  border: 1px solid color-mix(in srgb, var(--selection-accent) 44%, var(--line));
+}
+
+.greetingModes small,
+.greetingModes span span,
+.greetingModes button span {
+  color: var(--foreground-soft);
+  font-size: .76rem;
+}
+
+.greetingForm {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: .5rem;
+}
+
+.greetingForm label {
+  display: grid;
+  gap: .28rem;
+}
+
+.buttonRows {
+  display: grid;
+  gap: .55rem;
+}
+
+.buttonRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 132px 32px;
+  gap: .45rem;
+  align-items: end;
+  padding: .55rem;
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--surface-soft) 68%, transparent);
+  animation: cardIn 180ms ease both;
+}
+
+.destinationPicker {
+  display: grid;
+  gap: .28rem;
+}
+
+.iconButton {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--surface-soft) 76%, transparent);
+  font-weight: 1000;
+}
+
+.intelligenceToggle {
+  width: 100%;
+}
+
+.intelligencePanel {
+  display: grid;
+  gap: .55rem;
+  animation: cardIn 180ms ease both;
+}
+
+.intelligenceGrid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: .45rem;
+}
+
+.toggleRow {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: .55rem;
+  align-items: start;
+  padding: .6rem;
+  border-radius: var(--radius-md);
+  border: 1px solid color-mix(in srgb, var(--line) 72%, transparent);
+  background: color-mix(in srgb, var(--surface-soft) 68%, transparent);
+}
+
+.toggleRow[data-disabled="true"] {
+  opacity: .55;
+}
+
+.toggleRow input {
+  margin-top: .14rem;
+  accent-color: var(--selection-accent);
+}
+
+.toggleRow strong,
+.toggleRow small {
+  display: block;
+}
+
+.toggleRow small,
+.intelligenceTags span,
+.hourRule {
+  color: var(--foreground-soft);
+  font-size: .78rem;
+}
+
+.hourRule {
+  display: grid;
+  grid-template-columns: 1fr 72px 72px;
+  gap: .5rem;
+  align-items: end;
+  padding: .6rem;
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--background-alt) 50%, var(--surface));
+}
+
+.hourRule label {
+  display: grid;
+  gap: .25rem;
+}
+
+.intelligenceTags span {
+  min-height: 26px;
+  display: inline-grid;
+  place-items: center;
+  padding: 0 .45rem;
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--surface-soft) 70%, transparent);
+  border: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
+}
+
+.canvasPanel {
+  display: grid;
+  grid-template-rows: auto 1fr;
+}
+
+.canvasBoard {
+  position: relative;
+  min-height: 660px;
+  overflow: auto;
+  background:
+    linear-gradient(color-mix(in srgb, var(--line) 22%, transparent) 1px, transparent 1px),
+    linear-gradient(90deg, color-mix(in srgb, var(--line) 22%, transparent) 1px, transparent 1px),
+    color-mix(in srgb, var(--background-alt) 58%, var(--surface));
+  background-size: 38px 38px;
+}
+
+.canvasLines {
+  position: absolute;
+  inset: 0;
+  width: 1080px;
+  height: 640px;
+  pointer-events: none;
+  overflow: visible;
+}
+
+.edgeGroup {
+  color: color-mix(in srgb, var(--foreground-soft) 45%, transparent);
+}
+
+.edgeGroup path {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-dasharray: 0;
+  transition: stroke-width 180ms ease, color 180ms ease, opacity 180ms ease;
+}
+
+.edgeGroup circle {
+  fill: currentColor;
+  transition: r 180ms ease, color 180ms ease, opacity 180ms ease;
+}
+
+.edgeGroup[data-selected="true"] {
+  color: var(--selection-accent);
+}
+
+.edgeGroup[data-selected="true"] path {
+  stroke-width: 3;
+}
+
+.edgeGroup[data-blocked="true"] {
+  color: color-mix(in srgb, var(--muted) 70%, transparent);
+  opacity: .48;
+}
+
+.edgeGroup[data-blocked="true"] path {
+  stroke-dasharray: 7 7;
+}
+
+.canvasNode {
+  position: absolute;
+  width: 150px;
+  min-height: 76px;
+  display: grid;
+  grid-template-columns: 10px 1fr;
+  gap: .5rem;
+  align-content: center;
+  padding: .65rem;
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--surface-raised) 92%, var(--background));
+  text-align: left;
+  box-shadow: var(--shadow-xs);
+  animation: nodeIn 190ms ease both;
+}
+
+.canvasNode strong,
+.canvasNode small {
+  grid-column: 2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.canvasNode strong {
+  font-size: .86rem;
+}
+
+.canvasNode small {
+  color: var(--foreground-soft);
+  font-size: .72rem;
+}
+
+.nodeStatus {
+  grid-row: 1 / span 2;
+  align-self: stretch;
+  width: 5px;
+  border-radius: 99px;
+  background: var(--brand);
+}
+
+.canvasNode[data-selected="true"] {
+  border-color: color-mix(in srgb, var(--selection-accent) 70%, var(--line));
+  box-shadow: var(--shadow-md), 0 0 0 4px var(--selection-accent-soft);
+  transform: translateY(-2px);
+}
+
+.canvasNode[data-blocked="true"] {
+  opacity: .56;
+}
+
+.canvasNode[data-blocked="true"] .nodeStatus {
+  background: var(--muted);
+}
+
+.previewPanel {
+  display: grid;
+  grid-template-rows: auto auto 1fr;
+  gap: .75rem;
+  padding-bottom: .85rem;
+}
+
+.periodTabs {
+  justify-self: center;
+  display: inline-grid;
+  grid-auto-flow: column;
+  gap: .24rem;
+  padding: .25rem;
+  border-radius: var(--radius-lg);
+  border: 1px solid color-mix(in srgb, var(--line) 72%, transparent);
+  background: color-mix(in srgb, var(--surface-soft) 74%, transparent);
+}
+
+.periodTabs button {
+  min-height: 32px;
+  padding: 0 .6rem;
+  border-radius: var(--radius-md);
+  background: transparent;
+  font-weight: 900;
+}
+
+.periodTabs button[data-active="true"] {
+  border-color: color-mix(in srgb, var(--selection-accent) 50%, var(--line));
+  background: var(--selection-accent-soft);
+}
+
+.phoneFrame {
+  width: min(100% - 1.25rem, 312px);
+  justify-self: center;
+  overflow: hidden;
+  border-radius: var(--hero-radius);
+  border: 1px solid color-mix(in srgb, var(--line) 76%, transparent);
+  background: var(--background-alt);
+  box-shadow: var(--shadow-lg);
+  animation: phoneIn 190ms ease both;
+}
+
+.phoneTopbar,
+.phoneComposer {
+  display: flex;
+  align-items: center;
+  gap: .6rem;
+  padding: .7rem;
+  background: color-mix(in srgb, var(--surface-raised) 88%, var(--background));
+}
+
+.phoneTopbar {
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
+}
+
+.phoneAvatar {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 999px;
+  background: var(--brand-soft);
+  font-size: .7rem;
+  font-weight: 1000;
+}
+
+.phoneTopbar small {
+  display: block;
+  color: var(--button-success);
+  font-size: .72rem;
+  font-weight: 900;
+}
+
+.phoneBody {
+  min-height: 438px;
+  display: grid;
+  align-content: start;
+  gap: .62rem;
+  padding: .78rem;
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--background) 78%, transparent), color-mix(in srgb, var(--surface-soft) 58%, transparent));
+}
+
+.previewDate {
+  justify-self: center;
+  padding: .2rem .5rem;
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--surface-raised) 82%, transparent);
+  color: var(--foreground-soft);
+  font-size: .68rem;
+  font-weight: 900;
+}
+
+.customerBubble,
+.botBubble {
+  max-width: 88%;
+  padding: .62rem .72rem;
+  border-radius: var(--radius-lg);
+  border: 1px solid color-mix(in srgb, var(--line) 62%, transparent);
+  line-height: 1.36;
+  animation: bubbleIn 170ms ease both;
+}
+
+.customerBubble {
+  justify-self: start;
+  background: color-mix(in srgb, var(--surface-soft) 82%, var(--background));
+}
+
+.botBubble {
+  justify-self: end;
+  background: color-mix(in srgb, var(--selection-accent-soft) 40%, var(--surface-raised));
+}
+
+.botBubble p {
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.officialButtons,
+.numberedList {
+  display: grid;
+  gap: .35rem;
+  margin-top: .62rem;
+}
+
+.officialButtons button {
+  min-height: 34px;
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--surface-raised) 90%, transparent);
+  font-weight: 900;
+}
+
+.numberedList {
+  margin-bottom: 0;
+  padding-left: 1.25rem;
+}
+
+.phoneComposer {
+  justify-content: space-between;
+  border-top: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
+  color: var(--foreground-soft);
+  font-size: .8rem;
+}
+
+.advancedPanel {
+  display: grid;
+  gap: .85rem;
+  padding: .9rem;
+  border-radius: var(--panel-radius);
+  animation: cardIn 180ms ease both;
+}
+
+.reviewBackdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  background: color-mix(in srgb, var(--background) 66%, transparent);
+  backdrop-filter: blur(14px);
+  animation: fadeIn 140ms ease both;
+}
+
+.reviewModal {
+  width: min(840px, 100%);
+  max-height: min(780px, calc(100vh - 2rem));
+  display: grid;
+  gap: .9rem;
+  overflow: auto;
+  padding: 1rem;
+  border-radius: var(--panel-radius);
+  animation: modalIn 170ms ease both;
+}
+
+.reviewHeader {
+  padding-bottom: .75rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 72%, transparent);
+}
+
+.reviewGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: .85rem;
+}
+
+.mapTree,
+.reviewRoutes {
+  display: grid;
+  align-content: start;
+  gap: .55rem;
+  padding: .85rem;
+  border-radius: var(--radius-lg);
+  border: 1px solid color-mix(in srgb, var(--line) 72%, transparent);
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+}
+
+.mapTree ul {
+  margin: .25rem 0 0;
+  padding-left: 1.15rem;
+  color: var(--foreground-soft);
+  line-height: 1.7;
+}
+
+.reviewRoutes span {
+  min-height: 30px;
+  display: inline-flex;
+  align-items: center;
+  padding: .25rem .55rem;
+  border-radius: var(--radius-md);
+  border: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
+  background: color-mix(in srgb, var(--surface-soft) 72%, transparent);
+  font-size: .82rem;
+}
+
+.reviewRoutes span[data-blocked="true"] {
+  opacity: .56;
+}
+
+@keyframes cardIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes nodeIn {
+  from {
+    opacity: 0;
+    transform: scale(.96);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes chipIn {
+  from {
+    opacity: 0;
+    transform: scale(.94);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes popIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes phoneIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes bubbleIn {
+  from {
+    opacity: 0;
+    transform: translateY(5px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes modalIn {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@media (max-width: 1280px) {
+  .liveBuilderGrid {
+    grid-template-columns: minmax(270px, 310px) minmax(0, 1fr);
+  }
+
+  .previewPanel {
+    grid-column: 1 / -1;
+    position: static;
+    min-height: auto;
+  }
+
+  .phoneFrame {
+    width: min(420px, calc(100% - 1.25rem));
+  }
+}
+
+@media (max-width: 860px) {
+  .builderTopbar,
+  .liveBuilderGrid,
+  .reviewGrid,
+  .greetingForm,
+  .greetingModes,
+  .hourRule {
+    grid-template-columns: 1fr;
+  }
+
+  .builderTopbar {
+    display: grid;
+  }
+
+  .inspectorPanel,
+  .previewPanel {
+    position: static;
+    min-height: auto;
+  }
+
+  .canvasPanel {
+    min-height: 560px;
+  }
+
+  .canvasBoard {
+    min-height: 560px;
+  }
+
+  .buttonRow {
+    grid-template-columns: 1fr;
+  }
+}

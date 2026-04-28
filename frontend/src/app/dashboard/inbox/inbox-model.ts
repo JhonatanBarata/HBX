@@ -188,10 +188,33 @@ export type AtendimentoRoutingRules = {
   notifyOnNewInbound: boolean;
 };
 
+export type AtendimentoSmartGreetingConfig = {
+  timezone?: string;
+  morning?: string;
+  afternoon?: string;
+  night?: string;
+  morningStartHour?: number;
+  afternoonStartHour?: number;
+  nightStartHour?: number;
+};
+
+export type AtendimentoSmartVariablesConfig = {
+  greeting?: AtendimentoSmartGreetingConfig;
+};
+
+export type AtendimentoSceneRule = {
+  sceneId: string;
+  conditionType: string;
+  enabled: boolean;
+  metadata?: Record<string, unknown>;
+};
+
 export type AtendimentoBotConfig = {
   variableCatalog: AtendimentoBotVariableDefinition[];
   actionCatalog: AtendimentoBotActionGuide[];
   routingRules: AtendimentoRoutingRules;
+  smartVariables?: AtendimentoSmartVariablesConfig;
+  sceneRules?: AtendimentoSceneRule[];
   welcomeButtons: AtendimentoBotButton[];
   returningCustomerButtons: AtendimentoBotButton[];
   mainMenuPrompt: string;
@@ -402,7 +425,7 @@ function resolveDefaultAtendimentoNextNodeId(actionIdRaw: string | null | undefi
     case "continue_attendance":
       return "mainMenuPrompt";
     case "continue_journey":
-      return "debt_open_gate";
+      return "postActionPrompt";
     case "schedule_service":
       return "agendaDispatch";
     default:
@@ -430,6 +453,14 @@ function makeDefaultButton(sectionKey: string, actionId: string, title: string, 
 
 export const DEFAULT_ATENDIMENTO_BOT_CONFIG: AtendimentoBotConfig = {
   variableCatalog: [
+    {
+      key: "cumprimentacao",
+      label: "Cumprimentacao",
+      example: "Bom dia",
+      description: "Saudacao inteligente resolvida pelo horario local do atendimento.",
+      scope: "shared",
+      required: false,
+    },
     {
       key: "cliente",
       label: "Nome do cliente",
@@ -582,6 +613,18 @@ export const DEFAULT_ATENDIMENTO_BOT_CONFIG: AtendimentoBotConfig = {
     autoReopenClosedConversation: true,
     notifyOnNewInbound: true,
   },
+  smartVariables: {
+    greeting: {
+      timezone: "America/Sao_Paulo",
+      morning: "Bom dia",
+      afternoon: "Boa tarde",
+      night: "Boa noite",
+      morningStartHour: 3,
+      afternoonStartHour: 12,
+      nightStartHour: 18,
+    },
+  },
+  sceneRules: [],
   welcomeMessage:
     "Ola, tudo bem?\nSou o atendimento da {{empresa}} e vou concluir seu cadastro rapido antes de seguir com a triagem principal.",
   welcomeButtons: [
@@ -871,6 +914,50 @@ function uniqueByAction<T extends { actionId: string }>(items: T[]) {
   return Array.from(map.values());
 }
 
+function normalizeHourCut(value: unknown, fallback: number) {
+  const normalized = Math.trunc(Number(value));
+  if (!Number.isFinite(normalized)) return fallback;
+  return Math.max(0, Math.min(23, normalized));
+}
+
+function normalizeSmartVariables(value: unknown): AtendimentoSmartVariablesConfig {
+  const greeting = (value as AtendimentoSmartVariablesConfig | undefined)?.greeting || {};
+  const defaults = DEFAULT_ATENDIMENTO_BOT_CONFIG.smartVariables?.greeting || {};
+  return {
+    greeting: {
+      timezone: String(greeting.timezone || defaults.timezone || "America/Sao_Paulo").trim(),
+      morning: String(greeting.morning || defaults.morning || "Bom dia").trim(),
+      afternoon: String(greeting.afternoon || defaults.afternoon || "Boa tarde").trim(),
+      night: String(greeting.night || defaults.night || "Boa noite").trim(),
+      morningStartHour: normalizeHourCut(greeting.morningStartHour, defaults.morningStartHour ?? 3),
+      afternoonStartHour: normalizeHourCut(greeting.afternoonStartHour, defaults.afternoonStartHour ?? 12),
+      nightStartHour: normalizeHourCut(greeting.nightStartHour, defaults.nightStartHour ?? 18),
+    },
+  };
+}
+
+function normalizeSceneRules(value: unknown): AtendimentoSceneRule[] {
+  const items = Array.isArray(value) ? value : [];
+  return items
+    .map((item) => {
+      const raw = item as Partial<AtendimentoSceneRule>;
+      const sceneId = String(raw.sceneId || "").trim().toLowerCase();
+      const conditionType = String(raw.conditionType || "").trim().toLowerCase();
+      if (!sceneId || !conditionType) return null;
+      const metadata =
+        raw.metadata && typeof raw.metadata === "object" && !Array.isArray(raw.metadata)
+          ? raw.metadata
+          : undefined;
+      return {
+        sceneId,
+        conditionType,
+        enabled: Boolean(raw.enabled ?? true),
+        ...(metadata ? { metadata } : {}),
+      };
+    })
+    .filter((item): item is AtendimentoSceneRule => Boolean(item));
+}
+
 export function normalizeBotConfig(
   payload: Partial<AtendimentoBotConfig> | null | undefined,
 ): AtendimentoBotConfig {
@@ -950,6 +1037,8 @@ export function normalizeBotConfig(
       ...DEFAULT_ATENDIMENTO_BOT_CONFIG.routingRules,
       ...(payload?.routingRules || {}),
     },
+    smartVariables: normalizeSmartVariables(payload?.smartVariables),
+    sceneRules: normalizeSceneRules(payload?.sceneRules),
   };
 }
 

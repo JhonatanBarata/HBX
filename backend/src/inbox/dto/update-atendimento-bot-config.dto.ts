@@ -1,5 +1,5 @@
 import { Type } from 'class-transformer';
-import { IsArray, IsBoolean, IsOptional, IsString, ValidateNested } from 'class-validator';
+import { IsArray, IsBoolean, IsNumber, IsObject, IsOptional, IsString, ValidateNested } from 'class-validator';
 
 class UpdateAtendimentoBotButtonDto {
   @IsString()
@@ -101,6 +101,59 @@ class UpdateAtendimentoRoutingRulesDto {
   notifyOnNewInbound?: boolean;
 }
 
+class UpdateAtendimentoSmartGreetingDto {
+  @IsString()
+  @IsOptional()
+  timezone?: string;
+
+  @IsString()
+  @IsOptional()
+  morning?: string;
+
+  @IsString()
+  @IsOptional()
+  afternoon?: string;
+
+  @IsString()
+  @IsOptional()
+  night?: string;
+
+  @IsNumber()
+  @IsOptional()
+  morningStartHour?: number;
+
+  @IsNumber()
+  @IsOptional()
+  afternoonStartHour?: number;
+
+  @IsNumber()
+  @IsOptional()
+  nightStartHour?: number;
+}
+
+class UpdateAtendimentoSmartVariablesDto {
+  @ValidateNested()
+  @Type(() => UpdateAtendimentoSmartGreetingDto)
+  @IsOptional()
+  greeting?: UpdateAtendimentoSmartGreetingDto;
+}
+
+class UpdateAtendimentoSceneRuleDto {
+  @IsString()
+  sceneId!: string;
+
+  @IsString()
+  conditionType!: string;
+
+  @IsBoolean()
+  @IsOptional()
+  enabled?: boolean;
+
+  @IsObject()
+  @IsOptional()
+  metadata?: Record<string, unknown>;
+}
+
 export class UpdateAtendimentoBotConfigDto {
   @IsArray()
   @ValidateNested({ each: true })
@@ -118,6 +171,17 @@ export class UpdateAtendimentoBotConfigDto {
   @Type(() => UpdateAtendimentoRoutingRulesDto)
   @IsOptional()
   routingRules?: UpdateAtendimentoRoutingRulesDto;
+
+  @ValidateNested()
+  @Type(() => UpdateAtendimentoSmartVariablesDto)
+  @IsOptional()
+  smartVariables?: UpdateAtendimentoSmartVariablesDto;
+
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => UpdateAtendimentoSceneRuleDto)
+  @IsOptional()
+  sceneRules?: UpdateAtendimentoSceneRuleDto[];
 
   @IsString()
   @IsOptional()

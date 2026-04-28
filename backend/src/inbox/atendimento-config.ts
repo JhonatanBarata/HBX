@@ -102,10 +102,33 @@ export type AtendimentoRoutingRules = {
   notifyOnNewInbound: boolean;
 };
 
+export type AtendimentoSmartGreetingConfig = {
+  timezone?: string;
+  morning?: string;
+  afternoon?: string;
+  night?: string;
+  morningStartHour?: number;
+  afternoonStartHour?: number;
+  nightStartHour?: number;
+};
+
+export type AtendimentoSmartVariablesConfig = {
+  greeting?: AtendimentoSmartGreetingConfig;
+};
+
+export type AtendimentoSceneRule = {
+  sceneId: string;
+  conditionType: string;
+  enabled: boolean;
+  metadata?: Record<string, unknown>;
+};
+
 export type AtendimentoBotConfig = {
   variableCatalog: AtendimentoBotVariableDefinition[];
   actionCatalog: AtendimentoBotActionGuide[];
   routingRules: AtendimentoRoutingRules;
+  smartVariables?: AtendimentoSmartVariablesConfig;
+  sceneRules?: AtendimentoSceneRule[];
   welcomeButtons: AtendimentoBotButton[];
   returningCustomerButtons: AtendimentoBotButton[];
   mainMenuPrompt: string;
@@ -193,6 +216,14 @@ export type AtendimentoAgendaConfig = {
 
 const DEFAULT_VARIABLE_CATALOG: AtendimentoBotVariableDefinition[] = [
   {
+    key: 'cumprimentacao',
+    label: 'Cumprimentacao',
+    example: 'Bom dia',
+    description: 'Saudacao inteligente resolvida pelo horario local do atendimento.',
+    scope: 'shared',
+    required: false,
+  },
+  {
     key: 'cliente',
     label: 'Nome do cliente',
     example: 'Maria Oliveira',
@@ -241,6 +272,18 @@ const DEFAULT_VARIABLE_CATALOG: AtendimentoBotVariableDefinition[] = [
     required: false,
   },
 ];
+
+export const DEFAULT_ATENDIMENTO_SMART_VARIABLES: AtendimentoSmartVariablesConfig = {
+  greeting: {
+    timezone: 'America/Sao_Paulo',
+    morning: 'Bom dia',
+    afternoon: 'Boa tarde',
+    night: 'Boa noite',
+    morningStartHour: 3,
+    afternoonStartHour: 12,
+    nightStartHour: 18,
+  },
+};
 
 const DEFAULT_ACTION_CATALOG: AtendimentoBotActionGuide[] = [
   {
@@ -371,6 +414,8 @@ export const DEFAULT_ATENDIMENTO_BOT_CONFIG: AtendimentoBotConfig = {
     autoReopenClosedConversation: true,
     notifyOnNewInbound: true,
   },
+  smartVariables: DEFAULT_ATENDIMENTO_SMART_VARIABLES,
+  sceneRules: [],
   welcomeMessage:
     'Ola, tudo bem?\nEu sou o atendimento digital da {{empresa}}. Nao localizamos em nosso cadastro seu telefone.',
   welcomeButtons: [
@@ -772,6 +817,58 @@ function normalizeActionCatalog(value: unknown) {
   return Array.from(defaults.values());
 }
 
+function normalizeHourCut(value: unknown, fallback: number) {
+  const normalized = Math.trunc(Number(value));
+  if (!Number.isFinite(normalized)) return fallback;
+  return Math.max(0, Math.min(23, normalized));
+}
+
+function normalizeSmartVariables(value: unknown): AtendimentoSmartVariablesConfig {
+  const greeting = (value as any)?.greeting || {};
+  const defaults = DEFAULT_ATENDIMENTO_SMART_VARIABLES.greeting || {};
+  return {
+    greeting: {
+      timezone:
+        normalizeText(greeting.timezone, defaults.timezone || 'America/Sao_Paulo') ||
+        'America/Sao_Paulo',
+      morning: normalizeText(greeting.morning, defaults.morning || 'Bom dia') || 'Bom dia',
+      afternoon:
+        normalizeText(greeting.afternoon, defaults.afternoon || 'Boa tarde') || 'Boa tarde',
+      night: normalizeText(greeting.night, defaults.night || 'Boa noite') || 'Boa noite',
+      morningStartHour: normalizeHourCut(
+        greeting.morningStartHour,
+        defaults.morningStartHour ?? 3,
+      ),
+      afternoonStartHour: normalizeHourCut(
+        greeting.afternoonStartHour,
+        defaults.afternoonStartHour ?? 12,
+      ),
+      nightStartHour: normalizeHourCut(greeting.nightStartHour, defaults.nightStartHour ?? 18),
+    },
+  };
+}
+
+function normalizeSceneRules(value: unknown): AtendimentoSceneRule[] {
+  const items = Array.isArray(value) ? value : [];
+  return items
+    .map((item) => {
+      const sceneId = normalizeActionId((item as any)?.sceneId, '');
+      const conditionType = normalizeActionId((item as any)?.conditionType, '');
+      if (!sceneId || !conditionType) return null;
+      const metadata =
+        (item as any)?.metadata && typeof (item as any).metadata === 'object' && !Array.isArray((item as any).metadata)
+          ? ((item as any).metadata as Record<string, unknown>)
+          : undefined;
+      return {
+        sceneId,
+        conditionType,
+        enabled: Boolean((item as any)?.enabled ?? true),
+        ...(metadata ? { metadata } : {}),
+      };
+    })
+    .filter((item): item is AtendimentoSceneRule => Boolean(item));
+}
+
 export function normalizeAtendimentoBotConfig(
   payload: Partial<AtendimentoBotConfig> | null | undefined,
 ): AtendimentoBotConfig {
@@ -800,6 +897,8 @@ export function normalizeAtendimentoBotConfig(
         config.routingRules?.notifyOnNewInbound ??
         DEFAULT_ATENDIMENTO_BOT_CONFIG.routingRules.notifyOnNewInbound,
     },
+    smartVariables: normalizeSmartVariables((config as any).smartVariables),
+    sceneRules: normalizeSceneRules((config as any).sceneRules),
     welcomeMessage: normalizeText(
       config.welcomeMessage,
       DEFAULT_ATENDIMENTO_BOT_CONFIG.welcomeMessage,
