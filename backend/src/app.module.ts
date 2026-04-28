@@ -29,6 +29,7 @@ import { VendasModule } from './vendas/vendas.module';
 import { FinanceiroModule } from './financeiro/financeiro.module';
 import { getBackendPublicRoot } from './public-assets';
 import { AdminModule } from './admin/admin.module';
+import { CommercialPlansModule } from './commercial-plans/commercial-plans.module';
 
 @Module({
   imports: [
@@ -65,6 +66,7 @@ import { AdminModule } from './admin/admin.module';
     IntegrationsModule,
     VendasModule,
     FinanceiroModule,
+    CommercialPlansModule,
     AdminModule,
   ],
   controllers: [AppController],

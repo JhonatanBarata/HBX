@@ -11,8 +11,10 @@ type BotQrPublishPanelProps = {
   hasUnsavedChanges: boolean;
   botStatusLabel: string;
   connectionStatusLabel: string;
+  locked?: boolean;
   onSaveDraft: () => void;
   onPublish: () => void;
+  onOpenPlans?: () => void;
   onRestorePublished: () => void;
   onRunQuickTest: () => void;
 };
@@ -27,8 +29,10 @@ export default function BotQrPublishPanel({
   hasUnsavedChanges,
   botStatusLabel,
   connectionStatusLabel,
+  locked = false,
   onSaveDraft,
   onPublish,
+  onOpenPlans,
   onRestorePublished,
   onRunQuickTest,
 }: BotQrPublishPanelProps) {
@@ -68,16 +72,21 @@ export default function BotQrPublishPanel({
         </div>
 
         <div className={styles.publishActionRow}>
-          <button type="button" className={styles.secondaryButton} onClick={onSaveDraft}>
+          <button type="button" className={styles.secondaryButton} onClick={locked ? onOpenPlans : onSaveDraft}>
             Salvar rascunho
           </button>
-          <button type="button" className={styles.primaryButton} onClick={onPublish} disabled={publishing}>
-            {publishing ? "Publicando..." : "Publicar / ativar automacao"}
+          <button
+            type="button"
+            className={styles.primaryButton}
+            onClick={locked ? onOpenPlans : onPublish}
+            disabled={publishing}
+          >
+            {locked ? "Ver planos" : publishing ? "Publicando..." : "Publicar / ativar automacao"}
           </button>
-          <button type="button" className={styles.ghostButton} onClick={onRestorePublished}>
+          <button type="button" className={styles.ghostButton} onClick={locked ? onOpenPlans : onRestorePublished}>
             Voltar ao ultimo publicado
           </button>
-          <button type="button" className={styles.ghostButton} onClick={onRunQuickTest}>
+          <button type="button" className={styles.ghostButton} onClick={locked ? onOpenPlans : onRunQuickTest}>
             Teste rapido
           </button>
         </div>

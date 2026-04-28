@@ -1,6 +1,9 @@
 import { Body, Controller, Get, Param, Patch, Post, Req, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { UpdateAtendimentoBotConfigDto } from '../inbox/dto/update-atendimento-bot-config.dto';
+import { CommercialEntitlement } from '../commercial-plans/commercial-entitlement.decorator';
+import { CommercialEntitlementGuard } from '../commercial-plans/commercial-entitlement.guard';
+import { COMMERCIAL_ENTITLEMENT_KEYS } from '../commercial-plans/commercial-plan-catalog';
 import { ModuleAccess } from '../modules/module-feature.decorator';
 import { ModuleAccessGuard } from '../modules/module-access.guard';
 import {
@@ -17,11 +20,15 @@ export class VendasController {
   constructor(private readonly vendasService: VendasService) {}
 
   @Get('automation/bot-config')
+  @UseGuards(CommercialEntitlementGuard)
+  @CommercialEntitlement(COMMERCIAL_ENTITLEMENT_KEYS.BOT_IA)
   getAutomationBotConfig(@Req() req: any) {
     return this.vendasService.getAutomationBotConfigForUser(req.user);
   }
 
   @Patch('automation/bot-config')
+  @UseGuards(CommercialEntitlementGuard)
+  @CommercialEntitlement(COMMERCIAL_ENTITLEMENT_KEYS.BOT_IA)
   updateAutomationBotConfig(@Req() req: any, @Body() dto: UpdateAtendimentoBotConfigDto) {
     return this.vendasService.updateAutomationBotConfigForUser(req.user, dto);
   }

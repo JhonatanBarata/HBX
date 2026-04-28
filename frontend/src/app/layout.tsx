@@ -71,10 +71,15 @@ const themeBootstrapScript = `
       storage.getItem("hbx:theme-mode") ||
       storage.getItem("theme-mode") ||
       cookie("hbx-theme-mode");
-    var config = parseConfig(
+    var resolvedConfig = parseConfig(
+      storage.getItem(scopedKey("hbx:theme-resolved-config", activeUser)) ||
+      storage.getItem("hbx:theme-resolved-config")
+    );
+    var storedUserConfig = parseConfig(
       storage.getItem(scopedKey("hbx:theme-config", activeUser)) ||
       storage.getItem("hbx:theme-config")
     );
+    var config = Object.keys(resolvedConfig).length ? resolvedConfig : storedUserConfig;
     var configSelection = config.selection || {};
     var themeId = isThemeId(configSelection.themeId)
       ? String(configSelection.themeId).trim().toLowerCase()

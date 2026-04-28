@@ -59,7 +59,19 @@ function createService(overrides?: Partial<Record<string, any>>) {
     ...(overrides?.webwhatsBridge || {}),
   } as any;
 
-  const service = new VendasService(prisma, customerProfileService, conversations, inboxService, webwhatsBridge);
+  const commercialPlansService = {
+    assertBotAiEntitlementForUser: async () => true,
+    ...(overrides?.commercialPlansService || {}),
+  } as any;
+
+  const service = new VendasService(
+    prisma,
+    customerProfileService,
+    conversations,
+    inboxService,
+    webwhatsBridge,
+    commercialPlansService,
+  );
   return { service, getOrCreateCalls, updateConversationStateCalls };
 }
 

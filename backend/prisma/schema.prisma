@@ -131,6 +131,41 @@ model Company {
   webscrapingSearchHistories WebscrapingSearchHistory[]
   webscrapingUsageLogs WebscrapingUsageLog[]
   vendasLeads         VendasLead[]
+  commercialEntitlements CompanyCommercialEntitlement[]
+  trialPhoneUsages    TrialPhoneUsage[]
+}
+
+model CompanyCommercialEntitlement {
+  id                 String   @id @default(cuid())
+  company            Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companyId          Int
+  key                String
+  status             String   @default("active") // active | trialing | canceled | unavailable | blocked | paid | manual | pending_checkout
+  source             String   @default("system") // trial | checkout | manual | migration | system
+  currentPeriodStart DateTime?
+  currentPeriodEnd   DateTime?
+  metadataJson       String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@unique([companyId, key])
+  @@index([companyId, status])
+  @@index([key, status])
+}
+
+model TrialPhoneUsage {
+  id                 String   @id @default(cuid())
+  phoneNormalized    String   @unique
+  company            Company? @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  companyId          Int?
+  firstTrialStartsAt DateTime?
+  firstTrialEndsAt   DateTime?
+  firstSeenAt        DateTime @default(now())
+  lastSeenAt         DateTime @updatedAt
+  source             String   @default("qr_pair")
+  metadataJson       String?
+
+  @@index([companyId])
 }
 
 model CompanyWhatsAppEndpoint {

@@ -1352,6 +1352,220 @@
   gap: 1rem;
 }
 
+.masterHome,
+.masterHomeGrid,
+.masterHomeNote,
+.masterHomeAccess {
+  display: grid;
+  gap: 1rem;
+}
+
+.masterHomeHero {
+  display: grid;
+  grid-template-columns: minmax(0, 1.45fr) minmax(280px, 0.75fr);
+  gap: 1rem;
+  align-items: stretch;
+  padding: 1.25rem;
+  border: 1px solid var(--master-border);
+  border-radius: 26px;
+  background:
+    linear-gradient(135deg, rgba(24, 49, 83, 0.96), rgba(20, 122, 108, 0.92)),
+    var(--master-navy);
+  color: #fff;
+  box-shadow: var(--master-shadow-soft);
+}
+
+.masterHomeHero h2 {
+  max-width: 760px;
+  margin: 0.7rem 0 0;
+  font-size: 2rem;
+  line-height: 1.08;
+  font-weight: 900;
+  letter-spacing: 0;
+}
+
+.masterHomeHero p {
+  max-width: 780px;
+  margin: 0.8rem 0 0;
+  color: rgba(255, 255, 255, 0.78);
+  line-height: 1.6;
+}
+
+.masterHomeEyebrow {
+  display: inline-flex;
+  width: fit-content;
+  border-radius: 999px;
+  padding: 0.36rem 0.65rem;
+  background: rgba(255, 255, 255, 0.13);
+  color: rgba(255, 255, 255, 0.92);
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.hostingerStatus {
+  display: grid;
+  gap: 0.7rem;
+  align-content: start;
+  min-width: 0;
+  padding: 1rem;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.hostingerStatus span {
+  color: rgba(255, 255, 255, 0.74);
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.hostingerStatus strong {
+  font-size: 1.15rem;
+  font-weight: 900;
+}
+
+.hostingerStatus p {
+  margin: 0;
+  font-size: 0.92rem;
+}
+
+.hostingerLinks,
+.masterHomeCard {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+
+.hostingerLinks a {
+  border-radius: 999px;
+  padding: 0.58rem 0.78rem;
+  background: rgba(255, 255, 255, 0.16);
+  color: #fff;
+  font-size: 0.78rem;
+  font-weight: 900;
+  text-decoration: none;
+}
+
+.masterHomeGrid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.masterHomeCard {
+  min-height: 220px;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 1.1rem;
+  border: 1px solid var(--master-border);
+  border-radius: 22px;
+  background: var(--master-surface);
+  color: var(--master-text);
+  text-decoration: none;
+  box-shadow: var(--master-shadow-soft);
+  transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
+}
+
+.masterHomeCard:hover {
+  transform: translateY(-2px);
+  border-color: rgba(24, 49, 83, 0.22);
+  box-shadow: var(--master-shadow);
+}
+
+.masterHomeCard span {
+  width: fit-content;
+  border-radius: 999px;
+  padding: 0.34rem 0.58rem;
+  background: rgba(24, 49, 83, 0.08);
+  color: var(--master-text-soft);
+  font-size: 0.7rem;
+  font-weight: 900;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.masterHomeCard strong {
+  font-size: 1.18rem;
+  font-weight: 900;
+  letter-spacing: 0;
+}
+
+.masterHomeCard p {
+  margin: 0;
+  color: var(--master-text-soft);
+  line-height: 1.52;
+}
+
+.masterHomeCard small {
+  color: var(--master-text-soft);
+  font-weight: 800;
+}
+
+.masterHomeCard b {
+  color: var(--master-navy);
+  font-size: 0.88rem;
+}
+
+.masterHomeCard[data-tone="hostinger"] {
+  border-color: rgba(20, 122, 108, 0.22);
+  background:
+    linear-gradient(180deg, rgba(20, 122, 108, 0.11), transparent 48%),
+    var(--master-surface);
+}
+
+.masterHomeCard[data-tone="master"] {
+  border-color: rgba(24, 49, 83, 0.2);
+}
+
+.masterHomeCard[data-tone="support"] {
+  border-color: rgba(202, 141, 40, 0.24);
+}
+
+.masterHomeCard[data-tone="danger"] {
+  border-color: rgba(177, 77, 88, 0.24);
+}
+
+.masterHomeNote,
+.masterHomeAccess {
+  padding: 1rem 1.1rem;
+  border: 1px solid var(--master-border);
+  border-radius: 22px;
+  background: color-mix(in srgb, var(--surface) 82%, var(--background));
+}
+
+.masterHomeNote {
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+}
+
+.masterHomeNote strong,
+.masterHomeAccess h2 {
+  color: var(--master-text);
+  font-weight: 900;
+}
+
+.masterHomeNote p,
+.masterHomeAccess p {
+  margin: 0;
+  color: var(--master-text-soft);
+}
+
+.masterHomeAccess {
+  justify-items: start;
+}
+
+.masterHomeAccess h2 {
+  margin: 0;
+  font-size: 1.25rem;
+}
+
+.masterHomeError {
+  color: var(--master-rose) !important;
+  font-weight: 800;
+}
+
 @media (max-width: 1260px) {
   .commandBar {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1376,6 +1590,10 @@
   }
 
   .moduleCatalogGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .masterHomeGrid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
@@ -1446,6 +1664,11 @@
   .auditChangeValues {
     grid-template-columns: 1fr;
   }
+
+  .masterHomeHero,
+  .masterHomeNote {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 640px) {
@@ -1470,6 +1693,22 @@
   .commandUser > button {
     grid-column: 1 / -1;
     justify-self: stretch;
+  }
+
+  .masterHomeHero {
+    padding: 1rem;
+  }
+
+  .masterHomeHero h2 {
+    font-size: 1.55rem;
+  }
+
+  .masterHomeGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .masterHomeCard {
+    min-height: 190px;
   }
 }
 

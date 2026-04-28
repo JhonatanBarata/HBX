@@ -11,9 +11,12 @@ import { MasterContextService } from '../master-context/master-context.service';
 import { CompanyOperationalStatusService } from '../companies/company-operational-status.service';
 import { ensureWebsiteRuntimeSchema, listCompanyWebsiteConfigs } from '../website/website-runtime';
 import { ensureMasterBillingRuntimeSchema } from './master-runtime';
+import { buildMasterBillingSituation } from './master-billing-situation';
+import { buildMasterWhatsAppSituation } from './master-whatsapp-situation';
 import { buildWhatsAppCenterSnapshot } from '../companies/whatsapp-center.util';
 import {
   getMasterGlobalIntegrationConfig,
+  normalizeMasterGlobalIntegrationConfig,
   pickMasterMercadoPagoCredential,
   pickMasterWhatsAppCredential,
   serializeMasterGlobalIntegrationConfig,
@@ -164,6 +167,24 @@ export class ModulesService implements OnModuleInit {
     const normalized = String(value || '').trim();
     if (!normalized) return null;
     return `***${normalized.slice(-6)}`;
+  }
+
+  private preserveMasterWhatsAppCredentialSecrets(input: Array<any>, current: Array<any>) {
+    const currentByKey = new Map(
+      (current || []).map((entry) => [this.normalizeOptionalString(entry?.key), entry]),
+    );
+    return (input || []).map((entry) => {
+      const accessToken = this.normalizeOptionalString(entry?.accessToken);
+      if (accessToken) return entry;
+
+      const currentEntry = currentByKey.get(this.normalizeOptionalString(entry?.key));
+      if (!currentEntry?.accessToken) return entry;
+
+      return {
+        ...entry,
+        accessToken: currentEntry.accessToken,
+      };
+    });
   }
 
   private effectiveMercadoPagoAccessToken(company: any, masterIntegrations?: any) {
@@ -927,14 +948,17 @@ export class ModulesService implements OnModuleInit {
     await this.assertMasterUser(masterUserId);
     await ensureMasterBillingRuntimeSchema(this.prisma);
     const existing = await getMasterGlobalIntegrationConfig(this.prisma);
-    const currentLibraries = serializeMasterGlobalIntegrationConfig(existing);
+    const currentLibraries = normalizeMasterGlobalIntegrationConfig(existing);
+    const whatsappLibraryInput =
+      input?.whatsappLibrary !== undefined
+        ? this.preserveMasterWhatsAppCredentialSecrets(input.whatsappLibrary, currentLibraries.whatsappLibrary)
+        : currentLibraries.whatsappLibrary;
     const serializedLibraries = serializeMasterIntegrationLibrariesForStorage({
       mercadoPagoLibrary:
         input?.mercadoPagoLibrary !== undefined
           ? input.mercadoPagoLibrary
           : currentLibraries.mercadoPagoLibrary,
-      whatsappLibrary:
-        input?.whatsappLibrary !== undefined ? input.whatsappLibrary : currentLibraries.whatsappLibrary,
+      whatsappLibrary: whatsappLibraryInput,
     });
     const primaryMercadoPago = serializedLibraries.mercadoPagoLibrary.find((entry) => Boolean(entry.accessToken)) || null;
     const primaryWhatsApp =
@@ -1180,13 +1204,9 @@ export class ModulesService implements OnModuleInit {
 
     const masterConfig = await getMasterGlobalIntegrationConfig(this.prisma);
     const clearSource = input?.clearSource !== false;
-    const serializedMaster = serializeMasterGlobalIntegrationConfig(masterConfig);
-    const mercadoPagoLibrary = serializedMaster.mercadoPagoLibrary.map(
-      ({ accessTokenPreview: _preview, configured: _configured, ...entry }) => ({ ...entry }),
-    );
-    const whatsappLibrary = serializedMaster.whatsappLibrary.map(
-      ({ accessTokenPreview: _preview, configured: _configured, ...entry }) => ({ ...entry }),
-    );
+    const serializedMaster = normalizeMasterGlobalIntegrationConfig(masterConfig);
+    const mercadoPagoLibrary = serializedMaster.mercadoPagoLibrary.map((entry) => ({ ...entry }));
+    const whatsappLibrary = serializedMaster.whatsappLibrary.map((entry) => ({ ...entry }));
 
     let importedMercadoPagoKey: string | null = null;
     let importedWhatsAppKey: string | null = null;
@@ -2132,6 +2152,17 @@ export class ModulesService implements OnModuleInit {
         ? company.subscriptionCurrentPeriodEnd.toISOString()
         : null) ||
       (company?.trialEndsAt instanceof Date ? company.trialEndsAt.toISOString() : null);
+    const billingSituation = buildMasterBillingSituation({
+      company,
+      ledgerRows: companyLedgerRows,
+      canUse: active,
+      currentCycleAmount: finance.finalCycleAmount,
+      billingCycle: finance.billingCycle,
+      paymentMethod: company.paymentMethod,
+      provider: company.billingProvider,
+      nextDueAt,
+      daysOverdue,
+    });
     const trialEndsAt = company?.trialEndsAt instanceof Date ? company.trialEndsAt.toISOString() : null;
     const trialStartsAt =
       company?.trialStartsAt instanceof Date ? company.trialStartsAt.toISOString() : null;
@@ -2157,6 +2188,21 @@ export class ModulesService implements OnModuleInit {
     );
     const effectiveMercadoPagoToken = this.effectiveMercadoPagoAccessToken(company, masterIntegrations);
     const effectiveWhatsApp = this.effectiveWhatsAppConfig(company, masterIntegrations);
+    const whatsappEndpoints = (((company as any).whatsappEndpoints || this.buildLegacyEndpointSnapshot(company)) as any[]);
+    const whatsappCenter = buildWhatsAppCenterSnapshot({
+      company,
+      credential: selectedWhatsAppCredential,
+      effectiveConfig: effectiveWhatsApp,
+      includeInternal: true,
+      temporaryAvailable: false,
+    });
+    const whatsappSituation = buildMasterWhatsAppSituation({
+      company,
+      credential: selectedWhatsAppCredential,
+      effectiveConfig: effectiveWhatsApp,
+      whatsappCenter,
+      endpoints: whatsappEndpoints,
+    });
     const onboardingStatus = String(company?.onboardingStatus || '').trim().toLowerCase() || 'active_paid';
     const trialModuleSelection = this.normalizeOptionalString(company?.trialModuleSelection);
     const hasOperationalWebscraping = Boolean(webscrapingUsage?.lastSearchAt);
@@ -2227,6 +2273,7 @@ export class ModulesService implements OnModuleInit {
         : null,
       monthlyValue,
       finance,
+      billingSituation,
       paymentStatus: company.paymentStatus,
       paymentMethod: company.paymentMethod,
       billingCycle: finance.billingCycle,
@@ -2286,13 +2333,8 @@ export class ModulesService implements OnModuleInit {
         masterCredentialKey: selectedWhatsAppCredential?.key || company?.masterWhatsAppCredentialKey || null,
         masterCredentialLabel: selectedWhatsAppCredential?.label || null,
       },
-      whatsappCenter: buildWhatsAppCenterSnapshot({
-        company,
-        credential: selectedWhatsAppCredential,
-        effectiveConfig: effectiveWhatsApp,
-        includeInternal: true,
-        temporaryAvailable: false,
-      }),
+      whatsappCenter,
+      whatsappSituation,
       webscrapingUsage,
       mercadoPago: {
         status: company.mercadoPagoStatus || null,
@@ -2906,19 +2948,19 @@ export class ModulesService implements OnModuleInit {
                 ? endpoint.whatsappStatusUpdatedAt.toISOString()
                 : endpoint.whatsappStatusUpdatedAt || null,
             accessTokenConfigured: Boolean(endpoint.whatsappAccessToken),
-            accessTokenValue: endpoint.whatsappAccessToken || null,
+            accessTokenValue: null,
             isActive: endpoint.isActive !== false,
             isPrimary: Boolean(endpoint.isPrimary),
           })),
           companyAccessTokenConfigured: Boolean(company.whatsappAccessToken),
-          companyAccessTokenValue: company.whatsappAccessToken || null,
+          companyAccessTokenValue: null,
           usingMasterToken: Boolean(company.useMasterWhatsAppToken),
           masterCredentialKey: selectedWhatsAppCredential?.key || company.masterWhatsAppCredentialKey || null,
           masterCredentialLabel: selectedWhatsAppCredential?.label || null,
           masterAccessTokenConfigured: Boolean(
             selectedWhatsAppCredential?.accessToken && selectedWhatsAppCredential?.phoneNumberId,
           ),
-          masterAccessTokenValue: selectedWhatsAppCredential?.accessToken || null,
+          masterAccessTokenValue: null,
           masterPhoneNumberId: selectedWhatsAppCredential?.phoneNumberId || null,
           masterWabaId: selectedWhatsAppCredential?.wabaId || null,
           masterDisplayNumber: selectedWhatsAppCredential?.displayNumber || null,
@@ -3052,7 +3094,7 @@ export class ModulesService implements OnModuleInit {
         whatsappStatusError: company.whatsappStatusError || null,
         whatsappStatusUpdatedAt: company.whatsappStatusUpdatedAt || null,
         accessTokenConfigured: Boolean(company.whatsappAccessToken),
-        accessTokenPreview: company.whatsappAccessToken || null,
+        accessTokenPreview: this.previewSecret(company.whatsappAccessToken),
         whatsappEndpoints: (((company as any).whatsappEndpoints || this.buildLegacyEndpointSnapshot(company)) as any[]).map((endpoint) => ({
           id: endpoint.id,
           label: endpoint.label || null,

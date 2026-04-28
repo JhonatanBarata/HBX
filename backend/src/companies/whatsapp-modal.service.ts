@@ -11,7 +11,8 @@ type WhatsAppModalErrorCode =
   | 'WHATSAPP_MODAL_TIMEOUT'
   | 'WHATSAPP_MODAL_UNAVAILABLE'
   | 'WHATSAPP_MODAL_HTTP_ERROR'
-  | 'WHATSAPP_MODAL_QR_UNAVAILABLE';
+  | 'WHATSAPP_MODAL_QR_UNAVAILABLE'
+  | 'TRIAL_PHONE_ALREADY_USED';
 type ProviderHealth = 'disabled' | 'misconfigured' | 'healthy' | 'unavailable' | 'unknown';
 
 type CompanyModalFields = {
@@ -24,6 +25,13 @@ type CompanyModalFields = {
   whatsappModalConnectedAt: Date | null;
   whatsappModalLastError: string | null;
   whatsappModalUpdatedAt: Date | null;
+  paymentStatus: string | null;
+  subscriptionStatus: string | null;
+  onboardingStatus: string | null;
+  premiumAccess: boolean | null;
+  isActive: boolean | null;
+  trialStartsAt: Date | null;
+  trialEndsAt: Date | null;
 };
 
 type ModalConfig = {
@@ -88,6 +96,7 @@ export type WhatsAppModalResponse = {
     rawStatus: string | null;
   };
   errorCode: WhatsAppModalErrorCode | null;
+  redirectTo?: string | null;
 };
 
 class WhatsAppModalProviderError extends Error {
@@ -253,6 +262,9 @@ export class WhatsAppModalService {
       });
     } catch (error) {
       this.logger.warn(`Modal WhatsApp start confirmation failed for company ${company.id}: ${this.toProviderError(error).message}`);
+      if (!this.isTransientProviderError(error)) {
+        return this.buildFailureResponse(company, storedSnapshot, error, 'Falha ao iniciar a sessão do Modal WhatsApp.');
+      }
       return this.buildResponse(company, liveSnapshot, {
         success: true,
         providerHealth: 'unknown',
@@ -405,6 +417,9 @@ export class WhatsAppModalService {
       });
     } catch (error) {
       this.logger.warn(`Modal WhatsApp restart confirmation failed for company ${company.id}: ${this.toProviderError(error).message}`);
+      if (!this.isTransientProviderError(error)) {
+        return this.buildFailureResponse(company, storedSnapshot, error, 'Falha ao reiniciar a sessão do Modal WhatsApp.');
+      }
       return this.buildResponse(company, optimisticSnapshot, {
         success: true,
         providerHealth: 'unknown',
@@ -417,6 +432,124 @@ export class WhatsAppModalService {
   private normalizeOptionalString(value: unknown) {
     const normalized = String(value || '').trim();
     return normalized || null;
+  }
+
+  private normalizeTrialPhone(value: unknown): string | null {
+    const digits = String(value || '').replace(/\D+/g, '');
+    if (!digits) return null;
+    if (digits.length >= 12) return digits;
+    if ((digits.length === 10 || digits.length === 11) && !digits.startsWith('55')) {
+      return `55${digits}`;
+    }
+    return digits;
+  }
+
+  private isTrialingCompany(company: Pick<CompanyModalFields, 'paymentStatus' | 'subscriptionStatus' | 'onboardingStatus' | 'trialEndsAt'>) {
+    const paymentStatus = String(company.paymentStatus || '').trim().toUpperCase();
+    const subscriptionStatus = String(company.subscriptionStatus || '').trim().toLowerCase();
+    const onboardingStatus = String(company.onboardingStatus || '').trim().toLowerCase();
+    const trialEndsAt = company.trialEndsAt instanceof Date ? company.trialEndsAt : null;
+    const withinTrialWindow = !trialEndsAt || trialEndsAt.getTime() >= Date.now();
+    return withinTrialWindow && (
+      paymentStatus === 'TRIAL'
+      || subscriptionStatus === 'trialing'
+      || onboardingStatus === 'active_trial'
+    );
+  }
+
+  private isPaidOrActiveCompany(company: Pick<CompanyModalFields, 'paymentStatus' | 'subscriptionStatus' | 'premiumAccess'>) {
+    const paymentStatus = String(company.paymentStatus || '').trim().toUpperCase();
+    const subscriptionStatus = String(company.subscriptionStatus || '').trim().toLowerCase();
+    const trialing = paymentStatus === 'TRIAL' || subscriptionStatus === 'trialing';
+    return (
+      paymentStatus === 'PAID'
+      || paymentStatus === 'MANUAL'
+      || subscriptionStatus === 'active'
+      || subscriptionStatus === 'manual'
+      || (Boolean(company.premiumAccess) && !trialing)
+    );
+  }
+
+  private buildTrialPhoneMetadata(company: CompanyModalFields, snapshot: ModalSnapshot, source: string) {
+    return {
+      source,
+      whatsappModalStatus: snapshot.status,
+      whatsappModalPhone: snapshot.phone,
+      connectedAt: snapshot.connectedAt instanceof Date ? snapshot.connectedAt.toISOString() : null,
+      provider: snapshot.provider,
+      tenantKey: this.buildTenantKey(company),
+      recordedAt: new Date().toISOString(),
+    };
+  }
+
+  private async registerTrialPhoneUsageOrBlock(company: CompanyModalFields, phone: string | null, snapshot: ModalSnapshot, source: string) {
+    const phoneNormalized = this.normalizeTrialPhone(phone);
+    if (!phoneNormalized) return;
+
+    const metadataJson = JSON.stringify(this.buildTrialPhoneMetadata(company, snapshot, source));
+    const existing = await this.prisma.trialPhoneUsage.findUnique({
+      where: { phoneNormalized },
+    });
+
+    if (!existing) {
+      await this.prisma.trialPhoneUsage.create({
+        data: {
+          phoneNormalized,
+          companyId: Number(company.id),
+          firstTrialStartsAt: company.trialStartsAt || null,
+          firstTrialEndsAt: company.trialEndsAt || null,
+          source,
+          metadataJson,
+        },
+      });
+      return;
+    }
+
+    if (Number(existing.companyId || 0) === Number(company.id)) {
+      await this.prisma.trialPhoneUsage.update({
+        where: { phoneNormalized },
+        data: {
+          source,
+          metadataJson,
+        },
+      });
+      return;
+    }
+
+    if (this.isPaidOrActiveCompany(company)) {
+      await this.prisma.trialPhoneUsage.update({
+        where: { phoneNormalized },
+        data: {
+          metadataJson: JSON.stringify({
+            ...this.buildTrialPhoneMetadata(company, snapshot, source),
+            paidReuseCompanyId: Number(company.id),
+            previousTrialCompanyId: existing.companyId || null,
+          }),
+        },
+      });
+      return;
+    }
+
+    if (this.isTrialingCompany(company)) {
+      await this.prisma.company.update({
+        where: { id: Number(company.id) },
+        data: {
+          paymentStatus: 'EXPIRED',
+          subscriptionStatus: 'expired',
+          premiumAccess: false,
+          isActive: false,
+          onboardingStatus: 'suspended',
+          deactivatedAt: new Date(),
+          whatsappModalLastError: 'Este WhatsApp já utilizou o trial HBX. Escolha um plano para continuar.',
+          whatsappModalUpdatedAt: new Date(),
+        },
+      });
+      throw new WhatsAppModalProviderError(
+        'TRIAL_PHONE_ALREADY_USED',
+        'Este WhatsApp já utilizou o trial HBX. Escolha um plano para continuar.',
+        402,
+      );
+    }
   }
 
   private sleep(delayMs: number) {
@@ -1359,6 +1492,7 @@ export class WhatsAppModalService {
       message?: string;
       errorCode?: WhatsAppModalErrorCode | null;
       providerHealth?: ProviderHealth;
+      redirectTo?: string | null;
     },
   ): WhatsAppModalResponse {
     const config = this.readConfig();
@@ -1385,6 +1519,11 @@ export class WhatsAppModalService {
         rawStatus: snapshot.rawStatus,
       },
       errorCode: options?.errorCode || null,
+      redirectTo:
+        options?.redirectTo
+        || (options?.errorCode === 'TRIAL_PHONE_ALREADY_USED'
+          ? '/dashboard/planos?intent=trial_phone_used'
+          : null),
     };
   }
 
@@ -1563,6 +1702,13 @@ export class WhatsAppModalService {
         whatsappModalConnectedAt: true,
         whatsappModalLastError: true,
         whatsappModalUpdatedAt: true,
+        paymentStatus: true,
+        subscriptionStatus: true,
+        onboardingStatus: true,
+        premiumAccess: true,
+        isActive: true,
+        trialStartsAt: true,
+        trialEndsAt: true,
       },
     });
 
@@ -1582,6 +1728,9 @@ export class WhatsAppModalService {
     }
     if (snapshot.status === 'connected' && previousStatus !== 'connected') {
       this.logger.log(`QR conectado para company ${company.id}.`);
+    }
+    if (snapshot.status === 'connected' && snapshot.phone) {
+      await this.registerTrialPhoneUsageOrBlock(company, snapshot.phone, snapshot, origin);
     }
 
     await this.prisma.company.update({

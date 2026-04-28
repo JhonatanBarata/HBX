@@ -1,6 +1,7 @@
 import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { CustomerProfileService } from '../customer-profile/customer-profile.service';
 import { InboxService } from '../inbox/inbox.service';
+import { CommercialPlansService } from '../commercial-plans/commercial-plans.service';
 import { ConversationsService } from '../messaging/conversations.service';
 import { WebwhatsBridgeService } from '../messaging/webwhats-bridge.service';
 import { buildWhatsAppPhoneCandidates } from '../messaging/whatsapp-channel';
@@ -84,13 +85,16 @@ export class VendasService {
     private readonly conversations: ConversationsService,
     private readonly inboxService: InboxService,
     private readonly webwhatsBridge: WebwhatsBridgeService,
+    private readonly commercialPlansService: CommercialPlansService,
   ) {}
 
   async getAutomationBotConfigForUser(user: any) {
+    await this.commercialPlansService.assertBotAiEntitlementForUser(user);
     return this.inboxService.getBotConfig(user);
   }
 
   async updateAutomationBotConfigForUser(user: any, payload: unknown) {
+    await this.commercialPlansService.assertBotAiEntitlementForUser(user);
     return this.inboxService.updateBotConfig(user, payload);
   }
 

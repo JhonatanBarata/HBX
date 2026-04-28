@@ -59,6 +59,7 @@ export type WhatsAppModalPayload = {
   status: "offline" | "starting" | "waiting_qr" | "connected" | "disconnected" | "error";
   message: string;
   errorCode?: string | null;
+  redirectTo?: string | null;
   data: {
     companyId: number;
     companyName: string;
@@ -114,4 +115,11 @@ export function whatsappModalStatusLabel(value?: string | null) {
   if (normalized === "disconnected") return "Desconectado";
   if (normalized === "error") return "Erro";
   return "Offline";
+}
+
+export function getWhatsAppModalPlanRedirect(payload?: WhatsAppModalPayload | null) {
+  if (payload?.errorCode === "TRIAL_PHONE_ALREADY_USED") {
+    return payload.redirectTo || "/dashboard/planos?intent=trial_phone_used";
+  }
+  return null;
 }

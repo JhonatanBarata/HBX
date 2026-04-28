@@ -9,677 +9,49 @@ import {
   useRef,
   useState,
 } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import DashboardScaffold from "@/components/DashboardScaffold";
-import { apiFetch, getToken } from "../_lib/api";
+import { apiFetch } from "../_lib/api";
 import { useRequireAuth } from "../_lib/useRequireAuth";
 import { dispatchMasterContextChanged } from "@/lib/masterContextEvents";
+import { EyeIcon, ModalShell } from "./_components/MasterPremiumChrome";
+import { DistributionCard, MetricCard, PaymentChart, RevenueChart } from "./_components/MasterPremiumCharts";
+import { useMasterFocusLock } from "./_hooks/useMasterFocusLock";
+import { fetchMasterWorkspaceBootstrap } from "./master.bootstrap";
+import { formatCurrency } from "./master.formatters";
+import type {
+  AuditEntry,
+  CompanyDetailPayload,
+  CompanyIntegrationConnection,
+  CompanySummary,
+  ConfirmActionState,
+  CurrentUser,
+  DrawerTab,
+  FinanceSettingsDraft,
+  IntegrationEditorState,
+  IntegrationProviderId,
+  ManualPaymentState,
+  MasterIntegrationsDraft,
+  MasterMercadoPagoCredential,
+  MasterWhatsAppCredential,
+  MasterWhatsAppSituationMode,
+  MercadoPagoDraft,
+  ModuleCatalogDraft,
+  OperationalStatusChip,
+  OperationalTone,
+  ProfileDraft,
+  StatusBucket,
+  UserModalState,
+  WebsiteDraft,
+  WhatsAppMigrationWorkflowDraft,
+  WorkspacePayload,
+} from "./master.types";
 import styles from "./page.module.css";
-
-type CurrentUser = {
-  id: number;
-  username?: string | null;
-  email?: string | null;
-  isSystemMaster?: boolean;
-  masterContext?: {
-    active: boolean;
-    companyId: number | null;
-    companyName: string | null;
-  } | null;
-};
-
-type MetricKind = "currency" | "count";
-
-type SummaryMetric = {
-  kind: MetricKind;
-  value: number;
-  auxValue?: number | null;
-  previousValue?: number | null;
-  delta?: number | null;
-  note: string;
-};
-
-type RevenuePoint = {
-  id: string;
-  label: string;
-  received: number;
-  projected: number;
-  loss: number;
-};
-
-type PaymentPoint = {
-  id: string;
-  label: string;
-  approved: number;
-  failed: number;
-  manual: number;
-  pending: number;
-};
-
-type DistributionPoint = {
-  key: string;
-  label: string;
-  value: number;
-};
-
-type TrialConversion = {
-  active: number;
-  converted: number;
-  expired: number;
-  extended: number;
-};
-
-type ModuleRevenuePoint = {
-  label: string;
-  value: number;
-};
-
-type StatusBucket =
-  | "PAYING"
-  | "MANUAL_PREMIUM"
-  | "TRIAL"
-  | "TRIAL_ENDING"
-  | "OVERDUE"
-  | "SUSPENDED"
-  | "NO_METHOD"
-  | "UNKNOWN";
-
-type LedgerEntry = {
-  id: string;
-  entryType: string;
-  status: string;
-  origin?: string | null;
-  competence?: string | null;
-  amount: number;
-  dueDate?: string | null;
-  paidAt?: string | null;
-  paymentMethod?: string | null;
-  referenceLabel?: string | null;
-  observation?: string | null;
-  createdAt?: string | null;
-};
-
-type OperationalTone = "green" | "yellow" | "red";
-
-type OperationalStatusChip = {
-  key: "token" | "meta" | "webwhats" | "payment" | "access";
-  label: string;
-  shortLabel: string;
-  tone: OperationalTone;
-  value: string;
-  detail: string;
-  hint: string;
-  href: string;
-  active: boolean;
-  updatedAt?: string | null;
-};
-
-type CompanySummary = {
-  id: number;
-  name: string;
-  slug?: string | null;
-  createdAt?: string | null;
-  onboardingStatus?: string | null;
-  onboardingLabel?: string | null;
-  trialModuleSelection?: "vendas" | "recovery" | string | null;
-  emailConfirmation: {
-    confirmed: boolean;
-    confirmedUsersCount: number;
-    pendingUsersCount: number;
-    lastConfirmedAt?: string | null;
-  };
-  activationStatus?: "pending_email_confirmation" | "needs_activation" | "operating" | "basic_access" | string | null;
-  activationNeedsAttention?: boolean;
-  primaryContactName?: string | null;
-  contactEmail?: string | null;
-  contactPhone?: string | null;
-  acquisitionSource?: string | null;
-  acquisitionSourceDetail?: string | null;
-  referralReferrerName?: string | null;
-  referralCode?: string | null;
-  isActive: boolean;
-  userCount: number;
-  plan?: {
-    id: number;
-    name: string;
-    price: number;
-  } | null;
-  monthlyValue: number;
-  paymentStatus: string;
-  paymentMethod?: string | null;
-  billingCycle?: "MONTHLY" | "ANNUAL" | string | null;
-  subscriptionStatus?: string | null;
-  billingProvider?: string | null;
-  premiumAccess?: boolean;
-  trialStartsAt?: string | null;
-  trialEndsAt?: string | null;
-  trialRemainingDays?: number | null;
-  subscriptionCurrentPeriodStart?: string | null;
-  subscriptionCurrentPeriodEnd?: string | null;
-  nextDueAt?: string | null;
-  daysOverdue: number;
-  currentOutstandingValue: number;
-  statusBucket: StatusBucket;
-  riskLevel: "stable" | "warning" | "critical";
-  financialSituation: string;
-  lastPayment?: LedgerEntry | null;
-  lastFailure?: LedgerEntry | null;
-  manualPaymentPending?: boolean;
-  recentCardFailure?: boolean;
-  websiteNeedsAttention?: boolean;
-  whatsappCenter: {
-    mode: "NONE" | "QR" | "OFFICIAL";
-    status: "NOT_CONNECTED" | "QR" | "OFFICIAL" | "ATTENTION";
-    statusLabel: string;
-    statusHint: string;
-    qrConnection: {
-      selected: boolean;
-      status: "NOT_CONNECTED" | "QR" | "ATTENTION";
-      available: boolean;
-      note: string;
-    };
-    official: {
-      selected: boolean;
-      configured: boolean;
-      connected: boolean;
-      status?: string | null;
-      displayNumber?: string | null;
-      usingMasterToken: boolean;
-      credentialLabel?: string | null;
-      phoneNumberId?: string | null;
-      wabaId?: string | null;
-    };
-    migration: {
-      interestRequested: boolean;
-      requestedAt?: string | null;
-      workflowStatus?: "NONE" | "REQUESTED" | "CONTACTED" | "RESOLVED";
-      source?: string | null;
-      lastContactAt?: string | null;
-      internalNote?: string | null;
-    };
-  };
-  website: {
-    enabled: boolean;
-    configured: boolean;
-    adminEnabled: boolean;
-    publicUrl?: string | null;
-    adminUrl?: string | null;
-    projectId?: string | null;
-    launchMode?: "public" | "admin";
-  };
-  mercadoPago: {
-    status?: string | null;
-    accountEmail?: string | null;
-    accountUserId?: string | null;
-    tokenConfigured: boolean;
-    usingMasterToken?: boolean;
-    masterCredentialKey?: string | null;
-    masterCredentialLabel?: string | null;
-  };
-  finance: {
-    billingCycle: "MONTHLY" | "ANNUAL";
-    annualPlanDiscountPercent: number;
-    annualDiscountValue: number;
-    manualDiscountPercent: number;
-    manualDiscountValue: number;
-    basePlanCycleAmount?: number;
-    activeUsers?: number;
-    includedActiveUsers?: number;
-    extraActiveUsers?: number;
-    extraSeatMonthlyAmount?: number;
-    extraSeatCycleAmount?: number;
-    referralDiscountPercent: number;
-    referralDiscountMode: "ONCE" | "RECURRING" | string;
-    referralDiscountValue: number;
-    referralDiscountEligible: boolean;
-    referralDiscountAppliedNow: boolean;
-    referralDiscountConsumedAt?: string | null;
-    freeMonths: number;
-    acquisitionSource?: string | null;
-    acquisitionSourceDetail?: string | null;
-    referralReferrerName?: string | null;
-    referralCode?: string | null;
-    isReferral?: boolean;
-    cardConfigured: boolean;
-    cardBrand?: string | null;
-    cardLast4?: string | null;
-    cardUpdatedAt?: string | null;
-    pixAvailable: boolean;
-    baseCycleAmount: number;
-    finalCycleAmount: number;
-    pendingCount: number;
-    failedCount: number;
-    refundCount: number;
-    refundAmount: number;
-    hasPendingIssues: boolean;
-  };
-  webscrapingUsage: {
-    searchesToday: number;
-    blockedToday: number;
-    totalReusedToday: number;
-    fetchedToday: number;
-    globalCacheHitsToday: number;
-    globalCacheReusedToday: number;
-    globalCacheReuseRate: number;
-    lastAttemptAt?: string | null;
-    lastAttemptMessage?: string | null;
-    lastSearchAt?: string | null;
-    lastSearchLabel?: string | null;
-    lastSearchUser?: string | null;
-    lastResultCount: number;
-    lastSearchSource?: "history" | "google" | "hybrid" | "global_cache" | string | null;
-    lastTechnicalCacheUsed: boolean;
-    lastTechnicalCacheReusedCount: number;
-    hasBlockedAttempts: boolean;
-  };
-  modules: Array<{
-    key: string;
-    name: string;
-    enabled: boolean;
-    monthlyPrice?: number;
-  }>;
-  modulesTotalMonthlyValue?: number;
-  operationalStatus?: {
-    companyId: number;
-    companyName?: string | null;
-    statuses: OperationalStatusChip[];
-    tokenActive: boolean;
-    metaActive: boolean;
-    webWhatsActive: boolean;
-    paymentActive: boolean;
-    accessActive: boolean;
-    accessReason?: string | null;
-    accessSource?: "paid" | "trial" | "blocked";
-    overallHealth: OperationalTone;
-    overallHint: string;
-    overallLabel: string;
-    lastCheckedAt?: string | null;
-  } | null;
-};
-
-type MasterMercadoPagoCredential = {
-  key: string;
-  label: string;
-  accessToken?: string | null;
-  accessTokenPreview?: string | null;
-  configured: boolean;
-  sourceCompanyId?: number | null;
-  sourceCompanyName?: string | null;
-  createdAt?: string | null;
-  updatedAt?: string | null;
-};
-
-type MasterWhatsAppCredential = {
-  key: string;
-  label: string;
-  accessToken?: string | null;
-  accessTokenPreview?: string | null;
-  phoneNumberId?: string | null;
-  wabaId?: string | null;
-  whatsappNumber?: string | null;
-  displayNumber?: string | null;
-  configured: boolean;
-  sourceCompanyId?: number | null;
-  sourceCompanyName?: string | null;
-  createdAt?: string | null;
-  updatedAt?: string | null;
-};
-
-type AttentionGroup = {
-  id: string;
-  title: string;
-  severity: "info" | "warning" | "danger" | string;
-  count: number;
-  companies: Array<{
-    id: number;
-    name: string;
-    statusBucket: StatusBucket;
-    nextDueAt?: string | null;
-    trialRemainingDays?: number | null;
-  }>;
-};
-
-type WorkspacePayload = {
-  generatedAt: string;
-  summary: Record<string, SummaryMetric>;
-  charts: {
-    revenue: RevenuePoint[];
-    payments: PaymentPoint[];
-    baseStatus: DistributionPoint[];
-    trialConversion: TrialConversion;
-    revenueByModule: ModuleRevenuePoint[];
-  };
-  attention: AttentionGroup[];
-  companies: CompanySummary[];
-  masterIntegrations: {
-    mercadoPagoConfigured: boolean;
-    whatsappConfigured: boolean;
-    annualPlanDiscountPercent: number;
-    extraSeatMonthlyAmount: number;
-    referralDiscountActive: boolean;
-    referralDiscountPercent: number;
-    referralDiscountMode: "ONCE" | "RECURRING" | string;
-    mercadoPagoLibrary: MasterMercadoPagoCredential[];
-    whatsappLibrary: MasterWhatsAppCredential[];
-  };
-  systemModules: Array<{
-    id: number;
-    key: string;
-    name: string;
-    description?: string | null;
-    monthlyPrice: number;
-    defaultEnabled: boolean;
-    companyAssignable: boolean;
-    serviceUrl?: string | null;
-  }>;
-};
-
-type MasterWorkspaceBootstrap = {
-  token: string | null;
-  workspacePayload: WorkspacePayload;
-  userPayload: CurrentUser;
-};
-
-let masterWorkspaceBootstrapPromise: Promise<MasterWorkspaceBootstrap> | null = null;
-let masterWorkspaceBootstrapPromiseToken: string | null = null;
-let masterWorkspaceBootstrapSnapshot: (MasterWorkspaceBootstrap & { cachedAt: number }) | null = null;
-const MASTER_WORKSPACE_BOOTSTRAP_CACHE_MS = 5000;
-
-async function fetchMasterWorkspaceBootstrap(useCache: boolean) {
-  const token = getToken();
-  const now = Date.now();
-  const cached = masterWorkspaceBootstrapSnapshot;
-
-  if (
-    useCache &&
-    cached &&
-    cached.token === token &&
-    now - cached.cachedAt < MASTER_WORKSPACE_BOOTSTRAP_CACHE_MS
-  ) {
-    return cached;
-  }
-
-  if (useCache && masterWorkspaceBootstrapPromise && masterWorkspaceBootstrapPromiseToken === token) {
-    return masterWorkspaceBootstrapPromise;
-  }
-
-  const request = Promise.all([
-    apiFetch<WorkspacePayload>("/modules/master/workspace"),
-    apiFetch<CurrentUser>("/profile/current-user"),
-  ]).then(([workspacePayload, userPayload]) => {
-    const nextSnapshot = {
-      token,
-      workspacePayload,
-      userPayload,
-      cachedAt: Date.now(),
-    };
-    masterWorkspaceBootstrapSnapshot = nextSnapshot;
-    return nextSnapshot;
-  });
-
-  masterWorkspaceBootstrapPromise = request;
-  masterWorkspaceBootstrapPromiseToken = token;
-
-  try {
-    return await request;
-  } finally {
-    if (masterWorkspaceBootstrapPromise === request) {
-      masterWorkspaceBootstrapPromise = null;
-      masterWorkspaceBootstrapPromiseToken = null;
-    }
-  }
-}
-
-type CompanyUser = {
-  id: number;
-  username?: string | null;
-  email?: string | null;
-  role: string;
-  isActive: boolean;
-  deactivatedAt?: string | null;
-  retentionUntil?: string | null;
-  createdAt?: string | null;
-};
-
-type AuditEntry = {
-  id: string;
-  scope: string;
-  action: string;
-  severity: string;
-  metadata?: Record<string, unknown> | null;
-  createdAt: string;
-};
-
-type CompanyDetailPayload = {
-  generatedAt: string;
-  company: CompanySummary & {
-    taxDocument?: string | null;
-    users: CompanyUser[];
-    financeHistory: LedgerEntry[];
-    trialHistory: AuditEntry[];
-    auditTimeline: AuditEntry[];
-    whatsapp: {
-      tokenConfigured?: boolean;
-      usingMasterToken?: boolean;
-      endpoints: Array<{
-        id: string;
-        label?: string | null;
-        moduleKey?: string | null;
-        whatsappNumber?: string | null;
-        whatsappDisplayNumber?: string | null;
-        whatsappStatus?: string | null;
-        whatsappStatusError?: string | null;
-        accessTokenConfigured: boolean;
-        accessTokenValue?: string | null;
-        isActive: boolean;
-        isPrimary: boolean;
-      }>;
-      companyAccessTokenConfigured?: boolean;
-      companyAccessTokenValue?: string | null;
-      masterCredentialKey?: string | null;
-      masterCredentialLabel?: string | null;
-      masterAccessTokenConfigured?: boolean;
-      masterAccessTokenValue?: string | null;
-      masterPhoneNumberId?: string | null;
-      masterWabaId?: string | null;
-      masterDisplayNumber?: string | null;
-    };
-    mercadoPago: CompanySummary["mercadoPago"] & {
-      statusError?: string | null;
-      lastValidatedAt?: string | null;
-      accessTokenValue?: string | null;
-      masterCredentialKey?: string | null;
-      masterCredentialLabel?: string | null;
-      masterTokenConfigured?: boolean;
-      masterAccessTokenValue?: string | null;
-    };
-    masterIntegrations?: WorkspacePayload["masterIntegrations"];
-  };
-};
-
-type ProfileDraft = {
-  name: string;
-  primaryContactName: string;
-  contactEmail: string;
-  contactPhone: string;
-  taxDocument: string;
-  paymentMethod: string;
-  subscriptionStatus: string;
-  billingProvider: string;
-  premiumAccess: boolean;
-};
-
-type WebsiteDraft = {
-  websiteEnabled: boolean;
-  websitePublicUrl: string;
-  websiteAdminUrl: string;
-  websiteProjectId: string;
-  websiteAdminEnabled: boolean;
-  websiteLaunchMode: "public" | "admin";
-};
-
-type MercadoPagoDraft = {
-  mercadoPagoAccessToken: string;
-  status: string;
-  statusError: string | null;
-  accountEmail: string | null;
-  accountUserId: string | null;
-  lastValidatedAt: string | null;
-  accessTokenConfigured: boolean;
-};
-
-type ModuleCatalogDraft = {
-  key: string;
-  name: string;
-  description: string;
-  monthlyPrice: string;
-  companyAssignable: boolean;
-  defaultEnabled: boolean;
-};
-
-type MasterIntegrationsDraft = WorkspacePayload["masterIntegrations"];
-
-type FinanceSettingsDraft = {
-  billingCycle: "MONTHLY" | "ANNUAL";
-  manualDiscountPercent: string;
-  freeMonths: string;
-};
-
-type WhatsAppMigrationWorkflowDraft = {
-  status: "REQUESTED" | "CONTACTED" | "RESOLVED";
-  internalNote: string;
-  lastContactAt: string;
-};
-
-type IntegrationProviderId = "AUVO" | "TAGPLUS";
-
-type IntegrationProviderModel = {
-  id: IntegrationProviderId;
-  label: string;
-  category: string;
-  adapterMode: "scaffold" | "real-http";
-  syncTargets: string[];
-  credentialFields: Array<{
-    key: string;
-    label: string;
-    required: boolean;
-    secret: boolean;
-  }>;
-  notes: string[];
-};
-
-type IntegrationCredentialSummary = {
-  configured: boolean;
-  fields: Array<{
-    key: string;
-    label: string;
-    configured: boolean;
-  }>;
-};
-
-type IntegrationConnectionConfigSummary = {
-  authMode?: string | null;
-  baseUrl?: string | null;
-  externalAccountId?: string | null;
-};
-
-type CompanyIntegrationSyncRun = {
-  id: string;
-  status: string;
-  importedCount: number;
-  updatedCount: number;
-  failedCount: number;
-  startedAt?: string | null;
-  finishedAt?: string | null;
-  errorSummary?: string | null;
-};
-
-type CompanyIntegrationConnection = {
-  id: string;
-  companyId: number;
-  provider: IntegrationProviderId;
-  providerModel?: IntegrationProviderModel | null;
-  instanceName: string;
-  status: string;
-  lastTestedAt?: string | null;
-  lastTestStatus?: string | null;
-  lastTestMessage?: string | null;
-  lastSyncAt?: string | null;
-  lastSuccessAt?: string | null;
-  lastError?: string | null;
-  isActive: boolean;
-  secretConfigured: boolean;
-  secretPreview?: string | null;
-  credentialSummary?: IntegrationCredentialSummary | null;
-  connectionConfig?: IntegrationConnectionConfigSummary | null;
-  lastSyncRun?: CompanyIntegrationSyncRun | null;
-  createdAt?: string | null;
-  updatedAt?: string | null;
-};
-
-type IntegrationEditorState = {
-  mode: "create" | "edit";
-  connectionId?: string;
-  provider: IntegrationProviderId;
-  instanceName: string;
-  secret: string;
-  appKey: string;
-  baseUrl: string;
-  authMode: string;
-  externalAccountId: string;
-  isActive: boolean;
-};
-
-type UserModalState = {
-  mode: "create" | "edit" | "reset";
-  companyId: number;
-  companyName: string;
-  userId?: number;
-  userLabel?: string;
-  email: string;
-  username: string;
-  role: "USER" | "ADMIN";
-  password: string;
-};
-
-type ManualPaymentState = {
-  companyId: number;
-  companyName: string;
-  value: string;
-  competence: string;
-  paidAt: string;
-  dueDate: string;
-  paymentMethod: string;
-  observation: string;
-  settlePending: boolean;
-  generateAudit: boolean;
-};
-
-type ConfirmActionState = {
-  title: string;
-  description: string;
-  confirmLabel: string;
-  tone: "primary" | "danger";
-  details?: string[];
-  confirmationKeyword?: string;
-  confirmationInputLabel?: string;
-  run: () => Promise<void>;
-};
 
 function buildHardDeleteConfirmation(companyName: string) {
   const normalized = companyName.trim();
   return normalized ? `EXCLUIR ${normalized}` : "EXCLUIR EMPRESA";
 }
-
-type DrawerTab =
-  | "summary"
-  | "finance"
-  | "users"
-  | "modules"
-  | "website"
-  | "integrations"
-  | "audit"
-  | "danger";
 
 const FILTERS = [
   { id: "all", label: "Todos" },
@@ -713,12 +85,17 @@ const TABS: Array<{ id: DrawerTab; label: string }> = [
   { id: "danger", label: "Perigo" },
 ];
 
-function formatCurrency(value?: number | null) {
-  return Number(value || 0).toLocaleString("pt-BR", {
-    style: "currency",
-    currency: "BRL",
-    maximumFractionDigits: 2,
-  });
+function normalizeDrawerTab(value?: string | null): DrawerTab {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (normalized === "finance") return "finance";
+  if (normalized === "whatsapp") return "integrations";
+  if (normalized === "users") return "users";
+  if (normalized === "modules") return "modules";
+  if (normalized === "website") return "website";
+  if (normalized === "integrations") return "integrations";
+  if (normalized === "audit") return "audit";
+  if (normalized === "danger") return "danger";
+  return "summary";
 }
 
 function formatCurrencyInput(value?: number | null) {
@@ -897,6 +274,37 @@ function compactOperationalHint(value?: string | null, fallback = "Sem detalhe o
   const compact = String(firstSentence || normalized).trim();
   if (compact.length <= 96) return compact;
   return `${compact.slice(0, 93).trimEnd()}...`;
+}
+
+function whatsappSituationTone(
+  situation?: CompanySummary["whatsappSituation"] | null,
+  center?: CompanySummary["whatsappCenter"] | null,
+) {
+  if (situation?.status === "connected") return situation.mode === "qr" ? "brand" : "success";
+  if (situation?.status === "error") return "danger";
+  if (situation?.status === "attention") return "warning";
+  if (center?.status === "OFFICIAL") return "success";
+  if (center?.status === "QR") return "brand";
+  if (center?.status === "ATTENTION") return "danger";
+  return "neutral";
+}
+
+function whatsappModeLabel(
+  mode?: MasterWhatsAppSituationMode | string | null,
+  center?: CompanySummary["whatsappCenter"] | null,
+) {
+  if (mode === "qr") return "QR rápido = teste/onboarding rápido";
+  if (mode === "official") return "Meta oficial = produção";
+  if (mode === "master_token") return "Token Master = credencial global controlada pelo Master";
+  if (mode === "mixed") return "Misto: QR, Meta e Token Master em paralelo";
+  if (mode === "none") return "Sem WhatsApp configurado";
+  if (center?.mode === "QR") return "QR rápido = teste/onboarding rápido";
+  if (center?.mode === "OFFICIAL") return "Meta oficial = produção";
+  return "Sem WhatsApp configurado";
+}
+
+function whatsappStatusLabel(company: CompanySummary) {
+  return company.whatsappSituation?.statusLabel || company.whatsappCenter?.statusLabel || "Não conectado";
 }
 
 function normalizeOperationalHref(value?: string | null) {
@@ -1274,23 +682,6 @@ function toDateInputValue(value?: string | null) {
   return date.toISOString().slice(0, 10);
 }
 
-function metricValue(metric?: SummaryMetric) {
-  if (!metric) return "-";
-  return metric.kind === "currency"
-    ? formatCurrency(metric.value)
-    : metric.value.toLocaleString("pt-BR");
-}
-
-function metricDelta(metric?: SummaryMetric) {
-  if (!metric || metric.delta == null || metric.previousValue == null) return "Sem base anterior";
-  const sign = metric.delta > 0 ? "+" : metric.delta < 0 ? "-" : "";
-  const deltaValue =
-    metric.kind === "currency"
-      ? formatCurrency(Math.abs(metric.delta))
-      : Math.abs(metric.delta).toLocaleString("pt-BR");
-  return `${sign}${deltaValue} vs. mês anterior`;
-}
-
 function buildProfileDraft(company: CompanyDetailPayload["company"]): ProfileDraft {
   return {
     name: company.name || "",
@@ -1421,243 +812,10 @@ function buildCsv(detail: CompanyDetailPayload["company"]) {
     .join("\n");
 }
 
-function MetricCard({ title, metric, accent }: { title: string; metric?: SummaryMetric; accent?: string }) {
-  return (
-    <article className={styles.metricCard} data-accent={accent || "default"}>
-      <div className={styles.metricCardHeader}>
-        <p className={styles.metricEyebrow}>{title}</p>
-        <span className={styles.metricTrend}>{metricDelta(metric)}</span>
-      </div>
-      <strong className={styles.metricValue}>{metricValue(metric)}</strong>
-      {metric?.auxValue ? <span className={styles.metricAux}>Auxiliar: {formatCurrency(metric.auxValue)}</span> : null}
-      <p className={styles.metricNote}>{metric?.note || "Sem dados consolidados."}</p>
-    </article>
-  );
-}
-
-function RevenueChart({ points }: { points: RevenuePoint[] }) {
-  if (!points.length) return <div className={styles.emptyPanel}>Sem histórico suficiente.</div>;
-
-  const width = 860;
-  const height = 280;
-  const paddingX = 28;
-  const paddingY = 28;
-  const maxValue = Math.max(1, ...points.flatMap((point) => [point.received, point.projected, point.loss]));
-  const stepX = points.length > 1 ? (width - paddingX * 2) / (points.length - 1) : width - paddingX * 2;
-  const baselineY = height - paddingY;
-
-  const build = (key: keyof RevenuePoint) =>
-    points.map((point, index) => {
-      const x = paddingX + stepX * index;
-      const value = Number(point[key] || 0);
-      const y = baselineY - (value / maxValue) * (height - paddingY * 2);
-      return { x, y, label: point.label };
-    });
-
-  const received = build("received");
-  const projected = build("projected");
-  const loss = build("loss");
-  const path = (items: Array<{ x: number; y: number }>) =>
-    items.map((item, index) => `${index === 0 ? "M" : "L"} ${item.x} ${item.y}`).join(" ");
-  const projectedArea = `${path(projected)} L ${projected[projected.length - 1]?.x || 0} ${baselineY} L ${projected[0]?.x || 0} ${baselineY} Z`;
-
-  return (
-    <div className={styles.chartCard}>
-      <div className={styles.panelCardHeader}>
-        <div>
-          <p className={styles.sectionEyebrow}>Financeiro</p>
-          <h3>Receita recebida, prevista e perda</h3>
-        </div>
-        <div className={styles.chartLegend}>
-          <span><i className={styles.legendDot} data-tone="received" />Recebida</span>
-          <span><i className={styles.legendDot} data-tone="projected" />Prevista</span>
-          <span><i className={styles.legendDot} data-tone="loss" />Perda</span>
-        </div>
-      </div>
-      <svg viewBox={`0 0 ${width} ${height}`} className={styles.chartSvg}>
-        {[0.2, 0.45, 0.7, 0.95].map((guide) => {
-          const y = paddingY + (height - paddingY * 2) * guide;
-          return <line key={guide} x1={paddingX} x2={width - paddingX} y1={y} y2={y} className={styles.chartGrid} />;
-        })}
-        <path d={projectedArea} className={styles.chartProjectedArea} />
-        <path d={path(projected)} className={styles.chartProjectedLine} />
-        <path d={path(received)} className={styles.chartReceivedLine} />
-        <path d={path(loss)} className={styles.chartLossLine} />
-        {received.map((point) => (
-          <g key={point.label}>
-            <circle cx={point.x} cy={point.y} r={4.5} className={styles.chartPoint} />
-            <text x={point.x} y={baselineY + 18} textAnchor="middle" className={styles.chartAxis}>
-              {point.label}
-            </text>
-          </g>
-        ))}
-      </svg>
-    </div>
-  );
-}
-
-function DistributionCard({
-  title,
-  eyebrow,
-  points,
-  currency = false,
-}: {
-  title: string;
-  eyebrow: string;
-  points: Array<{ label: string; value: number }>;
-  currency?: boolean;
-}) {
-  const max = Math.max(1, ...points.map((point) => point.value));
-
-  return (
-    <div className={styles.panelCard}>
-      <div className={styles.panelCardHeader}>
-        <div>
-          <p className={styles.sectionEyebrow}>{eyebrow}</p>
-          <h3>{title}</h3>
-        </div>
-      </div>
-      <div className={styles.distributionList}>
-        {points.length ? (
-          points.map((point) => (
-            <div key={point.label} className={styles.distributionItem}>
-              <div className={styles.distributionMeta}>
-                <span>{point.label}</span>
-                <strong>{currency ? formatCurrency(point.value) : point.value.toLocaleString("pt-BR")}</strong>
-              </div>
-              <div className={styles.distributionTrack}>
-                <div className={styles.distributionFill} style={{ width: `${(point.value / max) * 100}%` }} />
-              </div>
-            </div>
-          ))
-        ) : (
-          <div className={styles.emptyPanel}>Nenhum dado suficiente.</div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function paymentModeLabel(mode: "approved" | "failed" | "manual" | "pending") {
-  if (mode === "approved") return "Aprovados";
-  if (mode === "failed") return "Falhos";
-  if (mode === "manual") return "Manuais";
-  return "Pendentes";
-}
-
-function PaymentChart({
-  points,
-  mode,
-  onModeChange,
-}: {
-  points: PaymentPoint[];
-  mode: "approved" | "failed" | "manual" | "pending";
-  onModeChange: (mode: "approved" | "failed" | "manual" | "pending") => void;
-}) {
-  if (!points.length) return <div className={styles.emptyPanel}>Sem volume suficiente para pagamentos.</div>;
-
-  const max = Math.max(1, ...points.map((point) => Number(point[mode] || 0)));
-
-  return (
-    <div className={styles.panelCard}>
-      <div className={styles.panelCardHeader}>
-        <div>
-          <p className={styles.sectionEyebrow}>Pagamentos</p>
-          <h3>{paymentModeLabel(mode)} por período</h3>
-        </div>
-        <div className={styles.filterChips}>
-          {(["approved", "failed", "manual", "pending"] as const).map((option) => (
-            <button
-              key={option}
-              type="button"
-              className={mode === option ? styles.filterChipActive : styles.filterChip}
-              onClick={() => onModeChange(option)}
-            >
-              {paymentModeLabel(option)}
-            </button>
-          ))}
-        </div>
-      </div>
-      <div className={styles.paymentBars}>
-        {points.map((point) => {
-          const value = Number(point[mode] || 0);
-          return (
-            <article key={`${point.id}-${mode}`} className={styles.paymentBar}>
-              <div className={styles.paymentBarTrack}>
-                <div
-                  className={styles.paymentBarFill}
-                  data-mode={mode}
-                  style={{ height: `${Math.max(10, (value / max) * 100)}%` }}
-                />
-              </div>
-              <strong className={styles.paymentBarValue}>{value.toLocaleString("pt-BR")}</strong>
-              <span className={styles.paymentBarLabel}>{point.label}</span>
-            </article>
-          );
-        })}
-      </div>
-      <p className={styles.paymentHint}>
-        Alterne entre aprovados, falhos, manuais e pendentes para localizar rapidamente a pressão do funil de cobrança.
-      </p>
-    </div>
-  );
-}
-
-function EyeIcon() {
-  return (
-    <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
-      <path
-        d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" strokeWidth="1.8" />
-    </svg>
-  );
-}
-
-function ModalShell({
-  title,
-  subtitle,
-  open,
-  onClose,
-  children,
-  wide = false,
-}: {
-  title: string;
-  subtitle: string;
-  open: boolean;
-  onClose: () => void;
-  children: React.ReactNode;
-  wide?: boolean;
-}) {
-  if (!open) return null;
-  return (
-    <div className={styles.modalRoot}>
-      <button type="button" className={styles.modalBackdrop} onClick={onClose} aria-label="Fechar modal" />
-      <article className={wide ? `${styles.modalCard} ${styles.modalCardWide}` : styles.modalCard}>
-        <header className={styles.modalHeader}>
-          <div>
-            <p className={styles.sectionEyebrow}>Operação MASTER</p>
-            <h3>{title}</h3>
-            <p>{subtitle}</p>
-          </div>
-          <button type="button" className={styles.iconButton} onClick={onClose}>
-            Fechar
-          </button>
-        </header>
-        {children}
-      </article>
-    </div>
-  );
-}
-
 export default function MasterPremiumPage() {
   const hasToken = useRequireAuth();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [workspace, setWorkspace] = useState<WorkspacePayload | null>(null);
   const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
   const [loading, setLoading] = useState(true);
@@ -1710,6 +868,7 @@ export default function MasterPremiumPage() {
   const [confirmActionInput, setConfirmActionInput] = useState("");
   const operationalActionLockRef = useRef<string | null>(null);
   const operationalReleaseTimeoutRef = useRef<number | null>(null);
+  const deepLinkOpenRef = useRef<string | null>(null);
   const deferredSearch = useDeferredValue(search);
   const commercialModuleDrafts = useMemo(
     () =>
@@ -1795,6 +954,19 @@ export default function MasterPremiumPage() {
   }, [hasToken]);
 
   useEffect(() => {
+    if (hasToken !== true || loading) return;
+    const companyIdRaw = searchParams.get("companyId") || searchParams.get("cliente");
+    const companyId = Number(companyIdRaw || 0);
+    if (!Number.isFinite(companyId) || companyId <= 0) return;
+    const preferredTab = normalizeDrawerTab(searchParams.get("tab"));
+    const deepLinkKey = `${companyId}:${preferredTab}`;
+    if (deepLinkOpenRef.current === deepLinkKey) return;
+    deepLinkOpenRef.current = deepLinkKey;
+    openCompany(companyId, preferredTab);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasToken, loading, searchParams]);
+
+  useEffect(() => {
     setIntegrationEditor(null);
     setCompanyIntegrations([]);
     setIntegrationsLoadedCompanyId(null);
@@ -1822,55 +994,15 @@ export default function MasterPremiumPage() {
     };
   }, []);
 
-  useEffect(() => {
-    const anyModalOpen =
-      createCompanyOpen ||
-      masterIntegrationsOpen ||
-      moduleCatalogOpen ||
-      Boolean(userModal) ||
-      Boolean(manualPaymentModal) ||
-      Boolean(confirmAction);
-    const focusOpen = drawerOpen || anyModalOpen;
-    if (typeof document === "undefined") return;
-    document.body.classList.toggle("master-company-focus-open", focusOpen);
-    document.body.style.overflow = focusOpen ? "hidden" : "";
-    const topbar = document.querySelector<HTMLElement>(".app-topbar");
-    if (topbar) {
-      if (focusOpen) {
-        topbar.dataset.masterFocusHidden = "true";
-        topbar.style.opacity = "0";
-        topbar.style.pointerEvents = "none";
-        topbar.style.transform = "translateY(-16px)";
-        topbar.style.visibility = "hidden";
-      } else if (topbar.dataset.masterFocusHidden === "true") {
-        topbar.style.opacity = "";
-        topbar.style.pointerEvents = "";
-        topbar.style.transform = "";
-        topbar.style.visibility = "";
-        delete topbar.dataset.masterFocusHidden;
-      }
-    }
-    return () => {
-      document.body.classList.remove("master-company-focus-open");
-      document.body.style.overflow = "";
-      const activeTopbar = document.querySelector<HTMLElement>(".app-topbar");
-      if (activeTopbar?.dataset.masterFocusHidden === "true") {
-        activeTopbar.style.opacity = "";
-        activeTopbar.style.pointerEvents = "";
-        activeTopbar.style.transform = "";
-        activeTopbar.style.visibility = "";
-        delete activeTopbar.dataset.masterFocusHidden;
-      }
-    };
-  }, [
+  useMasterFocusLock({
     drawerOpen,
     createCompanyOpen,
     masterIntegrationsOpen,
     moduleCatalogOpen,
-    userModal,
-    manualPaymentModal,
-    confirmAction,
-  ]);
+    userModalOpen: Boolean(userModal),
+    manualPaymentModalOpen: Boolean(manualPaymentModal),
+    confirmActionOpen: Boolean(confirmAction),
+  });
 
   const filteredCompanies = useMemo(() => {
     const items = [...(workspace?.companies || [])];
@@ -3019,6 +2151,9 @@ export default function MasterPremiumPage() {
       description="Operação premium do HBX com foco financeiro, contexto da empresa ativa e ações seguras."
       actions={
         <div className={styles.heroActions}>
+          <Link href="/dashboard/master" className="btn btn-secondary btn-sm">
+            Home Master
+          </Link>
           <button type="button" className="btn btn-primary btn-sm" onClick={() => setCreateCompanyOpen(true)}>
             Nova empresa
           </button>
@@ -3445,7 +2580,8 @@ export default function MasterPremiumPage() {
                             <strong>{company.name}</strong>
                             <span>#{company.id}{company.slug ? ` • ${company.slug}` : ""}</span>
                             <span>{company.primaryContactName || company.contactEmail || "Sem contato principal"}</span>
-                            <span>{`WhatsApp • ${company.whatsappCenter?.statusLabel || "Não conectado"}`}</span>
+                            <span>{`WhatsApp • ${whatsappStatusLabel(company)}`}</span>
+                            <span>{whatsappModeLabel(company.whatsappSituation?.mode, company.whatsappCenter)}</span>
                           </button>
                         </td>
                         <td>
@@ -3484,13 +2620,21 @@ export default function MasterPremiumPage() {
                         </td>
                         <td>
                           <div className={styles.secondaryCell}>
-                            <strong>{company.financialSituation}</strong>
+                            <strong>{company.billingSituation?.statusLabel || company.financialSituation}</strong>
                             <span>
+                              {company.billingSituation?.hasPendingIssues ? "Com pendências" : "Sem pendências"} •{" "}
                               {company.finance.pendingCount} pend. • {company.finance.failedCount} falha(s) •{" "}
                               {company.finance.refundCount} estorno(s)
                             </span>
                             <span>
-                              {formatCurrency(company.finance.finalCycleAmount)} • {paymentMethodLabel(company.paymentMethod)}
+                              {formatCurrency(company.billingSituation?.currentCycleAmount ?? company.finance.finalCycleAmount)} •{" "}
+                              {paymentMethodLabel(company.billingSituation?.paymentMethod || company.paymentMethod)}
+                              {company.billingSituation?.provider ? ` • ${company.billingSituation.provider}` : ""}
+                            </span>
+                            <span>
+                              Aberto: {formatCurrency(company.billingSituation?.amountDue ?? company.currentOutstandingValue)} •{" "}
+                              Venc.: {formatDate(company.billingSituation?.nextDueAt || company.nextDueAt)} •{" "}
+                              atraso {company.billingSituation?.daysOverdue ?? company.daysOverdue} dia(s)
                             </span>
                             <span>
                               Desc.: {company.finance.annualPlanDiscountPercent}% anual / {company.finance.manualDiscountPercent}% manual / {company.finance.freeMonths} mês(es) grátis
@@ -3859,7 +3003,10 @@ export default function MasterPremiumPage() {
                         <p>Hoje no scraping: {activeCompany.webscrapingUsage.searchesToday} busca(s) • {activeCompany.webscrapingUsage.blockedToday} bloqueio(s)</p>
                         <p>Cache global: {activeCompany.webscrapingUsage.globalCacheHitsToday} hit(s) • reuso {activeCompany.webscrapingUsage.globalCacheReuseRate}%</p>
                         <p>Última origem de scraping: {webscrapingSourceLabel(activeCompany.webscrapingUsage.lastSearchSource)}</p>
-                        <p>Central WhatsApp: {activeCompany.whatsappCenter?.statusLabel || "Não conectado"} • migração {activeCompany.whatsappCenter?.migration?.workflowStatus || "NONE"}</p>
+                        <p>
+                          Central WhatsApp: {activeCompany.whatsappSituation?.statusLabel || activeCompany.whatsappCenter?.statusLabel || "Não conectado"} •{" "}
+                          {whatsappModeLabel(activeCompany.whatsappSituation?.mode, activeCompany.whatsappCenter)}
+                        </p>
                       </div>
                     </section>
 
@@ -4769,7 +3916,7 @@ export default function MasterPremiumPage() {
                       <div className={styles.panelCardHeader}>
                         <div>
                           <strong>WhatsApp da empresa</strong>
-                          <p>Use o token global do MASTER para onboarding e operação guiada da empresa.</p>
+                          <p>Leitura normalizada para QR rápido, Meta oficial e credencial global do Master.</p>
                         </div>
                         <div className={styles.rowActions}>
                           <label className={styles.inlineCheck}>
@@ -4792,24 +3939,32 @@ export default function MasterPremiumPage() {
                             />
                             <span>Usar credencial MASTER</span>
                           </label>
-                          <button type="button" className={styles.iconOnlyButton} onClick={() => setIntegrationVisibility((current) => ({ ...current, whatsapp_company: !current.whatsapp_company }))} aria-label="Ver token de WhatsApp da empresa">
+                          <button type="button" className={styles.iconOnlyButton} onClick={() => setIntegrationVisibility((current) => ({ ...current, whatsapp_company: !current.whatsapp_company }))} aria-label="Ver estado do token de WhatsApp da empresa">
                             <EyeIcon />
                           </button>
                         </div>
                       </div>
                       <div className={styles.modulePills}>
-                        <span className={badgeClass(activeCompany.whatsapp.usingMasterToken ? "success" : "warning")}>
-                          {activeCompany.whatsapp.usingMasterToken ? "Usando credencial MASTER" : "Usando token próprio"}
+                        <span className={badgeClass((activeCompany.whatsappSituation?.usingMasterToken ?? activeCompany.whatsapp.usingMasterToken) ? "success" : "warning")}>
+                          {(activeCompany.whatsappSituation?.usingMasterToken ?? activeCompany.whatsapp.usingMasterToken) ? "Usando credencial MASTER" : "Usando token próprio"}
                         </span>
                         <span className="badge">
                           {activeCompany.whatsapp.masterCredentialLabel || "Nenhuma credencial selecionada"}
                         </span>
-                        <span className={badgeClass(activeCompany.whatsappCenter?.status === "OFFICIAL" ? "success" : activeCompany.whatsappCenter?.status === "QR" ? "brand" : activeCompany.whatsappCenter?.status === "ATTENTION" ? "danger" : "neutral")}>
-                          {activeCompany.whatsappCenter?.statusLabel || "Não conectado"}
+                        <span className={badgeClass(whatsappSituationTone(activeCompany.whatsappSituation, activeCompany.whatsappCenter))}>
+                          {activeCompany.whatsappSituation?.statusLabel || activeCompany.whatsappCenter?.statusLabel || "Não conectado"}
                         </span>
+                        <span className="badge">{whatsappModeLabel(activeCompany.whatsappSituation?.mode, activeCompany.whatsappCenter)}</span>
+                        {activeCompany.whatsappSituation?.numberLabel ? (
+                          <span className="badge">{activeCompany.whatsappSituation.numberLabel}</span>
+                        ) : null}
                       </div>
                       <div className={styles.summaryMeta}>
-                        <p>{activeCompany.whatsappCenter?.statusHint || "Sem leitura de produto para o vínculo do WhatsApp."}</p>
+                        <p>{activeCompany.whatsappSituation?.nextStepLabel || activeCompany.whatsappCenter?.statusHint || "Sem leitura de produto para o vínculo do WhatsApp."}</p>
+                        <p>QR rápido = teste/onboarding rápido • Meta oficial = produção • Token Master = credencial global controlada pelo Master.</p>
+                        {activeCompany.whatsappSituation?.hasError ? (
+                          <p>Erro seguro: {activeCompany.whatsappSituation.errorMessageSafe || "Revisar configuração do WhatsApp."}</p>
+                        ) : null}
                         <p>
                           Migração técnica:{" "}
                           {activeCompany.whatsappCenter?.migration.interestRequested
@@ -4898,18 +4053,18 @@ export default function MasterPremiumPage() {
                           </option>
                         ))}
                       </select>
-                      {integrationVisibility.whatsapp_company && activeCompany.whatsapp.companyAccessTokenValue ? (
-                        <div className="msg-info"><div className="text-sm">{activeCompany.whatsapp.companyAccessTokenValue}</div></div>
+                      {integrationVisibility.whatsapp_company && activeCompany.whatsapp.companyAccessTokenConfigured ? (
+                        <div className="msg-info"><div className="text-sm">Token próprio configurado; valor completo oculto por segurança.</div></div>
                       ) : null}
                       {activeCompany.whatsapp.masterAccessTokenConfigured ? (
                         <div className="msg-info">
                           <div className="text-sm">
                             Número MASTER: {activeCompany.whatsapp.masterDisplayNumber || "-"} • Phone ID: {activeCompany.whatsapp.masterPhoneNumberId || "-"}
-                            {integrationVisibility.whatsapp_master && activeCompany.whatsapp.masterAccessTokenValue
-                              ? ` • Token: ${activeCompany.whatsapp.masterAccessTokenValue}`
+                            {integrationVisibility.whatsapp_master && activeCompany.whatsapp.masterAccessTokenConfigured
+                              ? " • Token: oculto por segurança"
                               : ""}
                           </div>
-                          <button type="button" className={styles.iconOnlyButton} onClick={() => setIntegrationVisibility((current) => ({ ...current, whatsapp_master: !current.whatsapp_master }))} aria-label="Ver token master de WhatsApp">
+                          <button type="button" className={styles.iconOnlyButton} onClick={() => setIntegrationVisibility((current) => ({ ...current, whatsapp_master: !current.whatsapp_master }))} aria-label="Ver estado do token master de WhatsApp">
                             <EyeIcon />
                           </button>
                         </div>
@@ -4930,11 +4085,11 @@ export default function MasterPremiumPage() {
                               {endpoint.whatsappStatus || "DISCONNECTED"}
                             </span>
                           </div>
-                          <button type="button" className={styles.iconOnlyButton} onClick={() => setIntegrationVisibility((current) => ({ ...current, [endpoint.id]: !current[endpoint.id] }))} aria-label="Ver token do endpoint">
+                          <button type="button" className={styles.iconOnlyButton} onClick={() => setIntegrationVisibility((current) => ({ ...current, [endpoint.id]: !current[endpoint.id] }))} aria-label="Ver estado do token do endpoint">
                             <EyeIcon />
                           </button>
                           {integrationVisibility[endpoint.id] ? (
-                            <div className="msg-info"><div className="text-sm">{endpoint.accessTokenValue || "Sem token neste endpoint"}</div></div>
+                            <div className="msg-info"><div className="text-sm">{endpoint.accessTokenConfigured ? "Token do endpoint configurado; valor completo oculto por segurança." : "Sem token neste endpoint"}</div></div>
                           ) : null}
                         </article>
                       ))}
@@ -5150,7 +4305,7 @@ export default function MasterPremiumPage() {
               </button>
             </div>
             <div className={styles.summaryMeta}>
-              <p>Status: {masterIntegrationsDraft.whatsappLibrary.some((entry) => entry.accessToken && entry.phoneNumberId) ? "Configurado" : "Pendente"}</p>
+              <p>Status: {masterIntegrationsDraft.whatsappLibrary.some((entry) => entry.configured || (entry.accessToken && entry.phoneNumberId)) ? "Configurado" : "Pendente"}</p>
               <p>Uso: cada empresa pode escolher qual credencial MASTER de WhatsApp vai herdar.</p>
             </div>
             <div className={styles.userList}>
@@ -5162,7 +4317,7 @@ export default function MasterPremiumPage() {
                       <p>{credential.sourceCompanyName ? `Origem: ${credential.sourceCompanyName}` : "Origem: MASTER"}</p>
                     </div>
                     <div className={styles.rowActions}>
-                      <button type="button" className={styles.iconOnlyButton} onClick={() => setIntegrationVisibility((current) => ({ ...current, [credential.key]: !current[credential.key] }))} aria-label="Ver token master de WhatsApp">
+                      <button type="button" className={styles.iconOnlyButton} onClick={() => setIntegrationVisibility((current) => ({ ...current, [credential.key]: !current[credential.key] }))} aria-label="Alternar visibilidade do novo token master de WhatsApp">
                         <EyeIcon />
                       </button>
                       <button type="button" className="btn btn-secondary btn-sm" onClick={() => removeMasterWhatsAppCredential(credential.key)}>
@@ -5172,7 +4327,7 @@ export default function MasterPremiumPage() {
                   </div>
                   <div className={styles.formGrid}>
                     <input className="field" placeholder="Nome da credencial" value={credential.label || ""} onChange={(event) => updateMasterWhatsAppCredential(credential.key, { label: event.target.value })} />
-                    <input className="field" placeholder="Access token do WhatsApp" value={integrationVisibility[credential.key] ? credential.accessToken || "" : credential.accessTokenPreview || ""} onChange={(event) => updateMasterWhatsAppCredential(credential.key, { accessToken: event.target.value })} />
+                    <input className="field" type={integrationVisibility[credential.key] ? "text" : "password"} placeholder={credential.accessTokenPreview ? `Token configurado (${credential.accessTokenPreview})` : "Access token do WhatsApp"} value={credential.accessToken || ""} onChange={(event) => updateMasterWhatsAppCredential(credential.key, { accessToken: event.target.value })} />
                     <input className="field" placeholder="Phone Number ID" value={credential.phoneNumberId || ""} onChange={(event) => updateMasterWhatsAppCredential(credential.key, { phoneNumberId: event.target.value })} />
                     <input className="field" placeholder="WABA ID" value={credential.wabaId || ""} onChange={(event) => updateMasterWhatsAppCredential(credential.key, { wabaId: event.target.value })} />
                     <input className="field" placeholder="Número WhatsApp" value={credential.whatsappNumber || ""} onChange={(event) => updateMasterWhatsAppCredential(credential.key, { whatsappNumber: event.target.value })} />
@@ -5180,7 +4335,7 @@ export default function MasterPremiumPage() {
                   </div>
                   <div className={styles.summaryMeta}>
                     <p>{credential.sourceCompanyName ? `Empresa herdada: ${credential.sourceCompanyName}` : "Credencial criada direto no MASTER"}</p>
-                    <p>{credential.accessToken && credential.phoneNumberId ? "Pronta para uso" : "Dados incompletos"}</p>
+                    <p>{credential.configured || (credential.accessToken && credential.phoneNumberId) ? "Pronta para uso" : "Dados incompletos"}</p>
                   </div>
                 </article>
               ))}
