@@ -257,7 +257,7 @@ export default function HBXWebscrapingIdealPage() {
                     <span className="block text-[10px] uppercase tracking-[0.22em] text-blue-700 dark:text-cyan-200">
                       Tema visual
                     </span>
-                    <span className="block text-sm">Midnight Blue</span>
+                    <span className="block text-sm">Tema 1</span>
                   </span>
                 </button>
 
