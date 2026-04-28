@@ -424,3 +424,130 @@ test('resolveInboundMediaAttachment unwraps ephemeral received audio before down
     },
   });
 });
+
+function normalizeIncomingFixture(message: Record<string, any>) {
+  const service = new WebwhatsBridgeService({} as any);
+  return (service as any).normalizeIncomingWhatsAppMessage(message);
+}
+
+test('normalizeIncomingWhatsAppMessage extracts buttonsMessage text and options', () => {
+  const normalized = normalizeIncomingFixture({
+    messageType: 'buttonsMessage',
+    message: {
+      buttonsMessage: {
+        contentText: 'Escolha uma opcao',
+        footerText: 'HBX',
+        buttons: [
+          { buttonText: { displayText: 'Pagar agora' } },
+          { buttonText: { displayText: 'Falar com atendente' } },
+        ],
+      },
+    },
+  });
+
+  assert.equal(normalized.kind, 'interactive_received');
+  assert.equal(normalized.metadata.normalizedMessageType, 'interactive');
+  assert.match(normalized.text, /Mensagem interativa recebida:/);
+  assert.match(normalized.text, /Escolha uma opcao/);
+  assert.match(normalized.text, /Pagar agora/);
+  assert.match(normalized.text, /Falar com atendente/);
+});
+
+test('normalizeIncomingWhatsAppMessage extracts listMessage sections', () => {
+  const normalized = normalizeIncomingFixture({
+    messageType: 'listMessage',
+    message: {
+      listMessage: {
+        title: 'Atendimento',
+        description: 'Selecione o assunto',
+        footerText: 'Equipe HBX',
+        sections: [
+          {
+            title: 'Menu',
+            rows: [
+              { title: 'Segunda via' },
+              { title: 'Renegociar' },
+            ],
+          },
+        ],
+      },
+    },
+  });
+
+  assert.equal(normalized.kind, 'interactive_received');
+  assert.match(normalized.text, /Atendimento/);
+  assert.match(normalized.text, /Selecione o assunto/);
+  assert.match(normalized.text, /Segunda via/);
+  assert.match(normalized.text, /Renegociar/);
+});
+
+test('normalizeIncomingWhatsAppMessage extracts hydrated template buttons', () => {
+  const normalized = normalizeIncomingFixture({
+    messageType: 'templateMessage',
+    message: {
+      templateMessage: {
+        hydratedTemplate: {
+          hydratedContentText: 'Sua fatura esta disponivel',
+          hydratedFooterText: 'Vencimento hoje',
+          hydratedButtons: [
+            { quickReplyButton: { displayText: 'Ja paguei' } },
+            { urlButton: { displayText: 'Abrir boleto' } },
+          ],
+        },
+      },
+    },
+  });
+
+  assert.equal(normalized.kind, 'interactive_received');
+  assert.match(normalized.text, /Sua fatura esta disponivel/);
+  assert.match(normalized.text, /Vencimento hoje/);
+  assert.match(normalized.text, /Ja paguei/);
+  assert.match(normalized.text, /Abrir boleto/);
+});
+
+test('normalizeIncomingWhatsAppMessage extracts nativeFlowMessage button params', () => {
+  const normalized = normalizeIncomingFixture({
+    messageType: 'interactiveMessage',
+    message: {
+      viewOnceMessage: {
+        message: {
+          interactiveMessage: {
+            body: { text: 'Confirme os dados' },
+            footer: { text: 'HBX' },
+            nativeFlowMessage: {
+              buttons: [
+                {
+                  name: 'quick_reply',
+                  buttonParamsJson: JSON.stringify({ display_text: 'Confirmar' }),
+                },
+              ],
+            },
+          },
+        },
+      },
+    },
+  });
+
+  assert.equal(normalized.kind, 'interactive_received');
+  assert.match(normalized.text, /Confirme os dados/);
+  assert.match(normalized.text, /Confirmar/);
+  assert.equal(normalized.metadata.interactivePayloadKind, 'interactiveMessage');
+});
+
+test('normalizeIncomingWhatsAppMessage keeps fallback for unknown interactive payload', () => {
+  const normalized = normalizeIncomingFixture({
+    messageType: 'interactiveMessage',
+    message: {
+      interactiveMessage: {
+        messageContextInfo: {
+          deviceListMetadataVersion: 2,
+        },
+      },
+    },
+  });
+
+  assert.equal(normalized.kind, 'interactive_received');
+  assert.equal(normalized.text, '[interacao recebida]');
+  assert.equal(normalized.metadata.extracted.hasText, false);
+  assert.ok(normalized.metadata.rawPayloadSanitized);
+});
