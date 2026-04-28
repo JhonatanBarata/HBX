@@ -1,6 +1,8 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import type { FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { setToken } from "../dashboard/_lib/api";
 import type { CommercialPlanKey } from "@/lib/commercial-plans";
@@ -52,51 +54,63 @@ type SignupPlan = {
   key: CommercialPlanKey;
   name: string;
   badge: string;
-  price: string;
+  monthlyPrice: number;
   detail: string;
   cta: string;
   available: boolean;
   featured?: boolean;
   features: string[];
   note: string;
+  trialCopy?: string;
 };
 
 const SIGNUP_PLANS: SignupPlan[] = [
   {
     key: "hbx_lite",
     name: "HBX Lite",
-    badge: "Entrada",
-    price: "R$ 29,90/mês",
-    detail: "Comece a organizar suas vendas pagando pouco.",
-    cta: "Contratar",
+    badge: "Essencial",
+    monthlyPrice: 29.9,
+    detail: "Para começar com uma rotina comercial mais organizada.",
+    cta: "Escolher Lite",
     available: true,
-    features: ["Vendas organizadas", "Motores gratuitos/HBX/cache", "Buscas Google/dia: 0", "Sem Atendimento Chat", "Sem Bot"],
-    note: "Selecionar não cobra. Liberação após pagamento confirmado.",
+    features: ["Vendas organizadas", "Motores gratuitos/HBX/cache", "Gestão simples para começar"],
+    note: "Pagamento apenas no checkout/Financeiro.",
   },
   {
     key: "hbx_padrao",
     name: "HBX Padrão",
     badge: "Mais escolhido",
-    price: "R$ 79,90/mês",
-    detail: "Encontre clientes e atenda melhor todos os dias.",
-    cta: "Contratar",
+    monthlyPrice: 79.9,
+    detail: "Teste o plano completo para vendas e atendimento sem pagar agora.",
+    cta: "Começar grátis hoje",
     available: true,
     featured: true,
-    features: ["30 dias grátis", "Sem cartão", "Vendas + Atendimento Chat", "Buscas Google/dia: 2"],
-    note: "Trial gratuito de 30 dias. Não precisa de cartão. Não haverá cobrança automática.",
+    features: ["1º mês grátis", "Vendas + Atendimento Chat", "2 buscas Google por dia", "Motores gratuitos/HBX/cache", "Ideal para começar com mais força"],
+    note: "Sem cobrança agora. Sem cartão no cadastro.",
+    trialCopy: "Teste grátis por 30 dias",
   },
   {
     key: "hbx_melhor",
     name: "HBX Melhor",
     badge: "Mais completo",
-    price: "R$ 109,90/mês",
-    detail: "Mais volume, atendimento e automação no mesmo pacote.",
-    cta: "Contratar",
+    monthlyPrice: 109.9,
+    detail: "Mais volume, atendimento e automação em um só plano.",
+    cta: "Escolher Melhor",
     available: true,
     features: ["Vendas + Atendimento Chat", "Bot de atendimento", "Buscas Google/dia: 6", "Motores gratuitos/HBX/cache"],
-    note: "Para usar o Bot de atendimento, finalize o pagamento primeiro.",
+    note: "Pagamento apenas no checkout/Financeiro.",
   },
 ];
+
+type BillingCycle = "monthly" | "annual";
+
+function money(value: number) {
+  return value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+}
+
+function monthlyEquivalent(plan: SignupPlan, billingCycle: BillingCycle) {
+  return billingCycle === "annual" ? plan.monthlyPrice * 0.9 : plan.monthlyPrice;
+}
 
 function getErrorMessage(data: unknown) {
   if (!data || typeof data !== "object") return null;
@@ -114,6 +128,7 @@ function planName(planKey?: CommercialPlanKey | null) {
 export default function RegisterPage() {
   const router = useRouter();
   const [selectedPlanKey, setSelectedPlanKey] = useState<CommercialPlanKey>("hbx_padrao");
+  const [billingCycle, setBillingCycle] = useState<BillingCycle>("monthly");
   const [companyName, setCompanyName] = useState("");
   const [username, setUsername] = useState("");
   const [email, setEmail] = useState("");
@@ -129,6 +144,7 @@ export default function RegisterPage() {
     () => SIGNUP_PLANS.find((plan) => plan.key === selectedPlanKey) || SIGNUP_PLANS[1],
     [selectedPlanKey],
   );
+  const selectedPlanIsTrial = selectedPlanKey === "hbx_padrao";
 
   useEffect(() => {
     try {
@@ -190,7 +206,7 @@ export default function RegisterPage() {
     }
   }
 
-  async function handleRegister(event: React.FormEvent) {
+  async function handleRegister(event: FormEvent) {
     event.preventDefault();
     setError(null);
     setLoading(true);
@@ -272,39 +288,53 @@ export default function RegisterPage() {
 
   return (
     <main className={styles.page}>
-      <section className={styles.hero}>
-        <div className={styles.heroCopy}>
-          <span className={styles.eyebrow}>HBX Comercial</span>
-          <h1>Escolha o plano antes de criar sua conta.</h1>
-          <p>
-            A seleção do plano define seu onboarding. Trial e pagamento ficam separados:
-            selecionar plano nunca gera cobrança automática.
-          </p>
-          <div className={styles.flow} aria-label="Fluxo comercial">
-            {["Escolha o plano", "Crie sua conta", "Trial ou pagamento", "Acesso liberado"].map((item, index) => (
-              <div key={item}>
-                <strong>{index + 1}</strong>
-                <span>{item}</span>
-              </div>
-            ))}
-          </div>
+      <header className={styles.topbar}>
+        <Link className={styles.brand} href="/">
+          HBX
+        </Link>
+        <div className={styles.stepper} aria-label="Etapas do cadastro">
+          <span data-active="true">Plano</span>
+          <span>Conta</span>
+          <span>Confirmação</span>
         </div>
-        <aside className={styles.promisePanel}>
-          <span>Regra de cobrança</span>
-          <strong>Sem cobrança ao selecionar</strong>
-          <p>PIX ou cartão aparecem somente no Financeiro/checkout. Plano pago libera acesso depois da confirmação.</p>
-        </aside>
-      </section>
+      </header>
 
       <section className={styles.contentGrid}>
-        <div className={styles.planArea}>
-          <div className={styles.sectionHeader}>
-            <span>1. Escolha o plano</span>
-            <h2>Compare antes do cadastro</h2>
+        <section className={styles.planArea} aria-labelledby="register-title">
+          <div className={styles.heroCopy}>
+            <span className={styles.eyebrow}>Teste grátis no HBX Padrão</span>
+            <h1 id="register-title">Escolha seu plano e comece agora</h1>
+            <p>Compare Lite, Padrão e Melhor. O Padrão começa com 1º mês grátis, sem cobrança no cadastro.</p>
           </div>
+
+          <div className={styles.planToolbar}>
+            <div>
+              <span className={styles.sectionKicker}>Planos HBX</span>
+              <h2>Preço claro, escolha simples.</h2>
+            </div>
+            <div className={styles.billingToggle} aria-label="Ciclo de cobrança">
+              <button
+                type="button"
+                data-active={billingCycle === "monthly" ? "true" : "false"}
+                onClick={() => setBillingCycle("monthly")}
+              >
+                Mensal
+              </button>
+              <button
+                type="button"
+                data-active={billingCycle === "annual" ? "true" : "false"}
+                onClick={() => setBillingCycle("annual")}
+              >
+                Anual <span>10% OFF</span>
+              </button>
+            </div>
+          </div>
+
           <div className={styles.plansGrid}>
             {SIGNUP_PLANS.map((plan) => {
               const selected = selectedPlanKey === plan.key;
+              const annual = billingCycle === "annual";
+              const displayedPrice = monthlyEquivalent(plan, billingCycle);
               return (
                 <button
                   key={plan.key}
@@ -319,28 +349,66 @@ export default function RegisterPage() {
                   }}
                 >
                   <span className={styles.badge}>{plan.badge}</span>
-                  <strong>{plan.name}</strong>
-                  <em>{plan.price}</em>
-                  <p>{plan.detail}</p>
+                  <div className={styles.planTitle}>
+                    <strong>{plan.name}</strong>
+                    {plan.trialCopy ? <small>{plan.trialCopy}</small> : null}
+                  </div>
+                  <div className={styles.priceBlock}>
+                    <em>{money(displayedPrice)}</em>
+                    <span>{annual ? "/mês no anual" : "/mês"}</span>
+                  </div>
+                  {annual ? (
+                    <p className={styles.billingHint}>Economize 10%. Cobrado anualmente.</p>
+                  ) : (
+                    <p className={styles.billingHint}>{plan.key === "hbx_padrao" ? "1º mês grátis. Sem cobrança agora." : "Sem cobrança no cadastro."}</p>
+                  )}
+                  <p className={styles.planDetail}>{plan.detail}</p>
                   <ul>
                     {plan.features.map((feature) => (
                       <li key={feature}>{feature}</li>
                     ))}
                   </ul>
-                  <small>{plan.note}</small>
+                  <small className={styles.planNote}>{plan.note}</small>
                   <span className={styles.planAction}>{selected ? "Selecionado" : plan.cta}</span>
                 </button>
               );
             })}
           </div>
-        </div>
+          <div className={styles.trustStrip} aria-label="Segurança do cadastro">
+            <span>Ambiente seguro</span>
+            <span>Dados criptografados</span>
+            <span>Conformidade LGPD</span>
+            <span>Sem cobrança no cadastro</span>
+          </div>
+        </section>
 
         <aside className={styles.signupPanel}>
           {confirmationPending ? (
             <div className={styles.confirmation}>
-              <span className={styles.eyebrow}>Confirmação pendente</span>
-              <h2>Cadastro criado</h2>
-              <p>{confirmationPending.message}</p>
+              <span className={styles.eyebrow}>Cadastro criado</span>
+              <h2>
+                {confirmationPending.selectedPlanKey === "hbx_padrao"
+                  ? "Seu teste grátis está pronto"
+                  : "Confirme seu e-mail para seguir"}
+              </h2>
+              <p>
+                {confirmationPending.selectedPlanKey === "hbx_padrao"
+                  ? "Confirme seu e-mail para começar o HBX Padrão com 1º mês grátis e sem cobrança agora."
+                  : "Confirme seu e-mail para liberar a próxima etapa. O pagamento acontece apenas no checkout/Financeiro."}
+              </p>
+              <div className={styles.confirmBadges}>
+                {confirmationPending.selectedPlanKey === "hbx_padrao" ? (
+                  <>
+                    <span>1º mês grátis</span>
+                    <span>Sem cobrança agora</span>
+                  </>
+                ) : (
+                  <>
+                    <span>Sem cobrança no cadastro</span>
+                    <span>Checkout seguro</span>
+                  </>
+                )}
+              </div>
               <div className={styles.summaryBox}>
                 <div>
                   <span>Plano selecionado</span>
@@ -376,9 +444,13 @@ export default function RegisterPage() {
           ) : (
             <form onSubmit={handleRegister} className={styles.form}>
               <div className={styles.selectedSummary}>
-                <span>2. Crie sua conta</span>
+                <span>Cadastro</span>
                 <strong>{selectedPlan.name}</strong>
-                <p>{selectedPlan.note}</p>
+                <p>
+                  {selectedPlanIsTrial
+                    ? "Comece grátis hoje. Sem cartão e sem cobrança agora."
+                    : "Crie sua conta agora. O pagamento fica para o checkout/Financeiro."}
+                </p>
               </div>
 
               <label>
@@ -428,12 +500,12 @@ export default function RegisterPage() {
                 {loading
                   ? "Criando..."
                   : selectedPlanKey === "hbx_padrao"
-                    ? "Criar conta e começar trial"
-                    : "Criar conta e seguir para checkout"}
+                    ? "Começar grátis hoje"
+                    : "Criar conta e continuar"}
               </button>
 
               <p className={styles.loginLink}>
-                Já tem conta? <a href="/login">Ir para o login</a>
+                Já tem conta? <Link href="/login">Ir para o login</Link>
               </p>
             </form>
           )}

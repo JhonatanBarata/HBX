@@ -565,6 +565,66 @@ test('deleteConversation ignores disconnected WhatsApp session and archives loca
   assert.equal(auditCalls[0].event, 'conversation_local_deleted');
 });
 
+test('purgeConversationFromTrash removes one archived conversation locally without WhatsApp command', async () => {
+  const messageDeleteCalls: Array<Record<string, unknown>> = [];
+  const conversationDeleteCalls: Array<Record<string, unknown>> = [];
+  let whatsappDeleteCalls = 0;
+  const { service, auditCalls } = createService({
+    prisma: {
+      companyMessage: {
+        deleteMany: async (input: Record<string, unknown>) => {
+          messageDeleteCalls.push(input);
+          return { count: 2 };
+        },
+      },
+      companyConversation: {
+        findFirst: async () => ({
+          id: 42,
+          companyId: 7,
+          channel: 'whatsapp',
+          contact: '+5519998877766',
+          flowResult: 'local_deleted',
+          metadata: JSON.stringify({
+            inboxLocalDeleted: true,
+            inboxManualQueueOverride: 'archived',
+          }),
+          createdAt: new Date('2026-03-18T10:00:00.000Z'),
+          updatedAt: new Date('2026-03-18T10:01:00.000Z'),
+        }),
+        deleteMany: async (input: Record<string, unknown>) => {
+          conversationDeleteCalls.push(input);
+          return { count: 1 };
+        },
+      },
+    },
+    webwhatsBridge: {
+      deleteChat: async () => {
+        whatsappDeleteCalls += 1;
+        return { outcome: 'deleted' };
+      },
+    },
+  });
+
+  const result = await service.purgeConversationFromTrash({ companyId: 7 }, 42);
+
+  assert.equal(result.success, true);
+  assert.equal(result.localOnly, true);
+  assert.equal(whatsappDeleteCalls, 0);
+  assert.equal(messageDeleteCalls.length, 1);
+  assert.equal(conversationDeleteCalls.length, 1);
+  assert.equal(auditCalls.length, 1);
+  assert.equal(auditCalls[0].event, 'conversation_trash_purged_local');
+});
+
+test('emptyTrash is disabled to avoid bulk WhatsApp deletion', async () => {
+  const { service } = createService();
+
+  await assert.rejects(
+    () => service.emptyTrash({ companyId: 7 }),
+    /Limpeza em lote desativada/,
+  );
+});
+
 test('getConversationById exposes customer identity fields from AtendimentoCustomer and CustomerProfile', async () => {
   const { service } = createService({
     prisma: {

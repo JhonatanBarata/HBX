@@ -149,14 +149,19 @@ export class InboxController {
     return this.inboxService.unblockConversation(req.user, id);
   }
 
-  @Delete('conversations/:id')
-  deleteConversation(@Req() req: any, @Param('id', ParseIntPipe) id: number) {
-    return this.inboxService.deleteConversation(req.user, id);
-  }
-
   @Post('conversations/:id/whatsapp-delete')
   deleteConversationFromWhatsApp(@Req() req: any, @Param('id', ParseIntPipe) id: number) {
     return this.inboxService.deleteConversationFromWhatsApp(req.user, id);
+  }
+
+  @Delete('conversations/:id/purge')
+  purgeConversationFromTrash(@Req() req: any, @Param('id', ParseIntPipe) id: number) {
+    return this.inboxService.purgeConversationFromTrash(req.user, id);
+  }
+
+  @Delete('conversations/:id')
+  deleteConversation(@Req() req: any, @Param('id', ParseIntPipe) id: number) {
+    return this.inboxService.deleteConversation(req.user, id);
   }
 
   @Post('conversations/empty-trash')
