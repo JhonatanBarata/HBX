@@ -1,0 +1,486 @@
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: grid;
+  place-items: center;
+  padding: clamp(.8rem, 3vw, 2rem);
+  isolation: isolate;
+}
+
+.backdrop {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  background:
+    radial-gradient(circle at 50% 20%, var(--selection-accent-soft), transparent 34%),
+    color-mix(in srgb, var(--background) 86%, transparent);
+  backdrop-filter: blur(18px);
+}
+
+.modal {
+  position: relative;
+  width: min(100%, 1120px);
+  min-height: min(760px, calc(100vh - 2rem));
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  overflow: hidden;
+  border-radius: var(--radius-xl);
+  border: 1px solid color-mix(in srgb, var(--line) 72%, transparent);
+  background:
+    radial-gradient(circle at top, color-mix(in srgb, var(--selection-accent-soft) 68%, transparent), transparent 42%),
+    linear-gradient(180deg, color-mix(in srgb, var(--surface-raised) 96%, var(--background)), var(--surface));
+  box-shadow: var(--shadow-inset), var(--shadow-lg), 0 0 100px var(--selection-accent-soft);
+  animation: modalIn 420ms ease both;
+}
+
+.header,
+.footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .8rem;
+  padding: clamp(.9rem, 2vw, 1.3rem);
+}
+
+.progress {
+  display: flex;
+  gap: .48rem;
+  padding: .48rem;
+  border-radius: var(--radius-xl);
+  border: 1px solid color-mix(in srgb, var(--line) 74%, transparent);
+  background: color-mix(in srgb, var(--surface) 76%, transparent);
+}
+
+.progress span {
+  width: clamp(28px, 5vw, 68px);
+  height: 10px;
+  border-radius: var(--radius-xl);
+  background: color-mix(in srgb, var(--foreground-soft) 22%, var(--surface));
+  transition: background 240ms ease, box-shadow 240ms ease;
+}
+
+.progress span[data-active="true"] {
+  background: linear-gradient(90deg, var(--button-primary), var(--button-accent));
+  box-shadow: 0 0 28px var(--selection-accent-soft);
+}
+
+.closeButton,
+.navButton,
+.navButtonPrimary {
+  display: grid;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--line) 72%, transparent);
+  border-radius: var(--radius-xl);
+  background: color-mix(in srgb, var(--surface-raised) 84%, transparent);
+  color: var(--foreground);
+  box-shadow: var(--shadow-xs);
+  cursor: pointer;
+  font-weight: 1000;
+  transition: transform 240ms ease, box-shadow 240ms ease, opacity 240ms ease, background 240ms ease;
+}
+
+.closeButton {
+  width: 44px;
+  height: 44px;
+  font-size: 1rem;
+}
+
+.body {
+  display: grid;
+  align-items: center;
+  padding: clamp(.4rem, 2vw, 1.2rem);
+}
+
+.cardGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: clamp(.9rem, 2vw, 1.2rem);
+}
+
+.heroCard {
+  position: relative;
+  min-height: min(46vh, 390px);
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--line) 74%, transparent);
+  border-radius: var(--radius-xl);
+  background:
+    radial-gradient(circle at 50% 30%, color-mix(in srgb, var(--selection-accent-soft) 72%, transparent), transparent 44%),
+    color-mix(in srgb, var(--surface-raised) 92%, var(--background));
+  color: var(--foreground);
+  box-shadow: var(--shadow-inset), var(--shadow-md);
+  cursor: pointer;
+  transition: transform 320ms ease, border-color 320ms ease, box-shadow 320ms ease, filter 320ms ease;
+}
+
+.heroCard span {
+  position: absolute;
+  width: 44%;
+  aspect-ratio: 1;
+  border-radius: 999px;
+  background: var(--selection-accent-soft);
+  filter: blur(24px);
+  opacity: .65;
+  transform: scale(.72);
+  transition: transform 320ms ease, opacity 320ms ease;
+}
+
+.heroCard strong {
+  position: relative;
+  z-index: 2;
+  font-size: clamp(2.6rem, 8vw, 6.6rem);
+  line-height: .9;
+}
+
+.heroCard i {
+  position: absolute;
+  right: 1.2rem;
+  bottom: 1.2rem;
+  display: grid;
+  place-items: center;
+  min-width: 48px;
+  height: 48px;
+  padding: 0 .72rem;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--line) 76%, transparent);
+  background: color-mix(in srgb, var(--surface) 76%, transparent);
+  font-style: normal;
+  font-weight: 1000;
+}
+
+.heroCard:hover:not(:disabled),
+.heroCard[data-active="true"] {
+  transform: translateY(-8px) scale(1.01);
+  border-color: color-mix(in srgb, var(--selection-accent) 60%, var(--line));
+  box-shadow: var(--shadow-inset), var(--shadow-lg), 0 0 76px var(--selection-accent-soft);
+}
+
+.heroCard:hover span,
+.heroCard[data-active="true"] span {
+  transform: scale(1.2);
+  opacity: .95;
+}
+
+.heroCard[data-locked="true"] {
+  opacity: .36;
+  cursor: not-allowed;
+  filter: saturate(.4);
+}
+
+.editorGrid,
+.choiceGrid,
+.simulation {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(320px, .82fr);
+  gap: clamp(.9rem, 2vw, 1.1rem);
+  align-items: stretch;
+}
+
+.messageEditor {
+  display: grid;
+  gap: .7rem;
+  min-height: 440px;
+  padding: clamp(.9rem, 2vw, 1.2rem);
+  border-radius: var(--radius-xl);
+  border: 1px solid color-mix(in srgb, var(--line) 74%, transparent);
+  background: color-mix(in srgb, var(--surface-raised) 88%, transparent);
+  box-shadow: var(--shadow-inset), var(--shadow-sm);
+}
+
+.messageEditor span {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, var(--button-primary), var(--button-accent));
+  color: var(--background);
+  font-weight: 1000;
+}
+
+.messageEditor textarea {
+  resize: none;
+  width: 100%;
+  min-height: 320px;
+  border: 0;
+  outline: 0;
+  border-radius: var(--radius-xl);
+  padding: 1rem;
+  background: color-mix(in srgb, var(--surface) 94%, var(--background));
+  color: var(--foreground);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--line) 74%, transparent);
+  font: inherit;
+  font-size: clamp(1.15rem, 2.2vw, 1.8rem);
+  line-height: 1.2;
+}
+
+.phoneMock {
+  display: grid;
+  align-content: start;
+  gap: .8rem;
+  min-height: 440px;
+  padding: 1rem;
+  border-radius: var(--radius-xl);
+  border: 1px solid color-mix(in srgb, var(--line) 76%, transparent);
+  background:
+    radial-gradient(circle at top, var(--selection-accent-soft), transparent 38%),
+    color-mix(in srgb, var(--surface) 82%, var(--background));
+  box-shadow: var(--shadow-inset), var(--shadow-md);
+}
+
+.phoneMock[data-large="true"] {
+  min-height: 520px;
+}
+
+.phoneTop {
+  height: 54px;
+  border-radius: var(--radius-xl);
+  background: color-mix(in srgb, var(--surface-raised) 78%, transparent);
+  border: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
+}
+
+.bubble,
+.clientBubble {
+  width: fit-content;
+  max-width: 86%;
+  padding: .85rem 1rem;
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-xs);
+  white-space: pre-wrap;
+}
+
+.bubble {
+  justify-self: end;
+  background: color-mix(in srgb, var(--selection-accent-soft) 82%, var(--surface-raised));
+  color: var(--foreground);
+}
+
+.clientBubble {
+  background: color-mix(in srgb, var(--surface-raised) 88%, var(--background));
+  color: var(--foreground);
+}
+
+.choiceGrid {
+  grid-template-columns: minmax(0, 1.2fr) minmax(260px, .8fr);
+}
+
+.choiceList,
+.nextPanel,
+.publishGrid {
+  display: grid;
+  gap: .8rem;
+  align-content: center;
+}
+
+.choiceItem {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: .75rem;
+  align-items: center;
+  min-height: 72px;
+  padding: .7rem;
+  border-radius: var(--radius-xl);
+  border: 1px solid color-mix(in srgb, var(--line) 76%, transparent);
+  background: color-mix(in srgb, var(--surface-raised) 88%, transparent);
+  box-shadow: var(--shadow-xs);
+  cursor: pointer;
+  transition: transform 240ms ease, border-color 240ms ease, box-shadow 240ms ease;
+}
+
+.choiceItem[data-active="true"],
+.choiceItem:hover {
+  transform: translateX(8px);
+  border-color: color-mix(in srgb, var(--selection-accent) 54%, var(--line));
+  box-shadow: var(--shadow-md), 0 0 48px var(--selection-accent-soft);
+}
+
+.choiceItem b {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, var(--button-primary), var(--button-accent));
+  color: var(--background);
+}
+
+.choiceItem input {
+  width: 100%;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--foreground);
+  font: inherit;
+  font-weight: 900;
+}
+
+.choiceItem em {
+  min-width: 78px;
+  text-align: center;
+  padding: .42rem .68rem;
+  border-radius: var(--radius-xl);
+  background: var(--selection-accent-soft);
+  font-style: normal;
+  font-weight: 900;
+  font-size: .78rem;
+}
+
+.addChoice,
+.nextPanel button,
+.buttonStack button {
+  min-height: 56px;
+  border: 1px solid color-mix(in srgb, var(--line) 76%, transparent);
+  border-radius: var(--radius-xl);
+  background: color-mix(in srgb, var(--surface-raised) 88%, transparent);
+  color: var(--foreground);
+  box-shadow: var(--shadow-xs);
+  cursor: pointer;
+  font: inherit;
+  font-weight: 1000;
+  transition: transform 240ms ease, border-color 240ms ease, box-shadow 240ms ease, background 240ms ease, color 240ms ease, opacity 240ms ease;
+}
+
+.addChoice {
+  font-size: 2rem;
+}
+
+.nextPanel button[data-active="true"],
+.nextPanel button:hover:not(:disabled),
+.buttonStack button[data-active="true"],
+.buttonStack button:hover {
+  transform: translateY(-4px);
+  border-color: color-mix(in srgb, var(--selection-accent) 58%, var(--line));
+  background: linear-gradient(135deg, var(--button-primary), var(--button-accent));
+  color: var(--background);
+  box-shadow: var(--shadow-md), 0 0 48px var(--selection-accent-soft);
+}
+
+.nextPanel button:disabled {
+  opacity: .34;
+  cursor: not-allowed;
+}
+
+.buttonStack {
+  display: grid;
+  gap: .55rem;
+  margin-top: auto;
+}
+
+.resultOrb,
+.publishOrb {
+  align-self: center;
+  justify-self: center;
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: min(56vw, 320px);
+  aspect-ratio: 1;
+  border-radius: 999px;
+  background:
+    radial-gradient(circle, var(--selection-accent-soft), transparent 58%),
+    color-mix(in srgb, var(--surface-raised) 90%, var(--background));
+  border: 1px solid color-mix(in srgb, var(--selection-accent) 38%, var(--line));
+  box-shadow: var(--shadow-lg), 0 0 96px var(--selection-accent-soft);
+  animation: orbFloat 2.2s ease-in-out infinite;
+}
+
+.resultOrb strong,
+.publishOrb strong {
+  font-size: clamp(2.4rem, 7vw, 5rem);
+}
+
+.publishGrid {
+  place-items: center;
+  min-height: 520px;
+}
+
+.publishOrb span {
+  position: absolute;
+  inset: 18%;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--selection-accent) 44%, transparent);
+  animation: orbRing 1.6s linear infinite;
+}
+
+.publishButton {
+  min-width: min(76vw, 420px);
+  min-height: 72px;
+  border: 0;
+  border-radius: var(--radius-xl);
+  background: linear-gradient(135deg, var(--button-primary), var(--button-accent));
+  color: var(--background);
+  box-shadow: var(--shadow-lg), 0 0 72px var(--selection-accent-soft);
+  font-size: 1.25rem;
+  font-weight: 1000;
+  cursor: pointer;
+  transition: transform 240ms ease, opacity 240ms ease;
+}
+
+.publishButton:hover:not(:disabled) {
+  transform: translateY(-6px) scale(1.02);
+}
+
+.publishButton:disabled {
+  opacity: .48;
+  cursor: not-allowed;
+}
+
+.footer {
+  justify-content: center;
+}
+
+.navButton,
+.navButtonPrimary {
+  width: 62px;
+  height: 62px;
+  font-size: 1.2rem;
+}
+
+.navButtonPrimary {
+  background: linear-gradient(135deg, var(--button-primary), var(--button-accent));
+  color: var(--background);
+  box-shadow: var(--shadow-md), 0 0 54px var(--selection-accent-soft);
+}
+
+.navButton:hover:not(:disabled),
+.navButtonPrimary:hover:not(:disabled),
+.closeButton:hover {
+  transform: translateY(-4px);
+}
+
+.navButton:disabled {
+  opacity: .32;
+  cursor: not-allowed;
+}
+
+@keyframes modalIn {
+  from { transform: translateY(22px) scale(.96); opacity: 0; }
+  to { transform: translateY(0) scale(1); opacity: 1; }
+}
+
+@keyframes orbFloat {
+  50% { transform: translateY(-10px) scale(1.015); }
+}
+
+@keyframes orbRing {
+  to { transform: rotate(1turn); }
+}
+
+@media (max-width: 860px) {
+  .cardGrid,
+  .editorGrid,
+  .choiceGrid,
+  .simulation {
+    grid-template-columns: 1fr;
+  }
+
+  .heroCard {
+    min-height: 210px;
+  }
+
+  .modal {
+    min-height: calc(100vh - 1rem);
+  }
+}

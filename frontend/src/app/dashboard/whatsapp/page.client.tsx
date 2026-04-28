@@ -1,20 +1,14 @@
 "use client";
 
-import Image from "next/image";
-import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useSearchParams } from "next/navigation";
 import DashboardScaffold from "@/components/DashboardScaffold";
 import { apiFetch } from "../_lib/api";
 import { useRequireAuth } from "../_lib/useRequireAuth";
 import {
-  formatWhatsAppDateTime,
   type WhatsAppModalPayload,
   type WhatsAppCenterPayload,
-  whatsappModeLabel,
-  whatsappQrConnectionLiveLabel,
-  whatsappTrialModuleLabel,
 } from "@/lib/whatsapp-center";
+import WhatsAppConnectionWizard from "./_components/WhatsAppConnectionWizard";
 import styles from "./page.module.css";
 
 type WhatsAppBootstrapPayload = {
@@ -32,7 +26,6 @@ type QrBootstrapStage = "idle" | "connecting" | "mirroring" | "ready" | "error";
 
 export default function WhatsAppCenterClientPage() {
   const hasToken = useRequireAuth();
-  const searchParams = useSearchParams();
   const [loading, setLoading] = useState(true);
   const [modalLoading, setModalLoading] = useState(true);
   const [saving, setSaving] = useState<string | null>(null);
@@ -46,7 +39,6 @@ export default function WhatsAppCenterClientPage() {
   const [message, setMessage] = useState<string | null>(null);
   const bootstrapInFlightRef = useRef(false);
   const lastBootstrapAttemptKeyRef = useRef<string | null>(null);
-  const modalConfiguredForAction = modalPayload ? modalPayload.data.available : true;
 
   function shouldLoadModalQr(nextPayload: WhatsAppModalPayload | null, includeQr: boolean) {
     if (!includeQr || !nextPayload?.data.available) return false;
@@ -316,29 +308,6 @@ export default function WhatsAppCenterClientPage() {
     return () => window.clearInterval(interval);
   }, [modalPayload?.data.available, modalPayload?.status, loadModalStatus, modalQrRequested]);
 
-  useEffect(() => {
-    if (!payload || typeof window === "undefined") return;
-    const focus = String(searchParams.get("focus") || "").trim().toLowerCase();
-    const normalizedFocus = focus === "temporary" ? "qr" : focus;
-    const focusTargetByKey: Record<string, string> = {
-      qr: "whatsapp-qr",
-      official: "whatsapp-official",
-      status: "whatsapp-status",
-      next: "whatsapp-next-steps",
-    };
-    const targetId = focusTargetByKey[normalizedFocus];
-    if (!targetId) return;
-    const target = document.getElementById(targetId);
-    if (!target) return;
-
-    const topbarOffset = Number.parseInt(
-      window.getComputedStyle(document.documentElement).getPropertyValue("--topbar-total-height"),
-      10,
-    );
-    const nextTop = target.getBoundingClientRect().top + window.scrollY - (Number.isFinite(topbarOffset) ? topbarOffset + 16 : 92);
-    window.scrollTo({ top: Math.max(0, nextTop), behavior: "smooth" });
-  }, [payload, searchParams]);
-
   async function chooseMode(mode: "QR" | "OFFICIAL") {
     setSaving(mode);
     setError(null);
@@ -377,66 +346,7 @@ export default function WhatsAppCenterClientPage() {
     }
   }
 
-  const currentSummary = useMemo(() => {
-    if (!payload) return [];
-    return [
-      { label: "Status atual", value: payload.center.statusLabel, note: payload.center.statusHint },
-      { label: "Modo escolhido", value: whatsappModeLabel(payload.center.mode), note: "Escolha objetiva entre conexão rápida por QR e Meta oficial." },
-      {
-        label: "Módulo inicial",
-        value: whatsappTrialModuleLabel(payload.company.trialModuleSelection),
-        note: "O WhatsApp precisa servir a rotina principal da empresa.",
-      },
-    ];
-  }, [payload]);
-
-  const qrConnectionStatusLabel = useMemo(() => {
-    if (modalPayload) {
-      if (modalPayload.status === "waiting_qr") return "QR aguardando leitura";
-      if (modalPayload.status === "connected") {
-        if (qrBootstrapStage === "ready") return "Pronto";
-        if (qrBootstrapStage === "error") return "Falha no espelhamento";
-        if (qrBootstrapStage === "mirroring") return "Espelhando conversas e clientes...";
-        return "Conectando ao motor...";
-      }
-      if (modalPayload.status === "starting") return "Iniciando";
-      if (modalPayload.status === "error") return "Atencao tecnica";
-      if (modalPayload.status === "disconnected") return "Desconectado";
-    }
-    return whatsappQrConnectionLiveLabel(payload?.center.qrConnection.liveStatus);
-  }, [modalPayload, payload?.center.qrConnection.liveStatus, qrBootstrapStage]);
-  const modalStatus = modalPayload?.status || "offline";
-  const hasQrCode = Boolean(modalPayload?.data.qrCodeDataUrl);
   const qrBootstrapBusy = qrBootstrapStage === "connecting" || qrBootstrapStage === "mirroring";
-
-  const qrConnectionNote = useMemo(() => {
-    if (!modalPayload) {
-      return "Clique em Conectar para iniciar a sessão QR no modal WhatsApp do HBX.";
-    }
-    if (!modalPayload.data.available) {
-      return "Configure o modal WhatsApp do HBX neste ambiente para habilitar a conexão rápida por QR.";
-    }
-    if (modalPayload.status === "connected") {
-      if (qrBootstrapStage === "ready") return "Pronto";
-      if (qrBootstrapStage === "error") {
-        return "WhatsApp conectou, mas falhou ao espelhar conversas/clientes.";
-      }
-      if (qrBootstrapStage === "mirroring") {
-        return "Espelhando conversas e clientes...";
-      }
-      return "Conectando ao motor...";
-    }
-    if (modalPayload.data.qrCodeDataUrl) {
-      return "QR pronto. Abra o WhatsApp no celular e faça a leitura.";
-    }
-    if (modalPayload.status === "starting") {
-      return "Sessão iniciada. Aguarde alguns segundos até o QR ficar pronto.";
-    }
-    if (modalPayload.status === "waiting_qr") {
-      return "Conexão iniciada. Atualize novamente se o QR ainda não apareceu.";
-    }
-    return "Clique em Conectar para gerar um novo QR.";
-  }, [modalPayload, qrBootstrapStage]);
 
   const qrOperationalError = useMemo(() => {
     if (modalError) return modalError;
@@ -463,177 +373,25 @@ export default function WhatsAppCenterClientPage() {
   return (
     <DashboardScaffold title="" description="" hideHeader={true}>
       <div className={styles.page}>
-        <section className={styles.hero}></section>
-
         {error ? <section className={styles.errorCard}>{error}</section> : null}
-        {message ? <section className={styles.successCard}>{message}</section> : null}
 
         {loading || !payload ? (
           <section className={styles.loadingCard}>Carregando central...</section>
         ) : (
-          <>
-            <section className={styles.metricsGrid}></section>
-
-            <section className={styles.pathGrid}>
-              <article id="whatsapp-qr" className={styles.pathCard} data-active={payload.center.mode === "QR"}>
-                <div className={styles.pathHeader}>
-                  <div>
-                    <span className={styles.pathEyebrow}>Conexão rápida por QR</span>
-                    <h2>Ligue a operação em minutos, sem travar a ativação.</h2>
-                  </div>
-                  <span className={styles.mutedPill}>
-                    {payload.center.qrConnection.selected ? "Selecionada" : "Disponível para escolha"}
-                  </span>
-                </div>
-                <p className={styles.pathText}>
-                  Clique em Conectar para gerar o QR e leia no celular.
-                </p>
-                <div className={styles.metaBox}>
-                  <strong>{qrConnectionStatusLabel}</strong>
-                  <p>{qrConnectionNote}</p>
-                </div>
-                <div className={styles.infoGrid}>
-                  <div>
-                    <span>Estado da conexão</span>
-                    <strong>{qrConnectionStatusLabel}</strong>
-                  </div>
-                  <div>
-                    <span>Número conectado</span>
-                    <strong>{modalPayload?.data.phone || "-"}</strong>
-                  </div>
-                  <div>
-                    <span>Última atualização</span>
-                    <strong>{formatWhatsAppDateTime(modalPayload?.data.updatedAt || payload.center.qrConnection.lastSyncAt)}</strong>
-                  </div>
-                </div>
-                {qrOperationalError ? (
-                  <div className={styles.errorInline}>
-                    <strong>Atenção</strong>
-                    <p>{qrOperationalError}</p>
-                  </div>
-                ) : null}
-                {modalPayload?.data.qrCodeDataUrl ? (
-                  <div className={styles.qrPanel}>
-                    <div className={styles.qrPanelCopy}>
-                      <strong>QR pronto</strong>
-                      <p>Abra o WhatsApp no celular e leia o QR.</p>
-                      <div className={styles.summaryStack}>
-                        <p>Pairing code: -</p>
-                        <p>Tenant técnico: {modalPayload?.data.tenantKey || "-"}</p>
-                      </div>
-                    </div>
-                    <div className={styles.qrFrame}>
-                      <Image
-                        src={modalPayload.data.qrCodeDataUrl}
-                        alt="QR Code para conexão rápida por QR"
-                        className={styles.qrImage}
-                        width={208}
-                        height={208}
-                        unoptimized
-                      />
-                    </div>
-                  </div>
-                ) : null}
-                <div className={styles.pathActions}>
-                    <button
-                      type="button"
-                      className="btn btn-primary"
-                      onClick={() => void runModalAction("connect")}
-                      disabled={
-                        modalSaving !== null
-                        || qrBootstrapBusy
-                        || !modalConfiguredForAction
-                        || modalStatus === "connected"
-                        || (modalStatus === "waiting_qr" && hasQrCode)
-                      }
-                    >
-                    {modalSaving === "connect"
-                      ? "Conectando..."
-                      : modalStatus === "waiting_qr" && !hasQrCode
-                        ? "Atualizar QR"
-                        : "Conectar"}
-                    </button>
-                  <button
-                    type="button"
-                    className="btn btn-secondary"
-                    onClick={() => void runModalAction("disconnect")}
-                    disabled={
-                      modalSaving !== null
-                      || qrBootstrapBusy
-                      || !modalConfiguredForAction
-                      || (
-                        modalStatus !== "connected"
-                        && modalStatus !== "waiting_qr"
-                        && modalStatus !== "starting"
-                      )
-                    }
-                  >
-                    {modalSaving === "disconnect" ? "Desconectando..." : "Desconectar"}
-                  </button>
-                </div>
-              </article>
-
-              <article id="whatsapp-official" className={styles.pathCardStrong} data-active={payload.center.mode === "OFFICIAL"}>
-                <div className={styles.pathHeader}>
-                  <div>
-                    <span className={styles.pathEyebrow}>Meta oficial</span>
-                    <h2>Estruture a operação premium com estabilidade.</h2>
-                  </div>
-                  <span className={styles.statusPill}>
-                    {payload.center.official.connected ? "Meta ativa" : "Estrutura oficial"}
-                  </span>
-                </div>
-                <p className={styles.pathText}>
-                  Use quando a empresa precisa de previsibilidade, automações, governança e uma rota oficial pronta para crescer.
-                </p>
-                <div className={styles.infoGrid}>
-                  <div>
-                    <span>Status Meta</span>
-                    <strong>{payload.center.official.connected ? "Conectado" : payload.center.official.status || "Pendente"}</strong>
-                  </div>
-                  <div>
-                    <span>Número exibido</span>
-                    <strong>{payload.center.official.displayNumber || "-"}</strong>
-                  </div>
-                  <div>
-                    <span>Origem da credencial</span>
-                    <strong>{payload.center.official.usingMasterToken ? "MASTER" : "Empresa"}</strong>
-                  </div>
-                </div>
-                <div className={styles.pathActions}>
-                  <button
-                    type="button"
-                    className="btn btn-primary"
-                    onClick={() => void chooseMode("OFFICIAL")}
-                    disabled={saving !== null}
-                  >
-                    {saving === "OFFICIAL" ? "Salvando..." : "Usar Meta oficial"}
-                  </button>
-                  <button
-                    type="button"
-                    className="btn btn-secondary"
-                    onClick={() => void requestMigration("central_whatsapp")}
-                    disabled={saving !== null || payload.center.migration.interestRequested}
-                  >
-                    {payload.center.migration.interestRequested
-                      ? "Técnico já acionado"
-                      : saving === "migration"
-                        ? "Registrando..."
-                        : "Aceito que um técnico entre em contato"}
-                  </button>
-                </div>
-              </article>
-            </section>
-
-            <section className={styles.pathActions}>
-              <Link href={payload.company.trialModuleSelection === "recovery" ? "/dashboard/inbox?atendimentoTab=recovery" : "/dashboard/vendas"} className="btn btn-secondary">
-                Voltar para {whatsappTrialModuleLabel(payload.company.trialModuleSelection)}
-              </Link>
-              <Link href="/dashboard/financeiro" className="btn btn-secondary">
-                Abrir Financeiro
-              </Link>
-            </section>
-          </>
+          <WhatsAppConnectionWizard
+            payload={payload}
+            modalPayload={modalPayload}
+            loading={loading || modalLoading}
+            saving={saving}
+            modalSaving={modalSaving}
+            qrBusy={qrBootstrapBusy}
+            qrMessage={message}
+            qrError={qrOperationalError}
+            onChooseMode={(mode) => void chooseMode(mode)}
+            onConnectQr={() => void runModalAction("connect")}
+            onDisconnectQr={() => void runModalAction("disconnect")}
+            onRequestMeta={() => void requestMigration("central_whatsapp")}
+          />
         )}
       </div>
     </DashboardScaffold>

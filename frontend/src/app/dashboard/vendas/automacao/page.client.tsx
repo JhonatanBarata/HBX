@@ -22,10 +22,9 @@ import {
 } from "../../inbox/inbox-model";
 import BotQrConnectionCard from "./_components/BotQrConnectionCard";
 import BotQrPublishPanel from "./_components/BotQrPublishPanel";
-import BotSupremeFlowWorkspace from "./_components/BotSupremeFlowWorkspace";
+import BotAutomationPremiumEntry from "./_components/BotAutomationPremiumEntry";
 import BotQrWorkspace from "./_components/BotQrWorkspace";
 import {
-  buildActionOptions,
   buildPublicationChecklist,
   buildQuickTestCases,
   type BotQrWorkspaceTab,
@@ -130,7 +129,7 @@ export default function VendasAutomationClientPage() {
   const [error, setError] = useState<string | null>(null);
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const [notice, setNotice] = useState<NoticeState | null>(null);
-  const [activeTab, setActiveTab] = useState<BotQrWorkspaceTab>("connection");
+  const [activeTab, setActiveTab] = useState<BotQrWorkspaceTab>("flow");
   const [connectionPaired, setConnectionPaired] = useState(false);
   const [draftConfig, setDraftConfig] = useState<AtendimentoBotConfig>(DEFAULT_ATENDIMENTO_BOT_CONFIG);
   const [publishedConfig, setPublishedConfig] = useState<AtendimentoBotConfig>(DEFAULT_ATENDIMENTO_BOT_CONFIG);
@@ -158,10 +157,6 @@ export default function VendasAutomationClientPage() {
     );
   }, [centerPayload?.company.trialModuleSelection, draftConfig.actionCatalog, draftConfig.variableCatalog]);
 
-  const actionOptions = useMemo(
-    () => buildActionOptions(draftConfig, agendaConfig),
-    [agendaConfig, draftConfig],
-  );
   const checklist = useMemo(
     () =>
       buildPublicationChecklist(draftConfig, agendaConfig, {
@@ -478,17 +473,17 @@ export default function VendasAutomationClientPage() {
                 />
               }
               flowPanel={
-                <BotSupremeFlowWorkspace
+                <BotAutomationPremiumEntry
                   botConfig={draftConfig}
                   agendaConfig={agendaConfig}
-                  loadingBot={loading}
-                  savingBot={publishing}
-                  actionOptions={actionOptions}
+                  centerPayload={centerPayload}
+                  modalPayload={modalPayload}
                   providerCapabilities={providerCapabilities}
+                  publishing={publishing}
                   recoveryEnabled={recoveryEnabled}
                   hasUnsavedChanges={hasUnsavedChanges}
-                  onSave={(nextConfig) => void saveBotConfig(nextConfig, "Editor do bot salvo com sucesso.")}
                   onConfigChange={setDraftConfig}
+                  onSave={(nextConfig) => void saveBotConfig(nextConfig, "Bot publicado.")}
                 />
               }
               publishPanel={
