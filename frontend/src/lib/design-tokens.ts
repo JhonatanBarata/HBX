@@ -25,6 +25,7 @@ export const HBX_THEME_MOTION_STYLES = [
 export type HbxThemeMotionStyle = (typeof HBX_THEME_MOTION_STYLES)[number];
 
 export type HbxThemeAppearanceConfig = {
+  brand?: string;
   buttonPrimary?: string;
   buttonSecondary?: string;
   buttonSuccess?: string;
@@ -123,6 +124,9 @@ export function sanitizeThemeConfig(config?: HbxThemeConfig | null): HbxThemeCon
 
   const resolvedAppearance = config.appearance
     ? {
+        ...(normalizeColor(config.appearance.brand)
+          ? { brand: normalizeColor(config.appearance.brand) as string }
+          : {}),
         ...(normalizeColor(config.appearance.buttonPrimary)
           ? { buttonPrimary: normalizeColor(config.appearance.buttonPrimary) as string }
           : {}),
@@ -172,6 +176,7 @@ export function buildThemeAppearanceDefaults(selection: HbxThemeSelection) {
   const palette = theme[selection.mode];
 
   return {
+    brand: palette.brand,
     buttonPrimary: palette.buttonPrimary,
     buttonSecondary: palette.buttonSecondary,
     buttonSuccess: palette.buttonSuccess,
@@ -193,6 +198,7 @@ export function resolveThemeConfig(config?: HbxThemeConfig | null): HbxResolvedT
   return {
     selection,
     appearance: {
+      brand: normalizeColor(config?.appearance?.brand) || defaults.brand,
       buttonPrimary: normalizeColor(config?.appearance?.buttonPrimary) || defaults.buttonPrimary,
       buttonSecondary: normalizeColor(config?.appearance?.buttonSecondary) || defaults.buttonSecondary,
       buttonSuccess: normalizeColor(config?.appearance?.buttonSuccess) || defaults.buttonSuccess,
@@ -334,8 +340,8 @@ export function applyThemeConfigToDocument(config?: HbxThemeConfig | HbxResolved
   root.style.colorScheme = selection.mode;
 
   const variables: Record<string, string> = {
-    "--brand": palette.brand,
-    "--brand-solid": palette.brandStrong,
+    "--brand": resolved.appearance.brand,
+    "--brand-solid": resolved.appearance.brand,
     "--brand-soft": palette.brandSoft,
     "--brand-contrast": palette.brandContrast,
     "--button-primary": resolved.appearance.buttonPrimary,
@@ -397,10 +403,10 @@ export function applyThemeConfigToDocument(config?: HbxThemeConfig | HbxResolved
     "--shadow-md": `0 30px 72px -32px ${withAlpha(palette.shadow, selection.mode === "light" ? 0.38 : 0.54)}`,
     "--shadow-lg": `0 44px 96px -36px ${withAlpha(palette.shadow, selection.mode === "light" ? 0.44 : 0.62)}`,
     "--shadow-inset": `inset 0 1px 0 ${selection.mode === "light" ? "rgba(255,255,255,0.72)" : "rgba(255,255,255,0.06)"}`,
-    "--panel-glow": withAlpha(palette.brand, selection.mode === "light" ? 0.12 : 0.2),
-    "--hero-glow": withAlpha(palette.brand, selection.mode === "light" ? 0.18 : 0.26),
-    "--hero-outline": withAlpha(palette.brand, selection.mode === "light" ? 0.18 : 0.28),
-    "--soft-ring": withAlpha(palette.brand, selection.mode === "light" ? 0.12 : 0.22),
+    "--panel-glow": withAlpha(resolved.appearance.brand, selection.mode === "light" ? 0.12 : 0.2),
+    "--hero-glow": withAlpha(resolved.appearance.brand, selection.mode === "light" ? 0.18 : 0.26),
+    "--hero-outline": withAlpha(resolved.appearance.brand, selection.mode === "light" ? 0.18 : 0.28),
+    "--soft-ring": withAlpha(resolved.appearance.brand, selection.mode === "light" ? 0.12 : 0.22),
     "--hairline": withAlpha(palette.foreground, selection.mode === "light" ? 0.06 : 0.12),
     "--button-primary-soft": withAlpha(resolved.appearance.buttonPrimary, selection.mode === "light" ? 0.18 : 0.3),
     "--button-secondary-soft": withAlpha(

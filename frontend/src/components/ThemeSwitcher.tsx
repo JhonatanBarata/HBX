@@ -9,6 +9,8 @@ import {
   playThemeWaveTransition,
   resolveThemeConfig,
   type HbxThemeAppearanceConfig,
+  type HbxResolvedThemeConfig,
+  type HbxThemeConfig,
   type HbxThemeMotionStyle,
   type HbxThemeSelection,
 } from "@/lib/design-tokens";
@@ -85,6 +87,16 @@ const THEME_EDITOR_GROUPS: ReadonlyArray<{
 
 const THEME_COUNT_LABEL = `${HBX_THEME_IDS.length} temas HBX`;
 
+function hasThemeConfigEntries(config: HbxThemeConfig | null | undefined) {
+  if (!config) return false;
+
+  return Boolean(
+    (config.selection && Object.keys(config.selection).length) ||
+      (config.appearance && Object.keys(config.appearance).length) ||
+      (config.motion && Object.keys(config.motion).length),
+  );
+}
+
 function hexToRgb(hex: string) {
   const normalized = hex.replace("#", "");
   const safeHex =
@@ -131,6 +143,8 @@ export default function ThemeSwitcher() {
   const [open, setOpen] = React.useState(false);
   const [editorOpen, setEditorOpen] = React.useState(false);
   const [editorScope, setEditorScope] = React.useState<ThemePreferenceScope>("user");
+  const [editorDraftConfig, setEditorDraftConfig] = React.useState<HbxThemeConfig | null>(null);
+  const [editorResetPending, setEditorResetPending] = React.useState(false);
   const { replayGlobalTransition } = useInterfaceTransition();
   const {
     selection,
@@ -166,13 +180,35 @@ export default function ThemeSwitcher() {
     [themeState.resolved, themeState.scopes.company, themeState.scopes.system],
   );
 
-  const activeEditorState = scopedResolved[editorScope];
   const selectedScopeConfig = themeState.scopes[editorScope];
+  const selectedScopeSignature = React.useMemo(
+    () => JSON.stringify(selectedScopeConfig || null),
+    [selectedScopeConfig],
+  );
+  const draftScopeSignature = React.useMemo(
+    () => JSON.stringify(editorDraftConfig || null),
+    [editorDraftConfig],
+  );
+  const draftScopedResolved = React.useMemo(
+    () => ({
+      system: resolveThemeConfig(editorDraftConfig),
+      company: resolveThemeConfig(mergeThemeConfigChain(themeState.scopes.system, editorDraftConfig)),
+      user: resolveThemeConfig(
+        mergeThemeConfigChain(themeState.scopes.system, themeState.scopes.company, editorDraftConfig),
+      ),
+    }),
+    [editorDraftConfig, themeState.scopes.company, themeState.scopes.system],
+  );
+  const activeEditorState: HbxResolvedThemeConfig = editorOpen
+    ? draftScopedResolved[editorScope]
+    : scopedResolved[editorScope];
+  const editorDirty = editorResetPending || draftScopeSignature !== selectedScopeSignature;
   const canResetScope = Boolean(
-    selectedScopeConfig &&
+    (selectedScopeConfig &&
       ((selectedScopeConfig.selection && Object.keys(selectedScopeConfig.selection).length) ||
         (selectedScopeConfig.appearance && Object.keys(selectedScopeConfig.appearance).length) ||
-        (selectedScopeConfig.motion && Object.keys(selectedScopeConfig.motion).length)),
+        (selectedScopeConfig.motion && Object.keys(selectedScopeConfig.motion).length))) ||
+      hasThemeConfigEntries(editorDraftConfig),
   );
   const previewScopeLabel = scopeOptions.find((item) => item.id === editorScope)?.label || "Você";
   const activeEditorPalette = React.useMemo(
@@ -196,6 +232,8 @@ export default function ThemeSwitcher() {
         "--surface-raised": activeEditorPalette.surfaceRaised,
         "--header-surface": activeEditorPalette.headerSurface,
         "--nav-surface": activeEditorPalette.navSurface,
+        "--brand": activeEditorState.appearance.brand,
+        "--brand-solid": activeEditorState.appearance.brand,
         "--foreground": activeEditorPalette.foreground,
         "--foreground-soft": activeEditorPalette.foregroundSoft,
         "--muted": activeEditorPalette.muted,
@@ -241,6 +279,7 @@ export default function ThemeSwitcher() {
           activeEditorState.selection.mode === "light" ? 0.14 : 0.24,
         ),
         "--theme-editor-preview-primary": activeEditorState.appearance.buttonPrimary,
+        "--theme-editor-preview-brand": activeEditorState.appearance.brand,
         "--theme-editor-preview-secondary": activeEditorState.appearance.buttonSecondary,
         "--theme-editor-preview-success": activeEditorState.appearance.buttonSuccess,
         "--theme-editor-preview-accent": activeEditorState.appearance.buttonAccent,
@@ -278,6 +317,13 @@ export default function ThemeSwitcher() {
     if (scopeOptions.some((item) => item.id === editorScope)) return;
     setEditorScope(scopeOptions[scopeOptions.length - 1]?.id || "user");
   }, [editorScope, scopeOptions]);
+
+  React.useEffect(() => {
+    if (!editorOpen) return;
+
+    setEditorDraftConfig(selectedScopeConfig ? mergeThemeConfigChain(selectedScopeConfig) : null);
+    setEditorResetPending(false);
+  }, [editorOpen, editorScope, selectedScopeConfig]);
 
   React.useEffect(() => {
     if (!open) return undefined;
@@ -333,32 +379,66 @@ export default function ThemeSwitcher() {
     setOpen(false);
   }
 
-  function updateScopeSelection(nextSelection: Partial<HbxThemeSelection>, target?: EventTarget | null) {
+  function updateEditorDraftConfig(patch: HbxThemeConfig) {
+    setEditorResetPending(false);
+    setEditorDraftConfig((current) => mergeThemeConfigChain(current, patch));
+  }
+
+  function updateScopeSelection(nextSelection: Partial<HbxThemeSelection>) {
     const mergedSelection = {
       themeId: nextSelection.themeId || activeEditorState.selection.themeId,
       mode: nextSelection.mode || activeEditorState.selection.mode,
     } satisfies HbxThemeSelection;
 
-    if (editorScope === "user") {
-      playThemeWaveTransition(
-        mergedSelection,
-        resolveTransitionOrigin(target),
-        mergeThemeConfigChain(themeState.resolved, { selection: mergedSelection }),
-      );
-      setSelection(mergedSelection);
-      replayGlobalTransition();
-      return;
-    }
+    updateEditorDraftConfig({ selection: mergedSelection });
+  }
 
-    void saveScopeConfig(editorScope, { selection: mergedSelection });
+  function updateScopeBaseColor(value: string) {
+    updateEditorDraftConfig({
+      appearance: {
+        brand: value,
+        buttonPrimary: value,
+        selectionAccent: value,
+        menuActive: value,
+      },
+    });
   }
 
   function updateScopeAppearance(key: keyof HbxThemeAppearanceConfig, value: string) {
-    void saveScopeConfig(editorScope, { appearance: { [key]: value } });
+    updateEditorDraftConfig({ appearance: { [key]: value } });
   }
 
   function updateScopeMotion(transitionStyle: HbxThemeMotionStyle) {
-    void saveScopeConfig(editorScope, { motion: { transitionStyle } });
+    updateEditorDraftConfig({ motion: { transitionStyle } });
+  }
+
+  function resetEditorDraft() {
+    setEditorDraftConfig(null);
+    setEditorResetPending(Boolean(selectedScopeConfig));
+  }
+
+  function cancelEditorDraft() {
+    setEditorDraftConfig(selectedScopeConfig ? mergeThemeConfigChain(selectedScopeConfig) : null);
+    setEditorResetPending(false);
+    setEditorOpen(false);
+  }
+
+  async function applyEditorDraft(target?: EventTarget | null) {
+    if (!editorDirty) return;
+
+    if (editorScope === "user") {
+      playThemeWaveTransition(activeEditorState.selection, resolveTransitionOrigin(target), activeEditorState);
+      replayGlobalTransition();
+    }
+
+    if (editorResetPending && !editorDraftConfig) {
+      await resetScopeConfig(editorScope);
+    } else if (editorDraftConfig) {
+      await saveScopeConfig(editorScope, editorDraftConfig);
+    }
+
+    setEditorResetPending(false);
+    setEditorOpen(false);
   }
 
   return (
@@ -373,7 +453,7 @@ export default function ThemeSwitcher() {
         <span
           className="theme-switcher__trigger-preview"
           style={{
-            background: `linear-gradient(145deg, ${activeTheme[selection.mode].brand}, ${activeTheme[selection.mode].brandStrong})`,
+            background: `linear-gradient(145deg, ${themeState.resolved.appearance.brand}, ${themeState.resolved.appearance.buttonSecondary})`,
           }}
           aria-hidden="true"
         />
@@ -516,7 +596,7 @@ export default function ThemeSwitcher() {
                   <button
                     type="button"
                     className="btn btn-secondary btn-sm"
-                    onClick={() => void resetScopeConfig(editorScope)}
+                    onClick={resetEditorDraft}
                     disabled={!canResetScope}
                   >
                     Restaurar cores
@@ -542,7 +622,7 @@ export default function ThemeSwitcher() {
                         key={`preset-${themeId}`}
                         type="button"
                         className={`theme-editor__preset ${isActive ? "is-active" : ""}`}
-                        onClick={(event) => updateScopeSelection({ themeId }, event.currentTarget)}
+                        onClick={() => updateScopeSelection({ themeId })}
                       >
                         <strong>{theme.label}</strong>
                         <span>{theme.shellLabel}</span>
@@ -551,12 +631,29 @@ export default function ThemeSwitcher() {
                   })}
                 </div>
 
+                <label className="theme-editor__baseColorField">
+                  <span className="theme-editor__tokenMeta">
+                    <strong>Cor base do tema</strong>
+                    <small>Controla a cor predominante da interface e dos estados principais.</small>
+                  </span>
+                  <span className="theme-editor__tokenControls">
+                    <input
+                      type="color"
+                      value={activeEditorState.appearance.brand}
+                      className="theme-editor__tokenPicker"
+                      onChange={(event) => updateScopeBaseColor(event.target.value)}
+                      aria-label="Escolher cor base do tema"
+                    />
+                    <span className="theme-editor__tokenValue">{activeEditorState.appearance.brand}</span>
+                  </span>
+                </label>
+
                 <div className="theme-editor__modeBar">
                   <LiquidGlassSegmentedControl
                     items={THEME_MODE_OPTIONS}
                     value={activeEditorState.selection.mode}
                     ariaLabel="Modo do tema neste escopo"
-                    onChange={(mode) => updateScopeSelection({ mode }, document.activeElement)}
+                    onChange={(mode) => updateScopeSelection({ mode })}
                   />
                 </div>
               </section>
@@ -700,6 +797,24 @@ export default function ThemeSwitcher() {
                     </div>
                   </section>
                 </div>
+              </div>
+
+              <div className="theme-editor__footer">
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  onClick={cancelEditorDraft}
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-primary btn-sm"
+                  onClick={(event) => void applyEditorDraft(event.currentTarget)}
+                  disabled={!editorDirty}
+                >
+                  Aplicar
+                </button>
               </div>
             </div>
           ) : null}

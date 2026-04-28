@@ -18,6 +18,7 @@ export const HBX_THEME_COOKIE_ID = "hbx-theme-id";
 export const HBX_THEME_COOKIE_MODE = "hbx-theme-mode";
 
 const THEME_APPEARANCE_KEYS = [
+  "brand",
   "buttonPrimary",
   "buttonSecondary",
   "buttonSuccess",

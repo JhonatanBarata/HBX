@@ -4686,6 +4686,7 @@ pre {
   justify-content: flex-start;
 }
 
+.theme-editor__baseColorField,
 .theme-editor__tokenField {
   display: flex;
   align-items: center;
@@ -4695,6 +4696,13 @@ pre {
   border-radius: calc(var(--control-radius) + 2px);
   border: 1px solid color-mix(in srgb, var(--line) 82%, var(--background));
   background: color-mix(in srgb, var(--surface) 96%, var(--background));
+}
+
+.theme-editor__baseColorField {
+  border-color: color-mix(in srgb, var(--theme-editor-preview-brand, var(--brand)) 28%, var(--line));
+  background:
+    radial-gradient(circle at top right, color-mix(in srgb, var(--theme-editor-preview-brand, var(--brand)) 12%, transparent), transparent 46%),
+    linear-gradient(180deg, color-mix(in srgb, var(--surface) 98%, var(--background)), color-mix(in srgb, var(--surface-soft) 92%, var(--background)));
 }
 
 .theme-editor__tokenMeta {
@@ -4760,6 +4768,15 @@ pre {
   margin-top: 0.14rem;
   padding-top: 0.58rem;
   background: linear-gradient(180deg, color-mix(in srgb, var(--background) 12%, transparent), color-mix(in srgb, var(--header-surface) 92%, var(--background)) 34%, color-mix(in srgb, var(--surface) 96%, var(--background)) 100%);
+}
+
+.theme-editor__footer {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 0.5rem;
+  padding-top: 0.1rem;
 }
 
 .theme-editor__stickyPreviewHeader,
@@ -4959,6 +4976,7 @@ pre {
     grid-template-columns: 1fr;
   }
 
+  .theme-editor__baseColorField,
   .theme-editor__tokenField {
     align-items: flex-start;
     flex-direction: column;

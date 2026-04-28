@@ -12,6 +12,7 @@ type ThemePreferenceConfig = {
     mode?: 'dark' | 'light';
   };
   appearance?: {
+    brand?: string;
     buttonPrimary?: string;
     buttonSecondary?: string;
     buttonSuccess?: string;

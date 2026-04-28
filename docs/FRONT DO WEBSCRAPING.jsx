@@ -298,7 +298,7 @@ export default function HBXWebscrapingIdealPage() {
                   </span>
                   <span>
                     <span className="block text-[10px] uppercase tracking-[0.22em] text-blue-700 dark:text-cyan-200">Tema visual</span>
-                    <span className="block text-sm">Midnight Blue</span>
+                    <span className="block text-sm">Tema 1</span>
                   </span>
                 </button>
                 <div className="flex items-center gap-3 rounded-3xl border border-blue-200 bg-white px-4 py-3 dark:border-white/10 dark:bg-white/10">
