@@ -356,7 +356,7 @@ function getInboxQueueLabel(queue: InboxQueue) {
     case "scheduled":
       return "Chat • Agendamento";
     case "bot":
-      return "Chat • BOT";
+      return "Chat • Bot";
     case "archived":
       return "Excluídos";
     default:
@@ -2233,6 +2233,10 @@ export default function InboxClientPage() {
     () => normalizeInboxConversationId(searchParams?.get("conversationId") || searchParams?.get("selectedConversationId")),
     [searchParams],
   );
+  const requestedSupportPhone = useMemo(() => {
+    if (searchParams?.get("support") !== "1") return "";
+    return String(searchParams?.get("phone") || "").replace(/\D/g, "");
+  }, [searchParams]);
   const [mounted, setMounted] = useState(false);
   const [activeTab, setActiveTab] = useState<InboxTab>(requestedTab);
   const [inboxQueue, setInboxQueue] = useState<InboxQueue>("all");
@@ -2284,6 +2288,17 @@ export default function InboxClientPage() {
   const [whatsappDeleteConversationDialog, setWhatsappDeleteConversationDialog] = useState<{ conversationId: string } | null>(null);
   const [deleteMessageDialog, setDeleteMessageDialog] = useState<{ messageId: string } | null>(null);
   const [emptyTrashDialogOpen, setEmptyTrashDialogOpen] = useState(false);
+
+  useEffect(() => {
+    if (!requestedSupportPhone) return;
+    setActiveTab("messages");
+    setInboxQueue("all");
+    setConversationSearch(requestedSupportPhone);
+    setNotice({
+      tone: "info",
+      text: "Suporte HBX preparado no Inbox. Use a busca para localizar ou iniciar o contato.",
+    });
+  }, [requestedSupportPhone]);
   const [emptyingTrash, setEmptyingTrash] = useState(false);
   const [revealedDeletedMessageIds, setRevealedDeletedMessageIds] = useState<Record<string, boolean>>({});
   const [customerConversationCard, setCustomerConversationCard] =
@@ -2387,7 +2402,7 @@ export default function InboxClientPage() {
   const openBotPlans = useCallback(() => {
     setNotice({
       tone: "info",
-      text: "O BOT Inteligente faz parte do HBX Melhor.",
+      text: "Bot de atendimento está disponível no HBX Melhor.",
     });
     router.push(INBOX_BOT_PLAN_HREF);
   }, [router]);
@@ -2397,7 +2412,7 @@ export default function InboxClientPage() {
     if (!redirectTo) return false;
     setNotice({
       tone: "info",
-      text: "O BOT Inteligente faz parte do HBX Melhor.",
+      text: "Bot de atendimento está disponível no HBX Melhor.",
     });
     router.push(redirectTo);
     return true;
@@ -4435,15 +4450,15 @@ export default function InboxClientPage() {
       setNotice({
         tone: "success",
         text: enabled
-          ? "BOT global ativado para novas mensagens."
-          : "BOT global desativado para novas mensagens.",
+          ? "Bot global ativado para novas mensagens."
+          : "Bot global desativado para novas mensagens.",
       });
     } catch (toggleError) {
       if (openBotPlansFromError(toggleError)) {
         setBotConfig(botConfig);
         return;
       }
-      setError(toggleError instanceof Error ? toggleError.message : "Falha ao atualizar BOT global.");
+      setError(toggleError instanceof Error ? toggleError.message : "Falha ao atualizar Bot global.");
       setBotConfig(botConfig);
     } finally {
       setSavingBot(false);
@@ -7032,7 +7047,7 @@ export default function InboxClientPage() {
     <>
       <DashboardScaffold
         title="Atendimento"
-        description="Inbox unificada com conversa dominante, contexto financeiro real e atalhos operacionais enxutos."
+        description="Centralize conversas para não perder vendas."
         hideHeader={true}
         hideNavigationRail={true}
         layoutMode="workspace"
@@ -7050,16 +7065,16 @@ export default function InboxClientPage() {
                     aria-label={
                       botAiActive
                         ? globalBotEnabled
-                          ? "Desativar BOT global"
-                          : "Ativar BOT global"
-                        : "Ver planos do BOT Inteligente"
+                          ? "Desativar Bot global"
+                          : "Ativar Bot global"
+                        : "Ver planos do Bot de atendimento"
                     }
                     title={
                       botAiActive
                         ? globalBotEnabled
-                          ? "BOT global ativo"
-                          : "BOT global desativado"
-                        : "O BOT Inteligente faz parte do HBX Melhor"
+                          ? "Bot global ativo"
+                          : "Bot global desativado"
+                        : "Bot de atendimento está disponível no HBX Melhor"
                     }
                   >
                     <span>Hbot</span>

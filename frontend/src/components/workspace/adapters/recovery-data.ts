@@ -46,7 +46,7 @@ export function getRecoveryQueueLabel(item: RecoveryInteractionConversation) {
   if (item.humanAssigned || item.humanQueue) return "HUM";
   if (item.isBlocked) return "BLK";
   if (item.paymentGenerated) return "PAY";
-  return "BOT";
+  return "Bot";
 }
 
 export function buildRecoveryQueueBadges(
@@ -58,7 +58,7 @@ export function buildRecoveryQueueBadges(
     badges.push({ label: "Humano", tone: "warning" });
   }
   if (item.botActive) {
-    badges.push({ label: "BOT ativo", tone: "brand" });
+    badges.push({ label: "Bot ativo", tone: "brand" });
   }
   if (item.paymentGenerated) {
     badges.push({ label: "Pagamento", tone: "teal" });
@@ -101,7 +101,7 @@ export function buildRecoveryThreadBadges(
     badges.push({ label: "Atendimento humano", tone: "warning" });
   }
   if (detail.botActive) {
-    badges.push({ label: "BOT ativo", tone: "brand" });
+    badges.push({ label: "Bot ativo", tone: "brand" });
   }
   if (input.paymentGenerated) {
     badges.push({ label: "Pagamento gerado", tone: "teal" });

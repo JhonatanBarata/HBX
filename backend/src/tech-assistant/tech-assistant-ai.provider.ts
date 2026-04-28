@@ -59,7 +59,7 @@ export class TechAssistantAiProvider {
 
       const content = response?.data?.choices?.[0]?.message?.content;
       if (!content || typeof content !== 'string') {
-        throw new Error('Resposta vazia do provedor de IA.');
+        throw new Error('Resposta vazia do provedor do assistente técnico.');
       }
 
       const jsonStart = content.indexOf('{');
@@ -74,12 +74,12 @@ export class TechAssistantAiProvider {
       };
     } catch (error: any) {
       if (error?.code === 'ECONNABORTED') {
-        throw new Error('Timeout ao consultar o provedor de IA do assistente técnico.');
+        throw new Error('Timeout ao consultar o provedor do assistente técnico.');
       }
       if (error instanceof SyntaxError) {
-        throw new Error('O provedor de IA respondeu em formato inválido.');
+        throw new Error('O provedor do assistente técnico respondeu em formato inválido.');
       }
-      throw new Error(error?.message || 'Falha ao consultar o provedor de IA do assistente técnico.');
+      throw new Error(error?.message || 'Falha ao consultar o provedor do assistente técnico.');
     }
   }
 }

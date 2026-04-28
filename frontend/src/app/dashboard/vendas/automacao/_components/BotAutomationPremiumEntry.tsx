@@ -53,7 +53,7 @@ export default function BotAutomationPremiumEntry({
       <div className={styles.hero}>
         <button type="button" className={styles.mainOrb} onClick={() => setBuilderOpen(true)}>
           <span aria-hidden="true" />
-          <strong>BOT</strong>
+          <strong>Bot</strong>
         </button>
 
         <div className={styles.actionStack}>

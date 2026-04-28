@@ -26,6 +26,14 @@
   border-color: color-mix(in srgb, #c9473d 28%, var(--line));
 }
 
+.checkoutNotice[data-tone="trial"] {
+  border-color: color-mix(in srgb, #0f766e 30%, var(--line));
+}
+
+.checkoutNotice[data-tone="trial"] a {
+  background: #0f766e;
+}
+
 .checkoutNotice strong {
   display: block;
   color: var(--foreground);
@@ -250,7 +258,7 @@
 
 .checkoutSummary {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
   gap: 0.75rem;
   margin-top: 0.9rem;
   padding: 0.9rem;

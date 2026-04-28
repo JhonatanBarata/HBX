@@ -1904,7 +1904,7 @@ export default function WebscrapingClientPage() {
               disabled={importingToVendas || !qualifiedResults.length}
             >
               <Icon name="spark" size={18} />
-              {importingToVendas ? "Enviando..." : `Enviar ${qualifiedResults.length} lead(s) ao CRM`}
+              {importingToVendas ? "Enviando..." : `Salvar ${qualifiedResults.length} lead(s)`}
             </button>
           </section>
         ) : null}
@@ -1916,7 +1916,7 @@ export default function WebscrapingClientPage() {
               <strong className={styles.sectionTitle}>Contatos qualificados</strong>
               <p className={styles.helperText}>
                 {searchMeta && activeQuery
-                  ? `${qualifiedResults.length} contatos qualificados para ${getVisualSegment(activeQuery.segment, resultTargetType)} em ${activeQuery.city}. Fonte: ${searchSourceLabel(searchMeta.source)}${hiddenGenericResultsCount ? `; ${hiddenGenericResultsCount} genérico(s) ocultado(s).` : "."}`
+                  ? `Encontramos ${qualifiedResults.length} possíveis clientes para ${getVisualSegment(activeQuery.segment, resultTargetType)} em ${activeQuery.city}. Salve estes contatos como leads para não perder oportunidades. Fonte: ${searchSourceLabel(searchMeta.source)}${hiddenGenericResultsCount ? `; ${hiddenGenericResultsCount} genérico(s) ocultado(s).` : "."}`
                   : "Pronto para receber contatos com ações rápidas e roteiro pronto."}
               </p>
             </div>
@@ -1937,7 +1937,7 @@ export default function WebscrapingClientPage() {
                   disabled={importingToVendas || !qualifiedResults.length}
                 >
                   <Icon name="spark" size={18} />
-                  {importingToVendas ? "Enviando..." : "Herdar no CRM"}
+                  {importingToVendas ? "Enviando..." : "Salvar leads"}
                 </button>
               </div>
             ) : null}

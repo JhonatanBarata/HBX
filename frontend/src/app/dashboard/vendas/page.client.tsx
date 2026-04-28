@@ -1883,9 +1883,10 @@ export default function VendasClientPage() {
           <div>
             <span className={styles.panelEyebrow}>Clientes</span>
             <h2 className={styles.boardTitle}>{selectedFilter.title}</h2>
+            <p className={styles.boardSubtitle}>Acompanhe quem você já chamou e quem precisa de retorno.</p>
           </div>
           <div className={styles.toolbar}>
-            <button type="button" className={`${styles.secondaryAction} ${styles.toolbarHighlight}`} onClick={() => setComposerOpen(true)}>Novo lead</button>
+            <button type="button" className={`${styles.secondaryAction} ${styles.toolbarHighlight}`} onClick={() => setComposerOpen(true)}>Salvar novo lead</button>
             <button
               type="button"
               className={`${styles.secondaryAction} ${styles.toolbarHighlight} ${styles.whatsappFilterButton}`}

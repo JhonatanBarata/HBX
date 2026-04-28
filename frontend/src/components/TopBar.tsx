@@ -58,6 +58,13 @@ type MasterOverviewCompanyPayload = {
 };
 
 type UserModule = { key: string; accessible: boolean };
+type CommercialPlansTopbarPayload = {
+  current?: {
+    entitlements?: {
+      atendimento_chat?: boolean | null;
+    } | null;
+  } | null;
+};
 type OperationalTone = "green" | "yellow" | "red";
 type OperationalStatusChip = {
   key: "token" | "meta" | "webwhats" | "payment" | "access";
@@ -154,6 +161,8 @@ const RECOVERY_QUEUE_STORAGE_KEY = "hbxRecoveryPendingHumanCount";
 const ATENDIMENTO_QUEUE_STORAGE_KEY = "atendimentoPendingHumanCount";
 const MODULES_PEEK_EVENT = "hbx:modules-peek";
 const MODULES_TRIGGER_ID = "app-modules-trigger";
+const SUPPORT_PHONE = "5519997024884";
+const SUPPORT_MESSAGE = "Olá, preciso de suporte no HBX.";
 
 const hiddenRoutes = new Set(["/login", "/register", "/reset-password", "/confirm-email"]);
 
@@ -260,6 +269,7 @@ export default function TopBar() {
   const [whatsAppCenter, setWhatsAppCenter] = useState<WhatsAppCenterPayload | null>(null);
   const [whatsAppModal, setWhatsAppModal] = useState<WhatsAppModalPayload | null>(null);
   const [whatsAppQrRequested, setWhatsAppQrRequested] = useState(false);
+  const [supportHasInternalChat, setSupportHasInternalChat] = useState<boolean | null>(null);
   const recoveryLastSeenRef = useRef<Map<number, string>>(new Map());
   const recoveryHumanQueueRef = useRef<Map<number, boolean>>(new Map());
   const recoveryAlertReadyRef = useRef(false);
@@ -332,12 +342,14 @@ export default function TopBar() {
   );
 
   const refreshMasterAwareState = React.useCallback(async () => {
-    const [profile, myModules] = await Promise.all([
+    const [profile, myModules, supportPlans] = await Promise.all([
       apiFetch<User>("/profile/current-user"),
       apiFetch<UserModule[]>("/modules/me"),
+      apiFetch<CommercialPlansTopbarPayload>("/commercial-plans/me").catch(() => null),
     ]);
     setUser(profile);
     setModules(myModules || []);
+    setSupportHasInternalChat(Boolean(supportPlans?.current?.entitlements?.atendimento_chat));
     if (typeof window !== "undefined") {
       (window as HbxPrefetchWindow).__hbx_prefetch = {
         modules: myModules || [],
@@ -591,6 +603,7 @@ export default function TopBar() {
       setOperationalStatus(null);
       setRecoveryPendingHumanCount(0);
       setAtendimentoPendingHumanCount(0);
+      setSupportHasInternalChat(null);
       setStorageUserId(null);
       if (typeof window !== "undefined") {
         delete (window as HbxPrefetchWindow).__hbx_prefetch;
@@ -602,15 +615,17 @@ export default function TopBar() {
 
     async function loadUser() {
       try {
-        const [profile, myModules, nextOperationalStatus] = await Promise.all([
+        const [profile, myModules, nextOperationalStatus, supportPlans] = await Promise.all([
           apiFetch<User>("/profile/current-user"),
           apiFetch<UserModule[]>("/modules/me"),
           refreshOperationalStatus(false),
+          apiFetch<CommercialPlansTopbarPayload>("/commercial-plans/me").catch(() => null),
         ]);
         if (mounted) {
           setUser(profile);
           setModules(myModules || []);
           setOperationalStatus(nextOperationalStatus);
+          setSupportHasInternalChat(Boolean(supportPlans?.current?.entitlements?.atendimento_chat));
           if (typeof window !== "undefined") {
             (window as HbxPrefetchWindow).__hbx_prefetch = {
               modules: myModules || [],
@@ -623,6 +638,7 @@ export default function TopBar() {
           setUser(null);
           setModules([]);
           setOperationalStatus(null);
+          setSupportHasInternalChat(null);
         }
       }
     }
@@ -1153,6 +1169,17 @@ export default function TopBar() {
   function handleQueueShortcut(moduleKey: "atendimento" | "recovery") {
     clearQueueBadge(moduleKey, { dismissPopup: true });
     router.push(moduleKey === "atendimento" ? "/dashboard/inbox" : "/dashboard/inbox/recovery");
+  }
+
+  function handleSupportClick() {
+    if (supportHasInternalChat === true) {
+      router.push(`/dashboard/inbox?support=1&phone=${SUPPORT_PHONE}`);
+      return;
+    }
+
+    if (typeof window === "undefined") return;
+    const url = `https://web.whatsapp.com/send?phone=${SUPPORT_PHONE}&text=${encodeURIComponent(SUPPORT_MESSAGE)}`;
+    window.open(url, "_blank", "noopener,noreferrer");
   }
 
   async function loadUnreadInboxEntries() {
@@ -1930,6 +1957,18 @@ export default function TopBar() {
                 disabled={masterContextActionBusy}
               >
                 Sair contexto
+              </button>
+            ) : null}
+            {authenticated === true ? (
+              <button
+                type="button"
+                className="app-topbar__support"
+                onClick={handleSupportClick}
+                aria-label="Abrir suporte HBX"
+                title="Suporte HBX"
+              >
+                <span aria-hidden="true">☎</span>
+                <strong>Suporte</strong>
               </button>
             ) : null}
             {authenticated === true ? <ThemeSwitcher /> : null}

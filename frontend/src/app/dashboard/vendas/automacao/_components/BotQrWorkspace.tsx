@@ -12,7 +12,7 @@ type BotQrWorkspaceProps = {
 };
 
 const TABS: Array<{ id: BotQrWorkspaceTab; label: string; helper: string }> = [
-  { id: "flow", label: "BOT", helper: "Fluxo" },
+  { id: "flow", label: "Bot", helper: "Fluxo" },
   { id: "publish", label: "OK", helper: "Publicar" },
 ];
 
@@ -32,7 +32,7 @@ export default function BotQrWorkspace({
       <div className={styles.workspaceHeader}>
         <div>
           <span className={styles.sectionEyebrow}>Automacao WhatsApp</span>
-          <h2 className={styles.sectionTitle}>BOT</h2>
+          <h2 className={styles.sectionTitle}>Bot</h2>
         </div>
       </div>
 

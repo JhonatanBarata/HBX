@@ -207,19 +207,20 @@
 
 .flipCard {
   min-height: 430px;
+  display: grid;
+  gap: 12px;
   perspective: 1200px;
 }
 
 .flipInner {
   position: relative;
-  height: 100%;
+  height: auto;
   min-height: 430px;
   transition: transform 520ms ease;
   transform-style: preserve-3d;
 }
 
-.flipCard:hover .flipInner,
-.flipCard:focus-within .flipInner {
+.flipCard:hover .flipInner {
   transform: rotateY(180deg);
 }
 
@@ -281,10 +282,41 @@
   font-weight: 800;
 }
 
+.planDescription {
+  min-height: 72px;
+  color: #334155;
+  font-weight: 750;
+}
+
+.planLegal {
+  display: block;
+  margin-top: auto;
+  color: #64748b;
+  font-size: 0.84rem;
+  font-weight: 800;
+  line-height: 1.45;
+}
+
+.cardActionDock {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(19, 32, 51, 0.1);
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 18px 46px -34px rgba(15, 23, 42, 0.58);
+}
+
+.cardActionDock small {
+  color: #64748b;
+  font-size: 0.78rem;
+  font-weight: 800;
+  line-height: 1.35;
+}
+
 .primaryButton {
   width: 100%;
   min-height: 46px;
-  margin-top: auto;
   border: 1px solid transparent;
   border-radius: 8px;
   color: #ffffff;
@@ -344,7 +376,7 @@
 
   .flipCard,
   .flipInner {
-    min-height: 390px;
+    min-height: 360px;
   }
 }
 
@@ -367,5 +399,33 @@
 
   .segmented {
     width: 100%;
+  }
+
+  .flipCard,
+  .flipInner {
+    min-height: unset;
+    perspective: none;
+  }
+
+  .flipInner {
+    display: grid;
+    gap: 10px;
+    transform-style: flat;
+  }
+
+  .flipCard:hover .flipInner {
+    transform: none;
+  }
+
+  .cardFace,
+  .cardFaceBack {
+    position: static;
+    min-height: unset;
+    transform: none;
+    backface-visibility: visible;
+  }
+
+  .planDescription {
+    min-height: unset;
   }
 }

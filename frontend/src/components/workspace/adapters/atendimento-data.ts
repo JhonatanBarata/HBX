@@ -144,7 +144,7 @@ export function getAtendimentoConversationStatusMeta(
   if (conversation.status === "closed") {
     return { label: "Encerrado", shortLabel: "OK", tone: "closed" };
   }
-  return { label: "BOT", shortLabel: "BOT", tone: "bot" };
+  return { label: "Bot", shortLabel: "Bot", tone: "bot" };
 }
 
 export function mapAtendimentoConversationToneToQueueTone(
@@ -173,7 +173,7 @@ function formatRecoverySourceModuleLabel(sourceRaw: string | null | undefined) {
 
   const labels: Record<string, string> = {
     hbx_recovery: "HBX Recovery",
-    hbx_recovery_bot: "HBX Recovery BOT",
+    hbx_recovery_bot: "HBX Recovery Bot",
     inbox: "Atendimento",
     atendimento: "Atendimento",
     whatsapp: "WhatsApp",
@@ -212,8 +212,8 @@ function formatAtendimentoRecoveryFlowResultLabel(flowResultRaw: string | null |
 
 function formatAtendimentoRecoveryOperationLabel(conversation: InboxConversation) {
   if (conversation.humanAssigned) return "Humano em andamento";
-  if (conversation.botActive === false) return "BOT pausado";
-  if (conversation.botActive === true) return "BOT ativo";
+  if (conversation.botActive === false) return "Bot pausado";
+  if (conversation.botActive === true) return "Bot ativo";
   return "Operacao sem status";
 }
 
@@ -227,7 +227,7 @@ function formatIdentityStatusLabel(valueRaw: string | null | undefined) {
     pending_confirmation: "Pendente de confirmacao",
     confirmed: "Confirmado",
     manual: "Manual",
-    whatsapp_bot: "WhatsApp BOT",
+    whatsapp_bot: "WhatsApp Bot",
     recovery: "Recovery",
   };
 
@@ -267,7 +267,7 @@ export function buildAtendimentoQueueBadges(
   if (conversation.status === "open" || conversation.humanAssigned) {
     badges.push({ label: "Humano", tone: "success" });
   } else if (conversation.status !== "closed" && !conversation.isBlocked) {
-    badges.push({ label: "BOT", tone: "neutral" });
+    badges.push({ label: "Bot", tone: "neutral" });
   }
 
   if (conversation.status === "blocked" || conversation.isBlocked) {

@@ -415,11 +415,11 @@ function formatDateTime(value?: string | null) {
 
 function mapSenderLabel(senderType: string | null | undefined, direction: string) {
   const sender = String(senderType || "").trim().toLowerCase();
-  if (sender === "bot") return "BOT";
+  if (sender === "bot") return "Bot";
   if (sender === "human") return "Humano";
   if (sender === "system") return "Sistema";
   if (sender === "client") return "Cliente";
-  return String(direction || "").toUpperCase() === "INBOUND" ? "Cliente" : "BOT";
+  return String(direction || "").toUpperCase() === "INBOUND" ? "Cliente" : "Bot";
 }
 
 function mapRecoveryMessageTone(message: RecoveryInteractionMessage) {
@@ -8858,7 +8858,7 @@ export default function HbxRecoveryClientPage({ embedded = false }: HbxRecoveryC
                 <p className={styles.sectionEyebrow}>Inbox de cobranca</p>
                 <h2 className={styles.sectionTitle}>Mensagens de inadimplentes</h2>
                 <p className={styles.sectionDescription}>
-                  Fluxo hibrido BOT + HUMANO com acoes rapidas, rastreabilidade completa e painel financeiro.
+                  Fluxo híbrido Bot + humano com ações rápidas, rastreabilidade completa e painel financeiro.
                 </p>
               </div>
               <div className={styles.interactionsHeaderStats}>
@@ -8999,7 +8999,7 @@ export default function HbxRecoveryClientPage({ embedded = false }: HbxRecoveryC
                           <div className={styles.interactionBadgeRow}>
                             {item.botActive ? (
                               <span className={`${styles.stateBadge} ${styles.stateBot}`}>
-                                BOT ativo
+                                Bot ativo
                               </span>
                             ) : null}
                             {item.humanAssigned || item.humanQueue ? (
@@ -9066,7 +9066,7 @@ export default function HbxRecoveryClientPage({ embedded = false }: HbxRecoveryC
                       </div>
                       <div className={styles.interactionBadgeRow}>
                         {interactionDetail.botActive ? (
-                          <span className={`${styles.stateBadge} ${styles.stateBot}`}>BOT ativo</span>
+                          <span className={`${styles.stateBadge} ${styles.stateBot}`}>Bot ativo</span>
                         ) : null}
                         {interactionDetail.humanAssigned ? (
                           <span className={`${styles.stateBadge} ${styles.stateHuman}`}>
@@ -9192,7 +9192,7 @@ export default function HbxRecoveryClientPage({ embedded = false }: HbxRecoveryC
                           >
                             {isInteractionBusy(interactionDetail.conversationId, "pause_bot")
                               ? "Pausando..."
-                              : "Pausar BOT"}
+                              : "Pausar Bot"}
                           </button>
                           <button
                             type="button"
@@ -9207,7 +9207,7 @@ export default function HbxRecoveryClientPage({ embedded = false }: HbxRecoveryC
                           >
                             {isInteractionBusy(interactionDetail.conversationId, "resume_bot")
                               ? "Reativando..."
-                              : "Reativar BOT"}
+                              : "Reativar Bot"}
                           </button>
                           <button
                             type="button"

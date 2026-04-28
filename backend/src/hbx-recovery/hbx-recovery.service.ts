@@ -3826,7 +3826,7 @@ export class HbxRecoveryService {
       companyId,
       conversationId: conversation.id,
       contactId: customer.id,
-      text: 'BOT pausado manualmente pelo operador.',
+      text: 'Bot pausado manualmente pelo operador.',
       eventType: 'bot_paused',
       sourceModule: 'hbx_recovery_human',
     });
@@ -3860,8 +3860,8 @@ export class HbxRecoveryService {
       conversationId: conversation.id,
       contactId: customer.id,
       text: hasRecentInbound
-        ? 'BOT reativado manualmente pelo operador.'
-        : 'BOT reativado manualmente pelo operador. Nenhuma mensagem foi enviada porque a conversa esta fora da janela de 24h; a proxima resposta do cliente retomara o fluxo automaticamente.',
+        ? 'Bot reativado manualmente pelo operador.'
+        : 'Bot reativado manualmente pelo operador. Nenhuma mensagem foi enviada porque a conversa esta fora da janela de 24h; a proxima resposta do cliente retomara o fluxo automaticamente.',
       eventType: 'bot_resumed',
       sourceModule: 'hbx_recovery_bot',
       variables: { hasRecentInbound },

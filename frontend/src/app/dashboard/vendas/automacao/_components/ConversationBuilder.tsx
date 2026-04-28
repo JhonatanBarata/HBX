@@ -551,7 +551,7 @@ export default function ConversationBuilder({
     <section className={styles.builderShell}>
       <header className={styles.builderTopbar}>
         <div>
-          <span className={styles.eyebrow}>BOT</span>
+          <span className={styles.eyebrow}>Bot</span>
           <h2>Construtor de bot</h2>
         </div>
         <div className={styles.topbarActions}>

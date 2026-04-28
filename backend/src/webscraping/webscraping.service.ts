@@ -1008,8 +1008,8 @@ export class WebscrapingService {
 
     const planKey = normalizeCommercialPlanKey(company.selectedPlanKey);
     const message = planKey === COMMERCIAL_PLAN_KEYS.LITE
-      ? 'O HBX Lite nao inclui buscas no motor Google. Use motores gratuitos/HBX/cache ou faça upgrade.'
-      : `${GOOGLE_DAILY_LIMIT_REACHED_MESSAGE} Seu plano permite ${dailyLimit} busca(s) Google por dia. Motores gratuitos/HBX/cache continuam disponíveis.`;
+      ? 'O HBX Lite não inclui buscas Google diárias. Os motores gratuitos continuam liberados. Para buscas Google, escolha o HBX Padrão ou HBX Melhor.'
+      : `${GOOGLE_DAILY_LIMIT_REACHED_MESSAGE} Seu plano permite ${dailyLimit} busca(s) Google por dia.`;
     await this.recordUsageLog(context, input, 'BLOCKED_DAILY_LIMIT', 0, message);
     throw new ForbiddenException({
       code: 'google_daily_limit_reached',

@@ -8,6 +8,7 @@ export type CommercialPlan = {
   monthlyPrice: number | null;
   trialDays?: number | null;
   headline?: string | null;
+  description?: string | null;
   disabledReason?: string | null;
   features?: string[];
   legalCopy?: string | null;
@@ -62,7 +63,7 @@ export function getBotAiPlanRedirectFromError(error: unknown, fallback = "/dashb
     return typeof candidate.redirectTo === "string" ? candidate.redirectTo : fallback;
   }
   const message = String(candidate.message || "");
-  if (message.includes("BOT Inteligente") || message.includes("HBX Melhor")) {
+  if (message.includes("Bot de atendimento") || message.includes("HBX Melhor")) {
     return typeof candidate.redirectTo === "string" ? candidate.redirectTo : fallback;
   }
   return null;

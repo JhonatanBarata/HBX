@@ -79,7 +79,7 @@ export function buildAtendimentoContextActions(input: {
       {
         id: "atendimento-resume-bot",
         kind: "button",
-        label: "BOT",
+        label: "Bot",
         tone: selectedStatus === "new" ? "primary" : "secondary",
         onClick: () => updateStatus("new"),
       },
