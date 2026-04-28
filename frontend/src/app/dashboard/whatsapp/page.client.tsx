@@ -349,15 +349,18 @@ export default function WhatsAppCenterClientPage() {
   const qrBootstrapBusy = qrBootstrapStage === "connecting" || qrBootstrapStage === "mirroring";
 
   const qrOperationalError = useMemo(() => {
-    if (modalError) return modalError;
     if (!modalPayload) return null;
+    if (modalPayload.status === "connected") return null;
+    if (modalError) return modalError;
     if (modalPayload.data.missingConfigKeys.length > 0 && !modalPayload.data.available) {
       return `Configuração pendente: ${modalPayload.data.missingConfigKeys.join(", ")}.`;
     }
     if (!modalPayload.success && modalPayload.status === "error") {
       return modalPayload.message;
     }
-    return modalPayload.data.lastError || null;
+    if (modalPayload.status === "error") return modalPayload.data.lastError || modalPayload.message || null;
+    if (!modalPayload.data.qrCodeDataUrl) return modalPayload.data.lastError || null;
+    return null;
   }, [modalError, modalPayload]);
 
   if (hasToken === null) {
@@ -389,7 +392,6 @@ export default function WhatsAppCenterClientPage() {
             qrError={qrOperationalError}
             onChooseMode={(mode) => void chooseMode(mode)}
             onConnectQr={() => void runModalAction("connect")}
-            onDisconnectQr={() => void runModalAction("disconnect")}
             onRequestMeta={() => void requestMigration("central_whatsapp")}
           />
         )}

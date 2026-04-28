@@ -73,6 +73,7 @@ export default function BotAutomationPremiumEntry({
         open={builderOpen}
         botConfig={botConfig}
         agendaConfig={agendaConfig}
+        providerCapabilities={providerCapabilities}
         saving={publishing}
         recoveryEnabled={recoveryEnabled}
         onClose={() => setBuilderOpen(false)}

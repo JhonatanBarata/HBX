@@ -2,6 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
+import { useState } from "react";
 import type { WhatsAppCenterPayload, WhatsAppModalPayload } from "@/lib/whatsapp-center";
 import styles from "./WhatsAppConnectionWizard.module.css";
 
@@ -18,7 +19,6 @@ type Props = {
   qrError?: string | null;
   onChooseMode: (mode: ConnectionMode) => void;
   onConnectQr: () => void;
-  onDisconnectQr: () => void;
   onRequestMeta: () => void;
 };
 
@@ -46,9 +46,9 @@ export default function WhatsAppConnectionWizard({
   qrError,
   onChooseMode,
   onConnectQr,
-  onDisconnectQr,
   onRequestMeta,
 }: Props) {
+  const [qrPanelClosed, setQrPanelClosed] = useState(false);
   const mode = payload.center.mode;
   const qrSelected = mode === "QR";
   const metaSelected = mode === "OFFICIAL";
@@ -57,9 +57,24 @@ export default function WhatsAppConnectionWizard({
   const qrCode = modalPayload?.data.qrCodeDataUrl || null;
   const canUseQr = modalPayload?.data.available !== false;
   const canUseMeta = true;
-  const showQrLoader = qrBusy || modalSaving === "connect" || modalPayload?.status === "starting";
+  const showQrLoader = !qrReady && (qrBusy || modalSaving === "connect" || modalPayload?.status === "starting");
   const qrBotReady = qrReady && !showQrLoader && !qrError;
   const canGoBot = qrBotReady || metaReady;
+
+  const chooseQr = () => {
+    setQrPanelClosed(false);
+    onChooseMode("QR");
+  };
+
+  const chooseMeta = () => {
+    setQrPanelClosed(false);
+    onChooseMode("OFFICIAL");
+  };
+
+  const connectQr = () => {
+    setQrPanelClosed(false);
+    onConnectQr();
+  };
 
   return (
     <section className={styles.stage} aria-busy={loading || showQrLoader}>
@@ -80,7 +95,7 @@ export default function WhatsAppConnectionWizard({
           data-active={qrSelected}
           data-locked={!canUseQr}
           disabled={!canUseQr || saving !== null}
-          onClick={() => onChooseMode("QR")}
+          onClick={chooseQr}
           aria-label="QR Code"
         >
           <span className={styles.cardHalo} aria-hidden="true" />
@@ -94,7 +109,7 @@ export default function WhatsAppConnectionWizard({
           data-active={metaSelected}
           data-locked={!canUseMeta}
           disabled={!canUseMeta || saving !== null}
-          onClick={() => onChooseMode("OFFICIAL")}
+          onClick={chooseMeta}
           aria-label="Meta"
         >
           <span className={styles.cardHalo} aria-hidden="true" />
@@ -103,7 +118,7 @@ export default function WhatsAppConnectionWizard({
         </button>
       </div>
 
-      {qrSelected ? (
+      {qrSelected && !qrPanelClosed ? (
         <div className={styles.actionDeck} data-state={qrReady ? "ready" : showQrLoader ? "loading" : "idle"}>
           <div className={styles.qrShell}>
             {showQrLoader ? (
@@ -111,6 +126,11 @@ export default function WhatsAppConnectionWizard({
                 <span />
                 <i />
                 <b />
+              </div>
+            ) : qrReady ? (
+              <div className={styles.connectedPanel}>
+                <span aria-hidden="true" />
+                <strong>Conectado</strong>
               </div>
             ) : qrCode ? (
               <div className={styles.qrFrame}>
@@ -127,7 +147,7 @@ export default function WhatsAppConnectionWizard({
               <button
                 type="button"
                 className={styles.bigAction}
-                onClick={onConnectQr}
+                onClick={connectQr}
                 disabled={!canUseQr || modalSaving !== null}
                 aria-label="Gerar QR Code"
               >
@@ -141,7 +161,7 @@ export default function WhatsAppConnectionWizard({
               <button
                 type="button"
                 className={styles.primaryAction}
-                onClick={onConnectQr}
+                onClick={connectQr}
                 disabled={!canUseQr || modalSaving !== null || showQrLoader || qrReady}
               >
                 {qrReady ? "BOT" : qrCode ? "ATUALIZAR" : "GERAR"}
@@ -155,10 +175,10 @@ export default function WhatsAppConnectionWizard({
             <button
               type="button"
               className={styles.secondaryAction}
-              onClick={onDisconnectQr}
-              disabled={modalSaving !== null || (!qrReady && !qrCode)}
+              onClick={() => setQrPanelClosed(true)}
+              disabled={modalSaving !== null}
             >
-              SAIR
+              FECHAR
             </button>
           </div>
 

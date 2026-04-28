@@ -98,6 +98,48 @@
   gap: clamp(.9rem, 2vw, 1.2rem);
 }
 
+.moduleStage {
+  display: grid;
+  gap: 1rem;
+}
+
+.orgRail {
+  justify-self: center;
+  display: grid;
+  grid-template-columns: auto 42px auto 42px auto;
+  align-items: center;
+  gap: .45rem;
+  padding: .65rem;
+  border-radius: var(--radius-xl);
+  border: 1px solid color-mix(in srgb, var(--line) 74%, transparent);
+  background: color-mix(in srgb, var(--surface) 76%, transparent);
+  box-shadow: var(--shadow-xs);
+}
+
+.orgRail span {
+  min-height: 40px;
+  display: grid;
+  place-items: center;
+  padding: 0 .9rem;
+  border-radius: var(--radius-xl);
+  border: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
+  background: color-mix(in srgb, var(--surface-raised) 82%, transparent);
+  color: var(--foreground-soft);
+  font-size: .76rem;
+  font-weight: 1000;
+}
+
+.orgRail span[data-active="true"] {
+  border-color: color-mix(in srgb, var(--selection-accent) 54%, var(--line));
+  background: color-mix(in srgb, var(--selection-accent-soft) 72%, var(--surface));
+  color: var(--foreground);
+}
+
+.orgRail b {
+  height: 1px;
+  background: color-mix(in srgb, var(--selection-accent) 46%, var(--line));
+}
+
 .heroCard {
   position: relative;
   min-height: min(46vh, 390px);
@@ -189,15 +231,34 @@
   box-shadow: var(--shadow-inset), var(--shadow-sm);
 }
 
-.messageEditor span {
-  display: grid;
-  place-items: center;
-  width: 44px;
-  height: 44px;
-  border-radius: 999px;
+.messageModes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .55rem;
+}
+
+.messageModes button {
+  min-height: 42px;
+  border: 1px solid color-mix(in srgb, var(--line) 72%, transparent);
+  border-radius: var(--radius-xl);
+  background: color-mix(in srgb, var(--surface) 84%, transparent);
+  color: var(--foreground);
+  padding: 0 .9rem;
+  font: inherit;
+  font-size: .82rem;
+  font-weight: 1000;
+  cursor: pointer;
+  transition: transform 220ms ease, box-shadow 220ms ease, background 220ms ease;
+}
+
+.messageModes button[data-active="true"] {
   background: linear-gradient(135deg, var(--button-primary), var(--button-accent));
   color: var(--background);
-  font-weight: 1000;
+  box-shadow: var(--shadow-sm), 0 0 34px var(--selection-accent-soft);
+}
+
+.messageModes button:hover {
+  transform: translateY(-2px);
 }
 
 .messageEditor textarea {
@@ -217,6 +278,7 @@
 }
 
 .phoneMock {
+  position: relative;
   display: grid;
   align-content: start;
   gap: .8rem;
@@ -286,6 +348,7 @@
   background: color-mix(in srgb, var(--surface-raised) 88%, transparent);
   box-shadow: var(--shadow-xs);
   cursor: pointer;
+  outline: none;
   transition: transform 240ms ease, border-color 240ms ease, box-shadow 240ms ease;
 }
 
@@ -314,6 +377,73 @@
   color: var(--foreground);
   font: inherit;
   font-weight: 900;
+}
+
+.variableButton {
+  position: absolute;
+  right: 1rem;
+  bottom: 1rem;
+  min-height: 42px;
+  border: 1px solid color-mix(in srgb, var(--selection-accent) 42%, var(--line));
+  border-radius: var(--radius-xl);
+  background: linear-gradient(135deg, var(--button-primary), var(--button-accent));
+  color: var(--background);
+  box-shadow: var(--shadow-md), 0 0 34px var(--selection-accent-soft);
+  padding: 0 1rem;
+  font: inherit;
+  font-size: .82rem;
+  font-weight: 1000;
+  cursor: pointer;
+  transition: transform 220ms ease, box-shadow 220ms ease;
+}
+
+.variableButton:hover {
+  transform: translateY(-3px);
+}
+
+.variablePopover {
+  position: absolute;
+  right: 1rem;
+  bottom: 4.4rem;
+  width: min(340px, calc(100% - 2rem));
+  max-height: 280px;
+  display: grid;
+  gap: .5rem;
+  overflow: auto;
+  padding: .7rem;
+  border-radius: var(--radius-xl);
+  border: 1px solid color-mix(in srgb, var(--line) 76%, transparent);
+  background: color-mix(in srgb, var(--surface-raised) 94%, var(--background));
+  box-shadow: var(--shadow-lg);
+  animation: modalIn 220ms ease both;
+}
+
+.variablePopover button {
+  display: grid;
+  gap: .18rem;
+  border: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--surface) 78%, transparent);
+  color: var(--foreground);
+  padding: .65rem .75rem;
+  text-align: left;
+  cursor: pointer;
+  transition: transform 200ms ease, border-color 200ms ease, box-shadow 200ms ease;
+}
+
+.variablePopover button:hover {
+  transform: translateY(-2px);
+  border-color: color-mix(in srgb, var(--selection-accent) 50%, var(--line));
+  box-shadow: var(--shadow-sm), 0 0 28px var(--selection-accent-soft);
+}
+
+.variablePopover strong {
+  font-size: .82rem;
+}
+
+.variablePopover span {
+  color: var(--foreground-soft);
+  font-size: .78rem;
 }
 
 .choiceItem em {
