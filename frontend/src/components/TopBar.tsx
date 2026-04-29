@@ -303,7 +303,9 @@ export default function TopBar() {
   const masterContextToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastScrollYRef = useRef(0);
   const authResolved = authenticated !== null;
-  const dashboardHref = isPendingCheckoutUser(user) ? resolvePendingCheckoutHref(user) : "/dashboard";
+  const pendingCheckoutLocked = isPendingCheckoutUser(user);
+  const pendingCheckoutHref = resolvePendingCheckoutHref(user);
+  const dashboardHref = pendingCheckoutLocked ? pendingCheckoutHref : "/dashboard";
 
   usePopupTopbarLock(whatsAppDetailOpen || masterContextModalOpen);
 
@@ -340,6 +342,11 @@ export default function TopBar() {
         return;
       }
 
+      if (pendingCheckoutLocked) {
+        router.push(pendingCheckoutHref);
+        return;
+      }
+
       if (!modulesPeekAvailable) {
         router.push(dashboardHref);
         return;
@@ -362,7 +369,7 @@ export default function TopBar() {
         }),
       );
     },
-    [authenticated, dashboardHref, modulesPeekAvailable, router],
+    [authenticated, dashboardHref, modulesPeekAvailable, pendingCheckoutHref, pendingCheckoutLocked, router],
   );
 
   const refreshMasterAwareState = React.useCallback(async () => {
@@ -396,6 +403,13 @@ export default function TopBar() {
 
   const loadWhatsAppCenter = React.useCallback(async (options?: { background?: boolean }) => {
     if (authenticated !== true) return null;
+    if (pendingCheckoutLocked) {
+      if (!options?.background) {
+        setWhatsAppDetailError("Finalize sua contratação para liberar a conexão do WhatsApp.");
+        router.push(pendingCheckoutHref);
+      }
+      return null;
+    }
     if (!options?.background) setWhatsAppDetailLoading(true);
     setWhatsAppDetailError(null);
     try {
@@ -409,10 +423,17 @@ export default function TopBar() {
     } finally {
       if (!options?.background) setWhatsAppDetailLoading(false);
     }
-  }, [authenticated]);
+  }, [authenticated, pendingCheckoutHref, pendingCheckoutLocked, router]);
 
   const loadWhatsAppModal = React.useCallback(async (options?: { background?: boolean; includeQr?: boolean }) => {
     if (authenticated !== true) return null;
+    if (pendingCheckoutLocked) {
+      if (!options?.background) {
+        setWhatsAppDetailError("Finalize sua contratação para liberar a conexão do WhatsApp.");
+        router.push(pendingCheckoutHref);
+      }
+      return null;
+    }
     if (!options?.background) setWhatsAppModalLoading(true);
     setWhatsAppDetailError(null);
     try {
@@ -445,7 +466,7 @@ export default function TopBar() {
     } finally {
       if (!options?.background) setWhatsAppModalLoading(false);
     }
-  }, [authenticated, router]);
+  }, [authenticated, pendingCheckoutHref, pendingCheckoutLocked, router]);
 
   const waitForWhatsAppModalQr = React.useCallback(async (statusPayload: WhatsAppModalPayload) => {
     let latestPayload = statusPayload;
@@ -538,6 +559,7 @@ export default function TopBar() {
 
   const operationalStatusReady = Boolean(
     authenticated &&
+      !pendingCheckoutLocked &&
       operationalStatus?.context.available &&
       operationalStatus.statuses.length,
   );
@@ -1349,6 +1371,10 @@ export default function TopBar() {
   }, [unreadInboxOpen]);
 
   async function openWhatsAppDiagnostic(focus: WhatsAppDiagnosticFocus) {
+    if (pendingCheckoutLocked) {
+      router.push(pendingCheckoutHref);
+      return;
+    }
     setWhatsAppQrRequested(false);
     setWhatsAppDetailFocus(focus);
     setWhatsAppDetailOpen(true);
@@ -1361,6 +1387,10 @@ export default function TopBar() {
   }
 
   async function ensureWhatsAppQrMode() {
+    if (pendingCheckoutLocked) {
+      router.push(pendingCheckoutHref);
+      return null;
+    }
     if (whatsAppCenter?.center.mode === "QR") {
       return whatsAppCenter;
     }
@@ -1374,6 +1404,10 @@ export default function TopBar() {
   }
 
   async function chooseWhatsAppMode(mode: "QR" | "OFFICIAL") {
+    if (pendingCheckoutLocked) {
+      router.push(pendingCheckoutHref);
+      return;
+    }
     setWhatsAppDetailBusy(mode);
     setWhatsAppDetailError(null);
     try {
@@ -1398,6 +1432,10 @@ export default function TopBar() {
   }
 
   async function requestWhatsAppMigration() {
+    if (pendingCheckoutLocked) {
+      router.push(pendingCheckoutHref);
+      return;
+    }
     setWhatsAppDetailBusy("migration");
     setWhatsAppDetailError(null);
     try {
@@ -1417,6 +1455,10 @@ export default function TopBar() {
   }
 
   async function startQrWhatsAppConnection() {
+    if (pendingCheckoutLocked) {
+      router.push(pendingCheckoutHref);
+      return;
+    }
     setWhatsAppDetailBusy("qr-connect");
     setWhatsAppDetailError(null);
     try {
@@ -1465,6 +1507,10 @@ export default function TopBar() {
   }
 
   async function disconnectQrWhatsAppConnection() {
+    if (pendingCheckoutLocked) {
+      router.push(pendingCheckoutHref);
+      return;
+    }
     setWhatsAppDetailBusy("qr-disconnect");
     setWhatsAppDetailError(null);
     try {
@@ -1486,6 +1532,10 @@ export default function TopBar() {
   }
 
   function handleOperationalChipClick(chip: OperationalStatusChip) {
+    if (pendingCheckoutLocked) {
+      router.push(pendingCheckoutHref);
+      return;
+    }
     if (isWhatsAppOperationalChip(chip)) {
       void openWhatsAppDiagnostic(resolveWhatsAppDiagnosticFocus(chip));
       return;
@@ -1628,14 +1678,18 @@ export default function TopBar() {
         : "MASTER GLOBAL"
       : user?.company?.name || "Operacao sem empresa"
     : "Plataforma operacional HBX";
-  const operationalSummaryMessage = showOperationalCompanyPicker
+  const operationalSummaryMessage = pendingCheckoutLocked
+    ? "Finalize contratação"
+    : showOperationalCompanyPicker
     ? "Selecione uma empresa"
     : operationalStatusReady
       ? `Empresa: ${operationalStatus?.context.companyName || "Operação ativa"}`
       : pendingHumanCount > 0
         ? `${pendingHumanCount} na fila`
         : "Status em leitura";
-  const visibleOperationalStatusChips = (operationalStatus?.statuses || []).filter((chip) => chip.key !== "payment");
+  const visibleOperationalStatusChips = pendingCheckoutLocked
+    ? []
+    : (operationalStatus?.statuses || []).filter((chip) => chip.key !== "payment");
   const whatsAppDialogNode = (
     <WhatsAppOperationalDialog
       isOpen={whatsAppDetailOpen}
@@ -1807,7 +1861,7 @@ export default function TopBar() {
               </Link>
             </div>
 
-            {authenticated === true && user && !user.isSystemMaster && user.company?.id ? (
+            {authenticated === true && user && !user.isSystemMaster && user.company?.id && !pendingCheckoutLocked ? (
               <div className="app-topbar__signals">
                 <div ref={unreadMenuRef} className="wa-unread-wrap">
                   <button

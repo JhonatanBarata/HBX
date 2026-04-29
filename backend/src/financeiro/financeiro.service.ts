@@ -734,11 +734,14 @@ export class FinanceiroService {
     if (!company) throw new BadRequestException('Empresa nao encontrada.');
     const accessToken = String(resolved.accessToken || '').trim();
     if (!accessToken) {
-      throw new BadRequestException(
-        resolved.source === 'master_missing'
-          ? 'Empresa marcada para usar o token MASTER, mas o Mercado Pago global ainda nao foi configurado.'
-          : 'Mercado Pago nao configurado para esta empresa. Configure no MASTER.',
-      );
+      throw new BadRequestException({
+        code: 'MERCADO_PAGO_MASTER_NOT_LINKED',
+        message: 'Mercado Pago não está pronto para esta empresa.',
+        operationalMessage:
+          resolved.source === 'master_missing'
+            ? 'Empresa marcada para usar o token MASTER, mas o Mercado Pago global ainda nao foi configurado.'
+            : 'Empresa nao vinculada a uma credencial Mercado Pago MASTER.',
+      });
     }
     return { company, accessToken };
   }

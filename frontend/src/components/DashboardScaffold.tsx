@@ -121,7 +121,7 @@ export default function DashboardScaffold({
   const isWorkspaceMode = layoutMode === "workspace";
   // Mostrar o painel "peek" dos módulos escondidos no canto esquerdo por padrão
   // (padrão global: navegação em rail escondida, modules peek disponível).
-  const shouldShowHoverModules = !hideHoverModules;
+  const shouldEnableHoverModules = !hideHoverModules;
   const authenticated = useSyncExternalStore(subscribeAuth, getAuthSnapshot, getAuthServerSnapshot);
   const [presentationProfile, setPresentationProfile] = useState<PresentationProfile | null>(null);
   const [presentationConfig, setPresentationConfig] = useState<PresentationConfig | null>(null);
@@ -298,6 +298,13 @@ export default function DashboardScaffold({
   }, [presentationProfile?.tenantId]);
 
   const canEditPresentation = Boolean(presentationProfile?.isSystemMaster);
+  const pendingCheckoutLocked = Boolean(
+    authenticated &&
+      presentationProfile &&
+      !presentationProfile.isSystemMaster &&
+      isPendingCheckoutCompany(presentationProfile.company),
+  );
+  const shouldShowHoverModules = shouldEnableHoverModules && !pendingCheckoutLocked;
 
   useEffect(() => {
     if (!isWorkspaceMode || !canEditPresentation) return;
@@ -710,7 +717,7 @@ export default function DashboardScaffold({
             document.body,
           )
         : null}
-      <QrPairedNextStepPrompt />
+      {!pendingCheckoutLocked ? <QrPairedNextStepPrompt /> : null}
     </main>
   );
 }
