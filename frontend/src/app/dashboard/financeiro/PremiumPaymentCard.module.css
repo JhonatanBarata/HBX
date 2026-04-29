@@ -1,0 +1,322 @@
+.cardStage {
+  width: min(100%, 460px);
+  perspective: 1200px;
+  margin-inline: auto;
+}
+
+.card {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1.62 / 1;
+  transform-style: preserve-3d;
+  transition: transform 0.45s cubic-bezier(0.2, 0.8, 0.2, 1);
+  filter: drop-shadow(0 34px 42px rgba(6, 30, 84, 0.28));
+}
+
+.flipped {
+  transform: rotateY(180deg);
+}
+
+.frontFace,
+.backFace {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  border-radius: 30px;
+  padding: clamp(20px, 5vw, 30px);
+  color: white;
+  backface-visibility: hidden;
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.22),
+    inset 0 -90px 90px rgba(0, 0, 0, 0.22);
+}
+
+.frontFace {
+  background:
+    radial-gradient(circle at 18% 12%, rgba(98, 229, 255, 0.38), transparent 28%),
+    radial-gradient(circle at 88% 16%, rgba(139, 102, 255, 0.5), transparent 30%),
+    linear-gradient(135deg, #08285d 0%, #0b3c82 38%, #152a72 68%, #11162f 100%);
+}
+
+.backFace {
+  transform: rotateY(180deg);
+  background:
+    radial-gradient(circle at 86% 20%, rgba(44, 226, 155, 0.34), transparent 28%),
+    linear-gradient(135deg, #101b33 0%, #071226 62%, #050b18 100%);
+}
+
+.glow,
+.backGlow {
+  position: absolute;
+  inset: -40%;
+  background:
+    linear-gradient(
+      110deg,
+      transparent 30%,
+      rgba(255, 255, 255, 0.22) 45%,
+      transparent 58%
+    );
+  animation: cardShine 4.8s ease-in-out infinite;
+  pointer-events: none;
+}
+
+.backGlow {
+  opacity: 0.55;
+}
+
+@keyframes cardShine {
+  0%,
+  22% {
+    transform: translateX(-55%) rotate(12deg);
+  }
+
+  62%,
+  100% {
+    transform: translateX(58%) rotate(12deg);
+  }
+}
+
+.topRow,
+.bottomRow {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.chip {
+  position: relative;
+  width: 58px;
+  height: 44px;
+  border-radius: 14px;
+  background:
+    linear-gradient(135deg, #fff3bd 0%, #c99c45 48%, #fff0ae 100%);
+  box-shadow:
+    inset 0 0 0 1px rgba(74, 47, 6, 0.24),
+    0 10px 22px rgba(0, 0, 0, 0.16);
+}
+
+.chip::before,
+.chip::after {
+  content: "";
+  position: absolute;
+  inset: 11px 0;
+  border-top: 1px solid rgba(74, 47, 6, 0.36);
+  border-bottom: 1px solid rgba(74, 47, 6, 0.36);
+}
+
+.chip::after {
+  inset: 0 18px;
+  border: 0;
+  border-left: 1px solid rgba(74, 47, 6, 0.36);
+  border-right: 1px solid rgba(74, 47, 6, 0.36);
+}
+
+.brandPill {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 40px;
+  padding: 9px 13px;
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.15);
+  backdrop-filter: blur(16px);
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.brandIcon {
+  position: relative;
+  display: inline-block;
+  width: 38px;
+  height: 24px;
+}
+
+.brandIcon::before,
+.brandIcon::after {
+  content: "";
+  position: absolute;
+  top: 1px;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  background: #ff4848;
+}
+
+.brandIcon::after {
+  left: 14px;
+  background: #ffc044;
+  mix-blend-mode: screen;
+}
+
+.brandPill[data-brand="visa"] .brandIcon::before {
+  width: 38px;
+  border-radius: 7px;
+  background: linear-gradient(135deg, #ffffff, #dce7ff);
+}
+
+.brandPill[data-brand="visa"] .brandIcon::after {
+  display: none;
+}
+
+.brandPill[data-brand="amex"] .brandIcon::before {
+  width: 38px;
+  border-radius: 7px;
+  background: linear-gradient(135deg, #5ee2ff, #2877ff);
+}
+
+.brandPill[data-brand="amex"] .brandIcon::after {
+  display: none;
+}
+
+.brandPill[data-brand="elo"] .brandIcon::before {
+  width: 38px;
+  border-radius: 7px;
+  background: linear-gradient(135deg, #ffffff, #e8f7ff);
+}
+
+.brandPill[data-brand="elo"] .brandIcon::after {
+  display: none;
+}
+
+.cardNumber {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  gap: clamp(8px, 3vw, 16px);
+  margin: clamp(44px, 10vw, 62px) 0 clamp(26px, 7vw, 38px);
+  font-size: clamp(21px, 5vw, 34px);
+  font-weight: 950;
+  letter-spacing: 0.14em;
+  text-shadow: 0 12px 24px rgba(0, 0, 0, 0.25);
+}
+
+.bottomRow small,
+.signatureArea small {
+  display: block;
+  margin-bottom: 8px;
+  color: rgba(255, 255, 255, 0.58);
+  font-size: 10px;
+  font-weight: 950;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.bottomRow strong {
+  display: block;
+  max-width: 250px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: clamp(13px, 3vw, 16px);
+  font-weight: 950;
+  letter-spacing: 0.03em;
+}
+
+.rightInfo {
+  text-align: right;
+}
+
+.amountBadge {
+  position: absolute;
+  right: clamp(18px, 4vw, 28px);
+  bottom: clamp(18px, 4vw, 26px);
+  z-index: 3;
+  display: none;
+  padding: 10px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.amountBadge span {
+  display: block;
+  color: rgba(255, 255, 255, 0.58);
+  font-size: 10px;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+}
+
+.amountBadge strong {
+  display: block;
+  margin-top: 3px;
+  font-size: 16px;
+  font-weight: 950;
+}
+
+.magneticBar {
+  position: relative;
+  z-index: 2;
+  height: 58px;
+  margin: 20px calc(clamp(20px, 5vw, 30px) * -1) 34px;
+  background: rgba(0, 0, 0, 0.68);
+}
+
+.signatureArea {
+  position: relative;
+  z-index: 2;
+  display: grid;
+  grid-template-columns: 1fr 74px;
+  gap: 12px;
+  align-items: end;
+}
+
+.signatureLine {
+  height: 44px;
+  border-radius: 9px;
+  background:
+    repeating-linear-gradient(
+      -8deg,
+      rgba(255, 255, 255, 0.92) 0 8px,
+      rgba(225, 235, 248, 0.92) 8px 16px
+    );
+}
+
+.cvvBox {
+  display: grid;
+  height: 44px;
+  place-items: center;
+  border-radius: 9px;
+  background: #ffffff;
+  color: #111827;
+  font-size: 16px;
+  font-weight: 950;
+  letter-spacing: 0.12em;
+}
+
+.securityText {
+  position: relative;
+  z-index: 2;
+  max-width: 340px;
+  margin: 28px 0 0;
+  color: rgba(255, 255, 255, 0.62);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+@media (max-width: 620px) {
+  .frontFace,
+  .backFace {
+    border-radius: 24px;
+  }
+
+  .brandPill strong {
+    display: none;
+  }
+
+  .cardNumber {
+    letter-spacing: 0.08em;
+  }
+
+  .bottomRow {
+    align-items: flex-end;
+  }
+
+  .bottomRow strong {
+    max-width: 180px;
+  }
+}
