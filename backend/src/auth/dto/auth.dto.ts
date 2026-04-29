@@ -76,6 +76,11 @@ export class ConfirmEmailDto {
   token: string;
 }
 
+export class EmailConfirmationStatusDto {
+  @IsNotEmpty()
+  pollToken: string;
+}
+
 export class ResendConfirmationDto {
   @IsEmail()
   email: string;

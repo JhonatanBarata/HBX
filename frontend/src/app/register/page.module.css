@@ -583,6 +583,49 @@
   gap: 10px;
 }
 
+.autoConfirmStatus {
+  display: flex;
+  min-height: 38px;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  border: 1px solid color-mix(in srgb, var(--button-secondary) 28%, transparent);
+  border-radius: 10px;
+  padding: 9px 12px;
+  color: color-mix(in srgb, var(--foreground) 76%, var(--muted));
+  background: color-mix(in srgb, var(--surface) 34%, transparent);
+  font-size: 0.8rem;
+  font-weight: 800;
+  line-height: 1.35;
+  text-align: center;
+}
+
+.autoConfirmStatus p {
+  margin: 0;
+}
+
+.autoConfirmStatus[data-error="true"] {
+  border-color: rgba(185, 59, 49, 0.28);
+  color: #9b2f27;
+  background: rgba(255, 245, 242, 0.76);
+}
+
+.autoConfirmSpinner {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+  border: 2px solid color-mix(in srgb, var(--button-secondary) 24%, transparent);
+  border-top-color: color-mix(in srgb, var(--button-secondary) 88%, white);
+  border-radius: 999px;
+  animation: autoConfirmSpin 850ms linear infinite;
+}
+
+@keyframes autoConfirmSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .loginLink {
   text-align: center;
 }
@@ -1343,6 +1386,50 @@
     opacity: 1;
     transform: translateY(0) scale(1);
     filter: blur(0);
+  }
+}
+
+:global(.login-console).registerConsole[data-confirmation-pending="true"] {
+  grid-template-columns: minmax(360px, 482px) !important;
+  justify-content: center;
+  gap: 0 !important;
+  width: min(560px, calc(100vw - 48px)) !important;
+}
+
+.registerConsole[data-confirmation-pending="true"] :global(.login-side) {
+  position: absolute;
+  width: min(760px, 58vw);
+  pointer-events: none;
+}
+
+.registerConsole[data-confirmation-pending="true"] .registerPlansPanel {
+  animation: registerPlansPanelDismiss 760ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.registerConsole[data-confirmation-pending="true"] :global(.login-shell) {
+  justify-self: center;
+  animation: registerConfirmationShellCenter 760ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes registerPlansPanelDismiss {
+  from {
+    opacity: 1;
+    transform: translateX(0);
+    filter: blur(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateX(-36px);
+    filter: blur(8px);
+  }
+}
+
+@keyframes registerConfirmationShellCenter {
+  from {
+    transform: translateX(40px);
+  }
+  to {
+    transform: translateX(0);
   }
 }
 

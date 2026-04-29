@@ -1,17 +1,20 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import PlanSelectionExperience, { type PlanSelectionCard } from "@/components/PlanSelectionExperience";
 import { useRouter } from "next/navigation";
 import { useHbxTheme } from "@/components/ThemeProvider";
-import { setToken } from "../dashboard/_lib/api";
+import { getToken, setToken } from "../dashboard/_lib/api";
 import type { CommercialPlanKey } from "@/lib/commercial-plans";
 import styles from "./page.module.css";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3000";
 const PUBLIC_SIGNUP_ENTITY_TYPE = "PF" as const;
+const EMAIL_CONFIRMATION_CHANNEL = "hbx_email_confirmation";
+const EMAIL_CONFIRMATION_EVENT_KEY = "hbx_email_confirmation_event";
+const CONFIRMATION_POLL_INTERVAL_MS = 4500;
 
 type ApiErrorPayload = {
   message?: string | string[];
@@ -32,6 +35,7 @@ type SignupResponse = {
   selectedPlanKey?: CommercialPlanKey | null;
   acquisitionSource?: string;
   warnings?: string[];
+  confirmationPollToken?: string | null;
   delivery?: {
     previewUrl?: string | null;
     confirmUrl?: string | null;
@@ -48,8 +52,28 @@ type ConfirmationPendingState = {
   companyName: string | null;
   selectedPlanKey: CommercialPlanKey | null;
   warnings: string[];
+  confirmationPollToken: string | null;
   previewUrl: string | null;
   confirmUrl: string | null;
+};
+
+type ConfirmationStatusResponse = {
+  status?: string;
+  confirmed?: boolean;
+  email?: string | null;
+  next?: string | null;
+  loginNext?: string | null;
+};
+
+type EmailConfirmationSignal = {
+  type?: string;
+  email?: string | null;
+  status?: string | null;
+  next?: string | null;
+  loginNext?: string | null;
+  token?: string | null;
+  access_token?: string | null;
+  accessToken?: string | null;
 };
 
 type SignupPlan = PlanSelectionCard & {
@@ -108,6 +132,27 @@ function getErrorMessage(data: unknown) {
 
 function planName(planKey?: CommercialPlanKey | null) {
   return SIGNUP_PLANS.find((plan) => plan.key === planKey)?.name || "Padrão";
+}
+
+function normalizeEmail(value?: string | null) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function getPayloadToken(data: unknown) {
+  if (!data || typeof data !== "object") return null;
+  const payload = data as {
+    access_token?: unknown;
+    accessToken?: unknown;
+    token?: unknown;
+  };
+  const token = payload.access_token ?? payload.accessToken ?? payload.token;
+  return typeof token === "string" && token.trim() ? token : null;
+}
+
+function safeInternalPath(value?: string | null) {
+  const path = String(value || "").trim();
+  if (!path || !path.startsWith("/") || path.startsWith("//")) return null;
+  return path;
 }
 
 function FieldIcon({ icon }: { icon: RegisterFieldIcon }) {
@@ -195,7 +240,10 @@ export default function RegisterPage() {
   const [confirmationPending, setConfirmationPending] = useState<ConfirmationPendingState | null>(null);
   const [resendingConfirmation, setResendingConfirmation] = useState(false);
   const [confirmationActionMessage, setConfirmationActionMessage] = useState<string | null>(null);
+  const [confirmationAutoMessage, setConfirmationAutoMessage] = useState("Aguardando confirmação do e-mail...");
+  const [confirmationAutoError, setConfirmationAutoError] = useState<string | null>(null);
   const [entryTransition, setEntryTransition] = useState(false);
+  const autoLoginCompletedRef = useRef(false);
 
   useEffect(() => {
     try {
@@ -224,6 +272,153 @@ export default function RegisterPage() {
       setEntryTransition(true);
     }
   }, []);
+
+  useEffect(() => {
+    if (!confirmationPending) return;
+
+    const pendingState = confirmationPending;
+    let cancelled = false;
+    let pollTimeout: number | null = null;
+    let channel: BroadcastChannel | null = null;
+    const pendingEmail = normalizeEmail(pendingState.email);
+    const loginUsername = username.trim() || pendingEmail;
+    const loginPassword = password;
+
+    autoLoginCompletedRef.current = false;
+    setConfirmationAutoMessage("Aguardando confirmação do e-mail...");
+    setConfirmationAutoError(null);
+
+    function resolveDestination(signal?: EmailConfirmationSignal | ConfirmationStatusResponse | null) {
+      return (
+        safeInternalPath(signal?.next) ||
+        safeInternalPath(signal?.loginNext) ||
+        (pendingState.selectedPlanKey === "hbx_padrao"
+          ? "/dashboard"
+          : "/dashboard/financeiro?focus=payment&reason=pending_checkout")
+      );
+    }
+
+    function matchesCurrentEmail(signal?: EmailConfirmationSignal | ConfirmationStatusResponse | null) {
+      const signalEmail = normalizeEmail(signal?.email);
+      return !signalEmail || signalEmail === pendingEmail;
+    }
+
+    async function completeAutoLogin(signal?: EmailConfirmationSignal | ConfirmationStatusResponse | null) {
+      if (cancelled || autoLoginCompletedRef.current || !matchesCurrentEmail(signal)) return;
+      autoLoginCompletedRef.current = true;
+      setConfirmationAutoError(null);
+      setConfirmationAutoMessage("E-mail confirmado. Entrando automaticamente...");
+
+      const destination = resolveDestination(signal);
+      const signalToken = getPayloadToken(signal);
+      const existingToken = signalToken || getToken();
+
+      if (existingToken) {
+        setToken(existingToken);
+        router.replace(destination);
+        return;
+      }
+
+      if (!loginPassword) {
+        setConfirmationAutoError("E-mail confirmado. Use o botão de login para entrar.");
+        autoLoginCompletedRef.current = false;
+        return;
+      }
+
+      try {
+        const response = await fetch(`${API_URL}/auth/login`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ username: loginUsername, password: loginPassword, forceSession: true }),
+        });
+        const data: unknown = await response.json().catch(() => null);
+
+        if (!response.ok) {
+          setConfirmationAutoError(getErrorMessage(data) ?? "E-mail confirmado, mas não foi possível entrar automaticamente.");
+          autoLoginCompletedRef.current = false;
+          return;
+        }
+
+        const token = getPayloadToken(data);
+        if (!token) {
+          setConfirmationAutoError("E-mail confirmado, mas o backend não retornou a sessão.");
+          autoLoginCompletedRef.current = false;
+          return;
+        }
+
+        setToken(token);
+        router.replace(safeInternalPath((data as { next?: string | null })?.next) || destination);
+      } catch {
+        setConfirmationAutoError("E-mail confirmado, mas houve falha ao conectar para entrar automaticamente.");
+        autoLoginCompletedRef.current = false;
+      }
+    }
+
+    function handleSignal(raw: unknown) {
+      if (!raw || typeof raw !== "object") return;
+      const signal = raw as EmailConfirmationSignal;
+      if (signal.type && signal.type !== "hbx-email-confirmed") return;
+      void completeAutoLogin(signal);
+    }
+
+    async function pollConfirmationStatus() {
+      if (cancelled || autoLoginCompletedRef.current || !pendingState.confirmationPollToken) return;
+
+      try {
+        const response = await fetch(`${API_URL}/auth/email-confirmation-status`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ pollToken: pendingState.confirmationPollToken }),
+        });
+        const data: unknown = await response.json().catch(() => null);
+
+        if (response.ok) {
+          const payload = (data as ConfirmationStatusResponse | null) ?? null;
+          if (payload?.confirmed || (payload?.status && payload.status !== "pending_email_confirmation")) {
+            await completeAutoLogin(payload);
+            return;
+          }
+        }
+      } catch {
+        // Keep the waiting UI calm; the e-mail link page also notifies this tab when possible.
+      }
+
+      if (!cancelled && !autoLoginCompletedRef.current) {
+        pollTimeout = window.setTimeout(() => void pollConfirmationStatus(), CONFIRMATION_POLL_INTERVAL_MS);
+      }
+    }
+
+    if (typeof window !== "undefined") {
+      if ("BroadcastChannel" in window) {
+        channel = new BroadcastChannel(EMAIL_CONFIRMATION_CHANNEL);
+        channel.onmessage = (event) => handleSignal(event.data);
+      }
+
+      const handleStorage = (event: StorageEvent) => {
+        if (event.key !== EMAIL_CONFIRMATION_EVENT_KEY || !event.newValue) return;
+        try {
+          handleSignal(JSON.parse(event.newValue) as unknown);
+        } catch {
+          // ignore malformed storage events
+        }
+      };
+
+      window.addEventListener("storage", handleStorage);
+      pollTimeout = window.setTimeout(() => void pollConfirmationStatus(), 1200);
+
+      return () => {
+        cancelled = true;
+        if (pollTimeout !== null) window.clearTimeout(pollTimeout);
+        window.removeEventListener("storage", handleStorage);
+        channel?.close();
+      };
+    }
+
+    return () => {
+      cancelled = true;
+      if (pollTimeout !== null) window.clearTimeout(pollTimeout);
+    };
+  }, [confirmationPending, password, router, username]);
 
   async function resendConfirmation(targetEmail: string) {
     setConfirmationActionMessage(null);
@@ -257,6 +452,10 @@ export default function RegisterPage() {
                   : current.confirmUrl,
               deliveryFailed: Boolean(payload?.delivery?.failed),
               message: String(payload?.message || "").trim() || current.message,
+              confirmationPollToken:
+                payload?.confirmationPollToken && String(payload.confirmationPollToken).trim()
+                  ? String(payload.confirmationPollToken)
+                  : current.confirmationPollToken,
             }
           : current,
       );
@@ -276,6 +475,9 @@ export default function RegisterPage() {
     setError(null);
     setConfirmationPending(null);
     setConfirmationActionMessage(null);
+    setConfirmationAutoMessage("Aguardando confirmação do e-mail...");
+    setConfirmationAutoError(null);
+    autoLoginCompletedRef.current = false;
 
     if (password !== confirmPassword) {
       setError("As senhas não conferem.");
@@ -337,6 +539,10 @@ export default function RegisterPage() {
           warnings: Array.isArray(payload.warnings)
             ? payload.warnings.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
             : [],
+          confirmationPollToken:
+            payload.confirmationPollToken && String(payload.confirmationPollToken).trim()
+              ? String(payload.confirmationPollToken)
+              : null,
           previewUrl:
             payload.delivery?.previewUrl && String(payload.delivery.previewUrl).trim()
               ? String(payload.delivery.previewUrl)
@@ -387,6 +593,7 @@ export default function RegisterPage() {
       <div
         className={`login-console ${styles.registerConsole}`}
         data-entry-transition={entryTransition ? "from-login" : "ready"}
+        data-confirmation-pending={confirmationPending ? "true" : "false"}
       >
         <aside className="login-side login-side--left" aria-label="Planos">
           <div className={`login-side__panel ${styles.registerPlansPanel}`}>
@@ -458,6 +665,10 @@ export default function RegisterPage() {
                   <button type="button" className="btn btn-primary login-button" onClick={() => router.push("/login")}>
                     Ir para login
                   </button>
+                </div>
+                <div className={styles.autoConfirmStatus} data-error={confirmationAutoError ? "true" : "false"} aria-live="polite">
+                  {confirmationAutoError ? null : <span className={styles.autoConfirmSpinner} aria-hidden="true" />}
+                  <p>{confirmationAutoError || confirmationAutoMessage}</p>
                 </div>
               </div>
             ) : (

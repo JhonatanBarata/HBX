@@ -201,6 +201,34 @@ export class AuthService implements OnModuleInit {
     return '/dashboard/financeiro?focus=payment&reason=pending_checkout';
   }
 
+  private buildEmailConfirmationPollToken(userId: number) {
+    return this.jwtService.sign(
+      {
+        sub: Number(userId),
+        purpose: 'email_confirmation_poll',
+      },
+      { expiresIn: '1d' },
+    );
+  }
+
+  private verifyEmailConfirmationPollToken(token: string) {
+    const raw = String(token || '').trim();
+    if (!raw) {
+      throw new BadRequestException({ code: 'EMAIL_CONFIRMATION_STATUS_INVALID', message: 'Acompanhamento de confirmação inválido.' });
+    }
+
+    try {
+      const payload = this.jwtService.verify(raw) as { sub?: unknown; purpose?: unknown };
+      const userId = Number(payload?.sub);
+      if (payload?.purpose !== 'email_confirmation_poll' || !Number.isInteger(userId) || userId <= 0) {
+        throw new Error('invalid poll token');
+      }
+      return userId;
+    } catch {
+      throw new BadRequestException({ code: 'EMAIL_CONFIRMATION_STATUS_INVALID', message: 'Acompanhamento de confirmação expirado ou inválido.' });
+    }
+  }
+
   private escapeHtml(value: string) {
     return String(value || '')
       .replace(/&/g, '&amp;')
@@ -328,6 +356,7 @@ export class AuthService implements OnModuleInit {
   }
 
   private buildPendingEmailConfirmationResponse(input: {
+    userId: number;
     email: string;
     username: string;
     companyName: string;
@@ -355,6 +384,7 @@ export class AuthService implements OnModuleInit {
       selectedPlanKey: input.selectedPlanKey,
       acquisitionSource: input.acquisitionSource,
       warnings: input.warnings,
+      confirmationPollToken: this.buildEmailConfirmationPollToken(input.userId),
       canResendConfirmation: true,
       delivery: {
         previewUrl: input.previewUrl || null,
@@ -1076,7 +1106,7 @@ export class AuthService implements OnModuleInit {
         });
         await this.seedDefaultCompanyModulesTx(tx, company.id);
         await this.syncPlanModulesTx(tx, company.id, selectedPlanKey);
-        await tx.user.update({
+        const updated = await tx.user.update({
           where: { id: existingUsername.id },
           data: {
             email,
@@ -1090,7 +1120,7 @@ export class AuthService implements OnModuleInit {
             emailConfirmationExpiresAt: confirmationExpiresAt,
           },
         });
-        return { attachedToExistingCompany: false, companyName: company.name };
+        return { attachedToExistingCompany: false, companyName: company.name, user: updated };
       });
 
       if ((createdPending as any).attachedToExistingCompany && !(createdPending as any).pendingEmailConfirmation) {
@@ -1105,6 +1135,7 @@ export class AuthService implements OnModuleInit {
       });
 
       return this.buildPendingEmailConfirmationResponse({
+        userId: Number((createdPending as any).user?.id || existingUsername.id),
         email,
         username,
         companyName: createdPending.companyName,
@@ -1208,7 +1239,7 @@ export class AuthService implements OnModuleInit {
         },
       });
 
-      return { attachedToExistingCompany: false, companyName: company.name };
+      return { attachedToExistingCompany: false, companyName: company.name, user };
     });
 
     if ((created as any).attachedToExistingCompany && !(created as any).pendingEmailConfirmation) {
@@ -1223,6 +1254,7 @@ export class AuthService implements OnModuleInit {
     });
 
     return this.buildPendingEmailConfirmationResponse({
+      userId: Number((created as any).user?.id || 0),
       email,
       username,
       companyName: created.companyName,
@@ -1242,7 +1274,7 @@ export class AuthService implements OnModuleInit {
     });
   }
 
-  async confirmEmail(token: string) {
+  async confirmEmail(token: string, opts?: { userAgent?: string; ip?: string }) {
     const rawToken = String(token || '').trim();
     if (!rawToken) {
       throw new BadRequestException({ code: 'EMAIL_CONFIRMATION_INVALID', message: 'Token de confirmação inválido.' });
@@ -1256,6 +1288,8 @@ export class AuthService implements OnModuleInit {
         username: true,
         email: true,
         companyId: true,
+        role: true,
+        isSystemMaster: true,
         emailConfirmationExpiresAt: true,
       },
     });
@@ -1293,9 +1327,24 @@ export class AuthService implements OnModuleInit {
       }
     });
 
+    const loginPayload = user.companyId
+      ? await this.login(
+          {
+            id: user.id,
+            email: user.email,
+            companyId: user.companyId,
+            role: user.role,
+            isSystemMaster: user.isSystemMaster,
+          },
+          { companyId: Number(user.companyId), userAgent: opts?.userAgent, ip: opts?.ip },
+        )
+      : null;
+    const next = loginPayload?.next || (trialEndsAt ? '/dashboard' : this.pendingCheckoutNextPath());
+
     return {
       ok: true,
       status: user.companyId ? (trialEndsAt ? 'active_trial' : 'pending_checkout') : 'confirmed',
+      email: user.email || null,
       message: user.companyId
         ? trialEndsAt
           ? 'E-mail confirmado. O trial gratuito de 30 dias já está ativo.'
@@ -1303,10 +1352,60 @@ export class AuthService implements OnModuleInit {
         : 'E-mail confirmado com sucesso.',
       trialStartsAt: user.companyId ? confirmedAt.toISOString() : null,
       trialEndsAt: trialEndsAt ? trialEndsAt.toISOString() : null,
-      next: trialEndsAt ? '/dashboard' : this.pendingCheckoutNextPath(),
-      loginNext: trialEndsAt
+      access_token: loginPayload?.access_token || null,
+      next,
+      loginNext: loginPayload?.access_token
+        ? next
+        : trialEndsAt
         ? '/login?next=/dashboard'
         : `/login?next=${encodeURIComponent(this.pendingCheckoutNextPath())}`,
+      requiresCheckout: Boolean(loginPayload?.requiresCheckout),
+    };
+  }
+
+  async emailConfirmationStatus(pollToken: string) {
+    const userId = this.verifyEmailConfirmationPollToken(pollToken);
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        email: true,
+        emailConfirmedAt: true,
+        company: {
+          select: {
+            onboardingStatus: true,
+            subscriptionStatus: true,
+            paymentStatus: true,
+          },
+        },
+      },
+    });
+
+    if (!user) {
+      throw new BadRequestException({ code: 'EMAIL_CONFIRMATION_STATUS_INVALID', message: 'Acompanhamento de confirmação inválido.' });
+    }
+
+    const onboardingStatus = String(user.company?.onboardingStatus || '').trim().toLowerCase();
+    const subscriptionStatus = String(user.company?.subscriptionStatus || '').trim().toLowerCase();
+    const paymentStatus = String(user.company?.paymentStatus || '').trim().toUpperCase();
+    const pendingEmailConfirmation = !user.emailConfirmedAt || onboardingStatus === 'pending_email_confirmation';
+    const pendingCheckout =
+      !pendingEmailConfirmation &&
+      (onboardingStatus === 'pending_checkout' || subscriptionStatus === 'pending_checkout' || paymentStatus === 'PENDING');
+    const status = pendingEmailConfirmation
+      ? 'pending_email_confirmation'
+      : pendingCheckout
+        ? 'pending_checkout'
+        : 'active_trial';
+    const next = pendingCheckout ? this.pendingCheckoutNextPath() : '/dashboard';
+
+    return {
+      ok: true,
+      status,
+      confirmed: !pendingEmailConfirmation,
+      email: user.email || null,
+      next,
+      loginNext: pendingCheckout ? `/login?next=${encodeURIComponent(this.pendingCheckoutNextPath())}` : '/login?next=/dashboard',
     };
   }
 
@@ -1372,6 +1471,7 @@ export class AuthService implements OnModuleInit {
         ? this.resendConfirmationDeliveryFailureMessage()
         : 'Novo link de confirmação enviado. Verifique sua caixa de entrada.',
       email: normalizedEmail,
+      confirmationPollToken: this.buildEmailConfirmationPollToken(user.id),
       canResendConfirmation: true,
       delivery: {
         previewUrl: delivery.previewUrl || null,
