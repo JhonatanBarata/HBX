@@ -1,7 +1,5 @@
 import { Body, Controller, Delete, Get, Param, Post, Put, Patch, Req, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
-import { ModuleAccess } from '../modules/module-feature.decorator';
-import { ModuleAccessGuard } from '../modules/module-access.guard';
 import { FinanceiroService } from './financeiro.service';
 import {
   CreateFinanceiroCheckoutDto,
@@ -10,8 +8,7 @@ import {
 } from './dto/financeiro.dto';
 
 @Controller('financeiro')
-@UseGuards(JwtAuthGuard, ModuleAccessGuard)
-@ModuleAccess('financeiro')
+@UseGuards(JwtAuthGuard)
 export class FinanceiroController {
   constructor(private readonly financeiroService: FinanceiroService) {}
 

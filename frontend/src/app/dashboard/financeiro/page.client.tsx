@@ -10,6 +10,11 @@ import styles from "./page.module.css";
 
 type FinanceiroOverview = {
   generatedAt: string;
+  permissions?: {
+    canManageBilling?: boolean;
+    canStartCheckout?: boolean;
+    deniedMessage?: string | null;
+  };
   company: {
     id: number;
     name: string;
@@ -246,6 +251,10 @@ export default function FinanceiroClientPage() {
   });
 
   async function startCheckout(paymentMethod: "PIX" | "CARD") {
+    if (!canManageBilling) {
+      setError(overview?.permissions?.deniedMessage || "USER não pode fazer upgrade. Contate seu ADMIN ou o suporte da empresa.");
+      return;
+    }
     setSaving(`checkout-${paymentMethod.toLowerCase()}`);
     setError(null);
     try {
@@ -415,9 +424,14 @@ export default function FinanceiroClientPage() {
     ];
   }, [overview]);
   const pendingCheckout = isPendingCheckout(overview);
+  const canManageBilling = overview?.permissions?.canManageBilling !== false;
 
   async function savePreferences(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (!canManageBilling) {
+      setError(overview?.permissions?.deniedMessage || "USER não pode fazer upgrade. Contate seu ADMIN ou o suporte da empresa.");
+      return;
+    }
     setSaving("preferences");
     setError(null);
     try {
@@ -436,6 +450,10 @@ export default function FinanceiroClientPage() {
 
   async function saveCard(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (!canManageBilling) {
+      setError(overview?.permissions?.deniedMessage || "USER não pode fazer upgrade. Contate seu ADMIN ou o suporte da empresa.");
+      return;
+    }
     setSaving("card");
     setError(null);
     try {
@@ -460,6 +478,10 @@ export default function FinanceiroClientPage() {
   }
 
   async function removeCard() {
+    if (!canManageBilling) {
+      setError(overview?.permissions?.deniedMessage || "USER não pode fazer upgrade. Contate seu ADMIN ou o suporte da empresa.");
+      return;
+    }
     setSaving("remove-card");
     setError(null);
     try {
@@ -482,6 +504,24 @@ export default function FinanceiroClientPage() {
   }
 
   if (!hasToken) return null;
+
+  if (!loading && overview && !canManageBilling) {
+    return (
+      <DashboardScaffold title="Financeiro" description="Acesso financeiro restrito ao ADMIN.">
+        <div className={styles.page}>
+          <section className={styles.errorCard}>
+            <strong>Seu usuário não pode alterar o plano da empresa.</strong>
+            <p className={styles.helperText}>
+              {overview.permissions?.deniedMessage || "USER não pode fazer upgrade. Contate seu ADMIN ou o suporte da empresa."}
+            </p>
+            <Link href="/dashboard" className="btn btn-secondary btn-sm">
+              Voltar ao sistema
+            </Link>
+          </section>
+        </div>
+      </DashboardScaffold>
+    );
+  }
 
   return (
     <DashboardScaffold

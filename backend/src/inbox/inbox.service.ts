@@ -103,6 +103,15 @@ export class InboxService {
     return companyId;
   }
 
+  private assertAdministrativeAction(user: any) {
+    const role = String(user?.role || '').trim().toUpperCase();
+    if (Boolean(user?.isSystemMaster) || role === 'ADMIN') return;
+    throw new ForbiddenException({
+      code: 'USER_ADMIN_ACTION_NOT_ALLOWED',
+      message: 'USER não pode executar esta ação administrativa. Contate seu ADMIN ou o suporte da empresa.',
+    });
+  }
+
   private normalizeVendasPhone(value: unknown) {
     const digits = this.customerProfileService.normalizePhone(value);
     if (!digits) return null;
@@ -3892,6 +3901,7 @@ export class InboxService {
   }
 
   async deleteConversation(user: any, conversationId: number) {
+    this.assertAdministrativeAction(user);
     const companyId = this.requireCompanyIdFromUser(user);
     const conversation = await this.ensureConversation(companyId, conversationId);
     const metadata = this.parseConversationMetadata(conversation.metadata);
@@ -4088,6 +4098,7 @@ export class InboxService {
   }
 
   async deleteConversationFromWhatsApp(user: any, conversationId: number) {
+    this.assertAdministrativeAction(user);
     const companyId = this.requireCompanyIdFromUser(user);
     const conversation = await this.ensureConversation(companyId, conversationId);
     const metadata = this.parseConversationMetadata(conversation.metadata);
@@ -4183,6 +4194,7 @@ export class InboxService {
   }
 
   async purgeConversationFromTrash(user: any, conversationId: number) {
+    this.assertAdministrativeAction(user);
     const companyId = this.requireCompanyIdFromUser(user);
     const conversation = await this.ensureConversation(companyId, conversationId);
     const metadata = this.parseConversationMetadata(conversation.metadata);
@@ -4247,6 +4259,7 @@ export class InboxService {
     conversationId: number,
     messageId: number,
   ) {
+    this.assertAdministrativeAction(user);
     const companyId = this.requireCompanyIdFromUser(user);
     const conversation = await this.ensureConversation(companyId, conversationId);
     const { liveConversation, target, rawPayload } = await this.resolveLiveConversationActionTarget(
@@ -4341,6 +4354,7 @@ export class InboxService {
     conversationId: number,
     messageId: number,
   ) {
+    this.assertAdministrativeAction(user);
     const companyId = this.requireCompanyIdFromUser(user);
     const conversation = await this.ensureConversation(companyId, conversationId);
     const { liveConversation, target: message, rawPayload } = await this.resolveLiveConversationActionTarget(

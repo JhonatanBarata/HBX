@@ -1745,10 +1745,9 @@ export class ModulesService implements OnModuleInit {
   }
 
   private canUseAdminOnlyModule(user: any, moduleKey: string) {
-    const normalizedKey = this.normalizeRequestedModuleKey(moduleKey);
-    if (normalizedKey !== 'webscraping') return true;
-    const role = String(user?.role || '').trim().toUpperCase();
-    return Boolean(user?.isSystemMaster) || role === 'ADMIN';
+    void user;
+    void moduleKey;
+    return true;
   }
 
   private defaultUserModuleAllowed(user: any, moduleKey: string) {

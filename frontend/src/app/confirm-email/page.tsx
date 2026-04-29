@@ -18,6 +18,9 @@ type ApiErrorPayload = {
 
 type ConfirmEmailResponse = {
   message?: string;
+  status?: string;
+  next?: string;
+  loginNext?: string;
   trialEndsAt?: string | null;
 };
 
@@ -62,6 +65,9 @@ function ConfirmEmailInner() {
   const [error, setError] = useState<string | null>(null);
   const [errorCode, setErrorCode] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
+  const [confirmedStatus, setConfirmedStatus] = useState<string | null>(null);
+  const [nextPath, setNextPath] = useState<string | null>(null);
+  const [loginNextPath, setLoginNextPath] = useState<string | null>(null);
   const [trialEndsAt, setTrialEndsAt] = useState<string | null>(null);
   const [resendEmail, setResendEmail] = useState("");
   const [resendBusy, setResendBusy] = useState(false);
@@ -112,6 +118,9 @@ function ConfirmEmailInner() {
             String(payload?.message || "").trim() ||
               "E-mail confirmado com sucesso. Seu acesso já está liberado no login.",
           );
+          setConfirmedStatus(String(payload?.status || "").trim() || null);
+          setNextPath(String(payload?.next || "").trim() || null);
+          setLoginNextPath(String(payload?.loginNext || "").trim() || null);
           setErrorCode(null);
           setTrialEndsAt(payload?.trialEndsAt ? String(payload.trialEndsAt) : null);
 
@@ -121,7 +130,7 @@ function ConfirmEmailInner() {
             if (existingToken) {
               // sinaliza cancelamento para evitar updates adicionais e navega
               cancelled = true;
-              router.replace("/dashboard");
+              router.replace(String(payload?.next || "").trim() || "/dashboard");
               return;
             }
           } catch {
@@ -237,13 +246,36 @@ function ConfirmEmailInner() {
 
         {!loading && info ? (
           <div className="text-sm border border-foreground/10 bg-background p-4 rounded-xl shadow-sm outline-none ring-0">
-            <p>{info}</p>
+            <p className="font-medium">
+              {confirmedStatus === "active_trial" ? "Seu teste grátis está liberado" : "E-mail confirmado"}
+            </p>
+            <p className="mt-2">{info}</p>
             {trialEndsAt ? (
               <p className="text-xs text-foreground/60 mt-2">
                 Trial liberado até {formatDate(trialEndsAt) || trialEndsAt}.
               </p>
             ) : null}
+            {confirmedStatus === "pending_checkout" ? (
+              <p className="text-xs text-foreground/60 mt-2">
+                Agora finalize o pagamento para liberar seu plano.
+              </p>
+            ) : null}
           </div>
+        ) : null}
+
+        {!loading && info ? (
+          <button
+            type="button"
+            className="btn btn-primary login-button py-3 rounded-xl w-full shadow-md"
+            onClick={() => {
+              const destination = confirmedStatus === "pending_checkout"
+                ? loginNextPath || `/login?next=${encodeURIComponent(nextPath || "/dashboard/financeiro?focus=payment&reason=pending_checkout")}`
+                : loginNextPath || "/login?next=/dashboard";
+              router.push(destination);
+            }}
+          >
+            {confirmedStatus === "pending_checkout" ? "Ir para pagamento" : "Entrar no HBX"}
+          </button>
         ) : null}
 
         {!loading && error ? (

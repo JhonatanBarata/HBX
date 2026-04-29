@@ -1,4 +1,4 @@
-import { CanActivate, ExecutionContext, ForbiddenException, Injectable } from '@nestjs/common';
+import { CanActivate, ExecutionContext, ForbiddenException, HttpException, HttpStatus, Injectable } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { MODULE_ACCESS_KEY, type ModuleAccessMetadata } from './module-feature.decorator';
 import { ModulesService } from './modules.service';
@@ -26,6 +26,33 @@ export class ModuleAccessGuard implements CanActivate {
     for (const moduleKey of requiredModules) {
       const allowed = await this.modulesService.canUserAccessModule(user.id, moduleKey);
       if (allowed) return true;
+    }
+
+    const onboardingStatus = String(user?.company?.onboardingStatus || '').trim().toLowerCase();
+    const subscriptionStatus = String(user?.company?.subscriptionStatus || '').trim().toLowerCase();
+    const paymentStatus = String(user?.company?.paymentStatus || '').trim().toUpperCase();
+    const pendingCheckout =
+      onboardingStatus === 'pending_checkout' ||
+      subscriptionStatus === 'pending_checkout' ||
+      paymentStatus === 'PENDING';
+
+    if (pendingCheckout) {
+      const role = String(user?.role || '').trim().toUpperCase();
+      if (role === 'ADMIN' || Boolean(user?.isSystemMaster)) {
+        throw new HttpException(
+          {
+            code: 'PENDING_CHECKOUT',
+            message: 'Finalize o pagamento para liberar este recurso.',
+            redirectTo: '/dashboard/financeiro?focus=payment&reason=pending_checkout',
+          },
+          HttpStatus.PAYMENT_REQUIRED,
+        );
+      }
+
+      throw new ForbiddenException({
+        code: 'COMPANY_PENDING_CHECKOUT_USER_BLOCKED',
+        message: 'A contratação da empresa ainda não foi finalizada. Contate seu ADMIN ou o suporte da empresa.',
+      });
     }
 
     throw new ForbiddenException(`Modulos ${requiredModules.join(', ')} indisponiveis para este usuario`);

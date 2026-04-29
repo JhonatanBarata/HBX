@@ -152,9 +152,6 @@ export function buildCommercialPlansCatalog() {
         'Vendas organizadas em um só lugar',
         'Prospecção com motores gratuitos/HBX/cache',
         'Ideal para começar com baixo custo',
-        'Buscas Google/dia: 0',
-        'Sem atendimento chat',
-        'Sem Bot',
       ],
       legalCopy: 'Liberação após pagamento confirmado.',
     },
@@ -174,7 +171,7 @@ export function buildCommercialPlansCatalog() {
       features: [
         '30 dias grátis, sem cobrança automática',
         'Vendas + Atendimento Chat',
-        'Buscas Google/dia: 2',
+        '2 buscas Google por dia',
         'Motores gratuitos/HBX/cache liberados',
         'Ideal para começar a vender com constância',
       ],
@@ -196,7 +193,7 @@ export function buildCommercialPlansCatalog() {
       features: [
         'Vendas + Atendimento Chat',
         'Bot de atendimento',
-        'Buscas Google/dia: 6',
+        '6 buscas Google por dia',
         'Motores gratuitos/HBX/cache liberados',
         'Pacote mais completo',
       ],

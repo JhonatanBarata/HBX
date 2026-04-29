@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import DashboardScaffold from "@/components/DashboardScaffold";
 import { apiFetch } from "./_lib/api";
@@ -593,6 +594,23 @@ function commercialBanner(user: CurrentUser | null) {
   return null;
 }
 
+function isCompanyPendingCheckout(user: CurrentUser | null) {
+  const company = user?.company;
+  if (!company) return false;
+  const onboardingStatus = String(company.onboardingStatus || "").trim().toLowerCase();
+  const paymentStatus = String(company.paymentStatus || "").trim().toUpperCase();
+  const subscriptionStatus = String(company.subscriptionStatus || "").trim().toLowerCase();
+  return onboardingStatus === "pending_checkout" || subscriptionStatus === "pending_checkout" || paymentStatus === "PENDING";
+}
+
+function resolvePendingCheckoutPath(user: CurrentUser | null) {
+  const role = String(user?.role || "").trim().toUpperCase();
+  if (role === "ADMIN" || user?.isSystemMaster) {
+    return "/dashboard/financeiro?focus=payment&reason=pending_checkout";
+  }
+  return "/dashboard/planos?mode=pending_checkout&reason=pending_checkout";
+}
+
 function getModuleDisplayName(moduleItem: UserModule) {
   const normalized = normalizeUserModuleKey(moduleItem.key);
   return String(moduleItem.name || MODULE_FALLBACK_NAMES[normalized] || moduleItem.key).trim();
@@ -644,6 +662,7 @@ function getStepVisual(moduleKey: string, index: number, step: string): StepVisu
 }
 
 export default function DashboardClientPage() {
+  const router = useRouter();
   const hasToken = useRequireAuth();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -727,6 +746,11 @@ export default function DashboardClientPage() {
   );
   const banner = commercialBanner(user);
 
+  useEffect(() => {
+    if (loading || error || !isCompanyPendingCheckout(user)) return;
+    router.replace(resolvePendingCheckoutPath(user));
+  }, [error, loading, router, user]);
+
   const openFirstTutorial = useCallback(() => {
     setActiveTab("tutorial");
     if (recommendedModule) {
@@ -756,6 +780,15 @@ export default function DashboardClientPage() {
               <p className={styles.eyebrow}>Preparando guia</p>
               <h1>Carregando seus acessos ativos...</h1>
               <p>Estamos montando um guia simples com base nos acessos liberados para sua empresa.</p>
+            </div>
+          </section>
+        ) : isCompanyPendingCheckout(user) ? (
+          <section className={styles.loadingHero} aria-live="polite">
+            <div className={styles.loadingOrb} />
+            <div>
+              <p className={styles.eyebrow}>Ativação do plano</p>
+              <h1>Levando você para o checkout...</h1>
+              <p>Seu login está ativo. Finalize o pagamento para liberar o sistema operacional.</p>
             </div>
           </section>
         ) : (

@@ -150,12 +150,22 @@ export class CommercialPlansService {
   }
 
   private buildPayload(company: any, user?: any) {
+    const canSelectPlan = user ? this.canSelectPlans(user) : false;
+    const plans = buildCommercialPlansCatalog().map((plan) => canSelectPlan
+      ? plan
+      : {
+          ...plan,
+          monthlyPrice: null,
+          legalCopy: null,
+        });
     return {
       current: this.buildCurrentState(company),
-      plans: buildCommercialPlansCatalog(),
+      plans,
       permissions: {
-        canSelectPlan: user ? this.canSelectPlans(user) : false,
-        selectPlanDeniedMessage: 'Peça para um administrador selecionar este plano.',
+        canSelectPlan,
+        selectPlanDeniedMessage: canSelectPlan
+          ? null
+          : 'USER não pode fazer upgrade. Contate seu ADMIN ou o suporte da empresa.',
       },
     };
   }
@@ -225,6 +235,7 @@ export class CommercialPlansService {
     const paymentStatus = String(company?.paymentStatus || '').trim().toUpperCase();
     const subscriptionStatus = String(company?.subscriptionStatus || '').trim().toLowerCase();
     if (paymentStatus === 'EXPIRED' || subscriptionStatus === 'expired') return false;
+    if (paymentStatus === 'PAID' || subscriptionStatus === 'active' || Boolean(company?.premiumAccess)) return false;
     return true;
   }
 
@@ -341,8 +352,8 @@ export class CommercialPlansService {
     const context = this.resolveUserContext(user);
     if (!context.canSelectPlan) {
       throw new ForbiddenException({
-        code: 'PLAN_SELECTION_ADMIN_REQUIRED',
-        message: 'Peça para um administrador selecionar este plano.',
+        code: 'USER_PLAN_UPGRADE_NOT_ALLOWED',
+        message: 'USER não pode fazer upgrade. Contate seu ADMIN ou o suporte da empresa.',
       });
     }
 

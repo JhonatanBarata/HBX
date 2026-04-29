@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import DashboardScaffold from "@/components/DashboardScaffold";
+import PlanSelectionExperience, { type PlanSelectionCard } from "@/components/PlanSelectionExperience";
 import {
   commercialPlanByKey,
   getCommercialPlanTitle,
@@ -41,9 +42,6 @@ const FALLBACK_PLANS: Record<CommercialPlanKey, CommercialPlan> = {
       "Vendas organizadas em um só lugar",
       "Prospecção com motores gratuitos/HBX/cache",
       "Ideal para começar com baixo custo",
-      "Buscas Google/dia: 0",
-      "Sem atendimento chat",
-      "Sem Bot",
     ],
     legalCopy: "Liberação após pagamento confirmado.",
   },
@@ -88,17 +86,6 @@ const FALLBACK_PLANS: Record<CommercialPlanKey, CommercialPlan> = {
   },
 };
 
-function money(value: number | null | undefined) {
-  return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(Number(value || 0));
-}
-
-function priceFor(plan: CommercialPlan, billingCycle: BillingCycle) {
-  const monthly = Number(plan.monthlyPrice || 0);
-  if (billingCycle === "MONTHLY") return monthly;
-  const discount = Number(plan.annualDiscountPercent ?? 10);
-  return monthly * 12 * (1 - discount / 100);
-}
-
 function trialLabel(payload: CommercialPlansPayload | null) {
   if (!payload?.current.isTrial) return null;
   const days = payload.current.trialRemainingDays;
@@ -126,8 +113,8 @@ export default function PlanosClientPage() {
 
   const intent = String(searchParams.get("intent") || "").trim();
   const canSelectPlan = Boolean(payload?.permissions?.canSelectPlan);
-  const adminDeniedMessage =
-    payload?.permissions?.selectPlanDeniedMessage || "Peça para um administrador selecionar este plano.";
+const adminDeniedMessage =
+    payload?.permissions?.selectPlanDeniedMessage || "USER não pode fazer upgrade. Contate seu ADMIN ou o suporte da empresa.";
   const currentTrialLabel = trialLabel(payload);
   const pendingCheckout = isPendingCheckout(payload);
   const vendasActive = hasVendas(payload);
@@ -136,6 +123,29 @@ export default function PlanosClientPage() {
   const plans = useMemo(
     () => PLAN_ORDER.map((key) => commercialPlanByKey(payload, key) || FALLBACK_PLANS[key]),
     [payload],
+  );
+  const planCards = useMemo<PlanSelectionCard[]>(
+    () =>
+      plans.map((plan) => ({
+        key: plan.key,
+        name: plan.title,
+        badge: plan.key === "hbx_lite" ? "Essencial" : plan.key === "hbx_padrao" ? "Mais escolhido" : "Mais completo",
+        monthlyPrice: plan.monthlyPrice,
+        detail:
+          plan.key === "hbx_padrao"
+            ? "Teste o plano principal para vendas e atendimento sem pagar agora."
+            : plan.headline || FALLBACK_PLANS[plan.key].headline || "",
+        cta: plan.key === "hbx_padrao" ? "Começar grátis hoje" : "Fazer upgrade",
+        available: plan.status !== "unavailable",
+        featured: plan.recommended,
+        features: plan.features || FALLBACK_PLANS[plan.key].features || [],
+        note:
+          plan.key === "hbx_padrao"
+            ? "1º mês grátis. Sem cartão e sem cobrança automática."
+            : "Liberação após pagamento confirmado.",
+        trialCopy: plan.key === "hbx_padrao" ? "Teste grátis por 30 dias" : undefined,
+      })),
+    [plans],
   );
 
   const loadPlans = useCallback(async () => {
@@ -159,6 +169,11 @@ export default function PlanosClientPage() {
   async function selectPlan(planKey: CommercialPlanKey) {
     if (!canSelectPlan) {
       setNotice({ tone: "info", text: adminDeniedMessage });
+      return;
+    }
+
+    if (pendingCheckout && (payload?.current.selectedPlanKey === planKey || payload?.current.planKey === planKey)) {
+      router.push("/dashboard/financeiro?focus=payment&reason=pending_checkout");
       return;
     }
 
@@ -256,62 +271,18 @@ export default function PlanosClientPage() {
         {loading ? (
           <section className={styles.loadingCard}>Carregando catálogo comercial...</section>
         ) : (
-          <section className={styles.planGrid} aria-label="Planos HBX">
-            {plans.map((plan) => {
-              const active = payload?.current.planKey === plan.key;
-              const saving = savingPlan === plan.key;
-              const cycleAmount = priceFor(plan, billingCycle);
-              const monthlyEquivalent = billingCycle === "ANNUAL" ? cycleAmount / 12 : Number(plan.monthlyPrice || 0);
-              return (
-                <article key={plan.key} className={styles.flipCard} data-featured={plan.recommended ? "true" : "false"}>
-                  <div className={styles.flipInner}>
-                    <div className={styles.cardFace}>
-                      <div className={styles.planHeader}>
-                        <span>{plan.title}</span>
-                        <small>{plan.key === "hbx_lite" ? "Entrada" : plan.key === "hbx_padrao" ? "Mais escolhido" : "Mais completo"}</small>
-                      </div>
-                      <strong className={styles.price}>
-                        {billingCycle === "ANNUAL" ? money(cycleAmount) : money(plan.monthlyPrice)}
-                        <span>{billingCycle === "ANNUAL" ? "/ano" : "/mês"}</span>
-                      </strong>
-                      {billingCycle === "ANNUAL" ? <p className={styles.equivalent}>{money(monthlyEquivalent)}/mês equivalente com 10% de desconto</p> : null}
-                      <p>{plan.headline}</p>
-                      {plan.description ? <p className={styles.planDescription}>{plan.description}</p> : null}
-                      <small className={styles.planLegal}>{plan.legalCopy || (plan.key === "hbx_padrao" ? "30 dias grátis, sem cartão e sem cobrança automática." : "Liberação após pagamento confirmado.")}</small>
-                    </div>
-                    <div className={styles.cardFaceBack}>
-                      <span className={styles.backLabel}>Inclui</span>
-                      <ul>
-                        {(plan.features || FALLBACK_PLANS[plan.key].features || []).map((feature) => (
-                          <li key={feature}>{feature}</li>
-                        ))}
-                      </ul>
-                      <p>
-                        Buscas Google/dia: {plan.quotas?.googleSearchesPerDay ?? FALLBACK_PLANS[plan.key].quotas?.googleSearchesPerDay}.
-                        Motores gratuitos: liberados.
-                      </p>
-                    </div>
-                  </div>
-                  <div className={styles.cardActionDock}>
-                    <button
-                      type="button"
-                      className={styles.primaryButton}
-                      disabled={active || saving}
-                      onClick={() => void selectPlan(plan.key)}
-                    >
-                      {active ? "Plano ativo" : saving ? "Abrindo checkout..." : "Contratar"}
-                    </button>
-                    <small>
-                      {plan.key === "hbx_padrao"
-                        ? "Sem cobrança automática no trial."
-                        : "Liberação após pagamento confirmado."}
-                    </small>
-                    {!canSelectPlan && !active ? <small className={styles.adminHint}>{adminDeniedMessage}</small> : null}
-                  </div>
-                </article>
-              );
-            })}
-          </section>
+          <PlanSelectionExperience
+            plans={planCards}
+            selectedPlanKey={payload?.current.planKey || payload?.current.selectedPlanKey || null}
+            billingCycle={billingCycle === "ANNUAL" ? "annual" : "monthly"}
+            mode={pendingCheckout ? "pending_checkout" : "upgrade"}
+            canSelect={canSelectPlan}
+            hidePrices={!canSelectPlan}
+            highlightPlanKey={intent === "bot_ia" ? "hbx_melhor" : null}
+            busyPlanKey={savingPlan}
+            deniedMessage={adminDeniedMessage}
+            onSelect={(planKey) => void selectPlan(planKey)}
+          />
         )}
       </main>
     </DashboardScaffold>

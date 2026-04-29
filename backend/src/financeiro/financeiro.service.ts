@@ -301,7 +301,38 @@ export class FinanceiroService {
     const userId = Number(user?.id || 0);
     if (!companyId) throw new ForbiddenException('Empresa nao identificada.');
     if (!userId) throw new ForbiddenException('Usuario nao identificado.');
-    return { companyId, userId };
+    const role = String(user?.role || '').trim().toUpperCase();
+    const canManageBilling = Boolean(user?.isSystemMaster) || role === 'ADMIN';
+    return { companyId, userId, role, canManageBilling };
+  }
+
+  private assertCanManageBilling(context: { canManageBilling: boolean }) {
+    if (context.canManageBilling) return;
+    throw new ForbiddenException({
+      code: 'USER_PLAN_UPGRADE_NOT_ALLOWED',
+      message: 'USER não pode fazer upgrade. Contate seu ADMIN ou o suporte da empresa.',
+    });
+  }
+
+  private maskPricingForUser(pricing: any) {
+    return {
+      ...pricing,
+      monthlyValue: 0,
+      annualDiscountValue: 0,
+      manualDiscountValue: 0,
+      referralDiscountValue: 0,
+      basePlanCycleAmount: 0,
+      extraSeatMonthlyAmount: 0,
+      extraSeatCycleAmount: 0,
+      baseCycleAmount: 0,
+      finalCycleAmount: 0,
+      commercialPlan: pricing?.commercialPlan
+        ? {
+            ...pricing.commercialPlan,
+            monthlyValue: 0,
+          }
+        : null,
+    };
   }
 
   private computeTrialRemainingDays(trialEndsAt?: Date | null) {
@@ -870,8 +901,18 @@ export class FinanceiroService {
     const lastFailure =
       ledgerRows.find((row) => ['FAILED', 'CANCELLED'].includes(String(row.status || '').toUpperCase())) || null;
 
+    const canManageBilling = context.canManageBilling;
+    const visiblePricing = canManageBilling ? pricing : this.maskPricingForUser(pricing);
+
     return {
       generatedAt: new Date().toISOString(),
+      permissions: {
+        canManageBilling,
+        canStartCheckout: canManageBilling,
+        deniedMessage: canManageBilling
+          ? null
+          : 'USER não pode fazer upgrade. Contate seu ADMIN ou o suporte da empresa.',
+      },
       company: {
         id: company.id,
         name: company.name,
@@ -890,7 +931,7 @@ export class FinanceiroService {
         acquisitionSourceDetail: this.normalizeOptionalString(company.acquisitionSourceDetail),
         referralReferrerName: this.normalizeOptionalString(company.referralReferrerName),
         referralCode: this.normalizeOptionalString(company.referralCode),
-        plan: company.plan
+        plan: canManageBilling && company.plan
           ? {
               id: company.plan.id,
               name: company.plan.name,
@@ -899,21 +940,21 @@ export class FinanceiroService {
           : null,
       },
       modules: activeModules,
-      pricing,
+      pricing: visiblePricing,
       paymentOptions: {
-        selectedMethod: this.normalizePaymentMethod(company.paymentMethod),
+        selectedMethod: canManageBilling ? this.normalizePaymentMethod(company.paymentMethod) : 'NONE',
         card: {
-          configured: pricing.cardConfigured,
-          brand: company.billingCardBrand || null,
-          last4: company.billingCardLast4 || null,
-          holderName: company.billingCardHolderName || null,
-          expMonth: Number(company.billingCardExpMonth || 0) || null,
-          expYear: Number(company.billingCardExpYear || 0) || null,
-          updatedAt: company.billingCardUpdatedAt instanceof Date ? company.billingCardUpdatedAt.toISOString() : null,
+          configured: canManageBilling ? pricing.cardConfigured : false,
+          brand: canManageBilling ? company.billingCardBrand || null : null,
+          last4: canManageBilling ? company.billingCardLast4 || null : null,
+          holderName: canManageBilling ? company.billingCardHolderName || null : null,
+          expMonth: canManageBilling ? Number(company.billingCardExpMonth || 0) || null : null,
+          expYear: canManageBilling ? Number(company.billingCardExpYear || 0) || null : null,
+          updatedAt: canManageBilling && company.billingCardUpdatedAt instanceof Date ? company.billingCardUpdatedAt.toISOString() : null,
         },
         pix: {
-          available: true,
-          preferred: this.normalizePaymentMethod(company.paymentMethod) === 'PIX',
+          available: canManageBilling,
+          preferred: canManageBilling && this.normalizePaymentMethod(company.paymentMethod) === 'PIX',
         },
       },
       accountStatus: {
@@ -931,11 +972,11 @@ export class FinanceiroService {
             : company.trialEndsAt instanceof Date
               ? company.trialEndsAt.toISOString()
               : null,
-        lastPayment: lastPayment ? this.normalizeLedgerEntry(lastPayment) : null,
-        lastFailure: lastFailure ? this.normalizeLedgerEntry(lastFailure) : null,
+        lastPayment: canManageBilling && lastPayment ? this.normalizeLedgerEntry(lastPayment) : null,
+        lastFailure: canManageBilling && lastFailure ? this.normalizeLedgerEntry(lastFailure) : null,
       },
-      latestCharge: this.serializeCharge(latestCharge),
-      history: ledgerRows.map((row) => this.normalizeLedgerEntry(row)),
+      latestCharge: canManageBilling ? this.serializeCharge(latestCharge) : null,
+      history: canManageBilling ? ledgerRows.map((row) => this.normalizeLedgerEntry(row)) : [],
     };
   }
 
@@ -944,6 +985,7 @@ export class FinanceiroService {
     dto: { paymentMethod?: string; billingCycle?: string },
   ) {
     const context = this.resolveUserContext(user);
+    this.assertCanManageBilling(context);
     await ensureMasterBillingRuntimeSchema(this.prisma);
     await this.prisma.company.update({
       where: { id: context.companyId },
@@ -972,6 +1014,7 @@ export class FinanceiroService {
     },
   ) {
     const context = this.resolveUserContext(user);
+    this.assertCanManageBilling(context);
     await ensureMasterBillingRuntimeSchema(this.prisma);
     const last4 = String(dto?.last4 || '').replace(/\D/g, '').slice(-4);
     if (last4.length !== 4) {
@@ -1004,6 +1047,7 @@ export class FinanceiroService {
 
   async removeCardForUser(user: any) {
     const context = this.resolveUserContext(user);
+    this.assertCanManageBilling(context);
     await ensureMasterBillingRuntimeSchema(this.prisma);
     const company = await this.prisma.company.findUnique({ where: { id: context.companyId } });
     if (!company) throw new BadRequestException('Empresa nao encontrada.');
@@ -1026,6 +1070,7 @@ export class FinanceiroService {
 
   async createCheckoutForUser(user: any, dto: { paymentMethod?: string }) {
     const context = this.resolveUserContext(user);
+    this.assertCanManageBilling(context);
     const paymentMethod = this.normalizePaymentMethod(dto?.paymentMethod);
     if (!['PIX', 'CARD'].includes(paymentMethod)) {
       throw new BadRequestException('Metodo de pagamento invalido para checkout.');
@@ -1256,6 +1301,7 @@ export class FinanceiroService {
 
   async refreshChargeForUser(user: any, chargeId: string, paymentIdRaw?: string) {
     const context = this.resolveUserContext(user);
+    this.assertCanManageBilling(context);
     const charge = await this.prisma.financeiroCharge.findFirst({
       where: { id: String(chargeId), companyId: context.companyId },
     });

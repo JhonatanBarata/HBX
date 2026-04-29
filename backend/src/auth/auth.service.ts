@@ -197,6 +197,10 @@ export class AuthService implements OnModuleInit {
     return `${this.buildAppUrl()}/confirm-email?token=${encodeURIComponent(rawToken)}`;
   }
 
+  private pendingCheckoutNextPath() {
+    return '/dashboard/financeiro?focus=payment&reason=pending_checkout';
+  }
+
   private escapeHtml(value: string) {
     return String(value || '')
       .replace(/&/g, '&amp;')
@@ -771,9 +775,33 @@ export class AuthService implements OnModuleInit {
       sid: sessionContext.sessionId,
       sv: sessionContext.user.sessionVersion,
     };
+    const company = !Boolean(sessionContext.user?.isSystemMaster) && companyId
+      ? await this.prisma.company.findUnique({
+          where: { id: Number(companyId) },
+          select: {
+            onboardingStatus: true,
+            subscriptionStatus: true,
+            paymentStatus: true,
+          },
+        })
+      : null;
+    const pendingCheckout =
+      String(company?.onboardingStatus || '').trim().toLowerCase() === 'pending_checkout' ||
+      String(company?.subscriptionStatus || '').trim().toLowerCase() === 'pending_checkout' ||
+      String(company?.paymentStatus || '').trim().toUpperCase() === 'PENDING';
+    const role = String(user?.role || '').trim().toUpperCase();
+    const pendingCheckoutNext = role === 'ADMIN'
+      ? this.pendingCheckoutNextPath()
+      : '/dashboard/planos?mode=pending_checkout&reason=pending_checkout';
+
     return {
       access_token: this.jwtService.sign(payload),
-      next: Boolean(sessionContext.user?.isSystemMaster) ? '/dashboard/master' : '/dashboard',
+      next: Boolean(sessionContext.user?.isSystemMaster)
+        ? '/dashboard/master'
+        : pendingCheckout
+          ? pendingCheckoutNext
+          : '/dashboard',
+      requiresCheckout: pendingCheckout,
     };
   }
 
@@ -966,12 +994,14 @@ export class AuthService implements OnModuleInit {
       // If they already belong to a company, keep it. Otherwise create a new company.
       if (existingUsername.companyId) {
         const companyId = Number(existingUsername.companyId);
+        const companyUsers = await this.prisma.user.count({ where: { companyId } });
         const updated = await this.prisma.user.update({
           where: { id: existingUsername.id },
           data: {
             email,
             password: hashed,
             name: resolvedName,
+            role: companyUsers <= 1 ? 'ADMIN' : existingUsername.role,
             emailConfirmedAt: existingUsername.emailConfirmedAt || new Date(),
             emailConfirmationToken: null,
             emailConfirmationSentAt: null,
@@ -990,14 +1020,16 @@ export class AuthService implements OnModuleInit {
         if (existingCompany) {
           const pendingEmailConfirmation =
             String(existingCompany.onboardingStatus || '').trim().toLowerCase() === 'pending_email_confirmation';
-          const existingCompanyRole = Number(existingCompany._count?.users || 0) > 0 ? 'USER' : 'ADMIN';
+          if (Number(existingCompany._count?.users || 0) > 0) {
+            throw new ConflictException('Empresa já cadastrada. Usuários comuns devem ser criados pelo ADMIN no Gerencial.');
+          }
           const updated = await tx.user.update({
             where: { id: existingUsername.id },
             data: {
               email,
               password: hashed,
               name: resolvedName,
-              role: existingCompanyRole,
+              role: 'ADMIN',
               companyId: existingCompany.id,
               emailConfirmedAt: pendingEmailConfirmation ? null : existingUsername.emailConfirmedAt || new Date(),
               emailConfirmationToken: pendingEmailConfirmation ? tokenHash : null,
@@ -1102,14 +1134,16 @@ export class AuthService implements OnModuleInit {
       if (existingCompany) {
         const pendingEmailConfirmation =
           String(existingCompany.onboardingStatus || '').trim().toLowerCase() === 'pending_email_confirmation';
-        const existingCompanyRole = Number(existingCompany._count?.users || 0) > 0 ? 'USER' : 'ADMIN';
-        const user = await tx.user.create({
-          data: {
+          if (Number(existingCompany._count?.users || 0) > 0) {
+            throw new ConflictException('Empresa já cadastrada. Usuários comuns devem ser criados pelo ADMIN no Gerencial.');
+          }
+          const user = await tx.user.create({
+            data: {
             username,
             email,
             password: hashed,
             name: resolvedName,
-            role: existingCompanyRole,
+            role: 'ADMIN',
             companyId: existingCompany.id,
             emailConfirmedAt: pendingEmailConfirmation ? null : new Date(),
             emailConfirmationToken: pendingEmailConfirmation ? tokenHash : null,
@@ -1269,7 +1303,10 @@ export class AuthService implements OnModuleInit {
         : 'E-mail confirmado com sucesso.',
       trialStartsAt: user.companyId ? confirmedAt.toISOString() : null,
       trialEndsAt: trialEndsAt ? trialEndsAt.toISOString() : null,
-      next: '/login',
+      next: trialEndsAt ? '/dashboard' : this.pendingCheckoutNextPath(),
+      loginNext: trialEndsAt
+        ? '/login?next=/dashboard'
+        : `/login?next=${encodeURIComponent(this.pendingCheckoutNextPath())}`,
     };
   }
 

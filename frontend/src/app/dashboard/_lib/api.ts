@@ -341,6 +341,17 @@ export async function apiFetch<T>(
       if (res.status === 401 && !skipAuth) {
         handleUnauthorized();
       } else {
+        if (
+          res.status === 402 &&
+          isApiErrorPayload(data) &&
+          typeof data.redirectTo === "string" &&
+          data.redirectTo.startsWith("/") &&
+          !data.redirectTo.startsWith("//") &&
+          typeof window !== "undefined" &&
+          window.location.pathname !== data.redirectTo.split("?")[0]
+        ) {
+          window.location.assign(data.redirectTo);
+        }
         dispatchTechAssistantApiError({
           path,
           url,
