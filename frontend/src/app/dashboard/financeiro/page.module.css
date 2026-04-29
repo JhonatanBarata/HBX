@@ -852,6 +852,14 @@
   flex-wrap: wrap;
 }
 
+.cardMockBottom span {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .cardMockTop span {
   font-weight: 950;
   letter-spacing: 0;
@@ -870,6 +878,8 @@
 }
 
 .cardTokenPanel {
+  display: grid;
+  gap: 0.85rem;
   min-width: 0;
 }
 
