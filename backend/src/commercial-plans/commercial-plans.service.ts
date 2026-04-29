@@ -426,10 +426,24 @@ export class CommercialPlansService {
           where: { phoneNormalized: trialProfile.contactPhone },
         });
         if (existingPhoneTrial) {
-          throw new ConflictException({
-            code: 'TRIAL_PHONE_ALREADY_USED',
-            message: 'Este telefone já utilizou o trial HBX. Escolha um plano pago para continuar.',
-          });
+          if (!existingPhoneTrial.companyId) {
+            await tx.trialPhoneUsage.delete({ where: { id: existingPhoneTrial.id } });
+          } else if (Number(existingPhoneTrial.companyId) === context.companyId) {
+            await tx.trialPhoneUsage.delete({ where: { id: existingPhoneTrial.id } });
+          } else {
+            const trialCompany = await tx.company.findUnique({
+              where: { id: Number(existingPhoneTrial.companyId) },
+              select: { id: true },
+            });
+            if (!trialCompany) {
+              await tx.trialPhoneUsage.delete({ where: { id: existingPhoneTrial.id } });
+            } else {
+              throw new ConflictException({
+                code: 'TRIAL_PHONE_ALREADY_USED',
+                message: 'Este telefone já utilizou o trial HBX. Escolha um plano pago para continuar.',
+              });
+            }
+          }
         }
       }
       const currentSubscriptionStatus = String(company.subscriptionStatus || '').trim().toLowerCase();

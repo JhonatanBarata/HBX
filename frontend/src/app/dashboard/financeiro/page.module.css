@@ -629,95 +629,6 @@
   position: relative;
 }
 
-.supportPopup {
-  position: fixed;
-  left: 20px;
-  right: auto;
-  bottom: 20px;
-  z-index: 70;
-  display: flex;
-  align-items: center;
-  gap: 0.9rem;
-  width: min(390px, calc(100vw - 32px));
-  min-height: 92px;
-  padding: 0.95rem 1rem;
-  border-radius: 22px;
-  border: 1px solid rgba(26, 129, 75, 0.16);
-  background:
-    radial-gradient(circle at 100% 0%, rgba(37, 211, 102, 0.18), transparent 45%),
-    linear-gradient(135deg, rgba(255, 255, 255, 0.98), rgba(240, 253, 244, 0.94));
-  color: #0b1f3a;
-  box-shadow:
-    0 22px 46px rgba(15, 23, 42, 0.18),
-    inset 0 1px 0 rgba(255, 255, 255, 0.92);
-  transform-origin: left bottom;
-  transition: transform 180ms ease, box-shadow 180ms ease;
-}
-
-.supportPopup:hover {
-  transform: translateY(-2px);
-  box-shadow:
-    0 26px 54px rgba(15, 23, 42, 0.22),
-    inset 0 1px 0 rgba(255, 255, 255, 0.92);
-}
-
-.supportPopupText {
-  display: grid;
-  gap: 0.25rem;
-  min-width: 0;
-}
-
-.supportPopupText strong {
-  color: #0f172a;
-  font-size: 1.02rem;
-  font-weight: 950;
-  line-height: 1.12;
-}
-
-.supportPopupText small {
-  color: #52647e;
-  font-size: 0.84rem;
-  font-weight: 720;
-  line-height: 1.35;
-}
-
-.supportPopupIcon {
-  position: relative;
-  flex: 0 0 auto;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 62px;
-  height: 62px;
-  border-radius: 50%;
-  color: #06311a;
-  background: linear-gradient(135deg, #8ef0b1, #25d366 62%, #139b46);
-  box-shadow: 0 12px 26px rgba(37, 211, 102, 0.34);
-  animation: supportBreathe 1.55s ease-in-out infinite;
-}
-
-.supportPopupIcon::before,
-.supportPopupIcon::after {
-  content: "";
-  position: absolute;
-  inset: -10px;
-  border-radius: 50%;
-  border: 2px solid rgba(37, 211, 102, 0.28);
-  animation: supportPing 1.35s ease-out infinite;
-}
-
-.supportPopupIcon::after {
-  animation-delay: 0.65s;
-}
-
-.supportPopupIcon svg {
-  position: relative;
-  z-index: 1;
-  width: 31px;
-  height: 31px;
-  fill: currentColor;
-}
-
 .checkoutCompactGrid {
   display: grid;
   grid-template-columns: minmax(420px, 0.82fr) minmax(620px, 1.18fr);
@@ -1418,31 +1329,6 @@
   line-height: 1.45;
 }
 
-@keyframes supportPing {
-  0% {
-    opacity: 0.9;
-    transform: scale(0.9);
-  }
-  58% {
-    opacity: 0.18;
-    transform: scale(1.28);
-  }
-  100% {
-    opacity: 0;
-    transform: scale(1.45);
-  }
-}
-
-@keyframes supportBreathe {
-  0%,
-  100% {
-    transform: scale(1);
-  }
-  50% {
-    transform: scale(1.07);
-  }
-}
-
 .emptyState,
 .errorCard,
 .successCard,
@@ -1508,17 +1394,4 @@
     border-radius: 16px;
   }
 
-  .supportPopup {
-    left: 12px;
-    right: 12px;
-    bottom: 12px;
-    width: auto;
-    min-height: 82px;
-    padding: 0.78rem 0.85rem;
-  }
-
-  .supportPopupIcon {
-    width: 54px;
-    height: 54px;
-  }
 }

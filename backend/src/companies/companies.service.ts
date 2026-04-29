@@ -1021,6 +1021,7 @@ export class CompaniesService implements OnModuleInit, OnModuleDestroy {
       await tx.cadastroPais.deleteMany({ where: { empresaId: id } });
 
       await tx.companyModule.deleteMany({ where: { companyId: id } });
+      await tx.trialPhoneUsage.deleteMany({ where: { companyId: id } });
       await tx.deletionRecord.deleteMany({ where: { companyId: id } });
       await tx.productVersion.deleteMany({ where: { product: { companyId: id } } });
       await tx.product.deleteMany({ where: { companyId: id } });
@@ -1347,7 +1348,10 @@ export class CompaniesService implements OnModuleInit, OnModuleDestroy {
     const company = await this.prisma.company.findUnique({ where: { id } });
     if (!company) throw new NotFoundException('Company not found');
 
-    await this.prisma.company.delete({ where: { id } });
+    await this.prisma.$transaction(async (tx) => {
+      await tx.trialPhoneUsage.deleteMany({ where: { companyId: id } });
+      await tx.company.delete({ where: { id } });
+    });
     return { success: true };
   }
 }
