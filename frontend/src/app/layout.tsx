@@ -8,6 +8,7 @@ import { InterfaceTransitionProvider } from "../components/InterfaceTransitionPr
 import PageTransition from "../components/PageTransition";
 import TopBar from "../components/TopBar";
 import { ThemeProvider } from "../components/ThemeProvider";
+import WhatsAppHelpBubble from "../components/WhatsAppHelpBubble";
 import { HBX_THEME_PALETTES } from "../lib/theme-palettes";
 
 export const dynamic = "force-dynamic";
@@ -239,6 +240,7 @@ export default function RootLayout({
           <InterfaceTransitionProvider>
             <TopBar />
             <PageTransition>{children}</PageTransition>
+            <WhatsAppHelpBubble />
           </InterfaceTransitionProvider>
         </ThemeProvider>
       </body>
