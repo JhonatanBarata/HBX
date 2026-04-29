@@ -263,11 +263,22 @@ function cardVisualBrandLabel(brand: CardVisualBrand) {
   return "Cartão";
 }
 
-function enhanceMercadoPagoCardAutofill(onBrandDetected: (brand: CardVisualBrand) => void) {
+function enhanceMercadoPagoCardAutofill(
+  onBrandDetected: (brand: CardVisualBrand) => void,
+  onHolderDetected: (holder: string) => void,
+) {
   if (typeof document === "undefined") return undefined;
   const root = document.getElementById("mp-card-payment-brick");
   if (!root) return undefined;
-  const listeners: Array<{ input: HTMLInputElement; handler: () => void }> = [];
+  const listeners: Array<{ input: HTMLInputElement; kind: "brand" | "holder"; handler: () => void }> = [];
+
+  const wireListener = (input: HTMLInputElement, kind: "brand" | "holder", handler: () => void) => {
+    if (listeners.some((item) => item.input === input && item.kind === kind)) return;
+    input.addEventListener("input", handler);
+    input.addEventListener("change", handler);
+    listeners.push({ input, kind, handler });
+    handler();
+  };
 
   const apply = () => {
     root.querySelectorAll<HTMLInputElement>("input").forEach((input) => {
@@ -282,42 +293,52 @@ function enhanceMercadoPagoCardAutofill(onBrandDetected: (brand: CardVisualBrand
 
       if (/venc|valid|expir|mm\s*\/\s*aa|mm\s*\/\s*yyyy|expiration/.test(context)) {
         input.setAttribute("autocomplete", "cc-exp");
+        input.setAttribute("name", input.getAttribute("name") || "cc-exp");
+        input.setAttribute("aria-label", input.getAttribute("aria-label") || "Data de vencimento do cartão");
         input.setAttribute("inputmode", "numeric");
         return;
       }
 
       if (/seguran|security|cvc|cvv|csc|código|codigo/.test(context)) {
         input.setAttribute("autocomplete", "cc-csc");
+        input.setAttribute("name", input.getAttribute("name") || "cc-csc");
+        input.setAttribute("aria-label", input.getAttribute("aria-label") || "Código de segurança do cartão");
         input.setAttribute("inputmode", "numeric");
         return;
       }
 
       if (/número|numero|number|cartão|cartao|card/.test(context)) {
         input.setAttribute("autocomplete", "cc-number");
+        input.setAttribute("name", input.getAttribute("name") || "cc-number");
+        input.setAttribute("aria-label", input.getAttribute("aria-label") || "Número do cartão");
         input.setAttribute("inputmode", "numeric");
-        if (!listeners.some((item) => item.input === input)) {
-          const handler = () => onBrandDetected(detectCardVisualBrand(input.value));
-          input.addEventListener("input", handler);
-          input.addEventListener("change", handler);
-          listeners.push({ input, handler });
-          handler();
-        }
+        wireListener(input, "brand", () => onBrandDetected(detectCardVisualBrand(input.value)));
         return;
       }
 
       if (/titular|nome|name|holder/.test(context)) {
         input.setAttribute("autocomplete", "cc-name");
+        input.setAttribute("name", input.getAttribute("name") || "cc-name");
+        input.setAttribute("aria-label", input.getAttribute("aria-label") || "Nome impresso no cartão");
+        wireListener(input, "holder", () => {
+          const nextHolder = input.value.trim();
+          if (nextHolder) onHolderDetected(nextHolder);
+        });
       }
     });
   };
 
   apply();
   const retries = [250, 800, 1600].map((delay) => window.setTimeout(apply, delay));
+  const poll = window.setInterval(apply, 900);
+  const stopPoll = window.setTimeout(() => window.clearInterval(poll), 9000);
   const observer = new MutationObserver(apply);
   observer.observe(root, { childList: true, subtree: true });
 
   return () => {
     retries.forEach((timer) => window.clearTimeout(timer));
+    window.clearInterval(poll);
+    window.clearTimeout(stopPoll);
     listeners.forEach(({ input, handler }) => {
       input.removeEventListener("input", handler);
       input.removeEventListener("change", handler);
@@ -556,7 +577,7 @@ export default function FinanceiroClientPage() {
             cardBrickReadyRef.current = true;
             setCardBrickWarning(null);
             cardAutofillCleanupRef.current?.();
-            cardAutofillCleanupRef.current = enhanceMercadoPagoCardAutofill(setCardVisualBrand) || null;
+            cardAutofillCleanupRef.current = enhanceMercadoPagoCardAutofill(setCardVisualBrand, setCardholderName) || null;
           },
           onSubmit: (cardFormData: any) => submitSubscription(cardFormData),
           onError: (brickError: unknown) => {
@@ -788,9 +809,11 @@ export default function FinanceiroClientPage() {
                 <span className={styles.statusPill}>Recorrente</span>
               </div>
               <div className={styles.cardExperience}>
-                <div className={styles.cardMock} aria-hidden="true">
+                <div className={styles.cardMock} data-cycle={billingCycle} data-brand={cardVisualBrand} aria-hidden="true">
                   <div className={styles.cardMockTop}>
-                    <span>HBX</span>
+                    <span className={styles.cardChipBrand} data-brand={cardVisualBrand}>
+                      <i aria-hidden="true" />
+                    </span>
                     <small className={styles.cardBrandBadge} data-brand={cardVisualBrand}>
                       <span aria-hidden="true" />
                       {cardVisualBrandLabel(cardVisualBrand)}
@@ -807,6 +830,7 @@ export default function FinanceiroClientPage() {
                     <span className={styles.fieldLabel}>Nome impresso no cartão</span>
                     <input
                       className={styles.fieldInput}
+                      name="cc-name"
                       autoComplete="cc-name"
                       value={cardholderName}
                       onChange={(event) => setCardholderName(event.target.value)}

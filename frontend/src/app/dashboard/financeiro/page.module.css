@@ -872,16 +872,82 @@
     inset 0 1px 0 rgba(255, 255, 255, 0.22);
   overflow: hidden;
   position: relative;
+  transition:
+    border-color 180ms ease,
+    box-shadow 180ms ease,
+    transform 180ms ease,
+    background 220ms ease;
 }
 
-.cardMock::before {
-  content: "";
+.cardMock[data-cycle="ANNUAL"] {
+  border: 1px solid rgba(250, 204, 21, 0.78);
+  background:
+    radial-gradient(circle at 16% 18%, rgba(250, 204, 21, 0.35), transparent 31%),
+    radial-gradient(circle at 84% 6%, rgba(34, 211, 238, 0.24), transparent 28%),
+    linear-gradient(135deg, #111827 0%, #182554 48%, #3b2f12 100%);
+  box-shadow:
+    0 0 0 4px rgba(250, 204, 21, 0.12),
+    0 30px 70px -34px rgba(120, 53, 15, 0.92),
+    inset 0 1px 0 rgba(255, 255, 255, 0.24);
+  transform: translateY(-2px);
+}
+
+.cardMock[data-cycle="ANNUAL"]::after {
+  content: "10% OFF";
+  position: absolute;
+  top: 1rem;
+  right: 1rem;
+  border-radius: 999px;
+  color: #78350f;
+  background: linear-gradient(135deg, #fef3c7, #facc15);
+  padding: 0.32rem 0.58rem;
+  font-size: 0.66rem;
+  font-weight: 950;
+  letter-spacing: 0.08em;
+}
+
+.cardChipBrand {
   width: 52px;
   height: 38px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   border-radius: 12px;
   background:
     linear-gradient(135deg, rgba(255, 255, 255, 0.84), rgba(255, 255, 255, 0.18));
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.28);
+}
+
+.cardChipBrand i {
+  width: 28px;
+  height: 18px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, rgba(148, 163, 184, 0.78), rgba(255, 255, 255, 0.78));
+}
+
+.cardChipBrand[data-brand="mastercard"] i {
+  background:
+    radial-gradient(circle at 35% 50%, #eb001b 0 38%, transparent 40%),
+    radial-gradient(circle at 65% 50%, #f79e1b 0 38%, transparent 40%),
+    linear-gradient(90deg, #eb001b, #f79e1b);
+}
+
+.cardChipBrand[data-brand="visa"] i {
+  border-radius: 4px;
+  background: linear-gradient(135deg, #1a1f71 0 70%, #f7b600 70% 100%);
+}
+
+.cardChipBrand[data-brand="amex"] i {
+  border-radius: 4px;
+  background: linear-gradient(135deg, #2e77bc, #8dd7f7);
+}
+
+.cardChipBrand[data-brand="elo"] i {
+  background:
+    radial-gradient(circle at 24% 50%, #00a4e4 0 20%, transparent 22%),
+    radial-gradient(circle at 52% 50%, #ffe01b 0 20%, transparent 22%),
+    radial-gradient(circle at 78% 50%, #ef4123 0 20%, transparent 22%),
+    #111827;
 }
 
 .cardMockTop,
