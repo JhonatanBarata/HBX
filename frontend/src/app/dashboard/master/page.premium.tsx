@@ -2582,6 +2582,7 @@ export default function MasterPremiumPage() {
                             <strong>{company.name}</strong>
                             <span>#{company.id}{company.slug ? ` • ${company.slug}` : ""}</span>
                             <span>{company.primaryContactName || company.contactEmail || "Sem contato principal"}</span>
+                            <span>{company.contactPhone || "Sem telefone"} • CPF/CNPJ: {company.taxDocument || "-"}</span>
                             <span>{`WhatsApp • ${whatsappStatusLabel(company)}`}</span>
                             <span>{whatsappModeLabel(company.whatsappSituation?.mode, company.whatsappCenter)}</span>
                           </button>

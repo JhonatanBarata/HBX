@@ -44,6 +44,13 @@ type BillingLedgerEntryRow = {
   updatedAt: Date;
 };
 
+type PaymentContactProfile = {
+  contactName: string;
+  contactPhone: string;
+  taxDocument: string;
+  acceptedTerms: true;
+};
+
 @Injectable()
 export class FinanceiroService {
   constructor(
@@ -75,8 +82,52 @@ export class FinanceiroService {
 
   private normalizeContactPhone(value: unknown) {
     const digits = String(value || '').replace(/\D/g, '');
-    if (digits.length < 10 || digits.length > 13) return null;
+    const normalized = digits.startsWith('55') && digits.length > 11 ? digits.slice(2, 13) : digits.slice(0, 11);
+    if (normalized.length < 10 || normalized.length > 11) return null;
+    return normalized;
+  }
+
+  private normalizeContactName(value: unknown) {
+    const normalized = String(value || '').trim().replace(/\s+/g, ' ');
+    return normalized || null;
+  }
+
+  private normalizeTaxDocument(value: unknown) {
+    const digits = String(value || '').replace(/\D/g, '').slice(0, 14);
+    if (![11, 14].includes(digits.length)) return null;
     return digits;
+  }
+
+  private normalizePaymentContactProfile(dto: {
+    contactName?: string | null;
+    contactPhone?: string | null;
+    taxDocument?: string | null;
+    acceptedTerms?: boolean | null;
+  }): PaymentContactProfile {
+    const contactName = this.normalizeContactName(dto?.contactName);
+    const contactPhone = this.normalizeContactPhone(dto?.contactPhone);
+    const taxDocument = this.normalizeTaxDocument(dto?.taxDocument);
+    if (!contactName || contactName.length < 3) {
+      throw new BadRequestException('Informe o nome completo do responsável pelo pagamento.');
+    }
+    if (!contactPhone) {
+      throw new BadRequestException('Informe um telefone de contato válido.');
+    }
+    if (!taxDocument) {
+      throw new BadRequestException('Informe um CPF/CNPJ válido para o pagamento.');
+    }
+    if (dto?.acceptedTerms !== true) {
+      throw new BadRequestException('Confirme a autorização de uso dos dados de pagamento.');
+    }
+    return { contactName, contactPhone, taxDocument, acceptedTerms: true };
+  }
+
+  private companyContactUpdateFromPaymentProfile(profile: PaymentContactProfile) {
+    return {
+      primaryContactName: profile.contactName,
+      contactPhone: profile.contactPhone,
+      taxDocument: profile.taxDocument,
+    };
   }
 
   private normalizePayerEmail(value: unknown) {
@@ -1573,7 +1624,9 @@ export class FinanceiroService {
         referralReferrerName: this.normalizeOptionalString(company.referralReferrerName),
         referralCode: this.normalizeOptionalString(company.referralCode),
         contactEmail: canManageBilling ? this.normalizeOptionalString(company.contactEmail) : null,
+        primaryContactName: canManageBilling ? this.normalizeOptionalString(company.primaryContactName) : null,
         contactPhone: canManageBilling ? this.normalizeOptionalString(company.contactPhone) : null,
+        taxDocument: canManageBilling ? this.normalizeOptionalString(company.taxDocument) : null,
         plan: canManageBilling && company.plan
           ? {
               id: company.plan.id,
@@ -1686,7 +1739,15 @@ export class FinanceiroService {
     return this.getOverviewForUser(user);
   }
 
-  async createCheckoutForUser(user: any, dto: { paymentMethod?: string; planKey?: string; billingCycle?: string; contactPhone?: string }) {
+  async createCheckoutForUser(user: any, dto: {
+    paymentMethod?: string;
+    planKey?: string;
+    billingCycle?: string;
+    contactPhone?: string;
+    contactName?: string;
+    taxDocument?: string;
+    acceptedTerms?: boolean;
+  }) {
     const context = this.resolveUserContext(user);
     this.assertCanManageBilling(context);
     const paymentMethod = this.normalizePaymentMethod(dto?.paymentMethod);
@@ -1744,7 +1805,13 @@ export class FinanceiroService {
       throw new BadRequestException('Nao ha valor disponivel para cobranca neste ciclo.');
     }
 
-    const normalizedContactPhone = this.normalizeContactPhone(dto?.contactPhone);
+    const paymentProfile = this.normalizePaymentContactProfile(dto || {});
+    const companyWithPaymentProfile = {
+      ...company,
+      primaryContactName: paymentProfile.contactName,
+      contactPhone: paymentProfile.contactPhone,
+      taxDocument: paymentProfile.taxDocument,
+    };
     const reusable = await this.findReusableCharge(context.companyId, paymentMethod, {
       billingCycle: pricing.billingCycle,
       amount,
@@ -1755,7 +1822,7 @@ export class FinanceiroService {
         data: {
           selectedPlanKey,
           billingCycle: requestedBillingCycle,
-          contactPhone: normalizedContactPhone || company.contactPhone || null,
+          ...this.companyContactUpdateFromPaymentProfile(paymentProfile),
         },
       });
       return {
@@ -1795,7 +1862,7 @@ export class FinanceiroService {
       data: {
         selectedPlanKey,
         billingCycle: requestedBillingCycle,
-        contactPhone: normalizedContactPhone || company.contactPhone || null,
+        ...this.companyContactUpdateFromPaymentProfile(paymentProfile),
       },
     });
 
@@ -1817,7 +1884,7 @@ export class FinanceiroService {
             },
             payer: {
               email: payerEmail,
-              first_name: this.normalizeOptionalString(company.primaryContactName) || company.name,
+              first_name: paymentProfile.contactName || company.name,
             },
           },
           randomUUID(),
@@ -1833,13 +1900,16 @@ export class FinanceiroService {
           competence,
           amount,
           paymentMethod: 'PIX',
-          referenceLabel: this.resolveChargeReferenceLabel(company, pricing),
+          referenceLabel: this.resolveChargeReferenceLabel(companyWithPaymentProfile, pricing),
           observation: 'Cobranca PIX criada pelo autoatendimento do cliente.',
           metadata: {
             chargeId: baseCharge.id,
             externalReference,
             planKey: selectedPlanKey,
             billingCycle: requestedBillingCycle,
+            contactName: paymentProfile.contactName,
+            taxDocumentProvided: Boolean(paymentProfile.taxDocument),
+            acceptedTerms: true,
           },
         });
 
@@ -1888,7 +1958,7 @@ export class FinanceiroService {
             billing_cycle: requestedBillingCycle,
           },
           payer: {
-            name: this.normalizeOptionalString(company.primaryContactName) || company.name,
+            name: paymentProfile.contactName || company.name,
             email: payerEmail,
           },
           items: [
@@ -1920,7 +1990,7 @@ export class FinanceiroService {
         competence,
         amount,
         paymentMethod,
-        referenceLabel: this.resolveChargeReferenceLabel(company, pricing),
+        referenceLabel: this.resolveChargeReferenceLabel(companyWithPaymentProfile, pricing),
         observation: isBoletoCheckout
           ? 'Checkout de boleto criado pelo autoatendimento do cliente.'
           : 'Checkout de cartao criado pelo autoatendimento do cliente.',
@@ -1929,6 +1999,9 @@ export class FinanceiroService {
           externalReference,
           planKey: selectedPlanKey,
           billingCycle: requestedBillingCycle,
+          contactName: paymentProfile.contactName,
+          taxDocumentProvided: Boolean(paymentProfile.taxDocument),
+          acceptedTerms: true,
         },
       });
 
@@ -1967,6 +2040,9 @@ export class FinanceiroService {
       billingCycle?: string;
       cardTokenId?: string;
       contactPhone?: string;
+      contactName?: string;
+      taxDocument?: string;
+      acceptedTerms?: boolean;
       payerEmail?: string;
       paymentMethodId?: string;
       issuerId?: string;
@@ -1978,8 +2054,9 @@ export class FinanceiroService {
 
     const cardTokenId = this.normalizeCardToken(dto?.cardTokenId);
     if (!cardTokenId) throw new BadRequestException('Token do cartão Mercado Pago ausente ou inválido.');
-    const billingContactPhone = this.normalizeContactPhone(dto?.contactPhone);
-    if (!billingContactPhone) throw new BadRequestException('Informe um telefone de contato válido.');
+    const paymentProfile = this.normalizePaymentContactProfile(dto || {});
+    const billingContactPhone = paymentProfile.contactPhone;
+    const companyContactData = this.companyContactUpdateFromPaymentProfile(paymentProfile);
 
     const { company, accessToken } = await this.resolveFinanceContext(context.companyId);
     const plan = this.buildCommercialPlanProviderSnapshot(dto?.planKey || company.selectedPlanKey, dto?.billingCycle || 'ANNUAL');
@@ -1988,6 +2065,11 @@ export class FinanceiroService {
       this.normalizePayerEmail(company.contactEmail) ||
       this.normalizePayerEmail(user?.email);
     if (!payerEmail) throw new BadRequestException('Informe um e-mail válido para a assinatura.');
+
+    await this.prisma.company.update({
+      where: { id: context.companyId },
+      data: companyContactData,
+    });
 
     const existing = await this.findCurrentCompanySubscription(context.companyId);
     if (existing?.providerPreapprovalId && !['canceled', 'blocked'].includes(String(existing.status || '').toLowerCase())) {
@@ -2084,7 +2166,7 @@ export class FinanceiroService {
           paymentStatus: 'PENDING',
           subscriptionStatus: providerStatus,
           premiumAccess: false,
-          contactPhone: billingContactPhone,
+          ...companyContactData,
         },
       });
 
@@ -2131,17 +2213,29 @@ export class FinanceiroService {
     }
   }
 
-  async changeSubscriptionCardForUser(user: any, dto: { cardTokenId?: string }) {
+  async changeSubscriptionCardForUser(user: any, dto: {
+    cardTokenId?: string;
+    contactName?: string;
+    contactPhone?: string;
+    taxDocument?: string;
+    acceptedTerms?: boolean;
+  }) {
     const context = this.resolveUserContext(user);
     this.assertCanManageBilling(context);
     const cardTokenId = this.normalizeCardToken(dto?.cardTokenId);
     if (!cardTokenId) throw new BadRequestException('Token do cartão Mercado Pago ausente ou inválido.');
+    const paymentProfile = this.normalizePaymentContactProfile(dto || {});
+    const companyContactData = this.companyContactUpdateFromPaymentProfile(paymentProfile);
 
     const subscription = await this.findCurrentCompanySubscription(context.companyId);
     if (!subscription?.providerPreapprovalId) throw new NotFoundException('Assinatura Mercado Pago nao encontrada.');
 
     try {
       const { accessToken } = await this.resolveFinanceContext(context.companyId);
+      await this.prisma.company.update({
+        where: { id: context.companyId },
+        data: companyContactData,
+      });
       const provider = await this.mercadoPagoClient.changePreapprovalCard(
         accessToken,
         subscription.providerPreapprovalId,

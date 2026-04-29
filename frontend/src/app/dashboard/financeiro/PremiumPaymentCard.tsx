@@ -7,6 +7,8 @@ type CardBrand = "mastercard" | "visa" | "amex" | "elo" | "card";
 
 type PremiumPaymentCardProps = {
   holderName?: string;
+  cardNumber?: string;
+  expirationLabel?: string;
   brand?: CardBrand;
   billingLabel?: string;
   planLabel?: string;
@@ -24,6 +26,8 @@ function brandLabel(brand: CardBrand) {
 
 export default function PremiumPaymentCard({
   holderName = "",
+  cardNumber = "",
+  expirationLabel = "",
   brand = "card",
   billingLabel = "Mensal",
   planLabel = "HBX",
@@ -34,8 +38,19 @@ export default function PremiumPaymentCard({
 
   const displayName = useMemo(() => {
     const clean = holderName.trim();
-    return clean ? clean.toUpperCase().slice(0, 28) : "NOME NO CARTÃO";
+    return clean ? clean.toUpperCase().slice(0, 30) : "NOME NO CARTÃO";
   }, [holderName]);
+
+  const displayNumberGroups = useMemo(() => {
+    const digits = cardNumber.replace(/\D/g, "").slice(0, 16);
+    const padded = `${digits}${"•".repeat(16)}`.slice(0, 16);
+    return padded.match(/.{1,4}/g) || ["••••", "••••", "••••", "••••"];
+  }, [cardNumber]);
+
+  const displayExpiration = useMemo(() => {
+    const clean = expirationLabel.trim();
+    return clean ? clean.slice(0, 7) : "MM/AA";
+  }, [expirationLabel]);
 
   return (
     <div
@@ -66,10 +81,9 @@ export default function PremiumPaymentCard({
           </div>
 
           <div className={styles.cardNumber}>
-            <span>••••</span>
-            <span>••••</span>
-            <span>••••</span>
-            <span>••••</span>
+            {displayNumberGroups.map((group, index) => (
+              <span key={`${group}-${index}`}>{group}</span>
+            ))}
           </div>
 
           <div className={styles.bottomRow}>
@@ -93,6 +107,17 @@ export default function PremiumPaymentCard({
         <section className={styles.backFace}>
           <div className={styles.backGlow} />
           <div className={styles.magneticBar} />
+
+          <div className={styles.backDetails}>
+            <div>
+              <small>Validade</small>
+              <strong>{displayExpiration}</strong>
+            </div>
+            <div>
+              <small>Segurança</small>
+              <strong>•••</strong>
+            </div>
+          </div>
 
           <div className={styles.signatureArea}>
             <div>

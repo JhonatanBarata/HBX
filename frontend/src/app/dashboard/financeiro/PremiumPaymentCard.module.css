@@ -1,5 +1,5 @@
 .cardStage {
-  width: min(100%, 360px);
+  width: min(100%, 372px);
   perspective: 1200px;
   margin-inline: auto;
 }
@@ -23,7 +23,7 @@
   inset: 0;
   overflow: hidden;
   border-radius: 30px;
-  padding: clamp(20px, 5vw, 30px);
+  padding: clamp(18px, 4.5vw, 26px);
   color: white;
   backface-visibility: hidden;
   box-shadow:
@@ -186,16 +186,26 @@
   position: relative;
   z-index: 2;
   display: flex;
+  min-width: 0;
   gap: clamp(8px, 3vw, 16px);
-  margin: clamp(30px, 7vw, 48px) 0 clamp(20px, 5vw, 30px);
-  font-size: clamp(18px, 3vw, 26px);
+  justify-content: space-between;
+  margin: clamp(26px, 6vw, 40px) 0 clamp(18px, 4.5vw, 26px);
+  font-size: clamp(17px, 2.75vw, 23px);
   font-weight: 950;
-  letter-spacing: 0.14em;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.08em;
+  line-height: 1;
   text-shadow: 0 12px 24px rgba(0, 0, 0, 0.25);
 }
 
+.cardNumber span {
+  min-width: 0;
+  white-space: nowrap;
+}
+
 .bottomRow small,
-.signatureArea small {
+.signatureArea small,
+.backDetails small {
   display: block;
   margin-bottom: 8px;
   color: rgba(255, 255, 255, 0.58);
@@ -207,7 +217,7 @@
 
 .bottomRow strong {
   display: block;
-  max-width: 250px;
+  max-width: min(230px, 54vw);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -251,9 +261,38 @@
 .magneticBar {
   position: relative;
   z-index: 2;
-  height: 58px;
-  margin: 20px calc(clamp(20px, 5vw, 30px) * -1) 34px;
+  height: 54px;
+  margin: 16px calc(clamp(18px, 4.5vw, 26px) * -1) 22px;
   background: rgba(0, 0, 0, 0.68);
+}
+
+.backDetails {
+  position: relative;
+  z-index: 2;
+  display: grid;
+  grid-template-columns: 1fr 0.72fr;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.backDetails div {
+  min-width: 0;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 13px;
+  padding: 10px 12px;
+  background: rgba(255, 255, 255, 0.09);
+  backdrop-filter: blur(12px);
+}
+
+.backDetails strong {
+  display: block;
+  overflow: hidden;
+  color: #ffffff;
+  font-size: 1rem;
+  font-weight: 950;
+  letter-spacing: 0.08em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .signatureArea {
@@ -292,7 +331,7 @@
   position: relative;
   z-index: 2;
   max-width: 340px;
-  margin: 28px 0 0;
+  margin: 18px 0 0;
   color: rgba(255, 255, 255, 0.62);
   font-size: 13px;
   line-height: 1.5;
@@ -310,6 +349,7 @@
 
   .cardNumber {
     letter-spacing: 0.08em;
+    font-size: clamp(15px, 5vw, 20px);
   }
 
   .bottomRow {
@@ -317,6 +357,10 @@
   }
 
   .bottomRow strong {
-    max-width: 180px;
+    max-width: 170px;
+  }
+
+  .backDetails {
+    grid-template-columns: 1fr;
   }
 }

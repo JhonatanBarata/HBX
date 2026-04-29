@@ -26,15 +26,15 @@
   align-items: center;
   justify-content: space-between;
   gap: 1rem;
-  border-color: color-mix(in srgb, #c9473d 28%, var(--line));
+  border-color: color-mix(in srgb, var(--danger) 28%, var(--line));
 }
 
 .checkoutNotice[data-tone="trial"] {
-  border-color: color-mix(in srgb, #0f766e 30%, var(--line));
+  border-color: color-mix(in srgb, var(--success) 30%, var(--line));
 }
 
 .checkoutNotice[data-tone="trial"] a {
-  background: #0f766e;
+  background: color-mix(in srgb, var(--success) 76%, var(--brand-solid));
 }
 
 .checkoutNotice strong {
@@ -55,7 +55,7 @@
   border-radius: 12px;
   padding: 0 0.9rem;
   color: #ffffff;
-  background: #c9473d;
+  background: color-mix(in srgb, var(--danger) 76%, var(--brand-solid));
   font-weight: 850;
 }
 
@@ -107,7 +107,7 @@
 .heroPanel {
   padding: 1rem 1.05rem;
   border-radius: 16px;
-  border: 1px solid color-mix(in srgb, #0f766e 18%, var(--line));
+  border: 1px solid color-mix(in srgb, var(--success) 18%, var(--line));
   background: color-mix(in srgb, var(--surface-raised) 94%, var(--background));
 }
 
@@ -208,9 +208,9 @@
 }
 
 .statusPill {
-  color: color-mix(in srgb, #10b981 88%, var(--foreground));
-  border-color: color-mix(in srgb, #10b981 30%, var(--background));
-  background: color-mix(in srgb, #10b981 12%, var(--background));
+  color: color-mix(in srgb, var(--success) 88%, var(--foreground));
+  border-color: color-mix(in srgb, var(--success) 30%, var(--background));
+  background: color-mix(in srgb, var(--success) 12%, var(--background));
 }
 
 .mutedPill,
@@ -264,8 +264,8 @@
   margin-top: 0.9rem;
   padding: 0.9rem;
   border-radius: 20px;
-  border: 1px solid color-mix(in srgb, #0f766e 24%, var(--line));
-  background: color-mix(in srgb, #0f766e 7%, var(--surface-raised));
+  border: 1px solid color-mix(in srgb, var(--success) 24%, var(--line));
+  background: color-mix(in srgb, var(--success) 7%, var(--surface-raised));
 }
 
 .checkoutSummary div {
@@ -302,7 +302,7 @@
 
 .creditCardPanel {
   background:
-    radial-gradient(circle at top left, color-mix(in srgb, #10b981 12%, transparent), transparent 34%),
+    radial-gradient(circle at top left, color-mix(in srgb, var(--success) 12%, transparent), transparent 34%),
     linear-gradient(180deg, color-mix(in srgb, var(--surface) 99%, var(--background)), color-mix(in srgb, var(--surface-soft) 96%, var(--background)));
 }
 
@@ -352,8 +352,8 @@
   margin-top: 0.85rem;
   padding: 0.75rem;
   border-radius: 18px;
-  border: 1px solid color-mix(in srgb, #10b981 22%, var(--line));
-  background: color-mix(in srgb, #10b981 8%, var(--surface-raised));
+  border: 1px solid color-mix(in srgb, var(--success) 22%, var(--line));
+  background: color-mix(in srgb, var(--success) 8%, var(--surface-raised));
 }
 
 .securityStrip span {
@@ -444,7 +444,7 @@
 
 .cycleToggle button[data-active="true"] {
   color: #ffffff;
-  background: #0f766e;
+  background: color-mix(in srgb, var(--success) 76%, var(--brand-solid));
 }
 
 .securePaymentBox,
@@ -489,8 +489,8 @@
   gap: 0.28rem;
   padding: 1rem;
   border-radius: 16px;
-  background: color-mix(in srgb, #0f766e 8%, var(--surface-raised));
-  border: 1px solid color-mix(in srgb, #0f766e 24%, var(--line));
+  background: color-mix(in srgb, var(--success) 8%, var(--surface-raised));
+  border: 1px solid color-mix(in srgb, var(--success) 24%, var(--line));
 }
 
 .priceStack span {
@@ -551,6 +551,64 @@
   color: var(--foreground-soft);
 }
 
+.paymentConsentCard {
+  width: min(100%, 640px);
+}
+
+.paymentConsentHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.paymentConsentHeader h2 {
+  margin: 0.35rem 0 0.45rem;
+  color: var(--foreground);
+  font-size: 1.45rem;
+  line-height: 1.08;
+}
+
+.dialogCloseButton {
+  width: 36px;
+  height: 36px;
+  flex: 0 0 auto;
+  border: 1px solid color-mix(in srgb, var(--info) 20%, var(--line));
+  border-radius: 999px;
+  color: color-mix(in srgb, var(--info) 76%, var(--foreground));
+  background: color-mix(in srgb, var(--surface) 82%, var(--background));
+  cursor: pointer;
+  font-size: 1.15rem;
+  font-weight: 950;
+}
+
+.paymentConsentGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.85rem;
+}
+
+.paymentConsentTerms {
+  display: grid;
+  grid-template-columns: 20px 1fr;
+  gap: 0.7rem;
+  border-radius: 14px;
+  border: 1px solid color-mix(in srgb, var(--info) 18%, var(--line));
+  background: color-mix(in srgb, var(--surface-raised) 84%, var(--background));
+  color: var(--foreground-soft);
+  padding: 0.85rem;
+  font-size: 0.84rem;
+  font-weight: 760;
+  line-height: 1.38;
+}
+
+.paymentConsentTerms input {
+  width: 18px;
+  height: 18px;
+  margin-top: 0.1rem;
+  accent-color: var(--info);
+}
+
 .checkoutShell {
   grid-template-columns: minmax(0, 1fr);
   gap: 1.15rem;
@@ -558,51 +616,51 @@
 
 .checkoutMain,
 .checkoutSummaryPanel {
-  border-color: rgba(121, 176, 255, 0.55);
+  border-color: color-mix(in srgb, var(--info) 34%, var(--line));
   background:
-    linear-gradient(145deg, rgba(255, 255, 255, 0.92), rgba(235, 247, 255, 0.82)),
-    color-mix(in srgb, var(--surface) 96%, white);
-  color: #0b1f3a;
+    radial-gradient(circle at 10% 12%, color-mix(in srgb, var(--info) 10%, transparent), transparent 28%),
+    linear-gradient(145deg, color-mix(in srgb, var(--surface) 96%, var(--background)), color-mix(in srgb, var(--surface-raised) 90%, var(--background)));
+  color: var(--foreground);
   box-shadow:
-    0 28px 80px -52px rgba(38, 87, 165, 0.55),
-    inset 0 1px 0 rgba(255, 255, 255, 0.92);
+    0 28px 80px -52px color-mix(in srgb, var(--info) 38%, var(--foreground)),
+    var(--shadow-inset);
 }
 
 .checkoutMain .eyebrow,
 .checkoutSummaryPanel .eyebrow,
 .checkoutMain .fieldLabel {
-  color: #6a7ea0;
+  color: var(--muted);
 }
 
 .checkoutMain .heroText,
 .checkoutMain .helperText,
 .checkoutSummaryPanel .summarySupport,
 .checkoutMain .termsBox span {
-  color: #52647e;
+  color: var(--foreground-soft);
 }
 
 .checkoutMain strong,
 .checkoutSummaryPanel strong,
 .checkoutTitle,
 .summaryPlan {
-  color: #0b1f3a;
+  color: var(--foreground);
 }
 
 .checkoutMain .statusPill,
 .checkoutSummaryPanel .statusPill {
-  color: #047857;
-  border-color: rgba(16, 185, 129, 0.32);
-  background: rgba(209, 250, 229, 0.86);
+  color: color-mix(in srgb, var(--success) 78%, var(--foreground));
+  border-color: color-mix(in srgb, var(--success) 32%, var(--line));
+  background: color-mix(in srgb, var(--success) 12%, var(--surface));
 }
 
 .checkoutMain .fieldInput {
-  border-color: rgba(121, 176, 255, 0.62);
-  background: rgba(248, 251, 255, 0.96);
-  color: #0b1f3a;
+  border-color: color-mix(in srgb, var(--info) 34%, var(--line));
+  background: color-mix(in srgb, var(--field-surface) 96%, var(--background));
+  color: var(--foreground);
 }
 
 .checkoutMain .fieldInput::placeholder {
-  color: #8da1bd;
+  color: var(--muted);
 }
 
 .checkoutMain {
@@ -618,10 +676,10 @@
   inset: 0;
   pointer-events: none;
   background:
-    radial-gradient(circle at 8% 18%, rgba(38, 190, 255, 0.16), transparent 28%),
-    radial-gradient(circle at 92% 8%, rgba(126, 87, 255, 0.12), transparent 26%),
-    linear-gradient(90deg, rgba(14, 165, 233, 0.04) 1px, transparent 1px),
-    linear-gradient(180deg, rgba(14, 165, 233, 0.04) 1px, transparent 1px);
+    radial-gradient(circle at 8% 18%, color-mix(in srgb, var(--info) 16%, transparent), transparent 28%),
+    radial-gradient(circle at 92% 8%, color-mix(in srgb, var(--button-accent) 12%, transparent), transparent 26%),
+    linear-gradient(90deg, color-mix(in srgb, var(--info) 5%, transparent) 1px, transparent 1px),
+    linear-gradient(180deg, color-mix(in srgb, var(--info) 5%, transparent) 1px, transparent 1px);
   background-size: auto, auto, 34px 34px, 34px 34px;
 }
 
@@ -680,9 +738,9 @@
   gap: 0.75rem;
   padding: 0.35rem;
   border-radius: 18px;
-  border: 1px solid rgba(121, 176, 255, 0.32);
+  border: 1px solid color-mix(in srgb, var(--info) 26%, var(--line));
   background:
-    linear-gradient(135deg, rgba(255, 255, 255, 0.72), rgba(229, 245, 255, 0.58));
+    linear-gradient(135deg, color-mix(in srgb, var(--surface) 80%, var(--background)), color-mix(in srgb, var(--surface-raised) 74%, var(--background)));
   overflow: hidden;
 }
 
@@ -693,7 +751,7 @@
   right: 12%;
   top: 50%;
   height: 2px;
-  background: linear-gradient(90deg, #22c55e, #38bdf8, #2563eb);
+  background: linear-gradient(90deg, var(--success), var(--accent), var(--info));
   opacity: 0.35;
   transform: translateY(-50%);
 }
@@ -708,13 +766,13 @@
   align-items: center;
   gap: 0.55rem;
   border-radius: 15px;
-  border: 1px solid rgba(121, 176, 255, 0.38);
-  color: #51627a;
-  background: rgba(255, 255, 255, 0.78);
+  border: 1px solid color-mix(in srgb, var(--info) 28%, var(--line));
+  color: var(--foreground-soft);
+  background: color-mix(in srgb, var(--surface) 82%, var(--background));
   padding: 0.68rem;
   font-size: 0.78rem;
   font-weight: 850;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.86);
+  box-shadow: var(--shadow-inset);
   transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease;
 }
 
@@ -730,9 +788,9 @@
   display: inline-grid;
   place-items: center;
   border-radius: 999px;
-  color: #075985;
-  background: rgba(224, 246, 255, 0.95);
-  border: 1px solid rgba(14, 165, 233, 0.28);
+  color: color-mix(in srgb, var(--info) 78%, var(--foreground));
+  background: color-mix(in srgb, var(--info) 12%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--info) 28%, var(--line));
   font-size: 0.82rem;
 }
 
@@ -746,7 +804,7 @@
 
 .checkoutStepper strong,
 .stepLink strong {
-  color: #0b1f3a;
+  color: var(--foreground);
   font-size: 0.86rem;
   line-height: 1.05;
 }
@@ -754,40 +812,40 @@
 .checkoutStepper small,
 .stepLink small {
   margin-top: 0.15rem;
-  color: #667791;
+  color: var(--muted);
   font-size: 0.72rem;
   font-weight: 760;
 }
 
 .checkoutStepper [data-state="done"] b {
-  color: #064e3b;
-  background: rgba(209, 250, 229, 0.95);
-  border-color: rgba(16, 185, 129, 0.32);
+  color: color-mix(in srgb, var(--success) 78%, var(--foreground));
+  background: color-mix(in srgb, var(--success) 12%, var(--surface));
+  border-color: color-mix(in srgb, var(--success) 32%, var(--line));
 }
 
 .checkoutStepper [data-state="current"] {
-  border-color: rgba(37, 99, 235, 0.56);
+  border-color: color-mix(in srgb, var(--info) 48%, var(--line));
   background:
-    radial-gradient(circle at 100% 0%, rgba(59, 130, 246, 0.24), transparent 42%),
-    linear-gradient(145deg, rgba(239, 246, 255, 0.98), rgba(255, 255, 255, 0.9));
+    radial-gradient(circle at 100% 0%, color-mix(in srgb, var(--info) 22%, transparent), transparent 42%),
+    linear-gradient(145deg, color-mix(in srgb, var(--surface-raised) 92%, var(--background)), color-mix(in srgb, var(--surface) 88%, var(--background)));
   box-shadow:
-    0 14px 34px rgba(37, 99, 235, 0.16),
-    0 0 0 4px rgba(37, 99, 235, 0.08),
-    inset 0 -3px 0 #2563eb;
+    0 14px 34px color-mix(in srgb, var(--info) 16%, transparent),
+    0 0 0 4px color-mix(in srgb, var(--info) 8%, transparent),
+    inset 0 -3px 0 var(--info);
 }
 
 .checkoutStepper [data-state="current"] b {
   color: #ffffff;
-  background: linear-gradient(135deg, #38bdf8, #2563eb);
-  border-color: rgba(37, 99, 235, 0.42);
-  box-shadow: 0 10px 20px rgba(37, 99, 235, 0.24);
+  background: linear-gradient(135deg, var(--accent), var(--info));
+  border-color: color-mix(in srgb, var(--info) 42%, var(--line));
+  box-shadow: 0 10px 20px color-mix(in srgb, var(--info) 24%, transparent);
 }
 
 .checkoutSection {
   display: grid;
   gap: 0.75rem;
   padding-top: 0.8rem;
-  border-top: 1px solid rgba(148, 180, 224, 0.32);
+  border-top: 1px solid color-mix(in srgb, var(--line) 82%, var(--background));
 }
 
 .cycleCards {
@@ -803,26 +861,26 @@
   gap: 0.42rem;
   text-align: left;
   border-radius: 18px;
-  border: 1px solid rgba(121, 176, 255, 0.46);
+  border: 1px solid color-mix(in srgb, var(--info) 30%, var(--line));
   background:
-    linear-gradient(145deg, rgba(255, 255, 255, 0.88), rgba(235, 247, 255, 0.7));
-  color: #0f1f36;
+    linear-gradient(145deg, color-mix(in srgb, var(--surface) 88%, var(--background)), color-mix(in srgb, var(--surface-raised) 78%, var(--background)));
+  color: var(--foreground);
   padding: 0.85rem;
   cursor: pointer;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  box-shadow: var(--shadow-inset);
 }
 
 .cycleCards button[data-active="true"] {
-  border-color: rgba(24, 144, 255, 0.95);
+  border-color: color-mix(in srgb, var(--info) 70%, var(--line));
   background:
-    linear-gradient(145deg, rgba(222, 245, 255, 0.96), rgba(255, 255, 255, 0.86));
+    linear-gradient(145deg, color-mix(in srgb, var(--info) 13%, var(--surface)), color-mix(in srgb, var(--surface) 88%, var(--background)));
   box-shadow:
-    0 0 0 4px rgba(14, 165, 233, 0.12),
-    inset 0 -3px 0 #19bdf2;
+    0 0 0 4px color-mix(in srgb, var(--info) 12%, transparent),
+    inset 0 -3px 0 var(--accent);
 }
 
 .cycleName {
-  color: #53647d;
+  color: var(--muted);
   font-size: 0.84rem;
   font-weight: 900;
   text-transform: uppercase;
@@ -830,14 +888,14 @@
 }
 
 .cycleCards strong {
-  color: #0b1f3a;
+  color: var(--foreground);
   font-size: 1.35rem;
   line-height: 1.05;
 }
 
 .cycleCards small {
   max-width: 34ch;
-  color: #667791;
+  color: var(--muted);
   font-weight: 720;
   line-height: 1.35;
 }
@@ -849,9 +907,9 @@
   align-items: center;
   padding: 0 0.65rem;
   border-radius: 999px;
-  color: #047857;
-  border: 1px solid rgba(16, 185, 129, 0.32);
-  background: rgba(209, 250, 229, 0.9);
+  color: color-mix(in srgb, var(--success) 78%, var(--foreground));
+  border: 1px solid color-mix(in srgb, var(--success) 32%, var(--line));
+  background: color-mix(in srgb, var(--success) 12%, var(--surface));
   font-size: 0.74rem;
   font-weight: 950;
 }
@@ -869,23 +927,23 @@
   gap: 0.35rem;
   text-align: left;
   border-radius: 18px;
-  border: 1px solid rgba(121, 176, 255, 0.44);
+  border: 1px solid color-mix(in srgb, var(--info) 28%, var(--line));
   background:
-    linear-gradient(145deg, rgba(255, 255, 255, 0.86), rgba(236, 248, 255, 0.72));
-  color: #0f1f36;
+    linear-gradient(145deg, color-mix(in srgb, var(--surface) 86%, var(--background)), color-mix(in srgb, var(--surface-raised) 78%, var(--background)));
+  color: var(--foreground);
   padding: 0.75rem;
   cursor: pointer;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  box-shadow: var(--shadow-inset);
 }
 
 .paymentMethodGrid button[data-active="true"] {
-  border-color: rgba(14, 165, 233, 0.9);
+  border-color: color-mix(in srgb, var(--info) 70%, var(--line));
   background:
-    radial-gradient(circle at 90% 0%, rgba(34, 211, 238, 0.22), transparent 36%),
-    linear-gradient(145deg, rgba(222, 245, 255, 0.98), rgba(255, 255, 255, 0.88));
+    radial-gradient(circle at 90% 0%, color-mix(in srgb, var(--accent) 22%, transparent), transparent 36%),
+    linear-gradient(145deg, color-mix(in srgb, var(--info) 13%, var(--surface)), color-mix(in srgb, var(--surface) 88%, var(--background)));
   box-shadow:
-    0 0 0 4px rgba(14, 165, 233, 0.12),
-    inset 0 -3px 0 #19bdf2;
+    0 0 0 4px color-mix(in srgb, var(--info) 12%, transparent),
+    inset 0 -3px 0 var(--accent);
 }
 
 .paymentMethodGrid button:disabled {
@@ -894,7 +952,7 @@
 }
 
 .paymentMethodGrid span {
-  color: #0e7490;
+  color: color-mix(in srgb, var(--info) 78%, var(--foreground));
   font-size: 0.74rem;
   font-weight: 950;
   text-transform: uppercase;
@@ -902,12 +960,12 @@
 }
 
 .paymentMethodGrid strong {
-  color: #0b1f3a;
+  color: var(--foreground);
   font-size: 1rem;
 }
 
 .paymentMethodGrid small {
-  color: #60738f;
+  color: var(--muted);
   font-weight: 720;
   line-height: 1.35;
 }
@@ -924,15 +982,15 @@
   align-content: start;
   gap: 0.22rem;
   border-radius: 16px;
-  border: 1px solid rgba(121, 176, 255, 0.38);
+  border: 1px solid color-mix(in srgb, var(--info) 28%, var(--line));
   background:
-    linear-gradient(145deg, rgba(255, 255, 255, 0.82), rgba(239, 248, 255, 0.66));
+    linear-gradient(145deg, color-mix(in srgb, var(--surface) 84%, var(--background)), color-mix(in srgb, var(--surface-raised) 76%, var(--background)));
   padding: 0.72rem;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.86);
+  box-shadow: var(--shadow-inset);
 }
 
 .checkoutFactsGrid span {
-  color: #667791;
+  color: var(--muted);
   font-size: 0.76rem;
   font-weight: 900;
   text-transform: uppercase;
@@ -940,13 +998,13 @@
 }
 
 .checkoutFactsGrid strong {
-  color: #0b1f3a;
+  color: var(--foreground);
   font-size: 1.05rem;
   line-height: 1.18;
 }
 
 .checkoutFactsGrid small {
-  color: #52647e;
+  color: var(--foreground-soft);
   font-weight: 720;
   line-height: 1.35;
 }
@@ -958,19 +1016,19 @@
   align-items: center;
   margin-top: 0.25rem;
   border-radius: 999px;
-  color: #075985;
-  border: 1px solid rgba(14, 165, 233, 0.28);
-  background: rgba(224, 246, 255, 0.86);
+  color: color-mix(in srgb, var(--info) 78%, var(--foreground));
+  border: 1px solid color-mix(in srgb, var(--info) 28%, var(--line));
+  background: color-mix(in srgb, var(--info) 12%, var(--surface));
   padding: 0 0.65rem;
   font-size: 0.76rem;
   font-weight: 900;
 }
 
 .securePaymentBox {
-  border-color: rgba(121, 176, 255, 0.5);
+  border-color: color-mix(in srgb, var(--info) 32%, var(--line));
   background:
-    linear-gradient(145deg, rgba(255, 255, 255, 0.88), rgba(239, 248, 255, 0.76));
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.88);
+    linear-gradient(145deg, color-mix(in srgb, var(--surface) 88%, var(--background)), color-mix(in srgb, var(--surface-raised) 80%, var(--background)));
+  box-shadow: var(--shadow-inset);
   padding: 0.9rem;
 }
 
@@ -1168,14 +1226,14 @@
   gap: 1rem;
   flex-wrap: wrap;
   border-radius: 18px;
-  border: 1px solid rgba(121, 176, 255, 0.36);
-  background: rgba(255, 255, 255, 0.62);
+  border: 1px solid color-mix(in srgb, var(--info) 26%, var(--line));
+  background: color-mix(in srgb, var(--surface) 74%, var(--background));
   padding: 1rem;
 }
 
 .alternativePaymentPanel strong {
   display: block;
-  color: #0b1f3a;
+  color: var(--foreground);
   font-size: 1.7rem;
   line-height: 1.05;
 }
@@ -1183,7 +1241,7 @@
 .alternativePaymentPanel p {
   max-width: 56ch;
   margin: 0.35rem 0 0;
-  color: #52647e;
+  color: var(--foreground-soft);
   font-weight: 720;
   line-height: 1.4;
 }
@@ -1205,9 +1263,9 @@
   min-height: 138px;
   resize: vertical;
   border-radius: 16px;
-  border: 1px solid rgba(121, 176, 255, 0.42);
-  background: rgba(248, 251, 255, 0.94);
-  color: #0b1f3a;
+  border: 1px solid color-mix(in srgb, var(--info) 30%, var(--line));
+  background: color-mix(in srgb, var(--field-surface) 96%, var(--background));
+  color: var(--foreground);
   padding: 0.8rem;
   font: inherit;
   line-height: 1.35;
@@ -1220,7 +1278,7 @@
   align-items: center;
   justify-content: center;
   border-radius: 12px;
-  background: #0f766e;
+  background: color-mix(in srgb, var(--success) 76%, var(--brand-solid));
   color: #ffffff;
   font-weight: 900;
   padding: 0 0.95rem;
@@ -1230,30 +1288,30 @@
   display: grid;
   gap: 0.38rem;
   border-radius: 14px;
-  border: 1px solid rgba(245, 158, 11, 0.34);
-  color: #7c2d12;
-  background: rgba(255, 251, 235, 0.92);
+  border: 1px solid color-mix(in srgb, var(--warning) 36%, var(--line));
+  color: color-mix(in srgb, var(--warning) 78%, var(--foreground));
+  background: color-mix(in srgb, var(--warning) 12%, var(--surface));
   padding: 0.95rem;
 }
 
 .setupNotice strong {
-  color: #7c2d12;
+  color: color-mix(in srgb, var(--warning) 78%, var(--foreground));
 }
 
 .setupNotice p {
   margin: 0;
-  color: #8a4b15;
+  color: color-mix(in srgb, var(--warning) 70%, var(--foreground-soft));
   font-weight: 720;
 }
 
 .setupNotice code {
-  color: #7c2d12;
+  color: color-mix(in srgb, var(--warning) 78%, var(--foreground));
   font-weight: 900;
 }
 
 .fieldInput[readonly] {
-  color: #667791;
-  background: rgba(238, 244, 252, 0.82);
+  color: var(--muted);
+  background: color-mix(in srgb, var(--surface-raised) 84%, var(--background));
   cursor: not-allowed;
 }
 
@@ -1269,9 +1327,9 @@
   display: inline-flex;
   align-items: center;
   border-radius: 14px;
-  border: 1px solid rgba(121, 176, 255, 0.38);
-  background: rgba(255, 255, 255, 0.64);
-  color: #52647e;
+  border: 1px solid color-mix(in srgb, var(--info) 28%, var(--line));
+  background: color-mix(in srgb, var(--surface) 76%, var(--background));
+  color: var(--foreground-soft);
   padding: 0.75rem 0.85rem;
 }
 
@@ -1288,10 +1346,10 @@
 
 .priceStack {
   gap: 0.36rem;
-  border-color: rgba(14, 165, 233, 0.28);
+  border-color: color-mix(in srgb, var(--info) 28%, var(--line));
   background:
-    radial-gradient(circle at 86% 0%, rgba(147, 197, 253, 0.35), transparent 34%),
-    linear-gradient(145deg, rgba(226, 246, 255, 0.94), rgba(255, 255, 255, 0.78));
+    radial-gradient(circle at 86% 0%, color-mix(in srgb, var(--info) 20%, transparent), transparent 34%),
+    linear-gradient(145deg, color-mix(in srgb, var(--info) 12%, var(--surface)), color-mix(in srgb, var(--surface) 82%, var(--background)));
 }
 
 .priceStack span {
@@ -1307,24 +1365,24 @@
   display: grid;
   gap: 0.2rem;
   border-radius: 14px;
-  border: 1px solid rgba(121, 176, 255, 0.36);
-  background: rgba(255, 255, 255, 0.62);
+  border: 1px solid color-mix(in srgb, var(--info) 26%, var(--line));
+  background: color-mix(in srgb, var(--surface) 74%, var(--background));
   padding: 0.82rem 0.9rem;
 }
 
 .summaryFacts span {
-  color: #667791;
+  color: var(--muted);
   font-size: 0.8rem;
   font-weight: 800;
 }
 
 .summaryFacts strong {
-  color: #0f1f36;
+  color: var(--foreground);
 }
 
 .summarySupport {
   margin: 0;
-  color: #52647e;
+  color: var(--foreground-soft);
   font-weight: 760;
   line-height: 1.45;
 }
@@ -1350,6 +1408,7 @@
   .cycleCards,
   .checkoutStepper,
   .paymentMethodGrid,
+  .paymentConsentGrid,
   .cardExperience,
   .pixResult {
     grid-template-columns: 1fr;
