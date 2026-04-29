@@ -80,6 +80,13 @@ type SignupPlan = PlanSelectionCard & {
   key: CommercialPlanKey;
 };
 
+type TrialFormState = {
+  contactName: string;
+  cpf: string;
+  phone: string;
+  acceptedTerms: boolean;
+};
+
 const SIGNUP_PLANS: SignupPlan[] = [
   {
     key: "hbx_lite",
@@ -136,6 +143,35 @@ function planName(planKey?: CommercialPlanKey | null) {
 
 function normalizeEmail(value?: string | null) {
   return String(value || "").trim().toLowerCase();
+}
+
+function onlyDigits(value: string) {
+  return value.replace(/\D/g, "");
+}
+
+function formatCpf(value: string) {
+  const digits = onlyDigits(value).slice(0, 11);
+  if (digits.length <= 3) return digits;
+  if (digits.length <= 6) return `${digits.slice(0, 3)}.${digits.slice(3)}`;
+  if (digits.length <= 9) return `${digits.slice(0, 3)}.${digits.slice(3, 6)}.${digits.slice(6)}`;
+  return `${digits.slice(0, 3)}.${digits.slice(3, 6)}.${digits.slice(6, 9)}-${digits.slice(9)}`;
+}
+
+function formatBrazilPhone(value: string) {
+  const rawDigits = onlyDigits(value).slice(0, 13);
+  const digits = rawDigits.startsWith("55") && rawDigits.length > 11 ? rawDigits.slice(2, 13) : rawDigits.slice(0, 11);
+  if (digits.length <= 2) return digits ? `(${digits}` : "";
+  const ddd = digits.slice(0, 2);
+  const number = digits.slice(2);
+  if (number.length <= 1) return `(${ddd})${number}`;
+  if (number.length <= 5) return `(${ddd})${number.slice(0, 1)} ${number.slice(1)}`;
+  if (number.length === 8) return `(${ddd}) ${number.slice(0, 4)}-${number.slice(4)}`;
+  return `(${ddd})${number.slice(0, 1)} ${number.slice(1, 5)}-${number.slice(5, 9)}`;
+}
+
+function normalizeBrazilPhone(value: string) {
+  const digits = onlyDigits(value);
+  return digits.startsWith("55") && digits.length > 11 ? digits.slice(2, 13) : digits.slice(0, 11);
 }
 
 function getPayloadToken(data: unknown) {
@@ -243,7 +279,19 @@ export default function RegisterPage() {
   const [confirmationAutoMessage, setConfirmationAutoMessage] = useState("Aguardando confirmação do e-mail...");
   const [confirmationAutoError, setConfirmationAutoError] = useState<string | null>(null);
   const [entryTransition, setEntryTransition] = useState(false);
+  const [trialModalOpen, setTrialModalOpen] = useState(false);
+  const [trialForm, setTrialForm] = useState<TrialFormState>({
+    contactName: "",
+    cpf: "",
+    phone: "",
+    acceptedTerms: false,
+  });
   const autoLoginCompletedRef = useRef(false);
+  const trialPhoneDigits = normalizeBrazilPhone(trialForm.phone);
+  const trialFormReady =
+    trialForm.contactName.trim().length >= 3 &&
+    trialPhoneDigits.length >= 10 &&
+    trialForm.acceptedTerms;
 
   useEffect(() => {
     try {
@@ -472,6 +520,10 @@ export default function RegisterPage() {
 
   async function handleRegister(event: FormEvent) {
     event.preventDefault();
+    await submitRegistration();
+  }
+
+  async function submitRegistration(forceTrial = false) {
     setError(null);
     setConfirmationPending(null);
     setConfirmationActionMessage(null);
@@ -484,6 +536,21 @@ export default function RegisterPage() {
       return;
     }
 
+    if (selectedPlanKey === "hbx_padrao" && !forceTrial) {
+      setTrialForm((current) => ({
+        ...current,
+        contactName: current.contactName || companyName.trim(),
+      }));
+      setTrialModalOpen(true);
+      return;
+    }
+
+    if (selectedPlanKey === "hbx_padrao" && !trialFormReady) {
+      setTrialModalOpen(true);
+      setError("Informe nome, telefone de contato e aceite os termos para iniciar o trial.");
+      return;
+    }
+
     setLoading(true);
 
     try {
@@ -493,6 +560,14 @@ export default function RegisterPage() {
         companyName: normalizedCompanyName,
         name: normalizedCompanyName,
         selectedPlanKey,
+        ...(selectedPlanKey === "hbx_padrao"
+          ? {
+              trialContactName: trialForm.contactName.trim(),
+              trialTaxDocument: onlyDigits(trialForm.cpf),
+              trialContactPhone: trialPhoneDigits,
+              acceptedTerms: trialForm.acceptedTerms,
+            }
+          : {}),
         username: username.trim() || email.trim().toLowerCase(),
         email,
         password,
@@ -561,6 +636,15 @@ export default function RegisterPage() {
     } finally {
       setLoading(false);
     }
+  }
+
+  async function submitTrialRegistration() {
+    if (!trialFormReady) {
+      setError("Informe nome, telefone de contato e aceite os termos para iniciar o trial.");
+      return;
+    }
+    setTrialModalOpen(false);
+    await submitRegistration(true);
   }
 
   return (
@@ -841,6 +925,90 @@ export default function RegisterPage() {
           </div>
         </div>
       </div>
+      {trialModalOpen ? (
+        <div className={styles.dialogOverlay} role="presentation">
+          <section className={styles.trialDialog} role="dialog" aria-modal="true" aria-labelledby="register-trial-title">
+            <header className={styles.trialDialogHeader}>
+              <div>
+                <span className={styles.eyebrow}>Trial HBX Padrão</span>
+                <h2 id="register-trial-title">Antes de liberar seus 30 dias</h2>
+                <p>Precisamos confirmar um contato real. O telefone é usado para validar se este trial já foi utilizado.</p>
+              </div>
+              <button
+                type="button"
+                className={styles.dialogCloseButton}
+                aria-label="Fechar"
+                onClick={() => setTrialModalOpen(false)}
+              >
+                X
+              </button>
+            </header>
+
+            <div className={styles.trialFormGrid}>
+              <label className={styles.trialField} htmlFor="register-trial-contact-name">
+                <span>Nome completo</span>
+                <input
+                  id="register-trial-contact-name"
+                  autoComplete="name"
+                  value={trialForm.contactName}
+                  onChange={(event) => setTrialForm((current) => ({ ...current, contactName: event.target.value }))}
+                  placeholder="Como gostaria de ser chamado"
+                />
+              </label>
+
+              <label className={styles.trialField} htmlFor="register-trial-cpf">
+                <span>CPF <small>opcional</small></span>
+                <input
+                  id="register-trial-cpf"
+                  inputMode="numeric"
+                  autoComplete="off"
+                  value={trialForm.cpf}
+                  onChange={(event) => setTrialForm((current) => ({ ...current, cpf: formatCpf(event.target.value) }))}
+                  placeholder="000.000.000-00"
+                />
+              </label>
+
+              <label className={styles.trialField} htmlFor="register-trial-contact-phone">
+                <span>Telefone de contato</span>
+                <input
+                  id="register-trial-contact-phone"
+                  inputMode="tel"
+                  autoComplete="tel"
+                  value={trialForm.phone}
+                  onChange={(event) => setTrialForm((current) => ({ ...current, phone: formatBrazilPhone(event.target.value) }))}
+                  placeholder="(19)9 9702-4884"
+                />
+              </label>
+            </div>
+
+            <label className={styles.termsAccept} htmlFor="register-trial-terms">
+              <input
+                id="register-trial-terms"
+                type="checkbox"
+                checked={trialForm.acceptedTerms}
+                onChange={(event) => setTrialForm((current) => ({ ...current, acceptedTerms: event.target.checked }))}
+              />
+              <span>
+                Aceito iniciar o trial gratuito de 30 dias do HBX Padrão, sem cobrança automática agora, e autorizo o uso do telefone informado para contato e validação de elegibilidade do trial.
+              </span>
+            </label>
+
+            <footer className={styles.trialDialogActions}>
+              <button type="button" className="btn btn-secondary" onClick={() => setTrialModalOpen(false)}>
+                Voltar
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                disabled={!trialFormReady || loading}
+                onClick={() => void submitTrialRegistration()}
+              >
+                {loading ? "Criando..." : "Iniciar 30 dias grátis"}
+              </button>
+            </footer>
+          </section>
+        </div>
+      ) : null}
     </main>
   );
 }

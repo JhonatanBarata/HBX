@@ -1,5 +1,5 @@
 .cardStage {
-  width: min(100%, 460px);
+  width: min(100%, 360px);
   perspective: 1200px;
   margin-inline: auto;
 }
@@ -187,8 +187,8 @@
   z-index: 2;
   display: flex;
   gap: clamp(8px, 3vw, 16px);
-  margin: clamp(44px, 10vw, 62px) 0 clamp(26px, 7vw, 38px);
-  font-size: clamp(21px, 5vw, 34px);
+  margin: clamp(30px, 7vw, 48px) 0 clamp(20px, 5vw, 30px);
+  font-size: clamp(18px, 3vw, 26px);
   font-weight: 950;
   letter-spacing: 0.14em;
   text-shadow: 0 12px 24px rgba(0, 0, 0, 0.25);
