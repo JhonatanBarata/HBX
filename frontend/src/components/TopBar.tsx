@@ -30,7 +30,13 @@ type User = {
   email?: string | null;
   role?: string | null;
   isSystemMaster?: boolean;
-  company?: { id: number; name?: string | null } | null;
+  company?: {
+    id: number;
+    name?: string | null;
+    onboardingStatus?: string | null;
+    paymentStatus?: string | null;
+    subscriptionStatus?: string | null;
+  } | null;
   masterContext?: {
     active: boolean;
     mode: "master_puro" | "empresa_assumida";
@@ -165,6 +171,23 @@ const SUPPORT_PHONE = "5519997024884";
 const SUPPORT_MESSAGE = "Olá, preciso de suporte no HBX.";
 
 const hiddenRoutes = new Set(["/login", "/register", "/reset-password", "/confirm-email"]);
+const PENDING_CHECKOUT_ADMIN_PATH = "/dashboard/financeiro?focus=payment&reason=pending_checkout";
+const PENDING_CHECKOUT_USER_PATH = "/dashboard/planos?mode=pending_checkout&reason=pending_checkout";
+
+function isPendingCheckoutUser(user: User | null) {
+  const company = user?.company;
+  if (!company?.id || user?.isSystemMaster) return false;
+  const onboardingStatus = String(company.onboardingStatus || "").trim().toLowerCase();
+  const paymentStatus = String(company.paymentStatus || "").trim().toUpperCase();
+  const subscriptionStatus = String(company.subscriptionStatus || "").trim().toLowerCase();
+  return onboardingStatus === "pending_checkout" || subscriptionStatus === "pending_checkout" || paymentStatus === "PENDING";
+}
+
+function resolvePendingCheckoutHref(user: User | null) {
+  return String(user?.role || "").trim().toUpperCase() === "ADMIN"
+    ? PENDING_CHECKOUT_ADMIN_PATH
+    : PENDING_CHECKOUT_USER_PATH;
+}
 
 function extractEntryNumberLabel(metadata?: Record<string, unknown> | null) {
   const endpointLabel = String(metadata?.whatsappEntryEndpointLabel || "").trim();
@@ -280,6 +303,7 @@ export default function TopBar() {
   const masterContextToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastScrollYRef = useRef(0);
   const authResolved = authenticated !== null;
+  const dashboardHref = isPendingCheckoutUser(user) ? resolvePendingCheckoutHref(user) : "/dashboard";
 
   usePopupTopbarLock(whatsAppDetailOpen || masterContextModalOpen);
 
@@ -317,7 +341,7 @@ export default function TopBar() {
       }
 
       if (!modulesPeekAvailable) {
-        router.push("/dashboard");
+        router.push(dashboardHref);
         return;
       }
 
@@ -338,7 +362,7 @@ export default function TopBar() {
         }),
       );
     },
-    [authenticated, modulesPeekAvailable, router],
+    [authenticated, dashboardHref, modulesPeekAvailable, router],
   );
 
   const refreshMasterAwareState = React.useCallback(async () => {
@@ -1772,7 +1796,7 @@ export default function TopBar() {
               </button>
 
               <Link
-                href={authenticated === true ? "/dashboard" : "/login"}
+                href={authenticated === true ? dashboardHref : "/login"}
                 prefetch={false}
                 className="app-brand__bodyLink"
               >

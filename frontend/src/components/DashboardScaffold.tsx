@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import ModuleNav from "./ModuleNav";
@@ -35,6 +35,8 @@ type NavPeekAnchorRect = Pick<DOMRect, "bottom" | "height" | "left" | "right" | 
 
 const MODULES_PEEK_EVENT = "hbx:modules-peek";
 const MODULES_TRIGGER_ID = "app-modules-trigger";
+const PENDING_CHECKOUT_ADMIN_PATH = "/dashboard/financeiro?focus=payment&reason=pending_checkout";
+const PENDING_CHECKOUT_USER_PATH = "/dashboard/planos?mode=pending_checkout&reason=pending_checkout";
 
 function buildPageKey(pathname: string) {
   const parts = pathname.split("/").filter(Boolean);
@@ -44,7 +46,14 @@ function buildPageKey(pathname: string) {
 type PresentationProfile = {
   tenantId: string;
   userId: string;
+  role: string | null;
   isSystemMaster: boolean;
+  company: {
+    id?: number | null;
+    onboardingStatus?: string | null;
+    paymentStatus?: string | null;
+    subscriptionStatus?: string | null;
+  } | null;
 };
 
 function subscribeAuth(callback: () => void) {
@@ -68,6 +77,27 @@ function getAuthServerSnapshot() {
   return false;
 }
 
+function isPendingCheckoutCompany(company: PresentationProfile["company"]) {
+  if (!company?.id) return false;
+  const onboardingStatus = String(company.onboardingStatus || "").trim().toLowerCase();
+  const paymentStatus = String(company.paymentStatus || "").trim().toUpperCase();
+  const subscriptionStatus = String(company.subscriptionStatus || "").trim().toLowerCase();
+  return onboardingStatus === "pending_checkout" || subscriptionStatus === "pending_checkout" || paymentStatus === "PENDING";
+}
+
+function isPendingCheckoutAllowedPath(pathname: string, role: string | null) {
+  const normalizedRole = String(role || "").trim().toUpperCase();
+  if (pathname.startsWith("/dashboard/planos")) return true;
+  if (normalizedRole === "ADMIN" && pathname.startsWith("/dashboard/financeiro")) return true;
+  return false;
+}
+
+function resolvePendingCheckoutPath(role: string | null) {
+  return String(role || "").trim().toUpperCase() === "ADMIN"
+    ? PENDING_CHECKOUT_ADMIN_PATH
+    : PENDING_CHECKOUT_USER_PATH;
+}
+
 export default function DashboardScaffold({
   title,
   description,
@@ -81,6 +111,7 @@ export default function DashboardScaffold({
 }: DashboardScaffoldProps) {
   const navPeekCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pathname = usePathname();
+  const router = useRouter();
   const isRootDashboard = pathname === "/dashboard";
   const defaultSectionLabel =
     pathname.startsWith("/hbx-recovery") || pathname.startsWith("/dashboard/inbox/recovery")
@@ -158,10 +189,16 @@ export default function DashboardScaffold({
     try {
       const profile = await apiFetch<{
         id?: number | null;
+        role?: string | null;
         username?: string | null;
         email?: string | null;
         isSystemMaster?: boolean;
-        company?: { id?: number | null } | null;
+        company?: {
+          id?: number | null;
+          onboardingStatus?: string | null;
+          paymentStatus?: string | null;
+          subscriptionStatus?: string | null;
+        } | null;
       }>("/profile/current-user");
 
       const tenantId = String(profile?.company?.id || "tenant-default");
@@ -169,7 +206,9 @@ export default function DashboardScaffold({
       setPresentationProfile({
         tenantId,
         userId,
+        role: profile?.role || null,
         isSystemMaster: Boolean(profile?.isSystemMaster),
+        company: profile?.company || null,
       });
       setPresentationConfig(readPresentationConfig(tenantId));
     } catch {
@@ -179,7 +218,19 @@ export default function DashboardScaffold({
   }, [authenticated]);
 
   useEffect(() => {
-    setNavPeekPortalReady(true);
+    if (!authenticated || !presentationProfile || presentationProfile.isSystemMaster) return;
+    if (!isPendingCheckoutCompany(presentationProfile.company)) return;
+    if (isPendingCheckoutAllowedPath(pathname || "", presentationProfile.role)) return;
+    router.replace(resolvePendingCheckoutPath(presentationProfile.role));
+  }, [authenticated, pathname, presentationProfile, router]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setNavPeekPortalReady(true);
+    }, 0);
+    return () => {
+      window.clearTimeout(timer);
+    };
   }, []);
 
   useEffect(() => {
@@ -323,11 +374,14 @@ export default function DashboardScaffold({
 
   useEffect(() => {
     if (!navPeekOpen) return;
-    syncNavPeekPanelPosition();
+    const frame = window.requestAnimationFrame(() => {
+      syncNavPeekPanelPosition();
+    });
     const handleViewportChange = () => syncNavPeekPanelPosition();
     window.addEventListener("resize", handleViewportChange);
     window.addEventListener("scroll", handleViewportChange, true);
     return () => {
+      window.cancelAnimationFrame(frame);
       window.removeEventListener("resize", handleViewportChange);
       window.removeEventListener("scroll", handleViewportChange, true);
     };
@@ -336,7 +390,12 @@ export default function DashboardScaffold({
   useEffect(() => {
     if (!navPeekOpen) return;
     if (!shouldShowHoverModules) {
-      closeNavPeek();
+      const timer = window.setTimeout(() => {
+        closeNavPeek();
+      }, 0);
+      return () => {
+        window.clearTimeout(timer);
+      };
     }
   }, [closeNavPeek, navPeekOpen, shouldShowHoverModules]);
 

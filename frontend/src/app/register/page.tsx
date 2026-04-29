@@ -1,9 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
+import PlanSelectionExperience, { type PlanSelectionCard } from "@/components/PlanSelectionExperience";
 import { useRouter } from "next/navigation";
+import { useHbxTheme } from "@/components/ThemeProvider";
 import { setToken } from "../dashboard/_lib/api";
 import type { CommercialPlanKey } from "@/lib/commercial-plans";
 import styles from "./page.module.css";
@@ -50,67 +52,48 @@ type ConfirmationPendingState = {
   confirmUrl: string | null;
 };
 
-type SignupPlan = {
+type SignupPlan = PlanSelectionCard & {
   key: CommercialPlanKey;
-  name: string;
-  badge: string;
-  monthlyPrice: number;
-  detail: string;
-  cta: string;
-  available: boolean;
-  featured?: boolean;
-  features: string[];
-  note: string;
-  trialCopy?: string;
 };
 
 const SIGNUP_PLANS: SignupPlan[] = [
   {
     key: "hbx_lite",
-    name: "HBX Lite",
+    name: "Lite",
     badge: "Essencial",
     monthlyPrice: 29.9,
-    detail: "Para começar com uma rotina comercial mais organizada.",
+    detail: "Ideal para quem está começando e precisa do essencial.",
     cta: "Escolher Lite",
     available: true,
-    features: ["Vendas organizadas", "Motores gratuitos/HBX/cache", "Gestão simples para começar"],
-    note: "Pagamento apenas no checkout/Financeiro.",
+    features: ["Vendas organizadas", "Motores gratuitos/cache", "Gestão simples"],
   },
   {
     key: "hbx_padrao",
-    name: "HBX Padrão",
+    name: "Padrão",
     badge: "Mais escolhido",
     monthlyPrice: 79.9,
-    detail: "Teste o plano completo para vendas e atendimento sem pagar agora.",
+    detail: "Tudo que você precisa para crescer com segurança.",
     cta: "Começar grátis hoje",
     available: true,
     featured: true,
-    features: ["1º mês grátis", "Vendas + Atendimento Chat", "2 buscas Google por dia", "Motores gratuitos/HBX/cache", "Ideal para começar com mais força"],
-    note: "Sem cobrança agora. Sem cartão no cadastro.",
-    trialCopy: "Teste grátis por 30 dias",
+    features: ["Tudo do plano Lite", "Vendas + Atendimento", "2 buscas Google/dia", "Suporte prioritário"],
+    note: "1º mês grátis",
+    trialCopy: "1º mês grátis",
   },
   {
     key: "hbx_melhor",
-    name: "HBX Melhor",
+    name: "Max",
     badge: "Mais completo",
     monthlyPrice: 109.9,
-    detail: "Mais volume, atendimento e automação em um só plano.",
-    cta: "Escolher Melhor",
+    detail: "Máximo desempenho e controle para grandes operações.",
+    cta: "Escolher Max",
     available: true,
-    features: ["Vendas + Atendimento Chat", "Bot de atendimento", "Buscas Google/dia: 6", "Motores gratuitos/HBX/cache"],
-    note: "Pagamento apenas no checkout/Financeiro.",
+    features: ["Tudo do plano Padrão", "Buscas ilimitadas", "Relatórios avançados", "Suporte dedicado"],
   },
 ];
 
 type BillingCycle = "monthly" | "annual";
-
-function money(value: number) {
-  return value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-}
-
-function monthlyEquivalent(plan: SignupPlan, billingCycle: BillingCycle) {
-  return billingCycle === "annual" ? plan.monthlyPrice * 0.9 : plan.monthlyPrice;
-}
+type RegisterFieldIcon = "company" | "email" | "lock";
 
 function getErrorMessage(data: unknown) {
   if (!data || typeof data !== "object") return null;
@@ -122,29 +105,95 @@ function getErrorMessage(data: unknown) {
 }
 
 function planName(planKey?: CommercialPlanKey | null) {
-  return SIGNUP_PLANS.find((plan) => plan.key === planKey)?.name || "HBX Padrão";
+  return SIGNUP_PLANS.find((plan) => plan.key === planKey)?.name || "Padrão";
+}
+
+function FieldIcon({ icon }: { icon: RegisterFieldIcon }) {
+  if (icon === "company") {
+    return (
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M4.8 20.2h14.4M6.5 20.2V8.8l5.5-3.5 5.5 3.5v11.4M9.2 11.1h1.4M13.4 11.1h1.4M9.2 14.5h1.4M13.4 14.5h1.4M11.9 20.2v-3.3" />
+      </svg>
+    );
+  }
+
+  if (icon === "email") {
+    return (
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M4.8 7.2h14.4v10.1H4.8z" />
+        <path d="m5.3 7.7 6.7 5.2 6.7-5.2" />
+      </svg>
+    );
+  }
+
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M7.5 10.4V8.3a4.5 4.5 0 0 1 9 0v2.1" />
+      <path d="M6.1 10.4h11.8v8.8H6.1z" />
+      <path d="M12 14.2v2.1" />
+    </svg>
+  );
+}
+
+function EyeIcon({ hidden }: { hidden: boolean }) {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M3.8 12s3-5.1 8.2-5.1 8.2 5.1 8.2 5.1-3 5.1-8.2 5.1S3.8 12 3.8 12Z" />
+      <path d="M12 9.6a2.4 2.4 0 1 1 0 4.8 2.4 2.4 0 0 1 0-4.8Z" />
+      {hidden ? <path d="M5.2 19.1 18.8 4.9" /> : null}
+    </svg>
+  );
+}
+
+function ShieldIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M12 3.9 18.2 6v4.8c0 4.1-2.4 7.4-6.2 9.3-3.8-1.9-6.2-5.2-6.2-9.3V6Z" />
+      <path d="m9.4 12 1.8 1.8 3.8-4" />
+    </svg>
+  );
+}
+
+function TrustIcon({ type }: { type: "shield" | "building" | "server" }) {
+  if (type === "building") {
+    return (
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M5 20.2h14M7 20.2V7.8L12 4l5 3.8v12.4M9.3 10.7h1.2M13.5 10.7h1.2M9.3 14h1.2M13.5 14h1.2" />
+      </svg>
+    );
+  }
+
+  if (type === "server") {
+    return (
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M5.2 6.3h13.6v4.7H5.2zM5.2 13h13.6v4.7H5.2z" />
+        <path d="M8 8.7h.1M8 15.4h.1M11 8.7h5M11 15.4h5" />
+      </svg>
+    );
+  }
+
+  return <ShieldIcon />;
 }
 
 export default function RegisterPage() {
   const router = useRouter();
+  const { selection } = useHbxTheme();
   const [selectedPlanKey, setSelectedPlanKey] = useState<CommercialPlanKey>("hbx_padrao");
-  const [billingCycle, setBillingCycle] = useState<BillingCycle>("monthly");
+  const billingCycle: BillingCycle = "monthly";
   const [companyName, setCompanyName] = useState("");
   const [username, setUsername] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [firstAccessInfo, setFirstAccessInfo] = useState<string | null>(null);
   const [confirmationPending, setConfirmationPending] = useState<ConfirmationPendingState | null>(null);
   const [resendingConfirmation, setResendingConfirmation] = useState(false);
   const [confirmationActionMessage, setConfirmationActionMessage] = useState<string | null>(null);
-
-  const selectedPlan = useMemo(
-    () => SIGNUP_PLANS.find((plan) => plan.key === selectedPlanKey) || SIGNUP_PLANS[1],
-    [selectedPlanKey],
-  );
-  const selectedPlanIsTrial = selectedPlanKey === "hbx_padrao";
+  const [entryTransition, setEntryTransition] = useState(false);
 
   useEffect(() => {
     try {
@@ -157,6 +206,20 @@ export default function RegisterPage() {
       localStorage.removeItem("firstAccess");
     } catch {
       // ignore localStorage parsing errors
+    }
+  }, []);
+
+  useEffect(() => {
+    const fromLogin = typeof window !== "undefined" && new URLSearchParams(window.location.search).get("from") === "login";
+    let storedTransition = false;
+    try {
+      storedTransition = sessionStorage.getItem("hbx_register_transition") === "from-login";
+      sessionStorage.removeItem("hbx_register_transition");
+    } catch {
+      storedTransition = false;
+    }
+    if (fromLogin || storedTransition) {
+      setEntryTransition(true);
     }
   }, []);
 
@@ -209,9 +272,15 @@ export default function RegisterPage() {
   async function handleRegister(event: FormEvent) {
     event.preventDefault();
     setError(null);
-    setLoading(true);
     setConfirmationPending(null);
     setConfirmationActionMessage(null);
+
+    if (password !== confirmPassword) {
+      setError("As senhas não conferem.");
+      return;
+    }
+
+    setLoading(true);
 
     try {
       const normalizedCompanyName = String(companyName || "").trim();
@@ -287,230 +356,278 @@ export default function RegisterPage() {
   }
 
   return (
-    <main className={styles.page}>
-      <header className={styles.topbar}>
-        <Link className={styles.brand} href="/">
-          HBX
-        </Link>
-        <div className={styles.stepper} aria-label="Etapas do cadastro">
-          <span data-active="true">Plano</span>
-          <span>Conta</span>
-          <span>Confirmação</span>
+    <main
+      className={`login-stage ${styles.registerStage}`}
+      data-login-theme={selection.themeId}
+      data-login-mode={selection.mode}
+      data-login-ready="true"
+      data-login-state="idle"
+      data-login-video="off"
+    >
+      <div className="login-stage__grid" aria-hidden />
+      <div className="login-visuals" aria-hidden>
+        <div className="login-side-theme login-side-theme--left">
+          <span className="login-side-theme__ambient" />
+          <span className="login-side-theme__helix" />
         </div>
-      </header>
+        <div className="login-side-theme login-side-theme--right">
+          <span className="login-side-theme__ambient" />
+          <span className="login-side-theme__helix" />
+        </div>
+        <div className="login-core">
+          <span className="login-core__halo" />
+          <span className="login-core__pulse" />
+          <span className="login-core__ring login-core__ring--outer" />
+          <span className="login-core__ring login-core__ring--mid" />
+        </div>
+      </div>
 
-      <section className={styles.contentGrid}>
-        <section className={styles.planArea} aria-labelledby="register-title">
-          <div className={styles.heroCopy}>
-            <span className={styles.eyebrow}>Teste grátis no HBX Padrão</span>
-            <h1 id="register-title">Escolha seu plano e comece agora</h1>
-            <p>Compare Lite, Padrão e Melhor. O Padrão começa com 1º mês grátis, sem cobrança no cadastro.</p>
-          </div>
-
-          <div className={styles.planToolbar}>
-            <div>
-              <span className={styles.sectionKicker}>Planos HBX</span>
-              <h2>Preço claro, escolha simples.</h2>
-            </div>
-            <div className={styles.billingToggle} aria-label="Ciclo de cobrança">
-              <button
-                type="button"
-                data-active={billingCycle === "monthly" ? "true" : "false"}
-                onClick={() => setBillingCycle("monthly")}
-              >
-                Mensal
-              </button>
-              <button
-                type="button"
-                data-active={billingCycle === "annual" ? "true" : "false"}
-                onClick={() => setBillingCycle("annual")}
-              >
-                Anual <span>10% OFF</span>
-              </button>
-            </div>
-          </div>
-
-          <div className={styles.plansGrid}>
-            {SIGNUP_PLANS.map((plan) => {
-              const selected = selectedPlanKey === plan.key;
-              const annual = billingCycle === "annual";
-              const displayedPrice = monthlyEquivalent(plan, billingCycle);
-              return (
-                <button
-                  key={plan.key}
-                  type="button"
-                  className={styles.planCard}
-                  data-selected={selected ? "true" : "false"}
-                  data-featured={plan.featured ? "true" : "false"}
-                  data-disabled={!plan.available ? "true" : "false"}
-                  disabled={!plan.available}
-                  onClick={() => {
-                    if (plan.available) setSelectedPlanKey(plan.key);
-                  }}
-                >
-                  <span className={styles.badge}>{plan.badge}</span>
-                  <div className={styles.planTitle}>
-                    <strong>{plan.name}</strong>
-                    {plan.trialCopy ? <small>{plan.trialCopy}</small> : null}
-                  </div>
-                  <div className={styles.priceBlock}>
-                    <em>{money(displayedPrice)}</em>
-                    <span>{annual ? "/mês no anual" : "/mês"}</span>
-                  </div>
-                  {annual ? (
-                    <p className={styles.billingHint}>Economize 10%. Cobrado anualmente.</p>
-                  ) : (
-                    <p className={styles.billingHint}>{plan.key === "hbx_padrao" ? "1º mês grátis. Sem cobrança agora." : "Sem cobrança no cadastro."}</p>
-                  )}
-                  <p className={styles.planDetail}>{plan.detail}</p>
-                  <ul>
-                    {plan.features.map((feature) => (
-                      <li key={feature}>{feature}</li>
-                    ))}
-                  </ul>
-                  <small className={styles.planNote}>{plan.note}</small>
-                  <span className={styles.planAction}>{selected ? "Selecionado" : plan.cta}</span>
-                </button>
-              );
-            })}
-          </div>
-          <div className={styles.trustStrip} aria-label="Segurança do cadastro">
-            <span>Ambiente seguro</span>
-            <span>Dados criptografados</span>
-            <span>Conformidade LGPD</span>
-            <span>Sem cobrança no cadastro</span>
-          </div>
-        </section>
-
-        <aside className={styles.signupPanel}>
-          {confirmationPending ? (
-            <div className={styles.confirmation}>
-              <span className={styles.eyebrow}>Cadastro criado</span>
-              <h2>
-                {confirmationPending.selectedPlanKey === "hbx_padrao"
-                  ? "Seu teste grátis está pronto"
-                  : "Confirme seu e-mail para seguir"}
-              </h2>
-              <p>
-                {confirmationPending.selectedPlanKey === "hbx_padrao"
-                  ? "Confirme seu e-mail para começar o HBX Padrão com 1º mês grátis e sem cobrança agora."
-                  : "Confirme seu e-mail para liberar a próxima etapa. O pagamento acontece apenas no checkout/Financeiro."}
-              </p>
-              <div className={styles.confirmBadges}>
-                {confirmationPending.selectedPlanKey === "hbx_padrao" ? (
-                  <>
-                    <span>1º mês grátis</span>
-                    <span>Sem cobrança agora</span>
-                  </>
-                ) : (
-                  <>
-                    <span>Sem cobrança no cadastro</span>
-                    <span>Checkout seguro</span>
-                  </>
-                )}
-              </div>
-              <div className={styles.summaryBox}>
-                <div>
-                  <span>Plano selecionado</span>
-                  <strong>{planName(confirmationPending.selectedPlanKey)}</strong>
-                </div>
-                <div>
-                  <span>E-mail</span>
-                  <strong>{confirmationPending.email}</strong>
-                </div>
-              </div>
-              {confirmationPending.deliveryFailed ? (
-                <p className={styles.warningText}>
-                  O cadastro foi salvo, mas a entrega falhou neste momento. Reenvie a confirmação antes de tentar entrar.
-                </p>
-              ) : null}
-              {confirmationActionMessage ? <p className={styles.muted}>{confirmationActionMessage}</p> : null}
-              <div className={styles.confirmActions}>
-                {confirmationPending.canResendConfirmation ? (
-                  <button
-                    type="button"
-                    className={styles.secondaryButton}
-                    disabled={resendingConfirmation}
-                    onClick={() => void resendConfirmation(confirmationPending.email)}
-                  >
-                    {resendingConfirmation ? "Reenviando..." : "Reenviar e-mail"}
-                  </button>
-                ) : null}
-                <button type="button" className={styles.primaryButton} onClick={() => router.push("/login")}>
-                  Ir para login
-                </button>
+      <div
+        className={`login-console ${styles.registerConsole}`}
+        data-entry-transition={entryTransition ? "from-login" : "ready"}
+      >
+        <aside className="login-side login-side--left" aria-label="Planos">
+          <div className={`login-side__panel ${styles.registerPlansPanel}`}>
+            <div className={styles.plansHeader}>
+              <div>
+                <h1>Escolha o plano ideal para o seu negócio</h1>
+                <p>Soluções completas para empresas de todos os tamanhos.</p>
               </div>
             </div>
-          ) : (
-            <form onSubmit={handleRegister} className={styles.form}>
-              <div className={styles.selectedSummary}>
-                <span>Cadastro</span>
-                <strong>{selectedPlan.name}</strong>
-                <p>
-                  {selectedPlanIsTrial
-                    ? "Comece grátis hoje. Sem cartão e sem cobrança agora."
-                    : "Crie sua conta agora. O pagamento fica para o checkout/Financeiro."}
-                </p>
-              </div>
-
-              <label>
-                <span>Nome da empresa/operação</span>
-                <input
-                  value={companyName}
-                  onChange={(event) => setCompanyName(event.target.value)}
-                  placeholder="Ex: HBX Import"
-                  autoComplete="organization"
-                  required
-                />
-              </label>
-
-              <label>
-                <span>E-mail</span>
-                <input
-                  value={email}
-                  onChange={(event) => setEmail(event.target.value)}
-                  placeholder="email@exemplo.com"
-                  required
-                  autoComplete="email"
-                />
-              </label>
-
-              <label>
-                <span>Senha</span>
-                <input
-                  type="password"
-                  value={password}
-                  onChange={(event) => setPassword(event.target.value)}
-                  placeholder="Mínimo de 8 caracteres"
-                  required
-                  autoComplete="new-password"
-                />
-              </label>
-
-              {error ? <p className={styles.errorBox}>{error}</p> : null}
-
-              {firstAccessInfo ? (
-                <div className={styles.infoBox}>
-                  <strong>Primeiro acesso</strong>
-                  <p>{firstAccessInfo}</p>
-                </div>
-              ) : null}
-
-              <button disabled={loading} className={styles.primaryButton}>
-                {loading
-                  ? "Criando..."
-                  : selectedPlanKey === "hbx_padrao"
-                    ? "Começar grátis hoje"
-                    : "Criar conta e continuar"}
-              </button>
-
-              <p className={styles.loginLink}>
-                Já tem conta? <Link href="/login">Ir para o login</Link>
-              </p>
-            </form>
-          )}
+            <PlanSelectionExperience
+              plans={SIGNUP_PLANS}
+              selectedPlanKey={selectedPlanKey}
+              billingCycle={billingCycle}
+              mode="signup"
+              onSelect={(planKey) => setSelectedPlanKey(planKey)}
+            />
+          </div>
         </aside>
-      </section>
+
+        <div className="login-shell">
+          <div className={`login-card card ${styles.registerCard}`}>
+            <div className="login-card__chrome" aria-hidden />
+
+            {confirmationPending ? (
+              <div className={styles.confirmation}>
+                <header className="login-card__header">
+                  <div className="login-card__brandBlock">
+                    <div className="login-card__brandMark" aria-hidden>
+                      <span className="login-card__brandMarkCore">HBX</span>
+                    </div>
+                    <div className="login-card__themeCopy">
+                      <p className="login-card__themeLabel">Cadastro criado</p>
+                      <p className="login-card__themeHint">{planName(confirmationPending.selectedPlanKey)}</p>
+                    </div>
+                  </div>
+                  <h1 className="login-card__title">
+                    {confirmationPending.selectedPlanKey === "hbx_padrao"
+                      ? "Teste grátis pronto"
+                      : "E-mail confirmado?"}
+                  </h1>
+                  <p className="login-card__copy login-card__copy--compact">
+                    {confirmationPending.selectedPlanKey === "hbx_padrao"
+                      ? "Confirme o e-mail para ativar seu acesso."
+                      : "Confirme o e-mail e siga para o checkout."}
+                  </p>
+                </header>
+
+                <div className={styles.summaryBox}>
+                  <div>
+                    <span>E-mail</span>
+                    <strong>{confirmationPending.email}</strong>
+                  </div>
+                </div>
+                {confirmationPending.deliveryFailed ? (
+                  <p className={styles.warningText}>Entrega falhou. Reenvie a confirmação.</p>
+                ) : null}
+                {confirmationActionMessage ? <p className={styles.muted}>{confirmationActionMessage}</p> : null}
+                <div className={styles.confirmActions}>
+                  {confirmationPending.canResendConfirmation ? (
+                    <button
+                      type="button"
+                      className="btn btn-secondary login-button"
+                      disabled={resendingConfirmation}
+                      onClick={() => void resendConfirmation(confirmationPending.email)}
+                    >
+                      {resendingConfirmation ? "Reenviando..." : "Reenviar"}
+                    </button>
+                  ) : null}
+                  <button type="button" className="btn btn-primary login-button" onClick={() => router.push("/login")}>
+                    Ir para login
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <>
+                <header className="login-card__header">
+                  <div className="login-card__themeRow">
+                    <div className="page-overline login-card__overline">Cadastro seguro</div>
+                  </div>
+                  <div className="login-card__brandBlock">
+                    <div className="login-card__brandMark" aria-hidden>
+                      <span className="login-card__brandMarkCore">HBX</span>
+                    </div>
+                    <div className="login-card__themeCopy">
+                      <p className="login-card__themeLabel">HBX</p>
+                      <p className="login-card__themeHint">Acesse sua conta com segurança e continue de onde parou.</p>
+                    </div>
+                  </div>
+                  <span className={styles.cardDivider} aria-hidden />
+                  <h1 className="login-card__title">Criar conta na HBX</h1>
+                  <p className="login-card__copy">Comece com segurança e teste o plano ideal para sua operação.</p>
+                </header>
+
+                <form onSubmit={handleRegister} className={`login-form ${styles.form}`}>
+                  <div className="login-field">
+                    <label className="login-label" htmlFor="register-company">
+                      Empresa
+                    </label>
+                    <div className={styles.inputWrap}>
+                      <span className={styles.fieldIcon}>
+                        <FieldIcon icon="company" />
+                      </span>
+                      <input
+                        id="register-company"
+                        className="input"
+                        value={companyName}
+                        onChange={(event) => setCompanyName(event.target.value)}
+                        placeholder="Nome da sua empresa"
+                        autoComplete="organization"
+                        required
+                      />
+                    </div>
+                  </div>
+
+                  <div className="login-field">
+                    <label className="login-label" htmlFor="register-email">
+                      E-mail
+                    </label>
+                    <div className={styles.inputWrap}>
+                      <span className={styles.fieldIcon}>
+                        <FieldIcon icon="email" />
+                      </span>
+                      <input
+                        id="register-email"
+                        className="input"
+                        value={email}
+                        onChange={(event) => setEmail(event.target.value)}
+                        placeholder="Digite seu e-mail"
+                        required
+                        autoComplete="email"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="login-field">
+                    <label className="login-label" htmlFor="register-password">
+                      Senha
+                    </label>
+                    <div className={styles.inputWrap}>
+                      <span className={styles.fieldIcon}>
+                        <FieldIcon icon="lock" />
+                      </span>
+                      <input
+                        id="register-password"
+                        className="input"
+                        type={showPassword ? "text" : "password"}
+                        value={password}
+                        onChange={(event) => setPassword(event.target.value)}
+                        placeholder="Crie uma senha segura"
+                        required
+                        minLength={8}
+                        autoComplete="new-password"
+                      />
+                      <button
+                        type="button"
+                        className={styles.passwordToggle}
+                        aria-label={showPassword ? "Ocultar senha" : "Mostrar senha"}
+                        onClick={() => setShowPassword((current) => !current)}
+                      >
+                        <EyeIcon hidden={!showPassword} />
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="login-field">
+                    <label className="login-label" htmlFor="register-confirm-password">
+                      Confirmar senha
+                    </label>
+                    <div className={styles.inputWrap}>
+                      <span className={styles.fieldIcon}>
+                        <FieldIcon icon="lock" />
+                      </span>
+                      <input
+                        id="register-confirm-password"
+                        className="input"
+                        type={showConfirmPassword ? "text" : "password"}
+                        value={confirmPassword}
+                        onChange={(event) => setConfirmPassword(event.target.value)}
+                        placeholder="Confirme sua senha"
+                        required
+                        minLength={8}
+                        autoComplete="new-password"
+                      />
+                      <button
+                        type="button"
+                        className={styles.passwordToggle}
+                        aria-label={showConfirmPassword ? "Ocultar confirmação de senha" : "Mostrar confirmação de senha"}
+                        onClick={() => setShowConfirmPassword((current) => !current)}
+                      >
+                        <EyeIcon hidden={!showConfirmPassword} />
+                      </button>
+                    </div>
+                  </div>
+
+                  {error ? <div className="msg-error"><div className="text-sm">{error}</div></div> : null}
+
+                  {firstAccessInfo ? (
+                    <div className="msg-info">
+                      <div className="text-sm">{firstAccessInfo}</div>
+                    </div>
+                  ) : null}
+
+                  <button disabled={loading} className={`btn btn-primary login-button ${styles.submitButton}`}>
+                    <span>
+                      {loading
+                        ? "Criando..."
+                        : selectedPlanKey === "hbx_padrao"
+                          ? "Começar 1º mês grátis"
+                          : "Criar e ir ao checkout"}
+                    </span>
+                    <span aria-hidden="true">→</span>
+                  </button>
+
+                  <p className={styles.loginLink}>
+                    Já tem conta? <Link href="/login">Entrar</Link>
+                  </p>
+
+                  <div className={styles.securityLine}>
+                    <span>
+                      <ShieldIcon />
+                    </span>
+                    Seus dados estão protegidos em conformidade com a LGPD.
+                  </div>
+                </form>
+              </>
+            )}
+          </div>
+          <div className={styles.trustStrip} aria-label="Garantias de segurança">
+            <div>
+              <TrustIcon type="shield" />
+              <span>Dados protegidos<br />24/7 com criptografia</span>
+            </div>
+            <div>
+              <TrustIcon type="building" />
+              <span>Conformidade<br />LGPD</span>
+            </div>
+            <div>
+              <TrustIcon type="server" />
+              <span>Infraestrutura<br />segura e estável</span>
+            </div>
+          </div>
+        </div>
+      </div>
     </main>
   );
 }

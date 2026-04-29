@@ -2960,6 +2960,56 @@ html[data-theme-switcher-open="true"] .app-topbar::after {
   filter: saturate(1.25) blur(0px);
 }
 
+.login-stage[data-register-transition="true"] .login-card {
+  animation: loginRegisterCardExit 500ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  pointer-events: none;
+}
+
+.login-stage[data-register-transition="true"] .login-side--left .login-side__panel {
+  animation: loginRegisterMenuExit 500ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.login-stage[data-register-transition="true"] .login-side--right .login-side__panel {
+  animation: loginRegisterTrustFade 500ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes loginRegisterCardExit {
+  from {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+    filter: blur(0);
+  }
+  to {
+    opacity: 0.18;
+    transform: translateX(32vw) scale(0.98);
+    filter: blur(8px);
+  }
+}
+
+@keyframes loginRegisterMenuExit {
+  from {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+    filter: blur(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateX(-24vw) scale(0.96);
+    filter: blur(8px);
+  }
+}
+
+@keyframes loginRegisterTrustFade {
+  from {
+    opacity: 1;
+    transform: translateX(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateX(26px);
+  }
+}
+
 html[data-theme-mode="dark"] .login-stage {
   --login-stage-top: color-mix(in srgb, var(--hero-from) 94%, #020617);
   --login-stage-bottom: color-mix(in srgb, var(--hero-to) 94%, #020617);

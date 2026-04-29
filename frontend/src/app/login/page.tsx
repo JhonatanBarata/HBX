@@ -291,6 +291,7 @@ export default function LoginPage() {
   const [visualsPlayOnLoad, setVisualsPlayOnLoad] = useState(false);
   const [isLoginVideoEnabled, setIsLoginVideoEnabled] = useState<boolean>(false);
   const [mode, setMode] = useState<"login" | "forgot">("login");
+  const [registerTransitioning, setRegisterTransitioning] = useState(false);
   const [preRegistered, setPreRegistered] = useState(false);
   const [countdown, setCountdown] = useState<number | null>(null);
   const [pendingConfirmationEmail, setPendingConfirmationEmail] = useState<string | null>(null);
@@ -330,6 +331,19 @@ export default function LoginPage() {
     const nextEnabled = !isLoginVideoExperienceEnabled;
     setIsLoginVideoEnabled(nextEnabled);
     persistLoginVideoEnabled(nextEnabled);
+  }
+
+  function openRegisterWithTransition() {
+    if (registerTransitioning) return;
+    setRegisterTransitioning(true);
+    try {
+      sessionStorage.setItem("hbx_register_transition", "from-login");
+    } catch {
+      // ignore sessionStorage errors
+    }
+    window.setTimeout(() => {
+      router.push("/register?from=login");
+    }, 500);
   }
 
   function setStagePointerStyles(nextX: number, nextY: number) {
@@ -489,7 +503,14 @@ export default function LoginPage() {
             // ignore localStorage errors
           }
 
-          window.setTimeout(() => router.push("/register"), 2000);
+          window.setTimeout(() => {
+            try {
+              sessionStorage.setItem("hbx_register_transition", "from-login");
+            } catch {
+              // ignore sessionStorage errors
+            }
+            router.push("/register?from=login");
+          }, 2000);
         }
 
         return;
@@ -915,6 +936,7 @@ export default function LoginPage() {
       data-login-ready={isUiReady ? "true" : "false"}
       data-login-state={loginState}
       data-login-video={isLoginVideoExperienceEnabled ? "on" : "off"}
+      data-register-transition={registerTransitioning ? "true" : "false"}
       onPointerMove={isUiReady ? handleStagePointerMove : undefined}
       onPointerLeave={isUiReady ? handleStagePointerLeave : undefined}
     >
@@ -1127,7 +1149,7 @@ export default function LoginPage() {
                 <button
                   type="button"
                   className="btn btn-secondary login-cta"
-                  onClick={() => router.push("/register")}
+                  onClick={openRegisterWithTransition}
                   style={{ marginLeft: 12 }}
                 >
                   Criar conta
@@ -1239,7 +1261,7 @@ export default function LoginPage() {
                           // ignore localStorage errors
                         }
 
-                        router.push("/register");
+                        openRegisterWithTransition();
                       }
                     : undefined
                 }
