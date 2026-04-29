@@ -18,8 +18,23 @@ export class SaveFinanceiroCardDto {
 
 export class CreateFinanceiroCheckoutDto {
   @IsString()
-  @IsIn(['PIX', 'CARD'])
+  @IsIn(['PIX', 'CARD', 'BOLETO'])
   paymentMethod!: string;
+
+  @IsOptional()
+  @IsString()
+  @IsIn(['hbx_lite', 'hbx_padrao', 'hbx_melhor'])
+  planKey?: string;
+
+  @IsOptional()
+  @IsString()
+  @IsIn(['MONTHLY', 'ANNUAL'])
+  billingCycle?: string;
+
+  @IsOptional()
+  @IsString()
+  @Length(8, 30)
+  contactPhone?: string;
 }
 
 export class CreateFinanceiroSubscriptionDto {

@@ -339,7 +339,7 @@ model FinanceiroCharge {
   currency          String   @default("BRL")
   description       String
   billingCycle      String   @default("MONTHLY") // MONTHLY | ANNUAL
-  paymentMethod     String   @default("PIX") // PIX | CARD | BONUS
+  paymentMethod     String   @default("PIX") // PIX | CARD | BOLETO | BONUS
   status            String   @default("pending") // pending | approved | cancelled | failed | refunded | partially_refunded
   lifecycle         String   @default("in_progress") // in_progress | paid | cancelled | finalized
   competence        String?

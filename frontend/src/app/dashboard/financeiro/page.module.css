@@ -554,9 +554,47 @@
   background:
     linear-gradient(145deg, rgba(255, 255, 255, 0.92), rgba(235, 247, 255, 0.82)),
     color-mix(in srgb, var(--surface) 96%, white);
+  color: #0b1f3a;
   box-shadow:
     0 28px 80px -52px rgba(38, 87, 165, 0.55),
     inset 0 1px 0 rgba(255, 255, 255, 0.92);
+}
+
+.checkoutMain .eyebrow,
+.checkoutSummaryPanel .eyebrow,
+.checkoutMain .fieldLabel {
+  color: #6a7ea0;
+}
+
+.checkoutMain .heroText,
+.checkoutMain .helperText,
+.checkoutSummaryPanel .summarySupport,
+.checkoutMain .termsBox span {
+  color: #52647e;
+}
+
+.checkoutMain strong,
+.checkoutSummaryPanel strong,
+.checkoutTitle,
+.summaryPlan {
+  color: #0b1f3a;
+}
+
+.checkoutMain .statusPill,
+.checkoutSummaryPanel .statusPill {
+  color: #047857;
+  border-color: rgba(16, 185, 129, 0.32);
+  background: rgba(209, 250, 229, 0.86);
+}
+
+.checkoutMain .fieldInput {
+  border-color: rgba(121, 176, 255, 0.62);
+  background: rgba(248, 251, 255, 0.96);
+  color: #0b1f3a;
+}
+
+.checkoutMain .fieldInput::placeholder {
+  color: #8da1bd;
 }
 
 .checkoutMain {
@@ -711,11 +749,193 @@
   font-weight: 950;
 }
 
+.paymentMethodGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.78rem;
+}
+
+.paymentMethodGrid button {
+  min-height: 122px;
+  display: grid;
+  align-content: start;
+  gap: 0.35rem;
+  text-align: left;
+  border-radius: 18px;
+  border: 1px solid rgba(121, 176, 255, 0.44);
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.86), rgba(236, 248, 255, 0.72));
+  color: #0f1f36;
+  padding: 0.95rem;
+  cursor: pointer;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+.paymentMethodGrid button[data-active="true"] {
+  border-color: rgba(14, 165, 233, 0.9);
+  background:
+    radial-gradient(circle at 90% 0%, rgba(34, 211, 238, 0.22), transparent 36%),
+    linear-gradient(145deg, rgba(222, 245, 255, 0.98), rgba(255, 255, 255, 0.88));
+  box-shadow:
+    0 0 0 4px rgba(14, 165, 233, 0.12),
+    inset 0 -3px 0 #19bdf2;
+}
+
+.paymentMethodGrid span {
+  color: #0e7490;
+  font-size: 0.74rem;
+  font-weight: 950;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.paymentMethodGrid strong {
+  color: #0b1f3a;
+  font-size: 1rem;
+}
+
+.paymentMethodGrid small {
+  color: #60738f;
+  font-weight: 720;
+  line-height: 1.35;
+}
+
 .securePaymentBox {
   border-color: rgba(121, 176, 255, 0.5);
   background:
     linear-gradient(145deg, rgba(255, 255, 255, 0.88), rgba(239, 248, 255, 0.76));
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.88);
+}
+
+.cardExperience {
+  display: grid;
+  grid-template-columns: minmax(260px, 0.42fr) minmax(0, 0.58fr);
+  gap: 1rem;
+  align-items: start;
+}
+
+.cardMock {
+  min-height: 236px;
+  display: grid;
+  align-content: space-between;
+  gap: 1rem;
+  border-radius: 26px;
+  color: #ffffff;
+  padding: 1.1rem;
+  background:
+    radial-gradient(circle at 16% 18%, rgba(34, 211, 238, 0.42), transparent 32%),
+    radial-gradient(circle at 88% 8%, rgba(168, 85, 247, 0.34), transparent 28%),
+    linear-gradient(135deg, #06172d 0%, #0d2d63 52%, #111827 100%);
+  box-shadow:
+    0 28px 62px -36px rgba(15, 23, 42, 0.9),
+    inset 0 1px 0 rgba(255, 255, 255, 0.22);
+  overflow: hidden;
+  position: relative;
+}
+
+.cardMock::before {
+  content: "";
+  width: 52px;
+  height: 38px;
+  border-radius: 12px;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.84), rgba(255, 255, 255, 0.18));
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.28);
+}
+
+.cardMockTop,
+.cardMockBottom {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.cardMockTop span {
+  font-weight: 950;
+  letter-spacing: 0;
+}
+
+.cardMockTop small,
+.cardMockBottom span {
+  color: rgba(226, 246, 255, 0.86);
+  font-weight: 800;
+}
+
+.cardMock strong {
+  color: #ffffff;
+  font-size: clamp(1.2rem, 2vw, 1.6rem);
+  letter-spacing: 0.08em;
+}
+
+.cardTokenPanel {
+  min-width: 0;
+}
+
+.alternativePaymentPanel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  border-radius: 18px;
+  border: 1px solid rgba(121, 176, 255, 0.36);
+  background: rgba(255, 255, 255, 0.62);
+  padding: 1rem;
+}
+
+.alternativePaymentPanel strong {
+  display: block;
+  color: #0b1f3a;
+  font-size: 1.7rem;
+  line-height: 1.05;
+}
+
+.alternativePaymentPanel p {
+  max-width: 56ch;
+  margin: 0.35rem 0 0;
+  color: #52647e;
+  font-weight: 720;
+  line-height: 1.4;
+}
+
+.pixResult {
+  display: grid;
+  grid-template-columns: minmax(160px, 240px) minmax(0, 1fr);
+  gap: 1rem;
+  align-items: start;
+}
+
+.copyArea {
+  display: grid;
+  gap: 0.7rem;
+}
+
+.copyArea textarea {
+  width: 100%;
+  min-height: 138px;
+  resize: vertical;
+  border-radius: 16px;
+  border: 1px solid rgba(121, 176, 255, 0.42);
+  background: rgba(248, 251, 255, 0.94);
+  color: #0b1f3a;
+  padding: 0.8rem;
+  font: inherit;
+  line-height: 1.35;
+}
+
+.paymentLink {
+  width: fit-content;
+  min-height: 42px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 12px;
+  background: #0f766e;
+  color: #ffffff;
+  font-weight: 900;
+  padding: 0 0.95rem;
 }
 
 .setupNotice {
@@ -838,7 +1058,10 @@
   .checkoutShell,
   .termsBox,
   .cycleCards,
-  .checkoutStepper {
+  .checkoutStepper,
+  .paymentMethodGrid,
+  .cardExperience,
+  .pixResult {
     grid-template-columns: 1fr;
   }
 
