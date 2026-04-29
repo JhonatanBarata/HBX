@@ -3,13 +3,13 @@
   display: grid;
   place-items: center;
   padding: 18px;
-  color: #102033;
+  color: var(--foreground);
   background:
-    linear-gradient(rgba(88, 161, 255, 0.06) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(88, 161, 255, 0.06) 1px, transparent 1px),
-    radial-gradient(circle at 9% 18%, rgba(22, 187, 255, 0.14), transparent 32%),
-    radial-gradient(circle at 94% 14%, rgba(132, 96, 255, 0.12), transparent 30%),
-    linear-gradient(180deg, #f4f9ff 0%, #edf6ff 58%, #f8fbff 100%);
+    linear-gradient(color-mix(in srgb, var(--info) 7%, transparent) 1px, transparent 1px),
+    linear-gradient(90deg, color-mix(in srgb, var(--info) 7%, transparent) 1px, transparent 1px),
+    radial-gradient(circle at 9% 18%, color-mix(in srgb, var(--info) 14%, transparent), transparent 32%),
+    radial-gradient(circle at 94% 14%, color-mix(in srgb, var(--button-accent) 12%, transparent), transparent 30%),
+    linear-gradient(180deg, color-mix(in srgb, var(--background) 98%, var(--surface)), color-mix(in srgb, var(--background-alt) 96%, var(--background)) 58%, var(--background));
   background-size: 32px 32px, 32px 32px, auto, auto, auto;
 }
 
@@ -17,16 +17,16 @@
   width: min(1110px, 100%);
   max-height: calc(100dvh - var(--topbar-total-height, 72px) - 34px);
   overflow: auto;
-  border: 1px solid rgba(36, 117, 255, 0.28);
+  border: 1px solid color-mix(in srgb, var(--info) 24%, var(--line));
   border-radius: 18px;
   padding: 18px;
   background:
     radial-gradient(circle at 14% 18%, rgba(0, 198, 255, 0.13), transparent 36%),
-    radial-gradient(circle at 92% 8%, rgba(124, 58, 237, 0.11), transparent 30%),
-    rgba(255, 255, 255, 0.72);
+    radial-gradient(circle at 92% 8%, color-mix(in srgb, var(--button-accent) 11%, transparent), transparent 30%),
+    color-mix(in srgb, var(--surface) 82%, var(--background));
   box-shadow:
-    0 28px 92px -64px rgba(24, 70, 150, 0.7),
-    inset 0 1px 0 rgba(255, 255, 255, 0.86);
+    0 28px 92px -64px color-mix(in srgb, var(--info) 44%, var(--foreground)),
+    var(--shadow-inset);
   backdrop-filter: blur(16px);
 }
 
@@ -36,7 +36,7 @@
   justify-content: space-between;
   gap: 18px;
   padding: 4px 4px 16px;
-  border-bottom: 1px solid rgba(36, 117, 255, 0.16);
+  border-bottom: 1px solid color-mix(in srgb, var(--info) 16%, var(--line));
 }
 
 .titleCluster {
@@ -69,8 +69,8 @@
   align-items: center;
   border-radius: 999px;
   padding: 3px 9px;
-  color: #3366dc;
-  background: rgba(36, 117, 255, 0.1);
+  color: color-mix(in srgb, var(--info) 76%, var(--foreground));
+  background: color-mix(in srgb, var(--info) 10%, var(--surface));
   font-size: 0.68rem;
   font-weight: 950;
   letter-spacing: 0;
@@ -79,7 +79,7 @@
 
 .modalHeader h1 {
   margin: 7px 0 4px;
-  color: #10233f;
+  color: var(--foreground);
   font-size: clamp(1.85rem, 3.4vw, 3rem);
   line-height: 1;
   letter-spacing: 0;
@@ -88,7 +88,7 @@
 .modalHeader p {
   max-width: 760px;
   margin: 0;
-  color: #536783;
+  color: var(--foreground-soft);
   font-size: 0.96rem;
   line-height: 1.42;
 }
@@ -105,11 +105,11 @@
   display: inline-flex;
   min-height: 36px;
   align-items: center;
-  border: 1px solid rgba(36, 117, 255, 0.22);
+  border: 1px solid color-mix(in srgb, var(--info) 20%, var(--line));
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.76);
-  color: #536783;
-  box-shadow: 0 18px 45px -36px rgba(36, 92, 255, 0.6);
+  background: color-mix(in srgb, var(--surface) 82%, var(--background));
+  color: var(--foreground-soft);
+  box-shadow: 0 18px 45px -36px color-mix(in srgb, var(--info) 46%, transparent);
   font-size: 0.8rem;
   font-weight: 850;
 }
@@ -120,13 +120,13 @@
 }
 
 .currentPill strong {
-  color: #0f2744;
+  color: var(--foreground);
 }
 
 .closeButton {
   width: 36px;
   justify-content: center;
-  color: #16468f;
+  color: color-mix(in srgb, var(--info) 76%, var(--foreground));
   font-size: 1.35rem;
   line-height: 1;
   text-decoration: none;
@@ -152,19 +152,19 @@
   display: inline-flex;
   min-height: 34px;
   align-items: center;
-  border: 1px solid rgba(36, 117, 255, 0.2);
+  border: 1px solid color-mix(in srgb, var(--info) 18%, var(--line));
   border-radius: 999px;
   padding: 0 16px;
-  color: #54708f;
-  background: rgba(255, 255, 255, 0.58);
+  color: var(--foreground-soft);
+  background: color-mix(in srgb, var(--surface) 72%, var(--background));
   font-size: 0.82rem;
   font-weight: 950;
   white-space: nowrap;
 }
 
 .flow span[data-state="done"] {
-  color: #1260b5;
-  background: rgba(225, 244, 255, 0.88);
+  color: color-mix(in srgb, var(--info) 74%, var(--foreground));
+  background: color-mix(in srgb, var(--info) 11%, var(--surface));
 }
 
 .flow span[data-state="current"] {
@@ -180,9 +180,9 @@
   gap: 4px;
   flex: 0 0 auto;
   padding: 4px;
-  border: 1px solid rgba(36, 117, 255, 0.18);
+  border: 1px solid color-mix(in srgb, var(--info) 18%, var(--line));
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.72);
+  background: color-mix(in srgb, var(--surface) 82%, var(--background));
 }
 
 .segmented button {
@@ -190,7 +190,7 @@
   border: 0;
   border-radius: 999px;
   padding: 0 14px;
-  color: #526783;
+  color: var(--foreground-soft);
   background: transparent;
   cursor: pointer;
   font-weight: 950;
@@ -199,8 +199,8 @@
 
 .segmented button[data-active="true"] {
   color: #ffffff;
-  background: #10233f;
-  box-shadow: 0 12px 30px -22px rgba(16, 35, 63, 0.85);
+  background: var(--brand-solid);
+  box-shadow: 0 12px 30px -22px color-mix(in srgb, var(--brand-solid) 70%, transparent);
 }
 
 .segmented small {
@@ -211,11 +211,11 @@
 
 .notice,
 .loadingCard {
-  border: 1px solid rgba(36, 117, 255, 0.18);
+  border: 1px solid color-mix(in srgb, var(--info) 18%, var(--line));
   border-radius: 14px;
-  background: rgba(255, 255, 255, 0.72);
-  color: #405673;
-  box-shadow: 0 18px 54px -46px rgba(36, 92, 255, 0.55);
+  background: color-mix(in srgb, var(--surface) 82%, var(--background));
+  color: var(--foreground-soft);
+  box-shadow: 0 18px 54px -46px color-mix(in srgb, var(--info) 38%, transparent);
 }
 
 .notice {
@@ -232,48 +232,48 @@
 
 .notice a {
   flex: 0 0 auto;
-  color: #0f63c9;
+  color: color-mix(in srgb, var(--info) 78%, var(--foreground));
   font-weight: 950;
 }
 
 .notice[data-tone="success"] {
-  border-color: rgba(22, 163, 74, 0.25);
-  background: rgba(240, 253, 244, 0.84);
-  color: #166534;
+  border-color: color-mix(in srgb, var(--success) 28%, var(--line));
+  background: color-mix(in srgb, var(--success) 10%, var(--surface));
+  color: color-mix(in srgb, var(--success) 72%, var(--foreground));
 }
 
 .notice[data-tone="error"] {
-  border-color: rgba(220, 38, 38, 0.25);
-  background: rgba(255, 247, 247, 0.9);
-  color: #9f1d1d;
+  border-color: color-mix(in srgb, var(--danger) 28%, var(--line));
+  background: color-mix(in srgb, var(--danger) 10%, var(--surface));
+  color: color-mix(in srgb, var(--danger) 76%, var(--foreground));
 }
 
 .loadingCard {
   min-height: 380px;
   display: grid;
   place-items: center;
-  color: #60718b;
+  color: var(--muted);
   font-weight: 850;
 }
 
 .planPicker {
-  --register-plan-text: #0f2744;
-  --register-plan-muted: #60718b;
-  --register-plan-line: rgba(36, 117, 255, 0.34);
-  --register-plan-line-selected: rgba(0, 159, 217, 0.78);
+  --register-plan-text: var(--foreground);
+  --register-plan-muted: var(--muted);
+  --register-plan-line: color-mix(in srgb, var(--info) 28%, var(--line));
+  --register-plan-line-selected: color-mix(in srgb, var(--info) 76%, var(--line));
   --register-plan-card-bg:
-    radial-gradient(circle at 12% 20%, rgba(0, 159, 217, 0.14), transparent 34%),
-    linear-gradient(145deg, rgba(255, 255, 255, 0.82), rgba(231, 241, 255, 0.74));
+    radial-gradient(circle at 12% 20%, color-mix(in srgb, var(--info) 14%, transparent), transparent 34%),
+    linear-gradient(145deg, color-mix(in srgb, var(--surface) 88%, var(--background)), color-mix(in srgb, var(--surface-raised) 84%, var(--background)));
   --register-plan-card-selected-bg:
-    radial-gradient(circle at 15% 22%, rgba(0, 159, 217, 0.21), transparent 36%),
-    radial-gradient(circle at 94% 12%, rgba(124, 58, 237, 0.15), transparent 28%),
-    linear-gradient(145deg, rgba(238, 248, 255, 0.9), rgba(225, 235, 255, 0.84));
-  --register-plan-chip-bg: rgba(36, 92, 255, 0.1);
-  --register-plan-chip-text: #0079bf;
+    radial-gradient(circle at 15% 22%, color-mix(in srgb, var(--info) 21%, transparent), transparent 36%),
+    radial-gradient(circle at 94% 12%, color-mix(in srgb, var(--button-accent) 15%, transparent), transparent 28%),
+    linear-gradient(145deg, color-mix(in srgb, var(--surface) 92%, var(--background)), color-mix(in srgb, var(--surface-raised) 88%, var(--background)));
+  --register-plan-chip-bg: color-mix(in srgb, var(--info) 10%, var(--surface));
+  --register-plan-chip-text: color-mix(in srgb, var(--info) 78%, var(--foreground));
 }
 
 .planPicker :global([data-mode="signup"] > button) {
-  color: #0f2744;
+  color: var(--foreground);
 }
 
 .planPicker :global([data-mode="signup"] > button[data-featured="true"]:not([data-selected="true"])) {
@@ -293,9 +293,9 @@
   align-items: center;
   border-radius: 999px;
   padding: 3px 10px;
-  color: #075985;
-  background: rgba(224, 247, 255, 0.92);
-  border: 1px solid rgba(0, 159, 217, 0.32);
+  color: color-mix(in srgb, var(--info) 78%, var(--foreground));
+  background: color-mix(in srgb, var(--info) 12%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--info) 32%, var(--line));
   font-size: 0.68rem;
   font-weight: 950;
   text-transform: uppercase;
@@ -312,11 +312,11 @@
   min-height: 46px;
   display: flex;
   align-items: center;
-  border: 1px solid rgba(36, 117, 255, 0.18);
+  border: 1px solid color-mix(in srgb, var(--info) 18%, var(--line));
   border-radius: 14px;
   padding: 10px 12px;
-  color: #4d6280;
-  background: rgba(255, 255, 255, 0.64);
+  color: var(--foreground-soft);
+  background: color-mix(in srgb, var(--surface) 76%, var(--background));
   font-size: 0.82rem;
   font-weight: 850;
   line-height: 1.25;
@@ -329,7 +329,7 @@
   display: grid;
   place-items: center;
   padding: 18px;
-  background: rgba(9, 25, 48, 0.34);
+  background: color-mix(in srgb, var(--overlay) 82%, transparent);
   backdrop-filter: blur(10px);
 }
 
@@ -337,15 +337,15 @@
   width: min(620px, 100%);
   max-height: calc(100dvh - 36px);
   overflow: auto;
-  border: 1px solid rgba(36, 117, 255, 0.28);
+  border: 1px solid color-mix(in srgb, var(--info) 24%, var(--line));
   border-radius: 18px;
   padding: 18px;
-  color: #10233f;
+  color: var(--foreground);
   background:
-    radial-gradient(circle at 10% 16%, rgba(0, 198, 255, 0.14), transparent 34%),
-    radial-gradient(circle at 96% 8%, rgba(124, 58, 237, 0.12), transparent 32%),
-    rgba(255, 255, 255, 0.94);
-  box-shadow: 0 34px 100px -60px rgba(9, 25, 48, 0.88);
+    radial-gradient(circle at 10% 16%, color-mix(in srgb, var(--info) 14%, transparent), transparent 34%),
+    radial-gradient(circle at 96% 8%, color-mix(in srgb, var(--button-accent) 12%, transparent), transparent 32%),
+    color-mix(in srgb, var(--surface) 96%, var(--background));
+  box-shadow: 0 34px 100px -60px color-mix(in srgb, var(--foreground) 62%, transparent);
 }
 
 .trialDialogHeader {
@@ -354,12 +354,12 @@
   justify-content: space-between;
   gap: 14px;
   padding-bottom: 14px;
-  border-bottom: 1px solid rgba(36, 117, 255, 0.16);
+  border-bottom: 1px solid color-mix(in srgb, var(--info) 16%, var(--line));
 }
 
 .trialDialogHeader h2 {
   margin: 8px 0 5px;
-  color: #10233f;
+  color: var(--foreground);
   font-size: 1.45rem;
   line-height: 1.08;
   letter-spacing: 0;
@@ -368,7 +368,7 @@
 .trialDialogHeader p {
   max-width: 500px;
   margin: 0;
-  color: #536783;
+  color: var(--foreground-soft);
   font-size: 0.92rem;
   line-height: 1.42;
 }
@@ -377,10 +377,10 @@
   width: 36px;
   height: 36px;
   flex: 0 0 auto;
-  border: 1px solid rgba(36, 117, 255, 0.2);
+  border: 1px solid color-mix(in srgb, var(--info) 20%, var(--line));
   border-radius: 999px;
-  color: #16468f;
-  background: rgba(255, 255, 255, 0.8);
+  color: color-mix(in srgb, var(--info) 76%, var(--foreground));
+  background: color-mix(in srgb, var(--surface) 82%, var(--background));
   cursor: pointer;
   font-size: 1.15rem;
   font-weight: 950;
@@ -403,35 +403,35 @@
 }
 
 .trialField span {
-  color: #304967;
+  color: var(--foreground);
   font-size: 0.8rem;
   font-weight: 950;
 }
 
 .trialField small {
-  color: #6a7d96;
+  color: var(--muted);
   font-weight: 800;
 }
 
 .trialField input {
   width: 100%;
   min-height: 46px;
-  border: 1px solid rgba(36, 117, 255, 0.24);
+  border: 1px solid color-mix(in srgb, var(--info) 24%, var(--line));
   border-radius: 12px;
   padding: 0 13px;
-  color: #10233f;
-  background: rgba(255, 255, 255, 0.84);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.88);
+  color: var(--foreground);
+  background: color-mix(in srgb, var(--field-surface) 94%, var(--background));
+  box-shadow: var(--shadow-inset);
   font: inherit;
   font-weight: 850;
   outline: none;
 }
 
 .trialField input:focus {
-  border-color: rgba(0, 184, 255, 0.82);
+  border-color: color-mix(in srgb, var(--info) 58%, var(--line));
   box-shadow:
-    0 0 0 4px rgba(0, 184, 255, 0.12),
-    inset 0 1px 0 rgba(255, 255, 255, 0.88);
+    0 0 0 4px color-mix(in srgb, var(--info) 12%, transparent),
+    var(--shadow-inset);
 }
 
 .termsAccept {
@@ -439,11 +439,11 @@
   grid-template-columns: 20px 1fr;
   gap: 10px;
   margin-top: 14px;
-  border: 1px solid rgba(36, 117, 255, 0.18);
+  border: 1px solid color-mix(in srgb, var(--info) 18%, var(--line));
   border-radius: 14px;
   padding: 12px;
-  color: #425a77;
-  background: rgba(240, 248, 255, 0.78);
+  color: var(--foreground-soft);
+  background: color-mix(in srgb, var(--surface-raised) 84%, var(--background));
   font-size: 0.84rem;
   font-weight: 760;
   line-height: 1.36;
@@ -453,7 +453,7 @@
   width: 18px;
   height: 18px;
   margin-top: 1px;
-  accent-color: #168bff;
+  accent-color: var(--info);
 }
 
 .trialDialogActions {

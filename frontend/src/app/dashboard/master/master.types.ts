@@ -177,6 +177,7 @@ export type CompanySummary = {
   primaryContactName?: string | null;
   contactEmail?: string | null;
   contactPhone?: string | null;
+  taxDocument?: string | null;
   acquisitionSource?: string | null;
   acquisitionSourceDetail?: string | null;
   referralReferrerName?: string | null;

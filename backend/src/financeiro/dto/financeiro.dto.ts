@@ -1,4 +1,4 @@
-import { IsEmail, IsIn, IsOptional, IsString, Length } from 'class-validator';
+import { IsBoolean, IsEmail, IsIn, IsOptional, IsString, Length } from 'class-validator';
 
 export class UpdateFinanceiroPreferencesDto {
   @IsOptional()
@@ -35,6 +35,20 @@ export class CreateFinanceiroCheckoutDto {
   @IsString()
   @Length(8, 30)
   contactPhone?: string;
+
+  @IsOptional()
+  @IsString()
+  @Length(3, 120)
+  contactName?: string;
+
+  @IsOptional()
+  @IsString()
+  @Length(11, 18)
+  taxDocument?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  acceptedTerms?: boolean;
 }
 
 export class CreateFinanceiroSubscriptionDto {
@@ -55,6 +69,20 @@ export class CreateFinanceiroSubscriptionDto {
   contactPhone!: string;
 
   @IsOptional()
+  @IsString()
+  @Length(3, 120)
+  contactName?: string;
+
+  @IsOptional()
+  @IsString()
+  @Length(11, 18)
+  taxDocument?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  acceptedTerms?: boolean;
+
+  @IsOptional()
   @IsEmail()
   payerEmail?: string;
 
@@ -71,4 +99,23 @@ export class ChangeFinanceiroSubscriptionCardDto {
   @IsString()
   @Length(8, 200)
   cardTokenId!: string;
+
+  @IsOptional()
+  @IsString()
+  @Length(3, 120)
+  contactName?: string;
+
+  @IsOptional()
+  @IsString()
+  @Length(8, 30)
+  contactPhone?: string;
+
+  @IsOptional()
+  @IsString()
+  @Length(11, 18)
+  taxDocument?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  acceptedTerms?: boolean;
 }

@@ -387,7 +387,7 @@ function ClientDrawer({
                   </section>
                   <section className={styles.summaryCard}>
                     <div className={styles.summaryMeta}>
-                      <p>Contato: {company.primaryContactName || "-"} • {company.contactEmail || "sem e-mail"} • {company.contactPhone || "sem telefone"}</p>
+                      <p>Contato: {company.primaryContactName || "-"} • {company.contactEmail || "sem e-mail"} • {company.contactPhone || "sem telefone"} • CPF/CNPJ: {company.taxDocument || "-"}</p>
                       <p>Slug: {company.slug || "-"} • Plano: {company.plan?.name || "Sem plano"}</p>
                       <p>Uso: {usageLabel(company)}</p>
                       <p>Módulos ativos: {company.modules.filter((item) => item.enabled).map((item) => item.name).join(", ") || "Nenhum"}</p>
@@ -748,6 +748,7 @@ export default function MasterOperationalView({ area }: { area: MasterArea }) {
                         <button type="button" className={styles.companyCell} onClick={() => openClient(company)}>
                           <strong>{company.name}</strong>
                           <span>{company.contactEmail || "Sem e-mail"} • {company.contactPhone || "sem telefone"}</span>
+                          <span>Responsável: {company.primaryContactName || "-"} • CPF/CNPJ: {company.taxDocument || "-"}</span>
                           <span>#{company.id}{company.slug ? ` • ${company.slug}` : ""}</span>
                         </button>
                       </td>

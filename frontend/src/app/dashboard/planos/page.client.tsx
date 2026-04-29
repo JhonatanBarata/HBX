@@ -238,16 +238,6 @@ export default function PlanosClientPage() {
     void loadPlans();
   }, [hasToken, loadPlans]);
 
-  useEffect(() => {
-    if (!payload || !padraoTrialAvailable) return;
-    setTrialForm((current) => ({
-      ...current,
-      contactName: current.contactName || String(payload.current.contactName || ""),
-      phone: current.phone || formatBrazilPhone(String(payload.current.contactPhone || "")),
-      cpf: current.cpf || formatCpf(String(payload.current.taxDocument || "")),
-    }));
-  }, [padraoTrialAvailable, payload]);
-
   async function selectPlan(planKey: PlanKey) {
     if (!canSelectPlan) {
       setNotice({ tone: "info", text: adminDeniedMessage });
@@ -489,7 +479,7 @@ export default function PlanosClientPage() {
                     onChange={(event) => setTrialForm((current) => ({ ...current, acceptedTerms: event.target.checked }))}
                   />
                   <span>
-                    Aceito iniciar o trial gratuito de 30 dias do HBX Padrão, sem cobrança automática agora, e autorizo o uso do telefone informado para contato e validação de elegibilidade do trial.
+                    Aceito iniciar o trial gratuito de 30 dias do HBX Padrão, sem cobrança automática agora, e autorizo o uso do CPF, Nome Completo e Telefone informado para contato e validação de elegibilidade do trial.
                   </span>
                 </label>
 
