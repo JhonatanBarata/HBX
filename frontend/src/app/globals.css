@@ -206,6 +206,23 @@ html[data-theme-mode="light"] {
   box-sizing: border-box;
 }
 
+body.app-root,
+body.app-root :where(main, section, article, aside, header, footer, nav, div, p, span, strong, small, b, i, em, h1, h2, h3, h4, h5, h6, label, li, td, th, dt, dd) {
+  cursor: default;
+}
+
+body.app-root :where(a, button, [role="button"], summary, select, input[type="button"], input[type="checkbox"], input[type="radio"], input[type="range"], input[type="submit"], input[type="reset"]) {
+  cursor: pointer;
+}
+
+body.app-root :where(input:not([type]), input[type="text"], input[type="email"], input[type="password"], input[type="search"], input[type="tel"], input[type="url"], input[type="number"], textarea, [contenteditable="true"]) {
+  cursor: text;
+}
+
+body.app-root :where(button:disabled, input:disabled, select:disabled, textarea:disabled, [aria-disabled="true"]) {
+  cursor: not-allowed;
+}
+
 body.app-root {
   margin: 0;
   color: var(--foreground);

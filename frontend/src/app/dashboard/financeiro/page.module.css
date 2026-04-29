@@ -977,6 +977,11 @@
     inset 0 -3px 0 #19bdf2;
 }
 
+.paymentMethodGrid button:disabled {
+  opacity: 0.58;
+  cursor: not-allowed;
+}
+
 .paymentMethodGrid span {
   color: #0e7490;
   font-size: 0.74rem;

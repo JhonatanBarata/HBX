@@ -632,7 +632,7 @@ export default function RegisterPage() {
                   <h1 className="login-card__title">
                     {confirmationPending.selectedPlanKey === "hbx_padrao"
                       ? "Teste grátis pronto"
-                      : "E-mail confirmado?"}
+                      : "Confirme seu Email para continuar"}
                   </h1>
                   <p className="login-card__copy login-card__copy--compact">
                     {confirmationPending.selectedPlanKey === "hbx_padrao"

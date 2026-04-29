@@ -7,6 +7,7 @@ import {
   Injectable,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { SelectCommercialPlanDto } from './dto/select-commercial-plan.dto';
 import {
   BOT_IA_PLAN_REQUIRED_PAYLOAD,
   COMMERCIAL_ENTITLEMENT_KEYS,
@@ -26,6 +27,9 @@ type CommercialCurrentState = {
   planKey: ActiveCommercialPlanKey | null;
   entitlements: Record<CommercialEntitlementKey, boolean>;
   selectedPlanKey: ActiveCommercialPlanKey | null;
+  contactName: string | null;
+  contactPhone: string | null;
+  taxDocument: string | null;
   onboardingStatus: string | null;
   subscriptionStatus: string | null;
   paymentStatus: string | null;
@@ -129,6 +133,9 @@ export class CommercialPlansService {
       planKey,
       entitlements,
       selectedPlanKey,
+      contactName: company?.primaryContactName || null,
+      contactPhone: company?.contactPhone || null,
+      taxDocument: company?.taxDocument || null,
       onboardingStatus: company?.onboardingStatus || null,
       subscriptionStatus: company?.subscriptionStatus || null,
       paymentStatus: company?.paymentStatus || null,
@@ -243,6 +250,45 @@ export class CommercialPlansService {
     return new Date(date.getTime() + days * 24 * 60 * 60 * 1000);
   }
 
+  private normalizeText(value: unknown) {
+    return String(value || '').trim().replace(/\s+/g, ' ');
+  }
+
+  private normalizeDigits(value: unknown) {
+    return String(value || '').replace(/\D/g, '');
+  }
+
+  private normalizeBrazilPhone(value: unknown) {
+    const digits = this.normalizeDigits(value);
+    const withoutCountry = digits.startsWith('55') && digits.length > 11 ? digits.slice(2) : digits;
+    return withoutCountry.slice(0, 11);
+  }
+
+  private validateTrialProfile(dto: SelectCommercialPlanDto) {
+    const contactName = this.normalizeText(dto.trialContactName);
+    const contactPhone = this.normalizeBrazilPhone(dto.trialContactPhone);
+    const taxDocument = this.normalizeDigits(dto.trialTaxDocument).slice(0, 11);
+    if (!contactName || contactName.length < 3) {
+      throw new BadRequestException({
+        code: 'TRIAL_CONTACT_NAME_REQUIRED',
+        message: 'Informe seu nome completo para iniciar o trial.',
+      });
+    }
+    if (!contactPhone || contactPhone.length < 10) {
+      throw new BadRequestException({
+        code: 'TRIAL_CONTACT_PHONE_REQUIRED',
+        message: 'Informe um telefone de contato válido para iniciar o trial.',
+      });
+    }
+    if (dto.acceptedTerms !== true) {
+      throw new BadRequestException({
+        code: 'TRIAL_TERMS_REQUIRED',
+        message: 'Aceite os termos do trial para continuar.',
+      });
+    }
+    return { contactName, contactPhone, taxDocument };
+  }
+
   private async syncPlanModulesTx(tx: any, companyId: number, planKey: ActiveCommercialPlanKey, enabled: boolean) {
     const enabledKeys = enabled ? (COMMERCIAL_PLAN_MODULE_KEYS[planKey] || []) : [];
     const enabledModuleRows = enabledKeys.length
@@ -348,7 +394,7 @@ export class CommercialPlansService {
     }
   }
 
-  async selectPlanForUser(user: any, planKey: CommercialPlanKey) {
+  async selectPlanForUser(user: any, dto: SelectCommercialPlanDto) {
     const context = this.resolveUserContext(user);
     if (!context.canSelectPlan) {
       throw new ForbiddenException({
@@ -357,13 +403,13 @@ export class CommercialPlansService {
       });
     }
 
-    if (!this.isSupportedPlanKey(planKey)) {
+    if (!this.isSupportedPlanKey(dto.planKey)) {
       throw new BadRequestException({
         code: 'INVALID_COMMERCIAL_PLAN',
         message: 'Plano HBX inválido.',
       });
     }
-    const normalizedPlanKey = normalizeCommercialPlanKey(planKey);
+    const normalizedPlanKey = normalizeCommercialPlanKey(dto.planKey);
 
     const updatedCompany = await this.prisma.$transaction(async (tx) => {
       const company = await tx.company.findUnique({
@@ -374,6 +420,18 @@ export class CommercialPlansService {
 
       const now = new Date();
       const startsTrial = normalizedPlanKey === COMMERCIAL_PLAN_KEYS.PADRAO && this.canStartVendasTrial(company);
+      const trialProfile = startsTrial ? this.validateTrialProfile(dto) : null;
+      if (normalizedPlanKey === COMMERCIAL_PLAN_KEYS.PADRAO && startsTrial && trialProfile) {
+        const existingPhoneTrial = await tx.trialPhoneUsage.findUnique({
+          where: { phoneNormalized: trialProfile.contactPhone },
+        });
+        if (existingPhoneTrial) {
+          throw new ConflictException({
+            code: 'TRIAL_PHONE_ALREADY_USED',
+            message: 'Este telefone já utilizou o trial HBX. Escolha um plano pago para continuar.',
+          });
+        }
+      }
       const currentSubscriptionStatus = String(company.subscriptionStatus || '').trim().toLowerCase();
       const currentPaymentStatus = String(company.paymentStatus || '').trim().toUpperCase();
       const currentSelectedPlanKey = this.normalizePlanKey(company.selectedPlanKey);
@@ -408,6 +466,9 @@ export class CommercialPlansService {
           ? {
               selectedPlanKey: normalizedPlanKey,
               billingCycle: 'MONTHLY',
+              primaryContactName: trialProfile?.contactName || company.primaryContactName,
+              contactPhone: trialProfile?.contactPhone || company.contactPhone,
+              taxDocument: trialProfile?.taxDocument || company.taxDocument,
               trialModuleSelection: 'vendas',
               onboardingStatus: 'active_trial',
               isActive: true,
@@ -442,6 +503,26 @@ export class CommercialPlansService {
                 currentSubscriptionStatus === 'active' || currentSubscriptionStatus === 'trialing' ? company.deactivatedAt : now,
             },
       });
+
+      if (startsTrial && trialProfile) {
+        await tx.trialPhoneUsage.create({
+          data: {
+            phoneNormalized: trialProfile.contactPhone,
+            companyId: context.companyId,
+            firstTrialStartsAt: periodStart,
+            firstTrialEndsAt: periodEnd,
+            source: 'commercial_plan_trial',
+            metadataJson: JSON.stringify({
+              acceptedTerms: true,
+              acceptedTermsAt: now.toISOString(),
+              contactName: trialProfile.contactName,
+              taxDocumentProvided: Boolean(trialProfile.taxDocument),
+              selectedPlanKey: normalizedPlanKey,
+              selectedByUserId: context.userId,
+            }),
+          },
+        });
+      }
 
       await this.syncPlanModulesTx(tx, context.companyId, normalizedPlanKey, startsTrial || preserveExistingAccess);
       await this.syncEntitlementsTx(

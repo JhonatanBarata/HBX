@@ -295,6 +295,16 @@ export async function resolveCompanyMercadoPagoAccess(prisma: PrismaService, com
     };
   }
 
+  if (!companyToken && credential?.accessToken) {
+    return {
+      company,
+      accessToken: credential.accessToken,
+      source: 'master_fallback' as const,
+      masterConfig,
+      credential,
+    };
+  }
+
   return {
     company,
     accessToken: companyToken,
