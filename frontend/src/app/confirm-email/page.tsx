@@ -1,10 +1,13 @@
 "use client";
 
 import { Suspense, useEffect, useMemo, useState } from "react";
+import type { FormEvent } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { getToken } from "../dashboard/_lib/api";
+import { getToken, setToken } from "../dashboard/_lib/api";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3000";
+const EMAIL_CONFIRMATION_CHANNEL = "hbx_email_confirmation";
+const EMAIL_CONFIRMATION_EVENT_KEY = "hbx_email_confirmation_event";
 
 type ApiErrorPayload = {
   message?: string | string[];
@@ -19,9 +22,14 @@ type ApiErrorPayload = {
 type ConfirmEmailResponse = {
   message?: string;
   status?: string;
+  email?: string | null;
   next?: string;
   loginNext?: string;
   trialEndsAt?: string | null;
+  token?: string | null;
+  access_token?: string | null;
+  accessToken?: string | null;
+  requiresCheckout?: boolean;
 };
 
 type ResendConfirmationResponse = {
@@ -47,6 +55,57 @@ function formatDate(value?: string | null) {
   const parsed = new Date(normalized);
   if (Number.isNaN(parsed.getTime())) return null;
   return parsed.toLocaleDateString("pt-BR");
+}
+
+function getAccessToken(data: unknown) {
+  if (!data || typeof data !== "object") return null;
+  const payload = data as {
+    access_token?: unknown;
+    accessToken?: unknown;
+    token?: unknown;
+  };
+  const token = payload.access_token ?? payload.accessToken ?? payload.token;
+  return typeof token === "string" && token.trim() ? token : null;
+}
+
+function safeInternalPath(value?: string | null) {
+  const path = String(value || "").trim();
+  if (!path || !path.startsWith("/") || path.startsWith("//")) return null;
+  return path;
+}
+
+function notifyWaitingRegisterPage(payload: {
+  email?: string | null;
+  status?: string | null;
+  next?: string | null;
+  loginNext?: string | null;
+}) {
+  if (typeof window === "undefined") return;
+
+  const eventPayload = {
+    type: "hbx-email-confirmed",
+    email: payload.email || null,
+    status: payload.status || null,
+    next: safeInternalPath(payload.next) || null,
+    loginNext: safeInternalPath(payload.loginNext) || null,
+    at: Date.now(),
+  };
+
+  try {
+    if ("BroadcastChannel" in window) {
+      const channel = new BroadcastChannel(EMAIL_CONFIRMATION_CHANNEL);
+      channel.postMessage(eventPayload);
+      channel.close();
+    }
+  } catch {
+    // ignore BroadcastChannel failures
+  }
+
+  try {
+    localStorage.setItem(EMAIL_CONFIRMATION_EVENT_KEY, JSON.stringify(eventPayload));
+  } catch {
+    // ignore storage failures
+  }
 }
 
 function ConfirmEmailInner() {
@@ -75,6 +134,7 @@ function ConfirmEmailInner() {
   const [resendPreviewUrl, setResendPreviewUrl] = useState<string | null>(null);
   const [resendConfirmUrl, setResendConfirmUrl] = useState<string | null>(null);
   const [mounted, setMounted] = useState(false);
+  const [autoRedirecting, setAutoRedirecting] = useState(false);
 
   useEffect(() => {
     setResendEmail(emailFromQuery);
@@ -114,15 +174,44 @@ function ConfirmEmailInner() {
 
         if (!cancelled) {
           const payload = (data as ConfirmEmailResponse | null) ?? null;
+          const payloadStatus = String(payload?.status || "").trim() || null;
+          const payloadNext = safeInternalPath(payload?.next) || null;
+          const payloadLoginNext = safeInternalPath(payload?.loginNext) || null;
+          const accessToken = getAccessToken(payload);
+          const destination = payloadNext || payloadLoginNext || "/dashboard";
           setInfo(
             String(payload?.message || "").trim() ||
-              "E-mail confirmado com sucesso. Seu acesso já está liberado no login.",
+              (accessToken
+                ? "E-mail confirmado. Entrando automaticamente..."
+                : "E-mail confirmado com sucesso. Seu acesso já está liberado no login."),
           );
-          setConfirmedStatus(String(payload?.status || "").trim() || null);
-          setNextPath(String(payload?.next || "").trim() || null);
-          setLoginNextPath(String(payload?.loginNext || "").trim() || null);
+          setConfirmedStatus(payloadStatus);
+          setNextPath(payloadNext);
+          setLoginNextPath(payloadLoginNext);
           setErrorCode(null);
           setTrialEndsAt(payload?.trialEndsAt ? String(payload.trialEndsAt) : null);
+
+          if (accessToken) {
+            setToken(accessToken);
+            setAutoRedirecting(true);
+            notifyWaitingRegisterPage({
+              email: payload?.email || emailFromQuery || null,
+              status: payloadStatus,
+              next: destination,
+              loginNext: payloadLoginNext,
+            });
+            window.setTimeout(() => {
+              if (!cancelled) router.replace(destination);
+            }, 900);
+            return;
+          }
+
+          notifyWaitingRegisterPage({
+            email: payload?.email || emailFromQuery || null,
+            status: payloadStatus,
+            next: payloadNext,
+            loginNext: payloadLoginNext,
+          });
 
           // Se já existir sessão (token), redireciona para a área logada.
           try {
@@ -130,7 +219,7 @@ function ConfirmEmailInner() {
             if (existingToken) {
               // sinaliza cancelamento para evitar updates adicionais e navega
               cancelled = true;
-              router.replace(String(payload?.next || "").trim() || "/dashboard");
+              router.replace(destination);
               return;
             }
           } catch {
@@ -153,9 +242,9 @@ function ConfirmEmailInner() {
     return () => {
       cancelled = true;
     };
-  }, [router, token]);
+  }, [emailFromQuery, router, token]);
 
-  async function handleResend(event: React.FormEvent<HTMLFormElement>) {
+  async function handleResend(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setResendInfo(null);
     setResendPreviewUrl(null);
@@ -260,10 +349,15 @@ function ConfirmEmailInner() {
                 Agora finalize o pagamento para liberar seu plano.
               </p>
             ) : null}
+            {autoRedirecting ? (
+              <p className="text-xs text-foreground/60 mt-2">
+                Redirecionando para o HBX...
+              </p>
+            ) : null}
           </div>
         ) : null}
 
-        {!loading && info ? (
+        {!loading && info && !autoRedirecting ? (
           <button
             type="button"
             className="btn btn-primary login-button py-3 rounded-xl w-full shadow-md"
@@ -331,6 +425,7 @@ function ConfirmEmailInner() {
           </form>
         ) : null}
 
+        {!autoRedirecting ? (
         <div className="text-sm text-foreground/70 text-center pt-2">
           <a
             href="/login"
@@ -354,6 +449,7 @@ function ConfirmEmailInner() {
             Voltar para o cadastro
           </a>
         </div>
+        ) : null}
         </div>
       </div>
     </main>
