@@ -35,6 +35,19 @@ export class SignupDto {
   referralCode?: string;
 
   @IsOptional()
+  trialContactName?: string;
+
+  @IsOptional()
+  trialTaxDocument?: string;
+
+  @IsOptional()
+  trialContactPhone?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  acceptedTerms?: boolean;
+
+  @IsOptional()
   username?: string;
 
   @IsEmail()

@@ -328,12 +328,22 @@ function detectCardAutofillKind(context: string): CardAutofillKind | null {
   return null;
 }
 
+function safeCssIdentifier(value: string) {
+  const id = String(value || "").trim();
+  if (!id) return "";
+  if (typeof CSS !== "undefined" && typeof CSS.escape === "function") return CSS.escape(id);
+  return id.replace(/["\\#.:,[\]>+~*^$|= !]/g, "\\$&");
+}
+
 function getFieldContext(field: HTMLElement, root: HTMLElement) {
   const labelledBy = String(field.getAttribute("aria-labelledby") || "")
     .split(/\s+/)
-    .map((id) => root.querySelector<HTMLElement>(`#${CSS.escape(id)}`)?.textContent || "")
+    .map(safeCssIdentifier)
+    .filter(Boolean)
+    .map((id) => root.querySelector<HTMLElement>(`#${id}`)?.textContent || "")
     .join(" ");
-  const labelFor = field.id ? root.querySelector<HTMLLabelElement>(`label[for="${CSS.escape(field.id)}"]`)?.textContent || "" : "";
+  const safeFieldId = safeCssIdentifier(field.id);
+  const labelFor = safeFieldId ? root.querySelector<HTMLLabelElement>(`label[for="${safeFieldId}"]`)?.textContent || "" : "";
   const closestLabel = field.closest("label")?.textContent || "";
   return [
     field.id,

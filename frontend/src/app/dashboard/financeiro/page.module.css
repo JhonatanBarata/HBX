@@ -976,7 +976,7 @@
 
 .cardExperience {
   display: grid;
-  grid-template-columns: 1fr;
+  grid-template-columns: minmax(260px, 0.42fr) minmax(0, 0.58fr);
   gap: 1.05rem;
   align-items: start;
 }

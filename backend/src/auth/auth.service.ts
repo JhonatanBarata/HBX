@@ -106,6 +106,114 @@ export class AuthService implements OnModuleInit {
     return new Date(date.getTime() + days * 24 * 60 * 60 * 1000);
   }
 
+  private normalizeText(value: unknown) {
+    return String(value || '').trim().replace(/\s+/g, ' ');
+  }
+
+  private normalizeDigits(value: unknown) {
+    return String(value || '').replace(/\D/g, '');
+  }
+
+  private normalizeBrazilPhone(value: unknown) {
+    const digits = this.normalizeDigits(value);
+    const withoutCountry = digits.startsWith('55') && digits.length > 11 ? digits.slice(2) : digits;
+    return withoutCountry.slice(0, 11);
+  }
+
+  private validateSignupTrialProfile(data: {
+    trialContactName?: string | null;
+    trialTaxDocument?: string | null;
+    trialContactPhone?: string | null;
+    acceptedTerms?: boolean | null;
+  }) {
+    const contactName = this.normalizeText(data.trialContactName);
+    const contactPhone = this.normalizeBrazilPhone(data.trialContactPhone);
+    const taxDocument = this.normalizeDigits(data.trialTaxDocument).slice(0, 11);
+    if (!contactName || contactName.length < 3) {
+      throw new BadRequestException({
+        code: 'TRIAL_CONTACT_NAME_REQUIRED',
+        message: 'Informe seu nome completo para iniciar o trial.',
+      });
+    }
+    if (!contactPhone || contactPhone.length < 10) {
+      throw new BadRequestException({
+        code: 'TRIAL_CONTACT_PHONE_REQUIRED',
+        message: 'Informe um telefone de contato válido para iniciar o trial.',
+      });
+    }
+    if (data.acceptedTerms !== true) {
+      throw new BadRequestException({
+        code: 'TRIAL_TERMS_REQUIRED',
+        message: 'Aceite os termos do trial para continuar.',
+      });
+    }
+    return { contactName, contactPhone, taxDocument };
+  }
+
+  private async ensureTrialPhoneAvailableTx(
+    tx: any,
+    companyId: number,
+    phoneNormalized: string,
+    mode: 'reserve' | 'activate',
+  ) {
+    const existingPhoneTrial = await tx.trialPhoneUsage.findUnique({
+      where: { phoneNormalized },
+    });
+    if (!existingPhoneTrial) return null;
+    if (!existingPhoneTrial.companyId || Number(existingPhoneTrial.companyId) === Number(companyId)) {
+      return existingPhoneTrial;
+    }
+
+    const trialCompany = await tx.company.findUnique({
+      where: { id: Number(existingPhoneTrial.companyId) },
+      select: { id: true },
+    });
+    if (!trialCompany) return existingPhoneTrial;
+
+    throw new ConflictException({
+      code: 'TRIAL_PHONE_ALREADY_USED',
+      message: mode === 'activate'
+        ? 'Este telefone já utilizou o trial HBX. Escolha um plano pago para continuar.'
+        : 'Este telefone já utilizou o trial HBX. Use outro telefone ou escolha um plano pago para continuar.',
+    });
+  }
+
+  private async reserveSignupTrialPhoneTx(
+    tx: any,
+    companyId: number,
+    profile: { contactName: string; contactPhone: string; taxDocument: string },
+    selectedByUserId?: number | null,
+  ) {
+    const now = new Date();
+    const existing = await this.ensureTrialPhoneAvailableTx(tx, companyId, profile.contactPhone, 'reserve');
+    const data = {
+      companyId,
+      firstTrialStartsAt: null,
+      firstTrialEndsAt: null,
+      source: 'signup_pending',
+      metadataJson: JSON.stringify({
+        acceptedTerms: true,
+        acceptedTermsAt: now.toISOString(),
+        contactName: profile.contactName,
+        taxDocumentProvided: Boolean(profile.taxDocument),
+        selectedPlanKey: COMMERCIAL_PLAN_KEYS.PADRAO,
+        selectedByUserId: Number(selectedByUserId || 0) || null,
+      }),
+    };
+    if (existing) {
+      return tx.trialPhoneUsage.update({
+        where: { id: existing.id },
+        data,
+      });
+    }
+    return tx.trialPhoneUsage.create({
+      data: {
+        phoneNormalized: profile.contactPhone,
+        ...data,
+      },
+    });
+  }
+
   private addSessionTtl(date: Date) {
     return new Date(date.getTime() + this.sessionTtlMs);
   }
@@ -565,7 +673,13 @@ export class AuthService implements OnModuleInit {
   private async activateConfirmedTrialTx(tx: any, companyId: number, activatedAt: Date) {
     const company = await tx.company.findUnique({
       where: { id: companyId },
-      select: { selectedPlanKey: true, trialModuleSelection: true },
+      select: {
+        selectedPlanKey: true,
+        trialModuleSelection: true,
+        primaryContactName: true,
+        contactPhone: true,
+        taxDocument: true,
+      },
     });
     const selectedPlanKey = this.normalizeSelectedPlanKey(company?.selectedPlanKey || undefined);
 
@@ -594,6 +708,45 @@ export class AuthService implements OnModuleInit {
     }
 
     const trialEndsAt = this.addDays(activatedAt, 30);
+    const trialPhone = this.normalizeBrazilPhone(company?.contactPhone);
+    if (!trialPhone || trialPhone.length < 10) {
+      throw new BadRequestException({
+        code: 'TRIAL_CONTACT_PHONE_REQUIRED',
+        message: 'Informe um telefone de contato válido para iniciar o trial.',
+      });
+    }
+    const existingTrialPhone = await this.ensureTrialPhoneAvailableTx(tx, companyId, trialPhone, 'activate');
+    const trialPhoneMetadata = {
+      acceptedTerms: true,
+      activatedBy: 'email_confirmation',
+      activatedAt: activatedAt.toISOString(),
+      contactName: this.normalizeText(company?.primaryContactName),
+      taxDocumentProvided: Boolean(this.normalizeDigits(company?.taxDocument)),
+      selectedPlanKey: COMMERCIAL_PLAN_KEYS.PADRAO,
+    };
+    if (existingTrialPhone) {
+      await tx.trialPhoneUsage.update({
+        where: { id: existingTrialPhone.id },
+        data: {
+          companyId,
+          firstTrialStartsAt: activatedAt,
+          firstTrialEndsAt: trialEndsAt,
+          source: 'signup_trial',
+          metadataJson: JSON.stringify(trialPhoneMetadata),
+        },
+      });
+    } else {
+      await tx.trialPhoneUsage.create({
+        data: {
+          phoneNormalized: trialPhone,
+          companyId,
+          firstTrialStartsAt: activatedAt,
+          firstTrialEndsAt: trialEndsAt,
+          source: 'signup_trial',
+          metadataJson: JSON.stringify(trialPhoneMetadata),
+        },
+      });
+    }
     await tx.company.update({
       where: { id: companyId },
       data: {
@@ -973,6 +1126,10 @@ export class AuthService implements OnModuleInit {
     acquisitionSourceDetail?: string;
     referralReferrerName?: string;
     referralCode?: string;
+    trialContactName?: string;
+    trialTaxDocument?: string;
+    trialContactPhone?: string;
+    acceptedTerms?: boolean;
     username?: string;
     email: string;
     password: string;
@@ -1006,6 +1163,9 @@ export class AuthService implements OnModuleInit {
     const entityType = this.normalizeEntityType(data.entityType) || 'PF';
     const selectedPlanKey = this.normalizeSelectedPlanKey(data.selectedPlanKey);
     const trialModuleSelection = this.resolveTrialModuleForPlan(selectedPlanKey);
+    const signupTrialProfile = selectedPlanKey === COMMERCIAL_PLAN_KEYS.PADRAO
+      ? this.validateSignupTrialProfile(data)
+      : null;
     const acquisitionSource = this.normalizeAcquisitionSource(data.acquisitionSource);
     const acquisitionSourceDetail = String(data.acquisitionSourceDetail || '').trim() || null;
     const referralReferrerName = String(data.referralReferrerName || '').trim() || null;
@@ -1067,6 +1227,17 @@ export class AuthService implements OnModuleInit {
               emailConfirmationExpiresAt: pendingEmailConfirmation ? confirmationExpiresAt : null,
             },
           });
+          if (signupTrialProfile) {
+            await tx.company.update({
+              where: { id: existingCompany.id },
+              data: {
+                primaryContactName: signupTrialProfile.contactName,
+                contactPhone: signupTrialProfile.contactPhone,
+                taxDocument: signupTrialProfile.taxDocument || null,
+              },
+            });
+            await this.reserveSignupTrialPhoneTx(tx, existingCompany.id, signupTrialProfile, updated.id);
+          }
           return {
             attachedToExistingCompany: true,
             companyId: existingCompany.id,
@@ -1088,8 +1259,10 @@ export class AuthService implements OnModuleInit {
             acquisitionSourceDetail,
             referralReferrerName,
             referralCode,
-            primaryContactName: resolvedName,
+            primaryContactName: signupTrialProfile?.contactName || resolvedName,
             contactEmail: email,
+            contactPhone: signupTrialProfile?.contactPhone || null,
+            taxDocument: signupTrialProfile?.taxDocument || null,
             onboardingStatus: 'pending_email_confirmation',
             isActive: false,
             paymentStatus: 'PENDING',
@@ -1120,6 +1293,9 @@ export class AuthService implements OnModuleInit {
             emailConfirmationExpiresAt: confirmationExpiresAt,
           },
         });
+        if (signupTrialProfile) {
+          await this.reserveSignupTrialPhoneTx(tx, company.id, signupTrialProfile, updated.id);
+        }
         return { attachedToExistingCompany: false, companyName: company.name, user: updated };
       });
 
@@ -1182,6 +1358,17 @@ export class AuthService implements OnModuleInit {
             emailConfirmationExpiresAt: pendingEmailConfirmation ? confirmationExpiresAt : null,
           },
         });
+        if (signupTrialProfile) {
+          await tx.company.update({
+            where: { id: existingCompany.id },
+            data: {
+              primaryContactName: signupTrialProfile.contactName,
+              contactPhone: signupTrialProfile.contactPhone,
+              taxDocument: signupTrialProfile.taxDocument || null,
+            },
+          });
+          await this.reserveSignupTrialPhoneTx(tx, existingCompany.id, signupTrialProfile, user.id);
+        }
 
         return {
           attachedToExistingCompany: true,
@@ -1202,11 +1389,13 @@ export class AuthService implements OnModuleInit {
           signupUsesPublicEmail: usesPublicEmail,
           acquisitionSource,
           acquisitionSourceDetail,
-          referralReferrerName,
-          referralCode,
-          primaryContactName: resolvedName,
-          contactEmail: email,
-          onboardingStatus: 'pending_email_confirmation',
+        referralReferrerName,
+        referralCode,
+        primaryContactName: signupTrialProfile?.contactName || resolvedName,
+        contactEmail: email,
+        contactPhone: signupTrialProfile?.contactPhone || null,
+        taxDocument: signupTrialProfile?.taxDocument || null,
+        onboardingStatus: 'pending_email_confirmation',
           isActive: false,
           paymentStatus: 'PENDING',
           subscriptionStatus: 'canceled',
@@ -1238,6 +1427,9 @@ export class AuthService implements OnModuleInit {
           emailConfirmationExpiresAt: confirmationExpiresAt,
         },
       });
+      if (signupTrialProfile) {
+        await this.reserveSignupTrialPhoneTx(tx, company.id, signupTrialProfile, user.id);
+      }
 
       return { attachedToExistingCompany: false, companyName: company.name, user };
     });
