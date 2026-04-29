@@ -64,6 +64,14 @@ export type MercadoPagoPaymentResponse = {
       number?: string;
     };
   };
+  card?: {
+    first_six_digits?: string;
+    last_four_digits?: string;
+    payment_method?: {
+      id?: string;
+      name?: string;
+    };
+  };
   point_of_interaction?: {
     transaction_data?: {
       qr_code?: string;
@@ -92,6 +100,78 @@ export type MercadoPagoCreatePaymentPayload = {
     first_name?: string;
     last_name?: string;
   };
+};
+
+export type MercadoPagoPreapprovalPlanPayload = {
+  reason: string;
+  auto_recurring: {
+    frequency: number;
+    frequency_type: 'days' | 'months';
+    transaction_amount: number;
+    currency_id: string;
+    repetitions?: number;
+    billing_day?: number;
+    billing_day_proportional?: boolean;
+    free_trial?: {
+      frequency: number;
+      frequency_type: 'days' | 'months';
+    };
+  };
+  payment_methods_allowed?: Record<string, unknown>;
+  back_url?: string;
+};
+
+export type MercadoPagoPreapprovalPlanResponse = {
+  id?: string;
+  reason?: string;
+  status?: string;
+  auto_recurring?: Record<string, unknown>;
+  back_url?: string;
+};
+
+export type MercadoPagoPreapprovalPayload = {
+  preapproval_plan_id?: string;
+  reason: string;
+  external_reference?: string;
+  payer_email: string;
+  card_token_id?: string;
+  auto_recurring?: {
+    frequency: number;
+    frequency_type: 'days' | 'months';
+    transaction_amount: number;
+    currency_id: string;
+    start_date?: string;
+    end_date?: string;
+  };
+  back_url?: string;
+  status?: 'authorized' | 'pending' | string;
+};
+
+export type MercadoPagoPreapprovalResponse = {
+  id?: string;
+  payer_id?: number | string;
+  payer_email?: string;
+  back_url?: string;
+  collector_id?: number | string;
+  application_id?: number | string;
+  status?: string;
+  reason?: string;
+  external_reference?: string;
+  preapproval_plan_id?: string;
+  auto_recurring?: {
+    frequency?: number;
+    frequency_type?: string;
+    transaction_amount?: number;
+    currency_id?: string;
+    start_date?: string;
+    end_date?: string;
+  };
+  next_payment_date?: string;
+  date_created?: string;
+  last_modified?: string;
+  card_id?: string;
+  payment_method_id?: string;
+  summarized?: Record<string, unknown>;
 };
 
 @Injectable()
@@ -233,6 +313,151 @@ export class MercadoPagoClientService {
       return response.data || {};
     } catch (error: any) {
       throw new Error(this.parseApiError(error, `Falha ao solicitar estorno do pagamento ${paymentId}.`));
+    }
+  }
+
+  async createPreapprovalPlan(
+    accessTokenRaw: string,
+    payload: MercadoPagoPreapprovalPlanPayload,
+    idempotencyKey: string,
+  ): Promise<MercadoPagoPreapprovalPlanResponse> {
+    const accessToken = this.normalizeAccessToken(accessTokenRaw);
+    if (!accessToken) throw new Error('Access token do Mercado Pago nao informado.');
+
+    try {
+      const response = await axios.post<MercadoPagoPreapprovalPlanResponse>(
+        `${this.apiBase}/preapproval_plan`,
+        payload,
+        {
+          headers: this.buildHeaders(accessToken, idempotencyKey),
+          timeout: 20000,
+        },
+      );
+      return response.data || {};
+    } catch (error: any) {
+      throw new Error(this.parseApiError(error, 'Falha ao criar plano de assinatura no Mercado Pago.'));
+    }
+  }
+
+  async createPreapproval(
+    accessTokenRaw: string,
+    payload: MercadoPagoPreapprovalPayload,
+    idempotencyKey: string,
+  ): Promise<MercadoPagoPreapprovalResponse> {
+    const accessToken = this.normalizeAccessToken(accessTokenRaw);
+    if (!accessToken) throw new Error('Access token do Mercado Pago nao informado.');
+
+    try {
+      const response = await axios.post<MercadoPagoPreapprovalResponse>(
+        `${this.apiBase}/preapproval`,
+        payload,
+        {
+          headers: this.buildHeaders(accessToken, idempotencyKey),
+          timeout: 20000,
+        },
+      );
+      return response.data || {};
+    } catch (error: any) {
+      throw new Error(this.parseApiError(error, 'Falha ao criar assinatura no Mercado Pago.'));
+    }
+  }
+
+  async getPreapproval(
+    accessTokenRaw: string,
+    preapprovalIdRaw: string | number,
+  ): Promise<MercadoPagoPreapprovalResponse> {
+    const accessToken = this.normalizeAccessToken(accessTokenRaw);
+    const preapprovalId = String(preapprovalIdRaw || '').trim();
+    if (!accessToken) throw new Error('Access token do Mercado Pago nao informado.');
+    if (!preapprovalId) throw new Error('preapproval_id do Mercado Pago nao informado.');
+
+    try {
+      const response = await axios.get<MercadoPagoPreapprovalResponse>(
+        `${this.apiBase}/preapproval/${encodeURIComponent(preapprovalId)}`,
+        {
+          headers: this.buildHeaders(accessToken),
+          timeout: 20000,
+        },
+      );
+      return response.data || {};
+    } catch (error: any) {
+      throw new Error(this.parseApiError(error, `Falha ao consultar assinatura ${preapprovalId} no Mercado Pago.`));
+    }
+  }
+
+  async updatePreapproval(
+    accessTokenRaw: string,
+    preapprovalIdRaw: string | number,
+    payload: Record<string, unknown>,
+  ): Promise<MercadoPagoPreapprovalResponse> {
+    const accessToken = this.normalizeAccessToken(accessTokenRaw);
+    const preapprovalId = String(preapprovalIdRaw || '').trim();
+    if (!accessToken) throw new Error('Access token do Mercado Pago nao informado.');
+    if (!preapprovalId) throw new Error('preapproval_id do Mercado Pago nao informado.');
+
+    try {
+      const response = await axios.put<MercadoPagoPreapprovalResponse>(
+        `${this.apiBase}/preapproval/${encodeURIComponent(preapprovalId)}`,
+        payload,
+        {
+          headers: this.buildHeaders(accessToken),
+          timeout: 20000,
+        },
+      );
+      return response.data || {};
+    } catch (error: any) {
+      throw new Error(this.parseApiError(error, `Falha ao atualizar assinatura ${preapprovalId} no Mercado Pago.`));
+    }
+  }
+
+  async cancelPreapproval(
+    accessTokenRaw: string,
+    preapprovalIdRaw: string | number,
+  ): Promise<MercadoPagoPreapprovalResponse> {
+    return this.updatePreapproval(accessTokenRaw, preapprovalIdRaw, { status: 'canceled' });
+  }
+
+  async pausePreapproval(
+    accessTokenRaw: string,
+    preapprovalIdRaw: string | number,
+  ): Promise<MercadoPagoPreapprovalResponse> {
+    return this.updatePreapproval(accessTokenRaw, preapprovalIdRaw, { status: 'paused' });
+  }
+
+  async changePreapprovalCard(
+    accessTokenRaw: string,
+    preapprovalIdRaw: string | number,
+    cardTokenIdRaw: string,
+  ): Promise<MercadoPagoPreapprovalResponse> {
+    const cardTokenId = String(cardTokenIdRaw || '').trim();
+    if (!cardTokenId) throw new Error('card_token_id do Mercado Pago nao informado.');
+    return this.updatePreapproval(accessTokenRaw, preapprovalIdRaw, { card_token_id: cardTokenId });
+  }
+
+  async searchPreapproval(
+    accessTokenRaw: string,
+    params: Record<string, string | number | boolean | undefined | null>,
+  ): Promise<Record<string, unknown>> {
+    const accessToken = this.normalizeAccessToken(accessTokenRaw);
+    if (!accessToken) throw new Error('Access token do Mercado Pago nao informado.');
+
+    const query = new URLSearchParams();
+    for (const [key, value] of Object.entries(params || {})) {
+      if (value === undefined || value === null || value === '') continue;
+      query.set(key, String(value));
+    }
+
+    try {
+      const response = await axios.get<Record<string, unknown>>(
+        `${this.apiBase}/preapproval/search${query.size ? `?${query.toString()}` : ''}`,
+        {
+          headers: this.buildHeaders(accessToken),
+          timeout: 20000,
+        },
+      );
+      return response.data || {};
+    } catch (error: any) {
+      throw new Error(this.parseApiError(error, 'Falha ao buscar assinaturas no Mercado Pago.'));
     }
   }
 }

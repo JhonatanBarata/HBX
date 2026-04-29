@@ -2,7 +2,9 @@ import { Body, Controller, Delete, Get, Param, Post, Put, Patch, Req, UseGuards 
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { FinanceiroService } from './financeiro.service';
 import {
+  ChangeFinanceiroSubscriptionCardDto,
   CreateFinanceiroCheckoutDto,
+  CreateFinanceiroSubscriptionDto,
   SaveFinanceiroCardDto,
   UpdateFinanceiroPreferencesDto,
 } from './dto/financeiro.dto';
@@ -35,6 +37,26 @@ export class FinanceiroController {
   @Post('checkout')
   createCheckout(@Req() req: any, @Body() dto: CreateFinanceiroCheckoutDto) {
     return this.financeiroService.createCheckoutForUser(req.user, dto);
+  }
+
+  @Post('subscription/create')
+  createSubscription(@Req() req: any, @Body() dto: CreateFinanceiroSubscriptionDto) {
+    return this.financeiroService.createSubscriptionForUser(req.user, dto);
+  }
+
+  @Post('subscription/cancel')
+  cancelSubscription(@Req() req: any) {
+    return this.financeiroService.cancelSubscriptionForUser(req.user);
+  }
+
+  @Post('subscription/change-card')
+  changeSubscriptionCard(@Req() req: any, @Body() dto: ChangeFinanceiroSubscriptionCardDto) {
+    return this.financeiroService.changeSubscriptionCardForUser(req.user, dto);
+  }
+
+  @Get('subscription/status')
+  getSubscriptionStatus(@Req() req: any) {
+    return this.financeiroService.getSubscriptionStatusForUser(req.user);
   }
 
   @Post('charges/:chargeId/refresh')

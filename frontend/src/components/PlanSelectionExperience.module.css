@@ -45,7 +45,8 @@
   border-color: #b93b31;
   box-shadow:
     0 0 0 4px rgba(185, 59, 49, 0.12),
-    0 34px 88px -56px rgba(17, 24, 39, 0.86);
+    0 34px 88px -56px rgba(17, 24, 39, 0.86),
+    inset 0 -3px 0 #b93b31;
 }
 
 .planCard[data-disabled="true"] {
@@ -97,6 +98,29 @@
   align-items: baseline;
   gap: 6px;
   flex-wrap: wrap;
+}
+
+.originalPrice {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  flex-wrap: wrap;
+  width: 100%;
+}
+
+.originalPrice s {
+  color: #9ca3af;
+  font-size: 0.85rem;
+  font-weight: 700;
+  text-decoration: line-through;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 3px;
+}
+
+.originalPrice small {
+  color: #6b7280;
+  font-size: 0.8rem;
+  font-weight: 700;
 }
 
 .priceBlock em {
@@ -1156,6 +1180,18 @@
     "features features features";
   gap: 9px 24px;
   padding: 22px 26px 17px;
+  box-shadow:
+    inset 0 0 0 1px var(--register-plan-line, rgba(96, 132, 199, 0.38)),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 28px 72px -58px rgba(0, 0, 0, 0.86);
+  overflow: visible;
+}
+
+.plansGrid[data-mode="signup"] .planCard[data-selected="true"] {
+  box-shadow:
+    inset 0 0 0 1px var(--register-plan-line-selected, rgba(0, 202, 255, 0.9)),
+    inset 0 1px 0 rgba(255, 255, 255, 0.12),
+    0 28px 76px -56px rgba(0, 194, 255, 0.7);
 }
 
 .plansGrid[data-mode="signup"] .planIcon {
@@ -1215,6 +1251,13 @@
 .plansGrid[data-mode="signup"] .planCard[data-featured="true"] .badge {
   top: 13px;
   left: 110px;
+  border-color: rgba(0, 183, 255, 0.72);
+  color: #ffffff;
+  background: linear-gradient(135deg, #0077ff, #00c8ff);
+  box-shadow:
+    0 8px 24px -14px rgba(0, 132, 255, 0.9),
+    inset 0 1px 0 rgba(255, 255, 255, 0.28);
+  text-shadow: 0 1px 2px rgba(0, 30, 80, 0.45);
 }
 
 .plansGrid[data-mode="signup"] .planCard[data-featured="true"] .planTitle {

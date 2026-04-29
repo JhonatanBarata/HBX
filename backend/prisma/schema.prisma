@@ -119,6 +119,7 @@ model Company {
   hbxRecoveryFlowStages HbxRecoveryFlowStage[]
   hbxRecoveryPayments  HbxRecoveryPayment[]
   financeiroCharges    FinanceiroCharge[]
+  companySubscriptions CompanySubscription[]
   customerProfiles     CustomerProfile[]
   debtCases            DebtCase[]
   integrationConnections IntegrationConnection[]
@@ -208,6 +209,53 @@ model CompanyWhatsAppEndpoint {
 
   @@index([companyId, moduleKey])
   @@index([companyId, isActive, sortOrder])
+}
+
+model CommercialPlanProviderMapping {
+  id             String   @id @default(cuid())
+  planKey        String
+  billingCycle   String
+  provider       String   @default("mercadopago")
+  providerPlanId String
+  amount         Float
+  currency       String   @default("BRL")
+  active         Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([planKey, billingCycle, provider])
+  @@index([provider, providerPlanId])
+  @@index([active, provider])
+}
+
+model CompanySubscription {
+  id                        String   @id @default(cuid())
+  company                   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companyId                 Int
+  provider                  String   @default("mercadopago")
+  providerPreapprovalId     String?  @unique
+  providerPreapprovalPlanId String?
+  planKey                   String
+  billingCycle              String
+  status                    String   @default("pending") // pending | authorized | active | paused | canceled | past_due | blocked
+  payerEmail                String?
+  billingContactPhone       String?
+  cardBrand                 String?
+  cardLast4                 String?
+  currentPeriodStart        DateTime?
+  currentPeriodEnd          DateTime?
+  nextBillingAt             DateTime?
+  cancelAtPeriodEnd         Boolean  @default(false)
+  canceledAt                DateTime?
+  lastProviderStatus        String?
+  providerPayloadJson       String?
+  createdByUserId           Int?
+  createdAt                 DateTime @default(now())
+  updatedAt                 DateTime @updatedAt
+
+  @@index([companyId, status])
+  @@index([provider, providerPreapprovalPlanId])
+  @@index([provider, status])
 }
 
 model HbxRecoveryCustomer {

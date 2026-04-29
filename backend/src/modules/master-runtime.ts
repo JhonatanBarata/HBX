@@ -374,4 +374,67 @@ async function ensureMasterBillingRuntimeSchemaUncached(prisma: PrismaService) {
   await prisma.$executeRawUnsafe(
     'CREATE INDEX IF NOT EXISTS "FinanceiroCharge_companyId_status_createdAt_idx" ON "FinanceiroCharge"("companyId", "status", "createdAt")',
   );
+
+  await prisma.$executeRawUnsafe(`
+    CREATE TABLE IF NOT EXISTS "CommercialPlanProviderMapping" (
+      "id" TEXT PRIMARY KEY,
+      "planKey" TEXT NOT NULL,
+      "billingCycle" TEXT NOT NULL,
+      "provider" TEXT NOT NULL DEFAULT 'mercadopago',
+      "providerPlanId" TEXT NOT NULL,
+      "amount" DOUBLE PRECISION NOT NULL,
+      "currency" TEXT NOT NULL DEFAULT 'BRL',
+      "active" BOOLEAN NOT NULL DEFAULT true,
+      "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+  await prisma.$executeRawUnsafe(
+    'CREATE UNIQUE INDEX IF NOT EXISTS "CommercialPlanProviderMapping_planKey_billingCycle_provider_key" ON "CommercialPlanProviderMapping"("planKey", "billingCycle", "provider")',
+  );
+  await prisma.$executeRawUnsafe(
+    'CREATE INDEX IF NOT EXISTS "CommercialPlanProviderMapping_provider_providerPlanId_idx" ON "CommercialPlanProviderMapping"("provider", "providerPlanId")',
+  );
+  await prisma.$executeRawUnsafe(
+    'CREATE INDEX IF NOT EXISTS "CommercialPlanProviderMapping_active_provider_idx" ON "CommercialPlanProviderMapping"("active", "provider")',
+  );
+
+  await prisma.$executeRawUnsafe(`
+    CREATE TABLE IF NOT EXISTS "CompanySubscription" (
+      "id" TEXT PRIMARY KEY,
+      "companyId" INTEGER NOT NULL REFERENCES "Company"("id") ON DELETE CASCADE,
+      "provider" TEXT NOT NULL DEFAULT 'mercadopago',
+      "providerPreapprovalId" TEXT,
+      "providerPreapprovalPlanId" TEXT,
+      "planKey" TEXT NOT NULL,
+      "billingCycle" TEXT NOT NULL,
+      "status" TEXT NOT NULL DEFAULT 'pending',
+      "payerEmail" TEXT,
+      "billingContactPhone" TEXT,
+      "cardBrand" TEXT,
+      "cardLast4" TEXT,
+      "currentPeriodStart" TIMESTAMP(3),
+      "currentPeriodEnd" TIMESTAMP(3),
+      "nextBillingAt" TIMESTAMP(3),
+      "cancelAtPeriodEnd" BOOLEAN NOT NULL DEFAULT false,
+      "canceledAt" TIMESTAMP(3),
+      "lastProviderStatus" TEXT,
+      "providerPayloadJson" TEXT,
+      "createdByUserId" INTEGER,
+      "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+  await prisma.$executeRawUnsafe(
+    'CREATE UNIQUE INDEX IF NOT EXISTS "CompanySubscription_providerPreapprovalId_key" ON "CompanySubscription"("providerPreapprovalId")',
+  );
+  await prisma.$executeRawUnsafe(
+    'CREATE INDEX IF NOT EXISTS "CompanySubscription_companyId_status_idx" ON "CompanySubscription"("companyId", "status")',
+  );
+  await prisma.$executeRawUnsafe(
+    'CREATE INDEX IF NOT EXISTS "CompanySubscription_provider_providerPreapprovalPlanId_idx" ON "CompanySubscription"("provider", "providerPreapprovalPlanId")',
+  );
+  await prisma.$executeRawUnsafe(
+    'CREATE INDEX IF NOT EXISTS "CompanySubscription_provider_status_idx" ON "CompanySubscription"("provider", "status")',
+  );
 }

@@ -17,6 +17,8 @@ export type PlanSelectionCard = {
   features: string[];
   note?: string;
   trialCopy?: string;
+  promoPrice?: number | null;
+  promoLabel?: string;
 };
 
 type PlanSelectionExperienceProps = {
@@ -124,8 +126,21 @@ export default function PlanSelectionExperience({
             </div>
             {hasPrice ? (
               <div className={styles.priceBlock}>
-                <em>{money(displayedPrice)}</em>
-                <span>{annual ? "/mês no anual" : "/mês"}</span>
+                {plan.promoPrice !== undefined && plan.promoPrice !== null ? (
+                  <>
+                    <em>{money(plan.promoPrice)}</em>
+                    <span>{annual ? "/mês no anual" : "/mês"}</span>
+                    <div className={styles.originalPrice}>
+                      <s>{money(displayedPrice)}</s>
+                      <small>{plan.promoLabel || "/mês"}</small>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <em>{money(displayedPrice)}</em>
+                    <span>{annual ? "/mês no anual" : "/mês"}</span>
+                  </>
+                )}
               </div>
             ) : (
               <div className={styles.noPriceBlock}>
