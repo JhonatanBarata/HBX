@@ -14,6 +14,9 @@ type CheckoutPaymentMethod = "CARD" | "PIX" | "BOLETO";
 type CardVisualBrand = "mastercard" | "visa" | "amex" | "elo" | "card";
 type PlanKey = "hbx_lite" | "hbx_padrao" | "hbx_melhor";
 
+const SUPPORT_PHONE = "5519997024884";
+const SUPPORT_MESSAGE = "Olá, preciso de ajuda para finalizar minha contratação no HBX.";
+
 type FinanceiroOverview = {
   generatedAt: string;
   permissions?: {
@@ -672,84 +675,137 @@ export default function FinanceiroClientPage() {
       : checkoutPaymentMethod === "PIX"
         ? "Após confirmação do Pix"
         : "Após compensação do boleto";
+  const supportUrl = `https://wa.me/${SUPPORT_PHONE}?text=${encodeURIComponent(SUPPORT_MESSAGE)}`;
+  const changePlanHref = "/dashboard/planos?mode=pending_checkout&reason=change_plan";
 
   const checkout = (
     <div className={styles.page}>
       <Script src="https://sdk.mercadopago.com/js/v2" strategy="afterInteractive" onLoad={() => setMpScriptReady(true)} />
+      <a className={styles.supportPopup} href={supportUrl} target="_blank" rel="noreferrer" aria-label="Abrir suporte HBX no WhatsApp">
+        <span className={styles.supportPopupText}>
+          <strong>Precisa de ajuda?</strong>
+          <small>Fale com o suporte HBX para concluir pagamento, Pix, boleto ou liberação de acesso.</small>
+        </span>
+        <span className={styles.supportPopupIcon} aria-hidden="true">
+          <svg viewBox="0 0 24 24">
+            <path d="M19.05 4.94A9.8 9.8 0 0 0 12.06 2C6.59 2 2.13 6.46 2.13 11.93c0 1.75.46 3.46 1.32 4.97L2 22l5.27-1.38a9.9 9.9 0 0 0 4.79 1.22h.01c5.47 0 9.93-4.46 9.93-9.93a9.86 9.86 0 0 0-2.95-6.97ZM12.07 20.2h-.01a8.24 8.24 0 0 1-4.2-1.15l-.3-.18-3.13.82.84-3.05-.2-.31a8.2 8.2 0 0 1-1.26-4.4c0-4.53 3.69-8.22 8.24-8.22 2.2 0 4.27.85 5.82 2.4a8.17 8.17 0 0 1 2.4 5.82c0 4.54-3.69 8.23-8.2 8.23Zm4.5-6.15c-.25-.13-1.47-.72-1.7-.8-.23-.08-.4-.12-.57.12-.17.25-.65.8-.8.97-.15.17-.3.19-.56.06-.25-.13-1.06-.39-2.01-1.26-.74-.66-1.24-1.48-1.39-1.73-.15-.25-.02-.38.11-.5.11-.11.25-.3.38-.45.13-.15.17-.25.25-.42.08-.17.04-.31-.02-.44-.06-.13-.57-1.37-.78-1.88-.21-.5-.42-.43-.57-.44l-.49-.01c-.17 0-.44.06-.67.31-.23.25-.88.86-.88 2.1s.9 2.45 1.02 2.62c.13.17 1.77 2.7 4.3 3.79.6.26 1.08.42 1.44.54.61.19 1.16.16 1.6.1.49-.07 1.47-.6 1.68-1.18.21-.58.21-1.08.15-1.18-.06-.1-.23-.17-.48-.3Z" />
+          </svg>
+        </span>
+      </a>
       {error ? <section className={styles.errorCard}>{error}</section> : null}
       {message ? <section className={styles.successCard}>{message}</section> : null}
 
       <section className={styles.checkoutShell}>
         <article className={styles.checkoutMain}>
-          <div className={styles.checkoutHero}>
-            <div className={styles.checkoutLogo} aria-hidden="true">HBX</div>
-            <div>
-              <span className={styles.eyebrow}>Contratação HBX</span>
-              <h1 className={styles.checkoutTitle}>Finalize sua contratação</h1>
-              <p className={styles.heroText}>Confirme o ciclo e escolha como pagar. Cartão ativa a assinatura automática; Pix e boleto quitam o ciclo atual.</p>
-            </div>
-          </div>
+          <div className={styles.checkoutCompactGrid}>
+            <div className={styles.checkoutLeftRail}>
+              <div className={styles.checkoutHero}>
+                <div className={styles.checkoutLogo} aria-hidden="true">HBX</div>
+                <div>
+                  <span className={styles.eyebrow}>Contratação HBX</span>
+                  <h1 className={styles.checkoutTitle}>Finalize sua contratação</h1>
+                  <p className={styles.heroText}>Confirme o ciclo e escolha como pagar. Cartão ativa a assinatura automática; Pix e boleto quitam o ciclo atual.</p>
+                </div>
+              </div>
 
-          <div className={styles.checkoutStepper} aria-label="Etapas do checkout">
-            <span data-active="true">1. Ciclo</span>
-            <span data-active="true">2. Contato</span>
-            <span data-active="true">3. Pagamento</span>
-          </div>
+              <div className={styles.checkoutStepper} aria-label="Etapas da contratação">
+                <span data-state="done">
+                  <b>1</b>
+                  <strong>SignIn/Login</strong>
+                  <small>Conta criada</small>
+                </span>
+                <Link href={changePlanHref} className={styles.stepLink} data-state="done">
+                  <b>2</b>
+                  <strong>Plano</strong>
+                  <small>Trocar plano</small>
+                </Link>
+                <span data-state="current">
+                  <b>3</b>
+                  <strong>Pagamento</strong>
+                  <small>Etapa atual</small>
+                </span>
+              </div>
 
-          <section className={styles.checkoutSection}>
-            <div className={styles.sectionHeader}>
-              <div>
-                <strong>Ciclo de cobrança</strong>
-                <p className={styles.helperText}>Mensal já vem selecionado. Ele cobra mês a mês e não compromete o limite anual do cartão de uma vez.</p>
+              <section className={styles.checkoutSection}>
+                <div className={styles.sectionHeader}>
+                  <div>
+                    <strong>Ciclo de cobrança</strong>
+                    <p className={styles.helperText}>Mensal já vem selecionado. Ele cobra mês a mês e não compromete o limite anual do cartão de uma vez.</p>
+                  </div>
+                </div>
+                <div className={styles.cycleCards} role="group" aria-label="Ciclo de cobrança">
+                  <button type="button" data-active={billingCycle === "MONTHLY"} onClick={() => setBillingCycle("MONTHLY")}>
+                    <span className={styles.cycleName}>Mensal</span>
+                    <strong>{formatCurrency(monthlyTotal)}/mês</strong>
+                    <small>Cobrança automática todo mês. Não é compra anual parcelada.</small>
+                  </button>
+                  <button type="button" data-active={billingCycle === "ANNUAL"} onClick={() => setBillingCycle("ANNUAL")}>
+                    <span className={styles.discountBadge}>10% de desconto</span>
+                    <span className={styles.cycleName}>Anual</span>
+                    <strong>{formatCurrency(annualMonthlyEquivalent)}/mês</strong>
+                    <small>Total de {formatCurrency(annualTotal)} cobrado hoje.</small>
+                  </button>
+                </div>
+              </section>
+
+              <section className={styles.checkoutSection}>
+                <div className={styles.sectionHeader}>
+                  <div>
+                    <strong>Contato de confirmação</strong>
+                    <p className={styles.helperText}>Usamos estes dados para confirmar pagamento, status e suporte da contratação.</p>
+                  </div>
+                </div>
+                <div className={styles.formGrid}>
+                  <label className={styles.field}>
+                    <span className={styles.fieldLabel}>Telefone de contato</span>
+                    <input
+                      className={styles.fieldInput}
+                      inputMode="tel"
+                      value={contactPhone}
+                      onChange={(event) => setContactPhone(event.target.value)}
+                      placeholder="(11) 99999-9999"
+                    />
+                  </label>
+                  <label className={styles.field}>
+                    <span className={styles.fieldLabel}>Email de confirmação</span>
+                    <input
+                      className={styles.fieldInput}
+                      type="email"
+                      value={payerEmail}
+                      readOnly
+                      aria-readonly="true"
+                      placeholder="email da conta"
+                    />
+                  </label>
+                </div>
+              </section>
+
+              <div className={styles.checkoutFactsGrid} aria-label="Dados da contratação">
+                <div>
+                  <span>Plano</span>
+                  <strong>{plan.title}</strong>
+                  <small>{plan.includes.join(" • ")}</small>
+                  <Link href={changePlanHref} className={styles.changePlanButton}>Trocar plano</Link>
+                </div>
+                <div>
+                  <span>Método</span>
+                  <strong>{checkoutMethodLabel}</strong>
+                  <small>{checkoutPaymentMethod === "CARD" ? "Recorrência automática Mercado Pago." : "Pagamento avulso do ciclo selecionado."}</small>
+                </div>
+                <div>
+                  <span>{checkoutDateLabel}</span>
+                  <strong>{checkoutDateValue}</strong>
+                  <small>{checkoutPaymentMethod === "CARD" ? `${cycleLabel} selecionado.` : "O HBX atualiza o acesso automaticamente."}</small>
+                </div>
+                <div>
+                  <span>Total hoje</span>
+                  <strong>{formatCurrency(total)}</strong>
+                  <small>{billingCycle === "ANNUAL" ? `${formatCurrency(monthlyEquivalent)}/mês equivalente.` : "Cobrança mês a mês no cartão."}</small>
+                </div>
               </div>
             </div>
-            <div className={styles.cycleCards} role="group" aria-label="Ciclo de cobrança">
-              <button type="button" data-active={billingCycle === "MONTHLY"} onClick={() => setBillingCycle("MONTHLY")}>
-                <span className={styles.cycleName}>Mensal</span>
-                <strong>{formatCurrency(monthlyTotal)}/mês</strong>
-                <small>Cobrança automática todo mês. Não é compra anual parcelada.</small>
-              </button>
-              <button type="button" data-active={billingCycle === "ANNUAL"} onClick={() => setBillingCycle("ANNUAL")}>
-                <span className={styles.discountBadge}>10% de desconto</span>
-                <span className={styles.cycleName}>Anual</span>
-                <strong>{formatCurrency(annualMonthlyEquivalent)}/mês</strong>
-                <small>Total de {formatCurrency(annualTotal)} cobrado hoje.</small>
-              </button>
-            </div>
-          </section>
 
-          <section className={styles.checkoutSection}>
-            <div className={styles.sectionHeader}>
-              <div>
-                <strong>Contato de confirmação</strong>
-                <p className={styles.helperText}>Usamos estes dados para confirmar pagamento, status e suporte da contratação.</p>
-              </div>
-            </div>
-            <div className={styles.formGrid}>
-              <label className={styles.field}>
-                <span className={styles.fieldLabel}>Telefone de contato</span>
-                <input
-                  className={styles.fieldInput}
-                  inputMode="tel"
-                  value={contactPhone}
-                  onChange={(event) => setContactPhone(event.target.value)}
-                  placeholder="(11) 99999-9999"
-                />
-              </label>
-              <label className={styles.field}>
-                <span className={styles.fieldLabel}>Email de confirmação</span>
-                <input
-                  className={styles.fieldInput}
-                  type="email"
-                  value={payerEmail}
-                  readOnly
-                  aria-readonly="true"
-                  placeholder="email da conta"
-                />
-              </label>
-            </div>
-          </section>
-
+            <div className={styles.checkoutPaymentRail}>
           <section className={styles.checkoutSection}>
             <div className={styles.sectionHeader}>
               <div>
@@ -774,28 +830,6 @@ export default function FinanceiroClientPage() {
                 <strong>Pagamento do ciclo</strong>
                 <small>Abre boleto no Mercado Pago para compensação.</small>
               </button>
-            </div>
-            <div className={styles.checkoutFactsGrid} aria-label="Dados da contratação">
-              <div>
-                <span>Plano</span>
-                <strong>{plan.title}</strong>
-                <small>{plan.includes.join(" • ")}</small>
-              </div>
-              <div>
-                <span>Método</span>
-                <strong>{checkoutMethodLabel}</strong>
-                <small>{checkoutPaymentMethod === "CARD" ? "Recorrência automática Mercado Pago." : "Pagamento avulso do ciclo selecionado."}</small>
-              </div>
-              <div>
-                <span>{checkoutDateLabel}</span>
-                <strong>{checkoutDateValue}</strong>
-                <small>{checkoutPaymentMethod === "CARD" ? `${cycleLabel} selecionado.` : "O HBX atualiza o acesso automaticamente."}</small>
-              </div>
-              <div>
-                <span>Total hoje</span>
-                <strong>{formatCurrency(total)}</strong>
-                <small>{billingCycle === "ANNUAL" ? `${formatCurrency(monthlyEquivalent)}/mês equivalente.` : "Cobrança mês a mês no cartão."}</small>
-              </div>
             </div>
           </section>
 
@@ -948,6 +982,8 @@ export default function FinanceiroClientPage() {
             <span>Sem fidelidade: assinatura pode ser cancelada no Financeiro.</span>
             <span>Pix e boleto são alternativas avulsas para regularizar o ciclo.</span>
           </div>
+            </div>
+          </div>
         </article>
       </section>
     </div>
@@ -955,7 +991,7 @@ export default function FinanceiroClientPage() {
 
   if (checkoutMode) {
     return (
-      <DashboardScaffold title="Finalize sua contratação" description="Confirme plano, contato e cartão seguro.">
+      <DashboardScaffold title="Finalize sua contratação" description="Confirme plano, contato e cartão seguro." hideHeader>
         {checkout}
       </DashboardScaffold>
     );
