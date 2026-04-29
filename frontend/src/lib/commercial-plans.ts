@@ -24,6 +24,9 @@ export type CommercialPlansPayload = {
     planKey: CommercialPlanKey | null;
     entitlements: Record<CommercialEntitlementKey, boolean>;
     selectedPlanKey?: CommercialPlanKey | null;
+    contactName?: string | null;
+    contactPhone?: string | null;
+    taxDocument?: string | null;
     onboardingStatus?: string | null;
     subscriptionStatus?: string | null;
     paymentStatus?: string | null;

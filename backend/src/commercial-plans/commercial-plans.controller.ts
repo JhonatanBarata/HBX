@@ -20,6 +20,6 @@ export class CommercialPlansController {
 
   @Post('select')
   selectPlan(@Req() req: any, @Body() dto: SelectCommercialPlanDto) {
-    return this.commercialPlansService.selectPlanForUser(req.user, dto.planKey);
+    return this.commercialPlansService.selectPlanForUser(req.user, dto);
   }
 }

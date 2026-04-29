@@ -3,7 +3,7 @@
 import Script from "next/script";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import DashboardScaffold from "@/components/DashboardScaffold";
 import { apiFetch } from "../_lib/api";
 import { useRequireAuth } from "../_lib/useRequireAuth";
@@ -13,6 +13,29 @@ type BillingCycle = "MONTHLY" | "ANNUAL";
 type CheckoutPaymentMethod = "CARD" | "PIX" | "BOLETO";
 type CardVisualBrand = "mastercard" | "visa" | "amex" | "elo" | "card";
 type PlanKey = "hbx_lite" | "hbx_padrao" | "hbx_melhor";
+type MercadoPagoBrickFormData = {
+  token?: string | null;
+  cardTokenId?: string | null;
+  cardholderEmail?: string | null;
+  paymentMethodId?: string | null;
+  issuerId?: string | number | null;
+  payer?: {
+    email?: string | null;
+  } | null;
+  formData?: {
+    token?: string | null;
+    payer?: {
+      email?: string | null;
+    } | null;
+    paymentMethodId?: string | null;
+    issuerId?: string | number | null;
+  } | null;
+};
+type ApiErrorWithPayload = {
+  payload?: {
+    code?: string | null;
+  } | null;
+};
 
 const SUPPORT_PHONE = "5519997024884";
 const SUPPORT_MESSAGE = "Olá, preciso de ajuda para finalizar minha contratação no HBX.";
@@ -209,11 +232,11 @@ function isPendingCheckout(overview: FinanceiroOverview | null, reason?: string 
   return paymentStatus === "PENDING" || subscriptionStatus === "pending_checkout" || onboardingReason === "pending_checkout";
 }
 
-function extractBrickToken(data: any) {
+function extractBrickToken(data: MercadoPagoBrickFormData | null | undefined) {
   return String(data?.token || data?.formData?.token || data?.cardTokenId || "").trim();
 }
 
-function extractBrickEmail(data: any, fallback: string) {
+function extractBrickEmail(data: MercadoPagoBrickFormData | null | undefined, fallback: string) {
   return String(data?.payer?.email || data?.formData?.payer?.email || data?.cardholderEmail || fallback || "").trim();
 }
 
@@ -221,7 +244,7 @@ function resolveBillingActionError(error: unknown, fallback: string) {
   const raw = error instanceof Error ? error.message : String(error || "");
   const normalized = raw.toLowerCase();
   const payload = typeof error === "object" && error && "payload" in error
-    ? (error as { payload?: any }).payload
+    ? (error as ApiErrorWithPayload).payload
     : null;
   const code = String(payload?.code || "").trim();
   if (
@@ -283,6 +306,25 @@ function enhanceMercadoPagoCardAutofill(
     handler();
   };
 
+  const ensureValidLabels = () => {
+    const fields = Array.from(root.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>("input, select, textarea"));
+    root.querySelectorAll<HTMLLabelElement>("label[for]").forEach((label) => {
+      const currentFor = String(label.getAttribute("for") || "").trim();
+      if (!currentFor) return;
+      const directTarget = fields.find((field) => field.id === currentFor);
+      if (directTarget) return;
+
+      const namedTarget = fields.find((field) => field.getAttribute("name") === currentFor);
+      if (!namedTarget) return;
+
+      if (!namedTarget.id) {
+        const safeId = currentFor.replace(/[^a-z0-9_-]+/gi, "-").replace(/^-+|-+$/g, "") || "mp-field";
+        namedTarget.id = `${safeId}-input`;
+      }
+      label.htmlFor = namedTarget.id;
+    });
+  };
+
   const apply = () => {
     root.querySelectorAll<HTMLInputElement>("input").forEach((input) => {
       const context = [
@@ -329,6 +371,7 @@ function enhanceMercadoPagoCardAutofill(
         });
       }
     });
+    ensureValidLabels();
   };
 
   apply();
@@ -390,7 +433,7 @@ export default function FinanceiroClientPage() {
   const latestPixCharge = overview?.latestCharge?.paymentMethod === "PIX" ? overview.latestCharge : null;
   const latestBoletoCharge = overview?.latestCharge?.paymentMethod === "BOLETO" ? overview.latestCharge : null;
 
-  async function loadOverview(background = false) {
+  const loadOverview = useCallback(async (background = false) => {
     if (!background) setLoading(true);
     setError(null);
     try {
@@ -411,9 +454,9 @@ export default function FinanceiroClientPage() {
     } finally {
       if (!background) setLoading(false);
     }
-  }
+  }, [reason]);
 
-  async function submitSubscription(cardFormData: any) {
+  const submitSubscription = useCallback(async (cardFormData: MercadoPagoBrickFormData) => {
     const cardTokenId = extractBrickToken(cardFormData);
     const email = extractBrickEmail(cardFormData, payerEmail);
     const printedName = cardholderName.trim();
@@ -459,7 +502,16 @@ export default function FinanceiroClientPage() {
     } finally {
       setSaving(null);
     }
-  }
+  }, [
+    billingCycle,
+    cardholderName,
+    checkoutMode,
+    contactPhone,
+    loadOverview,
+    payerEmail,
+    selectedPlanKey,
+    showCardUpdate,
+  ]);
 
   async function cancelSubscription() {
     setSaving("cancel-subscription");
@@ -525,7 +577,7 @@ export default function FinanceiroClientPage() {
 
   useEffect(() => {
     if (hasToken === true) void loadOverview();
-  }, [hasToken]);
+  }, [hasToken, loadOverview]);
 
   useEffect(() => {
     if (!message) return;
@@ -539,7 +591,7 @@ export default function FinanceiroClientPage() {
       void loadOverview(true);
     }, 20000);
     return () => window.clearInterval(timer);
-  }, [checkoutMode]);
+  }, [checkoutMode, loadOverview]);
 
   useEffect(() => {
     if (!shouldRenderBrick || !window.MercadoPago || !mpScriptReady) return;
@@ -582,7 +634,7 @@ export default function FinanceiroClientPage() {
             cardAutofillCleanupRef.current?.();
             cardAutofillCleanupRef.current = enhanceMercadoPagoCardAutofill(setCardVisualBrand, setCardholderName) || null;
           },
-          onSubmit: (cardFormData: any) => submitSubscription(cardFormData),
+          onSubmit: (cardFormData: MercadoPagoBrickFormData) => submitSubscription(cardFormData),
           onError: (brickError: unknown) => {
             const text = brickError instanceof Error ? brickError.message : "Falha no formulário seguro do Mercado Pago.";
             setError(text);
@@ -613,7 +665,7 @@ export default function FinanceiroClientPage() {
       cardAutofillCleanupRef.current?.();
       cardAutofillCleanupRef.current = null;
     };
-  }, [shouldRenderBrick, mpScriptReady, publicKey, total, payerEmail, checkoutMode, showCardUpdate]);
+  }, [shouldRenderBrick, mpScriptReady, publicKey, total, payerEmail, submitSubscription]);
 
   useEffect(() => {
     if (!shouldRenderBrick || !publicKey) return;
@@ -756,21 +808,27 @@ export default function FinanceiroClientPage() {
                   </div>
                 </div>
                 <div className={styles.formGrid}>
-                  <label className={styles.field}>
+                  <label className={styles.field} htmlFor="checkout-contact-phone">
                     <span className={styles.fieldLabel}>Telefone de contato</span>
                     <input
+                      id="checkout-contact-phone"
                       className={styles.fieldInput}
                       inputMode="tel"
+                      name="tel"
+                      autoComplete="tel"
                       value={contactPhone}
                       onChange={(event) => setContactPhone(event.target.value)}
                       placeholder="(11) 99999-9999"
                     />
                   </label>
-                  <label className={styles.field}>
+                  <label className={styles.field} htmlFor="checkout-payer-email">
                     <span className={styles.fieldLabel}>Email de confirmação</span>
                     <input
+                      id="checkout-payer-email"
                       className={styles.fieldInput}
                       type="email"
+                      name="email"
+                      autoComplete="email"
                       value={payerEmail}
                       readOnly
                       aria-readonly="true"
@@ -825,10 +883,10 @@ export default function FinanceiroClientPage() {
                 <strong>Pagamento do ciclo</strong>
                 <small>Gera QR Code e libera após confirmação.</small>
               </button>
-              <button type="button" data-active={checkoutPaymentMethod === "BOLETO"} onClick={() => setCheckoutPaymentMethod("BOLETO")}>
+              <button type="button" data-active={checkoutPaymentMethod === "BOLETO"} disabled>
                 <span>Boleto</span>
                 <strong>Pagamento do ciclo</strong>
-                <small>Abre boleto no Mercado Pago para compensação.</small>
+                <small>Indisponível no momento.</small>
               </button>
             </div>
           </section>
@@ -860,9 +918,10 @@ export default function FinanceiroClientPage() {
                   </div>
                 </div>
                 <div className={styles.cardTokenPanel}>
-                  <label className={styles.field}>
+                  <label className={styles.field} htmlFor="checkout-cardholder-name">
                     <span className={styles.fieldLabel}>Nome impresso no cartão</span>
                     <input
+                      id="checkout-cardholder-name"
                       className={styles.fieldInput}
                       name="cc-name"
                       autoComplete="cc-name"
@@ -917,6 +976,7 @@ export default function FinanceiroClientPage() {
               {latestPixCharge?.pixQrCodeBase64 || latestPixCharge?.pixQrCode ? (
                 <div className={styles.pixResult}>
                   {latestPixCharge?.pixQrCodeBase64 ? (
+                    // eslint-disable-next-line @next/next/no-img-element
                     <img className={styles.qrImage} alt="QR Code Pix Mercado Pago" src={`data:image/png;base64,${latestPixCharge.pixQrCodeBase64}`} />
                   ) : null}
                   {latestPixCharge?.pixQrCode ? (
