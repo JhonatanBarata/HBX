@@ -243,7 +243,7 @@ function buildRemoteDeployScript(config, mode) {
   if (isForce) {
     lines.push(
       '$DC -f docker-compose.hostinger.yml down --remove-orphans',
-    'docker rm -f hbx-backend webscraping hbx-scraping-engine 2>/dev/null || true',
+    'docker rm -f backend hbx-backend webscraping hbx-scraping-engine 2>/dev/null || true',
     'run_filtered $DC -f docker-compose.hostinger.yml build --no-cache backend webscraping hbx-scraping-engine || echo "Aviso: build --no-cache falhou; tentando up -d --build."',
     'run_filtered $DC -f docker-compose.hostinger.yml up -d --build backend webscraping hbx-scraping-engine',
     'docker restart hbx-backend webscraping hbx-scraping-engine',
@@ -252,7 +252,7 @@ function buildRemoteDeployScript(config, mode) {
       'if [ "$FORCE_REBOOT_HOSTINGER" = "true" ]; then echo "FORCE_REBOOT_HOSTINGER=true: reiniciando VPS."; (sudo reboot || reboot); else echo "Reboot da VPS ignorado. Defina FORCE_REBOOT_HOSTINGER=true para habilitar."; fi',
     );
   } else {
-    lines.push('docker rm -f hbx-backend webscraping hbx-scraping-engine 2>/dev/null || true');
+    lines.push('docker rm -f backend hbx-backend webscraping hbx-scraping-engine 2>/dev/null || true');
     lines.push('run_filtered $DC -f docker-compose.hostinger.yml up -d --build backend webscraping hbx-scraping-engine');
   }
 
