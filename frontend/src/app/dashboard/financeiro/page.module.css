@@ -3,6 +3,11 @@
   gap: 1rem;
 }
 
+.checkoutPage {
+  width: 100%;
+  padding-bottom: 118px;
+}
+
 .hero,
 .panelCard,
 .errorCard,
@@ -390,7 +395,8 @@
   grid-template-columns: minmax(0, 1fr);
   gap: 1rem;
   align-items: start;
-  width: min(100%, 1180px);
+  width: 100%;
+  max-width: none;
   margin: 0 auto;
 }
 
@@ -625,7 +631,8 @@
 
 .supportPopup {
   position: fixed;
-  right: 20px;
+  left: 20px;
+  right: auto;
   bottom: 20px;
   z-index: 70;
   display: flex;
@@ -643,7 +650,7 @@
   box-shadow:
     0 22px 46px rgba(15, 23, 42, 0.18),
     inset 0 1px 0 rgba(255, 255, 255, 0.92);
-  transform-origin: right bottom;
+  transform-origin: left bottom;
   transition: transform 180ms ease, box-shadow 180ms ease;
 }
 
@@ -713,8 +720,8 @@
 
 .checkoutCompactGrid {
   display: grid;
-  grid-template-columns: minmax(330px, 0.86fr) minmax(520px, 1.14fr);
-  gap: 1rem;
+  grid-template-columns: minmax(420px, 0.82fr) minmax(620px, 1.18fr);
+  gap: 1.15rem;
   align-items: start;
 }
 
