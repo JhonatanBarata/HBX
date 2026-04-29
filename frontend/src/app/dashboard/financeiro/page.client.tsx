@@ -11,6 +11,7 @@ import styles from "./page.module.css";
 
 type BillingCycle = "MONTHLY" | "ANNUAL";
 type CheckoutPaymentMethod = "CARD" | "PIX" | "BOLETO";
+type CardVisualBrand = "mastercard" | "visa" | "amex" | "elo" | "card";
 type PlanKey = "hbx_lite" | "hbx_padrao" | "hbx_melhor";
 
 type FinanceiroOverview = {
@@ -216,6 +217,19 @@ function extractBrickEmail(data: any, fallback: string) {
 function resolveBillingActionError(error: unknown, fallback: string) {
   const raw = error instanceof Error ? error.message : String(error || "");
   const normalized = raw.toLowerCase();
+  const payload = typeof error === "object" && error && "payload" in error
+    ? (error as { payload?: any }).payload
+    : null;
+  const code = String(payload?.code || "").trim();
+  if (
+    code === "MERCADO_PAGO_MASTER_NOT_LINKED" ||
+    normalized.includes("configure no master") ||
+    normalized.includes("token master") ||
+    normalized.includes("mercado pago nao configurado") ||
+    normalized.includes("mercado pago não configurado")
+  ) {
+    return "Pagamento temporariamente indisponível. A configuração Mercado Pago desta empresa precisa ser revisada pelo HBX.";
+  }
   if (normalized.includes("property") && normalized.includes("should not exist")) {
     return "O frontend e a API de cobrança estão em versões diferentes. Publique o backend atualizado e tente novamente.";
   }
@@ -229,12 +243,96 @@ function resolveBillingActionError(error: unknown, fallback: string) {
   return fallback;
 }
 
+function detectCardVisualBrand(value: string): CardVisualBrand {
+  const digits = value.replace(/\D/g, "");
+  if (!digits) return "card";
+  const firstTwo = Number(digits.slice(0, 2));
+  const firstFour = Number(digits.slice(0, 4));
+  if ((firstTwo >= 51 && firstTwo <= 55) || (firstFour >= 2221 && firstFour <= 2720)) return "mastercard";
+  if (digits.startsWith("4")) return "visa";
+  if (digits.startsWith("34") || digits.startsWith("37")) return "amex";
+  if (/^(401178|401179|431274|438935|451416|457393|457631|457632|504175|5067|509|627780|636297|636368)/.test(digits)) return "elo";
+  return "card";
+}
+
+function cardVisualBrandLabel(brand: CardVisualBrand) {
+  if (brand === "mastercard") return "Mastercard";
+  if (brand === "visa") return "Visa";
+  if (brand === "amex") return "Amex";
+  if (brand === "elo") return "Elo";
+  return "Cartão";
+}
+
+function enhanceMercadoPagoCardAutofill(onBrandDetected: (brand: CardVisualBrand) => void) {
+  if (typeof document === "undefined") return undefined;
+  const root = document.getElementById("mp-card-payment-brick");
+  if (!root) return undefined;
+  const listeners: Array<{ input: HTMLInputElement; handler: () => void }> = [];
+
+  const apply = () => {
+    root.querySelectorAll<HTMLInputElement>("input").forEach((input) => {
+      const context = [
+        input.id,
+        input.name,
+        input.placeholder,
+        input.getAttribute("aria-label"),
+        input.closest("label")?.textContent,
+        input.parentElement?.textContent,
+      ].join(" ").toLowerCase();
+
+      if (/venc|valid|expir|mm\s*\/\s*aa|mm\s*\/\s*yyyy|expiration/.test(context)) {
+        input.setAttribute("autocomplete", "cc-exp");
+        input.setAttribute("inputmode", "numeric");
+        return;
+      }
+
+      if (/seguran|security|cvc|cvv|csc|código|codigo/.test(context)) {
+        input.setAttribute("autocomplete", "cc-csc");
+        input.setAttribute("inputmode", "numeric");
+        return;
+      }
+
+      if (/número|numero|number|cartão|cartao|card/.test(context)) {
+        input.setAttribute("autocomplete", "cc-number");
+        input.setAttribute("inputmode", "numeric");
+        if (!listeners.some((item) => item.input === input)) {
+          const handler = () => onBrandDetected(detectCardVisualBrand(input.value));
+          input.addEventListener("input", handler);
+          input.addEventListener("change", handler);
+          listeners.push({ input, handler });
+          handler();
+        }
+        return;
+      }
+
+      if (/titular|nome|name|holder/.test(context)) {
+        input.setAttribute("autocomplete", "cc-name");
+      }
+    });
+  };
+
+  apply();
+  const retries = [250, 800, 1600].map((delay) => window.setTimeout(apply, delay));
+  const observer = new MutationObserver(apply);
+  observer.observe(root, { childList: true, subtree: true });
+
+  return () => {
+    retries.forEach((timer) => window.clearTimeout(timer));
+    listeners.forEach(({ input, handler }) => {
+      input.removeEventListener("input", handler);
+      input.removeEventListener("change", handler);
+    });
+    observer.disconnect();
+  };
+}
+
 export default function FinanceiroClientPage() {
   const hasToken = useRequireAuth();
   const searchParams = useSearchParams();
   const publicKey = process.env.NEXT_PUBLIC_MERCADO_PAGO_PUBLIC_KEY || "";
   const brickControllerRef = useRef<{ unmount: () => void } | null>(null);
   const cardBrickReadyRef = useRef(false);
+  const cardAutofillCleanupRef = useRef<(() => void) | null>(null);
   const [mpScriptReady, setMpScriptReady] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState<string | null>(null);
@@ -249,6 +347,7 @@ export default function FinanceiroClientPage() {
   const [contactPhone, setContactPhone] = useState("");
   const [payerEmail, setPayerEmail] = useState("");
   const [cardholderName, setCardholderName] = useState("");
+  const [cardVisualBrand, setCardVisualBrand] = useState<CardVisualBrand>("card");
   const [showCardUpdate, setShowCardUpdate] = useState(false);
   const [forceCheckout, setForceCheckout] = useState(false);
   const [cancelModalOpen, setCancelModalOpen] = useState(false);
@@ -431,6 +530,8 @@ export default function FinanceiroClientPage() {
       // Mercado Pago controls its own iframe lifecycle.
     }
     brickControllerRef.current = null;
+    cardAutofillCleanupRef.current?.();
+    cardAutofillCleanupRef.current = null;
 
     const mp = new window.MercadoPago(publicKey, { locale: "pt-BR" });
     const bricksBuilder = mp.bricks();
@@ -454,6 +555,8 @@ export default function FinanceiroClientPage() {
           onReady: () => {
             cardBrickReadyRef.current = true;
             setCardBrickWarning(null);
+            cardAutofillCleanupRef.current?.();
+            cardAutofillCleanupRef.current = enhanceMercadoPagoCardAutofill(setCardVisualBrand) || null;
           },
           onSubmit: (cardFormData: any) => submitSubscription(cardFormData),
           onError: (brickError: unknown) => {
@@ -483,6 +586,8 @@ export default function FinanceiroClientPage() {
         // ignore
       }
       brickControllerRef.current = null;
+      cardAutofillCleanupRef.current?.();
+      cardAutofillCleanupRef.current = null;
     };
   }, [shouldRenderBrick, mpScriptReady, publicKey, total, payerEmail, checkoutMode, showCardUpdate]);
 
@@ -533,6 +638,19 @@ export default function FinanceiroClientPage() {
 
   const nextBilling = new Date();
   nextBilling.setMonth(nextBilling.getMonth() + (billingCycle === "ANNUAL" ? 12 : 1));
+  const checkoutMethodLabel =
+    checkoutPaymentMethod === "CARD"
+      ? "Cartão recorrente"
+      : checkoutPaymentMethod === "PIX"
+        ? "Pix avulso"
+        : "Boleto avulso";
+  const checkoutDateLabel = checkoutPaymentMethod === "CARD" ? "Próxima cobrança" : "Liberação";
+  const checkoutDateValue =
+    checkoutPaymentMethod === "CARD"
+      ? nextBilling.toLocaleDateString("pt-BR")
+      : checkoutPaymentMethod === "PIX"
+        ? "Após confirmação do Pix"
+        : "Após compensação do boleto";
 
   const checkout = (
     <div className={styles.page}>
@@ -636,6 +754,28 @@ export default function FinanceiroClientPage() {
                 <small>Abre boleto no Mercado Pago para compensação.</small>
               </button>
             </div>
+            <div className={styles.checkoutFactsGrid} aria-label="Dados da contratação">
+              <div>
+                <span>Plano</span>
+                <strong>{plan.title}</strong>
+                <small>{plan.includes.join(" • ")}</small>
+              </div>
+              <div>
+                <span>Método</span>
+                <strong>{checkoutMethodLabel}</strong>
+                <small>{checkoutPaymentMethod === "CARD" ? "Recorrência automática Mercado Pago." : "Pagamento avulso do ciclo selecionado."}</small>
+              </div>
+              <div>
+                <span>{checkoutDateLabel}</span>
+                <strong>{checkoutDateValue}</strong>
+                <small>{checkoutPaymentMethod === "CARD" ? `${cycleLabel} selecionado.` : "O HBX atualiza o acesso automaticamente."}</small>
+              </div>
+              <div>
+                <span>Total hoje</span>
+                <strong>{formatCurrency(total)}</strong>
+                <small>{billingCycle === "ANNUAL" ? `${formatCurrency(monthlyEquivalent)}/mês equivalente.` : "Cobrança mês a mês no cartão."}</small>
+              </div>
+            </div>
           </section>
 
           {checkoutPaymentMethod === "CARD" ? (
@@ -651,7 +791,10 @@ export default function FinanceiroClientPage() {
                 <div className={styles.cardMock} aria-hidden="true">
                   <div className={styles.cardMockTop}>
                     <span>HBX</span>
-                    <small>Mercado Pago</small>
+                    <small className={styles.cardBrandBadge} data-brand={cardVisualBrand}>
+                      <span aria-hidden="true" />
+                      {cardVisualBrandLabel(cardVisualBrand)}
+                    </small>
                   </div>
                   <strong>•••• •••• •••• ••••</strong>
                   <div className={styles.cardMockBottom}>
@@ -782,33 +925,6 @@ export default function FinanceiroClientPage() {
             <span>Pix e boleto são alternativas avulsas para regularizar o ciclo.</span>
           </div>
         </article>
-
-        <aside className={styles.checkoutSummaryPanel}>
-          <div>
-            <span className={styles.eyebrow}>Resumo</span>
-            <strong className={styles.summaryPlan}>{plan.title}</strong>
-          </div>
-          <div className={styles.priceStack}>
-            <span>{formatCurrency(monthlyEquivalent)}/mês</span>
-            <strong>{cycleLabel}: {formatCurrency(total)} hoje</strong>
-            <small>
-              {checkoutPaymentMethod === "CARD"
-                ? billingCycle === "ANNUAL"
-                  ? "Assinatura anual com 10% de desconto."
-                  : "Assinatura mensal recorrente, sem usar limite anual."
-                : "Pagamento avulso do ciclo selecionado."}
-            </small>
-          </div>
-          <div className={styles.summaryList}>
-            {plan.includes.map((item) => <span key={item}>{item}</span>)}
-          </div>
-          <div className={styles.summaryFacts}>
-            <div><span>{checkoutPaymentMethod === "CARD" ? "Próxima cobrança" : "Liberação"}</span><strong>{checkoutPaymentMethod === "CARD" ? nextBilling.toLocaleDateString("pt-BR") : "Após confirmação"}</strong></div>
-            <div><span>Método</span><strong>{checkoutPaymentMethod === "CARD" ? "Cartão recorrente" : checkoutPaymentMethod === "PIX" ? "Pix avulso" : "Boleto avulso"}</strong></div>
-            <div><span>Segurança</span><strong>Mercado Pago</strong></div>
-          </div>
-          <p className={styles.summarySupport}>Após a confirmação, o HBX atualiza seu acesso automaticamente.</p>
-        </aside>
       </section>
     </div>
   );
