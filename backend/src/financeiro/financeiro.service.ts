@@ -1152,11 +1152,17 @@ export class FinanceiroService {
     return this.prisma.financeiroCharge.findUnique({ where: { id: charge.id } });
   }
 
-  private async findReusableCharge(companyId: number, paymentMethod: string) {
+  private async findReusableCharge(
+    companyId: number,
+    paymentMethod: string,
+    options?: { billingCycle?: string; amount?: number },
+  ) {
     const row = await this.prisma.financeiroCharge.findFirst({
       where: {
         companyId,
         paymentMethod,
+        ...(options?.billingCycle ? { billingCycle: this.normalizeBillingCycle(options.billingCycle) } : {}),
+        ...(typeof options?.amount === 'number' ? { amount: this.normalizeCurrencyAmount(options.amount) } : {}),
         status: 'pending',
         lifecycle: 'in_progress',
       },
@@ -1677,22 +1683,12 @@ export class FinanceiroService {
     return this.getOverviewForUser(user);
   }
 
-  async createCheckoutForUser(user: any, dto: { paymentMethod?: string }) {
+  async createCheckoutForUser(user: any, dto: { paymentMethod?: string; planKey?: string; billingCycle?: string; contactPhone?: string }) {
     const context = this.resolveUserContext(user);
     this.assertCanManageBilling(context);
     const paymentMethod = this.normalizePaymentMethod(dto?.paymentMethod);
-    if (!['PIX', 'CARD'].includes(paymentMethod)) {
+    if (!['PIX', 'CARD', 'BOLETO'].includes(paymentMethod)) {
       throw new BadRequestException('Metodo de pagamento invalido para checkout.');
-    }
-
-    const reusable = await this.findReusableCharge(context.companyId, paymentMethod);
-    if (reusable) {
-      return {
-        ok: true,
-        reused: true,
-        charge: this.serializeCharge(reusable),
-        overview: await this.getOverviewForUser(user),
-      };
     }
 
     const company = await this.prisma.company.findUnique({
@@ -1716,7 +1712,17 @@ export class FinanceiroService {
     });
     if (!company) throw new BadRequestException('Empresa nao encontrada.');
     const masterConfig = await getMasterGlobalIntegrationConfig(this.prisma);
-    const pricing = this.buildPricing(company, masterConfig, []);
+    const selectedPlanKey = this.normalizeCommercialPlanKey(dto?.planKey || company.selectedPlanKey);
+    const requestedBillingCycle =
+      dto?.billingCycle !== undefined
+        ? this.normalizeBillingCycle(dto.billingCycle)
+        : this.normalizeBillingCycle(company.billingCycle);
+    const pricingCompany = {
+      ...company,
+      selectedPlanKey,
+      billingCycle: requestedBillingCycle,
+    };
+    const pricing = this.buildPricing(pricingCompany, masterConfig, []);
 
     if (pricing.freeMonths > 0) {
       const complimentary = await this.settleComplimentaryCycle(context.companyId, context.userId);
@@ -1733,6 +1739,28 @@ export class FinanceiroService {
     const amount = this.normalizeCurrencyAmount(pricing.finalCycleAmount);
     if (amount <= 0) {
       throw new BadRequestException('Nao ha valor disponivel para cobranca neste ciclo.');
+    }
+
+    const normalizedContactPhone = this.normalizeContactPhone(dto?.contactPhone);
+    const reusable = await this.findReusableCharge(context.companyId, paymentMethod, {
+      billingCycle: pricing.billingCycle,
+      amount,
+    });
+    if (reusable) {
+      await this.prisma.company.update({
+        where: { id: context.companyId },
+        data: {
+          selectedPlanKey,
+          billingCycle: requestedBillingCycle,
+          contactPhone: normalizedContactPhone || company.contactPhone || null,
+        },
+      });
+      return {
+        ok: true,
+        reused: true,
+        charge: this.serializeCharge(reusable),
+        overview: await this.getOverviewForUser(user),
+      };
     }
 
     const payerEmail =
@@ -1759,6 +1787,14 @@ export class FinanceiroService {
         createdByUserId: context.userId,
       },
     });
+    await this.prisma.company.update({
+      where: { id: context.companyId },
+      data: {
+        selectedPlanKey,
+        billingCycle: requestedBillingCycle,
+        contactPhone: normalizedContactPhone || company.contactPhone || null,
+      },
+    });
 
     try {
       if (paymentMethod === 'PIX') {
@@ -1773,6 +1809,8 @@ export class FinanceiroService {
             metadata: {
               company_id: context.companyId,
               financeiro_charge_id: baseCharge.id,
+              plan_key: selectedPlanKey,
+              billing_cycle: requestedBillingCycle,
             },
             payer: {
               email: payerEmail,
@@ -1797,6 +1835,8 @@ export class FinanceiroService {
           metadata: {
             chargeId: baseCharge.id,
             externalReference,
+            planKey: selectedPlanKey,
+            billingCycle: requestedBillingCycle,
           },
         });
 
@@ -1819,6 +1859,7 @@ export class FinanceiroService {
         };
       }
 
+      const isBoletoCheckout = paymentMethod === 'BOLETO';
       const returnUrl = this.buildCheckoutReturnUrl(baseCharge.id);
       const preference = await this.mercadoPagoClient.createPreference(
         accessToken,
@@ -1832,12 +1873,16 @@ export class FinanceiroService {
           },
           auto_return: 'approved',
           payment_methods: {
-            excluded_payment_types: [{ id: 'ticket' }, { id: 'atm' }, { id: 'bank_transfer' }],
+            excluded_payment_types: isBoletoCheckout
+              ? [{ id: 'credit_card' }, { id: 'debit_card' }, { id: 'bank_transfer' }, { id: 'atm' }]
+              : [{ id: 'ticket' }, { id: 'atm' }, { id: 'bank_transfer' }],
             installments: 1,
           },
           metadata: {
             company_id: context.companyId,
             financeiro_charge_id: baseCharge.id,
+            plan_key: selectedPlanKey,
+            billing_cycle: requestedBillingCycle,
           },
           payer: {
             name: this.normalizeOptionalString(company.primaryContactName) || company.name,
@@ -1865,18 +1910,22 @@ export class FinanceiroService {
       const ledgerEntryId = await this.insertBillingLedgerEntry({
         companyId: context.companyId,
         createdByUserId: context.userId,
-        entryType: 'CARD_CHECKOUT',
+        entryType: isBoletoCheckout ? 'BOLETO_CHECKOUT' : 'CARD_CHECKOUT',
         entryGroup: 'revenue',
         status: 'PENDING',
-        origin: 'financeiro_card',
+        origin: isBoletoCheckout ? 'financeiro_boleto' : 'financeiro_card',
         competence,
         amount,
-        paymentMethod: 'CARD',
+        paymentMethod,
         referenceLabel: this.resolveChargeReferenceLabel(company, pricing),
-        observation: 'Checkout de cartao criado pelo autoatendimento do cliente.',
+        observation: isBoletoCheckout
+          ? 'Checkout de boleto criado pelo autoatendimento do cliente.'
+          : 'Checkout de cartao criado pelo autoatendimento do cliente.',
         metadata: {
           chargeId: baseCharge.id,
           externalReference,
+          planKey: selectedPlanKey,
+          billingCycle: requestedBillingCycle,
         },
       });
 
