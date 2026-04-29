@@ -1,5 +1,4 @@
-import { Type } from 'class-transformer';
-import { IsIn, IsInt, IsOptional, IsString, Length, Max, Min } from 'class-validator';
+import { IsEmail, IsIn, IsOptional, IsString, Length } from 'class-validator';
 
 export class UpdateFinanceiroPreferencesDto {
   @IsOptional()
@@ -13,32 +12,48 @@ export class UpdateFinanceiroPreferencesDto {
 
 export class SaveFinanceiroCardDto {
   @IsString()
-  @Length(2, 40)
-  brand!: string;
-
-  @IsString()
-  @Length(4, 4)
-  last4!: string;
-
-  @IsString()
-  @Length(2, 120)
-  holderName!: string;
-
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  @Max(12)
-  expMonth!: number;
-
-  @Type(() => Number)
-  @IsInt()
-  @Min(2024)
-  @Max(2100)
-  expYear!: number;
+  @Length(8, 200)
+  cardTokenId!: string;
 }
 
 export class CreateFinanceiroCheckoutDto {
   @IsString()
   @IsIn(['PIX', 'CARD'])
   paymentMethod!: string;
+}
+
+export class CreateFinanceiroSubscriptionDto {
+  @IsString()
+  @IsIn(['hbx_lite', 'hbx_padrao', 'hbx_melhor'])
+  planKey!: string;
+
+  @IsString()
+  @IsIn(['MONTHLY', 'ANNUAL'])
+  billingCycle!: string;
+
+  @IsString()
+  @Length(8, 200)
+  cardTokenId!: string;
+
+  @IsString()
+  @Length(8, 30)
+  contactPhone!: string;
+
+  @IsOptional()
+  @IsEmail()
+  payerEmail?: string;
+
+  @IsOptional()
+  @IsString()
+  paymentMethodId?: string;
+
+  @IsOptional()
+  @IsString()
+  issuerId?: string;
+}
+
+export class ChangeFinanceiroSubscriptionCardDto {
+  @IsString()
+  @Length(8, 200)
+  cardTokenId!: string;
 }

@@ -5,6 +5,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { ensureMasterBillingRuntimeSchema } from '../modules/master-runtime';
 import {
   getMasterGlobalIntegrationConfig,
+  pickMasterMercadoPagoCredential,
   resolveCompanyMercadoPagoAccess,
 } from '../modules/master-global-integrations.util';
 import { MercadoPagoClientService } from '../payments/mercado-pago-client.service';
@@ -14,6 +15,7 @@ import {
   COMMERCIAL_PLAN_MODULE_KEYS,
   COMMERCIAL_PLAN_KEYS,
   COMMERCIAL_PRICING,
+  computeCommercialPlanCycleAmount,
   getCommercialPlanMonthlyPrice,
   getCommercialPlanTitle,
   isCommercialEntitlementActive,
@@ -71,6 +73,33 @@ export class FinanceiroService {
     return normalized === 'ANNUAL' ? 'ANNUAL' : 'MONTHLY';
   }
 
+  private normalizeContactPhone(value: unknown) {
+    const digits = String(value || '').replace(/\D/g, '');
+    if (digits.length < 10 || digits.length > 13) return null;
+    return digits;
+  }
+
+  private normalizePayerEmail(value: unknown) {
+    const normalized = String(value || '').trim().toLowerCase();
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized) ? normalized : null;
+  }
+
+  private normalizeCardToken(value: unknown) {
+    const normalized = String(value || '').trim();
+    if (!normalized || normalized.length < 8 || normalized.length > 200) return null;
+    return normalized;
+  }
+
+  private normalizeProviderSubscriptionStatus(value: unknown) {
+    const normalized = String(value || '').trim().toLowerCase();
+    if (['authorized', 'active'].includes(normalized)) return 'authorized';
+    if (['paused'].includes(normalized)) return 'paused';
+    if (['cancelled', 'canceled'].includes(normalized)) return 'canceled';
+    if (['rejected', 'failed'].includes(normalized)) return 'past_due';
+    if (['pending'].includes(normalized)) return 'pending';
+    return normalized || 'pending';
+  }
+
   private normalizeProviderPaymentStatus(value: unknown) {
     const normalized = String(value || '').trim().toLowerCase();
     if (['approved', 'accredited'].includes(normalized)) return 'approved';
@@ -99,6 +128,38 @@ export class FinanceiroService {
     } catch {
       return JSON.stringify({ error: 'json_serialize_failed' });
     }
+  }
+
+  private sanitizeProviderPayload(value: unknown): unknown {
+    if (Array.isArray(value)) return value.map((item) => this.sanitizeProviderPayload(item));
+    if (!value || typeof value !== 'object') return value;
+
+    const blockedKeys = new Set([
+      'card_token_id',
+      'cardtokenid',
+      'card_token',
+      'cardtoken',
+      'token',
+      'security_code',
+      'securitycode',
+      'cvv',
+      'card_number',
+      'cardnumber',
+      'first_six_digits',
+      'firstsixdigits',
+    ]);
+
+    const sanitized: Record<string, unknown> = {};
+    for (const [key, nestedValue] of Object.entries(value as Record<string, unknown>)) {
+      const normalizedKey = key.replace(/[^a-z0-9]/gi, '').toLowerCase();
+      if (blockedKeys.has(normalizedKey) || blockedKeys.has(key.toLowerCase())) continue;
+      sanitized[key] = this.sanitizeProviderPayload(nestedValue);
+    }
+    return sanitized;
+  }
+
+  private providerJson(value: unknown) {
+    return this.json(this.sanitizeProviderPayload(value));
   }
 
   private monthKey(date = new Date()) {
@@ -175,6 +236,29 @@ export class FinanceiroService {
 
   private normalizeCommercialPlanKey(value: unknown): ActiveCommercialPlanKey {
     return normalizeCatalogCommercialPlanKey(value);
+  }
+
+  private buildCommercialPlanProviderSnapshot(planKeyRaw: unknown, billingCycleRaw: unknown) {
+    const planKey = this.normalizeCommercialPlanKey(planKeyRaw);
+    const billingCycle = this.normalizeBillingCycle(billingCycleRaw);
+    const amount = computeCommercialPlanCycleAmount(planKey, billingCycle);
+    const monthlyValue = getCommercialPlanMonthlyPrice(planKey);
+    const title = getCommercialPlanTitle(planKey);
+    return {
+      planKey,
+      billingCycle,
+      amount,
+      currency: 'BRL',
+      monthlyValue,
+      title,
+      reason: `${title} ${billingCycle === 'ANNUAL' ? 'anual' : 'mensal'}`,
+      frequency: billingCycle === 'ANNUAL' ? 12 : 1,
+      frequencyType: 'months' as const,
+    };
+  }
+
+  private buildSubscriptionBackUrl() {
+    return `${this.buildAppUrl()}/dashboard/financeiro?focus=payment`;
   }
 
   private async syncPaidPlanModulesTx(tx: any, companyId: number, planKey: string) {
@@ -310,7 +394,7 @@ export class FinanceiroService {
     if (context.canManageBilling) return;
     throw new ForbiddenException({
       code: 'USER_PLAN_UPGRADE_NOT_ALLOWED',
-      message: 'USER não pode fazer upgrade. Contate seu ADMIN ou o suporte da empresa.',
+      message: 'Seu usuário não pode alterar cobrança. Contate seu ADMIN ou o suporte da empresa.',
     });
   }
 
@@ -393,6 +477,77 @@ export class FinanceiroService {
       if (match?.[1]) return match[1];
     }
     return null;
+  }
+
+  private webhookTopic(query: Record<string, any>, body: any) {
+    return String(query?.type || query?.topic || body?.type || body?.topic || body?.action || '').trim().toLowerCase();
+  }
+
+  private extractPreapprovalId(query: Record<string, any>, body: any): string | null {
+    const topic = this.webhookTopic(query, body);
+    const candidate = query?.['data.id'] || body?.data?.id || body?.id || query?.id;
+    if (candidate && /preapproval|subscription/.test(topic)) return String(candidate).trim();
+    const resource = body?.resource || query?.resource;
+    if (typeof resource === 'string') {
+      const match = resource.match(/preapproval\/([^/?#]+)/i);
+      if (match?.[1]) return decodeURIComponent(match[1]);
+    }
+    return null;
+  }
+
+  private parseSubscriptionExternalReference(value: unknown) {
+    const externalReference = String(value || '').trim();
+    const match = externalReference.match(/^hbx-sub-(\d+)-([^/]+)$/i);
+    if (!match) return null;
+    return {
+      companyId: Number(match[1] || 0) || null,
+      subscriptionId: match[2] || null,
+    };
+  }
+
+  private subscriptionCardSnapshot(provider: any, fallback?: any) {
+    const card = provider?.card || provider?.payment_method || {};
+    const paymentMethod = card?.payment_method || card || {};
+    const brand = this.normalizeOptionalString(paymentMethod?.name || paymentMethod?.id || provider?.payment_method_id || fallback?.cardBrand);
+    const last4 = String(card?.last_four_digits || provider?.card_last_four_digits || fallback?.cardLast4 || '')
+      .replace(/\D/g, '')
+      .slice(-4) || null;
+    return { brand, last4 };
+  }
+
+  private inferNextBillingAt(provider: any, start: Date | null, billingCycle: string) {
+    const direct =
+      this.parseDate(provider?.next_payment_date) ||
+      this.parseDate(provider?.auto_recurring?.end_date) ||
+      null;
+    if (direct) return direct;
+    if (start) return this.computePeriodEnd(start, billingCycle);
+    return null;
+  }
+
+  private serializeSubscription(row: any, canManageBilling = true) {
+    if (!row || !canManageBilling) return null;
+    return {
+      id: String(row.id),
+      provider: String(row.provider || 'mercadopago'),
+      providerPreapprovalId: row.providerPreapprovalId ? String(row.providerPreapprovalId) : null,
+      providerPreapprovalPlanId: row.providerPreapprovalPlanId ? String(row.providerPreapprovalPlanId) : null,
+      planKey: String(row.planKey || ''),
+      billingCycle: this.normalizeBillingCycle(row.billingCycle),
+      status: String(row.status || 'pending'),
+      payerEmail: row.payerEmail ? String(row.payerEmail) : null,
+      billingContactPhone: row.billingContactPhone ? String(row.billingContactPhone) : null,
+      cardBrand: row.cardBrand ? String(row.cardBrand) : null,
+      cardLast4: row.cardLast4 ? String(row.cardLast4) : null,
+      currentPeriodStart: row.currentPeriodStart instanceof Date ? row.currentPeriodStart.toISOString() : null,
+      currentPeriodEnd: row.currentPeriodEnd instanceof Date ? row.currentPeriodEnd.toISOString() : null,
+      nextBillingAt: row.nextBillingAt instanceof Date ? row.nextBillingAt.toISOString() : null,
+      cancelAtPeriodEnd: Boolean(row.cancelAtPeriodEnd),
+      canceledAt: row.canceledAt instanceof Date ? row.canceledAt.toISOString() : null,
+      lastProviderStatus: row.lastProviderStatus ? String(row.lastProviderStatus) : null,
+      createdAt: row.createdAt instanceof Date ? row.createdAt.toISOString() : null,
+      updatedAt: row.updatedAt instanceof Date ? row.updatedAt.toISOString() : null,
+    };
   }
 
   private normalizeLedgerEntry(row: BillingLedgerEntryRow) {
@@ -588,6 +743,92 @@ export class FinanceiroService {
     return { company, accessToken };
   }
 
+  private async resolveWebhookMercadoPagoAccessToken() {
+    const envToken = String(process.env.MERCADO_PAGO_ACCESS_TOKEN || '').trim();
+    if (envToken) return envToken;
+    const masterConfig = await getMasterGlobalIntegrationConfig(this.prisma);
+    const credential = pickMasterMercadoPagoCredential(masterConfig);
+    const accessToken = String(credential?.accessToken || masterConfig?.mercadoPagoAccessToken || '').trim();
+    if (!accessToken) {
+      throw new BadRequestException('Mercado Pago MASTER nao configurado para consultar webhook sem company_id.');
+    }
+    return accessToken;
+  }
+
+  private async ensureMercadoPagoPreapprovalPlan(
+    accessToken: string,
+    planKeyRaw: unknown,
+    billingCycleRaw: unknown,
+  ) {
+    const snapshot = this.buildCommercialPlanProviderSnapshot(planKeyRaw, billingCycleRaw);
+    const existing = await this.prisma.commercialPlanProviderMapping.findFirst({
+      where: {
+        planKey: snapshot.planKey,
+        billingCycle: snapshot.billingCycle,
+        provider: 'mercadopago',
+        active: true,
+      },
+    });
+    if (existing?.providerPlanId) return existing;
+
+    const providerPlan = await this.mercadoPagoClient.createPreapprovalPlan(
+      accessToken,
+      {
+        reason: snapshot.reason,
+        auto_recurring: {
+          frequency: snapshot.frequency,
+          frequency_type: snapshot.frequencyType,
+          transaction_amount: snapshot.amount,
+          currency_id: snapshot.currency,
+        },
+        payment_methods_allowed: {
+          payment_types: [{ id: 'credit_card' }],
+        },
+        back_url: this.buildSubscriptionBackUrl(),
+      },
+      randomUUID(),
+    );
+
+    const providerPlanId = String(providerPlan?.id || '').trim();
+    if (!providerPlanId) throw new Error('Mercado Pago nao retornou preapproval_plan_id.');
+
+    return this.prisma.commercialPlanProviderMapping.upsert({
+      where: {
+        planKey_billingCycle_provider: {
+          planKey: snapshot.planKey,
+          billingCycle: snapshot.billingCycle,
+          provider: 'mercadopago',
+        },
+      },
+      update: {
+        providerPlanId,
+        amount: snapshot.amount,
+        currency: snapshot.currency,
+        active: true,
+      },
+      create: {
+        planKey: snapshot.planKey,
+        billingCycle: snapshot.billingCycle,
+        provider: 'mercadopago',
+        providerPlanId,
+        amount: snapshot.amount,
+        currency: snapshot.currency,
+        active: true,
+      },
+    });
+  }
+
+  private async findCurrentCompanySubscription(companyId: number) {
+    return this.prisma.companySubscription.findFirst({
+      where: {
+        companyId,
+        provider: 'mercadopago',
+        status: { in: ['authorized', 'active', 'past_due', 'paused', 'pending'] },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
   private async insertBillingLedgerEntry(input: {
     companyId: number;
     createdByUserId?: number | null;
@@ -697,6 +938,147 @@ export class FinanceiroService {
       await this.syncPaidPlanModulesTx(tx, companyId, selectedPlanKey);
       await this.syncPaidCommercialEntitlementsTx(tx, companyId, selectedPlanKey, paidAt, periodEnd);
     });
+  }
+
+  private async activateCompanyFromSubscription(subscription: any, paidAt: Date, provider?: any) {
+    const companyId = Number(subscription?.companyId || 0);
+    if (!companyId) throw new BadRequestException('Empresa da assinatura nao identificada.');
+
+    const company = await this.prisma.company.findUnique({ where: { id: companyId } });
+    if (!company) throw new BadRequestException('Empresa nao encontrada.');
+
+    const billingCycle = this.normalizeBillingCycle(subscription.billingCycle);
+    const periodStart = paidAt;
+    const periodEnd =
+      this.parseDate(provider?.auto_recurring?.end_date) ||
+      this.parseDate(provider?.current_period_end) ||
+      this.computePeriodEnd(periodStart, billingCycle);
+    const nextBillingAt = this.inferNextBillingAt(provider, periodStart, billingCycle) || periodEnd;
+    const selectedPlanKey = this.normalizeCommercialPlanKey(subscription.planKey || company.selectedPlanKey);
+    const card = this.subscriptionCardSnapshot(provider, subscription);
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.companySubscription.update({
+        where: { id: subscription.id },
+        data: {
+          status: 'active',
+          lastProviderStatus: provider?.status ? String(provider.status) : subscription.lastProviderStatus || 'active',
+          currentPeriodStart: periodStart,
+          currentPeriodEnd: periodEnd,
+          nextBillingAt,
+          cardBrand: card.brand || subscription.cardBrand,
+          cardLast4: card.last4 || subscription.cardLast4,
+          providerPayloadJson: this.providerJson({ provider }),
+        },
+      });
+
+      await tx.company.update({
+        where: { id: companyId },
+        data: {
+          selectedPlanKey,
+          trialModuleSelection: selectedPlanKey === COMMERCIAL_PLAN_KEYS.PADRAO ? 'vendas' : null,
+          isActive: true,
+          onboardingStatus: 'active_paid',
+          paymentStatus: 'PAID',
+          subscriptionStatus: 'active',
+          billingProvider: 'mercadopago',
+          paymentMethod: 'CARD',
+          billingCycle,
+          premiumAccess: true,
+          subscriptionCurrentPeriodStart: periodStart,
+          subscriptionCurrentPeriodEnd: periodEnd,
+          billingCardBrand: card.brand || company.billingCardBrand || null,
+          billingCardLast4: card.last4 || company.billingCardLast4 || null,
+          billingCardHolderName: null,
+          billingCardExpMonth: null,
+          billingCardExpYear: null,
+          billingCardUpdatedAt: card.last4 || card.brand ? new Date() : company.billingCardUpdatedAt,
+          deactivatedAt: null,
+        },
+      });
+
+      await this.syncPaidPlanModulesTx(tx, companyId, selectedPlanKey);
+      await this.syncPaidCommercialEntitlementsTx(tx, companyId, selectedPlanKey, periodStart, periodEnd);
+    });
+  }
+
+  private async applySubscriptionProviderState(subscription: any, provider: any, options?: { forceBlock?: boolean }) {
+    const providerStatus = this.normalizeProviderSubscriptionStatus(provider?.status || subscription?.lastProviderStatus);
+    const now = new Date();
+    const hasPaidPeriod =
+      subscription?.currentPeriodEnd instanceof Date && subscription.currentPeriodEnd.getTime() > now.getTime();
+    const shouldKeepAccessAfterCancel = providerStatus === 'canceled' && hasPaidPeriod && !options?.forceBlock;
+
+    await this.prisma.companySubscription.update({
+      where: { id: subscription.id },
+      data: {
+        status: providerStatus,
+        lastProviderStatus: provider?.status ? String(provider.status) : providerStatus,
+        cancelAtPeriodEnd: shouldKeepAccessAfterCancel,
+        canceledAt: providerStatus === 'canceled' ? now : subscription.canceledAt || null,
+        nextBillingAt: this.parseDate(provider?.next_payment_date) || subscription.nextBillingAt,
+        providerPayloadJson: this.providerJson({ provider }),
+      },
+    });
+
+    if (providerStatus === 'authorized') {
+      if (String(subscription.status || '').toLowerCase() === 'active' || hasPaidPeriod) {
+        await this.prisma.companySubscription.update({
+          where: { id: subscription.id },
+          data: { status: 'active' },
+        });
+        await this.prisma.company.update({
+          where: { id: subscription.companyId },
+          data: {
+            billingProvider: 'mercadopago',
+            paymentMethod: 'CARD',
+            billingCycle: this.normalizeBillingCycle(subscription.billingCycle),
+            selectedPlanKey: this.normalizeCommercialPlanKey(subscription.planKey),
+            subscriptionStatus: 'active',
+            paymentStatus: 'PAID',
+            premiumAccess: true,
+          },
+        });
+        return;
+      }
+      await this.prisma.company.update({
+        where: { id: subscription.companyId },
+        data: {
+          billingProvider: 'mercadopago',
+          paymentMethod: 'CARD',
+          billingCycle: this.normalizeBillingCycle(subscription.billingCycle),
+          selectedPlanKey: this.normalizeCommercialPlanKey(subscription.planKey),
+          subscriptionStatus: 'authorized',
+          paymentStatus: 'PENDING',
+        },
+      });
+      return;
+    }
+
+    if (providerStatus === 'paused' || providerStatus === 'past_due') {
+      await this.prisma.company.update({
+        where: { id: subscription.companyId },
+        data: {
+          subscriptionStatus: providerStatus,
+          paymentStatus: 'OVERDUE',
+          billingProvider: 'mercadopago',
+        },
+      });
+      return;
+    }
+
+    if (providerStatus === 'canceled' && !shouldKeepAccessAfterCancel) {
+      await this.prisma.company.update({
+        where: { id: subscription.companyId },
+        data: {
+          subscriptionStatus: 'canceled',
+          paymentStatus: 'DISABLED',
+          premiumAccess: false,
+          isActive: false,
+          deactivatedAt: now,
+        },
+      });
+    }
   }
 
   private async settleComplimentaryCycle(companyId: number, userId: number) {
@@ -820,7 +1202,7 @@ export class FinanceiroService {
         paidAt: paidAt || charge.paidAt,
         refundedAt,
         refundAmount: refunded,
-        providerPayload: this.json({ context: context || null, provider }),
+        providerPayload: this.providerJson({ context: context || null, provider }),
         lastWebhookAt: new Date(),
         lastWebhookPayload: this.json({ query: context?.query || null, body: context?.body || null }),
       },
@@ -854,10 +1236,256 @@ export class FinanceiroService {
     return { updated: true, status, charge: this.serializeCharge(charge) };
   }
 
+  private async resolveSubscriptionFromPaymentProvider(provider: any) {
+    const metadata = (provider?.metadata || {}) as Record<string, unknown>;
+    const explicitSubscriptionId = String(
+      metadata.company_subscription_id ||
+        metadata.subscription_id ||
+        metadata.hbx_subscription_id ||
+        '',
+    ).trim();
+    if (explicitSubscriptionId) {
+      const byId = await this.prisma.companySubscription.findUnique({ where: { id: explicitSubscriptionId } });
+      if (byId) return byId;
+    }
+
+    const external = this.parseSubscriptionExternalReference(provider?.external_reference);
+    if (external?.subscriptionId) {
+      const byExternal = await this.prisma.companySubscription.findFirst({
+        where: {
+          id: external.subscriptionId,
+          companyId: external.companyId || undefined,
+        },
+      });
+      if (byExternal) return byExternal;
+    }
+
+    const preapprovalId = String(
+      provider?.preapproval_id ||
+        provider?.subscription_id ||
+        provider?.point_of_interaction?.transaction_data?.subscription_id ||
+        metadata.preapproval_id ||
+        '',
+    ).trim();
+    if (preapprovalId) {
+      const byPreapproval = await this.prisma.companySubscription.findUnique({
+        where: { providerPreapprovalId: preapprovalId },
+      });
+      if (byPreapproval) return byPreapproval;
+    }
+
+    return null;
+  }
+
+  private async syncSubscriptionPaymentFromProvider(
+    provider: any,
+    context?: any,
+  ) {
+    const paymentId = String(provider?.id || '').trim();
+    if (!paymentId) return { updated: false, reason: 'payment_id ausente.' };
+
+    const subscription = await this.resolveSubscriptionFromPaymentProvider(provider);
+    if (!subscription) return { updated: false, paymentId, reason: 'assinatura local nao encontrada.' };
+
+    const status = this.normalizeProviderPaymentStatus(provider.status);
+    const lifecycle = this.normalizeLifecycle(status);
+    const paidAt = provider.date_approved ? new Date(provider.date_approved) : null;
+    const amount = Math.max(
+      0,
+      this.normalizeCurrencyAmount(
+        provider.transaction_amount || computeCommercialPlanCycleAmount(subscription.planKey, subscription.billingCycle),
+      ),
+    );
+    const refunded = Math.max(0, this.normalizeCurrencyAmount(provider.transaction_amount_refunded || 0));
+    const refundedAt = refunded > 0 && provider.date_last_updated ? new Date(provider.date_last_updated) : null;
+    const chargeExternalReference = `hbx-subpay-${paymentId}`;
+    const description = `${getCommercialPlanTitle(subscription.planKey)} ${this.normalizeBillingCycle(subscription.billingCycle) === 'ANNUAL' ? 'anual' : 'mensal'}`;
+    const competence = this.monthKey(paidAt || new Date());
+
+    let charge = await this.prisma.financeiroCharge.findFirst({
+      where: { mpPaymentId: paymentId },
+    });
+
+    if (!charge) {
+      charge = await this.prisma.financeiroCharge.create({
+        data: {
+          companyId: subscription.companyId,
+          amount,
+          description,
+          billingCycle: this.normalizeBillingCycle(subscription.billingCycle),
+          paymentMethod: 'CARD',
+          status,
+          lifecycle,
+          competence,
+          externalReference: chargeExternalReference,
+          mpPaymentId: paymentId,
+          mpMerchantOrderId:
+            provider?.order?.id !== undefined && provider?.order?.id !== null ? String(provider.order.id) : null,
+          paidAt,
+          refundedAt,
+          refundAmount: refunded,
+          providerPayload: this.providerJson({ context: context || null, provider }),
+          lastWebhookAt: new Date(),
+          lastWebhookPayload: this.json({ query: context?.query || null, body: context?.body || null }),
+          createdByUserId: subscription.createdByUserId || null,
+        },
+      });
+    } else {
+      charge = await this.prisma.financeiroCharge.update({
+        where: { id: charge.id },
+        data: {
+          amount,
+          status,
+          lifecycle,
+          mpPaymentId: paymentId,
+          mpMerchantOrderId:
+            provider?.order?.id !== undefined && provider?.order?.id !== null ? String(provider.order.id) : charge.mpMerchantOrderId,
+          paidAt: paidAt || charge.paidAt,
+          refundedAt,
+          refundAmount: refunded,
+          providerPayload: this.providerJson({ context: context || null, provider }),
+          lastWebhookAt: new Date(),
+          lastWebhookPayload: this.json({ query: context?.query || null, body: context?.body || null }),
+        },
+      });
+    }
+
+    if (!charge.ledgerEntryId) {
+      const ledgerEntryId = await this.insertBillingLedgerEntry({
+        companyId: subscription.companyId,
+        createdByUserId: subscription.createdByUserId || null,
+        entryType: 'SUBSCRIPTION_CARD',
+        entryGroup: 'revenue',
+        status,
+        origin: 'financeiro_subscription',
+        competence,
+        amount,
+        paidAt: paidAt || null,
+        paymentMethod: 'CARD',
+        referenceLabel: getCommercialPlanTitle(subscription.planKey),
+        observation:
+          status === 'approved'
+            ? 'Pagamento recorrente aprovado automaticamente pelo Mercado Pago.'
+            : 'Pagamento recorrente atualizado pelo Mercado Pago.',
+        metadata: {
+          chargeId: charge.id,
+          companySubscriptionId: subscription.id,
+          providerPreapprovalId: subscription.providerPreapprovalId,
+          mpPaymentId: paymentId,
+          mpStatus: provider.status,
+        },
+      });
+      charge = await this.prisma.financeiroCharge.update({
+        where: { id: charge.id },
+        data: { ledgerEntryId },
+      });
+    } else {
+      await this.updateLedgerEntryStatus({
+        entryId: charge.ledgerEntryId,
+        status,
+        paidAt: paidAt || null,
+        paymentMethod: 'CARD',
+        observation:
+          status === 'approved'
+            ? 'Pagamento recorrente aprovado automaticamente pelo Mercado Pago.'
+            : status === 'failed'
+              ? 'Pagamento recorrente marcado como falho pelo Mercado Pago.'
+              : 'Pagamento recorrente atualizado pelo Mercado Pago.',
+        metadata: {
+          chargeId: charge.id,
+          companySubscriptionId: subscription.id,
+          providerPreapprovalId: subscription.providerPreapprovalId,
+          mpPaymentId: paymentId,
+          mpStatus: provider.status,
+        },
+      });
+    }
+
+    if (status === 'approved' && paidAt) {
+      await this.activateCompanyFromSubscription(subscription, paidAt, provider);
+    } else if (status === 'failed' || status === 'cancelled') {
+      await this.prisma.companySubscription.update({
+        where: { id: subscription.id },
+        data: {
+          status: 'past_due',
+          lastProviderStatus: provider?.status ? String(provider.status) : status,
+          providerPayloadJson: this.providerJson({ provider }),
+        },
+      });
+      await this.prisma.company.update({
+        where: { id: subscription.companyId },
+        data: {
+          subscriptionStatus: 'past_due',
+          paymentStatus: 'OVERDUE',
+          billingProvider: 'mercadopago',
+        },
+      });
+    }
+
+    return {
+      updated: true,
+      paymentId,
+      status,
+      companyId: subscription.companyId,
+      subscription: this.serializeSubscription(subscription),
+      charge: this.serializeCharge(charge),
+    };
+  }
+
+  private async syncPreapprovalFromProvider(preapprovalId: string, context?: any) {
+    let subscription = await this.prisma.companySubscription.findUnique({
+      where: { providerPreapprovalId: preapprovalId },
+    });
+
+    let accessToken = '';
+    if (subscription) {
+      accessToken = (await this.resolveFinanceContext(subscription.companyId)).accessToken;
+    } else {
+      accessToken = await this.resolveWebhookMercadoPagoAccessToken();
+    }
+
+    const provider = await this.mercadoPagoClient.getPreapproval(accessToken, preapprovalId);
+    if (!subscription) {
+      const external = this.parseSubscriptionExternalReference(provider?.external_reference);
+      if (external?.subscriptionId) {
+        subscription = await this.prisma.companySubscription.findFirst({
+          where: {
+            id: external.subscriptionId,
+            companyId: external.companyId || undefined,
+          },
+        });
+      }
+    }
+    if (!subscription) return { updated: false, preapprovalId, reason: 'assinatura local nao encontrada.' };
+
+    await this.prisma.companySubscription.update({
+      where: { id: subscription.id },
+      data: {
+        providerPreapprovalId: provider?.id ? String(provider.id) : subscription.providerPreapprovalId,
+        providerPreapprovalPlanId: provider?.preapproval_plan_id
+          ? String(provider.preapproval_plan_id)
+          : subscription.providerPreapprovalPlanId,
+        status: this.normalizeProviderSubscriptionStatus(provider?.status),
+        payerEmail: this.normalizePayerEmail(provider?.payer_email) || subscription.payerEmail,
+        nextBillingAt: this.parseDate(provider?.next_payment_date) || subscription.nextBillingAt,
+        lastProviderStatus: provider?.status ? String(provider.status) : subscription.lastProviderStatus,
+        providerPayloadJson: this.providerJson({ context: context || null, provider }),
+      },
+    });
+
+    await this.applySubscriptionProviderState(subscription, provider);
+    return {
+      updated: true,
+      companyId: subscription.companyId,
+      preapprovalId,
+      status: this.normalizeProviderSubscriptionStatus(provider?.status),
+    };
+  }
+
   async getOverviewForUser(user: any) {
     const context = this.resolveUserContext(user);
     await ensureMasterBillingRuntimeSchema(this.prisma);
-    const [company, ledgerRows, masterConfig, latestCharge] = await Promise.all([
+    const [company, ledgerRows, masterConfig, latestCharge, latestSubscription] = await Promise.all([
       this.prisma.company.findUnique({
         where: { id: context.companyId },
         include: {
@@ -882,6 +1510,10 @@ export class FinanceiroService {
       getMasterGlobalIntegrationConfig(this.prisma),
       this.prisma.financeiroCharge.findFirst({
         where: { companyId: context.companyId },
+        orderBy: { createdAt: 'desc' },
+      }),
+      this.prisma.companySubscription.findFirst({
+        where: { companyId: context.companyId, provider: 'mercadopago' },
         orderBy: { createdAt: 'desc' },
       }),
     ]);
@@ -911,7 +1543,7 @@ export class FinanceiroService {
         canStartCheckout: canManageBilling,
         deniedMessage: canManageBilling
           ? null
-          : 'USER não pode fazer upgrade. Contate seu ADMIN ou o suporte da empresa.',
+          : 'Seu usuário não pode alterar cobrança. Contate seu ADMIN ou o suporte da empresa.',
       },
       company: {
         id: company.id,
@@ -931,6 +1563,8 @@ export class FinanceiroService {
         acquisitionSourceDetail: this.normalizeOptionalString(company.acquisitionSourceDetail),
         referralReferrerName: this.normalizeOptionalString(company.referralReferrerName),
         referralCode: this.normalizeOptionalString(company.referralCode),
+        contactEmail: canManageBilling ? this.normalizeOptionalString(company.contactEmail) : null,
+        contactPhone: canManageBilling ? this.normalizeOptionalString(company.contactPhone) : null,
         plan: canManageBilling && company.plan
           ? {
               id: company.plan.id,
@@ -944,12 +1578,12 @@ export class FinanceiroService {
       paymentOptions: {
         selectedMethod: canManageBilling ? this.normalizePaymentMethod(company.paymentMethod) : 'NONE',
         card: {
-          configured: canManageBilling ? pricing.cardConfigured : false,
-          brand: canManageBilling ? company.billingCardBrand || null : null,
-          last4: canManageBilling ? company.billingCardLast4 || null : null,
-          holderName: canManageBilling ? company.billingCardHolderName || null : null,
-          expMonth: canManageBilling ? Number(company.billingCardExpMonth || 0) || null : null,
-          expYear: canManageBilling ? Number(company.billingCardExpYear || 0) || null : null,
+          configured: canManageBilling ? Boolean(pricing.cardConfigured || latestSubscription?.cardLast4) : false,
+          brand: canManageBilling ? company.billingCardBrand || latestSubscription?.cardBrand || null : null,
+          last4: canManageBilling ? company.billingCardLast4 || latestSubscription?.cardLast4 || null : null,
+          holderName: null,
+          expMonth: null,
+          expYear: null,
           updatedAt: canManageBilling && company.billingCardUpdatedAt instanceof Date ? company.billingCardUpdatedAt.toISOString() : null,
         },
         pix: {
@@ -957,10 +1591,13 @@ export class FinanceiroService {
           preferred: canManageBilling && this.normalizePaymentMethod(company.paymentMethod) === 'PIX',
         },
       },
+      subscription: this.serializeSubscription(latestSubscription, canManageBilling),
       accountStatus: {
         label:
           String(company.subscriptionStatus || '').toLowerCase() === 'trialing'
             ? 'Conta em free trial'
+            : String(company.subscriptionStatus || '').toLowerCase() === 'authorized'
+              ? 'Assinatura autorizada'
             : String(company.paymentStatus || '').toUpperCase() === 'PAID'
               ? 'Conta paga e ativa'
               : String(company.paymentStatus || '').toUpperCase() === 'OVERDUE'
@@ -1006,43 +1643,15 @@ export class FinanceiroService {
   async saveCardForUser(
     user: any,
     dto: {
-      brand: string;
-      last4: string;
-      holderName: string;
-      expMonth: number;
-      expYear: number;
+      cardTokenId?: string;
     },
   ) {
     const context = this.resolveUserContext(user);
     this.assertCanManageBilling(context);
-    await ensureMasterBillingRuntimeSchema(this.prisma);
-    const last4 = String(dto?.last4 || '').replace(/\D/g, '').slice(-4);
-    if (last4.length !== 4) {
-      throw new BadRequestException('Informe os 4 últimos dígitos do cartão.');
+    if (this.normalizeCardToken(dto?.cardTokenId)) {
+      throw new BadRequestException('Use /financeiro/subscription/create ou /financeiro/subscription/change-card com token Mercado Pago.');
     }
-    if (!Number.isFinite(Number(dto?.expMonth)) || Number(dto.expMonth) < 1 || Number(dto.expMonth) > 12) {
-      throw new BadRequestException('Mês de expiração inválido.');
-    }
-
-    const expYear = Math.trunc(Number(dto?.expYear || 0));
-    if (expYear < new Date().getFullYear() - 1) {
-      throw new BadRequestException('Ano de expiração inválido.');
-    }
-
-    await this.prisma.company.update({
-      where: { id: context.companyId },
-      data: {
-        paymentMethod: 'CARD',
-        billingCardBrand: this.normalizeOptionalString(dto.brand),
-        billingCardLast4: last4,
-        billingCardHolderName: this.normalizeOptionalString(dto.holderName),
-        billingCardExpMonth: Math.trunc(Number(dto.expMonth)),
-        billingCardExpYear: expYear,
-        billingCardUpdatedAt: new Date(),
-      },
-    });
-
-    return this.getOverviewForUser(user);
+    throw new BadRequestException('O HBX nao salva cartao manualmente. Use tokenizacao segura do Mercado Pago.');
   }
 
   async removeCardForUser(user: any) {
@@ -1199,7 +1808,7 @@ export class FinanceiroService {
             pixQrCode: provider?.point_of_interaction?.transaction_data?.qr_code || null,
             pixQrCodeBase64: provider?.point_of_interaction?.transaction_data?.qr_code_base64 || null,
             pixTicketUrl: provider?.point_of_interaction?.transaction_data?.ticket_url || null,
-            providerPayload: this.json({ provider }),
+            providerPayload: this.providerJson({ provider }),
           },
         });
 
@@ -1299,6 +1908,223 @@ export class FinanceiroService {
     }
   }
 
+  async createSubscriptionForUser(
+    user: any,
+    dto: {
+      planKey?: string;
+      billingCycle?: string;
+      cardTokenId?: string;
+      contactPhone?: string;
+      payerEmail?: string;
+      paymentMethodId?: string;
+      issuerId?: string;
+    },
+  ) {
+    const context = this.resolveUserContext(user);
+    this.assertCanManageBilling(context);
+    await ensureMasterBillingRuntimeSchema(this.prisma);
+
+    const cardTokenId = this.normalizeCardToken(dto?.cardTokenId);
+    if (!cardTokenId) throw new BadRequestException('Token do cartão Mercado Pago ausente ou inválido.');
+    const billingContactPhone = this.normalizeContactPhone(dto?.contactPhone);
+    if (!billingContactPhone) throw new BadRequestException('Informe um telefone de contato válido.');
+
+    const { company, accessToken } = await this.resolveFinanceContext(context.companyId);
+    const plan = this.buildCommercialPlanProviderSnapshot(dto?.planKey || company.selectedPlanKey, dto?.billingCycle || 'ANNUAL');
+    const payerEmail =
+      this.normalizePayerEmail(dto?.payerEmail) ||
+      this.normalizePayerEmail(company.contactEmail) ||
+      this.normalizePayerEmail(user?.email);
+    if (!payerEmail) throw new BadRequestException('Informe um e-mail válido para a assinatura.');
+
+    const existing = await this.findCurrentCompanySubscription(context.companyId);
+    if (existing?.providerPreapprovalId && !['canceled', 'blocked'].includes(String(existing.status || '').toLowerCase())) {
+      return {
+        ok: true,
+        reused: true,
+        status: existing.status,
+        providerPreapprovalId: existing.providerPreapprovalId,
+        subscription: this.serializeSubscription(existing),
+        overview: await this.getOverviewForUser(user),
+      };
+    }
+
+    const providerPlan = await this.ensureMercadoPagoPreapprovalPlan(accessToken, plan.planKey, plan.billingCycle);
+    const subscription = existing && !existing.providerPreapprovalId
+      ? await this.prisma.companySubscription.update({
+          where: { id: existing.id },
+          data: {
+            providerPreapprovalPlanId: providerPlan.providerPlanId,
+            planKey: plan.planKey,
+            billingCycle: plan.billingCycle,
+            status: 'pending',
+            payerEmail,
+            billingContactPhone,
+            createdByUserId: context.userId,
+            providerPayloadJson: null,
+          },
+        })
+      : await this.prisma.companySubscription.create({
+          data: {
+            companyId: context.companyId,
+            provider: 'mercadopago',
+            providerPreapprovalPlanId: providerPlan.providerPlanId,
+            planKey: plan.planKey,
+            billingCycle: plan.billingCycle,
+            status: 'pending',
+            payerEmail,
+            billingContactPhone,
+            createdByUserId: context.userId,
+          },
+        });
+
+    const externalReference = `hbx-sub-${context.companyId}-${subscription.id}`;
+
+    try {
+      const provider = await this.mercadoPagoClient.createPreapproval(
+        accessToken,
+        {
+          preapproval_plan_id: providerPlan.providerPlanId,
+          reason: plan.reason,
+          external_reference: externalReference,
+          payer_email: payerEmail,
+          card_token_id: cardTokenId,
+          auto_recurring: {
+            frequency: plan.frequency,
+            frequency_type: plan.frequencyType,
+            transaction_amount: plan.amount,
+            currency_id: plan.currency,
+          },
+          back_url: this.buildSubscriptionBackUrl(),
+          status: 'authorized',
+        },
+        randomUUID(),
+      );
+
+      const providerPreapprovalId = String(provider?.id || '').trim();
+      if (!providerPreapprovalId) throw new Error('Mercado Pago nao retornou preapproval_id.');
+      const providerStatus = this.normalizeProviderSubscriptionStatus(provider?.status || 'authorized');
+      const nextBillingAt = this.parseDate(provider?.next_payment_date) || null;
+
+      const updated = await this.prisma.companySubscription.update({
+        where: { id: subscription.id },
+        data: {
+          providerPreapprovalId,
+          providerPreapprovalPlanId: provider?.preapproval_plan_id
+            ? String(provider.preapproval_plan_id)
+            : providerPlan.providerPlanId,
+          status: providerStatus,
+          payerEmail: this.normalizePayerEmail(provider?.payer_email) || payerEmail,
+          billingContactPhone,
+          nextBillingAt,
+          lastProviderStatus: provider?.status ? String(provider.status) : providerStatus,
+          providerPayloadJson: this.providerJson({ provider }),
+        },
+      });
+
+      await this.prisma.company.update({
+        where: { id: context.companyId },
+        data: {
+          selectedPlanKey: plan.planKey,
+          billingCycle: plan.billingCycle,
+          billingProvider: 'mercadopago',
+          paymentMethod: 'CARD',
+          paymentStatus: 'PENDING',
+          subscriptionStatus: providerStatus,
+          premiumAccess: false,
+          contactPhone: billingContactPhone,
+        },
+      });
+
+      return {
+        ok: true,
+        status: updated.status,
+        providerPreapprovalId,
+        subscription: this.serializeSubscription(updated),
+        overview: await this.getOverviewForUser(user),
+      };
+    } catch (error: any) {
+      await this.prisma.companySubscription.update({
+        where: { id: subscription.id },
+        data: {
+          status: 'pending',
+          providerPayloadJson: this.json({ error: String(error?.message || 'Falha ao criar assinatura') }),
+        },
+      });
+      throw new BadRequestException(`Falha ao criar assinatura: ${String(error?.message || 'erro desconhecido')}`);
+    }
+  }
+
+  async cancelSubscriptionForUser(user: any) {
+    const context = this.resolveUserContext(user);
+    this.assertCanManageBilling(context);
+    const subscription = await this.findCurrentCompanySubscription(context.companyId);
+    if (!subscription?.providerPreapprovalId) throw new NotFoundException('Assinatura Mercado Pago nao encontrada.');
+
+    try {
+      const { accessToken } = await this.resolveFinanceContext(context.companyId);
+      const provider = await this.mercadoPagoClient.cancelPreapproval(accessToken, subscription.providerPreapprovalId);
+      await this.applySubscriptionProviderState(subscription, {
+        ...provider,
+        status: provider?.status || 'canceled',
+      });
+      return {
+        ok: true,
+        subscription: await this.getSubscriptionStatusForUser(user),
+      };
+    } catch (error: any) {
+      throw new BadRequestException(
+        `Não conseguimos cancelar a assinatura no provedor. Tente novamente ou fale com suporte. ${String(error?.message || '').trim()}`,
+      );
+    }
+  }
+
+  async changeSubscriptionCardForUser(user: any, dto: { cardTokenId?: string }) {
+    const context = this.resolveUserContext(user);
+    this.assertCanManageBilling(context);
+    const cardTokenId = this.normalizeCardToken(dto?.cardTokenId);
+    if (!cardTokenId) throw new BadRequestException('Token do cartão Mercado Pago ausente ou inválido.');
+
+    const subscription = await this.findCurrentCompanySubscription(context.companyId);
+    if (!subscription?.providerPreapprovalId) throw new NotFoundException('Assinatura Mercado Pago nao encontrada.');
+
+    try {
+      const { accessToken } = await this.resolveFinanceContext(context.companyId);
+      const provider = await this.mercadoPagoClient.changePreapprovalCard(
+        accessToken,
+        subscription.providerPreapprovalId,
+        cardTokenId,
+      );
+      await this.prisma.companySubscription.update({
+        where: { id: subscription.id },
+        data: {
+          lastProviderStatus: provider?.status ? String(provider.status) : subscription.lastProviderStatus,
+          providerPayloadJson: this.providerJson({ provider }),
+        },
+      });
+      return {
+        ok: true,
+        subscription: await this.getSubscriptionStatusForUser(user),
+      };
+    } catch (error: any) {
+      throw new BadRequestException(`Falha ao trocar cartão no Mercado Pago: ${String(error?.message || 'erro desconhecido')}`);
+    }
+  }
+
+  async getSubscriptionStatusForUser(user: any) {
+    const context = this.resolveUserContext(user);
+    this.assertCanManageBilling(context);
+    const subscription = await this.prisma.companySubscription.findFirst({
+      where: { companyId: context.companyId, provider: 'mercadopago' },
+      orderBy: { createdAt: 'desc' },
+    });
+    return {
+      ok: true,
+      subscription: this.serializeSubscription(subscription),
+      overview: await this.getOverviewForUser(user),
+    };
+  }
+
   async refreshChargeForUser(user: any, chargeId: string, paymentIdRaw?: string) {
     const context = this.resolveUserContext(user);
     this.assertCanManageBilling(context);
@@ -1316,15 +2142,52 @@ export class FinanceiroService {
   }
 
   async processMercadoPagoWebhook(input: { companyId?: number; query: Record<string, any>; body: any }) {
-    const companyId = Number(input?.companyId || 0);
-    if (!companyId) return { processed: false, reason: 'company_id ausente no webhook.' };
-    const paymentId = this.extractPaymentId(input?.query || {}, input?.body);
-    if (!paymentId) return { processed: false, companyId, reason: 'payment_id ausente no webhook.' };
+    const query = input?.query || {};
+    const body = input?.body;
+    const preapprovalId = this.extractPreapprovalId(query, body);
+    if (preapprovalId) {
+      try {
+        const synced = await this.syncPreapprovalFromProvider(preapprovalId, {
+          source: 'webhook',
+          query,
+          body,
+        });
+        return { processed: synced.updated, ...synced };
+      } catch (error: any) {
+        return { processed: false, preapprovalId, reason: String(error?.message || 'Erro no webhook de assinatura') };
+      }
+    }
+
+    let companyId = Number(input?.companyId || 0);
+    const paymentId = this.extractPaymentId(query, body);
+    if (!paymentId) return { processed: false, companyId: companyId || undefined, reason: 'payment_id/preapproval_id ausente no webhook.' };
     try {
+      if (!companyId) {
+        const accessToken = await this.resolveWebhookMercadoPagoAccessToken();
+        const provider = await this.mercadoPagoClient.getPayment(accessToken, paymentId);
+        const subscriptionSynced = await this.syncSubscriptionPaymentFromProvider(provider, {
+          source: 'webhook',
+          query,
+          body,
+        });
+        if (subscriptionSynced.updated) {
+          return {
+            processed: true,
+            companyId: subscriptionSynced.companyId,
+            paymentId,
+            status: subscriptionSynced.status,
+            subscriptionPayment: true,
+          };
+        }
+        const metadata = (provider?.metadata || {}) as Record<string, unknown>;
+        companyId = Number(metadata.company_id || this.parseSubscriptionExternalReference(provider?.external_reference)?.companyId || 0);
+        if (!companyId) return { processed: false, paymentId, reason: 'company_id ausente no webhook.' };
+      }
+
       const synced = await this.syncChargeFromProvider(companyId, paymentId, {
         source: 'webhook',
-        query: input.query,
-        body: input.body,
+        query,
+        body,
       });
       return { processed: synced.updated, companyId, paymentId, status: synced.status };
     } catch (error: any) {

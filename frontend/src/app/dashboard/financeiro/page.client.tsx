@@ -1,12 +1,16 @@
 "use client";
 
+import Script from "next/script";
 import Link from "next/link";
-import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
+import { useEffect, useMemo, useRef, useState } from "react";
 import DashboardScaffold from "@/components/DashboardScaffold";
 import { apiFetch } from "../_lib/api";
 import { useRequireAuth } from "../_lib/useRequireAuth";
 import styles from "./page.module.css";
+
+type BillingCycle = "MONTHLY" | "ANNUAL";
+type PlanKey = "hbx_lite" | "hbx_padrao" | "hbx_melhor";
 
 type FinanceiroOverview = {
   generatedAt: string;
@@ -20,7 +24,7 @@ type FinanceiroOverview = {
     name: string;
     paymentStatus: string;
     paymentMethod?: string | null;
-    billingCycle: "MONTHLY" | "ANNUAL";
+    billingCycle: BillingCycle;
     billingProvider?: string | null;
     subscriptionStatus?: string | null;
     selectedPlanKey?: string | null;
@@ -29,53 +33,21 @@ type FinanceiroOverview = {
     trialEndsAt?: string | null;
     trialRemainingDays?: number | null;
     isActive: boolean;
-    acquisitionSource?: string | null;
-    acquisitionSourceDetail?: string | null;
-    referralReferrerName?: string | null;
-    referralCode?: string | null;
+    contactEmail?: string | null;
+    contactPhone?: string | null;
     plan?: { id: number; name: string; price: number } | null;
   };
-  modules: Array<{ key: string; name: string; monthlyPrice?: number }>;
   pricing: {
-    billingCycle: "MONTHLY" | "ANNUAL";
+    billingCycle: BillingCycle;
     monthlyValue: number;
     annualPlanDiscountPercent: number;
-    annualDiscountValue: number;
-    manualDiscountPercent: number;
-    manualDiscountValue: number;
-    referralDiscountPercent: number;
-    referralDiscountMode: "ONCE" | "RECURRING";
-    referralDiscountValue: number;
-    referralDiscountEligible: boolean;
-    referralDiscountAppliedNow: boolean;
-    referralDiscountConsumedAt?: string | null;
-    acquisitionSource?: string | null;
-    acquisitionSourceDetail?: string | null;
-    referralReferrerName?: string | null;
-    referralCode?: string | null;
-    isReferral?: boolean;
-    freeMonths: number;
-    basePlanCycleAmount?: number;
-    activeUsers?: number;
-    includedActiveUsers?: number;
-    extraActiveUsers?: number;
-    extraSeatMonthlyAmount?: number;
-    extraSeatCycleAmount?: number;
-    baseCycleAmount: number;
     finalCycleAmount: number;
-    pendingCount: number;
-    failedCount: number;
-    refundCount: number;
-    refundAmount: number;
-    cardConfigured: boolean;
-    pixAvailable: boolean;
     commercialPlan?: {
       planKey: string;
       title: string;
       monthlyValue: number;
       referenceLabel: string;
       chargeDescription: string;
-      introCyclesRemaining?: number;
     } | null;
   };
   paymentOptions: {
@@ -84,9 +56,6 @@ type FinanceiroOverview = {
       configured: boolean;
       brand?: string | null;
       last4?: string | null;
-      holderName?: string | null;
-      expMonth?: number | null;
-      expYear?: number | null;
       updatedAt?: string | null;
     };
     pix: {
@@ -94,40 +63,46 @@ type FinanceiroOverview = {
       preferred: boolean;
     };
   };
+  subscription?: {
+    id: string;
+    provider: string;
+    providerPreapprovalId?: string | null;
+    providerPreapprovalPlanId?: string | null;
+    planKey: string;
+    billingCycle: BillingCycle;
+    status: string;
+    payerEmail?: string | null;
+    billingContactPhone?: string | null;
+    cardBrand?: string | null;
+    cardLast4?: string | null;
+    currentPeriodStart?: string | null;
+    currentPeriodEnd?: string | null;
+    nextBillingAt?: string | null;
+    cancelAtPeriodEnd?: boolean;
+    canceledAt?: string | null;
+    lastProviderStatus?: string | null;
+  } | null;
   accountStatus: {
     label: string;
     nextDueAt?: string | null;
-    lastPayment?: {
-      paidAt?: string | null;
-      amount: number;
-      status: string;
-    } | null;
-    lastFailure?: {
-      createdAt?: string | null;
-      amount: number;
-      status: string;
-    } | null;
+    lastPayment?: { paidAt?: string | null; amount: number; status: string } | null;
+    lastFailure?: { createdAt?: string | null; amount: number; status: string } | null;
   };
   latestCharge?: {
     id: string;
     amount: number;
     currency: string;
     description: string;
-    billingCycle: "MONTHLY" | "ANNUAL";
+    billingCycle: BillingCycle;
     paymentMethod: string;
     status: string;
     lifecycle: string;
-    competence?: string | null;
-    externalReference?: string | null;
     paymentUrl?: string | null;
     pixQrCode?: string | null;
     pixQrCodeBase64?: string | null;
     pixTicketUrl?: string | null;
     paidAt?: string | null;
-    refundedAt?: string | null;
-    refundAmount?: number;
     createdAt?: string | null;
-    updatedAt?: string | null;
     lastWebhookAt?: string | null;
   } | null;
   history: Array<{
@@ -136,13 +111,39 @@ type FinanceiroOverview = {
     status: string;
     origin?: string | null;
     amount: number;
-    dueDate?: string | null;
     paidAt?: string | null;
     paymentMethod?: string | null;
     referenceLabel?: string | null;
-    competence?: string | null;
     createdAt?: string | null;
   }>;
+};
+
+declare global {
+  interface Window {
+    MercadoPago?: new (publicKey: string, options?: { locale?: string }) => {
+      bricks: () => {
+        create: (type: string, containerId: string, settings: Record<string, unknown>) => Promise<{ unmount: () => void }>;
+      };
+    };
+  }
+}
+
+const PLAN_CATALOG: Record<PlanKey, { title: string; monthly: number; includes: string[] }> = {
+  hbx_lite: {
+    title: "HBX Lite",
+    monthly: 29.9,
+    includes: ["Vendas", "Motores gratuitos/HBX/cache", "Entrada com baixo custo"],
+  },
+  hbx_padrao: {
+    title: "HBX Padrão",
+    monthly: 79.9,
+    includes: ["Vendas", "Atendimento Chat", "2 buscas Google por dia"],
+  },
+  hbx_melhor: {
+    title: "HBX Melhor",
+    monthly: 109.9,
+    includes: ["Vendas", "Atendimento Chat", "Bot de atendimento", "6 buscas Google por dia"],
+  },
 };
 
 function formatCurrency(value?: number | null) {
@@ -161,29 +162,26 @@ function formatDate(value?: string | null) {
   return parsed.toLocaleDateString("pt-BR");
 }
 
-function formatDateTime(value?: string | null) {
-  const iso = String(value || "").trim();
-  if (!iso) return "-";
-  const parsed = new Date(iso);
-  if (Number.isNaN(parsed.getTime())) return "-";
-  return parsed.toLocaleString("pt-BR");
+function normalizePlanKey(value?: string | null): PlanKey {
+  if (value === "hbx_lite") return "hbx_lite";
+  if (value === "hbx_melhor") return "hbx_melhor";
+  return "hbx_padrao";
 }
 
-function paymentMethodLabel(value?: string | null) {
-  const method = String(value || "").trim().toUpperCase();
-  if (method === "CARD") return "Cartão";
-  if (method === "PIX") return "Pix";
-  if (method === "BOLETO") return "Boleto";
-  if (method === "MANUAL") return "Manual";
-  return "Sem método";
+function planCycleAmount(planKey: PlanKey, billingCycle: BillingCycle) {
+  const monthly = PLAN_CATALOG[planKey].monthly;
+  if (billingCycle === "ANNUAL") return Number((monthly * 12 * 0.9).toFixed(2));
+  return Number(monthly.toFixed(2));
 }
 
 function subscriptionLabel(value?: string | null) {
   const normalized = String(value || "").trim().toLowerCase();
   if (normalized === "trialing") return "Free trial";
+  if (normalized === "authorized") return "Autorizada";
   if (normalized === "active") return "Ativa";
   if (normalized === "pending_checkout") return "Checkout pendente";
   if (normalized === "past_due") return "Em atraso";
+  if (normalized === "paused") return "Pausada";
   if (normalized === "canceled") return "Cancelada";
   if (normalized === "expired") return "Expirada";
   return normalized || "-";
@@ -192,118 +190,54 @@ function subscriptionLabel(value?: string | null) {
 function chargeStatusLabel(value?: string | null) {
   const normalized = String(value || "").trim().toLowerCase();
   if (normalized === "approved") return "Pago";
-  if (normalized === "pending") return "Aguardando pagamento";
+  if (normalized === "pending") return "Aguardando";
   if (normalized === "failed") return "Falhou";
   if (normalized === "cancelled") return "Cancelado";
   if (normalized === "refunded") return "Estornado";
-  if (normalized === "partially_refunded") return "Estorno parcial";
   return normalized || "-";
 }
 
-function acquisitionSourceLabel(value?: string | null) {
-  const source = String(value || "").trim().toLowerCase();
-  if (source === "google") return "Google";
-  if (source === "instagram") return "Instagram";
-  if (source === "youtube") return "YouTube";
-  if (source === "indicacao") return "Indicação";
-  if (source === "parceiro") return "Parceiro";
-  if (source === "outro") return "Outro";
-  return "Não informado";
-}
-
-function referralModeLabel(value?: string | null) {
-  return String(value || "").trim().toUpperCase() === "RECURRING" ? "recorrente" : "único";
-}
-
-function isPendingCheckout(overview: FinanceiroOverview | null) {
+function isPendingCheckout(overview: FinanceiroOverview | null, reason?: string | null) {
   const paymentStatus = String(overview?.company.paymentStatus || "").trim().toUpperCase();
   const subscriptionStatus = String(overview?.company.subscriptionStatus || "").trim().toLowerCase();
-  return paymentStatus === "PENDING" || subscriptionStatus === "pending_checkout";
+  const onboardingReason = String(reason || "").trim().toLowerCase();
+  return paymentStatus === "PENDING" || subscriptionStatus === "pending_checkout" || onboardingReason === "pending_checkout";
 }
 
-function includedAccessLabel(planKey?: string | null) {
-  const normalized = String(planKey || "").trim().toLowerCase();
-  if (normalized === "hbx_lite") return "Vendas e motores gratuitos";
-  if (normalized === "hbx_melhor") return "Vendas, Atendimento Chat e Bot";
-  return "Vendas e Atendimento Chat";
+function extractBrickToken(data: any) {
+  return String(data?.token || data?.formData?.token || data?.cardTokenId || "").trim();
+}
+
+function extractBrickEmail(data: any, fallback: string) {
+  return String(data?.payer?.email || data?.formData?.payer?.email || data?.cardholderEmail || fallback || "").trim();
 }
 
 export default function FinanceiroClientPage() {
   const hasToken = useRequireAuth();
   const searchParams = useSearchParams();
+  const publicKey = process.env.NEXT_PUBLIC_MERCADO_PAGO_PUBLIC_KEY || "";
+  const brickControllerRef = useRef<{ unmount: () => void } | null>(null);
+  const [mpScriptReady, setMpScriptReady] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [overview, setOverview] = useState<FinanceiroOverview | null>(null);
-  const [preferences, setPreferences] = useState({
-    paymentMethod: "NONE",
-    billingCycle: "MONTHLY",
-  });
-  const [cardForm, setCardForm] = useState({
-    cardNumber: "",
-    brand: "",
-    last4: "",
-    holderName: "",
-    expMonth: "",
-    expYear: "",
-    cvv: "",
-  });
+  const [billingCycle, setBillingCycle] = useState<BillingCycle>("ANNUAL");
+  const [selectedPlanKey, setSelectedPlanKey] = useState<PlanKey>("hbx_melhor");
+  const [contactPhone, setContactPhone] = useState("");
+  const [payerEmail, setPayerEmail] = useState("");
+  const [showCardUpdate, setShowCardUpdate] = useState(false);
+  const [forceCheckout, setForceCheckout] = useState(false);
+  const [cancelModalOpen, setCancelModalOpen] = useState(false);
 
-  async function startCheckout(paymentMethod: "PIX" | "CARD") {
-    if (!canManageBilling) {
-      setError(overview?.permissions?.deniedMessage || "USER não pode fazer upgrade. Contate seu ADMIN ou o suporte da empresa.");
-      return;
-    }
-    setSaving(`checkout-${paymentMethod.toLowerCase()}`);
-    setError(null);
-    try {
-      const payload = await apiFetch<{ charge?: FinanceiroOverview["latestCharge"]; complimentary?: boolean; overview?: FinanceiroOverview }>(
-        "/financeiro/checkout",
-        {
-          method: "POST",
-          body: JSON.stringify({ paymentMethod }),
-        },
-      );
-      if (payload?.overview) {
-        setOverview(payload.overview);
-      } else {
-        await loadOverview(true);
-      }
-
-      if (paymentMethod === "CARD" && payload?.charge?.paymentUrl) {
-        window.open(payload.charge.paymentUrl, "_blank", "noopener,noreferrer");
-        setMessage("Checkout de cartão aberto em nova aba.");
-      } else if (payload?.complimentary) {
-        setMessage("Ciclo liquidado com mês grátis configurado.");
-      } else {
-        setMessage(paymentMethod === "PIX" ? "PIX gerado com sucesso." : "Checkout preparado com sucesso.");
-      }
-    } catch (actionError) {
-      setError(actionError instanceof Error ? actionError.message : "Falha ao iniciar cobrança.");
-    } finally {
-      setSaving(null);
-    }
-  }
-
-  async function refreshLatestCharge(paymentIdOverride?: string | null, chargeIdOverride?: string | null) {
-    const chargeId = chargeIdOverride || overview?.latestCharge?.id;
-    if (!chargeId) return;
-    setSaving("refresh-charge");
-    setError(null);
-    try {
-      const payload = await apiFetch<FinanceiroOverview>(`/financeiro/charges/${chargeId}/refresh`, {
-        method: "POST",
-        body: JSON.stringify(paymentIdOverride ? { paymentId: paymentIdOverride } : {}),
-      });
-      setOverview(payload);
-      setMessage("Status da cobrança atualizado.");
-    } catch (actionError) {
-      setError(actionError instanceof Error ? actionError.message : "Falha ao atualizar cobrança.");
-    } finally {
-      setSaving(null);
-    }
-  }
+  const reason = searchParams.get("reason");
+  const canManageBilling = overview?.permissions?.canManageBilling !== false;
+  const checkoutMode = Boolean(overview && canManageBilling && (forceCheckout || isPendingCheckout(overview, reason)));
+  const shouldRenderBrick = Boolean(overview && canManageBilling && publicKey && (checkoutMode || showCardUpdate));
+  const plan = PLAN_CATALOG[selectedPlanKey];
+  const total = planCycleAmount(selectedPlanKey, billingCycle);
+  const monthlyEquivalent = billingCycle === "ANNUAL" ? Number((total / 12).toFixed(2)) : total;
 
   async function loadOverview(background = false) {
     if (!background) setLoading(true);
@@ -311,19 +245,13 @@ export default function FinanceiroClientPage() {
     try {
       const payload = await apiFetch<FinanceiroOverview>("/financeiro/overview");
       setOverview(payload);
-      setPreferences({
-        paymentMethod: payload.paymentOptions.selectedMethod || "NONE",
-        billingCycle: payload.company.billingCycle || "MONTHLY",
-      });
-      setCardForm({
-        cardNumber: payload.paymentOptions.card.last4 ? `•••• •••• •••• ${payload.paymentOptions.card.last4}` : "",
-        brand: payload.paymentOptions.card.brand || "",
-        last4: payload.paymentOptions.card.last4 || "",
-        holderName: payload.paymentOptions.card.holderName || "",
-        expMonth: payload.paymentOptions.card.expMonth ? String(payload.paymentOptions.card.expMonth) : "",
-        expYear: payload.paymentOptions.card.expYear ? String(payload.paymentOptions.card.expYear) : "",
-        cvv: "",
-      });
+      const nextPlanKey = normalizePlanKey(
+        payload.subscription?.planKey || payload.company.selectedPlanKey || payload.pricing.commercialPlan?.planKey,
+      );
+      setSelectedPlanKey(nextPlanKey);
+      setBillingCycle(payload.subscription?.billingCycle || "ANNUAL");
+      setContactPhone(payload.subscription?.billingContactPhone || payload.company.contactPhone || "");
+      setPayerEmail(payload.subscription?.payerEmail || payload.company.contactEmail || "");
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Falha ao carregar o Financeiro.");
     } finally {
@@ -331,169 +259,142 @@ export default function FinanceiroClientPage() {
     }
   }
 
+  async function submitSubscription(cardFormData: any) {
+    const cardTokenId = extractBrickToken(cardFormData);
+    const email = extractBrickEmail(cardFormData, payerEmail);
+    if (!cardTokenId) throw new Error("Mercado Pago não retornou token do cartão.");
+    if (!contactPhone.replace(/\D/g, "")) throw new Error("Informe o telefone de contato.");
+    setSaving(showCardUpdate && !checkoutMode ? "change-card" : "subscription");
+    setError(null);
+    try {
+      const payload = showCardUpdate && !checkoutMode
+        ? await apiFetch<{ overview?: FinanceiroOverview }>("/financeiro/subscription/change-card", {
+            method: "POST",
+            body: JSON.stringify({ cardTokenId }),
+          })
+        : await apiFetch<{ overview?: FinanceiroOverview }>("/financeiro/subscription/create", {
+            method: "POST",
+            body: JSON.stringify({
+              planKey: selectedPlanKey,
+              billingCycle,
+              cardTokenId,
+              payerEmail: email,
+              contactPhone,
+              paymentMethodId: cardFormData?.paymentMethodId || cardFormData?.formData?.paymentMethodId,
+              issuerId: cardFormData?.issuerId || cardFormData?.formData?.issuerId,
+            }),
+          });
+      if (payload?.overview) setOverview(payload.overview);
+      else await loadOverview(true);
+      setMessage(showCardUpdate && !checkoutMode ? "Cartão enviado ao Mercado Pago." : "Assinatura criada no Mercado Pago. A liberação ocorre após a confirmação do pagamento.");
+      setShowCardUpdate(false);
+      setForceCheckout(false);
+    } catch (actionError) {
+      const text = actionError instanceof Error ? actionError.message : "Falha ao processar assinatura.";
+      setError(text);
+      throw actionError;
+    } finally {
+      setSaving(null);
+    }
+  }
+
+  async function cancelSubscription() {
+    setSaving("cancel-subscription");
+    setError(null);
+    try {
+      const payload = await apiFetch<{ overview?: FinanceiroOverview }>("/financeiro/subscription/cancel", {
+        method: "POST",
+        body: JSON.stringify({}),
+      });
+      if (payload?.overview) setOverview(payload.overview);
+      else await loadOverview(true);
+      setMessage("Cancelamento confirmado no Mercado Pago.");
+      setCancelModalOpen(false);
+    } catch (actionError) {
+      setError(actionError instanceof Error ? actionError.message : "Não conseguimos cancelar a assinatura no provedor. Tente novamente ou fale com suporte.");
+    } finally {
+      setSaving(null);
+    }
+  }
+
   useEffect(() => {
-    if (hasToken !== true) return;
-    void loadOverview();
+    if (hasToken === true) void loadOverview();
   }, [hasToken]);
 
   useEffect(() => {
     if (!message) return;
-    const timer = window.setTimeout(() => setMessage(null), 2800);
+    const timer = window.setTimeout(() => setMessage(null), 3600);
     return () => window.clearTimeout(timer);
   }, [message]);
 
   useEffect(() => {
-    if (!overview?.latestCharge) return;
-    if (overview.latestCharge.status !== "pending") return;
+    if (!checkoutMode) return;
     const timer = window.setInterval(() => {
-      void refreshLatestCharge();
+      void loadOverview(true);
     }, 20000);
     return () => window.clearInterval(timer);
-  }, [overview?.latestCharge?.id, overview?.latestCharge?.status]);
+  }, [checkoutMode]);
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    const params = new URLSearchParams(window.location.search);
-    const chargeId = params.get("charge");
-    const paymentId = params.get("payment_id");
-    if (!chargeId || !paymentId) return;
-    void refreshLatestCharge(paymentId, chargeId);
-  }, []);
+    if (!shouldRenderBrick || !window.MercadoPago || !mpScriptReady) return;
+    let mounted = true;
+    setError(null);
 
-  useEffect(() => {
-    if (!overview || typeof window === "undefined") return;
-    const focus = String(searchParams.get("focus") || "").trim().toLowerCase();
-    const focusTargetByKey: Record<string, string> = {
-      access: "financeiro-access",
-      preferences: "financeiro-preferences",
-      payment: "financeiro-payment",
+    try {
+      brickControllerRef.current?.unmount();
+    } catch {
+      // Mercado Pago controls its own iframe lifecycle.
+    }
+    brickControllerRef.current = null;
+
+    const mp = new window.MercadoPago(publicKey, { locale: "pt-BR" });
+    const bricksBuilder = mp.bricks();
+    bricksBuilder
+      .create("cardPayment", "mp-card-payment-brick", {
+        initialization: {
+          amount: total,
+          payer: {
+            email: payerEmail || undefined,
+          },
+        },
+        customization: {
+          visual: { style: { theme: "default" } },
+          paymentMethods: {
+            types: {
+              excluded: ["debit_card", "prepaid_card"],
+            },
+          },
+        },
+        callbacks: {
+          onSubmit: (cardFormData: any) => submitSubscription(cardFormData),
+          onError: (brickError: unknown) => {
+            const text = brickError instanceof Error ? brickError.message : "Falha no formulário seguro do Mercado Pago.";
+            setError(text);
+          },
+        },
+      })
+      .then((controller) => {
+        if (!mounted) {
+          controller.unmount();
+          return;
+        }
+        brickControllerRef.current = controller;
+      })
+      .catch((brickError) => {
+        const text = brickError instanceof Error ? brickError.message : "Não foi possível carregar o cartão Mercado Pago.";
+        setError(text);
+      });
+
+    return () => {
+      mounted = false;
+      try {
+        brickControllerRef.current?.unmount();
+      } catch {
+        // ignore
+      }
+      brickControllerRef.current = null;
     };
-    const targetId = focusTargetByKey[focus];
-    if (!targetId) return;
-    const target = document.getElementById(targetId);
-    if (!target) return;
-
-    const topbarOffset = Number.parseInt(
-      window.getComputedStyle(document.documentElement).getPropertyValue("--topbar-total-height"),
-      10,
-    );
-    const nextTop = target.getBoundingClientRect().top + window.scrollY - (Number.isFinite(topbarOffset) ? topbarOffset + 16 : 92);
-    window.scrollTo({ top: Math.max(0, nextTop), behavior: "smooth" });
-  }, [overview, searchParams]);
-
-  const pricingHighlights = useMemo(() => {
-    if (!overview) return [];
-    return [
-      {
-        label: "Valor base",
-        value: formatCurrency(overview.pricing.baseCycleAmount),
-        note:
-          Number(overview.pricing.extraActiveUsers || 0) > 0
-            ? "plano + assentos"
-            : overview.pricing.billingCycle === "ANNUAL"
-              ? "ciclo anual"
-              : "ciclo mensal",
-      },
-      {
-        label: "Assentos",
-        value: `${overview.pricing.activeUsers ?? 0}/${overview.pricing.includedActiveUsers ?? 2}`,
-        note:
-          Number(overview.pricing.extraActiveUsers || 0) > 0
-            ? `${overview.pricing.extraActiveUsers} extra(s)`
-            : "sem extras",
-      },
-      {
-        label: "Descontos ativos",
-        value: formatCurrency(
-          overview.pricing.annualDiscountValue +
-            overview.pricing.manualDiscountValue +
-            overview.pricing.referralDiscountValue,
-        ),
-        note: overview.pricing.referralDiscountValue > 0 ? "anual + manual + indicação" : "anual + manual",
-      },
-      {
-        label: "Valor atual",
-        value: formatCurrency(overview.pricing.finalCycleAmount),
-        note: "cobrança prevista",
-      },
-      {
-        label: "Pendências",
-        value: String(overview.pricing.pendingCount),
-        note: `${overview.pricing.failedCount} falha(s) • ${overview.pricing.refundCount} estorno(s)`,
-      },
-    ];
-  }, [overview]);
-  const pendingCheckout = isPendingCheckout(overview);
-  const canManageBilling = overview?.permissions?.canManageBilling !== false;
-
-  async function savePreferences(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!canManageBilling) {
-      setError(overview?.permissions?.deniedMessage || "USER não pode fazer upgrade. Contate seu ADMIN ou o suporte da empresa.");
-      return;
-    }
-    setSaving("preferences");
-    setError(null);
-    try {
-      await apiFetch("/financeiro/preferences", {
-        method: "PATCH",
-        body: JSON.stringify(preferences),
-      });
-      setMessage("Preferências do Financeiro atualizadas.");
-      await loadOverview(true);
-    } catch (actionError) {
-      setError(actionError instanceof Error ? actionError.message : "Falha ao salvar preferências.");
-    } finally {
-      setSaving(null);
-    }
-  }
-
-  async function saveCard(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!canManageBilling) {
-      setError(overview?.permissions?.deniedMessage || "USER não pode fazer upgrade. Contate seu ADMIN ou o suporte da empresa.");
-      return;
-    }
-    setSaving("card");
-    setError(null);
-    try {
-      const last4 = (cardForm.cardNumber.replace(/\D/g, "").slice(-4) || cardForm.last4).slice(-4);
-      await apiFetch("/financeiro/card", {
-        method: "PUT",
-        body: JSON.stringify({
-          brand: cardForm.brand,
-          last4,
-          holderName: cardForm.holderName,
-          expMonth: Number(cardForm.expMonth),
-          expYear: Number(cardForm.expYear),
-        }),
-      });
-      setMessage("Cartão salvo no Financeiro.");
-      await loadOverview(true);
-    } catch (actionError) {
-      setError(actionError instanceof Error ? actionError.message : "Falha ao salvar cartão.");
-    } finally {
-      setSaving(null);
-    }
-  }
-
-  async function removeCard() {
-    if (!canManageBilling) {
-      setError(overview?.permissions?.deniedMessage || "USER não pode fazer upgrade. Contate seu ADMIN ou o suporte da empresa.");
-      return;
-    }
-    setSaving("remove-card");
-    setError(null);
-    try {
-      await apiFetch("/financeiro/card", { method: "DELETE" });
-      setMessage("Cartão removido do Financeiro.");
-      await loadOverview(true);
-    } catch (actionError) {
-      setError(actionError instanceof Error ? actionError.message : "Falha ao remover cartão.");
-    } finally {
-      setSaving(null);
-    }
-  }
+  }, [shouldRenderBrick, mpScriptReady, publicKey, total, payerEmail, checkoutMode, showCardUpdate]);
 
   if (hasToken === null) {
     return (
@@ -510,476 +411,271 @@ export default function FinanceiroClientPage() {
       <DashboardScaffold title="Financeiro" description="Acesso financeiro restrito ao ADMIN.">
         <div className={styles.page}>
           <section className={styles.errorCard}>
-            <strong>Seu usuário não pode alterar o plano da empresa.</strong>
+            <strong>Seu usuário não pode alterar cobrança.</strong>
             <p className={styles.helperText}>
-              {overview.permissions?.deniedMessage || "USER não pode fazer upgrade. Contate seu ADMIN ou o suporte da empresa."}
+              {overview.permissions?.deniedMessage || "Seu usuário não pode alterar cobrança. Contate seu ADMIN ou o suporte da empresa."}
             </p>
-            <Link href="/dashboard" className="btn btn-secondary btn-sm">
-              Voltar ao sistema
-            </Link>
+            <Link href="/dashboard" className="btn btn-secondary btn-sm">Voltar ao sistema</Link>
           </section>
         </div>
       </DashboardScaffold>
     );
   }
 
+  if (loading || !overview) {
+    return (
+      <DashboardScaffold title="Financeiro" description="Carregando visão financeira da conta.">
+        <section className={styles.loadingCard}>Carregando painel financeiro...</section>
+      </DashboardScaffold>
+    );
+  }
+
+  const nextBilling = new Date();
+  nextBilling.setMonth(nextBilling.getMonth() + (billingCycle === "ANNUAL" ? 12 : 1));
+
+  const checkout = (
+    <div className={styles.page}>
+      <Script src="https://sdk.mercadopago.com/js/v2" strategy="afterInteractive" onLoad={() => setMpScriptReady(true)} />
+      {error ? <section className={styles.errorCard}>{error}</section> : null}
+      {message ? <section className={styles.successCard}>{message}</section> : null}
+
+      <section className={styles.checkoutShell}>
+        <article className={styles.checkoutMain}>
+          <span className={styles.eyebrow}>Checkout seguro</span>
+          <h1 className={styles.checkoutTitle}>Finalize sua contratação</h1>
+          <p className={styles.heroText}>Seu acesso será liberado automaticamente após a confirmação do pagamento.</p>
+
+          <div className={styles.cycleToggle} role="group" aria-label="Ciclo de cobrança">
+            <button type="button" data-active={billingCycle === "ANNUAL"} onClick={() => setBillingCycle("ANNUAL")}>
+              Anual
+            </button>
+            <button type="button" data-active={billingCycle === "MONTHLY"} onClick={() => setBillingCycle("MONTHLY")}>
+              Mensal
+            </button>
+          </div>
+
+          <div className={styles.formGrid}>
+            <label className={styles.field}>
+              <span className={styles.fieldLabel}>Telefone de contato</span>
+              <input
+                className={styles.fieldInput}
+                inputMode="tel"
+                value={contactPhone}
+                onChange={(event) => setContactPhone(event.target.value)}
+                placeholder="(11) 99999-9999"
+              />
+            </label>
+            <label className={styles.field}>
+              <span className={styles.fieldLabel}>E-mail de cobrança</span>
+              <input
+                className={styles.fieldInput}
+                type="email"
+                value={payerEmail}
+                onChange={(event) => setPayerEmail(event.target.value)}
+                placeholder="financeiro@empresa.com.br"
+              />
+            </label>
+          </div>
+
+          <div className={styles.securePaymentBox}>
+            <div className={styles.sectionHeader}>
+              <div>
+                <strong>Cartão via Mercado Pago</strong>
+                <p className={styles.helperText}>Recorrência automática disponível por cartão. PIX segue como pagamento avulso quando habilitado fora deste checkout.</p>
+              </div>
+              <span className={styles.statusPill}>Tokenização segura</span>
+            </div>
+            {!publicKey ? (
+              <div className={styles.errorCard}>Configure NEXT_PUBLIC_MERCADO_PAGO_PUBLIC_KEY no frontend para carregar o cartão seguro.</div>
+            ) : (
+              <div id="mp-card-payment-brick" className={styles.mpBrick} />
+            )}
+          </div>
+
+          <div className={styles.termsBox}>
+            <span>Cobrança recorrente automática pelo Mercado Pago.</span>
+            <span>Sem fidelidade. Você pode cancelar quando quiser no Financeiro.</span>
+            <span>Após cancelar, novas cobranças serão interrompidas.</span>
+          </div>
+        </article>
+
+        <aside className={styles.checkoutSummaryPanel}>
+          <span className={styles.eyebrow}>Resumo do plano</span>
+          <strong className={styles.summaryPlan}>{plan.title}</strong>
+          <div className={styles.priceStack}>
+            <span>{formatCurrency(monthlyEquivalent)}/mês</span>
+            <strong>Total hoje: {formatCurrency(total)}</strong>
+            <small>{billingCycle === "ANNUAL" ? "Plano anual com 10% de desconto" : "Cobrança mensal"}</small>
+          </div>
+          <div className={styles.summaryList}>
+            {plan.includes.map((item) => <span key={item}>{item}</span>)}
+          </div>
+          <div className={styles.infoGrid}>
+            <div><span>Próxima cobrança</span><strong>{nextBilling.toLocaleDateString("pt-BR")}</strong></div>
+            <div><span>Segurança</span><strong>Mercado Pago</strong></div>
+            <div><span>Cancelamento</span><strong>Sem fidelidade</strong></div>
+          </div>
+          <p className={styles.helperText}>Suporte HBX disponível para conferir status do provedor ou falhas de pagamento.</p>
+        </aside>
+      </section>
+    </div>
+  );
+
+  if (checkoutMode) {
+    return (
+      <DashboardScaffold title="Finalize sua contratação" description="Pagamento recorrente por cartão com Mercado Pago.">
+        {checkout}
+      </DashboardScaffold>
+    );
+  }
+
+  const activeSubscription = overview.subscription;
+  const canCancel = ["active", "authorized", "past_due"].includes(String(activeSubscription?.status || "").toLowerCase());
+
   return (
-    <DashboardScaffold
-      title="Financeiro"
-      description="Plano, pagamento, descontos e leitura clara da conta em um só lugar."
-    >
+    <DashboardScaffold title="Financeiro" description="Assinatura, status de acesso e pagamentos recentes.">
       <div className={styles.page}>
+        <Script src="https://sdk.mercadopago.com/js/v2" strategy="afterInteractive" onLoad={() => setMpScriptReady(true)} />
+        {error ? <section className={styles.errorCard}>{error}</section> : null}
+        {message ? <section className={styles.successCard}>{message}</section> : null}
+
         <section className={styles.hero}>
           <div className={styles.heroCopy}>
-            <span className={styles.eyebrow}>HBX financeiro</span>
-            <h1 className={styles.heroTitle}>Autoatendimento discreto, cobrança clara e sem ruído.</h1>
+            <span className={styles.eyebrow}>HBX assinatura</span>
+            <h1 className={styles.heroTitle}>{overview.pricing.commercialPlan?.title || PLAN_CATALOG[normalizePlanKey(overview.company.selectedPlanKey)].title}</h1>
             <p className={styles.heroText}>
-              Veja sua conta, acompanhe trial, escolha como prefere pagar e mantenha o Financeiro organizado sem cair em uma tela fria de billing.
+              {overview.accountStatus.label} • próximo marco em {formatDate(overview.accountStatus.nextDueAt)}
             </p>
           </div>
-
           <div className={styles.heroPanel}>
-            <span className={styles.statusPill}>{overview?.accountStatus.label || "Conta em leitura"}</span>
+            <span className={styles.statusPill}>{subscriptionLabel(overview.company.subscriptionStatus)}</span>
             <strong className={styles.heroValue}>
-              {overview ? formatCurrency(overview.pricing.finalCycleAmount) : "R$ 0,00"}
+              {overview.company.subscriptionStatus === "trialing"
+                ? `${overview.company.trialRemainingDays ?? 0} dia(s)`
+                : formatCurrency(overview.pricing.finalCycleAmount)}
             </strong>
             <small className={styles.heroHint}>
-              {overview?.company.subscriptionStatus === "trialing"
-                ? `Free trial • ${overview.company.trialRemainingDays ?? 0} dia(s) restantes`
-                : `${subscriptionLabel(overview?.company.subscriptionStatus)} • ${paymentMethodLabel(overview?.company.paymentMethod)}`}
+              {overview.company.subscriptionStatus === "trialing" ? "Trial interno sem cobrança automática" : "Ciclo financeiro atual"}
             </small>
-          </div>
-
-          <div className={styles.metricsGrid}>
-            {pricingHighlights.map((metric) => (
-              <article key={metric.label} className={styles.metricCard}>
-                <span className={styles.metricLabel}>{metric.label}</span>
-                <strong className={styles.metricValue}>{metric.value}</strong>
-                <p className={styles.metricNote}>{metric.note}</p>
-              </article>
-            ))}
           </div>
         </section>
 
-        {error ? <section className={styles.errorCard}>{error}</section> : null}
-        {message ? <section className={styles.successCard}>{message}</section> : null}
-        {pendingCheckout ? (
-          <section className={styles.checkoutNotice}>
-            <div>
-              <strong>Pagamento pendente</strong>
-              <p>Finalize o pagamento para liberar seu acesso. Selecionar plano não gerou cobrança automática.</p>
-            </div>
-            <a href="#financeiro-payment">Finalizar checkout</a>
-          </section>
-        ) : null}
-        {overview?.company.subscriptionStatus === "trialing" ? (
-          <section className={styles.checkoutNotice} data-tone="trial">
-            <div>
-              <strong>Seu trial de 30 dias foi iniciado</strong>
-              <p>Você não será cobrado automaticamente. Quando quiser continuar, escolha PIX ou cartão com segurança.</p>
-            </div>
-            <a href="#financeiro-payment">Ver opções</a>
-          </section>
-        ) : null}
-
-        {loading || !overview ? (
-          <section className={styles.loadingCard}>Carregando painel financeiro...</section>
-        ) : (
-          <>
-            <section className={styles.grid}>
-              <article id="financeiro-access" className={styles.panelCard}>
-                <div className={styles.sectionHeader}>
-                  <div>
-                    <strong>Conta atual</strong>
-                    <p className={styles.helperText}>Plano, status e acessos já liberados para operação.</p>
-                  </div>
-                </div>
-                <div className={styles.infoGrid}>
-                  <div><span>Plano selecionado</span><strong>{overview.pricing.commercialPlan?.title || overview.company.plan?.name || "Sem plano"}</strong></div>
-                  <div><span>Status</span><strong>{subscriptionLabel(overview.company.subscriptionStatus)}</strong></div>
-                  <div><span>Forma atual</span><strong>{paymentMethodLabel(overview.company.paymentMethod)}</strong></div>
-                  <div><span>Provider</span><strong>{overview.company.billingProvider || "manual"}</strong></div>
-                  <div><span>Trial</span><strong>{overview.company.trialRemainingDays != null ? `${overview.company.trialRemainingDays} dia(s)` : "Não ativo"}</strong></div>
-                  <div><span>Próximo marco</span><strong>{formatDate(overview.accountStatus.nextDueAt)}</strong></div>
-                  <div><span>Origem</span><strong>{acquisitionSourceLabel(overview.company.acquisitionSource)}</strong></div>
-                  <div><span>Indicação</span><strong>{overview.company.referralReferrerName || overview.company.referralCode || "Sem indicação"}</strong></div>
-                  <div><span>Usuários ativos</span><strong>{overview.pricing.activeUsers ?? 0}</strong></div>
-                  <div><span>Inclusos no plano</span><strong>{overview.pricing.includedActiveUsers ?? 2}</strong></div>
-                  <div><span>Assentos extras</span><strong>{overview.pricing.extraActiveUsers ?? 0}</strong></div>
-                </div>
-                <div className={styles.moduleRail}>
-                  {overview.modules.map((item) => (
-                    <span key={item.key} className={styles.moduleChip}>{item.name}</span>
-                  ))}
-                </div>
-              </article>
-
-              <article className={styles.panelCard}>
-                <div className={styles.sectionHeader}>
-                  <div>
-                    <strong>Descontos e ciclo</strong>
-                    <p className={styles.helperText}>Leitura limpa do que está abatendo ou organizando a sua cobrança.</p>
-                  </div>
-                </div>
-                <div className={styles.infoGrid}>
-                  <div><span>Ciclo</span><strong>{overview.pricing.billingCycle === "ANNUAL" ? "Anual" : "Mensal"}</strong></div>
-                  <div><span>Desconto anual</span><strong>{overview.pricing.annualPlanDiscountPercent}%</strong></div>
-                  <div><span>Desconto manual</span><strong>{overview.pricing.manualDiscountPercent}%</strong></div>
-                  <div><span>Desconto indicação</span><strong>{overview.pricing.referralDiscountPercent}%</strong></div>
-                  <div><span>Meses grátis</span><strong>{overview.pricing.freeMonths}</strong></div>
-                  <div><span>Estornos</span><strong>{overview.pricing.refundCount}</strong></div>
-                  <div><span>Valor estornado</span><strong>{formatCurrency(overview.pricing.refundAmount)}</strong></div>
-                  <div><span>Política de indicação</span><strong>{referralModeLabel(overview.pricing.referralDiscountMode)}</strong></div>
-                  <div><span>Status da indicação</span><strong>{overview.pricing.isReferral ? "Elegível" : "Não aplicável"}</strong></div>
-                </div>
-                <div className={styles.summaryStack}>
-                  <p>Plano base do ciclo: {formatCurrency(overview.pricing.basePlanCycleAmount ?? overview.pricing.baseCycleAmount)}</p>
-                  <p>
-                    Assentos extras: {overview.pricing.extraActiveUsers ?? 0} x {formatCurrency(overview.pricing.extraSeatMonthlyAmount ?? 0)}/mês = {formatCurrency(overview.pricing.extraSeatCycleAmount ?? 0)} no ciclo
-                  </p>
-                  <p>Base do ciclo: {formatCurrency(overview.pricing.baseCycleAmount)}</p>
-                  <p>Desconto anual aplicado: {formatCurrency(overview.pricing.annualDiscountValue)}</p>
-                  <p>Desconto manual aplicado: {formatCurrency(overview.pricing.manualDiscountValue)}</p>
-                  <p>Desconto por indicação: {formatCurrency(overview.pricing.referralDiscountValue)}</p>
-                  <p>
-                    Origem comercial: {acquisitionSourceLabel(overview.pricing.acquisitionSource)}
-                    {overview.pricing.acquisitionSourceDetail ? ` • ${overview.pricing.acquisitionSourceDetail}` : ""}
-                  </p>
-                  <p>
-                    Quem indicou: {overview.pricing.referralReferrerName || overview.pricing.referralCode || "Não informado"}
-                  </p>
-                  {overview.pricing.isReferral ? (
-                    <p>
-                      Situação da indicação: {overview.pricing.referralDiscountAppliedNow
-                        ? `abatimento atual de ${formatCurrency(overview.pricing.referralDiscountValue)}`
-                        : overview.pricing.referralDiscountConsumedAt
-                          ? `já consumido em ${formatDate(overview.pricing.referralDiscountConsumedAt)}`
-                          : "pronto para entrar na próxima cobrança válida"}
-                    </p>
-                  ) : null}
-                </div>
-              </article>
-            </section>
-
-            <section className={styles.panelCard}>
-              <div className={styles.sectionHeader}>
-                <div>
-                  <strong>Central de vínculo WhatsApp</strong>
-                  <p className={styles.helperText}>
-                    Escolha com clareza se a empresa quer um caminho rápido para testar ou a rota oficial para operar com estabilidade.
-                  </p>
-                </div>
-                <Link href="/dashboard/whatsapp" className="btn btn-secondary btn-sm">
-                  Abrir central
-                </Link>
+        <section className={styles.grid}>
+          <article className={styles.panelCard}>
+            <div className={styles.sectionHeader}>
+              <div>
+                <strong>Assinatura Mercado Pago</strong>
+                <p className={styles.helperText}>Status usado pelo HBX para liberar ou bloquear acesso.</p>
               </div>
+              {activeSubscription ? <span className={styles.statusPill}>{subscriptionLabel(activeSubscription.status)}</span> : <span className={styles.mutedPill}>Sem assinatura</span>}
+            </div>
+            <div className={styles.infoGrid}>
+              <div><span>Provider</span><strong>{activeSubscription?.provider || overview.company.billingProvider || "manual"}</strong></div>
+              <div><span>Ciclo</span><strong>{(activeSubscription?.billingCycle || overview.company.billingCycle) === "ANNUAL" ? "Anual" : "Mensal"}</strong></div>
+              <div><span>Cartão</span><strong>{overview.paymentOptions.card.last4 ? `${overview.paymentOptions.card.brand || "Cartão"} final ${overview.paymentOptions.card.last4}` : "Não exibido"}</strong></div>
+              <div><span>Próxima cobrança</span><strong>{formatDate(activeSubscription?.nextBillingAt || overview.accountStatus.nextDueAt)}</strong></div>
+              <div><span>Período atual</span><strong>{formatDate(activeSubscription?.currentPeriodEnd || overview.company.trialEndsAt)}</strong></div>
+              <div><span>ID assinatura</span><strong>{activeSubscription?.providerPreapprovalId || "-"}</strong></div>
+            </div>
+            <div className={styles.formActions}>
+              {overview.company.subscriptionStatus === "trialing" ? (
+                <button type="button" className="btn btn-primary" onClick={() => setForceCheckout(true)}>
+                  Assinar para continuar
+                </button>
+              ) : null}
+              {activeSubscription?.providerPreapprovalId ? (
+                <button type="button" className="btn btn-secondary" onClick={() => setShowCardUpdate((current) => !current)}>
+                  Trocar cartão
+                </button>
+              ) : null}
+              {canCancel ? (
+                <button type="button" className="btn btn-secondary" onClick={() => setCancelModalOpen(true)}>
+                  Cancelar assinatura
+                </button>
+              ) : null}
+            </div>
+          </article>
+
+          <article className={styles.panelCard}>
+            <div className={styles.sectionHeader}>
+              <div>
+                <strong>Última cobrança</strong>
+                <p className={styles.helperText}>Pagamentos recorrentes aparecem aqui após o webhook do Mercado Pago.</p>
+              </div>
+              <span className={overview.latestCharge?.status === "approved" ? styles.statusPill : styles.mutedPill}>
+                {overview.latestCharge ? chargeStatusLabel(overview.latestCharge.status) : "Sem cobrança"}
+              </span>
+            </div>
+            {overview.latestCharge ? (
               <div className={styles.infoGrid}>
-                <div><span>Melhor para testar</span><strong>Conexão rápida por QR</strong></div>
-                <div><span>Melhor para crescer</span><strong>Conexão oficial / Meta</strong></div>
-                <div><span>Próximo passo</span><strong>Escolher a trilha sem misturar os modos</strong></div>
+                <div><span>Descrição</span><strong>{overview.latestCharge.description}</strong></div>
+                <div><span>Valor</span><strong>{formatCurrency(overview.latestCharge.amount)}</strong></div>
+                <div><span>Atualizado</span><strong>{formatDate(overview.latestCharge.lastWebhookAt || overview.latestCharge.createdAt)}</strong></div>
+              </div>
+            ) : (
+              <div className={styles.emptyState}>Ainda não há cobrança recorrente confirmada.</div>
+            )}
+          </article>
+        </section>
+
+        {showCardUpdate ? (
+          <section className={styles.panelCard}>
+            <div className={styles.sectionHeader}>
+              <div>
+                <strong>Trocar cartão</strong>
+                <p className={styles.helperText}>O novo cartão será tokenizado pelo Mercado Pago e enviado ao provedor da assinatura.</p>
+              </div>
+              <button type="button" className="btn btn-secondary btn-sm" onClick={() => setShowCardUpdate(false)}>Fechar</button>
+            </div>
+            {!publicKey ? (
+              <div className={styles.errorCard}>Configure NEXT_PUBLIC_MERCADO_PAGO_PUBLIC_KEY no frontend para carregar o cartão seguro.</div>
+            ) : (
+              <div id="mp-card-payment-brick" className={styles.mpBrick} />
+            )}
+          </section>
+        ) : null}
+
+        <section className={styles.panelCard}>
+          <div className={styles.sectionHeader}>
+            <div>
+              <strong>Histórico recente</strong>
+              <p className={styles.helperText}>USER não visualiza estes dados; somente ADMIN acessa cobrança.</p>
+            </div>
+          </div>
+          <div className={styles.historyList}>
+            {overview.history.length ? overview.history.slice(0, 8).map((entry) => (
+              <article key={entry.id} className={styles.historyItem}>
+                <div>
+                  <strong>{entry.referenceLabel || entry.entryType}</strong>
+                  <p>{entry.origin || "origem interna"} • {entry.paymentMethod || "método interno"}</p>
+                </div>
+                <div className={styles.historyRight}>
+                  <strong>{formatCurrency(entry.amount)}</strong>
+                  <span>{entry.paidAt ? formatDate(entry.paidAt) : chargeStatusLabel(entry.status)}</span>
+                </div>
+              </article>
+            )) : (
+              <div className={styles.emptyState}>Ainda não há histórico financeiro para mostrar.</div>
+            )}
+          </div>
+        </section>
+
+        {cancelModalOpen ? (
+          <div className={styles.modalBackdrop} role="dialog" aria-modal="true" aria-labelledby="cancel-subscription-title">
+            <section className={styles.modalCard}>
+              <h2 id="cancel-subscription-title">Cancelar assinatura</h2>
+              <p>
+                Ao cancelar, novas cobranças serão interrompidas. Seu acesso permanecerá ativo até o fim do período já pago, se houver período pago em aberto.
+              </p>
+              <div className={styles.formActions}>
+                <button type="button" className="btn btn-secondary" onClick={() => setCancelModalOpen(false)}>Voltar</button>
+                <button type="button" className="btn btn-primary" disabled={saving === "cancel-subscription"} onClick={() => void cancelSubscription()}>
+                  {saving === "cancel-subscription" ? "Cancelando..." : "Confirmar cancelamento"}
+                </button>
               </div>
             </section>
-
-            <section className={styles.grid}>
-              <form id="financeiro-preferences" className={styles.panelCard} onSubmit={savePreferences}>
-                <div className={styles.sectionHeader}>
-                  <div>
-                    <strong>Preferência de pagamento</strong>
-                    <p className={styles.helperText}>Escolha o método preferido e o ciclo de cobrança da conta.</p>
-                  </div>
-                </div>
-                <div className={styles.formGrid}>
-                  <label className={styles.field}>
-                    <span className={styles.fieldLabel}>Método</span>
-                    <select
-                      className={styles.fieldInput}
-                      value={preferences.paymentMethod}
-                      onChange={(event) => setPreferences((current) => ({ ...current, paymentMethod: event.target.value }))}
-                    >
-                      <option value="NONE">Sem método</option>
-                      <option value="CARD">Cartão</option>
-                      <option value="PIX">Pix</option>
-                      <option value="BOLETO">Boleto</option>
-                      <option value="MANUAL">Manual</option>
-                    </select>
-                  </label>
-
-                  <label className={styles.field}>
-                    <span className={styles.fieldLabel}>Ciclo</span>
-                    <select
-                      className={styles.fieldInput}
-                      value={preferences.billingCycle}
-                      onChange={(event) => setPreferences((current) => ({ ...current, billingCycle: event.target.value }))}
-                    >
-                      <option value="MONTHLY">Mensal</option>
-                      <option value="ANNUAL">Anual</option>
-                    </select>
-                  </label>
-                </div>
-                <div className={styles.formActions}>
-                  <button type="submit" className="btn btn-primary" disabled={saving === "preferences"}>
-                    {saving === "preferences" ? "Salvando..." : "Salvar preferência"}
-                  </button>
-                </div>
-              </form>
-
-              <form className={`${styles.panelCard} ${styles.creditCardPanel}`} onSubmit={saveCard}>
-                <div className={styles.sectionHeader}>
-                  <div>
-                    <strong>Cartão de crédito</strong>
-                    <p className={styles.helperText}>Dados organizados para checkout recorrente. A cobrança só acontece ao iniciar o pagamento.</p>
-                  </div>
-                  {overview.paymentOptions.card.configured ? (
-                    <span className={styles.statusPill}>
-                      {overview.paymentOptions.card.brand || "Cartão"} • final {overview.paymentOptions.card.last4}
-                    </span>
-                  ) : (
-                    <span className={styles.mutedPill}>Nenhum cartão salvo</span>
-                  )}
-                </div>
-
-                <div className={styles.cardPreview}>
-                  <span>HBX secure card</span>
-                  <strong>{cardForm.cardNumber || "•••• •••• •••• ••••"}</strong>
-                  <div>
-                    <small>{cardForm.holderName || "TITULAR DO CARTÃO"}</small>
-                    <small>{cardForm.expMonth || "MM"}/{cardForm.expYear || "AAAA"}</small>
-                  </div>
-                </div>
-
-                <div className={styles.formGrid}>
-                  <label className={styles.fieldWide}>
-                    <span className={styles.fieldLabel}>Número do cartão</span>
-                    <input
-                      className={styles.fieldInput}
-                      inputMode="numeric"
-                      value={cardForm.cardNumber}
-                      onChange={(event) => {
-                        const digits = event.target.value.replace(/\D/g, "").slice(0, 19);
-                        const grouped = digits.replace(/(.{4})/g, "$1 ").trim();
-                        setCardForm((current) => ({ ...current, cardNumber: grouped, last4: digits.slice(-4) }));
-                      }}
-                      placeholder="0000 0000 0000 0000"
-                    />
-                  </label>
-                  <label className={styles.field}>
-                    <span className={styles.fieldLabel}>Bandeira</span>
-                    <input className={styles.fieldInput} value={cardForm.brand} onChange={(event) => setCardForm((current) => ({ ...current, brand: event.target.value }))} placeholder="Ex: Visa" />
-                  </label>
-                  <label className={styles.fieldWide}>
-                    <span className={styles.fieldLabel}>Titular</span>
-                    <input className={styles.fieldInput} value={cardForm.holderName} onChange={(event) => setCardForm((current) => ({ ...current, holderName: event.target.value }))} placeholder="Nome no cartão" />
-                  </label>
-                  <label className={styles.field}>
-                    <span className={styles.fieldLabel}>Mês</span>
-                    <input className={styles.fieldInput} value={cardForm.expMonth} onChange={(event) => setCardForm((current) => ({ ...current, expMonth: event.target.value.replace(/\D/g, "").slice(0, 2) }))} placeholder="08" />
-                  </label>
-                  <label className={styles.field}>
-                    <span className={styles.fieldLabel}>Ano</span>
-                    <input className={styles.fieldInput} value={cardForm.expYear} onChange={(event) => setCardForm((current) => ({ ...current, expYear: event.target.value.replace(/\D/g, "").slice(0, 4) }))} placeholder="2028" />
-                  </label>
-                  <label className={styles.field}>
-                    <span className={styles.fieldLabel}>CVV</span>
-                    <input className={styles.fieldInput} value={cardForm.cvv} onChange={(event) => setCardForm((current) => ({ ...current, cvv: event.target.value.replace(/\D/g, "").slice(0, 4) }))} placeholder="123" />
-                  </label>
-                </div>
-                <div className={styles.securityStrip}>
-                  <span>Ambiente seguro</span>
-                  <span>Checkout Mercado Pago</span>
-                  <span>Sem cobrança ao salvar</span>
-                </div>
-                <div className={styles.formActions}>
-                  <button type="submit" className="btn btn-primary" disabled={saving === "card"}>
-                    {saving === "card" ? "Salvando..." : overview.paymentOptions.card.configured ? "Atualizar cartão" : "Salvar cartão"}
-                  </button>
-                  <button type="button" className="btn btn-secondary" disabled={saving === "remove-card" || !overview.paymentOptions.card.configured} onClick={() => void removeCard()}>
-                    {saving === "remove-card" ? "Removendo..." : "Remover cartão"}
-                  </button>
-                </div>
-              </form>
-            </section>
-
-            <section className={styles.grid}>
-              <article id="financeiro-payment" className={styles.panelCard}>
-                <div className={styles.sectionHeader}>
-                  <div>
-                    <strong>Finalize sua contratação com segurança</strong>
-                    <p className={styles.helperText}>Seu plano será liberado automaticamente após a confirmação do pagamento.</p>
-                  </div>
-                  <span className={overview.latestCharge?.status === "approved" ? styles.statusPill : styles.mutedPill}>
-                    {overview.latestCharge ? chargeStatusLabel(overview.latestCharge.status) : "Sem cobrança ativa"}
-                  </span>
-                </div>
-                <div className={styles.checkoutSummary}>
-                  <div>
-                    <span>Plano</span>
-                    <strong>{overview.pricing.commercialPlan?.title || overview.company.plan?.name || "Plano HBX"}</strong>
-                  </div>
-                  <div>
-                    <span>Ciclo</span>
-                    <strong>{overview.pricing.billingCycle === "ANNUAL" ? "Anual" : "Mensal"}</strong>
-                  </div>
-                  <div>
-                    <span>Desconto anual</span>
-                    <strong>{overview.pricing.billingCycle === "ANNUAL" ? `${overview.pricing.annualPlanDiscountPercent}%` : "Não aplicado"}</strong>
-                  </div>
-                  <div>
-                    <span>Inclui</span>
-                    <strong>{includedAccessLabel(overview.company.selectedPlanKey || overview.pricing.commercialPlan?.planKey)}</strong>
-                  </div>
-                  <div>
-                    <span>Total do checkout</span>
-                    <strong>{formatCurrency(overview.pricing.finalCycleAmount)}</strong>
-                  </div>
-                </div>
-                <div className={styles.checkoutGrid}>
-                  <article className={styles.checkoutCard}>
-                    <div className={styles.checkoutHeader}>
-                      <strong>PIX</strong>
-                      <span className={overview.paymentOptions.pix.preferred ? styles.statusPill : styles.mutedPill}>
-                        QR + copia e cola
-                      </span>
-                    </div>
-                    <p className={styles.helperText}>
-                      Ideal para pagar agora e ver o status virar automaticamente para aprovado no Financeiro e no MASTER.
-                    </p>
-                    <div className={styles.formActions}>
-                      <button
-                        type="button"
-                        className="btn btn-primary"
-                        disabled={saving === "checkout-pix"}
-                        onClick={() => void startCheckout("PIX")}
-                      >
-                        {saving === "checkout-pix" ? "Gerando PIX..." : "Gerar PIX"}
-                      </button>
-                    </div>
-                  </article>
-
-                  <article className={styles.checkoutCard}>
-                    <div className={styles.checkoutHeader}>
-                      <strong>Cartão</strong>
-                      <span className={overview.paymentOptions.card.configured ? styles.statusPill : styles.mutedPill}>
-                        {overview.paymentOptions.card.configured ? "Cartão salvo" : "Checkout seguro"}
-                      </span>
-                    </div>
-                    <p className={styles.helperText}>
-                      O checkout abre no Mercado Pago e, quando aprovado, a conta é liberada automaticamente.
-                    </p>
-                    <div className={styles.formActions}>
-                      <button
-                        type="button"
-                        className="btn btn-secondary"
-                        disabled={saving === "checkout-card"}
-                        onClick={() => void startCheckout("CARD")}
-                      >
-                        {saving === "checkout-card" ? "Abrindo..." : "Pagar com cartão"}
-                      </button>
-                    </div>
-                  </article>
-                </div>
-
-                {overview.latestCharge ? (
-                  <div className={styles.chargePanel}>
-                    <div className={styles.sectionHeader}>
-                      <div>
-                        <strong>Cobrança atual</strong>
-                        <p className={styles.helperText}>
-                          {overview.latestCharge.description} • {formatCurrency(overview.latestCharge.amount)}
-                        </p>
-                      </div>
-                      <div className={styles.formActions}>
-                        <span className={overview.latestCharge.status === "approved" ? styles.statusPill : styles.mutedPill}>
-                          {chargeStatusLabel(overview.latestCharge.status)}
-                        </span>
-                        <button
-                          type="button"
-                          className="btn btn-secondary"
-                          disabled={saving === "refresh-charge"}
-                          onClick={() => void refreshLatestCharge()}
-                        >
-                          {saving === "refresh-charge" ? "Atualizando..." : "Atualizar status"}
-                        </button>
-                      </div>
-                    </div>
-
-                    <div className={styles.infoGrid}>
-                      <div><span>Método</span><strong>{paymentMethodLabel(overview.latestCharge.paymentMethod)}</strong></div>
-                      <div><span>Status</span><strong>{chargeStatusLabel(overview.latestCharge.status)}</strong></div>
-                      <div><span>Criada em</span><strong>{formatDateTime(overview.latestCharge.createdAt)}</strong></div>
-                    </div>
-
-                    {overview.latestCharge.paymentMethod === "PIX" && overview.latestCharge.status === "pending" ? (
-                      <div className={styles.pixPanel}>
-                        {overview.latestCharge.pixQrCodeBase64 ? (
-                          <img
-                            className={styles.qrImage}
-                            src={`data:image/png;base64,${overview.latestCharge.pixQrCodeBase64}`}
-                            alt="QR Code PIX"
-                          />
-                        ) : null}
-                        <label className={styles.fieldWide}>
-                          <span className={styles.fieldLabel}>Copia e cola</span>
-                          <textarea
-                            className={styles.fieldInput}
-                            rows={4}
-                            readOnly
-                            value={overview.latestCharge.pixQrCode || ""}
-                          />
-                        </label>
-                        <div className={styles.formActions}>
-                          <button
-                            type="button"
-                            className="btn btn-secondary"
-                            onClick={() => navigator.clipboard.writeText(overview.latestCharge?.pixQrCode || "")}
-                          >
-                            Copiar PIX
-                          </button>
-                        </div>
-                      </div>
-                    ) : null}
-
-                    {overview.latestCharge.paymentMethod === "CARD" && overview.latestCharge.paymentUrl ? (
-                      <div className={styles.formActions}>
-                        <button
-                          type="button"
-                          className="btn btn-primary"
-                          onClick={() => window.open(overview.latestCharge?.paymentUrl || "", "_blank", "noopener,noreferrer")}
-                        >
-                          Abrir checkout novamente
-                        </button>
-                      </div>
-                    ) : null}
-                  </div>
-                ) : null}
-              </article>
-
-              <article className={styles.panelCard}>
-                <div className={styles.sectionHeader}>
-                  <div>
-                    <strong>Histórico recente</strong>
-                    <p className={styles.helperText}>Leitura rápida dos eventos mais recentes do ledger da sua conta.</p>
-                  </div>
-                </div>
-                <div className={styles.historyList}>
-                  {overview.history.length ? overview.history.slice(0, 8).map((entry) => (
-                    <article key={entry.id} className={styles.historyItem}>
-                      <div>
-                        <strong>{entry.referenceLabel || entry.entryType}</strong>
-                        <p>{entry.origin || "origem interna"} • {paymentMethodLabel(entry.paymentMethod)}</p>
-                      </div>
-                      <div className={styles.historyRight}>
-                        <strong>{formatCurrency(entry.amount)}</strong>
-                        <span>{entry.paidAt ? formatDateTime(entry.paidAt) : formatDate(entry.dueDate)}</span>
-                      </div>
-                    </article>
-                  )) : (
-                    <div className={styles.emptyState}>Ainda não há histórico financeiro para mostrar.</div>
-                  )}
-                </div>
-              </article>
-            </section>
-          </>
-        )}
+          </div>
+        ) : null}
       </div>
     </DashboardScaffold>
   );

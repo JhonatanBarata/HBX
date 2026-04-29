@@ -72,6 +72,8 @@ const SIGNUP_PLANS: SignupPlan[] = [
     name: "Padrão",
     badge: "Mais escolhido",
     monthlyPrice: 79.9,
+    promoPrice: 0,
+    promoLabel: "Após 1ºmês 79,90",
     detail: "Tudo que você precisa para crescer com segurança.",
     cta: "Começar grátis hoje",
     available: true,

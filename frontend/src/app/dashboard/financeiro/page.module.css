@@ -9,11 +9,9 @@
 .successCard,
 .checkoutNotice,
 .loadingCard {
-  border-radius: 28px;
+  border-radius: 18px;
   border: 1px solid color-mix(in srgb, var(--line) 84%, var(--background));
-  background:
-    radial-gradient(circle at top right, color-mix(in srgb, #0f766e 10%, transparent), transparent 34%),
-    linear-gradient(180deg, color-mix(in srgb, var(--surface) 98%, var(--background)), color-mix(in srgb, var(--surface-soft) 94%, var(--background)));
+  background: color-mix(in srgb, var(--surface) 97%, var(--background));
   box-shadow: var(--shadow-inset), var(--shadow-xs);
   padding: 1.1rem;
 }
@@ -86,7 +84,7 @@
 
 .heroTitle {
   margin: 0;
-  font-size: clamp(1.9rem, 3vw, 2.85rem);
+  font-size: 2.35rem;
   line-height: 1;
 }
 
@@ -103,11 +101,9 @@
 
 .heroPanel {
   padding: 1rem 1.05rem;
-  border-radius: 24px;
+  border-radius: 16px;
   border: 1px solid color-mix(in srgb, #0f766e 18%, var(--line));
-  background:
-    radial-gradient(circle at top right, color-mix(in srgb, #34d399 14%, transparent), transparent 48%),
-    color-mix(in srgb, var(--surface-raised) 92%, var(--background));
+  background: color-mix(in srgb, var(--surface-raised) 94%, var(--background));
 }
 
 .heroValue,
@@ -116,7 +112,7 @@
 }
 
 .heroValue {
-  font-size: clamp(1.5rem, 2vw, 2.1rem);
+  font-size: 1.75rem;
 }
 
 .metricsGrid,
@@ -140,7 +136,7 @@
 .moduleChip,
 .statusPill,
 .mutedPill {
-  border-radius: 22px;
+  border-radius: 14px;
 }
 
 .metricCard {
@@ -173,7 +169,7 @@
   display: grid;
   gap: 0.3rem;
   padding: 0.92rem 0.96rem;
-  border-radius: 18px;
+  border-radius: 14px;
   border: 1px solid color-mix(in srgb, var(--line) 84%, var(--background));
   background: color-mix(in srgb, var(--surface-raised) 94%, var(--background));
 }
@@ -235,7 +231,7 @@
 .fieldInput {
   width: 100%;
   min-height: 48px;
-  border-radius: 16px;
+  border-radius: 12px;
   border: 1px solid color-mix(in srgb, var(--line) 82%, var(--background));
   background: color-mix(in srgb, var(--field-surface) 94%, var(--background));
   color: var(--foreground);
@@ -288,7 +284,7 @@
   padding: 0.95rem 1rem;
   border: 1px solid color-mix(in srgb, var(--line) 84%, var(--background));
   background: color-mix(in srgb, var(--surface-raised) 94%, var(--background));
-  border-radius: 22px;
+  border-radius: 14px;
 }
 
 .checkoutHeader {
@@ -389,6 +385,164 @@
   text-align: right;
 }
 
+.checkoutShell {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(320px, 0.65fr);
+  gap: 1rem;
+  align-items: start;
+}
+
+.checkoutMain,
+.checkoutSummaryPanel {
+  border-radius: 18px;
+  border: 1px solid color-mix(in srgb, var(--line) 84%, var(--background));
+  background: color-mix(in srgb, var(--surface) 97%, var(--background));
+  box-shadow: var(--shadow-inset), var(--shadow-xs);
+  padding: 1.15rem;
+}
+
+.checkoutMain {
+  display: grid;
+  gap: 1rem;
+}
+
+.checkoutTitle {
+  margin: 0;
+  color: var(--foreground);
+  font-size: 2.15rem;
+  line-height: 1.05;
+}
+
+.cycleToggle {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.45rem;
+  width: min(100%, 380px);
+  padding: 0.32rem;
+  border-radius: 14px;
+  border: 1px solid color-mix(in srgb, var(--line) 84%, var(--background));
+  background: color-mix(in srgb, var(--surface-raised) 94%, var(--background));
+}
+
+.cycleToggle button {
+  min-height: 42px;
+  border: 0;
+  border-radius: 10px;
+  color: var(--foreground-soft);
+  background: transparent;
+  font-weight: 850;
+  cursor: pointer;
+}
+
+.cycleToggle button[data-active="true"] {
+  color: #ffffff;
+  background: #0f766e;
+}
+
+.securePaymentBox,
+.termsBox {
+  display: grid;
+  gap: 0.8rem;
+  border-radius: 16px;
+  border: 1px solid color-mix(in srgb, var(--line) 84%, var(--background));
+  background: color-mix(in srgb, var(--surface-raised) 95%, var(--background));
+  padding: 1rem;
+}
+
+.mpBrick {
+  min-height: 360px;
+}
+
+.termsBox {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.termsBox span,
+.summaryList span {
+  color: var(--foreground-soft);
+  font-size: 0.86rem;
+  font-weight: 750;
+}
+
+.checkoutSummaryPanel {
+  position: sticky;
+  top: calc(var(--topbar-total-height, 72px) + 1rem);
+  display: grid;
+  gap: 1rem;
+}
+
+.summaryPlan {
+  color: var(--foreground);
+  font-size: 1.35rem;
+}
+
+.priceStack {
+  display: grid;
+  gap: 0.28rem;
+  padding: 1rem;
+  border-radius: 16px;
+  background: color-mix(in srgb, #0f766e 8%, var(--surface-raised));
+  border: 1px solid color-mix(in srgb, #0f766e 24%, var(--line));
+}
+
+.priceStack span {
+  color: var(--foreground);
+  font-size: 1.3rem;
+  font-weight: 900;
+}
+
+.priceStack strong {
+  color: var(--foreground);
+}
+
+.priceStack small {
+  color: var(--foreground-soft);
+  font-weight: 750;
+}
+
+.summaryList {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.summaryList span {
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 72%, transparent);
+}
+
+.modalBackdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  background: rgba(15, 23, 42, 0.5);
+}
+
+.modalCard {
+  width: min(100%, 520px);
+  display: grid;
+  gap: 1rem;
+  border-radius: 18px;
+  border: 1px solid color-mix(in srgb, var(--line) 84%, var(--background));
+  background: var(--surface);
+  color: var(--foreground);
+  box-shadow: 0 24px 80px rgba(15, 23, 42, 0.35);
+  padding: 1.2rem;
+}
+
+.modalCard h2,
+.modalCard p {
+  margin: 0;
+}
+
+.modalCard p {
+  color: var(--foreground-soft);
+}
+
 .emptyState,
 .errorCard,
 .successCard,
@@ -402,8 +556,14 @@
   .infoGrid,
   .formGrid,
   .checkoutGrid,
-  .checkoutSummary {
+  .checkoutSummary,
+  .checkoutShell,
+  .termsBox {
     grid-template-columns: 1fr;
+  }
+
+  .checkoutSummaryPanel {
+    position: static;
   }
 
   .fieldWide {
@@ -418,6 +578,11 @@
   .successCard,
   .loadingCard {
     padding: 0.95rem;
-    border-radius: 22px;
+    border-radius: 16px;
+  }
+
+  .heroTitle,
+  .checkoutTitle {
+    font-size: 1.75rem;
   }
 }

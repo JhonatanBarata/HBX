@@ -55,6 +55,9 @@ Variáveis mínimas esperadas na VPS:
 - `JWT_SECRET`
 - `INTEGRATION_SECRET_KEY`
 - `FRONTEND_URL`
+- `PUBLIC_API_BASE_URL`
+- `NEXT_PUBLIC_MERCADO_PAGO_PUBLIC_KEY` no frontend para tokenizacao segura de cartao
+- `MERCADO_PAGO_ACCESS_TOKEN` apenas quando o token Mercado Pago nao estiver configurado na biblioteca MASTER do HBX
 - `SMTP_HOST`
 - `SMTP_PORT`
 - `SMTP_USER`
