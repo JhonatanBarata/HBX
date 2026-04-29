@@ -213,15 +213,34 @@ function extractBrickEmail(data: any, fallback: string) {
   return String(data?.payer?.email || data?.formData?.payer?.email || data?.cardholderEmail || fallback || "").trim();
 }
 
+function resolveBillingActionError(error: unknown, fallback: string) {
+  const raw = error instanceof Error ? error.message : String(error || "");
+  const normalized = raw.toLowerCase();
+  if (normalized.includes("property") && normalized.includes("should not exist")) {
+    return "O frontend e a API de cobrança estão em versões diferentes. Publique o backend atualizado e tente novamente.";
+  }
+  if (normalized.includes("mercado pago") || normalized.includes("mercadopago")) {
+    return `${fallback} Mercado Pago retornou: ${raw}`;
+  }
+  if (normalized.includes("metodo de pagamento invalido")) {
+    return "A API ainda não reconhece este método de pagamento. Publique o backend atualizado e tente novamente.";
+  }
+  if (raw) return raw;
+  return fallback;
+}
+
 export default function FinanceiroClientPage() {
   const hasToken = useRequireAuth();
   const searchParams = useSearchParams();
   const publicKey = process.env.NEXT_PUBLIC_MERCADO_PAGO_PUBLIC_KEY || "";
   const brickControllerRef = useRef<{ unmount: () => void } | null>(null);
+  const cardBrickReadyRef = useRef(false);
   const [mpScriptReady, setMpScriptReady] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [paymentActionError, setPaymentActionError] = useState<string | null>(null);
+  const [cardBrickWarning, setCardBrickWarning] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [overview, setOverview] = useState<FinanceiroOverview | null>(null);
   const [billingCycle, setBillingCycle] = useState<BillingCycle>("MONTHLY");
@@ -229,6 +248,7 @@ export default function FinanceiroClientPage() {
   const [selectedPlanKey, setSelectedPlanKey] = useState<PlanKey>("hbx_melhor");
   const [contactPhone, setContactPhone] = useState("");
   const [payerEmail, setPayerEmail] = useState("");
+  const [cardholderName, setCardholderName] = useState("");
   const [showCardUpdate, setShowCardUpdate] = useState(false);
   const [forceCheckout, setForceCheckout] = useState(false);
   const [cancelModalOpen, setCancelModalOpen] = useState(false);
@@ -273,10 +293,18 @@ export default function FinanceiroClientPage() {
   async function submitSubscription(cardFormData: any) {
     const cardTokenId = extractBrickToken(cardFormData);
     const email = extractBrickEmail(cardFormData, payerEmail);
+    const printedName = cardholderName.trim();
+    if (!printedName) {
+      const text = "Informe o nome impresso no cartão.";
+      setError(text);
+      setPaymentActionError(text);
+      throw new Error(text);
+    }
     if (!cardTokenId) throw new Error("Mercado Pago não retornou token do cartão.");
     if (!contactPhone.replace(/\D/g, "")) throw new Error("Informe o telefone de contato.");
     setSaving(showCardUpdate && !checkoutMode ? "change-card" : "subscription");
     setError(null);
+    setPaymentActionError(null);
     try {
       const payload = showCardUpdate && !checkoutMode
         ? await apiFetch<{ overview?: FinanceiroOverview }>("/financeiro/subscription/change-card", {
@@ -301,8 +329,9 @@ export default function FinanceiroClientPage() {
       setShowCardUpdate(false);
       setForceCheckout(false);
     } catch (actionError) {
-      const text = actionError instanceof Error ? actionError.message : "Falha ao processar assinatura.";
+      const text = resolveBillingActionError(actionError, "Não conseguimos autorizar o cartão.");
       setError(text);
+      setPaymentActionError(text);
       throw actionError;
     } finally {
       setSaving(null);
@@ -336,6 +365,7 @@ export default function FinanceiroClientPage() {
     const savingKey = paymentMethod === "PIX" ? "checkout-pix" : "checkout-boleto";
     setSaving(savingKey);
     setError(null);
+    setPaymentActionError(null);
     try {
       const payload = await apiFetch<{ charge?: FinanceiroOverview["latestCharge"]; overview?: FinanceiroOverview }>("/financeiro/checkout", {
         method: "POST",
@@ -359,7 +389,12 @@ export default function FinanceiroClientPage() {
           : "Boleto criado no Mercado Pago. A compensação libera o acesso automaticamente.",
       );
     } catch (actionError) {
-      setError(actionError instanceof Error ? actionError.message : "Falha ao gerar cobrança.");
+      const text = resolveBillingActionError(
+        actionError,
+        paymentMethod === "PIX" ? "Não conseguimos gerar o Pix." : "Não conseguimos criar o boleto.",
+      );
+      setError(text);
+      setPaymentActionError(text);
     } finally {
       setSaving(null);
     }
@@ -387,6 +422,8 @@ export default function FinanceiroClientPage() {
     if (!shouldRenderBrick || !window.MercadoPago || !mpScriptReady) return;
     let mounted = true;
     setError(null);
+    setCardBrickWarning(null);
+    cardBrickReadyRef.current = false;
 
     try {
       brickControllerRef.current?.unmount();
@@ -414,6 +451,10 @@ export default function FinanceiroClientPage() {
           },
         },
         callbacks: {
+          onReady: () => {
+            cardBrickReadyRef.current = true;
+            setCardBrickWarning(null);
+          },
           onSubmit: (cardFormData: any) => submitSubscription(cardFormData),
           onError: (brickError: unknown) => {
             const text = brickError instanceof Error ? brickError.message : "Falha no formulário seguro do Mercado Pago.";
@@ -431,6 +472,7 @@ export default function FinanceiroClientPage() {
       .catch((brickError) => {
         const text = brickError instanceof Error ? brickError.message : "Não foi possível carregar o cartão Mercado Pago.";
         setError(text);
+        setCardBrickWarning("Não conseguimos carregar o formulário seguro do Mercado Pago. Confira a chave pública e tente recarregar a página.");
       });
 
     return () => {
@@ -443,6 +485,17 @@ export default function FinanceiroClientPage() {
       brickControllerRef.current = null;
     };
   }, [shouldRenderBrick, mpScriptReady, publicKey, total, payerEmail, checkoutMode, showCardUpdate]);
+
+  useEffect(() => {
+    if (!shouldRenderBrick || !publicKey) return;
+    setCardBrickWarning(null);
+    cardBrickReadyRef.current = false;
+    const timer = window.setTimeout(() => {
+      if (cardBrickReadyRef.current) return;
+      setCardBrickWarning("O formulário seguro do Mercado Pago está demorando para carregar. Confira se a chave pública é a Public Key correta e se o domínio está liberado no Mercado Pago.");
+    }, 14000);
+    return () => window.clearTimeout(timer);
+  }, [shouldRenderBrick, publicKey, total, payerEmail]);
 
   if (hasToken === null) {
     return (
@@ -602,11 +655,21 @@ export default function FinanceiroClientPage() {
                   </div>
                   <strong>•••• •••• •••• ••••</strong>
                   <div className={styles.cardMockBottom}>
-                    <span>{payerEmail || "Email confirmado"}</span>
+                    <span>{cardholderName.trim() || "Nome no cartão"}</span>
                     <span>{billingCycle === "ANNUAL" ? "Anual" : "Mensal"}</span>
                   </div>
                 </div>
                 <div className={styles.cardTokenPanel}>
+                  <label className={styles.field}>
+                    <span className={styles.fieldLabel}>Nome impresso no cartão</span>
+                    <input
+                      className={styles.fieldInput}
+                      autoComplete="cc-name"
+                      value={cardholderName}
+                      onChange={(event) => setCardholderName(event.target.value)}
+                      placeholder="Como aparece no cartão"
+                    />
+                  </label>
                   {!publicKey ? (
                     <div className={styles.setupNotice}>
                       <strong>Cartão em configuração neste ambiente.</strong>
@@ -615,6 +678,18 @@ export default function FinanceiroClientPage() {
                   ) : (
                     <div id="mp-card-payment-brick" className={styles.mpBrick} />
                   )}
+                  {cardBrickWarning ? (
+                    <div className={styles.setupNotice}>
+                      <strong>Formulário do cartão não carregou.</strong>
+                      <p>{cardBrickWarning}</p>
+                    </div>
+                  ) : null}
+                  {paymentActionError && checkoutPaymentMethod === "CARD" ? (
+                    <div className={styles.setupNotice}>
+                      <strong>Não foi possível concluir pelo cartão.</strong>
+                      <p>{paymentActionError}</p>
+                    </div>
+                  ) : null}
                 </div>
               </div>
             </section>
@@ -660,6 +735,12 @@ export default function FinanceiroClientPage() {
                   ) : null}
                 </div>
               ) : null}
+              {paymentActionError && checkoutPaymentMethod === "PIX" ? (
+                <div className={styles.setupNotice}>
+                  <strong>Não foi possível gerar o Pix.</strong>
+                  <p>{paymentActionError}</p>
+                </div>
+              ) : null}
             </section>
           ) : null}
 
@@ -685,6 +766,12 @@ export default function FinanceiroClientPage() {
                 <a className={styles.paymentLink} href={latestBoletoCharge.paymentUrl} target="_blank" rel="noreferrer">
                   Abrir boleto no Mercado Pago
                 </a>
+              ) : null}
+              {paymentActionError && checkoutPaymentMethod === "BOLETO" ? (
+                <div className={styles.setupNotice}>
+                  <strong>Não foi possível criar o boleto.</strong>
+                  <p>{paymentActionError}</p>
+                </div>
               ) : null}
             </section>
           ) : null}
