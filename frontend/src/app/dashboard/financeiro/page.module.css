@@ -543,6 +543,284 @@
   color: var(--foreground-soft);
 }
 
+.checkoutShell {
+  grid-template-columns: minmax(0, 1.28fr) minmax(340px, 0.72fr);
+  gap: 1.15rem;
+}
+
+.checkoutMain,
+.checkoutSummaryPanel {
+  border-color: rgba(121, 176, 255, 0.55);
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.92), rgba(235, 247, 255, 0.82)),
+    color-mix(in srgb, var(--surface) 96%, white);
+  box-shadow:
+    0 28px 80px -52px rgba(38, 87, 165, 0.55),
+    inset 0 1px 0 rgba(255, 255, 255, 0.92);
+}
+
+.checkoutMain {
+  gap: 1.15rem;
+  padding: 1.35rem;
+  overflow: hidden;
+  position: relative;
+}
+
+.checkoutMain::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 8% 18%, rgba(38, 190, 255, 0.16), transparent 28%),
+    radial-gradient(circle at 92% 8%, rgba(126, 87, 255, 0.12), transparent 26%),
+    linear-gradient(90deg, rgba(14, 165, 233, 0.04) 1px, transparent 1px),
+    linear-gradient(180deg, rgba(14, 165, 233, 0.04) 1px, transparent 1px);
+  background-size: auto, auto, 34px 34px, 34px 34px;
+}
+
+.checkoutMain > * {
+  position: relative;
+}
+
+.checkoutHero {
+  display: grid;
+  grid-template-columns: 74px minmax(0, 1fr);
+  gap: 1rem;
+  align-items: center;
+}
+
+.checkoutLogo {
+  width: 74px;
+  aspect-ratio: 1;
+  display: grid;
+  place-items: center;
+  border-radius: 20px;
+  color: #ffffff;
+  background:
+    linear-gradient(145deg, #20c6ff, #2154f5 58%, #16246f),
+    #2563eb;
+  box-shadow:
+    0 20px 42px -24px rgba(37, 99, 235, 0.78),
+    inset 0 2px 8px rgba(255, 255, 255, 0.35);
+  font-weight: 950;
+  letter-spacing: 0;
+}
+
+.checkoutTitle {
+  max-width: 760px;
+  font-size: 2.45rem;
+  letter-spacing: 0;
+}
+
+.checkoutStepper {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.65rem;
+}
+
+.checkoutStepper span {
+  min-height: 38px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 12px;
+  border: 1px solid rgba(121, 176, 255, 0.42);
+  color: #51627a;
+  background: rgba(255, 255, 255, 0.62);
+  font-size: 0.78rem;
+  font-weight: 850;
+}
+
+.checkoutStepper span[data-active="true"] {
+  color: #075985;
+  border-color: rgba(14, 165, 233, 0.36);
+  background: rgba(224, 246, 255, 0.84);
+}
+
+.checkoutSection {
+  display: grid;
+  gap: 0.9rem;
+  padding-top: 1rem;
+  border-top: 1px solid rgba(148, 180, 224, 0.32);
+}
+
+.cycleCards {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.85rem;
+}
+
+.cycleCards button {
+  min-height: 148px;
+  display: grid;
+  align-content: start;
+  gap: 0.42rem;
+  text-align: left;
+  border-radius: 18px;
+  border: 1px solid rgba(121, 176, 255, 0.46);
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.88), rgba(235, 247, 255, 0.7));
+  color: #0f1f36;
+  padding: 1rem;
+  cursor: pointer;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+.cycleCards button[data-active="true"] {
+  border-color: rgba(24, 144, 255, 0.95);
+  background:
+    linear-gradient(145deg, rgba(222, 245, 255, 0.96), rgba(255, 255, 255, 0.86));
+  box-shadow:
+    0 0 0 4px rgba(14, 165, 233, 0.12),
+    inset 0 -3px 0 #19bdf2;
+}
+
+.cycleName {
+  color: #53647d;
+  font-size: 0.84rem;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.cycleCards strong {
+  color: #0b1f3a;
+  font-size: 1.55rem;
+  line-height: 1.05;
+}
+
+.cycleCards small {
+  max-width: 34ch;
+  color: #667791;
+  font-weight: 720;
+  line-height: 1.35;
+}
+
+.discountBadge {
+  width: fit-content;
+  min-height: 26px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 0.65rem;
+  border-radius: 999px;
+  color: #047857;
+  border: 1px solid rgba(16, 185, 129, 0.32);
+  background: rgba(209, 250, 229, 0.9);
+  font-size: 0.74rem;
+  font-weight: 950;
+}
+
+.securePaymentBox {
+  border-color: rgba(121, 176, 255, 0.5);
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.88), rgba(239, 248, 255, 0.76));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.88);
+}
+
+.setupNotice {
+  display: grid;
+  gap: 0.38rem;
+  border-radius: 14px;
+  border: 1px solid rgba(245, 158, 11, 0.34);
+  color: #7c2d12;
+  background: rgba(255, 251, 235, 0.92);
+  padding: 0.95rem;
+}
+
+.setupNotice strong {
+  color: #7c2d12;
+}
+
+.setupNotice p {
+  margin: 0;
+  color: #8a4b15;
+  font-weight: 720;
+}
+
+.setupNotice code {
+  color: #7c2d12;
+  font-weight: 900;
+}
+
+.fieldInput[readonly] {
+  color: #667791;
+  background: rgba(238, 244, 252, 0.82);
+  cursor: not-allowed;
+}
+
+.termsBox {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  border: 0;
+  background: transparent;
+  padding: 0;
+}
+
+.termsBox span {
+  min-height: 52px;
+  display: inline-flex;
+  align-items: center;
+  border-radius: 14px;
+  border: 1px solid rgba(121, 176, 255, 0.38);
+  background: rgba(255, 255, 255, 0.64);
+  color: #52647e;
+  padding: 0.75rem 0.85rem;
+}
+
+.checkoutSummaryPanel {
+  padding: 1.25rem;
+  border-radius: 22px;
+}
+
+.summaryPlan {
+  display: block;
+  margin-top: 0.3rem;
+  font-size: 1.55rem;
+}
+
+.priceStack {
+  gap: 0.36rem;
+  border-color: rgba(14, 165, 233, 0.28);
+  background:
+    radial-gradient(circle at 86% 0%, rgba(147, 197, 253, 0.35), transparent 34%),
+    linear-gradient(145deg, rgba(226, 246, 255, 0.94), rgba(255, 255, 255, 0.78));
+}
+
+.priceStack span {
+  font-size: 1.8rem;
+}
+
+.summaryFacts {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.summaryFacts div {
+  display: grid;
+  gap: 0.2rem;
+  border-radius: 14px;
+  border: 1px solid rgba(121, 176, 255, 0.36);
+  background: rgba(255, 255, 255, 0.62);
+  padding: 0.82rem 0.9rem;
+}
+
+.summaryFacts span {
+  color: #667791;
+  font-size: 0.8rem;
+  font-weight: 800;
+}
+
+.summaryFacts strong {
+  color: #0f1f36;
+}
+
+.summarySupport {
+  margin: 0;
+  color: #52647e;
+  font-weight: 760;
+  line-height: 1.45;
+}
+
 .emptyState,
 .errorCard,
 .successCard,
@@ -558,7 +836,9 @@
   .checkoutGrid,
   .checkoutSummary,
   .checkoutShell,
-  .termsBox {
+  .termsBox,
+  .cycleCards,
+  .checkoutStepper {
     grid-template-columns: 1fr;
   }
 
@@ -584,5 +864,20 @@
   .heroTitle,
   .checkoutTitle {
     font-size: 1.75rem;
+  }
+
+  .checkoutMain,
+  .checkoutSummaryPanel {
+    padding: 0.95rem;
+    border-radius: 18px;
+  }
+
+  .checkoutHero {
+    grid-template-columns: 1fr;
+  }
+
+  .checkoutLogo {
+    width: 58px;
+    border-radius: 16px;
   }
 }

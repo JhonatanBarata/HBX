@@ -3,7 +3,7 @@
 import Script from "next/script";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import DashboardScaffold from "@/components/DashboardScaffold";
 import { apiFetch } from "../_lib/api";
 import { useRequireAuth } from "../_lib/useRequireAuth";
@@ -223,7 +223,7 @@ export default function FinanceiroClientPage() {
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [overview, setOverview] = useState<FinanceiroOverview | null>(null);
-  const [billingCycle, setBillingCycle] = useState<BillingCycle>("ANNUAL");
+  const [billingCycle, setBillingCycle] = useState<BillingCycle>("MONTHLY");
   const [selectedPlanKey, setSelectedPlanKey] = useState<PlanKey>("hbx_melhor");
   const [contactPhone, setContactPhone] = useState("");
   const [payerEmail, setPayerEmail] = useState("");
@@ -237,7 +237,11 @@ export default function FinanceiroClientPage() {
   const shouldRenderBrick = Boolean(overview && canManageBilling && publicKey && (checkoutMode || showCardUpdate));
   const plan = PLAN_CATALOG[selectedPlanKey];
   const total = planCycleAmount(selectedPlanKey, billingCycle);
+  const monthlyTotal = planCycleAmount(selectedPlanKey, "MONTHLY");
+  const annualTotal = planCycleAmount(selectedPlanKey, "ANNUAL");
+  const annualMonthlyEquivalent = Number((annualTotal / 12).toFixed(2));
   const monthlyEquivalent = billingCycle === "ANNUAL" ? Number((total / 12).toFixed(2)) : total;
+  const cycleLabel = billingCycle === "ANNUAL" ? "Anual" : "Mensal";
 
   async function loadOverview(background = false) {
     if (!background) setLoading(true);
@@ -248,10 +252,13 @@ export default function FinanceiroClientPage() {
       const nextPlanKey = normalizePlanKey(
         payload.subscription?.planKey || payload.company.selectedPlanKey || payload.pricing.commercialPlan?.planKey,
       );
-      setSelectedPlanKey(nextPlanKey);
-      setBillingCycle(payload.subscription?.billingCycle || "ANNUAL");
-      setContactPhone(payload.subscription?.billingContactPhone || payload.company.contactPhone || "");
-      setPayerEmail(payload.subscription?.payerEmail || payload.company.contactEmail || "");
+      if (!background) {
+        const pendingCheckoutPayload = isPendingCheckout(payload, reason);
+        setSelectedPlanKey(nextPlanKey);
+        setBillingCycle(pendingCheckoutPayload ? "MONTHLY" : payload.subscription?.billingCycle || "MONTHLY");
+        setContactPhone(payload.subscription?.billingContactPhone || payload.company.contactPhone || "");
+        setPayerEmail(payload.subscription?.payerEmail || payload.company.contactEmail || "");
+      }
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Falha ao carregar o Financeiro.");
     } finally {
@@ -286,7 +293,7 @@ export default function FinanceiroClientPage() {
           });
       if (payload?.overview) setOverview(payload.overview);
       else await loadOverview(true);
-      setMessage(showCardUpdate && !checkoutMode ? "Cartão enviado ao Mercado Pago." : "Assinatura criada no Mercado Pago. A liberação ocorre após a confirmação do pagamento.");
+      setMessage(showCardUpdate && !checkoutMode ? "Cartão atualizado no Mercado Pago." : "Cartão autorizado. A liberação ocorre assim que o Mercado Pago confirmar o primeiro pagamento.");
       setShowCardUpdate(false);
       setForceCheckout(false);
     } catch (actionError) {
@@ -441,81 +448,119 @@ export default function FinanceiroClientPage() {
 
       <section className={styles.checkoutShell}>
         <article className={styles.checkoutMain}>
-          <span className={styles.eyebrow}>Checkout seguro</span>
-          <h1 className={styles.checkoutTitle}>Finalize sua contratação</h1>
-          <p className={styles.heroText}>Seu acesso será liberado automaticamente após a confirmação do pagamento.</p>
-
-          <div className={styles.cycleToggle} role="group" aria-label="Ciclo de cobrança">
-            <button type="button" data-active={billingCycle === "ANNUAL"} onClick={() => setBillingCycle("ANNUAL")}>
-              Anual
-            </button>
-            <button type="button" data-active={billingCycle === "MONTHLY"} onClick={() => setBillingCycle("MONTHLY")}>
-              Mensal
-            </button>
+          <div className={styles.checkoutHero}>
+            <div className={styles.checkoutLogo} aria-hidden="true">HBX</div>
+            <div>
+              <span className={styles.eyebrow}>Contratação HBX</span>
+              <h1 className={styles.checkoutTitle}>Finalize sua contratação</h1>
+              <p className={styles.heroText}>Confirme o ciclo, autorize o cartão no ambiente seguro do Mercado Pago e o acesso será liberado após a confirmação.</p>
+            </div>
           </div>
 
-          <div className={styles.formGrid}>
-            <label className={styles.field}>
-              <span className={styles.fieldLabel}>Telefone de contato</span>
-              <input
-                className={styles.fieldInput}
-                inputMode="tel"
-                value={contactPhone}
-                onChange={(event) => setContactPhone(event.target.value)}
-                placeholder="(11) 99999-9999"
-              />
-            </label>
-            <label className={styles.field}>
-              <span className={styles.fieldLabel}>E-mail de cobrança</span>
-              <input
-                className={styles.fieldInput}
-                type="email"
-                value={payerEmail}
-                onChange={(event) => setPayerEmail(event.target.value)}
-                placeholder="financeiro@empresa.com.br"
-              />
-            </label>
+          <div className={styles.checkoutStepper} aria-label="Etapas do checkout">
+            <span data-active="true">1. Ciclo</span>
+            <span data-active="true">2. Contato</span>
+            <span>3. Cartão seguro</span>
           </div>
 
-          <div className={styles.securePaymentBox}>
+          <section className={styles.checkoutSection}>
             <div className={styles.sectionHeader}>
               <div>
-                <strong>Cartão via Mercado Pago</strong>
-                <p className={styles.helperText}>Recorrência automática disponível por cartão. PIX segue como pagamento avulso quando habilitado fora deste checkout.</p>
+                <strong>Ciclo de cobrança</strong>
+                <p className={styles.helperText}>Mensal já vem selecionado. Ele cobra mês a mês e não compromete o limite anual do cartão de uma vez.</p>
               </div>
-              <span className={styles.statusPill}>Tokenização segura</span>
+            </div>
+            <div className={styles.cycleCards} role="group" aria-label="Ciclo de cobrança">
+              <button type="button" data-active={billingCycle === "MONTHLY"} onClick={() => setBillingCycle("MONTHLY")}>
+                <span className={styles.cycleName}>Mensal</span>
+                <strong>{formatCurrency(monthlyTotal)}/mês</strong>
+                <small>Cobrança automática todo mês. Não é compra anual parcelada.</small>
+              </button>
+              <button type="button" data-active={billingCycle === "ANNUAL"} onClick={() => setBillingCycle("ANNUAL")}>
+                <span className={styles.discountBadge}>10% de desconto</span>
+                <span className={styles.cycleName}>Anual</span>
+                <strong>{formatCurrency(annualMonthlyEquivalent)}/mês</strong>
+                <small>Total de {formatCurrency(annualTotal)} cobrado hoje.</small>
+              </button>
+            </div>
+          </section>
+
+          <section className={styles.checkoutSection}>
+            <div className={styles.sectionHeader}>
+              <div>
+                <strong>Contato de confirmação</strong>
+                <p className={styles.helperText}>Usamos estes dados para confirmar pagamento, status e suporte da contratação.</p>
+              </div>
+            </div>
+            <div className={styles.formGrid}>
+              <label className={styles.field}>
+                <span className={styles.fieldLabel}>Telefone de contato</span>
+                <input
+                  className={styles.fieldInput}
+                  inputMode="tel"
+                  value={contactPhone}
+                  onChange={(event) => setContactPhone(event.target.value)}
+                  placeholder="(11) 99999-9999"
+                />
+              </label>
+              <label className={styles.field}>
+                <span className={styles.fieldLabel}>Email de confirmação</span>
+                <input
+                  className={styles.fieldInput}
+                  type="email"
+                  value={payerEmail}
+                  readOnly
+                  aria-readonly="true"
+                  placeholder="email da conta"
+                />
+              </label>
+            </div>
+          </section>
+
+          <section className={styles.securePaymentBox}>
+            <div className={styles.sectionHeader}>
+              <div>
+                <strong>Cartão seguro Mercado Pago</strong>
+                <p className={styles.helperText}>O HBX recebe apenas o token temporário de autorização. Número completo e código de segurança não passam pelo nosso servidor.</p>
+              </div>
+              <span className={styles.statusPill}>Tokenização</span>
             </div>
             {!publicKey ? (
-              <div className={styles.errorCard}>Configure NEXT_PUBLIC_MERCADO_PAGO_PUBLIC_KEY no frontend para carregar o cartão seguro.</div>
+              <div className={styles.setupNotice}>
+                <strong>Cartão seguro indisponível neste ambiente.</strong>
+                <p>Defina <code>NEXT_PUBLIC_MERCADO_PAGO_PUBLIC_KEY</code> no frontend para carregar a tokenização do Mercado Pago.</p>
+              </div>
             ) : (
               <div id="mp-card-payment-brick" className={styles.mpBrick} />
             )}
-          </div>
+          </section>
 
           <div className={styles.termsBox}>
-            <span>Cobrança recorrente automática pelo Mercado Pago.</span>
-            <span>Sem fidelidade. Você pode cancelar quando quiser no Financeiro.</span>
-            <span>Após cancelar, novas cobranças serão interrompidas.</span>
+            <span>Sem fidelidade.</span>
+            <span>Cancelamento pelo Financeiro.</span>
+            <span>PIX fica fora do checkout automático.</span>
           </div>
         </article>
 
         <aside className={styles.checkoutSummaryPanel}>
-          <span className={styles.eyebrow}>Resumo do plano</span>
-          <strong className={styles.summaryPlan}>{plan.title}</strong>
+          <div>
+            <span className={styles.eyebrow}>Resumo</span>
+            <strong className={styles.summaryPlan}>{plan.title}</strong>
+          </div>
           <div className={styles.priceStack}>
             <span>{formatCurrency(monthlyEquivalent)}/mês</span>
-            <strong>Total hoje: {formatCurrency(total)}</strong>
-            <small>{billingCycle === "ANNUAL" ? "Plano anual com 10% de desconto" : "Cobrança mensal"}</small>
+            <strong>{cycleLabel}: {formatCurrency(total)} hoje</strong>
+            <small>{billingCycle === "ANNUAL" ? "10% de desconto aplicado no ciclo anual." : "Cobrança mês a mês, sem usar limite anual de uma vez."}</small>
           </div>
           <div className={styles.summaryList}>
             {plan.includes.map((item) => <span key={item}>{item}</span>)}
           </div>
-          <div className={styles.infoGrid}>
+          <div className={styles.summaryFacts}>
             <div><span>Próxima cobrança</span><strong>{nextBilling.toLocaleDateString("pt-BR")}</strong></div>
+            <div><span>Autorização</span><strong>{billingCycle === "ANNUAL" ? "Ciclo anual" : "Mês a mês"}</strong></div>
             <div><span>Segurança</span><strong>Mercado Pago</strong></div>
-            <div><span>Cancelamento</span><strong>Sem fidelidade</strong></div>
           </div>
-          <p className={styles.helperText}>Suporte HBX disponível para conferir status do provedor ou falhas de pagamento.</p>
+          <p className={styles.summarySupport}>Após a confirmação, o HBX atualiza seu acesso automaticamente.</p>
         </aside>
       </section>
     </div>
@@ -523,7 +568,7 @@ export default function FinanceiroClientPage() {
 
   if (checkoutMode) {
     return (
-      <DashboardScaffold title="Finalize sua contratação" description="Pagamento recorrente por cartão com Mercado Pago.">
+      <DashboardScaffold title="Finalize sua contratação" description="Confirme plano, contato e cartão seguro.">
         {checkout}
       </DashboardScaffold>
     );
@@ -600,7 +645,7 @@ export default function FinanceiroClientPage() {
             <div className={styles.sectionHeader}>
               <div>
                 <strong>Última cobrança</strong>
-                <p className={styles.helperText}>Pagamentos recorrentes aparecem aqui após o webhook do Mercado Pago.</p>
+                <p className={styles.helperText}>As confirmações do Mercado Pago aparecem aqui assim que o webhook atualizar a conta.</p>
               </div>
               <span className={overview.latestCharge?.status === "approved" ? styles.statusPill : styles.mutedPill}>
                 {overview.latestCharge ? chargeStatusLabel(overview.latestCharge.status) : "Sem cobrança"}
@@ -613,7 +658,7 @@ export default function FinanceiroClientPage() {
                 <div><span>Atualizado</span><strong>{formatDate(overview.latestCharge.lastWebhookAt || overview.latestCharge.createdAt)}</strong></div>
               </div>
             ) : (
-              <div className={styles.emptyState}>Ainda não há cobrança recorrente confirmada.</div>
+              <div className={styles.emptyState}>Ainda não há confirmação de pagamento para mostrar.</div>
             )}
           </article>
         </section>
@@ -628,7 +673,10 @@ export default function FinanceiroClientPage() {
               <button type="button" className="btn btn-secondary btn-sm" onClick={() => setShowCardUpdate(false)}>Fechar</button>
             </div>
             {!publicKey ? (
-              <div className={styles.errorCard}>Configure NEXT_PUBLIC_MERCADO_PAGO_PUBLIC_KEY no frontend para carregar o cartão seguro.</div>
+              <div className={styles.setupNotice}>
+                <strong>Cartão seguro indisponível neste ambiente.</strong>
+                <p>Defina <code>NEXT_PUBLIC_MERCADO_PAGO_PUBLIC_KEY</code> no frontend para carregar a tokenização do Mercado Pago.</p>
+              </div>
             ) : (
               <div id="mp-card-payment-brick" className={styles.mpBrick} />
             )}
