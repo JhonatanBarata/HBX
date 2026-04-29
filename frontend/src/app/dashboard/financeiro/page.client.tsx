@@ -7,12 +7,15 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import DashboardScaffold from "@/components/DashboardScaffold";
 import { apiFetch } from "../_lib/api";
 import { useRequireAuth } from "../_lib/useRequireAuth";
+import PremiumPaymentCard from "./PremiumPaymentCard";
 import styles from "./page.module.css";
 
 type BillingCycle = "MONTHLY" | "ANNUAL";
 type CheckoutPaymentMethod = "CARD" | "PIX" | "BOLETO";
 type CardVisualBrand = "mastercard" | "visa" | "amex" | "elo" | "card";
 type PlanKey = "hbx_lite" | "hbx_padrao" | "hbx_melhor";
+type CardAutofillKind = "number" | "holder" | "expiration" | "security";
+type MercadoPagoBrickController = { unmount: () => void };
 type MercadoPagoBrickFormData = {
   token?: string | null;
   cardTokenId?: string | null;
@@ -147,11 +150,16 @@ declare global {
   interface Window {
     MercadoPago?: new (publicKey: string, options?: { locale?: string }) => {
       bricks: () => {
-        create: (type: string, containerId: string, settings: Record<string, unknown>) => Promise<{ unmount: () => void }>;
+        create: (type: string, containerId: string, settings: Record<string, unknown>) => Promise<MercadoPagoBrickController>;
       };
     };
   }
 }
+
+const MERCADO_PAGO_BRICK_CONTAINER_ID = "mp-card-payment-brick";
+const MERCADO_PAGO_BRICK_MAX_ATTEMPTS = 3;
+const MERCADO_PAGO_SDK_WAIT_MS = 22000;
+const MERCADO_PAGO_BRICK_READY_WAIT_MS = 24000;
 
 const PLAN_CATALOG: Record<PlanKey, { title: string; monthly: number; includes: string[] }> = {
   hbx_lite: {
@@ -278,12 +286,96 @@ function detectCardVisualBrand(value: string): CardVisualBrand {
   return "card";
 }
 
-function cardVisualBrandLabel(brand: CardVisualBrand) {
-  if (brand === "mastercard") return "Mastercard";
-  if (brand === "visa") return "Visa";
-  if (brand === "amex") return "Amex";
-  if (brand === "elo") return "Elo";
-  return "Cartão";
+function cardAutofillConfig(kind: CardAutofillKind) {
+  if (kind === "number") {
+    return {
+      autocomplete: "cc-number",
+      name: "cc-number",
+      aria: "Número do cartão",
+      inputMode: "numeric",
+    };
+  }
+  if (kind === "holder") {
+    return {
+      autocomplete: "cc-name",
+      name: "cc-name",
+      aria: "Nome impresso no cartão",
+      inputMode: "text",
+    };
+  }
+  if (kind === "expiration") {
+    return {
+      autocomplete: "cc-exp",
+      name: "cc-exp",
+      aria: "Data de vencimento do cartão",
+      inputMode: "numeric",
+    };
+  }
+  return {
+    autocomplete: "cc-csc",
+    name: "cc-csc",
+    aria: "Código de segurança do cartão",
+    inputMode: "numeric",
+  };
+}
+
+function detectCardAutofillKind(context: string): CardAutofillKind | null {
+  const normalized = context.toLowerCase();
+  if (/seguran|security|cvc|cvv|csc|cod.?seg|código|codigo/.test(normalized)) return "security";
+  if (/venc|valid|expir|expira|mm\s*\/\s*aa|mm\s*\/\s*yyyy|expiration|expiry|validade/.test(normalized)) return "expiration";
+  if (/titular|nome|name|holder|cardholder|impresso/.test(normalized)) return "holder";
+  if (/n[uú]mero|numero|number|card.?number|card-number|card_number|pan|cart[aã]o/.test(normalized)) return "number";
+  return null;
+}
+
+function getFieldContext(field: HTMLElement, root: HTMLElement) {
+  const labelledBy = String(field.getAttribute("aria-labelledby") || "")
+    .split(/\s+/)
+    .map((id) => root.querySelector<HTMLElement>(`#${CSS.escape(id)}`)?.textContent || "")
+    .join(" ");
+  const labelFor = field.id ? root.querySelector<HTMLLabelElement>(`label[for="${CSS.escape(field.id)}"]`)?.textContent || "" : "";
+  const closestLabel = field.closest("label")?.textContent || "";
+  return [
+    field.id,
+    field.getAttribute("name"),
+    field.getAttribute("placeholder"),
+    field.getAttribute("aria-label"),
+    field.getAttribute("title"),
+    field.getAttribute("data-testid"),
+    field.getAttribute("data-cy"),
+    field.className,
+    labelFor,
+    closestLabel,
+    labelledBy,
+  ].join(" ");
+}
+
+function clearMercadoPagoBrickContainer() {
+  if (typeof document === "undefined") return;
+  const root = document.getElementById(MERCADO_PAGO_BRICK_CONTAINER_ID);
+  root?.replaceChildren();
+}
+
+function waitForMercadoPagoSdk(isActive: () => boolean) {
+  return new Promise<Window["MercadoPago"] | null>((resolve) => {
+    const startedAt = Date.now();
+    const tick = () => {
+      if (!isActive()) {
+        resolve(null);
+        return;
+      }
+      if (typeof window !== "undefined" && window.MercadoPago) {
+        resolve(window.MercadoPago);
+        return;
+      }
+      if (Date.now() - startedAt >= MERCADO_PAGO_SDK_WAIT_MS) {
+        resolve(null);
+        return;
+      }
+      window.setTimeout(tick, 250);
+    };
+    tick();
+  });
 }
 
 function enhanceMercadoPagoCardAutofill(
@@ -291,7 +383,7 @@ function enhanceMercadoPagoCardAutofill(
   onHolderDetected: (holder: string) => void,
 ) {
   if (typeof document === "undefined") return undefined;
-  const root = document.getElementById("mp-card-payment-brick");
+  const root = document.getElementById(MERCADO_PAGO_BRICK_CONTAINER_ID);
   if (!root) return undefined;
   const listeners: Array<{ input: HTMLInputElement; kind: "brand" | "holder"; handler: () => void }> = [];
 
@@ -322,52 +414,41 @@ function enhanceMercadoPagoCardAutofill(
     });
   };
 
+  const applyFieldAttributes = (field: HTMLInputElement, kind: CardAutofillKind) => {
+    const config = cardAutofillConfig(kind);
+    field.setAttribute("autocomplete", config.autocomplete);
+    field.setAttribute("name", field.getAttribute("name") || config.name);
+    field.setAttribute("aria-label", field.getAttribute("aria-label") || config.aria);
+    field.setAttribute("title", field.getAttribute("title") || config.aria);
+    if (config.inputMode) field.setAttribute("inputmode", config.inputMode);
+  };
+
+  const applyIframeLabel = (iframe: HTMLIFrameElement) => {
+    const kind = detectCardAutofillKind(getFieldContext(iframe, root));
+    if (!kind) return;
+    const label = cardAutofillConfig(kind).aria;
+    iframe.setAttribute("title", iframe.getAttribute("title") || label);
+    iframe.setAttribute("aria-label", iframe.getAttribute("aria-label") || label);
+  };
+
   const apply = () => {
     root.querySelectorAll<HTMLInputElement>("input").forEach((input) => {
-      const context = [
-        input.id,
-        input.name,
-        input.placeholder,
-        input.getAttribute("aria-label"),
-        input.closest("label")?.textContent,
-        input.parentElement?.textContent,
-      ].join(" ").toLowerCase();
-
-      if (/venc|valid|expir|mm\s*\/\s*aa|mm\s*\/\s*yyyy|expiration/.test(context)) {
-        input.setAttribute("autocomplete", "cc-exp");
-        input.setAttribute("name", input.getAttribute("name") || "cc-exp");
-        input.setAttribute("aria-label", input.getAttribute("aria-label") || "Data de vencimento do cartão");
-        input.setAttribute("inputmode", "numeric");
-        return;
-      }
-
-      if (/seguran|security|cvc|cvv|csc|código|codigo/.test(context)) {
-        input.setAttribute("autocomplete", "cc-csc");
-        input.setAttribute("name", input.getAttribute("name") || "cc-csc");
-        input.setAttribute("aria-label", input.getAttribute("aria-label") || "Código de segurança do cartão");
-        input.setAttribute("inputmode", "numeric");
-        return;
-      }
-
-      if (/número|numero|number|cartão|cartao|card/.test(context)) {
-        input.setAttribute("autocomplete", "cc-number");
-        input.setAttribute("name", input.getAttribute("name") || "cc-number");
-        input.setAttribute("aria-label", input.getAttribute("aria-label") || "Número do cartão");
-        input.setAttribute("inputmode", "numeric");
+      const kind = detectCardAutofillKind(getFieldContext(input, root));
+      if (!kind) return;
+      applyFieldAttributes(input, kind);
+      if (kind === "number") {
         wireListener(input, "brand", () => onBrandDetected(detectCardVisualBrand(input.value)));
         return;
       }
 
-      if (/titular|nome|name|holder/.test(context)) {
-        input.setAttribute("autocomplete", "cc-name");
-        input.setAttribute("name", input.getAttribute("name") || "cc-name");
-        input.setAttribute("aria-label", input.getAttribute("aria-label") || "Nome impresso no cartão");
+      if (kind === "holder") {
         wireListener(input, "holder", () => {
           const nextHolder = input.value.trim();
           if (nextHolder) onHolderDetected(nextHolder);
         });
       }
     });
+    root.querySelectorAll<HTMLIFrameElement>("iframe").forEach(applyIframeLabel);
     ensureValidLabels();
   };
 
@@ -394,7 +475,9 @@ export default function FinanceiroClientPage() {
   const hasToken = useRequireAuth();
   const searchParams = useSearchParams();
   const publicKey = process.env.NEXT_PUBLIC_MERCADO_PAGO_PUBLIC_KEY || "";
-  const brickControllerRef = useRef<{ unmount: () => void } | null>(null);
+  const brickControllerRef = useRef<MercadoPagoBrickController | null>(null);
+  const brickCreatingRef = useRef(false);
+  const brickRunIdRef = useRef(0);
   const cardBrickReadyRef = useRef(false);
   const cardAutofillCleanupRef = useRef<(() => void) | null>(null);
   const [mpScriptReady, setMpScriptReady] = useState(false);
@@ -591,89 +674,138 @@ export default function FinanceiroClientPage() {
   }, [checkoutMode, loadOverview]);
 
   useEffect(() => {
-    if (!shouldRenderBrick || !window.MercadoPago || !mpScriptReady) return;
-    let mounted = true;
-    setError(null);
-    setCardBrickWarning(null);
-    cardBrickReadyRef.current = false;
+    if (!shouldRenderBrick || !publicKey) return;
+    const runId = brickRunIdRef.current + 1;
+    brickRunIdRef.current = runId;
+    let cancelled = false;
+    let activeAttemptToken = 0;
+    let retryTimer: number | null = null;
+    let readyTimer: number | null = null;
 
-    try {
-      brickControllerRef.current?.unmount();
-    } catch {
-      // Mercado Pago controls its own iframe lifecycle.
-    }
-    brickControllerRef.current = null;
-    cardAutofillCleanupRef.current?.();
-    cardAutofillCleanupRef.current = null;
+    const isActive = (attemptToken?: number) =>
+      !cancelled &&
+      brickRunIdRef.current === runId &&
+      (attemptToken === undefined || activeAttemptToken === attemptToken);
 
-    const mp = new window.MercadoPago(publicKey, { locale: "pt-BR" });
-    const bricksBuilder = mp.bricks();
-    bricksBuilder
-      .create("cardPayment", "mp-card-payment-brick", {
-        initialization: {
-          amount: total,
-          payer: {
-            email: payerEmail || undefined,
-          },
-        },
-        customization: {
-          visual: { style: { theme: "default" } },
-          paymentMethods: {
-            types: {
-              excluded: ["debit_card", "prepaid_card"],
-            },
-          },
-        },
-        callbacks: {
-          onReady: () => {
-            cardBrickReadyRef.current = true;
-            setCardBrickWarning(null);
-            cardAutofillCleanupRef.current?.();
-            cardAutofillCleanupRef.current = enhanceMercadoPagoCardAutofill(setCardVisualBrand, setCardholderName) || null;
-          },
-          onSubmit: (cardFormData: MercadoPagoBrickFormData) => submitSubscription(cardFormData),
-          onError: (brickError: unknown) => {
-            const text = brickError instanceof Error ? brickError.message : "Falha no formulário seguro do Mercado Pago.";
-            setError(text);
-          },
-        },
-      })
-      .then((controller) => {
-        if (!mounted) {
-          controller.unmount();
-          return;
-        }
-        brickControllerRef.current = controller;
-      })
-      .catch((brickError) => {
-        const text = brickError instanceof Error ? brickError.message : "Não foi possível carregar o cartão Mercado Pago.";
-        setError(text);
-        setCardBrickWarning("Não conseguimos carregar o formulário seguro do Mercado Pago. Confira a chave pública e tente recarregar a página.");
-      });
+    const clearReadyTimer = () => {
+      if (!readyTimer) return;
+      window.clearTimeout(readyTimer);
+      readyTimer = null;
+    };
 
-    return () => {
-      mounted = false;
+    const teardownBrick = () => {
+      clearReadyTimer();
+      brickCreatingRef.current = false;
+      cardAutofillCleanupRef.current?.();
+      cardAutofillCleanupRef.current = null;
       try {
         brickControllerRef.current?.unmount();
       } catch {
-        // ignore
+        // Mercado Pago controls its own iframe lifecycle.
       }
       brickControllerRef.current = null;
-      cardAutofillCleanupRef.current?.();
-      cardAutofillCleanupRef.current = null;
+      clearMercadoPagoBrickContainer();
+    };
+
+    const scheduleRetry = (attempt: number, reason: string) => {
+      if (!isActive()) return;
+      teardownBrick();
+      if (attempt >= MERCADO_PAGO_BRICK_MAX_ATTEMPTS) {
+        setCardBrickWarning(reason);
+        setError("Não foi possível carregar o cartão Mercado Pago. Tente recarregar a página ou use Pix.");
+        return;
+      }
+      setCardBrickWarning(`${reason} Tentando novamente (${attempt + 1}/${MERCADO_PAGO_BRICK_MAX_ATTEMPTS})...`);
+      retryTimer = window.setTimeout(() => {
+        void mountBrick(attempt + 1);
+      }, 900 + attempt * 600);
+    };
+
+    const mountBrick = async (attempt: number) => {
+      if (!isActive() || brickCreatingRef.current) return;
+      const attemptToken = activeAttemptToken + 1;
+      activeAttemptToken = attemptToken;
+      brickCreatingRef.current = true;
+      cardBrickReadyRef.current = false;
+      setError(null);
+      setCardBrickWarning(attempt > 1 ? `Recarregando formulário seguro do Mercado Pago (${attempt}/${MERCADO_PAGO_BRICK_MAX_ATTEMPTS})...` : null);
+      teardownBrick();
+      brickCreatingRef.current = true;
+
+      const MercadoPago = await waitForMercadoPagoSdk(() => isActive(attemptToken));
+      if (!isActive(attemptToken)) return;
+      if (!MercadoPago) {
+        scheduleRetry(attempt, "O SDK do Mercado Pago demorou para responder.");
+        return;
+      }
+
+      readyTimer = window.setTimeout(() => {
+        if (!isActive(attemptToken) || cardBrickReadyRef.current) return;
+        scheduleRetry(attempt, "O formulário seguro do Mercado Pago demorou para carregar.");
+      }, MERCADO_PAGO_BRICK_READY_WAIT_MS);
+
+      try {
+        const mp = new MercadoPago(publicKey, { locale: "pt-BR" });
+        const controller = await mp.bricks().create("cardPayment", MERCADO_PAGO_BRICK_CONTAINER_ID, {
+          initialization: {
+            amount: total,
+            payer: {
+              email: payerEmail || undefined,
+            },
+          },
+          customization: {
+            visual: { style: { theme: "default" } },
+            paymentMethods: {
+              types: {
+                excluded: ["debit_card", "prepaid_card"],
+              },
+            },
+          },
+          callbacks: {
+            onReady: () => {
+              if (!isActive(attemptToken)) return;
+              clearReadyTimer();
+              brickCreatingRef.current = false;
+              cardBrickReadyRef.current = true;
+              setCardBrickWarning(null);
+              cardAutofillCleanupRef.current?.();
+              cardAutofillCleanupRef.current = enhanceMercadoPagoCardAutofill(setCardVisualBrand, setCardholderName) || null;
+            },
+            onSubmit: (cardFormData: MercadoPagoBrickFormData) => submitSubscription(cardFormData),
+            onError: (brickError: unknown) => {
+              if (!isActive(attemptToken)) return;
+              const text = brickError instanceof Error ? brickError.message : "Falha no formulário seguro do Mercado Pago.";
+              setError(text);
+            },
+          },
+        });
+
+        if (!isActive(attemptToken)) {
+          try {
+            controller.unmount();
+          } catch {
+            // ignore stale controller cleanup
+          }
+          return;
+        }
+        brickControllerRef.current = controller;
+      } catch (brickError) {
+        if (!isActive(attemptToken)) return;
+        const text = brickError instanceof Error ? brickError.message : "Não foi possível carregar o cartão Mercado Pago.";
+        scheduleRetry(attempt, `${text}`);
+      }
+    };
+
+    setError(null);
+    setCardBrickWarning(null);
+    void mountBrick(1);
+
+    return () => {
+      cancelled = true;
+      if (retryTimer) window.clearTimeout(retryTimer);
+      teardownBrick();
     };
   }, [shouldRenderBrick, mpScriptReady, publicKey, total, payerEmail, submitSubscription]);
-
-  useEffect(() => {
-    if (!shouldRenderBrick || !publicKey) return;
-    setCardBrickWarning(null);
-    cardBrickReadyRef.current = false;
-    const timer = window.setTimeout(() => {
-      if (cardBrickReadyRef.current) return;
-      setCardBrickWarning("O formulário seguro do Mercado Pago está demorando para carregar. Confira se a chave pública é a Public Key correta e se o domínio está liberado no Mercado Pago.");
-    }, 14000);
-    return () => window.clearTimeout(timer);
-  }, [shouldRenderBrick, publicKey, total, payerEmail]);
 
   if (hasToken === null) {
     return (
@@ -886,22 +1018,13 @@ export default function FinanceiroClientPage() {
                 <span className={styles.statusPill}>Recorrente</span>
               </div>
               <div className={styles.cardExperience}>
-                <div className={styles.cardMock} data-cycle={billingCycle} data-brand={cardVisualBrand} aria-hidden="true">
-                  <div className={styles.cardMockTop}>
-                    <span className={styles.cardChipBrand} data-brand={cardVisualBrand}>
-                      <i aria-hidden="true" />
-                    </span>
-                    <small className={styles.cardBrandBadge} data-brand={cardVisualBrand}>
-                      <span aria-hidden="true" />
-                      {cardVisualBrandLabel(cardVisualBrand)}
-                    </small>
-                  </div>
-                  <strong>•••• •••• •••• ••••</strong>
-                  <div className={styles.cardMockBottom}>
-                    <span>{cardholderName.trim() || "Nome no cartão"}</span>
-                    <span>{billingCycle === "ANNUAL" ? "Anual" : "Mensal"}</span>
-                  </div>
-                </div>
+                <PremiumPaymentCard
+                  holderName={cardholderName}
+                  brand={cardVisualBrand}
+                  billingLabel={billingCycle === "ANNUAL" ? "Anual" : "Mensal"}
+                  planLabel={plan.title}
+                  amountLabel={formatCurrency(total)}
+                />
                 <div className={styles.cardTokenPanel}>
                   <label className={styles.field} htmlFor="checkout-cardholder-name">
                     <span className={styles.fieldLabel}>Nome impresso no cartão</span>
