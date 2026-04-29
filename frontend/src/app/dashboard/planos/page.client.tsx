@@ -209,7 +209,12 @@ export default function PlanosClientPage() {
 
     setSavingPlan(planKey);
     setError(null);
-    setNotice(null);
+    setNotice({
+      tone: "info",
+      text: planKey === "hbx_padrao" && padraoTrialAvailable
+        ? "Ativando o trial interno do HBX Padrão, sem cobrança agora."
+        : "Preparando a troca de plano.",
+    });
     try {
       await apiFetch("/financeiro/preferences", {
         method: "PATCH",
@@ -222,6 +227,9 @@ export default function PlanosClientPage() {
       setPayload(next);
       if (planKey === "hbx_padrao" && next.current.isTrial) {
         setNotice({ tone: "success", text: "Trial do HBX Padrão iniciado por 30 dias. Não haverá cobrança automática." });
+        window.setTimeout(() => {
+          router.push("/dashboard");
+        }, 500);
         return;
       }
       router.push("/dashboard/financeiro?focus=payment");

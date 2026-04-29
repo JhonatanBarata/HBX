@@ -679,7 +679,7 @@ export default function FinanceiroClientPage() {
   const changePlanHref = "/dashboard/planos?mode=pending_checkout&reason=change_plan";
 
   const checkout = (
-    <div className={styles.page}>
+    <div className={`${styles.page} ${styles.checkoutPage}`}>
       <Script src="https://sdk.mercadopago.com/js/v2" strategy="afterInteractive" onLoad={() => setMpScriptReady(true)} />
       <a className={styles.supportPopup} href={supportUrl} target="_blank" rel="noreferrer" aria-label="Abrir suporte HBX no WhatsApp">
         <span className={styles.supportPopupText}>
