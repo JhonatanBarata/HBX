@@ -32,6 +32,8 @@ type CurrentUser = {
     subscriptionStatus?: string | null;
     trialEndsAt?: string | null;
     trialRemainingDays?: number | null;
+    billingGraceEndsAt?: string | null;
+    billingGraceRemainingHours?: number | null;
     subscriptionCurrentPeriodEnd?: string | null;
     selectedPlanKey?: string | null;
   } | null;
@@ -563,6 +565,18 @@ function commercialBanner(user: CurrentUser | null) {
   const onboardingStatus = String(company.onboardingStatus || "").trim().toLowerCase();
   const paymentStatus = String(company.paymentStatus || "").trim().toUpperCase();
   const subscriptionStatus = String(company.subscriptionStatus || "").trim().toLowerCase();
+  const billingGraceEndsAt = company.billingGraceEndsAt ? new Date(company.billingGraceEndsAt).getTime() : NaN;
+  const graceAccess = subscriptionStatus === "grace" && Number.isFinite(billingGraceEndsAt) && billingGraceEndsAt >= Date.now();
+  if (graceAccess) {
+    const hours = typeof company.billingGraceRemainingHours === "number" ? company.billingGraceRemainingHours : null;
+    return {
+      tone: "pending",
+      title: `Acesso em tolerância${hours !== null ? ` — ${hours}h restantes` : ""}`,
+      text: "Regularize o pagamento no Financeiro para manter o acesso.",
+      href: "/dashboard/financeiro",
+      cta: "Ver financeiro",
+    };
+  }
   if (subscriptionStatus === "active" || subscriptionStatus === "authorized" || paymentStatus === "PAID") {
     return {
       tone: "paid",
@@ -600,12 +614,15 @@ function isCompanyPendingCheckout(user: CurrentUser | null) {
   const onboardingStatus = String(company.onboardingStatus || "").trim().toLowerCase();
   const paymentStatus = String(company.paymentStatus || "").trim().toUpperCase();
   const subscriptionStatus = String(company.subscriptionStatus || "").trim().toLowerCase();
+  const billingGraceEndsAt = company.billingGraceEndsAt ? new Date(company.billingGraceEndsAt).getTime() : NaN;
+  const graceAccess = subscriptionStatus === "grace" && Number.isFinite(billingGraceEndsAt) && billingGraceEndsAt >= Date.now();
   const accessReleased =
     paymentStatus === "PAID" ||
     paymentStatus === "MANUAL" ||
     subscriptionStatus === "active" ||
     subscriptionStatus === "authorized" ||
-    subscriptionStatus === "manual";
+    subscriptionStatus === "manual" ||
+    graceAccess;
   if (accessReleased) return false;
   return onboardingStatus === "pending_checkout" || subscriptionStatus === "pending_checkout" || paymentStatus === "PENDING";
 }

@@ -51,6 +51,7 @@ export const ACTIVE_COMMERCIAL_ENTITLEMENT_STATUSES = new Set([
   'trialing',
   'paid',
   'manual',
+  'grace',
 ]);
 
 export const PENDING_COMMERCIAL_ENTITLEMENT_STATUS = 'pending_checkout';

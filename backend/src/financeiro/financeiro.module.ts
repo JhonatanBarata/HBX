@@ -4,9 +4,10 @@ import { FinanceiroService } from './financeiro.service';
 import { FinanceiroWebhookController } from './financeiro.webhook.controller';
 import { PaymentsModule } from '../payments/payments.module';
 import { ModulesAccessModule } from '../modules/modules.module';
+import { MailModule } from '../mail/mail.module';
 
 @Module({
-  imports: [PaymentsModule, ModulesAccessModule],
+  imports: [PaymentsModule, ModulesAccessModule, MailModule],
   controllers: [FinanceiroController, FinanceiroWebhookController],
   providers: [FinanceiroService],
 })

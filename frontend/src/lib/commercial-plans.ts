@@ -32,6 +32,8 @@ export type CommercialPlansPayload = {
     paymentStatus?: string | null;
     trialEndsAt?: string | null;
     trialRemainingDays?: number | null;
+    billingGraceEndsAt?: string | null;
+    billingGraceRemainingHours?: number | null;
     isTrial?: boolean;
   };
   plans: CommercialPlan[];

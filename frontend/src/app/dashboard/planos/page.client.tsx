@@ -84,6 +84,8 @@ function isPendingCheckout(payload: CommercialPlansPayload | null) {
   const subscriptionStatus = String(payload?.current.subscriptionStatus || "").trim().toLowerCase();
   const paymentStatus = String(payload?.current.paymentStatus || "").trim().toUpperCase();
   const onboardingStatus = String(payload?.current.onboardingStatus || "").trim().toLowerCase();
+  const billingGraceEndsAt = payload?.current.billingGraceEndsAt ? new Date(payload.current.billingGraceEndsAt).getTime() : NaN;
+  if (subscriptionStatus === "grace" && Number.isFinite(billingGraceEndsAt) && billingGraceEndsAt >= Date.now()) return false;
   return subscriptionStatus === "pending_checkout" || paymentStatus === "PENDING" || onboardingStatus === "pending_checkout";
 }
 
@@ -95,6 +97,8 @@ function currentPlanKey(payload: CommercialPlansPayload | null): PlanKey | null 
 function isPaidOrActive(payload: CommercialPlansPayload | null) {
   const subscriptionStatus = String(payload?.current.subscriptionStatus || "").trim().toLowerCase();
   const paymentStatus = String(payload?.current.paymentStatus || "").trim().toUpperCase();
+  const billingGraceEndsAt = payload?.current.billingGraceEndsAt ? new Date(payload.current.billingGraceEndsAt).getTime() : NaN;
+  if (subscriptionStatus === "grace" && Number.isFinite(billingGraceEndsAt) && billingGraceEndsAt >= Date.now()) return true;
   if (subscriptionStatus === "active" || subscriptionStatus === "authorized") return true;
   if (paymentStatus === "PAID") return true;
   return Boolean(payload?.current.entitlements.vendas && !payload?.current.isTrial);

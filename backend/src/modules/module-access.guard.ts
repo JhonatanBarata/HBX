@@ -31,10 +31,22 @@ export class ModuleAccessGuard implements CanActivate {
     const onboardingStatus = String(user?.company?.onboardingStatus || '').trim().toLowerCase();
     const subscriptionStatus = String(user?.company?.subscriptionStatus || '').trim().toLowerCase();
     const paymentStatus = String(user?.company?.paymentStatus || '').trim().toUpperCase();
+    const billingGraceEndsAt = user?.company?.billingGraceEndsAt instanceof Date
+      ? user.company.billingGraceEndsAt
+      : user?.company?.billingGraceEndsAt
+        ? new Date(String(user.company.billingGraceEndsAt))
+        : null;
+    const graceAccess = Boolean(
+      subscriptionStatus === 'grace' &&
+      billingGraceEndsAt &&
+      !Number.isNaN(billingGraceEndsAt.getTime()) &&
+      billingGraceEndsAt.getTime() >= Date.now(),
+    );
     const authorizedAccess =
       subscriptionStatus === 'authorized' ||
       subscriptionStatus === 'active' ||
-      paymentStatus === 'PAID';
+      paymentStatus === 'PAID' ||
+      graceAccess;
     const pendingCheckout =
       !authorizedAccess &&
       (
