@@ -27,6 +27,8 @@ import {
   type CommercialPlanKey,
 } from '../commercial-plans/commercial-plan-catalog';
 
+const INITIAL_ACCESS_GRACE_MS = 48 * 60 * 60 * 1000;
+
 @Injectable()
 export class AuthService implements OnModuleInit {
   private readonly logger = new Logger(AuthService.name);
@@ -694,7 +696,48 @@ export class AuthService implements OnModuleInit {
     }
   }
 
-  private async activateConfirmedTrialTx(tx: any, companyId: number, activatedAt: Date) {
+  private async createGraceEntitlementsTx(
+    tx: any,
+    companyId: number,
+    planKey: ActiveCommercialPlanKey,
+    graceStartedAt: Date,
+    graceEndsAt: Date,
+  ) {
+    const metadata = {
+      selectedPlanKey: planKey,
+      graceStartedAt: graceStartedAt.toISOString(),
+      graceEndsAt: graceEndsAt.toISOString(),
+      state: 'initial_access_grace',
+    };
+    const activeKeys = new Set(COMMERCIAL_PLAN_ENTITLEMENT_KEYS[planKey] || []);
+    const allKeys = [
+      COMMERCIAL_ENTITLEMENT_KEYS.VENDAS,
+      COMMERCIAL_ENTITLEMENT_KEYS.ATENDIMENTO_CHAT,
+      COMMERCIAL_ENTITLEMENT_KEYS.WEBSCRAPING,
+      COMMERCIAL_ENTITLEMENT_KEYS.BOT_IA,
+    ];
+
+    for (const key of allKeys) {
+      await this.upsertEntitlementTx(
+        tx,
+        companyId,
+        key,
+        activeKeys.has(key) ? 'grace' : 'canceled',
+        activeKeys.has(key) ? 'initial_access_grace' : 'plan_change',
+        activeKeys.has(key) ? graceStartedAt : null,
+        activeKeys.has(key) ? graceEndsAt : null,
+        key === COMMERCIAL_ENTITLEMENT_KEYS.BOT_IA
+          ? { ...metadata, botRelease: activeKeys.has(key) ? 'during_grace' : 'not_in_plan' }
+          : metadata,
+      );
+    }
+  }
+
+  private async activateConfirmedTrialTx(
+    tx: any,
+    companyId: number,
+    activatedAt: Date,
+  ): Promise<{ status: 'trial' | 'grace'; endsAt: Date | null }> {
     const company = await tx.company.findUnique({
       where: { id: companyId },
       select: {
@@ -708,27 +751,33 @@ export class AuthService implements OnModuleInit {
     const selectedPlanKey = this.normalizeSelectedPlanKey(company?.selectedPlanKey || undefined);
 
     if (selectedPlanKey !== COMMERCIAL_PLAN_KEYS.PADRAO) {
+      const graceEndsAt = new Date(activatedAt.getTime() + INITIAL_ACCESS_GRACE_MS);
       await tx.company.update({
         where: { id: companyId },
         data: {
           selectedPlanKey,
           trialModuleSelection: null,
-          onboardingStatus: 'pending_checkout',
-          isActive: false,
+          onboardingStatus: 'active_grace',
+          isActive: true,
           paymentStatus: 'PENDING',
-          subscriptionStatus: 'pending_checkout',
-          premiumAccess: false,
+          subscriptionStatus: 'grace',
+          premiumAccess: true,
           trialStartsAt: null,
           trialEndsAt: null,
-          subscriptionCurrentPeriodStart: null,
-          subscriptionCurrentPeriodEnd: null,
-          deactivatedAt: activatedAt,
+          subscriptionCurrentPeriodStart: activatedAt,
+          subscriptionCurrentPeriodEnd: graceEndsAt,
+          billingGraceStartedAt: activatedAt,
+          billingGraceEndsAt: graceEndsAt,
+          billingGraceReason: 'initial_access',
+          billingGraceEmailStage: 0,
+          billingGraceLastEmailAt: null,
+          billingGraceLastFailureAt: null,
+          deactivatedAt: null,
         },
       });
       await this.syncPlanModulesTx(tx, companyId, selectedPlanKey);
-      await tx.companyModule.updateMany({ where: { companyId }, data: { enabled: false } });
-      await this.createPendingCheckoutEntitlementsTx(tx, companyId, selectedPlanKey, activatedAt);
-      return null;
+      await this.createGraceEntitlementsTx(tx, companyId, selectedPlanKey, activatedAt, graceEndsAt);
+      return { status: 'grace', endsAt: graceEndsAt };
     }
 
     const trialEndsAt = this.addDays(activatedAt, 30);
@@ -810,7 +859,7 @@ export class AuthService implements OnModuleInit {
         );
       }
     }
-    return trialEndsAt;
+    return { status: 'trial', endsAt: trialEndsAt };
   }
 
   private async sendEmailConfirmationMail(input: {
@@ -989,12 +1038,19 @@ export class AuthService implements OnModuleInit {
             onboardingStatus: true,
             subscriptionStatus: true,
             paymentStatus: true,
+            billingGraceEndsAt: true,
           },
         })
       : null;
+    const billingGraceEndsAt = company?.billingGraceEndsAt instanceof Date ? company.billingGraceEndsAt : null;
+    const graceAccess =
+      String(company?.subscriptionStatus || '').trim().toLowerCase() === 'grace' &&
+      billingGraceEndsAt &&
+      billingGraceEndsAt.getTime() >= Date.now();
     const pendingCheckout =
       !['active', 'authorized', 'manual'].includes(String(company?.subscriptionStatus || '').trim().toLowerCase()) &&
       String(company?.paymentStatus || '').trim().toUpperCase() !== 'PAID' &&
+      !graceAccess &&
       (
         String(company?.onboardingStatus || '').trim().toLowerCase() === 'pending_checkout' ||
         String(company?.subscriptionStatus || '').trim().toLowerCase() === 'pending_checkout' ||
@@ -1529,7 +1585,7 @@ export class AuthService implements OnModuleInit {
     }
 
     const confirmedAt = new Date();
-    let trialEndsAt: Date | null = null;
+    let activationResult: { status: 'trial' | 'grace'; endsAt: Date | null } | null = null;
 
     await this.prisma.$transaction(async (tx) => {
       await tx.user.update({
@@ -1543,7 +1599,7 @@ export class AuthService implements OnModuleInit {
       });
 
       if (user.companyId) {
-        trialEndsAt = await this.activateConfirmedTrialTx(tx, Number(user.companyId), confirmedAt);
+        activationResult = await this.activateConfirmedTrialTx(tx, Number(user.companyId), confirmedAt);
       }
     });
 
@@ -1559,24 +1615,35 @@ export class AuthService implements OnModuleInit {
           { companyId: Number(user.companyId), userAgent: opts?.userAgent, ip: opts?.ip },
         )
       : null;
-    const next = loginPayload?.next || (trialEndsAt ? '/dashboard' : this.pendingCheckoutNextPath());
+    const next = loginPayload?.next || (activationResult ? '/dashboard' : this.pendingCheckoutNextPath());
+    const trialEndsAt = activationResult?.status === 'trial' ? activationResult.endsAt : null;
+    const graceEndsAt = activationResult?.status === 'grace' ? activationResult.endsAt : null;
 
     return {
       ok: true,
-      status: user.companyId ? (trialEndsAt ? 'active_trial' : 'pending_checkout') : 'confirmed',
+      status: user.companyId
+        ? activationResult?.status === 'trial'
+          ? 'active_trial'
+          : activationResult?.status === 'grace'
+            ? 'active_grace'
+            : 'pending_checkout'
+        : 'confirmed',
       email: user.email || null,
       message: user.companyId
-        ? trialEndsAt
+        ? activationResult?.status === 'trial'
           ? 'E-mail confirmado. O trial gratuito de 30 dias já está ativo.'
-          : 'E-mail confirmado. Finalize o pagamento no Financeiro para liberar o plano.'
+          : activationResult?.status === 'grace'
+            ? 'E-mail confirmado. Seu acesso inicial de 48 horas já está ativo. Cadastre o pagamento no Financeiro para manter o acesso.'
+            : 'E-mail confirmado. Finalize o pagamento no Financeiro para liberar o plano.'
         : 'E-mail confirmado com sucesso.',
-      trialStartsAt: user.companyId ? confirmedAt.toISOString() : null,
+      trialStartsAt: activationResult?.status === 'trial' ? confirmedAt.toISOString() : null,
       trialEndsAt: trialEndsAt ? trialEndsAt.toISOString() : null,
+      billingGraceEndsAt: graceEndsAt ? graceEndsAt.toISOString() : null,
       access_token: loginPayload?.access_token || null,
       next,
       loginNext: loginPayload?.access_token
         ? next
-        : trialEndsAt
+        : activationResult
         ? '/login?next=/dashboard'
         : `/login?next=${encodeURIComponent(this.pendingCheckoutNextPath())}`,
       requiresCheckout: Boolean(loginPayload?.requiresCheckout),
@@ -1596,6 +1663,7 @@ export class AuthService implements OnModuleInit {
             onboardingStatus: true,
             subscriptionStatus: true,
             paymentStatus: true,
+            billingGraceEndsAt: true,
           },
         },
       },
@@ -1608,9 +1676,12 @@ export class AuthService implements OnModuleInit {
     const onboardingStatus = String(user.company?.onboardingStatus || '').trim().toLowerCase();
     const subscriptionStatus = String(user.company?.subscriptionStatus || '').trim().toLowerCase();
     const paymentStatus = String(user.company?.paymentStatus || '').trim().toUpperCase();
+    const billingGraceEndsAt = user.company?.billingGraceEndsAt instanceof Date ? user.company.billingGraceEndsAt : null;
+    const graceAccess = subscriptionStatus === 'grace' && billingGraceEndsAt && billingGraceEndsAt.getTime() >= Date.now();
     const pendingEmailConfirmation = !user.emailConfirmedAt || onboardingStatus === 'pending_email_confirmation';
     const accessReleased =
       ['active', 'authorized', 'manual'].includes(subscriptionStatus) ||
+      graceAccess ||
       paymentStatus === 'PAID' ||
       paymentStatus === 'MANUAL';
     const pendingCheckout =
@@ -1621,6 +1692,8 @@ export class AuthService implements OnModuleInit {
       ? 'pending_email_confirmation'
       : pendingCheckout
         ? 'pending_checkout'
+        : graceAccess
+          ? 'active_grace'
         : 'active_trial';
     const next = pendingCheckout ? this.pendingCheckoutNextPath() : '/dashboard';
 

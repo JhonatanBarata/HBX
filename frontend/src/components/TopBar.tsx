@@ -36,6 +36,7 @@ type User = {
     onboardingStatus?: string | null;
     paymentStatus?: string | null;
     subscriptionStatus?: string | null;
+    billingGraceEndsAt?: string | null;
   } | null;
   masterContext?: {
     active: boolean;
@@ -180,12 +181,15 @@ function isPendingCheckoutUser(user: User | null) {
   const onboardingStatus = String(company.onboardingStatus || "").trim().toLowerCase();
   const paymentStatus = String(company.paymentStatus || "").trim().toUpperCase();
   const subscriptionStatus = String(company.subscriptionStatus || "").trim().toLowerCase();
+  const billingGraceEndsAt = company.billingGraceEndsAt ? new Date(company.billingGraceEndsAt).getTime() : NaN;
+  const graceAccess = subscriptionStatus === "grace" && Number.isFinite(billingGraceEndsAt) && billingGraceEndsAt >= Date.now();
   const accessReleased =
     paymentStatus === "PAID" ||
     paymentStatus === "MANUAL" ||
     subscriptionStatus === "active" ||
     subscriptionStatus === "authorized" ||
-    subscriptionStatus === "manual";
+    subscriptionStatus === "manual" ||
+    graceAccess;
   if (accessReleased) return false;
   return onboardingStatus === "pending_checkout" || subscriptionStatus === "pending_checkout" || paymentStatus === "PENDING";
 }

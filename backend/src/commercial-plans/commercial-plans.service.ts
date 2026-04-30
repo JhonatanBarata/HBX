@@ -35,6 +35,8 @@ type CommercialCurrentState = {
   paymentStatus: string | null;
   trialEndsAt: string | null;
   trialRemainingDays: number | null;
+  billingGraceEndsAt: string | null;
+  billingGraceRemainingHours: number | null;
   isTrial: boolean;
 };
 
@@ -128,6 +130,10 @@ export class CommercialPlansService {
     const selectedPlanKey = this.normalizePlanKey(company?.selectedPlanKey);
     const planKey = selectedPlanKey || inferredPlanKey;
     const isTrial = this.isCompanyTrialingVendas(company);
+    const billingGraceEndsAt = company?.billingGraceEndsAt instanceof Date ? company.billingGraceEndsAt : null;
+    const billingGraceRemainingHours = billingGraceEndsAt
+      ? Math.max(0, Math.ceil((billingGraceEndsAt.getTime() - Date.now()) / (60 * 60 * 1000)))
+      : null;
 
     return {
       planKey,
@@ -141,6 +147,8 @@ export class CommercialPlansService {
       paymentStatus: company?.paymentStatus || null,
       trialEndsAt: company?.trialEndsAt instanceof Date ? company.trialEndsAt.toISOString() : null,
       trialRemainingDays: this.computeTrialRemainingDays(company?.trialEndsAt),
+      billingGraceEndsAt: billingGraceEndsAt ? billingGraceEndsAt.toISOString() : null,
+      billingGraceRemainingHours,
       isTrial,
     };
   }

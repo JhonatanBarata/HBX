@@ -1,4 +1,12 @@
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  Logger,
+  NotFoundException,
+  OnModuleDestroy,
+  OnModuleInit,
+} from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
@@ -22,6 +30,11 @@ import {
   normalizeCommercialPlanKey as normalizeCatalogCommercialPlanKey,
   type ActiveCommercialPlanKey,
 } from '../commercial-plans/commercial-plan-catalog';
+import { MailService } from '../mail/mail.service';
+
+const BILLING_GRACE_WINDOW_MS = 48 * 60 * 60 * 1000;
+const BILLING_GRACE_SECOND_NOTICE_MS = 24 * 60 * 60 * 1000;
+const BILLING_GRACE_SWEEP_MS = 15 * 60 * 1000;
 
 type BillingLedgerEntryRow = {
   id: string;
@@ -52,11 +65,30 @@ type PaymentContactProfile = {
 };
 
 @Injectable()
-export class FinanceiroService {
+export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
+  private readonly logger = new Logger(FinanceiroService.name);
+  private billingGraceSweepHandle: ReturnType<typeof setInterval> | null = null;
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly mercadoPagoClient: MercadoPagoClientService,
+    private readonly mailService: MailService,
   ) {}
+
+  onModuleInit() {
+    this.billingGraceSweepHandle = setInterval(() => {
+      void this.processBillingGracePeriods('interval');
+    }, BILLING_GRACE_SWEEP_MS);
+
+    setTimeout(() => {
+      void this.processBillingGracePeriods('startup');
+    }, 5000);
+  }
+
+  onModuleDestroy() {
+    if (this.billingGraceSweepHandle) clearInterval(this.billingGraceSweepHandle);
+    this.billingGraceSweepHandle = null;
+  }
 
   private normalizeCurrencyAmount(value: unknown) {
     const numeric = Number(value || 0);
@@ -297,6 +329,116 @@ export class FinanceiroService {
 
   private addDays(date: Date, days: number) {
     return new Date(date.getTime() + days * 24 * 60 * 60 * 1000);
+  }
+
+  private billingGraceEndsFrom(start: Date) {
+    return new Date(start.getTime() + BILLING_GRACE_WINDOW_MS);
+  }
+
+  private parseBillingGraceDate(value: unknown) {
+    if (value instanceof Date && !Number.isNaN(value.getTime())) return value;
+    return this.parseDate(value);
+  }
+
+  private billingGraceRemainingMs(company: any, now = new Date()) {
+    const endsAt = this.parseBillingGraceDate(company?.billingGraceEndsAt);
+    if (!endsAt) return 0;
+    return Math.max(0, endsAt.getTime() - now.getTime());
+  }
+
+  private isBillingGraceActive(company: any, now = new Date()) {
+    return this.billingGraceRemainingMs(company, now) > 0;
+  }
+
+  private billingGraceClearData() {
+    return {
+      billingGraceStartedAt: null,
+      billingGraceEndsAt: null,
+      billingGraceReason: null,
+      billingGraceEmailStage: 0,
+      billingGraceLastEmailAt: null,
+      billingGraceLastFailureAt: null,
+    };
+  }
+
+  private isBillingGraceEmailSuppressed(reason: unknown) {
+    return String(reason || '').trim().toLowerCase() === 'initial_access';
+  }
+
+  private supportEmail() {
+    return String(process.env.ADMIN_SUPPORT_EMAIL || 'jbinformatica1100@gmail.com').trim();
+  }
+
+  private supportPhone() {
+    return String(process.env.ADMIN_SUPPORT_PHONE || '+5519997024884').trim();
+  }
+
+  private supportWhatsAppUrl() {
+    const digits = this.supportPhone().replace(/\D/g, '');
+    return digits ? `https://wa.me/${digits}` : null;
+  }
+
+  private escapeHtml(value: unknown) {
+    return String(value || '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  private formatDateTimePtBr(date: Date) {
+    return new Intl.DateTimeFormat('pt-BR', {
+      timeZone: 'America/Sao_Paulo',
+      dateStyle: 'short',
+      timeStyle: 'short',
+    }).format(date);
+  }
+
+  private billingGraceEmailRecipient(company: any, subscription?: any | null) {
+    const candidates = [
+      subscription?.payerEmail,
+      company?.contactEmail,
+      ...(Array.isArray(company?.users)
+        ? company.users
+            .filter((user: any) => user?.isActive !== false)
+            .sort((left: any, right: any) => {
+              const leftAdmin = String(left?.role || '').trim().toUpperCase() === 'ADMIN' ? 0 : 1;
+              const rightAdmin = String(right?.role || '').trim().toUpperCase() === 'ADMIN' ? 0 : 1;
+              return leftAdmin - rightAdmin;
+            })
+            .map((user: any) => user?.email)
+        : []),
+    ];
+    for (const candidate of candidates) {
+      const email = this.normalizePayerEmail(candidate);
+      if (email) return email;
+    }
+    return null;
+  }
+
+  private paymentAuthorizationFailureText(value: unknown) {
+    if (!value) return '';
+    const error = value as any;
+    const raw = [
+      error?.message,
+      error?.response?.data?.message,
+      error?.response?.data?.error_description,
+      error?.response?.data?.error,
+      error?.response?.data?.cause?.[0]?.description,
+      error?.response?.data?.cause?.[0]?.code,
+    ]
+      .filter(Boolean)
+      .join(' ');
+    return raw || String(value || '');
+  }
+
+  private isPaymentAuthorizationFailure(value: unknown) {
+    const text = this.paymentAuthorizationFailureText(value)
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase();
+    return /recus|rejeit|reject|declin|denied|unauthori|unauthoriz|nao autoriz|not authorized|cc_rejected|card|cartao/.test(text);
   }
 
   private buildAppUrl() {
@@ -1035,6 +1177,359 @@ export class FinanceiroService {
     );
   }
 
+  private async syncGraceCommercialEntitlementsTx(
+    tx: any,
+    companyId: number,
+    planKey: string,
+    graceStartedAt: Date,
+    graceEndsAt: Date,
+    source: string,
+  ) {
+    const normalizedPlanKey = this.normalizeCommercialPlanKey(planKey);
+    const metadata = {
+      selectedPlanKey: normalizedPlanKey,
+      graceStartedAt: graceStartedAt.toISOString(),
+      graceEndsAt: graceEndsAt.toISOString(),
+      source,
+    };
+    const activeKeys = new Set(COMMERCIAL_PLAN_ENTITLEMENT_KEYS[normalizedPlanKey] || []);
+    const allKeys = [
+      COMMERCIAL_ENTITLEMENT_KEYS.VENDAS,
+      COMMERCIAL_ENTITLEMENT_KEYS.ATENDIMENTO_CHAT,
+      COMMERCIAL_ENTITLEMENT_KEYS.WEBSCRAPING,
+      COMMERCIAL_ENTITLEMENT_KEYS.BOT_IA,
+    ];
+
+    for (const key of allKeys) {
+      const active = activeKeys.has(key);
+      await tx.companyCommercialEntitlement.upsert({
+        where: {
+          companyId_key: {
+            companyId,
+            key,
+          },
+        },
+        update: {
+          status: active ? 'grace' : 'canceled',
+          source: active ? source : 'billing_grace',
+          currentPeriodStart: active ? graceStartedAt : null,
+          currentPeriodEnd: active ? graceEndsAt : null,
+          metadataJson: JSON.stringify(metadata),
+        },
+        create: {
+          companyId,
+          key,
+          status: active ? 'grace' : 'canceled',
+          source: active ? source : 'billing_grace',
+          currentPeriodStart: active ? graceStartedAt : null,
+          currentPeriodEnd: active ? graceEndsAt : null,
+          metadataJson: JSON.stringify(metadata),
+        },
+      });
+    }
+  }
+
+  private async safeSendBillingGraceEmail(company: any, subscription: any | null, stage: 1 | 2 | 3, endsAt: Date) {
+    const to = this.billingGraceEmailRecipient(company, subscription);
+    if (!to) {
+      this.logger.warn(`billing_grace_email_without_recipient companyId=${company?.id || 'unknown'} stage=${stage}`);
+      return false;
+    }
+
+    const supportEmail = this.supportEmail();
+    const supportPhone = this.supportPhone();
+    const supportWhatsAppUrl = this.supportWhatsAppUrl();
+    const companyName = String(company?.name || 'sua empresa').trim();
+    const endsAtLabel = this.formatDateTimePtBr(endsAt);
+    const supportText = `Se precisar, fale com o suporte HBX pelo e-mail ${supportEmail}${supportPhone ? ` ou WhatsApp ${supportPhone}` : ''}. A gente te ajuda por lá.`;
+
+    const subject =
+      stage === 1
+        ? 'HBX: pagamento não autorizado, acesso liberado por 48h'
+        : stage === 2
+          ? 'HBX: faltam 24h para normalizar o pagamento'
+          : 'HBX: acesso bloqueado por pagamento não autorizado';
+
+    const intro =
+      stage === 1
+        ? `Oi, tudo bem? O Mercado Pago não autorizou a cobrança da assinatura HBX da empresa ${companyName}. Seu acesso continua liberado por 48 horas, até ${endsAtLabel}, para você conseguir normalizar com calma.`
+        : stage === 2
+          ? `Passando para lembrar que a cobrança da assinatura HBX da empresa ${companyName} ainda não foi autorizada. Restam cerca de 24 horas, até ${endsAtLabel}, para normalizar antes do bloqueio automático.`
+          : `Não conseguimos normalizar o pagamento da assinatura HBX da empresa ${companyName} dentro da tolerância de 48 horas. Por isso, o acesso foi bloqueado até a regularização.`;
+
+    const text = `${intro}\n\n${supportText}`;
+    const html = `
+      <div style="font-family:Arial,sans-serif;line-height:1.5;color:#111827">
+        <p>${this.escapeHtml(intro)}</p>
+        <p>${this.escapeHtml(supportText)}</p>
+        ${
+          supportWhatsAppUrl
+            ? `<p><a href="${this.escapeHtml(supportWhatsAppUrl)}" style="color:#2563eb">Chamar suporte HBX no WhatsApp</a></p>`
+            : ''
+        }
+      </div>
+    `;
+
+    try {
+      await this.mailService.sendMail({
+        to,
+        subject,
+        text,
+        html,
+        replyTo: supportEmail,
+      });
+      return true;
+    } catch (error: any) {
+      this.logger.warn(
+        `billing_grace_email_failed companyId=${company?.id || 'unknown'} stage=${stage} error=${String(error?.message || error)}`,
+      );
+      return false;
+    }
+  }
+
+  private async markBillingGraceEmailStage(companyId: number, stage: number, sentAt = new Date()) {
+    await this.prisma.company.update({
+      where: { id: companyId },
+      data: {
+        billingGraceEmailStage: stage,
+        billingGraceLastEmailAt: sentAt,
+      },
+    });
+  }
+
+  private async startBillingGraceForSubscription(input: {
+    subscription: any;
+    provider?: any;
+    charge?: any | null;
+    planKey?: string | null;
+    billingCycle?: string | null;
+    reasonCode: 'initial_access' | 'payment_rejected' | 'provider_pending' | 'provider_past_due';
+    sendInitialEmail: boolean;
+    failureMessage?: string | null;
+    companyContactData?: Record<string, unknown> | null;
+  }) {
+    await ensureMasterBillingRuntimeSchema(this.prisma);
+
+    const subscription = input.subscription;
+    const companyId = Number(subscription?.companyId || 0);
+    if (!companyId) throw new BadRequestException('Empresa da assinatura nao identificada.');
+
+    const company = await this.prisma.company.findUnique({
+      where: { id: companyId },
+      include: {
+        users: {
+          select: {
+            email: true,
+            role: true,
+            isActive: true,
+          },
+        },
+      },
+    });
+    if (!company) throw new BadRequestException('Empresa nao encontrada.');
+
+    const now = new Date();
+    const existingEndsAt = this.parseBillingGraceDate(company.billingGraceEndsAt);
+    const existingStartedAt = this.parseBillingGraceDate(company.billingGraceStartedAt);
+    const existingReason = String(company.billingGraceReason || '').trim().toLowerCase();
+    const failureAfterSilentGrace =
+      input.sendInitialEmail && (this.isBillingGraceEmailSuppressed(existingReason) || existingReason === 'provider_pending');
+    const keepExistingWindow = Boolean(
+      existingEndsAt &&
+      existingEndsAt.getTime() > now.getTime() &&
+      !failureAfterSilentGrace,
+    );
+    const graceStartedAt = keepExistingWindow && existingStartedAt ? existingStartedAt : now;
+    const graceEndsAt = keepExistingWindow && existingEndsAt ? existingEndsAt : this.billingGraceEndsFrom(now);
+    const currentStage = keepExistingWindow ? Math.max(0, Number(company.billingGraceEmailStage || 0)) : 0;
+    const planKey = this.normalizeCommercialPlanKey(input.planKey || subscription.planKey || company.selectedPlanKey);
+    const billingCycle = this.normalizeBillingCycle(input.billingCycle || subscription.billingCycle || company.billingCycle);
+    const failureGrace = input.sendInitialEmail;
+    const providerStatus = failureGrace ? 'past_due' : 'pending';
+    const companySubscriptionStatus = failureGrace ? 'past_due' : 'grace';
+    const card = this.subscriptionCardSnapshot(input.provider, subscription);
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.companySubscription.update({
+        where: { id: subscription.id },
+        data: {
+          planKey,
+          billingCycle,
+          status: providerStatus,
+          lastProviderStatus: input.provider?.status ? String(input.provider.status) : providerStatus,
+          currentPeriodStart: graceStartedAt,
+          currentPeriodEnd: graceEndsAt,
+          nextBillingAt: this.parseDate(input.provider?.next_payment_date) || subscription.nextBillingAt || graceEndsAt,
+          cardBrand: card.brand || subscription.cardBrand,
+          cardLast4: card.last4 || subscription.cardLast4,
+          providerPayloadJson: this.providerJson({
+            provider: input.provider || null,
+            chargeId: input.charge?.id || null,
+            billingGrace: {
+              reasonCode: input.reasonCode,
+              failureMessage: input.failureMessage || null,
+              graceStartedAt: graceStartedAt.toISOString(),
+              graceEndsAt: graceEndsAt.toISOString(),
+            },
+          }),
+        },
+      });
+
+      await tx.company.update({
+        where: { id: companyId },
+        data: {
+          selectedPlanKey: planKey,
+          trialModuleSelection: planKey === COMMERCIAL_PLAN_KEYS.PADRAO ? 'vendas' : null,
+          onboardingStatus: 'active_grace',
+          isActive: true,
+          paymentStatus: failureGrace ? 'OVERDUE' : 'PENDING',
+          subscriptionStatus: companySubscriptionStatus,
+          billingProvider: 'mercadopago',
+          paymentMethod: 'CARD',
+          billingCycle,
+          premiumAccess: true,
+          subscriptionCurrentPeriodStart: graceStartedAt,
+          subscriptionCurrentPeriodEnd: graceEndsAt,
+          billingCardBrand: card.brand || company.billingCardBrand || null,
+          billingCardLast4: card.last4 || company.billingCardLast4 || null,
+          billingCardUpdatedAt: card.last4 || card.brand ? now : company.billingCardUpdatedAt,
+          billingGraceStartedAt: graceStartedAt,
+          billingGraceEndsAt: graceEndsAt,
+          billingGraceReason: input.reasonCode,
+          billingGraceEmailStage: currentStage,
+          billingGraceLastFailureAt: failureGrace ? now : company.billingGraceLastFailureAt,
+          deactivatedAt: null,
+          ...(input.companyContactData || {}),
+        },
+      });
+
+      await this.syncPaidPlanModulesTx(tx, companyId, planKey);
+      await this.syncGraceCommercialEntitlementsTx(
+        tx,
+        companyId,
+        planKey,
+        graceStartedAt,
+        graceEndsAt,
+        failureGrace ? 'billing_failure_grace' : 'initial_access_grace',
+      );
+    });
+
+    if (input.sendInitialEmail && currentStage < 1) {
+      const refreshedCompany = await this.prisma.company.findUnique({
+        where: { id: companyId },
+        include: {
+          users: {
+            select: {
+              email: true,
+              role: true,
+              isActive: true,
+            },
+          },
+        },
+      });
+      await this.safeSendBillingGraceEmail(refreshedCompany || company, subscription, 1, graceEndsAt);
+      await this.markBillingGraceEmailStage(companyId, 1);
+    }
+
+    return {
+      active: true,
+      reasonCode: input.reasonCode,
+      startedAt: graceStartedAt.toISOString(),
+      endsAt: graceEndsAt.toISOString(),
+      remainingHours: Math.max(0, Math.ceil((graceEndsAt.getTime() - now.getTime()) / (60 * 60 * 1000))),
+      emailStage: input.sendInitialEmail ? Math.max(1, currentStage) : currentStage,
+    };
+  }
+
+  private async blockCompanyAfterBillingGrace(company: any, subscription: any | null, blockedAt = new Date()) {
+    await this.prisma.$transaction(async (tx) => {
+      await tx.company.update({
+        where: { id: company.id },
+        data: {
+          onboardingStatus: 'suspended',
+          isActive: false,
+          paymentStatus: 'DISABLED',
+          subscriptionStatus: 'past_due',
+          premiumAccess: false,
+          billingGraceEmailStage: 3,
+          billingGraceLastEmailAt: blockedAt,
+          deactivatedAt: blockedAt,
+        },
+      });
+      await tx.companyModule.updateMany({ where: { companyId: company.id }, data: { enabled: false } });
+      await tx.companyCommercialEntitlement.updateMany({
+        where: { companyId: company.id, status: 'grace' },
+        data: {
+          status: 'canceled',
+          source: 'billing_grace_expired',
+          currentPeriodEnd: blockedAt,
+        },
+      });
+      if (subscription?.id) {
+        await tx.companySubscription.update({
+          where: { id: subscription.id },
+          data: {
+            status: 'past_due',
+            lastProviderStatus: subscription.lastProviderStatus || 'billing_grace_expired',
+            currentPeriodEnd: blockedAt,
+          },
+        });
+      }
+    });
+  }
+
+  private async processBillingGracePeriods(source: 'startup' | 'interval' | 'manual' = 'manual') {
+    try {
+      await ensureMasterBillingRuntimeSchema(this.prisma);
+      const companies = await this.prisma.company.findMany({
+        where: {
+          billingGraceEndsAt: { not: null },
+          billingGraceEmailStage: { lt: 3 },
+        },
+        include: {
+          users: {
+            select: {
+              email: true,
+              role: true,
+              isActive: true,
+            },
+          },
+        },
+        orderBy: { billingGraceEndsAt: 'asc' },
+        take: 100,
+      });
+      const now = new Date();
+
+      for (const company of companies) {
+        const endsAt = this.parseBillingGraceDate(company.billingGraceEndsAt);
+        if (!endsAt) continue;
+
+        const subscription = await this.prisma.companySubscription.findFirst({
+          where: { companyId: company.id, provider: 'mercadopago' },
+          orderBy: { createdAt: 'desc' },
+        });
+        const stage = Math.max(0, Number(company.billingGraceEmailStage || 0));
+        const suppressed = this.isBillingGraceEmailSuppressed(company.billingGraceReason);
+
+        if (endsAt.getTime() <= now.getTime()) {
+          if (!suppressed && stage < 3) {
+            await this.safeSendBillingGraceEmail(company, subscription, 3, endsAt);
+          }
+          await this.blockCompanyAfterBillingGrace(company, subscription, now);
+          continue;
+        }
+
+        const remainingMs = endsAt.getTime() - now.getTime();
+        if (!suppressed && stage < 2 && remainingMs <= BILLING_GRACE_SECOND_NOTICE_MS) {
+          await this.safeSendBillingGraceEmail(company, subscription, 2, endsAt);
+          await this.markBillingGraceEmailStage(company.id, 2);
+        }
+      }
+    } catch (error: any) {
+      this.logger.warn(`billing_grace_sweep_failed source=${source} error=${String(error?.message || error)}`);
+    }
+  }
+
   private async activateCompanyFromCharge(companyId: number, charge: any, paidAt: Date) {
     const [company, masterConfig] = await Promise.all([
       this.prisma.company.findUnique({ where: { id: companyId } }),
@@ -1060,6 +1555,7 @@ export class FinanceiroService {
           premiumAccess: true,
           subscriptionCurrentPeriodStart: paidAt,
           subscriptionCurrentPeriodEnd: periodEnd,
+          ...this.billingGraceClearData(),
           referralDiscountConsumedAt:
             referral.referralDiscountAppliesNow && referral.referralDiscountMode === 'ONCE'
               ? paidAt
@@ -1119,6 +1615,7 @@ export class FinanceiroService {
           premiumAccess: true,
           subscriptionCurrentPeriodStart: periodStart,
           subscriptionCurrentPeriodEnd: periodEnd,
+          ...this.billingGraceClearData(),
           billingCardBrand: card.brand || company.billingCardBrand || null,
           billingCardLast4: card.last4 || company.billingCardLast4 || null,
           billingCardHolderName: null,
@@ -1162,14 +1659,22 @@ export class FinanceiroService {
       return;
     }
 
+    if (providerStatus === 'pending') {
+      await this.startBillingGraceForSubscription({
+        subscription,
+        provider,
+        reasonCode: 'provider_pending',
+        sendInitialEmail: false,
+      });
+      return;
+    }
+
     if (providerStatus === 'paused' || providerStatus === 'past_due') {
-      await this.prisma.company.update({
-        where: { id: subscription.companyId },
-        data: {
-          subscriptionStatus: providerStatus,
-          paymentStatus: 'OVERDUE',
-          billingProvider: 'mercadopago',
-        },
+      await this.startBillingGraceForSubscription({
+        subscription,
+        provider,
+        reasonCode: 'provider_past_due',
+        sendInitialEmail: true,
       });
       return;
     }
@@ -1517,7 +2022,7 @@ export class FinanceiroService {
     if (status === 'approved' && paidAt) {
       await this.activateCompanyFromSubscription(subscription, paidAt, provider);
     } else if (status === 'failed' || status === 'cancelled') {
-      await this.prisma.companySubscription.update({
+      const updatedSubscription = await this.prisma.companySubscription.update({
         where: { id: subscription.id },
         data: {
           status: 'past_due',
@@ -1525,13 +2030,13 @@ export class FinanceiroService {
           providerPayloadJson: this.providerJson({ provider }),
         },
       });
-      await this.prisma.company.update({
-        where: { id: subscription.companyId },
-        data: {
-          subscriptionStatus: 'past_due',
-          paymentStatus: 'OVERDUE',
-          billingProvider: 'mercadopago',
-        },
+      await this.startBillingGraceForSubscription({
+        subscription: updatedSubscription,
+        provider,
+        charge,
+        reasonCode: 'payment_rejected',
+        sendInitialEmail: true,
+        failureMessage: String(provider?.status_detail || provider?.status || status),
       });
     }
 
@@ -1676,6 +2181,8 @@ export class FinanceiroService {
 
     const canManageBilling = context.canManageBilling;
     const visiblePricing = canManageBilling ? pricing : this.maskPricingForUser(pricing);
+    const graceEndsAt = this.parseBillingGraceDate(company.billingGraceEndsAt);
+    const graceActive = this.isBillingGraceActive(company);
 
     return {
       generatedAt: new Date().toISOString(),
@@ -1699,6 +2206,14 @@ export class FinanceiroService {
         trialStartsAt: company.trialStartsAt instanceof Date ? company.trialStartsAt.toISOString() : null,
         trialEndsAt: company.trialEndsAt instanceof Date ? company.trialEndsAt.toISOString() : null,
         trialRemainingDays: this.computeTrialRemainingDays(company.trialEndsAt),
+        billingGraceStartedAt:
+          company.billingGraceStartedAt instanceof Date ? company.billingGraceStartedAt.toISOString() : null,
+        billingGraceEndsAt: graceEndsAt ? graceEndsAt.toISOString() : null,
+        billingGraceRemainingHours: graceActive && graceEndsAt
+          ? Math.max(0, Math.ceil((graceEndsAt.getTime() - Date.now()) / (60 * 60 * 1000)))
+          : null,
+        billingGraceReason: canManageBilling ? this.normalizeOptionalString(company.billingGraceReason) : null,
+        billingGraceEmailStage: canManageBilling ? Number(company.billingGraceEmailStage || 0) : null,
         isActive: Boolean(company.isActive),
         acquisitionSource: this.normalizeOptionalString(company.acquisitionSource),
         acquisitionSourceDetail: this.normalizeOptionalString(company.acquisitionSourceDetail),
@@ -1737,7 +2252,9 @@ export class FinanceiroService {
       subscription: this.serializeSubscription(latestSubscription, canManageBilling),
       accountStatus: {
         label:
-          String(company.subscriptionStatus || '').toLowerCase() === 'trialing'
+          graceActive
+            ? 'Acesso em tolerancia'
+            : String(company.subscriptionStatus || '').toLowerCase() === 'trialing'
             ? 'Conta em free trial'
             : String(company.subscriptionStatus || '').toLowerCase() === 'authorized'
               ? 'Assinatura autorizada'
@@ -2182,6 +2699,44 @@ export class FinanceiroService {
         }
       }
       const refreshed = await this.findCurrentCompanySubscription(context.companyId);
+      const refreshedStatus = this.normalizeProviderSubscriptionStatus(refreshed?.status || refreshed?.lastProviderStatus || existing.status);
+      if (refreshed && (refreshedStatus === 'past_due' || refreshedStatus === 'paused')) {
+        const grace = await this.startBillingGraceForSubscription({
+          subscription: refreshed,
+          reasonCode: 'payment_rejected',
+          sendInitialEmail: true,
+          failureMessage: 'Assinatura existente sem autorização de pagamento.',
+          companyContactData,
+        });
+        return {
+          ok: false,
+          grace: true,
+          message: 'O Mercado Pago não autorizou a cobrança. O acesso fica liberado por 48 horas para normalização.',
+          status: 'past_due',
+          providerPreapprovalId: refreshed.providerPreapprovalId,
+          billingGrace: grace,
+          subscription: this.serializeSubscription(refreshed),
+          overview: await this.getOverviewForUser(user),
+        };
+      }
+      if (refreshed && refreshedStatus === 'pending') {
+        const grace = await this.startBillingGraceForSubscription({
+          subscription: refreshed,
+          reasonCode: 'provider_pending',
+          sendInitialEmail: false,
+          companyContactData,
+        });
+        return {
+          ok: true,
+          grace: true,
+          message: 'A assinatura ainda está em processamento. O acesso inicial fica liberado por 48 horas.',
+          status: 'pending',
+          providerPreapprovalId: refreshed.providerPreapprovalId,
+          billingGrace: grace,
+          subscription: this.serializeSubscription(refreshed),
+          overview: await this.getOverviewForUser(user),
+        };
+      }
       return {
         ok: true,
         reused: true,
@@ -2268,19 +2823,28 @@ export class FinanceiroService {
       if (providerStatus === 'authorized') {
         await this.activateCompanyFromSubscription(updated, new Date(), provider);
       } else {
-        await this.prisma.company.update({
-          where: { id: context.companyId },
-          data: {
-            selectedPlanKey: plan.planKey,
-            billingCycle: plan.billingCycle,
-            billingProvider: 'mercadopago',
-            paymentMethod: 'CARD',
-            paymentStatus: 'PENDING',
-            subscriptionStatus: providerStatus,
-            premiumAccess: false,
-            ...(companyContactData || {}),
-          },
+        const grace = await this.startBillingGraceForSubscription({
+          subscription: updated,
+          provider,
+          planKey: plan.planKey,
+          billingCycle: plan.billingCycle,
+          reasonCode: providerStatus === 'pending' ? 'provider_pending' : 'provider_past_due',
+          sendInitialEmail: providerStatus !== 'pending',
+          companyContactData,
         });
+        return {
+          ok: providerStatus === 'pending',
+          grace: true,
+          message:
+            providerStatus === 'pending'
+              ? 'A assinatura ainda está em processamento. O acesso inicial fica liberado por 48 horas.'
+              : 'O Mercado Pago não autorizou a cobrança. O acesso fica liberado por 48 horas para normalização.',
+          status: updated.status,
+          providerPreapprovalId,
+          billingGrace: grace,
+          subscription: this.serializeSubscription(updated),
+          overview: await this.getOverviewForUser(user),
+        };
       }
 
       return {
@@ -2298,6 +2862,35 @@ export class FinanceiroService {
           providerPayloadJson: this.json({ error: String(error?.message || 'Falha ao criar assinatura') }),
         },
       });
+      if (this.isPaymentAuthorizationFailure(error)) {
+        const updated = await this.prisma.companySubscription.update({
+          where: { id: subscription.id },
+          data: {
+            status: 'past_due',
+            lastProviderStatus: 'payment_rejected',
+            providerPayloadJson: this.providerJson({ error: this.paymentAuthorizationFailureText(error) }),
+          },
+        });
+        const grace = await this.startBillingGraceForSubscription({
+          subscription: updated,
+          provider: { status: 'rejected', error: this.paymentAuthorizationFailureText(error) },
+          planKey: plan.planKey,
+          billingCycle: plan.billingCycle,
+          reasonCode: 'payment_rejected',
+          sendInitialEmail: true,
+          failureMessage: this.paymentAuthorizationFailureText(error),
+          companyContactData,
+        });
+        return {
+          ok: false,
+          grace: true,
+          message: 'O Mercado Pago não autorizou a cobrança. O acesso fica liberado por 48 horas para normalização.',
+          status: 'past_due',
+          billingGrace: grace,
+          subscription: this.serializeSubscription(updated),
+          overview: await this.getOverviewForUser(user),
+        };
+      }
       throw new BadRequestException(`Falha ao criar assinatura: ${String(error?.message || 'erro desconhecido')}`);
     }
   }

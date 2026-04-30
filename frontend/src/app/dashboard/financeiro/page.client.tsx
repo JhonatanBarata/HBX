@@ -123,6 +123,11 @@ type FinanceiroOverview = {
     trialStartsAt?: string | null;
     trialEndsAt?: string | null;
     trialRemainingDays?: number | null;
+    billingGraceStartedAt?: string | null;
+    billingGraceEndsAt?: string | null;
+    billingGraceRemainingHours?: number | null;
+    billingGraceReason?: string | null;
+    billingGraceEmailStage?: number | null;
     isActive: boolean;
     contactEmail?: string | null;
     primaryContactName?: string | null;
@@ -347,6 +352,7 @@ function subscriptionLabel(value?: string | null) {
   if (normalized === "trialing") return "Free trial";
   if (normalized === "authorized") return "Autorizada";
   if (normalized === "active") return "Ativa";
+  if (normalized === "grace") return "Tolerância 48h";
   if (normalized === "pending_checkout") return "Checkout pendente";
   if (normalized === "past_due") return "Em atraso";
   if (normalized === "paused") return "Pausada";
@@ -365,10 +371,17 @@ function chargeStatusLabel(value?: string | null) {
   return normalized || "-";
 }
 
+function isBillingGraceActive(company?: FinanceiroOverview["company"] | null) {
+  if (!company?.billingGraceEndsAt) return false;
+  const endsAt = new Date(company.billingGraceEndsAt).getTime();
+  return Number.isFinite(endsAt) && endsAt >= Date.now() && Boolean(company.isActive);
+}
+
 function isPendingCheckout(overview: FinanceiroOverview | null, reason?: string | null) {
   const paymentStatus = String(overview?.company.paymentStatus || "").trim().toUpperCase();
   const subscriptionStatus = String(overview?.company.subscriptionStatus || "").trim().toLowerCase();
   const onboardingReason = String(reason || "").trim().toLowerCase();
+  if (isBillingGraceActive(overview?.company)) return false;
   const accessReleased =
     paymentStatus === "PAID" ||
     paymentStatus === "MANUAL" ||
@@ -689,7 +702,7 @@ export default function FinanceiroClientPage() {
         hasTaxDocument: Boolean(profile.taxDocument),
       });
       const payload = context.showCardUpdate && !context.checkoutMode
-        ? await apiFetch<{ overview?: FinanceiroOverview }>("/financeiro/subscription/change-card", {
+        ? await apiFetch<{ overview?: FinanceiroOverview; grace?: boolean; message?: string | null }>("/financeiro/subscription/change-card", {
             method: "POST",
             body: JSON.stringify({
               cardTokenId,
@@ -699,7 +712,7 @@ export default function FinanceiroClientPage() {
               acceptedTerms: profile.acceptedTerms,
             }),
           })
-        : await apiFetch<{ overview?: FinanceiroOverview }>("/financeiro/subscription/create", {
+        : await apiFetch<{ overview?: FinanceiroOverview; grace?: boolean; message?: string | null }>("/financeiro/subscription/create", {
             method: "POST",
             body: JSON.stringify({
               planKey: context.selectedPlanKey,
@@ -716,6 +729,18 @@ export default function FinanceiroClientPage() {
           });
       if (payload?.overview) setOverview(payload.overview);
       else await loadOverview(true);
+      if (payload?.grace) {
+        const text = payload.message || "O Mercado Pago não autorizou a cobrança, mas o acesso segue liberado por 48 horas para normalização.";
+        setCardPaymentNotice({
+          tone: "info",
+          title: "Acesso liberado por 48h.",
+          text,
+        });
+        setMessage(text);
+        setShowCardUpdate(false);
+        setForceCheckout(false);
+        return;
+      }
       setCardPaymentNotice({
         tone: "success",
         title: "Acesso liberado.",

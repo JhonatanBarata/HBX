@@ -1674,6 +1674,7 @@ export class ModulesService implements OnModuleInit {
       paymentStatus?: string | null;
       subscriptionStatus?: string | null;
       trialEndsAt?: Date | string | null;
+      billingGraceEndsAt?: Date | string | null;
     } | null,
   ) {
     const normalizedSnapshotId = Number(companySnapshot?.id || 0);
@@ -1684,17 +1685,30 @@ export class ModulesService implements OnModuleInit {
           paymentStatus: companySnapshot?.paymentStatus || null,
           subscriptionStatus: companySnapshot?.subscriptionStatus || null,
           trialEndsAt: this.parseDateValue(companySnapshot?.trialEndsAt),
+          billingGraceEndsAt: this.parseDateValue(companySnapshot?.billingGraceEndsAt),
         }
       : await this.prisma.company.findUnique({
           where: { id: companyId },
-          select: { id: true, isActive: true, paymentStatus: true, subscriptionStatus: true, trialEndsAt: true },
+          select: {
+            id: true,
+            isActive: true,
+            paymentStatus: true,
+            subscriptionStatus: true,
+            trialEndsAt: true,
+            billingGraceEndsAt: true,
+          },
         });
     if (!company) return { exists: false, active: false };
 
     const now = Date.now();
     const paymentStatus = String(company.paymentStatus || '').trim().toUpperCase();
     const subscriptionStatus = String(company.subscriptionStatus || '').trim().toLowerCase();
-    if ((paymentStatus === 'PENDING' || subscriptionStatus === 'pending_checkout') && subscriptionStatus !== 'authorized') {
+    const graceAllowed = Boolean(
+      company.billingGraceEndsAt &&
+      company.billingGraceEndsAt.getTime() >= now &&
+      company.isActive,
+    );
+    if ((paymentStatus === 'PENDING' || subscriptionStatus === 'pending_checkout') && subscriptionStatus !== 'authorized' && !graceAllowed) {
       return { exists: true, active: false };
     }
     const trialExpired = Boolean(
@@ -1710,7 +1724,7 @@ export class ModulesService implements OnModuleInit {
       (!company.trialEndsAt || company.trialEndsAt.getTime() >= now);
     const paidAllowed = paymentStatus === 'PAID' || subscriptionStatus === 'active' || subscriptionStatus === 'authorized';
     const manualAllowed = paymentStatus === 'MANUAL' || subscriptionStatus === 'manual';
-    const shouldRemainActive = Boolean(company.isActive && (paidAllowed || trialAllowed || manualAllowed));
+    const shouldRemainActive = Boolean(company.isActive && (paidAllowed || trialAllowed || manualAllowed || graceAllowed));
 
     if (trialExpired || !shouldRemainActive) {
       await this.prisma.$transaction([

@@ -89,6 +89,12 @@ model Company {
   trialEndsAt             DateTime?
   subscriptionCurrentPeriodStart DateTime?
   subscriptionCurrentPeriodEnd   DateTime?
+  billingGraceStartedAt DateTime?
+  billingGraceEndsAt    DateTime?
+  billingGraceReason    String?
+  billingGraceEmailStage Int      @default(0)
+  billingGraceLastEmailAt DateTime?
+  billingGraceLastFailureAt DateTime?
   deactivatedAt           DateTime?
   createdAt               DateTime  @default(now())
   products                Product[]
