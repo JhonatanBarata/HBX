@@ -372,18 +372,17 @@ export default function PlanosClientPage() {
 
   return (
     <DashboardScaffold title="Planos" hideHeader={true}>
-      <main className={styles.page} data-entry-transition="from-login">
+      <main className={styles.page}>
         <section className={styles.plansSurface} aria-labelledby="plans-title" data-trial-active={trialModalOpen}>
           <header className={styles.modalHeader}>
             <div className={styles.titleCluster}>
-              <span className={styles.brandMark} aria-hidden="true">HBX</span>
               <div>
                 <span className={styles.eyebrow}>{trialModalOpen ? "Trial HBX Padrão" : "Planos HBX"}</span>
-                <h1 id="plans-title">{trialModalOpen ? "Antes de liberar seus 30 dias" : "Escolha seu plano HBX"}</h1>
+                <h1 id="plans-title">{trialModalOpen ? "Antes de liberar seus 30 dias" : "Escolha o plano ideal para o seu negócio"}</h1>
                 <p>
                   {trialModalOpen
                     ? "Precisamos confirmar um contato real. O telefone é usado para validar se este trial já foi utilizado."
-                    : "Seu plano atual fica destacado. Você pode subir ou descer de plano, e o checkout aparece antes de qualquer cobrança."}
+                    : "Soluções completas para empresas de todos os tamanhos. Seu plano atual fica destacado quando já existir uma assinatura ativa."}
                 </p>
               </div>
             </div>
@@ -397,12 +396,6 @@ export default function PlanosClientPage() {
           </header>
 
           <div className={styles.planControls}>
-            <div className={styles.flow} aria-label="Etapas">
-              <span data-state="done">SignIn/Login</span>
-              <span data-state={trialModalOpen ? "done" : "current"}>Plano</span>
-              <span data-state={trialModalOpen ? "current" : undefined}>{trialModalOpen ? "Contato" : "Pagamento"}</span>
-            </div>
-
             {!trialModalOpen ? (
               <div className={styles.segmented} role="tablist" aria-label="Ciclo de cobrança">
                 <button type="button" data-active={billingCycle === "MONTHLY"} onClick={() => setBillingCycle("MONTHLY")}>Mensal</button>
@@ -522,7 +515,7 @@ export default function PlanosClientPage() {
                 plans={planCards}
                 selectedPlanKey={selectedPlanKey}
                 billingCycle={billingCycle === "ANNUAL" ? "annual" : "monthly"}
-                mode="plans"
+                mode="signup"
                 canSelect={canSelectPlan}
                 hidePrices={!canSelectPlan}
                 highlightPlanKey={promotedPlanKey}

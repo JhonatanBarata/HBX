@@ -3,34 +3,29 @@
   display: grid;
   place-items: center;
   padding: 18px;
-  color: var(--foreground);
+  color: #122541;
   background:
-    linear-gradient(color-mix(in srgb, var(--info) 7%, transparent) 1px, transparent 1px),
-    linear-gradient(90deg, color-mix(in srgb, var(--info) 7%, transparent) 1px, transparent 1px),
-    radial-gradient(circle at 9% 18%, color-mix(in srgb, var(--info) 14%, transparent), transparent 32%),
-    radial-gradient(circle at 94% 14%, color-mix(in srgb, var(--button-accent) 12%, transparent), transparent 30%),
-    linear-gradient(180deg, color-mix(in srgb, var(--background) 98%, var(--surface)), color-mix(in srgb, var(--background-alt) 96%, var(--background)) 58%, var(--background));
+    linear-gradient(rgba(25, 127, 210, 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(25, 127, 210, 0.05) 1px, transparent 1px),
+    radial-gradient(circle at 14% 14%, rgba(0, 190, 255, 0.13), transparent 31%),
+    radial-gradient(circle at 92% 11%, rgba(113, 90, 255, 0.1), transparent 28%),
+    linear-gradient(180deg, #f8fbff 0%, #eef6ff 58%, #ffffff 100%);
   background-size: 32px 32px, 32px 32px, auto, auto, auto;
 }
 
 .plansSurface {
   display: flex;
   flex-direction: column;
-  width: min(1110px, 100%);
+  width: min(1040px, 100%);
   max-height: calc(100dvh - var(--topbar-total-height, 72px) - 34px);
   min-height: 0;
   overflow: auto;
-  border: 1px solid color-mix(in srgb, var(--info) 24%, var(--line));
-  border-radius: 18px;
-  padding: 18px;
-  background:
-    radial-gradient(circle at 14% 18%, rgba(0, 198, 255, 0.13), transparent 36%),
-    radial-gradient(circle at 92% 8%, color-mix(in srgb, var(--button-accent) 11%, transparent), transparent 30%),
-    color-mix(in srgb, var(--surface) 82%, var(--background));
-  box-shadow:
-    0 28px 92px -64px color-mix(in srgb, var(--info) 44%, var(--foreground)),
-    var(--shadow-inset);
-  backdrop-filter: blur(16px);
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
 }
 
 .plansSurface[data-trial-active="true"] {
@@ -42,31 +37,15 @@
   align-items: flex-start;
   justify-content: space-between;
   gap: 18px;
-  padding: 4px 4px 12px;
-  border-bottom: 1px solid color-mix(in srgb, var(--info) 16%, var(--line));
+  padding: 2px 12px 18px;
+  border-bottom: 0;
 }
 
 .titleCluster {
   display: flex;
   min-width: 0;
-  align-items: center;
-  gap: 16px;
-}
-
-.brandMark {
-  display: grid;
-  width: 62px;
-  height: 62px;
-  flex: 0 0 auto;
-  place-items: center;
-  border: 1px solid rgba(0, 168, 255, 0.42);
-  border-radius: 18px;
-  color: #ffffff;
-  background:
-    radial-gradient(circle at 26% 18%, rgba(70, 215, 255, 0.42), transparent 36%),
-    linear-gradient(145deg, #18b9ff, #2852f5 58%, #151a74);
-  box-shadow: 0 22px 46px -30px rgba(30, 99, 255, 0.86);
-  font-weight: 950;
+  align-items: flex-start;
+  gap: 0;
 }
 
 .eyebrow {
@@ -76,8 +55,8 @@
   align-items: center;
   border-radius: 999px;
   padding: 3px 9px;
-  color: color-mix(in srgb, var(--info) 76%, var(--foreground));
-  background: color-mix(in srgb, var(--info) 10%, var(--surface));
+  color: #087ba4;
+  background: rgba(0, 184, 255, 0.1);
   font-size: 0.68rem;
   font-weight: 950;
   letter-spacing: 0;
@@ -86,7 +65,7 @@
 
 .modalHeader h1 {
   margin: 6px 0 3px;
-  color: var(--foreground);
+  color: #122541;
   font-size: clamp(1.64rem, 2.8vw, 2.35rem);
   line-height: 1;
   letter-spacing: 0;
@@ -95,7 +74,7 @@
 .modalHeader p {
   max-width: 760px;
   margin: 0;
-  color: var(--foreground-soft);
+  color: #5f718d;
   font-size: 0.9rem;
   line-height: 1.42;
 }
@@ -112,11 +91,11 @@
   display: inline-flex;
   min-height: 36px;
   align-items: center;
-  border: 1px solid color-mix(in srgb, var(--info) 20%, var(--line));
+  border: 1px solid rgba(75, 132, 199, 0.22);
   border-radius: 999px;
-  background: color-mix(in srgb, var(--surface) 82%, var(--background));
-  color: var(--foreground-soft);
-  box-shadow: 0 18px 45px -36px color-mix(in srgb, var(--info) 46%, transparent);
+  background: rgba(255, 255, 255, 0.82);
+  color: #5f718d;
+  box-shadow: 0 18px 45px -38px rgba(0, 108, 255, 0.32);
   font-size: 0.8rem;
   font-weight: 850;
 }
@@ -127,13 +106,13 @@
 }
 
 .currentPill strong {
-  color: var(--foreground);
+  color: #122541;
 }
 
 .closeButton {
   width: 36px;
   justify-content: center;
-  color: color-mix(in srgb, var(--info) 76%, var(--foreground));
+  color: #087ba4;
   font-size: 1.35rem;
   line-height: 1;
   text-decoration: none;
@@ -142,9 +121,9 @@
 .planControls {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: 14px;
-  padding: 12px 4px;
+  padding: 0 12px 14px;
 }
 
 .flow {
@@ -187,9 +166,9 @@
   gap: 4px;
   flex: 0 0 auto;
   padding: 4px;
-  border: 1px solid color-mix(in srgb, var(--info) 18%, var(--line));
+  border: 1px solid rgba(75, 132, 199, 0.22);
   border-radius: 999px;
-  background: color-mix(in srgb, var(--surface) 82%, var(--background));
+  background: rgba(255, 255, 255, 0.86);
 }
 
 .segmented button {
@@ -197,7 +176,7 @@
   border: 0;
   border-radius: 999px;
   padding: 0 14px;
-  color: var(--foreground-soft);
+  color: #5f718d;
   background: transparent;
   cursor: pointer;
   font-weight: 950;
@@ -206,8 +185,8 @@
 
 .segmented button[data-active="true"] {
   color: #ffffff;
-  background: var(--brand-solid);
-  box-shadow: 0 12px 30px -22px color-mix(in srgb, var(--brand-solid) 70%, transparent);
+  background: linear-gradient(135deg, #0077ff, #00c8ff);
+  box-shadow: 0 12px 30px -22px rgba(0, 119, 255, 0.78);
 }
 
 .segmented small {
@@ -218,11 +197,11 @@
 
 .notice,
 .loadingCard {
-  border: 1px solid color-mix(in srgb, var(--info) 18%, var(--line));
+  border: 1px solid rgba(75, 132, 199, 0.22);
   border-radius: 14px;
-  background: color-mix(in srgb, var(--surface) 82%, var(--background));
-  color: var(--foreground-soft);
-  box-shadow: 0 18px 54px -46px color-mix(in srgb, var(--info) 38%, transparent);
+  background: rgba(255, 255, 255, 0.84);
+  color: #5f718d;
+  box-shadow: 0 18px 54px -46px rgba(0, 108, 255, 0.34);
 }
 
 .notice {
@@ -239,20 +218,20 @@
 
 .notice a {
   flex: 0 0 auto;
-  color: color-mix(in srgb, var(--info) 78%, var(--foreground));
+  color: #087ba4;
   font-weight: 950;
 }
 
 .notice[data-tone="success"] {
-  border-color: color-mix(in srgb, var(--success) 28%, var(--line));
-  background: color-mix(in srgb, var(--success) 10%, var(--surface));
-  color: color-mix(in srgb, var(--success) 72%, var(--foreground));
+  border-color: rgba(16, 185, 129, 0.28);
+  background: rgba(236, 253, 245, 0.9);
+  color: #047857;
 }
 
 .notice[data-tone="error"] {
-  border-color: color-mix(in srgb, var(--danger) 28%, var(--line));
-  background: color-mix(in srgb, var(--danger) 10%, var(--surface));
-  color: color-mix(in srgb, var(--danger) 76%, var(--foreground));
+  border-color: rgba(185, 59, 49, 0.28);
+  background: rgba(255, 245, 242, 0.9);
+  color: #9b2f27;
 }
 
 .loadingCard {
@@ -266,23 +245,23 @@
 .planPicker {
   min-height: 0;
   overflow: visible;
-  --register-plan-text: var(--foreground);
-  --register-plan-muted: var(--muted);
-  --register-plan-line: color-mix(in srgb, var(--info) 28%, var(--line));
-  --register-plan-line-selected: color-mix(in srgb, var(--info) 76%, var(--line));
+  --register-plan-text: #122541;
+  --register-plan-muted: #5f718d;
+  --register-plan-line: rgba(118, 168, 255, 0.58);
+  --register-plan-line-selected: rgba(0, 183, 255, 0.92);
   --register-plan-card-bg:
-    radial-gradient(circle at 12% 20%, color-mix(in srgb, var(--info) 14%, transparent), transparent 34%),
-    linear-gradient(145deg, color-mix(in srgb, var(--surface) 88%, var(--background)), color-mix(in srgb, var(--surface-raised) 84%, var(--background)));
+    radial-gradient(circle at 12% 20%, rgba(0, 191, 255, 0.14), transparent 34%),
+    linear-gradient(145deg, rgba(255, 255, 255, 0.92), rgba(239, 247, 255, 0.84));
   --register-plan-card-selected-bg:
-    radial-gradient(circle at 15% 22%, color-mix(in srgb, var(--info) 21%, transparent), transparent 36%),
-    radial-gradient(circle at 94% 12%, color-mix(in srgb, var(--button-accent) 15%, transparent), transparent 28%),
-    linear-gradient(145deg, color-mix(in srgb, var(--surface) 92%, var(--background)), color-mix(in srgb, var(--surface-raised) 88%, var(--background)));
-  --register-plan-chip-bg: color-mix(in srgb, var(--info) 10%, var(--surface));
-  --register-plan-chip-text: color-mix(in srgb, var(--info) 78%, var(--foreground));
+    radial-gradient(circle at 15% 22%, rgba(0, 196, 255, 0.2), transparent 36%),
+    radial-gradient(circle at 94% 12%, rgba(132, 91, 255, 0.14), transparent 28%),
+    linear-gradient(145deg, rgba(247, 252, 255, 0.97), rgba(239, 246, 255, 0.92));
+  --register-plan-chip-bg: rgba(0, 173, 255, 0.1);
+  --register-plan-chip-text: #087ba4;
 }
 
 .planPicker :global([data-mode="signup"] > button) {
-  color: var(--foreground);
+  color: #122541;
 }
 
 .planPicker :global([data-mode="signup"] > button[data-featured="true"]:not([data-selected="true"])) {
@@ -302,9 +281,9 @@
   align-items: center;
   border-radius: 999px;
   padding: 3px 10px;
-  color: color-mix(in srgb, var(--info) 78%, var(--foreground));
-  background: color-mix(in srgb, var(--info) 12%, var(--surface));
-  border: 1px solid color-mix(in srgb, var(--info) 32%, var(--line));
+  color: #087ba4;
+  background: rgba(0, 173, 255, 0.1);
+  border: 1px solid rgba(0, 173, 255, 0.26);
   font-size: 0.68rem;
   font-weight: 950;
   text-transform: uppercase;
@@ -321,11 +300,11 @@
   min-height: 46px;
   display: flex;
   align-items: center;
-  border: 1px solid color-mix(in srgb, var(--info) 18%, var(--line));
+  border: 1px solid rgba(75, 132, 199, 0.2);
   border-radius: 14px;
   padding: 10px 12px;
-  color: var(--foreground-soft);
-  background: color-mix(in srgb, var(--surface) 76%, var(--background));
+  color: #5f718d;
+  background: rgba(255, 255, 255, 0.74);
   font-size: 0.82rem;
   font-weight: 850;
   line-height: 1.25;

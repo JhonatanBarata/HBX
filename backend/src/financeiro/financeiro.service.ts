@@ -362,7 +362,8 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
   }
 
   private isBillingGraceEmailSuppressed(reason: unknown) {
-    return String(reason || '').trim().toLowerCase() === 'initial_access';
+    const normalized = String(reason || '').trim().toLowerCase();
+    return normalized === 'initial_access' || normalized === 'provider_pending';
   }
 
   private supportEmail() {
@@ -1303,7 +1304,7 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
     charge?: any | null;
     planKey?: string | null;
     billingCycle?: string | null;
-    reasonCode: 'initial_access' | 'payment_rejected' | 'provider_pending' | 'provider_past_due';
+    reasonCode: 'payment_rejected' | 'provider_pending' | 'provider_past_due';
     sendInitialEmail: boolean;
     failureMessage?: string | null;
     companyContactData?: Record<string, unknown> | null;
@@ -1382,7 +1383,7 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
           trialModuleSelection: planKey === COMMERCIAL_PLAN_KEYS.PADRAO ? 'vendas' : null,
           onboardingStatus: 'active_grace',
           isActive: true,
-          paymentStatus: failureGrace ? 'OVERDUE' : 'PENDING',
+          paymentStatus: failureGrace ? 'OVERDUE' : 'AUTHORIZED',
           subscriptionStatus: companySubscriptionStatus,
           billingProvider: 'mercadopago',
           paymentMethod: 'CARD',
@@ -1410,7 +1411,7 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
         planKey,
         graceStartedAt,
         graceEndsAt,
-        failureGrace ? 'billing_failure_grace' : 'initial_access_grace',
+        failureGrace ? 'billing_failure_grace' : 'subscription_processing_grace',
       );
     });
 
@@ -2151,39 +2152,12 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
     const latestSubscriptionAuthorized =
       latestSubscription &&
       this.normalizeProviderSubscriptionStatus(latestSubscription.status || latestSubscription.lastProviderStatus) === 'authorized';
-    const latestSubscriptionStatus = latestSubscription
-      ? this.normalizeProviderSubscriptionStatus(latestSubscription.status || latestSubscription.lastProviderStatus)
-      : null;
     if (companyPendingCheckout && latestSubscriptionAuthorized) {
       await this.activateCompanyFromSubscription(
         latestSubscription,
         latestSubscription.currentPeriodStart instanceof Date ? latestSubscription.currentPeriodStart : new Date(),
         { status: 'authorized' },
       );
-      [company, latestSubscription] = await Promise.all([
-        this.prisma.company.findUnique({
-          where: { id: context.companyId },
-          include: companyOverviewInclude,
-        }),
-        this.prisma.companySubscription.findFirst({
-          where: { companyId: context.companyId, provider: 'mercadopago' },
-          orderBy: { createdAt: 'desc' },
-        }),
-      ]);
-      if (!company) throw new BadRequestException('Empresa nao encontrada.');
-    } else if (
-      companyPendingCheckout &&
-      latestSubscription &&
-      ['pending', 'past_due', 'paused'].includes(String(latestSubscriptionStatus || ''))
-    ) {
-      await this.startBillingGraceForSubscription({
-        subscription: latestSubscription,
-        reasonCode: latestSubscriptionStatus === 'pending' ? 'provider_pending' : 'payment_rejected',
-        sendInitialEmail: latestSubscriptionStatus !== 'pending',
-        failureMessage: latestSubscriptionStatus === 'pending'
-          ? null
-          : 'Assinatura existente sem autorização de pagamento.',
-      });
       [company, latestSubscription] = await Promise.all([
         this.prisma.company.findUnique({
           where: { id: context.companyId },
@@ -2760,7 +2734,7 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
         return {
           ok: true,
           grace: true,
-          message: 'A assinatura ainda está em processamento. O acesso inicial fica liberado por 48 horas.',
+          message: 'A assinatura ainda está em processamento. O acesso fica liberado por 48 horas.',
           status: 'pending',
           providerPreapprovalId: refreshed.providerPreapprovalId,
           billingGrace: grace,
@@ -2868,7 +2842,7 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
           grace: true,
           message:
             providerStatus === 'pending'
-              ? 'A assinatura ainda está em processamento. O acesso inicial fica liberado por 48 horas.'
+              ? 'A assinatura ainda está em processamento. O acesso fica liberado por 48 horas.'
               : 'O Mercado Pago não autorizou a cobrança. O acesso fica liberado por 48 horas para normalização.',
           status: updated.status,
           providerPreapprovalId,
