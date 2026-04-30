@@ -1,3 +1,5 @@
+import { normalizeInternalRouteAlias } from "./route-aliases";
+
 export type HbxModuleCategory = "commercial" | "structural" | "system";
 
 export type UserModule = {
@@ -49,19 +51,19 @@ export function inferModuleCategory(key: string): HbxModuleCategory {
 export function resolveModuleHref(key: string, fallback?: string | null) {
   const normalized = normalizeUserModuleKey(key);
   const routes: Record<string, string> = {
-    atendimento: "/dashboard/inbox",
-    vendas: "/dashboard/vendas",
-    gerencial: "/dashboard/gerencial",
-    webscraping: "/dashboard/webscraping",
-    financeiro: "/dashboard/financeiro",
-    website: "/dashboard/website",
-    follow_up_internacional: "/dashboard/importacoes/followup-global",
-    master: "/dashboard/master",
-    exclusoes: "/dashboard/master/exclusoes",
-    whatsapp: "/dashboard/whatsapp",
+    atendimento: "/atendimento",
+    vendas: "/vendas",
+    gerencial: "/gerencial",
+    webscraping: "/webscraping",
+    financeiro: "/pagamento",
+    website: "/website",
+    follow_up_internacional: "/followup-global",
+    master: "/master",
+    exclusoes: "/master/exclusoes",
+    whatsapp: "/whatsapp",
   };
 
-  return routes[normalized] || String(fallback || "").trim() || "/dashboard";
+  return routes[normalized] || normalizeInternalRouteAlias(fallback) || "/boasvindas";
 }
 
 export function compareUserModules(left: UserModule, right: UserModule) {
@@ -105,16 +107,16 @@ export function resolveModuleBlockedHref(module: Pick<UserModule, "key" | "criti
   const normalizedKey = normalizeUserModuleKey(module.key);
 
   if (criticalEngine === "whatsapp") {
-    if (blockedCode === "whatsapp_missing") return "/dashboard/whatsapp?focus=official";
-    return "/dashboard/whatsapp?focus=status";
+    if (blockedCode === "whatsapp_missing") return "/whatsapp?focus=official";
+    return "/whatsapp?focus=status";
   }
 
   if (criticalEngine === "payment") {
-    return "/dashboard/financeiro?focus=payment";
+    return "/pagamento?focus=payment";
   }
 
   if (criticalEngine === "webscraping") {
-    return "/dashboard/webscraping";
+    return "/webscraping";
   }
 
   return resolveModuleHref(normalizedKey);

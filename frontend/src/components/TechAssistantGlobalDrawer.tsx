@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
-import { apiFetch } from "../app/dashboard/_lib/api";
+import { apiFetch } from "@/app/_lib/api";
 import LiquidGlassSegmentedControl from "./LiquidGlassSegmentedControl";
 import styles from "./TechAssistantGlobalDrawer.module.css";
 
@@ -105,14 +105,14 @@ type TechSignal = {
 };
 
 function deriveModuleFromPath(pathname: string) {
-  if (pathname.startsWith("/dashboard/inbox")) return "atendimento";
-  if (pathname.startsWith("/dashboard/website")) return "website";
-  if (pathname.startsWith("/dashboard/master")) return "master";
-  if (pathname.startsWith("/dashboard/webscraping")) return "webscraping";
-  if (pathname.startsWith("/dashboard/gerencial")) return "gerencial";
-  if (pathname.startsWith("/dashboard/importacoes")) return "follow_up_internacional";
+  if (pathname.startsWith("/atendimento")) return "atendimento";
+  if (pathname.startsWith("/website")) return "website";
+  if (pathname.startsWith("/master")) return "master";
+  if (pathname.startsWith("/webscraping")) return "webscraping";
+  if (pathname.startsWith("/gerencial")) return "gerencial";
+  if (pathname.startsWith("/followup-global") || pathname.startsWith("/importacoes")) return "follow_up_internacional";
   if (pathname.startsWith("/hbx-recovery")) return "atendimento";
-  if (pathname.startsWith("/dashboard")) return "dashboard";
+  if (pathname.startsWith("/boasvindas")) return "dashboard";
   return "fora_dashboard";
 }
 
@@ -1017,7 +1017,7 @@ export default function TechAssistantGlobalDrawer({ isSystemMaster, masterContex
                   >
                     {historyVisible ? "Ocultar historico" : "Ver historico"}
                   </button>
-                  <Link href="/dashboard/master/assistente-tecnico" className="btn btn-secondary btn-sm">
+                  <Link href="/master/assistente-tecnico" className="btn btn-secondary btn-sm">
                     Abrir central avancada
                   </Link>
                 </div>
@@ -1357,7 +1357,7 @@ export default function TechAssistantGlobalDrawer({ isSystemMaster, masterContex
                       className="field"
                       value={historyRouteFilter}
                       onChange={(event) => setHistoryRouteFilter(event.target.value)}
-                      placeholder="/dashboard/inbox"
+                      placeholder="/atendimento"
                     />
                   </label>
                   <label className="grid gap-1 text-sm">

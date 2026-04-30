@@ -5,7 +5,7 @@ export default function manifest(): MetadataRoute.Manifest {
     name: "HBX Solutions",
     short_name: "HBX",
     description: "Plataforma corporativa de operacao, atendimento e modulos de negocio.",
-    start_url: "/dashboard",
+    start_url: "/boasvindas",
     scope: "/",
     display: "standalone",
     orientation: "any",

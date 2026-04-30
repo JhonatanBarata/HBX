@@ -154,7 +154,38 @@ class UpdateAtendimentoSceneRuleDto {
   metadata?: Record<string, unknown>;
 }
 
+class UpdateAtendimentoBotSetupDto {
+  @IsBoolean()
+  @IsOptional()
+  completed?: boolean;
+
+  @IsString()
+  @IsOptional()
+  completedAt?: string;
+
+  @IsString()
+  @IsOptional()
+  botType?: string;
+
+  @IsString()
+  @IsOptional()
+  channelMode?: string;
+
+  @IsString()
+  @IsOptional()
+  provider?: string;
+
+  @IsString()
+  @IsOptional()
+  configuredFrom?: string;
+}
+
 export class UpdateAtendimentoBotConfigDto {
+  @ValidateNested()
+  @Type(() => UpdateAtendimentoBotSetupDto)
+  @IsOptional()
+  setup?: UpdateAtendimentoBotSetupDto;
+
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => UpdateAtendimentoBotVariableDto)

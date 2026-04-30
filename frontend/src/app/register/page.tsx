@@ -6,11 +6,12 @@ import type { FormEvent } from "react";
 import PlanSelectionExperience, { type PlanSelectionCard } from "@/components/PlanSelectionExperience";
 import { useRouter } from "next/navigation";
 import { useHbxTheme } from "@/components/ThemeProvider";
-import { getToken, setToken } from "../dashboard/_lib/api";
+import { getToken, setToken } from "@/app/_lib/api";
 import type { CommercialPlanKey } from "@/lib/commercial-plans";
 import styles from "./page.module.css";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3000";
+const LOCAL_WELCOME_PATH = "/boasvindas";
 const PUBLIC_SIGNUP_ENTITY_TYPE = "PF" as const;
 const EMAIL_CONFIRMATION_CHANNEL = "hbx_email_confirmation";
 const EMAIL_CONFIRMATION_EVENT_KEY = "hbx_email_confirmation_event";
@@ -209,6 +210,17 @@ function safeInternalPath(value?: string | null) {
   return path;
 }
 
+function isLocalMockWelcomeEnabled() {
+  return (
+    process.env.NODE_ENV === "development" &&
+    String(process.env.NEXT_PUBLIC_PAYMENTS_PROVIDER || "").trim().toLowerCase() === "mock"
+  );
+}
+
+function localWelcomePath(reason: "trial" | "pending_checkout") {
+  return `${LOCAL_WELCOME_PATH}?reason=${reason}`;
+}
+
 function FieldIcon({ icon }: { icon: RegisterFieldIcon }) {
   if (icon === "company") {
     return (
@@ -357,12 +369,15 @@ export default function RegisterPage() {
     setConfirmationAutoError(null);
 
     function resolveDestination(signal?: EmailConfirmationSignal | ConfirmationStatusResponse | null) {
+      if (isLocalMockWelcomeEnabled()) {
+        return localWelcomePath(pendingState.selectedPlanKey === "hbx_padrao" ? "trial" : "pending_checkout");
+      }
       return (
         safeInternalPath(signal?.next) ||
         safeInternalPath(signal?.loginNext) ||
         (pendingState.selectedPlanKey === "hbx_padrao"
-          ? "/dashboard"
-          : "/dashboard/financeiro?focus=payment&reason=pending_checkout")
+          ? "/boasvindas"
+          : "/pagamento?focus=payment&reason=pending_checkout")
       );
     }
 
@@ -609,7 +624,11 @@ export default function RegisterPage() {
 
       if (token) {
         setToken(token);
-        router.push("/dashboard");
+        router.push(
+          isLocalMockWelcomeEnabled()
+            ? localWelcomePath(payload?.status === "active_trial" ? "trial" : "pending_checkout")
+            : "/boasvindas",
+        );
         return;
       }
 

@@ -30,6 +30,7 @@ import {
   DEFAULT_ATENDIMENTO_BOT_CONFIG,
   META_TEMPLATES_REQUIRED_MESSAGE,
   buildAtendimentoAgendaActionId,
+  isAtendimentoBotSetupComplete,
   isAtendimentoRecoveryActionId,
   normalizeAtendimentoAgendaConfig,
   normalizeAtendimentoBotConfig,
@@ -3436,7 +3437,8 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     const tenantContext = await this.resolveAtendimentoBotSanitizationContext(companyId);
     const configuredBot = await this.getAtendimentoBotConfig(companyId, tenantContext);
     const botAiEnabled = await this.hasCommercialBotAiEntitlementForCompany(companyId);
-    const config = botAiEnabled
+    const setupComplete = isAtendimentoBotSetupComplete(configuredBot);
+    const config = botAiEnabled && setupComplete
       ? configuredBot
       : {
           ...configuredBot,
@@ -5377,6 +5379,31 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
         receivedOnDisplayNumber: String(input.receivedOnDisplayNumber || '').trim() || null,
       },
     });
+
+    const isHistoricalWebwhatsSync =
+      String(input.scope || '').trim().toLowerCase() === 'webwhats_sync' &&
+      input.timestamp instanceof Date &&
+      Number.isFinite(input.timestamp.getTime()) &&
+      Date.now() - input.timestamp.getTime() > 2 * 60 * 1000;
+    if (isHistoricalWebwhatsSync) {
+      await this.logWhatsAppEvent({
+        companyId,
+        scope: input.scope,
+        event: 'inbound_historical_sync_suppressed',
+        message: 'Mensagem historica do QR sincronizada sem acionar bot automatico.',
+        conversationId: inboundConversationId || null,
+        phone: from,
+        messageType: input.inboundType,
+        result: 'bot_suppressed',
+        extra: {
+          provider: input.provider,
+          sourceModule: input.sourceModule,
+          providerMessageId: input.externalMessageId || null,
+          messageTimestamp: input.timestamp.toISOString(),
+        },
+      });
+      return { matched: false, source: 'webwhats_sync_historical', botSuppressed: true };
+    }
 
     const recoveryCustomer = await this.findRecoveryCustomerByPhone(companyId, from);
     if (['text', 'button', 'interactive', 'image', 'video', 'document', 'audio'].includes(input.inboundType)) {

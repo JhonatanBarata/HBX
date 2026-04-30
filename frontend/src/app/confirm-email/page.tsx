@@ -3,11 +3,13 @@
 import { Suspense, useEffect, useMemo, useState } from "react";
 import type { FormEvent } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { getToken, setToken } from "../dashboard/_lib/api";
+import { getToken, setToken } from "@/app/_lib/api";
+import { normalizeInternalRouteAlias } from "@/lib/route-aliases";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3000";
 const EMAIL_CONFIRMATION_CHANNEL = "hbx_email_confirmation";
 const EMAIL_CONFIRMATION_EVENT_KEY = "hbx_email_confirmation_event";
+const LOCAL_WELCOME_PATH = "/boasvindas";
 
 type ApiErrorPayload = {
   message?: string | string[];
@@ -71,7 +73,20 @@ function getAccessToken(data: unknown) {
 function safeInternalPath(value?: string | null) {
   const path = String(value || "").trim();
   if (!path || !path.startsWith("/") || path.startsWith("//")) return null;
-  return path;
+  return normalizeInternalRouteAlias(path);
+}
+
+function isLocalMockWelcomeEnabled() {
+  return (
+    process.env.NODE_ENV === "development" &&
+    String(process.env.NEXT_PUBLIC_PAYMENTS_PROVIDER || "").trim().toLowerCase() === "mock"
+  );
+}
+
+function localWelcomePath(status?: string | null) {
+  const normalized = String(status || "").trim().toLowerCase();
+  const reason = normalized === "active_trial" ? "trial" : "pending_checkout";
+  return `${LOCAL_WELCOME_PATH}?reason=${reason}`;
 }
 
 function notifyWaitingRegisterPage(payload: {
@@ -178,7 +193,12 @@ function ConfirmEmailInner() {
           const payloadNext = safeInternalPath(payload?.next) || null;
           const payloadLoginNext = safeInternalPath(payload?.loginNext) || null;
           const accessToken = getAccessToken(payload);
-          const destination = payloadNext || payloadLoginNext || "/dashboard";
+          const localWelcomeDestination = isLocalMockWelcomeEnabled() ? localWelcomePath(payloadStatus) : null;
+          const destination = localWelcomeDestination || payloadNext || payloadLoginNext || "/boasvindas";
+          const nextForLogin = localWelcomeDestination || payloadNext;
+          const loginNextForButton = localWelcomeDestination
+            ? `/login?next=${encodeURIComponent(localWelcomeDestination)}`
+            : payloadLoginNext;
           setInfo(
             String(payload?.message || "").trim() ||
               (accessToken
@@ -186,8 +206,8 @@ function ConfirmEmailInner() {
                 : "E-mail confirmado com sucesso. Seu acesso já está liberado no login."),
           );
           setConfirmedStatus(payloadStatus);
-          setNextPath(payloadNext);
-          setLoginNextPath(payloadLoginNext);
+          setNextPath(nextForLogin);
+          setLoginNextPath(loginNextForButton);
           setErrorCode(null);
           setTrialEndsAt(payload?.trialEndsAt ? String(payload.trialEndsAt) : null);
 
@@ -198,7 +218,7 @@ function ConfirmEmailInner() {
               email: payload?.email || emailFromQuery || null,
               status: payloadStatus,
               next: destination,
-              loginNext: payloadLoginNext,
+              loginNext: loginNextForButton,
             });
             window.setTimeout(() => {
               if (!cancelled) router.replace(destination);
@@ -209,8 +229,8 @@ function ConfirmEmailInner() {
           notifyWaitingRegisterPage({
             email: payload?.email || emailFromQuery || null,
             status: payloadStatus,
-            next: payloadNext,
-            loginNext: payloadLoginNext,
+            next: nextForLogin,
+            loginNext: loginNextForButton,
           });
 
           // Se já existir sessão (token), redireciona para a área logada.
@@ -363,8 +383,8 @@ function ConfirmEmailInner() {
             className="btn btn-primary login-button py-3 rounded-xl w-full shadow-md"
             onClick={() => {
               const destination = confirmedStatus === "pending_checkout"
-                ? loginNextPath || `/login?next=${encodeURIComponent(nextPath || "/dashboard/financeiro?focus=payment&reason=pending_checkout")}`
-                : loginNextPath || "/login?next=/dashboard";
+                ? loginNextPath || `/login?next=${encodeURIComponent(nextPath || "/pagamento?focus=payment&reason=pending_checkout")}`
+                : loginNextPath || "/login?next=/boasvindas";
               router.push(destination);
             }}
           >

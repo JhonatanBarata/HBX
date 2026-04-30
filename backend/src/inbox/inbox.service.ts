@@ -29,6 +29,7 @@ import {
   DEFAULT_ATENDIMENTO_AGENDA_CONFIG,
   DEFAULT_ATENDIMENTO_BOT_CONFIG,
   buildAtendimentoAgendaActionId,
+  isAtendimentoBotSetupComplete,
   normalizeAtendimentoAgendaConfig,
   normalizeAtendimentoBotConfig,
   resolveProviderCapabilitiesFromCompany,
@@ -2243,7 +2244,7 @@ export class InboxService {
           updatedAt: true,
           lastMessageAt: true,
           messages: {
-            orderBy: { timestamp: 'desc' },
+            orderBy: [{ timestamp: 'desc' }, { id: 'desc' }],
             take: 1,
             select: {
               id: true,
@@ -3271,9 +3272,20 @@ export class InboxService {
   async updateBotConfig(user: any, payload: unknown) {
     const companyId = this.requireCompanyIdFromUser(user);
     await this.commercialPlansService.assertBotAiEntitlementForCompany(companyId);
+    const requested = normalizeAtendimentoBotConfig(payload || {});
+    if (
+      (requested.routingRules.globalBotEnabled || requested.setup.completed) &&
+      !isAtendimentoBotSetupComplete(requested)
+    ) {
+      throw new BadRequestException({
+        code: 'ATENDIMENTO_BOT_SETUP_INCOMPLETE',
+        message:
+          'Conclua o tutorial de configuracao do bot antes de ativar respostas automaticas no Atendimento.',
+      });
+    }
     const tenantContext = await this.resolveAtendimentoBotSanitizationContext(companyId);
     const normalized = sanitizeAtendimentoBotConfigForTenant(
-      normalizeAtendimentoBotConfig(payload || {}),
+      requested,
       tenantContext,
     );
     const agendaConfig = await this.getAgendaConfigByCompanyId(companyId);
@@ -3309,6 +3321,14 @@ export class InboxService {
     const companyId = this.requireCompanyIdFromUser(user);
     if (dto?.enabled !== false) {
       await this.commercialPlansService.assertBotAiEntitlementForCompany(companyId);
+      const config = await this.getBotConfigByCompanyId(companyId);
+      if (!isAtendimentoBotSetupComplete(config)) {
+        throw new BadRequestException({
+          code: 'ATENDIMENTO_BOT_SETUP_INCOMPLETE',
+          message:
+            'Conclua o tutorial de configuracao do bot antes de mover conversas para a fila do Bot.',
+        });
+      }
     }
     const ids = Array.isArray(dto?.ids) ? dto.ids.map((v) => Number(v)).filter((v) => Number.isFinite(v)) : [];
     if (!ids.length) {

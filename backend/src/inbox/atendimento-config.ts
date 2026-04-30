@@ -102,6 +102,22 @@ export type AtendimentoRoutingRules = {
   notifyOnNewInbound: boolean;
 };
 
+export type AtendimentoBotType =
+  | 'vendas'
+  | 'atendimento'
+  | 'organizacao'
+  | 'recovery'
+  | 'prospeccao';
+
+export type AtendimentoBotSetup = {
+  completed: boolean;
+  completedAt?: string | null;
+  botType?: AtendimentoBotType | null;
+  channelMode?: 'QR' | 'OFFICIAL' | null;
+  provider?: ChannelProvider | null;
+  configuredFrom?: string | null;
+};
+
 export type AtendimentoSmartGreetingConfig = {
   timezone?: string;
   morning?: string;
@@ -124,6 +140,7 @@ export type AtendimentoSceneRule = {
 };
 
 export type AtendimentoBotConfig = {
+  setup: AtendimentoBotSetup;
   variableCatalog: AtendimentoBotVariableDefinition[];
   actionCatalog: AtendimentoBotActionGuide[];
   routingRules: AtendimentoRoutingRules;
@@ -405,10 +422,18 @@ function makeDefaultButton(
 }
 
 export const DEFAULT_ATENDIMENTO_BOT_CONFIG: AtendimentoBotConfig = {
+  setup: {
+    completed: false,
+    completedAt: null,
+    botType: null,
+    channelMode: null,
+    provider: null,
+    configuredFrom: null,
+  },
   variableCatalog: DEFAULT_VARIABLE_CATALOG,
   actionCatalog: DEFAULT_ACTION_CATALOG,
   routingRules: {
-    globalBotEnabled: true,
+    globalBotEnabled: false,
     checkRecoveryBeforeReply: true,
     autoRouteDebtorsToRecovery: true,
     autoReopenClosedConversation: true,
@@ -869,6 +894,44 @@ function normalizeSceneRules(value: unknown): AtendimentoSceneRule[] {
     .filter((item): item is AtendimentoSceneRule => Boolean(item));
 }
 
+function normalizeBotType(value: unknown): AtendimentoBotType | null {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (normalized === 'vendas') return 'vendas';
+  if (normalized === 'atendimento') return 'atendimento';
+  if (normalized === 'organizacao' || normalized === 'organização' || normalized === 'empresa') {
+    return 'organizacao';
+  }
+  if (normalized === 'recovery') return 'recovery';
+  if (normalized === 'prospeccao' || normalized === 'prospecção') return 'prospeccao';
+  return null;
+}
+
+function normalizeSetupChannelMode(value: unknown): 'QR' | 'OFFICIAL' | null {
+  const normalized = String(value || '').trim().toUpperCase();
+  if (normalized === 'QR' || normalized === 'QRCODE' || normalized === 'TEMPORARY') return 'QR';
+  if (normalized === 'OFFICIAL' || normalized === 'META') return 'OFFICIAL';
+  return null;
+}
+
+function normalizeSetupProvider(value: unknown): ChannelProvider | null {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (normalized === 'meta') return 'meta';
+  if (normalized === 'evolution' || normalized === 'qr' || normalized === 'qrcode') return 'evolution';
+  return null;
+}
+
+function normalizeAtendimentoBotSetup(value: unknown): AtendimentoBotSetup {
+  const raw = value && typeof value === 'object' && !Array.isArray(value) ? (value as any) : {};
+  return {
+    completed: Boolean(raw.completed),
+    completedAt: normalizeText(raw.completedAt) || null,
+    botType: normalizeBotType(raw.botType),
+    channelMode: normalizeSetupChannelMode(raw.channelMode),
+    provider: normalizeSetupProvider(raw.provider),
+    configuredFrom: normalizeText(raw.configuredFrom) || null,
+  };
+}
+
 export function normalizeAtendimentoBotConfig(
   payload: Partial<AtendimentoBotConfig> | null | undefined,
 ): AtendimentoBotConfig {
@@ -876,6 +939,7 @@ export function normalizeAtendimentoBotConfig(
   const hasWelcomeButtons =
     Boolean(config) && Object.prototype.hasOwnProperty.call(config, 'welcomeButtons');
   return {
+    setup: normalizeAtendimentoBotSetup((config as any).setup),
     variableCatalog: normalizeVariableCatalog(config.variableCatalog),
     actionCatalog: normalizeActionCatalog(config.actionCatalog),
     routingRules: {
@@ -959,6 +1023,18 @@ export function normalizeAtendimentoBotConfig(
       DEFAULT_ATENDIMENTO_BOT_CONFIG.blockedMessage,
     ),
   };
+}
+
+export function isAtendimentoBotSetupComplete(config: Partial<AtendimentoBotConfig> | null | undefined) {
+  const normalized = normalizeAtendimentoBotConfig(config || {});
+  const botType = normalized.setup.botType;
+  return Boolean(
+    normalized.setup.completed &&
+      botType &&
+      ['vendas', 'atendimento', 'organizacao'].includes(botType) &&
+      normalizeText(normalized.mainMenuPrompt).length >= 8 &&
+      (normalized.mainMenuButtons || []).length > 0,
+  );
 }
 
 export function getProviderCapabilities(provider: ChannelProvider): ProviderCapabilities {
@@ -1049,12 +1125,19 @@ export function sanitizeAtendimentoBotConfigForTenant(
 
   return {
     ...normalized,
+    setup: {
+      ...normalized.setup,
+      provider: normalized.setup.provider || providerCapabilities.provider,
+    },
     variableCatalog: recoveryEnabled
       ? normalized.variableCatalog
       : normalized.variableCatalog.filter((item) => item.scope !== 'recovery'),
     actionCatalog,
     routingRules: {
       ...normalized.routingRules,
+      globalBotEnabled: isAtendimentoBotSetupComplete(normalized)
+        ? normalized.routingRules.globalBotEnabled
+        : false,
       checkRecoveryBeforeReply: recoveryEnabled
         ? normalized.routingRules.checkRecoveryBeforeReply
         : false,

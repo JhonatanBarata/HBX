@@ -1,7 +1,12 @@
 export const dynamic = "force-dynamic";
 
-import MasterPremiumPage from "../page.premium";
+import { redirect } from "next/navigation";
+import { withLegacySearchParams, type LegacySearchParams } from "@/app/_lib/legacyRedirect";
 
-export default function Page() {
-  return <MasterPremiumPage />;
+type LegacyRedirectProps = {
+  searchParams?: Promise<LegacySearchParams> | LegacySearchParams;
+};
+
+export default async function Page({ searchParams }: LegacyRedirectProps) {
+  redirect(withLegacySearchParams("/master/operacao", await searchParams));
 }

@@ -1,7 +1,12 @@
 export const dynamic = "force-dynamic";
 
-import FollowupGlobalClientPage from "./page.client";
+import { redirect } from "next/navigation";
+import { withLegacySearchParams, type LegacySearchParams } from "@/app/_lib/legacyRedirect";
 
-export default function Page() {
-  return <FollowupGlobalClientPage />;
+type LegacyRedirectProps = {
+  searchParams?: Promise<LegacySearchParams> | LegacySearchParams;
+};
+
+export default async function Page({ searchParams }: LegacyRedirectProps) {
+  redirect(withLegacySearchParams("/followup-global", await searchParams));
 }

@@ -62,7 +62,7 @@ export function getCommercialPlanTitle(key?: CommercialPlanKey | null) {
   return "Sem plano comercial";
 }
 
-export function getBotAiPlanRedirectFromError(error: unknown, fallback = "/dashboard/planos?intent=bot_ia") {
+export function getBotAiPlanRedirectFromError(error: unknown, fallback = "/planos?intent=bot_ia") {
   const candidate = error && typeof error === "object" ? error as Record<string, unknown> : {};
   if (candidate.code === "BOT_IA_PLAN_REQUIRED") {
     return typeof candidate.redirectTo === "string" ? candidate.redirectTo : fallback;

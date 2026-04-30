@@ -444,7 +444,7 @@ test('deleteConversation archives conversations with history locally', async () 
     },
   });
 
-  const result = await service.deleteConversation({ companyId: 7 }, 42);
+  const result = await service.deleteConversation({ companyId: 7, role: 'ADMIN' }, 42);
 
   assert.equal(result.success, true);
   assert.equal(result.message, 'Conversa enviada para Excluídos apenas no HBX.');
@@ -499,7 +499,7 @@ test('deleteConversation keeps local archive success without WhatsApp command', 
     },
   });
 
-  const result = await service.deleteConversation({ companyId: 7 }, 42);
+  const result = await service.deleteConversation({ companyId: 7, role: 'ADMIN' }, 42);
 
   assert.equal(result.success, true);
   assert.equal(result.message, 'Conversa enviada para Excluídos apenas no HBX.');
@@ -554,7 +554,7 @@ test('deleteConversation ignores disconnected WhatsApp session and archives loca
     },
   });
 
-  const result = await service.deleteConversation({ companyId: 7 }, 42);
+  const result = await service.deleteConversation({ companyId: 7, role: 'ADMIN' }, 42);
 
   assert.equal(result.success, true);
   assert.equal(result.localOnly, true);
@@ -605,7 +605,7 @@ test('purgeConversationFromTrash removes one archived conversation locally witho
     },
   });
 
-  const result = await service.purgeConversationFromTrash({ companyId: 7 }, 42);
+  const result = await service.purgeConversationFromTrash({ companyId: 7, role: 'ADMIN' }, 42);
 
   assert.equal(result.success, true);
   assert.equal(result.localOnly, true);

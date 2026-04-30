@@ -9,7 +9,7 @@ import {
   type HbxThemeConfig,
   type HbxThemeSelection,
 } from "@/lib/design-tokens";
-import { apiFetch, getToken } from "@/app/dashboard/_lib/api";
+import { apiFetch, getToken } from "@/app/_lib/api";
 import { HBX_THEME_PALETTES, type HbxThemeId, type HbxThemeMode } from "@/lib/theme-palettes";
 import {
   HBX_THEME_CONFIG_STORAGE_KEY,

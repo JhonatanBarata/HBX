@@ -4,7 +4,7 @@ import Link from "next/link";
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { createPortal } from "react-dom";
-import { apiFetch, clearApiCache, clearToken, getToken } from "../app/dashboard/_lib/api";
+import { apiFetch, clearApiCache, clearToken, getToken } from "@/app/_lib/api";
 import { useInterfaceTransition } from "@/components/InterfaceTransitionProvider";
 import { useHbxTheme } from "@/components/ThemeProvider";
 import { usePopupTopbarLock } from "@/lib/use-popup-topbar-lock";
@@ -19,6 +19,7 @@ import {
   dispatchMasterContextChanged,
   type MasterContextChangedDetail,
 } from "../lib/masterContextEvents";
+import { dispatchModulesChanged, MODULES_CHANGED_EVENT } from "../lib/module-events";
 import ThemeSwitcher from "./ThemeSwitcher";
 import TechAssistantGlobalDrawer from "./TechAssistantGlobalDrawer";
 import WhatsAppOperationalDialog from "./WhatsAppOperationalDialog";
@@ -171,9 +172,9 @@ const MODULES_TRIGGER_ID = "app-modules-trigger";
 const SUPPORT_PHONE = "5519997024884";
 const SUPPORT_MESSAGE = "Olá, preciso de suporte no HBX.";
 
-const hiddenRoutes = new Set(["/login", "/register", "/reset-password", "/confirm-email"]);
-const PENDING_CHECKOUT_ADMIN_PATH = "/dashboard/financeiro?focus=payment&reason=pending_checkout";
-const PENDING_CHECKOUT_USER_PATH = "/dashboard/planos?mode=pending_checkout&reason=pending_checkout";
+const hiddenRoutes = new Set(["/login", "/register", "/reset-password", "/confirm-email", "/boasvindas", "/tutorial"]);
+const PENDING_CHECKOUT_ADMIN_PATH = "/pagamento?focus=payment&reason=pending_checkout";
+const PENDING_CHECKOUT_USER_PATH = "/planos?mode=pending_checkout&reason=pending_checkout";
 
 function isPendingCheckoutUser(user: User | null) {
   const company = user?.company;
@@ -313,10 +314,11 @@ export default function TopBar() {
   const audioArmedRef = useRef(false);
   const masterContextToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastScrollYRef = useRef(0);
+  const previousWhatsAppModalStatusRef = useRef<string | null>(null);
   const authResolved = authenticated !== null;
   const pendingCheckoutLocked = isPendingCheckoutUser(user);
   const pendingCheckoutHref = resolvePendingCheckoutHref(user);
-  const dashboardHref = pendingCheckoutLocked ? pendingCheckoutHref : "/dashboard";
+  const dashboardHref = pendingCheckoutLocked ? pendingCheckoutHref : "/boasvindas";
 
   usePopupTopbarLock(whatsAppDetailOpen || masterContextModalOpen);
 
@@ -710,11 +712,19 @@ export default function TopBar() {
       showMasterContextToast(customEvent.detail);
     }
 
+    function handleModulesChanged() {
+      clearApiCache("/modules/me");
+      void refreshMasterAwareState().catch(() => undefined);
+      void refreshOperationalStatus(true).catch(() => undefined);
+    }
+
     window.addEventListener(MASTER_CONTEXT_CHANGED_EVENT, handleMasterContextChanged);
+    window.addEventListener(MODULES_CHANGED_EVENT, handleModulesChanged);
 
     return () => {
       mounted = false;
       window.removeEventListener(MASTER_CONTEXT_CHANGED_EVENT, handleMasterContextChanged);
+      window.removeEventListener(MODULES_CHANGED_EVENT, handleModulesChanged);
     };
   }, [authenticated, refreshMasterAwareState, refreshOperationalStatus, setStorageUserId, showMasterContextToast]);
 
@@ -780,6 +790,19 @@ export default function TopBar() {
     whatsAppModal?.status,
     whatsAppQrRequested,
   ]);
+
+  useEffect(() => {
+    const currentStatus = whatsAppModal?.status || null;
+    const previousStatus = previousWhatsAppModalStatusRef.current;
+    previousWhatsAppModalStatusRef.current = currentStatus;
+
+    if (!currentStatus || currentStatus === previousStatus) return;
+    if (currentStatus !== "connected" && previousStatus !== "connected") return;
+
+    dispatchModulesChanged({
+      reason: currentStatus === "connected" ? "whatsapp_connected" : "whatsapp_disconnected",
+    });
+  }, [whatsAppModal?.status]);
 
   useEffect(() => {
     if (authenticated === null) {
@@ -858,8 +881,8 @@ export default function TopBar() {
     // own data refresh, and global alerts need a lightweight counter endpoint.
     const shouldPollHeavyQueues =
       process.env.NEXT_PUBLIC_ENABLE_TOPBAR_QUEUE_POLLING === "true" &&
-      !pathname.includes("/dashboard/inbox") &&
-      !pathname.includes("/dashboard/recovery");
+      !pathname.includes("/atendimento") &&
+      !pathname.includes("/atendimento/recovery");
 
     if (!authenticated || !user || user.isSystemMaster || !user.company?.id || !shouldPollHeavyQueues) {
       recoveryLastSeenRef.current = new Map();
@@ -924,7 +947,7 @@ export default function TopBar() {
                   (becameHumanQueue
                     ? "Cliente solicitou atendimento humano."
                     : "Nova mensagem aguardando resposta na cobranca."),
-                href: "/dashboard/inbox/recovery",
+                href: "/atendimento/recovery",
                 lastAt: item.lastAt,
               });
             }
@@ -994,7 +1017,7 @@ export default function TopBar() {
                 contactPhone: conversation.customer.phone || "-",
                 entryNumberLabel: extractEntryNumberLabel(conversation.metadata),
                 preview: formatInboxPreview(conversation),
-                href: "/dashboard/inbox",
+                href: "/atendimento",
                 lastAt,
               });
             }
@@ -1216,8 +1239,8 @@ export default function TopBar() {
     if (
       options?.dismissPopup &&
       incomingPopup &&
-      ((moduleKey === "atendimento" && incomingPopup.href === "/dashboard/inbox") ||
-        (moduleKey === "recovery" && incomingPopup.href === "/dashboard/inbox/recovery"))
+      ((moduleKey === "atendimento" && incomingPopup.href === "/atendimento") ||
+        (moduleKey === "recovery" && incomingPopup.href === "/atendimento/recovery"))
     ) {
       setIncomingPopup(null);
     }
@@ -1225,12 +1248,12 @@ export default function TopBar() {
 
   function handleQueueShortcut(moduleKey: "atendimento" | "recovery") {
     clearQueueBadge(moduleKey, { dismissPopup: true });
-    router.push(moduleKey === "atendimento" ? "/dashboard/inbox" : "/dashboard/inbox/recovery");
+    router.push(moduleKey === "atendimento" ? "/atendimento" : "/atendimento/recovery");
   }
 
   function handleSupportClick() {
     if (supportHasInternalChat === true) {
-      router.push(`/dashboard/inbox?support=1&phone=${SUPPORT_PHONE}`);
+      router.push(`/atendimento?support=1&phone=${SUPPORT_PHONE}`);
       return;
     }
 

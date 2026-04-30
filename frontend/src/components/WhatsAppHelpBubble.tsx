@@ -11,7 +11,7 @@ function shouldShowHelp(pathname: string | null) {
   if (path === "/" || path === "/login" || path === "/register" || path === "/confirm-email" || path === "/reset-password") {
     return true;
   }
-  return path === "/dashboard/financeiro" || path === "/dashboard/planos" || path === "/dashboard/checkout";
+  return path === "/pagamento" || path === "/planos" || path === "/checkout";
 }
 
 export default function WhatsAppHelpBubble() {

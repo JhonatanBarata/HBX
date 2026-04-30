@@ -6,7 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 import { createPortal } from "react-dom";
 import ModuleNav from "./ModuleNav";
 import QrPairedNextStepPrompt from "./QrPairedNextStepPrompt";
-import { apiFetch, getToken } from "../app/dashboard/_lib/api";
+import { apiFetch, getToken } from "@/app/_lib/api";
 import { MASTER_CONTEXT_CHANGED_EVENT } from "../lib/masterContextEvents";
 import {
   clearPresentationConfig,
@@ -35,8 +35,8 @@ type NavPeekAnchorRect = Pick<DOMRect, "bottom" | "height" | "left" | "right" | 
 
 const MODULES_PEEK_EVENT = "hbx:modules-peek";
 const MODULES_TRIGGER_ID = "app-modules-trigger";
-const PENDING_CHECKOUT_ADMIN_PATH = "/dashboard/financeiro?focus=payment&reason=pending_checkout";
-const PENDING_CHECKOUT_USER_PATH = "/dashboard/planos?mode=pending_checkout&reason=pending_checkout";
+const PENDING_CHECKOUT_ADMIN_PATH = "/pagamento?focus=payment&reason=pending_checkout";
+const PENDING_CHECKOUT_USER_PATH = "/planos?mode=pending_checkout&reason=pending_checkout";
 
 function buildPageKey(pathname: string) {
   const parts = pathname.split("/").filter(Boolean);
@@ -98,8 +98,9 @@ function isPendingCheckoutCompany(company: PresentationProfile["company"]) {
 
 function isPendingCheckoutAllowedPath(pathname: string, role: string | null) {
   const normalizedRole = String(role || "").trim().toUpperCase();
-  if (pathname.startsWith("/dashboard/planos")) return true;
-  if (normalizedRole === "ADMIN" && pathname.startsWith("/dashboard/financeiro")) return true;
+  if (pathname.startsWith("/boasvindas")) return true;
+  if (pathname.startsWith("/planos")) return true;
+  if (normalizedRole === "ADMIN" && pathname.startsWith("/pagamento")) return true;
   return false;
 }
 
@@ -123,9 +124,9 @@ export default function DashboardScaffold({
   const navPeekCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pathname = usePathname();
   const router = useRouter();
-  const isRootDashboard = pathname === "/dashboard";
+  const isRootDashboard = pathname === "/boasvindas";
   const defaultSectionLabel =
-    pathname.startsWith("/hbx-recovery") || pathname.startsWith("/dashboard/inbox/recovery")
+    pathname.startsWith("/hbx-recovery") || pathname.startsWith("/atendimento/recovery")
       ? "Atendimento"
       : "HBX Workspace";
   const pageKey = buildPageKey(pathname);
@@ -556,7 +557,7 @@ export default function DashboardScaffold({
                     </button>
                   ) : null}
                   {showDashboardShortcut && !isRootDashboard ? (
-                    <Link href="/dashboard" prefetch={false} className="btn btn-secondary btn-sm">
+                    <Link href="/boasvindas" prefetch={false} className="btn btn-secondary btn-sm">
                       Voltar ao menu
                     </Link>
                   ) : null}

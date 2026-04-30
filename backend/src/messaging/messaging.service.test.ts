@@ -2,6 +2,23 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { MessagingService } from './messaging.service';
+import { DEFAULT_ATENDIMENTO_BOT_CONFIG } from '../inbox/atendimento-config';
+
+const COMPLETED_ATENDIMENTO_BOT_CONFIG = {
+  ...DEFAULT_ATENDIMENTO_BOT_CONFIG,
+  setup: {
+    completed: true,
+    completedAt: '2026-04-15T10:00:00.000Z',
+    botType: 'vendas',
+    channelMode: 'QR',
+    provider: 'evolution',
+    configuredFrom: 'test',
+  },
+  routingRules: {
+    ...DEFAULT_ATENDIMENTO_BOT_CONFIG.routingRules,
+    globalBotEnabled: true,
+  },
+};
 
 function createService(overrides?: Partial<Record<string, any>>) {
   const queueCalls: Array<Record<string, unknown>> = [];
@@ -285,6 +302,23 @@ test('handleInboundProxyMessage discards unmapped company without invoking persi
 test('handleAtendimentoInbound enters the Vendas agenda bot gate and opens the main menu after manual reply', async () => {
   const { service, queueCalls, conversationStateCalls, companyMessageUpdateCalls } = createService({
     prisma: {
+      company: {
+        findUnique: async () => ({
+          id: 7,
+          name: 'HBX Solutions',
+          timezone: 'America/Sao_Paulo',
+          whatsappConnectionMode: 'TEMPORARY',
+          trialModuleSelection: null,
+          paymentStatus: 'PAID',
+          subscriptionStatus: 'active',
+          onboardingStatus: 'active_paid',
+          trialEndsAt: null,
+          commercialEntitlements: [
+            { key: 'vendas', status: 'active', currentPeriodEnd: null },
+            { key: 'bot_ia', status: 'active', currentPeriodEnd: null },
+          ],
+        }),
+      },
       companyConversation: {
         findFirst: async () => ({
           id: 42,
@@ -322,6 +356,12 @@ test('handleAtendimentoInbound enters the Vendas agenda bot gate and opens the m
           companyMessageUpdateCalls.push(input);
           return input;
         },
+      },
+      hbxRecoveryFlowStage: {
+        findFirst: async ({ where }: any) =>
+          where?.channel === '__ATENDIMENTO_BOT_CONFIG__'
+            ? { template: JSON.stringify(COMPLETED_ATENDIMENTO_BOT_CONFIG) }
+            : null,
       },
     },
     cadastrosService: {
@@ -373,6 +413,23 @@ test('handleAtendimentoInbound enters the Vendas agenda bot gate and opens the m
 test('handleAtendimentoInbound asks for the name first when the Vendas agenda reply has no confirmed identity', async () => {
   const { service, queueCalls, conversationStateCalls, companyMessageUpdateCalls } = createService({
     prisma: {
+      company: {
+        findUnique: async () => ({
+          id: 7,
+          name: 'HBX Solutions',
+          timezone: 'America/Sao_Paulo',
+          whatsappConnectionMode: 'TEMPORARY',
+          trialModuleSelection: null,
+          paymentStatus: 'PAID',
+          subscriptionStatus: 'active',
+          onboardingStatus: 'active_paid',
+          trialEndsAt: null,
+          commercialEntitlements: [
+            { key: 'vendas', status: 'active', currentPeriodEnd: null },
+            { key: 'bot_ia', status: 'active', currentPeriodEnd: null },
+          ],
+        }),
+      },
       companyConversation: {
         findFirst: async () => ({
           id: 42,
@@ -409,6 +466,12 @@ test('handleAtendimentoInbound asks for the name first when the Vendas agenda re
           companyMessageUpdateCalls.push(input);
           return input;
         },
+      },
+      hbxRecoveryFlowStage: {
+        findFirst: async ({ where }: any) =>
+          where?.channel === '__ATENDIMENTO_BOT_CONFIG__'
+            ? { template: JSON.stringify(COMPLETED_ATENDIMENTO_BOT_CONFIG) }
+            : null,
       },
     },
     cadastrosService: {
