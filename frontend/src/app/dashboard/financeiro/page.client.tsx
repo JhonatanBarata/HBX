@@ -711,12 +711,12 @@ export default function FinanceiroClientPage() {
       else await loadOverview(true);
       setCardPaymentNotice({
         tone: "success",
-        title: "Cartão autorizado.",
+        title: "Acesso liberado.",
         text: context.showCardUpdate && !context.checkoutMode
           ? "O cartão foi atualizado no Mercado Pago."
-          : "A assinatura foi enviada. A liberação ocorre assim que o Mercado Pago confirmar.",
+          : "A assinatura foi autorizada no Mercado Pago. A cobrança recorrente será confirmada pelo webhook do provedor.",
       });
-      setMessage(context.showCardUpdate && !context.checkoutMode ? "Cartão atualizado no Mercado Pago." : "Cartão autorizado. A liberação ocorre assim que o Mercado Pago confirmar o primeiro pagamento.");
+      setMessage(context.showCardUpdate && !context.checkoutMode ? "Cartão atualizado no Mercado Pago." : "Acesso liberado. Assinatura autorizada no Mercado Pago.");
       setShowCardUpdate(false);
       setForceCheckout(false);
     } catch (actionError) {
