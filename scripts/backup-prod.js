@@ -2,12 +2,25 @@
 
 const fs = require('fs');
 const path = require('path');
-const { assertNonLocalDatabaseUrl, formatTimestamp, repoRoot, requireEnv, resolveOperationsEnv, run } = require('./lib/runtime');
+const { formatTimestamp, repoRoot, requireEnv, resolveOperationsEnv, run } = require('./lib/runtime');
+
+function shellSingleQuote(value) {
+  return `'${String(value).replace(/'/g, `'\\''`)}'`;
+}
+
+function resolveHostingerSshTarget(env) {
+  const host = String(env.HOSTINGER_SSH_HOST || '').trim();
+  const user = String(env.HOSTINGER_SSH_USER || '').trim();
+  if (!host || !user) {
+    throw new Error('Missing required environment variable: HOSTINGER_SSH_HOST or HOSTINGER_SSH_USER');
+  }
+  return `${user}@${host}`;
+}
 
 function createProductionBackup(inputEnv = resolveOperationsEnv()) {
   const env = inputEnv;
-  const databaseUrl = requireEnv(env, 'PROD_DATABASE_URL');
-  const parsed = assertNonLocalDatabaseUrl(databaseUrl, 'PROD_DATABASE_URL');
+  const sshTarget = resolveHostingerSshTarget(env);
+  const appDir = requireEnv(env, 'HOSTINGER_APP_DIR');
 
   const timestamp = formatTimestamp();
   const backupDir = path.join(repoRoot, 'backups', 'prod', timestamp);
@@ -17,16 +30,19 @@ function createProductionBackup(inputEnv = resolveOperationsEnv()) {
   fs.mkdirSync(backupDir, { recursive: true });
 
   try {
-    run('docker', [
-      'run',
-      '--rm',
-      '-v',
-      `${backupDir}:/backup`,
-      'postgres:17-alpine',
-      'sh',
-      '-lc',
-      `pg_dump --clean --if-exists --no-owner --no-privileges '${databaseUrl}' -f /backup/${dumpFileName}`,
-    ]);
+    const remoteScript = [
+      'set -eu',
+      `APP_DIR=${shellSingleQuote(appDir)}`,
+      'if [ ! -f "$APP_DIR/backend/.env" ]; then echo "backend/.env ausente na VPS" >&2; exit 1; fi',
+      'ENV_DB_LINES="$(awk -F= \'/^[[:space:]]*(DATABASE_URL|DIRECT_URL)[[:space:]]*=/{print $0}\' "$APP_DIR/backend/.env")"',
+      'if ! printf "%s\\n" "$ENV_DB_LINES" | grep -q "hbx-postgres"; then echo "backend/.env precisa apontar para hbx-postgres" >&2; exit 1; fi',
+      'if ! printf "%s\\n" "$ENV_DB_LINES" | grep -q "hbx_prod"; then echo "backend/.env precisa apontar para hbx_prod" >&2; exit 1; fi',
+      'if ! docker inspect -f "{{.State.Running}}" hbx-postgres 2>/dev/null | grep -q true; then echo "container hbx-postgres nao esta running" >&2; exit 1; fi',
+      'docker exec hbx-postgres sh -lc \'pg_dump --clean --if-exists --no-owner --no-privileges -U "$POSTGRES_USER" -d "$POSTGRES_DB"\'',
+    ].join('\n');
+
+    const result = run('ssh', [sshTarget, remoteScript], { captureOutput: true });
+    fs.writeFileSync(path.join(backupDir, dumpFileName), result.stdout || '', 'utf8');
   } catch (error) {
     const reason = error && error.message ? error.message : String(error || 'docker unavailable');
     fs.writeFileSync(
@@ -35,8 +51,9 @@ function createProductionBackup(inputEnv = resolveOperationsEnv()) {
         {
           status: 'skipped',
           createdAt: new Date().toISOString(),
-          databaseHost: parsed.host,
-          databaseName: parsed.databaseName,
+          databaseHost: 'hbx-postgres',
+          databaseName: 'hbx_prod',
+          sshTarget,
           dumpFile: null,
           dumpBytes: 0,
           reason,
@@ -66,8 +83,9 @@ function createProductionBackup(inputEnv = resolveOperationsEnv()) {
       {
         status: 'created',
         createdAt: new Date().toISOString(),
-        databaseHost: parsed.host,
-        databaseName: parsed.databaseName,
+        databaseHost: 'hbx-postgres',
+        databaseName: 'hbx_prod',
+        sshTarget,
         dumpFile: dumpFileName,
         dumpBytes: dumpStats.size,
       },

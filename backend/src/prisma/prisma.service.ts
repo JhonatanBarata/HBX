@@ -2,38 +2,7 @@ import { Injectable, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 
 function buildRuntimeDatabaseUrl() {
-  const rawDatabaseUrl = String(process.env.DATABASE_URL || '').trim();
-  if (!rawDatabaseUrl) {
-    return rawDatabaseUrl;
-  }
-
-  const normalizedLower = rawDatabaseUrl.toLowerCase();
-  if (normalizedLower.startsWith('file:') || normalizedLower.endsWith('.db')) {
-    return rawDatabaseUrl;
-  }
-
-  try {
-    const parsed = new URL(rawDatabaseUrl);
-    const hostname = String(parsed.hostname || '').trim().toLowerCase();
-    const isLocalHost = ['localhost', '127.0.0.1', '0.0.0.0', 'db'].includes(hostname);
-    const isSupabasePooler = hostname.endsWith('.pooler.supabase.com');
-
-    if (isLocalHost || !isSupabasePooler) {
-      return rawDatabaseUrl;
-    }
-
-    if (!parsed.searchParams.get('connection_limit')) {
-      parsed.searchParams.set('connection_limit', '2');
-    }
-
-    if (!parsed.searchParams.get('pool_timeout')) {
-      parsed.searchParams.set('pool_timeout', '30');
-    }
-
-    return parsed.toString();
-  } catch {
-    return rawDatabaseUrl;
-  }
+  return String(process.env.DATABASE_URL || '').trim();
 }
 
 function describeDatabaseTarget(databaseUrl: string) {

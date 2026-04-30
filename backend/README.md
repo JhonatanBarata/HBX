@@ -13,7 +13,7 @@ Este backend NestJS usa Prisma + PostgreSQL e implementa envio de mensagens via 
 - Use [.env.example](.env.example) como base.
 - Defina `DATABASE_URL` e `DIRECT_URL`.
 - Em ambiente local com um único Postgres, as duas podem apontar para a mesma URL.
-- Na VPS Hostinger com Supabase, use a URL do Session pooler na porta `5432` em `DATABASE_URL`.
+- Na VPS Hostinger, use o Postgres local do Docker (`hbx-postgres`) e o banco `hbx_prod`.
 - Para dry-run, mantenha `WHATSAPP_ENABLED=false` (o sistema marca como enviado sem chamar a Meta).
 
 2) Instalar + migrar (sem seeds)
@@ -91,9 +91,10 @@ Se AUVO ou TagPlus forem usados com chamadas HTTP reais, configure tambem as var
 - TagPlus: `TAGPLUS_API_BASE_URL`, `TAGPLUS_TEST_PATH` e `TAGPLUS_RECEIVABLES_PATH`; adicione `TAGPLUS_CUSTOMERS_PATH` se houver endpoint dedicado de clientes.
 - TagPlus: `TAGPLUS_AUTH_MODE`, `TAGPLUS_EXTERNAL_ACCOUNT_ID`, `TAGPLUS_TIMEOUT_MS`, `TAGPLUS_RETRY_ATTEMPTS`, `TAGPLUS_RETRY_BACKOFF_MS` conforme o contrato homologado.
 
-Para Supabase na Hostinger:
+Para Postgres local da Hostinger:
 
-- Use o Session pooler na porta `5432` em `DATABASE_URL`.
+- Use `hbx-postgres:5432` em `DATABASE_URL`.
+- Use o banco `hbx_prod`.
 - Mantenha `connection_limit=10` e `pool_timeout=60` em `DATABASE_URL`.
 - Use a mesma URL também em `DIRECT_URL` para o fluxo de `prisma migrate deploy` e runtime.
 
