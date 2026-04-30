@@ -2152,12 +2152,39 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
     const latestSubscriptionAuthorized =
       latestSubscription &&
       this.normalizeProviderSubscriptionStatus(latestSubscription.status || latestSubscription.lastProviderStatus) === 'authorized';
+    const latestSubscriptionStatus = latestSubscription
+      ? this.normalizeProviderSubscriptionStatus(latestSubscription.status || latestSubscription.lastProviderStatus)
+      : null;
     if (companyPendingCheckout && latestSubscriptionAuthorized) {
       await this.activateCompanyFromSubscription(
         latestSubscription,
         latestSubscription.currentPeriodStart instanceof Date ? latestSubscription.currentPeriodStart : new Date(),
         { status: 'authorized' },
       );
+      [company, latestSubscription] = await Promise.all([
+        this.prisma.company.findUnique({
+          where: { id: context.companyId },
+          include: companyOverviewInclude,
+        }),
+        this.prisma.companySubscription.findFirst({
+          where: { companyId: context.companyId, provider: 'mercadopago' },
+          orderBy: { createdAt: 'desc' },
+        }),
+      ]);
+      if (!company) throw new BadRequestException('Empresa nao encontrada.');
+    } else if (
+      companyPendingCheckout &&
+      latestSubscription?.providerPreapprovalId &&
+      ['pending', 'past_due', 'paused'].includes(String(latestSubscriptionStatus || ''))
+    ) {
+      await this.startBillingGraceForSubscription({
+        subscription: latestSubscription,
+        reasonCode: latestSubscriptionStatus === 'pending' ? 'provider_pending' : 'payment_rejected',
+        sendInitialEmail: latestSubscriptionStatus !== 'pending',
+        failureMessage: latestSubscriptionStatus === 'pending'
+          ? null
+          : 'Assinatura existente sem autorização de pagamento.',
+      });
       [company, latestSubscription] = await Promise.all([
         this.prisma.company.findUnique({
           where: { id: context.companyId },
