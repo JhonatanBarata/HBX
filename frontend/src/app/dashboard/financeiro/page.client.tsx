@@ -666,7 +666,7 @@ export default function FinanceiroClientPage() {
     if (
       nextProfile.contactName.length < 3 ||
       nextProfile.contactPhone.length < 10 ||
-      ![11, 14].includes(nextProfile.taxDocument.length) ||
+      !isValidTaxDocument(nextProfile.taxDocument) ||
       !paymentConsentForm.acceptedTerms
     ) {
       return null;
@@ -685,6 +685,14 @@ export default function FinanceiroClientPage() {
     setError(null);
     setPaymentActionError(null);
     try {
+      console.info("[HBX financeiro] Enviando assinatura para /financeiro/subscription/create.", {
+        mode: context.showCardUpdate && !context.checkoutMode ? "change-card" : "subscription",
+        planKey: context.selectedPlanKey,
+        billingCycle: context.billingCycle,
+        hasCardToken: Boolean(cardTokenId),
+        hasContactPhone: Boolean(profile.contactPhone),
+        hasTaxDocument: Boolean(profile.taxDocument),
+      });
       const payload = context.showCardUpdate && !context.checkoutMode
         ? await apiFetch<{ overview?: FinanceiroOverview }>("/financeiro/subscription/change-card", {
             method: "POST",
@@ -731,9 +739,15 @@ export default function FinanceiroClientPage() {
   const submitSubscription = useCallback((cardFormData: MercadoPagoBrickFormData) => {
     cardSubmitTriggeredAtRef.current = Date.now();
     pendingCardSubmissionRef.current?.reject(new Error("Uma nova tentativa de pagamento foi iniciada."));
-    return new Promise((resolve, reject) => {
-      pendingCardSubmissionRef.current = { formData: cardFormData, resolve, reject };
-      openPaymentConsent("CARD", cardFormData);
+    pendingCardSubmissionRef.current = {
+      formData: cardFormData,
+      resolve: () => undefined,
+      reject: () => undefined,
+    };
+    console.info("[HBX financeiro] Cartão tokenizado. Aguardando autorização HBX antes de chamar /financeiro/subscription/create.");
+    openPaymentConsent("CARD", cardFormData);
+    return Promise.resolve({
+      status: "waiting_hbx_authorization",
     });
   }, [openPaymentConsent]);
 
