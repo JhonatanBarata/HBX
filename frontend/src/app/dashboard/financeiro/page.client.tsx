@@ -369,6 +369,13 @@ function isPendingCheckout(overview: FinanceiroOverview | null, reason?: string 
   const paymentStatus = String(overview?.company.paymentStatus || "").trim().toUpperCase();
   const subscriptionStatus = String(overview?.company.subscriptionStatus || "").trim().toLowerCase();
   const onboardingReason = String(reason || "").trim().toLowerCase();
+  const accessReleased =
+    paymentStatus === "PAID" ||
+    paymentStatus === "MANUAL" ||
+    subscriptionStatus === "active" ||
+    subscriptionStatus === "authorized" ||
+    subscriptionStatus === "manual";
+  if (accessReleased) return false;
   return paymentStatus === "PENDING" || subscriptionStatus === "pending_checkout" || onboardingReason === "pending_checkout";
 }
 

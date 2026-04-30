@@ -993,9 +993,13 @@ export class AuthService implements OnModuleInit {
         })
       : null;
     const pendingCheckout =
-      String(company?.onboardingStatus || '').trim().toLowerCase() === 'pending_checkout' ||
-      String(company?.subscriptionStatus || '').trim().toLowerCase() === 'pending_checkout' ||
-      String(company?.paymentStatus || '').trim().toUpperCase() === 'PENDING';
+      !['active', 'authorized', 'manual'].includes(String(company?.subscriptionStatus || '').trim().toLowerCase()) &&
+      String(company?.paymentStatus || '').trim().toUpperCase() !== 'PAID' &&
+      (
+        String(company?.onboardingStatus || '').trim().toLowerCase() === 'pending_checkout' ||
+        String(company?.subscriptionStatus || '').trim().toLowerCase() === 'pending_checkout' ||
+        String(company?.paymentStatus || '').trim().toUpperCase() === 'PENDING'
+      );
     const role = String(user?.role || '').trim().toUpperCase();
     const pendingCheckoutNext = role === 'ADMIN'
       ? this.pendingCheckoutNextPath()
@@ -1605,8 +1609,13 @@ export class AuthService implements OnModuleInit {
     const subscriptionStatus = String(user.company?.subscriptionStatus || '').trim().toLowerCase();
     const paymentStatus = String(user.company?.paymentStatus || '').trim().toUpperCase();
     const pendingEmailConfirmation = !user.emailConfirmedAt || onboardingStatus === 'pending_email_confirmation';
+    const accessReleased =
+      ['active', 'authorized', 'manual'].includes(subscriptionStatus) ||
+      paymentStatus === 'PAID' ||
+      paymentStatus === 'MANUAL';
     const pendingCheckout =
       !pendingEmailConfirmation &&
+      !accessReleased &&
       (onboardingStatus === 'pending_checkout' || subscriptionStatus === 'pending_checkout' || paymentStatus === 'PENDING');
     const status = pendingEmailConfirmation
       ? 'pending_email_confirmation'

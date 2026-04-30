@@ -82,6 +82,13 @@ function isPendingCheckoutCompany(company: PresentationProfile["company"]) {
   const onboardingStatus = String(company.onboardingStatus || "").trim().toLowerCase();
   const paymentStatus = String(company.paymentStatus || "").trim().toUpperCase();
   const subscriptionStatus = String(company.subscriptionStatus || "").trim().toLowerCase();
+  const accessReleased =
+    paymentStatus === "PAID" ||
+    paymentStatus === "MANUAL" ||
+    subscriptionStatus === "active" ||
+    subscriptionStatus === "authorized" ||
+    subscriptionStatus === "manual";
+  if (accessReleased) return false;
   return onboardingStatus === "pending_checkout" || subscriptionStatus === "pending_checkout" || paymentStatus === "PENDING";
 }
 

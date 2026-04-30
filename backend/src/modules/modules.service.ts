@@ -746,6 +746,7 @@ export class ModulesService implements OnModuleInit {
 
     if (company?.isActive === false) return 'SUSPENDED';
     if (paymentStatus === 'MANUAL' || subscriptionStatus === 'manual') return 'MANUAL_PREMIUM';
+    if (subscriptionStatus === 'authorized') return 'PAYING';
     if (!paymentMethod || paymentMethod === 'NONE') return 'NO_METHOD';
     if (paymentStatus === 'DISABLED' || paymentStatus === 'EXPIRED' || subscriptionStatus === 'canceled' || subscriptionStatus === 'expired') {
       return 'SUSPENDED';
@@ -1693,7 +1694,7 @@ export class ModulesService implements OnModuleInit {
     const now = Date.now();
     const paymentStatus = String(company.paymentStatus || '').trim().toUpperCase();
     const subscriptionStatus = String(company.subscriptionStatus || '').trim().toLowerCase();
-    if (paymentStatus === 'PENDING' || subscriptionStatus === 'pending_checkout') {
+    if ((paymentStatus === 'PENDING' || subscriptionStatus === 'pending_checkout') && subscriptionStatus !== 'authorized') {
       return { exists: true, active: false };
     }
     const trialExpired = Boolean(
@@ -1707,7 +1708,7 @@ export class ModulesService implements OnModuleInit {
     const trialAllowed =
       (paymentStatus === 'TRIAL' || subscriptionStatus === 'trialing') &&
       (!company.trialEndsAt || company.trialEndsAt.getTime() >= now);
-    const paidAllowed = paymentStatus === 'PAID' || subscriptionStatus === 'active';
+    const paidAllowed = paymentStatus === 'PAID' || subscriptionStatus === 'active' || subscriptionStatus === 'authorized';
     const manualAllowed = paymentStatus === 'MANUAL' || subscriptionStatus === 'manual';
     const shouldRemainActive = Boolean(company.isActive && (paidAllowed || trialAllowed || manualAllowed));
 

@@ -1154,36 +1154,11 @@ export class FinanceiroService {
     });
 
     if (providerStatus === 'authorized') {
-      if (String(subscription.status || '').toLowerCase() === 'active' || hasPaidPeriod) {
-        await this.prisma.companySubscription.update({
-          where: { id: subscription.id },
-          data: { status: 'active' },
-        });
-        await this.prisma.company.update({
-          where: { id: subscription.companyId },
-          data: {
-            billingProvider: 'mercadopago',
-            paymentMethod: 'CARD',
-            billingCycle: this.normalizeBillingCycle(subscription.billingCycle),
-            selectedPlanKey: this.normalizeCommercialPlanKey(subscription.planKey),
-            subscriptionStatus: 'active',
-            paymentStatus: 'PAID',
-            premiumAccess: true,
-          },
-        });
-        return;
-      }
-      await this.prisma.company.update({
-        where: { id: subscription.companyId },
-        data: {
-          billingProvider: 'mercadopago',
-          paymentMethod: 'CARD',
-          billingCycle: this.normalizeBillingCycle(subscription.billingCycle),
-          selectedPlanKey: this.normalizeCommercialPlanKey(subscription.planKey),
-          subscriptionStatus: 'authorized',
-          paymentStatus: 'PENDING',
-        },
-      });
+      const periodStart =
+        subscription.currentPeriodStart instanceof Date
+          ? subscription.currentPeriodStart
+          : this.parseDate(provider?.date_created) || new Date();
+      await this.activateCompanyFromSubscription(subscription, periodStart, provider);
       return;
     }
 
@@ -1623,26 +1598,28 @@ export class FinanceiroService {
   async getOverviewForUser(user: any) {
     const context = this.resolveUserContext(user);
     await ensureMasterBillingRuntimeSchema(this.prisma);
-    const [company, ledgerRows, masterConfig, latestCharge, latestSubscription] = await Promise.all([
+    const companyOverviewInclude = {
+      plan: {
+        select: {
+          id: true,
+          name: true,
+          price: true,
+        },
+      },
+      companyModules: {
+        include: { systemModule: true },
+        orderBy: { systemModule: { name: 'asc' } },
+      },
+      users: {
+        select: { id: true, isActive: true, isSystemMaster: true },
+      },
+      commercialEntitlements: true,
+    } satisfies Prisma.CompanyInclude;
+
+    let [company, ledgerRows, masterConfig, latestCharge, latestSubscription] = await Promise.all([
       this.prisma.company.findUnique({
         where: { id: context.companyId },
-        include: {
-          plan: {
-            select: {
-              id: true,
-              name: true,
-              price: true,
-            },
-          },
-          companyModules: {
-            include: { systemModule: true },
-            orderBy: { systemModule: { name: 'asc' } },
-          },
-          users: {
-            select: { id: true, isActive: true, isSystemMaster: true },
-          },
-          commercialEntitlements: true,
-        },
+        include: companyOverviewInclude,
       }),
       this.listLedgerRows(context.companyId, 24),
       getMasterGlobalIntegrationConfig(this.prisma),
@@ -1657,6 +1634,32 @@ export class FinanceiroService {
     ]);
 
     if (!company) throw new BadRequestException('Empresa nao encontrada.');
+
+    const companyPendingCheckout =
+      String(company.onboardingStatus || '').trim().toLowerCase() === 'pending_checkout' ||
+      String(company.subscriptionStatus || '').trim().toLowerCase() === 'pending_checkout' ||
+      String(company.paymentStatus || '').trim().toUpperCase() === 'PENDING';
+    const latestSubscriptionAuthorized =
+      latestSubscription &&
+      this.normalizeProviderSubscriptionStatus(latestSubscription.status || latestSubscription.lastProviderStatus) === 'authorized';
+    if (companyPendingCheckout && latestSubscriptionAuthorized) {
+      await this.activateCompanyFromSubscription(
+        latestSubscription,
+        latestSubscription.currentPeriodStart instanceof Date ? latestSubscription.currentPeriodStart : new Date(),
+        { status: 'authorized' },
+      );
+      [company, latestSubscription] = await Promise.all([
+        this.prisma.company.findUnique({
+          where: { id: context.companyId },
+          include: companyOverviewInclude,
+        }),
+        this.prisma.companySubscription.findFirst({
+          where: { companyId: context.companyId, provider: 'mercadopago' },
+          orderBy: { createdAt: 'desc' },
+        }),
+      ]);
+      if (!company) throw new BadRequestException('Empresa nao encontrada.');
+    }
 
     const pricing = this.buildPricing(company, masterConfig, ledgerRows);
     const activeModules = (company.companyModules || [])
@@ -2164,12 +2167,27 @@ export class FinanceiroService {
 
     const existing = await this.findCurrentCompanySubscription(context.companyId);
     if (existing?.providerPreapprovalId && !['canceled', 'blocked'].includes(String(existing.status || '').toLowerCase())) {
+      try {
+        await this.syncPreapprovalFromProvider(existing.providerPreapprovalId, {
+          source: 'subscription_create_reuse',
+          companyId: context.companyId,
+        });
+      } catch {
+        if (this.normalizeProviderSubscriptionStatus(existing.status) === 'authorized') {
+          await this.activateCompanyFromSubscription(
+            existing,
+            existing.currentPeriodStart instanceof Date ? existing.currentPeriodStart : new Date(),
+            { status: 'authorized' },
+          );
+        }
+      }
+      const refreshed = await this.findCurrentCompanySubscription(context.companyId);
       return {
         ok: true,
         reused: true,
-        status: existing.status,
-        providerPreapprovalId: existing.providerPreapprovalId,
-        subscription: this.serializeSubscription(existing),
+        status: refreshed?.status || existing.status,
+        providerPreapprovalId: refreshed?.providerPreapprovalId || existing.providerPreapprovalId,
+        subscription: this.serializeSubscription(refreshed || existing),
         overview: await this.getOverviewForUser(user),
       };
     }
