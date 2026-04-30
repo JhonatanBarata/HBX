@@ -7,6 +7,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import DashboardScaffold from "@/components/DashboardScaffold";
 import { apiFetch } from "../_lib/api";
 import { useRequireAuth } from "../_lib/useRequireAuth";
+import PremiumPaymentCard from "./PremiumPaymentCard";
 import styles from "./page.module.css";
 
 type BillingCycle = "MONTHLY" | "ANNUAL";
@@ -952,10 +953,18 @@ export default function FinanceiroClientPage() {
                 setCardBrickWarning,
               ) || null;
             },
-            onSubmit: (cardFormData: MercadoPagoBrickFormData) => submitSubscription(cardFormData),
+            onSubmit: (cardFormData: MercadoPagoBrickFormData) => {
+              console.info("[HBX financeiro] Mercado Pago Brick onSubmit disparou.", {
+                hasToken: Boolean(extractBrickToken(cardFormData)),
+                paymentMethodId: cardFormData?.paymentMethodId || cardFormData?.formData?.paymentMethodId || null,
+                issuerId: cardFormData?.issuerId || cardFormData?.formData?.issuerId || null,
+              });
+              return submitSubscription(cardFormData);
+            },
             onError: (brickError: unknown) => {
               if (!isActive(attemptToken)) return;
               const text = brickError instanceof Error ? brickError.message : "Falha no formulário seguro do Mercado Pago.";
+              console.error("[HBX financeiro] Mercado Pago Brick onError.", brickError);
               setError(text);
             },
           },
@@ -1161,32 +1170,48 @@ export default function FinanceiroClientPage() {
                 <span className={styles.statusPill}>Recorrente</span>
               </div>
               <div className={styles.cardTokenPanel}>
-                <div className={styles.paymentDataBox}>
-                  <div>
-                    <strong>Contato HBX</strong>
-                    <p>O nome do titular e o documento ficam no formulário seguro do Mercado Pago. O HBX usa este telefone apenas para suporte financeiro.</p>
-                  </div>
-                  <label className={styles.field} htmlFor="checkout-card-contact-phone">
-                    <span className={styles.fieldLabel}>Telefone de contato</span>
-                    <input
-                      id="checkout-card-contact-phone"
-                      className={styles.fieldInput}
-                      inputMode="tel"
-                      autoComplete="tel"
-                      value={contactPhone}
-                      onChange={(event) => setContactPhone(formatBrazilPhone(event.target.value))}
-                      placeholder="(19)9 9702-4884"
+                <div className={styles.cardExperience}>
+                  <div className={styles.cardPreviewStack}>
+                    <PremiumPaymentCard
+                      brand="card"
+                      holderName="Dados no Brick"
+                      billingLabel={cycleLabel}
+                      planLabel={plan.title}
+                      amountLabel={formatCurrency(total)}
                     />
-                  </label>
-                </div>
-                {!publicKey ? (
-                  <div className={styles.setupNotice}>
-                    <strong>Cartão em configuração neste ambiente.</strong>
-                    <p>A chave pública do Mercado Pago precisa estar ativa no frontend para exibir o formulário seguro. Pix segue disponível para este ciclo.</p>
+                    <p>
+                      Preview visual apenas para orientar o checkout. Os dados reais do cartão continuam no formulário seguro do Mercado Pago.
+                    </p>
                   </div>
-                ) : (
-                  <div id="mp-card-payment-brick" className={styles.mpBrick} />
-                )}
+                  <div className={styles.cardPaymentStack}>
+                    <div className={styles.paymentDataBox}>
+                      <div>
+                        <strong>Contato HBX</strong>
+                        <p>Nome do titular e documento ficam no formulário seguro do Mercado Pago. O HBX pede só este telefone para suporte financeiro.</p>
+                      </div>
+                      <label className={styles.field} htmlFor="checkout-card-contact-phone">
+                        <span className={styles.fieldLabel}>Telefone de contato</span>
+                        <input
+                          id="checkout-card-contact-phone"
+                          className={styles.fieldInput}
+                          inputMode="tel"
+                          autoComplete="tel"
+                          value={contactPhone}
+                          onChange={(event) => setContactPhone(formatBrazilPhone(event.target.value))}
+                          placeholder="(19)9 9702-4884"
+                        />
+                      </label>
+                    </div>
+                    {!publicKey ? (
+                      <div className={styles.setupNotice}>
+                        <strong>Cartão em configuração neste ambiente.</strong>
+                        <p>A chave pública do Mercado Pago precisa estar ativa no frontend para exibir o formulário seguro. Pix segue disponível para este ciclo.</p>
+                      </div>
+                    ) : (
+                      <div id="mp-card-payment-brick" className={styles.mpBrick} />
+                    )}
+                  </div>
+                </div>
                 {cardBrickWarning ? (
                   <div className={styles.setupNotice}>
                     <strong>Formulário do cartão não carregou.</strong>

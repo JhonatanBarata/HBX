@@ -13,10 +13,13 @@
   background-size: 32px 32px, 32px 32px, auto, auto, auto;
 }
 
-.modal {
+.plansSurface {
+  display: flex;
+  flex-direction: column;
   width: min(1110px, 100%);
-  max-height: calc(100dvh - var(--topbar-total-height, 72px) - 34px);
-  overflow: auto;
+  height: min(760px, calc(100dvh - var(--topbar-total-height, 72px) - 34px));
+  min-height: 0;
+  overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--info) 24%, var(--line));
   border-radius: 18px;
   padding: 18px;
@@ -28,6 +31,10 @@
     0 28px 92px -64px color-mix(in srgb, var(--info) 44%, var(--foreground)),
     var(--shadow-inset);
   backdrop-filter: blur(16px);
+}
+
+.plansSurface[data-trial-active="true"] {
+  width: min(980px, 100%);
 }
 
 .modalHeader {
@@ -80,7 +87,7 @@
 .modalHeader h1 {
   margin: 7px 0 4px;
   color: var(--foreground);
-  font-size: clamp(1.85rem, 3.4vw, 3rem);
+  font-size: clamp(1.72rem, 3vw, 2.65rem);
   line-height: 1;
   letter-spacing: 0;
 }
@@ -257,6 +264,8 @@
 }
 
 .planPicker {
+  min-height: 0;
+  overflow: hidden;
   --register-plan-text: var(--foreground);
   --register-plan-muted: var(--muted);
   --register-plan-line: color-mix(in srgb, var(--info) 28%, var(--line));
@@ -322,68 +331,108 @@
   line-height: 1.25;
 }
 
-.dialogOverlay {
-  position: fixed;
-  inset: 0;
-  z-index: 80;
+.trialInline {
   display: grid;
-  place-items: center;
+  min-height: 0;
+  grid-template-columns: minmax(260px, 0.84fr) minmax(0, 1.16fr);
+  gap: 14px;
+  flex: 1;
+}
+
+.trialSummary,
+.trialDialog {
+  min-height: 0;
+  border: 1px solid color-mix(in srgb, var(--info) 22%, var(--line));
+  border-radius: 18px;
+  color: var(--foreground);
+  background:
+    radial-gradient(circle at 10% 16%, color-mix(in srgb, var(--info) 14%, transparent), transparent 34%),
+    color-mix(in srgb, var(--surface) 90%, var(--background));
+  box-shadow: 0 22px 70px -58px color-mix(in srgb, var(--foreground) 54%, transparent);
+}
+
+.trialSummary {
+  display: grid;
+  align-content: space-between;
+  gap: 16px;
   padding: 18px;
-  background: color-mix(in srgb, var(--overlay) 82%, transparent);
-  backdrop-filter: blur(10px);
+  overflow: hidden;
+}
+
+.trialSummaryBadge {
+  display: inline-flex;
+  width: fit-content;
+  min-height: 28px;
+  align-items: center;
+  border: 1px solid color-mix(in srgb, var(--success) 22%, var(--line));
+  border-radius: 999px;
+  padding: 4px 10px;
+  color: color-mix(in srgb, var(--success) 72%, var(--foreground));
+  background: color-mix(in srgb, var(--success) 10%, var(--surface));
+  font-size: 0.72rem;
+  font-weight: 950;
+  text-transform: uppercase;
+}
+
+.trialSummary h2 {
+  margin: 0;
+  color: var(--foreground);
+  font-size: clamp(2.2rem, 5vw, 4.2rem);
+  line-height: 0.95;
+  letter-spacing: 0;
+}
+
+.trialSummary p {
+  margin: 0;
+  color: var(--foreground-soft);
+  font-size: 0.92rem;
+  font-weight: 760;
+  line-height: 1.42;
+}
+
+.trialSummary dl {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+}
+
+.trialSummary div {
+  display: grid;
+  gap: 3px;
+  border: 1px solid color-mix(in srgb, var(--info) 16%, var(--line));
+  border-radius: 14px;
+  padding: 10px 12px;
+  background: color-mix(in srgb, var(--surface-raised) 74%, var(--background));
+}
+
+.trialSummary dt,
+.trialSummary dd {
+  margin: 0;
+}
+
+.trialSummary dt {
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 950;
+  text-transform: uppercase;
+}
+
+.trialSummary dd {
+  color: var(--foreground);
+  font-size: 0.86rem;
+  font-weight: 900;
 }
 
 .trialDialog {
-  width: min(620px, 100%);
-  max-height: calc(100dvh - 36px);
-  overflow: auto;
-  border: 1px solid color-mix(in srgb, var(--info) 24%, var(--line));
-  border-radius: 18px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  overflow: hidden;
   padding: 18px;
-  color: var(--foreground);
   background:
     radial-gradient(circle at 10% 16%, color-mix(in srgb, var(--info) 14%, transparent), transparent 34%),
     radial-gradient(circle at 96% 8%, color-mix(in srgb, var(--button-accent) 12%, transparent), transparent 32%),
     color-mix(in srgb, var(--surface) 96%, var(--background));
-  box-shadow: 0 34px 100px -60px color-mix(in srgb, var(--foreground) 62%, transparent);
-}
-
-.trialDialogHeader {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 14px;
-  padding-bottom: 14px;
-  border-bottom: 1px solid color-mix(in srgb, var(--info) 16%, var(--line));
-}
-
-.trialDialogHeader h2 {
-  margin: 8px 0 5px;
-  color: var(--foreground);
-  font-size: 1.45rem;
-  line-height: 1.08;
-  letter-spacing: 0;
-}
-
-.trialDialogHeader p {
-  max-width: 500px;
-  margin: 0;
-  color: var(--foreground-soft);
-  font-size: 0.92rem;
-  line-height: 1.42;
-}
-
-.dialogCloseButton {
-  width: 36px;
-  height: 36px;
-  flex: 0 0 auto;
-  border: 1px solid color-mix(in srgb, var(--info) 20%, var(--line));
-  border-radius: 999px;
-  color: color-mix(in srgb, var(--info) 76%, var(--foreground));
-  background: color-mix(in srgb, var(--surface) 82%, var(--background));
-  cursor: pointer;
-  font-size: 1.15rem;
-  font-weight: 950;
 }
 
 .trialFormGrid {
@@ -469,8 +518,10 @@
     padding: 12px;
   }
 
-  .modal {
-    max-height: none;
+  .plansSurface {
+    height: auto;
+    min-height: calc(100dvh - var(--topbar-total-height, 72px) - 24px);
+    overflow: visible;
     padding: 14px;
   }
 
@@ -495,6 +546,14 @@
 
   .footerFacts {
     grid-template-columns: 1fr;
+  }
+
+  .trialInline {
+    grid-template-columns: 1fr;
+  }
+
+  .trialDialog {
+    justify-content: start;
   }
 }
 

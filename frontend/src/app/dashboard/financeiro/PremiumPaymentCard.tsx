@@ -27,7 +27,6 @@ function brandLabel(brand: CardBrand) {
 export default function PremiumPaymentCard({
   holderName = "",
   cardNumber = "",
-  expirationLabel = "",
   brand = "card",
   billingLabel = "Mensal",
   planLabel = "HBX",
@@ -37,7 +36,7 @@ export default function PremiumPaymentCard({
 
   const displayName = useMemo(() => {
     const clean = holderName.trim();
-    return clean ? clean.toUpperCase().slice(0, 30) : "NOME NO CARTÃO";
+    return clean ? clean.toUpperCase().slice(0, 30) : "DADOS NO BRICK";
   }, [holderName]);
 
   const displayNumberGroups = useMemo(() => {
@@ -45,11 +44,6 @@ export default function PremiumPaymentCard({
     const padded = `${digits}${"•".repeat(16)}`.slice(0, 16);
     return padded.match(/.{1,4}/g) || ["••••", "••••", "••••", "••••"];
   }, [cardNumber]);
-
-  const displayExpiration = useMemo(() => {
-    const clean = expirationLabel.trim();
-    return clean ? clean.slice(0, 7) : "MM/AA";
-  }, [expirationLabel]);
 
   return (
     <div
@@ -87,7 +81,7 @@ export default function PremiumPaymentCard({
 
           <div className={styles.bottomRow}>
             <div>
-              <small>Nome no cartão</small>
+              <small>Mercado Pago</small>
               <strong>{displayName}</strong>
             </div>
 
@@ -101,35 +95,6 @@ export default function PremiumPaymentCard({
             <span>Assinatura</span>
             <strong>{amountLabel}</strong>
           </div>
-        </section>
-
-        <section className={styles.backFace}>
-          <div className={styles.backGlow} />
-          <div className={styles.magneticBar} />
-
-          <div className={styles.backDetails}>
-            <div>
-              <small>Validade</small>
-              <strong>{displayExpiration}</strong>
-            </div>
-            <div>
-              <small>Segurança</small>
-              <strong>•••</strong>
-            </div>
-          </div>
-
-          <div className={styles.signatureArea}>
-            <div>
-              <small>Assinatura autorizada</small>
-              <div className={styles.signatureLine} />
-            </div>
-
-            <div className={styles.cvvBox}>•••</div>
-          </div>
-
-          <p className={styles.securityText}>
-            Pagamento protegido por tokenização Mercado Pago. O HBX não armazena número completo nem código de segurança.
-          </p>
         </section>
       </div>
     </div>

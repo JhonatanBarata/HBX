@@ -355,7 +355,7 @@ export default function PlanosClientPage() {
     return (
       <DashboardScaffold title="Planos" description="Carregando planos HBX." hideHeader={true}>
         <main className={styles.page}>
-          <section className={styles.modal}>
+          <section className={styles.plansSurface}>
             <div className={styles.loadingCard}>Carregando planos HBX...</div>
           </section>
         </main>
@@ -368,20 +368,24 @@ export default function PlanosClientPage() {
   return (
     <DashboardScaffold title="Planos" hideHeader={true}>
       <main className={styles.page} data-entry-transition="from-login">
-        <section className={styles.modal} role="dialog" aria-modal="true" aria-labelledby="plans-title">
+        <section className={styles.plansSurface} aria-labelledby="plans-title" data-trial-active={trialModalOpen}>
           <header className={styles.modalHeader}>
             <div className={styles.titleCluster}>
               <span className={styles.brandMark} aria-hidden="true">HBX</span>
               <div>
-                <span className={styles.eyebrow}>Planos HBX</span>
-                <h1 id="plans-title">Escolha o plano ideal para o seu negócio</h1>
-                <p>Seu plano atual fica destacado. Você pode subir ou descer de plano, e o checkout aparece antes de qualquer cobrança.</p>
+                <span className={styles.eyebrow}>{trialModalOpen ? "Trial HBX Padrão" : "Planos HBX"}</span>
+                <h1 id="plans-title">{trialModalOpen ? "Antes de liberar seus 30 dias" : "Escolha seu plano HBX"}</h1>
+                <p>
+                  {trialModalOpen
+                    ? "Precisamos confirmar um contato real. O telefone é usado para validar se este trial já foi utilizado."
+                    : "Seu plano atual fica destacado. Você pode subir ou descer de plano, e o checkout aparece antes de qualquer cobrança."}
+                </p>
               </div>
             </div>
 
             <div className={styles.headerActions}>
               <span className={styles.currentPill}>
-                Atual: <strong>{selectedPlanKey ? PLAN_LABELS[selectedPlanKey] : "nenhum"}</strong>
+                {trialModalOpen ? "Plano:" : "Atual:"} <strong>{trialModalOpen ? "Padrão trial" : selectedPlanKey ? PLAN_LABELS[selectedPlanKey] : "nenhum"}</strong>
               </span>
               <Link href="/dashboard" className={styles.closeButton} aria-label="Voltar ao dashboard">X</Link>
             </div>
@@ -390,24 +394,26 @@ export default function PlanosClientPage() {
           <div className={styles.planControls}>
             <div className={styles.flow} aria-label="Etapas">
               <span data-state="done">SignIn/Login</span>
-              <span data-state="current">Plano</span>
-              <span>Pagamento</span>
+              <span data-state={trialModalOpen ? "done" : "current"}>Plano</span>
+              <span data-state={trialModalOpen ? "current" : undefined}>{trialModalOpen ? "Contato" : "Pagamento"}</span>
             </div>
 
-            <div className={styles.segmented} role="tablist" aria-label="Ciclo de cobrança">
-              <button type="button" data-active={billingCycle === "MONTHLY"} onClick={() => setBillingCycle("MONTHLY")}>Mensal</button>
-              <button type="button" data-active={billingCycle === "ANNUAL"} onClick={() => setBillingCycle("ANNUAL")}>Anual <small>10% off</small></button>
-            </div>
+            {!trialModalOpen ? (
+              <div className={styles.segmented} role="tablist" aria-label="Ciclo de cobrança">
+                <button type="button" data-active={billingCycle === "MONTHLY"} onClick={() => setBillingCycle("MONTHLY")}>Mensal</button>
+                <button type="button" data-active={billingCycle === "ANNUAL"} onClick={() => setBillingCycle("ANNUAL")}>Anual <small>10% off</small></button>
+              </div>
+            ) : null}
           </div>
 
-          {pendingCheckout ? (
+          {pendingCheckout && !trialModalOpen ? (
             <section className={styles.notice} data-tone="info">
               Você tem um checkout pendente. Escolha outro plano ou finalize o pagamento do plano já selecionado.
               <Link href="/dashboard/financeiro?focus=payment&reason=pending_checkout">Finalizar pagamento</Link>
             </section>
           ) : null}
 
-          {intent === "bot_ia" ? (
+          {intent === "bot_ia" && !trialModalOpen ? (
             <section className={styles.notice} data-tone="info">
               O Bot de atendimento fica disponível no Max. Seu plano atual continua destacado para comparação.
             </section>
@@ -416,44 +422,29 @@ export default function PlanosClientPage() {
           {notice ? <section className={styles.notice} data-tone={notice.tone}>{notice.text}</section> : null}
           {error ? <section className={styles.notice} data-tone="error">{error}</section> : null}
 
-          {loading ? (
-            <div className={styles.loadingCard}>Carregando catálogo comercial...</div>
-          ) : (
-            <div className={styles.planPicker}>
-              <PlanSelectionExperience
-                plans={planCards}
-                selectedPlanKey={selectedPlanKey}
-                billingCycle={billingCycle === "ANNUAL" ? "annual" : "monthly"}
-                mode="signup"
-                canSelect={canSelectPlan}
-                hidePrices={!canSelectPlan}
-                highlightPlanKey={promotedPlanKey}
-                busyPlanKey={savingPlan}
-                deniedMessage={adminDeniedMessage}
-                onSelect={(planKey) => void selectPlan(planKey)}
-              />
-            </div>
-          )}
-
           {trialModalOpen ? (
-            <div className={styles.dialogOverlay} role="presentation">
-              <section className={styles.trialDialog} role="dialog" aria-modal="true" aria-labelledby="trial-title">
-                <header className={styles.trialDialogHeader}>
+            <section className={styles.trialInline} aria-labelledby="trial-title">
+              <aside className={styles.trialSummary}>
+                <span className={styles.trialSummaryBadge}>30 dias grátis</span>
+                <h2 id="trial-title">HBX Padrão</h2>
+                <p>Trial sem cobrança automática agora. Depois dos 30 dias, qualquer pagamento passa pelo checkout antes de liberar cobrança.</p>
+                <dl>
                   <div>
-                    <span className={styles.eyebrow}>Trial HBX Padrão</span>
-                    <h2 id="trial-title">Antes de liberar seus 30 dias</h2>
-                    <p>Precisamos confirmar um contato real. O telefone é usado para validar se este trial já foi utilizado.</p>
+                    <dt>Validação</dt>
+                    <dd>Telefone único por trial</dd>
                   </div>
-                  <button
-                    type="button"
-                    className={styles.dialogCloseButton}
-                    aria-label="Fechar"
-                    onClick={() => setTrialModalOpen(false)}
-                  >
-                    X
-                  </button>
-                </header>
+                  <div>
+                    <dt>Documento</dt>
+                    <dd>CPF válido do responsável</dd>
+                  </div>
+                  <div>
+                    <dt>Cobrança</dt>
+                    <dd>Nenhuma cobrança automática agora</dd>
+                  </div>
+                </dl>
+              </aside>
 
+              <div className={styles.trialDialog}>
                 <div className={styles.trialFormGrid}>
                   <label className={styles.trialField} htmlFor="trial-contact-name">
                     <span>Nome completo</span>
@@ -516,15 +507,32 @@ export default function PlanosClientPage() {
                     {savingPlan === "hbx_padrao" ? "Ativando trial..." : "Iniciar 30 dias grátis"}
                   </button>
                 </footer>
-              </section>
+              </div>
+            </section>
+          ) : loading ? (
+            <div className={styles.loadingCard}>Carregando catálogo comercial...</div>
+          ) : (
+            <div className={styles.planPicker}>
+              <PlanSelectionExperience
+                plans={planCards}
+                selectedPlanKey={selectedPlanKey}
+                billingCycle={billingCycle === "ANNUAL" ? "annual" : "monthly"}
+                mode="signup"
+                canSelect={canSelectPlan}
+                hidePrices={!canSelectPlan}
+                highlightPlanKey={promotedPlanKey}
+                busyPlanKey={savingPlan}
+                deniedMessage={adminDeniedMessage}
+                onSelect={(planKey) => void selectPlan(planKey)}
+              />
             </div>
-          ) : null}
+          )}
 
-          <footer className={styles.footerFacts}>
+          {!trialModalOpen ? <footer className={styles.footerFacts}>
             <span>Alteração feita pelo ADMIN.</span>
             <span>Plano Padrão grátis só quando o trial ainda está elegível.</span>
             <span>Assinatura recorrente continua pelo Mercado Pago.</span>
-          </footer>
+          </footer> : null}
         </section>
       </main>
     </DashboardScaffold>

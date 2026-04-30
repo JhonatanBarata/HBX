@@ -1,5 +1,5 @@
 .cardStage {
-  width: min(100%, 372px);
+  width: min(100%, 340px);
   perspective: 1200px;
   margin-inline: auto;
 }
@@ -22,8 +22,8 @@
   position: absolute;
   inset: 0;
   overflow: hidden;
-  border-radius: 30px;
-  padding: clamp(18px, 4.5vw, 26px);
+  border-radius: 24px;
+  padding: clamp(17px, 4vw, 24px);
   color: white;
   backface-visibility: hidden;
   box-shadow:
@@ -189,8 +189,8 @@
   min-width: 0;
   gap: clamp(8px, 3vw, 16px);
   justify-content: space-between;
-  margin: clamp(26px, 6vw, 40px) 0 clamp(18px, 4.5vw, 26px);
-  font-size: clamp(17px, 2.75vw, 23px);
+  margin: clamp(22px, 5vw, 34px) 0 clamp(16px, 4vw, 22px);
+  font-size: clamp(16px, 2.4vw, 21px);
   font-weight: 950;
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.08em;
@@ -217,7 +217,7 @@
 
 .bottomRow strong {
   display: block;
-  max-width: min(230px, 54vw);
+  max-width: min(205px, 54vw);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -235,7 +235,7 @@
   right: clamp(18px, 4vw, 28px);
   bottom: clamp(18px, 4vw, 26px);
   z-index: 3;
-  display: none;
+  display: block;
   padding: 10px 14px;
   border: 1px solid rgba(255, 255, 255, 0.2);
   border-radius: 16px;
