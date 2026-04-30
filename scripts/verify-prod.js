@@ -1,6 +1,6 @@
 'use strict';
 
-const { assertNonLocalDatabaseUrl, assertNonLocalHttpUrl, requireEnv, resolveOperationsEnv, run } = require('./lib/runtime');
+const { assertNonLocalHttpUrl, requireEnv, resolveOperationsEnv, run } = require('./lib/runtime');
 
 let transactionalMailDeliveryExecuted = false;
 
@@ -215,35 +215,73 @@ async function verifyWhatsAppModalReadiness(backendUrl, env) {
   };
 }
 
+function shellSingleQuote(value) {
+  return `'${String(value).replace(/'/g, `'\\''`)}'`;
+}
+
+function resolveHostingerSshTarget(env) {
+  const host = String(env.HOSTINGER_SSH_HOST || '').trim();
+  const user = String(env.HOSTINGER_SSH_USER || '').trim();
+  if (!host || !user) return null;
+  return `${user}@${host}`;
+}
+
+function verifyHostingerDatabase(env) {
+  const sshTarget = resolveHostingerSshTarget(env);
+  const appDir = String(env.HOSTINGER_APP_DIR || '').trim();
+  if (!sshTarget || !appDir) {
+    return {
+      checked: false,
+      reason: 'HOSTINGER_SSH_HOST, HOSTINGER_SSH_USER or HOSTINGER_APP_DIR not configured',
+    };
+  }
+
+  const remoteScript = [
+    'set -eu',
+    `APP_DIR=${shellSingleQuote(appDir)}`,
+    'if [ ! -f "$APP_DIR/backend/.env" ]; then echo "backend/.env ausente na VPS" >&2; exit 1; fi',
+    'ENV_DB_LINES="$(awk -F= \'/^[[:space:]]*(DATABASE_URL|DIRECT_URL)[[:space:]]*=/{print $0}\' "$APP_DIR/backend/.env")"',
+    'if ! printf "%s\\n" "$ENV_DB_LINES" | grep -q "hbx-postgres"; then echo "backend/.env precisa apontar para hbx-postgres" >&2; exit 1; fi',
+    'if ! printf "%s\\n" "$ENV_DB_LINES" | grep -q "hbx_prod"; then echo "backend/.env precisa apontar para hbx_prod" >&2; exit 1; fi',
+    'if ! docker inspect -f "{{.State.Running}}" hbx-postgres 2>/dev/null | grep -q true; then echo "container hbx-postgres nao esta running" >&2; exit 1; fi',
+    'DB_NAME="$(docker exec hbx-postgres sh -lc \'printf "%s" "$POSTGRES_DB"\')"',
+    'if [ "$DB_NAME" != "hbx_prod" ]; then echo "POSTGRES_DB inesperado: $DB_NAME" >&2; exit 1; fi',
+    'PSQL_DB="$(docker exec hbx-postgres sh -lc \'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc "select current_database();"\' | tr -d "[:space:]")"',
+    'if [ "$PSQL_DB" != "hbx_prod" ]; then echo "Banco conectado inesperado: $PSQL_DB" >&2; exit 1; fi',
+    'printf \'{"container":"hbx-postgres","database":"%s","backendEnv":"checked"}\\n\' "$PSQL_DB"',
+  ].join('\n');
+
+  const result = run('ssh', [sshTarget, remoteScript], { captureOutput: true });
+  const output = String(result.stdout || '').trim();
+  let remote;
+  try {
+    remote = JSON.parse(output.split(/\r?\n/).filter(Boolean).at(-1) || '{}');
+  } catch {
+    remote = { raw: output };
+  }
+
+  return {
+    checked: true,
+    sshTarget,
+    ...remote,
+  };
+}
+
 async function verifyProduction(inputEnv = resolveOperationsEnv()) {
   const env = inputEnv;
   const backendUrl = String(requireEnv(env, 'PROD_BACKEND_URL')).replace(/\/$/, '');
   const frontendUrl = String(env.PROD_FRONTEND_URL || '').trim().replace(/\/$/, '');
-  const databaseUrl = String(env.PROD_DATABASE_URL || '').trim();
 
   assertNonLocalHttpUrl(backendUrl, 'PROD_BACKEND_URL');
   if (frontendUrl) {
     assertNonLocalHttpUrl(frontendUrl, 'PROD_FRONTEND_URL');
-  }
-  if (databaseUrl) {
-    assertNonLocalDatabaseUrl(databaseUrl, 'PROD_DATABASE_URL');
   }
 
   const backendHealth = await requestJson(`${backendUrl}/health`);
   const transactionalMail = await verifyTransactionalMailReadiness(backendUrl, env);
   const transactionalMailDelivery = await verifyTransactionalMailDelivery(backendUrl, env);
   const whatsappModal = await verifyWhatsAppModalReadiness(backendUrl, env);
-
-  if (databaseUrl) {
-    const prismaEnv = {
-      ...process.env,
-      DATABASE_URL: databaseUrl,
-      DIRECT_URL: databaseUrl,
-    };
-
-    run('npm', ['--prefix', 'backend', 'run', 'prisma:migrate:status'], { env: prismaEnv });
-    run('node', ['backend/scripts/structural-seed.js', '--check', '--database-url', databaseUrl], { env: prismaEnv });
-  }
+  const hostingerDatabase = verifyHostingerDatabase(env);
 
   let frontendStatus = 'not-configured';
   if (frontendUrl) {
@@ -261,9 +299,10 @@ async function verifyProduction(inputEnv = resolveOperationsEnv()) {
     transactionalMail,
     transactionalMailDelivery,
     whatsappModal,
+    hostingerDatabase,
     frontendUrl: frontendUrl || null,
     frontendStatus,
-    databaseChecked: Boolean(databaseUrl),
+    databaseChecked: Boolean(hostingerDatabase.checked),
   };
 }
 

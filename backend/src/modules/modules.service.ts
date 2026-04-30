@@ -2400,7 +2400,7 @@ export class ModulesService implements OnModuleInit {
 
     const companyIds = companies.map((company) => Number(company.id));
     // Master workspace fans out across many cross-company reads. Keep this sequence explicit
-    // so a single request does not burst through the Supabase session pool.
+    // so a single request does not burst through the database connection pool.
     const websiteConfigs = await listCompanyWebsiteConfigs(this.prisma, companyIds);
     const ledgerRows = await this.listBillingLedgerEntriesByCompanyIds(companyIds, 2400);
     const auditRows = await this.listCompanyAuditRows(companyIds, 600);

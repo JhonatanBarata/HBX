@@ -56,8 +56,7 @@ Fluxo normal de producao:
 - acessa a Hostinger por SSH;
 - roda `git fetch origin master` e `git reset --hard origin/master`;
 - valida que `backend/.env` existe na VPS;
-- bloqueia deploy se `DATABASE_URL`, `DIRECT_URL`, `PROD_DATABASE_URL` ou `PROD_DIRECT_URL` apontarem para `supabase.com`;
-- valida `hbx-postgres` e `hbx_prod`;
+- valida que `DATABASE_URL`/`DIRECT_URL` apontam para `hbx-postgres` e `hbx_prod`;
 - valida que o container `hbx-postgres` esta running;
 - remove somente containers antigos de servico (`hbx-backend`, `webscraping` e `hbx-scraping-engine`) se houver conflito de nome;
 - sobe apenas `backend`, `webscraping` e `hbx-scraping-engine`;
