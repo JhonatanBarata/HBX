@@ -1326,27 +1326,6 @@
   line-height: 1.4;
 }
 
-.cardAuthorizationBox {
-  display: grid;
-  grid-template-columns: 20px minmax(0, 1fr);
-  gap: 0.65rem;
-  border: 1px solid color-mix(in srgb, var(--info) 22%, var(--line));
-  border-radius: 14px;
-  padding: 0.78rem;
-  color: var(--foreground-soft);
-  background: color-mix(in srgb, var(--surface-raised) 78%, var(--background));
-  font-size: 0.82rem;
-  font-weight: 760;
-  line-height: 1.35;
-}
-
-.cardAuthorizationBox input {
-  width: 18px;
-  height: 18px;
-  margin-top: 0.05rem;
-  accent-color: var(--info);
-}
-
 .paymentDataGrid {
   display: grid;
   grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.9fr);

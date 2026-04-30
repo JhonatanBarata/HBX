@@ -442,6 +442,16 @@ function resolveBillingActionError(error: unknown, fallback: string) {
   if (normalized.includes("property") && normalized.includes("should not exist")) {
     return "O frontend e a API de cobrança estão em versões diferentes. Publique o backend atualizado e tente novamente.";
   }
+  if (
+    normalized.includes("cc_val_") ||
+    normalized.includes("credit card validation has failed") ||
+    normalized.includes("card validation has failed")
+  ) {
+    return "Cartão não autorizado pelo Mercado Pago. Revise número, validade, CVV, nome e CPF do titular, ou tente outro cartão.";
+  }
+  if (normalized.includes("cc_rejected") || normalized.includes("rejected") || normalized.includes("unauthorized")) {
+    return "Cartão recusado pelo Mercado Pago. Use outro cartão ou confirme com o banco se compras online/recorrentes estão liberadas.";
+  }
   if (normalized.includes("mercado pago") || normalized.includes("mercadopago")) {
     return `${fallback} Mercado Pago retornou: ${raw}`;
   }
@@ -480,39 +490,6 @@ function waitForMercadoPagoSdk(isActive: () => boolean) {
   });
 }
 
-function attachMercadoPagoSubmitWatchdog(
-  getLastSubmitAt: () => number,
-  onMissedSubmit: (message: string) => void,
-) {
-  if (typeof document === "undefined") return undefined;
-  const root = document.getElementById(MERCADO_PAGO_BRICK_CONTAINER_ID);
-  if (!root) return undefined;
-  let timer: number | null = null;
-
-  const handleClick = (event: MouseEvent) => {
-    const target = event.target instanceof HTMLElement ? event.target : null;
-    const button = target?.closest("button");
-    if (!button) return;
-    const label = String(button.textContent || "").trim().toLowerCase();
-    if (!/pagar|pay|confirmar|continuar/.test(label)) return;
-    const clickedAt = Date.now();
-    if (timer) window.clearTimeout(timer);
-    timer = window.setTimeout(() => {
-      if (getLastSubmitAt() >= clickedAt) return;
-      const message = "O botão do Mercado Pago foi acionado, mas o Brick não disparou o envio. Revise os campos do cartão ou recarregue a página.";
-      console.error(message);
-      onMissedSubmit(message);
-    }, 3200);
-  };
-
-  root.addEventListener("click", handleClick, true);
-
-  return () => {
-    if (timer) window.clearTimeout(timer);
-    root.removeEventListener("click", handleClick, true);
-  };
-}
-
 export default function FinanceiroClientPage() {
   const hasToken = useRequireAuth();
   const searchParams = useSearchParams();
@@ -521,8 +498,6 @@ export default function FinanceiroClientPage() {
   const brickCreatingRef = useRef(false);
   const brickRunIdRef = useRef(0);
   const cardBrickReadyRef = useRef(false);
-  const cardSubmitTriggeredAtRef = useRef(0);
-  const cardSubmitWatchdogCleanupRef = useRef<(() => void) | null>(null);
   const checkoutSubmissionRef = useRef<CheckoutSubmissionContext | null>(null);
   const [mpScriptReady, setMpScriptReady] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -540,7 +515,6 @@ export default function FinanceiroClientPage() {
   const [contactPhone, setContactPhone] = useState("");
   const [payerTaxDocument, setPayerTaxDocument] = useState("");
   const [payerEmail, setPayerEmail] = useState("");
-  const [cardAcceptedTerms, setCardAcceptedTerms] = useState(false);
   const [showCardUpdate, setShowCardUpdate] = useState(false);
   const [forceCheckout, setForceCheckout] = useState(false);
   const [cancelModalOpen, setCancelModalOpen] = useState(false);
@@ -763,7 +737,6 @@ export default function FinanceiroClientPage() {
   ]);
 
   const submitSubscription = useCallback((cardFormData: MercadoPagoBrickFormData) => {
-    cardSubmitTriggeredAtRef.current = Date.now();
     const context = checkoutSubmissionRef.current;
     if (!context) {
       const message = "Checkout ainda não está pronto. Recarregue a página e tente novamente.";
@@ -781,14 +754,6 @@ export default function FinanceiroClientPage() {
       payerEmail: extractBrickEmail(cardFormData, context.payerEmail),
       acceptedTerms: true,
     };
-
-    if (!cardAcceptedTerms) {
-      const message = "Marque a autorização HBX antes de pagar com cartão.";
-      setPaymentActionError(message);
-      setCardPaymentNotice({ tone: "error", title: "Autorização pendente.", text: message });
-      console.warn("[HBX financeiro] Pagamento por cartão bloqueado: aceite HBX ausente.");
-      return Promise.reject(new Error(message));
-    }
 
     if (profile.contactPhone.length < 10) {
       const message = "Informe o telefone de contato antes de pagar com cartão.";
@@ -817,7 +782,7 @@ export default function FinanceiroClientPage() {
     });
     console.info("[HBX financeiro] Cartão tokenizado. Chamando /financeiro/subscription/create.");
     return executeSubscription(cardFormData, profile);
-  }, [cardAcceptedTerms, executeSubscription]);
+  }, [executeSubscription]);
 
   const executeOneOffCheckout = useCallback(async (paymentMethod: Exclude<CheckoutPaymentMethod, "CARD">, profile: PaymentProfile) => {
     const context = checkoutSubmissionRef.current;
@@ -957,8 +922,6 @@ export default function FinanceiroClientPage() {
     const teardownBrick = () => {
       clearReadyTimer();
       brickCreatingRef.current = false;
-      cardSubmitWatchdogCleanupRef.current?.();
-      cardSubmitWatchdogCleanupRef.current = null;
       try {
         brickControllerRef.current?.unmount();
       } catch {
@@ -1029,11 +992,6 @@ export default function FinanceiroClientPage() {
               brickCreatingRef.current = false;
               cardBrickReadyRef.current = true;
               setCardBrickWarning(null);
-              cardSubmitWatchdogCleanupRef.current?.();
-              cardSubmitWatchdogCleanupRef.current = attachMercadoPagoSubmitWatchdog(
-                () => cardSubmitTriggeredAtRef.current,
-                setCardBrickWarning,
-              ) || null;
             },
             onSubmit: (cardFormData: MercadoPagoBrickFormData) => {
               console.info("[HBX financeiro] Mercado Pago Brick onSubmit disparou.", {
@@ -1281,19 +1239,6 @@ export default function FinanceiroClientPage() {
                           onChange={(event) => setContactPhone(formatBrazilPhone(event.target.value))}
                           placeholder="(19)9 9702-4884"
                         />
-                      </label>
-                      <label className={styles.cardAuthorizationBox} htmlFor="checkout-card-authorization">
-                        <input
-                          id="checkout-card-authorization"
-                          type="checkbox"
-                          checked={cardAcceptedTerms}
-                          onChange={(event) => setCardAcceptedTerms(event.target.checked)}
-                        />
-                        <span>
-                          Autorizo o HBX a usar os dados do titular informados no formulário seguro do Mercado Pago,
-                          junto com este telefone, para validar a contratação e suporte financeiro. Dados sensíveis do
-                          cartão continuam tokenizados pelo Mercado Pago e não são armazenados pelo HBX.
-                        </span>
                       </label>
                     </div>
                     {!publicKey ? (
