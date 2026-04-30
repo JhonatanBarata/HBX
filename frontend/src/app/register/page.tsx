@@ -149,6 +149,24 @@ function onlyDigits(value: string) {
   return value.replace(/\D/g, "");
 }
 
+function hasRepeatedDigits(digits: string) {
+  return /^(\d)\1+$/.test(digits);
+}
+
+function isValidCpf(value: string) {
+  const digits = onlyDigits(value);
+  if (digits.length !== 11 || hasRepeatedDigits(digits)) return false;
+  const calculate = (length: number) => {
+    let sum = 0;
+    for (let index = 0; index < length; index += 1) {
+      sum += Number(digits[index]) * (length + 1 - index);
+    }
+    const mod = (sum * 10) % 11;
+    return mod === 10 ? 0 : mod;
+  };
+  return calculate(9) === Number(digits[9]) && calculate(10) === Number(digits[10]);
+}
+
 function formatCpf(value: string) {
   const digits = onlyDigits(value).slice(0, 11);
   if (digits.length <= 3) return digits;
@@ -288,8 +306,10 @@ export default function RegisterPage() {
   });
   const autoLoginCompletedRef = useRef(false);
   const trialPhoneDigits = normalizeBrazilPhone(trialForm.phone);
+  const trialCpfDigits = onlyDigits(trialForm.cpf);
   const trialFormReady =
     trialForm.contactName.trim().length >= 3 &&
+    isValidCpf(trialCpfDigits) &&
     trialPhoneDigits.length >= 10 &&
     trialForm.acceptedTerms;
 
@@ -537,17 +557,13 @@ export default function RegisterPage() {
     }
 
     if (selectedPlanKey === "hbx_padrao" && !forceTrial) {
-      setTrialForm((current) => ({
-        ...current,
-        contactName: current.contactName || companyName.trim(),
-      }));
       setTrialModalOpen(true);
       return;
     }
 
     if (selectedPlanKey === "hbx_padrao" && !trialFormReady) {
       setTrialModalOpen(true);
-      setError("Informe nome, telefone de contato e aceite os termos para iniciar o trial.");
+      setError("Informe nome, CPF válido, telefone de contato e aceite os termos para iniciar o trial.");
       return;
     }
 
@@ -563,7 +579,7 @@ export default function RegisterPage() {
         ...(selectedPlanKey === "hbx_padrao"
           ? {
               trialContactName: trialForm.contactName.trim(),
-              trialTaxDocument: onlyDigits(trialForm.cpf),
+              trialTaxDocument: trialCpfDigits,
               trialContactPhone: trialPhoneDigits,
               acceptedTerms: trialForm.acceptedTerms,
             }
@@ -640,7 +656,7 @@ export default function RegisterPage() {
 
   async function submitTrialRegistration() {
     if (!trialFormReady) {
-      setError("Informe nome, telefone de contato e aceite os termos para iniciar o trial.");
+      setError("Informe nome, CPF válido, telefone de contato e aceite os termos para iniciar o trial.");
       return;
     }
     setTrialModalOpen(false);
@@ -957,7 +973,7 @@ export default function RegisterPage() {
               </label>
 
               <label className={styles.trialField} htmlFor="register-trial-cpf">
-                <span>CPF <small>opcional</small></span>
+                <span>CPF</span>
                 <input
                   id="register-trial-cpf"
                   inputMode="numeric"
@@ -989,7 +1005,7 @@ export default function RegisterPage() {
                 onChange={(event) => setTrialForm((current) => ({ ...current, acceptedTerms: event.target.checked }))}
               />
               <span>
-                Aceito iniciar o trial gratuito de 30 dias do HBX Padrão, sem cobrança automática agora, e autorizo o uso do telefone informado para contato e validação de elegibilidade do trial.
+                Aceito iniciar o trial gratuito de 30 dias do HBX Padrão, sem cobrança automática agora, e autorizo o uso do CPF, nome completo e telefone informado para contato e validação de elegibilidade do trial.
               </span>
             </label>
 

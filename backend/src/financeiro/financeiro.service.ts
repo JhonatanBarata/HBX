@@ -92,10 +92,43 @@ export class FinanceiroService {
     return normalized || null;
   }
 
+  private hasRepeatedDigits(value: string) {
+    return /^(\d)\1+$/.test(value);
+  }
+
+  private isValidCpf(value: string) {
+    const digits = String(value || '').replace(/\D/g, '');
+    if (digits.length !== 11 || this.hasRepeatedDigits(digits)) return false;
+    const calculate = (length: number) => {
+      let sum = 0;
+      for (let index = 0; index < length; index += 1) {
+        sum += Number(digits[index]) * (length + 1 - index);
+      }
+      const mod = (sum * 10) % 11;
+      return mod === 10 ? 0 : mod;
+    };
+    return calculate(9) === Number(digits[9]) && calculate(10) === Number(digits[10]);
+  }
+
+  private isValidCnpj(value: string) {
+    const digits = String(value || '').replace(/\D/g, '');
+    if (digits.length !== 14 || this.hasRepeatedDigits(digits)) return false;
+    const calculate = (weights: number[]) => {
+      const sum = weights.reduce((total, weight, index) => total + Number(digits[index]) * weight, 0);
+      const mod = sum % 11;
+      return mod < 2 ? 0 : 11 - mod;
+    };
+    return (
+      calculate([5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2]) === Number(digits[12]) &&
+      calculate([6, 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2]) === Number(digits[13])
+    );
+  }
+
   private normalizeTaxDocument(value: unknown) {
     const digits = String(value || '').replace(/\D/g, '').slice(0, 14);
-    if (![11, 14].includes(digits.length)) return null;
-    return digits;
+    if (digits.length === 11 && this.isValidCpf(digits)) return digits;
+    if (digits.length === 14 && this.isValidCnpj(digits)) return digits;
+    return null;
   }
 
   private normalizePaymentContactProfile(dto: {
@@ -103,10 +136,22 @@ export class FinanceiroService {
     contactPhone?: string | null;
     taxDocument?: string | null;
     acceptedTerms?: boolean | null;
+  }, fallback?: {
+    contactName?: string | null;
+    contactPhone?: string | null;
+    taxDocument?: string | null;
+    allowExistingWithoutTerms?: boolean;
   }): PaymentContactProfile {
-    const contactName = this.normalizeContactName(dto?.contactName);
-    const contactPhone = this.normalizeContactPhone(dto?.contactPhone);
-    const taxDocument = this.normalizeTaxDocument(dto?.taxDocument);
+    const contactName = this.normalizeContactName(dto?.contactName) || this.normalizeContactName(fallback?.contactName);
+    const contactPhone = this.normalizeContactPhone(dto?.contactPhone) || this.normalizeContactPhone(fallback?.contactPhone);
+    const taxDocument = this.normalizeTaxDocument(dto?.taxDocument) || this.normalizeTaxDocument(fallback?.taxDocument);
+    const canUseExistingProfile = Boolean(
+      fallback?.allowExistingWithoutTerms &&
+      dto?.acceptedTerms === undefined &&
+      contactName &&
+      contactPhone &&
+      taxDocument,
+    );
     if (!contactName || contactName.length < 3) {
       throw new BadRequestException('Informe o nome completo do responsável pelo pagamento.');
     }
@@ -116,10 +161,43 @@ export class FinanceiroService {
     if (!taxDocument) {
       throw new BadRequestException('Informe um CPF/CNPJ válido para o pagamento.');
     }
-    if (dto?.acceptedTerms !== true) {
+    if (dto?.acceptedTerms !== true && !canUseExistingProfile) {
       throw new BadRequestException('Confirme a autorização de uso dos dados de pagamento.');
     }
     return { contactName, contactPhone, taxDocument, acceptedTerms: true };
+  }
+
+  private hasPaymentContactProfileInput(dto: {
+    contactName?: string | null;
+    contactPhone?: string | null;
+    taxDocument?: string | null;
+    acceptedTerms?: boolean | null;
+  }) {
+    return Boolean(
+      this.normalizeContactName(dto?.contactName) ||
+      this.normalizeContactPhone(dto?.contactPhone) ||
+      String(dto?.taxDocument || '').trim() ||
+      dto?.acceptedTerms !== undefined,
+    );
+  }
+
+  private resolvePaymentContactProfile(dto: {
+    contactName?: string | null;
+    contactPhone?: string | null;
+    taxDocument?: string | null;
+    acceptedTerms?: boolean | null;
+  }, fallback?: {
+    contactName?: string | null;
+    contactPhone?: string | null;
+    taxDocument?: string | null;
+    allowExistingWithoutTerms?: boolean;
+  }) {
+    try {
+      return this.normalizePaymentContactProfile(dto, fallback);
+    } catch (error) {
+      if (!this.hasPaymentContactProfileInput(dto) && fallback?.allowExistingWithoutTerms) return null;
+      throw error;
+    }
   }
 
   private companyContactUpdateFromPaymentProfile(profile: PaymentContactProfile) {
@@ -1805,12 +1883,17 @@ export class FinanceiroService {
       throw new BadRequestException('Nao ha valor disponivel para cobranca neste ciclo.');
     }
 
-    const paymentProfile = this.normalizePaymentContactProfile(dto || {});
+    const paymentProfile = this.resolvePaymentContactProfile(dto || {}, {
+      contactName: company.primaryContactName || company.name,
+      contactPhone: company.contactPhone,
+      taxDocument: company.taxDocument,
+      allowExistingWithoutTerms: true,
+    });
     const companyWithPaymentProfile = {
       ...company,
-      primaryContactName: paymentProfile.contactName,
-      contactPhone: paymentProfile.contactPhone,
-      taxDocument: paymentProfile.taxDocument,
+      primaryContactName: paymentProfile?.contactName || company.primaryContactName,
+      contactPhone: paymentProfile?.contactPhone || company.contactPhone,
+      taxDocument: paymentProfile?.taxDocument || company.taxDocument,
     };
     const reusable = await this.findReusableCharge(context.companyId, paymentMethod, {
       billingCycle: pricing.billingCycle,
@@ -1822,7 +1905,7 @@ export class FinanceiroService {
         data: {
           selectedPlanKey,
           billingCycle: requestedBillingCycle,
-          ...this.companyContactUpdateFromPaymentProfile(paymentProfile),
+          ...(paymentProfile ? this.companyContactUpdateFromPaymentProfile(paymentProfile) : {}),
         },
       });
       return {
@@ -1862,7 +1945,7 @@ export class FinanceiroService {
       data: {
         selectedPlanKey,
         billingCycle: requestedBillingCycle,
-        ...this.companyContactUpdateFromPaymentProfile(paymentProfile),
+        ...(paymentProfile ? this.companyContactUpdateFromPaymentProfile(paymentProfile) : {}),
       },
     });
 
@@ -1884,7 +1967,6 @@ export class FinanceiroService {
             },
             payer: {
               email: payerEmail,
-              first_name: paymentProfile.contactName || company.name,
             },
           },
           randomUUID(),
@@ -1907,9 +1989,11 @@ export class FinanceiroService {
             externalReference,
             planKey: selectedPlanKey,
             billingCycle: requestedBillingCycle,
-            contactName: paymentProfile.contactName,
-            taxDocumentProvided: Boolean(paymentProfile.taxDocument),
-            acceptedTerms: true,
+            ...(paymentProfile ? {
+              contactName: paymentProfile.contactName,
+              taxDocumentProvided: Boolean(paymentProfile.taxDocument),
+              acceptedTerms: true,
+            } : {}),
           },
         });
 
@@ -1958,7 +2042,6 @@ export class FinanceiroService {
             billing_cycle: requestedBillingCycle,
           },
           payer: {
-            name: paymentProfile.contactName || company.name,
             email: payerEmail,
           },
           items: [
@@ -1999,9 +2082,11 @@ export class FinanceiroService {
           externalReference,
           planKey: selectedPlanKey,
           billingCycle: requestedBillingCycle,
-          contactName: paymentProfile.contactName,
-          taxDocumentProvided: Boolean(paymentProfile.taxDocument),
-          acceptedTerms: true,
+          ...(paymentProfile ? {
+            contactName: paymentProfile.contactName,
+            taxDocumentProvided: Boolean(paymentProfile.taxDocument),
+            acceptedTerms: true,
+          } : {}),
         },
       });
 
@@ -2054,11 +2139,15 @@ export class FinanceiroService {
 
     const cardTokenId = this.normalizeCardToken(dto?.cardTokenId);
     if (!cardTokenId) throw new BadRequestException('Token do cartão Mercado Pago ausente ou inválido.');
-    const paymentProfile = this.normalizePaymentContactProfile(dto || {});
-    const billingContactPhone = paymentProfile.contactPhone;
-    const companyContactData = this.companyContactUpdateFromPaymentProfile(paymentProfile);
-
     const { company, accessToken } = await this.resolveFinanceContext(context.companyId);
+    const paymentProfile = this.resolvePaymentContactProfile(dto || {}, {
+      contactName: company.primaryContactName || company.name,
+      contactPhone: company.contactPhone,
+      taxDocument: company.taxDocument,
+      allowExistingWithoutTerms: true,
+    });
+    const billingContactPhone = paymentProfile?.contactPhone || this.normalizeContactPhone(dto?.contactPhone) || this.normalizeContactPhone(company.contactPhone);
+    const companyContactData = paymentProfile ? this.companyContactUpdateFromPaymentProfile(paymentProfile) : null;
     const plan = this.buildCommercialPlanProviderSnapshot(dto?.planKey || company.selectedPlanKey, dto?.billingCycle || 'ANNUAL');
     const payerEmail =
       this.normalizePayerEmail(dto?.payerEmail) ||
@@ -2066,10 +2155,12 @@ export class FinanceiroService {
       this.normalizePayerEmail(user?.email);
     if (!payerEmail) throw new BadRequestException('Informe um e-mail válido para a assinatura.');
 
-    await this.prisma.company.update({
-      where: { id: context.companyId },
-      data: companyContactData,
-    });
+    if (companyContactData) {
+      await this.prisma.company.update({
+        where: { id: context.companyId },
+        data: companyContactData,
+      });
+    }
 
     const existing = await this.findCurrentCompanySubscription(context.companyId);
     if (existing?.providerPreapprovalId && !['canceled', 'blocked'].includes(String(existing.status || '').toLowerCase())) {
@@ -2093,7 +2184,7 @@ export class FinanceiroService {
             billingCycle: plan.billingCycle,
             status: 'pending',
             payerEmail,
-            billingContactPhone,
+            billingContactPhone: billingContactPhone || undefined,
             createdByUserId: context.userId,
             providerPayloadJson: null,
           },
@@ -2107,7 +2198,7 @@ export class FinanceiroService {
             billingCycle: plan.billingCycle,
             status: 'pending',
             payerEmail,
-            billingContactPhone,
+            billingContactPhone: billingContactPhone || undefined,
             createdByUserId: context.userId,
           },
         });
@@ -2149,7 +2240,7 @@ export class FinanceiroService {
             : providerPlan.providerPlanId,
           status: providerStatus,
           payerEmail: this.normalizePayerEmail(provider?.payer_email) || payerEmail,
-          billingContactPhone,
+          billingContactPhone: billingContactPhone || undefined,
           nextBillingAt,
           lastProviderStatus: provider?.status ? String(provider.status) : providerStatus,
           providerPayloadJson: this.providerJson({ provider }),
@@ -2166,7 +2257,7 @@ export class FinanceiroService {
           paymentStatus: 'PENDING',
           subscriptionStatus: providerStatus,
           premiumAccess: false,
-          ...companyContactData,
+          ...(companyContactData || {}),
         },
       });
 
@@ -2224,18 +2315,25 @@ export class FinanceiroService {
     this.assertCanManageBilling(context);
     const cardTokenId = this.normalizeCardToken(dto?.cardTokenId);
     if (!cardTokenId) throw new BadRequestException('Token do cartão Mercado Pago ausente ou inválido.');
-    const paymentProfile = this.normalizePaymentContactProfile(dto || {});
-    const companyContactData = this.companyContactUpdateFromPaymentProfile(paymentProfile);
 
     const subscription = await this.findCurrentCompanySubscription(context.companyId);
     if (!subscription?.providerPreapprovalId) throw new NotFoundException('Assinatura Mercado Pago nao encontrada.');
 
     try {
-      const { accessToken } = await this.resolveFinanceContext(context.companyId);
-      await this.prisma.company.update({
-        where: { id: context.companyId },
-        data: companyContactData,
+      const { company, accessToken } = await this.resolveFinanceContext(context.companyId);
+      const paymentProfile = this.resolvePaymentContactProfile(dto || {}, {
+        contactName: company.primaryContactName || company.name,
+        contactPhone: company.contactPhone,
+        taxDocument: company.taxDocument,
+        allowExistingWithoutTerms: true,
       });
+      const companyContactData = paymentProfile ? this.companyContactUpdateFromPaymentProfile(paymentProfile) : null;
+      if (companyContactData) {
+        await this.prisma.company.update({
+          where: { id: context.companyId },
+          data: companyContactData,
+        });
+      }
       const provider = await this.mercadoPagoClient.changePreapprovalCard(
         accessToken,
         subscription.providerPreapprovalId,

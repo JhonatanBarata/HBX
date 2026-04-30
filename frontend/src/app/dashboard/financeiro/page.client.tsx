@@ -7,14 +7,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import DashboardScaffold from "@/components/DashboardScaffold";
 import { apiFetch } from "../_lib/api";
 import { useRequireAuth } from "../_lib/useRequireAuth";
-import PremiumPaymentCard from "./PremiumPaymentCard";
 import styles from "./page.module.css";
 
 type BillingCycle = "MONTHLY" | "ANNUAL";
 type CheckoutPaymentMethod = "CARD" | "PIX" | "BOLETO";
-type CardVisualBrand = "mastercard" | "visa" | "amex" | "elo" | "card";
 type PlanKey = "hbx_lite" | "hbx_padrao" | "hbx_melhor";
-type CardAutofillKind = "number" | "holder" | "expiration" | "security";
 type PaymentConsentMethod = "CARD" | "PIX";
 
 type PaymentConsentFormState = {
@@ -23,6 +20,12 @@ type PaymentConsentFormState = {
   phone: string;
   email: string;
   acceptedTerms: boolean;
+};
+
+type PaymentConsentEditableState = {
+  contactName: boolean;
+  cpf: boolean;
+  phone: boolean;
 };
 
 type PaymentProfile = {
@@ -35,7 +38,6 @@ type PaymentProfile = {
 
 type CheckoutSubmissionContext = {
   billingCycle: BillingCycle;
-  cardholderName: string;
   contactName: string;
   checkoutMode: boolean;
   contactPhone: string;
@@ -45,23 +47,48 @@ type CheckoutSubmissionContext = {
   showCardUpdate: boolean;
 };
 type MercadoPagoBrickController = { unmount: () => void };
+type MercadoPagoIdentificationData = {
+  type?: string | null;
+  number?: string | number | null;
+};
+type MercadoPagoPayerData = {
+  email?: string | null;
+  name?: string | null;
+  first_name?: string | null;
+  last_name?: string | null;
+  identification?: MercadoPagoIdentificationData | null;
+};
+type MercadoPagoCardholderData = {
+  name?: string | null;
+  identification?: MercadoPagoIdentificationData | null;
+};
 type MercadoPagoBrickFormData = {
   token?: string | null;
   cardTokenId?: string | null;
+  cardholderName?: string | null;
   cardholderEmail?: string | null;
   paymentMethodId?: string | null;
   issuerId?: string | number | null;
-  payer?: {
-    email?: string | null;
-  } | null;
+  identificationNumber?: string | number | null;
+  docNumber?: string | number | null;
+  cardholder?: MercadoPagoCardholderData | null;
+  payer?: MercadoPagoPayerData | null;
   formData?: {
     token?: string | null;
-    payer?: {
-      email?: string | null;
-    } | null;
+    cardholderName?: string | null;
+    cardholderEmail?: string | null;
+    identificationNumber?: string | number | null;
+    docNumber?: string | number | null;
+    cardholder?: MercadoPagoCardholderData | null;
+    payer?: MercadoPagoPayerData | null;
     paymentMethodId?: string | null;
     issuerId?: string | number | null;
   } | null;
+};
+type PendingCardSubmission = {
+  formData: MercadoPagoBrickFormData;
+  resolve: (value?: unknown) => void;
+  reject: (reason?: unknown) => void;
 };
 type ApiErrorWithPayload = {
   payload?: {
@@ -230,6 +257,45 @@ function onlyDigits(value: string) {
   return String(value || "").replace(/\D/g, "");
 }
 
+function hasRepeatedDigits(digits: string) {
+  return /^(\d)\1+$/.test(digits);
+}
+
+function isValidCpf(value: string) {
+  const digits = onlyDigits(value);
+  if (digits.length !== 11 || hasRepeatedDigits(digits)) return false;
+  const calculate = (length: number) => {
+    let sum = 0;
+    for (let index = 0; index < length; index += 1) {
+      sum += Number(digits[index]) * (length + 1 - index);
+    }
+    const mod = (sum * 10) % 11;
+    return mod === 10 ? 0 : mod;
+  };
+  return calculate(9) === Number(digits[9]) && calculate(10) === Number(digits[10]);
+}
+
+function isValidCnpj(value: string) {
+  const digits = onlyDigits(value);
+  if (digits.length !== 14 || hasRepeatedDigits(digits)) return false;
+  const calculate = (weights: number[]) => {
+    const sum = weights.reduce((total, weight, index) => total + Number(digits[index]) * weight, 0);
+    const mod = sum % 11;
+    return mod < 2 ? 0 : 11 - mod;
+  };
+  return (
+    calculate([5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2]) === Number(digits[12]) &&
+    calculate([6, 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2]) === Number(digits[13])
+  );
+}
+
+function isValidTaxDocument(value: string) {
+  const digits = onlyDigits(value);
+  if (digits.length === 11) return isValidCpf(digits);
+  if (digits.length === 14) return isValidCnpj(digits);
+  return false;
+}
+
 function formatTaxDocument(value: string) {
   const digits = onlyDigits(value).slice(0, 14);
   if (digits.length <= 3) return digits;
@@ -307,6 +373,49 @@ function extractBrickEmail(data: MercadoPagoBrickFormData | null | undefined, fa
   return String(data?.payer?.email || data?.formData?.payer?.email || data?.cardholderEmail || fallback || "").trim();
 }
 
+function normalizeCandidate(value: unknown) {
+  const normalized = String(value || "").trim().replace(/\s+/g, " ");
+  return normalized || "";
+}
+
+function firstCandidate(...values: unknown[]) {
+  for (const value of values) {
+    const normalized = normalizeCandidate(value);
+    if (normalized) return normalized;
+  }
+  return "";
+}
+
+function joinName(first?: string | null, last?: string | null) {
+  return [first, last].map((part) => String(part || "").trim()).filter(Boolean).join(" ");
+}
+
+function extractBrickCardholderName(data: MercadoPagoBrickFormData | null | undefined) {
+  return firstCandidate(
+    data?.cardholderName,
+    data?.formData?.cardholderName,
+    data?.cardholder?.name,
+    data?.formData?.cardholder?.name,
+    data?.payer?.name,
+    joinName(data?.payer?.first_name, data?.payer?.last_name),
+    data?.formData?.payer?.name,
+    joinName(data?.formData?.payer?.first_name, data?.formData?.payer?.last_name),
+  );
+}
+
+function extractBrickTaxDocument(data: MercadoPagoBrickFormData | null | undefined) {
+  return formatTaxDocument(firstCandidate(
+    data?.payer?.identification?.number,
+    data?.formData?.payer?.identification?.number,
+    data?.cardholder?.identification?.number,
+    data?.formData?.cardholder?.identification?.number,
+    data?.identificationNumber,
+    data?.formData?.identificationNumber,
+    data?.docNumber,
+    data?.formData?.docNumber,
+  ));
+}
+
 function resolveBillingActionError(error: unknown, fallback: string) {
   const raw = error instanceof Error ? error.message : String(error || "");
   const normalized = raw.toLowerCase();
@@ -334,93 +443,6 @@ function resolveBillingActionError(error: unknown, fallback: string) {
   }
   if (raw) return raw;
   return fallback;
-}
-
-function detectCardVisualBrand(value: string): CardVisualBrand {
-  const digits = value.replace(/\D/g, "");
-  if (!digits) return "card";
-  const firstTwo = Number(digits.slice(0, 2));
-  const firstFour = Number(digits.slice(0, 4));
-  if ((firstTwo >= 51 && firstTwo <= 55) || (firstFour >= 2221 && firstFour <= 2720)) return "mastercard";
-  if (digits.startsWith("4")) return "visa";
-  if (digits.startsWith("34") || digits.startsWith("37")) return "amex";
-  if (/^(401178|401179|431274|438935|451416|457393|457631|457632|504175|5067|509|627780|636297|636368)/.test(digits)) return "elo";
-  return "card";
-}
-
-function cardAutofillConfig(kind: CardAutofillKind) {
-  if (kind === "number") {
-    return {
-      autocomplete: "cc-number",
-      name: "cc-number",
-      aria: "Número do cartão",
-      inputMode: "numeric",
-    };
-  }
-  if (kind === "holder") {
-    return {
-      autocomplete: "cc-name",
-      name: "cc-name",
-      aria: "Nome impresso no cartão",
-      inputMode: "text",
-    };
-  }
-  if (kind === "expiration") {
-    return {
-      autocomplete: "cc-exp",
-      name: "cc-exp",
-      aria: "Data de vencimento do cartão",
-      inputMode: "numeric",
-    };
-  }
-  return {
-    autocomplete: "cc-csc",
-    name: "cc-csc",
-    aria: "Código de segurança do cartão",
-    inputMode: "numeric",
-  };
-}
-
-function detectCardAutofillKind(context: string): CardAutofillKind | null {
-  const normalized = context.toLowerCase();
-  if (/document|cpf|cnpj|identifica|docum|tax.?id/.test(normalized)) return null;
-  if (/seguran|security|cvc|cvv|csc|cod.?seg|código|codigo/.test(normalized)) return "security";
-  if (/venc|valid|expir|expira|mm\s*\/\s*aa|mm\s*\/\s*yyyy|expiration|expiry|validade/.test(normalized)) return "expiration";
-  if (/titular|nome|name|holder|cardholder|impresso/.test(normalized)) return "holder";
-  if (/n[uú]mero|numero|number|card.?number|card-number|card_number|pan|cart[aã]o/.test(normalized)) return "number";
-  return null;
-}
-
-function safeCssIdentifier(value: string) {
-  const id = String(value || "").trim();
-  if (!id) return "";
-  if (typeof CSS !== "undefined" && typeof CSS.escape === "function") return CSS.escape(id);
-  return id.replace(/["\\#.:,[\]>+~*^$|= !]/g, "\\$&");
-}
-
-function getFieldContext(field: HTMLElement, root: HTMLElement) {
-  const labelledBy = String(field.getAttribute("aria-labelledby") || "")
-    .split(/\s+/)
-    .map(safeCssIdentifier)
-    .filter(Boolean)
-    .map((id) => root.querySelector<HTMLElement>(`#${id}`)?.textContent || "")
-    .join(" ");
-  const safeFieldId = safeCssIdentifier(field.id);
-  const labelFor = safeFieldId ? root.querySelector<HTMLLabelElement>(`label[for="${safeFieldId}"]`)?.textContent || "" : "";
-  const closestLabel = field.closest("label")?.textContent || "";
-  return [
-    field.id,
-    field.getAttribute("name"),
-    field.getAttribute("placeholder"),
-    field.getAttribute("aria-label"),
-    field.getAttribute("title"),
-    field.getAttribute("data-testid"),
-    field.getAttribute("data-cy"),
-    field.className,
-    labelFor,
-    closestLabel,
-    labelledBy,
-  ].join(" ");
 }
 
 function clearMercadoPagoBrickContainer() {
@@ -451,142 +473,36 @@ function waitForMercadoPagoSdk(isActive: () => boolean) {
   });
 }
 
-function enhanceMercadoPagoCardAutofill(
-  onBrandDetected: (brand: CardVisualBrand) => void,
-  onHolderDetected: (holder: string) => void,
-  onCardNumberDetected: (value: string) => void,
-  onExpirationDetected: (value: string) => void,
-  onSecurityFocusChange: (focused: boolean) => void,
+function attachMercadoPagoSubmitWatchdog(
+  getLastSubmitAt: () => number,
+  onMissedSubmit: (message: string) => void,
 ) {
   if (typeof document === "undefined") return undefined;
   const root = document.getElementById(MERCADO_PAGO_BRICK_CONTAINER_ID);
   if (!root) return undefined;
-  const listeners: Array<{ input: HTMLInputElement; kind: "brand" | "holder" | "number" | "expiration"; handler: () => void }> = [];
-  const iframeListeners: Array<{ iframe: HTMLIFrameElement; onFocus: () => void; onBlur: () => void }> = [];
-  let focusOutTimer: number | null = null;
+  let timer: number | null = null;
 
-  const wireListener = (input: HTMLInputElement, kind: "brand" | "holder" | "number" | "expiration", handler: () => void) => {
-    if (listeners.some((item) => item.input === input && item.kind === kind)) return;
-    input.addEventListener("input", handler);
-    input.addEventListener("change", handler);
-    listeners.push({ input, kind, handler });
-    handler();
+  const handleClick = (event: MouseEvent) => {
+    const target = event.target instanceof HTMLElement ? event.target : null;
+    const button = target?.closest("button");
+    if (!button) return;
+    const label = String(button.textContent || "").trim().toLowerCase();
+    if (!/pagar|pay|confirmar|continuar/.test(label)) return;
+    const clickedAt = Date.now();
+    if (timer) window.clearTimeout(timer);
+    timer = window.setTimeout(() => {
+      if (getLastSubmitAt() >= clickedAt) return;
+      const message = "O botão do Mercado Pago foi acionado, mas o Brick não disparou o envio. Revise os campos do cartão ou recarregue a página.";
+      console.error(message);
+      onMissedSubmit(message);
+    }, 3200);
   };
 
-  const ensureValidLabels = () => {
-    const fields = Array.from(root.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>("input, select, textarea"));
-    root.querySelectorAll<HTMLLabelElement>("label[for]").forEach((label) => {
-      const currentFor = String(label.getAttribute("for") || "").trim();
-      if (!currentFor) return;
-      const directTarget = fields.find((field) => field.id === currentFor);
-      if (directTarget) return;
-
-      const namedTarget = fields.find((field) => field.getAttribute("name") === currentFor);
-      if (!namedTarget) return;
-
-      if (!namedTarget.id) {
-        const safeId = currentFor.replace(/[^a-z0-9_-]+/gi, "-").replace(/^-+|-+$/g, "") || "mp-field";
-        namedTarget.id = `${safeId}-input`;
-      }
-      label.htmlFor = namedTarget.id;
-    });
-  };
-
-  const applyFieldAttributes = (field: HTMLInputElement, kind: CardAutofillKind) => {
-    const config = cardAutofillConfig(kind);
-    field.setAttribute("autocomplete", config.autocomplete);
-    field.setAttribute("name", field.getAttribute("name") || config.name);
-    field.setAttribute("aria-label", field.getAttribute("aria-label") || config.aria);
-    field.setAttribute("title", field.getAttribute("title") || config.aria);
-    if (config.inputMode) field.setAttribute("inputmode", config.inputMode);
-  };
-
-  const applyIframeLabel = (iframe: HTMLIFrameElement) => {
-    const kind = detectCardAutofillKind(getFieldContext(iframe, root));
-    if (!kind) return;
-    const label = cardAutofillConfig(kind).aria;
-    iframe.setAttribute("title", iframe.getAttribute("title") || label);
-    iframe.setAttribute("aria-label", iframe.getAttribute("aria-label") || label);
-    if (iframeListeners.some((item) => item.iframe === iframe)) return;
-    const onFocus = () => onSecurityFocusChange(kind === "expiration" || kind === "security");
-    const onBlur = () => onSecurityFocusChange(false);
-    iframe.addEventListener("focus", onFocus);
-    iframe.addEventListener("blur", onBlur);
-    iframeListeners.push({ iframe, onFocus, onBlur });
-  };
-
-  const syncSensitiveFocus = () => {
-    const active = document.activeElement;
-    if (!(active instanceof HTMLElement) || !root.contains(active)) {
-      onSecurityFocusChange(false);
-      return;
-    }
-    const kind = detectCardAutofillKind(getFieldContext(active, root));
-    onSecurityFocusChange(kind === "expiration" || kind === "security");
-  };
-
-  const handleFocusIn = () => {
-    if (focusOutTimer) window.clearTimeout(focusOutTimer);
-    syncSensitiveFocus();
-  };
-
-  const handleFocusOut = () => {
-    if (focusOutTimer) window.clearTimeout(focusOutTimer);
-    focusOutTimer = window.setTimeout(syncSensitiveFocus, 0);
-  };
-
-  const apply = () => {
-    root.querySelectorAll<HTMLInputElement>("input").forEach((input) => {
-      const kind = detectCardAutofillKind(getFieldContext(input, root));
-      if (!kind) return;
-      applyFieldAttributes(input, kind);
-      if (kind === "number") {
-        wireListener(input, "brand", () => onBrandDetected(detectCardVisualBrand(input.value)));
-        wireListener(input, "number", () => onCardNumberDetected(input.value));
-        return;
-      }
-
-      if (kind === "holder") {
-        wireListener(input, "holder", () => {
-          const nextHolder = input.value.trim();
-          if (nextHolder) onHolderDetected(nextHolder);
-        });
-        return;
-      }
-
-      if (kind === "expiration") {
-        wireListener(input, "expiration", () => onExpirationDetected(input.value));
-      }
-    });
-    root.querySelectorAll<HTMLIFrameElement>("iframe").forEach(applyIframeLabel);
-    ensureValidLabels();
-  };
-
-  root.addEventListener("focusin", handleFocusIn);
-  root.addEventListener("focusout", handleFocusOut);
-  apply();
-  const retries = [250, 800, 1600].map((delay) => window.setTimeout(apply, delay));
-  const poll = window.setInterval(apply, 900);
-  const stopPoll = window.setTimeout(() => window.clearInterval(poll), 9000);
-  const observer = new MutationObserver(apply);
-  observer.observe(root, { childList: true, subtree: true });
+  root.addEventListener("click", handleClick, true);
 
   return () => {
-    retries.forEach((timer) => window.clearTimeout(timer));
-    window.clearInterval(poll);
-    window.clearTimeout(stopPoll);
-    if (focusOutTimer) window.clearTimeout(focusOutTimer);
-    root.removeEventListener("focusin", handleFocusIn);
-    root.removeEventListener("focusout", handleFocusOut);
-    listeners.forEach(({ input, handler }) => {
-      input.removeEventListener("input", handler);
-      input.removeEventListener("change", handler);
-    });
-    iframeListeners.forEach(({ iframe, onFocus, onBlur }) => {
-      iframe.removeEventListener("focus", onFocus);
-      iframe.removeEventListener("blur", onBlur);
-    });
-    observer.disconnect();
+    if (timer) window.clearTimeout(timer);
+    root.removeEventListener("click", handleClick, true);
   };
 }
 
@@ -598,7 +514,8 @@ export default function FinanceiroClientPage() {
   const brickCreatingRef = useRef(false);
   const brickRunIdRef = useRef(0);
   const cardBrickReadyRef = useRef(false);
-  const cardAutofillCleanupRef = useRef<(() => void) | null>(null);
+  const cardSubmitTriggeredAtRef = useRef(0);
+  const cardSubmitWatchdogCleanupRef = useRef<(() => void) | null>(null);
   const checkoutSubmissionRef = useRef<CheckoutSubmissionContext | null>(null);
   const [mpScriptReady, setMpScriptReady] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -615,11 +532,6 @@ export default function FinanceiroClientPage() {
   const [contactPhone, setContactPhone] = useState("");
   const [payerTaxDocument, setPayerTaxDocument] = useState("");
   const [payerEmail, setPayerEmail] = useState("");
-  const [cardholderName, setCardholderName] = useState("");
-  const [cardNumberPreview, setCardNumberPreview] = useState("");
-  const [cardExpirationPreview, setCardExpirationPreview] = useState("");
-  const [cardSecurityFocused, setCardSecurityFocused] = useState(false);
-  const [cardVisualBrand, setCardVisualBrand] = useState<CardVisualBrand>("card");
   const [showCardUpdate, setShowCardUpdate] = useState(false);
   const [forceCheckout, setForceCheckout] = useState(false);
   const [cancelModalOpen, setCancelModalOpen] = useState(false);
@@ -631,7 +543,12 @@ export default function FinanceiroClientPage() {
     email: "",
     acceptedTerms: false,
   });
-  const pendingCardFormDataRef = useRef<MercadoPagoBrickFormData | null>(null);
+  const [paymentConsentEditable, setPaymentConsentEditable] = useState<PaymentConsentEditableState>({
+    contactName: false,
+    cpf: false,
+    phone: false,
+  });
+  const pendingCardSubmissionRef = useRef<PendingCardSubmission | null>(null);
 
   const reason = searchParams.get("reason");
   const canManageBilling = overview?.permissions?.canManageBilling !== false;
@@ -648,16 +565,20 @@ export default function FinanceiroClientPage() {
   const latestBoletoCharge = overview?.latestCharge?.paymentMethod === "BOLETO" ? overview.latestCharge : null;
   const paymentConsentPhoneDigits = normalizeBrazilPhone(paymentConsentForm.phone);
   const paymentConsentTaxDigits = onlyDigits(paymentConsentForm.cpf);
+  const contactPhoneDigits = normalizeBrazilPhone(contactPhone);
+  const pixContactReady =
+    contactName.trim().length >= 3 &&
+    contactPhoneDigits.length >= 10 &&
+    isValidTaxDocument(payerTaxDocument);
   const paymentConsentReady =
     paymentConsentForm.contactName.trim().length >= 3 &&
     paymentConsentPhoneDigits.length >= 10 &&
-    (paymentConsentTaxDigits.length === 11 || paymentConsentTaxDigits.length === 14) &&
+    isValidTaxDocument(paymentConsentTaxDigits) &&
     paymentConsentForm.acceptedTerms;
 
   useEffect(() => {
     checkoutSubmissionRef.current = {
       billingCycle,
-      cardholderName,
       contactName,
       checkoutMode,
       contactPhone,
@@ -666,7 +587,7 @@ export default function FinanceiroClientPage() {
       selectedPlanKey,
       showCardUpdate,
     };
-  }, [billingCycle, cardholderName, contactName, checkoutMode, contactPhone, payerEmail, payerTaxDocument, selectedPlanKey, showCardUpdate]);
+  }, [billingCycle, contactName, checkoutMode, contactPhone, payerEmail, payerTaxDocument, selectedPlanKey, showCardUpdate]);
 
   const loadOverview = useCallback(async (background = false) => {
     if (!background) setLoading(true);
@@ -695,11 +616,28 @@ export default function FinanceiroClientPage() {
 
   const openPaymentConsent = useCallback((method: PaymentConsentMethod, cardFormData?: MercadoPagoBrickFormData | null) => {
     const context = checkoutSubmissionRef.current;
-    pendingCardFormDataRef.current = method === "CARD" ? cardFormData || null : null;
+    const brickName = method === "CARD" ? extractBrickCardholderName(cardFormData) : "";
+    const brickTaxDocument = method === "CARD" ? extractBrickTaxDocument(cardFormData) : "";
+    const nextContactName = (
+      method === "CARD"
+        ? brickName || context?.contactName || ""
+        : context?.contactName || ""
+    ).trim();
+    const nextTaxDocument = formatTaxDocument(
+      method === "CARD"
+        ? brickTaxDocument || context?.taxDocument || ""
+        : context?.taxDocument || "",
+    );
+    const nextPhone = formatBrazilPhone(context?.contactPhone || "");
+    setPaymentConsentEditable({
+      contactName: nextContactName.length < 3,
+      cpf: !isValidTaxDocument(nextTaxDocument),
+      phone: normalizeBrazilPhone(nextPhone).length < 10,
+    });
     setPaymentConsentForm({
-      contactName: (context?.contactName || (method === "CARD" ? context?.cardholderName : "") || "").trim(),
-      cpf: formatTaxDocument(context?.taxDocument || ""),
-      phone: formatBrazilPhone(context?.contactPhone || ""),
+      contactName: nextContactName,
+      cpf: nextTaxDocument,
+      phone: nextPhone,
       email: context?.payerEmail || "",
       acceptedTerms: false,
     });
@@ -709,10 +647,13 @@ export default function FinanceiroClientPage() {
   }, []);
 
   const closePaymentConsent = useCallback(() => {
-    pendingCardFormDataRef.current = null;
+    if (paymentConsentMethod === "CARD") {
+      pendingCardSubmissionRef.current?.reject(new Error("Autorização de pagamento cancelada."));
+      pendingCardSubmissionRef.current = null;
+    }
     setPaymentConsentMethod(null);
     setPaymentConsentForm((current) => ({ ...current, acceptedTerms: false }));
-  }, []);
+  }, [paymentConsentMethod]);
 
   function buildPaymentProfileFromConsent(): PaymentProfile | null {
     const nextProfile = {
@@ -737,13 +678,6 @@ export default function FinanceiroClientPage() {
     if (!context) throw new Error("Checkout ainda não está pronto. Tente novamente.");
     const cardTokenId = extractBrickToken(cardFormData);
     const email = extractBrickEmail(cardFormData, profile.payerEmail || context.payerEmail);
-    const printedName = context.cardholderName.trim() || profile.contactName;
-    if (!printedName) {
-      const text = "Informe o nome impresso no cartão.";
-      setError(text);
-      setPaymentActionError(text);
-      throw new Error(text);
-    }
     if (!cardTokenId) throw new Error("Mercado Pago não retornou token do cartão.");
     if (!profile.contactPhone) throw new Error("Informe o telefone de contato.");
     setSaving(context.showCardUpdate && !context.checkoutMode ? "change-card" : "subscription");
@@ -793,9 +727,13 @@ export default function FinanceiroClientPage() {
     loadOverview,
   ]);
 
-  const submitSubscription = useCallback(async (cardFormData: MercadoPagoBrickFormData) => {
-    openPaymentConsent("CARD", cardFormData);
-    throw new Error("Confirme a autorização de pagamento para continuar.");
+  const submitSubscription = useCallback((cardFormData: MercadoPagoBrickFormData) => {
+    cardSubmitTriggeredAtRef.current = Date.now();
+    pendingCardSubmissionRef.current?.reject(new Error("Uma nova tentativa de pagamento foi iniciada."));
+    return new Promise((resolve, reject) => {
+      pendingCardSubmissionRef.current = { formData: cardFormData, resolve, reject };
+      openPaymentConsent("CARD", cardFormData);
+    });
   }, [openPaymentConsent]);
 
   const executeOneOffCheckout = useCallback(async (paymentMethod: Exclude<CheckoutPaymentMethod, "CARD">, profile: PaymentProfile) => {
@@ -855,13 +793,19 @@ export default function FinanceiroClientPage() {
     if (profile.payerEmail) setPayerEmail(profile.payerEmail);
 
     const method = paymentConsentMethod;
-    const cardFormData = pendingCardFormDataRef.current;
+    const pendingCardSubmission = pendingCardSubmissionRef.current;
     setPaymentConsentMethod(null);
     setPaymentConsentForm((current) => ({ ...current, acceptedTerms: false }));
 
-    if (method === "CARD" && cardFormData) {
-      await executeSubscription(cardFormData, profile);
-      pendingCardFormDataRef.current = null;
+    if (method === "CARD" && pendingCardSubmission) {
+      try {
+        await executeSubscription(pendingCardSubmission.formData, profile);
+        pendingCardSubmission.resolve({ ok: true });
+      } catch (actionError) {
+        pendingCardSubmission.reject(actionError);
+      } finally {
+        pendingCardSubmissionRef.current = null;
+      }
       return;
     }
 
@@ -930,8 +874,8 @@ export default function FinanceiroClientPage() {
     const teardownBrick = () => {
       clearReadyTimer();
       brickCreatingRef.current = false;
-      cardAutofillCleanupRef.current?.();
-      cardAutofillCleanupRef.current = null;
+      cardSubmitWatchdogCleanupRef.current?.();
+      cardSubmitWatchdogCleanupRef.current = null;
       try {
         brickControllerRef.current?.unmount();
       } catch {
@@ -1002,13 +946,10 @@ export default function FinanceiroClientPage() {
               brickCreatingRef.current = false;
               cardBrickReadyRef.current = true;
               setCardBrickWarning(null);
-              cardAutofillCleanupRef.current?.();
-              cardAutofillCleanupRef.current = enhanceMercadoPagoCardAutofill(
-                setCardVisualBrand,
-                setCardholderName,
-                setCardNumberPreview,
-                setCardExpirationPreview,
-                setCardSecurityFocused,
+              cardSubmitWatchdogCleanupRef.current?.();
+              cardSubmitWatchdogCleanupRef.current = attachMercadoPagoSubmitWatchdog(
+                () => cardSubmitTriggeredAtRef.current,
+                setCardBrickWarning,
               ) || null;
             },
             onSubmit: (cardFormData: MercadoPagoBrickFormData) => submitSubscription(cardFormData),
@@ -1157,69 +1098,6 @@ export default function FinanceiroClientPage() {
                 </div>
               </section>
 
-              <section className={styles.checkoutSection}>
-                <div className={styles.sectionHeader}>
-                  <div>
-                    <strong>Contato de confirmação</strong>
-                    <p className={styles.helperText}>Usamos estes dados para confirmar pagamento, status e suporte da contratação.</p>
-                  </div>
-                </div>
-                <div className={styles.formGrid}>
-                  <label className={styles.fieldWide} htmlFor="checkout-contact-name">
-                    <span className={styles.fieldLabel}>Nome completo do responsável</span>
-                    <input
-                      id="checkout-contact-name"
-                      className={styles.fieldInput}
-                      name="name"
-                      autoComplete="name"
-                      value={contactName}
-                      onChange={(event) => setContactName(event.target.value)}
-                      placeholder="Nome completo"
-                    />
-                  </label>
-                  <label className={styles.field} htmlFor="checkout-contact-phone">
-                    <span className={styles.fieldLabel}>Telefone de contato</span>
-                    <input
-                      id="checkout-contact-phone"
-                      className={styles.fieldInput}
-                      inputMode="tel"
-                      name="tel"
-                      autoComplete="tel"
-                      value={contactPhone}
-                      onChange={(event) => setContactPhone(formatBrazilPhone(event.target.value))}
-                      placeholder="(19)9 9702-4884"
-                    />
-                  </label>
-                  <label className={styles.field} htmlFor="checkout-tax-document">
-                    <span className={styles.fieldLabel}>CPF/CNPJ do pagador</span>
-                    <input
-                      id="checkout-tax-document"
-                      className={styles.fieldInput}
-                      inputMode="numeric"
-                      name="tax-document"
-                      autoComplete="off"
-                      value={payerTaxDocument}
-                      onChange={(event) => setPayerTaxDocument(formatTaxDocument(event.target.value))}
-                      placeholder="000.000.000-00"
-                    />
-                  </label>
-                  <label className={styles.field} htmlFor="checkout-payer-email">
-                    <span className={styles.fieldLabel}>Email de confirmação</span>
-                    <input
-                      id="checkout-payer-email"
-                      className={styles.fieldInput}
-                      type="email"
-                      name="email"
-                      autoComplete="email"
-                      value={payerEmail}
-                      readOnly
-                      aria-readonly="true"
-                      placeholder="email da conta"
-                    />
-                  </label>
-                </div>
-              </section>
-
               <div className={styles.checkoutFactsGrid} aria-label="Dados da contratação">
                 <div>
                   <span>Plano</span>
@@ -1282,51 +1160,45 @@ export default function FinanceiroClientPage() {
                 </div>
                 <span className={styles.statusPill}>Recorrente</span>
               </div>
-              <div className={styles.cardExperience}>
-                <PremiumPaymentCard
-                  holderName={cardholderName}
-                  cardNumber={cardNumberPreview}
-                  expirationLabel={cardExpirationPreview}
-                  brand={cardVisualBrand}
-                  billingLabel={billingCycle === "ANNUAL" ? "Anual" : "Mensal"}
-                  planLabel={plan.title}
-                  amountLabel={formatCurrency(total)}
-                  isSecurityFocused={cardSecurityFocused}
-                />
-                <div className={styles.cardTokenPanel}>
-                  <label className={styles.field} htmlFor="checkout-cardholder-name">
-                    <span className={styles.fieldLabel}>Nome impresso no cartão</span>
+              <div className={styles.cardTokenPanel}>
+                <div className={styles.paymentDataBox}>
+                  <div>
+                    <strong>Contato HBX</strong>
+                    <p>O nome do titular e o documento ficam no formulário seguro do Mercado Pago. O HBX usa este telefone apenas para suporte financeiro.</p>
+                  </div>
+                  <label className={styles.field} htmlFor="checkout-card-contact-phone">
+                    <span className={styles.fieldLabel}>Telefone de contato</span>
                     <input
-                      id="checkout-cardholder-name"
+                      id="checkout-card-contact-phone"
                       className={styles.fieldInput}
-                      name="cc-name"
-                      autoComplete="cc-name"
-                      value={cardholderName}
-                      onChange={(event) => setCardholderName(event.target.value)}
-                      placeholder="Como aparece no cartão"
+                      inputMode="tel"
+                      autoComplete="tel"
+                      value={contactPhone}
+                      onChange={(event) => setContactPhone(formatBrazilPhone(event.target.value))}
+                      placeholder="(19)9 9702-4884"
                     />
                   </label>
-                  {!publicKey ? (
-                    <div className={styles.setupNotice}>
-                      <strong>Cartão em configuração neste ambiente.</strong>
-                      <p>A chave pública do Mercado Pago precisa estar ativa no frontend para exibir o formulário seguro. Pix e boleto seguem disponíveis para este ciclo.</p>
-                    </div>
-                  ) : (
-                    <div id="mp-card-payment-brick" className={styles.mpBrick} />
-                  )}
-                  {cardBrickWarning ? (
-                    <div className={styles.setupNotice}>
-                      <strong>Formulário do cartão não carregou.</strong>
-                      <p>{cardBrickWarning}</p>
-                    </div>
-                  ) : null}
-                  {paymentActionError && checkoutPaymentMethod === "CARD" ? (
-                    <div className={styles.setupNotice}>
-                      <strong>Não foi possível concluir pelo cartão.</strong>
-                      <p>{paymentActionError}</p>
-                    </div>
-                  ) : null}
                 </div>
+                {!publicKey ? (
+                  <div className={styles.setupNotice}>
+                    <strong>Cartão em configuração neste ambiente.</strong>
+                    <p>A chave pública do Mercado Pago precisa estar ativa no frontend para exibir o formulário seguro. Pix segue disponível para este ciclo.</p>
+                  </div>
+                ) : (
+                  <div id="mp-card-payment-brick" className={styles.mpBrick} />
+                )}
+                {cardBrickWarning ? (
+                  <div className={styles.setupNotice}>
+                    <strong>Formulário do cartão não carregou.</strong>
+                    <p>{cardBrickWarning}</p>
+                  </div>
+                ) : null}
+                {paymentActionError && checkoutPaymentMethod === "CARD" ? (
+                  <div className={styles.setupNotice}>
+                    <strong>Não foi possível concluir pelo cartão.</strong>
+                    <p>{paymentActionError}</p>
+                  </div>
+                ) : null}
               </div>
             </section>
           ) : null}
@@ -1340,12 +1212,55 @@ export default function FinanceiroClientPage() {
                 </div>
                 <span className={styles.statusPill}>Avulso</span>
               </div>
+              <div className={styles.paymentDataBox}>
+                <div>
+                  <strong>Dados para gerar o Pix</strong>
+                  <p>Preencha uma vez. Esses dados ficam no cadastro da empresa para suporte e identificação financeira.</p>
+                </div>
+                <div className={styles.paymentDataGrid}>
+                  <label className={styles.field} htmlFor="checkout-pix-contact-name">
+                    <span className={styles.fieldLabel}>Nome completo</span>
+                    <input
+                      id="checkout-pix-contact-name"
+                      className={styles.fieldInput}
+                      autoComplete="name"
+                      value={contactName}
+                      onChange={(event) => setContactName(event.target.value)}
+                      placeholder="Nome completo"
+                    />
+                  </label>
+                  <label className={styles.field} htmlFor="checkout-pix-contact-phone">
+                    <span className={styles.fieldLabel}>Telefone de contato</span>
+                    <input
+                      id="checkout-pix-contact-phone"
+                      className={styles.fieldInput}
+                      inputMode="tel"
+                      autoComplete="tel"
+                      value={contactPhone}
+                      onChange={(event) => setContactPhone(formatBrazilPhone(event.target.value))}
+                      placeholder="(19)9 9702-4884"
+                    />
+                  </label>
+                  <label className={styles.field} htmlFor="checkout-pix-tax-document">
+                    <span className={styles.fieldLabel}>CPF/CNPJ</span>
+                    <input
+                      id="checkout-pix-tax-document"
+                      className={styles.fieldInput}
+                      inputMode="numeric"
+                      autoComplete="off"
+                      value={payerTaxDocument}
+                      onChange={(event) => setPayerTaxDocument(formatTaxDocument(event.target.value))}
+                      placeholder="000.000.000-00"
+                    />
+                  </label>
+                </div>
+              </div>
               <div className={styles.alternativePaymentPanel}>
                 <div>
                   <strong>{formatCurrency(total)}</strong>
                   <p>{cycleLabel} HBX via Pix. Acesso liberado automaticamente quando o Mercado Pago confirmar.</p>
                 </div>
-                <button type="button" className="btn btn-primary" disabled={saving === "checkout-pix"} onClick={() => openPaymentConsent("PIX")}>
+                <button type="button" className="btn btn-primary" disabled={!pixContactReady || saving === "checkout-pix"} onClick={() => openPaymentConsent("PIX")}>
                   {saving === "checkout-pix" ? "Gerando Pix..." : "Gerar Pix"}
                 </button>
               </div>
@@ -1584,59 +1499,72 @@ export default function FinanceiroClientPage() {
                 </button>
               </header>
 
-              <div className={styles.paymentConsentGrid}>
-                <label className={styles.fieldWide} htmlFor="payment-consent-name">
-                  <span className={styles.fieldLabel}>Nome completo</span>
-                  <input
-                    id="payment-consent-name"
-                    className={styles.fieldInput}
-                    autoComplete="name"
-                    value={paymentConsentForm.contactName}
-                    onChange={(event) => setPaymentConsentForm((current) => ({ ...current, contactName: event.target.value }))}
-                    placeholder="Nome completo do responsável"
-                  />
-                </label>
-
-                <label className={styles.field} htmlFor="payment-consent-phone">
-                  <span className={styles.fieldLabel}>Telefone de contato</span>
-                  <input
-                    id="payment-consent-phone"
-                    className={styles.fieldInput}
-                    inputMode="tel"
-                    autoComplete="tel"
-                    value={paymentConsentForm.phone}
-                    onChange={(event) => setPaymentConsentForm((current) => ({ ...current, phone: formatBrazilPhone(event.target.value) }))}
-                    placeholder="(19)9 9702-4884"
-                  />
-                </label>
-
-                <label className={styles.field} htmlFor="payment-consent-cpf">
-                  <span className={styles.fieldLabel}>CPF/CNPJ</span>
-                  <input
-                    id="payment-consent-cpf"
-                    className={styles.fieldInput}
-                    inputMode="numeric"
-                    autoComplete="off"
-                    value={paymentConsentForm.cpf}
-                    onChange={(event) => setPaymentConsentForm((current) => ({ ...current, cpf: formatTaxDocument(event.target.value) }))}
-                    placeholder="000.000.000-00"
-                  />
-                </label>
-
-                <label className={styles.fieldWide} htmlFor="payment-consent-email">
-                  <span className={styles.fieldLabel}>Email de confirmação</span>
-                  <input
-                    id="payment-consent-email"
-                    className={styles.fieldInput}
-                    type="email"
-                    autoComplete="email"
-                    value={paymentConsentForm.email}
-                    readOnly
-                    aria-readonly="true"
-                    placeholder="email da conta"
-                  />
-                </label>
+              <div className={styles.paymentConsentSummary}>
+                <div>
+                  <span>Nome</span>
+                  <strong>{paymentConsentForm.contactName || "Pendente"}</strong>
+                </div>
+                <div>
+                  <span>Telefone</span>
+                  <strong>{paymentConsentForm.phone || "Pendente"}</strong>
+                </div>
+                <div>
+                  <span>CPF/CNPJ</span>
+                  <strong>{paymentConsentForm.cpf || "Pendente"}</strong>
+                </div>
+                <div>
+                  <span>Email</span>
+                  <strong>{paymentConsentForm.email || "Conta HBX"}</strong>
+                </div>
               </div>
+
+              {paymentConsentEditable.contactName || paymentConsentEditable.phone || paymentConsentEditable.cpf ? (
+                <div className={styles.paymentConsentGrid}>
+                  {paymentConsentEditable.contactName ? (
+                    <label className={styles.field} htmlFor="payment-consent-name">
+                      <span className={styles.fieldLabel}>Nome completo</span>
+                      <input
+                        id="payment-consent-name"
+                        className={styles.fieldInput}
+                        autoComplete="name"
+                        value={paymentConsentForm.contactName}
+                        onChange={(event) => setPaymentConsentForm((current) => ({ ...current, contactName: event.target.value }))}
+                        placeholder="Nome completo do responsável"
+                      />
+                    </label>
+                  ) : null}
+
+                  {paymentConsentEditable.phone ? (
+                    <label className={styles.field} htmlFor="payment-consent-phone">
+                      <span className={styles.fieldLabel}>Telefone de contato</span>
+                      <input
+                        id="payment-consent-phone"
+                        className={styles.fieldInput}
+                        inputMode="tel"
+                        autoComplete="tel"
+                        value={paymentConsentForm.phone}
+                        onChange={(event) => setPaymentConsentForm((current) => ({ ...current, phone: formatBrazilPhone(event.target.value) }))}
+                        placeholder="(19)9 9702-4884"
+                      />
+                    </label>
+                  ) : null}
+
+                  {paymentConsentEditable.cpf ? (
+                    <label className={styles.field} htmlFor="payment-consent-cpf">
+                      <span className={styles.fieldLabel}>CPF/CNPJ</span>
+                      <input
+                        id="payment-consent-cpf"
+                        className={styles.fieldInput}
+                        inputMode="numeric"
+                        autoComplete="off"
+                        value={paymentConsentForm.cpf}
+                        onChange={(event) => setPaymentConsentForm((current) => ({ ...current, cpf: formatTaxDocument(event.target.value) }))}
+                        placeholder="000.000.000-00"
+                      />
+                    </label>
+                  ) : null}
+                </div>
+              ) : null}
 
               <label className={styles.paymentConsentTerms} htmlFor="payment-consent-terms">
                 <input

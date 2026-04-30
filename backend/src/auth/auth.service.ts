@@ -114,6 +114,24 @@ export class AuthService implements OnModuleInit {
     return String(value || '').replace(/\D/g, '');
   }
 
+  private hasRepeatedDigits(value: string) {
+    return /^(\d)\1+$/.test(value);
+  }
+
+  private isValidCpf(value: unknown) {
+    const digits = this.normalizeDigits(value);
+    if (digits.length !== 11 || this.hasRepeatedDigits(digits)) return false;
+    const calculate = (length: number) => {
+      let sum = 0;
+      for (let index = 0; index < length; index += 1) {
+        sum += Number(digits[index]) * (length + 1 - index);
+      }
+      const mod = (sum * 10) % 11;
+      return mod === 10 ? 0 : mod;
+    };
+    return calculate(9) === Number(digits[9]) && calculate(10) === Number(digits[10]);
+  }
+
   private normalizeBrazilPhone(value: unknown) {
     const digits = this.normalizeDigits(value);
     const withoutCountry = digits.startsWith('55') && digits.length > 11 ? digits.slice(2) : digits;
@@ -139,6 +157,12 @@ export class AuthService implements OnModuleInit {
       throw new BadRequestException({
         code: 'TRIAL_CONTACT_PHONE_REQUIRED',
         message: 'Informe um telefone de contato válido para iniciar o trial.',
+      });
+    }
+    if (!this.isValidCpf(taxDocument)) {
+      throw new BadRequestException({
+        code: 'TRIAL_TAX_DOCUMENT_INVALID',
+        message: 'Informe um CPF válido para iniciar o trial.',
       });
     }
     if (data.acceptedTerms !== true) {
