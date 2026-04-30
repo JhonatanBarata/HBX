@@ -80,6 +80,7 @@ const PLAN_LABELS: Record<PlanKey, string> = {
 };
 
 function isPendingCheckout(payload: CommercialPlansPayload | null) {
+  if (isPaidOrActive(payload)) return false;
   const subscriptionStatus = String(payload?.current.subscriptionStatus || "").trim().toLowerCase();
   const paymentStatus = String(payload?.current.paymentStatus || "").trim().toUpperCase();
   const onboardingStatus = String(payload?.current.onboardingStatus || "").trim().toLowerCase();

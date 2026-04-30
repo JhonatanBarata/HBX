@@ -113,10 +113,10 @@ function resolveReason(input: {
   paymentMethod: string;
 }) {
   const { canUse, paymentStatus, subscriptionStatus, paymentMethod } = input;
-  const paidAllowed = paymentStatus === 'PAID' || subscriptionStatus === 'active';
+  const paidAllowed = paymentStatus === 'PAID' || subscriptionStatus === 'active' || subscriptionStatus === 'authorized';
   const trialAllowed = paymentStatus === 'TRIAL' || subscriptionStatus === 'trialing';
   const manualAllowed = paymentStatus === 'MANUAL' || subscriptionStatus === 'manual';
-  const overdue = paymentStatus === 'OVERDUE' || paymentStatus === 'PENDING' || subscriptionStatus === 'past_due';
+  const overdue = paymentStatus === 'OVERDUE' || (!paidAllowed && paymentStatus === 'PENDING') || subscriptionStatus === 'past_due';
   const suspended =
     paymentStatus === 'DISABLED' ||
     paymentStatus === 'EXPIRED' ||

@@ -31,10 +31,17 @@ export class ModuleAccessGuard implements CanActivate {
     const onboardingStatus = String(user?.company?.onboardingStatus || '').trim().toLowerCase();
     const subscriptionStatus = String(user?.company?.subscriptionStatus || '').trim().toLowerCase();
     const paymentStatus = String(user?.company?.paymentStatus || '').trim().toUpperCase();
+    const authorizedAccess =
+      subscriptionStatus === 'authorized' ||
+      subscriptionStatus === 'active' ||
+      paymentStatus === 'PAID';
     const pendingCheckout =
-      onboardingStatus === 'pending_checkout' ||
-      subscriptionStatus === 'pending_checkout' ||
-      paymentStatus === 'PENDING';
+      !authorizedAccess &&
+      (
+        onboardingStatus === 'pending_checkout' ||
+        subscriptionStatus === 'pending_checkout' ||
+        paymentStatus === 'PENDING'
+      );
 
     if (pendingCheckout) {
       const role = String(user?.role || '').trim().toUpperCase();

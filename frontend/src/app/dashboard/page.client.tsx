@@ -563,6 +563,15 @@ function commercialBanner(user: CurrentUser | null) {
   const onboardingStatus = String(company.onboardingStatus || "").trim().toLowerCase();
   const paymentStatus = String(company.paymentStatus || "").trim().toUpperCase();
   const subscriptionStatus = String(company.subscriptionStatus || "").trim().toLowerCase();
+  if (subscriptionStatus === "active" || subscriptionStatus === "authorized" || paymentStatus === "PAID") {
+    return {
+      tone: "paid",
+      title: "Plano ativo",
+      text: "Seu ciclo pago está liberado.",
+      href: "/dashboard/financeiro",
+      cta: "Gerenciar plano",
+    };
+  }
   if (subscriptionStatus === "trialing" || paymentStatus === "TRIAL" || onboardingStatus === "active_trial") {
     const days = typeof company.trialRemainingDays === "number" ? company.trialRemainingDays : null;
     return {
@@ -582,15 +591,6 @@ function commercialBanner(user: CurrentUser | null) {
       cta: "Finalizar checkout",
     };
   }
-  if (subscriptionStatus === "active" || paymentStatus === "PAID") {
-    return {
-      tone: "paid",
-      title: "Plano ativo",
-      text: "Seu ciclo pago está liberado.",
-      href: "/dashboard/financeiro",
-      cta: "Gerenciar plano",
-    };
-  }
   return null;
 }
 
@@ -600,6 +600,13 @@ function isCompanyPendingCheckout(user: CurrentUser | null) {
   const onboardingStatus = String(company.onboardingStatus || "").trim().toLowerCase();
   const paymentStatus = String(company.paymentStatus || "").trim().toUpperCase();
   const subscriptionStatus = String(company.subscriptionStatus || "").trim().toLowerCase();
+  const accessReleased =
+    paymentStatus === "PAID" ||
+    paymentStatus === "MANUAL" ||
+    subscriptionStatus === "active" ||
+    subscriptionStatus === "authorized" ||
+    subscriptionStatus === "manual";
+  if (accessReleased) return false;
   return onboardingStatus === "pending_checkout" || subscriptionStatus === "pending_checkout" || paymentStatus === "PENDING";
 }
 
