@@ -31,9 +31,11 @@ export default function WhatsAppHelpBubble() {
       const footerReached = footer
         ? footer.getBoundingClientRect().top < window.innerHeight - 120
         : false;
-      const scrollBottom = window.scrollY + window.innerHeight;
       const pageBottom = Math.max(document.documentElement.scrollHeight, document.body.scrollHeight);
-      setHiddenByFooter(footerReached || scrollBottom >= pageBottom - 24);
+      const hasScrollablePage = pageBottom > window.innerHeight + 80;
+      const scrollBottom = window.scrollY + window.innerHeight;
+      const reachedPageBottom = hasScrollablePage && window.scrollY > 80 && scrollBottom >= pageBottom - 24;
+      setHiddenByFooter(footerReached || reachedPageBottom);
     };
 
     sync();

@@ -380,7 +380,7 @@ export class FinanceiroService {
       currency: 'BRL',
       monthlyValue,
       title,
-      reason: `${title} ${billingCycle === 'ANNUAL' ? 'anual' : 'mensal'}`,
+      reason: 'HBX System',
       frequency: billingCycle === 'ANNUAL' ? 12 : 1,
       frequencyType: 'months' as const,
     };
