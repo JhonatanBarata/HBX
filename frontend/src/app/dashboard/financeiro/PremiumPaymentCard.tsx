@@ -25,19 +25,11 @@ function brandLabel(brand: CardBrand) {
 }
 
 export default function PremiumPaymentCard({
-  holderName = "",
   cardNumber = "",
   brand = "card",
-  billingLabel = "Mensal",
-  planLabel = "HBX",
   amountLabel = "R$ 109,90",
 }: PremiumPaymentCardProps) {
   const [tilt, setTilt] = useState({ x: 0, y: 0 });
-
-  const displayName = useMemo(() => {
-    const clean = holderName.trim();
-    return clean ? clean.toUpperCase().slice(0, 30) : "DADOS NO BRICK";
-  }, [holderName]);
 
   const displayNumberGroups = useMemo(() => {
     const digits = cardNumber.replace(/\D/g, "").slice(0, 16);
@@ -77,18 +69,6 @@ export default function PremiumPaymentCard({
             {displayNumberGroups.map((group, index) => (
               <span key={`${group}-${index}`}>{group}</span>
             ))}
-          </div>
-
-          <div className={styles.bottomRow}>
-            <div>
-              <small>Mercado Pago</small>
-              <strong>{displayName}</strong>
-            </div>
-
-            <div className={styles.rightInfo}>
-              <small>{planLabel}</small>
-              <strong>{billingLabel}</strong>
-            </div>
           </div>
 
           <div className={styles.amountBadge}>

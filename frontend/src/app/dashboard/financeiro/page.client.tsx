@@ -39,6 +39,7 @@ type PaymentProfile = {
 
 type CheckoutSubmissionContext = {
   billingCycle: BillingCycle;
+  companyName: string;
   contactName: string;
   checkoutMode: boolean;
   contactPhone: string;
@@ -90,6 +91,11 @@ type PendingCardSubmission = {
   formData: MercadoPagoBrickFormData;
   resolve: (value?: unknown) => void;
   reject: (reason?: unknown) => void;
+};
+type CardPaymentNotice = {
+  tone: "info" | "success" | "error";
+  title: string;
+  text: string;
 };
 type ApiErrorWithPayload = {
   payload?: {
@@ -524,6 +530,7 @@ export default function FinanceiroClientPage() {
   const [error, setError] = useState<string | null>(null);
   const [paymentActionError, setPaymentActionError] = useState<string | null>(null);
   const [cardBrickWarning, setCardBrickWarning] = useState<string | null>(null);
+  const [cardPaymentNotice, setCardPaymentNotice] = useState<CardPaymentNotice | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [overview, setOverview] = useState<FinanceiroOverview | null>(null);
   const [billingCycle, setBillingCycle] = useState<BillingCycle>("MONTHLY");
@@ -533,6 +540,7 @@ export default function FinanceiroClientPage() {
   const [contactPhone, setContactPhone] = useState("");
   const [payerTaxDocument, setPayerTaxDocument] = useState("");
   const [payerEmail, setPayerEmail] = useState("");
+  const [cardAcceptedTerms, setCardAcceptedTerms] = useState(false);
   const [showCardUpdate, setShowCardUpdate] = useState(false);
   const [forceCheckout, setForceCheckout] = useState(false);
   const [cancelModalOpen, setCancelModalOpen] = useState(false);
@@ -580,6 +588,7 @@ export default function FinanceiroClientPage() {
   useEffect(() => {
     checkoutSubmissionRef.current = {
       billingCycle,
+      companyName: overview?.company.name || "",
       contactName,
       checkoutMode,
       contactPhone,
@@ -588,7 +597,7 @@ export default function FinanceiroClientPage() {
       selectedPlanKey,
       showCardUpdate,
     };
-  }, [billingCycle, contactName, checkoutMode, contactPhone, payerEmail, payerTaxDocument, selectedPlanKey, showCardUpdate]);
+  }, [billingCycle, contactName, checkoutMode, contactPhone, overview?.company.name, payerEmail, payerTaxDocument, selectedPlanKey, showCardUpdate]);
 
   const loadOverview = useCallback(async (background = false) => {
     if (!background) setLoading(true);
@@ -684,6 +693,11 @@ export default function FinanceiroClientPage() {
     setSaving(context.showCardUpdate && !context.checkoutMode ? "change-card" : "subscription");
     setError(null);
     setPaymentActionError(null);
+    setCardPaymentNotice({
+      tone: "info",
+      title: "Cartão tokenizado.",
+      text: "Enviando autorização para o HBX e Mercado Pago. Aguarde a resposta.",
+    });
     try {
       console.info("[HBX financeiro] Enviando assinatura para /financeiro/subscription/create.", {
         mode: context.showCardUpdate && !context.checkoutMode ? "change-card" : "subscription",
@@ -721,6 +735,13 @@ export default function FinanceiroClientPage() {
           });
       if (payload?.overview) setOverview(payload.overview);
       else await loadOverview(true);
+      setCardPaymentNotice({
+        tone: "success",
+        title: "Cartão autorizado.",
+        text: context.showCardUpdate && !context.checkoutMode
+          ? "O cartão foi atualizado no Mercado Pago."
+          : "A assinatura foi enviada. A liberação ocorre assim que o Mercado Pago confirmar.",
+      });
       setMessage(context.showCardUpdate && !context.checkoutMode ? "Cartão atualizado no Mercado Pago." : "Cartão autorizado. A liberação ocorre assim que o Mercado Pago confirmar o primeiro pagamento.");
       setShowCardUpdate(false);
       setForceCheckout(false);
@@ -728,6 +749,11 @@ export default function FinanceiroClientPage() {
       const text = resolveBillingActionError(actionError, "Não conseguimos autorizar o cartão.");
       setError(text);
       setPaymentActionError(text);
+      setCardPaymentNotice({
+        tone: "error",
+        title: "Cartão não autorizado.",
+        text,
+      });
       throw actionError;
     } finally {
       setSaving(null);
@@ -738,18 +764,60 @@ export default function FinanceiroClientPage() {
 
   const submitSubscription = useCallback((cardFormData: MercadoPagoBrickFormData) => {
     cardSubmitTriggeredAtRef.current = Date.now();
-    pendingCardSubmissionRef.current?.reject(new Error("Uma nova tentativa de pagamento foi iniciada."));
-    pendingCardSubmissionRef.current = {
-      formData: cardFormData,
-      resolve: () => undefined,
-      reject: () => undefined,
+    const context = checkoutSubmissionRef.current;
+    if (!context) {
+      const message = "Checkout ainda não está pronto. Recarregue a página e tente novamente.";
+      setPaymentActionError(message);
+      setCardPaymentNotice({ tone: "error", title: "Checkout indisponível.", text: message });
+      return Promise.reject(new Error(message));
+    }
+
+    const cardholderName = extractBrickCardholderName(cardFormData);
+    const taxDocument = onlyDigits(extractBrickTaxDocument(cardFormData) || context.taxDocument);
+    const profile: PaymentProfile = {
+      contactName: (cardholderName || context.contactName || context.companyName || "").trim(),
+      contactPhone: normalizeBrazilPhone(context.contactPhone),
+      taxDocument,
+      payerEmail: extractBrickEmail(cardFormData, context.payerEmail),
+      acceptedTerms: true,
     };
-    console.info("[HBX financeiro] Cartão tokenizado. Aguardando autorização HBX antes de chamar /financeiro/subscription/create.");
-    openPaymentConsent("CARD", cardFormData);
-    return Promise.resolve({
-      status: "waiting_hbx_authorization",
+
+    if (!cardAcceptedTerms) {
+      const message = "Marque a autorização HBX antes de pagar com cartão.";
+      setPaymentActionError(message);
+      setCardPaymentNotice({ tone: "error", title: "Autorização pendente.", text: message });
+      console.warn("[HBX financeiro] Pagamento por cartão bloqueado: aceite HBX ausente.");
+      return Promise.reject(new Error(message));
+    }
+
+    if (profile.contactPhone.length < 10) {
+      const message = "Informe o telefone de contato antes de pagar com cartão.";
+      setPaymentActionError(message);
+      setCardPaymentNotice({ tone: "error", title: "Telefone pendente.", text: message });
+      console.warn("[HBX financeiro] Pagamento por cartão bloqueado: telefone ausente.");
+      return Promise.reject(new Error(message));
+    }
+
+    if (profile.contactName.length < 3 || !isValidTaxDocument(profile.taxDocument)) {
+      const message = "O Mercado Pago não retornou nome e CPF/CNPJ válidos do titular. Revise os campos do formulário do cartão e tente novamente.";
+      setPaymentActionError(message);
+      setCardPaymentNotice({ tone: "error", title: "Dados do titular pendentes.", text: message });
+      console.warn("[HBX financeiro] Pagamento por cartão bloqueado: dados do titular ausentes no Brick.", {
+        hasContactName: profile.contactName.length >= 3,
+        hasValidTaxDocument: isValidTaxDocument(profile.taxDocument),
+      });
+      return Promise.reject(new Error(message));
+    }
+
+    setPaymentActionError(null);
+    setCardPaymentNotice({
+      tone: "info",
+      title: "Cartão tokenizado.",
+      text: "Chamando o backend do HBX para criar a assinatura.",
     });
-  }, [openPaymentConsent]);
+    console.info("[HBX financeiro] Cartão tokenizado. Chamando /financeiro/subscription/create.");
+    return executeSubscription(cardFormData, profile);
+  }, [cardAcceptedTerms, executeSubscription]);
 
   const executeOneOffCheckout = useCallback(async (paymentMethod: Exclude<CheckoutPaymentMethod, "CARD">, profile: PaymentProfile) => {
     const context = checkoutSubmissionRef.current;
@@ -979,6 +1047,11 @@ export default function FinanceiroClientPage() {
               if (!isActive(attemptToken)) return;
               const text = brickError instanceof Error ? brickError.message : "Falha no formulário seguro do Mercado Pago.";
               console.error("[HBX financeiro] Mercado Pago Brick onError.", brickError);
+              setCardPaymentNotice({
+                tone: "error",
+                title: "Erro no formulário do cartão.",
+                text,
+              });
               setError(text);
             },
           },
@@ -1188,14 +1261,8 @@ export default function FinanceiroClientPage() {
                   <div className={styles.cardPreviewStack}>
                     <PremiumPaymentCard
                       brand="card"
-                      holderName="Dados no Brick"
-                      billingLabel={cycleLabel}
-                      planLabel={plan.title}
                       amountLabel={formatCurrency(total)}
                     />
-                    <p>
-                      Preview visual apenas para orientar o checkout. Os dados reais do cartão continuam no formulário seguro do Mercado Pago.
-                    </p>
                   </div>
                   <div className={styles.cardPaymentStack}>
                     <div className={styles.paymentDataBox}>
@@ -1215,6 +1282,19 @@ export default function FinanceiroClientPage() {
                           placeholder="(19)9 9702-4884"
                         />
                       </label>
+                      <label className={styles.cardAuthorizationBox} htmlFor="checkout-card-authorization">
+                        <input
+                          id="checkout-card-authorization"
+                          type="checkbox"
+                          checked={cardAcceptedTerms}
+                          onChange={(event) => setCardAcceptedTerms(event.target.checked)}
+                        />
+                        <span>
+                          Autorizo o HBX a usar os dados do titular informados no formulário seguro do Mercado Pago,
+                          junto com este telefone, para validar a contratação e suporte financeiro. Dados sensíveis do
+                          cartão continuam tokenizados pelo Mercado Pago e não são armazenados pelo HBX.
+                        </span>
+                      </label>
                     </div>
                     {!publicKey ? (
                       <div className={styles.setupNotice}>
@@ -1230,6 +1310,12 @@ export default function FinanceiroClientPage() {
                   <div className={styles.setupNotice}>
                     <strong>Formulário do cartão não carregou.</strong>
                     <p>{cardBrickWarning}</p>
+                  </div>
+                ) : null}
+                {cardPaymentNotice ? (
+                  <div className={styles.cardPaymentNotice} data-tone={cardPaymentNotice.tone}>
+                    <strong>{cardPaymentNotice.title}</strong>
+                    <p>{cardPaymentNotice.text}</p>
                   </div>
                 ) : null}
                 {paymentActionError && checkoutPaymentMethod === "CARD" ? (

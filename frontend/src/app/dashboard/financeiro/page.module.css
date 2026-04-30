@@ -1090,16 +1090,6 @@
   box-shadow: var(--shadow-inset);
 }
 
-.cardPreviewStack p {
-  max-width: 34ch;
-  margin: 0;
-  color: var(--foreground-soft);
-  font-size: 0.78rem;
-  font-weight: 760;
-  line-height: 1.35;
-  text-align: center;
-}
-
 .cardMock {
   min-height: 190px;
   display: grid;
@@ -1280,6 +1270,40 @@
   min-width: 0;
 }
 
+.cardPaymentNotice {
+  display: grid;
+  gap: 0.3rem;
+  border: 1px solid color-mix(in srgb, var(--info) 28%, var(--line));
+  border-radius: 16px;
+  padding: 0.9rem 1rem;
+  background: color-mix(in srgb, var(--info) 10%, var(--surface));
+  color: color-mix(in srgb, var(--info) 78%, var(--foreground));
+}
+
+.cardPaymentNotice[data-tone="success"] {
+  border-color: color-mix(in srgb, var(--success) 34%, var(--line));
+  background: color-mix(in srgb, var(--success) 12%, var(--surface));
+  color: color-mix(in srgb, var(--success) 76%, var(--foreground));
+}
+
+.cardPaymentNotice[data-tone="error"] {
+  border-color: color-mix(in srgb, var(--danger) 34%, var(--line));
+  background: color-mix(in srgb, var(--danger) 10%, var(--surface));
+  color: color-mix(in srgb, var(--danger) 80%, var(--foreground));
+}
+
+.cardPaymentNotice strong,
+.cardPaymentNotice p {
+  margin: 0;
+}
+
+.cardPaymentNotice p {
+  color: currentColor;
+  font-size: 0.88rem;
+  font-weight: 760;
+  line-height: 1.35;
+}
+
 .paymentDataBox {
   display: grid;
   gap: 0.85rem;
@@ -1300,6 +1324,27 @@
   color: var(--foreground-soft);
   font-weight: 720;
   line-height: 1.4;
+}
+
+.cardAuthorizationBox {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  gap: 0.65rem;
+  border: 1px solid color-mix(in srgb, var(--info) 22%, var(--line));
+  border-radius: 14px;
+  padding: 0.78rem;
+  color: var(--foreground-soft);
+  background: color-mix(in srgb, var(--surface-raised) 78%, var(--background));
+  font-size: 0.82rem;
+  font-weight: 760;
+  line-height: 1.35;
+}
+
+.cardAuthorizationBox input {
+  width: 18px;
+  height: 18px;
+  margin-top: 0.05rem;
+  accent-color: var(--info);
 }
 
 .paymentDataGrid {
