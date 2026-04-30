@@ -517,7 +517,7 @@ export default function PlanosClientPage() {
                 plans={planCards}
                 selectedPlanKey={selectedPlanKey}
                 billingCycle={billingCycle === "ANNUAL" ? "annual" : "monthly"}
-                mode="signup"
+                mode="plans"
                 canSelect={canSelectPlan}
                 hidePrices={!canSelectPlan}
                 highlightPlanKey={promotedPlanKey}

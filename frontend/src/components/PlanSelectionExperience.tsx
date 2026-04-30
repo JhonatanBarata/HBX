@@ -3,7 +3,7 @@
 import styles from "./PlanSelectionExperience.module.css";
 
 export type PlanSelectionBillingCycle = "monthly" | "annual";
-export type PlanSelectionMode = "signup" | "upgrade" | "pending_checkout";
+export type PlanSelectionMode = "signup" | "upgrade" | "pending_checkout" | "plans";
 
 export type PlanSelectionCard = {
   key: "hbx_lite" | "hbx_padrao" | "hbx_melhor";
