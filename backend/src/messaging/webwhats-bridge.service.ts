@@ -2919,6 +2919,7 @@ export class WebwhatsBridgeService {
           companyId,
           channel: 'whatsapp',
           contact: input.contact,
+          botActive: false,
           metadata: input.metadata,
           ...(input.lastMessageAt ? { lastMessageAt: input.lastMessageAt } : {}),
           ...(input.lastInteractionAt ? { lastInteractionAt: input.lastInteractionAt } : {}),

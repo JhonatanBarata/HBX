@@ -1,3 +1,5 @@
+import { normalizeInternalRouteAlias } from "./route-aliases";
+
 export type WhatsAppCenterPayload = {
   generatedAt: string;
   company: {
@@ -119,7 +121,7 @@ export function whatsappModalStatusLabel(value?: string | null) {
 
 export function getWhatsAppModalPlanRedirect(payload?: WhatsAppModalPayload | null) {
   if (payload?.errorCode === "TRIAL_PHONE_ALREADY_USED") {
-    return payload.redirectTo || "/dashboard/planos?intent=trial_phone_used";
+    return normalizeInternalRouteAlias(payload.redirectTo) || "/planos?intent=trial_phone_used";
   }
   return null;
 }

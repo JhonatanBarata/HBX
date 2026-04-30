@@ -25,6 +25,14 @@ function normalizeWhatsAppContact(raw: string): string {
   return String(raw || '').trim();
 }
 
+function normalizeModuleName(value: string | null | undefined): string {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+}
+
 export type QueueOutboundPayload = {
   conversationId?: number;
   to: string;
@@ -142,7 +150,7 @@ export class ConversationsService {
     }
     return this.prisma.companyConversation.upsert({
       where: { companyId_channel_contact: { companyId, channel, contact } },
-      create: { companyId, channel, contact, lastMessageAt: at, lastInteractionAt: at },
+      create: { companyId, channel, contact, botActive: false, lastMessageAt: at, lastInteractionAt: at },
       update: { lastMessageAt: at, lastInteractionAt: at },
     });
   }
@@ -326,6 +334,48 @@ export class ConversationsService {
     return Date.now() - new Date(lastInbound.timestamp).getTime() <= TWENTY_FOUR_HOURS_MS;
   }
 
+  private isBotOutbound(sourceModule: string, senderType: string): boolean {
+    const source = normalizeModuleName(sourceModule);
+    const sender = normalizeModuleName(senderType);
+    return sender === 'bot' || source.includes('bot');
+  }
+
+  private isProspectionOutbound(sourceModule: string, variables?: Record<string, unknown>): boolean {
+    const source = normalizeModuleName(sourceModule);
+    const botType = normalizeModuleName(String(variables?.botType || variables?.bot_type || ''));
+    return (
+      source.includes('prospeccao') ||
+      source.includes('prospect') ||
+      botType === 'prospeccao' ||
+      botType === 'prospection'
+    );
+  }
+
+  private async hasAnyInboundMessage(companyId: number, conversationId: number): Promise<boolean> {
+    const inbound = await this.prisma.companyMessage.findFirst({
+      where: { companyId, conversationId, direction: 'INBOUND' },
+      select: { id: true },
+      orderBy: { timestamp: 'desc' },
+    });
+    return Boolean(inbound?.id);
+  }
+
+  private async assertBotOutboundMayContinueConversation(input: {
+    companyId: number;
+    conversationId: number;
+    sourceModule: string;
+    senderType: string;
+    variables?: Record<string, unknown>;
+  }) {
+    if (!this.isBotOutbound(input.sourceModule, input.senderType)) return;
+    if (this.isProspectionOutbound(input.sourceModule, input.variables)) return;
+    if (await this.hasAnyInboundMessage(input.companyId, input.conversationId)) return;
+
+    throw new BadRequestException(
+      'Bot nao pode iniciar conversa no WhatsApp. Aguarde uma mensagem do cliente ou use um fluxo de prospeccao autorizado.',
+    );
+  }
+
   async queueOutboundForCompany(companyIdInput: number, payload: QueueOutboundPayload) {
     const companyId = Number(companyIdInput);
     const to = normalizeWhatsAppContact(payload?.to || '');
@@ -381,6 +431,13 @@ export class ConversationsService {
     if (!conversation) {
       conversation = await this.getOrCreateConversation({ companyId, contact: to, channel: 'whatsapp', at });
     }
+    await this.assertBotOutboundMayContinueConversation({
+      companyId,
+      conversationId: conversation.id,
+      sourceModule,
+      senderType,
+      variables: payload?.variables,
+    });
     const conversationMetadata = this.parseConversationMetadata(conversation?.metadata);
     const resolvedCreds = resolveWhatsAppCredentials(company, {
       endpointId:

@@ -1,7 +1,7 @@
 import type {
   InboxConversation,
   InboxRecoveryPaymentSummary,
-} from "@/app/dashboard/inbox/inbox-model";
+} from "@/app/atendimento/inbox-model";
 import { mapRecoveryFlowStepLabel } from "./recovery-data";
 import type {
   WorkspaceBadgeDescriptor,

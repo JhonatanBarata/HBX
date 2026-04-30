@@ -1,7 +1,15 @@
-"use client";
+export const dynamic = "force-dynamic";
 
-import EditImportacaoClientPage from "./page.client";
+import { redirect } from "next/navigation";
+import { withLegacySearchParams, type LegacySearchParams } from "@/app/_lib/legacyRedirect";
 
-export default function EditImportacaoPage() {
-  return <EditImportacaoClientPage />;
+type LegacyRedirectProps = {
+  params: Promise<{ id: string }> | { id: string };
+  searchParams?: Promise<LegacySearchParams> | LegacySearchParams;
+};
+
+export default async function Page({ params, searchParams }: LegacyRedirectProps) {
+  const resolvedParams = await params;
+  const id = encodeURIComponent(String(resolvedParams.id || ""));
+  redirect(withLegacySearchParams(`/importacoes/editar/${id}`, await searchParams));
 }

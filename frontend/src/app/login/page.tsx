@@ -3,7 +3,7 @@
 import type { CSSProperties, FormEvent, PointerEvent as ReactPointerEvent } from "react";
 import { useEffect, useEffectEvent, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { apiFetch, setToken } from "../dashboard/_lib/api";
+import { apiFetch, setToken } from "@/app/_lib/api";
 import { useHbxTheme } from "../../components/ThemeProvider";
 import {
   LOGIN_VIDEO_PREFERENCE_EVENT,
@@ -11,6 +11,7 @@ import {
   persistLoginVideoEnabled,
   readStoredLoginVideoEnabled,
 } from "../../lib/login-visual-preferences";
+import { normalizeInternalRouteAlias } from "../../lib/route-aliases";
 import { useLoginColdStart, type LoginState } from "../../lib/useLoginColdStart";
 import { resolveWebsiteOnlyDestination } from "../../lib/websiteLaunch";
 
@@ -238,22 +239,22 @@ function getInternalLoginDestination(data: unknown) {
 
   const trimmed = destination.trim();
   if (!trimmed || !trimmed.startsWith("/") || trimmed.startsWith("//")) return null;
-  return trimmed;
+  return normalizeInternalRouteAlias(trimmed);
 }
 
 async function resolvePostLoginDestination(data: unknown) {
   const explicitDestination = getInternalLoginDestination(data);
-  if (explicitDestination && explicitDestination !== "/dashboard") {
+  if (explicitDestination && explicitDestination !== "/boasvindas") {
     return explicitDestination;
   }
 
   try {
     const currentUser = await apiFetch<LoginCurrentUser>("/profile/current-user");
     if (currentUser?.isSystemMaster) {
-      return "/dashboard/master";
+      return "/master";
     }
   } catch {
-    // Keep the login flow moving; /dashboard still resolves the safest fallback.
+    // Keep the login flow moving; /boasvindas still resolves the safest fallback.
   }
 
   try {
@@ -265,7 +266,7 @@ async function resolvePostLoginDestination(data: unknown) {
     // ignore website-only resolution failures
   }
 
-  return explicitDestination || "/dashboard";
+  return explicitDestination || "/boasvindas";
 }
 
 export default function LoginPage() {

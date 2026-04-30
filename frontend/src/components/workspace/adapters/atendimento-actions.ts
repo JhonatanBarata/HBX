@@ -1,4 +1,4 @@
-import type { InboxConversation } from "@/app/dashboard/inbox/inbox-model";
+import type { InboxConversation } from "@/app/atendimento/inbox-model";
 import { hasAtendimentoRecoveryContext } from "./atendimento-data";
 import type { WorkspaceActionDescriptor } from "./types";
 

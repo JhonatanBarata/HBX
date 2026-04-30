@@ -15,5 +15,5 @@ export default async function Page({
   if (normalizedRecoveryTab) {
     params.set("recoveryTab", normalizedRecoveryTab);
   }
-  redirect(`/dashboard/inbox?${params.toString()}`);
+  redirect(`/atendimento?${params.toString()}`);
 }

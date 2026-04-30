@@ -1,4 +1,4 @@
-import { apiFetch } from '../app/dashboard/_lib/api';
+import { apiFetch } from "@/app/_lib/api";
 
 type UserModule = {
   key: string;
@@ -42,8 +42,8 @@ export async function resolveWebsiteOnlyDestination() {
   }
 
   try {
-    return (await resolveWebsiteLaunchUrl('admin')) || '/dashboard/website';
+    return (await resolveWebsiteLaunchUrl('admin')) || '/website';
   } catch {
-    return '/dashboard/website';
+    return '/website';
   }
 }

@@ -3,8 +3,9 @@
 import Link from "next/link";
 import React, { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { usePathname } from "next/navigation";
-import { apiFetch, getToken } from "../app/dashboard/_lib/api";
+import { apiFetch, clearApiCache, getToken } from "@/app/_lib/api";
 import { MASTER_CONTEXT_CHANGED_EVENT } from "../lib/masterContextEvents";
+import { MODULES_CHANGED_EVENT } from "../lib/module-events";
 import type { PresentationConfig, PresentationModuleOverride } from "../lib/presentation-config";
 import {
   inferModuleCategory,
@@ -33,120 +34,120 @@ type NavItem = {
 const NAV_ITEMS: NavItem[] = [
   {
     key: "vendas",
-    href: "/dashboard/vendas",
+    href: "/vendas",
     label: "Vendas",
     shortLabel: "VD",
     description: "CRM principal da operação.",
-    matcher: (route) => route.startsWith("/dashboard/vendas"),
+    matcher: (route) => route.startsWith("/vendas"),
     category: "commercial",
     moduleKey: "vendas",
   },
   {
     key: "atendimento",
-    href: "/dashboard/inbox",
+    href: "/atendimento",
     label: "Atendimento",
     shortLabel: "AT",
     description: "Conversas e fila humana.",
     matcher: (route) =>
-      route.startsWith("/dashboard/inbox") ||
+      route.startsWith("/atendimento") ||
       route.startsWith("/hbx-recovery") ||
-      route.startsWith("/dashboard/auto-replies") ||
-      route.startsWith("/dashboard/messages"),
+      route.startsWith("/auto-replies") ||
+      route.startsWith("/messages"),
     category: "commercial",
     moduleKey: "atendimento",
   },
   {
     key: "website",
-    href: "/dashboard/website",
+    href: "/website",
     label: "Website",
     shortLabel: "WB",
     description: "Site e admin.",
-    matcher: (route) => route.startsWith("/dashboard/website"),
+    matcher: (route) => route.startsWith("/website"),
     category: "commercial",
     moduleKey: "website",
   },
   {
     key: "webscraping",
-    href: "/dashboard/webscraping",
+    href: "/webscraping",
     label: "Webscraping",
     shortLabel: "WS",
     description: "Captação local.",
-    matcher: (route) => route.startsWith("/dashboard/webscraping"),
+    matcher: (route) => route.startsWith("/webscraping"),
     category: "commercial",
     moduleKey: "webscraping",
   },
   {
     key: "follow_up_internacional",
-    href: "/dashboard/importacoes/followup-global",
+    href: "/followup-global",
     label: "Follow Up",
     shortLabel: "FU",
     description: "Follow-up internacional.",
     matcher: (route) =>
-      route.startsWith("/dashboard/importacoes/followup-global") ||
-      route.startsWith("/dashboard/importacoes/historico") ||
-      route.startsWith("/dashboard/importacoes/novo"),
+      route.startsWith("/followup-global") ||
+      route.startsWith("/importacoes/historico") ||
+      route.startsWith("/importacoes/novo"),
     category: "commercial",
     moduleKey: "follow_up_internacional",
   },
   {
     key: "cadastro",
-    href: "/dashboard/importacoes/cadastros",
+    href: "/importacoes/cadastros",
     label: "Cadastro",
     shortLabel: "CD",
     description: "Base estrutural.",
-    matcher: (route) => route.startsWith("/dashboard/importacoes/cadastros"),
+    matcher: (route) => route.startsWith("/importacoes/cadastros"),
     category: "structural",
     companyOnly: true,
     moduleKey: "cadastro",
   },
   {
     key: "financeiro",
-    href: "/dashboard/financeiro",
+    href: "/pagamento",
     label: "Financeiro",
     shortLabel: "FN",
     description: "Cobrança e plano.",
-    matcher: (route) => route.startsWith("/dashboard/financeiro"),
+    matcher: (route) => route.startsWith("/pagamento"),
     category: "structural",
     moduleKey: "financeiro",
   },
   {
     key: "planos",
-    href: "/dashboard/planos",
+    href: "/planos",
     label: "Planos",
     shortLabel: "PL",
     description: "Escolha Vendas, Atendimento ou veja disponibilidade.",
-    matcher: (route) => route.startsWith("/dashboard/planos"),
+    matcher: (route) => route.startsWith("/planos"),
     category: "structural",
   },
   {
     key: "gerencial",
-    href: "/dashboard/gerencial",
+    href: "/gerencial",
     label: "Gerencial",
     shortLabel: "GE",
     description: "Equipe e acessos.",
-    matcher: (route) => route.startsWith("/dashboard/gerencial"),
+    matcher: (route) => route.startsWith("/gerencial"),
     category: "structural",
     adminOnly: true,
     moduleKey: "gerencial",
   },
   {
     key: "whatsapp",
-    href: "/dashboard/whatsapp",
+    href: "/whatsapp",
     label: "WhatsApp",
     shortLabel: "WA",
     description: "Conexão do canal.",
-    matcher: (route) => route.startsWith("/dashboard/whatsapp"),
+    matcher: (route) => route.startsWith("/whatsapp"),
     category: "structural",
     companyOnly: true,
     moduleKey: "whatsapp",
   },
   {
     key: "master",
-    href: "/dashboard/master",
+    href: "/master",
     label: "Master",
     shortLabel: "MS",
     description: "Controle global.",
-    matcher: (route) => route.startsWith("/dashboard/master"),
+    matcher: (route) => route.startsWith("/master"),
     category: "system",
     adminOnly: true,
     moduleKey: "master",
@@ -244,7 +245,7 @@ export default function ModuleNav({
   useEffect(() => {
     let mounted = true;
 
-    async function loadNavigationContext() {
+    async function loadNavigationContext(options?: { forceNetwork?: boolean }) {
       if (!authenticated) {
         if (!mounted) return;
         setModules([]);
@@ -257,7 +258,7 @@ export default function ModuleNav({
 
       // If the app already prefetched modules/profile (e.g. DashboardScaffold), use them
       const prefetchedWindow = typeof window !== "undefined" ? (window as HbxPrefetchWindow) : null;
-      if (prefetchedWindow?.__hbx_prefetch && Array.isArray(prefetchedWindow.__hbx_prefetch.modules)) {
+      if (!options?.forceNetwork && prefetchedWindow?.__hbx_prefetch && Array.isArray(prefetchedWindow.__hbx_prefetch.modules)) {
         const pre = prefetchedWindow.__hbx_prefetch;
         if (!mounted) return;
         setModules(Array.isArray(pre.modules) ? pre.modules : []);
@@ -270,6 +271,10 @@ export default function ModuleNav({
 
       setLoading(true);
       try {
+        if (options?.forceNetwork) {
+          clearApiCache("/modules/me");
+          clearApiCache("/profile/current-user");
+        }
         const [myModules, profile] = await Promise.all([
           apiFetch<UserModule[]>("/modules/me"),
           apiFetch<{ role?: string | null; isSystemMaster?: boolean; company?: { id?: number | null } | null }>("/profile/current-user").catch(
@@ -281,6 +286,12 @@ export default function ModuleNav({
         setUserRole(String(profile?.role || null));
         setIsSystemMaster(Boolean(profile?.isSystemMaster));
         setHasCompany(Boolean(profile?.company?.id));
+        if (prefetchedWindow) {
+          prefetchedWindow.__hbx_prefetch = {
+            modules: Array.isArray(myModules) ? myModules : [],
+            profile,
+          };
+        }
       } catch {
         if (!mounted) return;
         setModules([]);
@@ -297,14 +308,23 @@ export default function ModuleNav({
     void loadNavigationContext();
 
     function handleMasterContextChanged() {
-      void loadNavigationContext();
+      void loadNavigationContext({ forceNetwork: true });
+    }
+
+    function handleModulesChanged() {
+      void loadNavigationContext({ forceNetwork: true });
+      window.setTimeout(() => {
+        if (mounted) void loadNavigationContext({ forceNetwork: true });
+      }, 1500);
     }
 
     window.addEventListener(MASTER_CONTEXT_CHANGED_EVENT, handleMasterContextChanged);
+    window.addEventListener(MODULES_CHANGED_EVENT, handleModulesChanged);
 
     return () => {
       mounted = false;
       window.removeEventListener(MASTER_CONTEXT_CHANGED_EVENT, handleMasterContextChanged);
+      window.removeEventListener(MODULES_CHANGED_EVENT, handleModulesChanged);
     };
   }, [authenticated]);
 

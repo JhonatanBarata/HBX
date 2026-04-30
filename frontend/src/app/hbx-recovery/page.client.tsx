@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useDeferredValue, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type {
@@ -55,8 +55,8 @@ import {
   SHARED_CONVERSATION_WORKSPACE_IDS,
   buildSharedConversationWorkspacePanels,
 } from "@/components/workspace/conversation-workspace";
-import { useRequireAuth } from "../dashboard/_lib/useRequireAuth";
-import { apiFetch } from "../dashboard/_lib/api";
+import { useRequireAuth } from "@/app/_lib/useRequireAuth";
+import { apiFetch } from "@/app/_lib/api";
 import AnimatedNumber from "./_components/AnimatedNumber";
 import ClientDrawer, { type DrawerActionId } from "./_components/ClientDrawer";
 import RecoveryBotStudio from "./_components/RecoveryBotStudio";
@@ -1898,7 +1898,7 @@ export default function HbxRecoveryClientPage({ embedded = false }: HbxRecoveryC
       new CustomEvent("hbx-tech-assistant:page-context", {
         detail: {
           moduleKey: "atendimento",
-          route: "/dashboard/inbox/recovery",
+          route: "/atendimento/recovery",
           summary: summaryParts.join(", "),
           tags: [
             activeTab,
@@ -6704,7 +6704,7 @@ export default function HbxRecoveryClientPage({ embedded = false }: HbxRecoveryC
                   role="tab"
                   aria-selected={false}
                   className={styles.heroTab}
-                  onClick={() => window.location.assign("/dashboard/inbox")}
+                  onClick={() => window.location.assign("/atendimento")}
                 >
                   Atendimento
                 </button>

@@ -425,6 +425,14 @@ export class AuthService implements OnModuleInit {
     return String(process.env.NODE_ENV || '').trim().toLowerCase() === 'production';
   }
 
+  private isLocalMockSignupFlow() {
+    return (
+      !this.isProduction() &&
+      String(process.env.NODE_ENV || '').trim().toLowerCase() === 'development' &&
+      String(process.env.PAYMENTS_PROVIDER || '').trim().toLowerCase() === 'mock'
+    );
+  }
+
   private useEtherealAuto() {
     return !this.isProduction() && String(process.env.ETHEREAL_AUTO || '').trim().toLowerCase() === 'true';
   }
@@ -1114,7 +1122,7 @@ export class AuthService implements OnModuleInit {
     }
 
     const onboardingStatus = String(user?.company?.onboardingStatus || '').trim().toLowerCase();
-    if (!Boolean(user?.isSystemMaster) && onboardingStatus === 'pending_email_confirmation') {
+    if (!Boolean(user?.isSystemMaster) && onboardingStatus === 'pending_email_confirmation' && !this.isLocalMockSignupFlow()) {
       throw new UnauthorizedException({
         code: 'EMAIL_CONFIRMATION_REQUIRED',
         needsEmailConfirmation: true,
@@ -1143,7 +1151,23 @@ export class AuthService implements OnModuleInit {
       throw new UnauthorizedException('Conta sem empresa vinculada');
     }
 
-    if (!opts?.forceSession && user.currentSessionId) {
+    if (!isSystemMaster && companyId && onboardingStatus === 'pending_email_confirmation' && this.isLocalMockSignupFlow()) {
+      const confirmedAt = new Date();
+      await this.prisma.$transaction(async (tx) => {
+        await tx.user.update({
+          where: { id: user.id },
+          data: {
+            emailConfirmedAt: confirmedAt,
+            emailConfirmationToken: null,
+            emailConfirmationSentAt: null,
+            emailConfirmationExpiresAt: null,
+          },
+        });
+        await this.activateConfirmedTrialTx(tx, companyId, confirmedAt);
+      });
+    }
+
+    if (!opts?.forceSession && !this.isLocalMockSignupFlow() && user.currentSessionId) {
       const activeSession = await this.prisma.authSession.findFirst({
         where: {
           id: user.currentSessionId,
@@ -1404,6 +1428,10 @@ export class AuthService implements OnModuleInit {
         return this.login((createdPending as any).user, { companyId: (createdPending as any).companyId });
       }
 
+      if (this.isLocalMockSignupFlow()) {
+        return this.confirmEmail(rawToken);
+      }
+
       const delivery = await this.dispatchEmailConfirmation({
         email,
         username,
@@ -1537,6 +1565,10 @@ export class AuthService implements OnModuleInit {
 
     if ((created as any).attachedToExistingCompany && !(created as any).pendingEmailConfirmation) {
       return this.login((created as any).user, { companyId: (created as any).companyId });
+    }
+
+    if (this.isLocalMockSignupFlow()) {
+      return this.confirmEmail(rawToken);
     }
 
     const delivery = await this.dispatchEmailConfirmation({

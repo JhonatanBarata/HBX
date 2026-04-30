@@ -400,7 +400,7 @@ model CompanyConversation {
   currentFlow   String   @default("cobranca_recovery")
   currentStep   String   @default("novo")
   flowResult    String?
-  botActive     Boolean  @default(true)
+  botActive     Boolean  @default(false)
   humanAssigned Boolean  @default(false)
   assignedUserId Int?
   metadata      String?

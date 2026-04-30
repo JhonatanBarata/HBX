@@ -899,7 +899,6 @@
 }
 
 :global(html[data-theme-mode="dark"]) .queueItem {
-  min-height: 94px;
   border-color: rgba(97, 119, 184, 0.14);
   background:
     linear-gradient(180deg, rgba(15, 23, 47, 0.9), rgba(11, 18, 36, 0.88)),

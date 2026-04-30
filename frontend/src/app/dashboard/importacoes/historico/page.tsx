@@ -1,7 +1,12 @@
 export const dynamic = "force-dynamic";
 
-import HistoricoImportacoesClientPage from "./page.client";
+import { redirect } from "next/navigation";
+import { withLegacySearchParams, type LegacySearchParams } from "@/app/_lib/legacyRedirect";
 
-export default function Page() {
-  return <HistoricoImportacoesClientPage />;
+type LegacyRedirectProps = {
+  searchParams?: Promise<LegacySearchParams> | LegacySearchParams;
+};
+
+export default async function Page({ searchParams }: LegacyRedirectProps) {
+  redirect(withLegacySearchParams("/importacoes/historico", await searchParams));
 }

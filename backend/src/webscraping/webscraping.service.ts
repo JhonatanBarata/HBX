@@ -29,6 +29,7 @@ const IBGE_CITIES_URL = 'https://servicodados.ibge.gov.br/api/v1/localidades/mun
 const CITY_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 
 type RuntimeStatus = 'online' | 'degraded';
+type ExternalRuntimeStatus = 'online' | 'offline';
 type SearchSource = 'history' | 'google' | 'hbx' | 'hybrid' | 'global_cache';
 type WebscrapingEngine = 'google' | 'hbx';
 type HbxTargetType = 'pj' | 'pf' | 'agenda_pf';
@@ -45,8 +46,17 @@ export type NativeRuntimeDiagnostic = {
   googleApiKeyConfigured: boolean;
 };
 
+export type HbxRuntimeDiagnostic = {
+  status: ExternalRuntimeStatus;
+  code: string;
+  message: string;
+  healthUrl: string;
+  httpStatus: number | null;
+};
+
 export type WebscrapingRuntimeResponse = {
   native: NativeRuntimeDiagnostic;
+  hbx: HbxRuntimeDiagnostic;
   quota: {
     remainingSearches: number | null;
     dailyLimit: number | null;
@@ -56,6 +66,7 @@ export type WebscrapingRuntimeResponse = {
   diagnostics?: {
     checkedAt: string;
     nativeTechnicalMessage: string;
+    hbxTechnicalMessage: string;
     legacy: WebscrapingRuntimeDiagnostic | null;
   };
 };
@@ -337,9 +348,10 @@ export class WebscrapingService {
 
   async getRuntime(user: any): Promise<WebscrapingRuntimeResponse> {
     const native = this.inspectNativeRuntime();
+    const hbx = await this.inspectHbxRuntime();
     const quota = await this.buildRuntimeQuota(user);
     if (!this.canSeeDiagnostics(user)) {
-      return { native, quota };
+      return { native, hbx, quota };
     }
 
     let legacy: WebscrapingRuntimeDiagnostic | null = null;
@@ -351,10 +363,12 @@ export class WebscrapingService {
 
     return {
       native,
+      hbx,
       quota,
       diagnostics: {
         checkedAt: new Date().toISOString(),
         nativeTechnicalMessage: this.buildNativeTechnicalMessage(native),
+        hbxTechnicalMessage: this.buildHbxTechnicalMessage(hbx),
         legacy,
       },
     };
@@ -377,6 +391,48 @@ export class WebscrapingService {
       message: 'Busca nativa pronta para prospeccao.',
       googleApiKeyConfigured: true,
     };
+  }
+
+  async inspectHbxRuntime(): Promise<HbxRuntimeDiagnostic> {
+    const engineUrl = this.getHbxScrapingEngineUrl();
+    const healthUrl = `${engineUrl}/health`;
+
+    try {
+      const response = await fetch(healthUrl, {
+        headers: { Accept: 'application/json,text/plain' },
+        signal: AbortSignal.timeout(4000),
+      });
+      await response.text().catch(() => '');
+
+      if (!response.ok) {
+        return {
+          status: 'offline',
+          code: 'hbx_health_http_error',
+          message: `Motor HBX respondeu HTTP ${response.status} no healthcheck.`,
+          healthUrl,
+          httpStatus: response.status,
+        };
+      }
+
+      return {
+        status: 'online',
+        code: 'ok',
+        message: 'Motor HBX Scraping online.',
+        healthUrl,
+        httpStatus: response.status,
+      };
+    } catch (error) {
+      const isAbort = error instanceof Error && error.name === 'TimeoutError';
+      return {
+        status: 'offline',
+        code: isAbort ? 'hbx_health_timeout' : 'hbx_health_unreachable',
+        message: isAbort
+          ? 'Motor HBX Scraping nao respondeu ao healthcheck dentro do limite.'
+          : 'Nao foi possivel alcancar o Motor HBX Scraping.',
+        healthUrl,
+        httpStatus: null,
+      };
+    }
   }
 
   async listBrazilianCities(query?: string, limit = 80) {
@@ -1060,6 +1116,13 @@ export class WebscrapingService {
       return 'GOOGLE_PLACES_API_KEY ou WEBSCRAPING_GOOGLE_PLACES_API_KEY ausente no backend nativo.';
     }
     return 'Busca nativa habilitada e pronta para consultar Google Places.';
+  }
+
+  private buildHbxTechnicalMessage(runtime: HbxRuntimeDiagnostic) {
+    if (runtime.status === 'online') {
+      return `Motor HBX respondendo em ${runtime.healthUrl}.`;
+    }
+    return `${runtime.message} Verifique HBX_SCRAPING_ENGINE_URL ou o container hbx-scraping-engine.`;
   }
 
   private buildConfigurationUnavailableError() {

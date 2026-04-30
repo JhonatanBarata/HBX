@@ -323,6 +323,18 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
     return this.json(this.sanitizeProviderPayload(value));
   }
 
+  private paymentsProvider() {
+    return String(process.env.PAYMENTS_PROVIDER || 'mercadopago').trim().toLowerCase();
+  }
+
+  private isMockPaymentsProvider() {
+    return this.paymentsProvider() === 'mock' && String(process.env.NODE_ENV || '').trim() === 'development';
+  }
+
+  private subscriptionProviderWhere() {
+    return this.isMockPaymentsProvider() ? { in: ['mercadopago', 'mock'] } : 'mercadopago';
+  }
+
   private monthKey(date = new Date()) {
     return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
   }
@@ -1097,7 +1109,7 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
     return this.prisma.companySubscription.findFirst({
       where: {
         companyId,
-        provider: 'mercadopago',
+        provider: this.subscriptionProviderWhere(),
         status: { in: ['authorized', 'active', 'past_due', 'paused', 'pending'] },
       },
       orderBy: { createdAt: 'desc' },
@@ -1506,7 +1518,7 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
         if (!endsAt) continue;
 
         const subscription = await this.prisma.companySubscription.findFirst({
-          where: { companyId: company.id, provider: 'mercadopago' },
+          where: { companyId: company.id, provider: this.subscriptionProviderWhere() },
           orderBy: { createdAt: 'desc' },
         });
         const stage = Math.max(0, Number(company.billingGraceEmailStage || 0));
@@ -1630,6 +1642,238 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
       await this.syncPaidPlanModulesTx(tx, companyId, selectedPlanKey);
       await this.syncPaidCommercialEntitlementsTx(tx, companyId, selectedPlanKey, periodStart, periodEnd);
     });
+  }
+
+  private async settleMockCheckoutCharge(input: {
+    user: any;
+    context: { companyId: number; userId: number };
+    charge: any;
+    company: any;
+    pricing: any;
+    selectedPlanKey: string;
+    requestedBillingCycle: string;
+    paymentMethod: string;
+    amount: number;
+    competence: string;
+    externalReference: string;
+    paymentProfile: PaymentContactProfile | null;
+    companyWithPaymentProfile: any;
+  }) {
+    const paidAt = new Date();
+    const ledgerEntryId = await this.insertBillingLedgerEntry({
+      companyId: input.context.companyId,
+      createdByUserId: input.context.userId,
+      entryType: `${input.paymentMethod}_MOCK_CHECKOUT`,
+      entryGroup: 'revenue',
+      status: 'APPROVED',
+      origin: 'financeiro_mock',
+      competence: input.competence,
+      amount: input.amount,
+      paidAt,
+      paymentMethod: input.paymentMethod,
+      referenceLabel: this.resolveChargeReferenceLabel(input.companyWithPaymentProfile, input.pricing),
+      observation: 'Cobrança aprovada pelo provider mock em desenvolvimento.',
+      metadata: {
+        chargeId: input.charge.id,
+        externalReference: input.externalReference,
+        planKey: input.selectedPlanKey,
+        billingCycle: input.requestedBillingCycle,
+        provider: 'mock',
+        ...(input.paymentProfile ? {
+          contactName: input.paymentProfile.contactName,
+          taxDocumentProvided: Boolean(input.paymentProfile.taxDocument),
+          acceptedTerms: true,
+        } : {}),
+      },
+    });
+
+    const updated = await this.prisma.financeiroCharge.update({
+      where: { id: input.charge.id },
+      data: {
+        status: 'approved',
+        lifecycle: 'paid',
+        ledgerEntryId,
+        paidAt,
+        paymentUrl: this.buildCheckoutReturnUrl(input.charge.id),
+        providerPayload: this.providerJson({
+          provider: {
+            id: `mock-payment-${input.charge.id}`,
+            status: 'approved',
+            transaction_amount: input.amount,
+            external_reference: input.externalReference,
+          },
+        }),
+        lastWebhookAt: paidAt,
+        lastWebhookPayload: this.json({ source: 'mock_provider' }),
+      },
+    });
+
+    await this.activateCompanyFromCharge(input.context.companyId, updated, paidAt);
+    await this.prisma.company.update({
+      where: { id: input.context.companyId },
+      data: {
+        billingProvider: 'mock',
+        selectedPlanKey: input.selectedPlanKey,
+        billingCycle: input.requestedBillingCycle,
+      },
+    });
+
+    return {
+      ok: true,
+      mock: true,
+      charge: this.serializeCharge(updated),
+      overview: await this.getOverviewForUser(input.user),
+    };
+  }
+
+  private async createMockSubscriptionForUser(input: {
+    user: any;
+    context: { companyId: number; userId: number };
+    company: any;
+    plan: ReturnType<FinanceiroService['buildCommercialPlanProviderSnapshot']>;
+    payerEmail: string;
+    billingContactPhone?: string | null;
+    companyContactData?: Record<string, unknown> | null;
+  }) {
+    const now = new Date();
+    const periodEnd = this.computePeriodEnd(now, input.plan.billingCycle);
+    const existing = await this.prisma.companySubscription.findFirst({
+      where: {
+        companyId: input.context.companyId,
+        provider: 'mock',
+        status: { in: ['authorized', 'active', 'past_due', 'paused', 'pending'] },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    const providerPreapprovalId = existing?.providerPreapprovalId || `mock-sub-${input.context.companyId}-${Date.now()}`;
+    const providerPayload = {
+      provider: {
+        id: providerPreapprovalId,
+        status: 'authorized',
+        payer_email: input.payerEmail,
+        preapproval_plan_id: `mock-plan-${input.plan.planKey}-${input.plan.billingCycle}`,
+        auto_recurring: {
+          end_date: periodEnd.toISOString(),
+          transaction_amount: input.plan.amount,
+          currency_id: input.plan.currency,
+        },
+        card: {
+          last_four_digits: '4242',
+          payment_method: { id: 'mock', name: 'Mock' },
+        },
+      },
+    };
+
+    const subscription = existing
+      ? await this.prisma.companySubscription.update({
+          where: { id: existing.id },
+          data: {
+            provider: 'mock',
+            providerPreapprovalId,
+            providerPreapprovalPlanId: `mock-plan-${input.plan.planKey}-${input.plan.billingCycle}`,
+            planKey: input.plan.planKey,
+            billingCycle: input.plan.billingCycle,
+            status: 'authorized',
+            payerEmail: input.payerEmail,
+            billingContactPhone: input.billingContactPhone || undefined,
+            cardBrand: 'Mock',
+            cardLast4: '4242',
+            currentPeriodStart: now,
+            currentPeriodEnd: periodEnd,
+            nextBillingAt: periodEnd,
+            cancelAtPeriodEnd: false,
+            canceledAt: null,
+            lastProviderStatus: 'authorized',
+            providerPayloadJson: this.providerJson(providerPayload),
+            createdByUserId: input.context.userId,
+          },
+        })
+      : await this.prisma.companySubscription.create({
+          data: {
+            companyId: input.context.companyId,
+            provider: 'mock',
+            providerPreapprovalId,
+            providerPreapprovalPlanId: `mock-plan-${input.plan.planKey}-${input.plan.billingCycle}`,
+            planKey: input.plan.planKey,
+            billingCycle: input.plan.billingCycle,
+            status: 'authorized',
+            payerEmail: input.payerEmail,
+            billingContactPhone: input.billingContactPhone || undefined,
+            cardBrand: 'Mock',
+            cardLast4: '4242',
+            currentPeriodStart: now,
+            currentPeriodEnd: periodEnd,
+            nextBillingAt: periodEnd,
+            lastProviderStatus: 'authorized',
+            providerPayloadJson: this.providerJson(providerPayload),
+            createdByUserId: input.context.userId,
+          },
+        });
+
+    const charge = await this.prisma.financeiroCharge.create({
+      data: {
+        companyId: input.context.companyId,
+        amount: input.plan.amount,
+        description: `${input.plan.title} ${input.plan.billingCycle === 'ANNUAL' ? 'anual' : 'mensal'}`,
+        billingCycle: input.plan.billingCycle,
+        paymentMethod: 'CARD',
+        status: 'approved',
+        lifecycle: 'paid',
+        competence: this.monthKey(now),
+        externalReference: `hbx-mock-subpay-${input.context.companyId}-${Date.now()}`,
+        paidAt: now,
+        createdByUserId: input.context.userId,
+        providerPayload: this.providerJson({ source: 'mock_provider', subscriptionId: subscription.id }),
+        lastWebhookAt: now,
+        lastWebhookPayload: this.json({ source: 'mock_provider' }),
+      },
+    });
+    const ledgerEntryId = await this.insertBillingLedgerEntry({
+      companyId: input.context.companyId,
+      createdByUserId: input.context.userId,
+      entryType: 'SUBSCRIPTION_CARD_MOCK',
+      entryGroup: 'revenue',
+      status: 'APPROVED',
+      origin: 'financeiro_mock_subscription',
+      competence: this.monthKey(now),
+      amount: input.plan.amount,
+      paidAt: now,
+      paymentMethod: 'CARD',
+      referenceLabel: input.plan.title,
+      observation: 'Assinatura aprovada pelo provider mock em desenvolvimento.',
+      metadata: {
+        chargeId: charge.id,
+        companySubscriptionId: subscription.id,
+        providerPreapprovalId,
+        provider: 'mock',
+      },
+    });
+    await this.prisma.financeiroCharge.update({
+      where: { id: charge.id },
+      data: { ledgerEntryId },
+    });
+
+    await this.activateCompanyFromSubscription(subscription, now, providerPayload.provider);
+    await this.prisma.company.update({
+      where: { id: input.context.companyId },
+      data: {
+        billingProvider: 'mock',
+        billingCardBrand: 'Mock',
+        billingCardLast4: '4242',
+        billingCardUpdatedAt: now,
+        ...(input.companyContactData || {}),
+      },
+    });
+
+    const refreshed = await this.prisma.companySubscription.findUnique({ where: { id: subscription.id } });
+    return {
+      ok: true,
+      mock: true,
+      status: refreshed?.status || 'active',
+      providerPreapprovalId,
+      subscription: this.serializeSubscription(refreshed || subscription),
+      overview: await this.getOverviewForUser(input.user),
+    };
   }
 
   private async applySubscriptionProviderState(subscription: any, provider: any, options?: { forceBlock?: boolean }) {
@@ -2134,7 +2378,7 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
         orderBy: { createdAt: 'desc' },
       }),
       this.prisma.companySubscription.findFirst({
-        where: { companyId: context.companyId, provider: 'mercadopago' },
+        where: { companyId: context.companyId, provider: this.subscriptionProviderWhere() },
         orderBy: { createdAt: 'desc' },
       }),
     ]);
@@ -2167,7 +2411,7 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
           include: companyOverviewInclude,
         }),
         this.prisma.companySubscription.findFirst({
-          where: { companyId: context.companyId, provider: 'mercadopago' },
+          where: { companyId: context.companyId, provider: this.subscriptionProviderWhere() },
           orderBy: { createdAt: 'desc' },
         }),
       ]);
@@ -2191,7 +2435,7 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
           include: companyOverviewInclude,
         }),
         this.prisma.companySubscription.findFirst({
-          where: { companyId: context.companyId, provider: 'mercadopago' },
+          where: { companyId: context.companyId, provider: this.subscriptionProviderWhere() },
           orderBy: { createdAt: 'desc' },
         }),
       ]);
@@ -2428,8 +2672,6 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
       };
     }
 
-    const { accessToken } = await this.resolveFinanceContext(context.companyId);
-
     const amount = this.normalizeCurrencyAmount(pricing.finalCycleAmount);
     if (amount <= 0) {
       throw new BadRequestException('Nao ha valor disponivel para cobranca neste ciclo.');
@@ -2500,6 +2742,26 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
         ...(paymentProfile ? this.companyContactUpdateFromPaymentProfile(paymentProfile) : {}),
       },
     });
+
+    if (this.isMockPaymentsProvider()) {
+      return this.settleMockCheckoutCharge({
+        user,
+        context,
+        charge: baseCharge,
+        company,
+        pricing,
+        selectedPlanKey,
+        requestedBillingCycle,
+        paymentMethod,
+        amount,
+        competence,
+        externalReference,
+        paymentProfile,
+        companyWithPaymentProfile,
+      });
+    }
+
+    const { accessToken } = await this.resolveFinanceContext(context.companyId);
 
     try {
       if (paymentMethod === 'PIX') {
@@ -2691,7 +2953,14 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
 
     const cardTokenId = this.normalizeCardToken(dto?.cardTokenId);
     if (!cardTokenId) throw new BadRequestException('Token do cartão Mercado Pago ausente ou inválido.');
-    const { company, accessToken } = await this.resolveFinanceContext(context.companyId);
+    const financeContext = this.isMockPaymentsProvider()
+      ? {
+          company: await this.prisma.company.findUnique({ where: { id: context.companyId } }),
+          accessToken: '',
+        }
+      : await this.resolveFinanceContext(context.companyId);
+    const { company, accessToken } = financeContext;
+    if (!company) throw new BadRequestException('Empresa nao encontrada.');
     const paymentProfile = this.resolvePaymentContactProfile(dto || {}, {
       contactName: company.primaryContactName || company.name,
       contactPhone: company.contactPhone,
@@ -2711,6 +2980,18 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
       await this.prisma.company.update({
         where: { id: context.companyId },
         data: companyContactData,
+      });
+    }
+
+    if (this.isMockPaymentsProvider()) {
+      return this.createMockSubscriptionForUser({
+        user,
+        context,
+        company,
+        plan,
+        payerEmail,
+        billingContactPhone,
+        companyContactData,
       });
     }
 
@@ -2934,6 +3215,18 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
     if (!subscription?.providerPreapprovalId) throw new NotFoundException('Assinatura Mercado Pago nao encontrada.');
 
     try {
+      if (this.isMockPaymentsProvider() && String(subscription.provider || '').toLowerCase() === 'mock') {
+        await this.applySubscriptionProviderState(subscription, { status: 'canceled' });
+        await this.prisma.company.update({
+          where: { id: context.companyId },
+          data: { billingProvider: 'mock' },
+        });
+        return {
+          ok: true,
+          mock: true,
+          subscription: await this.getSubscriptionStatusForUser(user),
+        };
+      }
       const { accessToken } = await this.resolveFinanceContext(context.companyId);
       const provider = await this.mercadoPagoClient.cancelPreapproval(accessToken, subscription.providerPreapprovalId);
       await this.applySubscriptionProviderState(subscription, {
@@ -2967,6 +3260,32 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
     if (!subscription?.providerPreapprovalId) throw new NotFoundException('Assinatura Mercado Pago nao encontrada.');
 
     try {
+      if (this.isMockPaymentsProvider() && String(subscription.provider || '').toLowerCase() === 'mock') {
+        const now = new Date();
+        await this.prisma.companySubscription.update({
+          where: { id: subscription.id },
+          data: {
+            cardBrand: 'Mock',
+            cardLast4: '4242',
+            lastProviderStatus: 'authorized',
+            providerPayloadJson: this.providerJson({ source: 'mock_provider', action: 'change_card' }),
+          },
+        });
+        await this.prisma.company.update({
+          where: { id: context.companyId },
+          data: {
+            billingProvider: 'mock',
+            billingCardBrand: 'Mock',
+            billingCardLast4: '4242',
+            billingCardUpdatedAt: now,
+          },
+        });
+        return {
+          ok: true,
+          mock: true,
+          subscription: await this.getSubscriptionStatusForUser(user),
+        };
+      }
       const { company, accessToken } = await this.resolveFinanceContext(context.companyId);
       const paymentProfile = this.resolvePaymentContactProfile(dto || {}, {
         contactName: company.primaryContactName || company.name,
@@ -3006,7 +3325,7 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
     const context = this.resolveUserContext(user);
     this.assertCanManageBilling(context);
     const subscription = await this.prisma.companySubscription.findFirst({
-      where: { companyId: context.companyId, provider: 'mercadopago' },
+      where: { companyId: context.companyId, provider: this.subscriptionProviderWhere() },
       orderBy: { createdAt: 'desc' },
     });
     return {

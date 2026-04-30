@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { apiFetch, getToken } from "../app/dashboard/_lib/api";
+import { apiFetch, getToken } from "@/app/_lib/api";
 import styles from "./DashboardScaffold.module.css";
 
 type WhatsAppStatusPayload = {
@@ -12,24 +12,24 @@ type WhatsAppStatusPayload = {
   } | null;
 };
 
-const STORAGE_KEY = "hbx.qr-paired-next-step.v1";
+const STORAGE_KEY = "hbx.qr-paired-next-step.v2";
 export const QR_PAIRED_EVENT = "hbx:qr-paired";
 
 const OPTIONS = [
   {
-    label: "Entrar no Fluxo do bot",
-    description: "Ajustar mensagens e caminhos do atendimento automatico.",
-    href: "/dashboard/vendas/automacao?tab=flow",
+    label: "Concluir Bot",
+    description: "Finalizar o tutorial obrigatório antes de ativar respostas automáticas.",
+    href: "/tutorial?start=bot&from=qr_popup",
   },
   {
     label: "Atendimento",
     description: "Abrir conversas, filas e handoff humano.",
-    href: "/dashboard/inbox",
+    href: "/atendimento",
   },
   {
     label: "Webscraping",
     description: "Prospectar contatos e enviar leads para Vendas.",
-    href: "/dashboard/webscraping",
+    href: "/webscraping",
   },
 ];
 
@@ -74,6 +74,7 @@ export default function QrPairedNextStepPrompt() {
     }
 
     window.addEventListener(QR_PAIRED_EVENT, loadQrStatus);
+    void loadQrStatus();
 
     return () => {
       mounted = false;
