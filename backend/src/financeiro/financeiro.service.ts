@@ -2247,19 +2247,23 @@ export class FinanceiroService {
         },
       });
 
-      await this.prisma.company.update({
-        where: { id: context.companyId },
-        data: {
-          selectedPlanKey: plan.planKey,
-          billingCycle: plan.billingCycle,
-          billingProvider: 'mercadopago',
-          paymentMethod: 'CARD',
-          paymentStatus: 'PENDING',
-          subscriptionStatus: providerStatus,
-          premiumAccess: false,
-          ...(companyContactData || {}),
-        },
-      });
+      if (providerStatus === 'authorized') {
+        await this.activateCompanyFromSubscription(updated, new Date(), provider);
+      } else {
+        await this.prisma.company.update({
+          where: { id: context.companyId },
+          data: {
+            selectedPlanKey: plan.planKey,
+            billingCycle: plan.billingCycle,
+            billingProvider: 'mercadopago',
+            paymentMethod: 'CARD',
+            paymentStatus: 'PENDING',
+            subscriptionStatus: providerStatus,
+            premiumAccess: false,
+            ...(companyContactData || {}),
+          },
+        });
+      }
 
       return {
         ok: true,
