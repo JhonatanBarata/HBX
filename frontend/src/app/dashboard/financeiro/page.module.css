@@ -1066,9 +1066,38 @@
 
 .cardExperience {
   display: grid;
-  grid-template-columns: minmax(260px, 0.42fr) minmax(0, 0.58fr);
+  grid-template-columns: minmax(240px, 0.42fr) minmax(0, 0.58fr);
   gap: 1.05rem;
   align-items: start;
+}
+
+.cardPreviewStack,
+.cardPaymentStack {
+  display: grid;
+  min-width: 0;
+  gap: 0.85rem;
+}
+
+.cardPreviewStack {
+  align-content: start;
+  justify-items: center;
+  border: 1px solid color-mix(in srgb, var(--info) 22%, var(--line));
+  border-radius: 18px;
+  padding: 0.95rem;
+  background:
+    radial-gradient(circle at 12% 18%, color-mix(in srgb, var(--info) 13%, transparent), transparent 34%),
+    color-mix(in srgb, var(--surface) 68%, var(--background));
+  box-shadow: var(--shadow-inset);
+}
+
+.cardPreviewStack p {
+  max-width: 34ch;
+  margin: 0;
+  color: var(--foreground-soft);
+  font-size: 0.78rem;
+  font-weight: 760;
+  line-height: 1.35;
+  text-align: center;
 }
 
 .cardMock {
