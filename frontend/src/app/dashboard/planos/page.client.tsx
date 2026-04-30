@@ -125,6 +125,24 @@ function onlyDigits(value: string) {
   return value.replace(/\D/g, "");
 }
 
+function hasRepeatedDigits(digits: string) {
+  return /^(\d)\1+$/.test(digits);
+}
+
+function isValidCpf(value: string) {
+  const digits = onlyDigits(value);
+  if (digits.length !== 11 || hasRepeatedDigits(digits)) return false;
+  const calculate = (length: number) => {
+    let sum = 0;
+    for (let index = 0; index < length; index += 1) {
+      sum += Number(digits[index]) * (length + 1 - index);
+    }
+    const mod = (sum * 10) % 11;
+    return mod === 10 ? 0 : mod;
+  };
+  return calculate(9) === Number(digits[9]) && calculate(10) === Number(digits[10]);
+}
+
 function formatCpf(value: string) {
   const digits = onlyDigits(value).slice(0, 11);
   if (digits.length <= 3) return digits;
@@ -177,8 +195,10 @@ export default function PlanosClientPage() {
   const promotedPlanKey = promotedPlanFor(selectedPlanKey, intent);
   const padraoTrialAvailable = canStartPadraoTrial(payload);
   const trialPhoneDigits = normalizeBrazilPhone(trialForm.phone);
+  const trialCpfDigits = onlyDigits(trialForm.cpf);
   const trialFormReady =
     trialForm.contactName.trim().length >= 3 &&
+    isValidCpf(trialCpfDigits) &&
     trialPhoneDigits.length >= 10 &&
     trialForm.acceptedTerms;
 
@@ -298,7 +318,7 @@ export default function PlanosClientPage() {
 
   async function submitTrial() {
     if (!trialFormReady) {
-      setNotice({ tone: "error", text: "Informe nome, telefone de contato e aceite os termos para iniciar o trial." });
+      setNotice({ tone: "error", text: "Informe nome, CPF válido, telefone de contato e aceite os termos para iniciar o trial." });
       return;
     }
 
@@ -311,7 +331,7 @@ export default function PlanosClientPage() {
         body: JSON.stringify({
           planKey: "hbx_padrao",
           trialContactName: trialForm.contactName.trim(),
-          trialTaxDocument: onlyDigits(trialForm.cpf),
+          trialTaxDocument: trialCpfDigits,
           trialContactPhone: trialPhoneDigits,
           acceptedTerms: trialForm.acceptedTerms,
         }),
@@ -447,7 +467,7 @@ export default function PlanosClientPage() {
                   </label>
 
                   <label className={styles.trialField} htmlFor="trial-cpf">
-                    <span>CPF <small>opcional</small></span>
+                    <span>CPF</span>
                     <input
                       id="trial-cpf"
                       inputMode="numeric"

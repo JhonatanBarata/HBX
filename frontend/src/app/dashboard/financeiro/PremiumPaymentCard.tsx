@@ -32,7 +32,6 @@ export default function PremiumPaymentCard({
   billingLabel = "Mensal",
   planLabel = "HBX",
   amountLabel = "R$ 109,90",
-  isSecurityFocused = false,
 }: PremiumPaymentCardProps) {
   const [tilt, setTilt] = useState({ x: 0, y: 0 });
 
@@ -65,9 +64,9 @@ export default function PremiumPaymentCard({
       onMouseLeave={() => setTilt({ x: 0, y: 0 })}
     >
       <div
-        className={`${styles.card} ${isSecurityFocused ? styles.flipped : ""}`}
+        className={styles.card}
         style={{
-          transform: `rotateX(${tilt.y}deg) rotateY(${isSecurityFocused ? 180 : tilt.x}deg)`,
+          transform: `rotateX(${tilt.y}deg) rotateY(${tilt.x}deg)`,
         }}
       >
         <section className={styles.frontFace}>
