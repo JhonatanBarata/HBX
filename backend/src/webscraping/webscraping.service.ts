@@ -952,6 +952,29 @@ export class WebscrapingService {
     return COMMERCIAL_PLAN_QUOTAS[planKey]?.googleSearchesPerDay ?? COMMERCIAL_PLAN_QUOTAS[COMMERCIAL_PLAN_KEYS.PADRAO].googleSearchesPerDay;
   }
 
+  private companyHasPaidFeatureAccess(company: any) {
+    const paymentStatus = String(company?.paymentStatus || '').trim().toUpperCase();
+    const subscriptionStatus = String(company?.subscriptionStatus || '').trim().toLowerCase();
+    const onboardingStatus = String(company?.onboardingStatus || '').trim().toLowerCase();
+    const billingGraceEndsAt = company?.billingGraceEndsAt instanceof Date ? company.billingGraceEndsAt : null;
+    const graceActive =
+      subscriptionStatus === 'grace' && billingGraceEndsAt && billingGraceEndsAt.getTime() >= Date.now();
+
+    if (paymentStatus === 'DISABLED' || paymentStatus === 'EXPIRED') return false;
+    if (subscriptionStatus === 'canceled' || subscriptionStatus === 'expired') return false;
+    if (onboardingStatus === 'suspended') return false;
+    if (graceActive) return true;
+    return (
+      paymentStatus === 'PAID' ||
+      paymentStatus === 'TRIAL' ||
+      paymentStatus === 'MANUAL' ||
+      subscriptionStatus === 'active' ||
+      subscriptionStatus === 'trialing' ||
+      subscriptionStatus === 'manual' ||
+      Boolean(company?.premiumAccess)
+    );
+  }
+
   private async supportsUsageLogPersistence() {
     return this.prisma.hasTable('WebscrapingUsageLog');
   }
@@ -974,6 +997,7 @@ export class WebscrapingService {
         subscriptionStatus: true,
         premiumAccess: true,
         selectedPlanKey: true,
+        billingGraceEndsAt: true,
       },
     });
 
@@ -984,6 +1008,15 @@ export class WebscrapingService {
         remainingSearches: 0,
         dailyLimit: 0,
         isTrialLimited: false,
+        accessMode: 'blocked' as const,
+      };
+    }
+
+    if (!this.companyHasPaidFeatureAccess(company)) {
+      return {
+        remainingSearches: 0,
+        dailyLimit: 0,
+        isTrialLimited: true,
         accessMode: 'blocked' as const,
       };
     }
@@ -1038,12 +1071,26 @@ export class WebscrapingService {
         subscriptionStatus: true,
         premiumAccess: true,
         selectedPlanKey: true,
+        billingGraceEndsAt: true,
       },
     });
 
     const dailyLimit = company ? this.resolveGoogleSearchesPerDay(company) : 0;
 
     if (!company) return;
+    if (!this.companyHasPaidFeatureAccess(company)) {
+      await this.recordUsageLog(
+        context,
+        input,
+        'BLOCKED_DAILY_LIMIT',
+        0,
+        'Empresa vencida ou sem acesso ativo. Regularize o plano para usar recursos pagos do HBX.',
+      );
+      throw new ForbiddenException({
+        code: 'company_paid_access_required',
+        message: 'Empresa vencida ou sem acesso ativo. Regularize o plano para usar recursos pagos do HBX.',
+      });
+    }
 
     const dayStart = this.startOfToday();
     const nextDayStart = this.startOfTomorrow();

@@ -386,7 +386,7 @@ test('cache tecnico global reaproveita busca publica entre empresas sem chamar G
   }
 });
 
-test('trial bloqueia terceira busca nova do dia e registra tentativa bloqueada', async () => {
+test('quota comercial bloqueia terceira busca Google do dia e registra tentativa bloqueada', async () => {
   const previousGoogleKey = process.env.GOOGLE_PLACES_API_KEY;
   process.env.GOOGLE_PLACES_API_KEY = 'test-key';
 
@@ -425,8 +425,8 @@ test('trial bloqueia terceira busca nova do dia e registra tentativa bloqueada',
           quantity: 1,
         }),
       (error: any) => {
-        assert.equal(error?.response?.code, 'trial_daily_limit_reached');
-        assert.match(String(error?.response?.message || ''), /2 usos do motor por dia/i);
+        assert.equal(error?.response?.code, 'google_daily_limit_reached');
+        assert.match(String(error?.response?.message || ''), /2 busca\(s\) Google por dia/i);
         return true;
       },
     );

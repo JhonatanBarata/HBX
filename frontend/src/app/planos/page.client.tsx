@@ -36,8 +36,8 @@ const FALLBACK_PLANS: Record<PlanKey, CommercialPlan> = {
     title: "HBX Lite",
     status: "available",
     monthlyPrice: 29.9,
-    headline: "Ideal para quem está começando e precisa do essencial.",
-    description: "Vendas organizadas, motores gratuitos e gestão simples.",
+    headline: "Organização básica para começar.",
+    description: "Vendas organizadas, motores gratuitos e gestão simples para dar o primeiro passo.",
     annualDiscountPercent: 10,
     trialDays: 0,
     quotas: { googleSearchesPerDay: 0 },
@@ -49,8 +49,8 @@ const FALLBACK_PLANS: Record<PlanKey, CommercialPlan> = {
     title: "HBX Padrão",
     status: "available",
     monthlyPrice: 79.9,
-    headline: "Tudo que você precisa para crescer com segurança.",
-    description: "Vendas, atendimento e 2 buscas Google por dia.",
+    headline: "O plano certo para vender todos os dias.",
+    description: "CRM de Vendas, Atendimento e Webscraping no preço de lançamento para primeiros clientes.",
     annualDiscountPercent: 10,
     recommended: true,
     trialDays: 30,
@@ -62,9 +62,9 @@ const FALLBACK_PLANS: Record<PlanKey, CommercialPlan> = {
     key: "hbx_melhor",
     title: "HBX Melhor",
     status: "available",
-    monthlyPrice: 109.9,
-    headline: "Máximo desempenho e controle para grandes operações.",
-    description: "Mais buscas, Bot de atendimento e suporte dedicado.",
+    monthlyPrice: 129.9,
+    headline: "Bot IA, mais volume e atendimento no mesmo pacote.",
+    description: "Mais buscas, Bot de atendimento e operação comercial mais automatizada.",
     annualDiscountPercent: 10,
     trialDays: 0,
     quotas: { googleSearchesPerDay: 6 },
@@ -228,12 +228,12 @@ export default function PlanosClientPage() {
           promoLabel: hasFreeTrial ? "Após 1º mês 79,90" : undefined,
           detail:
             key === "hbx_lite"
-              ? "Ideal para quem está começando e precisa do essencial."
+              ? "Organização básica para começar."
               : key === "hbx_padrao"
                 ? hasFreeTrial
-                  ? "Teste o plano principal sem pagar agora."
-                  : "Tudo que você precisa para crescer com segurança."
-                : "Máximo desempenho e controle para grandes operações.",
+                  ? "Teste o plano certo para vender todos os dias sem pagar agora."
+                  : "O plano certo para vender todos os dias."
+                : "Bot IA, mais volume e atendimento no mesmo pacote.",
           cta: isCurrent ? "Plano atual" : key === promotedPlanKey ? "Subir de plano" : "Escolher plano",
           available: plan.status !== "unavailable",
           featured: key === promotedPlanKey || (!selectedPlanKey && Boolean(plan.recommended)),

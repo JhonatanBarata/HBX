@@ -27,7 +27,7 @@ function brandLabel(brand: CardBrand) {
 export default function PremiumPaymentCard({
   cardNumber = "",
   brand = "card",
-  amountLabel = "R$ 109,90",
+  amountLabel = "R$ 129,90",
 }: PremiumPaymentCardProps) {
   const [tilt, setTilt] = useState({ x: 0, y: 0 });
 

@@ -78,6 +78,29 @@ export class CommercialPlansService {
     return paymentStatus === 'TRIAL' || subscriptionStatus === 'trialing' || onboardingStatus === 'active_trial';
   }
 
+  private isCompanyCommercialAccessAllowed(company: any) {
+    const paymentStatus = String(company?.paymentStatus || '').trim().toUpperCase();
+    const subscriptionStatus = String(company?.subscriptionStatus || '').trim().toLowerCase();
+    const onboardingStatus = String(company?.onboardingStatus || '').trim().toLowerCase();
+    const billingGraceEndsAt = company?.billingGraceEndsAt instanceof Date ? company.billingGraceEndsAt : null;
+    const graceActive =
+      subscriptionStatus === 'grace' && billingGraceEndsAt && billingGraceEndsAt.getTime() >= Date.now();
+
+    if (paymentStatus === 'DISABLED' || paymentStatus === 'EXPIRED') return false;
+    if (subscriptionStatus === 'canceled' || subscriptionStatus === 'expired') return false;
+    if (onboardingStatus === 'suspended') return false;
+    if (graceActive) return true;
+    return (
+      paymentStatus === 'PAID' ||
+      paymentStatus === 'TRIAL' ||
+      paymentStatus === 'MANUAL' ||
+      subscriptionStatus === 'active' ||
+      subscriptionStatus === 'trialing' ||
+      subscriptionStatus === 'manual' ||
+      Boolean(company?.premiumAccess)
+    );
+  }
+
   private isEntitlementUsable(row: any) {
     const status = String(row?.status || '').trim().toLowerCase();
     if (!isCommercialEntitlementActive(status)) return false;
@@ -88,6 +111,16 @@ export class CommercialPlansService {
   }
 
   private resolveEntitlements(company: any): Record<CommercialEntitlementKey, boolean> {
+    if (!this.isCompanyCommercialAccessAllowed(company)) {
+      return {
+        vendas: false,
+        atendimento_chat: false,
+        webscraping: false,
+        bot_ia: false,
+        recovery: false,
+      };
+    }
+
     const entitlements = Array.isArray(company?.commercialEntitlements)
       ? company.commercialEntitlements
       : [];

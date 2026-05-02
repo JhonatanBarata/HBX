@@ -244,7 +244,7 @@ const PLAN_CATALOG: Record<PlanKey, { title: string; monthly: number; includes: 
   },
   hbx_melhor: {
     title: "HBX Melhor",
-    monthly: 109.9,
+    monthly: 129.9,
     includes: ["Vendas", "Atendimento Chat", "Bot de atendimento", "6 buscas Google por dia"],
   },
 };
