@@ -45,6 +45,8 @@ type VendasAgendaQueueMetadata = {
   leadId?: string | null;
   sourceModule?: string | null;
   sourceBlock?: string | null;
+  queueTarget?: string | null;
+  routeTarget?: string | null;
   status?: string | null;
   nextAction?: string | null;
   returnAt?: string | null;
@@ -625,7 +627,7 @@ export class VendasService {
   private buildVendasAgendaQueueMetadata(
     row: any,
     currentQueue?: VendasAgendaQueueMetadata | null,
-    options?: { forceScheduled?: boolean; draftMessageOverride?: string | null },
+    options?: { forceScheduled?: boolean; draftMessageOverride?: string | null; whatsappAvailabilityStatus?: VendasWhatsappAvailabilityStatus | null },
   ) {
     const manualQueueOverride = options?.forceScheduled
       ? null
@@ -647,6 +649,8 @@ export class VendasService {
         leadId: String(row?.id || '').trim() || currentQueue?.leadId || null,
         sourceModule: 'vendas',
         sourceBlock: this.classifyLeadBlock(row),
+        queueTarget: 'prospeccao',
+        routeTarget: 'prospeccao',
         status,
         nextAction,
         returnAt,
@@ -676,6 +680,8 @@ export class VendasService {
       leadId: String(row?.id || '').trim() || null,
       sourceModule: 'vendas',
       sourceBlock: this.classifyLeadBlock(row),
+      queueTarget: 'prospeccao',
+      routeTarget: 'prospeccao',
       status,
       nextAction,
       returnAt,
@@ -694,6 +700,7 @@ export class VendasService {
           ? null
           : this.normalizeText(currentQueue?.manualQueueOverriddenAt),
       inheritedDraftMessage,
+      whatsappAvailabilityStatus: options?.whatsappAvailabilityStatus || currentQueue?.whatsappAvailabilityStatus || null,
     } satisfies VendasAgendaQueueMetadata;
   }
 
@@ -741,7 +748,7 @@ export class VendasService {
   private async activateLeadInInboxAgenda(
     companyId: number,
     row: any,
-    options?: { forceScheduled?: boolean; draftMessageOverride?: string | null },
+    options?: { forceScheduled?: boolean; draftMessageOverride?: string | null; whatsappAvailabilityStatus?: VendasWhatsappAvailabilityStatus | null },
   ) {
     const phoneRaw = row?.phoneNormalized || row?.phone;
     const contact = this.buildPreferredLeadContact(phoneRaw) || this.normalizeLeadConversationPhone(phoneRaw);
@@ -761,6 +768,10 @@ export class VendasService {
       await this.conversations.updateConversationState(companyId, conversation.id, {
         metadata: {
           ...metadata,
+          sourceModule: 'vendas',
+          queueTarget: 'prospeccao',
+          routeTarget: 'prospeccao',
+          whatsappAvailabilityStatus: options?.whatsappAvailabilityStatus || nextQueue.whatsappAvailabilityStatus || null,
           vendasAgendaQueue: nextQueue,
         },
         lastInteractionAt: new Date(),
@@ -773,6 +784,79 @@ export class VendasService {
       skippedWithoutPhone: 0,
       conversationId: conversation.id,
     };
+  }
+
+  private async moveLeadWithoutWhatsappToInboxTrash(
+    companyId: number,
+    row: any,
+    availability?: VendasWhatsappAvailabilityState | null,
+    options?: { draftMessageOverride?: string | null },
+  ) {
+    const phoneRaw = row?.phoneNormalized || row?.phone;
+    const contact = this.buildPreferredLeadContact(phoneRaw) || this.normalizeLeadConversationPhone(phoneRaw);
+    if (!contact) {
+      return { updated: 0, skippedWithoutPhone: 1, conversationId: null as string | number | null };
+    }
+
+    const conversation =
+      (await this.findConversationByPhone(companyId, phoneRaw)) ||
+      (await this.conversations.getOrCreateConversationForContact(companyId, contact));
+    const metadata = this.parseConversationMetadata(conversation?.metadata);
+    const currentQueue = this.readVendasAgendaQueueMetadata(metadata);
+    const now = new Date().toISOString();
+    const status = this.normalizeStatus(row?.status);
+    const nextAction = this.normalizeText(row?.nextAction);
+    const returnAt = row?.returnAt instanceof Date ? row.returnAt.toISOString() : this.parseDate(row?.returnAt)?.toISOString() || null;
+    const draftMessage = this.buildSalesAgendaDraftMessage(row, currentQueue, options);
+    const nextQueue: VendasAgendaQueueMetadata = {
+      ...(currentQueue || {}),
+      active: false,
+      leadId: String(row?.id || '').trim() || currentQueue?.leadId || null,
+      sourceModule: 'vendas',
+      sourceBlock: this.classifyLeadBlock(row),
+      queueTarget: 'excluidos',
+      routeTarget: 'excluidos',
+      status,
+      nextAction,
+      returnAt,
+      draftMessage,
+      draftPending: false,
+      syncedAt: now,
+      deactivatedAt: now,
+      lastManualSendAt: currentQueue?.lastManualSendAt || null,
+      manualSent: Boolean(currentQueue?.manualSent || currentQueue?.manualSentAt),
+      manualSentAt: currentQueue?.manualSentAt || null,
+      botEligible: false,
+      botEntryPending: false,
+      manualQueueOverride: 'archived',
+      manualQueueOverriddenAt: now,
+      inheritedDraftMessage: this.normalizeText(
+        options?.draftMessageOverride || currentQueue?.inheritedDraftMessage || null,
+      ),
+      whatsappAvailabilityStatus: availability?.status || 'unavailable',
+    };
+
+    await this.conversations.updateConversationState(companyId, conversation.id, {
+      botActive: false,
+      humanAssigned: false,
+      flowResult: 'local_deleted',
+      metadata: {
+        ...metadata,
+        sourceModule: 'vendas',
+        queueTarget: 'excluidos',
+        routeTarget: 'excluidos',
+        whatsappAvailabilityStatus: 'unavailable',
+        whatsappAvailabilityCheckedAt: availability?.checkedAt || now,
+        inboxManualQueueOverride: 'archived',
+        inboxManualQueueOverriddenAt: now,
+        inboxLocalDeleted: true,
+        inboxLocalDeletedAt: now,
+        vendasAgendaQueue: nextQueue,
+      },
+      lastInteractionAt: new Date(),
+    });
+
+    return { updated: 1, skippedWithoutPhone: 0, conversationId: conversation.id };
   }
 
   private async deactivateLeadInInboxAgenda(
@@ -812,7 +896,7 @@ export class VendasService {
     companyId: number,
     row: any,
     previous?: any,
-    options?: { forceScheduled?: boolean; draftMessageOverride?: string | null },
+    options?: { forceScheduled?: boolean; draftMessageOverride?: string | null; whatsappAvailabilityStatus?: VendasWhatsappAvailabilityStatus | null },
   ) {
     const result = {
       activated: 0,
@@ -909,14 +993,23 @@ export class VendasService {
       const availability = whatsappAvailabilityByLeadId.get(String(row.id)) || null;
       if (availability?.status === 'unavailable') {
         skippedWithoutWhatsapp += 1;
-        await this.deactivateLeadInInboxAgenda(context.companyId, row?.phoneNormalized || row?.phone, String(row.id), {
-          whatsappAvailabilityStatus: 'unavailable',
-        });
+        const unavailableResult = await this.moveLeadWithoutWhatsappToInboxTrash(
+          context.companyId,
+          row,
+          availability,
+        );
+        skippedWithoutPhone += unavailableResult.skippedWithoutPhone;
+        if (unavailableResult.conversationId) {
+          const conversationId = String(unavailableResult.conversationId);
+          conversationIds.add(conversationId);
+          leadConversationIds[String(row.id)] = conversationId;
+        }
         continue;
       }
       activeLeadIds.add(String(row.id));
       const syncResult = await this.syncLeadToInboxAgenda(context.companyId, row, undefined, {
         forceScheduled: true,
+        whatsappAvailabilityStatus: availability?.status || 'available',
       });
       const conversationIdRaw = 'conversationId' in syncResult ? syncResult.conversationId : null;
       if (conversationIdRaw) {
@@ -962,12 +1055,22 @@ export class VendasService {
       await this.conversations.updateConversationState(context.companyId, conversation.id, {
         metadata: {
           ...metadata,
+          ...(queue.whatsappAvailabilityStatus === 'unavailable'
+            ? {
+                queueTarget: 'excluidos',
+                routeTarget: 'excluidos',
+                inboxManualQueueOverride: 'archived',
+                inboxLocalDeleted: true,
+              }
+            : {}),
           vendasAgendaQueue: {
             ...queue,
             active: false,
             draftPending: false,
             botEligible: false,
             botEntryPending: false,
+            queueTarget: queue.whatsappAvailabilityStatus === 'unavailable' ? 'excluidos' : queue.queueTarget || 'prospeccao',
+            routeTarget: queue.whatsappAvailabilityStatus === 'unavailable' ? 'excluidos' : queue.routeTarget || 'prospeccao',
             syncedAt: new Date().toISOString(),
             deactivatedAt: new Date().toISOString(),
           },
@@ -995,6 +1098,9 @@ export class VendasService {
         activeMirroredLeadIds.add(leadId);
       }
     }
+    Object.keys(leadConversationIds).forEach((leadId) => {
+      if (activeLeadIds.has(leadId)) activeMirroredLeadIds.add(leadId);
+    });
     const mirroredLeadCount = activeMirroredLeadIds.size;
 
     const allTodaySkippedByWhatsapp =
@@ -1009,11 +1115,11 @@ export class VendasService {
       throw new BadRequestException(
         skippedWithoutPhone > 0
           ? filteredSync
-            ? 'Nenhum card selecionado foi espelhado no Atendimento porque os leads estao sem telefone valido.'
-            : 'Nenhum card de hoje foi espelhado no Atendimento porque os leads estao sem telefone valido.'
+            ? 'Nenhum card selecionado foi preparado na Prospecção porque os leads estao sem telefone valido.'
+            : 'Nenhum card de hoje foi preparado na Prospecção porque os leads estao sem telefone valido.'
           : filteredSync
-            ? 'Nenhum card selecionado foi espelhado no Atendimento.'
-            : 'Nenhum card de hoje foi espelhado no Atendimento.',
+            ? 'Nenhum card selecionado foi preparado na Prospecção.'
+            : 'Nenhum card de hoje foi preparado na Prospecção.',
       );
     }
 
@@ -1025,13 +1131,13 @@ export class VendasService {
 
     const message = todayLeadCount
       ? skippedWithoutWhatsapp > 0
-        ? `${mirroredLeadCount} card(s) preparados no Atendimento. ${skippedWithoutWhatsapp} numero(s) ficaram fora porque o motor nao encontrou WhatsApp.`
+        ? `${mirroredLeadCount} card(s) preparados na Prospecção. ${skippedWithoutWhatsapp} numero(s) foram movidos para Excluídos porque o motor nao encontrou WhatsApp.`
         : filteredSync
-          ? `${mirroredLeadCount} card(s) selecionados preparados no Atendimento com roteiro pendente para envio manual.`
-          : `${mirroredLeadCount} card(s) de hoje preparados no Atendimento com roteiro pendente para envio manual.`
+          ? `${mirroredLeadCount} card(s) selecionados preparados na Prospecção com roteiro pendente para envio manual.`
+          : `${mirroredLeadCount} card(s) de hoje preparados na Prospecção com roteiro pendente para envio manual.`
       : filteredSync
-        ? 'Nao ha cards selecionados para preparar no Atendimento.'
-        : 'Nao ha cards de hoje para preparar no Atendimento.';
+        ? 'Nao ha cards selecionados para preparar na Prospecção.'
+        : 'Nao ha cards de hoje para preparar na Prospecção.';
     this.logger.log(
       `[vendas-agenda] Espelhamento concluido company=${context.companyId} today=${todayLeadCount} mirrored=${mirroredLeadCount} activated=${activated} updated=${updated} deactivated=${deactivated} skippedWithoutPhone=${skippedWithoutPhone} skippedWithoutWhatsapp=${skippedWithoutWhatsapp}`,
     );
@@ -1734,14 +1840,18 @@ export class VendasService {
       const availability = whatsappAvailabilityByLeadId.get(String(entry.lead?.id || '')) || null;
       if (availability?.status === 'unavailable') {
         skippedWithoutWhatsapp += 1;
-        await this.deactivateLeadInInboxAgenda(context.companyId, entry.lead?.phoneNormalized || entry.lead?.phone, String(entry.lead?.id || ''), {
-          whatsappAvailabilityStatus: 'unavailable',
-        });
+        await this.moveLeadWithoutWhatsappToInboxTrash(
+          context.companyId,
+          entry.lead,
+          availability,
+          { draftMessageOverride: this.normalizeText(entry.item?.scriptText) },
+        );
         continue;
       }
       await this.syncLeadToInboxAgenda(context.companyId, entry.lead, undefined, {
         forceScheduled: true,
         draftMessageOverride: this.normalizeText(entry.item?.scriptText),
+        whatsappAvailabilityStatus: availability?.status || 'available',
       });
     }
 

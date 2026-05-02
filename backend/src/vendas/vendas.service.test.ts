@@ -75,7 +75,7 @@ function createService(overrides?: Partial<Record<string, any>>) {
   return { service, getOrCreateCalls, updateConversationStateCalls };
 }
 
-test('syncTodayAgendaForUser mirrors today leads into Inbox agendamento and skips leads without phone', async () => {
+test('syncTodayAgendaForUser mirrors today leads into Inbox prospeccao and skips leads without phone', async () => {
   const now = new Date();
   const todayAtNoon = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 12, 0, 0, 0);
   const tomorrowAtNoon = new Date(todayAtNoon);
@@ -150,6 +150,14 @@ test('syncTodayAgendaForUser mirrors today leads into Inbox agendamento and skip
   assert.equal(
     (updateConversationStateCalls[0].payload as any).metadata.vendasAgendaQueue.sourceBlock,
     'today',
+  );
+  assert.equal(
+    (updateConversationStateCalls[0].payload as any).metadata.vendasAgendaQueue.queueTarget,
+    'prospeccao',
+  );
+  assert.equal(
+    (updateConversationStateCalls[0].payload as any).metadata.queueTarget,
+    'prospeccao',
   );
   assert.equal(
     (updateConversationStateCalls[0].payload as any).metadata.vendasAgendaQueue.status,

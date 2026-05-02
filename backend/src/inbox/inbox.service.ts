@@ -414,9 +414,14 @@ export class InboxService {
     const manualQueue = String(
       metadata?.inboxManualQueueOverride || vendasAgendaQueue?.manualQueueOverride || '',
     ).trim().toLowerCase();
+    const queueTarget = String(
+      metadata?.queueTarget || metadata?.routeTarget || vendasAgendaQueue?.queueTarget || vendasAgendaQueue?.routeTarget || '',
+    ).trim().toLowerCase();
 
     return (
       manualQueue === 'archived' ||
+      queueTarget === 'excluidos' ||
+      queueTarget === 'excluded' ||
       String(flowResult || '').trim().toLowerCase() === 'local_deleted' ||
       [
         metadata?.inboxLocalDeleted,
@@ -439,6 +444,14 @@ export class InboxService {
         '',
     ).trim().toLowerCase();
     return status === 'unavailable';
+  }
+
+  private isConversationPersonalContact(metadata: Record<string, any>) {
+    return [
+      metadata?.inboxPersonalContact,
+      metadata?.personalContact,
+      metadata?.whatsappPersonalContact,
+    ].some((value) => this.parseBooleanMetadataFlag(value));
   }
 
   private canTrashDeleteFallbackToLocal(error: unknown) {
@@ -1164,6 +1177,37 @@ export class InboxService {
     return Math.min(Math.floor(parsed), 5000);
   }
 
+  private normalizeConversationQueueFilter(value: string | null | undefined) {
+    const normalized = String(value || '').trim().toLowerCase();
+    const allowedQueues = new Set(['all', 'groups', 'recovery', 'scheduled', 'bot', 'archived']);
+    return allowedQueues.has(normalized) ? normalized : null;
+  }
+
+  private resolveConversationQueueFromRouteTarget(conversation: any) {
+    const contact = String(conversation?.customer?.phone || conversation?.contact || '').trim().toLowerCase();
+    if (contact.includes('@g.us')) return 'groups';
+    switch (String(conversation?.routeTarget || '').trim().toLowerCase()) {
+      case 'excluidos':
+      case 'excluded':
+        return 'archived';
+      case 'recovery':
+        return 'recovery';
+      case 'atendimento':
+        return 'scheduled';
+      case 'prospeccao':
+      case 'prospection':
+        return 'bot';
+      case 'conversas':
+      default:
+        return 'all';
+    }
+  }
+
+  private isConversationInQueueFilter(conversation: any, queueFilter: string | null) {
+    if (!queueFilter) return true;
+    return this.resolveConversationQueueFromRouteTarget(conversation) === queueFilter;
+  }
+
   private normalizeMessagePageLimit(value: string | number | null | undefined, fallback = 20) {
     const parsed = Number(value);
     if (!Number.isFinite(parsed) || parsed <= 0) {
@@ -1443,6 +1487,8 @@ export class InboxService {
     const latestSourceModule = String(metadata?.lastSourceModule || conversation?.messages?.[0]?.sourceModule || '')
       .trim()
       .toLowerCase();
+    const latestDirection = String(conversation?.messages?.[0]?.direction || '').trim().toUpperCase();
+    const hasInboundMessage = latestDirection === 'INBOUND';
 
     const recoveryCustomer = metadataCustomerId
         ? await this.prisma.hbxRecoveryCustomer.findFirst({
@@ -1502,10 +1548,29 @@ export class InboxService {
 
     const hasRecoveryDebt = Number(recoveryCustomer?.openAmount || 0) > 0;
 
-    let routeTarget: 'recovery' | 'atendimento' = 'atendimento';
-    let routeReason = 'Atendimento manual padrao.';
+    let routeTarget: 'recovery' | 'atendimento' | 'prospeccao' | 'conversas' | 'excluidos' = 'conversas';
+    let routeReason = 'Chat manual/pessoal do chip sem origem HBX.';
+    const vendasAgendaQueue = this.getNestedMetadataRecord(metadata?.vendasAgendaQueue);
+    const metadataRouteTarget = String(
+      metadata?.routeTarget || metadata?.queueTarget || vendasAgendaQueue?.routeTarget || vendasAgendaQueue?.queueTarget || '',
+    ).trim().toLowerCase();
 
-    if (conversation?.humanAssigned && routingRules.preferInboxForManualQueue) {
+    if (this.isConversationMetadataInTrash(metadata, conversation?.flowResult) || this.isConversationKnownWithoutWhatsapp(metadata)) {
+      routeTarget = 'excluidos';
+      routeReason = 'Contato descartado, bloqueado ou sem WhatsApp confirmado.';
+    } else if (this.isConversationPersonalContact(metadata)) {
+      routeTarget = 'conversas';
+      routeReason = 'Contato marcado como pessoal pelo operador.';
+    } else if (metadataRouteTarget === 'prospeccao' || metadataRouteTarget === 'prospection') {
+      routeTarget = 'prospeccao';
+      routeReason = 'Lead herdado de Vendas/Webscraping aguardando abordagem ativa.';
+    } else if (metadataRouteTarget === 'atendimento') {
+      routeTarget = 'atendimento';
+      routeReason = 'Cliente respondeu ou iniciou atendimento.';
+    } else if (hasInboundMessage) {
+      routeTarget = 'atendimento';
+      routeReason = 'Cliente enviou mensagem inbound para a empresa.';
+    } else if (conversation?.humanAssigned && routingRules.preferInboxForManualQueue) {
       routeTarget = 'atendimento';
       routeReason = 'Cliente aguardando tratativa humana na fila manual.';
     } else if (hasRecoveryDebt && routingRules.preferRecoveryForDebtors) {
@@ -2186,12 +2251,80 @@ export class InboxService {
     );
   }
 
+  private async mapPersistedConversationRowsForCompany(
+    companyId: number,
+    rows: any[],
+    routingRules: RecoveryRoutingRules,
+  ) {
+    const identityMap = await this.loadAtendimentoIdentityMap(
+      companyId,
+      rows.map((row) => String(row.contact || '')),
+    );
+    const sharedMap = await this.loadSharedProfileMap(
+      companyId,
+      rows.map((row) => String(row.contact || '')),
+      identityMap,
+    );
+
+    await Promise.all(
+      rows
+        .map((row) => ({ row, activityAt: this.resolveConversationActivityDate(row) }))
+        .filter(({ row, activityAt }) => {
+          if (!activityAt) return false;
+          if (!row.lastMessageAt) return true;
+          return activityAt.getTime() > new Date(row.lastMessageAt).getTime();
+        })
+        .map(({ row, activityAt }) =>
+          this.repairConversationActivityIfStale(companyId, row.id, activityAt),
+        ),
+    );
+
+    const sortedRows = [...rows].sort((left, right) => {
+      const leftTime = this.resolveConversationActivityDate(left)?.getTime() || 0;
+      const rightTime = this.resolveConversationActivityDate(right)?.getTime() || 0;
+      if (leftTime !== rightTime) return rightTime - leftTime;
+      return Number(right.id || 0) - Number(left.id || 0);
+    });
+
+    return Promise.all(
+      sortedRows.map((row) => {
+        const activityAt = this.resolveConversationActivityDate(row);
+        const conversation = {
+          ...row,
+          updatedAt: activityAt || row.updatedAt,
+          lastMessageAt: activityAt || row.lastMessageAt || null,
+          messages: [...(row.messages || [])].reverse(),
+        };
+        const phoneNormalized = this.normalizeConversationPhone(String(conversation.contact || '')) || '';
+        const identityRow = identityMap.get(phoneNormalized);
+        const sharedProfile = identityRow?.customerProfileId
+          ? sharedMap.byProfileId.get(String(identityRow.customerProfileId)) ?? null
+          : sharedMap.byPhoneNormalized.get(phoneNormalized) ?? null;
+        return this.mapConversation(
+          companyId,
+          conversation,
+          routingRules,
+          identityRow,
+          sharedProfile,
+        );
+      }),
+    );
+  }
+
   private async listPersistedConversationSummariesForCompany(
     companyId: number,
-    options?: { take?: string | number | null; skip?: string | number | null },
+    options?: { take?: string | number | null; skip?: string | number | null; queue?: string | null },
   ) {
     const take = this.normalizeConversationTakeLimit(options?.take, 200) || 200;
     const visibleSkip = this.normalizeConversationSkip(options?.skip);
+    const queueFilter = this.normalizeConversationQueueFilter(options?.queue);
+    if (queueFilter) {
+      return this.listPersistedConversationSummariesForCompanyQueue(companyId, {
+        take,
+        skip: visibleSkip,
+        queue: queueFilter,
+      });
+    }
     const rows: Array<{
       id: number;
       contact: string;
@@ -2285,59 +2418,85 @@ export class InboxService {
     }
 
     const routingRules = await this.getRecoveryRoutingRules(companyId);
-    const identityMap = await this.loadAtendimentoIdentityMap(
-      companyId,
-      rows.map((row) => String(row.contact || '')),
-    );
-    const sharedMap = await this.loadSharedProfileMap(
-      companyId,
-      rows.map((row) => String(row.contact || '')),
-      identityMap,
-    );
+    return this.mapPersistedConversationRowsForCompany(companyId, rows, routingRules);
+  }
 
-    await Promise.all(
-      rows
-        .map((row) => ({ row, activityAt: this.resolveConversationActivityDate(row) }))
-        .filter(({ row, activityAt }) => {
-          if (!activityAt) return false;
-          if (!row.lastMessageAt) return true;
-          return activityAt.getTime() > new Date(row.lastMessageAt).getTime();
-        })
-        .map(({ row, activityAt }) =>
-          this.repairConversationActivityIfStale(companyId, row.id, activityAt),
-        ),
-    );
+  private async listPersistedConversationSummariesForCompanyQueue(
+    companyId: number,
+    options: { take: number; skip: number; queue: string },
+  ) {
+    const take = Math.max(1, Math.min(Number(options.take || 0) || 200, 200));
+    const visibleSkip = Math.max(0, Math.min(Number(options.skip || 0) || 0, 5000));
+    const queueFilter = this.normalizeConversationQueueFilter(options.queue);
+    const routingRules = await this.getRecoveryRoutingRules(companyId);
+    const conversations: any[] = [];
+    const queryTake = Math.max(take * 2, 40);
+    let querySkip = 0;
+    let visibleSeen = 0;
 
-    const sortedRows = [...rows].sort((left, right) => {
-      const leftTime = this.resolveConversationActivityDate(left)?.getTime() || 0;
-      const rightTime = this.resolveConversationActivityDate(right)?.getTime() || 0;
-      if (leftTime !== rightTime) return rightTime - leftTime;
-      return Number(right.id || 0) - Number(left.id || 0);
-    });
+    while (conversations.length < take) {
+      const chunk = await this.prisma.companyConversation.findMany({
+        where: { companyId, channel: 'whatsapp' },
+        orderBy: [{ lastMessageAt: 'desc' }, { updatedAt: 'desc' }, { id: 'desc' }],
+        take: queryTake,
+        skip: querySkip,
+        select: {
+          id: true,
+          contact: true,
+          metadata: true,
+          currentFlow: true,
+          currentStep: true,
+          flowResult: true,
+          botActive: true,
+          humanAssigned: true,
+          assignedUserId: true,
+          createdAt: true,
+          updatedAt: true,
+          lastMessageAt: true,
+          messages: {
+            orderBy: [{ timestamp: 'desc' }, { id: 'desc' }],
+            take: 1,
+            select: {
+              id: true,
+              direction: true,
+              messageType: true,
+              body: true,
+              senderType: true,
+              status: true,
+              error: true,
+              timestamp: true,
+              sourceModule: true,
+              providerMessageId: true,
+              rawPayload: true,
+              variablesJson: true,
+            },
+          },
+        },
+      });
 
-    return Promise.all(
-      sortedRows.map((row) => {
-        const activityAt = this.resolveConversationActivityDate(row);
-        const conversation = {
-          ...row,
-          updatedAt: activityAt || row.updatedAt,
-          lastMessageAt: activityAt || row.lastMessageAt || null,
-          messages: [...(row.messages || [])].reverse(),
-        };
-        const phoneNormalized = this.normalizeConversationPhone(String(conversation.contact || '')) || '';
-        const identityRow = identityMap.get(phoneNormalized);
-        const sharedProfile = identityRow?.customerProfileId
-          ? sharedMap.byProfileId.get(String(identityRow.customerProfileId)) ?? null
-          : sharedMap.byPhoneNormalized.get(phoneNormalized) ?? null;
-        return this.mapConversation(
-          companyId,
-          conversation,
-          routingRules,
-          identityRow,
-          sharedProfile,
-        );
-      }),
-    );
+      if (!chunk.length) break;
+      querySkip += chunk.length;
+
+      const visibleRows = chunk.filter((row) => {
+        const metadata = this.parseConversationMetadata(row.metadata);
+        return !this.parseBooleanMetadataFlag(metadata.whatsappConversationDeleted || metadata.inboxWhatsAppDeleted);
+      });
+      const mappedRows = await this.mapPersistedConversationRowsForCompany(companyId, visibleRows, routingRules);
+      for (const conversation of mappedRows) {
+        if (!this.isConversationInQueueFilter(conversation, queueFilter)) continue;
+        if (visibleSeen < visibleSkip) {
+          visibleSeen += 1;
+          continue;
+        }
+        conversations.push(conversation);
+        visibleSeen += 1;
+        if (conversations.length >= take) break;
+      }
+
+      if (chunk.length < queryTake) break;
+    }
+
+    return conversations;
   }
 
   private async getPersistedConversationByIdForCompany(companyId: number, id: number, options?: { messagesLimit?: number }) {
@@ -2656,7 +2815,10 @@ export class InboxService {
     }
   }
 
-  async listConversations(user: any, options?: { take?: string | number | null; skip?: string | number | null }) {
+  async listConversations(
+    user: any,
+    options?: { take?: string | number | null; skip?: string | number | null; queue?: string | null },
+  ) {
     const companyId = this.requireCompanyIdFromUser(user);
     this.triggerBackgroundInboxIndexSync(companyId, { take: options?.take });
     return this.listPersistedConversationSummariesForCompany(companyId, options);
@@ -3679,11 +3841,24 @@ export class InboxService {
         ? (metadata.vendasAgendaQueue as Record<string, unknown>)
         : null;
     const now = new Date().toISOString();
+    const unavailable = this.isConversationKnownWithoutWhatsapp(metadata);
+    const nextRouteTarget =
+      unavailable || queue === 'archived'
+        ? 'excluidos'
+        : queue === 'bot'
+          ? 'prospeccao'
+          : queue === 'scheduled'
+            ? 'atendimento'
+            : queue === 'all'
+              ? 'conversas'
+              : queue;
     const nextMetadata: Record<string, unknown> = {
       ...metadata,
       inboxManualQueueOverride: queue,
       inboxManualQueueOverriddenAt: now,
-      ...(queue === 'archived'
+      queueTarget: nextRouteTarget,
+      routeTarget: nextRouteTarget,
+      ...(queue === 'archived' || unavailable
         ? {
             inboxLocalDeleted: true,
             inboxLocalDeletedAt: now,
@@ -3698,12 +3873,16 @@ export class InboxService {
 
     if (currentQueue) {
       nextMetadata.vendasAgendaQueue =
-        queue === 'scheduled'
+        queue === 'bot' && !unavailable
           ? {
               ...currentQueue,
               active: true,
+              queueTarget: 'prospeccao',
+              routeTarget: 'prospeccao',
               manualQueueOverride: null,
               manualQueueOverriddenAt: null,
+              botEligible: false,
+              botEntryPending: false,
               syncedAt: now,
             }
           : {
@@ -3712,6 +3891,10 @@ export class InboxService {
               draftPending: false,
               botEligible: false,
               botEntryPending: false,
+              queueTarget: nextRouteTarget,
+              routeTarget: nextRouteTarget,
+              whatsappAvailabilityStatus:
+                unavailable ? 'unavailable' : (currentQueue as any).whatsappAvailabilityStatus || null,
               manualQueueOverride: queue,
               manualQueueOverriddenAt: now,
               deactivatedAt: currentQueue.deactivatedAt || now,
@@ -3721,7 +3904,7 @@ export class InboxService {
 
     await this.conversations.updateConversationState(companyId, id, {
       metadata: nextMetadata,
-      ...(queue === 'archived'
+      ...(queue === 'archived' || unavailable
         ? {
             botActive: false,
             humanAssigned: false,
@@ -3760,6 +3943,91 @@ export class InboxService {
       message: `Fila manual atualizada para ${queue}`,
       conversationId: id,
       result: queue,
+    });
+
+    return this.getConversationByIdForCompany(companyId, id);
+  }
+
+  async updateConversationPersonalContact(user: any, id: number, personalRaw?: boolean) {
+    const companyId = this.requireCompanyIdFromUser(user);
+    const conversation = await this.ensureConversation(companyId, id);
+    const personal = personalRaw === true;
+    const metadata = this.parseConversationMetadata(conversation.metadata);
+    const currentQueue = this.getNestedMetadataRecord(metadata?.vendasAgendaQueue);
+    const now = new Date().toISOString();
+    const nextMetadata: Record<string, unknown> = {
+      ...metadata,
+      inboxPersonalContact: personal,
+      inboxPersonalContactAt: personal ? now : null,
+      inboxPersonalContactByUserId: personal ? Number(user?.id || 0) || null : null,
+      queueTarget: personal ? 'conversas' : null,
+      routeTarget: personal ? 'conversas' : null,
+      inboxManualQueueOverride: personal ? 'all' : metadata.inboxManualQueueOverride || null,
+      inboxManualQueueOverriddenAt: personal ? now : metadata.inboxManualQueueOverriddenAt || null,
+    };
+
+    if (currentQueue) {
+      nextMetadata.vendasAgendaQueue = personal
+        ? {
+            ...currentQueue,
+            active: false,
+            draftPending: false,
+            botEligible: false,
+            botEntryPending: false,
+            queueTarget: 'conversas',
+            routeTarget: 'conversas',
+            manualQueueOverride: 'all',
+            manualQueueOverriddenAt: now,
+            deactivatedAt: currentQueue.deactivatedAt || now,
+            syncedAt: now,
+          }
+        : {
+            ...currentQueue,
+            queueTarget: currentQueue.whatsappAvailabilityStatus === 'unavailable' ? 'excluidos' : 'prospeccao',
+            routeTarget: currentQueue.whatsappAvailabilityStatus === 'unavailable' ? 'excluidos' : 'prospeccao',
+            manualQueueOverride: currentQueue.manualQueueOverride === 'all' ? null : currentQueue.manualQueueOverride || null,
+            manualQueueOverriddenAt:
+              currentQueue.manualQueueOverride === 'all' ? null : currentQueue.manualQueueOverriddenAt || null,
+            syncedAt: now,
+          };
+    }
+
+    await this.conversations.updateConversationState(companyId, id, {
+      botActive: personal ? false : conversation.botActive,
+      humanAssigned: personal ? false : conversation.humanAssigned,
+      flowResult: personal ? 'personal_contact' : conversation.flowResult,
+      metadata: nextMetadata,
+    });
+
+    try {
+      await this.customerProfileService.upsertAtendimentoProfileState({
+        companyId,
+        phone: String(conversation.contact || '').trim(),
+        botOff: personal,
+        botOffReason: personal ? 'Contato marcado como pessoal no Atendimento.' : null,
+        botOffAt: personal ? new Date() : null,
+      } as any);
+    } catch (error) {
+      await this.logInboxEvent({
+        companyId,
+        event: 'conversation_personal_profile_sync_failed',
+        message: 'Falha ao persistir estado de contato pessoal no CustomerProfile.',
+        conversationId: id,
+        phone: String(conversation.contact || '').trim(),
+        result: 'warning',
+        extra: {
+          error: error instanceof Error ? error.message : 'unknown_error',
+        },
+      });
+    }
+
+    await this.logInboxEvent({
+      companyId,
+      event: 'conversation_personal_contact_updated',
+      message: personal ? 'Contato marcado como pessoal.' : 'Contato pessoal desativado.',
+      conversationId: id,
+      phone: String(conversation.contact || '').trim(),
+      result: personal ? 'enabled' : 'disabled',
     });
 
     return this.getConversationByIdForCompany(companyId, id);
@@ -4248,10 +4516,62 @@ export class InboxService {
   }
 
   async emptyTrash(user: any) {
-    this.requireCompanyIdFromUser(user);
-    throw new BadRequestException(
-      'Limpeza em lote desativada. Exclua permanentemente uma conversa por vez em Excluídos.',
+    this.assertAdministrativeAction(user);
+    const companyId = this.requireCompanyIdFromUser(user);
+    const candidates = await this.prisma.companyConversation.findMany({
+      where: {
+        companyId,
+        channel: 'whatsapp',
+        messages: { none: {} },
+      },
+      select: {
+        id: true,
+        contact: true,
+        flowResult: true,
+        metadata: true,
+      },
+    });
+    const deletable = candidates.filter((conversation) =>
+      this.isConversationMetadataInTrash(
+        this.parseConversationMetadata(conversation.metadata),
+        conversation.flowResult,
+      ),
     );
+    const ids = deletable.map((conversation) => conversation.id);
+
+    if (ids.length > 0) {
+      await this.prisma.companyConversation.deleteMany({
+        where: {
+          companyId,
+          channel: 'whatsapp',
+          id: { in: ids },
+        },
+      });
+      await this.logInboxEvent({
+        companyId,
+        event: 'conversation_empty_trash_purged_local',
+        message: 'Conversas vazias removidas de Excluídos apenas no HBX.',
+        result: 'local_purged_empty_batch',
+        extra: {
+          deleted: ids.length,
+          deletedIds: ids,
+          localOnly: true,
+          whatsappCommandSent: false,
+        },
+      });
+    }
+
+    return {
+      success: true,
+      deleted: ids.length,
+      deletedIds: ids.map((id) => String(id)),
+      skipped: Math.max(0, candidates.length - ids.length),
+      localOnly: true,
+      message:
+        ids.length > 0
+          ? `${ids.length} conversa(s) vazia(s) removida(s) de Excluídos apenas no HBX.`
+          : 'Nenhuma conversa vazia encontrada em Excluídos.',
+    };
   }
 
   async markConversationAsRead(user: any, conversationId: number) {

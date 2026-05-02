@@ -38,6 +38,7 @@ const PF_ROLE_OPTIONS = [
   "autônomo",
   "prestador",
 ];
+const SCRIPT_VARIABLE_TOKENS = ["nome", "cidade", "segmento", "quem_envia", "empresa"] as const;
 const COMMON_CITY_DDD: Record<string, string> = {
   "americana - sp": "19",
   americana: "19",
@@ -104,8 +105,6 @@ const SEARCH_MODE_OPTIONS: Array<{
     motorCode: "MOTOR Z",
   },
 ];
-
-type MotorHealth = "online" | "offline" | "bug" | "unknown";
 
 type CurrentUser = {
   id?: number | null;
@@ -310,6 +309,27 @@ function buildScriptText(result: SearchResult, city: string, segment: string, sp
   ].join(" ");
 }
 
+function applyScriptTemplate(
+  template: string,
+  result: SearchResult,
+  city: string,
+  segment: string,
+  speaker: string,
+  company: string,
+) {
+  const replacements: Record<string, string> = {
+    nome: result.name || "Nome do contato",
+    cidade: city || "sua cidade",
+    segmento: segment || "Agenda PF",
+    quem_envia: speaker || "[SEU NOME]",
+    empresa: company || "[SUA EMPRESA]",
+  };
+  return Object.entries(replacements).reduce(
+    (text, [key, value]) => text.replace(new RegExp(`\\{${key}\\}`, "gi"), value),
+    template,
+  );
+}
+
 function isLikelyMobileWhatsapp(raw: string) {
   const digits = normalizePhoneDigits(raw);
   return /^[1-9]{2}9\d{8}$/.test(digits);
@@ -471,19 +491,6 @@ function parsePfSegment(value: string) {
     niche,
     ddd,
   };
-}
-
-function motorStatusLabel(status: MotorHealth) {
-  if (status === "online") return "Online";
-  if (status === "offline") return "Caiu";
-  if (status === "bug") return "Com bug";
-  return "Aguardando teste";
-}
-
-function motorStatusTone(status: MotorHealth) {
-  if (status === "online") return "online";
-  if (status === "offline" || status === "bug") return "danger";
-  return "idle";
 }
 
 function searchModeTitle(option: (typeof SEARCH_MODE_OPTIONS)[number]) {
@@ -688,6 +695,8 @@ export default function WebscrapingClientPage() {
   const router = useRouter();
   const hasToken = useRequireAuth();
   const resultsRef = useRef<HTMLElement | null>(null);
+  const scriptTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const lastAutoScrollKeyRef = useRef("");
   const [runtime, setRuntime] = useState<RuntimeResponse | null>(null);
   const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
   const [historyItems, setHistoryItems] = useState<SearchHistoryItem[]>([]);
@@ -695,18 +704,13 @@ export default function WebscrapingClientPage() {
   const [citiesLoading, setCitiesLoading] = useState(false);
   const [citySuggestionsOpen, setCitySuggestionsOpen] = useState(false);
   const [activeCitySuggestionIndex, setActiveCitySuggestionIndex] = useState(0);
+  const [segmentSuggestionsOpen, setSegmentSuggestionsOpen] = useState(false);
   const [city, setCity] = useState("");
   const [segment, setSegment] = useState("Lanchonetes");
   const [engine, setEngine] = useState<WebscrapingEngine>("google");
   const [targetType, setTargetType] = useState<HbxTargetType>("pj");
   const [pfRole, setPfRole] = useState("consultor");
   const [pfDdd, setPfDdd] = useState("");
-  const [motorHealthByMode, setMotorHealthByMode] = useState<Record<SearchModeId, MotorHealth>>({
-    google_pj: "unknown",
-    hbx_pj: "unknown",
-    hbx_pf: "unknown",
-    hbx_agenda_pf: "unknown",
-  });
   const [quantity, setQuantity] = useState(10);
   const [minRating, setMinRating] = useState("");
   const [minReviews, setMinReviews] = useState("");
@@ -725,15 +729,15 @@ export default function WebscrapingClientPage() {
   const [feedback, setFeedback] = useState<string | null>(null);
   const [hasSearched, setHasSearched] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
-  const [panelMode, setPanelMode] = useState<"search" | "script" | "history">("search");
-  const [scriptSenderDraft, setScriptSenderDraft] = useState("");
-  const [scriptCompanyDraft, setScriptCompanyDraft] = useState("");
+  const [panelMode, setPanelMode] = useState<"search" | "history">("search");
   const [appliedScriptSender, setAppliedScriptSender] = useState("");
   const [appliedScriptCompany, setAppliedScriptCompany] = useState("");
+  const [scriptDraft, setScriptDraft] = useState("");
+  const [scriptDraftTouched, setScriptDraftTouched] = useState(false);
+  const [appliedScriptTemplate, setAppliedScriptTemplate] = useState("");
   const crmLaunchNotice = useQuickLaunchNotice();
   const scrapingLaunchNotice = useQuickLaunchNotice();
 
-  const runtimeReady = runtime?.native.status === "online";
   const selectedSearchMode = useMemo(() => getSearchMode(engine, targetType), [engine, targetType]);
   const quantityOptions = selectedSearchMode.quantityOptions;
   const maxQuantity = quantityOptions[quantityOptions.length - 1] || 20;
@@ -745,9 +749,11 @@ export default function WebscrapingClientPage() {
     if (runtime.quota.accessMode === "blocked") return "0";
     return String(Math.max(0, Number(runtime.quota.remainingSearches || 0)));
   }, [runtime?.quota]);
-  const configurationPending = runtime?.native.code === "configuration_pending";
-  const hbxRuntimeStatus = runtime?.hbx?.status;
   const defaultScriptVariables = useMemo(() => buildDefaultScriptVariables(currentUser), [currentUser]);
+  const scriptPresetStorageKey = useMemo(() => {
+    const identity = currentUser?.id ?? currentUser?.email ?? currentUser?.username ?? "local";
+    return `webscraping.scriptPreset.${identity}`;
+  }, [currentUser?.email, currentUser?.id, currentUser?.username]);
   const cityExactOption = useMemo(() => {
     const normalizedCity = normalizeCityLookup(city);
     if (!normalizedCity) return "";
@@ -761,6 +767,11 @@ export default function WebscrapingClientPage() {
     return segment.trim();
   }, [agendaMode, effectiveDdd, pfMode, pfRole, segment]);
   const activeSegmentSuggestions = pfMode ? PF_NICHE_SUGGESTIONS : SEGMENT_SUGGESTIONS;
+  const segmentSuggestionItems = useMemo(() => {
+    const normalizedSegment = normalizeCityLookup(segment);
+    if (!normalizedSegment) return activeSegmentSuggestions;
+    return activeSegmentSuggestions.filter((option) => normalizeCityLookup(option).includes(normalizedSegment));
+  }, [activeSegmentSuggestions, segment]);
   const citySuggestionItems = useMemo(() => {
     const normalizedCity = normalizeCityLookup(city);
     if (!normalizedCity) return [];
@@ -785,29 +796,6 @@ export default function WebscrapingClientPage() {
   const activeCitySuggestion = shouldShowCitySuggestions
     ? citySuggestionItems[Math.min(activeCitySuggestionIndex, citySuggestionItems.length - 1)] || ""
     : "";
-  const crmPreviewSummary = useMemo(() => {
-    const items = Object.values(crmPreviewByPhone);
-    return {
-      existing: items.filter((item) => item.existsInCrm).length,
-      previousContact: items.filter((item) => item.signals?.hadPreviousContact).length,
-      previouslyClosed: items.filter((item) => item.signals?.wasClosedBefore).length,
-    };
-  }, [crmPreviewByPhone]);
-  const motorStatusItems = useMemo(() => {
-    return SEARCH_MODE_OPTIONS.map((option) => {
-      let status = motorHealthByMode[option.id] || "unknown";
-      if (option.id === "google_pj") {
-        status = runtimeReady && !configurationPending ? "online" : "offline";
-      } else if (option.engine === "hbx" && status === "unknown" && hbxRuntimeStatus) {
-        status = hbxRuntimeStatus === "online" ? "online" : "offline";
-      }
-      return {
-        ...option,
-        status,
-        active: selectedSearchMode.id === option.id,
-      };
-    });
-  }, [configurationPending, hbxRuntimeStatus, motorHealthByMode, runtimeReady, selectedSearchMode.id]);
   const resultTargetType = useMemo(() => {
     if (!activeQuery) return targetType;
     if (activeQuery.engine === "hbx" || isPeopleTargetType(activeQuery.targetType)) {
@@ -820,9 +808,9 @@ export default function WebscrapingClientPage() {
     [resultTargetType, results],
   );
   const hiddenGenericResultsCount = Math.max(0, results.length - qualifiedResults.length);
-  const scriptGuidePreview = useMemo(() => {
+  const automaticScriptPreview = useMemo(() => {
     const previewResult: SearchResult = {
-      name: qualifiedResults[0]?.name || "Joao Silva",
+      name: qualifiedResults[0]?.name || "Nome do contato",
       phone: "",
       phoneDigits: "",
       rating: null,
@@ -830,12 +818,12 @@ export default function WebscrapingClientPage() {
       address: "",
       website: "",
     };
-    const previewSegment = pfMode
-      ? buildPfSegment(pfRole, segment || "plano de saúde", effectiveDdd)
-      : getVisualSegment(activeQuery?.segment ?? segment, activeQuery?.targetType || targetType) || "Lanchonetes";
+    const previewCity = (activeQuery?.city || city || "sua cidade").trim();
+    const previewSegment =
+      getVisualSegment(activeQuery?.segment ?? effectiveSegment, activeQuery?.targetType || targetType) || "Agenda PF";
     return buildScriptText(
       previewResult,
-      (activeQuery?.city || city || "Rio Claro").trim(),
+      previewCity,
       previewSegment,
       appliedScriptSender || defaultScriptVariables.speaker,
       appliedScriptCompany || defaultScriptVariables.company,
@@ -849,13 +837,21 @@ export default function WebscrapingClientPage() {
     city,
     defaultScriptVariables.company,
     defaultScriptVariables.speaker,
-    effectiveDdd,
-    pfMode,
-    pfRole,
+    effectiveSegment,
     qualifiedResults,
-    segment,
     targetType,
   ]);
+  const scriptEditorValue = scriptDraftTouched ? scriptDraft : automaticScriptPreview;
+
+  function buildAppliedScriptText(result: SearchResult, scriptCity: string, scriptSegment: string) {
+    const sender = appliedScriptSender || defaultScriptVariables.speaker;
+    const company = appliedScriptCompany || defaultScriptVariables.company;
+    const customTemplate = appliedScriptTemplate.trim();
+    if (customTemplate) {
+      return applyScriptTemplate(customTemplate, result, scriptCity, scriptSegment, sender, company);
+    }
+    return buildScriptText(result, scriptCity, scriptSegment, sender, company);
+  }
 
   function openVendasDashboard() {
     crmLaunchNotice.clear();
@@ -956,6 +952,21 @@ export default function WebscrapingClientPage() {
   }, [feedback]);
 
   useEffect(() => {
+    if (searching || !hasSearched || qualifiedResults.length === 0) return;
+    const scrollKey = [
+      searchMeta?.historyId || "sem-historico",
+      activeQuery?.city || city,
+      activeQuery?.segment || effectiveSegment,
+      qualifiedResults.length,
+    ].join("|");
+    if (lastAutoScrollKeyRef.current === scrollKey) return;
+    lastAutoScrollKeyRef.current = scrollKey;
+    window.requestAnimationFrame(() => {
+      resultsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  }, [activeQuery?.city, activeQuery?.segment, city, effectiveSegment, hasSearched, qualifiedResults.length, searchMeta?.historyId, searching]);
+
+  useEffect(() => {
     setQuantity((current) => {
       if (current > maxQuantity) return maxQuantity;
       if (quantityOptions.includes(current)) return current;
@@ -1014,11 +1025,31 @@ export default function WebscrapingClientPage() {
 
   useEffect(() => {
     const fallbackSender = String(currentUser?.email || "").trim();
-    setScriptSenderDraft("");
-    setScriptCompanyDraft(defaultScriptVariables.company);
+    try {
+      const saved = window.localStorage.getItem(scriptPresetStorageKey);
+      if (saved) {
+        const parsed = JSON.parse(saved) as {
+          sender?: string;
+          company?: string;
+          template?: string;
+        };
+        const savedTemplate = String(parsed.template || "");
+        setAppliedScriptSender(String(parsed.sender || fallbackSender));
+        setAppliedScriptCompany(String(parsed.company || defaultScriptVariables.company));
+        setAppliedScriptTemplate(savedTemplate);
+        setScriptDraft(savedTemplate);
+        setScriptDraftTouched(Boolean(savedTemplate));
+        return;
+      }
+    } catch {
+      // ignore storage errors
+    }
     setAppliedScriptSender(fallbackSender);
     setAppliedScriptCompany(defaultScriptVariables.company);
-  }, [currentUser?.email, defaultScriptVariables.company]);
+    setAppliedScriptTemplate("");
+    setScriptDraft("");
+    setScriptDraftTouched(false);
+  }, [currentUser?.email, defaultScriptVariables.company, scriptPresetStorageKey]);
 
   function buildPayload() {
     const basePayload = {
@@ -1168,10 +1199,6 @@ export default function WebscrapingClientPage() {
         method: "POST",
         body: JSON.stringify({ ...buildPayload(), city: selectedCity }),
       });
-      setMotorHealthByMode((current) => ({
-        ...current,
-        [searchModeSnapshot.id]: "online",
-      }));
       setResults(payload.results || []);
       setActiveQuery(payload.query);
       setSearchMeta(payload.meta);
@@ -1210,10 +1237,6 @@ export default function WebscrapingClientPage() {
       setActiveQuery(null);
       setSearchMeta(null);
       setHasSearched(true);
-      setMotorHealthByMode((current) => ({
-        ...current,
-        [searchModeSnapshot.id]: "bug",
-      }));
       const baseMessage = error instanceof Error ? error.message : "Falha ao buscar contatos.";
       setSearchError(
         searchModeSnapshot.targetType === "pf"
@@ -1365,13 +1388,7 @@ export default function WebscrapingClientPage() {
             reviews: result.reviews,
             city: query.city,
             segment: leadSegment,
-            scriptText: buildScriptText(
-              result,
-              query.city,
-              leadSegment,
-              appliedScriptSender || defaultScriptVariables.speaker,
-              appliedScriptCompany || defaultScriptVariables.company,
-            ),
+            scriptText: buildAppliedScriptText(result, query.city, leadSegment),
           })),
         }),
       });
@@ -1389,20 +1406,63 @@ export default function WebscrapingClientPage() {
     }
   }
 
-  function handleApplyScriptPreset() {
-    const nextSender = scriptSenderDraft.trim() || String(currentUser?.email || "").trim();
-    const nextCompany = scriptCompanyDraft.trim() || defaultScriptVariables.company;
-    setAppliedScriptSender(nextSender);
-    setAppliedScriptCompany(nextCompany);
-    setFeedback("Roteiro atualizado para todos os contatos carregados.");
-  }
-
   function handleResetScriptPreset() {
-    setScriptSenderDraft("");
-    setScriptCompanyDraft(defaultScriptVariables.company);
     setAppliedScriptSender(String(currentUser?.email || "").trim());
     setAppliedScriptCompany(defaultScriptVariables.company);
+    setAppliedScriptTemplate("");
+    setScriptDraft("");
+    setScriptDraftTouched(false);
+    try {
+      window.localStorage.removeItem(scriptPresetStorageKey);
+    } catch {
+      // ignore storage errors
+    }
     setFeedback("Roteiro resetado para o padrao.");
+  }
+
+  function handleApplyScriptPreset() {
+    const nextTemplate = scriptEditorValue.trim();
+    setAppliedScriptTemplate(nextTemplate);
+    setScriptDraft(nextTemplate);
+    setScriptDraftTouched(Boolean(nextTemplate));
+    try {
+      window.localStorage.setItem(
+        scriptPresetStorageKey,
+        JSON.stringify({
+          sender: appliedScriptSender,
+          company: appliedScriptCompany,
+          template: nextTemplate,
+        }),
+      );
+    } catch {
+      // ignore storage errors
+    }
+    setFeedback(
+      qualifiedResults.length
+        ? `Roteiro aplicado em ${qualifiedResults.length} card(s) e salvo para este usuario.`
+        : "Roteiro salvo para este usuario.",
+    );
+  }
+
+  function insertScriptVariable(token: (typeof SCRIPT_VARIABLE_TOKENS)[number]) {
+    const variable = `{${token}}`;
+    const textarea = scriptTextareaRef.current;
+    const currentText = scriptEditorValue;
+    const start = textarea?.selectionStart ?? currentText.length;
+    const end = textarea?.selectionEnd ?? start;
+    const prefix = currentText.slice(0, start);
+    const suffix = currentText.slice(end);
+    const needsLeadingSpace = prefix.length > 0 && !/\s$/.test(prefix);
+    const needsTrailingSpace = suffix.length > 0 && !/^\s/.test(suffix);
+    const inserted = `${needsLeadingSpace ? " " : ""}${variable}${needsTrailingSpace ? " " : ""}`;
+    const nextText = `${prefix}${inserted}${suffix}`;
+    const nextCursor = prefix.length + inserted.length;
+    setScriptDraftTouched(true);
+    setScriptDraft(nextText);
+    window.requestAnimationFrame(() => {
+      scriptTextareaRef.current?.focus();
+      scriptTextareaRef.current?.setSelectionRange(nextCursor, nextCursor);
+    });
   }
 
   if (hasToken === null) {
@@ -1444,57 +1504,6 @@ export default function WebscrapingClientPage() {
           </section>
         ) : null}
 
-        <section className={styles.commandCard}>
-          <div className={styles.commandGrid}>
-            <article className={styles.quotaCard}>
-              <span className={styles.cardEyebrow}>Pesquisas na API oficial</span>
-              <strong className={styles.quotaValue}>{remainingSearchesLabel}</strong>
-            </article>
-
-            <div className={styles.motorStatusGrid} aria-label="Status dos motores">
-              {motorStatusItems.map((item) => (
-                <article
-                  key={item.id}
-                  className={item.active ? styles.motorStatusActive : styles.motorStatus}
-                  data-status={motorStatusTone(item.status)}
-                  aria-current={item.active ? "true" : undefined}
-                >
-                  <span className={styles.motorCode}>{item.motorCode}</span>
-                  <strong>{motorStatusLabel(item.status)}</strong>
-                  <small>{item.label}</small>
-                </article>
-              ))}
-            </div>
-          </div>
-
-          <div className={styles.modeTabs} role="tablist" aria-label="Webscraping">
-            <button
-              type="button"
-              className={panelMode === "search" ? styles.modeTabActive : styles.modeTab}
-              onClick={() => setPanelMode("search")}
-            >
-              <Icon name="search" size={16} />
-              Consulta principal
-            </button>
-            <button
-              type="button"
-              className={panelMode === "script" ? styles.modeTabActive : styles.modeTab}
-              onClick={() => setPanelMode("script")}
-            >
-              <Icon name="book" size={16} />
-              Guia de roteiro
-            </button>
-            <button
-              type="button"
-              className={panelMode === "history" ? styles.modeTabActive : styles.modeTab}
-              onClick={() => setPanelMode("history")}
-            >
-              <Icon name="clock" size={16} />
-              Pesquisas recentes
-            </button>
-          </div>
-        </section>
-
         {panelMode === "search" ? (
           <section className={styles.searchCard}>
             <div className={styles.sectionHeader}>
@@ -1502,110 +1511,121 @@ export default function WebscrapingClientPage() {
                 <span className={styles.cardEyebrow}>Consulta principal</span>
                 <strong className={styles.sectionTitle}>{selectedSearchMode.label}</strong>
               </div>
-              <div className={styles.segmentChips}>
-                {activeSegmentSuggestions.map((option) => (
-                  <button
-                    key={option}
-                    type="button"
-                    className={segment === option ? styles.segmentChipActive : styles.segmentChip}
-                    onClick={() => setSegment(option)}
-                  >
-                    {option}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div className={styles.engineSelector} role="radiogroup" aria-label="Motor de busca">
-              {SEARCH_MODE_OPTIONS.map((option) => (
+              <div className={styles.modeTabs} role="tablist" aria-label="Webscraping">
                 <button
-                  key={option.id}
                   type="button"
-                  className={selectedSearchMode.id === option.id ? styles.engineOptionActive : styles.engineOption}
-                  onClick={() => handleSearchModeChange(option.id)}
-                  role="radio"
-                  aria-checked={selectedSearchMode.id === option.id}
+                  className={styles.modeTabActive}
+                  onClick={() => setPanelMode("search")}
                 >
-                  <span className={styles.engineStatus}>
-                    <Icon name={selectedSearchMode.id === option.id ? "check" : "zap"} size={15} />
-                    {option.motorCode}
-                  </span>
-                  <strong>{option.label}</strong>
-                  <span>{searchModeTitle(option)}</span>
-                  <small>{searchModeLimit(option)}</small>
-                  <Icon name="cursor" size={16} className={styles.clickIcon} />
+                  <Icon name="search" size={16} />
+                  Consulta principal
                 </button>
-              ))}
-            </div>
-
-            <div className={styles.guideStrip} aria-label="Guia do motor selecionado">
-              {Object.entries(searchModeGuide(selectedSearchMode)).map(([key, value], index) => (
-                <article key={key} className={styles.guideStep}>
-                  <span>{index + 1}</span>
-                  <strong>{value}</strong>
-                </article>
-              ))}
-            </div>
-
-            <div className={styles.formGrid}>
-              <div className={styles.field}>
-                <label className={styles.fieldLabel} htmlFor="webscraping-city">
-                  Cidade
-                </label>
-                <div className={styles.cityInputWrap}>
-                  <input
-                    id="webscraping-city"
-                    className={styles.fieldInput}
-                    value={city}
-                    onChange={(event) => {
-                      setCity(event.target.value);
-                      setCitySuggestionsOpen(true);
-                    }}
-                    onFocus={() => setCitySuggestionsOpen(true)}
-                    onBlur={() => window.setTimeout(() => setCitySuggestionsOpen(false), 120)}
-                    onKeyDown={handleCityKeyDown}
-                    placeholder="Digite e selecione: Rio Claro - SP"
-                    autoComplete="off"
-                    role="combobox"
-                    aria-autocomplete="list"
-                    aria-expanded={shouldShowCitySuggestions}
-                    aria-controls="webscraping-city-suggestions"
-                    aria-activedescendant={activeCitySuggestion ? `webscraping-city-option-${activeCitySuggestionIndex}` : undefined}
-                  />
-                  <Icon name="chevron" size={18} className={styles.cityInputArrow} />
-                </div>
-                {shouldShowCitySuggestions ? (
-                  <div
-                    id="webscraping-city-suggestions"
-                    className={styles.citySuggestions}
-                    role="listbox"
-                  >
-                    {citySuggestionItems.map((option, index) => (
-                      <button
-                        key={option}
-                        id={`webscraping-city-option-${index}`}
-                        type="button"
-                        className={index === activeCitySuggestionIndex ? styles.citySuggestionActive : styles.citySuggestion}
-                        onMouseDown={(event) => {
-                          event.preventDefault();
-                          selectCitySuggestion(option);
-                        }}
-                        role="option"
-                        aria-selected={index === activeCitySuggestionIndex}
-                      >
-                        {option}
-                      </button>
-                    ))}
-                  </div>
-                ) : null}
-                <p className={styles.fieldHint}>
-                  {citiesLoading
-                    ? "Carregando cidades..."
-                    : citySelectionPending
-                      ? "Escolha uma opcao com UF antes de buscar."
-                      : "Use a UF para diferenciar cidades com o mesmo nome."}
-                </p>
+                <button
+                  type="button"
+                  className={styles.modeTab}
+                  onClick={() => setPanelMode("history")}
+                >
+                  <Icon name="clock" size={16} />
+                  Pesquisas recentes
+                </button>
+                <span className={styles.modeMetaButton}>
+                  API oficial restantes: <strong>{remainingSearchesLabel}</strong>
+                </span>
               </div>
+            </div>
+
+            <div className={styles.consultationSplit}>
+              <div className={styles.consultationMain}>
+                <div className={styles.engineSelector} role="radiogroup" aria-label="Motor de busca">
+                  {SEARCH_MODE_OPTIONS.map((option) => (
+                    <button
+                      key={option.id}
+                      type="button"
+                      className={selectedSearchMode.id === option.id ? styles.engineOptionActive : styles.engineOption}
+                      onClick={() => handleSearchModeChange(option.id)}
+                      role="radio"
+                      aria-checked={selectedSearchMode.id === option.id}
+                    >
+                      <span className={styles.engineStatus}>
+                        <Icon name={selectedSearchMode.id === option.id ? "check" : "zap"} size={15} />
+                        {option.motorCode}
+                      </span>
+                      <strong>{option.label}</strong>
+                      <span>{searchModeTitle(option)}</span>
+                      <small>{searchModeLimit(option)}</small>
+                      <Icon name="cursor" size={16} className={styles.clickIcon} />
+                    </button>
+                  ))}
+                </div>
+
+                <div className={styles.guideStrip} aria-label="Guia do motor selecionado">
+                  {Object.entries(searchModeGuide(selectedSearchMode)).map(([key, value], index) => (
+                    <article key={key} className={styles.guideStep}>
+                      <span>{index + 1}</span>
+                      <strong>{value}</strong>
+                    </article>
+                  ))}
+                </div>
+
+                <div className={styles.formGrid}>
+                  <div className={styles.field}>
+                    <label className={styles.fieldLabel} htmlFor="webscraping-city">
+                      Cidade
+                    </label>
+                    <div className={styles.cityInputWrap}>
+                      <input
+                        id="webscraping-city"
+                        className={styles.fieldInput}
+                        value={city}
+                        onChange={(event) => {
+                          setCity(event.target.value);
+                          setCitySuggestionsOpen(true);
+                        }}
+                        onFocus={() => setCitySuggestionsOpen(true)}
+                        onBlur={() => window.setTimeout(() => setCitySuggestionsOpen(false), 120)}
+                        onKeyDown={handleCityKeyDown}
+                        placeholder="Digite e selecione: Rio Claro - SP"
+                        autoComplete="off"
+                        role="combobox"
+                        aria-autocomplete="list"
+                        aria-expanded={shouldShowCitySuggestions}
+                        aria-controls="webscraping-city-suggestions"
+                        aria-activedescendant={activeCitySuggestion ? `webscraping-city-option-${activeCitySuggestionIndex}` : undefined}
+                      />
+                      <Icon name="chevron" size={18} className={styles.cityInputArrow} />
+                    </div>
+                    {shouldShowCitySuggestions ? (
+                      <div
+                        id="webscraping-city-suggestions"
+                        className={styles.citySuggestions}
+                        role="listbox"
+                      >
+                        {citySuggestionItems.map((option, index) => (
+                          <button
+                            key={option}
+                            id={`webscraping-city-option-${index}`}
+                            type="button"
+                            className={index === activeCitySuggestionIndex ? styles.citySuggestionActive : styles.citySuggestion}
+                            onMouseDown={(event) => {
+                              event.preventDefault();
+                              selectCitySuggestion(option);
+                            }}
+                            role="option"
+                            aria-selected={index === activeCitySuggestionIndex}
+                          >
+                            {option}
+                          </button>
+                        ))}
+                      </div>
+                    ) : null}
+                    <p className={styles.fieldHint}>
+                      {citiesLoading
+                        ? "Carregando cidades..."
+                        : citySelectionPending
+                          ? "Escolha uma opcao com UF antes de buscar."
+                          : "Use a UF para diferenciar cidades com o mesmo nome."}
+                    </p>
+                  </div>
 
               {pfMode ? (
                 <label className={styles.field}>
@@ -1629,18 +1649,47 @@ export default function WebscrapingClientPage() {
                 <span className={styles.fieldLabel}>
                   {pfMode ? "Nicho / serviço para PF" : agendaMode ? "Segmento opcional" : "Segmento / tipo de negocio"}
                 </span>
-                <input
-                  className={styles.fieldInput}
-                  value={segment}
-                  onChange={(event) => setSegment(event.target.value)}
-                  placeholder={
-                    pfMode
-                      ? "Ex: plano de saúde, seguros, imóveis"
-                      : agendaMode
-                        ? "Opcional. Ex: Agenda PF"
-                        : "Ex: Clinicas odontologicas"
-                  }
-                />
+                <div className={styles.cityInputWrap}>
+                  <input
+                    className={styles.fieldInput}
+                    value={segment}
+                    onChange={(event) => {
+                      setSegment(event.target.value);
+                      setSegmentSuggestionsOpen(true);
+                    }}
+                    onFocus={() => setSegmentSuggestionsOpen(true)}
+                    onBlur={() => window.setTimeout(() => setSegmentSuggestionsOpen(false), 120)}
+                    placeholder={
+                      pfMode
+                        ? "Ex: plano de saúde, seguros, imóveis"
+                        : agendaMode
+                          ? "Opcional. Ex: Agenda PF"
+                          : "Ex: Clinicas odontologicas"
+                    }
+                    autoComplete="off"
+                  />
+                  <Icon name="chevron" size={18} className={styles.cityInputArrow} />
+                </div>
+                {segmentSuggestionsOpen && segmentSuggestionItems.length > 0 ? (
+                  <div className={styles.citySuggestions} role="listbox">
+                    {segmentSuggestionItems.map((option) => (
+                      <button
+                        key={option}
+                        type="button"
+                        className={segment === option ? styles.citySuggestionActive : styles.citySuggestion}
+                        onMouseDown={(event) => {
+                          event.preventDefault();
+                          setSegment(option);
+                          setSegmentSuggestionsOpen(false);
+                        }}
+                        role="option"
+                        aria-selected={segment === option}
+                      >
+                        {option}
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
                 {pfMode ? (
                   <p className={styles.fieldHint}>
                     Pesquisa enviada: {effectiveSegment || "informe um nicho"}
@@ -1687,145 +1736,163 @@ export default function WebscrapingClientPage() {
               </label>
             </div>
 
-            <div className={styles.advancedWrap}>
-              <button
-                type="button"
-                className={styles.advancedToggle}
-                onClick={() => setAdvancedOpen((value) => !value)}
-              >
-                <span>Filtros avancados</span>
-                <span>{advancedOpen ? "Ocultar" : "Mostrar"}</span>
-              </button>
-
-              {advancedOpen ? (
-                <div className={styles.advancedGrid}>
-                  {targetType === "pj" ? (
-                    <>
-                      <label className={styles.field}>
-                        <span className={styles.fieldLabel}>Nota minima</span>
-                        <input
-                          className={styles.fieldInput}
-                          type="number"
-                          min="0"
-                          max="5"
-                          step="0.1"
-                          value={minRating}
-                          onChange={(event) => setMinRating(event.target.value)}
-                          placeholder="Opcional"
-                        />
-                      </label>
-
-                      <label className={styles.field}>
-                        <span className={styles.fieldLabel}>Minimo de avaliacoes</span>
-                        <input
-                          className={styles.fieldInput}
-                          type="number"
-                          min="0"
-                          step="1"
-                          value={minReviews}
-                          onChange={(event) => setMinReviews(event.target.value)}
-                          placeholder="Opcional"
-                        />
-                      </label>
-
-                      <label className={styles.checkboxField}>
-                        <input
-                          type="checkbox"
-                          checked={onlyWithWebsite}
-                          onChange={(event) => setOnlyWithWebsite(event.target.checked)}
-                        />
-                        <span>Somente com site</span>
-                      </label>
-                    </>
-                  ) : (
-                    <div className={styles.filterNotice}>
-                      <strong>Filtros de PF</strong>
-                      <p>
-                        PF não usa nota, avaliações ou site como corte. A relevância vem de perfil, nicho, cidade e DDD.
-                      </p>
-                    </div>
-                  )}
-                </div>
-              ) : null}
-            </div>
-
-            <div className={styles.searchActions}>
-              <div className={styles.noticeInline}>
-                <Icon name="alert" size={18} />
-              </div>
-              <div className={styles.actionRow}>
-                <button
-                  type="button"
-                  className={`${styles.glassButton} ${styles.glassButtonPrimary}`}
-                  onClick={() => void handleSearch()}
-                  disabled={loadingBootstrap || searching}
-                >
-                  <Icon name="play" size={18} />
-                  {searching ? "Buscando..." : "Buscar contatos"}
-                </button>
-                <button
-                  type="button"
-                  className={styles.glassButton}
-                  onClick={() => void handleExport()}
-                  disabled={exporting || searching || (!activeQuery && !results.length && !city.trim())}
-                >
-                  <Icon name="download" size={18} />
-                  {exporting ? "Gerando Excel..." : "Exportar Excel"}
-                </button>
-              </div>
-            </div>
-          </section>
-        ) : null}
-
-        {panelMode === "script" ? (
-          <section className={styles.scriptGuideCard}>
-            <div className={styles.sectionHeader}>
-              <div>
-                <span className={styles.cardEyebrow}>Guia de roteiro</span>
-                <strong className={styles.sectionTitle}>Primeiro contato</strong>
-              </div>
-            </div>
-
-            <div className={styles.scriptGuideGrid}>
-              <div className={styles.scriptGuidePreview}>
-                <span className={styles.cardEyebrow}>Prévia</span>
-                <p className={styles.scriptText}>{scriptGuidePreview}</p>
-              </div>
-
-              <div className={styles.scriptGuideControls}>
-                <label className={styles.field}>
-                  <span className={styles.fieldLabel}>Nome de quem envia</span>
-                  <input
-                    className={styles.fieldInput}
-                    value={scriptSenderDraft}
-                    onChange={(event) => setScriptSenderDraft(event.target.value)}
-                    placeholder={currentUser?.email || "Digite seu nome"}
-                  />
-                </label>
-
-                <label className={styles.field}>
-                  <span className={styles.fieldLabel}>Empresa / marca</span>
-                  <input
-                    className={styles.fieldInput}
-                    value={scriptCompanyDraft}
-                    onChange={(event) => setScriptCompanyDraft(event.target.value)}
-                    placeholder="Ex: HBX"
-                  />
-                </label>
-
-                <div className={styles.actionRow}>
+                <div className={styles.advancedWrap}>
                   <button
                     type="button"
-                    className={`${styles.glassButton} ${styles.glassButtonPrimary}`}
-                    onClick={handleApplyScriptPreset}
+                    className={styles.advancedToggle}
+                    onClick={() => setAdvancedOpen((value) => !value)}
                   >
-                    <Icon name="check" size={18} />
-                    Atualizar roteiro
+                    <span>Filtros avancados</span>
+                    <span>{advancedOpen ? "Ocultar" : "Mostrar"}</span>
                   </button>
-                  <button type="button" className={styles.glassButton} onClick={handleResetScriptPreset}>
-                    <Icon name="clock" size={18} />
-                    Resetar roteiro
-                  </button>
+
+                  {advancedOpen ? (
+                    <div className={styles.advancedGrid}>
+                      {targetType === "pj" ? (
+                        <>
+                          <label className={styles.field}>
+                            <span className={styles.fieldLabel}>Nota minima</span>
+                            <input
+                              className={styles.fieldInput}
+                              type="number"
+                              min="0"
+                              max="5"
+                              step="0.1"
+                              value={minRating}
+                              onChange={(event) => setMinRating(event.target.value)}
+                              placeholder="Opcional"
+                            />
+                          </label>
+
+                          <label className={styles.field}>
+                            <span className={styles.fieldLabel}>Minimo de avaliacoes</span>
+                            <input
+                              className={styles.fieldInput}
+                              type="number"
+                              min="0"
+                              step="1"
+                              value={minReviews}
+                              onChange={(event) => setMinReviews(event.target.value)}
+                              placeholder="Opcional"
+                            />
+                          </label>
+
+                          <label className={styles.checkboxField}>
+                            <input
+                              type="checkbox"
+                              checked={onlyWithWebsite}
+                              onChange={(event) => setOnlyWithWebsite(event.target.checked)}
+                            />
+                            <span>Somente com site</span>
+                          </label>
+                        </>
+                      ) : (
+                        <div className={styles.filterNotice}>
+                          <strong>Filtros de PF</strong>
+                          <p>
+                            PF não usa nota, avaliações ou site como corte. A relevância vem de perfil, nicho, cidade e DDD.
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  ) : null}
+                </div>
+
+                <div className={styles.searchActions}>
+                  <div className={styles.noticeInline}>
+                    <Icon name="alert" size={18} />
+                  </div>
+                  <div className={styles.actionRow}>
+                    <button
+                      type="button"
+                      className={`${styles.glassButton} ${styles.glassButtonPrimary}`}
+                      onClick={() => void handleSearch()}
+                      disabled={loadingBootstrap || searching}
+                    >
+                      <Icon name="play" size={18} />
+                      {searching ? "Buscando..." : "Buscar contatos"}
+                    </button>
+                    <button
+                      type="button"
+                      className={styles.glassButton}
+                      onClick={() => void handleExport()}
+                      disabled={exporting || searching || (!activeQuery && !results.length && !city.trim())}
+                    >
+                      <Icon name="download" size={18} />
+                      {exporting ? "Gerando Excel..." : "Exportar Excel"}
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div className={styles.scriptFilterCard}>
+                <div className={styles.scriptFilterHeader}>
+                  <div>
+                    <span className={styles.cardEyebrow}>Roteiro</span>
+                    <strong className={styles.scriptFilterTitle}>Primeiro contato</strong>
+                  </div>
+                  <div className={styles.scriptFilterActions}>
+                    <button type="button" className={`${styles.glassButton} ${styles.glassButtonPrimary}`} onClick={handleApplyScriptPreset}>
+                      <Icon name="check" size={18} />
+                      Aplicar roteiro
+                    </button>
+                    <button type="button" className={styles.glassButton} onClick={handleResetScriptPreset}>
+                      <Icon name="clock" size={18} />
+                      Resetar roteiro
+                    </button>
+                  </div>
+                </div>
+
+                <div className={styles.scriptFilterGrid}>
+                  <label className={styles.field}>
+                    <span className={styles.fieldLabel}>Nome de quem envia</span>
+                    <input
+                      className={styles.fieldInput}
+                      value={appliedScriptSender}
+                      onChange={(event) => setAppliedScriptSender(event.target.value)}
+                      placeholder={currentUser?.email || "Digite seu nome"}
+                    />
+                  </label>
+
+                  <label className={styles.field}>
+                    <span className={styles.fieldLabel}>Empresa / marca</span>
+                    <input
+                      className={styles.fieldInput}
+                      value={appliedScriptCompany}
+                      onChange={(event) => setAppliedScriptCompany(event.target.value)}
+                      placeholder="Ex: HBX"
+                    />
+                  </label>
+
+                  <label className={styles.field}>
+                    <span className={styles.fieldLabel}>Previa editavel</span>
+                    <textarea
+                      ref={scriptTextareaRef}
+                      className={styles.scriptTextarea}
+                      value={scriptEditorValue}
+                      onChange={(event) => {
+                        setScriptDraftTouched(true);
+                        setScriptDraft(event.target.value);
+                      }}
+                      placeholder="Digite o roteiro de primeiro contato"
+                    />
+                    <div className={styles.variableTokenRow} aria-label="Variaveis do roteiro">
+                      {SCRIPT_VARIABLE_TOKENS.map((token) => {
+                        const variable = `{${token}}`;
+                        const active = scriptEditorValue.includes(variable);
+                        return (
+                          <button
+                            key={token}
+                            type="button"
+                            className={active ? styles.variableTokenActive : styles.variableToken}
+                            onClick={() => insertScriptVariable(token)}
+                          >
+                            {variable}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </label>
                 </div>
               </div>
             </div>
@@ -1838,6 +1905,27 @@ export default function WebscrapingClientPage() {
               <div>
                 <span className={styles.cardEyebrow}>Pesquisas recentes</span>
                 <strong className={styles.sectionTitle}>Histórico reaproveitável</strong>
+              </div>
+              <div className={styles.modeTabs} role="tablist" aria-label="Webscraping">
+                <button
+                  type="button"
+                  className={styles.modeTab}
+                  onClick={() => setPanelMode("search")}
+                >
+                  <Icon name="search" size={16} />
+                  Consulta principal
+                </button>
+                <button
+                  type="button"
+                  className={styles.modeTabActive}
+                  onClick={() => setPanelMode("history")}
+                >
+                  <Icon name="clock" size={16} />
+                  Pesquisas recentes
+                </button>
+                <span className={styles.modeMetaButton}>
+                  API oficial restantes: <strong>{remainingSearchesLabel}</strong>
+                </span>
               </div>
             </div>
 
@@ -1893,29 +1981,6 @@ export default function WebscrapingClientPage() {
           <section className={styles.successCard}>
             <strong className={styles.statusTitle}>Tudo certo</strong>
             <p className={styles.statusText}>{feedback}</p>
-          </section>
-        ) : null}
-
-        {!searching && qualifiedResults.length > 0 ? (
-          <section className={styles.statusCard}>
-            <div>
-              <strong className={styles.statusTitle}>Pronto para entrar no CRM agenda viva</strong>
-              <p className={styles.statusText}>
-                Os contatos desta busca podem virar cards de Vendas agora, já marcados como origem de webscraping e com reaproveitamento seguro quando o número já existe no CRM.
-              </p>
-              <p className={styles.statusText}>
-                {crmPreviewSummary.existing} já existe(m) no CRM, {crmPreviewSummary.previousContact} já teve(ram) contato e {crmPreviewSummary.previouslyClosed} já foi(ram) encerrado(s) antes.
-              </p>
-            </div>
-            <button
-              type="button"
-              className={`${styles.glassButton} ${styles.glassButtonPrimary}`}
-              onClick={() => void handleSendResultsToVendas()}
-              disabled={importingToVendas || !qualifiedResults.length}
-            >
-              <Icon name="spark" size={18} />
-              {importingToVendas ? "Enviando..." : `Salvar ${qualifiedResults.length} lead(s)`}
-            </button>
           </section>
         ) : null}
 
@@ -1995,13 +2060,7 @@ export default function WebscrapingClientPage() {
                 const queryCity = activeQuery?.city || city;
                 const querySegment = getVisualSegment(activeQuery?.segment || segment, activeQuery?.targetType || targetType);
                 const crmPreview = crmPreviewByPhone[String(result.phoneDigits || "").trim()] || null;
-                const scriptText = buildScriptText(
-                  result,
-                  queryCity,
-                  querySegment,
-                  appliedScriptSender || defaultScriptVariables.speaker,
-                  appliedScriptCompany || defaultScriptVariables.company,
-                );
+                const scriptText = buildAppliedScriptText(result, queryCity, querySegment);
                 const whatsappUrl = buildWhatsAppUrl(result, scriptText);
                 const callUrl = buildCallUrl(result);
 

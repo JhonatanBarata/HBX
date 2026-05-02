@@ -392,7 +392,7 @@ test('handleAtendimentoInbound enters the Vendas agenda bot gate and opens the m
   assert.equal((queueCalls[0].payload as any).flowState.currentStep, 'menu_principal');
   assert.equal(
     (queueCalls[0].payload as any).body,
-    'Escolha abaixo como deseja continuar:\n\n1. Falar com atendente\n2. Agendar visita',
+    'Escolha abaixo como deseja continuar no Atendimento:\n\n1. Suporte\n2. Agendar visita\n3. Falar com atendente',
   );
   assert.equal(conversationStateCalls.length, 1);
   assert.equal((conversationStateCalls[0].payload as any).humanAssigned, false);
@@ -516,6 +516,131 @@ test('handleAtendimentoInbound asks for the name first when the Vendas agenda re
     false,
   );
   assert.equal((conversationStateCalls[0].payload as any).metadata.cliente, undefined);
+  assert.equal(companyMessageUpdateCalls.length, 1);
+  assert.equal((companyMessageUpdateCalls[0] as any).data.sourceModule, 'atendimento_bot');
+});
+
+test('handleAtendimentoInbound handles Recovery menu actions inside Atendimento', async () => {
+  const recoveryMetadata = {
+    cliente: 'Carlos',
+    atendimentoRecoveryIntroPending: true,
+    recoveryCustomerId: 'recovery-1',
+  };
+  const { service, queueCalls, conversationStateCalls, companyMessageUpdateCalls } = createService({
+    prisma: {
+      company: {
+        findUnique: async () => ({
+          id: 7,
+          name: 'HBX Solutions',
+          timezone: 'America/Sao_Paulo',
+          whatsappConnectionMode: 'TEMPORARY',
+          trialModuleSelection: null,
+          paymentStatus: 'PAID',
+          subscriptionStatus: 'active',
+          onboardingStatus: 'active_paid',
+          trialEndsAt: null,
+          commercialEntitlements: [
+            { key: 'vendas', status: 'active', currentPeriodEnd: null },
+            { key: 'bot_ia', status: 'active', currentPeriodEnd: null },
+          ],
+        }),
+      },
+      companyModule: {
+        findFirst: async () => ({ id: 321 }),
+      },
+      companyConversation: {
+        findFirst: async () => ({
+          id: 42,
+          metadata: JSON.stringify(recoveryMetadata),
+          currentFlow: 'atendimento_whatsapp_hibrido',
+          currentStep: 'recovery_detectado',
+          flowResult: null,
+          botActive: true,
+          humanAssigned: false,
+        }),
+      },
+      atendimentoCustomer: {
+        findUnique: async () => ({
+          name: 'Carlos',
+          registrationStatus: 'confirmed',
+          customerProfile: { name: 'Carlos' },
+        }),
+      },
+      companyMessage: {
+        count: async () => 3,
+        findFirst: async () => null,
+        create: async ({ data }: any) => ({ id: 503, ...data }),
+        update: async (input: Record<string, unknown>) => {
+          companyMessageUpdateCalls.push(input);
+          return input;
+        },
+      },
+      hbxRecoveryFlowStage: {
+        findFirst: async ({ where }: any) =>
+          where?.channel === '__ATENDIMENTO_BOT_CONFIG__'
+            ? { template: JSON.stringify(COMPLETED_ATENDIMENTO_BOT_CONFIG) }
+            : null,
+      },
+    },
+    cadastrosService: {
+      upsertCustomerRegistry: async () => ({ id: 'registry-recovery' }),
+    },
+    customerProfileService: {
+      normalizePhone: (phone: string) => String(phone || '').replace(/\D/g, '').slice(-13),
+      upsertProfile: async () => ({ id: 'profile-recovery', name: 'Carlos', status: 'active' }),
+    },
+  });
+
+  let delegatedToRecovery = false;
+  (service as any).handleRecoveryInbound = async () => {
+    delegatedToRecovery = true;
+    throw new Error('should not delegate Atendimento Recovery menu actions');
+  };
+
+  const result = await (service as any).handleAtendimentoInbound({
+    companyId: 7,
+    from: '+55 19 99887-7766',
+    text: 'Pagar agora',
+    conversationId: 42,
+    inboundMessageId: 90,
+    timestamp: new Date('2026-04-15T10:07:00.000Z'),
+    company: { id: 7, name: 'HBX Solutions', timezone: 'America/Sao_Paulo' },
+    recoveryCustomer: {
+      id: 'recovery-1',
+      clientName: 'Carlos',
+      openAmount: 480,
+    },
+    rawPayload: {
+      type: 'button',
+      interactive: {
+        button_reply: {
+          id: 'atendimento_recovery_detected_pay_now_2',
+          title: 'Pagar agora',
+        },
+      },
+    },
+  });
+
+  assert.equal(result.handled, true);
+  assert.equal(result.recoveryGate, true);
+  assert.equal(result.recoveryAction, 'pay_now');
+  assert.equal(delegatedToRecovery, false);
+  assert.equal(queueCalls.length, 2);
+  assert.equal(
+    (queueCalls[0].payload as any).body,
+    'Perfeito. Vou gerar a acao financeira para voce seguir agora.',
+  );
+  assert.equal((queueCalls[0].payload as any).sourceModule, 'atendimento_bot');
+  assert.equal((queueCalls[1].payload as any).flowState.currentStep, 'pos_acao');
+  assert.match(
+    String((queueCalls[1].payload as any).body),
+    /Se precisar, posso continuar pelo Atendimento/,
+  );
+  assert.equal(conversationStateCalls.length, 1);
+  assert.equal(
+    (conversationStateCalls[0].payload as any).metadata.atendimentoRecoveryIntroPending,
+    false,
+  );
   assert.equal(companyMessageUpdateCalls.length, 1);
   assert.equal((companyMessageUpdateCalls[0] as any).data.sourceModule, 'atendimento_bot');
 });

@@ -115,6 +115,121 @@ type Props = {
   onSave: (config: AtendimentoBotConfig) => void;
 };
 
+type BotGuideId = "atendimento" | "prospeccao" | "recovery";
+
+type FirstContactRules = {
+  guideId: BotGuideId;
+  canInitiateConversation: boolean;
+  messageIntervalSeconds: number;
+  nextContactDelayMinutes: number;
+  replyDelaySeconds: number;
+  typingSeconds: number;
+  typingVarianceSeconds: number;
+  maxFirstContactsPerHour: number;
+  quietHoursStart: string;
+  quietHoursEnd: string;
+  maxFollowUps: number;
+  followUpDelayHours: number;
+  requireOptIn: boolean;
+  stopIntentKeywords: string[];
+  positiveIntentKeywords: string[];
+  optOutMessage: string;
+  handoffPolicy: string;
+};
+
+const BOT_GUIDES: Array<{
+  id: BotGuideId;
+  label: string;
+  queueLabel: string;
+  instruction: string;
+}> = [
+  {
+    id: "atendimento",
+    label: "Atendimento",
+    queueLabel: "Fila Atendimento",
+    instruction:
+      "Responde clientes que chamaram ou retomaram conversa, mantendo contexto antes de cumprimentar novamente.",
+  },
+  {
+    id: "prospeccao",
+    label: "Prospecção",
+    queueLabel: "Fila Prospecção",
+    instruction:
+      "Continua contatos iniciados por Vendas, valida interesse e evita parecer uma saudacao fria quando ja houve abordagem.",
+  },
+  {
+    id: "recovery",
+    label: "Recovery",
+    queueLabel: "Fila Recovery",
+    instruction:
+      "Conduz conversas financeiras com leitura de pendencia, proposta de pagamento e handoff humano quando necessario.",
+  },
+];
+
+const BOT_GUIDE_RULE_SCENE_ID = "bot_guide_context";
+const BOT_GUIDE_RULE_CONDITION = "active_bot_profile";
+const FIRST_CONTACT_RULE_CONDITION = "first_contact_rules";
+
+const FIRST_CONTACT_RULE_DEFAULTS: Record<BotGuideId, FirstContactRules> = {
+  atendimento: {
+    guideId: "atendimento",
+    canInitiateConversation: false,
+    messageIntervalSeconds: 18,
+    nextContactDelayMinutes: 0,
+    replyDelaySeconds: 22,
+    typingSeconds: 5,
+    typingVarianceSeconds: 4,
+    maxFirstContactsPerHour: 0,
+    quietHoursStart: "20:00",
+    quietHoursEnd: "08:00",
+    maxFollowUps: 1,
+    followUpDelayHours: 6,
+    requireOptIn: false,
+    stopIntentKeywords: ["parar", "bloquear", "atendente", "reclamacao"],
+    positiveIntentKeywords: ["suporte", "agenda", "financeiro", "ajuda"],
+    optOutMessage: "Sem problema. Vou encerrar por aqui e deixo um atendente assumir se voce precisar.",
+    handoffPolicy: "Se houver reclamacao, audio confuso ou pedido de humano, pausa o bot e coloca na fila Atendimento.",
+  },
+  prospeccao: {
+    guideId: "prospeccao",
+    canInitiateConversation: true,
+    messageIntervalSeconds: 35,
+    nextContactDelayMinutes: 12,
+    replyDelaySeconds: 75,
+    typingSeconds: 8,
+    typingVarianceSeconds: 6,
+    maxFirstContactsPerHour: 5,
+    quietHoursStart: "18:30",
+    quietHoursEnd: "09:00",
+    maxFollowUps: 2,
+    followUpDelayHours: 24,
+    requireOptIn: false,
+    stopIntentKeywords: ["nao tenho interesse", "nao quero", "pare", "remover", "spam"],
+    positiveIntentKeywords: ["tenho interesse", "pode mandar", "quero saber", "me explica", "quanto custa"],
+    optOutMessage: "Tudo bem, obrigado por responder. Nao vou insistir e encerro este contato por aqui.",
+    handoffPolicy: "Se a pessoa demonstrar irritacao, pedir remocao ou responder negativamente duas vezes, encerra sem nova tentativa.",
+  },
+  recovery: {
+    guideId: "recovery",
+    canInitiateConversation: true,
+    messageIntervalSeconds: 45,
+    nextContactDelayMinutes: 8,
+    replyDelaySeconds: 60,
+    typingSeconds: 7,
+    typingVarianceSeconds: 5,
+    maxFirstContactsPerHour: 6,
+    quietHoursStart: "19:00",
+    quietHoursEnd: "09:00",
+    maxFollowUps: 3,
+    followUpDelayHours: 24,
+    requireOptIn: true,
+    stopIntentKeywords: ["nao reconheco", "ja paguei", "contestacao", "atendente", "pare"],
+    positiveIntentKeywords: ["pagar", "pix", "boleto", "parcelar", "negociar"],
+    optOutMessage: "Entendi. Vou pausar a cobranca automatica e deixar o atendimento humano verificar com cuidado.",
+    handoffPolicy: "Contestacao, pagamento informado, tom irritado ou duvida sobre valor vai direto para humano antes de novo disparo.",
+  },
+};
+
 const QUICK_REGISTRATION_FALLBACK =
   "Antes de continuar, me confirme seu nome para eu manter o atendimento organizado.";
 
@@ -312,6 +427,9 @@ export function getDestinationFromAction(actionId: string): ConversationDestinat
   if (normalized === "show_main_menu") return "menu";
   if (
     normalized === "enter_recovery" ||
+    normalized === "view_payments" ||
+    normalized === "pay_now" ||
+    normalized === "negotiate_debt" ||
     normalized.includes("recovery") ||
     normalized.includes("payment") ||
     normalized.includes("debt") ||
@@ -319,6 +437,7 @@ export function getDestinationFromAction(actionId: string): ConversationDestinat
   ) {
     return "recovery";
   }
+  if (normalized === "continue_attendance") return "menu";
   if (normalized === "schedule_service" || normalized.startsWith("agenda:") || normalized.startsWith("agenda_group_")) {
     return "agenda";
   }
@@ -350,7 +469,7 @@ function normalizeButtonId(sectionKey: string, actionId: string, index: number) 
     .slice(0, 80);
 }
 
-function getSceneRule(config: AtendimentoBotConfig, sceneId: ConversationSceneId, conditionType: string) {
+function getSceneRule(config: AtendimentoBotConfig, sceneId: string, conditionType: string) {
   return (config.sceneRules || []).find((rule) => rule.sceneId === sceneId && rule.conditionType === conditionType) || null;
 }
 
@@ -390,7 +509,7 @@ function updateActionResponse(config: AtendimentoBotConfig, actionId: string, re
 
 function updateSceneRule(
   config: AtendimentoBotConfig,
-  sceneId: ConversationSceneId,
+  sceneId: string,
   conditionType: string,
   enabled: boolean,
   metadata?: Record<string, unknown>,
@@ -406,6 +525,259 @@ function updateSceneRule(
   if (index >= 0) sceneRules[index] = nextRule;
   else sceneRules.push(nextRule);
   return { ...config, sceneRules };
+}
+
+function normalizeBotGuide(config: AtendimentoBotConfig): BotGuideId {
+  const botType = String(config.setup?.botType || "").trim().toLowerCase();
+  if (botType === "prospeccao" || botType === "prospecção") return "prospeccao";
+  if (botType === "recovery") return "recovery";
+  return "atendimento";
+}
+
+function getFirstContactRuleSceneId(guideId: BotGuideId) {
+  return `first_contact_rules_${guideId}`;
+}
+
+function normalizeNumber(value: unknown, fallback: number, min: number, max: number) {
+  const normalized = Math.trunc(Number(value));
+  if (!Number.isFinite(normalized)) return fallback;
+  return Math.max(min, Math.min(max, normalized));
+}
+
+function normalizeTextList(value: unknown, fallback: string[]) {
+  const raw = Array.isArray(value)
+    ? value
+    : String(value || "")
+        .split(/\n|,/g);
+  const normalized = raw
+    .map((item) => String(item || "").trim().toLowerCase())
+    .filter(Boolean);
+  return normalized.length ? Array.from(new Set(normalized)) : [...fallback];
+}
+
+function getFirstContactRules(config: AtendimentoBotConfig, guideId: BotGuideId): FirstContactRules {
+  const fallback = FIRST_CONTACT_RULE_DEFAULTS[guideId];
+  const metadata = getSceneRule(config, getFirstContactRuleSceneId(guideId), FIRST_CONTACT_RULE_CONDITION)?.metadata || {};
+  return {
+    guideId,
+    canInitiateConversation:
+      guideId === "atendimento" ? false : Boolean(metadata.canInitiateConversation ?? fallback.canInitiateConversation),
+    messageIntervalSeconds: normalizeNumber(metadata.messageIntervalSeconds, fallback.messageIntervalSeconds, 8, 300),
+    nextContactDelayMinutes: normalizeNumber(metadata.nextContactDelayMinutes, fallback.nextContactDelayMinutes, 0, 180),
+    replyDelaySeconds: normalizeNumber(metadata.replyDelaySeconds, fallback.replyDelaySeconds, 5, 600),
+    typingSeconds: normalizeNumber(metadata.typingSeconds, fallback.typingSeconds, 0, 45),
+    typingVarianceSeconds: normalizeNumber(metadata.typingVarianceSeconds, fallback.typingVarianceSeconds, 0, 30),
+    maxFirstContactsPerHour: normalizeNumber(metadata.maxFirstContactsPerHour, fallback.maxFirstContactsPerHour, 0, 60),
+    quietHoursStart: String(metadata.quietHoursStart || fallback.quietHoursStart).trim(),
+    quietHoursEnd: String(metadata.quietHoursEnd || fallback.quietHoursEnd).trim(),
+    maxFollowUps: normalizeNumber(metadata.maxFollowUps, fallback.maxFollowUps, 0, 5),
+    followUpDelayHours: normalizeNumber(metadata.followUpDelayHours, fallback.followUpDelayHours, 1, 168),
+    requireOptIn: Boolean(metadata.requireOptIn ?? fallback.requireOptIn),
+    stopIntentKeywords: normalizeTextList(metadata.stopIntentKeywords, fallback.stopIntentKeywords),
+    positiveIntentKeywords: normalizeTextList(metadata.positiveIntentKeywords, fallback.positiveIntentKeywords),
+    optOutMessage: String(metadata.optOutMessage || fallback.optOutMessage).trim(),
+    handoffPolicy: String(metadata.handoffPolicy || fallback.handoffPolicy).trim(),
+  };
+}
+
+function updateFirstContactRules(
+  config: AtendimentoBotConfig,
+  guideId: BotGuideId,
+  rules: FirstContactRules,
+) {
+  return updateSceneRule(config, getFirstContactRuleSceneId(guideId), FIRST_CONTACT_RULE_CONDITION, true, {
+    ...rules,
+    guideId,
+    canInitiateConversation: guideId === "atendimento" ? false : rules.canInitiateConversation,
+  });
+}
+
+function makePresetButton(sectionKey: string, actionId: string, title: string, index: number): AtendimentoBotButton {
+  return {
+    buttonId: normalizeButtonId(sectionKey, actionId, index),
+    actionId,
+    title,
+    nextNodeId:
+      actionId === "talk_human"
+        ? "humanAckMessage"
+        : actionId === "close_topic"
+          ? "closeTopicMessage"
+          : actionId === "show_main_menu"
+            ? "mainMenuPrompt"
+            : actionId === "enter_recovery"
+              ? "recoveryDetectedMessage"
+              : actionId === "schedule_service"
+                ? "agendaDispatch"
+                : "postActionPrompt",
+  };
+}
+
+function mergeActionCatalog(
+  current: AtendimentoBotActionGuide[],
+  additions: AtendimentoBotActionGuide[],
+) {
+  const byId = new Map(current.map((action) => [action.actionId, action]));
+  for (const addition of additions) {
+    byId.set(addition.actionId, {
+      ...(byId.get(addition.actionId) || {}),
+      ...addition,
+    });
+  }
+  return Array.from(byId.values());
+}
+
+function applyGuideFlowPreset(config: AtendimentoBotConfig, guideId: BotGuideId): AtendimentoBotConfig {
+  if (guideId === "prospeccao") {
+    return {
+      ...config,
+      actionCatalog: mergeActionCatalog(config.actionCatalog, [
+        {
+          actionId: "prospect_details",
+          title: "Ver detalhes",
+          description: "Envia uma explicacao curta e humana antes de pedir qualquer decisao.",
+          route: "atendimento",
+          kind: "reply",
+          enabled: true,
+          responseMessage:
+            "Claro. Vou te mandar um resumo objetivo, sem compromisso. Se fizer sentido, seguimos; se nao fizer, eu encerro por aqui.",
+          custom: true,
+        },
+        {
+          actionId: "prospect_later",
+          title: "Falar depois",
+          description: "Agenda uma retomada leve sem insistir no mesmo momento.",
+          route: "atendimento",
+          kind: "reply",
+          enabled: true,
+          responseMessage:
+            "Combinado. Vou deixar para retomar em outro momento e nao vou ficar insistindo por aqui.",
+          custom: true,
+        },
+      ]),
+      welcomeMessage:
+        "{{cumprimentacao}}, {{cliente}}. Aqui e da {{empresa}}. Posso te mandar uma ideia rapida para melhorar seu atendimento pelo WhatsApp?",
+      returningCustomerMessage:
+        "{{cliente}}, voltando rapidinho: se ainda fizer sentido, eu te mostro em poucas linhas. Se nao fizer, encerro por aqui.",
+      mainMenuPrompt:
+        "{{cliente}}, prometo ser breve. Faz sentido eu te mostrar uma ideia rapida ou prefere que eu nao te chame mais?",
+      mainMenuButtons: [
+        makePresetButton("main_menu", "continue_journey", "Tenho interesse", 0),
+        makePresetButton("main_menu", "prospect_details", "Ver detalhes", 1),
+        makePresetButton("main_menu", "prospect_later", "Falar depois", 2),
+        makePresetButton("main_menu", "close_topic", "Nao tenho interesse", 3),
+      ],
+      postActionPrompt:
+        "Perfeito. Vou seguir com calma: posso te passar o caminho mais simples, chamar uma pessoa do time ou encerrar sem insistencia.",
+      postActionButtons: [
+        makePresetButton("post_action", "continue_journey", "Quero proposta", 0),
+        makePresetButton("post_action", "talk_human", "Falar com humano", 1),
+        makePresetButton("post_action", "close_topic", "Encerrar", 2),
+      ],
+      humanAckMessage:
+        "Vou chamar uma pessoa do time para continuar de forma mais direta e sem automatizar demais essa conversa.",
+      closeTopicMessage:
+        "Tudo bem, obrigado por responder. Nao vou insistir e encerro este contato por aqui.",
+    };
+  }
+
+  if (guideId === "recovery") {
+    return {
+      ...config,
+      welcomeMessage:
+        "{{cumprimentacao}}, {{cliente}}. Aqui e da {{empresa}}. Estou te chamando com cuidado sobre um assunto financeiro.",
+      returningCustomerMessage:
+        "{{cliente}}, estou retomando sua conversa financeira por aqui. Vou ser objetivo e te dar opcoes simples.",
+      mainMenuPrompt:
+        "{{cliente}}, encontrei uma pendencia e posso te ajudar com pagamento, negociacao ou atendimento humano.",
+      mainMenuButtons: [
+        makePresetButton("main_menu", "enter_recovery", "Ver financeiro", 0),
+        makePresetButton("main_menu", "pay_now", "Pagar agora", 1),
+        makePresetButton("main_menu", "negotiate_debt", "Negociar", 2),
+        makePresetButton("main_menu", "talk_human", "Falar com atendente", 3),
+      ],
+      recoveryDetectedMessage:
+        "{{cliente}}, consta um valor em aberto de {{valor_formatado}}. Posso te mostrar o historico, gerar pagamento, negociar ou pausar para um atendente verificar.",
+      recoveryDetectedButtons: [
+        makePresetButton("recovery_detected", "view_payments", "Ver pagamentos", 0),
+        makePresetButton("recovery_detected", "pay_now", "Pagar agora", 1),
+        makePresetButton("recovery_detected", "negotiate_debt", "Negociar", 2),
+        makePresetButton("recovery_detected", "talk_human", "Ja paguei / ajuda", 3),
+        makePresetButton("recovery_detected", "continue_attendance", "Continuar atendimento", 4),
+      ],
+      postActionPrompt:
+        "Obrigado por responder. Posso continuar pelo financeiro, chamar uma pessoa ou deixar registrado para retorno.",
+      postActionButtons: [
+        makePresetButton("post_action", "enter_recovery", "Voltar ao financeiro", 0),
+        makePresetButton("post_action", "talk_human", "Falar com humano", 1),
+        makePresetButton("post_action", "close_topic", "Encerrar", 2),
+      ],
+      humanAckMessage:
+        "Vou pausar a automacao e encaminhar para uma pessoa verificar com cuidado antes de qualquer nova mensagem.",
+      closeTopicMessage:
+        "Entendido. Vou encerrar esta automacao por agora. Se precisar, a equipe pode retomar manualmente.",
+    };
+  }
+
+  return {
+    ...config,
+    welcomeMessage:
+      "{{cumprimentacao}}, tudo bem?\nSou o atendimento da {{empresa}} e vou te ajudar com calma por aqui.",
+    returningCustomerMessage:
+      "Que bom te ver de novo, {{cliente}}. Vou continuar daqui sem perder o contexto da conversa.",
+    mainMenuPrompt: "Escolha abaixo como deseja continuar no Atendimento:",
+    mainMenuButtons: [
+      makePresetButton("main_menu", "show_main_menu", "Suporte", 0),
+      makePresetButton("main_menu", "schedule_service", "Agendar visita", 1),
+      makePresetButton("main_menu", "enter_recovery", "Financeiro", 2),
+      makePresetButton("main_menu", "talk_human", "Falar com atendente", 3),
+    ],
+    postActionPrompt:
+      "Se precisar, posso continuar pelo Atendimento, voltar ao financeiro ou encaminhar para agenda e humano.",
+    postActionButtons: [
+      makePresetButton("post_action", "show_main_menu", "Voltar ao menu", 0),
+      makePresetButton("post_action", "talk_human", "Atendimento humano", 1),
+    ],
+    humanAckMessage: "Perfeito. Vou encaminhar sua conversa para um atendente agora.",
+    closeTopicMessage: "Entendido. Vou encerrar esta conversa por agora. Quando precisar, e so chamar.",
+  };
+}
+
+function applyBotGuide(config: AtendimentoBotConfig, guideId: BotGuideId) {
+  const guide = BOT_GUIDES.find((item) => item.id === guideId) || BOT_GUIDES[0];
+  const presetConfig = applyGuideFlowPreset(config, guide.id);
+  const sceneRules = (config.sceneRules || []).filter(
+    (rule) => !(rule.sceneId === BOT_GUIDE_RULE_SCENE_ID && rule.conditionType === BOT_GUIDE_RULE_CONDITION),
+  );
+
+  const nextConfig = {
+    ...presetConfig,
+    setup: {
+      ...presetConfig.setup,
+      botType: guide.id,
+      configuredFrom: "vendas_automacao",
+    },
+    sceneRules: [
+      ...sceneRules,
+      {
+        sceneId: BOT_GUIDE_RULE_SCENE_ID,
+        conditionType: BOT_GUIDE_RULE_CONDITION,
+        enabled: true,
+        metadata: {
+          botGuide: guide.id,
+          label: guide.label,
+          queueLabel: guide.queueLabel,
+          instruction: guide.instruction,
+        },
+      },
+    ],
+  } satisfies AtendimentoBotConfig;
+  return updateFirstContactRules(nextConfig, guide.id, getFirstContactRules(config, guide.id));
+}
+
+function getGuideSceneId(guideId: BotGuideId): ConversationSceneId {
+  if (guideId === "recovery") return "recovery";
+  if (guideId === "prospeccao") return "post_action";
+  return "main_menu";
 }
 
 function buildEdges(scenes: ConversationScene[], recoveryEnabled: boolean): ConversationEdge[] {
@@ -456,7 +828,14 @@ export default function ConversationBuilder({
   const [previewPeriod, setPreviewPeriod] = useState<ConversationPreviewPeriod>("morning");
   const [reviewOpen, setReviewOpen] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [rulesOpen, setRulesOpen] = useState(false);
   const [previewRun, setPreviewRun] = useState(0);
+  const activeGuideId = normalizeBotGuide(botConfig);
+  const activeGuide = BOT_GUIDES.find((guide) => guide.id === activeGuideId) || BOT_GUIDES[0];
+  const activeFirstContactRules = useMemo(
+    () => getFirstContactRules(botConfig, activeGuideId),
+    [activeGuideId, botConfig],
+  );
 
   const scenes = useMemo<ConversationScene[]>(
     () =>
@@ -547,11 +926,71 @@ export default function ConversationBuilder({
     setPreviewRun((value) => value + 1);
   };
 
+  const handleGuideChange = (guideId: BotGuideId) => {
+    if (guideId === "recovery" && !recoveryEnabled) return;
+    onConfigChange(applyBotGuide(botConfig, guideId));
+    setSelectedSceneId(getGuideSceneId(guideId));
+  };
+
+  const updateActiveFirstContactRules = (patch: Partial<FirstContactRules>) => {
+    const nextRules = {
+      ...activeFirstContactRules,
+      ...patch,
+      guideId: activeGuideId,
+    };
+    onConfigChange(updateFirstContactRules(botConfig, activeGuideId, nextRules));
+  };
+
+  const updateRulesTextList = (field: "stopIntentKeywords" | "positiveIntentKeywords", value: string) => {
+    const nextValues = value
+      .split(/\n|,/g)
+      .map((item) => item.trim().toLowerCase())
+      .filter(Boolean);
+    if (field === "stopIntentKeywords") {
+      updateActiveFirstContactRules({ stopIntentKeywords: value ? nextValues : [] });
+      return;
+    }
+    updateActiveFirstContactRules({ positiveIntentKeywords: value ? nextValues : [] });
+  };
+
   return (
     <section className={styles.builderShell}>
+      <section className={styles.botGuidePanel} aria-label="Tipos de bot">
+        <div className={styles.botGuideIntro}>
+          <span className={styles.eyebrow}>Guias do bot</span>
+          <strong>{activeGuide.label}</strong>
+          <p>{activeGuide.instruction}</p>
+          <button type="button" className={styles.rulesButton} onClick={() => setRulesOpen(true)}>
+            REGRAS de 1º Contato
+          </button>
+        </div>
+        <div className={styles.botGuideTabs} role="tablist" aria-label="Escolha qual bot configurar">
+          {BOT_GUIDES.map((guide) => {
+            const locked = guide.id === "recovery" && !recoveryEnabled;
+            return (
+              <button
+                key={guide.id}
+                type="button"
+                role="tab"
+                aria-selected={activeGuideId === guide.id}
+                className={styles.botGuideButton}
+                data-active={activeGuideId === guide.id ? "true" : "false"}
+                data-locked={locked ? "true" : "false"}
+                disabled={locked}
+                title={locked ? "Recovery indisponivel neste plano" : guide.label}
+                onClick={() => handleGuideChange(guide.id)}
+              >
+                <strong>{guide.label}</strong>
+                <span>{locked ? "Bloqueado no plano" : guide.queueLabel}</span>
+              </button>
+            );
+          })}
+        </div>
+      </section>
+
       <header className={styles.builderTopbar}>
         <div>
-          <span className={styles.eyebrow}>Bot</span>
+          <span className={styles.eyebrow}>Bot {activeGuide.label}</span>
           <h2>Construtor de bot</h2>
         </div>
         <div className={styles.topbarActions}>
@@ -636,6 +1075,217 @@ export default function ConversationBuilder({
             onConfigChange={onConfigChange}
           />
         </section>
+      ) : null}
+
+      {rulesOpen ? (
+        <div className={styles.rulesOverlay} role="presentation" onClick={() => setRulesOpen(false)}>
+          <section
+            className={styles.rulesModal}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="first-contact-rules-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <header className={styles.rulesHeader}>
+              <div>
+                <span className={styles.eyebrow}>Bot {activeGuide.label}</span>
+                <h3 id="first-contact-rules-title">REGRAS de 1º Contato</h3>
+              </div>
+              <button type="button" className={styles.secondaryButton} onClick={() => setRulesOpen(false)}>
+                Fechar
+              </button>
+            </header>
+
+            <div className={styles.rulesGrid}>
+              <label className={styles.rulesToggle}>
+                <input
+                  type="checkbox"
+                  checked={activeFirstContactRules.canInitiateConversation}
+                  disabled={activeGuideId === "atendimento"}
+                  onChange={(event) => updateActiveFirstContactRules({ canInitiateConversation: event.target.checked })}
+                />
+                <span>
+                  <strong>Bot pode iniciar conversa</strong>
+                  <small>{activeGuideId === "atendimento" ? "Atendimento responde inbound." : "Disparo ativo com cadencia controlada."}</small>
+                </span>
+              </label>
+
+              <label className={styles.rulesToggle}>
+                <input
+                  type="checkbox"
+                  checked={activeFirstContactRules.requireOptIn}
+                  onChange={(event) => updateActiveFirstContactRules({ requireOptIn: event.target.checked })}
+                />
+                <span>
+                  <strong>Exigir opt-in/relacao previa</strong>
+                  <small>Evita abrir conversa fria quando o contexto for sensivel.</small>
+                </span>
+              </label>
+
+              <label className={styles.rulesField}>
+                <span>Tempo entre cada mensagem</span>
+                <input
+                  type="number"
+                  min={8}
+                  max={300}
+                  value={activeFirstContactRules.messageIntervalSeconds}
+                  onChange={(event) => updateActiveFirstContactRules({ messageIntervalSeconds: Number(event.target.value) })}
+                />
+                <small>Segundos entre bolhas da mesma conversa.</small>
+              </label>
+
+              <label className={styles.rulesField}>
+                <span>Tempo ate responder cliente</span>
+                <input
+                  type="number"
+                  min={5}
+                  max={600}
+                  value={activeFirstContactRules.replyDelaySeconds}
+                  onChange={(event) => updateActiveFirstContactRules({ replyDelaySeconds: Number(event.target.value) })}
+                />
+                <small>Segundos apos receber mensagem inbound.</small>
+              </label>
+
+              <label className={styles.rulesField}>
+                <span>Intervalo para proximo contato</span>
+                <input
+                  type="number"
+                  min={0}
+                  max={180}
+                  value={activeFirstContactRules.nextContactDelayMinutes}
+                  onChange={(event) => updateActiveFirstContactRules({ nextContactDelayMinutes: Number(event.target.value) })}
+                />
+                <small>Minutos antes de iniciar outro cliente.</small>
+              </label>
+
+              <label className={styles.rulesField}>
+                <span>Primeiros contatos por hora</span>
+                <input
+                  type="number"
+                  min={0}
+                  max={60}
+                  value={activeFirstContactRules.maxFirstContactsPerHour}
+                  onChange={(event) => updateActiveFirstContactRules({ maxFirstContactsPerHour: Number(event.target.value) })}
+                />
+                <small>0 deixa sem disparo ativo.</small>
+              </label>
+
+              <label className={styles.rulesField}>
+                <span>Typing antes de enviar</span>
+                <input
+                  type="number"
+                  min={0}
+                  max={45}
+                  value={activeFirstContactRules.typingSeconds}
+                  onChange={(event) => updateActiveFirstContactRules({ typingSeconds: Number(event.target.value) })}
+                />
+                <small>Segundos exibindo digitando.</small>
+              </label>
+
+              <label className={styles.rulesField}>
+                <span>Variação humana</span>
+                <input
+                  type="number"
+                  min={0}
+                  max={30}
+                  value={activeFirstContactRules.typingVarianceSeconds}
+                  onChange={(event) => updateActiveFirstContactRules({ typingVarianceSeconds: Number(event.target.value) })}
+                />
+                <small>Segundos de jitter na digitacao.</small>
+              </label>
+
+              <label className={styles.rulesField}>
+                <span>Silencio começa</span>
+                <input
+                  type="time"
+                  value={activeFirstContactRules.quietHoursStart}
+                  onChange={(event) => updateActiveFirstContactRules({ quietHoursStart: event.target.value })}
+                />
+                <small>Sem primeiro contato apos esse horario.</small>
+              </label>
+
+              <label className={styles.rulesField}>
+                <span>Silencio termina</span>
+                <input
+                  type="time"
+                  value={activeFirstContactRules.quietHoursEnd}
+                  onChange={(event) => updateActiveFirstContactRules({ quietHoursEnd: event.target.value })}
+                />
+                <small>Primeiro contato volta depois desse horario.</small>
+              </label>
+
+              <label className={styles.rulesField}>
+                <span>Follow-ups maximos</span>
+                <input
+                  type="number"
+                  min={0}
+                  max={5}
+                  value={activeFirstContactRules.maxFollowUps}
+                  onChange={(event) => updateActiveFirstContactRules({ maxFollowUps: Number(event.target.value) })}
+                />
+                <small>Limite antes de parar sozinho.</small>
+              </label>
+
+              <label className={styles.rulesField}>
+                <span>Horas entre follow-ups</span>
+                <input
+                  type="number"
+                  min={1}
+                  max={168}
+                  value={activeFirstContactRules.followUpDelayHours}
+                  onChange={(event) => updateActiveFirstContactRules({ followUpDelayHours: Number(event.target.value) })}
+                />
+                <small>Evita insistencia em curto intervalo.</small>
+              </label>
+            </div>
+
+            <div className={styles.rulesTextareaGrid}>
+              <label className={styles.rulesTextArea}>
+                <span>Intencao positiva</span>
+                <textarea
+                  rows={5}
+                  value={activeFirstContactRules.positiveIntentKeywords.join("\n")}
+                  onChange={(event) => updateRulesTextList("positiveIntentKeywords", event.target.value)}
+                />
+              </label>
+              <label className={styles.rulesTextArea}>
+                <span>Parar / rejeicao / risco</span>
+                <textarea
+                  rows={5}
+                  value={activeFirstContactRules.stopIntentKeywords.join("\n")}
+                  onChange={(event) => updateRulesTextList("stopIntentKeywords", event.target.value)}
+                />
+              </label>
+              <label className={styles.rulesTextArea}>
+                <span>Mensagem de saida educada</span>
+                <textarea
+                  rows={4}
+                  value={activeFirstContactRules.optOutMessage}
+                  onChange={(event) => updateActiveFirstContactRules({ optOutMessage: event.target.value })}
+                />
+              </label>
+              <label className={styles.rulesTextArea}>
+                <span>Regra para humano</span>
+                <textarea
+                  rows={4}
+                  value={activeFirstContactRules.handoffPolicy}
+                  onChange={(event) => updateActiveFirstContactRules({ handoffPolicy: event.target.value })}
+                />
+              </label>
+            </div>
+
+            <footer className={styles.rulesFooter}>
+              <span>
+                typing {activeFirstContactRules.typingSeconds}s + {activeFirstContactRules.typingVarianceSeconds}s,
+                resposta em {activeFirstContactRules.replyDelaySeconds}s,
+                proximo contato em {activeFirstContactRules.nextContactDelayMinutes}min
+              </span>
+              <button type="button" className={styles.primaryButton} onClick={() => setRulesOpen(false)}>
+                Aplicar regras
+              </button>
+            </footer>
+          </section>
+        </div>
       ) : null}
 
       <PublishMapReview

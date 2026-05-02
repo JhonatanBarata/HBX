@@ -84,6 +84,26 @@
   animation: shellEnter 360ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
 }
 
+.exitButton {
+  position: absolute;
+  top: 0.2rem;
+  right: 0.2rem;
+  z-index: 20;
+  min-width: 112px;
+  min-height: 44px;
+  border: 1px solid rgba(118, 230, 255, 0.22);
+  border-radius: 14px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.105), rgba(255, 255, 255, 0.04)),
+    var(--tutorial-glass-bg);
+  color: var(--tutorial-control-text);
+  font: inherit;
+  font-size: 0.86rem;
+  font-weight: 900;
+  cursor: pointer;
+  backdrop-filter: blur(16px);
+}
+
 .page[data-tutorial-step="bot-built"] {
   height: auto;
   min-height: 100dvh;
@@ -155,6 +175,62 @@
 }
 
 .page[data-tutorial-step="bot-built"] .actions {
+  margin-top: 0;
+}
+
+.page[data-tutorial-step="bot-type"] .shell,
+.page[data-tutorial-step="bot-channel"] .shell,
+.page[data-tutorial-step="bot-voice"] .shell,
+.page[data-tutorial-step="bot-rules"] .shell,
+.page[data-tutorial-step="bot-review"] .shell {
+  min-height: calc(100dvh - clamp(2.5rem, 8vw, 6rem));
+  max-height: calc(100dvh - clamp(2.5rem, 8vw, 6rem));
+  align-content: stretch;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  gap: 0.55rem;
+}
+
+.page[data-tutorial-step="bot-type"] .stepTransition,
+.page[data-tutorial-step="bot-type"] .stepCurrent,
+.page[data-tutorial-step="bot-type"] .stepEntering,
+.page[data-tutorial-step="bot-type"] .stepLeaving,
+.page[data-tutorial-step="bot-channel"] .stepTransition,
+.page[data-tutorial-step="bot-channel"] .stepCurrent,
+.page[data-tutorial-step="bot-channel"] .stepEntering,
+.page[data-tutorial-step="bot-channel"] .stepLeaving,
+.page[data-tutorial-step="bot-voice"] .stepTransition,
+.page[data-tutorial-step="bot-voice"] .stepCurrent,
+.page[data-tutorial-step="bot-voice"] .stepEntering,
+.page[data-tutorial-step="bot-voice"] .stepLeaving,
+.page[data-tutorial-step="bot-rules"] .stepTransition,
+.page[data-tutorial-step="bot-rules"] .stepCurrent,
+.page[data-tutorial-step="bot-rules"] .stepEntering,
+.page[data-tutorial-step="bot-rules"] .stepLeaving,
+.page[data-tutorial-step="bot-review"] .stepTransition,
+.page[data-tutorial-step="bot-review"] .stepCurrent,
+.page[data-tutorial-step="bot-review"] .stepEntering,
+.page[data-tutorial-step="bot-review"] .stepLeaving {
+  min-height: 0;
+  height: auto;
+}
+
+.page[data-tutorial-step="bot-type"] .stepPanel,
+.page[data-tutorial-step="bot-channel"] .stepPanel,
+.page[data-tutorial-step="bot-voice"] .stepPanel,
+.page[data-tutorial-step="bot-rules"] .stepPanel,
+.page[data-tutorial-step="bot-review"] .stepPanel {
+  min-height: 0;
+  height: auto;
+  align-content: stretch;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  gap: 0.55rem;
+}
+
+.page[data-tutorial-step="bot-type"] .actions,
+.page[data-tutorial-step="bot-channel"] .actions,
+.page[data-tutorial-step="bot-voice"] .actions,
+.page[data-tutorial-step="bot-rules"] .actions,
+.page[data-tutorial-step="bot-review"] .actions {
   margin-top: 0;
 }
 
@@ -310,6 +386,8 @@
   grid-area: 1 / 1;
   width: 100%;
   display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  align-content: stretch;
   justify-items: center;
   gap: clamp(1rem, 2vw, 1.35rem);
   text-align: center;
@@ -345,19 +423,29 @@
 .botStepGrid {
   grid-template-columns: minmax(260px, 0.76fr) minmax(420px, 1.24fr);
   align-items: stretch;
+  width: min(1120px, 100%);
   max-height: min(48vh, 430px);
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-right: 0.34rem;
+  scrollbar-gutter: stable;
 }
 
 .botStepSide {
   min-width: 0;
+  min-height: 0;
+  overflow: auto;
 }
 
 .botBuildStage {
   min-width: 0;
+  min-height: 0;
   display: grid;
   grid-template-columns: minmax(300px, 0.98fr) minmax(280px, 1.02fr);
   gap: 0.86rem;
   align-items: stretch;
+  overflow: hidden;
 }
 
 .themeMockup,
@@ -508,7 +596,8 @@
 .botConfigCard {
   min-height: 0;
   align-content: stretch;
-  overflow: hidden;
+  overflow: auto;
+  scrollbar-gutter: stable;
 }
 
 .botReviewCard,
@@ -570,6 +659,17 @@
   cursor: not-allowed;
   opacity: 0.42;
   filter: blur(0.25px) saturate(0.7);
+}
+
+.segmentOption[data-disabled="true"] {
+  cursor: not-allowed;
+  opacity: 0.52;
+  filter: saturate(0.72);
+}
+
+.segmentOption[data-disabled="true"]:hover {
+  transform: none;
+  border-color: var(--tutorial-panel-line);
 }
 
 .botOption strong,
@@ -650,7 +750,8 @@
     inset 0 1px 0 rgba(255, 255, 255, 0.13),
     0 24px 80px rgba(0, 0, 0, 0.18);
   padding: clamp(0.86rem, 1.8vw, 1.1rem);
-  overflow: hidden;
+  overflow: auto;
+  scrollbar-gutter: stable;
   backdrop-filter: blur(18px);
 }
 
@@ -675,6 +776,8 @@
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.5rem;
   align-content: stretch;
+  overflow: auto;
+  padding-right: 0.12rem;
 }
 
 .botMapNode {
@@ -916,7 +1019,7 @@
 }
 
 .botBuiltEditorPanel {
-  grid-template-rows: auto auto auto auto minmax(0, 1fr);
+  grid-template-rows: auto auto auto auto auto minmax(0, 1fr);
 }
 
 .botBuiltMicrocopy {
@@ -1006,6 +1109,18 @@
   box-shadow: 0 14px 34px rgba(37, 211, 102, 0.12);
 }
 
+.botFinalModeGrid button[data-disabled="true"] {
+  cursor: not-allowed;
+  opacity: 0.52;
+  filter: saturate(0.72);
+}
+
+.botFinalModeGrid button[data-disabled="true"]:hover {
+  transform: none;
+  border-color: var(--tutorial-panel-line);
+  box-shadow: none;
+}
+
 .botFinalModeGrid strong,
 .botFinalModeGrid span {
   display: block;
@@ -1023,6 +1138,34 @@
   font-size: 0.64rem;
   font-weight: 850;
   line-height: 1.24;
+}
+
+.botFirstContactSummary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.48rem;
+}
+
+.botFirstContactSummary span {
+  min-width: 0;
+  display: grid;
+  gap: 0.18rem;
+  border: 1px solid var(--tutorial-panel-line);
+  border-radius: 14px;
+  background:
+    linear-gradient(135deg, rgba(42, 119, 255, 0.09), rgba(52, 216, 255, 0.07)),
+    var(--tutorial-inner-bg);
+  color: var(--tutorial-card-muted);
+  padding: 0.58rem;
+  font-size: 0.62rem;
+  font-weight: 850;
+  line-height: 1.22;
+}
+
+.botFirstContactSummary strong {
+  color: var(--tutorial-heading);
+  font-size: 0.68rem;
+  line-height: 1.1;
 }
 
 .botFinalEditorScroll {
@@ -2139,7 +2282,7 @@
 }
 
 .finalBotCard {
-  overflow: hidden;
+  overflow: visible;
   padding: clamp(0.8rem, 1.8vw, 1.15rem);
 }
 
@@ -2157,7 +2300,7 @@
 
 .finalPreview {
   position: relative;
-  min-height: min(58vh, 560px);
+  min-height: min(46vh, 430px);
   align-content: stretch;
   overflow: hidden;
   padding: 0;
@@ -2165,7 +2308,7 @@
 
 .finalPreviewCopy {
   position: absolute;
-  z-index: 2;
+  z-index: 3;
   left: clamp(0.9rem, 2.2vw, 1.35rem);
   top: clamp(0.9rem, 2.2vw, 1.35rem);
   width: min(260px, 58%);
@@ -2175,13 +2318,22 @@
 
 .finalBotImageWrap {
   position: absolute;
-  inset: 0;
-  z-index: 1;
+  z-index: 2;
+  right: clamp(-5.2rem, -5.8vw, -2rem);
+  bottom: clamp(-0.9rem, -1.2vw, -0.2rem);
+  width: min(48vw, 470px);
+  height: min(48vh, 430px);
+  pointer-events: none;
+  transition: none;
+  animation: none;
 }
 
 .finalBotImageWrap img {
-  object-fit: cover;
-  object-position: right center;
+  object-fit: contain;
+  object-position: right bottom;
+  filter: drop-shadow(0 28px 58px rgba(18, 52, 84, 0.18));
+  transition: none;
+  animation: none;
 }
 
 .formPreview span,
@@ -2268,19 +2420,28 @@
 }
 
 .actions {
-  display: flex;
+  width: min(1120px, 100%);
+  display: grid;
+  grid-template-columns: repeat(3, 164px);
   justify-content: center;
-  flex-wrap: wrap;
   gap: 0.85rem;
-  margin-top: 0.25rem;
+  align-self: end;
+  margin-top: 0;
+  padding-top: 0.2rem;
+}
+
+.actionPlaceholder {
+  width: 164px;
+  min-height: 50px;
+  visibility: hidden;
 }
 
 .primaryAction,
 .secondaryAction,
 .ghostAction {
-  flex: 0 0 148px;
-  width: 148px;
-  min-height: 48px;
+  flex: 0 0 164px;
+  width: 164px;
+  min-height: 50px;
   border-radius: 14px;
   padding: 0.82rem 1.15rem;
   font: inherit;
@@ -2636,6 +2797,7 @@
   .channelCompare,
   .botMapRail,
   .botResultSummary,
+  .botFirstContactSummary,
   .botBuiltWorkspace {
     grid-template-columns: 1fr;
   }
@@ -2656,6 +2818,21 @@
   .botWhatsappPanel {
     min-height: 560px;
   }
+
+  .finalPreview {
+    min-height: 360px;
+  }
+
+  .finalPreviewCopy {
+    width: min(280px, 72%);
+  }
+
+  .finalBotImageWrap {
+    right: -3.2rem;
+    bottom: -1.5rem;
+    width: min(82vw, 400px);
+    height: 320px;
+  }
 }
 
 @media (max-width: 1380px) {
@@ -2665,6 +2842,23 @@
 }
 
 @media (max-width: 560px) {
+  .finalPreview {
+    min-height: 330px;
+  }
+
+  .finalPreviewCopy {
+    left: 0.85rem;
+    top: 0.85rem;
+    width: min(245px, 76%);
+  }
+
+  .finalBotImageWrap {
+    right: -4rem;
+    bottom: -1.2rem;
+    width: 330px;
+    height: 280px;
+  }
+
   .page {
     padding: 1rem;
     place-items: start center;
@@ -2739,6 +2933,14 @@
   .primaryAction,
   .secondaryAction,
   .ghostAction {
+    width: 100%;
+  }
+
+  .actions {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .actionPlaceholder {
     width: 100%;
   }
 }

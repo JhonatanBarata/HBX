@@ -339,8 +339,8 @@ const DEFAULT_ACTION_CATALOG: AtendimentoBotActionGuide[] = [
   },
   {
     actionId: 'enter_recovery',
-    title: 'Falar sobre o debito',
-    description: 'Entrega a conversa para o menu do Recovery quando houver inadimplencia.',
+    title: 'Abrir contexto financeiro',
+    description: 'Leva o cliente para o resumo financeiro dentro do fluxo principal do Atendimento.',
     route: 'recovery',
     kind: 'recovery_handoff',
     enabled: true,
@@ -354,8 +354,43 @@ const DEFAULT_ACTION_CATALOG: AtendimentoBotActionGuide[] = [
     enabled: true,
   },
   {
+    actionId: 'view_payments',
+    title: 'Ver pagamentos',
+    description: 'Mostra pagamentos recentes e historico financeiro do cliente.',
+    route: 'recovery',
+    kind: 'reply',
+    enabled: true,
+    responseMessage: 'Vou abrir o historico de pagamentos e continuar por aqui com voce.',
+  },
+  {
+    actionId: 'pay_now',
+    title: 'Pagar agora',
+    description: 'Gera link ou dispara a proxima acao financeira imediata.',
+    route: 'recovery',
+    kind: 'reply',
+    enabled: true,
+    responseMessage: 'Perfeito. Vou gerar a acao financeira para voce seguir agora.',
+  },
+  {
+    actionId: 'negotiate_debt',
+    title: 'Negociar',
+    description: 'Registra uma negociacao sem tirar o cliente do fluxo principal.',
+    route: 'recovery',
+    kind: 'reply',
+    enabled: true,
+    responseMessage: 'Vamos registrar uma negociacao e seguir pelo melhor caminho para o seu caso.',
+  },
+  {
+    actionId: 'continue_attendance',
+    title: 'Continuar atendimento',
+    description: 'Sai do contexto financeiro e devolve a conversa para a triagem principal.',
+    route: 'atendimento',
+    kind: 'show_menu',
+    enabled: true,
+  },
+  {
     actionId: 'schedule_service',
-    title: 'Agendar',
+    title: 'Agendar visita',
     description: 'Despacha o cliente para a Agenda Bot operacional configurada.',
     route: 'atendimento',
     kind: 'agenda',
@@ -391,6 +426,14 @@ function resolveDefaultAtendimentoNextNodeId(actionIdRaw: string | null | undefi
       return 'recoveryDetectedMessage';
     case 'start_quick_registration':
       return 'registrationCapture';
+    case 'view_payments':
+      return 'paymentHistory';
+    case 'pay_now':
+      return 'paymentAction';
+    case 'negotiate_debt':
+      return 'negotiationAction';
+    case 'continue_attendance':
+      return 'mainMenuPrompt';
     case 'schedule_service':
       return 'agendaDispatch';
     default:
@@ -421,6 +464,81 @@ function makeDefaultButton(
   };
 }
 
+const DEFAULT_FIRST_CONTACT_SCENE_RULES: AtendimentoSceneRule[] = [
+  {
+    sceneId: 'first_contact_rules_atendimento',
+    conditionType: 'first_contact_rules',
+    enabled: true,
+    metadata: {
+      guideId: 'atendimento',
+      canInitiateConversation: false,
+      messageIntervalSeconds: 18,
+      nextContactDelayMinutes: 0,
+      replyDelaySeconds: 22,
+      typingSeconds: 5,
+      typingVarianceSeconds: 4,
+      maxFirstContactsPerHour: 0,
+      quietHoursStart: '20:00',
+      quietHoursEnd: '08:00',
+      maxFollowUps: 1,
+      followUpDelayHours: 6,
+      requireOptIn: false,
+      stopIntentKeywords: ['parar', 'bloquear', 'atendente', 'reclamacao'],
+      positiveIntentKeywords: ['suporte', 'agenda', 'financeiro', 'ajuda'],
+      optOutMessage: 'Sem problema. Vou encerrar por aqui e deixo um atendente assumir se voce precisar.',
+      handoffPolicy: 'Se houver reclamacao, audio confuso ou pedido de humano, pausa o bot e coloca na fila Atendimento.',
+    },
+  },
+  {
+    sceneId: 'first_contact_rules_prospeccao',
+    conditionType: 'first_contact_rules',
+    enabled: true,
+    metadata: {
+      guideId: 'prospeccao',
+      canInitiateConversation: true,
+      messageIntervalSeconds: 35,
+      nextContactDelayMinutes: 12,
+      replyDelaySeconds: 75,
+      typingSeconds: 8,
+      typingVarianceSeconds: 6,
+      maxFirstContactsPerHour: 5,
+      quietHoursStart: '18:30',
+      quietHoursEnd: '09:00',
+      maxFollowUps: 2,
+      followUpDelayHours: 24,
+      requireOptIn: false,
+      stopIntentKeywords: ['nao tenho interesse', 'nao quero', 'pare', 'remover', 'spam'],
+      positiveIntentKeywords: ['tenho interesse', 'pode mandar', 'quero saber', 'me explica', 'quanto custa'],
+      optOutMessage: 'Tudo bem, obrigado por responder. Nao vou insistir e encerro este contato por aqui.',
+      handoffPolicy: 'Se a pessoa demonstrar irritacao, pedir remocao ou responder negativamente duas vezes, encerra sem nova tentativa.',
+    },
+  },
+  {
+    sceneId: 'first_contact_rules_recovery',
+    conditionType: 'first_contact_rules',
+    enabled: true,
+    metadata: {
+      guideId: 'recovery',
+      canInitiateConversation: true,
+      messageIntervalSeconds: 45,
+      nextContactDelayMinutes: 8,
+      replyDelaySeconds: 60,
+      typingSeconds: 7,
+      typingVarianceSeconds: 5,
+      maxFirstContactsPerHour: 6,
+      quietHoursStart: '19:00',
+      quietHoursEnd: '09:00',
+      maxFollowUps: 3,
+      followUpDelayHours: 24,
+      requireOptIn: true,
+      stopIntentKeywords: ['nao reconheco', 'ja paguei', 'contestacao', 'atendente', 'pare'],
+      positiveIntentKeywords: ['pagar', 'pix', 'boleto', 'parcelar', 'negociar'],
+      optOutMessage: 'Entendi. Vou pausar a cobranca automatica e deixar o atendimento humano verificar com cuidado.',
+      handoffPolicy: 'Contestacao, pagamento informado, tom irritado ou duvida sobre valor vai direto para humano antes de novo disparo.',
+    },
+  },
+];
+
 export const DEFAULT_ATENDIMENTO_BOT_CONFIG: AtendimentoBotConfig = {
   setup: {
     completed: false,
@@ -440,37 +558,37 @@ export const DEFAULT_ATENDIMENTO_BOT_CONFIG: AtendimentoBotConfig = {
     notifyOnNewInbound: true,
   },
   smartVariables: DEFAULT_ATENDIMENTO_SMART_VARIABLES,
-  sceneRules: [],
+  sceneRules: DEFAULT_FIRST_CONTACT_SCENE_RULES,
   welcomeMessage:
-    'Ola, tudo bem?\nEu sou o atendimento digital da {{empresa}}. Nao localizamos em nosso cadastro seu telefone.',
+    'Ola, tudo bem?\nSou o atendimento da {{empresa}} e vou concluir seu cadastro rapido antes de seguir com a triagem principal.',
   welcomeButtons: [
-    makeDefaultButton(
-      'welcome_message',
-      'start_quick_registration',
-      'Fazer cadastro rapido',
-      0,
-    ),
+    makeDefaultButton('welcome_message', 'continue_journey', 'Continuar atendimento', 0),
     makeDefaultButton('welcome_message', 'talk_human', 'Falar com atendente', 1),
   ],
   returningCustomerMessage:
-    'Que bom te ver de novo, {{cliente}}. Vou continuar daqui e te mostrar as opções disponíveis.',
+    'Que bom te ver de novo, {{cliente}}. Vou continuar daqui e te mostrar o melhor caminho no Atendimento.',
   returningCustomerButtons: [
-    makeDefaultButton('returning_customer', 'show_main_menu', 'Ver opções', 0),
+    makeDefaultButton('returning_customer', 'continue_journey', 'Continuar', 0),
     makeDefaultButton('returning_customer', 'talk_human', 'Falar com atendente', 1),
   ],
-  mainMenuPrompt: 'Escolha abaixo como deseja continuar:',
+  mainMenuPrompt: 'Escolha abaixo como deseja continuar no Atendimento:',
   mainMenuButtons: [
-    makeDefaultButton('main_menu', 'talk_human', 'Falar com atendente', 0),
+    makeDefaultButton('main_menu', 'show_main_menu', 'Suporte', 0),
     makeDefaultButton('main_menu', 'schedule_service', 'Agendar visita', 1),
+    makeDefaultButton('main_menu', 'enter_recovery', 'Financeiro', 2),
+    makeDefaultButton('main_menu', 'talk_human', 'Falar com atendente', 3),
   ],
   recoveryDetectedMessage:
-    'Localizei um cadastro com valor em aberto de {{valor_formatado}} no Recovery. Podemos conversar sobre isso agora ou prefere falar com um atendente?',
+    'Encontrei um valor pendente de {{valor_formatado}}. Posso te mostrar pagamentos, seguir com uma acao financeira ou continuar no Atendimento sem perder o contexto.',
   recoveryDetectedButtons: [
-    makeDefaultButton('recovery_detected', 'enter_recovery', 'Falar sobre o debito', 0),
-    makeDefaultButton('recovery_detected', 'talk_human', 'Falar com atendente', 1),
-    makeDefaultButton('recovery_detected', 'schedule_service', 'Agendar visita', 2),
+    makeDefaultButton('recovery_detected', 'view_payments', 'Ver pagamentos', 0),
+    makeDefaultButton('recovery_detected', 'pay_now', 'Pagar agora', 1),
+    makeDefaultButton('recovery_detected', 'negotiate_debt', 'Negociar', 2),
+    makeDefaultButton('recovery_detected', 'continue_attendance', 'Continuar atendimento', 3),
+    makeDefaultButton('recovery_detected', 'talk_human', 'Falar com atendente', 4),
+    makeDefaultButton('recovery_detected', 'schedule_service', 'Agendar visita', 5),
   ],
-  postActionPrompt: 'Se precisar de mais alguma coisa, posso continuar por aqui.',
+  postActionPrompt: 'Se precisar, posso continuar pelo Atendimento, voltar ao financeiro ou encaminhar para agenda e humano.',
   postActionButtons: [
     makeDefaultButton('post_action', 'show_main_menu', 'Voltar ao menu', 0),
     makeDefaultButton('post_action', 'talk_human', 'Atendimento humano', 1),
@@ -875,7 +993,7 @@ function normalizeSmartVariables(value: unknown): AtendimentoSmartVariablesConfi
 
 function normalizeSceneRules(value: unknown): AtendimentoSceneRule[] {
   const items = Array.isArray(value) ? value : [];
-  return items
+  const normalized = items
     .map((item) => {
       const sceneId = normalizeActionId((item as any)?.sceneId, '');
       const conditionType = normalizeActionId((item as any)?.conditionType, '');
@@ -892,6 +1010,11 @@ function normalizeSceneRules(value: unknown): AtendimentoSceneRule[] {
       };
     })
     .filter((item): item is AtendimentoSceneRule => Boolean(item));
+  const byKey = new Map(
+    DEFAULT_FIRST_CONTACT_SCENE_RULES.map((rule) => [`${rule.sceneId}:${rule.conditionType}`, { ...rule }]),
+  );
+  normalized.forEach((rule) => byKey.set(`${rule.sceneId}:${rule.conditionType}`, rule));
+  return Array.from(byKey.values());
 }
 
 function normalizeBotType(value: unknown): AtendimentoBotType | null {
@@ -1031,7 +1154,7 @@ export function isAtendimentoBotSetupComplete(config: Partial<AtendimentoBotConf
   return Boolean(
     normalized.setup.completed &&
       botType &&
-      ['vendas', 'atendimento', 'organizacao'].includes(botType) &&
+      ['vendas', 'atendimento', 'organizacao', 'prospeccao', 'recovery'].includes(botType) &&
       normalizeText(normalized.mainMenuPrompt).length >= 8 &&
       (normalized.mainMenuButtons || []).length > 0,
   );

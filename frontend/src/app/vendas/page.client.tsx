@@ -599,8 +599,8 @@ function DateDropSlot({
             e.preventDefault();
             onDateShortcut();
           }}
-          title="Enviar cards visíveis desta data para Inbox"
-          aria-label="Enviar cards visíveis desta data para Inbox"
+          title="Enviar cards visíveis desta data para Prospecção"
+          aria-label="Enviar cards visíveis desta data para Prospecção"
         >
           <svg width="10" height="10" viewBox="0 0 24 24" fill="none" aria-hidden="true">
             <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
@@ -1041,7 +1041,7 @@ export default function VendasClientPage() {
   const openInboxAgenda = useCallback((conversationId?: string | number | null) => {
     todayAgendaLaunchNotice.clear();
     const params = new URLSearchParams({
-      atendimentoQueue: "scheduled",
+      atendimentoQueue: "bot",
       atendimentoSection: "conversa",
     });
     if (conversationId) params.set("conversationId", String(conversationId));
@@ -1057,10 +1057,10 @@ export default function VendasClientPage() {
 
     todayAgendaLaunchNotice.start({
       loadingTitle: options?.title || "Abrindo Inbox",
-      loadingDescription: options?.description || "Enviando os cards visíveis para o Inbox.",
-      successTitle: "Inbox pronto",
-      successDescription: "Tudo certo. Os cards foram preparados no Inbox.",
-      ctaLabel: "Abrir Inbox",
+      loadingDescription: options?.description || "Enviando os cards visíveis para Prospecção.",
+      successTitle: "Prospecção pronta",
+      successDescription: "Tudo certo. Os cards foram preparados em Prospecção.",
+      ctaLabel: "Abrir Prospecção",
       onOpen: () => openInboxAgenda(),
     });
 
@@ -1074,7 +1074,7 @@ export default function VendasClientPage() {
       if (!syncResult?.ok) {
         throw new Error(
           syncResult?.message ||
-            "Os cards visíveis nao foram enviados para o Inbox. Recarregue e tente novamente.",
+            "Os cards visíveis nao foram enviados para Prospecção. Recarregue e tente novamente.",
         );
       }
       const firstConversationId =
@@ -1093,15 +1093,15 @@ export default function VendasClientPage() {
         successDescription:
           String(syncResult?.message || "").trim() ||
           (todayLeadCount
-            ? `${mirroredLeadCount} card(s) foram preparados no Inbox com roteiro pendente para envio manual.`
-            : "Nao ha cards visíveis para preparar no Inbox."),
+            ? `${mirroredLeadCount} card(s) foram preparados em Prospecção com roteiro pendente para envio manual.`
+            : "Nao ha cards visíveis para preparar em Prospecção."),
       });
       await loadBoard();
       if (options?.openAfter) openInboxAgenda(firstConversationId);
       return syncResult;
     } catch (syncError) {
       todayAgendaLaunchNotice.clear();
-      setError(syncError instanceof Error ? syncError.message : "Falha ao importar cards para o Inbox.");
+      setError(syncError instanceof Error ? syncError.message : "Falha ao importar cards para Prospecção.");
       return null;
     }
   }, [openInboxAgenda, todayAgendaLaunchNotice]);
@@ -1274,7 +1274,7 @@ export default function VendasClientPage() {
     if (!selectedFilter) return;
     await syncLeadsToInbox(filteredLeads, {
       title: "Abrindo Inbox",
-      description: `Enviando os cards visíveis de ${selectedFilter.title} para o Inbox.`,
+      description: `Enviando os cards visíveis de ${selectedFilter.title} para Prospecção.`,
     });
   }, [filteredLeads, selectedFilter, syncLeadsToInbox]);
 
@@ -1886,7 +1886,7 @@ export default function VendasClientPage() {
             <p className={styles.boardSubtitle}>Acompanhe quem você já chamou e quem precisa de retorno.</p>
           </div>
           <div className={styles.toolbar}>
-            <button type="button" className={`${styles.secondaryAction} ${styles.toolbarHighlight}`} onClick={() => setComposerOpen(true)}>Salvar novo lead</button>
+            <button type="button" className={`${styles.secondaryAction} ${styles.toolbarHighlight}`} onClick={() => setComposerOpen(true)}>Criar novo Lead</button>
             <button
               type="button"
               className={`${styles.secondaryAction} ${styles.toolbarHighlight} ${styles.whatsappFilterButton}`}

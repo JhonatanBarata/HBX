@@ -2953,6 +2953,8 @@ export class WebwhatsBridgeService {
   ) {
     const nextMetadata = { ...(metadata || {}) };
     nextMetadata.whatsappRemoteJid = remoteJid;
+    nextMetadata.whatsappIsGroup =
+      this.isGroupRemoteJid(remoteJid) || this.isGroupRemoteJid(remoteJidAlt);
     if (remoteJidAlt) {
       nextMetadata.whatsappRemoteJidAlt = remoteJidAlt;
     }
@@ -3433,6 +3435,10 @@ export class WebwhatsBridgeService {
     if (remoteJid.includes('@broadcast')) return false;
     if (remoteJid === 'status@broadcast') return false;
     return remoteJid.includes('@s.whatsapp.net') || remoteJid.includes('@lid') || remoteJid.includes('@g.us');
+  }
+
+  private isGroupRemoteJid(remoteJidRaw: string | null | undefined) {
+    return String(remoteJidRaw || '').trim().toLowerCase().includes('@g.us');
   }
 
   private normalizeOptionalString(value: unknown) {
