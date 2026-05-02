@@ -12,4 +12,10 @@ export class SystemHealthController {
   getSystemHealth() {
     return this.systemHealthService.getSystemHealth();
   }
+
+  @Get('active-sessions')
+  @UseGuards(JwtAuthGuard, MasterGuard)
+  listActiveSessions() {
+    return this.systemHealthService.listActiveSessions();
+  }
 }

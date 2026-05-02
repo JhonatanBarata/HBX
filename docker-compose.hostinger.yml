@@ -48,7 +48,6 @@ services:
     networks:
       - hbx_net
 
-
   frontend:
     container_name: hbx-frontend
     build:

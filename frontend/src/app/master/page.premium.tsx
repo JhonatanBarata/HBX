@@ -88,7 +88,7 @@ const TABS: Array<{ id: DrawerTab; label: string }> = [
 const COMMERCIAL_PLAN_OPTIONS = [
   { key: "hbx_lite", label: "HBX Lite", price: "R$ 29,90/mês" },
   { key: "hbx_padrao", label: "HBX Padrão", price: "R$ 79,90/mês" },
-  { key: "hbx_melhor", label: "HBX Melhor", price: "R$ 109,90/mês" },
+  { key: "hbx_melhor", label: "HBX Melhor", price: "R$ 129,90/mês" },
 ] as const;
 
 function commercialPlanLabel(value?: string | null) {

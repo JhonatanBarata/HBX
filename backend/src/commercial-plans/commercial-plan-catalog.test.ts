@@ -10,7 +10,7 @@ import {
 test('HBX commercial catalog exposes package prices and quotas', () => {
   assert.equal(COMMERCIAL_PRICING.liteMonthly, 29.90);
   assert.equal(COMMERCIAL_PRICING.padraoMonthly, 79.90);
-  assert.equal(COMMERCIAL_PRICING.melhorMonthly, 109.90);
+  assert.equal(COMMERCIAL_PRICING.melhorMonthly, 129.90);
   assert.equal(COMMERCIAL_PRICING.annualDiscountPercent, 10);
 
   const catalog = buildCommercialPlansCatalog();
@@ -28,7 +28,7 @@ test('HBX commercial catalog exposes package prices and quotas', () => {
   assert.equal(padrao?.quotas?.googleSearchesPerDay, 2);
 
   const melhor = catalog.find((plan) => plan.key === COMMERCIAL_PLAN_KEYS.MELHOR);
-  assert.equal(melhor?.monthlyPrice, 109.90);
+  assert.equal(melhor?.monthlyPrice, 129.90);
   assert.equal(melhor?.trialDays, 0);
   assert.equal(melhor?.quotas?.googleSearchesPerDay, 6);
 });

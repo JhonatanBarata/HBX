@@ -1360,6 +1360,156 @@
   gap: 1rem;
 }
 
+.masterCockpitSection {
+  display: grid;
+  gap: 1rem;
+  padding: 1.1rem;
+  border: 1px solid var(--master-border);
+  border-radius: 24px;
+  background: color-mix(in srgb, var(--surface) 86%, var(--background));
+  box-shadow: var(--master-shadow-soft);
+}
+
+.healthGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.85rem;
+}
+
+.healthCard {
+  display: grid;
+  gap: 0.45rem;
+  min-width: 0;
+  padding: 0.9rem;
+  border: 1px solid rgba(21, 34, 53, 0.1);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.52);
+}
+
+.healthCard[data-tone="green"] {
+  border-color: rgba(20, 122, 108, 0.24);
+  background: rgba(20, 122, 108, 0.08);
+}
+
+.healthCard[data-tone="yellow"] {
+  border-color: rgba(202, 141, 40, 0.3);
+  background: rgba(202, 141, 40, 0.1);
+}
+
+.healthCard[data-tone="red"] {
+  border-color: rgba(177, 77, 88, 0.28);
+  background: rgba(177, 77, 88, 0.1);
+}
+
+.healthCard span {
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--master-text-soft);
+}
+
+.healthCard strong {
+  font-size: 1.15rem;
+  font-weight: 900;
+  color: var(--master-text);
+}
+
+.healthCard p {
+  margin: 0;
+  color: var(--master-text-soft);
+  font-size: 0.86rem;
+  line-height: 1.45;
+}
+
+.healthSplit {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(220px, 0.55fr);
+  gap: 0.85rem;
+}
+
+.healthSplit > div {
+  display: grid;
+  gap: 0.55rem;
+  align-content: start;
+  padding: 0.9rem;
+  border-radius: 18px;
+  background: rgba(24, 49, 83, 0.04);
+}
+
+.healthSplit strong {
+  font-weight: 900;
+  color: var(--master-text);
+}
+
+.healthSplit p {
+  margin: 0;
+  color: var(--master-text-soft);
+}
+
+.healthSplit pre {
+  max-height: 150px;
+  margin: 0;
+  overflow: auto;
+  white-space: pre-wrap;
+  border-radius: 14px;
+  padding: 0.75rem;
+  background: rgba(24, 49, 83, 0.06);
+  color: var(--master-text);
+  font-size: 0.78rem;
+}
+
+.healthBadge {
+  width: fit-content;
+  display: inline-flex;
+  align-items: center;
+  min-height: 1.9rem;
+  border-radius: 999px;
+  padding: 0.32rem 0.65rem;
+  font-size: 0.76rem;
+  font-weight: 900;
+  color: var(--master-text);
+  background: rgba(24, 49, 83, 0.08);
+}
+
+.healthBadge[data-tone="green"] {
+  color: #0d5f53;
+  background: rgba(20, 122, 108, 0.12);
+}
+
+.healthBadge[data-tone="yellow"] {
+  color: #8a5f14;
+  background: rgba(202, 141, 40, 0.15);
+}
+
+.healthBadge[data-tone="red"] {
+  color: #8d3140;
+  background: rgba(177, 77, 88, 0.14);
+}
+
+.sessionCounters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  justify-content: flex-end;
+}
+
+.sessionCounters span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  border-radius: 999px;
+  padding: 0.42rem 0.7rem;
+  background: rgba(24, 49, 83, 0.06);
+  color: var(--master-text-soft);
+  font-size: 0.8rem;
+  font-weight: 800;
+}
+
+.sessionCounters strong {
+  color: var(--master-text);
+}
+
 .masterHomeHero {
   display: grid;
   grid-template-columns: minmax(0, 1.45fr) minmax(280px, 0.75fr);
@@ -1596,6 +1746,14 @@
   .masterHomeGrid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
+  .healthGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .healthSplit {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 880px) {
@@ -1621,7 +1779,8 @@
 
   .loadingGrid,
   .metricsGrid,
-  .attentionGrid {
+  .attentionGrid,
+  .healthGrid {
     grid-template-columns: 1fr;
   }
 
