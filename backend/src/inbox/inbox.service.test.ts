@@ -616,13 +616,40 @@ test('purgeConversationFromTrash removes one archived conversation locally witho
   assert.equal(auditCalls[0].event, 'conversation_trash_purged_local');
 });
 
-test('emptyTrash is disabled to avoid bulk WhatsApp deletion', async () => {
-  const { service } = createService();
+test('emptyTrash removes only empty archived conversations locally', async () => {
+  const conversationDeleteCalls: Array<Record<string, unknown>> = [];
+  const { service, auditCalls } = createService({
+    prisma: {
+      companyConversation: {
+        findMany: async () => [
+          {
+            id: 44,
+            contact: '+5519998112233',
+            flowResult: 'local_deleted',
+            metadata: JSON.stringify({
+              inboxLocalDeleted: true,
+              inboxManualQueueOverride: 'archived',
+            }),
+          },
+        ],
+        deleteMany: async (input: Record<string, unknown>) => {
+          conversationDeleteCalls.push(input);
+          return { count: 1 };
+        },
+      },
+    },
+  });
 
-  await assert.rejects(
-    () => service.emptyTrash({ companyId: 7 }),
-    /Limpeza em lote desativada/,
-  );
+  const result = await service.emptyTrash({ companyId: 7, role: 'ADMIN' });
+
+  assert.equal(result.success, true);
+  assert.equal(result.localOnly, true);
+  assert.equal(result.deleted, 1);
+  assert.deepEqual(result.deletedIds, ['44']);
+  assert.equal(conversationDeleteCalls.length, 1);
+  assert.deepEqual((conversationDeleteCalls[0] as any).where.id, { in: [44] });
+  assert.equal(auditCalls.length, 1);
+  assert.equal(auditCalls[0].event, 'conversation_empty_trash_purged_local');
 });
 
 test('getConversationById exposes customer identity fields from AtendimentoCustomer and CustomerProfile', async () => {

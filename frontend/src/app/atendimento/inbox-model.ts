@@ -1,6 +1,6 @@
 import type { ChannelProvider, ProviderCapabilities } from "@/lib/provider-capabilities";
 
-export type InboxRouteTarget = "recovery" | "atendimento";
+export type InboxRouteTarget = "recovery" | "atendimento" | "prospeccao" | "conversas" | "excluidos";
 export type InboxStatus = "new" | "open" | "closed" | "blocked";
 
 export type Customer = {
@@ -468,6 +468,81 @@ function makeDefaultButton(sectionKey: string, actionId: string, title: string, 
   };
 }
 
+const DEFAULT_FIRST_CONTACT_SCENE_RULES: AtendimentoSceneRule[] = [
+  {
+    sceneId: "first_contact_rules_atendimento",
+    conditionType: "first_contact_rules",
+    enabled: true,
+    metadata: {
+      guideId: "atendimento",
+      canInitiateConversation: false,
+      messageIntervalSeconds: 18,
+      nextContactDelayMinutes: 0,
+      replyDelaySeconds: 22,
+      typingSeconds: 5,
+      typingVarianceSeconds: 4,
+      maxFirstContactsPerHour: 0,
+      quietHoursStart: "20:00",
+      quietHoursEnd: "08:00",
+      maxFollowUps: 1,
+      followUpDelayHours: 6,
+      requireOptIn: false,
+      stopIntentKeywords: ["parar", "bloquear", "atendente", "reclamacao"],
+      positiveIntentKeywords: ["suporte", "agenda", "financeiro", "ajuda"],
+      optOutMessage: "Sem problema. Vou encerrar por aqui e deixo um atendente assumir se voce precisar.",
+      handoffPolicy: "Se houver reclamacao, audio confuso ou pedido de humano, pausa o bot e coloca na fila Atendimento.",
+    },
+  },
+  {
+    sceneId: "first_contact_rules_prospeccao",
+    conditionType: "first_contact_rules",
+    enabled: true,
+    metadata: {
+      guideId: "prospeccao",
+      canInitiateConversation: true,
+      messageIntervalSeconds: 35,
+      nextContactDelayMinutes: 12,
+      replyDelaySeconds: 75,
+      typingSeconds: 8,
+      typingVarianceSeconds: 6,
+      maxFirstContactsPerHour: 5,
+      quietHoursStart: "18:30",
+      quietHoursEnd: "09:00",
+      maxFollowUps: 2,
+      followUpDelayHours: 24,
+      requireOptIn: false,
+      stopIntentKeywords: ["nao tenho interesse", "nao quero", "pare", "remover", "spam"],
+      positiveIntentKeywords: ["tenho interesse", "pode mandar", "quero saber", "me explica", "quanto custa"],
+      optOutMessage: "Tudo bem, obrigado por responder. Nao vou insistir e encerro este contato por aqui.",
+      handoffPolicy: "Se a pessoa demonstrar irritacao, pedir remocao ou responder negativamente duas vezes, encerra sem nova tentativa.",
+    },
+  },
+  {
+    sceneId: "first_contact_rules_recovery",
+    conditionType: "first_contact_rules",
+    enabled: true,
+    metadata: {
+      guideId: "recovery",
+      canInitiateConversation: true,
+      messageIntervalSeconds: 45,
+      nextContactDelayMinutes: 8,
+      replyDelaySeconds: 60,
+      typingSeconds: 7,
+      typingVarianceSeconds: 5,
+      maxFirstContactsPerHour: 6,
+      quietHoursStart: "19:00",
+      quietHoursEnd: "09:00",
+      maxFollowUps: 3,
+      followUpDelayHours: 24,
+      requireOptIn: true,
+      stopIntentKeywords: ["nao reconheco", "ja paguei", "contestacao", "atendente", "pare"],
+      positiveIntentKeywords: ["pagar", "pix", "boleto", "parcelar", "negociar"],
+      optOutMessage: "Entendi. Vou pausar a cobranca automatica e deixar o atendimento humano verificar com cuidado.",
+      handoffPolicy: "Contestacao, pagamento informado, tom irritado ou duvida sobre valor vai direto para humano antes de novo disparo.",
+    },
+  },
+];
+
 export const DEFAULT_ATENDIMENTO_BOT_CONFIG: AtendimentoBotConfig = {
   setup: {
     completed: false,
@@ -649,7 +724,7 @@ export const DEFAULT_ATENDIMENTO_BOT_CONFIG: AtendimentoBotConfig = {
       nightStartHour: 18,
     },
   },
-  sceneRules: [],
+  sceneRules: DEFAULT_FIRST_CONTACT_SCENE_RULES,
   welcomeMessage:
     "Ola, tudo bem?\nSou o atendimento da {{empresa}} e vou concluir seu cadastro rapido antes de seguir com a triagem principal.",
   welcomeButtons: [
@@ -963,7 +1038,7 @@ function normalizeSmartVariables(value: unknown): AtendimentoSmartVariablesConfi
 
 function normalizeSceneRules(value: unknown): AtendimentoSceneRule[] {
   const items = Array.isArray(value) ? value : [];
-  return items
+  const normalized = items
     .map((item) => {
       const raw = item as Partial<AtendimentoSceneRule>;
       const sceneId = String(raw.sceneId || "").trim().toLowerCase();
@@ -981,6 +1056,11 @@ function normalizeSceneRules(value: unknown): AtendimentoSceneRule[] {
       };
     })
     .filter((item): item is AtendimentoSceneRule => Boolean(item));
+  const byKey = new Map(
+    DEFAULT_FIRST_CONTACT_SCENE_RULES.map((rule) => [`${rule.sceneId}:${rule.conditionType}`, { ...rule }]),
+  );
+  normalized.forEach((rule) => byKey.set(`${rule.sceneId}:${rule.conditionType}`, rule));
+  return Array.from(byKey.values());
 }
 
 function normalizeBotType(value: unknown): AtendimentoBotType | null {
@@ -1114,7 +1194,7 @@ export function isAtendimentoBotSetupComplete(
   return Boolean(
     normalized.setup.completed &&
       botType &&
-      ["vendas", "atendimento", "organizacao"].includes(botType) &&
+      ["vendas", "atendimento", "organizacao", "prospeccao", "recovery"].includes(botType) &&
       String(normalized.mainMenuPrompt || "").trim().length >= 8 &&
       normalized.mainMenuButtons.length > 0,
   );

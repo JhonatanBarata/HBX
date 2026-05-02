@@ -161,6 +161,10 @@
   background: #0b141a;
 }
 
+.whatsAppConversationShellPersonal {
+  isolation: isolate;
+}
+
 .whatsAppConversationShellTransition {
   animation: inbox-conversation-enter var(--motion-base) both;
 }
@@ -5241,6 +5245,12 @@
   border-color: rgba(248, 113, 113, 0.26);
 }
 
+.conversationContextBadge[data-tone="personal"] {
+  color: #dcfce7;
+  background: rgba(22, 101, 52, 0.36);
+  border-color: rgba(34, 197, 94, 0.28);
+}
+
 .conversationIdentitySubtitle {
   color: #91a0c3;
   font-size: 0.72rem;
@@ -5264,6 +5274,85 @@
   background: linear-gradient(135deg, var(--button-primary), var(--button-secondary));
   color: var(--brand-contrast);
   box-shadow: 0 14px 26px color-mix(in srgb, var(--button-primary) 24%, transparent);
+}
+
+.personalContactToggle {
+  min-height: 38px;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.48rem;
+  border: 1px solid color-mix(in srgb, var(--button-primary) 28%, var(--line));
+  border-radius: 14px;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--surface) 92%, var(--button-primary)), var(--surface-soft));
+  color: color-mix(in srgb, var(--foreground) 88%, var(--muted));
+  padding: 0 0.9rem 0 0.58rem;
+  font-size: 0.76rem;
+  font-weight: 900;
+  white-space: nowrap;
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--surface) 32%, transparent);
+  transition:
+    transform var(--motion-fast),
+    border-color var(--motion-fast),
+    background-color var(--motion-fast),
+    color var(--motion-fast),
+    opacity var(--motion-fast);
+}
+
+.personalContactToggle:hover:not(:disabled) {
+  transform: translateY(-1px);
+  border-color: color-mix(in srgb, var(--button-accent) 36%, var(--button-primary));
+}
+
+.personalContactToggle:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.personalContactToggle[data-active="true"] {
+  border-color: color-mix(in srgb, #22c55e 44%, var(--line));
+  background:
+    linear-gradient(135deg, color-mix(in srgb, #22c55e 22%, var(--surface)), color-mix(in srgb, var(--surface-soft) 90%, #22c55e));
+  color: color-mix(in srgb, #dcfce7 78%, var(--foreground));
+}
+
+.personalContactSwitch {
+  width: 32px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--muted) 32%, var(--surface));
+  padding: 2px;
+  transition: background-color var(--motion-fast);
+}
+
+.personalContactSwitch span {
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  background: #fff;
+  box-shadow: 0 4px 10px color-mix(in srgb, var(--foreground) 22%, transparent);
+  transition: transform var(--motion-fast);
+}
+
+.personalContactToggle[data-active="true"] .personalContactSwitch {
+  background: #22c55e;
+}
+
+.personalContactToggle[data-active="true"] .personalContactSwitch span {
+  transform: translateX(14px);
+}
+
+.contextStackPersonal {
+  position: relative;
+}
+
+.contextStackPersonal > * {
+  filter: blur(2.2px);
+  opacity: 0.48;
+  pointer-events: none;
+  user-select: none;
 }
 
 .conversationSecondaryAction {

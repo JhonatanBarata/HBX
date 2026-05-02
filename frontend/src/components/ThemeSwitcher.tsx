@@ -68,7 +68,7 @@ const THEME_EDITOR_GROUPS: ReadonlyArray<{
     description: "Cores dos principais CTAs e ações da interface.",
     items: [
       { key: "buttonPrimary", label: "Botão primário", hint: "Ação principal" },
-      { key: "buttonSecondary", label: "Botão secundário", hint: "Apoio e ações neutras" },
+      { key: "buttonSecondary", label: "Desselecionado", hint: "Apoio e ações neutras" },
       { key: "buttonSuccess", label: "Botão de sucesso", hint: "Confirmações positivas" },
       { key: "buttonAccent", label: "Botão de destaque", hint: "Ações especiais e glow" },
     ],

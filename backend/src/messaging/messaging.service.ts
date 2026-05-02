@@ -175,6 +175,7 @@ const ATENDIMENTO_STEP = {
   WELCOME: 'welcome',
   MAIN_MENU: 'menu_principal',
   RECOVERY_GATE: 'recovery_detectado',
+  POST_ACTION: 'pos_acao',
   HUMAN: 'atendimento_humano',
   AGENDA: 'agenda_compartilhada',
   CLOSED: 'encerrado',
@@ -187,6 +188,8 @@ type VendasAgendaQueueMetadata = {
   leadId?: string | null;
   sourceModule?: string | null;
   sourceBlock?: string | null;
+  queueTarget?: string | null;
+  routeTarget?: string | null;
   status?: string | null;
   nextAction?: string | null;
   returnAt?: string | null;
@@ -199,6 +202,7 @@ type VendasAgendaQueueMetadata = {
   manualSentAt?: string | null;
   botEligible?: boolean;
   botEntryPending?: boolean;
+  whatsappAvailabilityStatus?: string | null;
 };
 
 @Injectable()
@@ -727,6 +731,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
   private getAtendimentoButtonsForStep(config: AtendimentoBotConfig, step?: string | null): AtendimentoBotButton[] {
     const normalized = String(step || '').trim().toLowerCase();
     if (normalized === ATENDIMENTO_STEP.RECOVERY_GATE) return config.recoveryDetectedButtons || [];
+    if (normalized === ATENDIMENTO_STEP.POST_ACTION) return config.postActionButtons || [];
     if (normalized === ATENDIMENTO_STEP.AGENDA) return config.postActionButtons || [];
     if (normalized === ATENDIMENTO_STEP.WELCOME) return config.welcomeButtons || [];
     return config.mainMenuButtons || [];
@@ -1313,6 +1318,45 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     return queue as VendasAgendaQueueMetadata;
   }
 
+  private isPersonalWhatsappContact(metadata: Record<string, any>) {
+    return Boolean(
+      metadata?.inboxPersonalContact === true ||
+      metadata?.personalContact === true ||
+      metadata?.whatsappPersonalContact === true,
+    );
+  }
+
+  private promoteVendasProspectionMetadataToAtendimento(metadata: Record<string, any>) {
+    const queue = this.readVendasAgendaQueueMetadata(metadata);
+    if (!queue) return metadata;
+
+    const queueTarget = String(
+      queue.queueTarget || queue.routeTarget || metadata?.queueTarget || metadata?.routeTarget || '',
+    ).trim().toLowerCase();
+    const sourceModule = String(queue.sourceModule || metadata?.sourceModule || '').trim().toLowerCase();
+    const isVendasProspection =
+      queueTarget === 'prospeccao' ||
+      queueTarget === 'prospection' ||
+      sourceModule === 'vendas' ||
+      sourceModule === 'webscraping' ||
+      Boolean(String(queue.leadId || '').trim());
+    if (!isVendasProspection) return metadata;
+
+    const syncedAt = new Date().toISOString();
+    return {
+      ...metadata,
+      queueTarget: 'atendimento',
+      routeTarget: 'atendimento',
+      vendasAgendaQueue: {
+        ...queue,
+        queueTarget: 'atendimento',
+        routeTarget: 'atendimento',
+        respondedAt: syncedAt,
+        syncedAt,
+      },
+    };
+  }
+
   private isAtendimentoBotOff(
     metadata: Record<string, any>,
     queue?: VendasAgendaQueueMetadata | null,
@@ -1461,6 +1505,8 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     const botOffActive = this.isAtendimentoBotOff(input.metadata, queue, identity.botOff);
     const nextQueue: VendasAgendaQueueMetadata = {
       ...queue,
+      queueTarget: 'atendimento',
+      routeTarget: 'atendimento',
       manualSent: true,
       manualSentAt: manualSentAt || syncedAt,
       lastManualSendAt: this.normalizeIsoDateTime(queue.lastManualSendAt || manualSentAt) || syncedAt,
@@ -1483,6 +1529,8 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
         },
         {
           ...this.clearAtendimentoBlockedMetadata(input.metadata),
+          queueTarget: 'atendimento',
+          routeTarget: 'atendimento',
           vendasAgendaQueue: nextQueue,
         },
       );
@@ -1491,6 +1539,8 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
 
     const metadataPatch: Record<string, unknown> = {
       ...this.clearAtendimentoBlockedMetadata(input.metadata),
+      queueTarget: 'atendimento',
+      routeTarget: 'atendimento',
       vendasAgendaQueue: nextQueue,
       ...(identity.confirmedName ? { cliente: identity.confirmedName } : {}),
     };
@@ -1788,6 +1838,17 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     const normalized = String(actionId || '').trim().toLowerCase();
     return (config.actionCatalog || []).find(
       (action) => String(action.actionId || '').trim().toLowerCase() === normalized,
+    );
+  }
+
+  private isAtendimentoButtonSectionAction(
+    buttons: AtendimentoBotButton[] | null | undefined,
+    actionId: string,
+  ) {
+    const normalized = String(actionId || '').trim().toLowerCase();
+    if (!normalized) return false;
+    return (buttons || []).some(
+      (button) => String(button.actionId || '').trim().toLowerCase() === normalized,
     );
   }
 
@@ -3467,9 +3528,31 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
         })
       : null;
 
-    const metadata = this.parseConversationMetadata(conversation?.metadata);
+    let metadata = this.parseConversationMetadata(conversation?.metadata);
     const blockedState = this.getAtendimentoBlockedState(metadata);
     const inboundProfileName = this.extractInboundContactName(rawPayload, metadata);
+
+    if (this.isPersonalWhatsappContact(metadata)) {
+      await this.prisma.companyMessage.update({
+        where: { id: inboundMessageId },
+        data: { sourceModule: 'whatsapp_personal', isComplaint: false },
+      });
+      if (safeConversationId) {
+        await this.updateAtendimentoConversationState(
+          companyId,
+          safeConversationId,
+          {
+            botActive: false,
+            humanAssigned: false,
+            flowResult: 'personal_contact',
+          },
+          metadata,
+        );
+      }
+      return { handled: true, personalContact: true, botSuppressed: true };
+    }
+
+    metadata = this.promoteVendasProspectionMetadataToAtendimento(metadata);
 
     // Upsert customer record on every inbound message
     await this.upsertAtendimentoCustomerLocal({
@@ -3508,6 +3591,21 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
       await this.prisma.companyMessage.update({
         where: { id: inboundMessageId },
         data: { sourceModule, isComplaint },
+      });
+    };
+    const queueMainMenuForVars = async (
+      templateVars: Record<string, string>,
+      metadataVars?: Record<string, unknown>,
+    ) => {
+      await this.queueAtendimentoButtonPrompt({
+        companyId,
+        to: from,
+        contactId: from,
+        conversationId: safeConversationId,
+        body: renderTemplate(config.mainMenuPrompt, templateVars, config),
+        step: ATENDIMENTO_STEP.MAIN_MENU,
+        buttons: config.mainMenuButtons,
+        variables: metadataVars || templateVars,
       });
     };
 
@@ -3629,6 +3727,15 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
         metadata,
         recoveryCustomer,
       });
+      const actionFromRecoveryMenu = this.isAtendimentoButtonSectionAction(
+        config.recoveryDetectedButtons,
+        actionId,
+      );
+      const recoveryGateClearedVars = {
+        ...recoveryVars,
+        atendimentoRecoveryIntroPending: false,
+        recoveryCustomerId: String(recoveryCustomer.id),
+      };
 
       if (actionId === 'enter_recovery') {
         await setInboundMeta('atendimento_router', false);
@@ -3673,6 +3780,124 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
           },
         });
         return { handled: true };
+      }
+
+      if (
+        actionFromRecoveryMenu &&
+        (actionId === 'continue_attendance' || actionGuide?.kind === 'show_menu')
+      ) {
+        await setInboundMeta('atendimento_bot', false);
+        await queueMainMenuForVars(recoveryVars, recoveryGateClearedVars);
+        return { handled: true, recoveryGate: true, continuedAtendimento: true };
+      }
+
+      const recoveryAgendaGroupId = parseAtendimentoAgendaActionId(actionId);
+      if (actionFromRecoveryMenu && (recoveryAgendaGroupId || actionGuide?.kind === 'agenda')) {
+        const targetGroup =
+          (agendaConfig.groups || []).find((group) => group.id === (actionGuide?.agendaGroupId || recoveryAgendaGroupId)) ||
+          null;
+        const agendaPreview = this.buildAgendaPreview(targetGroup);
+        const agendaVars = this.buildAtendimentoTemplateVars({
+          companyName: company.name,
+          phone: from,
+          metadata: recoveryGateClearedVars,
+          agendaGroup: targetGroup,
+          agendaPreview,
+          recoveryCustomer,
+        });
+        await setInboundMeta('atendimento_bot', false);
+        await this.conversations.queueOutboundForCompany(companyId, {
+          to: from,
+          contactId: from,
+          body: this.renderAtendimentoAgendaMessage(config, targetGroup, agendaVars),
+          messageType: 'text',
+          sourceModule: 'atendimento_bot',
+          senderType: 'bot',
+          variables: agendaVars,
+          flowState: {
+            currentFlow: ATENDIMENTO_FLOW_ID,
+            currentStep: ATENDIMENTO_STEP.AGENDA,
+            botActive: true,
+            humanAssigned: false,
+            flowResult: null,
+          },
+        });
+        if ((config.postActionButtons || []).length) {
+          await this.queueAtendimentoButtonPrompt({
+            companyId,
+            to: from,
+            contactId: from,
+            conversationId: safeConversationId,
+            body: renderTemplate(config.postActionPrompt, agendaVars, config),
+            step: ATENDIMENTO_STEP.POST_ACTION,
+            buttons: config.postActionButtons,
+            variables: agendaVars,
+          });
+        } else {
+          await this.updateAtendimentoConversationState(
+            companyId,
+            safeConversationId,
+            {
+              currentFlow: ATENDIMENTO_FLOW_ID,
+              currentStep: ATENDIMENTO_STEP.AGENDA,
+              botActive: true,
+              humanAssigned: false,
+              flowResult: null,
+            },
+            recoveryGateClearedVars,
+          );
+        }
+        return { handled: true, recoveryGate: true, agenda: true };
+      }
+
+      if (actionFromRecoveryMenu && actionGuide?.enabled && actionGuide.kind === 'reply') {
+        await setInboundMeta('atendimento_bot', false);
+        const reply =
+          String(actionGuide.responseMessage || '').trim() ||
+          String(actionGuide.description || '').trim() ||
+          `Recebi sua solicitacao sobre ${actionGuide.title}.`;
+        await this.conversations.queueOutboundForCompany(companyId, {
+          to: from,
+          contactId: from,
+          body: renderTemplate(reply, recoveryVars, config),
+          messageType: 'text',
+          sourceModule: 'atendimento_bot',
+          senderType: 'bot',
+          variables: recoveryGateClearedVars,
+          flowState: {
+            currentFlow: ATENDIMENTO_FLOW_ID,
+            currentStep: ATENDIMENTO_STEP.RECOVERY_GATE,
+            botActive: true,
+            humanAssigned: false,
+            flowResult: null,
+          },
+        });
+        if ((config.postActionButtons || []).length) {
+          await this.queueAtendimentoButtonPrompt({
+            companyId,
+            to: from,
+            contactId: from,
+            conversationId: safeConversationId,
+            body: renderTemplate(config.postActionPrompt, recoveryVars, config),
+            step: ATENDIMENTO_STEP.POST_ACTION,
+            buttons: config.postActionButtons,
+            variables: recoveryGateClearedVars,
+          });
+        } else {
+          await this.updateAtendimentoConversationState(
+            companyId,
+            safeConversationId,
+            {
+              currentFlow: ATENDIMENTO_FLOW_ID,
+              currentStep: ATENDIMENTO_STEP.RECOVERY_GATE,
+              botActive: true,
+              humanAssigned: false,
+              flowResult: null,
+            },
+            recoveryGateClearedVars,
+          );
+        }
+        return { handled: true, recoveryGate: true, recoveryAction: actionId };
       }
 
       if (metadata.atendimentoRecoveryIntroPending) {
@@ -3761,18 +3986,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
       recoveryCustomer: null,
     });
 
-    const queueMainMenu = async () => {
-      await this.queueAtendimentoButtonPrompt({
-        companyId,
-        to: from,
-        contactId: from,
-        conversationId: safeConversationId,
-        body: renderTemplate(config.mainMenuPrompt, vars, config),
-        step: ATENDIMENTO_STEP.MAIN_MENU,
-        buttons: config.mainMenuButtons,
-        variables: vars,
-      });
-    };
+    const queueMainMenu = async () => queueMainMenuForVars(vars, vars);
 
     if (actionId === 'show_main_menu') {
       await setInboundMeta('atendimento_bot', false);
@@ -3850,7 +4064,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
           contactId: from,
           conversationId: safeConversationId,
           body: renderTemplate(config.postActionPrompt, agendaVars, config),
-          step: ATENDIMENTO_STEP.AGENDA,
+          step: ATENDIMENTO_STEP.POST_ACTION,
           buttons: config.postActionButtons,
           variables: agendaVars,
         });
@@ -3899,7 +4113,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
           contactId: from,
           conversationId: safeConversationId,
           body: renderTemplate(config.postActionPrompt, vars, config),
-          step: ATENDIMENTO_STEP.MAIN_MENU,
+          step: ATENDIMENTO_STEP.POST_ACTION,
           buttons: config.postActionButtons,
           variables: vars,
         });

@@ -190,6 +190,9 @@ type VendasAgendaQueueMetadata = {
   leadId?: string | null;
   sourceModule?: string | null;
   sourceBlock?: string | null;
+  queueTarget?: string | null;
+  routeTarget?: string | null;
+  respondedAt?: string | null;
   status?: string | null;
   nextAction?: string | null;
   returnAt?: string | null;
@@ -259,6 +262,11 @@ const INBOX_QUEUE_ORDER: InboxQueue[] = [
   "scheduled",
   "bot",
 ];
+
+function buildInboxQueueBooleanMap(value = false): Record<InboxQueue, boolean> {
+  return Object.fromEntries(INBOX_QUEUE_ORDER.map((queue) => [queue, value])) as Record<InboxQueue, boolean>;
+}
+
 const INBOX_BOT_PLAN_HREF = "/planos?intent=bot_ia&from=inbox_bot";
 
 const INBOX_MANUAL_QUEUE_STORAGE_KEY = "hbx:inbox:manual-queue-overrides";
@@ -341,11 +349,11 @@ function getInboxQueueLabel(queue: InboxQueue) {
     case "groups":
       return "Grupos";
     case "recovery":
-      return "Chat • Recovery";
+      return "Recovery";
     case "scheduled":
-      return "Chat • Agendamento";
+      return "Atendimento";
     case "bot":
-      return "Chat • Bot";
+      return "Prospecção";
     case "archived":
       return "Excluídos";
     default:
@@ -1290,37 +1298,151 @@ function isInboxWebscrapingToday(conversation?: InboxConversation | null) {
   return isSameInboxCalendarDay(activityAt, new Date());
 }
 
-function getInboxConversationQueue(
+type InboxBucket = "conversas" | "prospeccao" | "atendimento" | "excluidos" | "recovery" | "groups";
+
+function mapInboxBucketToQueue(bucket: InboxBucket): InboxQueue {
+  switch (bucket) {
+    case "excluidos":
+      return "archived";
+    case "recovery":
+      return "recovery";
+    case "atendimento":
+      return "scheduled";
+    case "prospeccao":
+      return "bot";
+    case "groups":
+      return "groups";
+    default:
+      return "all";
+  }
+}
+
+function getInboxMetadataText(value: unknown) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function hasInboxInboundMessage(conversation?: InboxConversation | null) {
+  return (conversation?.messages || []).some((message) => String(message.direction || "").trim().toLowerCase() === "inbound");
+}
+
+function isInboxPersonalContact(conversation?: InboxConversation | null) {
+  const metadata = getInboxConversationMetadata(conversation);
+  return (
+    parseInboxBooleanFlag(metadata?.inboxPersonalContact) ||
+    parseInboxBooleanFlag(metadata?.personalContact) ||
+    parseInboxBooleanFlag(metadata?.whatsappPersonalContact)
+  );
+}
+
+function hasInboxHbxProspectionOrigin(conversation?: InboxConversation | null) {
+  const metadata = getInboxConversationMetadata(conversation);
+  const queue = getInboxVendasAgendaQueue(conversation);
+  const sourceCandidates = [
+    conversation?.latestSourceModule,
+    metadata?.latestSourceModule,
+    metadata?.sourceModule,
+    metadata?.originFlow,
+    queue?.sourceModule,
+  ].map(getInboxMetadataText);
+  const routeTarget = getInboxMetadataText(
+    metadata?.queueTarget ||
+      metadata?.routeTarget ||
+      conversation?.routeTarget ||
+      queue?.queueTarget ||
+      queue?.routeTarget,
+  );
+  return (
+    Boolean(queue) ||
+    routeTarget === "prospeccao" ||
+    routeTarget === "prospection" ||
+    sourceCandidates.some((value) => value === "vendas" || value === "webscraping" || value.includes("webscraping")) ||
+    Boolean(String(queue?.leadId || "").trim())
+  );
+}
+
+function resolveInboxBucket(
   conversation: InboxConversation,
   manualQueueOverrides?: Record<string, InboxQueue>,
-): InboxQueue {
+): InboxBucket {
   const manualQueue = manualQueueOverrides?.[String(conversation.id)];
-  if (manualQueue && INBOX_QUEUE_ORDER.includes(manualQueue)) {
-    return manualQueue;
+  if (manualQueue === "archived") {
+    return "excluidos";
   }
   const metadata = getInboxConversationMetadata(conversation);
   const vendasAgendaQueue = getInboxVendasAgendaQueue(conversation);
+  const persistedRouteTarget = getInboxMetadataText(
+    metadata?.queueTarget ||
+      metadata?.routeTarget ||
+      conversation?.routeTarget ||
+      vendasAgendaQueue?.queueTarget ||
+      vendasAgendaQueue?.routeTarget,
+  );
   if (
     parseInboxBooleanFlag(metadata?.inboxLocalDeleted) ||
-    parseInboxBooleanFlag(metadata?.localDeleted)
+    parseInboxBooleanFlag(metadata?.localDeleted) ||
+    conversation.isBlocked ||
+    getInboxConversationWhatsappAvailabilityFromMetadata(conversation) === "unavailable" ||
+    persistedRouteTarget === "excluidos" ||
+    persistedRouteTarget === "excluded"
   ) {
-    return "archived";
+    return "excluidos";
   }
   const persistedQueue = String(
     metadata?.inboxManualQueueOverride || vendasAgendaQueue?.manualQueueOverride || "",
   )
     .trim()
     .toLowerCase();
+  if (persistedQueue === "archived") {
+    return "excluidos";
+  }
+  if (isInboxConversationArchived(conversation)) return "excluidos";
+  if (Number(conversation.recoveryOpenAmount || 0) > 0 || persistedRouteTarget === "recovery") return "recovery";
+  if (isInboxGroupConversation(conversation)) return "groups";
+  if (isInboxPersonalContact(conversation) || persistedRouteTarget === "conversas") return "conversas";
+  if (persistedRouteTarget === "atendimento") return "atendimento";
+  if (hasInboxInboundMessage(conversation)) return "atendimento";
+  if (hasInboxHbxProspectionOrigin(conversation)) return "prospeccao";
+  if (manualQueue && INBOX_QUEUE_ORDER.includes(manualQueue)) {
+    return mapInboxQueueToBucket(manualQueue);
+  }
   if (INBOX_QUEUE_ORDER.includes(persistedQueue as InboxQueue)) {
-    return persistedQueue as InboxQueue;
+    return mapInboxQueueToBucket(persistedQueue as InboxQueue);
   }
 
-  if (isInboxConversationArchived(conversation)) return "archived";
-  if (isInboxGroupRemoteJid(extractInboxRawContact(conversation))) return "groups";
-  if (Number(conversation.recoveryOpenAmount || 0) > 0) return "recovery";
-  if (isInboxWebscrapingToday(conversation)) return "scheduled";
-  if (conversation.botActive === true && !conversation.humanAssigned) return "bot";
-  return "all";
+  return "conversas";
+}
+
+function mapInboxQueueToBucket(queue: InboxQueue): InboxBucket {
+  switch (queue) {
+    case "archived":
+      return "excluidos";
+    case "recovery":
+      return "recovery";
+    case "scheduled":
+      return "atendimento";
+    case "bot":
+      return "prospeccao";
+    case "groups":
+      return "groups";
+    default:
+      return "conversas";
+  }
+}
+
+function getInboxConversationQueue(
+  conversation: InboxConversation,
+  manualQueueOverrides?: Record<string, InboxQueue>,
+): InboxQueue {
+  return mapInboxBucketToQueue(resolveInboxBucket(conversation, manualQueueOverrides));
+}
+
+function isInboxConversationVisibleInQueue(
+  conversation: InboxConversation,
+  queue: InboxQueue,
+  manualQueueOverrides?: Record<string, InboxQueue>,
+) {
+  const conversationQueue = getInboxConversationQueue(conversation, manualQueueOverrides);
+  return conversationQueue === queue;
 }
 
 function getInboxConversationUnreadCount(conversation?: InboxConversation | null) {
@@ -1365,6 +1487,15 @@ function getInboxVendasAgendaPendingDraft(conversation?: InboxConversation | nul
 function isInboxGroupRemoteJid(raw: string | null | undefined) {
   const value = String(raw || "").trim().toLowerCase();
   return value.includes("@g.us");
+}
+
+function isInboxGroupConversation(conversation?: InboxConversation | null) {
+  const metadata = getInboxConversationMetadata(conversation);
+  return (
+    parseInboxBooleanFlag(metadata?.whatsappIsGroup) ||
+    parseInboxBooleanFlag(metadata?.isGroup) ||
+    isInboxGroupRemoteJid(extractInboxRawContact(conversation))
+  );
 }
 
 function getInboxStableRemoteKey(conversation?: InboxConversation | null) {
@@ -1996,7 +2127,7 @@ function countInboxConversationsInQueue(
   manualQueueOverrides?: Record<string, InboxQueue>,
 ) {
   return conversationList.reduce((total, conversation) => {
-    return getInboxConversationQueue(conversation, manualQueueOverrides) === queue ? total + 1 : total;
+    return isInboxConversationVisibleInQueue(conversation, queue, manualQueueOverrides) ? total + 1 : total;
   }, 0);
 }
 
@@ -2236,7 +2367,10 @@ export default function InboxClientPage() {
   const [bootstrapReady, setBootstrapReady] = useState(false);
   const [loadingList, setLoadingList] = useState(true);
   const [loadingMoreConversations, setLoadingMoreConversations] = useState(false);
-  const [conversationListHasMore, setConversationListHasMore] = useState(false);
+  const [conversationListHasMoreByQueue, setConversationListHasMoreByQueue] = useState<Record<InboxQueue, boolean>>(
+    () => buildInboxQueueBooleanMap(false),
+  );
+  const conversationListHasMore = conversationListHasMoreByQueue[inboxQueue] ?? false;
   const [loadingConversation, setLoadingConversation] = useState(false);
   const [loadingOlderMessages, setLoadingOlderMessages] = useState(false);
   const [olderMessagesHasMore, setOlderMessagesHasMore] = useState(false);
@@ -2271,6 +2405,8 @@ export default function InboxClientPage() {
   const [deleteConversationDialog, setDeleteConversationDialog] = useState<{ conversationId: string } | null>(null);
   const [whatsappDeleteConversationDialog, setWhatsappDeleteConversationDialog] = useState<{ conversationId: string } | null>(null);
   const [purgeConversationDialog, setPurgeConversationDialog] = useState<{ conversationId: string } | null>(null);
+  const [emptyTrashDialogOpen, setEmptyTrashDialogOpen] = useState(false);
+  const [emptyingTrash, setEmptyingTrash] = useState(false);
   const [deleteMessageDialog, setDeleteMessageDialog] = useState<{ messageId: string } | null>(null);
 
   useEffect(() => {
@@ -2353,7 +2489,7 @@ export default function InboxClientPage() {
   const customerReturnAutoSaveTimerRef = useRef<number | null>(null);
   const conversationsRef = useRef<InboxConversation[]>([]);
   const loadingMoreConversationsRef = useRef(false);
-  const conversationListHasMoreRef = useRef(false);
+  const conversationListHasMoreByQueueRef = useRef<Record<InboxQueue, boolean>>(buildInboxQueueBooleanMap(false));
   const conversationDetailCacheRef = useRef<Map<string, InboxConversation>>(new Map());
   const customerConversationCardCacheRef = useRef<Map<string, CustomerConversationCardPayload>>(new Map());
   const manualQueueOverridesRef = useRef<Record<string, InboxQueue>>({});
@@ -2643,8 +2779,8 @@ export default function InboxClientPage() {
   }, [loadingMoreConversations]);
 
   useEffect(() => {
-    conversationListHasMoreRef.current = conversationListHasMore;
-  }, [conversationListHasMore]);
+    conversationListHasMoreByQueueRef.current = conversationListHasMoreByQueue;
+  }, [conversationListHasMoreByQueue]);
 
   useEffect(() => {
     manualQueueOverridesRef.current = manualQueueOverrides;
@@ -2812,7 +2948,7 @@ export default function InboxClientPage() {
       rememberConversationDetail(mergedSelected);
       setOlderMessagesBefore(getInboxOldestMessageDate(mergedSelected?.messages));
       setOlderMessagesHasMore((mergedSelected?.messages?.length || 0) >= INBOX_RECENT_MESSAGES_LIMIT);
-      setConversationListHasMore(nextList.length >= take);
+      setConversationListHasMoreByQueue(buildInboxQueueBooleanMap(nextList.length >= take));
       setLastConversationSyncAt(new Date().toISOString());
       setBootstrapReady(true);
     } catch (loadError) {
@@ -3082,15 +3218,24 @@ export default function InboxClientPage() {
       const silent = options?.silent ?? false;
       const append = options?.append ?? false;
       const currentList = conversationsRef.current;
+      const appendQueue = inboxQueueRef.current;
+      const manualOverrides = manualQueueOverridesRef.current;
       const take = append
         ? INBOX_CONVERSATION_LIST_LIMIT
         : Math.max(
             INBOX_CONVERSATION_LIST_LIMIT,
             Math.min(120, currentList.length || INBOX_CONVERSATION_LIST_LIMIT),
           );
-      const skip = append ? currentList.length : 0;
+      const skip = append
+        ? countInboxConversationsInQueue(currentList, appendQueue, manualOverrides)
+        : 0;
       if (append) {
-        if (loadingMoreConversationsRef.current || !conversationListHasMoreRef.current) return;
+        if (
+          loadingMoreConversationsRef.current ||
+          !conversationListHasMoreByQueueRef.current[appendQueue]
+        ) {
+          return;
+        }
         setLoadingMoreConversations(true);
       } else if (!silent) {
         setLoadingList(true);
@@ -3098,21 +3243,40 @@ export default function InboxClientPage() {
       setError(null);
       setConversationListError(null);
       try {
+        const query = new URLSearchParams({
+          take: String(take),
+          skip: String(skip),
+        });
+        if (append) {
+          query.set("queue", appendQueue);
+        }
         const response = await apiFetch<InboxConversation[]>(
-          `/inbox/conversations?take=${take}&skip=${skip}`,
+          `/inbox/conversations?${query.toString()}`,
           {
             requireAuth: true,
             timeoutMs: 15000,
           },
         );
-        const page = normalizeInboxConversationList(Array.isArray(response) ? response : []).filter(
-          (conversation) =>
-            !isInboxConversationHiddenByDelete(conversation, deletedConversationAliasesRef.current),
+        const rawPage = normalizeInboxConversationList(Array.isArray(response) ? response : []).filter(
+          (conversation) => !isInboxConversationHiddenByDelete(conversation, deletedConversationAliasesRef.current),
         );
+        const page = append
+          ? rawPage.filter((conversation) =>
+              isInboxConversationVisibleInQueue(conversation, appendQueue, manualOverrides),
+            )
+          : rawPage;
         const data = append
           ? normalizeInboxConversationList([...currentList, ...page])
           : page;
-        setConversationListHasMore(Array.isArray(response) && response.length >= take);
+        const nextHasMore = Array.isArray(response) && response.length >= take;
+        if (append) {
+          setConversationListHasMoreByQueue((current) => ({
+            ...current,
+            [appendQueue]: nextHasMore,
+          }));
+        } else {
+          setConversationListHasMoreByQueue(buildInboxQueueBooleanMap(nextHasMore));
+        }
         const listChanged = !areInboxConversationListsEquivalent(currentList, data);
 
         if (listChanged) {
@@ -3671,11 +3835,14 @@ export default function InboxClientPage() {
       bot: 0,
     };
     for (const conversation of conversations) {
-      const queue = queueByConversationId[conversation.id] || "all";
-      base[queue] += 1;
+      for (const queue of INBOX_QUEUE_ORDER) {
+        if (isInboxConversationVisibleInQueue(conversation, queue, manualQueueOverrides)) {
+          base[queue] += 1;
+        }
+      }
     }
     return base;
-  }, [conversations, queueByConversationId]);
+  }, [conversations, manualQueueOverrides]);
 
   const queueUnreadCounts = useMemo(() => {
     const base: Record<InboxQueue, number> = {
@@ -3687,19 +3854,22 @@ export default function InboxClientPage() {
       bot: 0,
     };
     for (const conversation of conversations) {
-      const queue = queueByConversationId[conversation.id] || "all";
-      base[queue] += getInboxConversationUnreadCount(conversation);
+      const unreadCount = getInboxConversationUnreadCount(conversation);
+      for (const queue of INBOX_QUEUE_ORDER) {
+        if (isInboxConversationVisibleInQueue(conversation, queue, manualQueueOverrides)) {
+          base[queue] += unreadCount;
+        }
+      }
     }
     return base;
-  }, [conversations, queueByConversationId]);
+  }, [conversations, manualQueueOverrides]);
 
   const globalBotEnabled = botAiActive && botSetupComplete && botConfig.routingRules.globalBotEnabled !== false;
 
   const filteredConversations = useMemo(() => {
     const normalizedSearch = deferredConversationSearch.trim().toLowerCase();
     const filtered = conversations.filter((conversation) => {
-      const queue = queueByConversationId[conversation.id] || "all";
-      if (queue !== inboxQueue) return false;
+      if (!isInboxConversationVisibleInQueue(conversation, inboxQueue, manualQueueOverrides)) return false;
       if (!normalizedSearch) return true;
 
       const haystack = [
@@ -3716,7 +3886,7 @@ export default function InboxClientPage() {
     });
 
     return sortInboxConversationsByActivity(filtered);
-  }, [conversations, deferredConversationSearch, inboxQueue, queueByConversationId]);
+  }, [conversations, deferredConversationSearch, inboxQueue, manualQueueOverrides]);
 
   const inboxQueueDiagnostics = useMemo(
     () => [
@@ -3845,7 +4015,7 @@ export default function InboxClientPage() {
         .filter(
           (conversation) =>
             getInboxConversationQueue(conversation, manualQueueOverrides) !== "archived" &&
-            conversation.routeTarget === "atendimento" &&
+            resolveInboxBucket(conversation, manualQueueOverrides) === "atendimento" &&
             (conversation.status === "new" || conversation.status === "open"),
         )
         .sort(
@@ -3946,6 +4116,7 @@ export default function InboxClientPage() {
 
   const selectedStatus = conversationForView?.status ?? "new";
   const selectedBlocked = Boolean(conversationForView?.isBlocked);
+  const selectedConversationIsPersonal = isInboxPersonalContact(conversationForView);
   const selectedConversationDisplayName = resolveInboxConversationDisplayName(conversationForView);
   const selectedConversationStatusMeta = conversationForView
     ? getAtendimentoConversationStatusMeta(conversationForView, hasRecoveryCapability)
@@ -4459,6 +4630,34 @@ export default function InboxClientPage() {
     [loadConversations, rememberConversationDetail, selectedId],
   );
 
+  const togglePersonalContact = useCallback(
+    async () => {
+      if (!selectedId) return;
+      const personal = !isInboxPersonalContact(selectedConversationRef.current || conversationForView);
+      setError(null);
+      try {
+        const data = await apiFetch<InboxConversation>(`/inbox/conversations/${selectedId}/personal`, {
+          method: "PATCH",
+          body: JSON.stringify({ personal }),
+        });
+        setSelectedConversation(data);
+        rememberConversationDetail(data);
+        setNotice({
+          tone: "success",
+          text: personal
+            ? "Contato marcado como pessoal. Bot e cadastro ficam desativados para este número."
+            : "Contato pessoal desativado.",
+        });
+        await loadConversations({ preferredId: data.id, silent: true });
+      } catch (updateError) {
+        const message =
+          updateError instanceof Error ? updateError.message : "Falha ao atualizar contato pessoal.";
+        setError(message);
+      }
+    },
+    [conversationForView, loadConversations, rememberConversationDetail, selectedId],
+  );
+
   const toggleGlobalBot = useCallback(async () => {
     const enabled = !globalBotEnabled;
     if (enabled) {
@@ -4824,13 +5023,57 @@ export default function InboxClientPage() {
     [loadConversations, whatsappDeleteConversationDialog?.conversationId],
   );
 
-  const openArchivedQueue = useCallback(() => {
+  const openEmptyTrashDialog = useCallback(() => {
     setActiveTab("messages");
     setInboxQueue("archived");
     if (queueCounts.archived <= 0) {
       setNotice({ tone: "info", text: "Excluídos está vazio." });
+      return;
     }
+    setEmptyTrashDialogOpen(true);
   }, [queueCounts.archived]);
+
+  const confirmEmptyTrash = useCallback(async () => {
+    setError(null);
+    setEmptyingTrash(true);
+    try {
+      const response = await apiFetch<{
+        message?: string;
+        deleted?: number;
+        deletedIds?: string[];
+      }>("/inbox/conversations/empty-trash", {
+        method: "POST",
+      });
+      const deletedIds = new Set((response?.deletedIds || []).map((id) => String(id)));
+      if (deletedIds.size > 0) {
+        setConversations((current) => current.filter((conversation) => !deletedIds.has(String(conversation.id))));
+        if (selectedIdRef.current && deletedIds.has(String(selectedIdRef.current))) {
+          setSelectedId(null);
+          setSelectedConversation(null);
+          selectedIdRef.current = null;
+          selectedConversationRef.current = null;
+        }
+        setManualQueueOverrides((current) => {
+          const next = { ...current };
+          deletedIds.forEach((id) => {
+            delete next[id];
+          });
+          return next;
+        });
+      }
+      setNotice({
+        tone: Number(response?.deleted || 0) > 0 ? "success" : "info",
+        text: String(response?.message || "").trim() || "Nenhuma conversa vazia encontrada em Excluídos.",
+      });
+      setEmptyTrashDialogOpen(false);
+      await loadConversations({ preferredId: null, silent: true });
+    } catch (deleteError) {
+      const message = deleteError instanceof Error ? deleteError.message : "Falha ao limpar conversas vazias.";
+      setError(message);
+    } finally {
+      setEmptyingTrash(false);
+    }
+  }, [loadConversations]);
 
   const purgeConversationById = useCallback(
     async (conversationId: string) => {
@@ -5391,7 +5634,7 @@ export default function InboxClientPage() {
               key={conversationForView.id}
               className={`${styles.whatsAppConversationShell} ${styles.whatsAppConversationShellTransition} ${
                 isConversationStageSwitching ? styles.whatsAppConversationShellLoading : ""
-              }`}
+              } ${selectedConversationIsPersonal ? styles.whatsAppConversationShellPersonal : ""}`}
             >
               {isConversationStageSwitching ? (
                 <div className={styles.whatsAppConversationLoadingMask} aria-hidden="true">
@@ -5428,6 +5671,14 @@ export default function InboxClientPage() {
                           {selectedConversationStatusMeta.label}
                         </span>
                       ) : null}
+                      {selectedConversationIsPersonal ? (
+                        <span
+                          className={styles.conversationContextBadge}
+                          data-tone="personal"
+                        >
+                          Contato pessoal
+                        </span>
+                      ) : null}
                       {getInboxConversationSubtitle(conversationForView) ? (
                         <span className={styles.conversationIdentitySubtitle}>
                           {getInboxConversationSubtitle(conversationForView)}
@@ -5453,19 +5704,18 @@ export default function InboxClientPage() {
                       aria-label="Abrir contexto de agenda"
                     />
                   ) : null}
-                  <ChatIconButton
-                    icon="gear"
-                    onClick={() => handleSectionChange("automacao")}
-                    title="Abrir automacao"
-                    aria-label="Abrir automacao"
-                  />
                   <button
                     type="button"
-                    className={styles.conversationPrimaryAction}
-                    onClick={() => void updateStatus(selectedStatus === "closed" ? "open" : "closed")}
+                    className={styles.personalContactToggle}
+                    data-active={selectedConversationIsPersonal ? "true" : "false"}
+                    onClick={() => void togglePersonalContact()}
                     disabled={sending}
+                    aria-pressed={selectedConversationIsPersonal}
                   >
-                    {selectedStatus === "closed" ? "Reabrir atendimento" : "Finalizar atendimento"}
+                    <span className={styles.personalContactSwitch} aria-hidden="true">
+                      <span />
+                    </span>
+                    Contato Pessoal
                   </button>
                 </div>
               </header>
@@ -6146,7 +6396,7 @@ export default function InboxClientPage() {
           {!selectedConversation ? (
             <ChatEmptyState title="Sem contexto ativo">Abra uma conversa para liberar os atalhos operacionais.</ChatEmptyState>
           ) : (
-            <div className={styles.contextStack}>
+            <div className={`${styles.contextStack} ${selectedConversationIsPersonal ? styles.contextStackPersonal : ""}`}>
               {contextTab === "conversa" ? (
                 <div className={styles.contextGrid}>
                   <ChatInfoCard
@@ -6587,6 +6837,7 @@ export default function InboxClientPage() {
       selectedConversationDisplayName,
       selectedConversationHasRecoveryContext,
       selectedConversationIsAgenda,
+      selectedConversationIsPersonal,
       selectedConversationStatusMeta,
       selectedConversationWithoutWhatsapp,
       selectedVendasAgendaDraftMessage,
@@ -6612,6 +6863,7 @@ export default function InboxClientPage() {
       messageReactionTargetId,
       startRecording,
       stopRecording,
+      togglePersonalContact,
       toggleQueueConversationMenu,
       unblockConversation,
       updateStatus,
@@ -7176,11 +7428,12 @@ export default function InboxClientPage() {
                   <button
                     type="button"
                     className={styles.commandDockTrashButton}
-                    onClick={openArchivedQueue}
-                    aria-label="Abrir Excluídos"
+                    onClick={openEmptyTrashDialog}
+                    disabled={emptyingTrash}
+                    aria-label="Limpar conversas vazias"
                     title={
                       queueCounts.archived > 0
-                        ? `Abrir Excluídos (${queueCounts.archived})`
+                        ? `Limpar conversas vazias de Excluídos (${queueCounts.archived})`
                         : "Excluídos vazio"
                     }
                   >
@@ -7423,6 +7676,17 @@ export default function InboxClientPage() {
         destructive
         onCancel={() => setPurgeConversationDialog(null)}
         onConfirm={() => void confirmPurgeConversation()}
+      />
+
+      <HbxConfirmDialog
+        open={emptyTrashDialogOpen}
+        title="Limpar conversas vazias"
+        description="Remove de Excluídos apenas conversas sem nenhuma mensagem registrada. Conversas com histórico permanecem intactas."
+        confirmLabel="Limpar vazias"
+        destructive
+        busy={emptyingTrash}
+        onCancel={() => setEmptyTrashDialogOpen(false)}
+        onConfirm={() => void confirmEmptyTrash()}
       />
 
       <HbxConfirmDialog

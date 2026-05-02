@@ -113,11 +113,33 @@ function tutorialStepPage(step: TutorialStep) {
 }
 
 type BotSetupDraft = {
-  botType: AtendimentoBotType;
-  responseStyle: "sales" | "support" | "organization";
+  botType: TutorialBotType;
+  responseStyle: "support" | "prospecting" | "recovery";
   unknownHandling: "human" | "menu";
   businessHoursMode: "always" | "business";
+  firstContactRules: TutorialFirstContactRules;
   messages: BotMessageDraft;
+};
+
+type TutorialBotType = Extract<AtendimentoBotType, "atendimento" | "prospeccao" | "recovery">;
+
+type TutorialFirstContactRules = {
+  canInitiateConversation: boolean;
+  messageIntervalSeconds: number;
+  nextContactDelayMinutes: number;
+  replyDelaySeconds: number;
+  typingSeconds: number;
+  typingVarianceSeconds: number;
+  maxFirstContactsPerHour: number;
+  quietHoursStart: string;
+  quietHoursEnd: string;
+  maxFollowUps: number;
+  followUpDelayHours: number;
+  requireOptIn: boolean;
+  stopIntentKeywords: string[];
+  positiveIntentKeywords: string[];
+  optOutMessage: string;
+  handoffPolicy: string;
 };
 
 type BotMessageDraft = {
@@ -127,6 +149,7 @@ type BotMessageDraft = {
   welcomeMessage: string;
   returningCustomerMessage: string;
   mainMenuPrompt: string;
+  recoveryDetectedMessage: string;
   primaryButtonLabel: string;
   agendaButtonLabel: string;
   infoButtonLabel: string;
@@ -135,45 +158,39 @@ type BotMessageDraft = {
   infoResponse: string;
   postActionPrompt: string;
   humanAckMessage: string;
+  closeTopicMessage: string;
 };
 
 const DEFAULT_BOT_SETUP_DRAFT: BotSetupDraft = {
-  botType: "vendas",
-  responseStyle: "sales",
+  botType: "atendimento",
+  responseStyle: "support",
   unknownHandling: "human",
   businessHoursMode: "always",
-  messages: getDefaultBotMessages("vendas"),
+  firstContactRules: getDefaultFirstContactRules("atendimento"),
+  messages: getDefaultBotMessages("atendimento"),
 };
 
 const BOT_TYPE_OPTIONS: Array<{
-  id: AtendimentoBotType;
+  id: TutorialBotType;
   title: string;
   description: string;
-  enabled: boolean;
+  lockReason?: string;
 }> = [
   {
-    id: "vendas",
-    title: "Vendas / Atendimento",
-    description: "Qualifica, responde dúvidas iniciais, agenda e entrega para humano quando precisa.",
-    enabled: true,
-  },
-  {
-    id: "organizacao",
-    title: "Organização / Empresa",
-    description: "Responde como recepção operacional e cria agendamento automaticamente.",
-    enabled: true,
-  },
-  {
-    id: "recovery",
-    title: "Recovery",
-    description: "Fluxo financeiro dedicado. O botão fica reservado para a próxima versão.",
-    enabled: false,
+    id: "atendimento",
+    title: "Atendimento",
+    description: "Responde quem chamou, mantém contexto, agenda e passa para humano quando precisa.",
   },
   {
     id: "prospeccao",
     title: "Prospecção",
-    description: "Abordagem ativa e cadência comercial. O botão fica reservado para a próxima versão.",
-    enabled: false,
+    description: "Inicia conversas com leads, respeita cadência e encerra se a pessoa não quiser.",
+  },
+  {
+    id: "recovery",
+    title: "Recovery",
+    description: "Inicia tratativa financeira com cuidado, negociação e handoff em contestação.",
+    lockReason: "Disponível no plano com Recovery.",
   },
 ];
 
@@ -193,32 +210,147 @@ function makeTutorialButton(sectionKey: string, actionId: string, title: string,
   };
 }
 
-function getDefaultBotMessages(botType: AtendimentoBotType): BotMessageDraft {
-  const isOrganization = botType === "organizacao";
+function normalizeTutorialBotType(value: AtendimentoBotType | null | undefined): TutorialBotType {
+  if (value === "prospeccao" || value === "recovery" || value === "atendimento") return value;
+  return "atendimento";
+}
+
+function getTutorialResponseStyle(botType: TutorialBotType): BotSetupDraft["responseStyle"] {
+  if (botType === "prospeccao") return "prospecting";
+  if (botType === "recovery") return "recovery";
+  return "support";
+}
+
+function getTutorialBotLabel(botType: TutorialBotType) {
+  if (botType === "prospeccao") return "Prospecção";
+  if (botType === "recovery") return "Recovery";
+  return "Atendimento";
+}
+
+function getDefaultFirstContactRules(botType: TutorialBotType): TutorialFirstContactRules {
+  if (botType === "prospeccao") {
+    return {
+      canInitiateConversation: true,
+      messageIntervalSeconds: 35,
+      nextContactDelayMinutes: 12,
+      replyDelaySeconds: 75,
+      typingSeconds: 8,
+      typingVarianceSeconds: 6,
+      maxFirstContactsPerHour: 5,
+      quietHoursStart: "18:30",
+      quietHoursEnd: "09:00",
+      maxFollowUps: 2,
+      followUpDelayHours: 24,
+      requireOptIn: false,
+      stopIntentKeywords: ["nao tenho interesse", "nao quero", "pare", "remover", "spam"],
+      positiveIntentKeywords: ["tenho interesse", "pode mandar", "quero saber", "me explica", "quanto custa"],
+      optOutMessage: "Tudo bem, obrigado por responder. Nao vou insistir e encerro este contato por aqui.",
+      handoffPolicy: "Rejeicao clara, irritacao ou pedido de remocao encerra sem nova tentativa automatica.",
+    };
+  }
+
+  if (botType === "recovery") {
+    return {
+      canInitiateConversation: true,
+      messageIntervalSeconds: 45,
+      nextContactDelayMinutes: 8,
+      replyDelaySeconds: 60,
+      typingSeconds: 7,
+      typingVarianceSeconds: 5,
+      maxFirstContactsPerHour: 6,
+      quietHoursStart: "19:00",
+      quietHoursEnd: "09:00",
+      maxFollowUps: 3,
+      followUpDelayHours: 24,
+      requireOptIn: true,
+      stopIntentKeywords: ["nao reconheco", "ja paguei", "contestacao", "atendente", "pare"],
+      positiveIntentKeywords: ["pagar", "pix", "boleto", "parcelar", "negociar"],
+      optOutMessage: "Entendi. Vou pausar a cobranca automatica e deixar o atendimento humano verificar com cuidado.",
+      handoffPolicy: "Contestacao, pagamento informado, duvida de valor ou tom irritado vai para humano antes de novo disparo.",
+    };
+  }
+
+  return {
+    canInitiateConversation: false,
+    messageIntervalSeconds: 18,
+    nextContactDelayMinutes: 0,
+    replyDelaySeconds: 22,
+    typingSeconds: 5,
+    typingVarianceSeconds: 4,
+    maxFirstContactsPerHour: 0,
+    quietHoursStart: "20:00",
+    quietHoursEnd: "08:00",
+    maxFollowUps: 1,
+    followUpDelayHours: 6,
+    requireOptIn: false,
+    stopIntentKeywords: ["parar", "bloquear", "atendente", "reclamacao"],
+    positiveIntentKeywords: ["suporte", "agenda", "financeiro", "ajuda"],
+    optOutMessage: "Sem problema. Vou encerrar por aqui e deixo um atendente assumir se voce precisar.",
+    handoffPolicy: "Atendimento responde inbound. Reclamacao, audio confuso ou pedido de humano pausa o bot.",
+  };
+}
+
+function getDefaultBotMessages(botTypeRaw: AtendimentoBotType): BotMessageDraft {
+  const botType = normalizeTutorialBotType(botTypeRaw);
+  if (botType === "prospeccao") {
+    return {
+      morning: "Bom dia",
+      afternoon: "Boa tarde",
+      night: "Boa noite",
+      welcomeMessage: "{{cumprimentacao}}, {{cliente}}. Aqui é da {{empresa}}. Posso te mandar uma ideia rápida para melhorar seu atendimento pelo WhatsApp?",
+      returningCustomerMessage: "{{cliente}}, voltando rapidinho: se ainda fizer sentido, eu te mostro em poucas linhas. Se não fizer, encerro por aqui.",
+      mainMenuPrompt: "{{cliente}}, prometo ser breve. Faz sentido eu te mostrar uma ideia rápida ou prefere que eu não te chame mais?",
+      recoveryDetectedMessage: "{{cliente}}, vi que existe um contexto financeiro. Vou pausar a prospecção e deixar isso com o atendimento certo.",
+      primaryButtonLabel: "Tenho interesse",
+      agendaButtonLabel: "Falar depois",
+      infoButtonLabel: "Ver detalhes",
+      humanButtonLabel: "Humano",
+      primaryResponse: "Perfeito. Vou seguir com calma: posso te passar o caminho mais simples, chamar uma pessoa do time ou encerrar sem insistência.",
+      infoResponse: "Claro. Vou te mandar um resumo objetivo, sem compromisso. Se fizer sentido, seguimos; se não fizer, eu encerro por aqui.",
+      postActionPrompt: "Posso montar uma proposta, chamar uma pessoa do time ou parar por aqui sem insistência.",
+      humanAckMessage: "Vou chamar uma pessoa do time para continuar de forma mais direta.",
+      closeTopicMessage: "Tudo bem, obrigado por responder. Não vou insistir e encerro este contato por aqui.",
+    };
+  }
+
+  if (botType === "recovery") {
+    return {
+      morning: "Bom dia",
+      afternoon: "Boa tarde",
+      night: "Boa noite",
+      welcomeMessage: "{{cumprimentacao}}, {{cliente}}. Aqui é da {{empresa}}. Estou te chamando com cuidado sobre um assunto financeiro.",
+      returningCustomerMessage: "{{cliente}}, estou retomando sua conversa financeira por aqui. Vou ser objetivo e te dar opções simples.",
+      mainMenuPrompt: "{{cliente}}, encontrei uma pendência e posso te ajudar com pagamento, negociação ou atendimento humano.",
+      recoveryDetectedMessage: "{{cliente}}, consta um valor em aberto de {{valor_formatado}}. Posso te mostrar o histórico, gerar pagamento, negociar ou pausar para um atendente verificar.",
+      primaryButtonLabel: "Pagar agora",
+      agendaButtonLabel: "Negociar",
+      infoButtonLabel: "Ver pagamentos",
+      humanButtonLabel: "Atendente",
+      primaryResponse: "Perfeito. Vou gerar a ação financeira para você seguir agora.",
+      infoResponse: "Vou abrir o histórico de pagamentos e continuar por aqui com você.",
+      postActionPrompt: "Obrigado por responder. Posso continuar pelo financeiro, chamar uma pessoa ou deixar registrado para retorno.",
+      humanAckMessage: "Vou pausar a automação e encaminhar para uma pessoa verificar com cuidado antes de qualquer nova mensagem.",
+      closeTopicMessage: "Entendido. Vou encerrar esta automação por agora. Se precisar, a equipe pode retomar manualmente.",
+    };
+  }
+
   return {
     morning: "Bom dia",
     afternoon: "Boa tarde",
     night: "Boa noite",
-    welcomeMessage: isOrganization
-      ? "{{cumprimentacao}}! Aqui é o atendimento da {{empresa}}. Vou organizar sua solicitação e, se fizer sentido, já encaminho para agenda."
-      : "{{cumprimentacao}}! Aqui é o atendimento da {{empresa}}. Vou entender sua necessidade e te mostrar as opções certas.",
-    returningCustomerMessage: isOrganization
-      ? "{{cumprimentacao}}, {{cliente}}. Posso te ajudar com agenda, informações da empresa ou atendimento humano."
-      : "{{cumprimentacao}}, {{cliente}}. Vou continuar seu atendimento com contexto e sem repetir perguntas desnecessárias.",
-    mainMenuPrompt: isOrganization
-      ? "Escolha como quer seguir. Se for agenda, eu separo os horários disponíveis antes de chamar alguém."
-      : "Escolha abaixo como deseja continuar. Se eu não entender, encaminho para um atendente.",
-    primaryButtonLabel: isOrganization ? "Solicitação" : "Orçamento",
-    agendaButtonLabel: "Agendar",
-    infoButtonLabel: "Informações",
+    welcomeMessage: "{{cumprimentacao}}, tudo bem?\nSou o atendimento da {{empresa}} e vou te ajudar com calma por aqui.",
+    returningCustomerMessage: "Que bom te ver de novo, {{cliente}}. Vou continuar daqui sem perder o contexto da conversa.",
+    mainMenuPrompt: "Escolha abaixo como deseja continuar no Atendimento:",
+    recoveryDetectedMessage: "{{cliente}}, encontrei uma pendência e posso te ajudar pelo financeiro sem perder o atendimento atual.",
+    primaryButtonLabel: "Suporte",
+    agendaButtonLabel: "Agendar visita",
+    infoButtonLabel: "Financeiro",
     humanButtonLabel: "Atendente",
-    primaryResponse: isOrganization
-      ? "Certo. Vou registrar sua solicitação e abrir o melhor caminho de agenda ou atendimento."
-      : "Perfeito. Vou entender o que você precisa e deixar tudo pronto para o time comercial continuar.",
-    infoResponse:
-      "Posso te orientar com informações da empresa, horários, agendamento e encaminhamento para um atendente.",
-    postActionPrompt: "Se a resposta não resolver, eu encaminho para um atendente com o contexto salvo.",
+    primaryResponse: "Certo. Vou organizar sua solicitação e seguir pelo caminho mais direto.",
+    infoResponse: "Posso te orientar com informações da empresa, agenda, financeiro e encaminhamento para humano.",
+    postActionPrompt: "Se precisar, posso continuar pelo Atendimento, voltar ao financeiro ou encaminhar para agenda e humano.",
     humanAckMessage: "Perfeito. Vou encaminhar sua conversa para um atendente agora.",
+    closeTopicMessage: "Entendido. Vou encerrar esta conversa por agora. Quando precisar, é só chamar.",
   };
 }
 
@@ -234,16 +366,26 @@ function findActionResponse(config: AtendimentoBotConfig, actionId: string, fall
 
 function makeDraftFromBotConfig(config: AtendimentoBotConfig): BotSetupDraft {
   const normalized = normalizeBotConfig(config);
-  const botType = normalized.setup.botType || "vendas";
+  const botType = normalizeTutorialBotType(normalized.setup.botType);
   const defaults = getDefaultBotMessages(botType);
   const greeting = normalized.smartVariables?.greeting || {};
   const hasHumanFallback = (normalized.postActionButtons || []).some((button) => button.actionId === "talk_human");
-  const primaryActionId = botType === "organizacao" ? "company_info" : "sales_quote";
+  const primaryActionId = botType === "recovery" ? "pay_now" : botType === "prospeccao" ? "continue_journey" : "support_request";
+  const firstContactMetadata =
+    (normalized.sceneRules || []).find(
+      (rule) => rule.sceneId === `first_contact_rules_${botType}` && rule.conditionType === "first_contact_rules",
+    )?.metadata || {};
+  const defaultRules = getDefaultFirstContactRules(botType);
   return {
     botType,
-    responseStyle: botType === "organizacao" ? "organization" : botType === "atendimento" ? "support" : "sales",
+    responseStyle: getTutorialResponseStyle(botType),
     unknownHandling: hasHumanFallback ? "human" : "menu",
     businessHoursMode: Number(greeting.morningStartHour || 3) >= 7 ? "business" : "always",
+    firstContactRules: {
+      ...defaultRules,
+      ...(firstContactMetadata as Partial<TutorialFirstContactRules>),
+      canInitiateConversation: botType === "atendimento" ? false : Boolean(firstContactMetadata.canInitiateConversation ?? defaultRules.canInitiateConversation),
+    },
     messages: {
       morning: String(greeting.morning || defaults.morning),
       afternoon: String(greeting.afternoon || defaults.afternoon),
@@ -251,21 +393,22 @@ function makeDraftFromBotConfig(config: AtendimentoBotConfig): BotSetupDraft {
       welcomeMessage: String(normalized.welcomeMessage || defaults.welcomeMessage),
       returningCustomerMessage: String(normalized.returningCustomerMessage || defaults.returningCustomerMessage),
       mainMenuPrompt: String(normalized.mainMenuPrompt || defaults.mainMenuPrompt),
+      recoveryDetectedMessage: String(normalized.recoveryDetectedMessage || defaults.recoveryDetectedMessage),
       primaryButtonLabel: findButtonLabel(normalized, primaryActionId, defaults.primaryButtonLabel),
       agendaButtonLabel: findButtonLabel(normalized, "schedule_service", defaults.agendaButtonLabel),
-      infoButtonLabel: findButtonLabel(normalized, "company_info", defaults.infoButtonLabel),
+      infoButtonLabel: findButtonLabel(normalized, botType === "recovery" ? "view_payments" : botType === "prospeccao" ? "prospect_details" : "enter_recovery", defaults.infoButtonLabel),
       humanButtonLabel: findButtonLabel(normalized, "talk_human", defaults.humanButtonLabel),
       primaryResponse: findActionResponse(normalized, primaryActionId, defaults.primaryResponse),
-      infoResponse: findActionResponse(normalized, "company_info", defaults.infoResponse),
+      infoResponse: findActionResponse(normalized, botType === "recovery" ? "view_payments" : botType === "prospeccao" ? "prospect_details" : "support_request", defaults.infoResponse),
       postActionPrompt: String(normalized.postActionPrompt || defaults.postActionPrompt),
       humanAckMessage: String(normalized.humanAckMessage || defaults.humanAckMessage),
+      closeTopicMessage: String(normalized.closeTopicMessage || defaults.closeTopicMessage),
     },
   };
 }
 
 function mergeTutorialActionCatalog(base: AtendimentoBotConfig, draft: BotSetupDraft) {
   const actions = [...base.actionCatalog];
-  const primaryActionTitle = draft.botType === "organizacao" ? draft.messages.infoButtonLabel : draft.messages.primaryButtonLabel;
   const upsert = (action: AtendimentoBotConfig["actionCatalog"][number]) => {
     const index = actions.findIndex((item) => item.actionId === action.actionId);
     if (index >= 0) {
@@ -276,9 +419,9 @@ function mergeTutorialActionCatalog(base: AtendimentoBotConfig, draft: BotSetupD
   };
 
   upsert({
-    actionId: "sales_quote",
-    title: primaryActionTitle,
-    description: "Coleta intenção comercial e conduz para retorno humano com contexto.",
+    actionId: "support_request",
+    title: draft.messages.primaryButtonLabel,
+    description: "Abre a tratativa principal do Atendimento com contexto salvo.",
     route: "atendimento",
     kind: "reply",
     enabled: true,
@@ -287,9 +430,9 @@ function mergeTutorialActionCatalog(base: AtendimentoBotConfig, draft: BotSetupD
   });
 
   upsert({
-    actionId: "company_info",
-    title: "Informações da empresa",
-    description: "Responde dúvidas simples sobre empresa, horários e próximos passos.",
+    actionId: "prospect_details",
+    title: draft.botType === "prospeccao" ? draft.messages.infoButtonLabel : "Ver detalhes",
+    description: "Envia uma explicacao curta e humana antes de pedir decisao.",
     route: "atendimento",
     kind: "reply",
     enabled: true,
@@ -297,7 +440,37 @@ function mergeTutorialActionCatalog(base: AtendimentoBotConfig, draft: BotSetupD
     custom: true,
   });
 
+  upsert({
+    actionId: "prospect_later",
+    title: draft.messages.agendaButtonLabel,
+    description: "Agenda uma retomada leve sem insistir no mesmo momento.",
+    route: "atendimento",
+    kind: "reply",
+    enabled: true,
+    responseMessage: "Combinado. Vou deixar para retomar em outro momento e nao vou ficar insistindo por aqui.",
+    custom: true,
+  });
+
   return actions;
+}
+
+function withTutorialFirstContactRules(base: AtendimentoBotConfig, draft: BotSetupDraft) {
+  const sceneRules = (base.sceneRules || []).filter(
+    (rule) => !(rule.sceneId === `first_contact_rules_${draft.botType}` && rule.conditionType === "first_contact_rules"),
+  );
+  return [
+    ...sceneRules,
+    {
+      sceneId: `first_contact_rules_${draft.botType}`,
+      conditionType: "first_contact_rules",
+      enabled: true,
+      metadata: {
+        ...draft.firstContactRules,
+        guideId: draft.botType,
+        canInitiateConversation: draft.botType === "atendimento" ? false : draft.firstContactRules.canInitiateConversation,
+      },
+    },
+  ];
 }
 
 function buildTutorialBotConfig(
@@ -307,10 +480,31 @@ function buildTutorialBotConfig(
   channelMode: "QR" | "OFFICIAL",
 ): AtendimentoBotConfig {
   const base = normalizeBotConfig(baseConfig || DEFAULT_ATENDIMENTO_BOT_CONFIG);
-  const isOrganization = draft.botType === "organizacao";
+  const isRecovery = draft.botType === "recovery";
+  const isProspecting = draft.botType === "prospeccao";
   const isBusinessHours = draft.businessHoursMode === "business";
   const unknownGoesHuman = draft.unknownHandling === "human";
   const messages = draft.messages;
+  const mainMenuButtons = isRecovery
+    ? [
+        makeTutorialButton("main_menu", "view_payments", messages.infoButtonLabel, 0),
+        makeTutorialButton("main_menu", "pay_now", messages.primaryButtonLabel, 1),
+        makeTutorialButton("main_menu", "negotiate_debt", messages.agendaButtonLabel, 2),
+        makeTutorialButton("main_menu", "talk_human", messages.humanButtonLabel, 3),
+      ]
+    : isProspecting
+      ? [
+          makeTutorialButton("main_menu", "continue_journey", messages.primaryButtonLabel, 0),
+          makeTutorialButton("main_menu", "prospect_details", messages.infoButtonLabel, 1),
+          makeTutorialButton("main_menu", "prospect_later", messages.agendaButtonLabel, 2),
+          makeTutorialButton("main_menu", "close_topic", "Não tenho interesse", 3),
+        ]
+      : [
+          makeTutorialButton("main_menu", "support_request", messages.primaryButtonLabel, 0),
+          makeTutorialButton("main_menu", "schedule_service", messages.agendaButtonLabel, 1),
+          makeTutorialButton("main_menu", "enter_recovery", messages.infoButtonLabel, 2),
+          makeTutorialButton("main_menu", "talk_human", messages.humanButtonLabel, 3),
+        ];
 
   return normalizeBotConfig({
     ...base,
@@ -323,6 +517,7 @@ function buildTutorialBotConfig(
       configuredFrom: "tutorial",
     },
     actionCatalog: mergeTutorialActionCatalog(base, draft),
+    sceneRules: withTutorialFirstContactRules(base, draft),
     routingRules: {
       ...base.routingRules,
       globalBotEnabled: true,
@@ -347,17 +542,15 @@ function buildTutorialBotConfig(
     welcomeMessage: messages.welcomeMessage,
     returningCustomerMessage: messages.returningCustomerMessage,
     mainMenuPrompt: messages.mainMenuPrompt,
-    mainMenuButtons: isOrganization
-      ? [
-          makeTutorialButton("main_menu", "schedule_service", messages.agendaButtonLabel, 0),
-          makeTutorialButton("main_menu", "company_info", messages.infoButtonLabel, 1),
-          makeTutorialButton("main_menu", "talk_human", messages.humanButtonLabel, 2),
-        ]
-      : [
-          makeTutorialButton("main_menu", "sales_quote", messages.primaryButtonLabel, 0),
-          makeTutorialButton("main_menu", "schedule_service", messages.agendaButtonLabel, 1),
-          makeTutorialButton("main_menu", "talk_human", messages.humanButtonLabel, 2),
-        ],
+    mainMenuButtons,
+    recoveryDetectedMessage: messages.recoveryDetectedMessage,
+    recoveryDetectedButtons: [
+      makeTutorialButton("recovery_detected", "view_payments", "Ver pagamentos", 0),
+      makeTutorialButton("recovery_detected", "pay_now", "Pagar agora", 1),
+      makeTutorialButton("recovery_detected", "negotiate_debt", "Negociar", 2),
+      makeTutorialButton("recovery_detected", "talk_human", "Já paguei / ajuda", 3),
+      makeTutorialButton("recovery_detected", "continue_attendance", "Continuar atendimento", 4),
+    ],
     postActionPrompt: unknownGoesHuman
       ? messages.postActionPrompt
       : "Posso voltar ao menu principal e tentar outro caminho.",
@@ -368,6 +561,7 @@ function buildTutorialBotConfig(
         ]
       : [makeTutorialButton("post_action", "show_main_menu", "Voltar ao menu", 0)],
     humanAckMessage: messages.humanAckMessage,
+    closeTopicMessage: messages.closeTopicMessage,
   });
 }
 
@@ -403,6 +597,12 @@ export default function TutorialClientPage() {
   const hasVendasAccess = Boolean(entitlements?.vendas || hasModule(modules, "vendas"));
   const hasAtendimento = Boolean(entitlements?.atendimento_chat || hasModule(modules, "atendimento"));
   const hasBot = Boolean(entitlements?.bot_ia);
+  const hasRecoveryModule = modules.some((moduleItem) => {
+    const key = String(moduleItem.key || "").trim().toLowerCase();
+    return key === "hbx_recovery" && moduleItem.accessible && moduleItem.visible !== false;
+  });
+  const hasRecoveryCapability = Boolean((entitlements as Record<string, boolean> | undefined)?.recovery || hasRecoveryModule);
+  const hasProspectionCapability = Boolean(hasVendasAccess && hasBot);
   const whatsappConnected = isWhatsAppConnected(whatsAppCenter, whatsAppModal, operationalStatus);
   const blockedFeature = !hasAtendimento || !hasBot;
   const qrCode = whatsAppModal?.data.qrCodeDataUrl || whatsAppCenter?.center.qrConnection.qrCodeDataUrl || null;
@@ -590,6 +790,10 @@ export default function TutorialClientPage() {
     router.push("/planos");
   }
 
+  function exitTutorial() {
+    router.push("/vendas");
+  }
+
   function nextFromWebscraping() {
     goToStep(hasVendasAccess ? "vendas" : "final");
   }
@@ -668,13 +872,19 @@ export default function TutorialClientPage() {
     }
   }
 
-  function chooseBotType(botType: AtendimentoBotType) {
-    const option = BOT_TYPE_OPTIONS.find((item) => item.id === botType);
-    if (!option?.enabled) return;
+  function canUseTutorialBotType(botType: TutorialBotType) {
+    if (botType === "recovery") return hasRecoveryCapability;
+    if (botType === "prospeccao") return hasProspectionCapability;
+    return hasAtendimento && hasBot;
+  }
+
+  function chooseBotType(botType: TutorialBotType) {
+    if (!canUseTutorialBotType(botType)) return;
     setBotDraft((current) => ({
       ...current,
       botType,
-      responseStyle: botType === "organizacao" ? "organization" : botType === "atendimento" ? "support" : "sales",
+      responseStyle: getTutorialResponseStyle(botType),
+      firstContactRules: getDefaultFirstContactRules(botType),
       messages: getDefaultBotMessages(botType),
     }));
   }
@@ -872,14 +1082,21 @@ export default function TutorialClientPage() {
       return (
         <BotStepFrame
           titleId={titleId}
-          title="Defina que tipo de bot vai atender seus contatos."
-          text="O bot só será ativado depois desta configuração. Recovery e Prospecção ficam visíveis, mas travados até a estratégia ficar completa."
+          title="Defina qual cadastro de bot será usado."
+          text="A pessoa visualiza Atendimento, Prospecção e Recovery, mas só consegue ativar o que o plano liberar."
           points={[
-            "Vendas / Atendimento atende o público atual.",
-            "Organização / Empresa responde como recepção e puxa agenda.",
-            "Nada dispara enquanto esta revisão não for salva.",
+            "Atendimento responde quem chamou primeiro.",
+            "Prospecção e Recovery iniciam conversa com cadência anti-spam.",
+            "Disponibilidade acompanha plano e módulos liberados.",
           ]}
-          visual={<BotTypeSelector selected={botDraft.botType} onSelect={chooseBotType} />}
+          visual={
+            <BotTypeSelector
+              selected={botDraft.botType}
+              recoveryEnabled={hasRecoveryCapability}
+              prospectionEnabled={hasProspectionCapability}
+              onSelect={chooseBotType}
+            />
+          }
           map={botMap}
           previousLabel="Anterior"
           onPrevious={() => goToStep("qr")}
@@ -925,7 +1142,14 @@ export default function TutorialClientPage() {
             "Mensagens curtas evitam ruído no WhatsApp.",
             "Se não entender, o bot encaminha para humano ou volta ao menu.",
           ]}
-          visual={<BotVoiceOptions draft={botDraft} onChange={updateBotDraft} />}
+          visual={
+            <BotVoiceOptions
+              draft={botDraft}
+              recoveryEnabled={hasRecoveryCapability}
+              prospectionEnabled={hasProspectionCapability}
+              onChange={updateBotDraft}
+            />
+          }
           map={botMap}
           previousLabel="Anterior"
           onPrevious={() => goToStep("bot-channel")}
@@ -963,7 +1187,7 @@ export default function TutorialClientPage() {
           title="Revise antes de ativar."
           text="Ao salvar, o bot passa a poder responder novas entradas do Atendimento e conversas movidas para a fila do Bot."
           points={[
-            botDraft.botType === "organizacao" ? "Modo Organização / Empresa." : "Modo Vendas / Atendimento.",
+            `Modo ${getTutorialBotLabel(botDraft.botType)}.`,
             providerCapabilities.canUseOfficialButtons ? "Meta: botões oficiais disponíveis." : "QR Code: opções por número.",
             botDraft.unknownHandling === "human" ? "Fora do roteiro vai para humano." : "Fora do roteiro volta ao menu.",
           ]}
@@ -994,6 +1218,8 @@ export default function TutorialClientPage() {
           draft={botDraft}
           provider={provider}
           channelMode={channelMode}
+          recoveryEnabled={hasRecoveryCapability}
+          prospectionEnabled={hasProspectionCapability}
           onDraftChange={updateBotDraft}
           onMessageChange={updateBotMessage}
           saved={botSetupComplete}
@@ -1035,6 +1261,9 @@ export default function TutorialClientPage() {
       {floatingCardsPage ? <FloatingTutorialPrints key={floatingCardsPage} page={floatingCardsPage} /> : null}
 
       <section className={styles.shell} aria-labelledby={`tutorial-title-${step}`}>
+        <button type="button" className={styles.exitButton} onClick={exitTutorial}>
+          Sair
+        </button>
         <div className={styles.topLine}>
           <span className={styles.statusBadge}>Onboarding guiado</span>
           <span className={styles.progress}>{progressLabel}</span>
@@ -1206,9 +1435,13 @@ function StepFrame({
         {visual}
       </div>
       <div className={styles.actions}>
-        {previousLabel ? <button type="button" className={styles.secondaryAction} onClick={onPrevious}>{previousLabel}</button> : null}
+        {previousLabel
+          ? <button type="button" className={styles.secondaryAction} onClick={onPrevious}>{previousLabel}</button>
+          : <span className={styles.actionPlaceholder} aria-hidden="true" />}
         <button type="button" className={styles.primaryAction} onClick={onPrimary}>{primaryLabel}</button>
-        {secondaryLabel ? <button type="button" className={styles.secondaryAction} onClick={onSecondary}>{secondaryLabel}</button> : null}
+        {secondaryLabel
+          ? <button type="button" className={styles.secondaryAction} onClick={onSecondary}>{secondaryLabel}</button>
+          : <span className={styles.actionPlaceholder} aria-hidden="true" />}
         {tertiaryLabel ? <button type="button" className={styles.ghostAction} onClick={onTertiary}>{tertiaryLabel}</button> : null}
       </div>
     </>
@@ -1256,9 +1489,13 @@ function BotStepFrame({
         </div>
       </div>
       <div className={styles.actions}>
-        {previousLabel ? <button type="button" className={styles.secondaryAction} onClick={onPrevious}>{previousLabel}</button> : null}
+        {previousLabel
+          ? <button type="button" className={styles.secondaryAction} onClick={onPrevious}>{previousLabel}</button>
+          : <span className={styles.actionPlaceholder} aria-hidden="true" />}
         <button type="button" className={styles.primaryAction} onClick={onPrimary}>{primaryLabel}</button>
-        {secondaryLabel ? <button type="button" className={styles.secondaryAction} onClick={onSecondary}>{secondaryLabel}</button> : null}
+        {secondaryLabel
+          ? <button type="button" className={styles.secondaryAction} onClick={onSecondary}>{secondaryLabel}</button>
+          : <span className={styles.actionPlaceholder} aria-hidden="true" />}
       </div>
     </>
   );
@@ -1270,6 +1507,8 @@ function BotBuiltStepFrame({
   draft,
   provider,
   channelMode,
+  recoveryEnabled,
+  prospectionEnabled,
   previousLabel,
   primaryLabel,
   secondaryLabel,
@@ -1285,6 +1524,8 @@ function BotBuiltStepFrame({
   draft: BotSetupDraft;
   provider: ChannelProvider;
   channelMode: "QR" | "OFFICIAL";
+  recoveryEnabled: boolean;
+  prospectionEnabled: boolean;
   previousLabel?: string;
   primaryLabel: string;
   secondaryLabel?: string;
@@ -1302,14 +1543,20 @@ function BotBuiltStepFrame({
         draft={draft}
         provider={provider}
         channelMode={channelMode}
+        recoveryEnabled={recoveryEnabled}
+        prospectionEnabled={prospectionEnabled}
         onDraftChange={onDraftChange}
         onMessageChange={onMessageChange}
         saved={saved}
       />
       <div className={styles.actions}>
-        {previousLabel ? <button type="button" className={styles.secondaryAction} onClick={onPrevious}>{previousLabel}</button> : null}
+        {previousLabel
+          ? <button type="button" className={styles.secondaryAction} onClick={onPrevious}>{previousLabel}</button>
+          : <span className={styles.actionPlaceholder} aria-hidden="true" />}
         <button type="button" className={styles.primaryAction} onClick={onPrimary}>{primaryLabel}</button>
-        {secondaryLabel ? <button type="button" className={styles.secondaryAction} onClick={onSecondary}>{secondaryLabel}</button> : null}
+        {secondaryLabel
+          ? <button type="button" className={styles.secondaryAction} onClick={onSecondary}>{secondaryLabel}</button>
+          : <span className={styles.actionPlaceholder} aria-hidden="true" />}
       </div>
     </>
   );
@@ -1317,29 +1564,42 @@ function BotBuiltStepFrame({
 
 function BotTypeSelector({
   selected,
+  recoveryEnabled,
+  prospectionEnabled,
   onSelect,
 }: {
-  selected: AtendimentoBotType;
-  onSelect: (value: AtendimentoBotType) => void;
+  selected: TutorialBotType;
+  recoveryEnabled: boolean;
+  prospectionEnabled: boolean;
+  onSelect: (value: TutorialBotType) => void;
 }) {
+  const isEnabled = (id: TutorialBotType) => {
+    if (id === "recovery") return recoveryEnabled;
+    if (id === "prospeccao") return prospectionEnabled;
+    return true;
+  };
   return (
     <div className={`${styles.visualCard} ${styles.botConfigCard}`}>
       <span className={styles.visualLabel}>Tipo de Bot</span>
       <div className={styles.botTypeGrid}>
-        {BOT_TYPE_OPTIONS.map((option) => (
-          <button
-            key={option.id}
-            type="button"
-            className={styles.botOption}
-            data-active={selected === option.id ? "true" : "false"}
-            data-disabled={option.enabled ? "false" : "true"}
-            disabled={!option.enabled}
-            onClick={() => onSelect(option.id)}
-          >
-            <strong>{option.title}</strong>
-            <span>{option.description}</span>
-          </button>
-        ))}
+        {BOT_TYPE_OPTIONS.map((option) => {
+          const enabled = isEnabled(option.id);
+          return (
+            <button
+              key={option.id}
+              type="button"
+              className={styles.botOption}
+              data-active={selected === option.id ? "true" : "false"}
+              data-disabled={enabled ? "false" : "true"}
+              disabled={!enabled}
+              title={enabled ? option.title : option.lockReason || "Indisponível no plano atual"}
+              onClick={() => onSelect(option.id)}
+            >
+              <strong>{option.title}</strong>
+              <span>{enabled ? option.description : option.lockReason || "Indisponível no plano atual."}</span>
+            </button>
+          );
+        })}
       </div>
     </div>
   );
@@ -1382,9 +1642,13 @@ function BotChannelPreview({
 
 function BotVoiceOptions({
   draft,
+  recoveryEnabled,
+  prospectionEnabled,
   onChange,
 }: {
   draft: BotSetupDraft;
+  recoveryEnabled: boolean;
+  prospectionEnabled: boolean;
   onChange: (patch: Partial<BotSetupDraft>) => void;
 }) {
   return (
@@ -1394,29 +1658,33 @@ function BotVoiceOptions({
         <button
           type="button"
           className={styles.segmentOption}
-          data-active={draft.responseStyle === "sales" ? "true" : "false"}
-          onClick={() => onChange({ responseStyle: "sales", botType: "vendas", messages: getDefaultBotMessages("vendas") })}
-        >
-          <strong>Vendedor consultivo</strong>
-          <span>Qualifica e abre caminho para orçamento ou agenda.</span>
-        </button>
-        <button
-          type="button"
-          className={styles.segmentOption}
           data-active={draft.responseStyle === "support" ? "true" : "false"}
-          onClick={() => onChange({ responseStyle: "support", botType: "atendimento", messages: getDefaultBotMessages("atendimento") })}
+          onClick={() => onChange({ responseStyle: "support", botType: "atendimento", firstContactRules: getDefaultFirstContactRules("atendimento"), messages: getDefaultBotMessages("atendimento") })}
         >
-          <strong>Atendimento direto</strong>
-          <span>Resolve dúvidas simples e chama humano quando necessário.</span>
+          <strong>Atendimento humano e direto</strong>
+          <span>Responde inbound, mantém contexto e entrega para humano quando necessário.</span>
         </button>
         <button
           type="button"
           className={styles.segmentOption}
-          data-active={draft.responseStyle === "organization" ? "true" : "false"}
-          onClick={() => onChange({ responseStyle: "organization", botType: "organizacao", messages: getDefaultBotMessages("organizacao") })}
+          data-active={draft.responseStyle === "prospecting" ? "true" : "false"}
+          data-disabled={prospectionEnabled ? "false" : "true"}
+          disabled={!prospectionEnabled}
+          onClick={() => onChange({ responseStyle: "prospecting", botType: "prospeccao", firstContactRules: getDefaultFirstContactRules("prospeccao"), messages: getDefaultBotMessages("prospeccao") })}
         >
-          <strong>Recepção com agenda</strong>
-          <span>Organiza solicitações e prioriza criação de agendamento.</span>
+          <strong>Prospecção cuidadosa</strong>
+          <span>Abre contato com lead, demora entre clientes e para quando houver rejeição.</span>
+        </button>
+        <button
+          type="button"
+          className={styles.segmentOption}
+          data-active={draft.responseStyle === "recovery" ? "true" : "false"}
+          data-disabled={recoveryEnabled ? "false" : "true"}
+          disabled={!recoveryEnabled}
+          onClick={() => onChange({ responseStyle: "recovery", botType: "recovery", firstContactRules: getDefaultFirstContactRules("recovery"), messages: getDefaultBotMessages("recovery") })}
+        >
+          <strong>Recovery financeiro</strong>
+          <span>Trata cobrança com opt-in, negociação e humano em contestação.</span>
         </button>
       </div>
     </div>
@@ -1434,6 +1702,60 @@ function BotRulesOptions({
     <div className={`${styles.visualCard} ${styles.botConfigCard}`}>
       <span className={styles.visualLabel}>Regras</span>
       <div className={styles.segmentStack}>
+        <button
+          type="button"
+          className={styles.segmentOption}
+          data-active={draft.firstContactRules.canInitiateConversation ? "true" : "false"}
+          onClick={() =>
+            draft.botType === "atendimento"
+              ? undefined
+              : onChange({
+                  firstContactRules: {
+                    ...draft.firstContactRules,
+                    canInitiateConversation: !draft.firstContactRules.canInitiateConversation,
+                  },
+                })
+          }
+        >
+          <strong>{draft.firstContactRules.canInitiateConversation ? "Pode iniciar conversa" : "Só responde quem chamou"}</strong>
+          <span>
+            {draft.botType === "atendimento"
+              ? "Atendimento fica inbound por padrão."
+              : `${draft.firstContactRules.nextContactDelayMinutes}min antes de chamar outro cliente.`}
+          </span>
+        </button>
+        <button
+          type="button"
+          className={styles.segmentOption}
+          data-active="true"
+          onClick={() =>
+            onChange({
+              firstContactRules: {
+                ...draft.firstContactRules,
+                typingSeconds: draft.firstContactRules.typingSeconds >= 10 ? 5 : draft.firstContactRules.typingSeconds + 2,
+              },
+            })
+          }
+        >
+          <strong>Typing humano: {draft.firstContactRules.typingSeconds}s</strong>
+          <span>Mostra digitando antes de responder e soma variação de {draft.firstContactRules.typingVarianceSeconds}s.</span>
+        </button>
+        <button
+          type="button"
+          className={styles.segmentOption}
+          data-active={draft.firstContactRules.requireOptIn ? "true" : "false"}
+          onClick={() =>
+            onChange({
+              firstContactRules: {
+                ...draft.firstContactRules,
+                requireOptIn: !draft.firstContactRules.requireOptIn,
+              },
+            })
+          }
+        >
+          <strong>{draft.firstContactRules.requireOptIn ? "Opt-in obrigatório" : "Opt-in flexível"}</strong>
+          <span>Recovery usa relação prévia; Prospecção respeita rejeição e baixa cadência.</span>
+        </button>
         <button
           type="button"
           className={styles.segmentOption}
@@ -1478,7 +1800,6 @@ function BotLiveOrganogram({
   activeStep: TutorialStep;
 }) {
   const isMeta = provider === "meta";
-  const isOrganization = draft.botType === "organizacao";
   const activeOrder: Partial<Record<TutorialStep, number>> = {
     "bot-type": 1,
     "bot-channel": 2,
@@ -1488,14 +1809,14 @@ function BotLiveOrganogram({
     "bot-built": 6,
   };
   const level = activeOrder[activeStep] || 0;
-  const primaryRoute = isOrganization ? draft.messages.infoButtonLabel : draft.messages.primaryButtonLabel;
+  const primaryRoute = draft.botType === "recovery" ? draft.messages.infoButtonLabel : draft.messages.primaryButtonLabel;
   const fallback = draft.unknownHandling === "human" ? draft.messages.humanButtonLabel : "Voltar ao menu";
 
   const nodes = [
     {
       key: "entrada",
-      title: "Recebe WhatsApp",
-      text: channelMode === "OFFICIAL" ? "Meta oficial" : "QR Code vinculado",
+      title: draft.firstContactRules.canInitiateConversation ? "Inicia 1º contato" : "Recebe WhatsApp",
+      text: draft.firstContactRules.canInitiateConversation ? `${draft.firstContactRules.nextContactDelayMinutes}min entre clientes` : channelMode === "OFFICIAL" ? "Meta oficial" : "QR Code vinculado",
       level: 1,
     },
     {
@@ -1506,8 +1827,8 @@ function BotLiveOrganogram({
     },
     {
       key: "cliente",
-      title: "Identifica cliente",
-      text: "Novo, conhecido, agenda ou humano",
+      title: "Identifica contexto",
+      text: draft.botType === "recovery" ? "Pendencia, pagamento ou contestacao" : "Novo, conhecido, agenda ou humano",
       level: 3,
     },
     {
@@ -1520,14 +1841,14 @@ function BotLiveOrganogram({
     },
     {
       key: "ramo1",
-      title: isOrganization ? "Organiza solicitação" : "Qualifica venda",
-      text: isOrganization ? draft.messages.infoResponse : draft.messages.primaryResponse,
+      title: draft.botType === "recovery" ? "Tratativa financeira" : draft.botType === "prospeccao" ? "Qualifica interesse" : "Resolve solicitação",
+      text: draft.botType === "recovery" ? draft.messages.recoveryDetectedMessage : draft.messages.primaryResponse,
       level: 4,
     },
     {
       key: "ramo2",
-      title: "Agenda",
-      text: "Abre horários disponíveis e retorna contexto",
+      title: draft.botType === "recovery" ? "Negociar" : draft.botType === "prospeccao" ? "Falar depois" : "Agenda",
+      text: draft.botType === "atendimento" ? "Abre horários disponíveis e retorna contexto" : "Respeita cadência antes de novo contato",
       level: 4,
     },
     {
@@ -1538,8 +1859,8 @@ function BotLiveOrganogram({
     },
     {
       key: "final",
-      title: "Resposta final",
-      text: draft.messages.postActionPrompt,
+      title: "Parada segura",
+      text: draft.messages.closeTopicMessage,
       level: 5,
     },
   ];
@@ -1548,7 +1869,7 @@ function BotLiveOrganogram({
     <div className={styles.botMapCard}>
       <div className={styles.botMapHeader}>
         <span className={styles.visualLabel}>Organograma</span>
-        <strong>{isOrganization ? "Organização / Empresa" : "Vendas / Atendimento"}</strong>
+        <strong>{getTutorialBotLabel(draft.botType)}</strong>
       </div>
       <div className={styles.botMapRail}>
         {nodes.map((node, index) => (
@@ -1612,6 +1933,7 @@ function BotMessageEditor({
       <EditableField label="Mensagem inicial" value={draft.messages.welcomeMessage} multiline onChange={(value) => onMessageChange("welcomeMessage", value)} />
       <EditableField label="Cliente conhecido" value={draft.messages.returningCustomerMessage} multiline onChange={(value) => onMessageChange("returningCustomerMessage", value)} />
       <EditableField label="Menu principal" value={draft.messages.mainMenuPrompt} multiline onChange={(value) => onMessageChange("mainMenuPrompt", value)} />
+      <EditableField label="Mensagem Recovery" value={draft.messages.recoveryDetectedMessage} multiline onChange={(value) => onMessageChange("recoveryDetectedMessage", value)} />
       <div className={styles.timeEditorRow}>
         <EditableField label="Botão 1" value={draft.messages.primaryButtonLabel} onChange={(value) => onMessageChange("primaryButtonLabel", value)} />
         <EditableField label="Botão agenda" value={draft.messages.agendaButtonLabel} onChange={(value) => onMessageChange("agendaButtonLabel", value)} />
@@ -1622,6 +1944,7 @@ function BotMessageEditor({
       <EditableField label="Resposta informações" value={draft.messages.infoResponse} multiline onChange={(value) => onMessageChange("infoResponse", value)} />
       <EditableField label="Pós-ação / fallback" value={draft.messages.postActionPrompt} multiline onChange={(value) => onMessageChange("postActionPrompt", value)} />
       <EditableField label="Mensagem para humano" value={draft.messages.humanAckMessage} multiline onChange={(value) => onMessageChange("humanAckMessage", value)} />
+      <EditableField label="Encerramento" value={draft.messages.closeTopicMessage} multiline onChange={(value) => onMessageChange("closeTopicMessage", value)} />
     </div>
   );
 }
@@ -1637,7 +1960,7 @@ function BotReviewCard({
   channelMode: "QR" | "OFFICIAL";
   onMessageChange: (field: keyof BotMessageDraft, value: string) => void;
 }) {
-  const botLabel = draft.botType === "organizacao" ? "Organização / Empresa" : "Vendas / Atendimento";
+  const botLabel = getTutorialBotLabel(draft.botType);
   return (
     <div className={`${styles.visualCard} ${styles.botConfigCard} ${styles.botReviewCard}`}>
       <span className={styles.visualLabel}>Revisão</span>
@@ -1658,6 +1981,14 @@ function BotReviewCard({
           <strong>Falha de entendimento</strong>
           <small>{draft.unknownHandling === "human" ? "encaminha humano" : "volta ao menu"}</small>
         </span>
+        <span>
+          <strong>1º contato</strong>
+          <small>
+            {draft.firstContactRules.canInitiateConversation
+              ? `${draft.firstContactRules.nextContactDelayMinutes}min entre clientes`
+              : "somente inbound"}
+          </small>
+        </span>
       </div>
       <BotMessageEditor draft={draft} onMessageChange={onMessageChange} compact />
     </div>
@@ -1668,6 +1999,8 @@ function BotBuiltEditor({
   draft,
   provider,
   channelMode,
+  recoveryEnabled,
+  prospectionEnabled,
   onDraftChange,
   onMessageChange,
   saved,
@@ -1675,15 +2008,27 @@ function BotBuiltEditor({
   draft: BotSetupDraft;
   provider: ChannelProvider;
   channelMode: "QR" | "OFFICIAL";
+  recoveryEnabled: boolean;
+  prospectionEnabled: boolean;
   onDraftChange: (patch: Partial<BotSetupDraft>) => void;
   onMessageChange: (field: keyof BotMessageDraft, value: string) => void;
   saved?: boolean;
 }) {
   const [previewPeriod, setPreviewPeriod] = useState<"morning" | "afternoon" | "night">("morning");
   const [selectedMapNode, setSelectedMapNode] = useState<TutorialBotMapNodeId>("menu");
-  const isOrganization = draft.botType === "organizacao";
   const channelLabel = channelMode === "OFFICIAL" ? "Meta oficial" : "QR Code";
   const providerName = getProviderLabel(provider);
+  const chooseBuiltBot = (botType: TutorialBotType) => {
+    if (botType === "recovery" && !recoveryEnabled) return;
+    if (botType === "prospeccao" && !prospectionEnabled) return;
+    onDraftChange({
+      botType,
+      responseStyle: getTutorialResponseStyle(botType),
+      firstContactRules: getDefaultFirstContactRules(botType),
+      messages: getDefaultBotMessages(botType),
+    });
+    setSelectedMapNode(botType === "recovery" ? "recovery" : "menu");
+  };
 
   return (
     <div className={styles.botBuiltWorkspace}>
@@ -1704,28 +2049,50 @@ function BotBuiltEditor({
         <div className={styles.botFinalModeGrid} aria-label="Configuração final do bot">
           <button
             type="button"
-            data-active={draft.responseStyle === "sales" ? "true" : "false"}
-            onClick={() => onDraftChange({ botType: "vendas", responseStyle: "sales" })}
-          >
-            <strong>Vendas</strong>
-            <span>Orçamento e agenda</span>
-          </button>
-          <button
-            type="button"
-            data-active={draft.responseStyle === "support" ? "true" : "false"}
-            onClick={() => onDraftChange({ botType: "atendimento", responseStyle: "support" })}
+            data-active={draft.botType === "atendimento" ? "true" : "false"}
+            data-disabled="false"
+            onClick={() => chooseBuiltBot("atendimento")}
           >
             <strong>Atendimento</strong>
-            <span>Respostas diretas</span>
+            <span>Responde inbound</span>
           </button>
           <button
             type="button"
-            data-active={draft.responseStyle === "organization" ? "true" : "false"}
-            onClick={() => onDraftChange({ botType: "organizacao", responseStyle: "organization" })}
+            data-active={draft.botType === "prospeccao" ? "true" : "false"}
+            data-disabled={prospectionEnabled ? "false" : "true"}
+            disabled={!prospectionEnabled}
+            title={prospectionEnabled ? "Prospecção" : "Exige Vendas + Bot IA no plano"}
+            onClick={() => chooseBuiltBot("prospeccao")}
           >
-            <strong>Organização</strong>
-            <span>Recepção e triagem</span>
+            <strong>Prospecção</strong>
+            <span>{prospectionEnabled ? "Inicia leads" : "Plano indisponível"}</span>
           </button>
+          <button
+            type="button"
+            data-active={draft.botType === "recovery" ? "true" : "false"}
+            data-disabled={recoveryEnabled ? "false" : "true"}
+            disabled={!recoveryEnabled}
+            title={recoveryEnabled ? "Recovery" : "Disponível no plano com Recovery"}
+            onClick={() => chooseBuiltBot("recovery")}
+          >
+            <strong>Recovery</strong>
+            <span>{recoveryEnabled ? "Inicia cobrança" : "Plano indisponível"}</span>
+          </button>
+        </div>
+
+        <div className={styles.botFirstContactSummary}>
+          <span>
+            <strong>1º contato</strong>
+            {draft.firstContactRules.canInitiateConversation ? "Bot inicia conversa" : "Somente quando o cliente chama"}
+          </span>
+          <span>
+            <strong>Cadência</strong>
+            {draft.firstContactRules.nextContactDelayMinutes}min entre clientes · {draft.firstContactRules.messageIntervalSeconds}s entre mensagens
+          </span>
+          <span>
+            <strong>Humanização</strong>
+            typing {draft.firstContactRules.typingSeconds}s + variação {draft.firstContactRules.typingVarianceSeconds}s
+          </span>
         </div>
 
         <div className={styles.botFinalRuleGrid}>
@@ -1768,7 +2135,7 @@ function BotBuiltEditor({
         <div className={styles.botBuiltPanelHeader}>
           <div>
             <span className={styles.visualLabel}>Mapa do bot</span>
-            <strong>{isOrganization ? "Organização / Empresa" : "Vendas / Atendimento"}</strong>
+            <strong>{getTutorialBotLabel(draft.botType)}</strong>
             <p className={styles.botBuiltMicrocopy}>Fluxo clicável gerado a partir do que foi preenchido.</p>
           </div>
           <small>ao vivo</small>
@@ -1806,9 +2173,13 @@ function compactBotText(value: string, fallback: string, maxLength = 74) {
 }
 
 function getBotMenuLabels(draft: BotSetupDraft) {
-  return draft.botType === "organizacao"
-    ? [draft.messages.agendaButtonLabel, draft.messages.infoButtonLabel, draft.messages.humanButtonLabel]
-    : [draft.messages.primaryButtonLabel, draft.messages.agendaButtonLabel, draft.messages.humanButtonLabel];
+  if (draft.botType === "prospeccao") {
+    return [draft.messages.primaryButtonLabel, draft.messages.infoButtonLabel, draft.messages.agendaButtonLabel, "Não tenho interesse"];
+  }
+  if (draft.botType === "recovery") {
+    return [draft.messages.infoButtonLabel, draft.messages.primaryButtonLabel, draft.messages.agendaButtonLabel, draft.messages.humanButtonLabel];
+  }
+  return [draft.messages.primaryButtonLabel, draft.messages.agendaButtonLabel, draft.messages.infoButtonLabel, draft.messages.humanButtonLabel];
 }
 
 type TutorialBotMapNodeId =
@@ -1877,14 +2248,16 @@ function BotPremiumOrganogram({
   onSelectNode: (nodeId: TutorialBotMapNodeId) => void;
 }) {
   const isMeta = provider === "meta";
-  const isOrganization = draft.botType === "organizacao";
   const menuLabels = getBotMenuLabels(draft);
   const activeNodeIds = new Set(getTutorialBotPath(selectedNodeId));
-  const primaryRoute = isOrganization ? draft.messages.infoResponse : draft.messages.primaryResponse;
+  const primaryRoute = draft.botType === "recovery" ? draft.messages.recoveryDetectedMessage : draft.messages.primaryResponse;
   const postActionText =
     draft.unknownHandling === "human"
       ? draft.messages.postActionPrompt
       : "Volta ao menu principal quando sair do roteiro.";
+  const initiationText = draft.firstContactRules.canInitiateConversation
+    ? `${draft.firstContactRules.nextContactDelayMinutes}min entre clientes`
+    : "Cliente chama primeiro";
   const nodes: Array<{
     id: TutorialBotMapNodeId;
     x: number;
@@ -1893,17 +2266,17 @@ function BotPremiumOrganogram({
     text: string;
     tone: string;
   }> = [
-    { id: "entry", x: 8, y: 50, title: "Entrada", text: compactBotText(draft.messages.welcomeMessage, "Mensagem recebida", 48), tone: "entry" },
+    { id: "entry", x: 8, y: 50, title: draft.firstContactRules.canInitiateConversation ? "1º contato" : "Entrada", text: initiationText, tone: "entry" },
     { id: "new", x: 25, y: 28, title: "Cliente novo", text: "Cadastro e primeira triagem", tone: "primary" },
     { id: "located", x: 25, y: 60, title: "Cliente localizado", text: compactBotText(draft.messages.returningCustomerMessage, "Retoma com contexto", 42), tone: "primary" },
     { id: "register", x: 44, y: 14, title: "Cadastro rápido", text: "Nome confirmado", tone: "info" },
     { id: "menu", x: 44, y: 46, title: "Menu principal", text: `${isMeta ? "Botões" : "Lista"}: ${menuLabels.join(" · ")}`, tone: "menu" },
-    { id: "agenda", x: 63, y: 17, title: "Agenda", text: "Horários e retorno", tone: "agenda" },
+    { id: "agenda", x: 63, y: 17, title: draft.botType === "prospeccao" ? "Retomar depois" : draft.botType === "recovery" ? "Negociação" : "Agenda", text: draft.botType === "recovery" ? "Parcelar ou negociar" : "Horários e retorno", tone: "agenda" },
     { id: "post", x: 63, y: 44, title: "Pós-ação", text: compactBotText(postActionText, "Continuidade", 46), tone: "post" },
-    { id: "recovery", x: 63, y: 68, title: "Recovery", text: "Reservado / bloqueado", tone: "muted" },
+    { id: "recovery", x: 63, y: 68, title: "Recovery", text: draft.botType === "recovery" ? compactBotText(draft.messages.recoveryDetectedMessage, "Tratativa financeira", 44) : "Plano / regra financeira", tone: draft.botType === "recovery" ? "post" : "muted" },
     { id: "human", x: 82, y: 30, title: "Humano", text: compactBotText(draft.messages.humanAckMessage, "Passa para atendente", 42), tone: "human" },
-    { id: "hours", x: 82, y: 52, title: "Fora de horário", text: draft.businessHoursMode === "business" ? "Regra comercial ativa" : "Sempre responde", tone: "smart" },
-    { id: "closing", x: 82, y: 74, title: "Encerramento", text: "Assunto finalizado", tone: "end" },
+    { id: "hours", x: 82, y: 52, title: "Anti-spam", text: `typing ${draft.firstContactRules.typingSeconds}s · pausa ${draft.firstContactRules.messageIntervalSeconds}s`, tone: "smart" },
+    { id: "closing", x: 82, y: 74, title: "Encerramento", text: compactBotText(draft.messages.closeTopicMessage, "Assunto finalizado", 42), tone: "end" },
     { id: "blocked", x: 44, y: 84, title: "Bloqueado", text: "BOT_OFF ou contato bloqueado", tone: "muted" },
   ];
   const edges = [
@@ -1917,7 +2290,7 @@ function BotPremiumOrganogram({
     { id: "entry-hours", from: "entry", to: "hours", path: "M80 300 C330 252 590 290 820 312", label: "Horário", tone: "smart", x: 492, y: 286 },
     { id: "entry-blocked", from: "entry", to: "blocked", path: "M80 300 C224 428 310 500 440 504", label: "BOT_OFF", tone: "muted", x: 250, y: 444 },
     { id: "menu-agenda", from: "menu", to: "agenda", path: "M440 276 C510 206 550 102 630 102", label: draft.messages.agendaButtonLabel, tone: "choice", x: 536, y: 164 },
-    { id: "menu-post", from: "menu", to: "post", path: "M440 276 C500 276 570 264 630 264", label: isOrganization ? draft.messages.infoButtonLabel : draft.messages.primaryButtonLabel, tone: "choice", x: 535, y: 262 },
+    { id: "menu-post", from: "menu", to: "post", path: "M440 276 C500 276 570 264 630 264", label: draft.messages.primaryButtonLabel, tone: "choice", x: 535, y: 262 },
     { id: "menu-human", from: "menu", to: "human", path: "M440 276 C570 238 682 180 820 180", label: draft.messages.humanButtonLabel, tone: "choice", x: 628, y: 210 },
     { id: "menu-hours", from: "menu", to: "hours", path: "M440 276 C585 302 676 312 820 312", label: "Horário", tone: "smart", x: 632, y: 302 },
     { id: "agenda-post", from: "agenda", to: "post", path: "M630 102 C676 156 674 226 630 264", label: "Retorno", tone: "main", x: 692, y: 178 },
@@ -1958,7 +2331,7 @@ function BotPremiumOrganogram({
       ))}
       <div className={styles.premiumMapLegend}>
         <span>{isMeta ? "Botões oficiais" : "Lista numerada"}</span>
-        <span>{isOrganization ? "Recepção" : "Comercial"}</span>
+        <span>{getTutorialBotLabel(draft.botType)}</span>
         <span>Selecionado: {getTutorialBotNodeTitle(selectedNodeId)}</span>
         <span>{compactBotText(primaryRoute, "Resposta principal", 32)}</span>
       </div>
@@ -1997,21 +2370,26 @@ function buildTutorialWhatsAppTimeline(
   period: "morning" | "afternoon" | "night",
 ): TutorialWhatsAppTimelineItem[] {
   const path = getTutorialBotPath(selectedNodeId);
-  const isOrganization = draft.botType === "organizacao";
   const menuLabels = getBotMenuLabels(draft);
-  const mainActionLabel = isOrganization ? draft.messages.infoButtonLabel : draft.messages.primaryButtonLabel;
-  const mainActionResponse = isOrganization ? draft.messages.infoResponse : draft.messages.primaryResponse;
+  const mainActionLabel = draft.messages.primaryButtonLabel;
+  const mainActionResponse = draft.botType === "recovery" ? draft.messages.recoveryDetectedMessage : draft.messages.primaryResponse;
   const timeline: TutorialWhatsAppTimelineItem[] = [
     {
       id: "customer-entry",
       author: "customer",
       phase: "Cliente",
-      text: "Oi, preciso de atendimento.",
+      text: draft.firstContactRules.canInitiateConversation ? "Contato recebido na fila." : "Oi, preciso de atendimento.",
+    },
+    {
+      id: "typing-entry",
+      author: "bot",
+      phase: "Digitando",
+      text: `typing por ${draft.firstContactRules.typingSeconds}s, com variação humana de até ${draft.firstContactRules.typingVarianceSeconds}s.`,
     },
     {
       id: "entry",
       author: "bot",
-      phase: "Entrada",
+      phase: draft.firstContactRules.canInitiateConversation ? "1º contato" : "Entrada",
       text: renderTutorialBotMessage(draft.messages.welcomeMessage, draft, period) || "Mensagem inicial do bot.",
     },
   ];
@@ -2080,14 +2458,22 @@ function buildTutorialWhatsAppTimeline(
       {
         id: "agenda",
         author: "bot",
-        phase: "Agenda",
-        text: "Perfeito. Vou separar horários disponíveis e deixar o contexto pronto para o atendimento.",
+        phase: draft.botType === "recovery" ? "Negociação" : draft.botType === "prospeccao" ? "Retomar depois" : "Agenda",
+        text:
+          draft.botType === "recovery"
+            ? "Vamos registrar uma negociação e seguir pelo melhor caminho para o seu caso."
+            : draft.botType === "prospeccao"
+              ? "Combinado. Vou deixar para retomar em outro momento e não vou ficar insistindo por aqui."
+              : "Perfeito. Vou separar horários disponíveis e deixar o contexto pronto para o atendimento.",
       },
       {
         id: "agenda-slots",
         author: "bot",
-        phase: "Agenda",
-        text: "Tenho Hoje 15:00 ou Amanhã 09:30. Qual horário prefere?",
+        phase: draft.botType === "atendimento" ? "Agenda" : "Cadência",
+        text:
+          draft.botType === "atendimento"
+            ? "Tenho Hoje 15:00 ou Amanhã 09:30. Qual horário prefere?"
+            : `Próximo contato só depois de ${draft.firstContactRules.nextContactDelayMinutes}min e no máximo ${draft.firstContactRules.maxFirstContactsPerHour}/h.`,
       },
     );
   }
@@ -2121,7 +2507,10 @@ function buildTutorialWhatsAppTimeline(
       id: "recovery",
       author: "bot",
       phase: "Recovery",
-      text: "Identifiquei que este contato precisa de tratamento financeiro. Este ramo fica reservado para o fluxo Recovery.",
+      text:
+        draft.botType === "recovery"
+          ? renderTutorialBotMessage(draft.messages.recoveryDetectedMessage, draft, period)
+          : "Identifiquei que este contato precisa de tratamento financeiro. Este ramo respeita plano e regras do Recovery.",
     });
   }
 

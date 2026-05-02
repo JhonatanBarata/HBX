@@ -180,6 +180,90 @@ test('upsertConversationStateFromChat reuses phone conversation found by stored 
   assert.equal(metadata.whatsappUnreadCount, 0);
 });
 
+test('upsertConversationStateFromChat preserves group chats with group metadata', async () => {
+  const calls = {
+    createData: null as Record<string, unknown> | null,
+  };
+  const prisma = {
+    companyConversation: {
+      findMany: async () => [],
+      create: async ({ data }: any) => {
+        calls.createData = data;
+        return makeConversation({
+          id: 91,
+          contact: data.contact,
+          metadata: data.metadata,
+        });
+      },
+    },
+  };
+  const service = new WebwhatsBridgeService(prisma as any);
+
+  const result = await (service as any).upsertConversationStateFromChat(
+    1,
+    {
+      remoteJid: '120363401234567890@g.us',
+      name: 'Grupo Comercial',
+      unreadCount: 2,
+    },
+    null,
+    null,
+  );
+  const metadata = JSON.parse(String(result.metadata || '{}'));
+
+  assert.equal(result.contact, '120363401234567890@g.us');
+  assert.equal(calls.createData?.contact, '120363401234567890@g.us');
+  assert.equal(metadata.whatsappRemoteJid, '120363401234567890@g.us');
+  assert.equal(metadata.whatsappIsGroup, true);
+  assert.equal(metadata.whatsappContactName, 'Grupo Comercial');
+  assert.equal(metadata.whatsappUnreadCount, 2);
+});
+
+test('syncRecentChats mirrors individual and group chats into conversations', async () => {
+  const createdContacts: string[] = [];
+  const prisma = {
+    company: {
+      findUnique: async () => ({ id: 7, whatsappModalStatus: 'connected' }),
+    },
+    companyConversation: {
+      findMany: async () => [],
+      create: async ({ data }: any) => {
+        createdContacts.push(data.contact);
+        return makeConversation({
+          id: createdContacts.length,
+          contact: data.contact,
+          metadata: data.metadata,
+        });
+      },
+    },
+  };
+  const service = new WebwhatsBridgeService(prisma as any);
+
+  (service as any).requestRead = async (input: any) => {
+    if (String(input.path).includes('/chat/findContacts/')) return [];
+    if (String(input.path).includes('/chat/findChats/')) {
+      return [
+        { remoteJid: '5511999998888@s.whatsapp.net', name: 'Cliente' },
+        { remoteJid: '120363401234567890@g.us', name: 'Grupo Comercial' },
+        { remoteJid: 'status@broadcast', name: 'Status' },
+      ];
+    }
+    return [];
+  };
+
+  const synced = await service.syncRecentChats(7, {
+    force: true,
+    limit: 10,
+    failOnError: true,
+  });
+
+  assert.equal(synced, 2);
+  assert.deepEqual(createdContacts, [
+    '+5511999998888',
+    '120363401234567890@g.us',
+  ]);
+});
+
 test('consolidateDuplicateConversations keeps phone row canonical when preferred contact is lid only', async () => {
   const phoneRow = makeConversation({ id: 70, contact: '+5511943171224' });
   const lidRow = makeConversation({

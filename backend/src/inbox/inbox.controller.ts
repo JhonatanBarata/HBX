@@ -84,8 +84,13 @@ export class InboxController {
   }
 
   @Get('conversations')
-  listConversations(@Req() req: any, @Query('take') take?: string, @Query('skip') skip?: string) {
-    return this.inboxService.listConversations(req.user, { take, skip });
+  listConversations(
+    @Req() req: any,
+    @Query('take') take?: string,
+    @Query('skip') skip?: string,
+    @Query('queue') queue?: string,
+  ) {
+    return this.inboxService.listConversations(req.user, { take, skip, queue });
   }
 
   @Get('conversations/:id/messages')
@@ -133,6 +138,15 @@ export class InboxController {
     @Body() dto: { queue?: string },
   ) {
     return this.inboxService.updateConversationQueue(req.user, id, dto?.queue);
+  }
+
+  @Patch('conversations/:id/personal')
+  updatePersonalContact(
+    @Req() req: any,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: { personal?: boolean },
+  ) {
+    return this.inboxService.updateConversationPersonalContact(req.user, id, dto?.personal === true);
   }
 
   @Patch('conversations/:id/block')

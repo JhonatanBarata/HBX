@@ -30,9 +30,9 @@ const OPTIONS: Array<{ value: ConversationQueueFilterValue; label: string }> = [
   { value: "all", label: "Conversas" },
   { value: "archived", label: "Excluídos" },
   { value: "groups", label: "Grupos" },
+  { value: "scheduled", label: "Atendimento" },
+  { value: "bot", label: "Prospecção" },
   { value: "recovery", label: "Recovery" },
-  { value: "scheduled", label: "Agendamento" },
-  { value: "bot", label: "Bot" },
 ];
 
 export default function ConversationQueueFilterBar({
