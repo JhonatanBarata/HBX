@@ -221,6 +221,7 @@ function buildRemoteDeployScript(config, mode) {
     `BACKEND_URL=${shellSingleQuote(config.backendUrl)}`,
     `FRONTEND_URL=${shellSingleQuote(config.frontendUrl)}`,
     `FORCE_REBOOT_HOSTINGER=${shellSingleQuote(rebootValue)}`,
+    'export GIT_SSH_COMMAND="ssh -o BatchMode=yes"',
     'cd "$APP_DIR"',
     `git fetch ${remote} ${branch}`,
     `git reset --hard ${remote}/${branch}`,
@@ -228,8 +229,10 @@ function buildRemoteDeployScript(config, mode) {
     'ENV_DB_LINES="$(awk -F= \'/^[[:space:]]*(DATABASE_URL|DIRECT_URL)[[:space:]]*=/{print $0}\' backend/.env)"',
     'if ! printf "%s\\n" "$ENV_DB_LINES" | grep -q "hbx-postgres"; then echo "ERRO: backend/.env precisa apontar para hbx-postgres."; exit 1; fi',
     'if ! printf "%s\\n" "$ENV_DB_LINES" | grep -q "hbx_prod"; then echo "ERRO: backend/.env precisa apontar para o banco hbx_prod."; exit 1; fi',
+    'WHATSAPP_MODAL_INTERNAL_URL_VALUE="$(awk -F= \'/^[[:space:]]*WHATSAPP_MODAL_INTERNAL_URL[[:space:]]*=/{print $2; exit}\' backend/.env)"',
+    'if [ "$WHATSAPP_MODAL_INTERNAL_URL_VALUE" != "http://172.18.0.1:8080" ]; then echo "ERRO: backend/.env precisa manter WHATSAPP_MODAL_INTERNAL_URL=http://172.18.0.1:8080. Atual: $WHATSAPP_MODAL_INTERNAL_URL_VALUE"; exit 1; fi',
     'if docker network inspect hbx_net >/dev/null 2>&1; then export HBX_DOCKER_NETWORK=hbx_net; elif docker network inspect hbx-net >/dev/null 2>&1; then export HBX_DOCKER_NETWORK=hbx-net; else docker network create hbx_net >/dev/null; export HBX_DOCKER_NETWORK=hbx_net; fi',
-    'if docker-compose --version >/dev/null 2>&1; then DC="docker-compose"; elif docker compose version >/dev/null 2>&1; then DC="docker compose"; else echo "ERRO: docker-compose nao encontrado."; exit 1; fi',
+    'if docker compose version >/dev/null 2>&1; then DC="docker compose"; elif docker-compose --version >/dev/null 2>&1; then DC="docker-compose"; else echo "ERRO: docker-compose nao encontrado."; exit 1; fi',
     'run_filtered() { set +e; "$@" 2>&1 | sed \'/legacy builder is deprecated/d;/Install the buildx component/d;/docs.docker.com\\/go\\/buildx/d\'; status="${PIPESTATUS[0]}"; set -e; return "$status"; }',
     'echo "Banco esperado: hbx-postgres/hbx_prod"',
     'echo "Backend URL: $BACKEND_URL"',
@@ -246,7 +249,7 @@ function buildRemoteDeployScript(config, mode) {
 
   if (isForce) {
     lines.push(
-      'docker rm -f backend hbx-backend hbx-frontend webscraping hbx-scraping-engine 2>/dev/null || true',
+      'docker rm -f backend hbx-backend hbx-frontend webscraping hbx-scraping-engine c7227f19b684_hbx-scraping-engine ab1704a260e6_hbx-frontend e22f61f3f5da_webscraping 2>/dev/null || true',
       'run_filtered $DC -f docker-compose.hostinger.yml build --no-cache backend webscraping hbx-scraping-engine frontend || echo "Aviso: build --no-cache falhou; tentando up -d --build."',
       'run_filtered $DC -f docker-compose.hostinger.yml up -d --build $HBX_POSTGRES_SERVICE_ARGS backend webscraping hbx-scraping-engine frontend',
       'docker restart hbx-backend hbx-frontend webscraping hbx-scraping-engine',
@@ -255,7 +258,7 @@ function buildRemoteDeployScript(config, mode) {
       'if [ "$FORCE_REBOOT_HOSTINGER" = "true" ]; then echo "FORCE_REBOOT_HOSTINGER=true: reiniciando VPS."; (sudo reboot || reboot); else echo "Reboot da VPS ignorado. Defina FORCE_REBOOT_HOSTINGER=true para habilitar."; fi',
     );
   } else {
-    lines.push('docker rm -f backend hbx-backend hbx-frontend webscraping hbx-scraping-engine 2>/dev/null || true');
+    lines.push('docker rm -f backend hbx-backend hbx-frontend webscraping hbx-scraping-engine c7227f19b684_hbx-scraping-engine ab1704a260e6_hbx-frontend e22f61f3f5da_webscraping 2>/dev/null || true');
     lines.push('run_filtered $DC -f docker-compose.hostinger.yml up -d --build $HBX_POSTGRES_SERVICE_ARGS backend webscraping hbx-scraping-engine frontend');
   }
 
@@ -295,7 +298,7 @@ function resolveWebwhatsDeployConfig(env, hostingerConfig) {
     sshPort: String(env.WEBWHATS_SSH_PORT || '').trim(),
     appDir: String(env.WEBWHATS_APP_DIR || '/opt/Webwhats').trim(),
     runUser: String(env.WEBWHATS_RUN_USER || 'root').trim(),
-    serviceName: String(env.WEBWHATS_SYSTEMD_SERVICE || '').trim(),
+    serviceName: String(env.WEBWHATS_SYSTEMD_SERVICE || 'webwhats').trim(),
   };
 }
 
@@ -322,6 +325,7 @@ function buildWebwhatsRemoteDeployScript(config) {
     'export NPM_CONFIG_LOGLEVEL=error',
     'export NPM_CONFIG_UPDATE_NOTIFIER=false',
     'export PRISMA_HIDE_UPDATE_MESSAGE=true',
+    'export GIT_SSH_COMMAND="ssh -o BatchMode=yes"',
     'cd "$APP_DIR"',
     'if [ ! -f package.json ]; then echo "ERRO: package.json do Webwhats nao encontrado em $APP_DIR."; exit 1; fi',
     'if [ ! -f .env ]; then echo "ERRO: .env do Webwhats nao existe no servidor."; exit 1; fi',
