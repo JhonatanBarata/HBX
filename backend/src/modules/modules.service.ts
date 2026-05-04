@@ -1673,6 +1673,7 @@ export class ModulesService implements OnModuleInit {
       isActive?: boolean | null;
       paymentStatus?: string | null;
       subscriptionStatus?: string | null;
+      premiumAccess?: boolean | null;
       trialEndsAt?: Date | string | null;
       billingGraceEndsAt?: Date | string | null;
     } | null,
@@ -1684,6 +1685,7 @@ export class ModulesService implements OnModuleInit {
           isActive: Boolean(companySnapshot?.isActive),
           paymentStatus: companySnapshot?.paymentStatus || null,
           subscriptionStatus: companySnapshot?.subscriptionStatus || null,
+          premiumAccess: Boolean(companySnapshot?.premiumAccess),
           trialEndsAt: this.parseDateValue(companySnapshot?.trialEndsAt),
           billingGraceEndsAt: this.parseDateValue(companySnapshot?.billingGraceEndsAt),
         }
@@ -1694,6 +1696,7 @@ export class ModulesService implements OnModuleInit {
             isActive: true,
             paymentStatus: true,
             subscriptionStatus: true,
+            premiumAccess: true,
             trialEndsAt: true,
             billingGraceEndsAt: true,
           },
@@ -1703,12 +1706,19 @@ export class ModulesService implements OnModuleInit {
     const now = Date.now();
     const paymentStatus = String(company.paymentStatus || '').trim().toUpperCase();
     const subscriptionStatus = String(company.subscriptionStatus || '').trim().toLowerCase();
+    const accessReleased =
+      paymentStatus === 'PAID' ||
+      paymentStatus === 'MANUAL' ||
+      subscriptionStatus === 'active' ||
+      subscriptionStatus === 'authorized' ||
+      subscriptionStatus === 'manual' ||
+      Boolean(company.premiumAccess);
     const graceAllowed = Boolean(
       company.billingGraceEndsAt &&
       company.billingGraceEndsAt.getTime() >= now &&
       company.isActive,
     );
-    if ((paymentStatus === 'PENDING' || subscriptionStatus === 'pending_checkout') && subscriptionStatus !== 'authorized' && !graceAllowed) {
+    if ((paymentStatus === 'PENDING' || subscriptionStatus === 'pending_checkout') && !accessReleased && !graceAllowed) {
       return { exists: true, active: false };
     }
     const trialExpired = Boolean(
