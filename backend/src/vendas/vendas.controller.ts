@@ -9,15 +9,21 @@ import { ModuleAccessGuard } from '../modules/module-access.guard';
 import {
   CreateManualVendasLeadDto,
   ImportWebscrapingLeadsDto,
+  StartVendasProspectingDto,
+  UpdateVendasProspectingConfigDto,
   UpdateVendasLeadDto,
 } from './dto/vendas.dto';
+import { VendasAutomationService } from './vendas-automation.service';
 import { VendasService } from './vendas.service';
 
 @Controller('vendas')
 @UseGuards(JwtAuthGuard, ModuleAccessGuard)
 @ModuleAccess('vendas')
 export class VendasController {
-  constructor(private readonly vendasService: VendasService) {}
+  constructor(
+    private readonly vendasService: VendasService,
+    private readonly vendasAutomationService: VendasAutomationService,
+  ) {}
 
   @Get('automation/bot-config')
   @UseGuards(CommercialEntitlementGuard)
@@ -36,6 +42,48 @@ export class VendasController {
   @Get('automation/agenda')
   getAutomationAgenda(@Req() req: any) {
     return this.vendasService.getAutomationAgendaForUser(req.user);
+  }
+
+  @Get('automation/live-status')
+  @UseGuards(CommercialEntitlementGuard)
+  @CommercialEntitlement(COMMERCIAL_ENTITLEMENT_KEYS.BOT_IA)
+  getAutomationLiveStatus(@Req() req: any) {
+    return this.vendasAutomationService.getLiveStatusForUser(req.user);
+  }
+
+  @Post('automation/prospecting/start')
+  @UseGuards(CommercialEntitlementGuard)
+  @CommercialEntitlement(COMMERCIAL_ENTITLEMENT_KEYS.BOT_IA)
+  startProspecting(@Req() req: any, @Body() dto: StartVendasProspectingDto) {
+    return this.vendasAutomationService.startProspectingForUser(req.user, dto || {});
+  }
+
+  @Post('automation/prospecting/pause')
+  @UseGuards(CommercialEntitlementGuard)
+  @CommercialEntitlement(COMMERCIAL_ENTITLEMENT_KEYS.BOT_IA)
+  pauseProspecting(@Req() req: any) {
+    return this.vendasAutomationService.pauseProspectingForUser(req.user);
+  }
+
+  @Post('automation/prospecting/resume')
+  @UseGuards(CommercialEntitlementGuard)
+  @CommercialEntitlement(COMMERCIAL_ENTITLEMENT_KEYS.BOT_IA)
+  resumeProspecting(@Req() req: any) {
+    return this.vendasAutomationService.resumeProspectingForUser(req.user);
+  }
+
+  @Post('automation/prospecting/cancel')
+  @UseGuards(CommercialEntitlementGuard)
+  @CommercialEntitlement(COMMERCIAL_ENTITLEMENT_KEYS.BOT_IA)
+  cancelProspecting(@Req() req: any) {
+    return this.vendasAutomationService.cancelProspectingForUser(req.user);
+  }
+
+  @Patch('automation/prospecting/config')
+  @UseGuards(CommercialEntitlementGuard)
+  @CommercialEntitlement(COMMERCIAL_ENTITLEMENT_KEYS.BOT_IA)
+  updateProspectingConfig(@Req() req: any, @Body() dto: UpdateVendasProspectingConfigDto) {
+    return this.vendasAutomationService.patchProspectingConfigForUser(req.user, dto || {});
   }
 
   @Get('board')

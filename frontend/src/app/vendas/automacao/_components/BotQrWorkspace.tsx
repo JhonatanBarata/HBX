@@ -8,11 +8,14 @@ type BotQrWorkspaceProps = {
   connectionPaired?: boolean;
   connectionPanel: ReactNode;
   flowPanel: ReactNode;
+  prospectingPanel: ReactNode;
   publishPanel: ReactNode;
 };
 
 const TABS: Array<{ id: BotQrWorkspaceTab; label: string; helper: string }> = [
+  { id: "connection", label: "Conexão", helper: "QR" },
   { id: "flow", label: "Bot", helper: "Fluxo" },
+  { id: "prospeccao", label: "Prospecção", helper: "Automática" },
   { id: "publish", label: "OK", helper: "Publicar" },
 ];
 
@@ -22,10 +25,17 @@ export default function BotQrWorkspace({
   connectionPaired = false,
   connectionPanel,
   flowPanel,
+  prospectingPanel,
   publishPanel,
 }: BotQrWorkspaceProps) {
-  void connectionPanel;
-  const currentPanel = activeTab === "publish" ? publishPanel : flowPanel;
+  const currentPanel =
+    activeTab === "connection"
+      ? connectionPanel
+      : activeTab === "publish"
+        ? publishPanel
+        : activeTab === "prospeccao"
+          ? prospectingPanel
+          : flowPanel;
 
   return (
     <section className={styles.workspaceSection}>

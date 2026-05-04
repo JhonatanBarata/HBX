@@ -139,6 +139,8 @@ model Company {
   webscrapingSearchHistories WebscrapingSearchHistory[]
   webscrapingUsageLogs WebscrapingUsageLog[]
   vendasLeads         VendasLead[]
+  vendasAutomationCampaigns VendasAutomationCampaign[]
+  vendasAutomationJobs VendasAutomationJob[]
   commercialEntitlements CompanyCommercialEntitlement[]
   commercialUsageLogs CompanyCommercialUsageLog[]
   trialPhoneUsages    TrialPhoneUsage[]
@@ -891,6 +893,7 @@ model VendasLead {
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
   timelineEvents    VendasLeadTimelineEvent[]
+  automationJobs    VendasAutomationJob[]
 
   @@unique([companyId, phoneNormalized])
   @@index([companyId, status, returnAt])
@@ -914,6 +917,70 @@ model VendasLeadTimelineEvent {
   createdAt       DateTime   @default(now())
 
   @@index([leadId, createdAt])
+}
+
+model VendasAutomationCampaign {
+  id                         String   @id @default(cuid())
+  company                    Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companyId                  Int
+  createdByUserId            Int?
+  status                     String   @default("running") // running | paused | canceled | done | error
+  city                       String
+  state                      String?
+  segment                    String
+  engine                     String   @default("hbx")
+  targetType                 String   @default("pj")
+  filtersJson                String?
+  searchSignature            String?
+  messageTemplate            String
+  intervalMinutes            Int      @default(12)
+  dailyLimit                 Int      @default(40)
+  minLeadBuffer              Int      @default(15)
+  desiredLeadBuffer          Int      @default(60)
+  maxAttemptsPerLead         Int      @default(1)
+  workingHoursStart          String   @default("09:00")
+  workingHoursEnd            String   @default("17:30")
+  typingSeconds              Int      @default(8)
+  typingVarianceSeconds      Int      @default(6)
+  positiveIntentKeywordsJson String?
+  negativeIntentKeywordsJson String?
+  optOutMessage              String?
+  websiteFallbackEnabled     Boolean  @default(true)
+  lastScrapeAt               DateTime?
+  lastStatusText             String?
+  lastError                  String?
+  createdAt                  DateTime @default(now())
+  updatedAt                  DateTime @updatedAt
+  jobs                       VendasAutomationJob[]
+
+  @@index([companyId, status, updatedAt])
+  @@index([companyId, createdAt])
+}
+
+model VendasAutomationJob {
+  id             String                    @id @default(cuid())
+  campaign       VendasAutomationCampaign  @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  campaignId     String
+  company        Company                   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companyId      Int
+  lead           VendasLead                @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  leadId         String
+  conversationId Int?
+  status         String                    @default("pending") // pending | scheduled | sending | sent | replied_positive | replied_negative | no_response_archived | failed | skipped | canceled
+  scheduledAt    DateTime?
+  sentAt         DateTime?
+  repliedAt      DateTime?
+  archivedAt     DateTime?
+  attemptNumber  Int                       @default(1)
+  classification String?
+  errorMessage   String?
+  createdAt      DateTime                  @default(now())
+  updatedAt      DateTime                  @updatedAt
+
+  @@index([companyId, status, scheduledAt])
+  @@index([campaignId, status, scheduledAt])
+  @@index([leadId, status])
+  @@index([conversationId])
 }
 
 model TechAssistantInteraction {

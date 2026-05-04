@@ -5,13 +5,15 @@ import { MessagingModule } from '../messaging/messaging.module';
 import { PrismaModule } from '../prisma/prisma.module';
 import { ModulesAccessModule } from '../modules/modules.module';
 import { CommercialPlansModule } from '../commercial-plans/commercial-plans.module';
+import { WebscrapingModule } from '../webscraping/webscraping.module';
 import { VendasController } from './vendas.controller';
+import { VendasAutomationService } from './vendas-automation.service';
 import { VendasService } from './vendas.service';
 
 @Module({
-  imports: [PrismaModule, CustomerProfileModule, ModulesAccessModule, MessagingModule, InboxModule, CommercialPlansModule],
+  imports: [PrismaModule, CustomerProfileModule, ModulesAccessModule, MessagingModule, InboxModule, CommercialPlansModule, WebscrapingModule],
   controllers: [VendasController],
-  providers: [VendasService],
-  exports: [VendasService],
+  providers: [VendasService, VendasAutomationService],
+  exports: [VendasService, VendasAutomationService],
 })
 export class VendasModule {}

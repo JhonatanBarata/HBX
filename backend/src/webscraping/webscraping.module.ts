@@ -7,5 +7,6 @@ import { WebscrapingService } from './webscraping.service';
   imports: [ModulesAccessModule],
   controllers: [WebscrapingController],
   providers: [WebscrapingService],
+  exports: [WebscrapingService],
 })
 export class WebscrapingModule {}

@@ -585,7 +585,7 @@
 
 .workspaceTabs {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
 .workspaceTab {
@@ -955,6 +955,102 @@
 
 .publishTestFooter {
   padding-top: 0.25rem;
+}
+
+.prospectingShell {
+  display: grid;
+  gap: 0.9rem;
+}
+
+.prospectingStatusBar,
+.prospectingPanel {
+  border: 1px solid rgba(38, 93, 132, 0.16);
+  border-radius: 22px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.78), rgba(255, 255, 255, 0.62)),
+    radial-gradient(circle at top right, rgba(38, 177, 218, 0.1), transparent 42%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.58),
+    0 18px 42px rgba(18, 52, 84, 0.1);
+}
+
+.prospectingStatusBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  padding: 1rem;
+}
+
+.prospectingStatusMetrics,
+.prospectingActionRow {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  flex-wrap: wrap;
+}
+
+.prospectingStatusMetrics span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.32rem;
+  min-height: 32px;
+  padding: 0.28rem 0.68rem;
+  border-radius: 999px;
+  border: 1px solid rgba(38, 93, 132, 0.14);
+  background: rgba(255, 255, 255, 0.56);
+  color: rgba(40, 78, 124, 0.82);
+  font-size: 0.74rem;
+  font-weight: 800;
+}
+
+.prospectingStatusMetrics strong {
+  color: #102238;
+}
+
+.prospectingGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.9rem;
+}
+
+.prospectingPanel {
+  display: grid;
+  gap: 1rem;
+  padding: 1rem;
+}
+
+.prospectingFormGrid,
+.prospectingMessageGrid {
+  display: grid;
+  gap: 0.78rem;
+}
+
+.prospectingFormGrid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.prospectingMessageGrid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.prospectingFormGrid label,
+.prospectingMessageGrid label {
+  display: grid;
+  gap: 0.38rem;
+}
+
+.prospectingFormGrid label span,
+.prospectingMessageGrid label span,
+.toggleCard small {
+  color: rgba(40, 78, 124, 0.82);
+  font-size: 0.76rem;
+  font-weight: 800;
+}
+
+.prospectingActionRow {
+  justify-content: flex-end;
 }
 
 .codexDetails {
@@ -2172,7 +2268,7 @@
 }
 
 .workspaceTabs {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 0.68rem;
   border: 1px solid rgba(38, 93, 132, 0.16);
   border-radius: 20px;

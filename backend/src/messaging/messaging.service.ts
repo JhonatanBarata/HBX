@@ -50,6 +50,7 @@ import {
 } from '../modules/master-global-integrations.util';
 import {
   buildStructuredWhatsAppLog,
+  buildWhatsAppPhoneCandidates,
   extractInboundTextFromPayload,
   normalizeMetaProviderError,
   normalizeWhatsAppMessageType,
@@ -1396,6 +1397,447 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
         ).trim() || null,
       botOffAt: blockedAt ? new Date(blockedAt) : new Date(),
     };
+  }
+
+  private normalizeVendasAutomationIntentText(value: unknown) {
+    return String(value || '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  private readJsonRecord(value: unknown): Record<string, any> {
+    if (!value) return {};
+    if (typeof value === 'object' && !Array.isArray(value)) return value as Record<string, any>;
+    try {
+      const parsed = JSON.parse(String(value));
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as Record<string, any> : {};
+    } catch {
+      return {};
+    }
+  }
+
+  private readJsonTextList(value: unknown, fallback: string[] = []) {
+    let source: unknown = value;
+    if (typeof value === 'string') {
+      try {
+        source = JSON.parse(value);
+      } catch {
+        source = value.split(/\r?\n|,/);
+      }
+    }
+    const items = Array.isArray(source) ? source : fallback;
+    return Array.from(
+      new Set(
+        items
+          .map((item) => String(item || '').trim())
+          .filter(Boolean),
+      ),
+    );
+  }
+
+  private publishVendasAutomationEvent(input: {
+    companyId: number;
+    type: string;
+    status: string;
+    text: string;
+    campaignId?: string | null;
+    jobId?: string | null;
+    leadId?: string | null;
+    conversationId?: number | null;
+  }) {
+    this.inboxRealtime.publish({
+      companyId: input.companyId,
+      kind: 'automation',
+      conversationId: input.conversationId || null,
+      automation: {
+        type: input.type,
+        status: input.status,
+        text: input.text,
+        campaignId: input.campaignId || null,
+        jobId: input.jobId || null,
+        leadId: input.leadId || null,
+      },
+      at: new Date().toISOString(),
+    });
+  }
+
+  private async findVendasAutomationJobForInbound(input: {
+    companyId: number;
+    conversationId: number;
+    from: string;
+    metadata: Record<string, any>;
+  }) {
+    const automation = this.readJsonRecord(input.metadata?.vendasAutomation);
+    const queue = this.readJsonRecord(input.metadata?.vendasAgendaQueue);
+    const jobId = String(automation.jobId || queue.automationJobId || '').trim();
+    if (jobId) {
+      const job = await this.prisma.vendasAutomationJob.findFirst({
+        where: { id: jobId, companyId: input.companyId },
+        include: { campaign: true, lead: true },
+      });
+      if (job) return job;
+    }
+
+    const phoneDigits = this.customerProfileService.normalizePhone(input.from);
+    const candidates = phoneDigits
+      ? buildWhatsAppPhoneCandidates(phoneDigits)
+          .map((value) => this.customerProfileService.normalizePhone(value))
+          .filter((value): value is string => Boolean(value))
+      : [];
+
+    return this.prisma.vendasAutomationJob.findFirst({
+      where: {
+        companyId: input.companyId,
+        status: { in: ['sent', 'sending'] },
+        OR: [
+          { conversationId: input.conversationId },
+          ...(candidates.length ? [{ lead: { phoneNormalized: { in: candidates } } }] : []),
+        ],
+      },
+      include: { campaign: true, lead: true },
+      orderBy: [{ sentAt: 'desc' }, { createdAt: 'desc' }],
+    });
+  }
+
+  private async handleVendasAutomationInbound(input: {
+    companyId: number;
+    conversationId: number;
+    inboundMessageId: number;
+    from: string;
+    text: string;
+    timestamp: Date;
+    metadata: Record<string, any>;
+    setInboundMeta: (sourceModule: string, isComplaint: boolean) => Promise<void>;
+  }) {
+    const job = await this.findVendasAutomationJobForInbound(input);
+    if (!job?.campaign || !job?.lead) return null;
+    const finalStatuses = new Set([
+      'replied_positive',
+      'replied_negative',
+      'no_response_archived',
+      'failed',
+      'skipped',
+      'canceled',
+    ]);
+    if (finalStatuses.has(String(job.status || ''))) return null;
+
+    const normalizedText = this.normalizeVendasAutomationIntentText(input.text);
+    const positiveKeywords = this.readJsonTextList(job.campaign.positiveIntentKeywordsJson, [
+      'tenho interesse',
+      'pode mandar',
+      'quero saber',
+      'me explica',
+      'quanto custa',
+    ]).map((item) => this.normalizeVendasAutomationIntentText(item));
+    const negativeKeywords = this.readJsonTextList(job.campaign.negativeIntentKeywordsJson, [
+      'nao tenho interesse',
+      'não tenho interesse',
+      'sem interesse',
+      'pare',
+      'remover',
+    ]).map((item) => this.normalizeVendasAutomationIntentText(item));
+    const positive = positiveKeywords.some((keyword) => keyword && normalizedText.includes(keyword));
+    const negative = !positive && negativeKeywords.some((keyword) => keyword && normalizedText.includes(keyword));
+
+    if (positive) {
+      await input.setInboundMeta('vendas_prospeccao_interessado', false);
+      await this.markVendasAutomationInterested(input, job);
+      return { handled: true, classification: 'positive' };
+    }
+
+    if (negative) {
+      await input.setInboundMeta('vendas_prospeccao_negativo', false);
+      await this.markVendasAutomationNegative(input, job);
+      return { handled: true, classification: 'negative' };
+    }
+
+    await input.setInboundMeta('vendas_prospeccao_neutro', false);
+    await this.markVendasAutomationNeutral(input, job);
+    return { handled: true, classification: 'neutral' };
+  }
+
+  private async markVendasAutomationInterested(input: any, job: any) {
+    const now = new Date();
+    await this.prisma.$transaction(async (tx) => {
+      await tx.vendasAutomationJob.update({
+        where: { id: job.id },
+        data: {
+          status: 'replied_positive',
+          repliedAt: now,
+          classification: 'positive',
+          conversationId: input.conversationId,
+        },
+      });
+      await tx.vendasAutomationJob.updateMany({
+        where: {
+          companyId: input.companyId,
+          leadId: job.leadId,
+          id: { not: job.id },
+          status: { in: ['pending', 'scheduled'] },
+        },
+        data: { status: 'canceled', archivedAt: now, errorMessage: 'Lead respondeu com interesse.' },
+      });
+      await tx.vendasLead.update({
+        where: { id: job.leadId },
+        data: { status: 'qualificado', lastResult: 'Interessado', returnAt: now },
+      });
+      await tx.vendasLeadTimelineEvent.create({
+        data: {
+          leadId: job.leadId,
+          eventType: 'result_recorded',
+          title: 'Interessado encontrado',
+          description: 'Resposta positiva detectada pela prospecção automática.',
+          sourceType: 'vendas_prospeccao_bot',
+          statusTo: 'qualificado',
+          resultLabel: 'Interessado',
+        },
+      });
+    });
+
+    const queue = this.readJsonRecord(input.metadata?.vendasAgendaQueue);
+    const automation = this.readJsonRecord(input.metadata?.vendasAutomation);
+    await this.updateAtendimentoConversationState(
+      input.companyId,
+      input.conversationId,
+      {
+        currentFlow: ATENDIMENTO_FLOW_ID,
+        currentStep: ATENDIMENTO_STEP.HUMAN,
+        botActive: false,
+        humanAssigned: true,
+        flowResult: 'prospection_interested',
+      },
+      {
+        ...this.clearAtendimentoBlockedMetadata(input.metadata),
+        queueTarget: 'atendimento',
+        routeTarget: 'atendimento',
+        vendasAutomation: {
+          ...automation,
+          campaignId: job.campaignId,
+          jobId: job.id,
+          leadId: job.leadId,
+          status: 'interested',
+          interestedAt: now.toISOString(),
+        },
+        vendasAgendaQueue: {
+          ...queue,
+          active: true,
+          leadId: job.leadId,
+          queueTarget: 'atendimento',
+          routeTarget: 'atendimento',
+          status: 'qualificado',
+          nextAction: 'Atendimento humano',
+          draftPending: false,
+          botEligible: false,
+          botEntryPending: false,
+          respondedAt: now.toISOString(),
+          syncedAt: now.toISOString(),
+          interested: true,
+        },
+      },
+    );
+    this.publishVendasAutomationEvent({
+      companyId: input.companyId,
+      campaignId: job.campaignId,
+      jobId: job.id,
+      leadId: job.leadId,
+      conversationId: input.conversationId,
+      status: 'aguardando',
+      text: 'Interessado encontrado',
+      type: 'lead_interested',
+    });
+    this.inboxRealtime.publish({
+      companyId: input.companyId,
+      kind: 'conversation',
+      conversationId: input.conversationId,
+      at: now.toISOString(),
+    });
+  }
+
+  private async markVendasAutomationNegative(input: any, job: any) {
+    const now = new Date();
+    await this.prisma.$transaction(async (tx) => {
+      await tx.vendasAutomationJob.update({
+        where: { id: job.id },
+        data: {
+          status: 'replied_negative',
+          repliedAt: now,
+          archivedAt: now,
+          classification: 'negative',
+          conversationId: input.conversationId,
+        },
+      });
+      await tx.vendasAutomationJob.updateMany({
+        where: {
+          companyId: input.companyId,
+          leadId: job.leadId,
+          id: { not: job.id },
+          status: { in: ['pending', 'scheduled'] },
+        },
+        data: { status: 'canceled', archivedAt: now, errorMessage: 'Lead respondeu negativamente.' },
+      });
+      await tx.vendasLead.update({
+        where: { id: job.leadId },
+        data: { status: 'encerrado', wasClosedBefore: true, closedAt: now, lastResult: 'Resposta negativa' },
+      });
+      await tx.vendasLeadTimelineEvent.create({
+        data: {
+          leadId: job.leadId,
+          eventType: 'lead_closed',
+          title: 'Resposta negativa',
+          description: 'Lead recusou contato. Recontato automático bloqueado.',
+          sourceType: 'vendas_prospeccao_bot',
+          statusTo: 'encerrado',
+          resultLabel: 'Negativo',
+        },
+      });
+    });
+
+    const website =
+      job.campaign.websiteFallbackEnabled !== false && job.lead.website
+        ? `\n\nSite: ${String(job.lead.website).trim()}`
+        : '';
+    const optOutMessage = `${job.campaign.optOutMessage || 'Obrigado pelo retorno. Nao vou insistir por aqui.'}${website}`.trim();
+    if (optOutMessage) {
+      try {
+        await this.conversations.queueOutboundForCompany(input.companyId, {
+          conversationId: input.conversationId,
+          to: input.from,
+          contactId: input.from,
+          body: optOutMessage,
+          messageType: 'text',
+          sourceModule: 'vendas_prospeccao_bot',
+          senderType: 'bot',
+          variables: {
+            botType: 'prospeccao',
+            campaignId: job.campaignId,
+            jobId: job.id,
+            leadId: job.leadId,
+            optOut: true,
+          },
+          flowState: { botActive: false, humanAssigned: false, flowResult: 'prospection_negative' },
+        });
+      } catch (error: any) {
+        this.logger.warn(`Falha ao enviar opt-out da prospeccao job=${job.id}: ${String(error?.message || error)}`);
+      }
+    }
+
+    const queue = this.readJsonRecord(input.metadata?.vendasAgendaQueue);
+    const automation = this.readJsonRecord(input.metadata?.vendasAutomation);
+    await this.updateAtendimentoConversationState(
+      input.companyId,
+      input.conversationId,
+      {
+        currentFlow: ATENDIMENTO_FLOW_ID,
+        currentStep: ATENDIMENTO_STEP.CLOSED,
+        botActive: false,
+        humanAssigned: false,
+        flowResult: 'prospection_negative',
+      },
+      {
+        ...input.metadata,
+        queueTarget: 'excluidos',
+        routeTarget: 'excluidos',
+        inboxManualQueueOverride: 'archived',
+        inboxLocalDeleted: true,
+        inboxLocalDeletedAt: now.toISOString(),
+        vendasAutomation: {
+          ...automation,
+          campaignId: job.campaignId,
+          jobId: job.id,
+          leadId: job.leadId,
+          status: 'negative',
+          negativeAt: now.toISOString(),
+        },
+        vendasAgendaQueue: {
+          ...queue,
+          active: false,
+          leadId: job.leadId,
+          queueTarget: 'excluidos',
+          routeTarget: 'excluidos',
+          status: 'encerrado',
+          draftPending: false,
+          botEligible: false,
+          botEntryPending: false,
+          manualQueueOverride: 'archived',
+          syncedAt: now.toISOString(),
+          deactivatedAt: now.toISOString(),
+        },
+      },
+    );
+    this.publishVendasAutomationEvent({
+      companyId: input.companyId,
+      campaignId: job.campaignId,
+      jobId: job.id,
+      leadId: job.leadId,
+      conversationId: input.conversationId,
+      status: 'aguardando',
+      text: 'Lead arquivado por resposta negativa.',
+      type: 'lead_archived',
+    });
+  }
+
+  private async markVendasAutomationNeutral(input: any, job: any) {
+    const now = new Date();
+    await this.prisma.vendasAutomationJob.update({
+      where: { id: job.id },
+      data: {
+        classification: 'neutral',
+        repliedAt: now,
+        conversationId: input.conversationId,
+      },
+    });
+    const queue = this.readJsonRecord(input.metadata?.vendasAgendaQueue);
+    const automation = this.readJsonRecord(input.metadata?.vendasAutomation);
+    await this.updateAtendimentoConversationState(
+      input.companyId,
+      input.conversationId,
+      {
+        currentFlow: ATENDIMENTO_FLOW_ID,
+        currentStep: ATENDIMENTO_STEP.HUMAN,
+        botActive: false,
+        humanAssigned: true,
+        flowResult: 'prospection_neutral',
+      },
+      {
+        ...this.clearAtendimentoBlockedMetadata(input.metadata),
+        queueTarget: 'atendimento',
+        routeTarget: 'atendimento',
+        vendasAutomation: {
+          ...automation,
+          campaignId: job.campaignId,
+          jobId: job.id,
+          leadId: job.leadId,
+          status: 'neutral',
+          neutralAt: now.toISOString(),
+        },
+        vendasAgendaQueue: {
+          ...queue,
+          active: true,
+          leadId: job.leadId,
+          queueTarget: 'atendimento',
+          routeTarget: 'atendimento',
+          nextAction: 'Atendimento humano',
+          draftPending: false,
+          botEligible: false,
+          botEntryPending: false,
+          respondedAt: now.toISOString(),
+          syncedAt: now.toISOString(),
+        },
+      },
+    );
+    this.publishVendasAutomationEvent({
+      companyId: input.companyId,
+      campaignId: job.campaignId,
+      jobId: job.id,
+      leadId: job.leadId,
+      conversationId: input.conversationId,
+      status: 'aguardando',
+      text: 'Resposta recebida. Enviado para Atendimento.',
+      type: 'lead_neutral',
+    });
   }
 
   private async resolveAtendimentoIdentityState(input: {
@@ -3623,6 +4065,20 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
         result: 'ignored',
       });
       return { handled: true, blocked: true };
+    }
+
+    const vendasAutomationInbound = await this.handleVendasAutomationInbound({
+      companyId,
+      conversationId: safeConversationId,
+      inboundMessageId,
+      from,
+      text,
+      timestamp: input.timestamp,
+      metadata,
+      setInboundMeta,
+    });
+    if (vendasAutomationInbound?.handled) {
+      return vendasAutomationInbound;
     }
 
     if (

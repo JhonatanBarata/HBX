@@ -1,13 +1,12 @@
 import {
   buildAgendaActionId,
   type AtendimentoAgendaConfig,
-  type AtendimentoBotActionGuide,
   type AtendimentoBotButton,
   type AtendimentoBotConfig,
 } from "../../atendimento/inbox-model";
 import type { ProviderCapabilities } from "@/lib/provider-capabilities";
 
-export type BotQrWorkspaceTab = "connection" | "flow" | "publish";
+export type BotQrWorkspaceTab = "connection" | "flow" | "prospeccao" | "publish";
 
 export type BotQrPreviewScenarioId =
   | "new_customer"
