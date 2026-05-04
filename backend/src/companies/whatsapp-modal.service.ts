@@ -458,7 +458,8 @@ export class WhatsAppModalService {
     );
   }
 
-  private isPendingCheckoutCompany(company: Pick<CompanyModalFields, 'paymentStatus' | 'subscriptionStatus' | 'onboardingStatus'>) {
+  private isPendingCheckoutCompany(company: Pick<CompanyModalFields, 'paymentStatus' | 'subscriptionStatus' | 'onboardingStatus' | 'premiumAccess'>) {
+    if (this.isPaidOrActiveCompany(company)) return false;
     const paymentStatus = String(company.paymentStatus || '').trim().toUpperCase();
     const subscriptionStatus = String(company.subscriptionStatus || '').trim().toLowerCase();
     const onboardingStatus = String(company.onboardingStatus || '').trim().toLowerCase();

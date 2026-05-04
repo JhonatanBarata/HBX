@@ -36,6 +36,7 @@ type User = {
     onboardingStatus?: string | null;
     paymentStatus?: string | null;
     subscriptionStatus?: string | null;
+    premiumAccess?: boolean | null;
     billingGraceEndsAt?: string | null;
   } | null;
   masterContext?: {
@@ -189,6 +190,7 @@ function isPendingCheckoutUser(user: User | null) {
     subscriptionStatus === "active" ||
     subscriptionStatus === "authorized" ||
     subscriptionStatus === "manual" ||
+    Boolean(company.premiumAccess) ||
     graceAccess;
   if (accessReleased) return false;
   return onboardingStatus === "pending_checkout" || subscriptionStatus === "pending_checkout" || paymentStatus === "PENDING";
