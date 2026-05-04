@@ -631,7 +631,7 @@ test('engine hbx chama motor local e aceita agenda_pf sem segmento', async () =>
   }
 });
 
-test('engine hbx aplica limite 50 para pj e envia targetType', async () => {
+test('engine hbx aplica limite 100 para pj e envia targetType', async () => {
   const previousEngineUrl = process.env.HBX_SCRAPING_ENGINE_URL;
   process.env.HBX_SCRAPING_ENGINE_URL = 'http://localhost:8001/';
 
@@ -670,9 +670,229 @@ test('engine hbx aplica limite 50 para pj e envia targetType', async () => {
     assert.equal(calls[0].body.city, 'Americana');
     assert.equal(calls[0].body.state, 'SP');
     assert.equal(calls[0].body.targetType, 'pj');
-    assert.equal(calls[0].body.limit, 50);
-    assert.equal(response.query.quantity, 50);
+    assert.equal(calls[0].body.limit, 80);
+    assert.equal(response.query.quantity, 80);
     assert.equal(response.results.length, 1);
+  } finally {
+    global.fetch = previousFetch;
+    if (previousEngineUrl === undefined) delete process.env.HBX_SCRAPING_ENGINE_URL;
+    else process.env.HBX_SCRAPING_ENGINE_URL = previousEngineUrl;
+  }
+});
+
+test('busca livre hbx pj aceita apenas termo e limita em 100', async () => {
+  const previousEngineUrl = process.env.HBX_SCRAPING_ENGINE_URL;
+  process.env.HBX_SCRAPING_ENGINE_URL = 'http://localhost:8001';
+
+  const previousFetch = global.fetch;
+  const calls: any[] = [];
+  global.fetch = (async (input: any, init?: any) => {
+    calls.push({
+      url: String(input),
+      body: JSON.parse(String(init?.body || '{}')),
+    });
+    return createResponse(200, {
+      results: [
+        {
+          name: 'Madeireira Central',
+          phone: '(11) 4000-1111',
+          phoneDigits: '1140001111',
+          address: 'Rua das Madeiras, 10',
+          website: 'https://madeireira.example.com',
+          source: 'hbx_scraping:free_pj',
+          score: 88,
+        },
+      ],
+    }) as any;
+  }) as any;
+
+  const service = new WebscrapingService(createPrisma());
+
+  try {
+    const response = await service.searchContactsForUser(createUser(), {
+      segment: 'Madeireira',
+      engine: 'hbx',
+      targetType: 'pj',
+      quantity: 150,
+    });
+
+    assert.equal(calls[0].url, 'http://localhost:8001/search');
+    assert.equal(calls[0].body.city, '');
+    assert.equal(calls[0].body.state, '');
+    assert.equal(calls[0].body.segment, 'Madeireira');
+    assert.equal(calls[0].body.limit, 100);
+    assert.equal(calls[0].body.excludePhoneDigits, undefined);
+    assert.equal(response.query.quantity, 100);
+    assert.equal(response.query.city, '');
+    assert.equal(response.query.state, null);
+    assert.equal(response.results[0].source, 'hbx_scraping:free_pj');
+  } finally {
+    global.fetch = previousFetch;
+    if (previousEngineUrl === undefined) delete process.env.HBX_SCRAPING_ENGINE_URL;
+    else process.env.HBX_SCRAPING_ENGINE_URL = previousEngineUrl;
+  }
+});
+
+test('buscar mais hbx envia excludePhoneDigits e retorna apenas cards novos', async () => {
+  const previousEngineUrl = process.env.HBX_SCRAPING_ENGINE_URL;
+  process.env.HBX_SCRAPING_ENGINE_URL = 'http://localhost:8001';
+
+  const previousFetch = global.fetch;
+  const calls: any[] = [];
+  global.fetch = (async (input: any, init?: any) => {
+    calls.push({
+      url: String(input),
+      body: JSON.parse(String(init?.body || '{}')),
+    });
+    return createResponse(200, {
+      results: [
+        {
+          name: 'Madeireira Antiga',
+          phone: '(11) 4000-1111',
+          phoneDigits: '1140001111',
+          source: 'hbx_scraping:free_pj',
+          score: 95,
+        },
+        {
+          name: 'Madeireira Nova',
+          phone: '(11) 4000-2222',
+          phoneDigits: '1140002222',
+          source: 'hbx_scraping:free_pj',
+          score: 92,
+        },
+      ],
+    }) as any;
+  }) as any;
+
+  const service = new WebscrapingService(createPrisma({
+    webscrapingSearchHistory: {
+      findFirst: async () => ({
+        id: 'history-madeireira',
+        userId: 9,
+        city: '',
+        segment: 'Madeireira',
+        quantity: 100,
+        filtersJson: JSON.stringify({
+          minRating: null,
+          minReviews: null,
+          onlyWithWebsite: false,
+          engine: 'hbx',
+          targetType: 'pj',
+          state: '',
+        }),
+        searchSignature: 'engine:hbx|targetType:pj|city:|state:|segment:madeireira|filters:{}',
+        resultCount: 1,
+        createdAt: new Date('2026-05-03T12:00:00.000Z'),
+        updatedAt: new Date('2026-05-03T12:00:00.000Z'),
+        lastUsedAt: new Date('2026-05-03T12:00:00.000Z'),
+        places: [
+          {
+            id: 'place-old',
+            placeId: 'hbx:pj:1140001111',
+            rank: 1,
+            name: 'Madeireira Antiga',
+            phone: '(11) 4000-1111',
+            phoneDigits: '1140001111',
+            rating: null,
+            reviews: 0,
+            address: 'Rua 1',
+            website: '',
+            source: 'hbx_scraping:free_pj',
+            score: 90,
+          },
+        ],
+      }),
+      findUnique: async () => null,
+      findMany: async () => [],
+      update: async ({ where, data }: any) => ({ id: where.id, ...data }),
+      upsert: async () => ({ id: 'history-madeireira' }),
+      delete: async () => null,
+    },
+  }));
+
+  try {
+    const response = await service.searchMoreHistoryForUser(createUser(), 'history-madeireira', 100);
+
+    assert.deepEqual(calls[0].body.excludePhoneDigits, ['1140001111']);
+    assert.equal(calls[0].body.fresh, true);
+    assert.equal(response.results.length, 1);
+    assert.equal(response.results[0].phoneDigits, '1140002222');
+    assert.equal(response.meta.fetchedCount, 1);
+    assert.equal(response.meta.totalStoredCount, 2);
+  } finally {
+    global.fetch = previousFetch;
+    if (previousEngineUrl === undefined) delete process.env.HBX_SCRAPING_ENGINE_URL;
+    else process.env.HBX_SCRAPING_ENGINE_URL = previousEngineUrl;
+  }
+});
+
+test('busca hbx retorna cards salvos como parcial quando motor falha', async () => {
+  const previousEngineUrl = process.env.HBX_SCRAPING_ENGINE_URL;
+  process.env.HBX_SCRAPING_ENGINE_URL = 'http://localhost:8001';
+
+  const previousFetch = global.fetch;
+  global.fetch = (async () => {
+    throw new Error('engine down');
+  }) as any;
+
+  const service = new WebscrapingService(createPrisma({
+    webscrapingSearchHistory: {
+      findFirst: async () => null,
+      findUnique: async () => ({
+        id: 'history-madeireira',
+        userId: 9,
+        city: '',
+        segment: 'Madeireira',
+        quantity: 100,
+        filtersJson: JSON.stringify({
+          minRating: null,
+          minReviews: null,
+          onlyWithWebsite: false,
+          engine: 'hbx',
+          targetType: 'pj',
+          state: '',
+        }),
+        searchSignature: 'engine:hbx|targetType:pj|city:|state:|segment:madeireira|filters:{}',
+        resultCount: 1,
+        createdAt: new Date('2026-05-03T12:00:00.000Z'),
+        updatedAt: new Date('2026-05-03T12:00:00.000Z'),
+        lastUsedAt: new Date('2026-05-03T12:00:00.000Z'),
+        places: [
+          {
+            id: 'place-old',
+            placeId: 'hbx:pj:1140001111',
+            rank: 1,
+            name: 'Madeireira Salva',
+            phone: '(11) 4000-1111',
+            phoneDigits: '1140001111',
+            rating: null,
+            reviews: 0,
+            address: 'Rua 1',
+            website: '',
+            source: 'hbx_scraping:free_pj',
+            score: 90,
+          },
+        ],
+      }),
+      findMany: async () => [],
+      update: async ({ where, data }: any) => ({ id: where.id, ...data }),
+      upsert: async () => ({ id: 'history-madeireira' }),
+      delete: async () => null,
+    },
+  }));
+
+  try {
+    const response = await service.searchContactsForUser(createUser(), {
+      segment: 'Madeireira',
+      engine: 'hbx',
+      targetType: 'pj',
+      quantity: 100,
+    });
+
+    assert.equal(response.results.length, 1);
+    assert.equal(response.results[0].name, 'Madeireira Salva');
+    assert.equal(response.meta.status, 'partial_error');
+    assert.match(String(response.meta.message || ''), /Busca parcial: 1 cards/i);
   } finally {
     global.fetch = previousFetch;
     if (previousEngineUrl === undefined) delete process.env.HBX_SCRAPING_ENGINE_URL;

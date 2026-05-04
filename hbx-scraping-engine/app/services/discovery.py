@@ -9,6 +9,7 @@ BLOCKED_EXTENSIONS = (".pdf", ".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg", 
 
 
 def build_queries(segment: str, city: str, state: str, target_type: str = "pj") -> list[str]:
+    location = " ".join(part for part in [city, state] if str(part or "").strip()).strip()
     if target_type == "agenda_pf":
         return [
             f"{city} {state} telefone",
@@ -30,12 +31,20 @@ def build_queries(segment: str, city: str, state: str, target_type: str = "pj") 
             f"vendedor {segment} {city} whatsapp",
             f"{segment} {city} {state} whatsapp",
         ]
+    if location:
+        return [
+            f"{segment} {location} telefone",
+            f"{segment} {location} contato",
+            f"{segment} {location} whatsapp",
+            f"{segment} em {location}",
+            f"{segment} {location} site oficial",
+        ]
     return [
-        f"{segment} {city} {state} telefone",
-        f"{segment} {city} {state} contato",
-        f"{segment} {city} {state} whatsapp",
-        f"{segment} em {city} {state}",
-        f"{segment} {city} {state} site oficial",
+        f"{segment} telefone",
+        f"{segment} contato",
+        f"{segment} whatsapp",
+        f"{segment} site oficial",
+        f"{segment} empresas telefone",
     ]
 
 
@@ -55,16 +64,18 @@ def _is_allowed_url(url: str) -> bool:
     return True
 
 
-def discovery_target(limit: int, max_discovery_results: int, target_type: str = "pj") -> int:
+def discovery_target(limit: int, max_discovery_results: int, target_type: str = "pj", exclude_count: int = 0) -> int:
     if target_type == "agenda_pf":
         return min(max_discovery_results, max(60, limit * 4))
+    if target_type == "pj":
+        return min(max_discovery_results, max(200, limit * 5 + max(0, exclude_count)))
     multiplier = 5 if target_type == "pf" else 4
     minimum = 60 if target_type == "pf" else 40
     return min(max_discovery_results, max(minimum, limit * multiplier))
 
 
-def discover_urls(city: str, state: str, segment: str, limit: int, max_discovery_results: int, target_type: str = "pj") -> list[str]:
-    target = discovery_target(limit, max_discovery_results, target_type)
+def discover_urls(city: str, state: str, segment: str, limit: int, max_discovery_results: int, target_type: str = "pj", exclude_count: int = 0) -> list[str]:
+    target = discovery_target(limit, max_discovery_results, target_type, exclude_count)
     queries = build_queries(segment, city, state, target_type)
     per_query = max(8, target // len(queries) + 2)
     seen: set[str] = set()

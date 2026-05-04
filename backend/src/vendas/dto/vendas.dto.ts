@@ -191,7 +191,7 @@ export class ImportWebscrapingLeadsDto {
   sourceHistoryId?: string;
 
   @IsArray()
-  @ArrayMaxSize(50)
+  @ArrayMaxSize(100)
   @ValidateNested({ each: true })
   @Type(() => ImportWebscrapingLeadItemDto)
   leads!: ImportWebscrapingLeadItemDto[];

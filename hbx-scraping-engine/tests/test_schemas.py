@@ -23,9 +23,12 @@ def test_agenda_pf_allows_empty_segment() -> None:
     assert request.targetType == "agenda_pf"
 
 
-def test_pj_rejects_limit_above_50() -> None:
-    with pytest.raises(ValueError):
-        SearchRequest(city="Americana", state="SP", segment="oficina mecanica", targetType="pj", limit=51)
+def test_pj_allows_limit_up_to_100() -> None:
+    request = SearchRequest(segment="Madeireira", targetType="pj", limit=100)
+
+    assert request.limit == 100
+    assert request.city == ""
+    assert request.state == ""
 
 
 def test_contact_result_forbids_removed_and_document_fields() -> None:

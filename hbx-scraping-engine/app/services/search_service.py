@@ -19,7 +19,9 @@ class SearchService:
         self.storage = Storage(DB_PATH, self.settings.cache_ttl_hours)
 
     async def search(self, request: SearchRequest) -> SearchResponse:
-        if not request.fresh:
+        excluded_phones = set(request.excludePhoneDigits or [])
+
+        if not request.fresh and not excluded_phones:
             cached = await asyncio.to_thread(self.storage.get_cached, request)
             if cached:
                 return SearchResponse.model_validate(cached)
@@ -37,6 +39,7 @@ class SearchService:
             request.limit,
             self.settings.max_discovery_results,
             request.targetType,
+            len(excluded_phones),
         )
         print(f"[search] URLs encontradas: {len(urls)}")
 
@@ -50,8 +53,14 @@ class SearchService:
         print(f"[search] URLs baixadas: {len(pages)}")
 
         parsed: list[dict] = []
+        errors: list[str] = []
         for page in pages:
-            contacts, text = parse_page(page.html, page.url, request.targetType, request.city)
+            try:
+                contacts, text = parse_page(page.html, page.url, request.targetType, request.city)
+            except Exception as error:
+                errors.append(f"parse_failed:{page.url}")
+                print(f"[search] parse ignorado url={page.url} error={error}")
+                continue
             for contact in contacts:
                 contact["score"] = score_contact(
                     contact,
@@ -73,6 +82,8 @@ class SearchService:
             if not item.get("phone") or not item.get("phoneDigits"):
                 stats["invalid_phone"] += 1
                 continue
+            if item.get("phoneDigits") in excluded_phones:
+                continue
             blocked_domain = (
                 is_pf_technical_blocked_domain(item.get("website")) or is_pf_technical_blocked_domain(item.get("_pageUrl"))
                 if request.targetType == "pf"
@@ -87,7 +98,10 @@ class SearchService:
             if request.targetType != "pf" and int(item.get("score") or 0) < min_score:
                 stats["low_score"] += 1
                 continue
-            public_items.append({key: value for key, value in item.items() if key in allowed_fields})
+            public_item = {key: value for key, value in item.items() if key in allowed_fields}
+            if request.targetType == "pj":
+                public_item["source"] = "hbx_scraping:free_pj"
+            public_items.append(public_item)
             stats["approved"] += 1
         if request.targetType == "pf":
             print(
@@ -107,6 +121,8 @@ class SearchService:
             query=QueryPayload(city=request.city, state=request.state, segment=request.segment, targetType=request.targetType, limit=request.limit),
             count=len(valid),
             results=[ContactResult.model_validate(item) for item in valid],
+            status="completed_with_errors" if errors else "completed",
+            errors=errors,
         )
         await asyncio.to_thread(self.storage.save_run, request, response.model_dump())
         return response

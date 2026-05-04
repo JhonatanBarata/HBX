@@ -6,24 +6,17 @@ TargetType = Literal["pj", "pf", "agenda_pf"]
 
 
 class SearchRequest(BaseModel):
-    city: str
-    state: str
+    city: str = ""
+    state: str = ""
     segment: str = ""
     targetType: TargetType = "pj"
     limit: int = Field(10, ge=1, le=100)
     fresh: bool = False
+    excludePhoneDigits: list[str] = Field(default_factory=list)
 
-    @field_validator("city", "state")
+    @field_validator("city", "state", "segment")
     @classmethod
-    def required_text(cls, value: str) -> str:
-        cleaned = " ".join(str(value or "").split())
-        if not cleaned:
-            raise ValueError("campo obrigatorio")
-        return cleaned
-
-    @field_validator("segment")
-    @classmethod
-    def normalize_segment(cls, value: str) -> str:
+    def normalize_text(cls, value: str) -> str:
         return " ".join(str(value or "").split())
 
     @field_validator("state")
@@ -31,11 +24,27 @@ class SearchRequest(BaseModel):
     def normalize_state(cls, value: str) -> str:
         return value.strip().upper()
 
+    @field_validator("excludePhoneDigits")
+    @classmethod
+    def normalize_exclude_phone_digits(cls, values: list[str]) -> list[str]:
+        seen: set[str] = set()
+        normalized: list[str] = []
+        for value in values or []:
+            digits = "".join(ch for ch in str(value or "") if ch.isdigit())
+            if digits.startswith("55") and len(digits) > 11:
+                digits = digits[2:]
+            if digits and digits not in seen:
+                seen.add(digits)
+                normalized.append(digits)
+        return normalized
+
     @model_validator(mode="after")
     def validate_limit_by_target_type(self) -> "SearchRequest":
+        if self.targetType in {"pf", "agenda_pf"} and (not self.city or not self.state):
+            raise ValueError("cidade e estado sao obrigatorios")
         if self.targetType != "agenda_pf" and not self.segment:
             raise ValueError("segment é obrigatorio")
-        max_limit = 100 if self.targetType in {"pf", "agenda_pf"} else 50
+        max_limit = 100
         if self.limit > max_limit:
             raise ValueError(f"limit maximo para targetType={self.targetType} é {max_limit}")
         return self
@@ -70,3 +79,5 @@ class SearchResponse(BaseModel):
     query: QueryPayload
     count: int
     results: list[ContactResult]
+    status: Literal["completed", "completed_with_errors", "partial_error"] = "completed"
+    errors: list[str] = Field(default_factory=list)
