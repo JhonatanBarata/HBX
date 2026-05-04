@@ -231,6 +231,13 @@ function buildRemoteDeployScript(config, mode) {
     'if ! printf "%s\\n" "$ENV_DB_LINES" | grep -q "hbx_prod"; then echo "ERRO: backend/.env precisa apontar para o banco hbx_prod."; exit 1; fi',
     'WHATSAPP_MODAL_INTERNAL_URL_VALUE="$(awk -F= \'/^[[:space:]]*WHATSAPP_MODAL_INTERNAL_URL[[:space:]]*=/{print $2; exit}\' backend/.env)"',
     'if [ "$WHATSAPP_MODAL_INTERNAL_URL_VALUE" != "http://172.18.0.1:8080" ]; then echo "ERRO: backend/.env precisa manter WHATSAPP_MODAL_INTERNAL_URL=http://172.18.0.1:8080. Atual: $WHATSAPP_MODAL_INTERNAL_URL_VALUE"; exit 1; fi',
+    'if [ ! -f .env ]; then echo "ERRO: .env raiz nao existe na VPS."; exit 1; fi',
+    'export POSTGRES_USER="$(awk -F= \'/^POSTGRES_USER=/{print substr($0, length("POSTGRES_USER")+2); exit}\' .env)"',
+    'export POSTGRES_PASSWORD="$(awk -F= \'/^POSTGRES_PASSWORD=/{print substr($0, length("POSTGRES_PASSWORD")+2); exit}\' .env)"',
+    'export POSTGRES_DB="$(awk -F= \'/^POSTGRES_DB=/{print substr($0, length("POSTGRES_DB")+2); exit}\' .env)"',
+    'export POSTGRES_DATA_VOLUME="$(awk -F= \'/^POSTGRES_DATA_VOLUME=/{print substr($0, length("POSTGRES_DATA_VOLUME")+2); exit}\' .env)"',
+    'export NEXT_PUBLIC_API_URL="$(awk -F= \'/^NEXT_PUBLIC_API_URL=/{print substr($0, length("NEXT_PUBLIC_API_URL")+2); exit}\' .env)"',
+    'if [ -z "$POSTGRES_USER" ] || [ -z "$POSTGRES_PASSWORD" ] || [ -z "$POSTGRES_DB" ] || [ -z "$POSTGRES_DATA_VOLUME" ] || [ -z "$NEXT_PUBLIC_API_URL" ]; then echo "ERRO: .env raiz sem variaveis obrigatorias do docker-compose."; exit 1; fi',
     'if docker network inspect hbx_net >/dev/null 2>&1; then export HBX_DOCKER_NETWORK=hbx_net; elif docker network inspect hbx-net >/dev/null 2>&1; then export HBX_DOCKER_NETWORK=hbx-net; else docker network create hbx_net >/dev/null; export HBX_DOCKER_NETWORK=hbx_net; fi',
     'if docker compose version >/dev/null 2>&1; then DC="docker compose"; elif docker-compose --version >/dev/null 2>&1; then DC="docker-compose"; else echo "ERRO: docker-compose nao encontrado."; exit 1; fi',
     'run_filtered() { set +e; "$@" 2>&1 | sed \'/legacy builder is deprecated/d;/Install the buildx component/d;/docs.docker.com\\/go\\/buildx/d\'; status="${PIPESTATUS[0]}"; set -e; return "$status"; }',
@@ -239,7 +246,7 @@ function buildRemoteDeployScript(config, mode) {
     'echo "Frontend URL: $FRONTEND_URL"',
     'echo "Rede Docker: $HBX_DOCKER_NETWORK"',
     'HBX_POSTGRES_SERVICE_ARGS="hbx-postgres"',
-    'if docker inspect hbx-postgres >/dev/null 2>&1; then docker start hbx-postgres >/dev/null; HBX_POSTGRES_SERVICE_ARGS=""; else run_filtered $DC -f docker-compose.hostinger.yml up -d hbx-postgres; fi',
+    'if docker inspect hbx-postgres >/dev/null 2>&1; then docker start hbx-postgres >/dev/null; HBX_POSTGRES_SERVICE_ARGS=""; else run_filtered $DC --env-file .env -f docker-compose.hostinger.yml up -d hbx-postgres; fi',
     'docker network connect "$HBX_DOCKER_NETWORK" hbx-postgres 2>/dev/null || true',
     'for i in $(seq 1 60); do if docker exec hbx-postgres sh -lc \'pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"\' >/dev/null 2>&1; then echo "Postgres pronto."; break; fi; echo "Aguardando Postgres ($i/60)..."; sleep 2; done',
     'if ! docker inspect -f "{{.State.Running}}" hbx-postgres 2>/dev/null | grep -q true; then echo "ERRO: container hbx-postgres nao esta running."; exit 1; fi',
@@ -250,8 +257,8 @@ function buildRemoteDeployScript(config, mode) {
   if (isForce) {
     lines.push(
       'docker rm -f backend hbx-backend hbx-frontend webscraping hbx-scraping-engine c7227f19b684_hbx-scraping-engine ab1704a260e6_hbx-frontend e22f61f3f5da_webscraping 2>/dev/null || true',
-      'run_filtered $DC -f docker-compose.hostinger.yml build --no-cache backend webscraping hbx-scraping-engine frontend || echo "Aviso: build --no-cache falhou; tentando up -d --build."',
-      'run_filtered $DC -f docker-compose.hostinger.yml up -d --build $HBX_POSTGRES_SERVICE_ARGS backend webscraping hbx-scraping-engine frontend',
+      'run_filtered $DC --env-file .env -f docker-compose.hostinger.yml build --no-cache backend webscraping hbx-scraping-engine frontend || echo "Aviso: build --no-cache falhou; tentando up -d --build."',
+      'run_filtered $DC --env-file .env -f docker-compose.hostinger.yml up -d --build $HBX_POSTGRES_SERVICE_ARGS backend webscraping hbx-scraping-engine frontend',
       'docker restart hbx-backend hbx-frontend webscraping hbx-scraping-engine',
       'docker image prune -f',
       'docker builder prune -f || true',
@@ -259,7 +266,7 @@ function buildRemoteDeployScript(config, mode) {
     );
   } else {
     lines.push('docker rm -f backend hbx-backend hbx-frontend webscraping hbx-scraping-engine c7227f19b684_hbx-scraping-engine ab1704a260e6_hbx-frontend e22f61f3f5da_webscraping 2>/dev/null || true');
-    lines.push('run_filtered $DC -f docker-compose.hostinger.yml up -d --build $HBX_POSTGRES_SERVICE_ARGS backend webscraping hbx-scraping-engine frontend');
+    lines.push('run_filtered $DC --env-file .env -f docker-compose.hostinger.yml up -d --build $HBX_POSTGRES_SERVICE_ARGS backend webscraping hbx-scraping-engine frontend');
   }
 
   lines.push(
