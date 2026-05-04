@@ -99,8 +99,9 @@ function isPaidOrActive(payload: CommercialPlansPayload | null) {
   const paymentStatus = String(payload?.current.paymentStatus || "").trim().toUpperCase();
   const billingGraceEndsAt = payload?.current.billingGraceEndsAt ? new Date(payload.current.billingGraceEndsAt).getTime() : NaN;
   if (subscriptionStatus === "grace" && Number.isFinite(billingGraceEndsAt) && billingGraceEndsAt >= Date.now()) return true;
-  if (subscriptionStatus === "active" || subscriptionStatus === "authorized") return true;
-  if (paymentStatus === "PAID") return true;
+  if (subscriptionStatus === "active" || subscriptionStatus === "authorized" || subscriptionStatus === "manual") return true;
+  if (paymentStatus === "PAID" || paymentStatus === "MANUAL") return true;
+  if (payload?.current.premiumAccess && !payload?.current.isTrial) return true;
   return Boolean(payload?.current.entitlements.vendas && !payload?.current.isTrial);
 }
 
@@ -269,20 +270,17 @@ export default function PlanosClientPage() {
       return;
     }
 
-    if (planKey === "hbx_padrao" && padraoTrialAvailable) {
-      setTrialModalOpen(true);
-      setNotice(null);
+    if (selectedPlanKey === planKey) {
+      setNotice({ tone: "info", text: "Este é seu plano atual." });
+      setTrialModalOpen(false);
       setError(null);
       return;
     }
 
-    if (pendingCheckout && selectedPlanKey === planKey) {
-      router.push("/pagamento?focus=payment&reason=pending_checkout");
-      return;
-    }
-
-    if (!pendingCheckout && selectedPlanKey === planKey) {
-      setNotice({ tone: "info", text: "Este já é o plano atual da empresa." });
+    if (planKey === "hbx_padrao" && padraoTrialAvailable) {
+      setTrialModalOpen(true);
+      setNotice(null);
+      setError(null);
       return;
     }
 

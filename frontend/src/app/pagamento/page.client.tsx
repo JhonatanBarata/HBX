@@ -387,7 +387,8 @@ function isPendingCheckout(overview: FinanceiroOverview | null, reason?: string 
     paymentStatus === "MANUAL" ||
     subscriptionStatus === "active" ||
     subscriptionStatus === "authorized" ||
-    subscriptionStatus === "manual";
+    subscriptionStatus === "manual" ||
+    Boolean(overview?.company.premiumAccess);
   if (accessReleased) return false;
   return paymentStatus === "PENDING" || subscriptionStatus === "pending_checkout" || onboardingReason === "pending_checkout";
 }

@@ -2386,8 +2386,13 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
     if (!company) throw new BadRequestException('Empresa nao encontrada.');
 
     const companyGraceActive = this.isBillingGraceActive(company);
+    const companyAccessReleased =
+      ['active', 'authorized', 'manual'].includes(String(company.subscriptionStatus || '').trim().toLowerCase()) ||
+      ['PAID', 'MANUAL'].includes(String(company.paymentStatus || '').trim().toUpperCase()) ||
+      Boolean(company.premiumAccess);
     const companyPendingCheckout =
       !companyGraceActive &&
+      !companyAccessReleased &&
       (
         String(company.onboardingStatus || '').trim().toLowerCase() === 'pending_checkout' ||
         String(company.subscriptionStatus || '').trim().toLowerCase() === 'pending_checkout' ||

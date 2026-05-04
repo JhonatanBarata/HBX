@@ -1069,12 +1069,16 @@ export class AuthService implements OnModuleInit {
             onboardingStatus: true,
             subscriptionStatus: true,
             paymentStatus: true,
+            premiumAccess: true,
           },
         })
       : null;
+    const accessReleased =
+      ['active', 'authorized', 'manual'].includes(String(company?.subscriptionStatus || '').trim().toLowerCase()) ||
+      ['PAID', 'MANUAL'].includes(String(company?.paymentStatus || '').trim().toUpperCase()) ||
+      Boolean(company?.premiumAccess);
     const pendingCheckout =
-      !['active', 'authorized', 'manual'].includes(String(company?.subscriptionStatus || '').trim().toLowerCase()) &&
-      String(company?.paymentStatus || '').trim().toUpperCase() !== 'PAID' &&
+      !accessReleased &&
       (
         String(company?.onboardingStatus || '').trim().toLowerCase() === 'pending_checkout' ||
         String(company?.subscriptionStatus || '').trim().toLowerCase() === 'pending_checkout' ||
@@ -1700,6 +1704,7 @@ export class AuthService implements OnModuleInit {
             onboardingStatus: true,
             subscriptionStatus: true,
             paymentStatus: true,
+            premiumAccess: true,
           },
         },
       },
@@ -1716,7 +1721,8 @@ export class AuthService implements OnModuleInit {
     const accessReleased =
       ['active', 'authorized', 'manual'].includes(subscriptionStatus) ||
       paymentStatus === 'PAID' ||
-      paymentStatus === 'MANUAL';
+      paymentStatus === 'MANUAL' ||
+      Boolean(user.company?.premiumAccess);
     const pendingCheckout =
       !pendingEmailConfirmation &&
       !accessReleased &&

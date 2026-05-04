@@ -33,6 +33,7 @@ type CommercialCurrentState = {
   onboardingStatus: string | null;
   subscriptionStatus: string | null;
   paymentStatus: string | null;
+  premiumAccess: boolean;
   trialEndsAt: string | null;
   trialRemainingDays: number | null;
   billingGraceEndsAt: string | null;
@@ -178,6 +179,7 @@ export class CommercialPlansService {
       onboardingStatus: company?.onboardingStatus || null,
       subscriptionStatus: company?.subscriptionStatus || null,
       paymentStatus: company?.paymentStatus || null,
+      premiumAccess: Boolean(company?.premiumAccess),
       trialEndsAt: company?.trialEndsAt instanceof Date ? company.trialEndsAt.toISOString() : null,
       trialRemainingDays: this.computeTrialRemainingDays(company?.trialEndsAt),
       billingGraceEndsAt: billingGraceEndsAt ? billingGraceEndsAt.toISOString() : null,
@@ -517,17 +519,23 @@ export class CommercialPlansService {
       const preserveExistingAccess =
         currentSelectedPlanKey === normalizedPlanKey &&
         (currentSubscriptionStatus === 'active' ||
+          currentSubscriptionStatus === 'authorized' ||
+          currentSubscriptionStatus === 'manual' ||
           currentSubscriptionStatus === 'trialing' ||
           currentPaymentStatus === 'PAID' ||
-          currentPaymentStatus === 'TRIAL');
+          currentPaymentStatus === 'MANUAL' ||
+          currentPaymentStatus === 'TRIAL' ||
+          Boolean(company.premiumAccess));
       const selectionStatus = startsTrial
         ? 'trialing'
         : preserveExistingAccess
-          ? currentSubscriptionStatus === 'trialing' || currentPaymentStatus === 'TRIAL'
+          ? currentSubscriptionStatus === 'manual' || currentPaymentStatus === 'MANUAL' || Boolean(company.premiumAccess)
+            ? 'manual'
+            : currentSubscriptionStatus === 'trialing' || currentPaymentStatus === 'TRIAL'
             ? 'trialing'
             : 'paid'
           : PENDING_COMMERCIAL_ENTITLEMENT_STATUS;
-      const selectionSource = selectionStatus === 'trialing' ? 'trial' : 'checkout';
+      const selectionSource = selectionStatus === 'trialing' ? 'trial' : selectionStatus === 'manual' ? 'manual' : 'checkout';
       const periodStart = startsTrial
         ? now
         : preserveExistingAccess
@@ -564,22 +572,34 @@ export class CommercialPlansService {
               selectedPlanKey: normalizedPlanKey,
               trialModuleSelection: normalizedPlanKey === COMMERCIAL_PLAN_KEYS.PADRAO ? 'vendas' : null,
               onboardingStatus:
-                String(company.onboardingStatus || '').trim().toLowerCase() === 'active_paid'
+                preserveExistingAccess
+                  ? String(company.onboardingStatus || '').trim().toLowerCase() === 'pending_checkout'
+                    ? 'active_paid'
+                    : company.onboardingStatus
+                : String(company.onboardingStatus || '').trim().toLowerCase() === 'active_paid'
                   ? company.onboardingStatus
                   : 'pending_checkout',
-              paymentStatus: 'PENDING',
+              paymentStatus: preserveExistingAccess ? company.paymentStatus : 'PENDING',
               subscriptionStatus:
-                currentSubscriptionStatus === 'active' || currentSubscriptionStatus === 'trialing'
+                preserveExistingAccess ||
+                currentSubscriptionStatus === 'active' ||
+                currentSubscriptionStatus === 'trialing'
                   ? company.subscriptionStatus
                   : 'pending_checkout',
               premiumAccess:
-                currentSubscriptionStatus === 'active' || currentSubscriptionStatus === 'trialing' || Boolean(company.premiumAccess),
+                preserveExistingAccess ||
+                currentSubscriptionStatus === 'active' ||
+                currentSubscriptionStatus === 'trialing' ||
+                Boolean(company.premiumAccess),
               isActive:
+                preserveExistingAccess ||
                 currentSubscriptionStatus === 'active' ||
                 currentSubscriptionStatus === 'trialing' ||
                 Boolean(company.isActive && company.premiumAccess),
               deactivatedAt:
-                currentSubscriptionStatus === 'active' || currentSubscriptionStatus === 'trialing' ? company.deactivatedAt : now,
+                preserveExistingAccess || currentSubscriptionStatus === 'active' || currentSubscriptionStatus === 'trialing'
+                  ? company.deactivatedAt
+                  : now,
             },
       });
 
