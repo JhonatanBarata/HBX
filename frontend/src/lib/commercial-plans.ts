@@ -30,6 +30,7 @@ export type CommercialPlansPayload = {
     onboardingStatus?: string | null;
     subscriptionStatus?: string | null;
     paymentStatus?: string | null;
+    premiumAccess?: boolean | null;
     trialEndsAt?: string | null;
     trialRemainingDays?: number | null;
     billingGraceEndsAt?: string | null;

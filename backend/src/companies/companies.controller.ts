@@ -290,6 +290,11 @@ export class CompaniesController {
     const onboardingStatus = String(company?.onboardingStatus || '').trim().toLowerCase();
     const subscriptionStatus = String(company?.subscriptionStatus || '').trim().toLowerCase();
     const paymentStatus = String(company?.paymentStatus || '').trim().toUpperCase();
+    const accessReleased =
+      ['active', 'authorized', 'manual'].includes(subscriptionStatus) ||
+      ['PAID', 'MANUAL'].includes(paymentStatus) ||
+      Boolean(company?.premiumAccess);
+    if (accessReleased) return false;
     return onboardingStatus === 'pending_checkout' || subscriptionStatus === 'pending_checkout' || paymentStatus === 'PENDING';
   }
 

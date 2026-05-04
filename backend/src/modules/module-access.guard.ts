@@ -31,6 +31,7 @@ export class ModuleAccessGuard implements CanActivate {
     const onboardingStatus = String(user?.company?.onboardingStatus || '').trim().toLowerCase();
     const subscriptionStatus = String(user?.company?.subscriptionStatus || '').trim().toLowerCase();
     const paymentStatus = String(user?.company?.paymentStatus || '').trim().toUpperCase();
+    const premiumAccess = Boolean(user?.company?.premiumAccess);
     const billingGraceEndsAt = user?.company?.billingGraceEndsAt instanceof Date
       ? user.company.billingGraceEndsAt
       : user?.company?.billingGraceEndsAt
@@ -45,7 +46,10 @@ export class ModuleAccessGuard implements CanActivate {
     const authorizedAccess =
       subscriptionStatus === 'authorized' ||
       subscriptionStatus === 'active' ||
+      subscriptionStatus === 'manual' ||
       paymentStatus === 'PAID' ||
+      paymentStatus === 'MANUAL' ||
+      premiumAccess ||
       graceAccess;
     const pendingCheckout =
       !authorizedAccess &&
