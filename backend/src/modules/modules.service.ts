@@ -1734,7 +1734,8 @@ export class ModulesService implements OnModuleInit {
       (!company.trialEndsAt || company.trialEndsAt.getTime() >= now);
     const paidAllowed = paymentStatus === 'PAID' || subscriptionStatus === 'active' || subscriptionStatus === 'authorized';
     const manualAllowed = paymentStatus === 'MANUAL' || subscriptionStatus === 'manual';
-    const shouldRemainActive = Boolean(company.isActive && (paidAllowed || trialAllowed || manualAllowed || graceAllowed));
+    const premiumAllowed = Boolean(company.isActive && company.premiumAccess);
+    const shouldRemainActive = Boolean(company.isActive && (paidAllowed || trialAllowed || manualAllowed || premiumAllowed || graceAllowed));
 
     if (trialExpired || !shouldRemainActive) {
       await this.prisma.$transaction([
@@ -1809,6 +1810,13 @@ export class ModulesService implements OnModuleInit {
     const status = await this.evaluateCompanyStatus(companyId);
     if (!status.active) {
       return this.isFinanceModuleKey(key);
+    }
+
+    const companyPaymentStatus = String(user?.company?.paymentStatus || '').trim().toUpperCase();
+    const companySubscriptionStatus = String(user?.company?.subscriptionStatus || '').trim().toLowerCase();
+    const manualPremiumAccess = Boolean(user?.company?.premiumAccess) || companyPaymentStatus === 'MANUAL' || companySubscriptionStatus === 'manual';
+    if (manualPremiumAccess && ['atendimento', 'vendas', 'webscraping'].includes(key)) {
+      return this.canUseAdminOnlyModule(user, key);
     }
 
     const availabilityMap = await this.buildModuleAvailabilityMap(

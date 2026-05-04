@@ -128,13 +128,21 @@ export class CommercialPlansService {
     const has = (key: CommercialEntitlementKey) =>
       entitlements.some((row: any) => String(row?.key || '').trim().toLowerCase() === key && this.isEntitlementUsable(row));
 
-    const vendas = has(COMMERCIAL_ENTITLEMENT_KEYS.VENDAS) || this.isCompanyTrialingVendas(company);
-    const botIa = vendas && has(COMMERCIAL_ENTITLEMENT_KEYS.BOT_IA);
+    const paymentStatus = String(company?.paymentStatus || '').trim().toUpperCase();
+    const subscriptionStatus = String(company?.subscriptionStatus || '').trim().toLowerCase();
+    const manualAccess = Boolean(company?.premiumAccess) || paymentStatus === 'MANUAL' || subscriptionStatus === 'manual';
+    const manualPlanKey = this.normalizePlanKey(company?.selectedPlanKey) || COMMERCIAL_PLAN_KEYS.PADRAO;
+    const manualPlanKeys = new Set(COMMERCIAL_PLAN_ENTITLEMENT_KEYS[manualPlanKey] || []);
+    const hasWithManualFallback = (key: CommercialEntitlementKey) =>
+      has(key) || (manualAccess && manualPlanKeys.has(key));
+
+    const vendas = hasWithManualFallback(COMMERCIAL_ENTITLEMENT_KEYS.VENDAS) || this.isCompanyTrialingVendas(company);
+    const botIa = vendas && hasWithManualFallback(COMMERCIAL_ENTITLEMENT_KEYS.BOT_IA);
 
     return {
       vendas,
-      atendimento_chat: has(COMMERCIAL_ENTITLEMENT_KEYS.ATENDIMENTO_CHAT) || this.isCompanyTrialingVendas(company),
-      webscraping: has(COMMERCIAL_ENTITLEMENT_KEYS.WEBSCRAPING) || this.isCompanyTrialingVendas(company),
+      atendimento_chat: hasWithManualFallback(COMMERCIAL_ENTITLEMENT_KEYS.ATENDIMENTO_CHAT) || this.isCompanyTrialingVendas(company),
+      webscraping: hasWithManualFallback(COMMERCIAL_ENTITLEMENT_KEYS.WEBSCRAPING) || this.isCompanyTrialingVendas(company),
       bot_ia: botIa,
       recovery: false,
     };
