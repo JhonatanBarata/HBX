@@ -134,10 +134,50 @@ type InboxMessagePagePayload = {
 
 type InboxRealtimeEvent = {
   companyId: number;
-  kind: "message" | "status" | "conversation";
+  kind: "message" | "status" | "conversation" | "automation";
   conversationId?: string | number | null;
   messageId?: string | number | null;
+  automation?: {
+    type?: string | null;
+    status?: ProspectingAutomationStatusValue | null;
+    text?: string | null;
+    campaignId?: string | null;
+    jobId?: string | null;
+    leadId?: string | null;
+  } | null;
   at?: string | null;
+};
+
+type ProspectingAutomationStatusValue =
+  | "parado"
+  | "buscando"
+  | "importando"
+  | "agendando"
+  | "enviando"
+  | "aguardando"
+  | "pausado"
+  | "erro";
+
+type ProspectingAutomationLiveStatus = {
+  status: ProspectingAutomationStatusValue;
+  text: string;
+  active: boolean;
+  campaign: {
+    id: string;
+    status: string;
+    city?: string | null;
+    state?: string | null;
+    segment?: string | null;
+  } | null;
+  counters: {
+    pending: number;
+    sent: number;
+    interested: number;
+    archived: number;
+    failed: number;
+  };
+  nextScheduledAt?: string | null;
+  lastError?: string | null;
 };
 
 type InboxAlertKind = "human_queue" | "new_message";
@@ -511,6 +551,98 @@ function DockButton({
       </span>
       {hasBadge ? <span className={styles.commandDockBadge}>{badge}</span> : null}
     </button>
+  );
+}
+
+function formatAutomationStatusLabel(status: ProspectingAutomationStatusValue) {
+  switch (status) {
+    case "buscando":
+      return "Buscando";
+    case "importando":
+      return "Importando";
+    case "agendando":
+      return "Agendando";
+    case "enviando":
+      return "Enviando";
+    case "aguardando":
+      return "Aguardando";
+    case "pausado":
+      return "Pausado";
+    case "erro":
+      return "Erro";
+    default:
+      return "Parado";
+  }
+}
+
+function formatAutomationTime(value?: string | null) {
+  if (!value) return null;
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+}
+
+function ProspectingAutomationStatus({
+  status,
+  loading,
+  actionLoading,
+  onConfigure,
+  onPause,
+  onResume,
+}: {
+  status: ProspectingAutomationLiveStatus | null;
+  loading: boolean;
+  actionLoading: boolean;
+  onConfigure: () => void;
+  onPause: () => void;
+  onResume: () => void;
+}) {
+  const currentStatus = status?.status || "parado";
+  const counters = status?.counters || { pending: 0, sent: 0, interested: 0, archived: 0, failed: 0 };
+  const nextTime = formatAutomationTime(status?.nextScheduledAt);
+  const busy =
+    loading ||
+    currentStatus === "buscando" ||
+    currentStatus === "importando" ||
+    currentStatus === "agendando" ||
+    currentStatus === "enviando";
+  const canPause = Boolean(status?.campaign && status.campaign.status === "running");
+  const canResume = Boolean(status?.campaign && status.campaign.status === "paused");
+  const text =
+    status?.text ||
+    (nextTime ? `Próximo envio em ${nextTime}` : counters.pending > 0 ? `${counters.pending} contatos na fila` : "Automação parada");
+
+  return (
+    <section className={styles.automationPulse} data-status={currentStatus}>
+      <div className={styles.automationPulseMain}>
+        <span className={styles.automationPulseDot} data-busy={busy ? "true" : "false"} />
+        <div className={styles.automationPulseText}>
+          <strong>{formatAutomationStatusLabel(currentStatus)}</strong>
+          <span>{nextTime && currentStatus === "aguardando" ? `Próximo envio em ${nextTime}` : text}</span>
+        </div>
+      </div>
+      <div className={styles.automationPulseCounters} aria-label="Resumo da prospecção automática">
+        <span>Pendentes <strong>{counters.pending}</strong></span>
+        <span>Enviados <strong>{counters.sent}</strong></span>
+        <span>Interessados <strong>{counters.interested}</strong></span>
+        <span>Arquivados <strong>{counters.archived}</strong></span>
+        <span>Falhas <strong>{counters.failed}</strong></span>
+      </div>
+      <div className={styles.automationPulseActions}>
+        <button type="button" onClick={onConfigure}>
+          Configurar
+        </button>
+        {canPause ? (
+          <button type="button" onClick={onPause} disabled={actionLoading}>
+            {actionLoading ? "..." : "Pausar"}
+          </button>
+        ) : canResume ? (
+          <button type="button" onClick={onResume} disabled={actionLoading}>
+            {actionLoading ? "..." : "Retomar"}
+          </button>
+        ) : null}
+      </div>
+    </section>
   );
 }
 
@@ -1249,6 +1381,24 @@ function isInboxConversationArchived(conversation?: InboxConversation | null) {
     metadata.archived,
     metadata.whatsappChatArchived,
   ].some((value) => parseInboxBooleanFlag(value));
+}
+
+function isProspectingInterestedConversation(conversation?: InboxConversation | null) {
+  const metadata = getInboxConversationMetadata(conversation);
+  if (!metadata) return false;
+  const automation =
+    metadata.vendasAutomation && typeof metadata.vendasAutomation === "object" && !Array.isArray(metadata.vendasAutomation)
+      ? (metadata.vendasAutomation as Record<string, unknown>)
+      : null;
+  const queue =
+    metadata.vendasAgendaQueue && typeof metadata.vendasAgendaQueue === "object" && !Array.isArray(metadata.vendasAgendaQueue)
+      ? (metadata.vendasAgendaQueue as Record<string, unknown>)
+      : null;
+  return (
+    String(automation?.status || "").trim().toLowerCase() === "interested" ||
+    parseInboxBooleanFlag(queue?.interested) ||
+    String(queue?.status || "").trim().toLowerCase() === "qualificado"
+  );
 }
 
 function parseInboxDateOnlyKey(value: string) {
@@ -2438,6 +2588,10 @@ export default function InboxClientPage() {
   const [contextTab, setContextTab] = useState<ContextTab>("conversa");
   const [internalNote, setInternalNote] = useState("");
   const [botConfig, setBotConfig] = useState<AtendimentoBotConfig>(DEFAULT_ATENDIMENTO_BOT_CONFIG);
+  const [prospectingAutomationStatus, setProspectingAutomationStatus] =
+    useState<ProspectingAutomationLiveStatus | null>(null);
+  const [prospectingAutomationLoading, setProspectingAutomationLoading] = useState(false);
+  const [prospectingAutomationAction, setProspectingAutomationAction] = useState<string | null>(null);
   const [agendaConfig, setAgendaConfig] = useState<AtendimentoAgendaConfig>(
     DEFAULT_ATENDIMENTO_AGENDA_CONFIG,
   );
@@ -3572,6 +3726,42 @@ export default function InboxClientPage() {
     }
   }, []);
 
+  const loadProspectingAutomationStatus = useCallback(async (background = false) => {
+    if (!background) setProspectingAutomationLoading(true);
+    try {
+      const data = await apiFetch<ProspectingAutomationLiveStatus>("/vendas/automation/live-status");
+      setProspectingAutomationStatus(data);
+      return data;
+    } catch {
+      if (!background) {
+        setProspectingAutomationStatus((current) => current || null);
+      }
+      return null;
+    } finally {
+      if (!background) setProspectingAutomationLoading(false);
+    }
+  }, []);
+
+  const runProspectingAutomationAction = useCallback(
+    async (action: "pause" | "resume") => {
+      setProspectingAutomationAction(action);
+      try {
+        const data = await apiFetch<ProspectingAutomationLiveStatus>(`/vendas/automation/prospecting/${action}`, {
+          method: "POST",
+        });
+        setProspectingAutomationStatus(data);
+      } catch (actionError) {
+        setNotice({
+          tone: "error",
+          text: actionError instanceof Error ? actionError.message : "Falha ao controlar a prospecção automática.",
+        });
+      } finally {
+        setProspectingAutomationAction(null);
+      }
+    },
+    [],
+  );
+
   const loadBotConfig = useCallback(async (options?: { force?: boolean }) => {
     if (botConfigLoadedRef.current && !options?.force) return;
     if (commercialPlans && !hasBotAi(commercialPlans)) {
@@ -3724,6 +3914,12 @@ export default function InboxClientPage() {
           await readInboxRealtimeStream({
             signal: controller.signal,
             onEvent: (event) => {
+              if (event.kind === "automation") {
+                void loadProspectingAutomationStatus(true);
+                if (event.automation?.type === "lead_interested" || event.automation?.type === "lead_neutral") {
+                  void loadConversations({ silent: true });
+                }
+              }
               const selectedConversationId = normalizeInboxConversationId(selectedIdRef.current);
               const eventConversationId = normalizeInboxConversationId(event.conversationId);
               if (!selectedConversationId || !eventConversationId) return;
@@ -3749,7 +3945,7 @@ export default function InboxClientPage() {
       if (reconnectTimer !== null) window.clearTimeout(reconnectTimer);
       if (scheduledRefresh !== null) window.clearTimeout(scheduledRefresh);
     };
-  }, [activeTab, hasToken, refreshSelectedConversationMessages]);
+  }, [activeTab, hasToken, loadConversations, loadProspectingAutomationStatus, refreshSelectedConversationMessages]);
 
   useEffect(() => {
     if (hasToken !== true) return;
@@ -3803,6 +3999,19 @@ export default function InboxClientPage() {
     if (hasToken === false) return;
     void Promise.all([loadCurrentUser(), loadUserModules(), loadWhatsAppCenter(), loadCommercialPlans()]);
   }, [hasToken, loadCommercialPlans, loadCurrentUser, loadUserModules, loadWhatsAppCenter]);
+
+  useEffect(() => {
+    if (hasToken !== true) return;
+    if (activeTab !== "messages") return;
+    void loadProspectingAutomationStatus();
+    const stopPolling = startSmartPolling(() => {
+      void loadProspectingAutomationStatus(true);
+    }, {
+      intervalMs: 30000,
+      immediate: false,
+    });
+    return () => stopPolling();
+  }, [activeTab, hasToken, loadProspectingAutomationStatus]);
 
   useEffect(() => {
     if (hasToken === false) return;
@@ -4181,6 +4390,7 @@ export default function InboxClientPage() {
     hasRecoveryCapability && conversationForView
       ? hasAtendimentoRecoveryContext(conversationForView)
       : false;
+  const selectedConversationIsInterested = isProspectingInterestedConversation(conversationForView);
 
   useEffect(() => {
     if (!selectedId || selectedBlocked) return;
@@ -5454,6 +5664,7 @@ export default function InboxClientPage() {
                 const displayName = resolveInboxConversationDisplayName(conversation);
                 const subtitleLabel = getInboxConversationSubtitle(conversation);
                 const previewLabel = getInboxConversationPreview(conversation);
+                const interested = isProspectingInterestedConversation(conversation);
                 const activityAtLabel = formatTimeLabel(
                   getInboxConversationActivityAt(conversation),
                   mounted,
@@ -5488,9 +5699,16 @@ export default function InboxClientPage() {
                     subtitle={subtitleLabel}
                     preview={previewLabel}
                     badges={
-                      unreadCount > 0 ? (
-                        <span className={styles.conversationUnreadBadge}>
-                          {unreadCount === 1 ? "1 não lida" : `${unreadCount} não lidas`}
+                      unreadCount > 0 || interested ? (
+                        <span className={styles.conversationBadgeStack}>
+                          {interested ? (
+                            <span className={styles.conversationInterestedBadge}>Interessado</span>
+                          ) : null}
+                          {unreadCount > 0 ? (
+                            <span className={styles.conversationUnreadBadge}>
+                              {unreadCount === 1 ? "1 não lida" : `${unreadCount} não lidas`}
+                            </span>
+                          ) : null}
                         </span>
                       ) : undefined
                     }
@@ -5521,6 +5739,7 @@ export default function InboxClientPage() {
                         && styles.conversationQueueItemMuted,
                       conversationWithoutWhatsapp && styles.conversationQueueItemUnavailable,
                       unreadCount > 0 && styles.conversationQueueItemUnread,
+                      interested && styles.conversationQueueItemInterested,
                     )}
                     data-unread={unreadCount > 0 ? "true" : "false"}
                     aria-label={`${displayName}${unreadCount > 0 ? `, ${unreadCount} não lida${unreadCount === 1 ? "" : "s"}` : ""}`}
@@ -5596,6 +5815,14 @@ export default function InboxClientPage() {
                           data-tone={selectedConversationStatusMeta.tone}
                         >
                           {selectedConversationStatusMeta.label}
+                        </span>
+                      ) : null}
+                      {selectedConversationIsInterested ? (
+                        <span
+                          className={styles.conversationContextBadge}
+                          data-tone="success"
+                        >
+                          Interessado
                         </span>
                       ) : null}
                       {selectedConversationIsPersonal ? (
@@ -6763,6 +6990,7 @@ export default function InboxClientPage() {
       conversationReactionIndex,
       selectedConversationDisplayName,
       selectedConversationHasRecoveryContext,
+      selectedConversationIsInterested,
       selectedConversationIsAgenda,
       selectedConversationIsPersonal,
       selectedConversationStatusMeta,
@@ -7280,6 +7508,14 @@ export default function InboxClientPage() {
       >
         {activeTab === "messages" ? (
           <section className={styles.premiumInboxShell} data-ui-no-reveal="true">
+            <ProspectingAutomationStatus
+              status={prospectingAutomationStatus}
+              loading={prospectingAutomationLoading}
+              actionLoading={Boolean(prospectingAutomationAction)}
+              onConfigure={() => router.push("/vendas/automacao?tab=prospeccao")}
+              onPause={() => void runProspectingAutomationAction("pause")}
+              onResume={() => void runProspectingAutomationAction("resume")}
+            />
             <section className={styles.inboxCanvas}>
               <aside className={styles.commandDock}>
                 <div className={styles.commandDockTop}>

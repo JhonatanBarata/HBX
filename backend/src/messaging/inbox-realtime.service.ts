@@ -2,9 +2,17 @@ import { Injectable } from '@nestjs/common';
 
 export type InboxRealtimeEvent = {
   companyId: number;
-  kind: 'message' | 'status' | 'conversation';
+  kind: 'message' | 'status' | 'conversation' | 'automation';
   conversationId?: number | null;
   messageId?: number | null;
+  automation?: {
+    type?: string | null;
+    status?: string | null;
+    text?: string | null;
+    campaignId?: string | null;
+    jobId?: string | null;
+    leadId?: string | null;
+  } | null;
   at: string;
 };
 

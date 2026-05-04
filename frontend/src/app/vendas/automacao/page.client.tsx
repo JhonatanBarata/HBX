@@ -49,8 +49,76 @@ type StoredDraft = {
   savedAt: string;
 };
 
+type ProspectingAutomationConfig = {
+  city: string;
+  state: string;
+  segment: string;
+  engine: "hbx" | "google";
+  targetType: "pj" | "pf" | "agenda_pf";
+  messageTemplate: string;
+  intervalMinutes: number;
+  workingHoursStart: string;
+  workingHoursEnd: string;
+  dailyLimit: number;
+  minLeadBuffer: number;
+  desiredLeadBuffer: number;
+  maxAttemptsPerLead: number;
+  typingSeconds: number;
+  typingVarianceSeconds: number;
+  positiveIntentKeywords: string[];
+  negativeIntentKeywords: string[];
+  optOutMessage: string;
+  websiteFallbackEnabled: boolean;
+};
+
+type ProspectingAutomationLiveStatus = {
+  status: "parado" | "buscando" | "importando" | "agendando" | "enviando" | "aguardando" | "pausado" | "erro";
+  text: string;
+  active: boolean;
+  campaign: (ProspectingAutomationConfig & {
+    id: string;
+    status: string;
+    lastStatusText?: string | null;
+    lastError?: string | null;
+  }) | null;
+  counters: {
+    pending: number;
+    sent: number;
+    interested: number;
+    archived: number;
+    failed: number;
+  };
+  nextScheduledAt?: string | null;
+  lastError?: string | null;
+};
+
 const DRAFT_STORAGE_KEY = "hbx.vendas.automacao.bot-qrcode.draft.v1";
 const BOT_PLAN_HREF = "/planos?intent=bot_ia&from=vendas_automacao";
+const PROSPECTING_SCENE_ID = "first_contact_rules_prospeccao";
+const PROSPECTING_RULE_CONDITION = "first_contact_rules";
+
+const DEFAULT_PROSPECTING_CONFIG: ProspectingAutomationConfig = {
+  city: "",
+  state: "SP",
+  segment: "madeireiras",
+  engine: "hbx",
+  targetType: "pj",
+  messageTemplate:
+    "Oi, tudo bem? Aqui é {{funcionario}} da {{empresa}}. Vi a {{cliente}} em {{cidade}} e queria te explicar em 1 minuto uma solução para {{segmento}}. Faz sentido eu te mandar?",
+  intervalMinutes: 12,
+  workingHoursStart: "09:00",
+  workingHoursEnd: "17:30",
+  dailyLimit: 40,
+  minLeadBuffer: 15,
+  desiredLeadBuffer: 60,
+  maxAttemptsPerLead: 1,
+  typingSeconds: 8,
+  typingVarianceSeconds: 6,
+  positiveIntentKeywords: ["tenho interesse", "pode mandar", "quero saber", "me explica", "quanto custa"],
+  negativeIntentKeywords: ["não tenho interesse", "sem interesse", "pare", "remover"],
+  optOutMessage: "Obrigado pelo retorno. Não vou insistir por aqui.",
+  websiteFallbackEnabled: true,
+};
 
 function shouldLoadModalQr(nextPayload: WhatsAppModalPayload | null, includeQr: boolean) {
   if (!includeQr || !nextPayload?.data.available) return false;
@@ -126,6 +194,305 @@ function clearStoredDraft() {
   window.localStorage.removeItem(DRAFT_STORAGE_KEY);
 }
 
+function normalizeTextList(value: unknown, fallback: string[]) {
+  const source = Array.isArray(value)
+    ? value
+    : typeof value === "string"
+      ? value.split(/\r?\n|,/)
+      : fallback;
+  return Array.from(
+    new Set(
+      source
+        .map((item) => String(item || "").trim())
+        .filter(Boolean),
+    ),
+  );
+}
+
+function getProspectingSceneRule(config: AtendimentoBotConfig) {
+  return (config.sceneRules || []).find(
+    (rule) => rule.sceneId === PROSPECTING_SCENE_ID && rule.conditionType === PROSPECTING_RULE_CONDITION,
+  ) || null;
+}
+
+function getProspectingRulesFromBot(config: AtendimentoBotConfig) {
+  const metadata = (getProspectingSceneRule(config)?.metadata || {}) as Record<string, unknown>;
+  return {
+    intervalMinutes: Number(metadata.nextContactDelayMinutes || DEFAULT_PROSPECTING_CONFIG.intervalMinutes),
+    typingSeconds: Number(metadata.typingSeconds || DEFAULT_PROSPECTING_CONFIG.typingSeconds),
+    typingVarianceSeconds: Number(metadata.typingVarianceSeconds || DEFAULT_PROSPECTING_CONFIG.typingVarianceSeconds),
+    positiveIntentKeywords: normalizeTextList(
+      metadata.positiveIntentKeywords,
+      DEFAULT_PROSPECTING_CONFIG.positiveIntentKeywords,
+    ),
+    negativeIntentKeywords: normalizeTextList(
+      metadata.negativeIntentKeywords || metadata.stopIntentKeywords,
+      DEFAULT_PROSPECTING_CONFIG.negativeIntentKeywords,
+    ),
+    optOutMessage: String(metadata.optOutMessage || DEFAULT_PROSPECTING_CONFIG.optOutMessage),
+  };
+}
+
+function mergeProspectingConfigFromStatus(
+  status: ProspectingAutomationLiveStatus | null,
+  botConfig: AtendimentoBotConfig,
+): ProspectingAutomationConfig {
+  const rules = getProspectingRulesFromBot(botConfig);
+  const campaign = status?.campaign;
+  return {
+    ...DEFAULT_PROSPECTING_CONFIG,
+    ...rules,
+    ...(campaign || {}),
+    city: String(campaign?.city || DEFAULT_PROSPECTING_CONFIG.city),
+    state: String(campaign?.state || DEFAULT_PROSPECTING_CONFIG.state),
+    segment: String(campaign?.segment || DEFAULT_PROSPECTING_CONFIG.segment),
+    engine: campaign?.engine === "google" ? "google" : "hbx",
+    targetType:
+      campaign?.targetType === "pf" || campaign?.targetType === "agenda_pf"
+        ? campaign.targetType
+        : "pj",
+    maxAttemptsPerLead: Math.max(1, Number(campaign?.maxAttemptsPerLead || DEFAULT_PROSPECTING_CONFIG.maxAttemptsPerLead)),
+    websiteFallbackEnabled: campaign?.websiteFallbackEnabled !== false,
+  };
+}
+
+function upsertProspectingRules(
+  config: AtendimentoBotConfig,
+  prospecting: ProspectingAutomationConfig,
+): AtendimentoBotConfig {
+  const sceneRules = [...(config.sceneRules || [])];
+  const currentIndex = sceneRules.findIndex(
+    (rule) => rule.sceneId === PROSPECTING_SCENE_ID && rule.conditionType === PROSPECTING_RULE_CONDITION,
+  );
+  const current = currentIndex >= 0 ? sceneRules[currentIndex] : null;
+  const nextRule = {
+    ...(current || {
+      sceneId: PROSPECTING_SCENE_ID,
+      conditionType: PROSPECTING_RULE_CONDITION,
+      enabled: true,
+    }),
+    metadata: {
+      ...((current?.metadata || {}) as Record<string, unknown>),
+      guideId: "prospeccao",
+      nextContactDelayMinutes: prospecting.intervalMinutes,
+      typingSeconds: prospecting.typingSeconds,
+      typingVarianceSeconds: prospecting.typingVarianceSeconds,
+      positiveIntentKeywords: prospecting.positiveIntentKeywords,
+      negativeIntentKeywords: prospecting.negativeIntentKeywords,
+      optOutMessage: prospecting.optOutMessage,
+    },
+  };
+  if (currentIndex >= 0) sceneRules[currentIndex] = nextRule;
+  else sceneRules.push(nextRule);
+  return normalizeBotConfig({ ...config, sceneRules });
+}
+
+function ProspectingAutomationPanel({
+  config,
+  liveStatus,
+  loading,
+  actionLoading,
+  onChange,
+  onSave,
+  onStart,
+  onPause,
+  onResume,
+  onCancel,
+}: {
+  config: ProspectingAutomationConfig;
+  liveStatus: ProspectingAutomationLiveStatus | null;
+  loading: boolean;
+  actionLoading: string | null;
+  onChange: (updater: (current: ProspectingAutomationConfig) => ProspectingAutomationConfig) => void;
+  onSave: () => void;
+  onStart: () => void;
+  onPause: () => void;
+  onResume: () => void;
+  onCancel: () => void;
+}) {
+  const counters = liveStatus?.counters || { pending: 0, sent: 0, interested: 0, archived: 0, failed: 0 };
+  const campaignStatus = liveStatus?.campaign?.status || "paused";
+  const canPause = campaignStatus === "running";
+  const canResume = campaignStatus === "paused";
+  const setField = <K extends keyof ProspectingAutomationConfig,>(field: K, value: ProspectingAutomationConfig[K]) => {
+    onChange((current) => ({ ...current, [field]: value }));
+  };
+  const setNumberField = (
+    field:
+      | "intervalMinutes"
+      | "dailyLimit"
+      | "minLeadBuffer"
+      | "desiredLeadBuffer"
+      | "maxAttemptsPerLead"
+      | "typingSeconds"
+      | "typingVarianceSeconds",
+    value: string,
+    min = 0,
+  ) => {
+    const parsed = Math.max(min, Math.trunc(Number(value) || 0));
+    onChange((current) => ({ ...current, [field]: parsed }));
+  };
+  const setListField = (field: "positiveIntentKeywords" | "negativeIntentKeywords", value: string) => {
+    onChange((current) => ({ ...current, [field]: normalizeTextList(value, current[field]) }));
+  };
+
+  return (
+    <section className={styles.prospectingShell}>
+      <div className={styles.prospectingStatusBar}>
+        <div>
+          <span className={styles.sectionEyebrow}>Prospecção automática</span>
+          <h3 className={styles.cardTitle}>{liveStatus?.text || "Motor contínuo"}</h3>
+        </div>
+        <div className={styles.prospectingStatusMetrics}>
+          <span>Pendentes <strong>{counters.pending}</strong></span>
+          <span>Enviados <strong>{counters.sent}</strong></span>
+          <span>Interessados <strong>{counters.interested}</strong></span>
+          <span>Arquivados <strong>{counters.archived}</strong></span>
+          <span>Falhas <strong>{counters.failed}</strong></span>
+        </div>
+      </div>
+
+      <div className={styles.prospectingGrid}>
+        <section className={styles.prospectingPanel}>
+          <div className={styles.editorSectionHeader}>
+            <div>
+              <strong>Pesquisa base</strong>
+              <span>{loading ? "Carregando status..." : campaignStatus}</span>
+            </div>
+          </div>
+          <div className={styles.prospectingFormGrid}>
+            <label>
+              <span>Cidade</span>
+              <input className={styles.inputField} value={config.city} onChange={(event) => setField("city", event.target.value)} />
+            </label>
+            <label>
+              <span>Estado</span>
+              <input className={styles.inputField} maxLength={2} value={config.state} onChange={(event) => setField("state", event.target.value.toUpperCase())} />
+            </label>
+            <label>
+              <span>Segmento</span>
+              <input className={styles.inputField} value={config.segment} onChange={(event) => setField("segment", event.target.value)} />
+            </label>
+            <label>
+              <span>Engine</span>
+              <select className={styles.selectField} value={config.engine} onChange={(event) => setField("engine", event.target.value as "hbx" | "google")}>
+                <option value="hbx">HBX</option>
+                <option value="google">Google</option>
+              </select>
+            </label>
+            <label>
+              <span>Tipo</span>
+              <select className={styles.selectField} value={config.targetType} onChange={(event) => setField("targetType", event.target.value as ProspectingAutomationConfig["targetType"])}>
+                <option value="pj">PJ</option>
+                <option value="pf">PF</option>
+                <option value="agenda_pf">Agenda PF</option>
+              </select>
+            </label>
+            <label>
+              <span>Limite diário</span>
+              <input className={styles.inputField} type="number" min={1} value={config.dailyLimit} onChange={(event) => setNumberField("dailyLimit", event.target.value, 1)} />
+            </label>
+          </div>
+        </section>
+
+        <section className={styles.prospectingPanel}>
+          <div className={styles.editorSectionHeader}>
+            <div>
+              <strong>Envio seguro</strong>
+              <span>Máx. {config.maxAttemptsPerLead} tentativa por lead</span>
+            </div>
+          </div>
+          <div className={styles.prospectingFormGrid}>
+            <label>
+              <span>Intervalo</span>
+              <input className={styles.inputField} type="number" min={1} value={config.intervalMinutes} onChange={(event) => setNumberField("intervalMinutes", event.target.value, 1)} />
+            </label>
+            <label>
+              <span>Início</span>
+              <input className={styles.inputField} type="time" value={config.workingHoursStart} onChange={(event) => setField("workingHoursStart", event.target.value)} />
+            </label>
+            <label>
+              <span>Fim</span>
+              <input className={styles.inputField} type="time" value={config.workingHoursEnd} onChange={(event) => setField("workingHoursEnd", event.target.value)} />
+            </label>
+            <label>
+              <span>Estoque mínimo</span>
+              <input className={styles.inputField} type="number" min={1} value={config.minLeadBuffer} onChange={(event) => setNumberField("minLeadBuffer", event.target.value, 1)} />
+            </label>
+            <label>
+              <span>Estoque desejado</span>
+              <input className={styles.inputField} type="number" min={1} value={config.desiredLeadBuffer} onChange={(event) => setNumberField("desiredLeadBuffer", event.target.value, 1)} />
+            </label>
+            <label>
+              <span>Tentativas</span>
+              <input className={styles.inputField} type="number" min={1} max={3} value={config.maxAttemptsPerLead} onChange={(event) => setNumberField("maxAttemptsPerLead", event.target.value, 1)} />
+            </label>
+            <label>
+              <span>Typing</span>
+              <input className={styles.inputField} type="number" min={0} value={config.typingSeconds} onChange={(event) => setNumberField("typingSeconds", event.target.value, 0)} />
+            </label>
+            <label>
+              <span>Variação</span>
+              <input className={styles.inputField} type="number" min={0} value={config.typingVarianceSeconds} onChange={(event) => setNumberField("typingVarianceSeconds", event.target.value, 0)} />
+            </label>
+          </div>
+        </section>
+      </div>
+
+      <section className={styles.prospectingPanel}>
+        <div className={styles.prospectingMessageGrid}>
+          <label>
+            <span>Mensagem inicial</span>
+            <textarea className={styles.editorTextarea} value={config.messageTemplate} onChange={(event) => setField("messageTemplate", event.target.value)} />
+          </label>
+          <label>
+            <span>Encerramento negativo</span>
+            <textarea className={styles.editorTextarea} value={config.optOutMessage} onChange={(event) => setField("optOutMessage", event.target.value)} />
+          </label>
+          <label>
+            <span>Palavras positivas</span>
+            <textarea className={styles.editorTextarea} value={config.positiveIntentKeywords.join("\n")} onChange={(event) => setListField("positiveIntentKeywords", event.target.value)} />
+          </label>
+          <label>
+            <span>Palavras negativas</span>
+            <textarea className={styles.editorTextarea} value={config.negativeIntentKeywords.join("\n")} onChange={(event) => setListField("negativeIntentKeywords", event.target.value)} />
+          </label>
+        </div>
+        <label className={styles.toggleCard}>
+          <span>
+            <strong>Enviar website no encerramento</strong>
+            <small>Usa o site do lead uma única vez quando houver resposta negativa.</small>
+          </span>
+          <input type="checkbox" checked={config.websiteFallbackEnabled} onChange={(event) => setField("websiteFallbackEnabled", event.target.checked)} />
+        </label>
+      </section>
+
+      <div className={styles.prospectingActionRow}>
+        <button type="button" className={styles.secondaryButton} onClick={onSave} disabled={Boolean(actionLoading)}>
+          {actionLoading === "save" ? "Salvando..." : "Salvar configuração"}
+        </button>
+        <button type="button" className={styles.primaryButton} onClick={onStart} disabled={Boolean(actionLoading)}>
+          {actionLoading === "start" ? "Iniciando..." : "Iniciar campanha"}
+        </button>
+        {canPause ? (
+          <button type="button" className={styles.ghostButton} onClick={onPause} disabled={Boolean(actionLoading)}>
+            {actionLoading === "pause" ? "Pausando..." : "Pausar"}
+          </button>
+        ) : canResume ? (
+          <button type="button" className={styles.ghostButton} onClick={onResume} disabled={Boolean(actionLoading)}>
+            {actionLoading === "resume" ? "Retomando..." : "Retomar"}
+          </button>
+        ) : null}
+        {liveStatus?.campaign ? (
+          <button type="button" className={styles.ghostButton} onClick={onCancel} disabled={Boolean(actionLoading)}>
+            {actionLoading === "cancel" ? "Cancelando..." : "Cancelar"}
+          </button>
+        ) : null}
+      </div>
+    </section>
+  );
+}
+
 export default function VendasAutomationClientPage() {
   const hasToken = useRequireAuth();
   const router = useRouter();
@@ -142,6 +509,10 @@ export default function VendasAutomationClientPage() {
   const [connectionPaired, setConnectionPaired] = useState(false);
   const [draftConfig, setDraftConfig] = useState<AtendimentoBotConfig>(DEFAULT_ATENDIMENTO_BOT_CONFIG);
   const [publishedConfig, setPublishedConfig] = useState<AtendimentoBotConfig>(DEFAULT_ATENDIMENTO_BOT_CONFIG);
+  const [prospectingConfig, setProspectingConfig] = useState<ProspectingAutomationConfig>(DEFAULT_PROSPECTING_CONFIG);
+  const [prospectingStatus, setProspectingStatus] = useState<ProspectingAutomationLiveStatus | null>(null);
+  const [prospectingLoading, setProspectingLoading] = useState(false);
+  const [prospectingAction, setProspectingAction] = useState<string | null>(null);
   const [agendaConfig, setAgendaConfig] = useState<AtendimentoAgendaConfig>(DEFAULT_ATENDIMENTO_AGENDA_CONFIG);
   const [centerPayload, setCenterPayload] = useState<WhatsAppCenterPayload | null>(null);
   const [modalPayload, setModalPayload] = useState<WhatsAppModalPayload | null>(null);
@@ -276,12 +647,14 @@ export default function VendasAutomationClientPage() {
       if (storedDraft) {
         setDraftConfig(storedDraft.config);
         setDraftSavedAt(storedDraft.savedAt);
+        setProspectingConfig(mergeProspectingConfigFromStatus(null, storedDraft.config));
         setNotice({
           tone: "info",
           text: "Rascunho local carregado para continuar a edicao da automacao WhatsApp.",
         });
       } else {
         setDraftConfig(normalizedBot);
+        setProspectingConfig(mergeProspectingConfigFromStatus(null, normalizedBot));
         setDraftSavedAt(null);
       }
     } catch (loadError) {
@@ -299,6 +672,26 @@ export default function VendasAutomationClientPage() {
       setLoading(false);
     }
   }, [router]);
+
+  const loadProspectingStatus = useCallback(async (background = false, botForMerge?: AtendimentoBotConfig) => {
+    if (!background) setProspectingLoading(true);
+    try {
+      const payload = await apiFetch<ProspectingAutomationLiveStatus>("/vendas/automation/live-status");
+      setProspectingStatus(payload);
+      setProspectingConfig((current) => {
+        if (!payload.campaign && !botForMerge) return current;
+        return {
+          ...current,
+          ...mergeProspectingConfigFromStatus(payload, botForMerge || DEFAULT_ATENDIMENTO_BOT_CONFIG),
+        };
+      });
+      return payload;
+    } catch {
+      return null;
+    } finally {
+      if (!background) setProspectingLoading(false);
+    }
+  }, []);
 
   const ensureQrModeSelected = useCallback(async () => {
     if (centerPayload?.center.mode === "QR") return centerPayload;
@@ -391,8 +784,18 @@ export default function VendasAutomationClientPage() {
   }, [hasToken, loadAutomation, loadConnection]);
 
   useEffect(() => {
+    if (hasToken !== true) return;
+    if (!commercialPlans || !hasBotAi(commercialPlans)) return;
+    void loadProspectingStatus(false);
+    const timer = window.setInterval(() => {
+      void loadProspectingStatus(true);
+    }, 30000);
+    return () => window.clearInterval(timer);
+  }, [commercialPlans, hasToken, loadProspectingStatus]);
+
+  useEffect(() => {
     const requestedTab = searchParams.get("tab");
-    if (requestedTab === "flow" || requestedTab === "publish") {
+    if (requestedTab === "connection" || requestedTab === "flow" || requestedTab === "publish" || requestedTab === "prospeccao") {
       setActiveTab(requestedTab);
     }
   }, [searchParams]);
@@ -440,7 +843,7 @@ export default function VendasAutomationClientPage() {
         text: "Bot de atendimento está disponível no HBX Melhor.",
       });
       openBotPlans();
-      return;
+      return false;
     }
     setPublishing(true);
     setError(null);
@@ -456,6 +859,7 @@ export default function VendasAutomationClientPage() {
       clearStoredDraft();
       setDraftSavedAt(null);
       setNotice({ tone: "success", text: successText });
+      return true;
     } catch (publishError) {
       const redirectTo = getBotAiPlanRedirectFromError(publishError, BOT_PLAN_HREF);
       if (redirectTo) {
@@ -464,16 +868,95 @@ export default function VendasAutomationClientPage() {
           text: "Bot de atendimento está disponível no HBX Melhor.",
         });
         router.push(redirectTo);
-        return;
+        return false;
       }
       const message =
         publishError instanceof Error ? publishError.message : "Falha ao salvar a automacao WhatsApp.";
       setError(message);
       setNotice({ tone: "error", text: message });
+      return false;
     } finally {
       setPublishing(false);
     }
   }, [botAiActive, openBotPlans, router]);
+
+  const updateProspectingConfigState = useCallback(
+    (updater: (current: ProspectingAutomationConfig) => ProspectingAutomationConfig) => {
+      setProspectingConfig((current) => {
+        const next = updater(current);
+        setDraftConfig((botCurrent) => upsertProspectingRules(botCurrent, next));
+        return next;
+      });
+    },
+    [],
+  );
+
+  const saveProspectingConfig = useCallback(async () => {
+    if (!botAiActive) {
+      openBotPlans();
+      return;
+    }
+    const nextBotConfig = upsertProspectingRules(draftConfig, prospectingConfig);
+    setProspectingAction("save");
+    setError(null);
+    try {
+      const payload = await apiFetch<ProspectingAutomationLiveStatus>("/vendas/automation/prospecting/config", {
+        method: "PATCH",
+        body: JSON.stringify(prospectingConfig),
+      });
+      setProspectingStatus(payload);
+      setProspectingConfig(mergeProspectingConfigFromStatus(payload, nextBotConfig));
+      await saveBotConfig(nextBotConfig, "Configuração de prospecção salva.");
+    } catch (saveError) {
+      const message = saveError instanceof Error ? saveError.message : "Falha ao salvar a prospecção automática.";
+      setError(message);
+      setNotice({ tone: "error", text: message });
+    } finally {
+      setProspectingAction(null);
+    }
+  }, [botAiActive, draftConfig, openBotPlans, prospectingConfig, saveBotConfig]);
+
+  const runProspectingAction = useCallback(
+    async (action: "start" | "pause" | "resume" | "cancel") => {
+      if (!botAiActive) {
+        openBotPlans();
+        return;
+      }
+      const nextBotConfig = upsertProspectingRules(draftConfig, prospectingConfig);
+      setProspectingAction(action);
+      setError(null);
+      try {
+        if (action === "start") {
+          const botSaved = await saveBotConfig(nextBotConfig, "Bot sincronizado para a prospecção.");
+          if (!botSaved) return;
+        }
+        const payload = await apiFetch<ProspectingAutomationLiveStatus>(`/vendas/automation/prospecting/${action}`, {
+          method: "POST",
+          body: action === "start" ? JSON.stringify(prospectingConfig) : undefined,
+        });
+        setProspectingStatus(payload);
+        setProspectingConfig(mergeProspectingConfigFromStatus(payload, nextBotConfig));
+        setNotice({
+          tone: "success",
+          text:
+            action === "start"
+              ? "Campanha de prospecção iniciada."
+              : action === "pause"
+                ? "Campanha pausada."
+                : action === "resume"
+                  ? "Campanha retomada."
+                  : "Campanha cancelada.",
+        });
+      } catch (actionError) {
+        const message = actionError instanceof Error ? actionError.message : "Falha ao controlar a prospecção automática.";
+        setError(message);
+        setNotice({ tone: "error", text: message });
+      } finally {
+        setProspectingAction(null);
+      }
+    },
+    [botAiActive, draftConfig, openBotPlans, prospectingConfig, saveBotConfig],
+  );
 
   const handlePublish = useCallback(
     async () => saveBotConfig(draftConfig, "Automacao WhatsApp publicada com sucesso."),
@@ -569,6 +1052,22 @@ export default function VendasAutomationClientPage() {
                     onConfigChange={setDraftConfig}
                     onSaveDraft={handleSaveDraft}
                     onSave={(nextConfig) => void saveBotConfig(nextConfig, "Bot publicado.")}
+                  />
+                ) : renderBotPlanPaywall()
+              }
+              prospectingPanel={
+                botAiActive ? (
+                  <ProspectingAutomationPanel
+                    config={prospectingConfig}
+                    liveStatus={prospectingStatus}
+                    loading={prospectingLoading}
+                    actionLoading={prospectingAction}
+                    onChange={updateProspectingConfigState}
+                    onSave={() => void saveProspectingConfig()}
+                    onStart={() => void runProspectingAction("start")}
+                    onPause={() => void runProspectingAction("pause")}
+                    onResume={() => void runProspectingAction("resume")}
+                    onCancel={() => void runProspectingAction("cancel")}
                   />
                 ) : renderBotPlanPaywall()
               }

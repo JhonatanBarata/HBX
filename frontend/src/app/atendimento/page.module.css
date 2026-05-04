@@ -1383,6 +1383,32 @@
   color: #06281e;
 }
 
+.conversationBadgeStack {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.32rem;
+  flex-wrap: wrap;
+}
+
+.conversationInterestedBadge {
+  width: fit-content;
+  min-height: 20px;
+  padding: 0.08rem 0.5rem;
+  background: color-mix(in srgb, var(--inbox-warning, #ffb547) 22%, rgba(255, 255, 255, 0.08));
+  border: 1px solid color-mix(in srgb, var(--inbox-warning, #ffb547) 36%, transparent);
+  color: #ffe7bc;
+  line-height: 1;
+  box-shadow: 0 8px 16px -12px rgba(255, 181, 71, 0.72);
+}
+
+.conversationQueueItemInterested {
+  border-color: color-mix(in srgb, var(--inbox-warning, #ffb547) 42%, #202c33);
+}
+
+.conversationQueueItemInterested::before {
+  background: linear-gradient(180deg, #fff3d1, var(--inbox-warning, #ffb547));
+}
+
 .conversationQueueItemMuted {
   filter: saturate(0.72);
 }
@@ -4688,7 +4714,9 @@
     var(--workspace-stage-height, calc(100dvh - var(--topbar-total-height) - 1.1rem)),
     calc(100dvh - var(--topbar-total-height) - 1.1rem)
   );
-  display: block;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 0.42rem;
   padding: 0.18rem 0.28rem 0.28rem;
   border-radius: 30px;
   background:
@@ -4714,6 +4742,132 @@
   gap: 0.7rem;
   min-height: 0;
   height: 100%;
+}
+
+.automationPulse {
+  display: grid;
+  grid-template-columns: minmax(220px, 0.8fr) minmax(380px, 1fr) auto;
+  align-items: center;
+  gap: 0.7rem;
+  min-height: 54px;
+  padding: 0.48rem 0.58rem 0.48rem 0.78rem;
+  border-radius: 22px;
+  border: 1px solid rgba(96, 119, 186, 0.2);
+  background:
+    linear-gradient(135deg, rgba(10, 16, 34, 0.9), rgba(10, 18, 36, 0.78)),
+    radial-gradient(circle at left center, rgba(22, 215, 181, 0.12), transparent 38%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    0 14px 30px rgba(2, 6, 23, 0.22);
+}
+
+.automationPulse[data-status="erro"] {
+  border-color: rgba(255, 111, 145, 0.34);
+}
+
+.automationPulseMain {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.62rem;
+}
+
+.automationPulseDot {
+  width: 0.64rem;
+  height: 0.64rem;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: var(--inbox-muted);
+  box-shadow: 0 0 0 5px rgba(145, 160, 195, 0.1);
+}
+
+.automationPulseDot[data-busy="true"] {
+  background: var(--inbox-teal);
+  animation: automationPulseSpin 0.82s linear infinite;
+}
+
+@keyframes automationPulseSpin {
+  from {
+    transform: rotate(0deg);
+    box-shadow: 0 -5px 0 -2px rgba(22, 215, 181, 0.62), 0 0 0 5px rgba(22, 215, 181, 0.1);
+  }
+
+  to {
+    transform: rotate(360deg);
+    box-shadow: 0 -5px 0 -2px rgba(22, 215, 181, 0.62), 0 0 0 5px rgba(22, 215, 181, 0.1);
+  }
+}
+
+.automationPulseText {
+  min-width: 0;
+  display: grid;
+  gap: 0.1rem;
+}
+
+.automationPulseText strong {
+  color: var(--inbox-text);
+  font-size: 0.82rem;
+  line-height: 1.1;
+}
+
+.automationPulseText span {
+  min-width: 0;
+  color: var(--inbox-muted);
+  font-size: 0.75rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.automationPulseCounters {
+  display: flex;
+  justify-content: center;
+  gap: 0.34rem;
+  flex-wrap: wrap;
+}
+
+.automationPulseCounters span,
+.automationPulseActions button,
+.conversationInterestedBadge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 28px;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 850;
+}
+
+.automationPulseCounters span {
+  gap: 0.28rem;
+  padding: 0.24rem 0.55rem;
+  border: 1px solid rgba(96, 119, 186, 0.18);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--inbox-muted);
+}
+
+.automationPulseCounters strong {
+  color: var(--inbox-text);
+}
+
+.automationPulseActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.42rem;
+  flex-wrap: wrap;
+}
+
+.automationPulseActions button {
+  padding: 0.24rem 0.64rem;
+  border: 1px solid rgba(22, 215, 181, 0.24);
+  background: rgba(22, 215, 181, 0.1);
+  color: #dffaf0;
+  cursor: pointer;
+}
+
+.automationPulseActions button:disabled {
+  opacity: 0.55;
+  cursor: progress;
 }
 
 .commandDock {
@@ -6641,6 +6795,21 @@
   .inboxStageContext {
     grid-column: 2 / -1;
     grid-row: 2;
+  }
+}
+
+@media (max-width: 1180px) {
+  .automationPulse {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+
+  .automationPulseCounters {
+    justify-content: flex-start;
+  }
+
+  .automationPulseActions {
+    justify-content: flex-start;
   }
 }
 

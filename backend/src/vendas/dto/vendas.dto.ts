@@ -9,6 +9,7 @@ import {
   IsOptional,
   IsString,
   MaxLength,
+  Max,
   Min,
   ValidateNested,
 } from 'class-validator';
@@ -196,3 +197,122 @@ export class ImportWebscrapingLeadsDto {
   @Type(() => ImportWebscrapingLeadItemDto)
   leads!: ImportWebscrapingLeadItemDto[];
 }
+
+export class UpdateVendasProspectingConfigDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  city?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(2)
+  state?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  segment?: string;
+
+  @IsOptional()
+  @IsIn(['hbx', 'google'])
+  engine?: 'hbx' | 'google';
+
+  @IsOptional()
+  @IsIn(['pj', 'pf', 'agenda_pf'])
+  targetType?: 'pj' | 'pf' | 'agenda_pf';
+
+  @IsOptional()
+  filtersJson?: unknown;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(4000)
+  messageTemplate?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(180)
+  intervalMinutes?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(300)
+  dailyLimit?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(500)
+  minLeadBuffer?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(500)
+  desiredLeadBuffer?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(3)
+  maxAttemptsPerLead?: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(5)
+  workingHoursStart?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(5)
+  workingHoursEnd?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(45)
+  typingSeconds?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(30)
+  typingVarianceSeconds?: number;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(40)
+  @IsString({ each: true })
+  positiveIntentKeywords?: string[];
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(40)
+  @IsString({ each: true })
+  negativeIntentKeywords?: string[];
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  optOutMessage?: string;
+
+  @IsOptional()
+  @Transform(({ value }) => {
+    if (typeof value === 'boolean') return value;
+    if (typeof value === 'string') return ['1', 'true', 'yes', 'on'].includes(value.trim().toLowerCase());
+    return value;
+  })
+  websiteFallbackEnabled?: boolean;
+}
+
+export class StartVendasProspectingDto extends UpdateVendasProspectingConfigDto {}
