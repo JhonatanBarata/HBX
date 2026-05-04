@@ -245,8 +245,7 @@ function buildRemoteDeployScript(config, mode) {
     'echo "Backend URL: $BACKEND_URL"',
     'echo "Frontend URL: $FRONTEND_URL"',
     'echo "Rede Docker: $HBX_DOCKER_NETWORK"',
-    'HBX_POSTGRES_SERVICE_ARGS="hbx-postgres"',
-    'if docker inspect hbx-postgres >/dev/null 2>&1; then docker start hbx-postgres >/dev/null; HBX_POSTGRES_SERVICE_ARGS=""; else run_filtered $DC --env-file .env -f docker-compose.hostinger.yml up -d hbx-postgres; fi',
+    'if docker inspect hbx-postgres >/dev/null 2>&1; then docker start hbx-postgres >/dev/null; else run_filtered $DC --env-file .env -f docker-compose.hostinger.yml up -d hbx-postgres; fi',
     'docker network connect "$HBX_DOCKER_NETWORK" hbx-postgres 2>/dev/null || true',
     'for i in $(seq 1 60); do if docker exec hbx-postgres sh -lc \'pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"\' >/dev/null 2>&1; then echo "Postgres pronto."; break; fi; echo "Aguardando Postgres ($i/60)..."; sleep 2; done',
     'if ! docker inspect -f "{{.State.Running}}" hbx-postgres 2>/dev/null | grep -q true; then echo "ERRO: container hbx-postgres nao esta running."; exit 1; fi',
@@ -258,7 +257,7 @@ function buildRemoteDeployScript(config, mode) {
     lines.push(
       'docker rm -f backend hbx-backend hbx-frontend webscraping hbx-scraping-engine c7227f19b684_hbx-scraping-engine ab1704a260e6_hbx-frontend e22f61f3f5da_webscraping 2>/dev/null || true',
       'run_filtered $DC --env-file .env -f docker-compose.hostinger.yml build --no-cache backend webscraping hbx-scraping-engine frontend || echo "Aviso: build --no-cache falhou; tentando up -d --build."',
-      'run_filtered $DC --env-file .env -f docker-compose.hostinger.yml up -d --build $HBX_POSTGRES_SERVICE_ARGS backend webscraping hbx-scraping-engine frontend',
+      'run_filtered $DC --env-file .env -f docker-compose.hostinger.yml up -d --build --no-deps backend webscraping hbx-scraping-engine frontend',
       'docker restart hbx-backend hbx-frontend webscraping hbx-scraping-engine',
       'docker image prune -f',
       'docker builder prune -f || true',
@@ -266,7 +265,7 @@ function buildRemoteDeployScript(config, mode) {
     );
   } else {
     lines.push('docker rm -f backend hbx-backend hbx-frontend webscraping hbx-scraping-engine c7227f19b684_hbx-scraping-engine ab1704a260e6_hbx-frontend e22f61f3f5da_webscraping 2>/dev/null || true');
-    lines.push('run_filtered $DC --env-file .env -f docker-compose.hostinger.yml up -d --build $HBX_POSTGRES_SERVICE_ARGS backend webscraping hbx-scraping-engine frontend');
+    lines.push('run_filtered $DC --env-file .env -f docker-compose.hostinger.yml up -d --build --no-deps backend webscraping hbx-scraping-engine frontend');
   }
 
   lines.push(
