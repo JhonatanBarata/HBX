@@ -1544,6 +1544,25 @@ export class ModulesService implements OnModuleInit {
       const runtimeContext = await this.masterContextService.resolveRuntimeContext(user);
       companyId = runtimeContext.effectiveCompanyId || null;
     }
+    // Attach a lightweight company object to the user so callers can access
+    // company-related fields via `user.company` without changing all callers.
+    let company = null;
+    if (companyId) {
+      company = await this.prisma.company.findUnique({
+        where: { id: Number(companyId) },
+        select: {
+          id: true,
+          paymentStatus: true,
+          subscriptionStatus: true,
+          premiumAccess: true,
+          trialEndsAt: true,
+          billingGraceEndsAt: true,
+          isActive: true,
+        },
+      });
+    }
+    (user as any).company = company;
+
     return { user, companyId, isSystemMaster: Boolean((user as any).isSystemMaster) };
   }
 
@@ -1812,9 +1831,9 @@ export class ModulesService implements OnModuleInit {
       return this.isFinanceModuleKey(key);
     }
 
-    const companyPaymentStatus = String(user?.company?.paymentStatus || '').trim().toUpperCase();
-    const companySubscriptionStatus = String(user?.company?.subscriptionStatus || '').trim().toLowerCase();
-    const manualPremiumAccess = Boolean(user?.company?.premiumAccess) || companyPaymentStatus === 'MANUAL' || companySubscriptionStatus === 'manual';
+    const companyPaymentStatus = String(((user as any)?.company?.paymentStatus) || '').trim().toUpperCase();
+    const companySubscriptionStatus = String(((user as any)?.company?.subscriptionStatus) || '').trim().toLowerCase();
+    const manualPremiumAccess = Boolean((user as any)?.company?.premiumAccess) || companyPaymentStatus === 'MANUAL' || companySubscriptionStatus === 'manual';
     if (manualPremiumAccess && ['atendimento', 'vendas', 'webscraping'].includes(key)) {
       return this.canUseAdminOnlyModule(user, key);
     }
