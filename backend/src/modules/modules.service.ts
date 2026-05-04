@@ -3575,6 +3575,12 @@ export class ModulesService implements OnModuleInit {
       data: {
         paymentStatus: normalized,
         subscriptionStatus,
+        onboardingStatus:
+          normalized === 'MANUAL' || normalized === 'PAID'
+            ? 'active_paid'
+            : normalized === 'TRIAL'
+              ? 'active_trial'
+              : company.onboardingStatus,
         premiumAccess: ['active', 'trialing', 'manual'].includes(subscriptionStatus),
         trialStartsAt: normalized === 'MANUAL' ? null : company.trialStartsAt,
         trialEndsAt: normalized === 'MANUAL' ? null : company.trialEndsAt,
@@ -3879,11 +3885,15 @@ export class ModulesService implements OnModuleInit {
     const billingProvider = String(dto?.billingProvider || company.billingProvider || 'manual')
       .trim()
       .toLowerCase();
+    const requestedPremiumAccess = typeof dto?.premiumAccess === 'boolean'
+      ? dto.premiumAccess
+      : Boolean(company.premiumAccess);
     const subscriptionStatus = String(
       dto?.subscriptionStatus || company.subscriptionStatus || this.mapPaymentStatusToSubscriptionStatus(company.paymentStatus),
     )
       .trim()
       .toLowerCase();
+    const effectiveSubscriptionStatus = requestedPremiumAccess ? 'manual' : subscriptionStatus;
 
     const allowedPaymentMethods = ['NONE', 'CARD', 'PIX', 'BOLETO', 'MANUAL'];
     const allowedBillingProviders = ['manual', 'mercadopago', 'stripe', 'apple', 'google'];
@@ -3897,28 +3907,37 @@ export class ModulesService implements OnModuleInit {
         `billingProvider deve ser um de: ${allowedBillingProviders.join(', ')}`,
       );
     }
-    if (!allowedSubscriptionStatuses.includes(subscriptionStatus)) {
+    if (!allowedSubscriptionStatuses.includes(effectiveSubscriptionStatus)) {
       throw new BadRequestException(
         `subscriptionStatus deve ser um de: ${allowedSubscriptionStatuses.join(', ')}`,
       );
     }
 
-    const updated = await this.prisma.company.update({
-      where: { id: companyId },
-      data: {
-        name: this.normalizeOptionalString(dto?.name) || company.name,
-        primaryContactName: this.normalizeOptionalString(dto?.primaryContactName),
-        contactEmail: this.normalizeOptionalString(dto?.contactEmail),
-        contactPhone: this.normalizeOptionalString(dto?.contactPhone),
-        taxDocument: this.normalizeOptionalString(dto?.taxDocument),
-        paymentMethod,
-        billingProvider,
-        subscriptionStatus,
-        premiumAccess:
-          typeof dto?.premiumAccess === 'boolean'
-            ? dto.premiumAccess
-            : ['active', 'trialing', 'manual'].includes(subscriptionStatus),
-      },
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const next = await tx.company.update({
+        where: { id: companyId },
+        data: {
+          name: this.normalizeOptionalString(dto?.name) || company.name,
+          primaryContactName: this.normalizeOptionalString(dto?.primaryContactName),
+          contactEmail: this.normalizeOptionalString(dto?.contactEmail),
+          contactPhone: this.normalizeOptionalString(dto?.contactPhone),
+          taxDocument: this.normalizeOptionalString(dto?.taxDocument),
+          paymentMethod: requestedPremiumAccess && paymentMethod === 'NONE' ? 'MANUAL' : paymentMethod,
+          billingProvider: requestedPremiumAccess ? 'manual' : billingProvider,
+          onboardingStatus: requestedPremiumAccess ? 'active_paid' : company.onboardingStatus,
+          paymentStatus: requestedPremiumAccess ? 'MANUAL' : company.paymentStatus,
+          subscriptionStatus: effectiveSubscriptionStatus,
+          premiumAccess: requestedPremiumAccess || ['active', 'trialing', 'manual'].includes(effectiveSubscriptionStatus),
+          isActive: requestedPremiumAccess || company.isActive,
+          deactivatedAt: requestedPremiumAccess ? null : company.deactivatedAt,
+        },
+      });
+      if (requestedPremiumAccess) {
+        const planKey = normalizeCommercialPlanKey(company.selectedPlanKey || 'hbx_padrao');
+        await this.syncCompanyModulesForPlanTx(tx, companyId, planKey);
+        await this.syncCompanyEntitlementsForPlanTx(tx, companyId, planKey, 'manual', 'master_profile_premium', null, null);
+      }
+      return next;
     });
 
     await this.masterContextService.registerSupportAction({
