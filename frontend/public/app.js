@@ -128,7 +128,8 @@ window.onPageSwapped = window.onPageSwapped || function(){ /* no-op */ };
 
 // API health check indicator: toggles .logo .mark.ok/.down based on backend availability
 async function checkApiHealth(){
-  const backend = (window.BACKEND_URL || 'http://localhost:3000');
+  const isLocal = ['localhost', '127.0.0.1'].includes(window.location.hostname);
+  const backend = (window.BACKEND_URL || (isLocal ? 'http://localhost:3000' : 'https://api.hbxsystem.com.br'));
   let ok = false;
   try{
     const res = await fetch(backend + '/', { method: 'GET', cache: 'no-store', mode: 'cors' });

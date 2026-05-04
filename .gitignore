@@ -12,6 +12,8 @@ postgres-data/
 *.log
 .env
 .env.local
+.env.hostinger
+.env.hostinger.local
 .env.production.local
 .env.ops.local
 .env.operations.local

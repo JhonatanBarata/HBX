@@ -1,6 +1,10 @@
 "use client";
 
-const API_URL = (process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3000").replace(/\/+$/, "");
+const DEFAULT_API_URL =
+  process.env.NODE_ENV === "production"
+    ? "https://api.hbxsystem.com.br"
+    : "http://localhost:3000";
+const API_URL = (process.env.NEXT_PUBLIC_API_URL ?? DEFAULT_API_URL).replace(/\/+$/, "");
 const DASHBOARD_API_PROXY_PREFIX = "/hbx/api";
 const SHELL_GET_CACHE_TTL_MS = 30000;
 const TOKEN_EXPIRY_SKEW_MS = 15000;
@@ -264,19 +268,6 @@ function parseErrorMessage(data: unknown): string {
   return "Erro";
 }
 
-function dispatchTechAssistantApiError(detail: Record<string, unknown>) {
-  if (typeof window === "undefined") return;
-  try {
-    window.dispatchEvent(
-      new CustomEvent("hbx-tech-assistant:api-error", {
-        detail,
-      }),
-    );
-  } catch {
-    // ignore event dispatch errors
-  }
-}
-
 export async function apiFetch<T>(
   path: string,
   init?: ApiFetchInit
@@ -352,18 +343,6 @@ export async function apiFetch<T>(
         ) {
           window.location.assign(data.redirectTo);
         }
-        dispatchTechAssistantApiError({
-          path,
-          url,
-          method: String(fetchInit.method || "GET").toUpperCase(),
-          status: res.status,
-          message,
-          response:
-            typeof data === "string"
-              ? data.slice(0, 1200)
-              : JSON.stringify(data ?? null).slice(0, 1200),
-          at: new Date().toISOString(),
-        });
       }
       const apiError = new Error(message) as ApiFetchError;
       apiError.status = res.status;

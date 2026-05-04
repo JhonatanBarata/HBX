@@ -15,7 +15,11 @@ import { normalizeInternalRouteAlias } from "../../lib/route-aliases";
 import { useLoginColdStart, type LoginState } from "../../lib/useLoginColdStart";
 import { resolveWebsiteOnlyDestination } from "../../lib/websiteLaunch";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3000";
+const DEFAULT_API_URL =
+  process.env.NODE_ENV === "production"
+    ? "https://api.hbxsystem.com.br"
+    : "http://localhost:3000";
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? DEFAULT_API_URL;
 const AUTO_LOGIN_STORAGE_KEY = "hbx_auto_login";
 const AUTO_LOGIN_RELOAD_SECONDS = 49;
 const LOGIN_SUCCESS_DELAY_MS = 3500;

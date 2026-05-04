@@ -205,9 +205,9 @@ function printFrontendDeployNotice(config, changedFiles) {
 
   console.log([
     '',
-    'Aviso operacional: este publish conclui apenas Hostinger (backend/webscraping/HBX Scraping Engine).',
-    `O frontend oficial em ${config.frontendUrl} continua sendo servido pela Vercel e pode permanecer com bundle anterior ate o rollout externo terminar.`,
-    `Mudancas de frontend detectadas neste publish: ${preview}${suffix}`,
+    'Aviso operacional: mudancas de frontend foram detectadas e entram no build do servico hbx-frontend na Hostinger.',
+    `Frontend publicado em ${config.frontendUrl}.`,
+    `Arquivos de frontend detectados neste publish: ${preview}${suffix}`,
   ].join('\n'));
 }
 
@@ -228,36 +228,40 @@ function buildRemoteDeployScript(config, mode) {
     'ENV_DB_LINES="$(awk -F= \'/^[[:space:]]*(DATABASE_URL|DIRECT_URL)[[:space:]]*=/{print $0}\' backend/.env)"',
     'if ! printf "%s\\n" "$ENV_DB_LINES" | grep -q "hbx-postgres"; then echo "ERRO: backend/.env precisa apontar para hbx-postgres."; exit 1; fi',
     'if ! printf "%s\\n" "$ENV_DB_LINES" | grep -q "hbx_prod"; then echo "ERRO: backend/.env precisa apontar para o banco hbx_prod."; exit 1; fi',
-    'if ! docker inspect -f "{{.State.Running}}" hbx-postgres 2>/dev/null | grep -q true; then echo "ERRO: container hbx-postgres nao esta running."; exit 1; fi',
-    'POSTGRES_NETWORK="$(docker inspect hbx-postgres --format \'{{range $name, $_ := .NetworkSettings.Networks}}{{println $name}}{{end}}\' | grep -E \'^hbx[-_]net$\' | head -n 1 || true)"',
-    'if [ -n "$POSTGRES_NETWORK" ]; then export HBX_DOCKER_NETWORK="$POSTGRES_NETWORK"; elif docker network inspect hbx_net >/dev/null 2>&1; then export HBX_DOCKER_NETWORK=hbx_net; elif docker network inspect hbx-net >/dev/null 2>&1; then export HBX_DOCKER_NETWORK=hbx-net; else echo "ERRO: rede Docker hbx_net/hbx-net nao encontrada."; exit 1; fi',
+    'if docker network inspect hbx_net >/dev/null 2>&1; then export HBX_DOCKER_NETWORK=hbx_net; elif docker network inspect hbx-net >/dev/null 2>&1; then export HBX_DOCKER_NETWORK=hbx-net; else docker network create hbx_net >/dev/null; export HBX_DOCKER_NETWORK=hbx_net; fi',
     'if docker-compose --version >/dev/null 2>&1; then DC="docker-compose"; elif docker compose version >/dev/null 2>&1; then DC="docker compose"; else echo "ERRO: docker-compose nao encontrado."; exit 1; fi',
     'run_filtered() { set +e; "$@" 2>&1 | sed \'/legacy builder is deprecated/d;/Install the buildx component/d;/docs.docker.com\\/go\\/buildx/d\'; status="${PIPESTATUS[0]}"; set -e; return "$status"; }',
     'echo "Banco esperado: hbx-postgres/hbx_prod"',
     'echo "Backend URL: $BACKEND_URL"',
     'echo "Frontend URL: $FRONTEND_URL"',
     'echo "Rede Docker: $HBX_DOCKER_NETWORK"',
+    'HBX_POSTGRES_SERVICE_ARGS="hbx-postgres"',
+    'if docker inspect hbx-postgres >/dev/null 2>&1; then docker start hbx-postgres >/dev/null; HBX_POSTGRES_SERVICE_ARGS=""; else run_filtered $DC -f docker-compose.hostinger.yml up -d hbx-postgres; fi',
+    'docker network connect "$HBX_DOCKER_NETWORK" hbx-postgres 2>/dev/null || true',
+    'for i in $(seq 1 60); do if docker exec hbx-postgres sh -lc \'pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"\' >/dev/null 2>&1; then echo "Postgres pronto."; break; fi; echo "Aguardando Postgres ($i/60)..."; sleep 2; done',
+    'if ! docker inspect -f "{{.State.Running}}" hbx-postgres 2>/dev/null | grep -q true; then echo "ERRO: container hbx-postgres nao esta running."; exit 1; fi',
+    'POSTGRES_DB_VALUE="$(docker exec hbx-postgres sh -lc \'printf "%s" "$POSTGRES_DB"\')"',
+    'if [ "$POSTGRES_DB_VALUE" != "hbx_prod" ]; then echo "ERRO: POSTGRES_DB inesperado: $POSTGRES_DB_VALUE"; exit 1; fi',
   ];
 
   if (isForce) {
     lines.push(
-      '$DC -f docker-compose.hostinger.yml down --remove-orphans',
-    'docker rm -f backend hbx-backend webscraping hbx-scraping-engine 2>/dev/null || true',
-    'run_filtered $DC -f docker-compose.hostinger.yml build --no-cache backend webscraping hbx-scraping-engine || echo "Aviso: build --no-cache falhou; tentando up -d --build."',
-    'run_filtered $DC -f docker-compose.hostinger.yml up -d --build backend webscraping hbx-scraping-engine',
-    'docker restart hbx-backend webscraping hbx-scraping-engine',
+      'docker rm -f backend hbx-backend hbx-frontend webscraping hbx-scraping-engine 2>/dev/null || true',
+      'run_filtered $DC -f docker-compose.hostinger.yml build --no-cache backend webscraping hbx-scraping-engine frontend || echo "Aviso: build --no-cache falhou; tentando up -d --build."',
+      'run_filtered $DC -f docker-compose.hostinger.yml up -d --build $HBX_POSTGRES_SERVICE_ARGS backend webscraping hbx-scraping-engine frontend',
+      'docker restart hbx-backend hbx-frontend webscraping hbx-scraping-engine',
       'docker image prune -f',
       'docker builder prune -f || true',
       'if [ "$FORCE_REBOOT_HOSTINGER" = "true" ]; then echo "FORCE_REBOOT_HOSTINGER=true: reiniciando VPS."; (sudo reboot || reboot); else echo "Reboot da VPS ignorado. Defina FORCE_REBOOT_HOSTINGER=true para habilitar."; fi',
     );
   } else {
-    lines.push('docker rm -f backend hbx-backend webscraping hbx-scraping-engine 2>/dev/null || true');
-    lines.push('run_filtered $DC -f docker-compose.hostinger.yml up -d --build backend webscraping hbx-scraping-engine');
+    lines.push('docker rm -f backend hbx-backend hbx-frontend webscraping hbx-scraping-engine 2>/dev/null || true');
+    lines.push('run_filtered $DC -f docker-compose.hostinger.yml up -d --build $HBX_POSTGRES_SERVICE_ARGS backend webscraping hbx-scraping-engine frontend');
   }
 
   lines.push(
     'echo "Containers ativos:"',
-    'docker ps --format "table {{.Names}}\\t{{.Status}}\\t{{.Ports}}" | grep -E "NAMES|hbx-backend|webscraping|hbx-scraping-engine|hbx-postgres" || true',
+    'docker ps --format "table {{.Names}}\\t{{.Status}}\\t{{.Ports}}" | grep -E "NAMES|hbx-frontend|hbx-backend|webscraping|hbx-scraping-engine|hbx-postgres" || true',
   );
 
   return lines.join('\n');
@@ -392,7 +396,7 @@ function printDryRun(config, mode) {
   console.log('\n[dry-run] No git push, no SSH execution, no docker-compose down/up on Hostinger.');
   console.log('[dry-run] Would run: git push origin master');
   console.log(`[dry-run] Would SSH into: ${config.sshUser}@${config.sshHost}`);
-  console.log('[dry-run] Would run Hostinger remote deploy: fetch/reset, validate env/db/docker, build/up services, list containers.');
+  console.log('[dry-run] Would run Hostinger remote deploy: fetch/reset, validate env/db/docker, build/up frontend/backend/postgres/scraping services, list containers.');
   if (isTruthy(process.env.PUBLISH_VERBOSE_DRY_RUN)) {
     console.log('--- remote script start ---');
     console.log(buildRemoteDeployScript(config, mode));
@@ -455,6 +459,10 @@ async function verifyProduction(config) {
     throw new Error(`Unexpected CORS allow-origin header: ${allowOrigin}`);
   }
   console.log(`CORS OK: HTTP ${corsResponse.status}${allowOrigin ? `, allow-origin=${allowOrigin}` : ''}`);
+
+  console.log(`\n> GET ${config.frontendUrl}`);
+  const frontendResponse = await requestWithRetry(config.frontendUrl, { method: 'GET' });
+  console.log(`Frontend OK: HTTP ${frontendResponse.status}`);
 }
 
 async function main() {

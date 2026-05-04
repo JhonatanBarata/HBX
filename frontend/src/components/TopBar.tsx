@@ -21,7 +21,6 @@ import {
 } from "../lib/masterContextEvents";
 import { dispatchModulesChanged, MODULES_CHANGED_EVENT } from "../lib/module-events";
 import ThemeSwitcher from "./ThemeSwitcher";
-import TechAssistantGlobalDrawer from "./TechAssistantGlobalDrawer";
 import WhatsAppOperationalDialog from "./WhatsAppOperationalDialog";
 
 type User = {
@@ -2199,10 +2198,6 @@ export default function TopBar() {
 
       {portalReady && masterContextModalNode ? createPortal(masterContextModalNode, document.body) : null}
 
-      <TechAssistantGlobalDrawer
-        isSystemMaster={Boolean(user?.isSystemMaster)}
-        masterContext={user?.masterContext || null}
-      />
     </header>
   );
 }

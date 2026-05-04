@@ -10,7 +10,11 @@ import { apiFetch, getToken } from "@/app/_lib/api";
 import { useRequireAuth } from "@/app/_lib/useRequireAuth";
 import styles from "./page.module.css";
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3000";
+const DEFAULT_API_URL =
+  process.env.NODE_ENV === "production"
+    ? "https://api.hbxsystem.com.br"
+    : "http://localhost:3000";
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? DEFAULT_API_URL;
 const SEGMENT_SUGGESTIONS = [
   "Lanchonetes",
   "Oficinas",
