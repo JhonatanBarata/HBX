@@ -1,119 +1,40 @@
 # Deploy Hostinger
 
-Fluxo oficial de producao do HBX para backend e webscraping na VPS Hostinger.
+Fluxo oficial de producao do HBX na VPS Hostinger nova.
 
-## Arquitetura atual
+## Alvos publicos
 
-- Frontend: Vercel em `https://www.hbxsystem.com.br`
-- Backend: Hostinger em `https://api.hbxsystem.com.br`
-- Webscraping: Hostinger, via `docker-compose.hostinger.yml`
-- Webwhats: servico separado em `/opt/Webwhats`; se nao houver systemd, o publish reinicia o processo `node dist/main.js`
-- Banco: Postgres local da VPS no container `hbx-postgres`, banco `hbx_prod`
-- Rede Docker: externa, preferindo a rede onde `hbx-postgres` ja esta conectado (`hbx_net` ou `hbx-net`)
-- Compose da VPS: `/usr/bin/docker-compose 1.29.2`
+- IP da VPS: `187.77.47.18`
+- Frontend: `https://hbxsystem.com.br` e `https://www.hbxsystem.com.br`
+- Backend/API: `https://api.hbxsystem.com.br`
+- DNS esperado:
+  - `A @ -> 187.77.47.18`
+  - `A www -> 187.77.47.18`
+  - `A api -> 187.77.47.18`
 
-O frontend nao e publicado pela Hostinger. Mudancas em `frontend/` dependem do deploy da Vercel.
+## Arquitetura
 
-## Comandos oficiais
+O compose de producao e `docker-compose.hostinger.yml` e deve subir:
 
-```powershell
-npm run commit -- "feat: minha mensagem"
-npm run publish
-npm run publish:d
-npm run publish:f
-```
+- `hbx-frontend`, porta externa `3001`, Next.js;
+- `hbx-backend`, porta externa `3000`, NestJS;
+- `hbx-postgres`, Postgres 15 Alpine, sem porta externa;
+- `hbx-scraping-engine`, porta interna `8001`;
+- `webscraping`, porta interna `8501`;
+- rede Docker externa `hbx_net`.
 
-Atalhos equivalentes:
+Nginx fica fora do compose:
 
-```powershell
-npm run publish -- d
-npm run publish -- f
-```
+- `hbxsystem.com.br` e `www.hbxsystem.com.br` fazem proxy para `http://127.0.0.1:3001`;
+- `api.hbxsystem.com.br` faz proxy para `http://127.0.0.1:3000`;
+- HTTP redireciona para HTTPS;
+- a pagina default do Nginx deve ficar removida/desabilitada.
 
-## `npm run commit`
+Exemplo de site Nginx: `deploy/nginx/hbxsystem.conf`.
 
-Cria apenas um backup local no git:
+## Variaveis da VPS
 
-- roda `git status` antes e depois;
-- roda `git add -A`;
-- aceita mensagem por argumento;
-- gera mensagem com timestamp se nenhuma mensagem for enviada;
-- se `../Webwhats` existir, repete o mesmo fluxo em commit separado no repositorio Webwhats;
-- nao faz push;
-- nao faz deploy;
-- bloqueia `.env` reais, backups, dumps, bancos locais e arquivos sensiveis conhecidos.
-
-## `npm run publish`
-
-Fluxo normal de producao:
-
-- exige branch `master`;
-- exige working tree limpa;
-- exige working tree limpa tambem no Webwhats quando `../Webwhats` existir;
-- roda validacoes/builds locais de HBX e Webwhats;
-- faz `git push origin master` sem force nos repositorios aplicaveis;
-- publica Webwhats por SSH antes do HBX, usando `npm ci`, `npm run build`, `npm run db:generate`, `npm run db:deploy` e `systemctl restart`;
-- acessa a Hostinger por SSH;
-- roda `git fetch origin master` e `git reset --hard origin/master`;
-- valida que `backend/.env` existe na VPS;
-- valida que `DATABASE_URL`/`DIRECT_URL` apontam para `hbx-postgres` e `hbx_prod`;
-- valida que o container `hbx-postgres` esta running;
-- remove somente containers antigos de servico (`hbx-backend`, `webscraping` e `hbx-scraping-engine`) se houver conflito de nome;
-- sobe apenas `backend`, `webscraping` e `hbx-scraping-engine`;
-- verifica `https://api.hbxsystem.com.br/health`.
-
-Durante o deploy o script mostra:
-
-- Banco esperado: `hbx-postgres/hbx_prod`
-- Backend URL
-- Frontend URL
-- Configuracao remota do Webwhats quando habilitado
-- Containers ativos
-
-## `npm run publish:d`
-
-Dry-run completo:
-
-- imprime o que faria;
-- roda validacoes/builds locais;
-- nao faz `git push`;
-- nao executa SSH remoto;
-- nao derruba containers;
-- nao recria containers.
-
-## `npm run publish:f`
-
-Modo force:
-
-- faz tudo do publish normal;
-- roda `docker-compose down --remove-orphans`;
-- tenta `docker-compose build --no-cache backend webscraping hbx-scraping-engine`;
-- roda `docker-compose up -d --build backend webscraping hbx-scraping-engine`;
-- reinicia `hbx-backend`, `webscraping` e `hbx-scraping-engine`;
-- roda `docker image prune -f`;
-- tenta `docker builder prune -f`;
-- nao remove volumes;
-- nao remove `hbx-postgres`;
-- nao remove `hbx-postgres-data`;
-- nao usa `docker system prune --volumes`;
-- so reinicia a VPS se `FORCE_REBOOT_HOSTINGER=true` estiver definido no env operacional local.
-
-## Variaveis reais
-
-O `.env` real do backend fica somente no servidor:
-
-```text
-backend/.env
-```
-
-Ele deve apontar para o Postgres local do Docker:
-
-```env
-DATABASE_URL=postgresql://hbx_user:...@hbx-postgres:5432/hbx_prod?schema=public&connection_limit=10&pool_timeout=60
-DIRECT_URL=postgresql://hbx_user:...@hbx-postgres:5432/hbx_prod?schema=public
-```
-
-Arquivos reais que nunca devem ir para o git:
+Arquivos reais nunca entram no git:
 
 - `.env`
 - `.env.local`
@@ -121,30 +42,61 @@ Arquivos reais que nunca devem ir para o git:
 - `.env.ops.local`
 - `.env.operations.local`
 - `backend/.env`
-- backups
-- dumps
-- `postgres-data`
-- senhas, tokens e chaves reais
+- backups, dumps, bancos locais e tokens reais
 
-Use `.env.production.example` para variaveis operacionais locais e `.env.hostinger.example` como referencia do `backend/.env` da VPS.
-
-## Webwhats no publish
-
-Por padrao, o publish inclui o Webwhats quando o repositorio local existe em `../Webwhats`. Para desabilitar temporariamente:
+Use `.env.hostinger.example` como base. Na VPS, coloque as variaveis do compose em `.env` na raiz do repositorio, ou exporte no shell antes de rodar `docker compose`. No servidor, o backend real fica em `backend/.env` e deve apontar para o Postgres interno:
 
 ```env
-WEBWHATS_DEPLOY_ENABLED=false
+DATABASE_URL=postgresql://hbx_user:...@hbx-postgres:5432/hbx_prod?schema=public&connection_limit=10&pool_timeout=60
+DIRECT_URL=postgresql://hbx_user:...@hbx-postgres:5432/hbx_prod?schema=public
 ```
 
-Variaveis principais:
+O compose tambem precisa de variaveis de Postgres no ambiente da pasta raiz da VPS:
 
 ```env
-WEBWHATS_REPO_PATH=../Webwhats
-WEBWHATS_APP_DIR=/opt/Webwhats
-WEBWHATS_RUN_USER=root
-WEBWHATS_SYSTEMD_SERVICE=
-WEBWHATS_GIT_REMOTE=origin
-WEBWHATS_GIT_BRANCH=master
+POSTGRES_USER=hbx_user
+POSTGRES_PASSWORD=...
+POSTGRES_DB=hbx_prod
+POSTGRES_DATA_VOLUME=hbx-postgres-data
+NEXT_PUBLIC_API_URL=https://api.hbxsystem.com.br
 ```
 
-Se `WEBWHATS_SSH_HOST` e `WEBWHATS_SSH_USER` nao forem definidos, o script usa `HOSTINGER_SSH_HOST` e `HOSTINGER_SSH_USER`.
+`NEXT_PUBLIC_API_URL` e passado como build arg do frontend. Sem isso, o bundle Next pode nascer apontando para URL errada.
+
+## Comandos
+
+```bash
+docker network inspect hbx_net >/dev/null 2>&1 || docker network create hbx_net
+docker compose -f docker-compose.hostinger.yml up -d --build hbx-postgres backend webscraping hbx-scraping-engine frontend
+docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+```
+
+Em VPS com `docker-compose` legado:
+
+```bash
+docker-compose -f docker-compose.hostinger.yml up -d --build hbx-postgres backend webscraping hbx-scraping-engine frontend
+```
+
+## Verificacoes
+
+```bash
+curl -I https://hbxsystem.com.br
+curl -I https://www.hbxsystem.com.br
+curl -I https://api.hbxsystem.com.br/health
+docker exec hbx-postgres sh -lc 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc "select current_database();"'
+```
+
+Esperado:
+
+- frontend responde pelos dominios raiz/www;
+- backend responde em `/health`;
+- CORS permite `https://hbxsystem.com.br` e `https://www.hbxsystem.com.br`;
+- `DATABASE_URL` usa `hbx-postgres:5432`;
+- webscraping interno usa `http://webscraping:8501`;
+- scraping engine interno usa `http://hbx-scraping-engine:8001`.
+
+## Erros conhecidos
+
+- `P1001`: backend nao alcancou Postgres. O `start-prod.sh` aguarda o banco antes das migrations, mas confirme container, rede `hbx_net` e `DATABASE_URL`.
+- `P3009`: migration marcada como falhada em tentativa anterior. Nao force reset em producao. Corrija a migration no banco ou marque resolvida com Prisma somente depois de validar o estado real do schema.
+- Frontend chamando `localhost`: refaca o build de `hbx-frontend` com `NEXT_PUBLIC_API_URL=https://api.hbxsystem.com.br`.

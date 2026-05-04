@@ -63,12 +63,11 @@ export class AuthService implements OnModuleInit {
       return configured;
     }
 
-    const nodeEnv = String(process.env.NODE_ENV || 'development').trim().toLowerCase();
-    if (nodeEnv === 'production' && this.shouldBootstrapSystemMaster()) {
-      throw new Error('SYSTEM_MASTER_PASSWORD is required when BOOTSTRAP_SYSTEM_MASTER=true in production');
+    if (this.shouldBootstrapSystemMaster()) {
+      throw new Error('SYSTEM_MASTER_PASSWORD is required when BOOTSTRAP_SYSTEM_MASTER=true');
     }
 
-    return 'master4961';
+    return crypto.randomBytes(32).toString('base64url');
   }
 
   private shouldBootstrapSystemMaster() {

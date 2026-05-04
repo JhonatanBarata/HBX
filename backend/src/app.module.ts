@@ -21,7 +21,6 @@ import { ImportacoesModule } from './importacoes/importacoes.module';
 import { CadastrosModule } from './cadastros/cadastros.module';
 import { WebsiteModule } from './website/website.module';
 import { HbxRecoveryModule } from './hbx-recovery/hbx-recovery.module';
-import { TechAssistantModule } from './tech-assistant/tech-assistant.module';
 import { MasterContextModule } from './master-context/master-context.module';
 import { WebscrapingModule } from './webscraping/webscraping.module';
 import { IntegrationsModule } from './integrations/integrations.module';
@@ -60,7 +59,6 @@ import { CommercialPlansModule } from './commercial-plans/commercial-plans.modul
     CadastrosModule,
     WebsiteModule,
     HbxRecoveryModule,
-    TechAssistantModule,
     MasterContextModule,
     WebscrapingModule,
     IntegrationsModule,

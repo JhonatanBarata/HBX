@@ -3,7 +3,11 @@
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3000";
+const DEFAULT_API_URL =
+  process.env.NODE_ENV === "production"
+    ? "https://api.hbxsystem.com.br"
+    : "http://localhost:3000";
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? DEFAULT_API_URL;
 
 type ApiErrorPayload = {
   message?: string | string[];

@@ -9,27 +9,26 @@ Frontend principal do HBX em Next.js.
    - `NEXT_PUBLIC_API_URL=http://localhost:3000`
 3. Rode `npm run dev`
 
-## Deploy na Vercel
+## Deploy na Hostinger
 
-1. Suba este repositorio no GitHub
-2. Na Vercel, clique em `Add New > Project`
-3. Importe o repositorio do HBX
-4. Defina `Root Directory` como `frontend`
-5. Framework Preset: `Next.js`
-6. Configure a variavel de ambiente:
-   - `NEXT_PUBLIC_API_URL=https://URL-DO-BACKEND`
-7. Confirme que os comandos estao assim:
-   - Install Command: `npm install`
-   - Build Command: `npm run build`
-   - Output Directory: vazio
-8. Clique em `Deploy`
+O frontend oficial sobe no Docker pela VPS Hostinger usando `docker-compose.hostinger.yml`.
+
+Variavel obrigatoria no build:
+
+- `NEXT_PUBLIC_API_URL=https://api.hbxsystem.com.br`
+
+Comando principal na raiz do repositorio:
+
+```bash
+docker compose -f docker-compose.hostinger.yml up -d --build frontend
+```
 
 ## Variaveis de ambiente
 
 - `NEXT_PUBLIC_API_URL`
   - URL publica do backend NestJS
   - Exemplo local: `http://localhost:3000`
-  - Exemplo producao: `https://api.hbx.com.br`
+  - Exemplo producao: `https://api.hbxsystem.com.br`
 
 ## Observacao
 

@@ -2203,9 +2203,6 @@ export default function MasterPremiumPage() {
           <button type="button" className="btn btn-secondary btn-sm" onClick={() => loadWorkspace(true)}>
             {refreshing ? "Atualizando..." : "Atualizar"}
           </button>
-          <Link href="/master/assistente-tecnico" className="btn btn-secondary btn-sm">
-            Assistente Técnico
-          </Link>
           <Link href="/master/sistema" className="btn btn-secondary btn-sm">
             Sistema
           </Link>

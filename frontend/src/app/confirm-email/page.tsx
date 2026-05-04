@@ -6,7 +6,11 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { getToken, setToken } from "@/app/_lib/api";
 import { normalizeInternalRouteAlias } from "@/lib/route-aliases";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3000";
+const DEFAULT_API_URL =
+  process.env.NODE_ENV === "production"
+    ? "https://api.hbxsystem.com.br"
+    : "http://localhost:3000";
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? DEFAULT_API_URL;
 const EMAIL_CONFIRMATION_CHANNEL = "hbx_email_confirmation";
 const EMAIL_CONFIRMATION_EVENT_KEY = "hbx_email_confirmation_event";
 const LOCAL_WELCOME_PATH = "/boasvindas";

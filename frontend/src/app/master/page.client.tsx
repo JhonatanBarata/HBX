@@ -187,15 +187,6 @@ const MASTER_SHORTCUTS = [
     meta: "Catálogo comercial",
   },
   {
-    title: "Assistente Técnico",
-    eyebrow: "Diagnóstico",
-    description: "Analise páginas, erros, prompts e checklist de publicação antes de pedir uma correção.",
-    href: "/master/assistente-tecnico",
-    action: "Abrir assistente",
-    tone: "support",
-    meta: "Codex e debug",
-  },
-  {
     title: "Exclusões",
     eyebrow: "Auditoria",
     description: "Área sensível para revisar remoções, impactos e rastros administrativos.",
@@ -747,7 +738,7 @@ export default function MasterHomeClientPage() {
         <section className={styles.masterHomeNote}>
           <strong>Fluxo de publicação</strong>
           <p>
-            O frontend segue na Vercel. O publish da Hostinger cobre backend, webscraping e HBX Scraping Engine.
+            O publish da Hostinger cobre frontend, backend, Postgres, webscraping e HBX Scraping Engine.
           </p>
         </section>
       </div>
