@@ -3727,6 +3727,10 @@ export default function InboxClientPage() {
   }, []);
 
   const loadProspectingAutomationStatus = useCallback(async (background = false) => {
+    if (!commercialPlans || !hasBotAi(commercialPlans)) {
+      setProspectingAutomationStatus(null);
+      return null;
+    }
     if (!background) setProspectingAutomationLoading(true);
     try {
       const data = await apiFetch<ProspectingAutomationLiveStatus>("/vendas/automation/live-status");
@@ -3740,7 +3744,7 @@ export default function InboxClientPage() {
     } finally {
       if (!background) setProspectingAutomationLoading(false);
     }
-  }, []);
+  }, [commercialPlans]);
 
   const runProspectingAutomationAction = useCallback(
     async (action: "pause" | "resume") => {
