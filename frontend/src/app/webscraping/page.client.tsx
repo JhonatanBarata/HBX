@@ -61,7 +61,7 @@ const COMMON_CITY_DDD: Record<string, string> = {
 
 type WebscrapingEngine = "google" | "hbx";
 type HbxTargetType = "pj" | "pf" | "agenda_pf";
-type SearchModeId = "google_pj" | "hbx_pj" | "hbx_pf" | "hbx_agenda_pf";
+type SearchModeId = "google_pj" | "hbx_radar";
 
 const SEARCH_MODE_OPTIONS: Array<{
   id: SearchModeId;
@@ -70,7 +70,7 @@ const SEARCH_MODE_OPTIONS: Array<{
   engine: WebscrapingEngine;
   targetType: HbxTargetType;
   quantityOptions: number[];
-  motorCode: "MOTOR X" | "MOTOR Y" | "MOTOR W" | "MOTOR Z";
+  motorCode: "MOTOR X" | "RADAR HBX";
 }> = [
   {
     id: "google_pj",
@@ -82,31 +82,13 @@ const SEARCH_MODE_OPTIONS: Array<{
     motorCode: "MOTOR X",
   },
   {
-    id: "hbx_pj",
-    label: "HBX Scraping PJ",
-    description: "Empresas e negócios locais, até 50",
+    id: "hbx_radar",
+    label: "Radar HBX",
+    description: "CNPJ, CPF público e Agenda em um só motor",
     engine: "hbx",
     targetType: "pj",
-    quantityOptions: [10, 20, 30, 50],
-    motorCode: "MOTOR Y",
-  },
-  {
-    id: "hbx_pf",
-    label: "HBX Scraping PF",
-    description: "Pessoas por perfil, nicho e DDD, até 100",
-    engine: "hbx",
-    targetType: "pf",
     quantityOptions: [20, 50, 75, 100],
-    motorCode: "MOTOR W",
-  },
-  {
-    id: "hbx_agenda_pf",
-    label: "HBX Agenda PF",
-    description: "Agenda pública por cidade; só nomes de pessoa",
-    engine: "hbx",
-    targetType: "agenda_pf",
-    quantityOptions: [20, 50, 75, 100],
-    motorCode: "MOTOR Z",
+    motorCode: "RADAR HBX",
   },
 ];
 
@@ -180,6 +162,8 @@ type SearchResult = {
   website: string | null;
   source?: string | null;
   score?: number | null;
+  opportunityScore?: number | null;
+  opportunityReason?: string | null;
 };
 
 type SearchResponse = {
@@ -197,6 +181,9 @@ type SearchResponse = {
     source: "history" | "google" | "hbx" | "hybrid" | "global_cache";
     reusedCount: number;
     fetchedCount: number;
+    totalStoredCount?: number;
+    status?: "completed" | "partial_error" | "completed_with_errors";
+    message?: string | null;
     technicalCacheUsed: boolean;
     technicalCacheReusedCount: number;
     technicalCacheValidUntil: string | null;
@@ -454,6 +441,9 @@ function filterResultsForTarget(results: SearchResult[], targetType: HbxTargetTy
 }
 
 function getSearchMode(engine: WebscrapingEngine, targetType: HbxTargetType) {
+  if (engine === "hbx") {
+    return SEARCH_MODE_OPTIONS.find((option) => option.id === "hbx_radar") || SEARCH_MODE_OPTIONS[0];
+  }
   return (
     SEARCH_MODE_OPTIONS.find((option) => option.engine === engine && option.targetType === targetType) ||
     SEARCH_MODE_OPTIONS[0]
@@ -499,39 +489,20 @@ function parsePfSegment(value: string) {
 
 function searchModeTitle(option: (typeof SEARCH_MODE_OPTIONS)[number]) {
   if (option.id === "google_pj") return "Google oficial";
-  if (option.id === "hbx_pj") return "Empresas locais";
-  if (option.id === "hbx_pf") return "Pessoas por perfil";
-  return "Agenda pública por cidade";
+  return "Radar de oportunidades";
 }
 
 function searchModeLimit(option: (typeof SEARCH_MODE_OPTIONS)[number]) {
   const max = option.quantityOptions[option.quantityOptions.length - 1] || 20;
-  if (option.id === "hbx_agenda_pf") return "Só nomes de pessoa";
   return `Até ${max} resultados`;
 }
 
 function searchModeGuide(option: (typeof SEARCH_MODE_OPTIONS)[number]) {
-  if (option.id === "hbx_pf") {
+  if (option.id === "hbx_radar") {
     return {
-      input: "Cidade, perfil, nicho e DDD",
-      output: "Pessoas qualificadas por contexto",
-      action: "WhatsApp, roteiro e CRM",
-    };
-  }
-
-  if (option.id === "hbx_agenda_pf") {
-    return {
-      input: "Cidade e rótulo opcional",
-      output: "Nomes públicos por cidade",
-      action: "Qualificar e herdar no CRM",
-    };
-  }
-
-  if (option.id === "hbx_pj") {
-    return {
-      input: "Cidade, segmento e filtros",
-      output: "Empresas locais deduplicadas",
-      action: "Exportar ou enviar ao CRM",
+      input: "Filtro CNPJ, CPF ou Agenda",
+      output: "Leads priorizados sem repetição",
+      action: "Justificativa, roteiro e CRM",
     };
   }
 
@@ -747,6 +718,7 @@ export default function WebscrapingClientPage() {
   const maxQuantity = quantityOptions[quantityOptions.length - 1] || 20;
   const agendaMode = engine === "hbx" && targetType === "agenda_pf";
   const pfMode = engine === "hbx" && targetType === "pf";
+  const hbxPjMode = engine === "hbx" && targetType === "pj";
   const segmentLabel = getVisualSegment(segment, targetType);
   const remainingSearchesLabel = useMemo(() => {
     if (!runtime?.quota) return "-";
@@ -1084,15 +1056,13 @@ export default function WebscrapingClientPage() {
   function handleSearchModeChange(modeId: SearchModeId) {
     const nextMode = SEARCH_MODE_OPTIONS.find((option) => option.id === modeId) || SEARCH_MODE_OPTIONS[0];
     setEngine(nextMode.engine);
-    setTargetType(nextMode.targetType);
-    if (nextMode.targetType === "pf" && SEGMENT_SUGGESTIONS.includes(segment)) {
-      setSegment("plano de saúde");
-    }
-    if (nextMode.targetType === "agenda_pf" && SEGMENT_SUGGESTIONS.includes(segment)) {
-      setSegment("");
-    }
-    if (nextMode.targetType === "pj" && !segment.trim()) {
-      setSegment("Lanchonetes");
+    if (nextMode.engine === "google") {
+      setTargetType("pj");
+    } else {
+      setTargetType((current) => current || "pj");
+      if (!segment.trim()) {
+        setSegment("Madeireira");
+      }
     }
     setQuantity((current) => {
       const nextMax = nextMode.quantityOptions[nextMode.quantityOptions.length - 1] || current;
@@ -1100,6 +1070,19 @@ export default function WebscrapingClientPage() {
       if (nextMode.quantityOptions.includes(current)) return current;
       return nextMode.quantityOptions.find((option) => option >= current) || nextMax;
     });
+  }
+
+  function handleHbxTargetTypeChange(nextTargetType: HbxTargetType) {
+    setTargetType(nextTargetType);
+    if (nextTargetType === "pf" && (!segment.trim() || SEGMENT_SUGGESTIONS.includes(segment))) {
+      setSegment("plano de saúde");
+    }
+    if (nextTargetType === "agenda_pf" && SEGMENT_SUGGESTIONS.includes(segment)) {
+      setSegment("");
+    }
+    if (nextTargetType === "pj" && !segment.trim()) {
+      setSegment("Madeireira");
+    }
   }
 
   function selectCitySuggestion(option: string) {
@@ -1149,13 +1132,13 @@ export default function WebscrapingClientPage() {
     setSearchError(null);
     setFeedback(null);
 
-    if (!city.trim()) {
+    if (!hbxPjMode && !city.trim()) {
       setSearchError("Informe a cidade.");
       return;
     }
 
-    const selectedCity = cityExactOption || (cityOptions.length === 0 ? city.trim() : "");
-    if (citySelectionPending || !selectedCity) {
+    const selectedCity = cityExactOption || (cityOptions.length === 0 || hbxPjMode ? city.trim() : "");
+    if (!hbxPjMode && (citySelectionPending || !selectedCity)) {
       if (citySuggestionItems.length > 0) {
         setSearchError("Selecione a cidade com UF na lista para evitar ambiguidade.");
       } else {
@@ -1171,7 +1154,7 @@ export default function WebscrapingClientPage() {
     }
 
     if (!agendaMode && !pfMode && !segment.trim()) {
-      setSearchError("Informe o segmento.");
+      setSearchError(hbxPjMode ? "Informe o que deseja prospectar." : "Informe o segmento.");
       return;
     }
 
@@ -1179,7 +1162,7 @@ export default function WebscrapingClientPage() {
     const requestedSegment = effectiveSegment || getVisualSegment(segment, targetType) || searchModeSnapshot.label;
     scrapingLaunchNotice.start({
       loadingTitle: "Scraping em andamento",
-      loadingDescription: `Consultando ${searchModeSnapshot.label} para ${requestedSegment} em ${selectedCity}.`,
+      loadingDescription: `Consultando ${searchModeSnapshot.label} para ${requestedSegment}${selectedCity ? ` em ${selectedCity}` : ""}.`,
       successTitle: "Busca concluída",
       successDescription: "Resultados recebidos, deduplicados e prontos para análise.",
       ctaLabel: "Ver resultados",
@@ -1216,10 +1199,10 @@ export default function WebscrapingClientPage() {
       scrapingLaunchNotice.markSuccess({
         successDescription:
           displayResults.length
-            ? `${displayResults.length} contato(s) qualificados para ${getVisualSegment(payload.query.segment, responseTargetType)} em ${payload.query.city}${hiddenCount ? `; ${hiddenCount} genérico(s) ocultado(s).` : "."}`
+            ? `${displayResults.length} contato(s) qualificados para ${getVisualSegment(payload.query.segment, responseTargetType)}${payload.query.city ? ` em ${payload.query.city}` : ""}${hiddenCount ? `; ${hiddenCount} genérico(s) ocultado(s).` : "."}`
             : hiddenCount
               ? `${hiddenCount} telefone(s) foram encontrados, mas sem nome de pessoa claro para virar card.`
-            : `Busca concluída em ${payload.query.city}, mas nenhum telefone válido entrou nos resultados.`,
+            : `Busca concluída${payload.query.city ? ` em ${payload.query.city}` : ""}, mas nenhum telefone válido entrou nos resultados.`,
       });
       await refreshHistory();
       // persist last city/segment locally for quicker re-entry
@@ -1244,7 +1227,8 @@ export default function WebscrapingClientPage() {
       const baseMessage = error instanceof Error ? error.message : "Falha ao buscar contatos.";
       setSearchError(
         searchModeSnapshot.targetType === "pf"
-          ? `${baseMessage} O Motor W pode estar indisponível ou sobrecarregado; tente reduzir a quantidade, trocar o nicho ou usar HBX Agenda PF.`
+        || (searchModeSnapshot.engine === "hbx" && targetType === "pf")
+          ? `${baseMessage} O Radar HBX pode estar indisponível ou sobrecarregado; tente reduzir a quantidade, trocar o nicho ou usar Agenda CPF.`
           : baseMessage,
       );
       scrapingLaunchNotice.clear();
@@ -1284,7 +1268,7 @@ export default function WebscrapingClientPage() {
       setSearchMeta(payload.meta);
       setHasSearched(true);
       setFeedback(
-        `Pesquisa reaproveitada: ${getVisualSegment(payload.query.segment, restoredTargetType)} em ${payload.query.city}.`,
+        `Pesquisa reaproveitada: ${getVisualSegment(payload.query.segment, restoredTargetType)}${payload.query.city ? ` em ${payload.query.city}` : ""}.`,
       );
       await refreshHistory();
       window.requestAnimationFrame(() => {
@@ -1293,6 +1277,49 @@ export default function WebscrapingClientPage() {
     } catch (error) {
       setSearchError(error instanceof Error ? error.message : "Falha ao reaproveitar pesquisa.");
     } finally {
+      setHistoryBusyId(null);
+    }
+  }
+
+  async function handleSearchMoreHistory(item?: SearchHistoryItem) {
+    const historyId = item?.id || searchMeta?.historyId || "";
+    if (!historyId || historyId.startsWith("global:")) {
+      setSearchError("Abra uma pesquisa HBX salva antes de buscar mais cards.");
+      return;
+    }
+
+    setSearchError(null);
+    setFeedback(null);
+    setHistoryBusyId(historyId);
+    setSearching(true);
+    try {
+      const payload = await apiFetch<SearchResponse>(`/webscraping/history/${historyId}/search-more`, {
+        method: "POST",
+        body: JSON.stringify({ quantity: 100 }),
+      });
+      setResults((current) => {
+        const seen = new Set(current.map((result) => String(result.phoneDigits || "").trim()).filter(Boolean));
+        const next = [...current];
+        for (const result of payload.results || []) {
+          const key = String(result.phoneDigits || "").trim();
+          if (key && seen.has(key)) continue;
+          if (key) seen.add(key);
+          next.push(result);
+        }
+        return next;
+      });
+      setActiveQuery(payload.query);
+      setSearchMeta(payload.meta);
+      setHasSearched(true);
+      setFeedback(payload.meta.message || `${payload.meta.fetchedCount} card(s) novo(s) encontrados sem repetir.`);
+      await refreshHistory();
+      window.requestAnimationFrame(() => {
+        resultsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      });
+    } catch (error) {
+      setSearchError(error instanceof Error ? error.message : "Falha ao buscar mais cards.");
+    } finally {
+      setSearching(false);
       setHistoryBusyId(null);
     }
   }
@@ -1315,7 +1342,10 @@ export default function WebscrapingClientPage() {
     const queryEngine = normalizeEngineValue(query.engine || engine);
     const queryTargetType = queryEngine === "google" ? "pj" : normalizeTargetTypeValue(query.targetType || targetType);
 
-    if (!query.city.trim() || (queryTargetType !== "agenda_pf" && !query.segment.trim())) {
+    if (
+      (!(queryEngine === "hbx" && queryTargetType === "pj") && !query.city.trim()) ||
+      (queryTargetType !== "agenda_pf" && !query.segment.trim())
+    ) {
       setSearchError(
         city.trim() && !query.city.trim()
           ? "Selecione a cidade com UF na lista antes de exportar."
@@ -1358,7 +1388,7 @@ export default function WebscrapingClientPage() {
     };
     const leadSegment = getVisualSegment(query.segment, activeQuery ? resultTargetType : targetType);
 
-    if (!qualifiedResults.length || !query.city.trim() || !leadSegment.trim()) {
+    if (!qualifiedResults.length || !leadSegment.trim()) {
       setSearchError(
         results.length && !qualifiedResults.length
           ? "Encontramos telefones, mas nenhum resultado tinha nome de pessoa claro para enviar ao CRM."
@@ -1392,6 +1422,7 @@ export default function WebscrapingClientPage() {
             reviews: result.reviews,
             city: query.city,
             segment: leadSegment,
+            shortNote: result.opportunityReason || undefined,
             scriptText: buildAppliedScriptText(result, query.city, leadSegment),
           })),
         }),
@@ -1572,9 +1603,27 @@ export default function WebscrapingClientPage() {
                 </div>
 
                 <div className={styles.formGrid}>
+                  {engine === "hbx" ? (
+                    <label className={styles.field}>
+                      <span className={styles.fieldLabel}>Tipo de oportunidade</span>
+                      <select
+                        className={styles.fieldSelect}
+                        value={targetType}
+                        onChange={(event) => handleHbxTargetTypeChange(event.target.value as HbxTargetType)}
+                      >
+                        <option value="pj">CNPJ - empresas e negócios</option>
+                        <option value="pf">CPF - pessoas em páginas públicas</option>
+                        <option value="agenda_pf">Agenda CPF - nomes públicos por cidade</option>
+                      </select>
+                      <p className={styles.fieldHint}>
+                        O Radar alterna a estratégia sem trocar de motor e não coleta documento fiscal.
+                      </p>
+                    </label>
+                  ) : null}
+
                   <div className={styles.field}>
                     <label className={styles.fieldLabel} htmlFor="webscraping-city">
-                      Cidade
+                      {hbxPjMode ? "Cidade opcional" : "Cidade"}
                     </label>
                     <div className={styles.cityInputWrap}>
                       <input
@@ -1625,6 +1674,8 @@ export default function WebscrapingClientPage() {
                     <p className={styles.fieldHint}>
                       {citiesLoading
                         ? "Carregando cidades..."
+                        : hbxPjMode
+                          ? "Opcional. Use cidade com UF se quiser restringir a busca."
                         : citySelectionPending
                           ? "Escolha uma opcao com UF antes de buscar."
                           : "Use a UF para diferenciar cidades com o mesmo nome."}
@@ -1651,7 +1702,7 @@ export default function WebscrapingClientPage() {
 
               <label className={styles.field}>
                 <span className={styles.fieldLabel}>
-                  {pfMode ? "Nicho / serviço para PF" : agendaMode ? "Segmento opcional" : "Segmento / tipo de negocio"}
+                  {pfMode ? "Nicho / serviço para PF" : agendaMode ? "Segmento opcional" : hbxPjMode ? "O que deseja prospectar?" : "Segmento / tipo de negocio"}
                 </span>
                 <div className={styles.cityInputWrap}>
                   <input
@@ -1668,7 +1719,9 @@ export default function WebscrapingClientPage() {
                         ? "Ex: plano de saúde, seguros, imóveis"
                         : agendaMode
                           ? "Opcional. Ex: Agenda PF"
-                          : "Ex: Clinicas odontologicas"
+                          : hbxPjMode
+                            ? "Ex: Madeireira, Auto elétrica, Clínica estética"
+                            : "Ex: Clinicas odontologicas"
                     }
                     autoComplete="off"
                   />
@@ -1814,7 +1867,7 @@ export default function WebscrapingClientPage() {
                       disabled={loadingBootstrap || searching}
                     >
                       <Icon name="play" size={18} />
-                      {searching ? "Buscando..." : "Buscar contatos"}
+                      {searching ? "Buscando..." : hbxPjMode ? "Buscar cards" : "Buscar contatos"}
                     </button>
                     <button
                       type="button"
@@ -1940,14 +1993,16 @@ export default function WebscrapingClientPage() {
               </div>
             ) : (
               <div className={styles.historyList}>
-                {historyItems.map((item) => (
+                {historyItems.map((item) => {
+                  const isHbxHistory = item.sourceLabel.toLowerCase().includes("hbx") && !item.id.startsWith("global:");
+                  return (
                   <article key={item.id} className={styles.historyRow}>
                     <div className={styles.historyRowMain}>
                       <div className={styles.historyTop}>
                         <div>
                           <h2 className={styles.historyTitle}>{item.segment || "Agenda PF"}</h2>
                           <p className={styles.historyMeta}>
-                            {item.city} • {item.resultCount} contatos • {item.sourceLabel}
+                            {item.city} • {item.resultCount} cards encontrados • {item.sourceLabel}
                           </p>
                         </div>
                         <span className={styles.historyStamp}>{formatDateTime(item.lastUsedAt)}</span>
@@ -1958,17 +2013,31 @@ export default function WebscrapingClientPage() {
                         {item.cacheValidUntil ? ` • válido até ${formatDateTime(item.cacheValidUntil)}` : ""}
                       </p>
                     </div>
-                    <button
-                      type="button"
-                      className={styles.glassButton}
-                      onClick={() => void handleReuseHistory(item)}
-                      disabled={historyBusyId === item.id}
-                    >
-                      <Icon name="cursor" size={18} />
-                      {historyBusyId === item.id ? "Carregando..." : "Reaproveitar"}
-                    </button>
+                    <div className={styles.historyActions}>
+                      <button
+                        type="button"
+                        className={styles.glassButton}
+                        onClick={() => void handleReuseHistory(item)}
+                        disabled={historyBusyId === item.id}
+                      >
+                        <Icon name="cursor" size={18} />
+                        {historyBusyId === item.id ? "Carregando..." : "Abrir cards"}
+                      </button>
+                      {isHbxHistory ? (
+                        <button
+                          type="button"
+                          className={`${styles.glassButton} ${styles.glassButtonPrimary}`}
+                          onClick={() => void handleSearchMoreHistory(item)}
+                          disabled={historyBusyId === item.id}
+                        >
+                          <Icon name="search" size={18} />
+                          Buscar +100
+                        </button>
+                      ) : null}
+                    </div>
                   </article>
-                ))}
+                );
+                })}
               </div>
             )}
           </section>
@@ -1995,7 +2064,7 @@ export default function WebscrapingClientPage() {
               <strong className={styles.sectionTitle}>Contatos qualificados</strong>
               <p className={styles.helperText}>
                 {searchMeta && activeQuery
-                  ? `Encontramos ${qualifiedResults.length} possíveis clientes para ${getVisualSegment(activeQuery.segment, resultTargetType)} em ${activeQuery.city}. Salve estes contatos como leads para não perder oportunidades. Fonte: ${searchSourceLabel(searchMeta.source)}${hiddenGenericResultsCount ? `; ${hiddenGenericResultsCount} genérico(s) ocultado(s).` : "."}`
+                  ? `Encontramos ${qualifiedResults.length} possíveis clientes para ${getVisualSegment(activeQuery.segment, resultTargetType)}${activeQuery.city ? ` em ${activeQuery.city}` : ""}. ${searchMeta.fetchedCount}/${activeQuery.quantity} novos cards encontrados. Fonte: ${searchSourceLabel(searchMeta.source)}${hiddenGenericResultsCount ? `; ${hiddenGenericResultsCount} genérico(s) ocultado(s).` : "."}`
                   : "Pronto para receber contatos com ações rápidas e roteiro pronto."}
               </p>
             </div>
@@ -2009,6 +2078,17 @@ export default function WebscrapingClientPage() {
                     {searchMeta.technicalCacheValidUntil ? ` • válido até ${formatDateTime(searchMeta.technicalCacheValidUntil)}` : ""}
                   </span>
                 ) : null}
+                {activeQuery?.engine === "hbx" && searchMeta.historyId && !searchMeta.historyId.startsWith("global:") ? (
+                  <button
+                    type="button"
+                    className={styles.glassButton}
+                    onClick={() => void handleSearchMoreHistory()}
+                    disabled={searching || importingToVendas}
+                  >
+                    <Icon name="search" size={18} />
+                    Buscar +100 sem repetir
+                  </button>
+                ) : null}
                 <button
                   type="button"
                   className={styles.glassButton}
@@ -2016,7 +2096,7 @@ export default function WebscrapingClientPage() {
                   disabled={importingToVendas || !qualifiedResults.length}
                 >
                   <Icon name="spark" size={18} />
-                  {importingToVendas ? "Enviando..." : "Salvar leads"}
+                  {importingToVendas ? "Enviando..." : "Enviar selecionados para Prospecção"}
                 </button>
               </div>
             ) : null}
@@ -2054,7 +2134,7 @@ export default function WebscrapingClientPage() {
           {!searching && results.length === 0 && !hasSearched ? (
             <div className={styles.emptyState}>
               <strong>Pronto para sua proxima busca</strong>
-              <p className={styles.emptyText}>Informe cidade, segmento e quantidade para carregar os primeiros contatos deduplicados.</p>
+              <p className={styles.emptyText}>Informe o termo da busca, cidade opcional e quantidade para carregar os primeiros cards deduplicados.</p>
             </div>
           ) : null}
 
@@ -2067,6 +2147,7 @@ export default function WebscrapingClientPage() {
                 const scriptText = buildAppliedScriptText(result, queryCity, querySegment);
                 const whatsappUrl = buildWhatsAppUrl(result, scriptText);
                 const callUrl = buildCallUrl(result);
+                const opportunityScore = result.opportunityScore ?? result.score ?? null;
 
                 return (
                   <LiquidGlassCard
@@ -2092,6 +2173,9 @@ export default function WebscrapingClientPage() {
                     chips={
                       <>
                         <span className={glassCardStyles.pillStrong}>Telefone validado</span>
+                        {opportunityScore != null ? (
+                          <span className={glassCardStyles.pillStrong}>Score {opportunityScore}/100</span>
+                        ) : null}
                         {crmPreview?.existsInCrm ? (
                           <span className={glassCardStyles.pill}>Já existe</span>
                         ) : null}
@@ -2157,6 +2241,11 @@ export default function WebscrapingClientPage() {
                     }
                     highlight={
                       <div className={glassCardStyles.stack}>
+                        <span className={glassCardStyles.sectionLabel}>Oportunidade</span>
+                        <strong className={glassCardStyles.sectionTitle}>Motivo comercial</strong>
+                        <p className={`${glassCardStyles.bodyText} ${styles.scriptText}`}>
+                          {result.opportunityReason || "Lead priorizado por telefone validado e aderência ao termo pesquisado."}
+                        </p>
                         <span className={glassCardStyles.sectionLabel}>Roteiro</span>
                         <strong className={glassCardStyles.sectionTitle}>Primeiro contato</strong>
                         <p className={`${glassCardStyles.bodyText} ${styles.scriptText}`}>{scriptText}</p>
@@ -2165,12 +2254,12 @@ export default function WebscrapingClientPage() {
                     metrics={
                       <div className={glassCardStyles.metricGrid}>
                         <div className={glassCardStyles.metricCard}>
-                          <span className={glassCardStyles.metricLabel}>Nota</span>
-                          <strong className={glassCardStyles.metricValue}>{result.rating ?? "-"}</strong>
+                          <span className={glassCardStyles.metricLabel}>Oportunidade</span>
+                          <strong className={glassCardStyles.metricValue}>{opportunityScore ?? "-"}</strong>
                         </div>
                         <div className={glassCardStyles.metricCard}>
-                          <span className={glassCardStyles.metricLabel}>Avaliacoes</span>
-                          <strong className={glassCardStyles.metricValue}>{result.reviews ?? "-"}</strong>
+                          <span className={glassCardStyles.metricLabel}>Sinal publico</span>
+                          <strong className={glassCardStyles.metricValue}>{result.website ? "Site" : result.address ? "Endereco" : "Telefone"}</strong>
                         </div>
                         <div className={glassCardStyles.metricCard}>
                           <span className={glassCardStyles.metricLabel}>CRM</span>

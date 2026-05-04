@@ -1799,7 +1799,7 @@ export class VendasService {
           status: 'novo',
           nextAction: 'Primeiro contato',
           returnAt: new Date(),
-          shortNote: null,
+          shortNote: this.normalizeText(item?.shortNote),
         });
       } catch (error: any) {
         failedImports.push({

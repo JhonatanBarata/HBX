@@ -20,7 +20,7 @@ const PLACES_NEW_DETAILS_URL = 'https://places.googleapis.com/v1/places';
 const PLACES_TEXT_SEARCH_URL = 'https://maps.googleapis.com/maps/api/place/textsearch/json';
 const PLACES_DETAILS_URL = 'https://maps.googleapis.com/maps/api/place/details/json';
 const MAX_QUANTITY = 20;
-const HBX_PJ_MAX_QUANTITY = 50;
+const HBX_PJ_MAX_QUANTITY = 100;
 const HBX_PEOPLE_MAX_QUANTITY = 100;
 const DEFAULT_HBX_SCRAPING_ENGINE_URL = 'http://localhost:8001';
 const GLOBAL_CACHE_TTL_HOURS = 24;
@@ -33,6 +33,12 @@ type ExternalRuntimeStatus = 'online' | 'offline';
 type SearchSource = 'history' | 'google' | 'hbx' | 'hybrid' | 'global_cache';
 type WebscrapingEngine = 'google' | 'hbx';
 type HbxTargetType = 'pj' | 'pf' | 'agenda_pf';
+type SearchRunStatus = 'completed' | 'partial_error' | 'completed_with_errors';
+type HbxEngineSearchOutput = {
+  results: WebscrapingContactResult[];
+  status: SearchRunStatus;
+  message: string | null;
+};
 
 let cityCache: {
   loadedAt: number;
@@ -88,6 +94,8 @@ export type WebscrapingContactResult = {
   website: string | null;
   source?: string | null;
   score?: number | null;
+  opportunityScore?: number | null;
+  opportunityReason?: string | null;
 };
 
 export type WebscrapingSearchResponse = {
@@ -105,6 +113,9 @@ export type WebscrapingSearchResponse = {
     source: SearchSource;
     reusedCount: number;
     fetchedCount: number;
+    totalStoredCount?: number;
+    status?: SearchRunStatus;
+    message?: string | null;
     technicalCacheUsed: boolean;
     technicalCacheReusedCount: number;
     technicalCacheValidUntil: string | null;
@@ -129,7 +140,7 @@ export type WebscrapingHistorySummary = {
 };
 
 export type SearchContactsInput = {
-  city: string;
+  city?: string;
   segment?: string;
   quantity: number;
   state?: string | null;
@@ -219,6 +230,7 @@ type SearchHistoryRow = {
     website: string;
     source?: string | null;
     score?: number | null;
+    opportunityReason?: string | null;
   }>;
 };
 
@@ -298,6 +310,19 @@ function normalizeLookupValue(value: string) {
     .toLowerCase()
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+function normalizeWebsiteKey(value: string | null | undefined) {
+  const raw = String(value || '').trim().toLowerCase();
+  if (!raw) return '';
+  try {
+    const parsed = new URL(raw.startsWith('http') ? raw : `https://${raw}`);
+    const host = parsed.hostname.replace(/^www\./, '');
+    const path = parsed.pathname.replace(/\/+$/, '');
+    return `${host}${path}`;
+  } catch {
+    return raw.replace(/^https?:\/\//, '').replace(/^www\./, '').replace(/\/+$/, '');
+  }
 }
 
 function isFallbackEligible(error: GooglePlacesApiError) {
@@ -471,7 +496,7 @@ export class WebscrapingService {
     this.logSearchSelection(normalized);
     const historyEnabled = await this.supportsHistoryPersistence();
     const existingHistory = historyEnabled
-      ? await this.findHistoryBySignature(context.companyId, normalized.searchSignature, options.historyIdHint)
+      ? await this.findHistoryBySignature(context.companyId, normalized.searchSignature, options.historyIdHint, normalized)
       : null;
     const storedResults = this.sortContacts(this.restoreStoredResults(existingHistory));
     const globalCacheEnabled = await this.supportsGlobalCachePersistence();
@@ -503,10 +528,21 @@ export class WebscrapingService {
       const seenPhones = new Set(results.map((item) => item.phoneDigits).filter(Boolean));
       let fetchedCount = 0;
 
-      const hbxResults = await this.searchHbxEngine(normalized);
+      let hbxResults: WebscrapingContactResult[] = [];
+      let hbxStatus: SearchRunStatus = 'completed';
+      let hbxMessage: string | null = null;
+      let hbxError: unknown = null;
+      try {
+        const hbxOutput = await this.searchHbxEngine(normalized, Array.from(seenPhones));
+        hbxResults = hbxOutput.results;
+        hbxStatus = hbxOutput.status;
+        hbxMessage = hbxOutput.message;
+      } catch (error) {
+        hbxError = error;
+      }
       for (const mapped of hbxResults) {
         if (results.length >= normalized.quantity) break;
-        if (!mapped.phoneDigits || seenPhones.has(mapped.phoneDigits)) continue;
+        if (!this.shouldKeepNewContact(mapped, results, seenPhones)) continue;
         seenPhones.add(mapped.phoneDigits);
         results.push(mapped);
         fetchedCount += 1;
@@ -517,11 +553,21 @@ export class WebscrapingService {
         ? await this.persistHistory(context, normalized, orderedResults, existingHistory?.id || null)
         : existingHistory?.id || null;
       const source: SearchSource = storedResults.length > 0 && fetchedCount > 0 ? 'hybrid' : 'hbx';
+      if (hbxError && orderedResults.length === 0) {
+        throw hbxError;
+      }
+      const status: SearchRunStatus = hbxError ? 'partial_error' : hbxStatus;
+      const message = hbxError
+        ? `Busca parcial: ${orderedResults.length} cards encontrados antes do erro.`
+        : hbxMessage;
       const response = this.buildSearchResponse(normalized, orderedResults, {
         historyId,
         source,
         reusedCount: Math.min(storedResults.length, normalized.quantity),
         fetchedCount,
+        totalStoredCount: orderedResults.length,
+        status,
+        message,
         technicalCacheUsed: false,
         technicalCacheReusedCount: 0,
         technicalCacheValidUntil: null,
@@ -709,7 +755,7 @@ export class WebscrapingService {
         const state = options.state || this.extractSignaturePart(row.searchSignature, 'state').toUpperCase();
         return {
           id: row.id,
-          city: formatCityWithState(row.city, state),
+          city: formatCityWithState(row.city, state) || 'Brasil',
           segment: row.segment,
           quantity: row.quantity,
           resultCount: row.resultCount,
@@ -859,6 +905,95 @@ export class WebscrapingService {
       technicalCacheValidUntil: null,
     });
     await this.recordUsageLog(context, normalized, 'EXECUTED', response.results.length, null, response.meta);
+    return response;
+  }
+
+  async searchMoreHistoryForUser(user: any, historyId: string, quantity = HBX_PJ_MAX_QUANTITY) {
+    const context = this.resolveContext(user);
+    const historyEnabled = await this.supportsHistoryPersistence();
+    if (!historyEnabled) {
+      throw new NotFoundException('Historico indisponivel neste ambiente.');
+    }
+
+    const row = await this.findHistoryById(context.companyId, String(historyId || '').trim());
+    if (!row) {
+      throw new NotFoundException('Pesquisa anterior nao encontrada.');
+    }
+
+    const parsedOptions = this.parseSearchOptionsJson(row.filtersJson, row.searchSignature);
+    if (parsedOptions.engine !== 'hbx') {
+      throw new BadRequestException('Buscar mais sem repetir esta disponivel apenas para HBX Scraping.');
+    }
+
+    const filters = parsedOptions.filters;
+    const normalized = this.normalizeSearchInput(
+      {
+        city: row.city,
+        state: parsedOptions.state || this.extractSignaturePart(row.searchSignature, 'state').toUpperCase(),
+        segment: row.segment,
+        quantity,
+        engine: parsedOptions.engine,
+        targetType: parsedOptions.targetType,
+        minRating: filters.minRating,
+        minReviews: filters.minReviews,
+        onlyWithWebsite: filters.onlyWithWebsite,
+      },
+      { allowMissingHbxState: parsedOptions.targetType === 'pj' },
+    );
+
+    const storedResults = this.sortContacts(this.restoreStoredResults(row));
+    const excludePhoneDigits = Array.from(
+      new Set(storedResults.map((item) => normalizePhoneDigits(item.phoneDigits || item.phone)).filter(Boolean)),
+    );
+
+    let newResults: WebscrapingContactResult[] = [];
+    let hbxStatus: SearchRunStatus = 'completed';
+    let hbxMessage: string | null = null;
+    let hbxError: unknown = null;
+    try {
+      const hbxOutput = await this.searchHbxEngine(normalized, excludePhoneDigits);
+      const hbxResults = hbxOutput.results;
+      hbxStatus = hbxOutput.status;
+      hbxMessage = hbxOutput.message;
+      const allSeenPhones = new Set(excludePhoneDigits);
+      const accepted: WebscrapingContactResult[] = [];
+      for (const candidate of hbxResults) {
+        if (accepted.length >= normalized.quantity) break;
+        if (!this.shouldKeepNewContact(candidate, [...storedResults, ...accepted], allSeenPhones)) continue;
+        allSeenPhones.add(candidate.phoneDigits);
+        accepted.push(candidate);
+      }
+      newResults = this.sortContacts(accepted);
+    } catch (error) {
+      hbxError = error;
+    }
+
+    if (hbxError && storedResults.length === 0 && newResults.length === 0) {
+      throw hbxError;
+    }
+
+    const mergedResults = this.sortContacts(this.mergeDedupedContacts([...storedResults, ...newResults]));
+    const savedHistoryId = await this.persistHistory(context, normalized, mergedResults, row.id);
+    const status: SearchRunStatus = hbxError ? 'partial_error' : hbxStatus;
+    const message = hbxError
+      ? `Busca parcial: ${newResults.length} cards encontrados antes do erro.`
+      : hbxMessage || (newResults.length < normalized.quantity
+          ? `Busca concluida com ${newResults.length} cards novos sem repetir.`
+          : null);
+
+    const response = this.buildSearchResponse(normalized, newResults, {
+      historyId: savedHistoryId,
+      source: newResults.length > 0 ? 'hbx' : 'history',
+      reusedCount: 0,
+      fetchedCount: newResults.length,
+      totalStoredCount: mergedResults.length,
+      status,
+      message,
+      technicalCacheUsed: false,
+      technicalCacheReusedCount: 0,
+      technicalCacheValidUntil: null,
+    });
+    await this.recordUsageLog(context, normalized, 'EXECUTED', newResults.length, message, response.meta);
     return response;
   }
 
@@ -1265,10 +1400,12 @@ export class WebscrapingService {
     const quantity = clampQuantity(input.quantity, maxQuantityFor(engine, targetType));
 
     if (!city) {
-      throw new BadRequestException('Cidade obrigatoria.');
+      if (!(engine === 'hbx' && targetType === 'pj')) {
+        throw new BadRequestException('Cidade obrigatoria.');
+      }
     }
 
-    if (engine === 'hbx' && !state && !options.allowMissingHbxState) {
+    if (engine === 'hbx' && targetType !== 'pj' && !state && !options.allowMissingHbxState) {
       throw new BadRequestException('Estado obrigatorio para o motor HBX.');
     }
 
@@ -1313,7 +1450,7 @@ export class WebscrapingService {
         `city:${normalizedCity}`,
         `state:${normalizeLookupValue(state)}`,
         `segment:${normalizedSegment}`,
-        `quantity:${quantity}`,
+        ...(engine === 'hbx' ? [] : [`quantity:${quantity}`]),
         `filters:${filtersJson}`,
       ].join('|'),
       normalizedCity,
@@ -1421,6 +1558,9 @@ export class WebscrapingService {
       source: SearchSource;
       reusedCount: number;
       fetchedCount: number;
+      totalStoredCount?: number;
+      status?: SearchRunStatus;
+      message?: string | null;
       technicalCacheUsed: boolean;
       technicalCacheReusedCount: number;
       technicalCacheValidUntil: string | null;
@@ -1437,7 +1577,16 @@ export class WebscrapingService {
         filters: input.filters,
       },
       meta,
-      results: results.map(({ placeId: _placeId, ...result }) => result),
+      results: results.map((result) => {
+        const { placeId: _placeId, ...publicResult } = result;
+        const opportunityScore = this.buildOpportunityScore(result);
+        return {
+          ...publicResult,
+          score: publicResult.score == null ? opportunityScore : publicResult.score,
+          opportunityScore,
+          opportunityReason: publicResult.opportunityReason || this.buildOpportunityReason(result, input),
+        };
+      }),
     };
   }
 
@@ -1454,6 +1603,8 @@ export class WebscrapingService {
       website: place.website || null,
       source: place.source || null,
       score: toNumberOrNull(place.score),
+      opportunityScore: toNumberOrNull(place.score),
+      opportunityReason: place.opportunityReason || null,
     }));
   }
 
@@ -1482,6 +1633,69 @@ export class WebscrapingService {
       return false;
     }
     return true;
+  }
+
+  private buildOpportunityScore(result: WebscrapingContactResult) {
+    const baseScore = Math.max(0, Math.min(100, Math.trunc(Number(result.score || 0) || 0)));
+    const websiteBonus = result.website ? 8 : 0;
+    const addressBonus = result.address ? 6 : 0;
+    const reviewBonus = Math.min(10, Math.trunc((result.reviews || 0) / 20));
+    const ratingBonus = result.rating == null ? 0 : Math.max(0, Math.min(8, Math.round((result.rating - 3.5) * 5)));
+    return Math.max(0, Math.min(100, baseScore + websiteBonus + addressBonus + reviewBonus + ratingBonus));
+  }
+
+  private buildOpportunityReason(result: WebscrapingContactResult, input: NormalizedSearchInput) {
+    const reasons: string[] = [];
+    const segment = input.segment || (input.targetType === 'agenda_pf' ? 'agenda publica' : 'prospeccao');
+    if (result.phoneDigits) reasons.push('telefone validado para abordagem imediata');
+    if (result.website) reasons.push('site publico indica negocio ativo');
+    if (result.address) reasons.push('endereco aumenta confianca e contexto local');
+    if ((result.reviews || 0) > 0) reasons.push(`${result.reviews} avaliacoes sugerem demanda ativa`);
+    if ((result.score || 0) >= 80) reasons.push('alta aderencia ao termo pesquisado');
+    if (!reasons.length) reasons.push('contato publico relacionado ao criterio da busca');
+    return `Boa oportunidade para ${segment}: ${reasons.slice(0, 3).join('; ')}.`;
+  }
+
+  private buildContactDedupeKeys(result: WebscrapingContactResult) {
+    const name = normalizeLookupValue(result.name || '');
+    const phone = normalizePhoneDigits(result.phoneDigits || result.phone);
+    const website = normalizeWebsiteKey(result.website);
+    const cityOrAddress = normalizeLookupValue(String(result.address || ''));
+    return [
+      phone ? `phone:${phone}` : '',
+      name && phone ? `name_phone:${name}:${phone}` : '',
+      website ? `website:${website}` : '',
+      name && cityOrAddress ? `name_location:${name}:${cityOrAddress}` : '',
+    ].filter(Boolean);
+  }
+
+  private contactMatchesSeenKeys(result: WebscrapingContactResult, seenKeys: Set<string>) {
+    return this.buildContactDedupeKeys(result).some((key) => seenKeys.has(key));
+  }
+
+  private shouldKeepNewContact(
+    candidate: WebscrapingContactResult,
+    existing: WebscrapingContactResult[],
+    seenPhones: Set<string>,
+  ) {
+    if (!candidate.phoneDigits || seenPhones.has(candidate.phoneDigits)) return false;
+    const seenKeys = new Set<string>();
+    for (const item of existing) {
+      for (const key of this.buildContactDedupeKeys(item)) seenKeys.add(key);
+    }
+    return !this.contactMatchesSeenKeys(candidate, seenKeys);
+  }
+
+  private mergeDedupedContacts(results: WebscrapingContactResult[]) {
+    const seenKeys = new Set<string>();
+    const merged: WebscrapingContactResult[] = [];
+    for (const result of results) {
+      const keys = this.buildContactDedupeKeys(result);
+      if (!keys.length || keys.some((key) => seenKeys.has(key))) continue;
+      keys.forEach((key) => seenKeys.add(key));
+      merged.push(result);
+    }
+    return merged;
   }
 
   private sortContacts(results: WebscrapingContactResult[]) {
@@ -1529,7 +1743,12 @@ export class WebscrapingService {
     return new Date(date.getTime() + GLOBAL_CACHE_TTL_HOURS * 60 * 60 * 1000);
   }
 
-  private async findHistoryBySignature(companyId: number, searchSignature: string, historyIdHint?: string): Promise<SearchHistoryRow | null> {
+  private async findHistoryBySignature(
+    companyId: number,
+    searchSignature: string,
+    historyIdHint?: string,
+    input?: NormalizedSearchInput,
+  ): Promise<SearchHistoryRow | null> {
     if (historyIdHint) {
       const hinted = await this.findHistoryById(companyId, historyIdHint);
       if (hinted) return hinted as SearchHistoryRow;
@@ -1548,7 +1767,35 @@ export class WebscrapingService {
         },
       },
     });
-    return (row as SearchHistoryRow | null) || null;
+    if (row) return row as SearchHistoryRow;
+
+    if (!input) return null;
+
+    const targetDedupeKey = this.buildHistoryDedupeKey({
+      city: input.city,
+      state: input.state,
+      segment: input.segment,
+      filtersJson: input.filtersJson,
+      searchSignature: input.searchSignature,
+      filters: input.filters,
+    });
+    const candidates = await this.prisma.webscrapingSearchHistory.findMany({
+      where: { companyId },
+      orderBy: [{ lastUsedAt: 'desc' }, { updatedAt: 'desc' }, { createdAt: 'desc' }],
+      take: 80,
+      include: {
+        places: {
+          orderBy: [{ rank: 'asc' }],
+        },
+      },
+    }).catch(() => []);
+    return (candidates.find((candidate: any) => this.buildHistoryDedupeKey({
+      city: candidate.city,
+      state: this.extractSignaturePart(candidate.searchSignature, 'state').toUpperCase(),
+      segment: candidate.segment,
+      filtersJson: candidate.filtersJson,
+      searchSignature: candidate.searchSignature,
+    }) === targetDedupeKey) as SearchHistoryRow | undefined) || null;
   }
 
   private async findHistoryById(companyId: number, historyId: string): Promise<SearchHistoryRow | null> {
@@ -1680,7 +1927,8 @@ export class WebscrapingService {
     existingHistoryId: string | null,
   ) {
     const now = new Date();
-    const placeRows = results.map((result, index) => ({
+    const dedupedResults = this.mergeDedupedContacts(results);
+    const placeRows = dedupedResults.map((result, index) => ({
       placeId: result.placeId,
       rank: index + 1,
       name: result.name,
@@ -1692,6 +1940,7 @@ export class WebscrapingService {
       website: result.website || '',
       source: result.source || null,
       score: result.score == null ? null : result.score,
+      opportunityReason: result.opportunityReason || this.buildOpportunityReason(result, input),
     }));
 
     const saved = await this.prisma.webscrapingSearchHistory.upsert({
@@ -1709,7 +1958,7 @@ export class WebscrapingService {
         quantity: input.quantity,
         filtersJson: input.filtersJson,
         searchSignature: input.searchSignature,
-        resultCount: results.length,
+        resultCount: dedupedResults.length,
         lastUsedAt: now,
         places: {
           create: placeRows,
@@ -1721,7 +1970,7 @@ export class WebscrapingService {
         segment: input.segment,
         quantity: input.quantity,
         filtersJson: input.filtersJson,
-        resultCount: results.length,
+        resultCount: dedupedResults.length,
         lastUsedAt: now,
         places: {
           deleteMany: {},
@@ -1875,24 +2124,34 @@ export class WebscrapingService {
     );
   }
 
-  private async searchHbxEngine(input: NormalizedSearchInput): Promise<WebscrapingContactResult[]> {
+  private async searchHbxEngine(
+    input: NormalizedSearchInput,
+    excludePhoneDigits: string[] = [],
+  ): Promise<HbxEngineSearchOutput> {
     const engineUrl = this.getHbxScrapingEngineUrl();
     let response: Response;
+    const normalizedExcludePhoneDigits = Array.from(
+      new Set(excludePhoneDigits.map((phone) => normalizePhoneDigits(phone)).filter(Boolean) as string[]),
+    );
 
     try {
+      const body: Record<string, unknown> = {
+        city: input.city,
+        state: input.state,
+        segment: input.segment,
+        targetType: input.targetType,
+        limit: input.quantity,
+        fresh: normalizedExcludePhoneDigits.length > 0,
+      };
+      if (normalizedExcludePhoneDigits.length > 0) {
+        body.excludePhoneDigits = normalizedExcludePhoneDigits;
+      }
       response = await fetch(`${engineUrl}/search`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          city: input.city,
-          state: input.state,
-          segment: input.segment,
-          targetType: input.targetType,
-          limit: input.quantity,
-          fresh: false,
-        }),
+        body: JSON.stringify(body),
       });
     } catch {
       throw new ServiceUnavailableException({
@@ -1916,13 +2175,27 @@ export class WebscrapingService {
     for (const item of items) {
       const mapped = this.mapHbxContactResult(item, input.targetType);
       if (!mapped) continue;
+      if (normalizedExcludePhoneDigits.includes(mapped.phoneDigits)) continue;
       if (seenPhones.has(mapped.phoneDigits)) continue;
       seenPhones.add(mapped.phoneDigits);
       results.push(mapped);
       if (results.length >= input.quantity) break;
     }
 
-    return results;
+    const payloadStatus = String(payload?.status || '').trim();
+    const status: SearchRunStatus =
+      payloadStatus === 'partial_error' || payloadStatus === 'completed_with_errors'
+        ? payloadStatus
+        : 'completed';
+    const errors = Array.isArray(payload?.errors) ? payload.errors.filter(Boolean) : [];
+    return {
+      results,
+      status,
+      message:
+        status === 'completed_with_errors' && errors.length > 0
+          ? `Busca parcial: ${results.length} cards encontrados; ${errors.length} fonte(s) falharam.`
+          : null,
+    };
   }
 
   private mapHbxContactResult(item: any, targetType: HbxTargetType): WebscrapingContactResult | null {
@@ -1935,7 +2208,7 @@ export class WebscrapingService {
     }
 
     const score = toNumberOrNull(item?.score);
-    const source = String(item?.source || '').trim() || null;
+    const source = String(item?.source || '').trim() || (targetType === 'pj' ? 'hbx_scraping:free_pj' : null);
 
     return {
       placeId: `hbx:${targetType}:${phoneDigits}`,

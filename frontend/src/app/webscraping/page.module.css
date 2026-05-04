@@ -627,6 +627,7 @@
 
 .historyList,
 .historyRowMain,
+.historyActions,
 .resultsGrid,
 .emptyState {
   display: grid;
@@ -652,6 +653,11 @@
 .historyRow:hover {
   border-color: color-mix(in srgb, var(--brand) 34%, var(--line));
   background: color-mix(in srgb, var(--brand) 7%, var(--surface));
+}
+
+.historyActions {
+  grid-auto-flow: column;
+  align-items: center;
 }
 
 .historyTitle,

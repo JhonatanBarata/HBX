@@ -122,3 +122,58 @@ def test_pf_search_does_not_filter_by_score(monkeypatch) -> None:
 
     assert response.count == 1
     assert response.results[0].score == 0
+
+
+def test_pj_search_skips_excluded_phone_digits(monkeypatch) -> None:
+    class FakeFetcher:
+        def __init__(self, *args, **kwargs) -> None:
+            pass
+
+        async def fetch_all(self, urls):
+            return [SimpleNamespace(html="<html></html>", url="https://example.com")]
+
+    monkeypatch.setattr("app.services.search_service.discover_urls", lambda *args, **kwargs: ["https://example.com"])
+    monkeypatch.setattr("app.services.search_service.Fetcher", FakeFetcher)
+    monkeypatch.setattr(
+        "app.services.search_service.parse_page",
+        lambda *args, **kwargs: (
+            [
+                {
+                    "name": "Madeireira Antiga",
+                    "phone": "(11) 98765-1111",
+                    "phoneDigits": "11987651111",
+                    "address": "Rua 1",
+                    "website": "https://antiga.example.com",
+                    "source": "hbx_scraping:web",
+                    "_pageUrl": "https://example.com",
+                },
+                {
+                    "name": "Madeireira Nova",
+                    "phone": "(11) 98765-2222",
+                    "phoneDigits": "11987652222",
+                    "address": "Rua 2",
+                    "website": "https://nova.example.com",
+                    "source": "hbx_scraping:web",
+                    "_pageUrl": "https://example.com",
+                },
+            ],
+            "Madeireira telefone contato",
+        ),
+    )
+    monkeypatch.setattr("app.services.search_service.score_contact", lambda *args, **kwargs: 80)
+
+    response = asyncio.run(
+        SearchService().search(
+            SearchRequest(
+                segment="Madeireira",
+                targetType="pj",
+                limit=10,
+                fresh=True,
+                excludePhoneDigits=["11987651111"],
+            )
+        )
+    )
+
+    assert response.count == 1
+    assert response.results[0].phoneDigits == "11987652222"
+    assert response.results[0].source == "hbx_scraping:free_pj"

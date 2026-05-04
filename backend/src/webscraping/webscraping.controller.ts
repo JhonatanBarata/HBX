@@ -8,8 +8,9 @@ import { ModuleAccessGuard } from '../modules/module-access.guard';
 import { WebscrapingService } from './webscraping.service';
 
 class WebscrapingSearchDto {
+  @IsOptional()
   @IsString()
-  city!: string;
+  city?: string;
 
   @IsOptional()
   @IsString()
@@ -53,6 +54,15 @@ class WebscrapingSearchDto {
   onlyWithWebsite?: boolean;
 }
 
+class WebscrapingSearchMoreDto {
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  quantity?: number;
+}
+
 @Controller('webscraping')
 @UseGuards(JwtAuthGuard, ModuleAccessGuard)
 @ModuleAccess('webscraping')
@@ -90,6 +100,11 @@ export class WebscrapingController {
   @Post('history/:id/reuse')
   reuseHistory(@Req() req: any, @Param('id') id: string) {
     return this.webscrapingService.reuseHistorySearchForUser(req.user, id);
+  }
+
+  @Post('history/:id/search-more')
+  searchMoreHistory(@Req() req: any, @Param('id') id: string, @Body() dto: WebscrapingSearchMoreDto) {
+    return this.webscrapingService.searchMoreHistoryForUser(req.user, id, dto?.quantity || 100);
   }
 
   @Post('export')

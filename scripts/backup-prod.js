@@ -2,6 +2,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { spawnSync } = require('child_process');
 const { formatTimestamp, repoRoot, requireEnv, resolveOperationsEnv, run } = require('./lib/runtime');
 
 function shellSingleQuote(value) {
@@ -41,8 +42,32 @@ function createProductionBackup(inputEnv = resolveOperationsEnv()) {
       'docker exec hbx-postgres sh -lc \'pg_dump --clean --if-exists --no-owner --no-privileges -U "$POSTGRES_USER" -d "$POSTGRES_DB"\'',
     ].join('\n');
 
-    const result = run('ssh', [sshTarget, remoteScript], { captureOutput: true });
-    fs.writeFileSync(path.join(backupDir, dumpFileName), result.stdout || '', 'utf8');
+    const dumpPath = path.join(backupDir, dumpFileName);
+    const dumpFd = fs.openSync(dumpPath, 'w');
+    const backupResult = spawnSync(
+      'ssh',
+      [
+        '-o',
+        'BatchMode=yes',
+        '-o',
+        'ConnectTimeout=20',
+        sshTarget,
+        remoteScript,
+      ],
+      {
+        cwd: repoRoot,
+        encoding: 'utf8',
+        stdio: ['inherit', dumpFd, 'pipe'],
+      },
+    );
+    fs.closeSync(dumpFd);
+
+    if (backupResult.error) {
+      throw backupResult.error;
+    }
+    if (backupResult.status !== 0) {
+      throw new Error(String(backupResult.stderr || '').trim() || `ssh exited with status ${backupResult.status}`);
+    }
   } catch (error) {
     const reason = error && error.message ? error.message : String(error || 'docker unavailable');
     fs.writeFileSync(
