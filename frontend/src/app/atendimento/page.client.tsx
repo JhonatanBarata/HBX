@@ -297,11 +297,11 @@ type CustomerConversationCardDraft = {
 
 const INBOX_QUEUE_ORDER: InboxQueue[] = [
   "all",
-  "archived",
-  "groups",
-  "recovery",
   "scheduled",
   "bot",
+  "recovery",
+  "archived",
+  "groups",
 ];
 
 function buildInboxQueueBooleanMap(value = false): Record<InboxQueue, boolean> {
@@ -398,7 +398,7 @@ function getInboxQueueLabel(queue: InboxQueue) {
     case "archived":
       return "Excluídos";
     default:
-      return "Conversas";
+      return "Pessoais";
   }
 }
 
@@ -1489,13 +1489,41 @@ function hasInboxInboundMessage(conversation?: InboxConversation | null) {
   return (conversation?.messages || []).some((message) => String(message.direction || "").trim().toLowerCase() === "inbound");
 }
 
+function getInboxAutomationMetadata(conversation?: InboxConversation | null) {
+  const metadata = getInboxConversationMetadata(conversation);
+  if (
+    !metadata?.vendasAutomation ||
+    typeof metadata.vendasAutomation !== "object" ||
+    Array.isArray(metadata.vendasAutomation)
+  ) {
+    return null;
+  }
+  return metadata.vendasAutomation as Record<string, unknown>;
+}
+
+function isInboxProspectionSource(value: unknown) {
+  const source = getInboxMetadataText(value);
+  return (
+    source === "vendas" ||
+    source === "webscraping" ||
+    source.includes("vendas") ||
+    source.includes("prospeccao") ||
+    source.includes("prospect") ||
+    source.includes("webscraping")
+  );
+}
+
+function hasInboxAutomaticProspectionOutbound(conversation?: InboxConversation | null) {
+  return (conversation?.messages || []).some((message) => {
+    if (String(message.direction || "").trim().toLowerCase() !== "outbound") return false;
+    return isInboxProspectionSource(message.sourceModule);
+  });
+}
+
 function hasInboxProspectionCustomerResponse(conversation?: InboxConversation | null) {
   const metadata = getInboxConversationMetadata(conversation);
   const queue = getInboxVendasAgendaQueue(conversation);
-  const automation =
-    metadata?.vendasAutomation && typeof metadata.vendasAutomation === "object" && !Array.isArray(metadata.vendasAutomation)
-      ? (metadata.vendasAutomation as Record<string, unknown>)
-      : null;
+  const automation = getInboxAutomationMetadata(conversation);
   const automationStatus = getInboxMetadataText(automation?.status);
   return (
     hasInboxInboundMessage(conversation) ||
@@ -1520,12 +1548,15 @@ function isInboxPersonalContact(conversation?: InboxConversation | null) {
 function hasInboxHbxProspectionOrigin(conversation?: InboxConversation | null) {
   const metadata = getInboxConversationMetadata(conversation);
   const queue = getInboxVendasAgendaQueue(conversation);
+  const automation = getInboxAutomationMetadata(conversation);
   const sourceCandidates = [
     conversation?.latestSourceModule,
     metadata?.latestSourceModule,
     metadata?.sourceModule,
     metadata?.originFlow,
     queue?.sourceModule,
+    automation?.sourceModule,
+    ...(conversation?.messages || []).map((message) => message.sourceModule),
   ].map(getInboxMetadataText);
   const routeTarget = getInboxMetadataText(
     metadata?.queueTarget ||
@@ -1538,9 +1569,79 @@ function hasInboxHbxProspectionOrigin(conversation?: InboxConversation | null) {
     Boolean(queue) ||
     routeTarget === "prospeccao" ||
     routeTarget === "prospection" ||
-    sourceCandidates.some((value) => value === "vendas" || value === "webscraping" || value.includes("webscraping")) ||
-    Boolean(String(queue?.leadId || "").trim())
+    sourceCandidates.some(isInboxProspectionSource) ||
+    Boolean(String(queue?.leadId || automation?.leadId || "").trim()) ||
+    hasInboxAutomaticProspectionOutbound(conversation)
   );
+}
+
+function isInboxExcludedByOperationalState(conversation?: InboxConversation | null) {
+  const metadata = getInboxConversationMetadata(conversation);
+  const queue = getInboxVendasAgendaQueue(conversation);
+  const queueRecord = queue as Record<string, unknown> | null;
+  const automation = getInboxAutomationMetadata(conversation);
+  const statuses = [
+    conversation?.flowResult,
+    metadata?.flowResult,
+    queue?.status,
+    automation?.status,
+  ].map(getInboxMetadataText);
+  return (
+    statuses.some((status) =>
+      [
+        "encerrado",
+        "negative",
+        "opt_out",
+        "replied_negative",
+        "no_response_archived",
+        "prospection_negative",
+        "local_deleted",
+      ].includes(status),
+    ) ||
+    [
+      metadata?.optOut,
+      metadata?.doNotContact,
+      metadata?.blacklisted,
+      metadata?.blacklist,
+      queueRecord?.optOut,
+      queueRecord?.doNotContact,
+      queueRecord?.blacklisted,
+      queueRecord?.blacklist,
+    ].some((value) => parseInboxBooleanFlag(value))
+  );
+}
+
+function getInboxProspectionWaitingSince(conversation?: InboxConversation | null) {
+  const metadata = getInboxConversationMetadata(conversation);
+  const queue = getInboxVendasAgendaQueue(conversation);
+  const automation = getInboxAutomationMetadata(conversation);
+  const candidates = [
+    automation?.sentAt,
+    queue?.manualSentAt,
+    queue?.lastManualSendAt,
+    queue?.syncedAt,
+    getInboxConversationActivityAt(conversation),
+    conversation?.updatedAt,
+  ];
+  for (const candidate of candidates) {
+    const normalized = String(candidate || "").trim();
+    if (!normalized) continue;
+    const parsed = new Date(normalized);
+    if (!Number.isNaN(parsed.getTime())) return parsed.toISOString();
+  }
+  return null;
+}
+
+function formatInboxWaitingLabel(value: string | null | undefined) {
+  const startedAt = new Date(String(value || "")).getTime();
+  if (!Number.isFinite(startedAt)) return "Aguardando resposta";
+  const minutes = Math.max(0, Math.floor((Date.now() - startedAt) / 60000));
+  if (minutes < 1) return "Aguardando resposta agora";
+  if (minutes < 60) return `Aguardando resposta há ${minutes}min`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `Aguardando resposta há ${hours}h`;
+  const days = Math.floor(hours / 24);
+  return `Aguardando resposta há ${days}d`;
 }
 
 function isInboxExplicitAtendimentoHandoff(
@@ -1578,6 +1679,9 @@ function resolveInboxBucket(
   manualQueueOverrides?: Record<string, InboxQueue>,
 ): InboxBucket {
   const manualQueue = manualQueueOverrides?.[String(conversation.id)];
+  if (isInboxGroupConversation(conversation)) {
+    return "groups";
+  }
   if (manualQueue === "archived") {
     return "excluidos";
   }
@@ -1590,13 +1694,17 @@ function resolveInboxBucket(
       vendasAgendaQueue?.queueTarget ||
       vendasAgendaQueue?.routeTarget,
   );
+  if (persistedRouteTarget === "groups") {
+    return "groups";
+  }
   if (
     parseInboxBooleanFlag(metadata?.inboxLocalDeleted) ||
     parseInboxBooleanFlag(metadata?.localDeleted) ||
     conversation.isBlocked ||
     getInboxConversationWhatsappAvailabilityFromMetadata(conversation) === "unavailable" ||
     persistedRouteTarget === "excluidos" ||
-    persistedRouteTarget === "excluded"
+    persistedRouteTarget === "excluded" ||
+    isInboxExcludedByOperationalState(conversation)
   ) {
     return "excluidos";
   }
@@ -1609,21 +1717,30 @@ function resolveInboxBucket(
     return "excluidos";
   }
   if (isInboxConversationArchived(conversation)) return "excluidos";
-  if (Number(conversation.recoveryOpenAmount || 0) > 0 || persistedRouteTarget === "recovery") return "recovery";
-  if (isInboxGroupConversation(conversation)) return "groups";
-  if (isInboxPersonalContact(conversation) || persistedRouteTarget === "conversas") {
-    return "conversas";
-  }
+  if (
+    Number(conversation.recoveryOpenAmount || 0) > 0 ||
+    persistedRouteTarget === "recovery" ||
+    getInboxMetadataText(conversation.latestSourceModule).includes("recovery")
+  ) return "recovery";
   if (manualQueue && INBOX_QUEUE_ORDER.includes(manualQueue)) {
     return mapInboxQueueToBucket(manualQueue);
   }
   if (INBOX_QUEUE_ORDER.includes(persistedQueue as InboxQueue)) {
     return mapInboxQueueToBucket(persistedQueue as InboxQueue);
   }
-  if (hasInboxHbxProspectionOrigin(conversation) && !hasInboxProspectionCustomerResponse(conversation)) {
+  if (isInboxPersonalContact(conversation) || persistedRouteTarget === "conversas") {
+    return "conversas";
+  }
+  const hasProspectionOrigin = hasInboxHbxProspectionOrigin(conversation);
+  const hasProspectionResponse = hasInboxProspectionCustomerResponse(conversation);
+  if (
+    persistedRouteTarget === "atendimento" ||
+    isInboxExplicitAtendimentoHandoff(conversation, manualQueue, persistedQueue) ||
+    (hasProspectionOrigin && hasProspectionResponse)
+  ) return "atendimento";
+  if (hasProspectionOrigin && !hasProspectionResponse) {
     return "prospeccao";
   }
-  if (isInboxExplicitAtendimentoHandoff(conversation, manualQueue, persistedQueue)) return "atendimento";
 
   return "conversas";
 }
@@ -2051,6 +2168,9 @@ function getInboxConversationFreshness(
 }
 
 function getInboxConversationPreview(conversation?: InboxConversation | null) {
+  if (hasInboxHbxProspectionOrigin(conversation) && !hasInboxProspectionCustomerResponse(conversation)) {
+    return formatInboxWaitingLabel(getInboxProspectionWaitingSince(conversation));
+  }
   const latestMessage = getInboxLatestMessage(conversation?.messages);
   const preview = String(getMessagePreview(latestMessage) || "").trim();
   if (preview) return preview;
@@ -2306,10 +2426,17 @@ function didInboxConversationViewChange(
   return !areInboxMessageListsEquivalent(current.messages, next.messages);
 }
 
-function sortInboxConversationsByActivity(conversationList: InboxConversation[]) {
+function getInboxConversationSortAtForQueue(conversation: InboxConversation, queue?: InboxQueue) {
+  if (queue === "bot") {
+    return getInboxProspectionWaitingSince(conversation) || conversation.updatedAt || getInboxConversationActivityAt(conversation);
+  }
+  return getInboxConversationActivityAt(conversation);
+}
+
+function sortInboxConversationsByActivity(conversationList: InboxConversation[], queue?: InboxQueue) {
   return [...conversationList].sort((left, right) => {
-    const leftTime = new Date(getInboxConversationActivityAt(left)).getTime();
-    const rightTime = new Date(getInboxConversationActivityAt(right)).getTime();
+    const leftTime = new Date(getInboxConversationSortAtForQueue(left, queue)).getTime();
+    const rightTime = new Date(getInboxConversationSortAtForQueue(right, queue)).getTime();
     const safeLeft = Number.isFinite(leftTime) ? leftTime : 0;
     const safeRight = Number.isFinite(rightTime) ? rightTime : 0;
     if (safeRight !== safeLeft) return safeRight - safeLeft;
@@ -2627,7 +2754,6 @@ export default function InboxClientPage() {
   const [messageReactionTargetId, setMessageReactionTargetId] = useState<string | null>(null);
   const [blockDialog, setBlockDialog] = useState<{ conversationId: string; reason: string } | null>(null);
   const [deleteConversationDialog, setDeleteConversationDialog] = useState<{ conversationId: string } | null>(null);
-  const [whatsappDeleteConversationDialog, setWhatsappDeleteConversationDialog] = useState<{ conversationId: string } | null>(null);
   const [purgeConversationDialog, setPurgeConversationDialog] = useState<{ conversationId: string } | null>(null);
   const [emptyTrashDialogOpen, setEmptyTrashDialogOpen] = useState(false);
   const [emptyingTrash, setEmptyingTrash] = useState(false);
@@ -4181,7 +4307,7 @@ export default function InboxClientPage() {
       return haystack.includes(normalizedSearch);
     });
 
-    return sortInboxConversationsByActivity(filtered);
+    return sortInboxConversationsByActivity(filtered, inboxQueue);
   }, [conversations, deferredConversationSearch, inboxQueue, manualQueueOverrides]);
 
   const inboxQueueDiagnostics = useMemo(
@@ -5174,75 +5300,6 @@ export default function InboxClientPage() {
       }
     },
     [deleteConversationDialog?.conversationId, loadConversations],
-  );
-
-  const deleteConversationFromWhatsAppById = useCallback(
-    async (conversationId: string) => {
-      if (!conversationId) return;
-      setWhatsappDeleteConversationDialog({ conversationId });
-    },
-    [],
-  );
-
-  const confirmDeleteConversationFromWhatsApp = useCallback(
-    async () => {
-      const conversationId = whatsappDeleteConversationDialog?.conversationId;
-      if (!conversationId) return;
-      setError(null);
-      try {
-        const targetConversation =
-          conversationsRef.current.find((conversation) => conversation.id === conversationId) ||
-          (selectedConversationRef.current?.id === conversationId ? selectedConversationRef.current : null);
-        const response = await apiFetch<{ message?: string; deleted?: boolean; whatsappDeleted?: boolean }>(
-          `/inbox/conversations/${conversationId}/whatsapp-delete`,
-          {
-            method: "POST",
-          },
-        );
-        const deletedAt = new Date().toISOString();
-        const aliases = getInboxConversationIdentityAliases(targetConversation);
-        if (aliases.length) {
-          setDeletedConversationAliases((current) => {
-            const next = { ...current };
-            aliases.forEach((alias) => {
-              next[alias] = deletedAt;
-            });
-            return next;
-          });
-        }
-        setQueueActionConversationId(null);
-        setQueueActionMenuPosition(null);
-        setWhatsappDeleteConversationDialog(null);
-        conversationDetailCacheRef.current.delete(conversationId);
-        customerConversationCardCacheRef.current.delete(conversationId);
-        setConversations((current) => current.filter((conversation) => conversation.id !== conversationId));
-        if (selectedIdRef.current === conversationId) {
-          setSelectedId(null);
-          setSelectedConversation(null);
-          selectedIdRef.current = null;
-          selectedConversationRef.current = null;
-        }
-        setManualQueueOverrides((current) => {
-          const next = { ...current };
-          delete next[conversationId];
-          return next;
-        });
-        setNotice({
-          tone: "success",
-          text:
-            String(response?.message || "").trim() ||
-            "Conversa apagada da conta WhatsApp conectada.",
-        });
-        await loadConversations({ preferredId: null, silent: true });
-      } catch (deleteError) {
-        const message =
-          deleteError instanceof Error
-            ? deleteError.message
-            : "Falha ao apagar conversa no WhatsApp conectado.";
-        setError(message);
-      }
-    },
-    [loadConversations, whatsappDeleteConversationDialog?.conversationId],
   );
 
   const openEmptyTrashDialog = useCallback(() => {
@@ -7807,21 +7864,6 @@ export default function InboxClientPage() {
               >
                 {queueActionConversationIsArchived ? "Excluir permanente" : "Excluir"}
               </button>
-              <button
-                type="button"
-                className={`${styles.conversationQueueMetaPopupAction} ${styles.conversationQueueMetaPopupActionDanger}`}
-                onMouseDown={(event) => {
-                  event.preventDefault();
-                  event.stopPropagation();
-                }}
-                onClick={(event) => {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  void deleteConversationFromWhatsAppById(queueActionConversationId);
-                }}
-              >
-                Apagar conversa
-              </button>
             </div>,
             document.body,
           )
@@ -7915,16 +7957,6 @@ export default function InboxClientPage() {
         destructive
         onCancel={() => setDeleteConversationDialog(null)}
         onConfirm={() => void confirmDeleteConversation()}
-      />
-
-      <HbxConfirmDialog
-        open={whatsappDeleteConversationDialog !== null}
-        title="Apagar conversa"
-        description="Isso apagará a conversa da conta WhatsApp conectada. Não apaga mensagens do aparelho do cliente."
-        confirmLabel="Apagar conversa"
-        destructive
-        onCancel={() => setWhatsappDeleteConversationDialog(null)}
-        onConfirm={() => void confirmDeleteConversationFromWhatsApp()}
       />
 
       <HbxConfirmDialog

@@ -1203,6 +1203,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
 
   private async archiveNoResponseJob(job: any) {
     const now = new Date();
+    this.logger.log(`[prospeccao] 24h sem resposta, movendo para excluidos conversation=${job.conversationId || '-'} job=${job.id}`);
     await this.prisma.$transaction(async (tx) => {
       await tx.vendasAutomationJob.update({
         where: { id: job.id },
@@ -1210,14 +1211,14 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
       });
       await tx.vendasLead.updateMany({
         where: { id: job.leadId, companyId: job.companyId, status: { not: 'encerrado' } },
-        data: { status: 'encerrado', wasClosedBefore: true, closedAt: now, lastResult: 'Sem resposta automática' },
+        data: { status: 'encerrado', wasClosedBefore: true, closedAt: now, lastResult: 'Sem resposta em 24h' },
       });
       await tx.vendasLeadTimelineEvent.create({
         data: {
           leadId: job.leadId,
           eventType: 'lead_closed',
           title: 'Lead arquivado sem resposta',
-          description: 'Prospecção fria encerrada sem nova insistência automática.',
+          description: 'Sem resposta em 24h. Prospecção fria encerrada sem nova insistência automática.',
           sourceType: 'vendas_prospeccao_bot',
           statusTo: 'encerrado',
           resultLabel: 'Sem resposta',
@@ -1241,6 +1242,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
           inboxManualQueueOverride: 'archived',
           inboxLocalDeleted: true,
           inboxLocalDeletedAt: now.toISOString(),
+          inboxLocalDeletedReason: 'Sem resposta em 24h',
           vendasAgendaQueue: {
             ...queue,
             active: false,
@@ -1409,6 +1411,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
         sentAt,
         draftMessage: body,
       });
+      this.logger.log(`[prospeccao] outbound automatico enviado, mantendo em prospeccao conversation=${Number(queued.conversationId)} job=${job.id}`);
       this.publishAutomationEvent({
         companyId: campaign.companyId,
         campaignId: campaign.id,

@@ -856,6 +856,7 @@ export class VendasService {
       },
       lastInteractionAt: new Date(),
     });
+    this.logger.log(`[prospeccao] whatsapp unavailable, movendo para excluidos conversation=${conversation.id} lead=${String(row?.id || '-')}`);
 
     return { updated: 1, skippedWithoutPhone: 0, conversationId: conversation.id };
   }
