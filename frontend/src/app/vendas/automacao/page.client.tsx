@@ -617,6 +617,10 @@ function normalizeSearchText(value: unknown) {
     .trim();
 }
 
+function requiresProspectingCity(config: Pick<ProspectingAutomationConfig, "engine" | "targetType">) {
+  return config.engine === "google" || config.targetType === "pj";
+}
+
 function getProspectingSceneRule(config: AtendimentoBotConfig) {
   return (config.sceneRules || []).find(
     (rule) => rule.sceneId === PROSPECTING_SCENE_ID && rule.conditionType === PROSPECTING_RULE_CONDITION,
@@ -783,6 +787,7 @@ function ProspectingAutomationPanel({
     () => MESSAGE_PRESETS.filter((preset) => preset.group === selectedCampaignTypeId),
     [selectedCampaignTypeId],
   );
+  const cityRequired = requiresProspectingCity(config);
 
   useEffect(() => {
     // Keep textarea drafts aligned when a saved campaign replaces the local config.
@@ -887,7 +892,14 @@ function ProspectingAutomationPanel({
           <div className={styles.prospectingFormGrid}>
             <label>
               <span>Cidade</span>
-              <input className={styles.inputField} list="prospecting-city-list" value={config.city} onChange={(event) => setField("city", event.target.value)} placeholder="Opcional" />
+              <input
+                className={styles.inputField}
+                list="prospecting-city-list"
+                value={config.city}
+                onChange={(event) => setField("city", event.target.value)}
+                placeholder={cityRequired ? "Obrigatório para Google/PJ" : "Opcional"}
+                required={cityRequired}
+              />
             </label>
             <label>
               <span>Estado</span>
@@ -1565,6 +1577,16 @@ export default function VendasAutomationClientPage() {
         return;
       }
       const currentProspectingConfig = prospectingConfigRef.current;
+      if (
+        action === "start" &&
+        requiresProspectingCity(currentProspectingConfig) &&
+        !currentProspectingConfig.city.trim()
+      ) {
+        const message = "Informe a cidade para buscar empresas.";
+        setError(message);
+        setNotice({ tone: "error", text: message });
+        return;
+      }
       const nextBotConfig = upsertProspectingRules(draftConfig, currentProspectingConfig);
       setProspectingAction(action);
       setError(null);
