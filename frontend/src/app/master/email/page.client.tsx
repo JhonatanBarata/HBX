@@ -1,8 +1,6 @@
 "use client";
 
 import {
-  type ClipboardEvent as ReactClipboardEvent,
-  type DragEvent as ReactDragEvent,
   useCallback,
   useEffect,
   useMemo,
@@ -134,9 +132,7 @@ function targetIsInsideAnyNode(target: EventTarget | null, nodes: Array<Node | n
 export default function MasterEmailClientPage() {
   const hasToken = useRequireAuth();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const businessCardInputRef = useRef<HTMLInputElement | null>(null);
   const editorRef = useRef<HTMLDivElement | null>(null);
-  const cardUploaderRef = useRef<HTMLDivElement | null>(null);
   const editorRangeRef = useRef<Range | null>(null);
   const [state, setState] = useState<MasterEmailState | null>(null);
   const [recipientName, setRecipientName] = useState(DEFAULT_NAME);
@@ -289,8 +285,6 @@ export default function MasterEmailClientPage() {
         timeoutMs: 60000,
       });
       setState((current) => current ? { ...current, businessCard: payload.businessCard } : current);
-      setMessage("Cartão de visitas salvo.");
-      if (businessCardInputRef.current) businessCardInputRef.current.value = "";
       return payload.businessCard;
     } catch (uploadError) {
       setError(uploadError instanceof Error ? uploadError.message : "Falha ao salvar o cartão de visitas.");
@@ -311,7 +305,7 @@ export default function MasterEmailClientPage() {
     if (hasToken !== true) return;
 
     function handleWindowPaste(event: globalThis.ClipboardEvent) {
-      if (event.defaultPrevented || targetIsInsideAnyNode(event.target, [editorRef.current, cardUploaderRef.current])) return;
+      if (event.defaultPrevented || targetIsInsideAnyNode(event.target, [editorRef.current])) return;
       const file = findClipboardImageFile(event.clipboardData);
       if (!file) return;
       event.preventDefault();
@@ -321,19 +315,6 @@ export default function MasterEmailClientPage() {
     window.addEventListener("paste", handleWindowPaste);
     return () => window.removeEventListener("paste", handleWindowPaste);
   }, [hasToken, pasteBusinessCardIntoEditor]);
-
-  function handleBusinessCardPaste(event: ReactClipboardEvent<HTMLDivElement>) {
-    const file = findClipboardImageFile(event.clipboardData);
-    if (!file) return;
-    event.preventDefault();
-    void pasteBusinessCardIntoEditor(file);
-  }
-
-  function handleBusinessCardDrop(event: ReactDragEvent<HTMLDivElement>) {
-    event.preventDefault();
-    const file = Array.from(event.dataTransfer?.files || []).find((item) => item.type.startsWith("image/"));
-    void pasteBusinessCardIntoEditor(file);
-  }
 
   async function sendEmail() {
     setSending(true);
@@ -395,8 +376,12 @@ export default function MasterEmailClientPage() {
       actions={<Link href="/master" className="btn btn-secondary btn-sm">Voltar ao Master</Link>}
     >
       <div className={styles.page}>
-        {error ? <div className="alert alert-error">{error}</div> : null}
-        {message ? <div className="alert alert-success">{message}</div> : null}
+        {error || message ? (
+          <div className={styles.alertArea}>
+            {error ? <div className="alert alert-error">{error}</div> : null}
+            {message ? <div className="alert alert-success">{message}</div> : null}
+          </div>
+        ) : null}
 
         <section className={styles.panel}>
           <div className={styles.header}>
@@ -504,44 +489,6 @@ export default function MasterEmailClientPage() {
             </label>
           </div>
 
-          <div
-            ref={cardUploaderRef}
-            className={styles.cardUploader}
-            role="group"
-            tabIndex={0}
-            onPaste={handleBusinessCardPaste}
-            onDrop={handleBusinessCardDrop}
-            onDragOver={(event) => event.preventDefault()}
-          >
-            <div className={styles.cardUploaderContent}>
-              <span>Cartão de visitas</span>
-              <strong>{state?.businessCard?.originalName || "Nenhuma imagem salva"}</strong>
-              <p>
-                {state?.businessCard
-                  ? `${formatFileSize(state.businessCard.size)} • salvo em ${formatDate(state.businessCard.uploadedAt)}`
-                  : "Cole uma imagem aqui, arraste o arquivo ou selecione uma imagem."}
-              </p>
-              <div className={styles.cardActions}>
-                <label className={styles.uploadButton}>
-                  {uploadingBusinessCard ? "Salvando..." : "Selecionar imagem"}
-                  <input
-                    ref={businessCardInputRef}
-                    type="file"
-                    accept="image/png,image/jpeg,image/webp"
-                    onChange={(event) => void pasteBusinessCardIntoEditor(event.target.files?.[0])}
-                    disabled={uploadingBusinessCard || sending}
-                  />
-                </label>
-                <span>Use Ctrl+V em qualquer ponto da tela.</span>
-              </div>
-            </div>
-            {state?.businessCard?.previewDataUrl ? (
-              <div className={styles.cardPreview}>
-                <img src={state.businessCard.previewDataUrl} alt="Cartão de visitas salvo" />
-              </div>
-            ) : null}
-          </div>
-
           {!senderReady ? (
             <div className={styles.warning}>
               Configure SMTP/MAIL no backend antes do envio real. Pendências: {state?.sender.missing.join(", ") || "provedor não configurado"}.
@@ -568,11 +515,6 @@ export default function MasterEmailClientPage() {
             <span>Assunto</span>
             <strong>{subjectDraft || state?.subject || "Apresentação HBX System"}</strong>
             <p>Editável antes de enviar.</p>
-          </div>
-          <div className={styles.sideCard}>
-            <span>Cartão</span>
-            <strong>{state?.businessCard ? "Será incluído no email" : "Opcional"}</strong>
-            <p>{state?.businessCard ? "A imagem salva entra abaixo da assinatura." : "Cole a imagem na tela para salvar."}</p>
           </div>
           {lastSent ? (
             <div className={styles.sideCard}>

@@ -5,6 +5,13 @@
   align-items: start;
 }
 
+.alertArea {
+  display: grid;
+  grid-column: 1 / -1;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
 .panel,
 .sideCard {
   border: 1px solid color-mix(in srgb, var(--line) 88%, var(--background));
@@ -36,7 +43,6 @@
 .header span,
 .field span,
 .attachmentBox span,
-.cardUploaderContent span,
 .sideCard span {
   display: block;
   margin-bottom: 0.35rem;
@@ -145,64 +151,16 @@
 }
 
 .attachmentBox strong,
-.cardUploaderContent strong,
 .sideCard strong {
   display: block;
   color: var(--foreground);
 }
 
 .attachmentBox p,
-.cardUploaderContent p,
 .sideCard p {
   margin: 0.35rem 0 0;
   color: var(--muted);
   font-size: 0.88rem;
-}
-
-.cardUploader {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(160px, 260px);
-  gap: 1rem;
-  align-items: center;
-  border: 1px dashed color-mix(in srgb, var(--brand) 44%, var(--line));
-  border-radius: calc(var(--panel-radius) * 0.72);
-  background: color-mix(in srgb, var(--surface-soft) 94%, var(--background));
-  padding: 0.85rem;
-  outline: none;
-}
-
-.cardUploader:focus,
-.cardUploader:focus-visible {
-  border-color: color-mix(in srgb, var(--brand) 74%, var(--line));
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand) 16%, transparent);
-}
-
-.cardActions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.55rem;
-  margin-top: 0.75rem;
-}
-
-.cardActions > span {
-  color: var(--muted);
-  font-size: 0.82rem;
-}
-
-.cardPreview {
-  overflow: hidden;
-  border: 1px solid color-mix(in srgb, var(--line) 86%, var(--background));
-  border-radius: calc(var(--panel-radius) * 0.66);
-  background: color-mix(in srgb, var(--surface-raised) 94%, var(--background));
-}
-
-.cardPreview img {
-  display: block;
-  width: 100%;
-  height: auto;
-  max-height: 180px;
-  object-fit: contain;
 }
 
 .uploadButton {
@@ -265,8 +223,7 @@
 
   .grid,
   .header,
-  .attachmentBox,
-  .cardUploader {
+  .attachmentBox {
     grid-template-columns: 1fr;
     flex-direction: column;
     align-items: stretch;
