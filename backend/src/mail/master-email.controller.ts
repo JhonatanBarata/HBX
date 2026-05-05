@@ -14,7 +14,7 @@ import { memoryStorage } from 'multer';
 import { extname, join } from 'path';
 import { mkdir, readFile, stat, writeFile } from 'fs/promises';
 import { existsSync } from 'fs';
-import { IsEmail, IsString, MaxLength } from 'class-validator';
+import { IsEmail, IsOptional, IsString, MaxLength } from 'class-validator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { MasterGuard } from '../auth/guards/master.guard';
 import { MailAttachment, MailService } from './mail.service';
@@ -61,6 +61,11 @@ class SendMasterEmailDto {
   @IsString()
   @MaxLength(8000)
   text!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(50000)
+  html?: string | null;
 }
 
 type AttachmentMeta = {
@@ -93,13 +98,48 @@ export class MasterEmailController {
       .replace(/'/g, '&#39;');
   }
 
-  private buildHtmlEmail(text: string, hasBusinessCard: boolean) {
+  private textToHtml(text: string) {
     const paragraphs = this.escapeHtml(text)
       .split('\n')
       .map((line) => (line ? line : '&nbsp;'))
       .join('<br>');
 
-    const businessCard = hasBusinessCard
+    return paragraphs;
+  }
+
+  private htmlHasBusinessCardMarker(html: string) {
+    const normalized = String(html || '');
+    return normalized.includes('data-hbx-business-card') || /<img\b[^>]+src=["']data:image\//i.test(normalized);
+  }
+
+  private sanitizeMasterEmailHtml(html: string, hasBusinessCard: boolean) {
+    let sanitized = String(html || '')
+      .replace(/<\s*(script|style|iframe|object|embed|meta|link)\b[^>]*>[\s\S]*?<\s*\/\s*\1\s*>/gi, '')
+      .replace(/<\s*(script|style|iframe|object|embed|meta|link)\b[^>]*\/?\s*>/gi, '')
+      .replace(/\s+on[a-z]+\s*=\s*(['"])[\s\S]*?\1/gi, '')
+      .replace(/\s+on[a-z]+\s*=\s*[^\s>]+/gi, '')
+      .replace(/javascript:/gi, '');
+
+    sanitized = sanitized.replace(/<img\b[^>]*>/gi, (tag) => {
+      const isBusinessCard = tag.includes('data-hbx-business-card') || /src=["']data:image\//i.test(tag);
+      if (!isBusinessCard || !hasBusinessCard) return '';
+      return `<img src="cid:${BUSINESS_CARD_CID}" alt="Cartao de visitas" style="display:block;max-width:640px;width:100%;height:auto;border:0;outline:none;text-decoration:none;margin-top:12px;margin-bottom:12px">`;
+    });
+
+    return sanitized.trim();
+  }
+
+  private buildHtmlEmail(text: string, options?: { html?: string | null; hasBusinessCard?: boolean }) {
+    const customHtml = this.sanitizeMasterEmailHtml(options?.html || '', Boolean(options?.hasBusinessCard));
+    if (customHtml) {
+      return [
+        '<div style="font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.55;color:#111827">',
+        customHtml,
+        '</div>',
+      ].join('');
+    }
+
+    const businessCard = options?.hasBusinessCard
       ? [
           '<div style="margin-top:18px">',
           `<img src="cid:${BUSINESS_CARD_CID}" alt="Cartao de visitas" style="display:block;max-width:640px;width:100%;height:auto;border:0;outline:none;text-decoration:none">`,
@@ -109,7 +149,7 @@ export class MasterEmailController {
 
     return [
       '<div style="font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.55;color:#111827">',
-      paragraphs,
+      this.textToHtml(text),
       businessCard,
       '</div>',
     ].join('');
@@ -239,6 +279,7 @@ export class MasterEmailController {
     const recipientEmail = String(dto.recipientEmail || '').trim().toLowerCase();
     const subject = String(dto.subject || '').replace(/\s+/g, ' ').trim();
     const text = String(dto.text || '').replace(/\r\n/g, '\n').trim();
+    const html = String(dto.html || '').trim();
     if (!recipientName) throw new BadRequestException('Informe o nome do contato.');
     if (!recipientEmail) throw new BadRequestException('Informe o email do contato.');
     if (!subject) throw new BadRequestException('Informe o assunto do email.');
@@ -249,6 +290,7 @@ export class MasterEmailController {
 
     const attachmentMeta = await this.readAttachmentMeta();
     const businessCardMeta = await this.readBusinessCardMeta(false);
+    const htmlUsesBusinessCard = Boolean(businessCardMeta) && this.htmlHasBusinessCardMarker(html);
     const attachment = await readFile(ATTACHMENT_PATH);
     const attachments: MailAttachment[] = [
       {
@@ -258,7 +300,7 @@ export class MasterEmailController {
       },
     ];
 
-    if (businessCardMeta && existsSync(BUSINESS_CARD_PATH)) {
+    if (businessCardMeta && existsSync(BUSINESS_CARD_PATH) && (!html || htmlUsesBusinessCard)) {
       attachments.push({
         filename: businessCardMeta.originalName || 'cartao-visitas.png',
         content: await readFile(BUSINESS_CARD_PATH),
@@ -271,7 +313,10 @@ export class MasterEmailController {
       to: recipientEmail,
       subject,
       text,
-      html: this.buildHtmlEmail(text, Boolean(businessCardMeta)),
+      html: this.buildHtmlEmail(text, {
+        html,
+        hasBusinessCard: Boolean(businessCardMeta) && (!html || htmlUsesBusinessCard),
+      }),
       from: 'Jhonatan | HBX <jhonatan@hbx.com.br>',
       replyTo: 'jhonatan@hbx.com.br',
       attachments,

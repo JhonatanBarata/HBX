@@ -74,7 +74,8 @@
 }
 
 .field input,
-.field textarea {
+.field textarea,
+.emailEditor {
   width: 100%;
   border: 1px solid color-mix(in srgb, var(--line) 88%, var(--background));
   border-radius: calc(var(--panel-radius) * 0.72);
@@ -85,16 +86,37 @@
   outline: none;
 }
 
-.field textarea {
-  resize: vertical;
+.field textarea,
+.emailEditor {
+  min-height: 360px;
   line-height: 1.5;
   white-space: pre-wrap;
 }
 
 .field input:focus,
-.field textarea:focus {
+.field textarea:focus,
+.emailEditor:focus {
   border-color: color-mix(in srgb, var(--brand) 72%, var(--line));
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand) 16%, transparent);
+}
+
+.emailEditor {
+  overflow: auto;
+}
+
+.emailEditor:empty::before {
+  content: attr(data-placeholder);
+  color: var(--muted);
+}
+
+.emailEditor img {
+  display: block;
+  max-width: min(640px, 100%);
+  height: auto;
+  margin: 0.75rem 0;
+  border-radius: calc(var(--panel-radius) * 0.55);
+  border: 1px solid color-mix(in srgb, var(--line) 82%, var(--background));
+  background: color-mix(in srgb, var(--surface-raised) 94%, var(--background));
 }
 
 .attachmentBox {

@@ -584,7 +584,11 @@ function isLikelyPersonLeadName(value: string) {
 
 function filterResultsForTarget(results: SearchResult[], targetType: HbxTargetType) {
   if (!isPeopleTargetType(targetType)) return results;
-  return results.filter((result) => isLikelyPersonLeadName(result.name));
+  return [...results].sort((left, right) => {
+    const leftPerson = isLikelyPersonLeadName(left.name) ? 0 : 1;
+    const rightPerson = isLikelyPersonLeadName(right.name) ? 0 : 1;
+    return leftPerson - rightPerson;
+  });
 }
 
 function getSearchMode(engine: WebscrapingEngine, targetType: HbxTargetType) {
@@ -896,7 +900,7 @@ export default function WebscrapingClientPage() {
   }, [activeSegmentSuggestions, segment]);
   const citySuggestionItems = useMemo(() => {
     const normalizedCity = normalizeCityLookup(city);
-    if (!normalizedCity) return [];
+    if (!normalizedCity) return cityOptions;
 
     return cityOptions
       .map((option) => ({
@@ -909,11 +913,10 @@ export default function WebscrapingClientPage() {
         const rightStarts = right.normalized.startsWith(normalizedCity) ? 0 : 1;
         return leftStarts - rightStarts || left.option.localeCompare(right.option, "pt-BR");
       })
-      .slice(0, 8)
       .map((item) => item.option);
   }, [city, cityOptions]);
   const shouldShowCitySuggestions =
-    citySuggestionsOpen && city.trim().length >= 2 && citySuggestionItems.length > 0 && !cityExactOption;
+    citySuggestionsOpen && Boolean(selectedState) && citySuggestionItems.length > 0;
   const citySelectionPending = cityOptions.length > 0 && city.trim().length > 0 && !cityExactOption;
   const activeCitySuggestion = shouldShowCitySuggestions
     ? citySuggestionItems[Math.min(activeCitySuggestionIndex, citySuggestionItems.length - 1)] || ""
@@ -1009,9 +1012,9 @@ export default function WebscrapingClientPage() {
         try {
           const lastCity = localStorage.getItem("webscraping.lastCity");
           const lastState = localStorage.getItem("webscraping.lastState");
-          if (lastCity && !city) {
+          if (lastCity) {
             const parsedLocation = splitCityState(String(lastCity), String(lastState || ""));
-            setCity(parsedLocation.city);
+            setCity((current) => current || parsedLocation.city);
             if (parsedLocation.state) setSelectedState(parsedLocation.state);
           } else if (lastState) {
             setSelectedState(String(lastState).trim().toUpperCase());

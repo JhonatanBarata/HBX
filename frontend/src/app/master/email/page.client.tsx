@@ -64,6 +64,22 @@ function renderTemplate(template: string, name: string) {
   return String(template || "").replace("{{nome}}", String(name || "").trim() || "cliente");
 }
 
+function escapeHtml(value: string) {
+  return String(value || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function textToEditorHtml(value: string) {
+  return escapeHtml(value)
+    .split("\n")
+    .map((line) => line || "<br>")
+    .join("<br>");
+}
+
 function findClipboardImageFile(items?: DataTransferItemList | null) {
   const imageItem = Array.from(items || []).find((item) => item.type.startsWith("image/"));
   return imageItem?.getAsFile() || null;
@@ -77,11 +93,14 @@ export default function MasterEmailClientPage() {
   const hasToken = useRequireAuth();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const businessCardInputRef = useRef<HTMLInputElement | null>(null);
+  const editorRef = useRef<HTMLDivElement | null>(null);
+  const editorRangeRef = useRef<Range | null>(null);
   const [state, setState] = useState<MasterEmailState | null>(null);
   const [recipientName, setRecipientName] = useState(DEFAULT_NAME);
   const [recipientEmail, setRecipientEmail] = useState("");
   const [subjectDraft, setSubjectDraft] = useState("");
   const [bodyDraft, setBodyDraft] = useState("");
+  const [bodyHtmlDraft, setBodyHtmlDraft] = useState("");
   const [bodyDirty, setBodyDirty] = useState(false);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
@@ -96,9 +115,11 @@ export default function MasterEmailClientPage() {
     setError(null);
     try {
       const payload = await apiFetch<MasterEmailState>("/master/email", { requireAuth: true });
+      const renderedBody = renderTemplate(payload.template || payload.preview || "", recipientName);
       setState(payload);
       setSubjectDraft(payload.subject || "");
-      setBodyDraft(renderTemplate(payload.template || payload.preview || "", recipientName));
+      setBodyDraft(renderedBody);
+      setBodyHtmlDraft(textToEditorHtml(renderedBody));
       setBodyDirty(false);
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Falha ao carregar a tela de email.");
@@ -119,7 +140,69 @@ export default function MasterEmailClientPage() {
   useEffect(() => {
     if (!state || bodyDirty) return;
     setBodyDraft(defaultBody);
+    setBodyHtmlDraft(textToEditorHtml(defaultBody));
   }, [bodyDirty, defaultBody, state]);
+
+  useEffect(() => {
+    if (!editorRef.current || bodyDirty) return;
+    editorRef.current.innerHTML = bodyHtmlDraft;
+  }, [bodyDirty, bodyHtmlDraft]);
+
+  function rememberEditorSelection() {
+    const editor = editorRef.current;
+    const selection = window.getSelection();
+    if (!editor || !selection || selection.rangeCount === 0) return;
+    const range = selection.getRangeAt(0);
+    if (editor.contains(range.commonAncestorContainer)) {
+      editorRangeRef.current = range.cloneRange();
+    }
+  }
+
+  function syncEditorDraft() {
+    const editor = editorRef.current;
+    if (!editor) return;
+    setBodyDraft(editor.innerText || "");
+    setBodyHtmlDraft(editor.innerHTML || "");
+    setBodyDirty(true);
+  }
+
+  function insertHtmlIntoEditor(html: string) {
+    const editor = editorRef.current;
+    if (!editor) return;
+    editor.focus();
+    const selection = window.getSelection();
+    if (!selection) return;
+    selection.removeAllRanges();
+    if (editorRangeRef.current) {
+      selection.addRange(editorRangeRef.current);
+    } else {
+      const range = document.createRange();
+      range.selectNodeContents(editor);
+      range.collapse(false);
+      selection.addRange(range);
+    }
+    const range = selection.getRangeAt(0);
+    range.deleteContents();
+    const fragment = range.createContextualFragment(html);
+    const lastNode = fragment.lastChild;
+    range.insertNode(fragment);
+    if (lastNode) {
+      const nextRange = document.createRange();
+      nextRange.setStartAfter(lastNode);
+      nextRange.collapse(true);
+      selection.removeAllRanges();
+      selection.addRange(nextRange);
+      editorRangeRef.current = nextRange.cloneRange();
+    }
+    syncEditorDraft();
+  }
+
+  function insertBusinessCardIntoEditor(card: MasterEmailState["businessCard"]) {
+    if (!card?.previewDataUrl) return;
+    insertHtmlIntoEditor(
+      `<p><img data-hbx-business-card="true" src="${card.previewDataUrl}" alt="Cartão de visitas" style="max-width:640px;width:100%;height:auto;display:block;margin:12px 0;" /></p>`,
+    );
+  }
 
   async function uploadAttachment(file: File | null | undefined) {
     if (!file) return;
@@ -153,10 +236,10 @@ export default function MasterEmailClientPage() {
   }
 
   async function uploadBusinessCard(file: File | null | undefined) {
-    if (!file) return;
+    if (!file) return null;
     if (!file.type.startsWith("image/")) {
       setError("O cartão de visitas precisa ser uma imagem PNG, JPG ou WEBP.");
-      return;
+      return null;
     }
 
     setUploadingBusinessCard(true);
@@ -174,11 +257,20 @@ export default function MasterEmailClientPage() {
       setState((current) => current ? { ...current, businessCard: payload.businessCard } : current);
       setMessage("Cartão de visitas salvo.");
       if (businessCardInputRef.current) businessCardInputRef.current.value = "";
+      return payload.businessCard;
     } catch (uploadError) {
       setError(uploadError instanceof Error ? uploadError.message : "Falha ao salvar o cartão de visitas.");
+      return null;
     } finally {
       setUploadingBusinessCard(false);
     }
+  }
+
+  async function pasteBusinessCardIntoEditor(file: File | null | undefined) {
+    if (!file) return;
+    rememberEditorSelection();
+    const card = await uploadBusinessCard(file);
+    insertBusinessCardIntoEditor(card);
   }
 
   useEffect(() => {
@@ -188,7 +280,7 @@ export default function MasterEmailClientPage() {
       const file = findClipboardImageFile(event.clipboardData?.items);
       if (!file) return;
       event.preventDefault();
-      void uploadBusinessCard(file);
+      void pasteBusinessCardIntoEditor(file);
     }
 
     window.addEventListener("paste", handleWindowPaste);
@@ -199,13 +291,13 @@ export default function MasterEmailClientPage() {
     const file = findClipboardImageFile(event.clipboardData?.items);
     if (!file) return;
     event.preventDefault();
-    void uploadBusinessCard(file);
+    void pasteBusinessCardIntoEditor(file);
   }
 
   function handleBusinessCardDrop(event: ReactDragEvent<HTMLDivElement>) {
     event.preventDefault();
     const file = Array.from(event.dataTransfer?.files || []).find((item) => item.type.startsWith("image/"));
-    void uploadBusinessCard(file);
+    void pasteBusinessCardIntoEditor(file);
   }
 
   async function sendEmail() {
@@ -214,13 +306,16 @@ export default function MasterEmailClientPage() {
     setError(null);
     setLastSent(null);
     try {
+      const text = editorRef.current?.innerText || bodyDraft;
+      const html = editorRef.current?.innerHTML || bodyHtmlDraft;
       const payload = await apiFetch<MasterEmailSendResponse>("/master/email/send", {
         method: "POST",
         body: JSON.stringify({
           recipientName,
           recipientEmail,
           subject: subjectDraft,
-          text: bodyDraft,
+          text,
+          html,
         }),
         requireAuth: true,
         timeoutMs: 30000,
@@ -309,27 +404,42 @@ export default function MasterEmailClientPage() {
             />
           </label>
 
-          <label className={styles.field}>
+          <div className={styles.field}>
             <span>Mensagem</span>
-            <textarea
-              value={bodyDraft}
-              onChange={(event) => {
-                setBodyDraft(event.target.value);
-                setBodyDirty(true);
+            <div
+              ref={editorRef}
+              className={styles.emailEditor}
+              contentEditable
+              suppressContentEditableWarning
+              role="textbox"
+              aria-multiline="true"
+              tabIndex={0}
+              onInput={syncEditorDraft}
+              onBlur={rememberEditorSelection}
+              onKeyUp={rememberEditorSelection}
+              onMouseUp={rememberEditorSelection}
+              onPaste={(event) => {
+                const file = findClipboardImageFile(event.clipboardData?.items);
+                if (!file) return;
+                event.preventDefault();
+                void pasteBusinessCardIntoEditor(file);
               }}
-              rows={16}
-              placeholder="Escreva a mensagem do email"
+              data-placeholder="Escreva a mensagem do email"
+              dangerouslySetInnerHTML={{ __html: bodyHtmlDraft }}
             />
-          </label>
+          </div>
 
           <div className={styles.inlineActions}>
             <button
               type="button"
               className="btn btn-secondary btn-sm"
               onClick={() => {
+                const html = textToEditorHtml(defaultBody);
                 setSubjectDraft(state?.subject || "");
                 setBodyDraft(defaultBody);
+                setBodyHtmlDraft(html);
                 setBodyDirty(false);
+                if (editorRef.current) editorRef.current.innerHTML = html;
               }}
               disabled={sending || uploading || uploadingBusinessCard}
             >
@@ -382,7 +492,7 @@ export default function MasterEmailClientPage() {
                     ref={businessCardInputRef}
                     type="file"
                     accept="image/png,image/jpeg,image/webp"
-                    onChange={(event) => void uploadBusinessCard(event.target.files?.[0])}
+                    onChange={(event) => void pasteBusinessCardIntoEditor(event.target.files?.[0])}
                     disabled={uploadingBusinessCard || sending}
                   />
                 </label>
