@@ -51,6 +51,18 @@ const DEFAULT_OPT_OUT_MESSAGE = 'Entendi. Vou arquivar este contato e nao chamar
 const DEFAULT_MESSAGE_TEMPLATE =
   'Oi, tudo bem? Aqui é {{funcionario}} da {{empresa}}. Vi a {{cliente}} em {{cidade}} e queria te explicar em 1 minuto uma solução para {{segmento}}. Faz sentido eu te mandar?';
 const NO_RESPONSE_ARCHIVE_MS = 24 * 60 * 60 * 1000;
+const BUSINESS_TIME_ZONE = 'America/Sao_Paulo';
+
+const businessTimeFormatter = new Intl.DateTimeFormat('en-US', {
+  timeZone: BUSINESS_TIME_ZONE,
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+  second: '2-digit',
+  hour12: false,
+});
 
 function clampInteger(value: unknown, fallback: number, min: number, max: number) {
   const numeric = Number(value);
@@ -91,6 +103,44 @@ function normalizeTextList(value: unknown, fallback: string[] = []) {
     result.push(normalized);
   }
   return result;
+}
+
+function getBusinessDateParts(date: Date) {
+  const values: Record<string, number> = {};
+  for (const part of businessTimeFormatter.formatToParts(date)) {
+    if (part.type === 'literal') continue;
+    values[part.type] = Number(part.value);
+  }
+  const year = values.year;
+  const month = values.month;
+  const day = values.day;
+  const hour = values.hour === 24 ? 0 : values.hour;
+  const minute = values.minute || 0;
+  const second = values.second || 0;
+  return {
+    year,
+    month,
+    day,
+    hour,
+    minute,
+    second,
+    weekday: new Date(Date.UTC(year, month - 1, day)).getUTCDay(),
+  };
+}
+
+function getBusinessTimeZoneOffsetMs(date: Date) {
+  const parts = getBusinessDateParts(date);
+  const asUtc = Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute, parts.second);
+  return asUtc - date.getTime();
+}
+
+function makeBusinessDate(year: number, month: number, day: number, hour: number, minute: number) {
+  let utcGuess = Date.UTC(year, month - 1, day, hour, minute, 0, 0);
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const offset = getBusinessTimeZoneOffsetMs(new Date(utcGuess));
+    utcGuess = Date.UTC(year, month - 1, day, hour, minute, 0, 0) - offset;
+  }
+  return new Date(utcGuess);
 }
 
 function parseJsonList(value: unknown, fallback: string[] = []) {
@@ -778,20 +828,25 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
 
   private parseTimeOnDate(date: Date, hhmm: string) {
     const [hourRaw, minuteRaw] = this.normalizeTime(hhmm, '09:00').split(':');
-    const next = new Date(date);
-    next.setHours(Number(hourRaw), Number(minuteRaw), 0, 0);
-    return next;
+    const parts = getBusinessDateParts(date);
+    return makeBusinessDate(parts.year, parts.month, parts.day, Number(hourRaw), Number(minuteRaw));
   }
 
   private isBusinessDay(date: Date) {
-    const day = date.getDay();
+    const day = getBusinessDateParts(date).weekday;
     return day >= 1 && day <= 5;
+  }
+
+  private addBusinessCalendarDays(date: Date, days: number) {
+    const parts = getBusinessDateParts(date);
+    return makeBusinessDate(parts.year, parts.month, parts.day + days, parts.hour, parts.minute);
   }
 
   private moveToBusinessDay(date: Date) {
     const next = new Date(date);
     while (!this.isBusinessDay(next)) {
-      next.setDate(next.getDate() + 1);
+      const moved = this.addBusinessCalendarDays(next, 1);
+      next.setTime(moved.getTime());
     }
     return next;
   }
@@ -804,8 +859,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     const end = this.parseTimeOnDate(date, campaign.workingHoursEnd || '17:30');
     if (date.getTime() < start.getTime()) return start;
     if (date.getTime() <= end.getTime()) return date;
-    const nextDay = new Date(date);
-    nextDay.setDate(nextDay.getDate() + 1);
+    const nextDay = this.addBusinessCalendarDays(date, 1);
     return this.parseTimeOnDate(this.moveToBusinessDay(nextDay), campaign.workingHoursStart || '09:00');
   }
 
@@ -1016,9 +1070,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
   }
 
   private startOfDay(date: Date) {
-    const start = new Date(date);
-    start.setHours(0, 0, 0, 0);
-    return start;
+    return this.parseTimeOnDate(date, '00:00');
   }
 
   private async processDueJob(job: any) {
@@ -1034,7 +1086,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
         campaign.id,
         campaign.companyId,
         'aguardando',
-        `Próximo envio em ${next.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}.`,
+        `Próximo envio em ${next.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: BUSINESS_TIME_ZONE })}.`,
         { type: 'next_send_scheduled' },
       );
       return;
@@ -1047,8 +1099,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
       },
     });
     if (sentToday >= Number(campaign.dailyLimit || DEFAULT_DAILY_LIMIT)) {
-      const nextDay = new Date(now);
-      nextDay.setDate(nextDay.getDate() + 1);
+      const nextDay = this.addBusinessCalendarDays(now, 1);
       const next = this.parseTimeOnDate(this.moveToBusinessDay(nextDay), campaign.workingHoursStart || '09:00');
       await this.prisma.vendasAutomationJob.update({ where: { id: job.id }, data: { scheduledAt: next } });
       await this.markCampaignStage(campaign.id, campaign.companyId, 'aguardando', 'Limite diário atingido. Próximos envios amanhã.', {

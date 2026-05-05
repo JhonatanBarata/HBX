@@ -515,8 +515,9 @@
   right: 0;
   left: 0;
   display: grid;
-  max-height: 260px;
+  max-height: min(380px, 44vh);
   overflow: auto;
+  overscroll-behavior: contain;
   gap: 0.25rem;
   border: 1px solid color-mix(in srgb, var(--line) 86%, var(--background));
   border-radius: 16px;
