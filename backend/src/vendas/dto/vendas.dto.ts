@@ -119,6 +119,22 @@ export class UpdateVendasLeadDto {
   shortNote?: string;
 }
 
+export class BulkDeleteVendasLeadsDto {
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(500)
+  @IsString({ each: true })
+  leadIds?: string[];
+
+  @IsOptional()
+  @Transform(({ value }) => {
+    if (typeof value === 'boolean') return value;
+    if (typeof value === 'string') return ['1', 'true', 'yes', 'on'].includes(value.trim().toLowerCase());
+    return value;
+  })
+  all?: boolean;
+}
+
 export class ImportWebscrapingLeadItemDto {
   @IsOptional()
   @IsString()

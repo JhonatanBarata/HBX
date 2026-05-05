@@ -97,6 +97,7 @@ export type InboxConversation = {
   createdAt: string;
   updatedAt: string;
   lastMessageAt: string | null;
+  lastRealMessageAt?: string | null;
   currentFlow: string | null;
   flowResult: string | null;
   routeTarget: InboxRouteTarget;

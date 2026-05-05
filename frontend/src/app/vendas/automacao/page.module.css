@@ -781,6 +781,17 @@
   line-height: 1.6;
 }
 
+/* Show consistent arrow and pointer for native selects */
+.selectField {
+  cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%238A8A8A' d='M6 8L0.803846 0.999999L11.1962 1L6 8Z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  padding-right: 2.6rem;
+}
+
 .buttonEditorRow {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(220px, 0.9fr) auto;
@@ -1168,6 +1179,91 @@
 .segmentSuggestionOption:focus-visible {
   background: rgba(42, 119, 255, 0.12);
   outline: none;
+}
+
+/* HBX unified dropdown wrapper and styles (used for Estado / Cidade / other option inputs) */
+.hbxDropdownContainer {
+  position: relative;
+  z-index: 6;
+}
+
+.hbxDropdown {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.hbxDropdownInput {
+  padding-right: 3.2rem;
+}
+
+.hbxDropdownToggle {
+  position: absolute;
+  right: 0.6rem;
+  top: 50%;
+  transform: translateY(-50%);
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.hbxDropdownMenu {
+  position: absolute;
+  top: calc(100% + 0.34rem);
+  left: 0;
+  right: 0;
+  z-index: 40;
+  max-height: min(360px, 42vh);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  display: grid;
+  padding: 0.3rem;
+  border: 1px solid rgba(11, 23, 34, 0.08);
+  border-radius: 12px;
+  background: #ffffff;
+  box-shadow: 0 22px 54px rgba(15, 23, 42, 0.12);
+}
+
+.hbxDropdownMenu button {
+  min-height: 34px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #102238;
+  padding: 0.42rem 0.58rem;
+  font-size: 0.82rem;
+  font-weight: 900;
+  text-align: left;
+  cursor: pointer;
+}
+
+.hbxDropdownMenu button:hover {
+  background: rgba(2, 6, 23, 0.04);
+}
+
+.hbxDropdownOpeningNotice {
+  position: absolute;
+  top: -36px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(11, 17, 23, 0.98);
+  color: #ffffff;
+  padding: 0.32rem 0.64rem;
+  border-radius: 8px;
+  font-weight: 800;
+  font-size: 0.72rem;
+  opacity: 0;
+  animation: openingNotice 260ms ease forwards;
+}
+
+@keyframes openingNotice {
+  from { opacity: 0; transform: translateX(-50%) translateY(-6px) scale(0.98); }
+  to { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
 }
 
 .prospectingFormGrid label span,

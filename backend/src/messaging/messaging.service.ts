@@ -2309,7 +2309,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     });
     await this.prisma.companyConversation.update({
       where: { id: input.conversationId },
-      data: { lastInteractionAt: now, lastMessageAt: now },
+      data: { lastInteractionAt: now },
     });
   }
 
@@ -2767,7 +2767,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     });
     await this.prisma.companyConversation.update({
       where: { id: input.conversationId },
-      data: { lastInteractionAt: now, lastMessageAt: now },
+      data: { lastInteractionAt: now },
     });
   }
 

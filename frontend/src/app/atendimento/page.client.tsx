@@ -1964,12 +1964,13 @@ function mergeDuplicateInboxConversations(conversationList: InboxConversation[])
 }
 
 function getInboxConversationActivityAt(
-  conversation?: Partial<Pick<InboxConversation, "createdAt" | "updatedAt" | "lastMessageAt" | "blockedAt" | "messages">> | null,
+  conversation?: Partial<Pick<InboxConversation, "lastMessageAt" | "lastRealMessageAt" | "messages">> | null,
 ) {
   const messages = Array.isArray(conversation?.messages) ? conversation.messages : [];
+  const latestRealMessage = getInboxLatestRealMessage(messages);
   const messageCandidates = [
-    conversation?.lastMessageAt,
-    ...messages.map((message) => message.createdAt),
+    conversation?.lastRealMessageAt || conversation?.lastMessageAt,
+    latestRealMessage?.createdAt,
   ]
     .map((value) => String(value || "").trim())
     .filter(Boolean);
@@ -1984,32 +1985,12 @@ function getInboxConversationActivityAt(
     }
     return latest;
   }, "");
-  if (latestMessageAt) return latestMessageAt;
-
-  const fallbackCandidates = [
-    conversation?.updatedAt,
-    conversation?.blockedAt,
-    conversation?.createdAt,
-  ]
-    .map((value) => String(value || "").trim())
-    .filter(Boolean);
-
-  if (fallbackCandidates.length === 0) return "";
-  return fallbackCandidates.reduce((latest, candidate) => {
-    if (!latest) return candidate;
-    const latestTime = new Date(latest).getTime();
-    const candidateTime = new Date(candidate).getTime();
-    if (!Number.isFinite(candidateTime)) return latest;
-    if (!Number.isFinite(latestTime) || candidateTime > latestTime) {
-      return candidate;
-    }
-    return latest;
-  }, "");
+  return latestMessageAt;
 }
 
 function getInboxConversationFreshness(
   conversation?:
-    | Pick<InboxConversation, "createdAt" | "blockedAt" | "messages">
+    | Pick<InboxConversation, "lastMessageAt" | "lastRealMessageAt" | "messages">
     | null,
 ) {
   return getInboxConversationActivityAt(conversation);
@@ -2025,7 +2006,7 @@ function getInboxConversationPreview(conversation?: InboxConversation | null) {
   if (isAtendimentoAgendaConversation(conversation)) return "Agendamento em andamento";
   if (conversation.isBlocked) return "Contato bloqueado";
   if (conversation.status === "closed") return "Conversa encerrada";
-  return "Sem mensagens ainda";
+  return "Sem mensagens";
 }
 
 function getInboxConversationSubtitle(conversation?: InboxConversation | null) {
@@ -2278,6 +2259,11 @@ function sortInboxConversationsByActivity(conversationList: InboxConversation[])
     const safeLeft = Number.isFinite(leftTime) ? leftTime : 0;
     const safeRight = Number.isFinite(rightTime) ? rightTime : 0;
     if (safeRight !== safeLeft) return safeRight - safeLeft;
+    const leftCreated = new Date(String(left.createdAt || "")).getTime();
+    const rightCreated = new Date(String(right.createdAt || "")).getTime();
+    const safeLeftCreated = Number.isFinite(leftCreated) ? leftCreated : 0;
+    const safeRightCreated = Number.isFinite(rightCreated) ? rightCreated : 0;
+    if (safeRightCreated !== safeLeftCreated) return safeRightCreated - safeLeftCreated;
     const leftId = Number(left.id);
     const rightId = Number(right.id);
     return (Number.isFinite(rightId) ? rightId : 0) - (Number.isFinite(leftId) ? leftId : 0);
@@ -2320,6 +2306,23 @@ function getInboxMessageStableKey(message?: InboxMessage | null) {
 
 function getInboxLatestMessage(messages?: InboxMessage[] | null) {
   const sorted = sortInboxMessagesChronologically(Array.isArray(messages) ? messages : []);
+  return sorted[sorted.length - 1] || null;
+}
+
+function isInboxRealMessage(message?: InboxMessage | null) {
+  if (!message) return false;
+  const direction = String(message.direction || "").trim().toLowerCase();
+  if (direction !== "inbound" && direction !== "outbound") return false;
+  const messageType = String(message.messageType || "").trim().toLowerCase();
+  const senderType = String(message.senderType || "").trim().toLowerCase();
+  const metadata = message.metadata && typeof message.metadata === "object" && !Array.isArray(message.metadata)
+    ? message.metadata
+    : null;
+  return messageType !== "system_event" && senderType !== "system" && !metadata?.isLocalHidden && !metadata?.isDeleted;
+}
+
+function getInboxLatestRealMessage(messages?: InboxMessage[] | null) {
+  const sorted = sortInboxMessagesChronologically(Array.isArray(messages) ? messages.filter(isInboxRealMessage) : []);
   return sorted[sorted.length - 1] || null;
 }
 
@@ -3238,7 +3241,8 @@ export default function InboxClientPage() {
             conversation.id === detailedConversation.id
               ? {
                   ...conversation,
-                  lastMessageAt: latestMessage?.createdAt || detailedConversation.lastMessageAt || conversation.lastMessageAt,
+                  lastRealMessageAt: detailedConversation.lastRealMessageAt || detailedConversation.lastMessageAt || null,
+                  lastMessageAt: detailedConversation.lastRealMessageAt || detailedConversation.lastMessageAt || null,
                   updatedAt: latestMessage?.createdAt || detailedConversation.updatedAt || conversation.updatedAt,
                   messages: detailedConversation.messages,
                 }
@@ -3347,12 +3351,14 @@ export default function InboxClientPage() {
       if (areInboxMessageListsEquivalent(currentConversation.messages, nextMessages)) return;
 
       const latestMessage = getInboxLatestMessage(nextMessages);
+      const latestRealMessage = getInboxLatestRealMessage(nextMessages);
       const latestKey = getInboxMessageStableKey(latestMessage);
       const previousKey = activeConversationLatestMessageKeyRef.current[conversationId] || "";
       const nextConversation: InboxConversation = {
         ...currentConversation,
         messages: nextMessages,
-        lastMessageAt: latestMessage?.createdAt || currentConversation.lastMessageAt,
+        lastRealMessageAt: latestRealMessage?.createdAt || currentConversation.lastRealMessageAt || currentConversation.lastMessageAt || null,
+        lastMessageAt: latestRealMessage?.createdAt || currentConversation.lastRealMessageAt || currentConversation.lastMessageAt || null,
         updatedAt: latestMessage?.createdAt || currentConversation.updatedAt,
       };
 
@@ -3368,6 +3374,7 @@ export default function InboxClientPage() {
           conversation.id === conversationId
             ? {
                 ...conversation,
+                lastRealMessageAt: nextConversation.lastRealMessageAt,
                 lastMessageAt: nextConversation.lastMessageAt,
                 updatedAt: nextConversation.updatedAt,
                 messages: nextMessages,
@@ -4253,11 +4260,7 @@ export default function InboxClientPage() {
             resolveInboxBucket(conversation, manualQueueOverrides) === "atendimento" &&
             (conversation.status === "new" || conversation.status === "open"),
         )
-        .sort(
-          (left, right) =>
-            new Date(getInboxConversationActivityAt(right)).getTime() -
-            new Date(getInboxConversationActivityAt(left)).getTime(),
-        ),
+        .sort((left, right) => sortInboxConversationsByActivity([left, right])[0] === left ? -1 : 1),
     [conversations, manualQueueOverrides],
   );
 
@@ -5694,10 +5697,8 @@ export default function InboxClientPage() {
                 const subtitleLabel = getInboxConversationSubtitle(conversation);
                 const previewLabel = getInboxConversationPreview(conversation);
                 const interested = isProspectingInterestedConversation(conversation);
-                const activityAtLabel = formatTimeLabel(
-                  getInboxConversationActivityAt(conversation),
-                  mounted,
-                );
+                const activityAt = getInboxConversationActivityAt(conversation);
+                const activityAtLabel = activityAt ? formatTimeLabel(activityAt, mounted) : "Sem mensagens";
                 return (
                   <ChatQueueItem
                     key={conversation.id}

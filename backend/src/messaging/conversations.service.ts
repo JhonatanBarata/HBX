@@ -105,7 +105,7 @@ export class ConversationsService {
     }
   }
 
-  private async getOrCreateConversation(input: { companyId: number; contact: string; channel?: string; at?: Date }) {
+  private async getOrCreateConversation(input: { companyId: number; contact: string; channel?: string; at?: Date; touchLastMessage?: boolean }) {
     const companyId = Number(input.companyId);
     const channel = String(input.channel || 'whatsapp');
     const contact =
@@ -116,6 +116,7 @@ export class ConversationsService {
     if (!contact) throw new BadRequestException('Contact is required');
 
     const at = input.at ?? new Date();
+    const touchLastMessage = input.touchLastMessage !== false;
     if (channel === 'whatsapp') {
       const candidates = buildWhatsAppPhoneCandidates(contact);
       const digits = contact.replace(/\D/g, '');
@@ -137,21 +138,41 @@ export class ConversationsService {
           const conflictingTarget = existingRows.find(
             (row) => row.id !== existing.id && String(row.contact || '').trim() === contact,
           );
+          const updateData: Record<string, any> = {
+            contact: conflictingTarget ? String(existing.contact || '').trim() : contact,
+          };
+          if (touchLastMessage) {
+            updateData.lastMessageAt = at;
+            updateData.lastInteractionAt = at;
+          }
           return this.prisma.companyConversation.update({
             where: { id: existing.id },
-            data: {
-              contact: conflictingTarget ? String(existing.contact || '').trim() : contact,
-              lastMessageAt: at,
-              lastInteractionAt: at,
-            },
+            data: updateData,
           });
         }
       }
     }
+    const createData: any = { companyId, channel, contact, botActive: false };
+    if (touchLastMessage) {
+      createData.lastMessageAt = at;
+      createData.lastInteractionAt = at;
+    }
+    if (!touchLastMessage) {
+      const existing = await this.prisma.companyConversation.findUnique({
+        where: { companyId_channel_contact: { companyId, channel, contact } },
+      });
+      if (existing) return existing;
+      return this.prisma.companyConversation.create({ data: createData });
+    }
+    const updateData: any = {};
+    if (touchLastMessage) {
+      updateData.lastMessageAt = at;
+      updateData.lastInteractionAt = at;
+    }
     return this.prisma.companyConversation.upsert({
       where: { companyId_channel_contact: { companyId, channel, contact } },
-      create: { companyId, channel, contact, botActive: false, lastMessageAt: at, lastInteractionAt: at },
-      update: { lastMessageAt: at, lastInteractionAt: at },
+      create: createData,
+      update: updateData,
     });
   }
 
@@ -204,6 +225,7 @@ export class ConversationsService {
       contact,
       channel: 'whatsapp',
       at: now,
+      touchLastMessage: false,
     });
     const data = this.normalizeConversationStatePatch(patch);
     if (!Object.keys(data).length) return conversation;

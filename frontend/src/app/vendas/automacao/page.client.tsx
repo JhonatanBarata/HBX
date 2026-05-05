@@ -778,6 +778,7 @@ function ProspectingAutomationPanel({
   const [variableTarget, setVariableTarget] = useState<"messageTemplate" | "optOutMessage">("messageTemplate");
   const [variablesOpen, setVariablesOpen] = useState(false);
   const [segmentMenuOpen, setSegmentMenuOpen] = useState(false);
+  const [openDropdown, setOpenDropdown] = useState<string | null>(null);
   const [selectedCampaignTypeId, setSelectedCampaignTypeId] = useState<CampaignTypeId>("cnpj_local");
   const [selectedMessagePresetId, setSelectedMessagePresetId] = useState("");
   const messageTemplateRef = useRef<HTMLTextAreaElement | null>(null);
@@ -905,32 +906,70 @@ function ProspectingAutomationPanel({
             </div>
           </div>
           <div className={styles.prospectingFormGrid}>
-            <label>
+            <label className={styles.hbxDropdownContainer} onBlur={() => window.setTimeout(() => setOpenDropdown((prev) => (prev === "state" ? null : prev)), 120)}>
               <span>Estado</span>
-              <select className={styles.selectField} value={selectedState} onChange={(event) => setStateField(event.target.value)}>
-                <option value="">Selecione</option>
-                {BRAZIL_STATES.map((item) => (
-                  <option key={item.uf} value={item.uf}>{item.uf} - {item.name}</option>
-                ))}
-              </select>
+              <div className={styles.hbxDropdown}>
+                <select
+                  className={styles.selectField}
+                  value={selectedState}
+                  onChange={(event) => setStateField(event.target.value)}
+                  onFocus={() => setOpenDropdown("state")}
+                  onClick={() => setOpenDropdown("state")}
+                  onBlur={() => window.setTimeout(() => setOpenDropdown((prev) => (prev === "state" ? null : prev)), 120)}
+                >
+                  <option value="">Selecione</option>
+                  {BRAZIL_STATES.map((item) => (
+                    <option key={item.uf} value={item.uf}>{item.uf} - {item.name}</option>
+                  ))}
+                </select>
+                {openDropdown === "state" ? <div className={styles.hbxDropdownOpeningNotice}>Abrindo os dados...</div> : null}
+              </div>
             </label>
-            <label>
+            <label className={styles.hbxDropdownContainer} onBlur={() => window.setTimeout(() => setOpenDropdown((prev) => (prev === "city" ? null : prev)), 120)}>
               <span>Cidade</span>
-              <input
-                className={styles.inputField}
-                list="prospecting-city-list"
-                value={config.city}
-                onChange={(event) => setField("city", event.target.value)}
-                placeholder={
-                  !selectedState
-                    ? "Selecione o estado primeiro"
-                    : cityRequired
-                      ? "Obrigatório para Google/PJ"
-                      : "Opcional"
-                }
-                disabled={!selectedState}
-                required={cityRequired}
-              />
+              <div className={styles.hbxDropdown}>
+                <input
+                  className={`${styles.inputField} ${styles.hbxDropdownInput}`}
+                  value={config.city}
+                  onFocus={() => setOpenDropdown("city")}
+                  onChange={(event) => {
+                    setField("city", event.target.value);
+                    setOpenDropdown("city");
+                  }}
+                  placeholder={
+                    !selectedState
+                      ? "Selecione o estado primeiro"
+                      : cityRequired
+                        ? "Obrigatório para Google/PJ"
+                        : "Opcional"
+                  }
+                  disabled={!selectedState}
+                  required={cityRequired}
+                  autoComplete="off"
+                />
+                <button type="button" className={styles.hbxDropdownToggle} onMouseDown={(e) => e.preventDefault()} onClick={() => setOpenDropdown((prev) => (prev === "city" ? null : "city"))} aria-label="Abrir lista de cidades">
+                  <svg width="14" height="10" viewBox="0 0 14 10" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M1 1L7 7L13 1" stroke="#0B1720" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                </button>
+                {openDropdown === "city" ? (
+                  <div className={styles.hbxDropdownMenu} role="listbox" aria-label="Cidades sugeridas">
+                    {cityOptions.map((item) => (
+                      <button
+                        key={item}
+                        type="button"
+                        role="option"
+                        className={styles.segmentSuggestionOption}
+                        onMouseDown={(event) => event.preventDefault()}
+                        onClick={() => {
+                          setField("city", item);
+                          setOpenDropdown(null);
+                        }}
+                      >
+                        {item}
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
             </label>
             <label className={styles.segmentPickerField} onBlur={() => window.setTimeout(() => setSegmentMenuOpen(false), 120)}>
               <span>Segmento</span>
