@@ -307,6 +307,11 @@
   flex-wrap: wrap;
 }
 
+.filterRailCarousel {
+  position: relative;
+  min-width: 0;
+}
+
 .filterRailHeader strong,
 .boardTitle,
 .detailTitle,
@@ -325,10 +330,12 @@
   display: flex;
   gap: 0.62rem;
   overflow-x: auto;
+  scroll-behavior: smooth;
+  scroll-snap-type: x proximity;
   /* create a bit more top breathing room so elevated/active cards don't get visually clipped */
   padding-top: 0.56rem;
-  padding-left: 0.14rem;
-  padding-right: 0.14rem;
+  padding-left: 1.95rem;
+  padding-right: 1.95rem;
   padding-bottom: 0.18rem;
   flex-wrap: nowrap;
   scrollbar-width: none;
@@ -342,17 +349,42 @@
   display: none;
 }
 
-.filterRailScroller[data-ready="true"] {
-  overflow-x: hidden;
-  overflow-y: visible;
-  justify-content: center;
-}
-
 /* Allow the rail to show elevated/active cards and the + button without being clipped */
 .filterRail {
   overflow: visible;
   /* small top padding to match the scroller breathing room */
   padding-top: 0.28rem;
+}
+
+.dateRailScrollButton {
+  position: absolute;
+  top: 0.56rem;
+  bottom: 0.18rem;
+  z-index: 12;
+  width: 22px;
+  border: 1px solid color-mix(in srgb, var(--brand) 26%, var(--line));
+  border-radius: 999px;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--surface-raised) 96%, white), color-mix(in srgb, var(--surface-soft) 92%, var(--background)));
+  color: color-mix(in srgb, var(--brand) 86%, var(--foreground));
+  font-size: 1.12rem;
+  font-weight: 900;
+  cursor: pointer;
+  box-shadow: 0 12px 24px -18px rgba(15, 23, 42, 0.36);
+}
+
+.dateRailScrollButton[data-side="left"] {
+  left: 0;
+}
+
+.dateRailScrollButton[data-side="right"] {
+  right: 0;
+}
+
+.dateRailScrollButton:hover,
+.dateRailScrollButton:focus-visible {
+  border-color: color-mix(in srgb, var(--brand) 48%, var(--line));
+  outline: none;
 }
 
 .filterRailScroller > * {

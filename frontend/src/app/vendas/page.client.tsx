@@ -995,8 +995,6 @@ export default function VendasClientPage() {
   const archiveRef = useRef<HTMLElement | null>(null);
   const lastDragEndedAtRef = useRef(0);
   const filterScrollerRef = useRef<HTMLDivElement | null>(null);
-  const [visibleDateCount, setVisibleDateCount] = useState<number>(Infinity);
-  const [scrollerReady, setScrollerReady] = useState(false);
   const todayAgendaLaunchNotice = useQuickLaunchNotice();
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
   const detectDateFilterCollision = useMemo<CollisionDetection>(
@@ -1298,30 +1296,17 @@ export default function VendasClientPage() {
     return () => window.clearTimeout(id);
   }, [showClosed]);
 
-  // Responsive visible date count: hide furthest dates first when space shrinks
-  useEffect(() => {
-    const el = filterScrollerRef.current;
-    if (!el) return;
-    const calculate = () => {
-      // ~64px for "+" button + 12px gap reserved at the end
-      const PLUS_RESERVED = 76;
-      // 120px min card width + 12px gap = 132px per slot
-      const CARD_SLOT = 132;
-      const fits = Math.max(2, Math.floor((el.clientWidth - PLUS_RESERVED) / CARD_SLOT));
-      setVisibleDateCount(fits);
-      setScrollerReady(true);
-    };
-    const id = requestAnimationFrame(calculate);
-    const ro = new ResizeObserver(calculate);
-    ro.observe(el);
-    return () => { cancelAnimationFrame(id); ro.disconnect(); };
-  }, []);
-
   const selectedLeadRecord = selectedLeadId ? leadById.get(selectedLeadId) || null : null;
   const selectedLead = selectedLeadRecord?.lead || null;
   const selectedLeadBlock = selectedLeadRecord?.block || "today";
   const selectedLeadDraft = selectedLead ? drafts[selectedLead.id] || createDraft(selectedLead) : null;
   const closedLeads = board?.blocks.closed || [];
+
+  function scrollDateRail(direction: -1 | 1) {
+    const el = filterScrollerRef.current;
+    if (!el) return;
+    el.scrollBy({ left: direction * Math.max(260, Math.round(el.clientWidth * 0.72)), behavior: "smooth" });
+  }
 
   async function handleCreateManual(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -1986,34 +1971,42 @@ export default function VendasClientPage() {
                   </Link>
                 </div>
               </div>
-              <div className={styles.filterRailScroller} ref={filterScrollerRef} data-ready={scrollerReady ? "true" : undefined}>
-                {dateFilters.slice(0, visibleDateCount).map((item) => (
-                  <DateDropSlot
-                    key={item.key}
-                    item={item}
-                    active={selectedDateKey === item.key}
-                    pulse={pulseDateKey === item.key}
-                    dragging={Boolean(activeDragLeadId || activeDragDateKey)}
-                    ignoreClick={() => performance.now() - lastDragEndedAtRef.current < 70}
-                    onDateShortcut={() => void handleActiveDateShortcut()}
-                    onSelect={() => setSelectedDateKey(item.key)}
-                    register={(node) => registerDateFilterRef(item.key, node)}
-                  />
-                ))}
+              <div className={styles.filterRailCarousel}>
+                <button type="button" className={styles.dateRailScrollButton} data-side="left" onClick={() => scrollDateRail(-1)} aria-label="Rolar datas para esquerda">
+                  <span aria-hidden="true">‹</span>
+                </button>
+                <div className={styles.filterRailScroller} ref={filterScrollerRef}>
+                  {dateFilters.map((item) => (
+                    <DateDropSlot
+                      key={item.key}
+                      item={item}
+                      active={selectedDateKey === item.key}
+                      pulse={pulseDateKey === item.key}
+                      dragging={Boolean(activeDragLeadId || activeDragDateKey)}
+                      ignoreClick={() => performance.now() - lastDragEndedAtRef.current < 70}
+                      onDateShortcut={() => void handleActiveDateShortcut()}
+                      onSelect={() => setSelectedDateKey(item.key)}
+                      register={(node) => registerDateFilterRef(item.key, node)}
+                    />
+                  ))}
 
-                {/* +Agenda button: rendered after all date cards so it is always last */}
-                <button
-                  type="button"
-                  className={`${styles.dateFilterCard} ${styles.addAgendaButton}`}
-                  aria-label="+Agenda"
-                  title="+Agenda"
-                  onClick={() => { /* graphical placeholder - no action */ }}
-                >
-                  <span className={styles.dateFilterDay} />
-                  <strong>+</strong>
-                  <span />
-                  <b />
-                  <span className={styles.receiveHint} />
+                  {/* +Agenda button: rendered after all date cards so it is always last */}
+                  <button
+                    type="button"
+                    className={`${styles.dateFilterCard} ${styles.addAgendaButton}`}
+                    aria-label="+Agenda"
+                    title="+Agenda"
+                    onClick={() => { /* graphical placeholder - no action */ }}
+                  >
+                    <span className={styles.dateFilterDay} />
+                    <strong>+</strong>
+                    <span />
+                    <b />
+                    <span className={styles.receiveHint} />
+                  </button>
+                </div>
+                <button type="button" className={styles.dateRailScrollButton} data-side="right" onClick={() => scrollDateRail(1)} aria-label="Rolar datas para direita">
+                  <span aria-hidden="true">›</span>
                 </button>
               </div>
             </section>
