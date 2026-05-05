@@ -138,6 +138,7 @@ model Company {
   atendimentoCustomers AtendimentoCustomer[]
   webscrapingSearchHistories WebscrapingSearchHistory[]
   webscrapingUsageLogs WebscrapingUsageLog[]
+  radarLeadCompanyStates RadarLeadCompanyState[]
   vendasLeads         VendasLead[]
   vendasAutomationCampaigns VendasAutomationCampaign[]
   vendasAutomationJobs VendasAutomationJob[]
@@ -859,6 +860,78 @@ model WebscrapingUsageLog {
   @@index([userId, createdAt])
 }
 
+model RadarLeadPool {
+  id                   String   @id @default(cuid())
+  placeId              String?  @unique
+  name                 String
+  phone                String?
+  phoneDigits          String?  @unique
+  address              String?
+  city                 String?
+  state                String?
+  normalizedCity       String
+  segment              String?
+  normalizedSegment    String
+  website              String?
+  websiteStatus        String   @default("unknown") // none | present | social_only | weak | unreachable | unknown
+  rating               Float?
+  reviews              Int      @default(0)
+  sourceEngines        String   @default("[]")
+  opportunityScore     Int      @default(0)
+  opportunityReason    String?
+  globalNegativeCount  Int      @default(0)
+  globalImportedCount  Int      @default(0)
+  globalContactedCount Int      @default(0)
+  firstSeenAt          DateTime @default(now())
+  lastSeenAt           DateTime @default(now())
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+  companyStates        RadarLeadCompanyState[]
+
+  @@index([normalizedCity, normalizedSegment, opportunityScore])
+  @@index([normalizedCity, state, normalizedSegment])
+  @@index([websiteStatus])
+  @@index([lastSeenAt])
+}
+
+model RadarLeadCompanyState {
+  id             String   @id @default(cuid())
+  company        Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companyId      Int
+  radarLead      RadarLeadPool @relation(fields: [radarLeadId], references: [id], onDelete: Cascade)
+  radarLeadId    String
+  vendasLead     VendasLead? @relation(fields: [vendasLeadId], references: [id], onDelete: SetNull)
+  vendasLeadId   String?
+  status         String   @default("new") // new | delivered | imported_to_vendas | contacted | negative | discarded | won | lost
+  lastActionAt   DateTime?
+  negativeReason String?
+  privateNotes   String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([companyId, radarLeadId])
+  @@index([companyId, status])
+  @@index([radarLeadId, status])
+  @@index([vendasLeadId])
+}
+
+model RadarStockConfig {
+  id                String   @id @default(cuid())
+  normalizedCity    String
+  state             String   @default("")
+  normalizedSegment String
+  desiredStock      Int      @default(300)
+  minimumStock      Int      @default(80)
+  engine            String   @default("hbx")
+  targetType        String   @default("pj")
+  filtersJson       String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@unique([normalizedCity, state, normalizedSegment])
+  @@index([normalizedCity, normalizedSegment])
+}
+
 model VendasLead {
   id                String   @id @default(cuid())
   company           Company  @relation(fields: [companyId], references: [id])
@@ -894,6 +967,7 @@ model VendasLead {
   updatedAt         DateTime @updatedAt
   timelineEvents    VendasLeadTimelineEvent[]
   automationJobs    VendasAutomationJob[]
+  radarCompanyStates RadarLeadCompanyState[]
 
   @@unique([companyId, phoneNormalized])
   @@index([companyId, status, returnAt])

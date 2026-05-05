@@ -43,10 +43,12 @@ function isWebscrapingProxyPath(url: string | undefined) {
     '/webscraping/runtime',
     '/webscraping/search',
     '/webscraping/history',
+    '/webscraping/radar',
     '/webscraping/export',
     '/hbx/webscraping/runtime',
     '/hbx/webscraping/search',
     '/hbx/webscraping/history',
+    '/hbx/webscraping/radar',
     '/hbx/webscraping/export',
   ];
 

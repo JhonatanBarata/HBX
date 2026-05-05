@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { forwardRef, Module } from '@nestjs/common';
 import { CustomerProfileModule } from '../customer-profile/customer-profile.module';
 import { InboxModule } from '../inbox/inbox.module';
 import { MessagingModule } from '../messaging/messaging.module';
@@ -11,7 +11,7 @@ import { VendasAutomationService } from './vendas-automation.service';
 import { VendasService } from './vendas.service';
 
 @Module({
-  imports: [PrismaModule, CustomerProfileModule, ModulesAccessModule, MessagingModule, InboxModule, CommercialPlansModule, WebscrapingModule],
+  imports: [PrismaModule, CustomerProfileModule, ModulesAccessModule, MessagingModule, InboxModule, CommercialPlansModule, forwardRef(() => WebscrapingModule)],
   controllers: [VendasController],
   providers: [VendasService, VendasAutomationService],
   exports: [VendasService, VendasAutomationService],

@@ -306,7 +306,7 @@ type SearchResponse = {
   };
   meta: {
     historyId: string | null;
-    source: "history" | "google" | "hbx" | "hybrid" | "global_cache";
+    source: "history" | "google" | "hbx" | "hybrid" | "global_cache" | "radar_database";
     reusedCount: number;
     fetchedCount: number;
     totalStoredCount?: number;
@@ -345,6 +345,72 @@ type ImportToVendasResponse = {
   updatedCount: number;
   skippedWithoutWhatsapp?: number;
   message?: string;
+};
+
+type RadarLeadItem = {
+  id: string;
+  placeId?: string | null;
+  name: string;
+  phone: string;
+  phoneDigits: string;
+  address?: string | null;
+  city?: string | null;
+  state?: string | null;
+  segment?: string | null;
+  website?: string | null;
+  websiteStatus?: "none" | "present" | "social_only" | "weak" | "unreachable" | "unknown" | string;
+  rating?: number | null;
+  reviews?: number | null;
+  sourceEngines?: string[];
+  opportunityScore?: number | null;
+  opportunityReason?: string | null;
+  globalNegativeCount?: number;
+  globalImportedCount?: number;
+  globalContactedCount?: number;
+  firstSeenAt?: string | null;
+  lastSeenAt?: string | null;
+  companyStatus?: string | null;
+  vendasLeadId?: string | null;
+};
+
+type RadarDatabaseResponse = {
+  items: RadarLeadItem[];
+  total: number;
+  meta?: {
+    available?: boolean;
+    message?: string;
+    filters?: Record<string, unknown>;
+  };
+};
+
+type RadarPullResponse = {
+  items: RadarLeadItem[];
+  meta?: {
+    requestedQuantity?: number;
+    deliveredCount?: number;
+    cleanStockBefore?: number;
+    cleanStockAfter?: number;
+    minimumStock?: number;
+    desiredStock?: number;
+    replenish?: {
+      ran?: boolean;
+      fetchedCount?: number;
+      cleanStockBefore?: number;
+      cleanStockAfter?: number;
+      reason?: string;
+    };
+  };
+};
+
+type RadarFilterState = {
+  state: string;
+  city: string;
+  segment: string;
+  quantity: number;
+  noWebsite: boolean;
+  highOpportunity: boolean;
+  minRating: string;
+  minReviews: string;
 };
 
 type CrmPreviewItem = {
@@ -508,10 +574,40 @@ function formatDateTime(value: string) {
 
 function searchSourceLabel(source?: SearchResponse["meta"]["source"]) {
   if (source === "history") return "histórico privado";
+  if (source === "radar_database") return "Banco de Dados";
   if (source === "global_cache") return "cache técnico global";
   if (source === "hybrid") return "histórico + cache/google";
   if (source === "hbx") return "HBX Scraping";
   return "google";
+}
+
+function websiteStatusLabel(status?: string | null) {
+  const normalized = String(status || "").trim().toLowerCase();
+  if (normalized === "none") return "Sem website";
+  if (normalized === "present") return "Com website";
+  if (normalized === "social_only") return "Só rede social";
+  if (normalized === "weak") return "Website fraco";
+  if (normalized === "unreachable") return "Site fora";
+  return "Website desconhecido";
+}
+
+function opportunityLevelLabel(score?: number | null) {
+  const value = Number(score || 0);
+  if (value >= 70) return "Alta oportunidade";
+  if (value >= 45) return "Média oportunidade";
+  return "Baixa oportunidade";
+}
+
+function buildMapUrl(item: RadarLeadItem) {
+  const query = [item.name, item.address, item.city, item.state].filter(Boolean).join(" ");
+  if (!query.trim()) return "";
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`;
+}
+
+function normalizeExternalUrl(value?: string | null) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  return /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
 }
 
 function normalizeEngineValue(value: unknown): WebscrapingEngine {
@@ -825,6 +921,21 @@ export default function WebscrapingClientPage() {
   const [runtime, setRuntime] = useState<RuntimeResponse | null>(null);
   const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
   const [historyItems, setHistoryItems] = useState<SearchHistoryItem[]>([]);
+  const [radarItems, setRadarItems] = useState<RadarLeadItem[]>([]);
+  const [radarLoading, setRadarLoading] = useState(false);
+  const [radarPulling, setRadarPulling] = useState(false);
+  const [radarActionId, setRadarActionId] = useState<string | null>(null);
+  const [radarMeta, setRadarMeta] = useState<RadarPullResponse["meta"] | null>(null);
+  const [radarFilters, setRadarFilters] = useState<RadarFilterState>({
+    state: "",
+    city: "",
+    segment: "Lanchonetes",
+    quantity: 20,
+    noWebsite: true,
+    highOpportunity: false,
+    minRating: "",
+    minReviews: "",
+  });
   const [citySuggestionsOpen, setCitySuggestionsOpen] = useState(false);
   const [activeCitySuggestionIndex, setActiveCitySuggestionIndex] = useState(0);
   const [segmentSuggestionsOpen, setSegmentSuggestionsOpen] = useState(false);
@@ -852,7 +963,7 @@ export default function WebscrapingClientPage() {
   const [feedback, setFeedback] = useState<string | null>(null);
   const [hasSearched, setHasSearched] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
-  const [panelMode, setPanelMode] = useState<"search" | "history">("search");
+  const [panelMode, setPanelMode] = useState<"search" | "radar">("radar");
   const [appliedScriptSender, setAppliedScriptSender] = useState("");
   const [appliedScriptCompany, setAppliedScriptCompany] = useState("");
   const [scriptDraft, setScriptDraft] = useState("");
@@ -998,15 +1109,17 @@ export default function WebscrapingClientPage() {
     (async () => {
       setLoadingBootstrap(true);
       try {
-        const [runtimePayload, profilePayload, historyPayload] = await Promise.all([
+        const [runtimePayload, profilePayload, historyPayload, radarPayload] = await Promise.all([
           apiFetch<RuntimeResponse>("/webscraping/runtime"),
           apiFetch<CurrentUser>("/profile/current-user"),
           apiFetch<HistoryResponse>("/webscraping/history?limit=20"),
+          apiFetch<RadarDatabaseResponse>("/webscraping/radar/database?limit=50").catch(() => ({ items: [], total: 0 })),
         ]);
         if (cancelled) return;
         setRuntime(runtimePayload);
         setCurrentUser(profilePayload);
         setHistoryItems(historyPayload.items || []);
+        setRadarItems(radarPayload.items || []);
         setPageError(null);
         // hydrate local UI preferences (last city / segment and script preset)
         try {
@@ -1031,6 +1144,12 @@ export default function WebscrapingClientPage() {
           if (lastPfRole && PF_ROLE_OPTIONS.includes(lastPfRole)) setPfRole(lastPfRole);
           const lastPfDdd = normalizeDdd(localStorage.getItem("webscraping.pfDdd") || "");
           if (lastPfDdd) setPfDdd(lastPfDdd);
+          setRadarFilters((current) => ({
+            ...current,
+            state: String(lastState || current.state || "").trim().toUpperCase(),
+            city: lastCity ? splitCityState(String(lastCity), String(lastState || "")).city : current.city,
+            segment: lastSegment || current.segment,
+          }));
         } catch {
           // ignore storage errors
         }
@@ -1262,6 +1381,113 @@ export default function WebscrapingClientPage() {
       setHistoryItems(payload.items || []);
     } catch {
       // no-op
+    }
+  }
+
+  function buildRadarPayload(overrides: Partial<RadarFilterState> = {}) {
+    const next = { ...radarFilters, ...overrides };
+    return {
+      state: next.state || undefined,
+      city: next.city.trim() || undefined,
+      segment: next.segment.trim() || undefined,
+      quantity: next.quantity,
+      limit: 50,
+      noWebsite: next.noWebsite || undefined,
+      highOpportunity: next.highOpportunity || undefined,
+      minRating: next.minRating ? Number(next.minRating) : undefined,
+      minReviews: next.minReviews ? Number(next.minReviews) : undefined,
+      validPhone: true,
+    };
+  }
+
+  function buildRadarQueryString(overrides: Partial<RadarFilterState> = {}) {
+    const payload = buildRadarPayload(overrides);
+    const params = new URLSearchParams();
+    Object.entries(payload).forEach(([key, value]) => {
+      if (value === undefined || value === null || value === "") return;
+      params.set(key, String(value));
+    });
+    return params.toString();
+  }
+
+  async function refreshRadarDatabase(overrides: Partial<RadarFilterState> = {}) {
+    setRadarLoading(true);
+    setSearchError(null);
+    try {
+      const query = buildRadarQueryString(overrides);
+      const payload = await apiFetch<RadarDatabaseResponse>(`/webscraping/radar/database${query ? `?${query}` : ""}`);
+      setRadarItems(payload.items || []);
+      setRadarMeta(null);
+      if (payload.meta?.message) setFeedback(payload.meta.message);
+    } catch (error) {
+      setSearchError(error instanceof Error ? error.message : "Falha ao carregar Banco de Dados.");
+    } finally {
+      setRadarLoading(false);
+    }
+  }
+
+  async function handleRadarPull() {
+    if (!radarFilters.state.trim() || !radarFilters.city.trim() || !radarFilters.segment.trim()) {
+      setSearchError("Preencha estado, cidade e segmento para puxar cards do Radar.");
+      return;
+    }
+    setRadarPulling(true);
+    setSearchError(null);
+    setFeedback(null);
+    try {
+      const payload = await apiFetch<RadarPullResponse>("/webscraping/radar/pull", {
+        method: "POST",
+        body: JSON.stringify({
+          ...buildRadarPayload(),
+          engine: "hbx",
+          desiredStock: 300,
+          minimumStock: 80,
+        }),
+      });
+      setRadarItems(payload.items || []);
+      setRadarMeta(payload.meta || null);
+      const delivered = payload.meta?.deliveredCount ?? payload.items?.length ?? 0;
+      const replenishText = payload.meta?.replenish?.ran
+        ? ` Reposição ativada: ${payload.meta.replenish.fetchedCount || 0} card(s) novos.`
+        : "";
+      setFeedback(`${delivered} card(s) puxados do Banco de Dados.${replenishText}`);
+    } catch (error) {
+      setSearchError(error instanceof Error ? error.message : "Falha ao puxar cards do Radar.");
+    } finally {
+      setRadarPulling(false);
+    }
+  }
+
+  async function handleRadarImport(item: RadarLeadItem) {
+    setRadarActionId(item.id);
+    setSearchError(null);
+    try {
+      await apiFetch(`/webscraping/radar/${item.id}/import-to-vendas`, {
+        method: "POST",
+      });
+      setRadarItems((current) => current.filter((lead) => lead.id !== item.id));
+      setFeedback(`${item.name || "Card"} herdado para Vendas.`);
+    } catch (error) {
+      setSearchError(error instanceof Error ? error.message : "Falha ao herdar card para Vendas.");
+    } finally {
+      setRadarActionId(null);
+    }
+  }
+
+  async function handleRadarNegative(item: RadarLeadItem) {
+    setRadarActionId(item.id);
+    setSearchError(null);
+    try {
+      await apiFetch(`/webscraping/radar/${item.id}/negative`, {
+        method: "POST",
+        body: JSON.stringify({ status: "discarded", reason: "Descartado no Radar Digital" }),
+      });
+      setRadarItems((current) => current.filter((lead) => lead.id !== item.id));
+      setFeedback(`${item.name || "Card"} descartado para esta empresa.`);
+    } catch (error) {
+      setSearchError(error instanceof Error ? error.message : "Falha ao descartar card.");
+    } finally {
+      setRadarActionId(null);
     }
   }
 
@@ -1785,10 +2011,10 @@ export default function WebscrapingClientPage() {
                 <button
                   type="button"
                   className={styles.modeTab}
-                  onClick={() => setPanelMode("history")}
+                  onClick={() => setPanelMode("radar")}
                 >
                   <Icon name="clock" size={16} />
-                  Pesquisas recentes
+                  Banco de Dados
                 </button>
                 <span className={styles.modeMetaButton}>
                   API oficial restantes: <strong>{remainingSearchesLabel}</strong>
@@ -2192,12 +2418,13 @@ export default function WebscrapingClientPage() {
           </section>
         ) : null}
 
-        {panelMode === "history" ? (
+        {panelMode === "radar" ? (
           <section className={styles.historyCard}>
             <div className={styles.sectionHeader}>
               <div>
-                <span className={styles.cardEyebrow}>Pesquisas recentes</span>
-                <strong className={styles.sectionTitle}>Histórico reaproveitável</strong>
+                <span className={styles.cardEyebrow}>HBX Radar Digital</span>
+                <strong className={styles.sectionTitle}>Banco de Dados</strong>
+                <p className={styles.helperText}>Cards disponíveis no pool global, filtrados para esta empresa sem repetir descartes ou leads já herdados.</p>
               </div>
               <div className={styles.modeTabs} role="tablist" aria-label="Webscraping">
                 <button
@@ -2211,64 +2438,213 @@ export default function WebscrapingClientPage() {
                 <button
                   type="button"
                   className={styles.modeTabActive}
-                  onClick={() => setPanelMode("history")}
+                  onClick={() => setPanelMode("radar")}
                 >
                   <Icon name="clock" size={16} />
-                  Pesquisas recentes
+                  Banco de Dados
                 </button>
                 <span className={styles.modeMetaButton}>
-                  API oficial restantes: <strong>{remainingSearchesLabel}</strong>
+                  Cards disponíveis: <strong>{radarItems.length}</strong>
                 </span>
               </div>
             </div>
 
-            {historyItems.length === 0 ? (
+            <div className={styles.radarFilterGrid}>
+              <label className={styles.field}>
+                <span className={styles.fieldLabel}>Estado</span>
+                <select
+                  className={styles.fieldSelect}
+                  value={radarFilters.state}
+                  onChange={(event) => setRadarFilters((current) => ({ ...current, state: event.target.value }))}
+                >
+                  <option value="">Todos</option>
+                  {BRAZIL_STATES.map((item) => (
+                    <option key={item.uf} value={item.uf}>
+                      {item.uf} - {item.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className={styles.field}>
+                <span className={styles.fieldLabel}>Cidade</span>
+                <input
+                  className={styles.fieldInput}
+                  value={radarFilters.city}
+                  onChange={(event) => setRadarFilters((current) => ({ ...current, city: event.target.value }))}
+                  placeholder="Ex: Campinas"
+                />
+              </label>
+
+              <label className={styles.field}>
+                <span className={styles.fieldLabel}>Segmento</span>
+                <input
+                  className={styles.fieldInput}
+                  value={radarFilters.segment}
+                  onChange={(event) => setRadarFilters((current) => ({ ...current, segment: event.target.value }))}
+                  placeholder="Ex: Lanchonetes"
+                />
+              </label>
+
+              <label className={styles.field}>
+                <span className={styles.fieldLabel}>Quantidade</span>
+                <select
+                  className={styles.fieldSelect}
+                  value={radarFilters.quantity}
+                  onChange={(event) => setRadarFilters((current) => ({ ...current, quantity: Number(event.target.value) }))}
+                >
+                  {[10, 20, 50, 100].map((option) => (
+                    <option key={option} value={option}>
+                      {option} cards
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className={styles.checkboxField}>
+                <input
+                  type="checkbox"
+                  checked={radarFilters.noWebsite}
+                  onChange={(event) => setRadarFilters((current) => ({ ...current, noWebsite: event.target.checked }))}
+                />
+                Sem website
+              </label>
+
+              <label className={styles.checkboxField}>
+                <input
+                  type="checkbox"
+                  checked={radarFilters.highOpportunity}
+                  onChange={(event) => setRadarFilters((current) => ({ ...current, highOpportunity: event.target.checked }))}
+                />
+                Alta oportunidade
+              </label>
+
+              <label className={styles.field}>
+                <span className={styles.fieldLabel}>Nota mínima</span>
+                <input
+                  className={styles.fieldInput}
+                  type="number"
+                  min="0"
+                  max="5"
+                  step="0.1"
+                  value={radarFilters.minRating}
+                  onChange={(event) => setRadarFilters((current) => ({ ...current, minRating: event.target.value }))}
+                  placeholder="Opcional"
+                />
+              </label>
+
+              <label className={styles.field}>
+                <span className={styles.fieldLabel}>Avaliações mínimas</span>
+                <input
+                  className={styles.fieldInput}
+                  type="number"
+                  min="0"
+                  step="1"
+                  value={radarFilters.minReviews}
+                  onChange={(event) => setRadarFilters((current) => ({ ...current, minReviews: event.target.value }))}
+                  placeholder="Opcional"
+                />
+              </label>
+            </div>
+
+            <div className={styles.actionRow}>
+              <button
+                type="button"
+                className={styles.glassButton}
+                onClick={() => void refreshRadarDatabase()}
+                disabled={radarLoading || radarPulling}
+              >
+                <Icon name="search" size={18} />
+                {radarLoading ? "Atualizando..." : "Aplicar filtros"}
+              </button>
+              <button
+                type="button"
+                className={`${styles.glassButton} ${styles.glassButtonPrimary}`}
+                onClick={() => void handleRadarPull()}
+                disabled={radarLoading || radarPulling}
+              >
+                <Icon name="spark" size={18} />
+                {radarPulling ? "Puxando..." : "Puxar mais cards"}
+              </button>
+              {radarMeta ? (
+                <span className={styles.metaPill}>
+                  Estoque limpo: {radarMeta.cleanStockAfter ?? "-"} • mínimo {radarMeta.minimumStock ?? 80}
+                </span>
+              ) : null}
+            </div>
+
+            {radarLoading ? (
+              <div className={styles.resultsGrid}>
+                {Array.from({ length: 3 }).map((_, index) => (
+                  <div key={index} className={styles.resultSkeleton}>
+                    <div className={styles.skeletonTitle} />
+                    <div className={styles.skeletonLine} />
+                    <div className={styles.skeletonLineShort} />
+                  </div>
+                ))}
+              </div>
+            ) : null}
+
+            {!radarLoading && radarItems.length === 0 ? (
               <div className={styles.emptyState}>
-                <strong>Nenhuma pesquisa salva ainda</strong>
-                <p className={styles.emptyText}>Assim que a primeira busca rodar, ela aparece aqui para reaproveitamento rápido.</p>
+                <strong>Nenhum card disponível neste filtro</strong>
+                <p className={styles.emptyText}>Use filtros mais amplos ou puxe cards para ativar reposição quando o estoque estiver abaixo do mínimo.</p>
               </div>
             ) : (
-              <div className={styles.historyList}>
-                {historyItems.map((item) => {
-                  const isHbxHistory = item.sourceLabel.toLowerCase().includes("hbx") && !item.id.startsWith("global:");
+              <div className={styles.radarGrid}>
+                {radarItems.map((item) => {
+                  const mapUrl = buildMapUrl(item);
                   return (
-                  <article key={item.id} className={styles.historyRow}>
-                    <div className={styles.historyRowMain}>
+                  <article key={item.id} className={styles.radarCard}>
+                    <div className={styles.radarCardMain}>
                       <div className={styles.historyTop}>
                         <div>
-                          <h2 className={styles.historyTitle}>{item.segment || "Agenda PF"}</h2>
+                          <h2 className={styles.historyTitle}>{item.name || "Empresa sem nome"}</h2>
                           <p className={styles.historyMeta}>
-                            {item.city} • {item.resultCount} cards encontrados • {item.sourceLabel}
+                            {[item.city, item.state, item.segment].filter(Boolean).join(" • ") || "Local não informado"}
                           </p>
                         </div>
-                        <span className={styles.historyStamp}>{formatDateTime(item.lastUsedAt)}</span>
+                        <span className={styles.historyStamp}>Score {item.opportunityScore ?? 0}</span>
                       </div>
-                      <p className={styles.historyFilter}>{buildFilterSummary(item.filters)}</p>
-                      <p className={styles.historyPreview}>
-                        {item.preview.length > 0 ? item.preview.join(" • ") : "Sem preview salvo"}
-                        {item.cacheValidUntil ? ` • válido até ${formatDateTime(item.cacheValidUntil)}` : ""}
-                      </p>
+                      <div className={styles.radarPills}>
+                        <span className={styles.metaPill}>{websiteStatusLabel(item.websiteStatus)}</span>
+                        <span className={styles.metaPill}>{opportunityLevelLabel(item.opportunityScore)}</span>
+                        <span className={styles.metaPill}>Nota {item.rating ?? "-"} • {item.reviews ?? 0} avaliações</span>
+                        {isLikelyMobileWhatsapp(item.phoneDigits || item.phone) ? <span className={styles.metaPill}>Provável WhatsApp</span> : null}
+                      </div>
+                      <p className={styles.historyFilter}>{item.phone || item.phoneDigits || "Telefone não informado"}</p>
+                      <p className={styles.historyPreview}>{item.opportunityReason || "Oportunidade qualificada pelo Radar Digital."}</p>
                     </div>
-                    <div className={styles.historyActions}>
+                    <div className={styles.radarActions}>
+                      <button
+                        type="button"
+                        className={`${styles.glassButton} ${styles.glassButtonPrimary}`}
+                        onClick={() => void handleRadarImport(item)}
+                        disabled={radarActionId === item.id}
+                      >
+                        <Icon name="spark" size={18} />
+                        {radarActionId === item.id ? "Processando..." : "Herdar para Vendas"}
+                      </button>
                       <button
                         type="button"
                         className={styles.glassButton}
-                        onClick={() => void handleReuseHistory(item)}
-                        disabled={historyBusyId === item.id}
+                        onClick={() => void handleRadarNegative(item)}
+                        disabled={radarActionId === item.id}
                       >
-                        <Icon name="cursor" size={18} />
-                        {historyBusyId === item.id ? "Carregando..." : "Abrir cards"}
+                        <Icon name="alert" size={18} />
+                        Descartar
                       </button>
-                      {isHbxHistory ? (
-                        <button
-                          type="button"
-                          className={`${styles.glassButton} ${styles.glassButtonPrimary}`}
-                          onClick={() => void handleSearchMoreHistory(item)}
-                          disabled={historyBusyId === item.id}
-                        >
+                      {item.website ? (
+                        <a className={styles.glassButton} href={normalizeExternalUrl(item.website)} target="_blank" rel="noreferrer">
+                          <Icon name="cursor" size={18} />
+                          Site
+                        </a>
+                      ) : null}
+                      {mapUrl ? (
+                        <a className={styles.glassButton} href={mapUrl} target="_blank" rel="noreferrer">
                           <Icon name="search" size={18} />
-                          Buscar +100
-                        </button>
+                          Mapa
+                        </a>
                       ) : null}
                     </div>
                   </article>
@@ -2276,6 +2652,45 @@ export default function WebscrapingClientPage() {
                 })}
               </div>
             )}
+
+            {historyItems.length > 0 ? (
+              <div className={styles.radarHistoryStrip}>
+                <span className={styles.cardEyebrow}>Histórico privado</span>
+                <div className={styles.radarHistoryList}>
+                  {historyItems.slice(0, 4).map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      className={styles.radarHistoryButton}
+                      onClick={() => void handleReuseHistory(item)}
+                      disabled={historyBusyId === item.id}
+                    >
+                      <strong>{item.segment || "Agenda PF"}</strong>
+                      <span>{item.city} • {item.resultCount} cards</span>
+                    </button>
+                  ))}
+                </div>
+                {historyItems.some((item) => item.sourceLabel.toLowerCase().includes("hbx") && !item.id.startsWith("global:")) ? (
+                  <div className={styles.actionRow}>
+                    {historyItems
+                      .filter((item) => item.sourceLabel.toLowerCase().includes("hbx") && !item.id.startsWith("global:"))
+                      .slice(0, 1)
+                      .map((item) => (
+                        <button
+                          key={item.id}
+                          type="button"
+                          className={`${styles.glassButton} ${styles.glassButtonPrimary}`}
+                          onClick={() => void handleSearchMoreHistory(item)}
+                          disabled={historyBusyId === item.id}
+                        >
+                          <Icon name="search" size={18} />
+                          Buscar +100 no histórico HBX
+                        </button>
+                      ))}
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
           </section>
         ) : null}
 

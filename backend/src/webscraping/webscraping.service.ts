@@ -1,13 +1,17 @@
 import {
   BadRequestException,
   ForbiddenException,
+  Inject,
   Injectable,
   NotFoundException,
+  Optional,
   ServiceUnavailableException,
+  forwardRef,
 } from '@nestjs/common';
 import * as XLSX from 'xlsx';
 import { probeWebscrapingRuntime, type WebscrapingRuntimeDiagnostic } from '../modules/webscraping-runtime.util';
 import { PrismaService } from '../prisma/prisma.service';
+import { VendasService } from '../vendas/vendas.service';
 import {
   COMMERCIAL_PLAN_QUOTAS,
   COMMERCIAL_PLAN_KEYS,
@@ -30,7 +34,7 @@ const CITY_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 
 type RuntimeStatus = 'online' | 'degraded';
 type ExternalRuntimeStatus = 'online' | 'offline';
-type SearchSource = 'history' | 'google' | 'hbx' | 'hybrid' | 'global_cache';
+type SearchSource = 'history' | 'google' | 'hbx' | 'hybrid' | 'global_cache' | 'radar_database';
 type WebscrapingEngine = 'google' | 'hbx';
 type HbxTargetType = 'pj' | 'pf' | 'agenda_pf';
 type SearchRunStatus = 'completed' | 'partial_error' | 'completed_with_errors';
@@ -191,6 +195,11 @@ type NormalizedSearchInput = {
 
 type SearchExecutionOptions = {
   historyIdHint?: string;
+  skipRadarLookup?: boolean;
+  skipRadarPersist?: boolean;
+  skipPrivateHistory?: boolean;
+  skipTechnicalCache?: boolean;
+  recordUsage?: boolean;
 };
 
 type NormalizeSearchInputOptions = {
@@ -205,6 +214,54 @@ type UsageExecutionMeta = {
   fetchedCount?: number;
   technicalCacheUsed?: boolean;
   technicalCacheReusedCount?: number;
+};
+
+type RadarWebsiteStatus = 'none' | 'present' | 'social_only' | 'weak' | 'unreachable' | 'unknown';
+type RadarOpportunityLevel = 'high' | 'medium' | 'low' | null;
+
+type RadarFiltersInput = {
+  city?: string | null;
+  state?: string | null;
+  segment?: string | null;
+  quantity?: number | null;
+  limit?: number | null;
+  minRating?: number | null;
+  minReviews?: number | null;
+  noWebsite?: boolean | string | null;
+  withWebsite?: boolean | string | null;
+  weakWebsite?: boolean | string | null;
+  validPhone?: boolean | string | null;
+  likelyWhatsapp?: boolean | string | null;
+  highOpportunity?: boolean | string | null;
+  opportunityLevel?: string | null;
+  includeHidden?: boolean | string | null;
+  engine?: WebscrapingEngine | string | null;
+  targetType?: HbxTargetType | string | null;
+  desiredStock?: number | null;
+  minimumStock?: number | null;
+};
+
+type NormalizedRadarFilters = {
+  city: string;
+  state: string;
+  segment: string;
+  normalizedCity: string;
+  normalizedSegment: string;
+  quantity: number;
+  limit: number;
+  minRating: number | null;
+  minReviews: number | null;
+  noWebsite: boolean;
+  withWebsite: boolean;
+  weakWebsite: boolean;
+  validPhone: boolean;
+  likelyWhatsapp: boolean;
+  opportunityLevel: RadarOpportunityLevel;
+  includeHidden: boolean;
+  engine: WebscrapingEngine;
+  targetType: HbxTargetType;
+  desiredStock: number;
+  minimumStock: number;
 };
 
 type SearchHistoryRow = {
@@ -333,6 +390,60 @@ function normalizeWebsiteKey(value: string | null | undefined) {
   }
 }
 
+function getWebsiteHost(value: string | null | undefined) {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  try {
+    const parsed = new URL(raw.startsWith('http') ? raw : `https://${raw}`);
+    return parsed.hostname.replace(/^www\./, '').toLowerCase();
+  } catch {
+    return raw.replace(/^https?:\/\//i, '').replace(/^www\./i, '').split('/')[0].toLowerCase();
+  }
+}
+
+function inferWebsiteStatus(value: string | null | undefined): RadarWebsiteStatus {
+  const website = String(value || '').trim();
+  if (!website) return 'none';
+  const host = getWebsiteHost(website);
+  if (!host) return 'unknown';
+  const socialHosts = [
+    'facebook.com',
+    'instagram.com',
+    'linkedin.com',
+    'tiktok.com',
+    'youtube.com',
+    'x.com',
+    'twitter.com',
+    'wa.me',
+    'whatsapp.com',
+  ];
+  if (socialHosts.some((domain) => host === domain || host.endsWith(`.${domain}`))) return 'social_only';
+  const weakHosts = [
+    'linktr.ee',
+    'bio.link',
+    'beacons.ai',
+    'wixsite.com',
+    'weebly.com',
+    'blogspot.com',
+    'wordpress.com',
+    'sites.google.com',
+    'business.site',
+    'google.com',
+    'google.com.br',
+  ];
+  if (weakHosts.some((domain) => host === domain || host.endsWith(`.${domain}`))) return 'weak';
+  return 'present';
+}
+
+function parseJsonArray(raw: string | null | undefined): string[] {
+  try {
+    const parsed = JSON.parse(String(raw || '[]'));
+    return Array.isArray(parsed) ? parsed.map((item) => String(item || '').trim()).filter(Boolean) : [];
+  } catch {
+    return [];
+  }
+}
+
 function isFallbackEligible(error: GooglePlacesApiError) {
   return ['google_api_not_enabled', 'google_request_denied', 'google_upstream_error'].includes(error.code);
 }
@@ -377,7 +488,11 @@ function formatCityWithState(city: string, state: string | null | undefined) {
 
 @Injectable()
 export class WebscrapingService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional() @Inject(forwardRef(() => VendasService))
+    private readonly vendasService?: VendasService,
+  ) {}
 
   async getRuntime(user: any): Promise<WebscrapingRuntimeResponse> {
     const native = this.inspectNativeRuntime();
@@ -502,40 +617,52 @@ export class WebscrapingService {
     const context = this.resolveContext(user);
     const normalized = this.normalizeSearchInput(input);
     this.logSearchSelection(normalized);
-    const historyEnabled = await this.supportsHistoryPersistence();
+    const hasExplicitExclusions = normalized.excludePhoneDigits.length > 0;
+    const radarEnabled = !options.skipRadarLookup && normalized.targetType === 'pj'
+      ? await this.supportsRadarPersistence()
+      : false;
+    const radarResults = radarEnabled
+      ? await this.listRadarContactsForSearch(context, normalized)
+      : [];
+    const historyEnabled = !options.skipPrivateHistory && await this.supportsHistoryPersistence();
     const existingHistory = historyEnabled
       ? await this.findHistoryBySignature(context.companyId, normalized.searchSignature, options.historyIdHint, normalized)
       : null;
-    const storedResults = this.sortContacts(this.restoreStoredResults(existingHistory))
+    const companyStoredResults = hasExplicitExclusions
+      ? []
+      : this.sortContacts(this.restoreStoredResults(existingHistory))
+        .filter((result) => this.matchesFilters(result, normalized.filters));
+    const storedResults = this.sortContacts(this.mergeDedupedContacts([...radarResults, ...companyStoredResults]))
       .filter((result) => this.matchesFilters(result, normalized.filters));
-    const hasExplicitExclusions = normalized.excludePhoneDigits.length > 0;
-    const globalCacheEnabled = await this.supportsGlobalCachePersistence();
+    const globalCacheEnabled = !options.skipTechnicalCache && await this.supportsGlobalCachePersistence();
     const globalCacheEntry = globalCacheEnabled
       ? await this.findGlobalCacheBySignature(normalized.cacheSignature)
       : null;
     const cachedPublicResults = this.sortContacts(this.restoreGlobalCacheResults(globalCacheEntry))
       .filter((result) => this.matchesFilters(result, normalized.filters));
 
-    if (!hasExplicitExclusions && storedResults.length >= normalized.quantity) {
+    if (storedResults.length >= normalized.quantity) {
       if (existingHistory) {
         await this.touchHistory(existingHistory.id, context.userId);
       }
       const response = this.buildSearchResponse(normalized, storedResults.slice(0, normalized.quantity), {
         historyId: existingHistory?.id || null,
-        source: 'history',
+        source: this.buildStoredResultSource(radarResults, companyStoredResults),
         reusedCount: Math.min(storedResults.length, normalized.quantity),
         fetchedCount: 0,
         technicalCacheUsed: false,
         technicalCacheReusedCount: 0,
         technicalCacheValidUntil: null,
       });
-      await this.recordUsageLog(context, normalized, 'EXECUTED', response.results.length, null, response.meta);
+      if (options.recordUsage !== false) {
+        await this.recordUsageLog(context, normalized, 'EXECUTED', response.results.length, null, response.meta);
+      }
       this.logSearchResult(normalized, response.results.length);
       return response;
     }
 
     if (normalized.engine === 'hbx') {
-      const results = hasExplicitExclusions ? [] : [...storedResults];
+      const results = [...storedResults];
       const seenPhones = new Set([
         ...storedResults.map((item) => item.phoneDigits).filter(Boolean),
         ...normalized.excludePhoneDigits,
@@ -567,10 +694,17 @@ export class WebscrapingService {
       const historyResults = hasExplicitExclusions
         ? this.sortContacts(this.mergeDedupedContacts([...storedResults, ...results]))
         : orderedResults;
+      if (!options.skipRadarPersist && orderedResults.length > 0) {
+        await this.persistRadarLeadPoolBatch(normalized, orderedResults, normalized.engine);
+      }
       const historyId = historyEnabled
         ? await this.persistHistory(context, normalized, historyResults, existingHistory?.id || null)
         : existingHistory?.id || null;
-      const source: SearchSource = !hasExplicitExclusions && storedResults.length > 0 && fetchedCount > 0 ? 'hybrid' : 'hbx';
+      const source: SearchSource = fetchedCount > 0
+        ? (storedResults.length > 0 ? 'hybrid' : 'hbx')
+        : storedResults.length > 0
+          ? this.buildStoredResultSource(radarResults, companyStoredResults)
+          : 'hbx';
       if (hbxError && orderedResults.length === 0) {
         throw hbxError;
       }
@@ -581,7 +715,7 @@ export class WebscrapingService {
       const response = this.buildSearchResponse(normalized, orderedResults, {
         historyId,
         source,
-        reusedCount: hasExplicitExclusions ? 0 : Math.min(storedResults.length, normalized.quantity),
+        reusedCount: Math.min(storedResults.length, normalized.quantity),
         fetchedCount,
         totalStoredCount: historyResults.length,
         status,
@@ -590,7 +724,9 @@ export class WebscrapingService {
         technicalCacheReusedCount: 0,
         technicalCacheValidUntil: null,
       });
-      await this.recordUsageLog(context, normalized, 'EXECUTED', response.results.length, null, response.meta);
+      if (options.recordUsage !== false) {
+        await this.recordUsageLog(context, normalized, 'EXECUTED', response.results.length, null, response.meta);
+      }
       this.logSearchResult(normalized, response.results.length);
       return response;
     }
@@ -621,10 +757,15 @@ export class WebscrapingService {
 
     if (results.length >= normalized.quantity) {
       const orderedCachedResults = this.sortContacts(results).slice(0, normalized.quantity);
+      if (!options.skipRadarPersist && orderedCachedResults.length > 0) {
+        await this.persistRadarLeadPoolBatch(normalized, orderedCachedResults, 'global_cache');
+      }
       const historyId = historyEnabled
         ? await this.persistHistory(context, normalized, orderedCachedResults, existingHistory?.id || null)
         : existingHistory?.id || null;
-      const source: SearchSource = storedResults.length > 0 ? 'hybrid' : 'global_cache';
+      const source: SearchSource = technicalCacheReusedCount > 0
+        ? (storedResults.length > 0 ? 'hybrid' : 'global_cache')
+        : this.buildStoredResultSource(radarResults, companyStoredResults);
       const response = this.buildSearchResponse(normalized, orderedCachedResults, {
         historyId,
         source,
@@ -635,7 +776,9 @@ export class WebscrapingService {
         technicalCacheValidUntil:
           globalCacheEntry?.cacheValidUntil instanceof Date ? globalCacheEntry.cacheValidUntil.toISOString() : null,
       });
-      await this.recordUsageLog(context, normalized, 'EXECUTED', response.results.length, null, response.meta);
+      if (options.recordUsage !== false) {
+        await this.recordUsageLog(context, normalized, 'EXECUTED', response.results.length, null, response.meta);
+      }
       this.logSearchResult(normalized, response.results.length);
       return response;
     }
@@ -651,7 +794,7 @@ export class WebscrapingService {
           ? storedResults.length > 0
             ? 'hybrid'
             : 'global_cache'
-          : 'history';
+          : this.buildStoredResultSource(radarResults, companyStoredResults);
         const response = this.buildSearchResponse(normalized, orderedCachedResults, {
           historyId,
           source,
@@ -662,7 +805,9 @@ export class WebscrapingService {
           technicalCacheValidUntil:
             globalCacheEntry?.cacheValidUntil instanceof Date ? globalCacheEntry.cacheValidUntil.toISOString() : null,
         });
-        await this.recordUsageLog(context, normalized, 'EXECUTED', response.results.length, null, response.meta);
+        if (options.recordUsage !== false) {
+          await this.recordUsageLog(context, normalized, 'EXECUTED', response.results.length, null, response.meta);
+        }
         this.logSearchResult(normalized, response.results.length);
         return response;
       }
@@ -693,17 +838,21 @@ export class WebscrapingService {
     }
 
     const orderedResults = this.sortContacts(results).slice(0, normalized.quantity);
+    if (!options.skipRadarPersist && orderedResults.length > 0) {
+      await this.persistRadarLeadPoolBatch(normalized, orderedResults, normalized.engine);
+    }
     if (globalCacheEnabled && (fetchedCount > 0 || (!globalCacheEntry && orderedResults.length > 0))) {
       await this.persistGlobalCache(normalized, orderedResults, globalCacheEntry?.id || null);
     }
     const historyId = historyEnabled
       ? await this.persistHistory(context, normalized, orderedResults, existingHistory?.id || null)
       : null;
-    const source: SearchSource =
-      storedResults.length > 0 || (technicalCacheReusedCount > 0 && fetchedCount > 0)
-        ? 'hybrid'
-        : technicalCacheReusedCount > 0
-          ? 'global_cache'
+    const source: SearchSource = fetchedCount > 0
+      ? (storedResults.length > 0 || technicalCacheReusedCount > 0 ? 'hybrid' : 'google')
+      : technicalCacheReusedCount > 0
+        ? (storedResults.length > 0 ? 'hybrid' : 'global_cache')
+        : storedResults.length > 0
+          ? this.buildStoredResultSource(radarResults, companyStoredResults)
           : 'google';
 
     const response = this.buildSearchResponse(normalized, orderedResults, {
@@ -720,7 +869,9 @@ export class WebscrapingService {
             ? this.buildGlobalCacheValidUntil().toISOString()
             : null,
     });
-    await this.recordUsageLog(context, normalized, 'GOOGLE_SEARCH_EXECUTED', response.results.length, null, response.meta);
+    if (options.recordUsage !== false) {
+      await this.recordUsageLog(context, normalized, 'GOOGLE_SEARCH_EXECUTED', response.results.length, null, response.meta);
+    }
     this.logSearchResult(normalized, response.results.length);
     return response;
   }
@@ -1676,24 +1827,31 @@ export class WebscrapingService {
   }
 
   private buildOpportunityScore(result: WebscrapingContactResult) {
-    const baseScore = Math.max(0, Math.min(100, Math.trunc(Number(result.score || 0) || 0)));
-    const websiteBonus = result.website ? 8 : 0;
-    const addressBonus = result.address ? 6 : 0;
-    const reviewBonus = Math.min(10, Math.trunc((result.reviews || 0) / 20));
-    const ratingBonus = result.rating == null ? 0 : Math.max(0, Math.min(8, Math.round((result.rating - 3.5) * 5)));
-    return Math.max(0, Math.min(100, baseScore + websiteBonus + addressBonus + reviewBonus + ratingBonus));
+    const websiteStatus = inferWebsiteStatus(result.website);
+    let score = 0;
+    if (websiteStatus === 'none') score += 35;
+    if ((result.reviews || 0) >= 50) score += 25;
+    if (result.rating != null && result.rating >= 4.2) score += 15;
+    if (isLikelyValidBrPhone(result.phoneDigits || result.phone)) score += 10;
+    if (isLikelyWhatsapp(result.phoneDigits || result.phone)) score += 10;
+    if (websiteStatus === 'present') score -= 20;
+    const engineScore = Math.max(0, Math.min(10, Math.trunc(Number(result.score || 0) / 10) || 0));
+    return Math.max(0, Math.min(100, score + engineScore));
   }
 
   private buildOpportunityReason(result: WebscrapingContactResult, input: NormalizedSearchInput) {
     const reasons: string[] = [];
-    const segment = input.segment || (input.targetType === 'agenda_pf' ? 'agenda publica' : 'prospeccao');
-    if (result.phoneDigits) reasons.push('telefone validado para abordagem imediata');
-    if (result.website) reasons.push('site publico indica negocio ativo');
-    if (result.address) reasons.push('endereco aumenta confianca e contexto local');
-    if ((result.reviews || 0) > 0) reasons.push(`${result.reviews} avaliacoes sugerem demanda ativa`);
-    if ((result.score || 0) >= 80) reasons.push('alta aderencia ao termo pesquisado');
-    if (!reasons.length) reasons.push('contato publico relacionado ao criterio da busca');
-    return `Boa oportunidade para ${segment}: ${reasons.slice(0, 3).join('; ')}.`;
+    const websiteStatus = inferWebsiteStatus(result.website);
+    if (result.rating != null && result.rating >= 4.2) reasons.push('boa reputacao no Google');
+    if ((result.reviews || 0) >= 50) reasons.push('muitas avaliacoes');
+    if (websiteStatus === 'none') reasons.push('nenhum website encontrado');
+    if (websiteStatus === 'social_only') reasons.push('presenca limitada a rede social');
+    if (websiteStatus === 'weak') reasons.push('website fraco ou pagina provisoria');
+    if (isLikelyWhatsapp(result.phoneDigits || result.phone)) reasons.push('telefone com alta chance de WhatsApp');
+    if (websiteStatus === 'present' && reasons.length < 2) reasons.push('site encontrado, mas ainda pode ser trabalhado pelo relacionamento');
+    if (!reasons.length) reasons.push(`contato publico aderente a ${input.segment || 'prospeccao'}`);
+    const sentence = reasons.slice(0, 3).join(', ');
+    return `${sentence.charAt(0).toUpperCase()}${sentence.slice(1)}.`;
   }
 
   private buildContactDedupeKeys(result: WebscrapingContactResult) {
@@ -1740,14 +1898,16 @@ export class WebscrapingService {
 
   private sortContacts(results: WebscrapingContactResult[]) {
     return [...results].sort((left, right) => {
-      const scoreDelta = (right.score || 0) - (left.score || 0);
+      const leftScore = left.opportunityScore ?? left.score ?? this.buildOpportunityScore(left);
+      const rightScore = right.opportunityScore ?? right.score ?? this.buildOpportunityScore(right);
+      const scoreDelta = rightScore - leftScore;
       if (scoreDelta !== 0) return scoreDelta;
       const ratingDelta = (right.rating || 0) - (left.rating || 0);
       if (ratingDelta !== 0) return ratingDelta;
       const reviewsDelta = (right.reviews || 0) - (left.reviews || 0);
       if (reviewsDelta !== 0) return reviewsDelta;
       if (Number(Boolean(right.website)) !== Number(Boolean(left.website))) {
-        return Number(Boolean(right.website)) - Number(Boolean(left.website));
+        return Number(Boolean(left.website)) - Number(Boolean(right.website));
       }
       return String(left.name || '').localeCompare(String(right.name || ''), 'pt-BR');
     });
@@ -1777,6 +1937,725 @@ export class WebscrapingService {
       this.prisma.hasTable('WebscrapingGlobalCachePlace'),
     ]);
     return cacheTable && placeTable;
+  }
+
+  private async supportsRadarPersistence() {
+    if (!(this.prisma as any).radarLeadPool || !(this.prisma as any).radarLeadCompanyState) {
+      return false;
+    }
+    const [poolTable, stateTable] = await Promise.all([
+      this.prisma.hasTable('RadarLeadPool'),
+      this.prisma.hasTable('RadarLeadCompanyState'),
+    ]);
+    return poolTable && stateTable;
+  }
+
+  private normalizeRadarFilters(input: RadarFiltersInput = {}): NormalizedRadarFilters {
+    const city = String(input.city || '').trim();
+    const state = String(input.state || '').trim().toUpperCase();
+    const segment = String(input.segment || '').trim();
+    const highOpportunity = coerceBoolean(input.highOpportunity);
+    const rawOpportunityLevel = String(input.opportunityLevel || '').trim().toLowerCase();
+    const opportunityLevel: RadarOpportunityLevel =
+      highOpportunity || rawOpportunityLevel === 'high' || rawOpportunityLevel === 'alta'
+        ? 'high'
+        : rawOpportunityLevel === 'medium' || rawOpportunityLevel === 'media' || rawOpportunityLevel === 'média'
+          ? 'medium'
+          : rawOpportunityLevel === 'low' || rawOpportunityLevel === 'baixa'
+            ? 'low'
+            : null;
+
+    return {
+      city,
+      state,
+      segment,
+      normalizedCity: normalizeLookupValue(city),
+      normalizedSegment: normalizeLookupValue(segment),
+      quantity: Math.min(Math.max(Math.trunc(Number(input.quantity || 20) || 20), 1), 100),
+      limit: Math.min(Math.max(Math.trunc(Number(input.limit || input.quantity || 50) || 50), 1), 300),
+      minRating: this.normalizeMinRating(input.minRating),
+      minReviews: this.normalizeMinReviews(input.minReviews),
+      noWebsite: coerceBoolean(input.noWebsite),
+      withWebsite: coerceBoolean(input.withWebsite),
+      weakWebsite: coerceBoolean(input.weakWebsite),
+      validPhone: coerceBoolean(input.validPhone),
+      likelyWhatsapp: coerceBoolean(input.likelyWhatsapp),
+      opportunityLevel,
+      includeHidden: coerceBoolean(input.includeHidden),
+      engine: normalizeEngine(input.engine),
+      targetType: normalizeTargetType(input.targetType),
+      desiredStock: Math.min(Math.max(Math.trunc(Number(input.desiredStock || 300) || 300), 20), 1000),
+      minimumStock: Math.min(Math.max(Math.trunc(Number(input.minimumStock || 80) || 80), 1), 500),
+    };
+  }
+
+  private buildStoredResultSource(radarResults: WebscrapingContactResult[], companyStoredResults: WebscrapingContactResult[]): SearchSource {
+    if (radarResults.length > 0 && companyStoredResults.length > 0) return 'hybrid';
+    if (radarResults.length > 0) return 'radar_database';
+    return 'history';
+  }
+
+  private buildRadarOpportunityWhere(level: RadarOpportunityLevel) {
+    if (level === 'high') return { gte: 70 };
+    if (level === 'medium') return { gte: 45, lt: 70 };
+    if (level === 'low') return { lt: 45 };
+    return null;
+  }
+
+  private buildRadarWhere(
+    filters: NormalizedRadarFilters,
+    companyId?: number | null,
+    options: { excludePhoneDigits?: string[]; requirePhone?: boolean; includeHidden?: boolean } = {},
+  ) {
+    const where: any = {};
+    const and: any[] = [];
+
+    if (filters.normalizedCity) where.normalizedCity = filters.normalizedCity;
+    if (filters.state) where.state = filters.state;
+    if (filters.normalizedSegment) where.normalizedSegment = filters.normalizedSegment;
+    if (filters.minRating != null) where.rating = { gte: filters.minRating };
+    if (filters.minReviews != null) where.reviews = { gte: filters.minReviews };
+
+    if (filters.noWebsite) {
+      where.websiteStatus = 'none';
+    } else if (filters.weakWebsite) {
+      where.websiteStatus = { in: ['weak', 'social_only'] };
+    } else if (filters.withWebsite) {
+      where.websiteStatus = { not: 'none' };
+    }
+
+    const opportunityWhere = this.buildRadarOpportunityWhere(filters.opportunityLevel);
+    if (opportunityWhere) where.opportunityScore = opportunityWhere;
+
+    if (filters.validPhone || options.requirePhone) {
+      and.push({ phoneDigits: { not: null } });
+    }
+
+    const excludePhoneDigits = Array.from(new Set((options.excludePhoneDigits || []).map((phone) => normalizePhoneDigits(phone)).filter(Boolean)));
+    if (excludePhoneDigits.length) {
+      and.push({
+        OR: [
+          { phoneDigits: null },
+          { phoneDigits: { notIn: excludePhoneDigits } },
+        ],
+      });
+    }
+
+    if (companyId && !(options.includeHidden || filters.includeHidden)) {
+      and.push({
+        companyStates: {
+          none: {
+            companyId,
+            status: { in: ['imported_to_vendas', 'negative', 'discarded', 'lost'] },
+          },
+        },
+      });
+    }
+
+    if (and.length) where.AND = and;
+    return where;
+  }
+
+  private filterRadarRowsInMemory(rows: any[], filters: NormalizedRadarFilters) {
+    return rows.filter((row) => {
+      if (filters.likelyWhatsapp && !isLikelyWhatsapp(row?.phoneDigits || row?.phone)) return false;
+      if (filters.validPhone && !isLikelyValidBrPhone(row?.phoneDigits || row?.phone)) return false;
+      return true;
+    });
+  }
+
+  private dedupeRadarRows(rows: any[]) {
+    const seen = new Set<string>();
+    const deduped: any[] = [];
+    for (const row of rows) {
+      const keys = [
+        row?.phoneDigits ? `phone:${row.phoneDigits}` : '',
+        row?.placeId ? `place:${row.placeId}` : '',
+        row?.website ? `website:${normalizeWebsiteKey(row.website)}` : '',
+      ].filter(Boolean);
+      if (keys.some((key) => seen.has(key))) continue;
+      keys.forEach((key) => seen.add(key));
+      deduped.push(row);
+    }
+    return deduped;
+  }
+
+  private async queryRadarRowsForCompany(
+    companyId: number,
+    filters: NormalizedRadarFilters,
+    options: { limit?: number; excludePhoneDigits?: string[]; requirePhone?: boolean; includeHidden?: boolean } = {},
+  ) {
+    if (!(await this.supportsRadarPersistence())) return [];
+    const readLimit = Math.min(Math.max(Math.trunc(Number(options.limit || filters.limit) || filters.limit), 1), 1000);
+    const rows = await (this.prisma as any).radarLeadPool.findMany({
+      where: this.buildRadarWhere(filters, companyId, options),
+      orderBy: [
+        { opportunityScore: 'desc' },
+        { reviews: 'desc' },
+        { rating: 'desc' },
+        { lastSeenAt: 'desc' },
+      ],
+      take: Math.min(readLimit * 4, 1000),
+      include: {
+        companyStates: {
+          where: { companyId },
+          take: 1,
+          select: {
+            status: true,
+            vendasLeadId: true,
+            lastActionAt: true,
+          },
+        },
+      },
+    }).catch(() => []);
+    return this.dedupeRadarRows(this.filterRadarRowsInMemory(rows, filters)).slice(0, readLimit);
+  }
+
+  private restoreRadarPoolResults(rows: any[]): WebscrapingContactResult[] {
+    return rows.map((row) => ({
+      placeId: row?.placeId || `radar:${row?.id}`,
+      name: String(row?.name || 'Empresa sem nome'),
+      phone: String(row?.phone || row?.phoneDigits || ''),
+      phoneDigits: normalizePhoneDigits(row?.phoneDigits || row?.phone),
+      rating: row?.rating == null ? null : Number(row.rating),
+      reviews: safeInteger(row?.reviews),
+      address: row?.address || null,
+      website: row?.website || null,
+      source: 'radar_database',
+      score: safeInteger(row?.opportunityScore),
+      opportunityScore: safeInteger(row?.opportunityScore),
+      opportunityReason: row?.opportunityReason || null,
+    })).filter((row) => row.phoneDigits);
+  }
+
+  private async listRadarContactsForSearch(
+    context: SearchExecutionContext,
+    input: NormalizedSearchInput,
+  ): Promise<WebscrapingContactResult[]> {
+    const filters = this.normalizeRadarFilters({
+      city: input.city,
+      state: input.state,
+      segment: input.segment,
+      quantity: input.quantity,
+      limit: Math.max(input.quantity * 3, 20),
+      minRating: input.filters.minRating,
+      minReviews: input.filters.minReviews,
+      validPhone: true,
+    });
+    const rows = await this.queryRadarRowsForCompany(context.companyId, filters, {
+      limit: Math.max(input.quantity * 3, 20),
+      excludePhoneDigits: input.excludePhoneDigits,
+      requirePhone: true,
+    });
+    return this.sortContacts(this.restoreRadarPoolResults(rows)).slice(0, input.quantity);
+  }
+
+  private buildRadarLeadPublic(row: any) {
+    const companyState = Array.isArray(row?.companyStates) && row.companyStates.length ? row.companyStates[0] : null;
+    return {
+      id: String(row?.id || ''),
+      placeId: row?.placeId || null,
+      name: row?.name || '',
+      phone: row?.phone || '',
+      phoneDigits: row?.phoneDigits || '',
+      address: row?.address || null,
+      city: row?.city || null,
+      state: row?.state || null,
+      segment: row?.segment || null,
+      website: row?.website || null,
+      websiteStatus: row?.websiteStatus || inferWebsiteStatus(row?.website),
+      rating: row?.rating == null ? null : Number(row.rating),
+      reviews: safeInteger(row?.reviews),
+      sourceEngines: parseJsonArray(row?.sourceEngines),
+      opportunityScore: safeInteger(row?.opportunityScore),
+      opportunityReason: row?.opportunityReason || null,
+      globalNegativeCount: safeInteger(row?.globalNegativeCount),
+      globalImportedCount: safeInteger(row?.globalImportedCount),
+      globalContactedCount: safeInteger(row?.globalContactedCount),
+      firstSeenAt: row?.firstSeenAt instanceof Date ? row.firstSeenAt.toISOString() : null,
+      lastSeenAt: row?.lastSeenAt instanceof Date ? row.lastSeenAt.toISOString() : null,
+      companyStatus: companyState?.status || 'new',
+      vendasLeadId: companyState?.vendasLeadId || null,
+    };
+  }
+
+  async listRadarDatabaseForUser(user: any, input: RadarFiltersInput = {}) {
+    const context = this.resolveContext(user);
+    const filters = this.normalizeRadarFilters(input);
+    if (!(await this.supportsRadarPersistence())) {
+      return {
+        items: [],
+        total: 0,
+        meta: {
+          available: false,
+          message: 'Banco do Radar ainda nao foi migrado neste ambiente.',
+        },
+      };
+    }
+    const rows = await this.queryRadarRowsForCompany(context.companyId, filters, {
+      limit: filters.limit,
+      includeHidden: filters.includeHidden,
+    });
+    return {
+      items: rows.map((row) => this.buildRadarLeadPublic(row)),
+      total: rows.length,
+      meta: {
+        available: true,
+        filters: {
+          city: filters.city,
+          state: filters.state,
+          segment: filters.segment,
+          noWebsite: filters.noWebsite,
+          highOpportunity: filters.opportunityLevel === 'high',
+          minRating: filters.minRating,
+          minReviews: filters.minReviews,
+        },
+      },
+    };
+  }
+
+  private async markRadarDelivered(companyId: number, userId: number, rows: any[]) {
+    const now = new Date();
+    for (const row of rows) {
+      const existing = Array.isArray(row?.companyStates) && row.companyStates.length ? row.companyStates[0] : null;
+      if (['imported_to_vendas', 'negative', 'discarded', 'lost'].includes(String(existing?.status || ''))) continue;
+      await (this.prisma as any).radarLeadCompanyState.upsert({
+        where: {
+          companyId_radarLeadId: {
+            companyId,
+            radarLeadId: row.id,
+          },
+        },
+        create: {
+          companyId,
+          radarLeadId: row.id,
+          status: 'delivered',
+          lastActionAt: now,
+        },
+        update: {
+          status: existing?.status && existing.status !== 'new' ? existing.status : 'delivered',
+          lastActionAt: now,
+        },
+      }).catch(() => null);
+    }
+  }
+
+  async pullRadarLeadsForUser(user: any, input: RadarFiltersInput = {}) {
+    const context = this.resolveContext(user);
+    const filters = this.normalizeRadarFilters(input);
+    if (!filters.normalizedCity || !filters.normalizedSegment) {
+      throw new BadRequestException('Cidade e segmento sao obrigatorios para puxar cards do Radar.');
+    }
+    if (!(await this.supportsRadarPersistence())) {
+      throw new ServiceUnavailableException('Banco do Radar ainda nao foi migrado neste ambiente.');
+    }
+
+    let rows = await this.queryRadarRowsForCompany(context.companyId, filters, {
+      limit: Math.max(filters.quantity, filters.minimumStock, 100),
+      requirePhone: true,
+    });
+    const cleanStockBefore = rows.length;
+    let replenish: any = {
+      ran: false,
+      cleanStockBefore,
+      cleanStockAfter: cleanStockBefore,
+      fetchedCount: 0,
+    };
+
+    if (cleanStockBefore < filters.minimumStock) {
+      replenish = await this.replenishRadarStockForUser(user, {
+        ...input,
+        city: filters.city,
+        state: filters.state,
+        segment: filters.segment,
+        desiredStock: filters.desiredStock,
+        minimumStock: filters.minimumStock,
+        engine: filters.engine,
+        targetType: filters.targetType,
+      });
+      rows = await this.queryRadarRowsForCompany(context.companyId, filters, {
+        limit: Math.max(filters.quantity, filters.minimumStock, 100),
+        requirePhone: true,
+      });
+    }
+
+    const deliveredRows = rows.slice(0, filters.quantity);
+    await this.markRadarDelivered(context.companyId, context.userId, deliveredRows);
+
+    return {
+      items: deliveredRows.map((row) => this.buildRadarLeadPublic({ ...row, companyStates: [{ status: 'delivered' }] })),
+      meta: {
+        requestedQuantity: filters.quantity,
+        deliveredCount: deliveredRows.length,
+        cleanStockBefore,
+        cleanStockAfter: rows.length,
+        minimumStock: filters.minimumStock,
+        desiredStock: filters.desiredStock,
+        replenish,
+      },
+    };
+  }
+
+  private async getRadarStockConfig(filters: NormalizedRadarFilters) {
+    if (!(await this.prisma.hasTable('RadarStockConfig'))) {
+      return {
+        desiredStock: filters.desiredStock,
+        minimumStock: filters.minimumStock,
+        engine: filters.engine,
+        targetType: filters.targetType,
+      };
+    }
+    const existing = await (this.prisma as any).radarStockConfig.findUnique({
+      where: {
+        normalizedCity_state_normalizedSegment: {
+          normalizedCity: filters.normalizedCity,
+          state: filters.state || '',
+          normalizedSegment: filters.normalizedSegment,
+        },
+      },
+    }).catch(() => null);
+    if (!existing) {
+      await (this.prisma as any).radarStockConfig.create({
+        data: {
+          normalizedCity: filters.normalizedCity,
+          state: filters.state || '',
+          normalizedSegment: filters.normalizedSegment,
+          desiredStock: filters.desiredStock,
+          minimumStock: filters.minimumStock,
+          engine: filters.engine,
+          targetType: filters.targetType,
+          filtersJson: JSON.stringify({
+            minRating: filters.minRating,
+            minReviews: filters.minReviews,
+            noWebsite: filters.noWebsite,
+            weakWebsite: filters.weakWebsite,
+            opportunityLevel: filters.opportunityLevel,
+          }),
+        },
+      }).catch(() => null);
+      return {
+        desiredStock: filters.desiredStock,
+        minimumStock: filters.minimumStock,
+        engine: filters.engine,
+        targetType: filters.targetType,
+      };
+    }
+    return {
+      desiredStock: Math.max(1, Math.trunc(Number(existing.desiredStock || filters.desiredStock))),
+      minimumStock: Math.max(1, Math.trunc(Number(existing.minimumStock || filters.minimumStock))),
+      engine: normalizeEngine(existing.engine || filters.engine),
+      targetType: normalizeTargetType(existing.targetType || filters.targetType),
+    };
+  }
+
+  async replenishRadarStockForUser(user: any, input: RadarFiltersInput = {}) {
+    const context = this.resolveContext(user);
+    const filters = this.normalizeRadarFilters(input);
+    if (!filters.normalizedCity || !filters.normalizedSegment) {
+      throw new BadRequestException('Cidade e segmento sao obrigatorios para repor o estoque do Radar.');
+    }
+    if (!(await this.supportsRadarPersistence())) {
+      throw new ServiceUnavailableException('Banco do Radar ainda nao foi migrado neste ambiente.');
+    }
+    const stockConfig = await this.getRadarStockConfig(filters);
+    const effectiveFilters = {
+      ...filters,
+      desiredStock: stockConfig.desiredStock,
+      minimumStock: stockConfig.minimumStock,
+      engine: stockConfig.engine,
+      targetType: stockConfig.targetType,
+    };
+    const beforeRows = await this.queryRadarRowsForCompany(context.companyId, effectiveFilters, {
+      limit: Math.max(effectiveFilters.desiredStock, effectiveFilters.minimumStock, effectiveFilters.quantity),
+      requirePhone: true,
+      includeHidden: true,
+    });
+    const cleanStockBefore = beforeRows.length;
+    if (cleanStockBefore >= effectiveFilters.minimumStock) {
+      return {
+        ran: false,
+        reason: 'stock_above_minimum',
+        cleanStockBefore,
+        cleanStockAfter: cleanStockBefore,
+        fetchedCount: 0,
+        desiredStock: effectiveFilters.desiredStock,
+        minimumStock: effectiveFilters.minimumStock,
+      };
+    }
+
+    const fetchedResults: WebscrapingContactResult[] = [];
+    const seenPhones = new Set(beforeRows.map((row) => normalizePhoneDigits(row?.phoneDigits || row?.phone)).filter(Boolean));
+    const shortage = Math.max(0, effectiveFilters.desiredStock - cleanStockBefore);
+    let attempts = 0;
+    while (fetchedResults.length < shortage && attempts < 6) {
+      attempts += 1;
+      const batchQuantity = Math.min(maxQuantityFor(effectiveFilters.engine, effectiveFilters.targetType), shortage - fetchedResults.length);
+      const response = await this.searchContactsForUser(
+        user,
+        {
+          city: filters.city,
+          state: filters.state,
+          segment: filters.segment,
+          quantity: Math.max(1, batchQuantity),
+          engine: effectiveFilters.engine,
+          targetType: effectiveFilters.targetType,
+          minRating: filters.minRating,
+          minReviews: filters.minReviews,
+          excludePhoneDigits: Array.from(seenPhones),
+        },
+        {
+          skipRadarLookup: true,
+          skipPrivateHistory: true,
+          skipTechnicalCache: true,
+          recordUsage: false,
+        },
+      );
+      const mappedResults = (response.results || []).map((result) => ({
+        ...result,
+        placeId: `radar_external:${normalizePhoneDigits(result.phoneDigits || result.phone) || result.name}`,
+      })) as WebscrapingContactResult[];
+      let acceptedInBatch = 0;
+      for (const result of mappedResults) {
+        const phone = normalizePhoneDigits(result.phoneDigits || result.phone);
+        if (!phone || seenPhones.has(phone)) continue;
+        seenPhones.add(phone);
+        fetchedResults.push(result);
+        acceptedInBatch += 1;
+      }
+      if (acceptedInBatch === 0) break;
+    }
+
+    if (fetchedResults.length) {
+      await this.persistRadarLeadPoolBatch(
+        {
+          ...this.normalizeSearchInput({
+            city: filters.city,
+            state: filters.state,
+            segment: filters.segment,
+            quantity: Math.min(fetchedResults.length, maxQuantityFor(effectiveFilters.engine, effectiveFilters.targetType)),
+            engine: effectiveFilters.engine,
+            targetType: effectiveFilters.targetType,
+            minRating: filters.minRating,
+            minReviews: filters.minReviews,
+          }),
+          city: filters.city,
+          state: filters.state,
+          segment: filters.segment,
+          normalizedCity: filters.normalizedCity,
+          normalizedSegment: filters.normalizedSegment,
+        },
+        fetchedResults,
+        effectiveFilters.engine,
+      );
+    }
+
+    const afterRows = await this.queryRadarRowsForCompany(context.companyId, effectiveFilters, {
+      limit: Math.max(effectiveFilters.desiredStock, effectiveFilters.minimumStock, effectiveFilters.quantity),
+      requirePhone: true,
+      includeHidden: true,
+    });
+
+    return {
+      ran: true,
+      reason: 'stock_below_minimum',
+      cleanStockBefore,
+      cleanStockAfter: afterRows.length,
+      fetchedCount: fetchedResults.length,
+      desiredStock: effectiveFilters.desiredStock,
+      minimumStock: effectiveFilters.minimumStock,
+      attempts,
+    };
+  }
+
+  private async persistRadarLeadPoolBatch(
+    input: NormalizedSearchInput,
+    results: WebscrapingContactResult[],
+    sourceEngine: string,
+  ) {
+    if (!(await this.supportsRadarPersistence())) return;
+    const delegate = (this.prisma as any).radarLeadPool;
+    const now = new Date();
+    for (const result of this.mergeDedupedContacts(results)) {
+      const phoneDigits = normalizePhoneDigits(result.phoneDigits || result.phone);
+      const placeId = result.placeId && !String(result.placeId).startsWith('radar:') && !String(result.placeId).startsWith('radar_external:')
+        ? String(result.placeId)
+        : null;
+      if (!phoneDigits && !placeId) continue;
+      const websiteStatus = inferWebsiteStatus(result.website);
+      const opportunityScore = this.buildOpportunityScore(result);
+      const opportunityReason = result.opportunityReason || this.buildOpportunityReason(result, input);
+      const existing = await delegate.findFirst({
+        where: {
+          OR: [
+            ...(phoneDigits ? [{ phoneDigits }] : []),
+            ...(placeId ? [{ placeId }] : []),
+          ],
+        },
+      }).catch(() => null);
+      const sourceEngines = Array.from(new Set([...parseJsonArray(existing?.sourceEngines), sourceEngine, result.source].filter(Boolean).map(String)));
+      const data = {
+        placeId: placeId || existing?.placeId || null,
+        name: result.name || existing?.name || 'Empresa sem nome',
+        phone: result.phone || existing?.phone || phoneDigits || null,
+        phoneDigits: phoneDigits || existing?.phoneDigits || null,
+        address: result.address || existing?.address || null,
+        city: input.city || existing?.city || null,
+        state: input.state || existing?.state || null,
+        normalizedCity: input.normalizedCity,
+        segment: input.segment || existing?.segment || null,
+        normalizedSegment: input.normalizedSegment,
+        website: result.website || existing?.website || null,
+        websiteStatus,
+        rating: result.rating == null ? existing?.rating ?? null : result.rating,
+        reviews: Math.max(safeInteger(result.reviews), safeInteger(existing?.reviews)),
+        sourceEngines: JSON.stringify(sourceEngines),
+        opportunityScore,
+        opportunityReason,
+        lastSeenAt: now,
+      };
+      if (existing?.id) {
+        await delegate.update({
+          where: { id: existing.id },
+          data,
+        }).catch(() => null);
+      } else {
+        await delegate.create({
+          data: {
+            ...data,
+            firstSeenAt: now,
+          },
+        }).catch(() => null);
+      }
+    }
+  }
+
+  async importRadarLeadToVendasForUser(user: any, radarLeadId: string) {
+    if (!this.vendasService) {
+      throw new ServiceUnavailableException('Servico de Vendas indisponivel para importacao.');
+    }
+    const context = this.resolveContext(user);
+    if (!(await this.supportsRadarPersistence())) {
+      throw new ServiceUnavailableException('Banco do Radar ainda nao foi migrado neste ambiente.');
+    }
+    const row = await (this.prisma as any).radarLeadPool.findUnique({
+      where: { id: String(radarLeadId || '').trim() },
+    });
+    if (!row) throw new NotFoundException('Card do Radar nao encontrado.');
+
+    const imported = await this.vendasService.importWebscrapingLeadsForUser(user, {
+      sourceHistoryId: `radar:${row.id}`,
+      leads: [
+        {
+          sourceHistoryId: `radar:${row.id}`,
+          name: row.name,
+          phone: row.phone || row.phoneDigits,
+          phoneDigits: row.phoneDigits || normalizePhoneDigits(row.phone),
+          address: row.address || undefined,
+          website: row.website || undefined,
+          rating: row.rating ?? undefined,
+          reviews: row.reviews ?? undefined,
+          city: row.city || undefined,
+          segment: row.segment || undefined,
+          shortNote: row.opportunityReason || undefined,
+        },
+      ],
+    } as any);
+    const vendasLeadId = imported?.leads?.[0]?.id || null;
+    const now = new Date();
+    await (this.prisma as any).$transaction([
+      (this.prisma as any).radarLeadCompanyState.upsert({
+        where: {
+          companyId_radarLeadId: {
+            companyId: context.companyId,
+            radarLeadId: row.id,
+          },
+        },
+        create: {
+          companyId: context.companyId,
+          radarLeadId: row.id,
+          vendasLeadId,
+          status: 'imported_to_vendas',
+          lastActionAt: now,
+        },
+        update: {
+          vendasLeadId,
+          status: 'imported_to_vendas',
+          lastActionAt: now,
+        },
+      }),
+      (this.prisma as any).radarLeadPool.update({
+        where: { id: row.id },
+        data: {
+          globalImportedCount: { increment: 1 },
+          lastSeenAt: now,
+        },
+      }),
+    ]).catch(() => null);
+
+    return {
+      ok: true,
+      radarLeadId: row.id,
+      vendasLeadId,
+      import: imported,
+    };
+  }
+
+  async markRadarLeadNegativeForUser(user: any, radarLeadId: string, input: { status?: string; reason?: string; privateNotes?: string } = {}) {
+    const context = this.resolveContext(user);
+    if (!(await this.supportsRadarPersistence())) {
+      throw new ServiceUnavailableException('Banco do Radar ainda nao foi migrado neste ambiente.');
+    }
+    const row = await (this.prisma as any).radarLeadPool.findUnique({
+      where: { id: String(radarLeadId || '').trim() },
+    });
+    if (!row) throw new NotFoundException('Card do Radar nao encontrado.');
+    const normalizedStatus = String(input.status || '').trim().toLowerCase();
+    const status = normalizedStatus === 'discarded' || normalizedStatus === 'descartado' ? 'discarded' : 'negative';
+    const existing = await (this.prisma as any).radarLeadCompanyState.findUnique({
+      where: {
+        companyId_radarLeadId: {
+          companyId: context.companyId,
+          radarLeadId: row.id,
+        },
+      },
+    }).catch(() => null);
+    const now = new Date();
+    await (this.prisma as any).radarLeadCompanyState.upsert({
+      where: {
+        companyId_radarLeadId: {
+          companyId: context.companyId,
+          radarLeadId: row.id,
+        },
+      },
+      create: {
+        companyId: context.companyId,
+        radarLeadId: row.id,
+        status,
+        negativeReason: String(input.reason || '').trim() || null,
+        privateNotes: String(input.privateNotes || '').trim() || null,
+        lastActionAt: now,
+      },
+      update: {
+        status,
+        negativeReason: String(input.reason || '').trim() || null,
+        privateNotes: String(input.privateNotes || '').trim() || null,
+        lastActionAt: now,
+      },
+    });
+    if (!['negative', 'discarded'].includes(String(existing?.status || ''))) {
+      await (this.prisma as any).radarLeadPool.update({
+        where: { id: row.id },
+        data: {
+          globalNegativeCount: { increment: 1 },
+          lastSeenAt: now,
+        },
+      }).catch(() => null);
+    }
+    return {
+      ok: true,
+      radarLeadId: row.id,
+      status,
+    };
   }
 
   private async getHistoryPlaceColumnSupport(): Promise<HistoryPlaceColumnSupport> {
