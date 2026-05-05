@@ -1,6 +1,14 @@
 "use client";
 
-import { type ClipboardEvent as ReactClipboardEvent, type DragEvent as ReactDragEvent, useEffect, useMemo, useRef, useState } from "react";
+import {
+  type ClipboardEvent as ReactClipboardEvent,
+  type DragEvent as ReactDragEvent,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import Link from "next/link";
 import DashboardScaffold from "@/components/DashboardScaffold";
 import { apiFetch, getDirectDashboardApiBaseUrl } from "@/app/_lib/api";
@@ -45,6 +53,17 @@ type MasterEmailSendResponse = {
 };
 
 const DEFAULT_NAME = "Amanda";
+const BUSINESS_CARD_IMAGE_STYLE = [
+  "display:block",
+  "max-width:100%",
+  "width:auto",
+  "height:auto",
+  "object-fit:contain",
+  "margin:12px 0",
+  "border:0",
+  "outline:none",
+  "text-decoration:none",
+].join(";");
 
 function formatFileSize(value?: number | null) {
   const size = Number(value || 0);
@@ -80,13 +99,36 @@ function textToEditorHtml(value: string) {
     .join("<br>");
 }
 
-function findClipboardImageFile(items?: DataTransferItemList | null) {
-  const imageItem = Array.from(items || []).find((item) => item.type.startsWith("image/"));
-  return imageItem?.getAsFile() || null;
+function findClipboardImageFile(data?: Pick<DataTransfer, "items" | "files"> | null) {
+  const imageItem = Array.from(data?.items || []).find((item) => item.kind === "file" && item.type.startsWith("image/"));
+  const itemFile = imageItem?.getAsFile();
+  if (itemFile) return itemFile;
+  return Array.from(data?.files || []).find((file) => file.type.startsWith("image/")) || null;
 }
 
 function buildDirectApiPath(path: string) {
   return `${getDirectDashboardApiBaseUrl()}${path}`;
+}
+
+function getImageFilename(file: File) {
+  if (file.name) return file.name;
+  if (file.type === "image/jpeg") return "cartao-visitas.jpg";
+  if (file.type === "image/webp") return "cartao-visitas.webp";
+  return "cartao-visitas.png";
+}
+
+function buildBusinessCardImageHtml(src: string) {
+  return [
+    '<div data-hbx-business-card-block="true" style="margin:12px 0;max-width:100%;overflow:hidden;">',
+    `<img data-hbx-business-card="true" src="${escapeHtml(src)}" alt="Cartão de visitas" style="${BUSINESS_CARD_IMAGE_STYLE}" />`,
+    "</div>",
+    "<br>",
+  ].join("");
+}
+
+function targetIsInsideAnyNode(target: EventTarget | null, nodes: Array<Node | null>) {
+  if (!(target instanceof Node)) return false;
+  return nodes.some((node) => Boolean(node?.contains(target)));
 }
 
 export default function MasterEmailClientPage() {
@@ -94,6 +136,7 @@ export default function MasterEmailClientPage() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const businessCardInputRef = useRef<HTMLInputElement | null>(null);
   const editorRef = useRef<HTMLDivElement | null>(null);
+  const cardUploaderRef = useRef<HTMLDivElement | null>(null);
   const editorRangeRef = useRef<Range | null>(null);
   const [state, setState] = useState<MasterEmailState | null>(null);
   const [recipientName, setRecipientName] = useState(DEFAULT_NAME);
@@ -148,7 +191,7 @@ export default function MasterEmailClientPage() {
     editorRef.current.innerHTML = bodyHtmlDraft;
   }, [bodyDirty, bodyHtmlDraft]);
 
-  function rememberEditorSelection() {
+  const rememberEditorSelection = useCallback(function rememberEditorSelection() {
     const editor = editorRef.current;
     const selection = window.getSelection();
     if (!editor || !selection || selection.rangeCount === 0) return;
@@ -156,17 +199,17 @@ export default function MasterEmailClientPage() {
     if (editor.contains(range.commonAncestorContainer)) {
       editorRangeRef.current = range.cloneRange();
     }
-  }
+  }, []);
 
-  function syncEditorDraft() {
+  const syncEditorDraft = useCallback(function syncEditorDraft() {
     const editor = editorRef.current;
     if (!editor) return;
     setBodyDraft(editor.innerText || "");
     setBodyHtmlDraft(editor.innerHTML || "");
     setBodyDirty(true);
-  }
+  }, []);
 
-  function insertHtmlIntoEditor(html: string) {
+  const insertHtmlIntoEditor = useCallback(function insertHtmlIntoEditor(html: string) {
     const editor = editorRef.current;
     if (!editor) return;
     editor.focus();
@@ -195,14 +238,12 @@ export default function MasterEmailClientPage() {
       editorRangeRef.current = nextRange.cloneRange();
     }
     syncEditorDraft();
-  }
+  }, [syncEditorDraft]);
 
-  function insertBusinessCardIntoEditor(card: MasterEmailState["businessCard"]) {
+  const insertBusinessCardIntoEditor = useCallback(function insertBusinessCardIntoEditor(card: MasterEmailState["businessCard"]) {
     if (!card?.previewDataUrl) return;
-    insertHtmlIntoEditor(
-      `<p><img data-hbx-business-card="true" src="${card.previewDataUrl}" alt="Cartão de visitas" style="max-width:640px;width:100%;height:auto;display:block;margin:12px 0;" /></p>`,
-    );
-  }
+    insertHtmlIntoEditor(buildBusinessCardImageHtml(card.previewDataUrl));
+  }, [insertHtmlIntoEditor]);
 
   async function uploadAttachment(file: File | null | undefined) {
     if (!file) return;
@@ -228,14 +269,7 @@ export default function MasterEmailClientPage() {
     }
   }
 
-  function getImageFilename(file: File) {
-    if (file.name) return file.name;
-    if (file.type === "image/jpeg") return "cartao-visitas.jpg";
-    if (file.type === "image/webp") return "cartao-visitas.webp";
-    return "cartao-visitas.png";
-  }
-
-  async function uploadBusinessCard(file: File | null | undefined) {
+  const uploadBusinessCard = useCallback(async function uploadBusinessCard(file: File | null | undefined) {
     if (!file) return null;
     if (!file.type.startsWith("image/")) {
       setError("O cartão de visitas precisa ser uma imagem PNG, JPG ou WEBP.");
@@ -264,20 +298,21 @@ export default function MasterEmailClientPage() {
     } finally {
       setUploadingBusinessCard(false);
     }
-  }
+  }, []);
 
-  async function pasteBusinessCardIntoEditor(file: File | null | undefined) {
+  const pasteBusinessCardIntoEditor = useCallback(async function pasteBusinessCardIntoEditor(file: File | null | undefined) {
     if (!file) return;
     rememberEditorSelection();
     const card = await uploadBusinessCard(file);
     insertBusinessCardIntoEditor(card);
-  }
+  }, [insertBusinessCardIntoEditor, rememberEditorSelection, uploadBusinessCard]);
 
   useEffect(() => {
     if (hasToken !== true) return;
 
     function handleWindowPaste(event: globalThis.ClipboardEvent) {
-      const file = findClipboardImageFile(event.clipboardData?.items);
+      if (event.defaultPrevented || targetIsInsideAnyNode(event.target, [editorRef.current, cardUploaderRef.current])) return;
+      const file = findClipboardImageFile(event.clipboardData);
       if (!file) return;
       event.preventDefault();
       void pasteBusinessCardIntoEditor(file);
@@ -285,10 +320,10 @@ export default function MasterEmailClientPage() {
 
     window.addEventListener("paste", handleWindowPaste);
     return () => window.removeEventListener("paste", handleWindowPaste);
-  }, [hasToken, uploadBusinessCard]);
+  }, [hasToken, pasteBusinessCardIntoEditor]);
 
   function handleBusinessCardPaste(event: ReactClipboardEvent<HTMLDivElement>) {
-    const file = findClipboardImageFile(event.clipboardData?.items);
+    const file = findClipboardImageFile(event.clipboardData);
     if (!file) return;
     event.preventDefault();
     void pasteBusinessCardIntoEditor(file);
@@ -419,7 +454,7 @@ export default function MasterEmailClientPage() {
               onKeyUp={rememberEditorSelection}
               onMouseUp={rememberEditorSelection}
               onPaste={(event) => {
-                const file = findClipboardImageFile(event.clipboardData?.items);
+                const file = findClipboardImageFile(event.clipboardData);
                 if (!file) return;
                 event.preventDefault();
                 void pasteBusinessCardIntoEditor(file);
@@ -470,6 +505,7 @@ export default function MasterEmailClientPage() {
           </div>
 
           <div
+            ref={cardUploaderRef}
             className={styles.cardUploader}
             role="group"
             tabIndex={0}

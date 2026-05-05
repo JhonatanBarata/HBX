@@ -123,7 +123,7 @@ export class MasterEmailController {
     sanitized = sanitized.replace(/<img\b[^>]*>/gi, (tag) => {
       const isBusinessCard = tag.includes('data-hbx-business-card') || /src=["']data:image\//i.test(tag);
       if (!isBusinessCard || !hasBusinessCard) return '';
-      return `<img src="cid:${BUSINESS_CARD_CID}" alt="Cartao de visitas" style="display:block;max-width:640px;width:100%;height:auto;border:0;outline:none;text-decoration:none;margin-top:12px;margin-bottom:12px">`;
+      return `<img src="cid:${BUSINESS_CARD_CID}" alt="Cartao de visitas" style="display:block;max-width:100%;width:auto;height:auto;border:0;outline:none;text-decoration:none;margin-top:12px;margin-bottom:12px">`;
     });
 
     return sanitized.trim();
@@ -142,7 +142,7 @@ export class MasterEmailController {
     const businessCard = options?.hasBusinessCard
       ? [
           '<div style="margin-top:18px">',
-          `<img src="cid:${BUSINESS_CARD_CID}" alt="Cartao de visitas" style="display:block;max-width:640px;width:100%;height:auto;border:0;outline:none;text-decoration:none">`,
+          `<img src="cid:${BUSINESS_CARD_CID}" alt="Cartao de visitas" style="display:block;max-width:100%;width:auto;height:auto;border:0;outline:none;text-decoration:none">`,
           '</div>',
         ].join('')
       : '';

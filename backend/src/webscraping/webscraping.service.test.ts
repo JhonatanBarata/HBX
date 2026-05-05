@@ -20,6 +20,7 @@ function createResponse(status: number, body: any): FetchResponseLike {
 function createPrisma(overrides?: Record<string, any>) {
   return {
     hasTable: async () => true,
+    hasColumn: async () => true,
     company: {
       findUnique: async () => ({
         id: 7,
@@ -142,6 +143,80 @@ test('busca valida retorna contatos e persiste historico nativo', async () => {
     global.fetch = previousFetch;
     if (previousGoogleKey === undefined) delete process.env.GOOGLE_PLACES_API_KEY;
     else process.env.GOOGLE_PLACES_API_KEY = previousGoogleKey;
+  }
+});
+
+test('busca segue funcionando com schema legado sem colunas opcionais do historico', async () => {
+  const previousEngineUrl = process.env.HBX_SCRAPING_ENGINE_URL;
+  process.env.HBX_SCRAPING_ENGINE_URL = 'http://localhost:8001';
+
+  const previousFetch = global.fetch;
+  global.fetch = (async () =>
+    createResponse(200, {
+      results: [
+        {
+          name: 'Oficina Centro',
+          phone: '(19) 99999-0000',
+          phoneDigits: '19999990000',
+          source: 'hbx_scraping:web',
+          score: 77,
+        },
+      ],
+    }) as any) as any;
+
+  const historyReads: any[] = [];
+  const upsertCalls: any[] = [];
+  const service = new WebscrapingService(createPrisma({
+    hasColumn: async (_tableName: string, columnName: string) =>
+      !['source', 'score', 'opportunityReason'].includes(String(columnName || '').trim()),
+    webscrapingSearchHistory: {
+      findFirst: async () => null,
+      findUnique: async (input: any) => {
+        historyReads.push(input);
+        const placeSelect = input?.select?.places?.select || {};
+        assert.equal('source' in placeSelect, false);
+        assert.equal('score' in placeSelect, false);
+        assert.equal('opportunityReason' in placeSelect, false);
+        return null;
+      },
+      findMany: async (input: any) => {
+        historyReads.push(input);
+        const placeSelect = input?.select?.places?.select || {};
+        assert.equal('source' in placeSelect, false);
+        assert.equal('score' in placeSelect, false);
+        assert.equal('opportunityReason' in placeSelect, false);
+        return [];
+      },
+      update: async ({ where, data }: any) => ({ id: where.id, ...data }),
+      upsert: async (input: any) => {
+        upsertCalls.push(input);
+        return { id: 'history-legacy-1' };
+      },
+      delete: async () => null,
+    },
+  }));
+
+  try {
+    const response = await service.searchContactsForUser(createUser(), {
+      city: 'Campinas - SP',
+      segment: 'Oficinas',
+      engine: 'hbx',
+      targetType: 'pj',
+      quantity: 10,
+    });
+
+    assert.equal(response.results.length, 1);
+    assert.equal(response.results[0].name, 'Oficina Centro');
+    assert.equal(historyReads.length >= 2, true);
+    assert.equal(upsertCalls.length, 1);
+    const placeRow = upsertCalls[0].create.places.create[0];
+    assert.equal('source' in placeRow, false);
+    assert.equal('score' in placeRow, false);
+    assert.equal('opportunityReason' in placeRow, false);
+  } finally {
+    global.fetch = previousFetch;
+    if (previousEngineUrl === undefined) delete process.env.HBX_SCRAPING_ENGINE_URL;
+    else process.env.HBX_SCRAPING_ENGINE_URL = previousEngineUrl;
   }
 });
 
