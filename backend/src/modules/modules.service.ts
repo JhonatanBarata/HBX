@@ -31,6 +31,11 @@ import {
   normalizeCommercialPlanKey,
   type ActiveCommercialPlanKey,
 } from '../commercial-plans/commercial-plan-catalog';
+import {
+  PRIMARY_COMMERCIAL_MODULE_KEYS,
+  ROUTE_GUARDED_MODULE_KEYS,
+  resolveCompanyModuleAccessPolicy,
+} from './module-access-policy';
 
 type DefaultModuleDef = {
   key: string;
@@ -69,8 +74,10 @@ const TRIAL_BUNDLED_MODULE_KEYS = ['atendimento', 'vendas', 'webscraping'];
 const MODULE_DISPLAY_ORDER = [
   'atendimento',
   'vendas',
+  'bot_ia',
   'website',
   'webscraping',
+  'cadastro',
   'follow_up_internacional',
   'financeiro',
   'gerencial',
@@ -1459,7 +1466,7 @@ export class ModulesService implements OnModuleInit {
 
   private getModuleCategory(moduleKey: string): ModuleCategory {
     const normalized = this.normalizeRequestedModuleKey(moduleKey);
-    if (normalized === 'financeiro' || normalized === 'gerencial') return 'structural';
+    if (normalized === 'financeiro' || normalized === 'gerencial' || normalized === 'cadastro') return 'structural';
     if (normalized === 'master' || normalized === 'exclusoes') return 'system';
     return 'commercial';
   }
@@ -1746,15 +1753,16 @@ export class ModulesService implements OnModuleInit {
       paymentStatus !== 'PAID' &&
       paymentStatus !== 'MANUAL' &&
       subscriptionStatus !== 'active' &&
-      subscriptionStatus !== 'manual',
+      subscriptionStatus !== 'manual' &&
+      !Boolean(company.premiumAccess),
     );
     const trialAllowed =
       (paymentStatus === 'TRIAL' || subscriptionStatus === 'trialing') &&
       (!company.trialEndsAt || company.trialEndsAt.getTime() >= now);
     const paidAllowed = paymentStatus === 'PAID' || subscriptionStatus === 'active' || subscriptionStatus === 'authorized';
     const manualAllowed = paymentStatus === 'MANUAL' || subscriptionStatus === 'manual';
-    const premiumAllowed = Boolean(company.isActive && company.premiumAccess);
-    const shouldRemainActive = Boolean(company.isActive && (paidAllowed || trialAllowed || manualAllowed || premiumAllowed || graceAllowed));
+    const premiumAllowed = Boolean(company.premiumAccess);
+    const shouldRemainActive = Boolean(paidAllowed || trialAllowed || manualAllowed || premiumAllowed || graceAllowed);
 
     if (trialExpired || !shouldRemainActive) {
       await this.prisma.$transaction([
@@ -1773,6 +1781,17 @@ export class ModulesService implements OnModuleInit {
         this.prisma.companyModule.updateMany({ where: { companyId }, data: { enabled: false } }),
       ]);
       return { exists: true, active: false };
+    }
+
+    if (!company.isActive) {
+      await this.prisma.company.update({
+        where: { id: companyId },
+        data: {
+          isActive: true,
+          deactivatedAt: null,
+          premiumAccess: premiumAllowed || manualAllowed || paidAllowed || trialAllowed,
+        },
+      });
     }
 
     return { exists: true, active: true };
@@ -1827,15 +1846,22 @@ export class ModulesService implements OnModuleInit {
     if (!orderedModules.length) return false;
 
     const status = await this.evaluateCompanyStatus(companyId);
-    if (!status.active) {
+    const companyAccessSnapshot = await this.prisma.company.findUnique({
+      where: { id: companyId },
+      select: {
+        isActive: true,
+        onboardingStatus: true,
+        paymentStatus: true,
+        subscriptionStatus: true,
+        premiumAccess: true,
+        selectedPlanKey: true,
+        trialEndsAt: true,
+        billingGraceEndsAt: true,
+      },
+    });
+    const accessPolicy = resolveCompanyModuleAccessPolicy(companyAccessSnapshot);
+    if (!status.active || !accessPolicy.active) {
       return this.isFinanceModuleKey(key);
-    }
-
-    const companyPaymentStatus = String(((user as any)?.company?.paymentStatus) || '').trim().toUpperCase();
-    const companySubscriptionStatus = String(((user as any)?.company?.subscriptionStatus) || '').trim().toLowerCase();
-    const manualPremiumAccess = Boolean((user as any)?.company?.premiumAccess) || companyPaymentStatus === 'MANUAL' || companySubscriptionStatus === 'manual';
-    if (manualPremiumAccess && ['atendimento', 'vendas', 'webscraping'].includes(key)) {
-      return this.canUseAdminOnlyModule(user, key);
     }
 
     const availabilityMap = await this.buildModuleAvailabilityMap(
@@ -1843,40 +1869,43 @@ export class ModulesService implements OnModuleInit {
       orderedModules.map((moduleItem) => moduleItem.key),
     );
 
-    if (isSystemMaster) {
-      for (const moduleItem of orderedModules) {
-        const availability = availabilityMap.get(this.normalizeRequestedModuleKey(moduleItem.key));
-        if (availability?.blockedByEngine) continue;
+    for (const moduleItem of orderedModules) {
+      const normalizedModuleKey = this.normalizeRequestedModuleKey(moduleItem.key);
+      const availability = availabilityMap.get(normalizedModuleKey);
+      if (availability?.blockedByEngine && !accessPolicy.moduleKeys.has(normalizedModuleKey)) continue;
+      if (!this.canUseAdminOnlyModule(user, moduleItem.key)) continue;
+
+      const userAccess = isSystemMaster
+        ? null
+        : await this.prisma.userModuleAccess.findUnique({
+            where: {
+              userId_moduleId: {
+                userId: Number(userId),
+                moduleId: moduleItem.id,
+              },
+            },
+          });
+      const userAllowed = isSystemMaster
+        ? true
+        : userAccess
+          ? Boolean(userAccess.allowed)
+          : this.defaultUserModuleAllowed(user, moduleItem.key);
+      if (!userAllowed) continue;
+
+      if (accessPolicy.moduleKeys.has(normalizedModuleKey)) {
+        return true;
+      }
+
+      if (isSystemMaster) {
         if (await this.isCompanyModuleEnabled(companyId, moduleItem.id)) {
           return true;
         }
+        continue;
       }
-      return false;
-    }
 
-    for (const moduleItem of orderedModules) {
       const companyEnabled = await this.isCompanyModuleEnabled(companyId, moduleItem.id);
       if (!companyEnabled) continue;
-
-      const userAccess = await this.prisma.userModuleAccess.findUnique({
-        where: {
-          userId_moduleId: {
-            userId: Number(userId),
-            moduleId: moduleItem.id,
-          },
-        },
-      });
-
-      const availability = availabilityMap.get(this.normalizeRequestedModuleKey(moduleItem.key));
-      if (availability?.blockedByEngine) continue;
-      if (!this.canUseAdminOnlyModule(user, moduleItem.key)) continue;
-
-      const userAllowed = userAccess
-        ? Boolean(userAccess.allowed)
-        : this.defaultUserModuleAllowed(user, moduleItem.key);
-      if (userAllowed) {
-        return true;
-      }
+      return true;
     }
 
     return false;
@@ -1906,62 +1935,52 @@ export class ModulesService implements OnModuleInit {
 
     await this.ensureTrialBundleForCompany(companyId);
 
-    const status = await this.evaluateCompanyStatus(companyId);
-    if (!status.active) {
-      const financeiroModule = await this.prisma.systemModule.findFirst({
-        where: { key: 'financeiro', companyAssignable: true },
-      });
-      const financeAccess = financeiroModule
-        ? [{
-            key: financeiroModule.key,
-            name: financeiroModule.name,
-            description: financeiroModule.description,
-            serviceUrl: financeiroModule.serviceUrl,
-            companyEnabled: true,
-            userAllowed: true,
-            accessible: true,
-            visible: true,
-            category: this.getModuleCategory(financeiroModule.key),
-            entryEligible: false,
-            blockedByEngine: false,
-            blockedReason: null,
-            blockedCode: null,
-            criticalEngine: null,
-            sortOrder: this.getModuleSortOrder(financeiroModule.key),
-          }]
-        : [];
+    await this.evaluateCompanyStatus(companyId);
 
-      return [
-        ...financeAccess,
-        ...systemMasterModules.map((moduleItem) => ({
-          key: moduleItem.key,
-          name: moduleItem.name,
-          description: moduleItem.description,
-          serviceUrl: moduleItem.serviceUrl,
-          companyEnabled: true,
-          userAllowed: true,
-          accessible: true,
-          visible: true,
-          category: this.getModuleCategory(moduleItem.key),
-          entryEligible: false,
-          blockedByEngine: false,
-          blockedReason: null,
-          blockedCode: null,
-          criticalEngine: null,
-          sortOrder: this.getModuleSortOrder(moduleItem.key),
-        })),
-      ].sort((left, right) => {
-        const leftOrder = Number(left.sortOrder || 0);
-        const rightOrder = Number(right.sortOrder || 0);
-        if (leftOrder !== rightOrder) return leftOrder - rightOrder;
-        return String(left.name || '').localeCompare(String(right.name || ''), 'pt-BR');
-      });
-    }
+    const company = await this.prisma.company.findUnique({
+      where: { id: companyId },
+      select: {
+        isActive: true,
+        onboardingStatus: true,
+        paymentStatus: true,
+        subscriptionStatus: true,
+        premiumAccess: true,
+        selectedPlanKey: true,
+        trialEndsAt: true,
+        billingGraceEndsAt: true,
+      },
+    });
+    const accessPolicy = resolveCompanyModuleAccessPolicy(company);
 
     const rows = await this.prisma.companyModule.findMany({
-      where: { companyId, enabled: true },
+      where: { companyId },
       include: { systemModule: true },
       orderBy: { systemModule: { name: 'asc' } },
+    });
+    const companyModuleByKey = new Map<string, (typeof rows)[number]>();
+    for (const row of rows) {
+      companyModuleByKey.set(this.normalizeRequestedModuleKey(row.systemModule.key), row);
+    }
+
+    const knownModuleKeys = new Set<string>([
+      ...PRIMARY_COMMERCIAL_MODULE_KEYS,
+      ...ROUTE_GUARDED_MODULE_KEYS,
+      ...Object.values(COMMERCIAL_PLAN_MODULE_KEYS).flat(),
+      'financeiro',
+      'gerencial',
+      'whatsapp',
+      'cadastro',
+    ]);
+    for (const row of rows) {
+      knownModuleKeys.add(this.normalizeRequestedModuleKey(row.systemModule.key));
+    }
+
+    const moduleRows = await this.prisma.systemModule.findMany({
+      where: {
+        companyAssignable: true,
+        key: { in: Array.from(knownModuleKeys) },
+      },
+      orderBy: { name: 'asc' },
     });
 
     const userAccessMap = new Map<number, boolean>();
@@ -1977,13 +1996,15 @@ export class ModulesService implements OnModuleInit {
 
     const availabilityMap = await this.buildModuleAvailabilityMap(
       companyId,
-      rows.map((row) => row.systemModule.key),
+      moduleRows.map((row) => row.key),
     );
 
-    const companyModules = rows
-      .filter((row) => row.systemModule.companyAssignable && !this.isRetiredModuleKey(row.systemModule.key))
-      .map((row) => {
-        const normalizedKey = this.normalizeRequestedModuleKey(row.systemModule.key);
+    const planManagedModuleKeys = new Set<string>(Object.values(COMMERCIAL_PLAN_MODULE_KEYS).flat());
+    const companyModules = moduleRows
+      .filter((moduleItem) => moduleItem.companyAssignable && !this.isRetiredModuleKey(moduleItem.key))
+      .map((moduleItem) => {
+        const normalizedKey = this.normalizeRequestedModuleKey(moduleItem.key);
+        const row = companyModuleByKey.get(normalizedKey);
         const availability = availabilityMap.get(normalizedKey) || {
           category: this.getModuleCategory(normalizedKey),
           sortOrder: this.getModuleSortOrder(normalizedKey),
@@ -1993,30 +2014,66 @@ export class ModulesService implements OnModuleInit {
           blockedCode: null,
           criticalEngine: null,
         };
+        const planAllowsModule = accessPolicy.moduleKeys.has(normalizedKey);
+        const primaryCommercialModule = PRIMARY_COMMERCIAL_MODULE_KEYS.includes(normalizedKey as any);
+        const guardedCommercialModule = ROUTE_GUARDED_MODULE_KEYS.includes(normalizedKey as any);
+        const planManagedModule = planManagedModuleKeys.has(normalizedKey);
+        const financeModule = this.isFinanceModuleKey(normalizedKey);
+        const effectiveCompanyEnabled = Boolean(row?.enabled || (accessPolicy.active && planAllowsModule));
         const userAllowed = isSystemMaster
           ? true
-          : (userAccessMap.has(row.moduleId)
+          : (row && userAccessMap.has(row.moduleId)
               ? Boolean(userAccessMap.get(row.moduleId))
-              : this.defaultUserModuleAllowed(user, row.systemModule.key));
-        const roleEligible = this.canUseAdminOnlyModule(user, row.systemModule.key);
-        const visible = Boolean(row.enabled) && userAllowed && roleEligible;
-        const accessible = visible && !availability.blockedByEngine;
+              : this.defaultUserModuleAllowed(user, moduleItem.key));
+        const roleEligible = this.canUseAdminOnlyModule(user, moduleItem.key);
+        const visible = primaryCommercialModule ||
+          (guardedCommercialModule && Boolean(row)) ||
+          Boolean(effectiveCompanyEnabled && userAllowed && roleEligible) ||
+          financeModule;
+        let blockedReason: string | null = null;
+        let blockedCode: string | null = null;
+        let criticalEngine: string | null = null;
+
+        if (!accessPolicy.active && !financeModule) {
+          blockedReason = accessPolicy.blockedReason;
+          blockedCode = accessPolicy.blockedCode;
+          criticalEngine = 'payment';
+        } else if (!userAllowed || !roleEligible) {
+          blockedReason = 'Usuario sem permissao para este modulo.';
+          blockedCode = 'user_module_blocked';
+        } else if (accessPolicy.active && (primaryCommercialModule || planManagedModule) && !planAllowsModule) {
+          blockedReason = 'Este modulo nao faz parte do plano atual.';
+          blockedCode = 'plan_required';
+          criticalEngine = 'payment';
+        } else if (availability.blockedByEngine && !planAllowsModule) {
+          blockedReason = availability.blockedReason;
+          blockedCode = availability.blockedCode;
+          criticalEngine = availability.criticalEngine;
+        }
+
+        const accessible = Boolean(
+          visible &&
+          !blockedReason &&
+          (financeModule ||
+            planAllowsModule ||
+            (accessPolicy.active && effectiveCompanyEnabled && !planManagedModule && !availability.blockedByEngine)),
+        );
 
         return {
-          key: row.systemModule.key,
-          name: row.systemModule.name,
-          description: row.systemModule.description,
-          serviceUrl: row.systemModule.serviceUrl,
-          companyEnabled: row.enabled,
+          key: moduleItem.key,
+          name: moduleItem.name,
+          description: moduleItem.description,
+          serviceUrl: moduleItem.serviceUrl,
+          companyEnabled: effectiveCompanyEnabled,
           userAllowed,
           accessible,
           visible,
           category: availability.category,
           entryEligible: availability.entryEligible,
-          blockedByEngine: availability.blockedByEngine,
-          blockedReason: visible ? availability.blockedReason : null,
-          blockedCode: visible ? availability.blockedCode : null,
-          criticalEngine: visible ? availability.criticalEngine : null,
+          blockedByEngine: planAllowsModule ? false : availability.blockedByEngine,
+          blockedReason: visible ? blockedReason : null,
+          blockedCode: visible ? blockedCode : null,
+          criticalEngine: visible ? criticalEngine : null,
           sortOrder: availability.sortOrder,
         };
       });
@@ -3326,10 +3383,12 @@ export class ModulesService implements OnModuleInit {
           this.prisma.companyModule.updateMany({ where: { companyId }, data: { enabled: false } }),
         ]);
       } else {
-        await this.prisma.$transaction([
-          this.prisma.company.update({
+        await this.prisma.$transaction(async (tx) => {
+          await tx.company.update({
             where: { id: companyId },
             data: {
+              selectedPlanKey: COMMERCIAL_PLAN_KEYS.PADRAO,
+              trialModuleSelection: 'vendas',
               isActive: true,
               paymentStatus: 'TRIAL',
               subscriptionStatus: 'trialing',
@@ -3340,9 +3399,18 @@ export class ModulesService implements OnModuleInit {
               subscriptionCurrentPeriodEnd: null,
               deactivatedAt: null,
             },
-          }),
-          this.prisma.companyModule.updateMany({ where: { companyId }, data: { enabled: true } }),
-        ]);
+          });
+          await this.syncCompanyModulesForPlanTx(tx, companyId, COMMERCIAL_PLAN_KEYS.PADRAO);
+          await this.syncCompanyEntitlementsForPlanTx(
+            tx,
+            companyId,
+            COMMERCIAL_PLAN_KEYS.PADRAO,
+            'trialing',
+            'master_trial',
+            trialStartsAt,
+            manualEnd,
+          );
+        });
       }
 
       await this.masterContextService.registerSupportAction({
@@ -3389,10 +3457,12 @@ export class ModulesService implements OnModuleInit {
       auditAction = 'TRIAL_GRANTED';
     }
 
-    await this.prisma.$transaction([
-      this.prisma.company.update({
+    await this.prisma.$transaction(async (tx) => {
+      await tx.company.update({
         where: { id: companyId },
         data: {
+          selectedPlanKey: COMMERCIAL_PLAN_KEYS.PADRAO,
+          trialModuleSelection: 'vendas',
           isActive: true,
           paymentStatus: 'TRIAL',
           subscriptionStatus: 'trialing',
@@ -3403,9 +3473,18 @@ export class ModulesService implements OnModuleInit {
           subscriptionCurrentPeriodEnd: null,
           deactivatedAt: null,
         },
-      }),
-      this.prisma.companyModule.updateMany({ where: { companyId }, data: { enabled: true } }),
-    ]);
+      });
+      await this.syncCompanyModulesForPlanTx(tx, companyId, COMMERCIAL_PLAN_KEYS.PADRAO);
+      await this.syncCompanyEntitlementsForPlanTx(
+        tx,
+        companyId,
+        COMMERCIAL_PLAN_KEYS.PADRAO,
+        'trialing',
+        'master_trial',
+        trialStartsAt,
+        trialEndsAt,
+      );
+    });
 
     await this.masterContextService.registerSupportAction({
       masterUserId,
@@ -3575,44 +3654,74 @@ export class ModulesService implements OnModuleInit {
     const isActive = normalized === 'PAID' || normalized === 'TRIAL' || normalized === 'MANUAL';
     const subscriptionStatus = this.mapPaymentStatusToSubscriptionStatus(normalized);
     const now = new Date();
-    await this.prisma.company.update({
-      where: { id: companyId },
-      data: {
-        paymentStatus: normalized,
-        subscriptionStatus,
-        onboardingStatus:
-          normalized === 'MANUAL' || normalized === 'PAID'
-            ? 'active_paid'
-            : normalized === 'TRIAL'
-              ? 'active_trial'
-              : company.onboardingStatus,
-        premiumAccess: ['active', 'trialing', 'manual'].includes(subscriptionStatus),
-        trialStartsAt: normalized === 'MANUAL' ? null : company.trialStartsAt,
-        trialEndsAt: normalized === 'MANUAL' ? null : company.trialEndsAt,
-        subscriptionCurrentPeriodStart:
-          normalized === 'PAID'
-            ? now
-            : normalized === 'MANUAL'
-              ? null
-              : company.subscriptionCurrentPeriodStart,
-        subscriptionCurrentPeriodEnd:
-          normalized === 'PAID'
-            ? new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000)
-            : normalized === 'MANUAL'
-              ? null
-            : normalized === 'DISABLED' || normalized === 'EXPIRED'
-              ? null
-              : company.subscriptionCurrentPeriodEnd,
-        isActive,
-        deactivatedAt: isActive ? null : new Date(),
-      },
-    });
+    const planKey = normalizeCommercialPlanKey(company.selectedPlanKey || COMMERCIAL_PLAN_KEYS.PADRAO);
+    const periodStart = normalized === 'PAID' ? now : normalized === 'TRIAL' ? (company.trialStartsAt || now) : null;
+    const periodEnd = normalized === 'PAID'
+      ? new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000)
+      : normalized === 'TRIAL'
+        ? (company.trialEndsAt || this.addDays(now, 30))
+        : null;
+    await this.prisma.$transaction(async (tx) => {
+      await tx.company.update({
+        where: { id: companyId },
+        data: {
+          selectedPlanKey: normalized === 'TRIAL' ? COMMERCIAL_PLAN_KEYS.PADRAO : planKey,
+          trialModuleSelection: normalized === 'TRIAL' ? 'vendas' : company.trialModuleSelection,
+          paymentStatus: normalized,
+          subscriptionStatus,
+          onboardingStatus:
+            normalized === 'MANUAL' || normalized === 'PAID'
+              ? 'active_paid'
+              : normalized === 'TRIAL'
+                ? 'active_trial'
+                : company.onboardingStatus,
+          premiumAccess: ['active', 'trialing', 'manual'].includes(subscriptionStatus),
+          trialStartsAt: normalized === 'TRIAL' ? periodStart : normalized === 'MANUAL' ? null : company.trialStartsAt,
+          trialEndsAt: normalized === 'TRIAL' ? periodEnd : normalized === 'MANUAL' ? null : company.trialEndsAt,
+          subscriptionCurrentPeriodStart:
+            normalized === 'PAID'
+              ? periodStart
+              : normalized === 'MANUAL'
+                ? null
+                : company.subscriptionCurrentPeriodStart,
+          subscriptionCurrentPeriodEnd:
+            normalized === 'PAID'
+              ? periodEnd
+              : normalized === 'MANUAL'
+                ? null
+                : normalized === 'DISABLED' || normalized === 'EXPIRED'
+                  ? null
+                  : company.subscriptionCurrentPeriodEnd,
+          isActive,
+          deactivatedAt: isActive ? null : new Date(),
+        },
+      });
 
-    if (!isActive) {
-      await this.prisma.companyModule.updateMany({ where: { companyId }, data: { enabled: false } });
-    } else {
-      await this.prisma.companyModule.updateMany({ where: { companyId }, data: { enabled: true } });
-    }
+      if (!isActive) {
+        await tx.companyModule.updateMany({ where: { companyId }, data: { enabled: false } });
+        await this.syncCompanyEntitlementsForPlanTx(
+          tx,
+          companyId,
+          planKey,
+          normalized === 'PENDING' ? 'pending_checkout' : 'pending_checkout',
+          'master_payment_status',
+          null,
+          null,
+        );
+      } else {
+        const effectivePlanKey = normalized === 'TRIAL' ? COMMERCIAL_PLAN_KEYS.PADRAO : planKey;
+        await this.syncCompanyModulesForPlanTx(tx, companyId, effectivePlanKey);
+        await this.syncCompanyEntitlementsForPlanTx(
+          tx,
+          companyId,
+          effectivePlanKey,
+          normalized === 'TRIAL' ? 'trialing' : normalized === 'MANUAL' ? 'manual' : 'paid',
+          'master_payment_status',
+          periodStart,
+          periodEnd,
+        );
+      }
+    });
 
     await this.masterContextService.registerSupportAction({
       masterUserId,
@@ -3707,19 +3816,25 @@ export class ModulesService implements OnModuleInit {
     });
 
     if (settlePending) {
-      await this.prisma.company.update({
-        where: { id: companyId },
-        data: {
-          paymentStatus: 'PAID',
-          subscriptionStatus: 'active',
-          premiumAccess: true,
-          subscriptionCurrentPeriodStart: paidAt,
-          subscriptionCurrentPeriodEnd: this.addDays(paidAt, 30),
-          isActive: true,
-          deactivatedAt: null,
-        },
+      const planKey = normalizeCommercialPlanKey(company.selectedPlanKey || COMMERCIAL_PLAN_KEYS.PADRAO);
+      const periodEnd = this.addDays(paidAt, 30);
+      await this.prisma.$transaction(async (tx) => {
+        await tx.company.update({
+          where: { id: companyId },
+          data: {
+            selectedPlanKey: planKey,
+            paymentStatus: 'PAID',
+            subscriptionStatus: 'active',
+            premiumAccess: true,
+            subscriptionCurrentPeriodStart: paidAt,
+            subscriptionCurrentPeriodEnd: periodEnd,
+            isActive: true,
+            deactivatedAt: null,
+          },
+        });
+        await this.syncCompanyModulesForPlanTx(tx, companyId, planKey);
+        await this.syncCompanyEntitlementsForPlanTx(tx, companyId, planKey, 'paid', 'master_manual_payment', paidAt, periodEnd);
       });
-      await this.prisma.companyModule.updateMany({ where: { companyId }, data: { enabled: true } });
     }
 
     if (input?.generateAudit !== false) {
@@ -3919,9 +4034,11 @@ export class ModulesService implements OnModuleInit {
     }
 
     const updated = await this.prisma.$transaction(async (tx) => {
+      const premiumPlanKey = normalizeCommercialPlanKey(company.selectedPlanKey || COMMERCIAL_PLAN_KEYS.PADRAO);
       const next = await tx.company.update({
         where: { id: companyId },
         data: {
+          selectedPlanKey: requestedPremiumAccess ? premiumPlanKey : company.selectedPlanKey,
           name: this.normalizeOptionalString(dto?.name) || company.name,
           primaryContactName: this.normalizeOptionalString(dto?.primaryContactName),
           contactEmail: this.normalizeOptionalString(dto?.contactEmail),
@@ -3938,9 +4055,8 @@ export class ModulesService implements OnModuleInit {
         },
       });
       if (requestedPremiumAccess) {
-        const planKey = normalizeCommercialPlanKey(company.selectedPlanKey || 'hbx_padrao');
-        await this.syncCompanyModulesForPlanTx(tx, companyId, planKey);
-        await this.syncCompanyEntitlementsForPlanTx(tx, companyId, planKey, 'manual', 'master_profile_premium', null, null);
+        await this.syncCompanyModulesForPlanTx(tx, companyId, premiumPlanKey);
+        await this.syncCompanyEntitlementsForPlanTx(tx, companyId, premiumPlanKey, 'manual', 'master_profile_premium', null, null);
       }
       return next;
     });

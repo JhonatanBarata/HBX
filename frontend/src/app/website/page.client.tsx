@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import DashboardScaffold from "@/components/DashboardScaffold";
 import { getWebsitePortal } from "@/lib/websiteLaunch";
-import { useRequireAuth } from "@/app/_lib/useRequireAuth";
+import { useRequireModule } from "@/app/_lib/useRequireModule";
 
 type LaunchState = "loading" | "redirecting" | "error";
 
@@ -40,7 +40,7 @@ function buildFallbackMessage(portal?: {
 
 export default function WebsiteClientPage() {
   const router = useRouter();
-  const hasToken = useRequireAuth();
+  const hasToken = useRequireModule("website");
   const [launchState, setLaunchState] = useState<LaunchState>("loading");
   const [statusMessage, setStatusMessage] = useState("Preparando o website protegido...");
   const [attempt, setAttempt] = useState(0);

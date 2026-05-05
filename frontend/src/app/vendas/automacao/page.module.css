@@ -1076,6 +1076,12 @@
   gap: 0.38rem;
 }
 
+.messagePresetField {
+  display: grid;
+  gap: 0.38rem;
+  min-width: 0;
+}
+
 .prospectingPreviewGrid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1166,6 +1172,7 @@
 
 .prospectingFormGrid label span,
 .prospectingMessageGrid label span,
+.messagePresetField span,
 .prospectingKeywordGrid label span,
 .toggleCard small {
   color: rgba(40, 78, 124, 0.82);

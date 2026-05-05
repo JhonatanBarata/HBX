@@ -13,6 +13,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import DashboardScaffold from "@/components/DashboardScaffold";
 import { apiFetch } from "@/app/_lib/api";
 import { useRequireAuth } from "@/app/_lib/useRequireAuth";
+import { dispatchModulesChanged } from "@/lib/module-events";
 import { dispatchMasterContextChanged } from "@/lib/masterContextEvents";
 import { EyeIcon, ModalShell } from "./_components/MasterPremiumChrome";
 import { DistributionCard, MetricCard, PaymentChart, RevenueChart } from "./_components/MasterPremiumCharts";
@@ -1674,6 +1675,7 @@ export default function MasterPremiumPage() {
       });
       setMessage(successMessage);
       await refreshAll(companyId);
+      dispatchModulesChanged({ reason: "master_trial_changed" });
     } catch (actionError) {
       setError(actionError instanceof Error ? actionError.message : "Falha ao atualizar trial.");
     } finally {
@@ -1691,6 +1693,7 @@ export default function MasterPremiumPage() {
       });
       setMessage(successMessage);
       await refreshAll(companyId);
+      dispatchModulesChanged({ reason: "master_payment_changed" });
     } catch (actionError) {
       setError(actionError instanceof Error ? actionError.message : "Falha ao atualizar status financeiro.");
     } finally {
@@ -1839,6 +1842,7 @@ export default function MasterPremiumPage() {
       const companyId = manualPaymentModal.companyId;
       setManualPaymentModal(null);
       await refreshAll(companyId);
+      dispatchModulesChanged({ reason: "master_manual_payment" });
     } catch (actionError) {
       setError(actionError instanceof Error ? actionError.message : "Falha ao lançar pagamento manual.");
     } finally {
@@ -1885,6 +1889,7 @@ export default function MasterPremiumPage() {
       });
       setMessage("Resumo da empresa salvo.");
       await refreshAll(activeCompany.id);
+      dispatchModulesChanged({ reason: "master_profile_changed" });
     } catch (actionError) {
       setError(actionError instanceof Error ? actionError.message : "Falha ao salvar perfil.");
     } finally {
@@ -1949,6 +1954,7 @@ export default function MasterPremiumPage() {
       });
       setMessage("Módulo atualizado.");
       await refreshAll(companyId);
+      dispatchModulesChanged({ reason: "master_module_changed" });
     } catch (actionError) {
       setError(actionError instanceof Error ? actionError.message : "Falha ao atualizar módulo.");
     } finally {
@@ -1966,6 +1972,7 @@ export default function MasterPremiumPage() {
       });
       setMessage("Plano comercial atualizado. Acessos derivados do pacote foram sincronizados.");
       await refreshAll(companyId);
+      dispatchModulesChanged({ reason: "master_plan_changed" });
     } catch (actionError) {
       setError(actionError instanceof Error ? actionError.message : "Falha ao trocar plano comercial.");
     } finally {

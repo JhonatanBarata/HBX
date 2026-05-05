@@ -186,9 +186,11 @@ function isPendingCheckoutUser(user: User | null) {
   const graceAccess = subscriptionStatus === "grace" && Number.isFinite(billingGraceEndsAt) && billingGraceEndsAt >= Date.now();
   const accessReleased =
     paymentStatus === "PAID" ||
+    paymentStatus === "TRIAL" ||
     paymentStatus === "MANUAL" ||
     subscriptionStatus === "active" ||
     subscriptionStatus === "authorized" ||
+    subscriptionStatus === "trialing" ||
     subscriptionStatus === "manual" ||
     Boolean(company.premiumAccess) ||
     graceAccess;
@@ -1924,6 +1926,7 @@ export default function TopBar() {
                 title={modulesPeekAvailable ? "Modulos" : authenticated === true ? "Dashboard" : "Login"}
               >
                 <span className="app-brand__markGlyph">HB</span>
+                <span className="app-brand__markCaption">Módulos</span>
                 <span className="app-brand__markBadge" aria-hidden="true" />
               </button>
 

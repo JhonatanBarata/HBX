@@ -7,7 +7,7 @@ import LiquidGlassCard, { liquidGlassCardStyles as glassCardStyles } from "@/com
 import PremiumLaunchDialog from "@/components/PremiumLaunchDialog";
 import { useQuickLaunchNotice } from "@/components/useQuickLaunchNotice";
 import { apiFetch, getToken } from "@/app/_lib/api";
-import { useRequireAuth } from "@/app/_lib/useRequireAuth";
+import { useRequireModule } from "@/app/_lib/useRequireModule";
 import styles from "./page.module.css";
 
 const DEFAULT_API_URL =
@@ -762,7 +762,6 @@ function buildFilterSummary(filters: SearchFilters) {
   const parts: string[] = [];
   if (filters.minRating != null) parts.push(`nota >= ${filters.minRating.toFixed(1)}`);
   if (filters.minReviews != null) parts.push(`${filters.minReviews}+ avaliacoes`);
-  if (filters.onlyWithWebsite) parts.push("com site");
   return parts.length ? parts.join(" • ") : "Sem filtros avancados";
 }
 
@@ -807,7 +806,7 @@ async function downloadExcel(body: Record<string, unknown>) {
 
 export default function WebscrapingClientPage() {
   const router = useRouter();
-  const hasToken = useRequireAuth();
+  const hasToken = useRequireModule("webscraping");
   const resultsRef = useRef<HTMLElement | null>(null);
   const scriptTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const lastAutoScrollKeyRef = useRef("");
@@ -828,7 +827,6 @@ export default function WebscrapingClientPage() {
   const [quantity, setQuantity] = useState(10);
   const [minRating, setMinRating] = useState("");
   const [minReviews, setMinReviews] = useState("");
-  const [onlyWithWebsite, setOnlyWithWebsite] = useState(false);
   const [results, setResults] = useState<SearchResult[]>([]);
   const [activeQuery, setActiveQuery] = useState<SearchResponse["query"] | null>(null);
   const [searchMeta, setSearchMeta] = useState<SearchResponse["meta"] | null>(null);
@@ -1181,7 +1179,6 @@ export default function WebscrapingClientPage() {
         ...basePayload,
         minRating: minRating ? Number(minRating) : undefined,
         minReviews: minReviews ? Number(minReviews) : undefined,
-        onlyWithWebsite,
       };
     }
 
@@ -1191,7 +1188,6 @@ export default function WebscrapingClientPage() {
       targetType,
       minRating: targetType === "pj" && minRating ? Number(minRating) : undefined,
       minReviews: targetType === "pj" && minReviews ? Number(minReviews) : undefined,
-      onlyWithWebsite: targetType === "pj" ? onlyWithWebsite : undefined,
     };
   }
 
@@ -1484,7 +1480,6 @@ export default function WebscrapingClientPage() {
       setQuantity(payload.query.quantity);
       setMinRating(payload.query.filters.minRating == null ? "" : String(payload.query.filters.minRating));
       setMinReviews(payload.query.filters.minReviews == null ? "" : String(payload.query.filters.minReviews));
-      setOnlyWithWebsite(Boolean(payload.query.filters.onlyWithWebsite));
       setResults(payload.results || []);
       setActiveQuery(payload.query);
       setSearchMeta(payload.meta);
@@ -1557,7 +1552,7 @@ export default function WebscrapingClientPage() {
       filters: {
         minRating: minRating ? Number(minRating) : null,
         minReviews: minReviews ? Number(minReviews) : null,
-        onlyWithWebsite,
+        onlyWithWebsite: false,
       },
     };
 
@@ -1586,7 +1581,6 @@ export default function WebscrapingClientPage() {
         quantity: query.quantity,
         minRating: queryTargetType === "pj" ? query.filters.minRating ?? undefined : undefined,
         minReviews: queryTargetType === "pj" ? query.filters.minReviews ?? undefined : undefined,
-        onlyWithWebsite: queryTargetType === "pj" ? query.filters.onlyWithWebsite : undefined,
       };
       if (queryEngine === "hbx") {
         exportPayload.engine = "hbx";
@@ -2054,15 +2048,6 @@ export default function WebscrapingClientPage() {
                               onChange={(event) => setMinReviews(event.target.value)}
                               placeholder="Opcional"
                             />
-                          </label>
-
-                          <label className={styles.checkboxField}>
-                            <input
-                              type="checkbox"
-                              checked={onlyWithWebsite}
-                              onChange={(event) => setOnlyWithWebsite(event.target.checked)}
-                            />
-                            <span>Somente com site</span>
                           </label>
                         </>
                       ) : (

@@ -46,6 +46,15 @@
       "serviceUrl": "/dashboard/financeiro"
     },
     {
+      "key": "cadastro",
+      "name": "Cadastros",
+      "description": "Clientes cadastrados, origem e contexto compartilhado.",
+      "monthlyPrice": 0,
+      "defaultEnabled": true,
+      "companyAssignable": true,
+      "serviceUrl": "/dashboard/cadastros"
+    },
+    {
       "key": "website",
       "name": "Website",
       "description": "Acesso ao site da empresa e entrada segura no admin do website.",

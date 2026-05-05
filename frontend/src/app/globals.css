@@ -1035,7 +1035,7 @@ html[data-theme-switcher-open="true"] .app-topbar::after {
   grid-template-columns: minmax(0, auto) minmax(320px, 1fr) auto;
   gap: 0.6rem;
   align-items: center;
-  padding: 0.5rem 0.7rem 0.45rem;
+  padding: 0.22rem 0.7rem 0.2rem;
 }
 
 .app-topbar__dock {
@@ -3461,12 +3461,14 @@ html[data-theme="tabler"] .login-card__stat {
 }
 
 .app-brand__mark {
-  width: 42px;
-  height: 42px;
+  width: 50px;
+  height: 50px;
   border-radius: calc(var(--control-radius) - 1px);
-  display: inline-flex;
+  display: inline-grid;
   align-items: center;
   justify-content: center;
+  align-content: center;
+  gap: 0.04rem;
   position: relative;
   overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--button-primary) 34%, var(--button-accent));
@@ -3513,12 +3515,26 @@ html[data-hbx-modules-peek-open="true"] .app-brand__markButton.is-modules {
 .app-brand__markGlyph {
   position: relative;
   z-index: 1;
+  line-height: 1;
+}
+
+.app-brand__markCaption {
+  position: relative;
+  z-index: 1;
+  max-width: 100%;
+  color: color-mix(in srgb, var(--brand-contrast) 88%, transparent);
+  font-size: 0.44rem;
+  font-weight: 950;
+  letter-spacing: 0.13em;
+  line-height: 1;
+  text-transform: uppercase;
+  text-shadow: 0 1px 8px rgba(15, 23, 42, 0.28);
 }
 
 .app-brand__markBadge {
   position: absolute;
-  right: 9px;
-  bottom: 9px;
+  right: 8px;
+  bottom: 8px;
   width: 5px;
   height: 5px;
   border-radius: 2px;

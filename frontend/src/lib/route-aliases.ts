@@ -10,6 +10,7 @@ const LEGACY_ROUTE_ALIASES: Array<[string, string]> = [
   ["/website", "/website"],
   ["/webscraping", "/webscraping"],
   ["/gerencial", "/gerencial"],
+  ["/cadastros", "/cadastros"],
   ["/importacoes/followup-global", "/followup-global"],
   ["/importacoes/cadastros", "/importacoes/cadastros"],
   ["/importacoes/historico", "/importacoes/historico"],

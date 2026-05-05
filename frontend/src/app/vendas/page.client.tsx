@@ -21,7 +21,7 @@ import LiquidGlassCard, { liquidGlassCardStyles as glassCardStyles } from "@/com
 import PremiumLaunchDialog from "@/components/PremiumLaunchDialog";
 import { useQuickLaunchNotice } from "@/components/useQuickLaunchNotice";
 import { apiFetch } from "@/app/_lib/api";
-import { useRequireAuth } from "@/app/_lib/useRequireAuth";
+import { useRequireModule } from "@/app/_lib/useRequireModule";
 import { HBX_WINDOW_STANDARD } from "@/lib/hbx-window-system";
 import styles from "./page.module.css";
 
@@ -960,7 +960,7 @@ function DraggableLeadCard({
 export default function VendasClientPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const hasToken = useRequireAuth();
+  const hasToken = useRequireModule("vendas");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
