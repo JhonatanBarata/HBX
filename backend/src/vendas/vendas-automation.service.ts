@@ -639,6 +639,8 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
         error: String(error?.message || error),
         type: 'campaign_error',
       });
+    }).finally(() => {
+      void this.runWorkerCycle().catch(() => null);
     });
 
     return this.buildLiveStatus(campaign);
@@ -978,13 +980,13 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
       orderBy: { scheduledAt: 'desc' },
       select: { scheduledAt: true },
     });
-    let cursor = this.moveToWorkingWindow(
-      latestScheduled?.scheduledAt instanceof Date ? latestScheduled.scheduledAt : new Date(),
-      campaign,
-    );
+    const intervalMs = Number(campaign.intervalMinutes || 12) * 60000;
+    let cursor = latestScheduled?.scheduledAt instanceof Date
+      ? this.moveToWorkingWindow(latestScheduled.scheduledAt, campaign)
+      : new Date(Date.now() - intervalMs);
     const data: any[] = [];
     for (const lead of leads) {
-      cursor = this.moveToWorkingWindow(new Date(cursor.getTime() + Number(campaign.intervalMinutes || 12) * 60000), campaign);
+      cursor = this.moveToWorkingWindow(new Date(cursor.getTime() + intervalMs), campaign);
       data.push({
         campaignId: campaign.id,
         companyId: campaign.companyId,

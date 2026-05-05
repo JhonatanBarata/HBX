@@ -1507,6 +1507,50 @@ export class InboxService {
     }
   }
 
+  private isProspectionMetadataCandidate(metadata: Record<string, any>, routeTarget: string, vendasAgendaQueue: Record<string, any> | null) {
+    const sourceModule = String(metadata?.sourceModule || vendasAgendaQueue?.sourceModule || '').trim().toLowerCase();
+    return (
+      routeTarget === 'prospeccao' ||
+      routeTarget === 'prospection' ||
+      sourceModule === 'vendas' ||
+      sourceModule.includes('webscraping') ||
+      vendasAgendaQueue?.active === true
+    );
+  }
+
+  private isAutomaticProspectionOutbound(conversation: any) {
+    const latestMessage = Array.isArray(conversation?.messages) ? conversation.messages[0] : null;
+    const direction = String(latestMessage?.direction || '').trim().toUpperCase();
+    if (direction !== 'OUTBOUND') return false;
+    const source = String(latestMessage?.sourceModule || '').trim().toLowerCase();
+    const sender = String(latestMessage?.senderType || '').trim().toLowerCase();
+    return source.includes('prospeccao') || source.includes('prospect') || source.includes('vendas') || sender === 'bot';
+  }
+
+  private async hasProspectionInboundAfterAutomaticSend(companyId: number, conversation: any, metadata: Record<string, any>) {
+    const automation = this.getNestedMetadataRecord(metadata?.vendasAutomation);
+    const queue = this.getNestedMetadataRecord(metadata?.vendasAgendaQueue);
+    const sentAtRaw = String(
+      automation?.sentAt ||
+        queue?.manualSentAt ||
+        queue?.lastManualSendAt ||
+        queue?.syncedAt ||
+        '',
+    ).trim();
+    const sentAt = sentAtRaw ? new Date(sentAtRaw) : null;
+    const inbound = await this.prisma.companyMessage.findFirst({
+      where: {
+        companyId,
+        conversationId: Number(conversation?.id || 0),
+        direction: 'INBOUND',
+        ...(sentAt && Number.isFinite(sentAt.getTime()) ? { timestamp: { gte: sentAt } } : {}),
+      },
+      select: { id: true },
+      orderBy: { timestamp: 'desc' },
+    });
+    return Boolean(inbound?.id);
+  }
+
   private async resolveRecoveryRoutingContext(
     companyId: number,
     conversation: any,
@@ -1587,6 +1631,23 @@ export class InboxService {
     const metadataRouteTarget = String(
       metadata?.routeTarget || metadata?.queueTarget || vendasAgendaQueue?.routeTarget || vendasAgendaQueue?.queueTarget || '',
     ).trim().toLowerCase();
+    const isProspectionCandidate = this.isProspectionMetadataCandidate(metadata, metadataRouteTarget, vendasAgendaQueue);
+    const automaticProspectionOutbound = this.isAutomaticProspectionOutbound(conversation);
+    if (isProspectionCandidate) {
+      this.logger.log(`[prospeccao-classifier] conversa classificada como prospeccao conversation=${conversation?.id || '-'}`);
+    }
+    if (automaticProspectionOutbound) {
+      this.logger.log(`[prospeccao-classifier] outbound automatico detectado conversation=${conversation?.id || '-'}`);
+    }
+    const hasProspectionInbound = isProspectionCandidate
+      ? await this.hasProspectionInboundAfterAutomaticSend(companyId, conversation, metadata)
+      : false;
+    if (isProspectionCandidate && !hasProspectionInbound) {
+      this.logger.log(`[prospeccao-classifier] sem inbound do cliente, mantendo em prospeccao conversation=${conversation?.id || '-'}`);
+    }
+    if (isProspectionCandidate && hasProspectionInbound) {
+      this.logger.log(`[prospeccao-classifier] inbound detectado, liberando para conversas/atendimento conversation=${conversation?.id || '-'}`);
+    }
 
     if (this.isConversationMetadataInTrash(metadata, conversation?.flowResult) || this.isConversationKnownWithoutWhatsapp(metadata)) {
       routeTarget = 'excluidos';
@@ -1594,13 +1655,13 @@ export class InboxService {
     } else if (this.isConversationPersonalContact(metadata)) {
       routeTarget = 'conversas';
       routeReason = 'Contato marcado como pessoal pelo operador.';
-    } else if (metadataRouteTarget === 'prospeccao' || metadataRouteTarget === 'prospection') {
+    } else if (isProspectionCandidate && !hasProspectionInbound) {
       routeTarget = 'prospeccao';
       routeReason = 'Lead herdado de Vendas/Webscraping aguardando abordagem ativa.';
     } else if (metadataRouteTarget === 'atendimento') {
       routeTarget = 'atendimento';
       routeReason = 'Cliente respondeu ou iniciou atendimento.';
-    } else if (hasInboundMessage) {
+    } else if (hasInboundMessage || hasProspectionInbound) {
       routeTarget = 'atendimento';
       routeReason = 'Cliente enviou mensagem inbound para a empresa.';
     } else if (conversation?.humanAssigned && routingRules.preferInboxForManualQueue) {

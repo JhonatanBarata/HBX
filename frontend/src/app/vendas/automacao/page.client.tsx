@@ -1076,34 +1076,46 @@ function ProspectingAutomationPanel({
       <section className={styles.prospectingPanel}>
         <div className={styles.prospectingMessageWorkbench}>
           <div className={styles.prospectingMessageEditorStack}>
-            <label className={styles.messagePresetField}>
+            <label className={styles.messagePresetField} onBlur={() => window.setTimeout(() => setOpenDropdown((prev) => (prev === "campaignType" ? null : prev)), 120)}>
               <span>Tipo de campanha</span>
-              <select
-                className={styles.selectField}
-                value={selectedCampaignTypeId}
-                onChange={(event) => applyCampaignType(event.target.value as CampaignTypeId)}
-              >
-                {CAMPAIGN_TYPES.map((campaignType) => (
-                  <option key={campaignType.id} value={campaignType.id}>
-                    {campaignType.label}
-                  </option>
-                ))}
-              </select>
+              <div className={styles.hbxDropdown}>
+                <select
+                  className={styles.selectField}
+                  value={selectedCampaignTypeId}
+                  onChange={(event) => applyCampaignType(event.target.value as CampaignTypeId)}
+                  onFocus={() => setOpenDropdown("campaignType")}
+                  onClick={() => setOpenDropdown("campaignType")}
+                  onBlur={() => window.setTimeout(() => setOpenDropdown((prev) => (prev === "campaignType" ? null : prev)), 120)}
+                >
+                  {CAMPAIGN_TYPES.map((campaignType) => (
+                    <option key={campaignType.id} value={campaignType.id}>
+                      {campaignType.label}
+                    </option>
+                  ))}
+                </select>
+                {openDropdown === "campaignType" ? <div className={styles.hbxDropdownOpeningNotice}>Abrindo os dados...</div> : null}
+              </div>
             </label>
-            <label className={styles.messagePresetField}>
+            <label className={styles.messagePresetField} onBlur={() => window.setTimeout(() => setOpenDropdown((prev) => (prev === "messagePreset" ? null : prev)), 120)}>
               <span>Modelo de abordagem</span>
-              <select
-                className={styles.selectField}
-                value={selectedMessagePresetId}
-                onChange={(event) => applyMessagePreset(event.target.value)}
-              >
-                <option value="">Personalizado</option>
-                {filteredMessagePresets.map((preset) => (
-                  <option key={preset.id} value={preset.id}>
-                    {preset.label}
-                  </option>
-                ))}
-              </select>
+              <div className={styles.hbxDropdown}>
+                <select
+                  className={styles.selectField}
+                  value={selectedMessagePresetId}
+                  onChange={(event) => applyMessagePreset(event.target.value)}
+                  onFocus={() => setOpenDropdown("messagePreset")}
+                  onClick={() => setOpenDropdown("messagePreset")}
+                  onBlur={() => window.setTimeout(() => setOpenDropdown((prev) => (prev === "messagePreset" ? null : prev)), 120)}
+                >
+                  <option value="">Personalizado</option>
+                  {filteredMessagePresets.map((preset) => (
+                    <option key={preset.id} value={preset.id}>
+                      {preset.label}
+                    </option>
+                  ))}
+                </select>
+                {openDropdown === "messagePreset" ? <div className={styles.hbxDropdownOpeningNotice}>Abrindo os dados...</div> : null}
+              </div>
             </label>
             <div className={styles.prospectingMessageGrid}>
               <label>
@@ -1655,6 +1667,11 @@ export default function VendasAutomationClientPage() {
       setError(null);
       try {
         if (action === "start") {
+          const configPayload = await apiFetch<ProspectingAutomationLiveStatus>("/vendas/automation/prospecting/config", {
+            method: "PATCH",
+            body: JSON.stringify(toProspectingRequestPayload(currentProspectingConfig)),
+          });
+          setProspectingStatus(configPayload);
           const botSaved = await saveBotConfig(nextBotConfig, "Bot sincronizado para a prospecção.");
           if (!botSaved) return;
         }
@@ -1678,6 +1695,9 @@ export default function VendasAutomationClientPage() {
                   ? "Campanha retomada."
                   : "Campanha cancelada.",
         });
+        if (action === "start") {
+          router.push("/atendimento?atendimentoQueue=bot");
+        }
       } catch (actionError) {
         const message = actionError instanceof Error ? actionError.message : "Falha ao controlar a prospecção automática.";
         setError(message);
@@ -1686,7 +1706,7 @@ export default function VendasAutomationClientPage() {
         setProspectingAction(null);
       }
     },
-    [botAiActive, draftConfig, openBotPlans, saveBotConfig],
+    [botAiActive, draftConfig, openBotPlans, router, saveBotConfig],
   );
 
   const renderBotPlanPaywall = () => (
