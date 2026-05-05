@@ -1438,6 +1438,17 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     );
   }
 
+  private containsVendasAutomationKeyword(normalizedText: string, keywords: string[]) {
+    return keywords.some((keyword) => {
+      const normalizedKeyword = this.normalizeVendasAutomationIntentText(keyword);
+      return Boolean(normalizedKeyword && normalizedText.includes(normalizedKeyword));
+    });
+  }
+
+  private vendasCampaignOptOutReplyEnabled(campaign: any) {
+    return this.readJsonRecord(campaign?.filtersJson).optOutReplyEnabled === true;
+  }
+
   private publishVendasAutomationEvent(input: {
     companyId: number;
     type: string;
@@ -1475,7 +1486,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     const jobId = String(automation.jobId || queue.automationJobId || '').trim();
     if (jobId) {
       const job = await this.prisma.vendasAutomationJob.findFirst({
-        where: { id: jobId, companyId: input.companyId },
+        where: { id: jobId, companyId: input.companyId, status: 'sent' },
         include: { campaign: true, lead: true },
       });
       if (job) return job;
@@ -1491,7 +1502,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     return this.prisma.vendasAutomationJob.findFirst({
       where: {
         companyId: input.companyId,
-        status: { in: ['sent', 'sending'] },
+        status: 'sent',
         OR: [
           { conversationId: input.conversationId },
           ...(candidates.length ? [{ lead: { phoneNormalized: { in: candidates } } }] : []),
@@ -1514,15 +1525,36 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
   }) {
     const job = await this.findVendasAutomationJobForInbound(input);
     if (!job?.campaign || !job?.lead) return null;
-    const finalStatuses = new Set([
-      'replied_positive',
+    if (String(job.status || '') !== 'sent') return null;
+    const automation = this.readJsonRecord(input.metadata?.vendasAutomation);
+    const queue = this.readJsonRecord(input.metadata?.vendasAgendaQueue);
+    const automationStatus = this.normalizeVendasAutomationIntentText(automation.status);
+    const queueStatus = this.normalizeVendasAutomationIntentText(queue.status);
+    const blockedStatus = new Set([
+      'negative',
+      'opt_out',
       'replied_negative',
       'no_response_archived',
-      'failed',
-      'skipped',
-      'canceled',
+      'interested',
+      'neutral',
+      'human_assigned',
     ]);
-    if (finalStatuses.has(String(job.status || ''))) return null;
+    const blocked =
+      blockedStatus.has(automationStatus) ||
+      blockedStatus.has(queueStatus) ||
+      input.metadata?.humanAssigned === true ||
+      input.metadata?.blacklist === true ||
+      input.metadata?.blacklisted === true ||
+      input.metadata?.optOut === true ||
+      queue.humanAssigned === true ||
+      queue.blacklist === true ||
+      queue.blacklisted === true ||
+      queue.optOut === true ||
+      queue.doNotContact === true ||
+      String(job.lead.status || '') === 'encerrado' ||
+      job.lead.closedAt ||
+      job.lead.wasClosedBefore;
+    if (blocked) return null;
 
     const normalizedText = this.normalizeVendasAutomationIntentText(input.text);
     const positiveKeywords = this.readJsonTextList(job.campaign.positiveIntentKeywordsJson, [
@@ -1538,9 +1570,20 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
       'sem interesse',
       'pare',
       'remover',
+      'spam',
+      'nao me chame',
+      'não me chame',
     ]).map((item) => this.normalizeVendasAutomationIntentText(item));
-    const positive = positiveKeywords.some((keyword) => keyword && normalizedText.includes(keyword));
-    const negative = !positive && negativeKeywords.some((keyword) => keyword && normalizedText.includes(keyword));
+    const optOut = this.containsVendasAutomationKeyword(normalizedText, ['remover', 'pare', 'spam', 'nao me chame', 'não me chame']);
+    const humanHandoff = this.containsVendasAutomationKeyword(normalizedText, ['humano', 'atendente', 'ligar', 'me chama']);
+    const negative = optOut || this.containsVendasAutomationKeyword(normalizedText, negativeKeywords);
+    const positive = !negative && !humanHandoff && this.containsVendasAutomationKeyword(normalizedText, positiveKeywords);
+
+    if (negative) {
+      await input.setInboundMeta(optOut ? 'vendas_prospeccao_opt_out' : 'vendas_prospeccao_negativo', false);
+      await this.markVendasAutomationNegative({ ...input, optOut }, job);
+      return { handled: true, classification: optOut ? 'opt_out' : 'negative' };
+    }
 
     if (positive) {
       await input.setInboundMeta('vendas_prospeccao_interessado', false);
@@ -1548,10 +1591,10 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
       return { handled: true, classification: 'positive' };
     }
 
-    if (negative) {
-      await input.setInboundMeta('vendas_prospeccao_negativo', false);
-      await this.markVendasAutomationNegative(input, job);
-      return { handled: true, classification: 'negative' };
+    if (humanHandoff) {
+      await input.setInboundMeta('vendas_prospeccao_humano', false);
+      await this.markVendasAutomationNeutral({ ...input, humanRequested: true }, job);
+      return { handled: true, classification: 'human_requested' };
     }
 
     await input.setInboundMeta('vendas_prospeccao_neutro', false);
@@ -1695,12 +1738,8 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
       });
     });
 
-    const website =
-      job.campaign.websiteFallbackEnabled !== false && job.lead.website
-        ? `\n\nSite: ${String(job.lead.website).trim()}`
-        : '';
-    const optOutMessage = `${job.campaign.optOutMessage || 'Obrigado pelo retorno. Nao vou insistir por aqui.'}${website}`.trim();
-    if (optOutMessage) {
+    const optOutMessage = String(job.campaign.optOutMessage || 'Entendi. Vou arquivar este contato e nao chamaremos novamente.').trim();
+    if (this.vendasCampaignOptOutReplyEnabled(job.campaign) && optOutMessage) {
       try {
         await this.conversations.queueOutboundForCompany(input.companyId, {
           conversationId: input.conversationId,
@@ -1743,12 +1782,18 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
         inboxManualQueueOverride: 'archived',
         inboxLocalDeleted: true,
         inboxLocalDeletedAt: now.toISOString(),
+        optOut: true,
+        doNotContact: true,
+        blacklisted: true,
         vendasAutomation: {
           ...automation,
           campaignId: job.campaignId,
           jobId: job.id,
           leadId: job.leadId,
-          status: 'negative',
+          status: input.optOut ? 'opt_out' : 'negative',
+          optOut: true,
+          doNotContact: true,
+          blacklisted: true,
           negativeAt: now.toISOString(),
         },
         vendasAgendaQueue: {
@@ -1761,6 +1806,9 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
           draftPending: false,
           botEligible: false,
           botEntryPending: false,
+          optOut: true,
+          doNotContact: true,
+          blacklisted: true,
           manualQueueOverride: 'archived',
           syncedAt: now.toISOString(),
           deactivatedAt: now.toISOString(),
@@ -1810,7 +1858,8 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
           campaignId: job.campaignId,
           jobId: job.id,
           leadId: job.leadId,
-          status: 'neutral',
+          status: input.humanRequested ? 'human_assigned' : 'neutral',
+          humanAssigned: true,
           neutralAt: now.toISOString(),
         },
         vendasAgendaQueue: {
@@ -1823,6 +1872,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
           draftPending: false,
           botEligible: false,
           botEntryPending: false,
+          humanAssigned: true,
           respondedAt: now.toISOString(),
           syncedAt: now.toISOString(),
         },

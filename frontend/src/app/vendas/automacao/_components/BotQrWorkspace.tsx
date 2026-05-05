@@ -14,8 +14,8 @@ type BotQrWorkspaceProps = {
 
 const TABS: Array<{ id: BotQrWorkspaceTab; label: string; helper: string }> = [
   { id: "connection", label: "Conexão", helper: "QR" },
-  { id: "flow", label: "Bot", helper: "Fluxo" },
-  { id: "prospeccao", label: "Prospecção", helper: "Automática" },
+  { id: "flow", label: "Respostas de Vendas", helper: "Pós-contato" },
+  { id: "prospeccao", label: "Campanha", helper: "Disparo inicial" },
   { id: "publish", label: "OK", helper: "Publicar" },
 ];
 
@@ -43,6 +43,7 @@ export default function BotQrWorkspace({
         <div>
           <span className={styles.sectionEyebrow}>Automacao WhatsApp</span>
           <h2 className={styles.sectionTitle}>Bot</h2>
+          <p className={styles.sectionText}>Campanha envia a primeira mensagem. Respostas de Vendas só responde depois que o lead retorna.</p>
         </div>
       </div>
 

@@ -40,7 +40,11 @@ function money(value: number) {
 
 function monthlyEquivalent(plan: PlanSelectionCard, billingCycle: PlanSelectionBillingCycle) {
   const monthly = Number(plan.monthlyPrice || 0);
-  return billingCycle === "annual" ? monthly * 0.9 : monthly;
+  return billingCycle === "annual" ? monthly * 0.8 : monthly;
+}
+
+function annualTotal(plan: PlanSelectionCard) {
+  return Number(plan.monthlyPrice || 0) * 12 * 0.8;
 }
 
 function PlanGlyph({ planKey }: { planKey: PlanSelectionCard["key"] }) {
@@ -102,7 +106,7 @@ export default function PlanSelectionExperience({
         const disabled = !canSelect || plan.available === false || busy || (selected && mode === "upgrade");
         const billingHint =
           annual && hasPrice
-            ? "Economize 10%. Cobrado anualmente."
+            ? `20% OFF. Cobrado anualmente: ${money(annualTotal(plan))}.`
             : plan.note || (mode === "signup" ? null : plan.key === "hbx_padrao" ? "1º mês grátis. Sem cobrança agora." : "Checkout após confirmação.");
         return (
           <button
@@ -151,7 +155,7 @@ export default function PlanSelectionExperience({
             {billingHint ? <p className={styles.billingHint}>{billingHint}</p> : null}
             <p className={styles.planDetail}>{plan.detail}</p>
             <ul>
-              {plan.features.slice(0, 5).map((feature) => (
+              {plan.features.map((feature) => (
                 <li key={feature}>{feature}</li>
               ))}
             </ul>

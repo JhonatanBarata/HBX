@@ -233,19 +233,19 @@ const MERCADO_PAGO_BRICK_READY_WAIT_MS = 24000;
 
 const PLAN_CATALOG: Record<PlanKey, { title: string; monthly: number; includes: string[] }> = {
   hbx_lite: {
-    title: "HBX Lite",
-    monthly: 29.9,
-    includes: ["Vendas", "Motores gratuitos/HBX/cache", "Entrada com baixo custo"],
+    title: "HBX Vendas",
+    monthly: 49.9,
+    includes: ["Webscraping de empresas", "Leads por cidade e segmento", "CRM de vendas"],
   },
   hbx_padrao: {
-    title: "HBX Padrão",
-    monthly: 79.9,
-    includes: ["Vendas", "Atendimento Chat", "2 buscas Google por dia"],
+    title: "HBX WhatsApp",
+    monthly: 89.9,
+    includes: ["Tudo do HBX Vendas", "WhatsApp conectado ao sistema", "Conversas centralizadas"],
   },
   hbx_melhor: {
-    title: "HBX Melhor",
-    monthly: 129.9,
-    includes: ["Vendas", "Atendimento Chat", "Bot de atendimento", "6 buscas Google por dia"],
+    title: "HBX Bot IA",
+    monthly: 149.9,
+    includes: ["Tudo do HBX WhatsApp", "Bot de atendimento", "Automação com limites e segurança"],
   },
 };
 

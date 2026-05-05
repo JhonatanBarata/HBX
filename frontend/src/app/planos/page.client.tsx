@@ -33,50 +33,50 @@ const PLAN_ORDER: PlanKey[] = ["hbx_lite", "hbx_padrao", "hbx_melhor"];
 const FALLBACK_PLANS: Record<PlanKey, CommercialPlan> = {
   hbx_lite: {
     key: "hbx_lite",
-    title: "HBX Lite",
+    title: "HBX Vendas",
     status: "available",
-    monthlyPrice: 29.9,
-    headline: "Organização básica para começar.",
-    description: "Vendas organizadas, motores gratuitos e gestão simples para dar o primeiro passo.",
-    annualDiscountPercent: 10,
+    monthlyPrice: 49.9,
+    headline: "Para encontrar clientes e organizar a prospecção.",
+    description: "Para quem quer buscar clientes e organizar oportunidades.",
+    annualDiscountPercent: 20,
     trialDays: 0,
     quotas: { googleSearchesPerDay: 0 },
-    features: ["Vendas organizadas", "Motores gratuitos/cache", "Gestão simples"],
+    features: ["Webscraping de empresas", "Leads por cidade e segmento", "CRM de vendas", "Funil comercial", "Histórico de contatos", "Organização de oportunidades"],
     legalCopy: "Liberação após pagamento confirmado.",
   },
   hbx_padrao: {
     key: "hbx_padrao",
-    title: "HBX Padrão",
+    title: "HBX WhatsApp",
     status: "available",
-    monthlyPrice: 79.9,
-    headline: "O plano certo para vender todos os dias.",
-    description: "CRM de Vendas, Atendimento e Webscraping no preço de lançamento para primeiros clientes.",
-    annualDiscountPercent: 10,
+    monthlyPrice: 89.9,
+    headline: "Para prospectar e atender pelo WhatsApp dentro do HBX.",
+    description: "Para quem quer vendas + WhatsApp conectado dentro do sistema.",
+    annualDiscountPercent: 20,
     recommended: true,
     trialDays: 30,
     quotas: { googleSearchesPerDay: 2 },
-    features: ["Tudo do plano Lite", "Vendas + Atendimento", "2 buscas Google/dia", "Suporte prioritário"],
+    features: ["Tudo do HBX Vendas", "WhatsApp conectado ao sistema", "Conversas centralizadas", "Atendimento pelo painel", "Controle de retornos", "Histórico por cliente", "Organização de mensagens e leads"],
     legalCopy: "1º mês grátis, sem cartão e sem cobrança automática.",
   },
   hbx_melhor: {
     key: "hbx_melhor",
-    title: "HBX Melhor",
+    title: "HBX Bot IA",
     status: "available",
-    monthlyPrice: 129.9,
-    headline: "Bot IA, mais volume e atendimento no mesmo pacote.",
-    description: "Mais buscas, Bot de atendimento e operação comercial mais automatizada.",
-    annualDiscountPercent: 10,
+    monthlyPrice: 149.9,
+    headline: "Para automatizar atendimento, respostas e prospecção com segurança.",
+    description: "Para quem quer vendas + WhatsApp + bot automático.",
+    annualDiscountPercent: 20,
     trialDays: 0,
     quotas: { googleSearchesPerDay: 6 },
-    features: ["Tudo do plano Padrão", "Bot de atendimento", "6 buscas Google por dia", "Suporte dedicado"],
+    features: ["Tudo do HBX WhatsApp", "Bot de atendimento", "Bot de prospecção pós-resposta", "Respostas automáticas", "Qualificação de interessados", "Regras para não responder como bot louco", "Encaminhamento para humano", "Automação com limites e segurança"],
     legalCopy: "Liberação após pagamento confirmado.",
   },
 };
 
 const PLAN_LABELS: Record<PlanKey, string> = {
-  hbx_lite: "Lite",
-  hbx_padrao: "Padrão",
-  hbx_melhor: "Max",
+  hbx_lite: "HBX Vendas",
+  hbx_padrao: "HBX WhatsApp",
+  hbx_melhor: "HBX Bot IA",
 };
 
 function isPendingCheckout(payload: CommercialPlansPayload | null) {
@@ -122,7 +122,7 @@ function promotedPlanFor(current: PlanKey | null, intent: string): PlanKey | nul
 function planBadge(planKey: PlanKey, current: PlanKey | null, promoted: PlanKey | null) {
   if (planKey === current) return "Plano atual";
   if (planKey === promoted) return "Recomendado";
-  if (planKey === "hbx_lite") return "Essencial";
+  if (planKey === "hbx_lite") return "Vendas";
   if (planKey === "hbx_padrao") return "Mais escolhido";
   return "Mais completo";
 }
@@ -226,15 +226,15 @@ export default function PlanosClientPage() {
           badge: planBadge(key, selectedPlanKey, promotedPlanKey),
           monthlyPrice: plan.monthlyPrice,
           promoPrice: hasFreeTrial ? 0 : undefined,
-          promoLabel: hasFreeTrial ? "Após 1º mês 79,90" : undefined,
+          promoLabel: hasFreeTrial ? "Após 1º mês 89,90" : undefined,
           detail:
             key === "hbx_lite"
-              ? "Organização básica para começar."
+              ? "Para quem quer encontrar novos clientes e organizar a prospecção."
               : key === "hbx_padrao"
                 ? hasFreeTrial
-                  ? "Teste o plano certo para vender todos os dias sem pagar agora."
-                  : "O plano certo para vender todos os dias."
-                : "Bot IA, mais volume e atendimento no mesmo pacote.",
+                  ? "Teste vendas + WhatsApp conectado dentro do sistema sem pagar agora."
+                  : "Para quem quer prospectar e atender pelo WhatsApp dentro do HBX."
+                : "Para quem quer automatizar atendimento, respostas e prospecção com segurança.",
           cta: isCurrent ? "Plano atual" : key === promotedPlanKey ? "Subir de plano" : "Escolher plano",
           available: plan.status !== "unavailable",
           featured: key === promotedPlanKey || (!selectedPlanKey && Boolean(plan.recommended)),
@@ -289,7 +289,7 @@ export default function PlanosClientPage() {
     setNotice({
       tone: "info",
       text: planKey === "hbx_padrao" && padraoTrialAvailable
-        ? "Ativando o trial interno do HBX Padrão, sem cobrança agora."
+        ? "Ativando o trial interno do HBX WhatsApp, sem cobrança agora."
         : "Preparando a troca de plano.",
     });
     try {
@@ -303,7 +303,7 @@ export default function PlanosClientPage() {
       });
       setPayload(next);
       if (planKey === "hbx_padrao" && next.current.isTrial) {
-        setNotice({ tone: "success", text: "Trial do HBX Padrão iniciado por 30 dias. Não haverá cobrança automática." });
+        setNotice({ tone: "success", text: "Trial do HBX WhatsApp iniciado por 30 dias. Não haverá cobrança automática." });
         window.setTimeout(() => {
           router.push("/boasvindas");
         }, 500);
@@ -327,7 +327,7 @@ export default function PlanosClientPage() {
 
     setSavingPlan("hbx_padrao");
     setError(null);
-    setNotice({ tone: "info", text: "Validando telefone e ativando o trial do HBX Padrão." });
+    setNotice({ tone: "info", text: "Validando telefone e ativando o trial do HBX WhatsApp." });
     try {
       const next = await apiFetch<CommercialPlansPayload>("/commercial-plans/select", {
         method: "POST",
@@ -341,7 +341,7 @@ export default function PlanosClientPage() {
       });
       setPayload(next);
       setTrialModalOpen(false);
-      setNotice({ tone: "success", text: "Trial do HBX Padrão iniciado por 30 dias. Não haverá cobrança automática." });
+      setNotice({ tone: "success", text: "Trial do HBX WhatsApp iniciado por 30 dias. Não haverá cobrança automática." });
       window.setTimeout(() => {
         router.push("/boasvindas");
       }, 500);
@@ -375,19 +375,19 @@ export default function PlanosClientPage() {
           <header className={styles.modalHeader}>
             <div className={styles.titleCluster}>
               <div>
-                <span className={styles.eyebrow}>{trialModalOpen ? "Trial HBX Padrão" : "Planos HBX"}</span>
+                <span className={styles.eyebrow}>{trialModalOpen ? "Trial HBX WhatsApp" : "Planos HBX"}</span>
                 <h1 id="plans-title">{trialModalOpen ? "Antes de liberar seus 30 dias" : "Escolha o plano ideal para o seu negócio"}</h1>
                 <p>
                   {trialModalOpen
                     ? "Precisamos confirmar um contato real. O telefone é usado para validar se este trial já foi utilizado."
-                    : "Soluções completas para empresas de todos os tamanhos. Seu plano atual fica destacado quando já existir uma assinatura ativa."}
+                    : "Comece encontrando clientes. Evolua para atender pelo WhatsApp. Automatize quando estiver pronto."}
                 </p>
               </div>
             </div>
 
             <div className={styles.headerActions}>
               <span className={styles.currentPill}>
-                {trialModalOpen ? "Plano:" : "Atual:"} <strong>{trialModalOpen ? "Padrão trial" : selectedPlanKey ? PLAN_LABELS[selectedPlanKey] : "nenhum"}</strong>
+                {trialModalOpen ? "Plano:" : "Atual:"} <strong>{trialModalOpen ? "HBX WhatsApp trial" : selectedPlanKey ? PLAN_LABELS[selectedPlanKey] : "nenhum"}</strong>
               </span>
               <Link href="/boasvindas" className={styles.closeButton} aria-label="Voltar ao dashboard">X</Link>
             </div>
@@ -397,7 +397,7 @@ export default function PlanosClientPage() {
             {!trialModalOpen ? (
               <div className={styles.segmented} role="tablist" aria-label="Ciclo de cobrança">
                 <button type="button" data-active={billingCycle === "MONTHLY"} onClick={() => setBillingCycle("MONTHLY")}>Mensal</button>
-                <button type="button" data-active={billingCycle === "ANNUAL"} onClick={() => setBillingCycle("ANNUAL")}>Anual <small>10% off</small></button>
+                <button type="button" data-active={billingCycle === "ANNUAL"} onClick={() => setBillingCycle("ANNUAL")}>Anual <small>20% OFF</small></button>
               </div>
             ) : null}
           </div>
@@ -411,7 +411,7 @@ export default function PlanosClientPage() {
 
           {intent === "bot_ia" && !trialModalOpen ? (
             <section className={styles.notice} data-tone="info">
-              O Bot de atendimento fica disponível no Max. Seu plano atual continua destacado para comparação.
+              O Bot de atendimento fica disponível no HBX Bot IA. Seu plano atual continua destacado para comparação.
             </section>
           ) : null}
 
@@ -422,7 +422,7 @@ export default function PlanosClientPage() {
             <section className={styles.trialInline} aria-labelledby="trial-title">
               <aside className={styles.trialSummary}>
                 <span className={styles.trialSummaryBadge}>30 dias grátis</span>
-                <h2 id="trial-title">HBX Padrão</h2>
+                <h2 id="trial-title">HBX WhatsApp</h2>
                 <p>Trial sem cobrança automática agora. Depois dos 30 dias, qualquer pagamento passa pelo checkout antes de liberar cobrança.</p>
                 <dl>
                   <div>
@@ -486,7 +486,7 @@ export default function PlanosClientPage() {
                     onChange={(event) => setTrialForm((current) => ({ ...current, acceptedTerms: event.target.checked }))}
                   />
                   <span>
-                    Aceito iniciar o trial gratuito de 30 dias do HBX Padrão, sem cobrança automática agora, e autorizo o uso do CPF, Nome Completo e Telefone informado para contato e validação de elegibilidade do trial.
+                    Aceito iniciar o trial gratuito de 30 dias do HBX WhatsApp, sem cobrança automática agora, e autorizo o uso do CPF, Nome Completo e Telefone informado para contato e validação de elegibilidade do trial.
                   </span>
                 </label>
 
@@ -526,7 +526,7 @@ export default function PlanosClientPage() {
 
           {!trialModalOpen ? <footer className={styles.footerFacts}>
             <span>Alteração feita pelo ADMIN.</span>
-            <span>Plano Padrão grátis só quando o trial ainda está elegível.</span>
+            <span>HBX WhatsApp grátis só quando o trial ainda está elegível.</span>
             <span>Assinatura recorrente continua pelo Mercado Pago.</span>
           </footer> : null}
         </section>

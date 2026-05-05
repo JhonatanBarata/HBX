@@ -934,7 +934,7 @@ model VendasAutomationCampaign {
   searchSignature            String?
   messageTemplate            String
   intervalMinutes            Int      @default(12)
-  dailyLimit                 Int      @default(40)
+  dailyLimit                 Int      @default(30)
   minLeadBuffer              Int      @default(15)
   desiredLeadBuffer          Int      @default(60)
   maxAttemptsPerLead         Int      @default(1)

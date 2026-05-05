@@ -1,6 +1,7 @@
 export type CurrentUser = {
   id: number;
   username?: string | null;
+  name?: string | null;
   email?: string | null;
   isSystemMaster?: boolean;
   masterContext?: {
@@ -435,6 +436,7 @@ export type MasterWorkspaceBootstrap = {
 export type CompanyUser = {
   id: number;
   username?: string | null;
+  name?: string | null;
   email?: string | null;
   role: string;
   isActive: boolean;
@@ -640,6 +642,7 @@ export type UserModalState = {
   userLabel?: string;
   email: string;
   username: string;
+  name: string;
   role: "USER" | "ADMIN";
   password: string;
 };

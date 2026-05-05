@@ -86,9 +86,9 @@ const TABS: Array<{ id: DrawerTab; label: string }> = [
 ];
 
 const COMMERCIAL_PLAN_OPTIONS = [
-  { key: "hbx_lite", label: "HBX Lite", price: "R$ 29,90/mês" },
-  { key: "hbx_padrao", label: "HBX Padrão", price: "R$ 79,90/mês" },
-  { key: "hbx_melhor", label: "HBX Melhor", price: "R$ 129,90/mês" },
+  { key: "hbx_lite", label: "HBX Vendas", price: "R$ 49,90/mês" },
+  { key: "hbx_padrao", label: "HBX WhatsApp", price: "R$ 89,90/mês" },
+  { key: "hbx_melhor", label: "HBX Bot IA", price: "R$ 149,90/mês" },
 ] as const;
 
 function commercialPlanLabel(value?: string | null) {
@@ -1766,6 +1766,7 @@ export default function MasterPremiumPage() {
           body: JSON.stringify({
             email: userModal.email.trim().toLowerCase(),
             username: userModal.username.trim() || undefined,
+            name: userModal.name.trim() || undefined,
             role: userModal.role,
             password: userModal.password.trim() || undefined,
           }),
@@ -1777,6 +1778,7 @@ export default function MasterPremiumPage() {
           body: JSON.stringify({
             email: userModal.email.trim().toLowerCase(),
             username: userModal.username.trim(),
+            name: userModal.name.trim(),
             role: userModal.role,
           }),
         });
@@ -3466,6 +3468,7 @@ export default function MasterPremiumPage() {
                             companyName: activeCompany.name,
                             email: "",
                             username: "",
+                            name: "",
                             role: "USER",
                             password: "",
                           })
@@ -3478,8 +3481,8 @@ export default function MasterPremiumPage() {
                       {activeCompany.users.map((user) => (
                         <article key={user.id} className={styles.userCard}>
                           <div>
-                            <strong>{user.username || user.email || `#${user.id}`}</strong>
-                            <p>{user.email || "Sem e-mail"}</p>
+                            <strong>{user.name || user.username || user.email || `#${user.id}`}</strong>
+                            <p>{user.email || "Sem e-mail"}{user.name ? ` • Login: ${user.username || "-"}` : ""}</p>
                           </div>
                           <div className={styles.modulePills}>
                             <span className="badge">{user.role}</span>
@@ -3495,9 +3498,10 @@ export default function MasterPremiumPage() {
                                   companyId: activeCompany.id,
                                   companyName: activeCompany.name,
                                   userId: user.id,
-                                  userLabel: user.username || user.email || `#${user.id}`,
+                                  userLabel: user.name || user.username || user.email || `#${user.id}`,
                                   email: user.email || "",
                                   username: user.username || "",
+                                  name: user.name || "",
                                   role: user.role === "ADMIN" ? "ADMIN" : "USER",
                                   password: "",
                                 })
@@ -3514,9 +3518,10 @@ export default function MasterPremiumPage() {
                                   companyId: activeCompany.id,
                                   companyName: activeCompany.name,
                                   userId: user.id,
-                                  userLabel: user.username || user.email || `#${user.id}`,
+                                  userLabel: user.name || user.username || user.email || `#${user.id}`,
                                   email: user.email || "",
                                   username: user.username || "",
+                                  name: user.name || "",
                                   role: user.role === "ADMIN" ? "ADMIN" : "USER",
                                   password: "",
                                 })
@@ -3530,12 +3535,12 @@ export default function MasterPremiumPage() {
                               onClick={() =>
                                 setConfirmAction({
                                   title: "Deletar usuário",
-                                  description: `O usuário ${user.username || user.email || `#${user.id}`} será removido desta empresa.`,
+                                  description: `O usuário ${user.name || user.username || user.email || `#${user.id}`} será removido desta empresa.`,
                                   confirmLabel: "Deletar usuário",
                                   tone: "danger",
                                   run: async () => {
                                     setConfirmAction(null);
-                                    await deleteUser(activeCompany.id, user.id, user.username || user.email || `#${user.id}`);
+                                    await deleteUser(activeCompany.id, user.id, user.name || user.username || user.email || `#${user.id}`);
                                   },
                                 })
                               }
@@ -4411,7 +4416,7 @@ export default function MasterPremiumPage() {
         <div className={styles.modalBody}>
           <div className={styles.contextBannerStrong}>
             <strong>Catálogo operacional do HBX</strong>
-            <span>Módulo não é produto vendido. O cliente compra Lite, Padrão ou Melhor.</span>
+            <span>Módulo não é produto vendido. O cliente compra HBX Vendas, HBX WhatsApp ou HBX Bot IA.</span>
           </div>
           <div className={styles.moduleCatalogGrid}>
             {commercialModuleDrafts.map((moduleItem) => (
@@ -4464,7 +4469,8 @@ export default function MasterPremiumPage() {
             {userModal.mode !== "reset" ? (
               <>
                 <input className="field" placeholder="E-mail" value={userModal.email} onChange={(event) => setUserModal((current) => current ? { ...current, email: event.target.value } : current)} />
-                <input className="field" placeholder="Nome / username" value={userModal.username} onChange={(event) => setUserModal((current) => current ? { ...current, username: event.target.value } : current)} />
+                <input className="field" placeholder="Nome do atendente/vendedor" value={userModal.name} onChange={(event) => setUserModal((current) => current ? { ...current, name: event.target.value } : current)} />
+                <input className="field" placeholder="Login / username" value={userModal.username} onChange={(event) => setUserModal((current) => current ? { ...current, username: event.target.value } : current)} />
                 <select className="field" value={userModal.role} onChange={(event) => setUserModal((current) => current ? { ...current, role: event.target.value as "USER" | "ADMIN" } : current)}>
                   <option value="USER">USER</option>
                   <option value="ADMIN">ADMIN</option>
