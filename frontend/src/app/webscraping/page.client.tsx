@@ -6,6 +6,7 @@ import DashboardScaffold from "@/components/DashboardScaffold";
 import LiquidGlassCard, { liquidGlassCardStyles as glassCardStyles } from "@/components/LiquidGlassCard";
 import PremiumLaunchDialog from "@/components/PremiumLaunchDialog";
 import { useQuickLaunchNotice } from "@/components/useQuickLaunchNotice";
+import { BRAZIL_CITIES_BY_STATE, BRAZIL_STATES } from "@/lib/brazil-locations";
 import { apiFetch, getToken } from "@/app/_lib/api";
 import { useRequireModule } from "@/app/_lib/useRequireModule";
 import styles from "./page.module.css";
@@ -338,11 +339,6 @@ type HistoryResponse = {
   items: SearchHistoryItem[];
 };
 
-type CitiesResponse = {
-  items: string[];
-  total: number;
-};
-
 type ImportToVendasResponse = {
   ok: boolean;
   createdCount: number;
@@ -411,6 +407,18 @@ function normalizeCityLookup(value: string) {
     .toLowerCase()
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function splitCityState(value: string, fallbackState = "") {
+  const normalized = String(value || "").trim();
+  const match = normalized.match(/^(.*?)\s*[-,/]\s*([A-Za-z]{2})$/);
+  if (!match) {
+    return { city: normalized, state: String(fallbackState || "").trim().toUpperCase() };
+  }
+  return {
+    city: match[1].trim(),
+    state: String(fallbackState || match[2]).trim().toUpperCase(),
+  };
 }
 
 function buildCompanyName(currentUser: CurrentUser | null) {
@@ -813,11 +821,10 @@ export default function WebscrapingClientPage() {
   const [runtime, setRuntime] = useState<RuntimeResponse | null>(null);
   const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
   const [historyItems, setHistoryItems] = useState<SearchHistoryItem[]>([]);
-  const [cityOptions, setCityOptions] = useState<string[]>([]);
-  const [citiesLoading, setCitiesLoading] = useState(false);
   const [citySuggestionsOpen, setCitySuggestionsOpen] = useState(false);
   const [activeCitySuggestionIndex, setActiveCitySuggestionIndex] = useState(0);
   const [segmentSuggestionsOpen, setSegmentSuggestionsOpen] = useState(false);
+  const [selectedState, setSelectedState] = useState("");
   const [city, setCity] = useState("");
   const [segment, setSegment] = useState("Lanchonetes");
   const [engine, setEngine] = useState<WebscrapingEngine>("google");
@@ -863,6 +870,7 @@ export default function WebscrapingClientPage() {
     return String(Math.max(0, Number(runtime.quota.remainingSearches || 0)));
   }, [runtime?.quota]);
   const defaultScriptVariables = useMemo(() => buildDefaultScriptVariables(currentUser), [currentUser]);
+  const cityOptions = useMemo(() => BRAZIL_CITIES_BY_STATE[selectedState] || [], [selectedState]);
   const scriptPresetStorageKey = useMemo(() => {
     const identity = currentUser?.id ?? currentUser?.email ?? currentUser?.username ?? "local";
     return `webscraping.scriptPreset.${identity}`;
@@ -1000,7 +1008,14 @@ export default function WebscrapingClientPage() {
         // hydrate local UI preferences (last city / segment and script preset)
         try {
           const lastCity = localStorage.getItem("webscraping.lastCity");
-          if (lastCity && !city) setCity(String(lastCity));
+          const lastState = localStorage.getItem("webscraping.lastState");
+          if (lastCity && !city) {
+            const parsedLocation = splitCityState(String(lastCity), String(lastState || ""));
+            setCity(parsedLocation.city);
+            if (parsedLocation.state) setSelectedState(parsedLocation.state);
+          } else if (lastState) {
+            setSelectedState(String(lastState).trim().toUpperCase());
+          }
           const lastSegment = localStorage.getItem("webscraping.lastSegment");
           if (lastSegment) {
             setSegment(String(lastSegment));
@@ -1025,34 +1040,6 @@ export default function WebscrapingClientPage() {
         }
       }
     })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [hasToken]);
-
-  useEffect(() => {
-    if (hasToken !== true) return;
-
-    let cancelled = false;
-    setCitiesLoading(true);
-
-    apiFetch<CitiesResponse>("/webscraping/cities?limit=6000")
-      .then((payload) => {
-        if (!cancelled) {
-          setCityOptions(payload.items || []);
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setCityOptions([]);
-        }
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setCitiesLoading(false);
-        }
-      });
 
     return () => {
       cancelled = true;
@@ -1169,6 +1156,7 @@ export default function WebscrapingClientPage() {
   function buildPayload(overrides: Partial<{ quantity: number; excludePhoneDigits: string[] }> = {}) {
     const basePayload = {
       city: city.trim(),
+      state: selectedState || undefined,
       segment: effectiveSegment,
       quantity: overrides.quantity ?? quantity,
       ...(overrides.excludePhoneDigits?.length ? { excludePhoneDigits: overrides.excludePhoneDigits } : {}),
@@ -1229,6 +1217,14 @@ export default function WebscrapingClientPage() {
     setActiveCitySuggestionIndex(0);
   }
 
+  function handleStateChange(nextState: string) {
+    const normalizedState = nextState.trim().toUpperCase();
+    setSelectedState(normalizedState);
+    setCity("");
+    setCitySuggestionsOpen(false);
+    setActiveCitySuggestionIndex(0);
+  }
+
   function handleCityKeyDown(event: React.KeyboardEvent<HTMLInputElement>) {
     if (!shouldShowCitySuggestions) return;
 
@@ -1270,15 +1266,20 @@ export default function WebscrapingClientPage() {
     setSearchError(null);
     setFeedback(null);
 
+    if (!hbxPjMode && !selectedState) {
+      setSearchError("Selecione o estado.");
+      return;
+    }
+
     if (!hbxPjMode && !city.trim()) {
       setSearchError("Informe a cidade.");
       return;
     }
 
     const selectedCity = cityExactOption || (cityOptions.length === 0 || hbxPjMode ? city.trim() : "");
-    if (!hbxPjMode && (citySelectionPending || !selectedCity)) {
+    if ((city.trim() || !hbxPjMode) && selectedState && (citySelectionPending || !selectedCity)) {
       if (citySuggestionItems.length > 0) {
-        setSearchError("Selecione a cidade com UF na lista para evitar ambiguidade.");
+        setSearchError("Selecione uma cidade da lista do estado escolhido.");
       } else {
         setSearchError("Selecione uma cidade existente na lista.");
       }
@@ -1346,6 +1347,7 @@ export default function WebscrapingClientPage() {
               body: JSON.stringify({
                 ...buildPayload({ quantity: batchQuantity, excludePhoneDigits }),
                 city: selectedCity,
+                state: selectedState || undefined,
               }),
             });
             finalPayload = payload;
@@ -1426,6 +1428,7 @@ export default function WebscrapingClientPage() {
       // persist last city/segment locally for quicker re-entry
       try {
         localStorage.setItem("webscraping.lastCity", String(finalPayload.query.city || city || ""));
+        localStorage.setItem("webscraping.lastState", String(finalPayload.query.state || selectedState || ""));
         const seg = normalizeTargetTypeValue(finalPayload.query.targetType || targetType) === "pf"
           ? segment
           : String(finalPayload.query.segment || segment || "");
@@ -1463,7 +1466,9 @@ export default function WebscrapingClientPage() {
       const payload = await apiFetch<SearchResponse>(`/webscraping/history/${item.id}/reuse`, {
         method: "POST",
       });
-      setCity(payload.query.city);
+      const parsedLocation = splitCityState(payload.query.city, payload.query.state || "");
+      setCity(parsedLocation.city);
+      setSelectedState(parsedLocation.state);
       const restoredEngine = normalizeEngineValue(payload.query.engine);
       const restoredTargetType = restoredEngine === "google" ? "pj" : normalizeTargetTypeValue(payload.query.targetType);
       setEngine(restoredEngine);
@@ -1545,6 +1550,7 @@ export default function WebscrapingClientPage() {
     const selectedCity = cityExactOption || (cityOptions.length === 0 ? city.trim() : "");
     const query = activeQuery || {
       city: selectedCity,
+      state: selectedState || null,
       segment: effectiveSegment,
       quantity,
       engine,
@@ -1560,13 +1566,14 @@ export default function WebscrapingClientPage() {
     const queryTargetType = queryEngine === "google" ? "pj" : normalizeTargetTypeValue(query.targetType || targetType);
 
     if (
+      (!(queryEngine === "hbx" && queryTargetType === "pj") && !query.state?.trim()) ||
       (!(queryEngine === "hbx" && queryTargetType === "pj") && !query.city.trim()) ||
       (queryTargetType !== "agenda_pf" && !query.segment.trim())
     ) {
       setSearchError(
-        city.trim() && !query.city.trim()
-          ? "Selecione a cidade com UF na lista antes de exportar."
-          : "Preencha cidade e segmento antes de exportar.",
+        selectedState && city.trim() && !query.city.trim()
+          ? "Selecione uma cidade da lista antes de exportar."
+          : "Preencha estado, cidade e segmento antes de exportar.",
       );
       setCitySuggestionsOpen(Boolean(city.trim() && !query.city.trim()));
       return;
@@ -1577,6 +1584,7 @@ export default function WebscrapingClientPage() {
     try {
       const exportPayload: Record<string, unknown> = {
         city: query.city,
+        state: query.state || undefined,
         segment: queryTargetType === "agenda_pf" && !query.segment.trim() ? "" : query.segment,
         quantity: query.quantity,
         minRating: queryTargetType === "pj" ? query.filters.minRating ?? undefined : undefined,
@@ -1837,6 +1845,23 @@ export default function WebscrapingClientPage() {
                     </label>
                   ) : null}
 
+                  <label className={styles.field}>
+                    <span className={styles.fieldLabel}>Estado</span>
+                    <select
+                      className={styles.fieldSelect}
+                      value={selectedState}
+                      onChange={(event) => handleStateChange(event.target.value)}
+                    >
+                      <option value="">Selecione</option>
+                      {BRAZIL_STATES.map((item) => (
+                        <option key={item.uf} value={item.uf}>
+                          {item.uf} - {item.name}
+                        </option>
+                      ))}
+                    </select>
+                    <p className={styles.fieldHint}>A lista de cidades abaixo usa todos os municípios oficiais do estado.</p>
+                  </label>
+
                   <div className={styles.field}>
                     <label className={styles.fieldLabel} htmlFor="webscraping-city">
                       {hbxPjMode ? "Cidade opcional" : "Cidade"}
@@ -1853,7 +1878,8 @@ export default function WebscrapingClientPage() {
                         onFocus={() => setCitySuggestionsOpen(true)}
                         onBlur={() => window.setTimeout(() => setCitySuggestionsOpen(false), 120)}
                         onKeyDown={handleCityKeyDown}
-                        placeholder="Digite e selecione: Rio Claro - SP"
+                        placeholder={selectedState ? "Digite e selecione a cidade" : "Selecione o estado primeiro"}
+                        disabled={!selectedState}
                         autoComplete="off"
                         role="combobox"
                         aria-autocomplete="list"
@@ -1888,13 +1914,13 @@ export default function WebscrapingClientPage() {
                       </div>
                     ) : null}
                     <p className={styles.fieldHint}>
-                      {citiesLoading
-                        ? "Carregando cidades..."
-                        : hbxPjMode
-                          ? "Opcional. Use cidade com UF se quiser restringir a busca."
+                      {hbxPjMode
+                          ? "Opcional. Se escolher uma cidade, ela precisa pertencer ao estado selecionado."
                         : citySelectionPending
-                          ? "Escolha uma opcao com UF antes de buscar."
-                          : "Use a UF para diferenciar cidades com o mesmo nome."}
+                          ? "Escolha uma cidade da lista antes de buscar."
+                          : selectedState
+                            ? "As opções são filtradas pelo estado selecionado."
+                            : "Selecione o estado para carregar as cidades."}
                     </p>
                   </div>
 
@@ -2496,6 +2522,7 @@ export default function WebscrapingClientPage() {
           loadingLabel="Scraping em andamento..."
           detailRows={[
             { label: "Motor", value: `${selectedSearchMode.motorCode} · ${selectedSearchMode.label}` },
+            { label: "Estado", value: selectedState || "-" },
             { label: "Cidade", value: cityExactOption || city || "-" },
             { label: "Busca", value: effectiveSegment || getVisualSegment(segment, targetType) || "Agenda PF" },
             { label: "Quantidade", value: `${quantity} contato(s)` },
