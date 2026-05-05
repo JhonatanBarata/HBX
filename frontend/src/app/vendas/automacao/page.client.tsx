@@ -17,6 +17,7 @@ import {
   type WhatsAppCenterPayload,
   type WhatsAppModalPayload,
 } from "@/lib/whatsapp-center";
+import { BRAZIL_CITIES_BY_STATE, BRAZIL_STATES } from "@/lib/brazil-locations";
 import { apiFetch } from "@/app/_lib/api";
 import { useRequireModule } from "@/app/_lib/useRequireModule";
 import {
@@ -94,8 +95,6 @@ const DRAFT_STORAGE_KEY = "hbx.vendas.automacao.bot-qrcode.draft.v1";
 const BOT_PLAN_HREF = "/planos?intent=bot_ia&from=vendas_automacao";
 const PROSPECTING_SCENE_ID = "first_contact_rules_prospeccao";
 const PROSPECTING_RULE_CONDITION = "first_contact_rules";
-const BRAZIL_STATES = ["AC", "AL", "AP", "AM", "BA", "CE", "DF", "ES", "GO", "MA", "MT", "MS", "MG", "PA", "PB", "PR", "PE", "PI", "RJ", "RN", "RS", "RO", "RR", "SC", "SP", "SE", "TO"];
-const CITY_SUGGESTIONS = ["São Paulo", "Campinas", "Ribeirão Preto", "Sorocaba", "Santos", "Rio de Janeiro", "Belo Horizonte", "Curitiba", "Porto Alegre", "Florianópolis", "Goiânia", "Brasília", "Salvador", "Recife", "Fortaleza"];
 const SEGMENT_SUGGESTIONS = [
   "academias",
   "acessórios automotivos",
@@ -788,6 +787,8 @@ function ProspectingAutomationPanel({
     [selectedCampaignTypeId],
   );
   const cityRequired = requiresProspectingCity(config);
+  const selectedState = String(config.state || "").trim().toUpperCase();
+  const cityOptions = useMemo(() => BRAZIL_CITIES_BY_STATE[selectedState] || [], [selectedState]);
 
   useEffect(() => {
     // Keep textarea drafts aligned when a saved campaign replaces the local config.
@@ -803,6 +804,14 @@ function ProspectingAutomationPanel({
 
   const setField = <K extends keyof ProspectingAutomationConfig,>(field: K, value: ProspectingAutomationConfig[K]) => {
     onChange((current) => ({ ...current, [field]: value }));
+  };
+  const setStateField = (state: string) => {
+    const nextState = state.toUpperCase();
+    onChange((current) => ({
+      ...current,
+      state: nextState,
+      city: String(current.state || "").trim().toUpperCase() === nextState ? current.city : "",
+    }));
   };
   const setNumberField = (
     field:
@@ -891,19 +900,31 @@ function ProspectingAutomationPanel({
           </div>
           <div className={styles.prospectingFormGrid}>
             <label>
+              <span>Estado</span>
+              <select className={styles.selectField} value={selectedState} onChange={(event) => setStateField(event.target.value)}>
+                <option value="">Selecione</option>
+                {BRAZIL_STATES.map((item) => (
+                  <option key={item.uf} value={item.uf}>{item.uf} - {item.name}</option>
+                ))}
+              </select>
+            </label>
+            <label>
               <span>Cidade</span>
               <input
                 className={styles.inputField}
                 list="prospecting-city-list"
                 value={config.city}
                 onChange={(event) => setField("city", event.target.value)}
-                placeholder={cityRequired ? "Obrigatório para Google/PJ" : "Opcional"}
+                placeholder={
+                  !selectedState
+                    ? "Selecione o estado primeiro"
+                    : cityRequired
+                      ? "Obrigatório para Google/PJ"
+                      : "Opcional"
+                }
+                disabled={!selectedState}
                 required={cityRequired}
               />
-            </label>
-            <label>
-              <span>Estado</span>
-              <input className={styles.inputField} list="prospecting-state-list" maxLength={2} value={config.state} onChange={(event) => setField("state", event.target.value.toUpperCase())} />
             </label>
             <label className={styles.segmentPickerField} onBlur={() => window.setTimeout(() => setSegmentMenuOpen(false), 120)}>
               <span>Segmento</span>
@@ -939,10 +960,7 @@ function ProspectingAutomationPanel({
               ) : null}
             </label>
             <datalist id="prospecting-city-list">
-              {CITY_SUGGESTIONS.map((item) => <option key={item} value={item} />)}
-            </datalist>
-            <datalist id="prospecting-state-list">
-              {BRAZIL_STATES.map((item) => <option key={item} value={item} />)}
+              {cityOptions.map((item) => <option key={item} value={item} />)}
             </datalist>
             <label>
               <span>Engine</span>
