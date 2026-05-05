@@ -42,7 +42,7 @@ export const GOOGLE_DAILY_LIMIT_REACHED_MESSAGE =
 export const BOT_IA_PLAN_REQUIRED_PAYLOAD = {
   code: 'BOT_IA_PLAN_REQUIRED',
   message: 'Bot de atendimento está disponível no plano HBX Bot IA.',
-  redirectTo: '/dashboard/planos?intent=bot_ia',
+  redirectTo: '/planos?intent=bot_ia',
   requiredPlanKey: COMMERCIAL_PLAN_KEYS.MELHOR,
 } as const;
 
@@ -59,7 +59,7 @@ export const PENDING_COMMERCIAL_ENTITLEMENT_STATUS = 'pending_checkout';
 export const COMMERCIAL_PLAN_MODULE_KEYS: Record<ActiveCommercialPlanKey, string[]> = {
   [COMMERCIAL_PLAN_KEYS.LITE]: ['vendas', 'webscraping'],
   [COMMERCIAL_PLAN_KEYS.PADRAO]: ['atendimento', 'vendas', 'webscraping'],
-  [COMMERCIAL_PLAN_KEYS.MELHOR]: ['atendimento', 'vendas', 'webscraping'],
+  [COMMERCIAL_PLAN_KEYS.MELHOR]: ['atendimento', 'vendas', 'webscraping', 'bot_ia'],
 };
 
 export const COMMERCIAL_PLAN_ENTITLEMENT_KEYS: Record<ActiveCommercialPlanKey, CommercialEntitlementKey[]> = {

@@ -18,7 +18,7 @@ import {
   type WhatsAppModalPayload,
 } from "@/lib/whatsapp-center";
 import { apiFetch } from "@/app/_lib/api";
-import { useRequireAuth } from "@/app/_lib/useRequireAuth";
+import { useRequireModule } from "@/app/_lib/useRequireModule";
 import {
   DEFAULT_ATENDIMENTO_AGENDA_CONFIG,
   DEFAULT_ATENDIMENTO_BOT_CONFIG,
@@ -232,6 +232,223 @@ const SEGMENT_SUGGESTIONS = [
   "yoga e pilates",
   "zeladoria",
 ];
+const CAMPAIGN_TYPES = [
+  {
+    id: "cnpj_local",
+    label: "CNPJ local — vender HBX para empresas finais",
+  },
+  {
+    id: "agencias_vendedores",
+    label: "Agências/vendedores — achar quem vai usar HBX para prospectar para terceiros",
+  },
+  {
+    id: "servicos_orcamento",
+    label: "Serviços com orçamento — empresas que vivem de orçamento e follow-up",
+  },
+] as const;
+
+type CampaignTypeId = (typeof CAMPAIGN_TYPES)[number]["id"];
+
+const MESSAGE_PRESETS = [
+  {
+    id: "local_general",
+    group: "cnpj_local",
+    label: "Empresa local - geral",
+    segment: "serviços locais",
+    targetType: "pj",
+    messageTemplate:
+      "Oi, tudo bem? Vi a {{cliente}} no Google em {{cidade}}. Aqui é {{funcionario}} da {{empresa}}. Tenho uma ferramenta chamada HBX que busca possíveis clientes na sua cidade, organiza os contatos e lembra os retornos pelo WhatsApp. Estou liberando 30 dias grátis para empresas testarem. Quer que eu te mostre em 5 minutos?",
+  },
+  {
+    id: "auto_socorro",
+    group: "cnpj_local",
+    label: "Auto socorro / guincho",
+    segment: "auto socorro",
+    targetType: "pj",
+    messageTemplate:
+      "Oi, tudo bem? Vi a {{cliente}} em {{cidade}}. Aqui é {{funcionario}} da {{empresa}}. O HBX ajuda empresas como auto socorro a encontrar mais clientes locais, organizar contatos e controlar retornos pelo WhatsApp. Estou liberando 30 dias grátis. Quer que eu te mostre rapidinho?",
+  },
+  {
+    id: "energia_solar",
+    group: "cnpj_local",
+    label: "Energia solar",
+    segment: "energia solar",
+    targetType: "pj",
+    messageTemplate:
+      "Oi, tudo bem? Vi a {{cliente}} em {{cidade}}. Aqui é {{funcionario}} da {{empresa}}. Tenho uma ferramenta que ajuda empresas de energia solar a buscar possíveis clientes, organizar oportunidades e não esquecer retorno no WhatsApp. Posso te mostrar em 5 minutos?",
+  },
+  {
+    id: "limpeza_piscina",
+    group: "cnpj_local",
+    label: "Limpeza de piscina",
+    segment: "limpeza de piscina",
+    targetType: "pj",
+    messageTemplate:
+      "Oi, tudo bem? Vi a {{cliente}} em {{cidade}}. Aqui é {{funcionario}} da {{empresa}}. O HBX pode ajudar empresas de limpeza de piscina a achar novos contatos na região, organizar orçamentos e lembrar retornos pelo WhatsApp. Quer testar 30 dias grátis?",
+  },
+  {
+    id: "clinica_estetica",
+    group: "cnpj_local",
+    label: "Clínica estética",
+    segment: "clínicas de estética",
+    targetType: "pj",
+    messageTemplate:
+      "Oi, tudo bem? Vi a {{cliente}} em {{cidade}}. Aqui é {{funcionario}} da {{empresa}}. Tenho uma ferramenta que ajuda clínicas a captar contatos locais, organizar interessados e controlar retornos pelo WhatsApp. Estou liberando 30 dias grátis. Quer ver uma demonstração rápida?",
+  },
+  {
+    id: "ar_condicionado",
+    group: "cnpj_local",
+    label: "Ar condicionado",
+    segment: "ar condicionado",
+    targetType: "pj",
+    messageTemplate:
+      "Oi, tudo bem? Vi a {{cliente}} em {{cidade}}. Aqui é {{funcionario}} da {{empresa}}. O HBX ajuda empresas de ar condicionado a encontrar possíveis clientes, organizar pedidos de orçamento e lembrar retornos pelo WhatsApp. Faz sentido eu te mostrar em 5 minutos?",
+  },
+  {
+    id: "oficina_mecanica",
+    group: "servicos_orcamento",
+    label: "Oficina mecânica",
+    segment: "oficinas mecânicas",
+    targetType: "pj",
+    messageTemplate:
+      "Oi, tudo bem? Vi a {{cliente}} em {{cidade}}. Aqui é {{funcionario}} da {{empresa}}. Tenho uma ferramenta que ajuda oficinas a captar contatos locais, organizar orçamentos e acompanhar retornos pelo WhatsApp. Quer testar 30 dias grátis?",
+  },
+  {
+    id: "orcamento_vidracaria",
+    group: "servicos_orcamento",
+    label: "Vidraçaria / serralheria / marcenaria",
+    segment: "vidraçarias",
+    targetType: "pj",
+    messageTemplate:
+      "Oi, tudo bem? Vi a {{cliente}} em {{cidade}}. Aqui é {{funcionario}} da {{empresa}}. O HBX ajuda empresas que vivem de orçamento a organizar contatos, lembrar retornos e buscar novos possíveis clientes na cidade. Quer que eu te mostre rápido?",
+  },
+  {
+    id: "seguranca_eletronica",
+    group: "servicos_orcamento",
+    label: "Segurança eletrônica",
+    segment: "sistemas de segurança",
+    targetType: "pj",
+    messageTemplate:
+      "Oi, tudo bem? Vi a {{cliente}} em {{cidade}}. Aqui é {{funcionario}} da {{empresa}}. Tenho uma ferramenta que ajuda empresas de segurança eletrônica a encontrar possíveis clientes locais e controlar follow-up pelo WhatsApp. Quer ver em 5 minutos?",
+  },
+  {
+    id: "odontologia_saude",
+    group: "cnpj_local",
+    label: "Odontologia / saúde",
+    segment: "clínicas odontológicas",
+    targetType: "pj",
+    messageTemplate:
+      "Oi, tudo bem? Vi a {{cliente}} em {{cidade}}. Aqui é {{funcionario}} da {{empresa}}. O HBX ajuda clínicas a organizar contatos, interessados e retornos pelo WhatsApp, sem deixar lead perdido. Estou liberando 30 dias grátis. Quer que eu te mostre?",
+  },
+  {
+    id: "imobiliaria",
+    group: "cnpj_local",
+    label: "Imobiliária",
+    segment: "imobiliárias",
+    targetType: "pj",
+    messageTemplate:
+      "Oi, tudo bem? Vi a {{cliente}} em {{cidade}}. Aqui é {{funcionario}} da {{empresa}}. Tenho uma ferramenta que ajuda imobiliárias a organizar contatos, possíveis clientes e retornos pelo WhatsApp. Posso te mostrar em 5 minutos?",
+  },
+  {
+    id: "provedor_internet",
+    group: "cnpj_local",
+    label: "Provedor de internet",
+    segment: "provedores de internet",
+    targetType: "pj",
+    messageTemplate:
+      "Oi, tudo bem? Vi a {{cliente}} em {{cidade}}. Aqui é {{funcionario}} da {{empresa}}. O HBX ajuda provedores a organizar contatos, oportunidades e retornos pelo WhatsApp, além de buscar possíveis clientes locais. Quer ver uma demonstração rápida?",
+  },
+  {
+    id: "escola_curso",
+    group: "cnpj_local",
+    label: "Escola / curso profissionalizante",
+    segment: "cursos profissionalizantes",
+    targetType: "pj",
+    messageTemplate:
+      "Oi, tudo bem? Vi a {{cliente}} em {{cidade}}. Aqui é {{funcionario}} da {{empresa}}. Tenho uma ferramenta que ajuda escolas e cursos a organizar interessados, contatos e retornos pelo WhatsApp. Estou liberando 30 dias grátis. Quer ver?",
+  },
+  {
+    id: "loja_moveis",
+    group: "servicos_orcamento",
+    label: "Loja de móveis / colchões / planejados",
+    segment: "lojas de móveis",
+    targetType: "pj",
+    messageTemplate:
+      "Oi, tudo bem? Vi a {{cliente}} em {{cidade}}. Aqui é {{funcionario}} da {{empresa}}. O HBX ajuda lojas que vendem por orçamento ou atendimento consultivo a organizar contatos e lembrar retornos pelo WhatsApp. Quer que eu te mostre em 5 minutos?",
+  },
+  {
+    id: "agencia_marketing",
+    group: "agencias_vendedores",
+    label: "Agência de marketing",
+    segment: "agências de marketing",
+    targetType: "pj",
+    messageTemplate:
+      "Oi, tudo bem? Vi que a {{cliente}} trabalha com marketing em {{cidade}}. Aqui é {{funcionario}} da {{empresa}}. Tenho uma ferramenta que busca empresas por cidade e segmento, joga tudo em um CRM e ajuda a controlar contato e retorno pelo WhatsApp. Pode ser útil para vocês venderem prospecção para clientes. Quer ver uma demonstração rápida?",
+  },
+  {
+    id: "gestor_trafego",
+    group: "agencias_vendedores",
+    label: "Gestor de tráfego / freelancer",
+    segment: "gestores de tráfego",
+    targetType: "pj",
+    messageTemplate:
+      "Oi, tudo bem? Vi a {{cliente}} em {{cidade}}. Aqui é {{funcionario}} da {{empresa}}. O HBX pode ajudar gestores de tráfego e freelancers a achar empresas por nicho, organizar leads em CRM e vender prospecção como serviço. Quer que eu te mostre em 5 minutos?",
+  },
+  {
+    id: "agencia_revenda",
+    group: "agencias_vendedores",
+    label: "Agência que quer revender prospecção",
+    segment: "agências de marketing",
+    targetType: "pj",
+    messageTemplate:
+      "Oi, tudo bem? Aqui é {{funcionario}} da {{empresa}}. Vi a {{cliente}} em {{cidade}} e pensei numa oportunidade: o HBX busca empresas por cidade/segmento, organiza no CRM e facilita contato pelo WhatsApp. Vocês poderiam usar isso para vender prospecção para os clientes de vocês. Quer ver como funciona?",
+  },
+  {
+    id: "representante_comercial",
+    group: "agencias_vendedores",
+    label: "Vendedor autônomo / representante comercial",
+    segment: "representantes comerciais",
+    targetType: "pj",
+    messageTemplate:
+      "Oi, tudo bem? Vi a {{cliente}} em {{cidade}}. Aqui é {{funcionario}} da {{empresa}}. Tenho uma ferramenta para vendedores que precisam achar empresas novas, organizar contatos e controlar retorno pelo WhatsApp. Quer testar 30 dias grátis?",
+  },
+  {
+    id: "consultoria_comercial",
+    group: "agencias_vendedores",
+    label: "Consultoria comercial",
+    segment: "consultorias empresariais",
+    targetType: "pj",
+    messageTemplate:
+      "Oi, tudo bem? Vi a {{cliente}} em {{cidade}}. Aqui é {{funcionario}} da {{empresa}}. O HBX ajuda consultorias a montar listas de empresas por nicho, organizar oportunidades em CRM e acompanhar retornos pelo WhatsApp. Pode ser útil para entregar prospecção aos clientes. Quer ver?",
+  },
+  {
+    id: "software_house",
+    group: "agencias_vendedores",
+    label: "Software house / web design",
+    segment: "web design",
+    targetType: "pj",
+    messageTemplate:
+      "Oi, tudo bem? Vi a {{cliente}} em {{cidade}}. Aqui é {{funcionario}} da {{empresa}}. Tenho uma ferramenta que busca empresas por cidade e segmento, organiza em CRM e ajuda no contato pelo WhatsApp. Pode ser útil para vocês venderem sites, sistemas ou prospecção. Quer ver uma demonstração rápida?",
+  },
+  {
+    id: "servicos_limpeza",
+    group: "servicos_orcamento",
+    label: "Serviços de limpeza",
+    segment: "serviços de limpeza",
+    targetType: "pj",
+    messageTemplate:
+      "Oi, tudo bem? Vi a {{cliente}} em {{cidade}}. Aqui é {{funcionario}} da {{empresa}}. O HBX ajuda empresas de limpeza a organizar pedidos de orçamento, buscar novos contatos locais e lembrar retornos pelo WhatsApp. Quer que eu te mostre em 5 minutos?",
+  },
+  {
+    id: "materiais_construcao",
+    group: "servicos_orcamento",
+    label: "Materiais de construção",
+    segment: "materiais de construção",
+    targetType: "pj",
+    messageTemplate:
+      "Oi, tudo bem? Vi a {{cliente}} em {{cidade}}. Aqui é {{funcionario}} da {{empresa}}. O HBX ajuda lojas de materiais de construção a organizar orçamentos, contatos e retornos pelo WhatsApp, sem deixar oportunidade perdida. Quer testar 30 dias grátis?",
+  },
+] as const;
 const PROSPECTING_VARIABLES = [
   { token: "cliente", label: "Cliente" },
   { token: "empresa", label: "Empresa" },
@@ -243,7 +460,7 @@ const PROSPECTING_VARIABLES = [
 
 const DEFAULT_PROSPECTING_CONFIG: ProspectingAutomationConfig = {
   city: "",
-  state: "SP",
+  state: "",
   segment: "madeireiras",
   engine: "hbx",
   targetType: "pj",
@@ -295,7 +512,7 @@ function renderProspectingPreview(
     empresa: variables.empresa,
     funcionario: variables.funcionario,
     cidade: config.city || "sua região",
-    estado: config.state || "SP",
+    estado: config.state || "BR",
     segmento: config.segment || "seu segmento",
   };
   return String(template || "")
@@ -552,6 +769,8 @@ function ProspectingAutomationPanel({
   const [variableTarget, setVariableTarget] = useState<"messageTemplate" | "optOutMessage">("messageTemplate");
   const [variablesOpen, setVariablesOpen] = useState(false);
   const [segmentMenuOpen, setSegmentMenuOpen] = useState(false);
+  const [selectedCampaignTypeId, setSelectedCampaignTypeId] = useState<CampaignTypeId>("cnpj_local");
+  const [selectedMessagePresetId, setSelectedMessagePresetId] = useState("");
   const messageTemplateRef = useRef<HTMLTextAreaElement | null>(null);
   const optOutMessageRef = useRef<HTMLTextAreaElement | null>(null);
   const filteredSegmentSuggestions = useMemo(() => {
@@ -560,6 +779,10 @@ function ProspectingAutomationPanel({
     const filtered = SEGMENT_SUGGESTIONS.filter((segment) => normalizeSearchText(segment).includes(query));
     return filtered.length ? filtered : SEGMENT_SUGGESTIONS;
   }, [config.segment]);
+  const filteredMessagePresets = useMemo(
+    () => MESSAGE_PRESETS.filter((preset) => preset.group === selectedCampaignTypeId),
+    [selectedCampaignTypeId],
+  );
 
   useEffect(() => {
     // Keep textarea drafts aligned when a saved campaign replaces the local config.
@@ -594,6 +817,33 @@ function ProspectingAutomationPanel({
   const setListField = (field: "positiveIntentKeywords" | "negativeIntentKeywords", value: string) => {
     onChange((current) => ({ ...current, [field]: normalizeTextList(value, current[field]) }));
   };
+  const applyMessagePreset = (presetId: string) => {
+    setSelectedMessagePresetId(presetId);
+    const preset = MESSAGE_PRESETS.find((item) => item.id === presetId);
+    if (!preset) return;
+    setSelectedCampaignTypeId(preset.group);
+    onChange((current) => ({
+      ...current,
+      segment: preset.segment,
+      targetType: preset.targetType,
+      messageTemplate: preset.messageTemplate,
+    }));
+  };
+  const applyCampaignType = (campaignTypeId: CampaignTypeId) => {
+    setSelectedCampaignTypeId(campaignTypeId);
+    const preset = MESSAGE_PRESETS.find((item) => item.group === campaignTypeId);
+    if (!preset) {
+      setSelectedMessagePresetId("");
+      return;
+    }
+    setSelectedMessagePresetId(preset.id);
+    onChange((current) => ({
+      ...current,
+      segment: preset.segment,
+      targetType: preset.targetType,
+      messageTemplate: preset.messageTemplate,
+    }));
+  };
   const insertVariable = (token: string) => {
     const field = variableTarget;
     const ref = field === "messageTemplate" ? messageTemplateRef.current : optOutMessageRef.current;
@@ -621,7 +871,7 @@ function ProspectingAutomationPanel({
           <span>Pendentes <strong>{counters.pending}</strong></span>
           <span>Enviados <strong>{counters.sent}</strong></span>
           <span>Interessados <strong>{counters.interested}</strong></span>
-          <span>Arquivados <strong>{counters.archived}</strong></span>
+          <span title="Negativos, sem resposta, pulados ou cancelados pela campanha">Encerrados <strong>{counters.archived}</strong></span>
           <span>Falhas <strong>{counters.failed}</strong></span>
         </div>
       </div>
@@ -751,6 +1001,35 @@ function ProspectingAutomationPanel({
       <section className={styles.prospectingPanel}>
         <div className={styles.prospectingMessageWorkbench}>
           <div className={styles.prospectingMessageEditorStack}>
+            <label className={styles.messagePresetField}>
+              <span>Tipo de campanha</span>
+              <select
+                className={styles.selectField}
+                value={selectedCampaignTypeId}
+                onChange={(event) => applyCampaignType(event.target.value as CampaignTypeId)}
+              >
+                {CAMPAIGN_TYPES.map((campaignType) => (
+                  <option key={campaignType.id} value={campaignType.id}>
+                    {campaignType.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className={styles.messagePresetField}>
+              <span>Modelo de abordagem</span>
+              <select
+                className={styles.selectField}
+                value={selectedMessagePresetId}
+                onChange={(event) => applyMessagePreset(event.target.value)}
+              >
+                <option value="">Personalizado</option>
+                {filteredMessagePresets.map((preset) => (
+                  <option key={preset.id} value={preset.id}>
+                    {preset.label}
+                  </option>
+                ))}
+              </select>
+            </label>
             <div className={styles.prospectingMessageGrid}>
               <label>
                 <span>Mensagem inicial</span>
@@ -759,7 +1038,10 @@ function ProspectingAutomationPanel({
                   className={styles.editorTextarea}
                   value={config.messageTemplate}
                   onFocus={() => setVariableTarget("messageTemplate")}
-                  onChange={(event) => setField("messageTemplate", event.target.value)}
+                  onChange={(event) => {
+                    setSelectedMessagePresetId("");
+                    setField("messageTemplate", event.target.value);
+                  }}
                 />
               </label>
               <label>
@@ -923,7 +1205,7 @@ function ProspectingAutomationPanel({
 }
 
 export default function VendasAutomationClientPage() {
-  const hasToken = useRequireAuth();
+  const hasToken = useRequireModule("vendas");
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -950,6 +1232,7 @@ export default function VendasAutomationClientPage() {
   const [, setPublishedAt] = useState<string | null>(null);
   const previousConnectionStatusRef = useRef<WhatsAppModalPayload["status"] | null>(null);
   const prospectingDirtyRef = useRef(false);
+  const prospectingConfigRef = useRef<ProspectingAutomationConfig>(DEFAULT_PROSPECTING_CONFIG);
 
   const draftSignature = useMemo(() => JSON.stringify(draftConfig), [draftConfig]);
   const publishedSignature = useMemo(() => JSON.stringify(publishedConfig), [publishedConfig]);
@@ -979,6 +1262,10 @@ export default function VendasAutomationClientPage() {
     if (trialModule === "recovery") return true;
     return userModules.some((module) => module.accessible && module.key === "hbx_recovery");
   }, [centerPayload?.company.trialModuleSelection, userModules]);
+
+  useEffect(() => {
+    prospectingConfigRef.current = prospectingConfig;
+  }, [prospectingConfig]);
 
   const openBotPlans = useCallback(() => {
     router.push(BOT_PLAN_HREF);
@@ -1233,6 +1520,7 @@ export default function VendasAutomationClientPage() {
     (updater: (current: ProspectingAutomationConfig) => ProspectingAutomationConfig) => {
       setProspectingConfig((current) => {
         const next = updater(current);
+        prospectingConfigRef.current = next;
         prospectingDirtyRef.current = true;
         setDraftConfig((botCurrent) => upsertProspectingRules(botCurrent, next));
         return next;
@@ -1246,17 +1534,20 @@ export default function VendasAutomationClientPage() {
       openBotPlans();
       return;
     }
-    const nextBotConfig = upsertProspectingRules(draftConfig, prospectingConfig);
+    const currentProspectingConfig = prospectingConfigRef.current;
+    const nextBotConfig = upsertProspectingRules(draftConfig, currentProspectingConfig);
     setProspectingAction("save");
     setError(null);
     try {
       const payload = await apiFetch<ProspectingAutomationLiveStatus>("/vendas/automation/prospecting/config", {
         method: "PATCH",
-        body: JSON.stringify(toProspectingRequestPayload(prospectingConfig)),
+        body: JSON.stringify(toProspectingRequestPayload(currentProspectingConfig)),
       });
       setProspectingStatus(payload);
       prospectingDirtyRef.current = false;
-      setProspectingConfig(mergeProspectingConfigFromStatus(payload, nextBotConfig));
+      const mergedConfig = mergeProspectingConfigFromStatus(payload, nextBotConfig);
+      prospectingConfigRef.current = mergedConfig;
+      setProspectingConfig(mergedConfig);
       await saveBotConfig(nextBotConfig, "Configuração de prospecção salva.");
     } catch (saveError) {
       const message = saveError instanceof Error ? saveError.message : "Falha ao salvar a prospecção automática.";
@@ -1265,7 +1556,7 @@ export default function VendasAutomationClientPage() {
     } finally {
       setProspectingAction(null);
     }
-  }, [botAiActive, draftConfig, openBotPlans, prospectingConfig, saveBotConfig]);
+  }, [botAiActive, draftConfig, openBotPlans, saveBotConfig]);
 
   const runProspectingAction = useCallback(
     async (action: "start" | "pause" | "resume" | "cancel") => {
@@ -1273,7 +1564,8 @@ export default function VendasAutomationClientPage() {
         openBotPlans();
         return;
       }
-      const nextBotConfig = upsertProspectingRules(draftConfig, prospectingConfig);
+      const currentProspectingConfig = prospectingConfigRef.current;
+      const nextBotConfig = upsertProspectingRules(draftConfig, currentProspectingConfig);
       setProspectingAction(action);
       setError(null);
       try {
@@ -1283,11 +1575,13 @@ export default function VendasAutomationClientPage() {
         }
         const payload = await apiFetch<ProspectingAutomationLiveStatus>(`/vendas/automation/prospecting/${action}`, {
           method: "POST",
-          body: action === "start" ? JSON.stringify(toProspectingRequestPayload(prospectingConfig)) : undefined,
+          body: action === "start" ? JSON.stringify(toProspectingRequestPayload(currentProspectingConfig)) : undefined,
         });
         setProspectingStatus(payload);
         if (action === "start") prospectingDirtyRef.current = false;
-        setProspectingConfig(mergeProspectingConfigFromStatus(payload, nextBotConfig));
+        const mergedConfig = mergeProspectingConfigFromStatus(payload, nextBotConfig);
+        prospectingConfigRef.current = mergedConfig;
+        setProspectingConfig(mergedConfig);
         setNotice({
           tone: "success",
           text:
@@ -1307,7 +1601,7 @@ export default function VendasAutomationClientPage() {
         setProspectingAction(null);
       }
     },
-    [botAiActive, draftConfig, openBotPlans, prospectingConfig, saveBotConfig],
+    [botAiActive, draftConfig, openBotPlans, saveBotConfig],
   );
 
   const renderBotPlanPaywall = () => (

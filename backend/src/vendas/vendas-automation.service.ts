@@ -75,6 +75,10 @@ function trimOrNull(value: unknown) {
   return normalized || null;
 }
 
+function hasOwnValue(input: unknown, key: string) {
+  return Boolean(input && typeof input === 'object' && Object.prototype.hasOwnProperty.call(input, key));
+}
+
 function parseJsonObject(value: unknown) {
   if (!value) return {};
   if (typeof value === 'object' && !Array.isArray(value)) return value as Record<string, unknown>;
@@ -323,9 +327,15 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
       clampInteger(payload?.desiredLeadBuffer, existing?.desiredLeadBuffer ?? 60, 1, 500),
     );
     return {
-      city: trimOrNull(payload?.city) || trimOrNull(existing?.city) || '',
-      state: trimOrNull(payload?.state)?.toUpperCase() || trimOrNull(existing?.state) || null,
-      segment: trimOrNull(payload?.segment) || trimOrNull(existing?.segment) || '',
+      city: hasOwnValue(payload, 'city')
+        ? trimOrNull(payload?.city) || ''
+        : trimOrNull(existing?.city) || '',
+      state: hasOwnValue(payload, 'state')
+        ? trimOrNull(payload?.state)?.toUpperCase() || null
+        : trimOrNull(existing?.state),
+      segment: hasOwnValue(payload, 'segment')
+        ? trimOrNull(payload?.segment) || ''
+        : trimOrNull(existing?.segment) || '',
       engine: payload?.engine
         ? (String(payload.engine).trim() === 'google' ? 'google' : 'hbx')
         : trimOrNull(existing?.engine) || 'hbx',
@@ -392,6 +402,18 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     if (city) return `${segment} em ${city}${state ? `/${state}` : ''}`;
     if (state) return `${segment} no estado ${state}`;
     return `${segment} no Brasil`;
+  }
+
+  private formatNextScheduledText(date: Date) {
+    const target = getBusinessDateParts(date);
+    const today = getBusinessDateParts(new Date());
+    const targetDay = Date.UTC(target.year, target.month - 1, target.day);
+    const todayDay = Date.UTC(today.year, today.month - 1, today.day);
+    const diffDays = Math.round((targetDay - todayDay) / 86400000);
+    const time = `${String(target.hour).padStart(2, '0')}:${String(target.minute).padStart(2, '0')}`;
+    if (diffDays === 0) return `Próximo envio hoje às ${time}`;
+    if (diffDays === 1) return `Próximo envio amanhã às ${time}`;
+    return `Próximo envio em ${String(target.day).padStart(2, '0')}/${String(target.month).padStart(2, '0')} às ${time}`;
   }
 
   private async latestCampaign(companyId: number) {
@@ -467,9 +489,13 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     }
     const counters = { pending, sent, interested, archived, failed };
     const status = this.inferLiveStatus(campaign, counters, sending);
+    const nextScheduledText = nextScheduledAt ? this.formatNextScheduledText(nextScheduledAt) : null;
     return {
       status,
-      text: campaign.lastStatusText || (pending > 0 ? `${pending} contatos na fila.` : 'Aguardando respostas.'),
+      text:
+        status === 'aguardando' && nextScheduledText
+          ? nextScheduledText
+          : campaign.lastStatusText || (pending > 0 ? `${pending} contatos na fila.` : 'Aguardando respostas.'),
       active: campaign.status === 'running',
       campaign: this.serializeCampaign(campaign),
       counters,
@@ -610,7 +636,40 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
   }
 
   async resumeProspectingForUser(user: any) {
-    const status = await this.setCampaignStatusForUser(user, 'running', 'Campanha retomada. Aguardando próximo envio.', 'campaign_resumed');
+    const context = this.resolveUserContext(user);
+    await this.assertEntitlement(user);
+    const campaign = await this.latestCampaign(context.companyId);
+    if (!campaign) throw new BadRequestException('Nenhuma campanha de prospecção encontrada.');
+    const nextScheduledAt = this.moveToWorkingWindow(new Date(), campaign);
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const nextJob = await tx.vendasAutomationJob.findFirst({
+        where: { campaignId: campaign.id, status: { in: ['pending', 'scheduled'] } },
+        orderBy: [{ scheduledAt: 'asc' }, { createdAt: 'asc' }],
+        select: { id: true },
+      });
+      if (nextJob?.id) {
+        await tx.vendasAutomationJob.update({
+          where: { id: nextJob.id },
+          data: { status: 'scheduled', scheduledAt: nextScheduledAt },
+        });
+      }
+      return tx.vendasAutomationCampaign.update({
+        where: { id: campaign.id },
+        data: {
+          status: 'running',
+          lastStatusText: this.formatNextScheduledText(nextScheduledAt),
+          lastError: null,
+        },
+      });
+    });
+    this.publishAutomationEvent({
+      companyId: context.companyId,
+      campaignId: updated.id,
+      status: 'aguardando',
+      text: this.formatNextScheduledText(nextScheduledAt),
+      type: 'campaign_resumed',
+    });
+    const status = await this.buildLiveStatus(updated);
     void this.runWorkerCycle().catch(() => null);
     return status;
   }

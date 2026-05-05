@@ -500,13 +500,15 @@ export class WebscrapingService {
     const existingHistory = historyEnabled
       ? await this.findHistoryBySignature(context.companyId, normalized.searchSignature, options.historyIdHint, normalized)
       : null;
-    const storedResults = this.sortContacts(this.restoreStoredResults(existingHistory));
+    const storedResults = this.sortContacts(this.restoreStoredResults(existingHistory))
+      .filter((result) => this.matchesFilters(result, normalized.filters));
     const hasExplicitExclusions = normalized.excludePhoneDigits.length > 0;
     const globalCacheEnabled = await this.supportsGlobalCachePersistence();
     const globalCacheEntry = globalCacheEnabled
       ? await this.findGlobalCacheBySignature(normalized.cacheSignature)
       : null;
-    const cachedPublicResults = this.sortContacts(this.restoreGlobalCacheResults(globalCacheEntry));
+    const cachedPublicResults = this.sortContacts(this.restoreGlobalCacheResults(globalCacheEntry))
+      .filter((result) => this.matchesFilters(result, normalized.filters));
 
     if (!hasExplicitExclusions && storedResults.length >= normalized.quantity) {
       if (existingHistory) {
@@ -549,6 +551,7 @@ export class WebscrapingService {
       for (const mapped of hbxResults) {
         if (results.length >= normalized.quantity) break;
         if (!this.shouldKeepNewContact(mapped, results, seenPhones)) continue;
+        if (!this.matchesFilters(mapped, normalized.filters)) continue;
         seenPhones.add(mapped.phoneDigits);
         results.push(mapped);
         fetchedCount += 1;
@@ -857,7 +860,9 @@ export class WebscrapingService {
         },
         { allowMissingHbxState: true },
       );
-      const storedResults = this.sortContacts(this.restoreGlobalCacheResults(row)).slice(0, normalized.quantity);
+      const storedResults = this.sortContacts(this.restoreGlobalCacheResults(row))
+        .filter((result) => this.matchesFilters(result, normalized.filters))
+        .slice(0, normalized.quantity);
 
       await this.touchGlobalCache(row.id);
 
@@ -900,7 +905,9 @@ export class WebscrapingService {
       },
       { allowMissingHbxState: true },
     );
-    const storedResults = this.sortContacts(this.restoreStoredResults(row)).slice(0, normalized.quantity);
+    const storedResults = this.sortContacts(this.restoreStoredResults(row))
+      .filter((result) => this.matchesFilters(result, normalized.filters))
+      .slice(0, normalized.quantity);
 
     await this.touchHistory(row.id, context.userId);
 
@@ -1425,7 +1432,7 @@ export class WebscrapingService {
     const filters: WebscrapingSearchFilters = {
       minRating: this.normalizeMinRating(input.minRating),
       minReviews: this.normalizeMinReviews(input.minReviews),
-      onlyWithWebsite: coerceBoolean(input.onlyWithWebsite),
+      onlyWithWebsite: false,
     };
     const filtersJson = JSON.stringify({
       ...filters,
@@ -1493,7 +1500,7 @@ export class WebscrapingService {
       return {
         minRating: this.normalizeMinRating(parsed?.minRating),
         minReviews: this.normalizeMinReviews(parsed?.minReviews),
-        onlyWithWebsite: Boolean(parsed?.onlyWithWebsite),
+        onlyWithWebsite: false,
       };
     } catch {
       return {
@@ -1518,7 +1525,7 @@ export class WebscrapingService {
         filters: {
           minRating: this.normalizeMinRating(parsed?.minRating),
           minReviews: this.normalizeMinReviews(parsed?.minReviews),
-          onlyWithWebsite: Boolean(parsed?.onlyWithWebsite),
+          onlyWithWebsite: false,
         },
         engine: normalizeEngine(parsedEngine),
         targetType: normalizeTargetType(parsedTargetType),
@@ -1644,9 +1651,6 @@ export class WebscrapingService {
       return false;
     }
     if (filters.minReviews != null && (result.reviews || 0) < filters.minReviews) {
-      return false;
-    }
-    if (filters.onlyWithWebsite && !String(result.website || '').trim()) {
       return false;
     }
     return true;
@@ -1806,13 +1810,16 @@ export class WebscrapingService {
         },
       },
     }).catch(() => []);
-    return (candidates.find((candidate: any) => this.buildHistoryDedupeKey({
+    const exactCandidate = candidates.find((candidate: any) => this.buildHistoryDedupeKey({
       city: candidate.city,
       state: this.extractSignaturePart(candidate.searchSignature, 'state').toUpperCase(),
       segment: candidate.segment,
       filtersJson: candidate.filtersJson,
       searchSignature: candidate.searchSignature,
-    }) === targetDedupeKey) as SearchHistoryRow | undefined) || null;
+    }) === targetDedupeKey) as SearchHistoryRow | undefined;
+    if (exactCandidate) return exactCandidate;
+
+    return null;
   }
 
   private async findHistoryById(companyId: number, historyId: string): Promise<SearchHistoryRow | null> {

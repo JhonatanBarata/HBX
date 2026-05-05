@@ -64,7 +64,7 @@ import {
 import type { WhatsAppCenterPayload } from "@/lib/whatsapp-center";
 import { apiFetch, getDashboardApiBaseUrl, getToken } from "@/app/_lib/api";
 import { startSmartPolling } from "@/app/_lib/polling";
-import { useRequireAuth } from "@/app/_lib/useRequireAuth";
+import { useRequireModule } from "@/app/_lib/useRequireModule";
 import AgendaStudioModal, { type AgendaStudioTab } from "./_components/AgendaStudioModal";
 import TemplatesPanel, { type TemplateComposer } from "./_components/TemplatesPanel";
 import type {
@@ -636,7 +636,7 @@ function ProspectingAutomationStatus({
         <span>Pendentes <strong>{counters.pending}</strong></span>
         <span>Enviados <strong>{counters.sent}</strong></span>
         <span>Interessados <strong>{counters.interested}</strong></span>
-        <span>Arquivados <strong>{counters.archived}</strong></span>
+        <span title="Negativos, sem resposta, pulados ou cancelados pela campanha">Encerrados <strong>{counters.archived}</strong></span>
         <span>Falhas <strong>{counters.failed}</strong></span>
       </div>
       <div className={styles.automationPulseActions}>
@@ -2479,7 +2479,7 @@ function MessageStatusTick({ status }: { status: string }) {
 }
 
 export default function InboxClientPage() {
-  const hasToken = useRequireAuth();
+  const hasToken = useRequireModule("atendimento");
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();

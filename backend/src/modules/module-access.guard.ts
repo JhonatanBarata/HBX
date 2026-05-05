@@ -46,8 +46,10 @@ export class ModuleAccessGuard implements CanActivate {
     const authorizedAccess =
       subscriptionStatus === 'authorized' ||
       subscriptionStatus === 'active' ||
+      subscriptionStatus === 'trialing' ||
       subscriptionStatus === 'manual' ||
       paymentStatus === 'PAID' ||
+      paymentStatus === 'TRIAL' ||
       paymentStatus === 'MANUAL' ||
       premiumAccess ||
       graceAccess;
@@ -66,7 +68,7 @@ export class ModuleAccessGuard implements CanActivate {
           {
             code: 'PENDING_CHECKOUT',
             message: 'Finalize o pagamento para liberar este recurso.',
-            redirectTo: '/dashboard/financeiro?focus=payment&reason=pending_checkout',
+            redirectTo: '/pagamento?focus=payment&reason=pending_checkout',
           },
           HttpStatus.PAYMENT_REQUIRED,
         );
