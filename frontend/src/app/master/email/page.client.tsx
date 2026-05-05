@@ -63,6 +63,9 @@ export default function MasterEmailClientPage() {
   const [state, setState] = useState<MasterEmailState | null>(null);
   const [recipientName, setRecipientName] = useState(DEFAULT_NAME);
   const [recipientEmail, setRecipientEmail] = useState("");
+  const [subjectDraft, setSubjectDraft] = useState("");
+  const [bodyDraft, setBodyDraft] = useState("");
+  const [bodyDirty, setBodyDirty] = useState(false);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [sending, setSending] = useState(false);
@@ -76,6 +79,9 @@ export default function MasterEmailClientPage() {
     try {
       const payload = await apiFetch<MasterEmailState>("/master/email", { requireAuth: true });
       setState(payload);
+      setSubjectDraft(payload.subject || "");
+      setBodyDraft(renderTemplate(payload.template || payload.preview || "", recipientName));
+      setBodyDirty(false);
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Falha ao carregar a tela de email.");
     } finally {
@@ -87,10 +93,15 @@ export default function MasterEmailClientPage() {
     if (hasToken === true) void loadState();
   }, [hasToken]);
 
-  const bodyPreview = useMemo(
+  const defaultBody = useMemo(
     () => renderTemplate(state?.template || state?.preview || "", recipientName),
     [recipientName, state?.preview, state?.template],
   );
+
+  useEffect(() => {
+    if (!state || bodyDirty) return;
+    setBodyDraft(defaultBody);
+  }, [bodyDirty, defaultBody, state]);
 
   async function uploadAttachment(file: File | null | undefined) {
     if (!file) return;
@@ -127,6 +138,8 @@ export default function MasterEmailClientPage() {
         body: JSON.stringify({
           recipientName,
           recipientEmail,
+          subject: subjectDraft,
+          text: bodyDraft,
         }),
         requireAuth: true,
         timeoutMs: 30000,
@@ -152,7 +165,15 @@ export default function MasterEmailClientPage() {
 
   if (!hasToken) return null;
 
-  const canSend = Boolean(recipientName.trim() && recipientEmail.trim() && state?.attachment && !sending && !uploading);
+  const canSend = Boolean(
+    recipientName.trim() &&
+      recipientEmail.trim() &&
+      subjectDraft.trim() &&
+      bodyDraft.trim() &&
+      state?.attachment &&
+      !sending &&
+      !uploading,
+  );
   const senderReady = state?.sender.ready;
 
   return (
@@ -198,9 +219,41 @@ export default function MasterEmailClientPage() {
           </div>
 
           <label className={styles.field}>
-            <span>Mensagem fixa</span>
-            <textarea value={bodyPreview} readOnly rows={14} />
+            <span>Assunto</span>
+            <input
+              value={subjectDraft}
+              onChange={(event) => setSubjectDraft(event.target.value)}
+              placeholder="Apresentação HBX System"
+            />
           </label>
+
+          <label className={styles.field}>
+            <span>Mensagem</span>
+            <textarea
+              value={bodyDraft}
+              onChange={(event) => {
+                setBodyDraft(event.target.value);
+                setBodyDirty(true);
+              }}
+              rows={16}
+              placeholder="Escreva a mensagem do email"
+            />
+          </label>
+
+          <div className={styles.inlineActions}>
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              onClick={() => {
+                setSubjectDraft(state?.subject || "");
+                setBodyDraft(defaultBody);
+                setBodyDirty(false);
+              }}
+              disabled={sending || uploading}
+            >
+              Restaurar padrão
+            </button>
+          </div>
 
           <div className={styles.attachmentBox}>
             <div>
@@ -248,8 +301,8 @@ export default function MasterEmailClientPage() {
           </div>
           <div className={styles.sideCard}>
             <span>Assunto</span>
-            <strong>{state?.subject || "Apresentação HBX System"}</strong>
-            <p>Fixo para manter o envio rápido.</p>
+            <strong>{subjectDraft || state?.subject || "Apresentação HBX System"}</strong>
+            <p>Editável antes de enviar.</p>
           </div>
           {lastSent ? (
             <div className={styles.sideCard}>

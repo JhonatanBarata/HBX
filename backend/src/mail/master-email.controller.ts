@@ -48,6 +48,14 @@ class SendMasterEmailDto {
   @IsEmail()
   @MaxLength(180)
   recipientEmail!: string;
+
+  @IsString()
+  @MaxLength(180)
+  subject!: string;
+
+  @IsString()
+  @MaxLength(8000)
+  text!: string;
 }
 
 type AttachmentMeta = {
@@ -135,18 +143,21 @@ export class MasterEmailController {
   async sendPresentationEmail(@Req() req: any, @Body() dto: SendMasterEmailDto) {
     const recipientName = this.normalizeName(dto.recipientName);
     const recipientEmail = String(dto.recipientEmail || '').trim().toLowerCase();
+    const subject = String(dto.subject || '').replace(/\s+/g, ' ').trim();
+    const text = String(dto.text || '').replace(/\r\n/g, '\n').trim();
     if (!recipientName) throw new BadRequestException('Informe o nome do contato.');
     if (!recipientEmail) throw new BadRequestException('Informe o email do contato.');
+    if (!subject) throw new BadRequestException('Informe o assunto do email.');
+    if (!text) throw new BadRequestException('Informe a mensagem do email.');
     if (!existsSync(ATTACHMENT_PATH)) {
       throw new BadRequestException('Faça upload do PPTX antes de enviar.');
     }
 
     const attachmentMeta = await this.readAttachmentMeta();
     const attachment = await readFile(ATTACHMENT_PATH);
-    const text = this.renderTemplate(recipientName);
     const delivery = await this.mailService.sendMail({
       to: recipientEmail,
-      subject: MASTER_EMAIL_SUBJECT,
+      subject,
       text,
       from: 'Jhonatan | HBX <jhonatan@hbx.com.br>',
       replyTo: 'jhonatan@hbx.com.br',
@@ -164,7 +175,7 @@ export class MasterEmailController {
       sentAt: new Date().toISOString(),
       recipientName,
       recipientEmail,
-      subject: MASTER_EMAIL_SUBJECT,
+      subject,
       attachment: attachmentMeta,
       delivery,
       sentBy: Number(req.user?.id || 0) || null,
