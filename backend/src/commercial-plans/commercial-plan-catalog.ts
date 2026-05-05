@@ -24,10 +24,10 @@ export type CommercialEntitlementKey =
   (typeof COMMERCIAL_ENTITLEMENT_KEYS)[keyof typeof COMMERCIAL_ENTITLEMENT_KEYS];
 
 export const COMMERCIAL_PRICING = {
-  liteMonthly: 29.90,
-  padraoMonthly: 79.90,
-  melhorMonthly: 129.90,
-  annualDiscountPercent: 10,
+  liteMonthly: 49.90,
+  padraoMonthly: 89.90,
+  melhorMonthly: 149.90,
+  annualDiscountPercent: 20,
 } as const;
 
 export const COMMERCIAL_PLAN_QUOTAS: Record<ActiveCommercialPlanKey, { googleSearchesPerDay: number }> = {
@@ -37,11 +37,11 @@ export const COMMERCIAL_PLAN_QUOTAS: Record<ActiveCommercialPlanKey, { googleSea
 };
 
 export const GOOGLE_DAILY_LIMIT_REACHED_MESSAGE =
-  'Você atingiu suas buscas Google de hoje. Os motores gratuitos continuam liberados. Para mais buscas por dia, escolha o HBX Melhor.';
+  'Você atingiu suas buscas Google de hoje. Os motores gratuitos continuam liberados. Para mais buscas por dia, escolha o HBX Bot IA.';
 
 export const BOT_IA_PLAN_REQUIRED_PAYLOAD = {
   code: 'BOT_IA_PLAN_REQUIRED',
-  message: 'Bot de atendimento está disponível no plano HBX Melhor.',
+  message: 'Bot de atendimento está disponível no plano HBX Bot IA.',
   redirectTo: '/dashboard/planos?intent=bot_ia',
   requiredPlanKey: COMMERCIAL_PLAN_KEYS.MELHOR,
 } as const;
@@ -121,9 +121,9 @@ export function getCommercialPlanMonthlyPrice(planKey: unknown) {
 
 export function getCommercialPlanTitle(planKey: unknown) {
   const normalized = normalizeCommercialPlanKey(planKey);
-  if (normalized === COMMERCIAL_PLAN_KEYS.LITE) return 'HBX Lite';
-  if (normalized === COMMERCIAL_PLAN_KEYS.MELHOR) return 'HBX Melhor';
-  return 'HBX Padrão';
+  if (normalized === COMMERCIAL_PLAN_KEYS.LITE) return 'HBX Vendas';
+  if (normalized === COMMERCIAL_PLAN_KEYS.MELHOR) return 'HBX Bot IA';
+  return 'HBX WhatsApp';
 }
 
 export function computeCommercialPlanCycleAmount(planKey: unknown, billingCycleRaw: unknown) {
@@ -138,65 +138,73 @@ export function buildCommercialPlansCatalog() {
   return [
     {
       key: COMMERCIAL_PLAN_KEYS.LITE,
-      title: 'HBX Lite',
+      title: 'HBX Vendas',
       status: 'available',
       monthlyPrice: COMMERCIAL_PRICING.liteMonthly,
       trialDays: 0,
       annualDiscountPercent: COMMERCIAL_PRICING.annualDiscountPercent,
-      headline: 'Organização básica para começar.',
-      description: 'Para quem quer registrar oportunidades e manter a prospecção inicial sob controle, sem automação avançada.',
+      headline: 'Para encontrar clientes e organizar a prospecção.',
+      description: 'Para quem quer buscar clientes e organizar oportunidades.',
       badge: 'Entrada',
       recommended: false,
       requiresCheckout: true,
       quotas: COMMERCIAL_PLAN_QUOTAS[COMMERCIAL_PLAN_KEYS.LITE],
       features: [
-        'Vendas organizadas em um só lugar',
-        'Prospecção com motores gratuitos/HBX/cache',
-        'Ideal para começar com baixo custo',
+        'Webscraping de empresas',
+        'Leads por cidade e segmento',
+        'CRM de vendas',
+        'Funil comercial',
+        'Histórico de contatos',
+        'Organização de oportunidades',
       ],
       legalCopy: 'Liberação após pagamento confirmado.',
     },
     {
       key: COMMERCIAL_PLAN_KEYS.PADRAO,
-      title: 'HBX Padrão',
+      title: 'HBX WhatsApp',
       status: 'available',
       monthlyPrice: COMMERCIAL_PRICING.padraoMonthly,
       trialDays: 30,
       annualDiscountPercent: COMMERCIAL_PRICING.annualDiscountPercent,
-      headline: 'O plano certo para vender todos os dias.',
-      description: 'Plano principal para primeiros clientes HBX: CRM de vendas, atendimento e webscraping com preço de lançamento.',
+      headline: 'Para prospectar e atender pelo WhatsApp dentro do HBX.',
+      description: 'Para quem quer vendas + WhatsApp conectado dentro do sistema.',
       badge: 'Mais escolhido',
       recommended: true,
       requiresCheckout: false,
       quotas: COMMERCIAL_PLAN_QUOTAS[COMMERCIAL_PLAN_KEYS.PADRAO],
       features: [
-        '30 dias grátis, sem cobrança automática',
-        'Vendas + Atendimento Chat',
-        '2 buscas Google por dia',
-        'Motores gratuitos/HBX/cache liberados',
-        'Ideal para começar a vender com constância',
+        'Tudo do HBX Vendas',
+        'WhatsApp conectado ao sistema',
+        'Conversas centralizadas',
+        'Atendimento pelo painel',
+        'Controle de retornos',
+        'Histórico por cliente',
+        'Organização de mensagens e leads',
       ],
       legalCopy: 'Trial gratuito de 30 dias. Não precisa de cartão. Não haverá cobrança automática.',
     },
     {
       key: COMMERCIAL_PLAN_KEYS.MELHOR,
-      title: 'HBX Melhor',
+      title: 'HBX Bot IA',
       status: 'available',
       monthlyPrice: COMMERCIAL_PRICING.melhorMonthly,
       trialDays: 0,
       annualDiscountPercent: COMMERCIAL_PRICING.annualDiscountPercent,
-      headline: 'Bot IA, mais volume e atendimento no mesmo pacote.',
-      description: 'Para quem quer abordagem com Bot IA, mais buscas Google por dia e operação comercial mais automatizada.',
+      headline: 'Para automatizar atendimento, respostas e prospecção com segurança.',
+      description: 'Para quem quer vendas + WhatsApp + bot automático.',
       badge: 'Mais completo',
       recommended: false,
       requiresCheckout: true,
       quotas: COMMERCIAL_PLAN_QUOTAS[COMMERCIAL_PLAN_KEYS.MELHOR],
       features: [
-        'Vendas + Atendimento Chat',
+        'Tudo do HBX WhatsApp',
         'Bot de atendimento',
-        '6 buscas Google por dia',
-        'Motores gratuitos/HBX/cache liberados',
-        'Pacote mais completo',
+        'Bot de prospecção pós-resposta',
+        'Respostas automáticas',
+        'Qualificação de interessados',
+        'Regras para não responder como bot louco',
+        'Encaminhamento para humano',
+        'Automação com limites e segurança',
       ],
       legalCopy: 'Liberação após pagamento confirmado.',
     },

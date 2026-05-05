@@ -860,6 +860,10 @@
 }
 
 .phoneMockHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
   padding: 0.85rem 1rem;
   border-bottom: 1px solid rgba(148, 163, 184, 0.12);
   background: rgba(3, 17, 24, 0.74);
@@ -868,6 +872,19 @@
   letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--text-soft);
+}
+
+.previewHeaderButton {
+  min-height: 30px;
+  padding: 0 0.62rem;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  color: inherit;
+  font: inherit;
+  font-size: 0.7rem;
+  font-weight: 900;
+  cursor: pointer;
 }
 
 .phoneMockBody {
@@ -1035,6 +1052,47 @@
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+.prospectingPreviewGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.9rem;
+}
+
+.variablePreviewCard {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+  padding: 0.85rem;
+  border: 1px solid rgba(38, 93, 132, 0.14);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.52);
+}
+
+.variablePreviewCard div {
+  display: grid;
+  gap: 0.24rem;
+  min-width: 0;
+}
+
+.variablePreviewCard span {
+  color: rgba(40, 78, 124, 0.72);
+  font-size: 0.72rem;
+  font-weight: 900;
+}
+
+.variablePreviewCard strong {
+  min-width: 0;
+  color: #102238;
+  font-size: 0.94rem;
+  overflow-wrap: anywhere;
+}
+
+.variablePreviewCard small {
+  color: rgba(40, 78, 124, 0.68);
+  font-size: 0.72rem;
+  font-weight: 750;
+}
+
 .prospectingFormGrid label,
 .prospectingMessageGrid label {
   display: grid;
@@ -1051,6 +1109,51 @@
 
 .prospectingActionRow {
   justify-content: flex-end;
+}
+
+.riskNotice {
+  padding: 0.75rem 0.85rem;
+  border: 1px solid rgba(245, 158, 11, 0.28);
+  border-radius: 16px;
+  background: rgba(245, 158, 11, 0.12);
+  color: rgba(120, 53, 15, 0.92);
+  font-size: 0.86rem;
+  font-weight: 800;
+  line-height: 1.45;
+}
+
+.variablePopover {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  background: rgba(8, 16, 24, 0.42);
+}
+
+.variablePopoverCard {
+  width: min(420px, 100%);
+  display: grid;
+  gap: 1rem;
+  padding: 1rem;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 20px;
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-lg);
+}
+
+.variablePopoverCard header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.8rem;
+}
+
+.variableGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.55rem;
 }
 
 .codexDetails {
@@ -2082,6 +2185,9 @@
   .publishGrid,
   .editorShell,
   .editorGrid,
+  .prospectingGrid,
+  .prospectingPreviewGrid,
+  .variablePreviewCard,
   .supremeShell,
   .supremeContentGrid,
   .architectureGrid,
@@ -2098,6 +2204,8 @@
   .publishMetricGrid,
   .checklistGrid,
   .codexGrid,
+  .prospectingFormGrid,
+  .prospectingMessageGrid,
   .supremeModuleGrid,
   .menuBranches,
   .supremeRuleGrid,
@@ -2123,6 +2231,10 @@
   .publishMetricGrid,
   .checklistGrid,
   .codexGrid,
+  .prospectingFormGrid,
+  .prospectingMessageGrid,
+  .prospectingPreviewGrid,
+  .variablePreviewCard,
   .supremeSideNav nav,
   .supremeChannelGrid,
   .supremeModuleGrid,

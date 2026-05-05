@@ -34,6 +34,15 @@
   letter-spacing: 0;
 }
 
+.guideWarning {
+  max-width: 58ch;
+  margin: .35rem 0 0;
+  color: var(--foreground-soft);
+  font-size: .86rem;
+  font-weight: 800;
+  line-height: 1.42;
+}
+
 .eyebrow {
   color: var(--foreground-soft);
   font-size: .7rem;

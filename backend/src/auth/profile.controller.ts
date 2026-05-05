@@ -18,6 +18,12 @@ class ChangePasswordDto {
   newPassword: string;
 }
 
+class UpdateDisplayNameDto {
+  @IsString()
+  @IsNotEmpty()
+  name: string;
+}
+
 function sanitizeUser(user: any, masterContext?: any) {
   if (!user) return null;
   const trialEndsAt = user.company?.trialEndsAt instanceof Date ? user.company.trialEndsAt : null;
@@ -160,5 +166,16 @@ export class ProfileController {
     const hashed = await bcrypt.hash(nextPassword, 10);
     await this.usersService.setPassword(user.id, hashed);
     return { ok: true };
+  }
+
+  @Patch('display-name')
+  @UseGuards(JwtAuthGuard)
+  async updateDisplayName(@Req() req: any, @Body() dto: UpdateDisplayNameDto) {
+    const name = String(dto?.name || '').trim().replace(/\s+/g, ' ');
+    if (name.length < 2) throw new BadRequestException('Informe o nome do atendente/vendedor.');
+    await this.usersService.updateById(Number(req.user.id), { name });
+    const updated = await this.usersService.findById(Number(req.user.id));
+    const masterContext = await this.resolveMasterContext(req, updated);
+    return sanitizeUser(updated, masterContext);
   }
 }

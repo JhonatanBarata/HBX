@@ -43,7 +43,7 @@ export class GerencialService {
       this.prisma.user.findMany({
         where: { companyId },
         orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-        select: { id: true, username: true, email: true, role: true, isActive: true, deactivatedAt: true, retentionUntil: true, createdAt: true },
+        select: { id: true, username: true, email: true, name: true, role: true, isActive: true, deactivatedAt: true, retentionUntil: true, createdAt: true },
       }),
       this.prisma.companyConversation.findMany({ where: { companyId }, select: { contact: true } }),
       this.prisma.satisfactionSurvey.findMany({

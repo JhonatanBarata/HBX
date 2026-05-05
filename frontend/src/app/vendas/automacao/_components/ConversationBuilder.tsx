@@ -152,10 +152,10 @@ const BOT_GUIDES: Array<{
   },
   {
     id: "prospeccao",
-    label: "Prospecção",
-    queueLabel: "Fila Prospecção",
+    label: "Respostas de Vendas",
+    queueLabel: "Pós-contato",
     instruction:
-      "Continua contatos iniciados por Vendas, valida interesse e evita parecer uma saudacao fria quando ja houve abordagem.",
+      "Só responde leads que já responderam à campanha. Não inicia conversas sozinho.",
   },
   {
     id: "recovery",
@@ -192,19 +192,19 @@ const FIRST_CONTACT_RULE_DEFAULTS: Record<BotGuideId, FirstContactRules> = {
   },
   prospeccao: {
     guideId: "prospeccao",
-    canInitiateConversation: true,
+    canInitiateConversation: false,
     messageIntervalSeconds: 35,
     nextContactDelayMinutes: 12,
     replyDelaySeconds: 75,
     typingSeconds: 8,
     typingVarianceSeconds: 6,
-    maxFirstContactsPerHour: 5,
+    maxFirstContactsPerHour: 0,
     quietHoursStart: "18:30",
     quietHoursEnd: "09:00",
     maxFollowUps: 2,
     followUpDelayHours: 24,
     requireOptIn: false,
-    stopIntentKeywords: ["nao tenho interesse", "nao quero", "pare", "remover", "spam"],
+    stopIntentKeywords: ["nao tenho interesse", "nao quero", "pare", "remover", "spam", "nao me chame", "não me chame"],
     positiveIntentKeywords: ["tenho interesse", "pode mandar", "quero saber", "me explica", "quanto custa"],
     optOutMessage: "Tudo bem, obrigado por responder. Nao vou insistir e encerro este contato por aqui.",
     handoffPolicy: "Se a pessoa demonstrar irritacao, pedir remocao ou responder negativamente duas vezes, encerra sem nova tentativa.",
@@ -561,7 +561,9 @@ function getFirstContactRules(config: AtendimentoBotConfig, guideId: BotGuideId)
   return {
     guideId,
     canInitiateConversation:
-      guideId === "atendimento" ? false : Boolean(metadata.canInitiateConversation ?? fallback.canInitiateConversation),
+      guideId === "atendimento" || guideId === "prospeccao"
+        ? false
+        : Boolean(metadata.canInitiateConversation ?? fallback.canInitiateConversation),
     messageIntervalSeconds: normalizeNumber(metadata.messageIntervalSeconds, fallback.messageIntervalSeconds, 8, 300),
     nextContactDelayMinutes: normalizeNumber(metadata.nextContactDelayMinutes, fallback.nextContactDelayMinutes, 0, 180),
     replyDelaySeconds: normalizeNumber(metadata.replyDelaySeconds, fallback.replyDelaySeconds, 5, 600),
@@ -588,7 +590,7 @@ function updateFirstContactRules(
   return updateSceneRule(config, getFirstContactRuleSceneId(guideId), FIRST_CONTACT_RULE_CONDITION, true, {
     ...rules,
     guideId,
-    canInitiateConversation: guideId === "atendimento" ? false : rules.canInitiateConversation,
+    canInitiateConversation: guideId === "atendimento" || guideId === "prospeccao" ? false : rules.canInitiateConversation,
   });
 }
 
@@ -960,6 +962,7 @@ export default function ConversationBuilder({
           <span className={styles.eyebrow}>Guias do bot</span>
           <strong>{activeGuide.label}</strong>
           <p>{activeGuide.instruction}</p>
+          <p>Campanha envia a primeira mensagem. Respostas de Vendas só responde depois que o lead retorna.</p>
           <button type="button" className={styles.rulesButton} onClick={() => setRulesOpen(true)}>
             REGRAS de 1º Contato
           </button>
@@ -992,6 +995,9 @@ export default function ConversationBuilder({
         <div>
           <span className={styles.eyebrow}>Bot {activeGuide.label}</span>
           <h2>Construtor de bot</h2>
+          {activeGuideId === "prospeccao" ? (
+            <p className={styles.guideWarning}>Este bot não inicia conversas sozinho. Ele só responde leads que já responderam a campanha.</p>
+          ) : null}
         </div>
         <div className={styles.topbarActions}>
           <span className={styles.saveState} data-dirty={hasUnsavedChanges ? "true" : "false"}>
@@ -1101,12 +1107,18 @@ export default function ConversationBuilder({
                 <input
                   type="checkbox"
                   checked={activeFirstContactRules.canInitiateConversation}
-                  disabled={activeGuideId === "atendimento"}
+                  disabled={activeGuideId === "atendimento" || activeGuideId === "prospeccao"}
                   onChange={(event) => updateActiveFirstContactRules({ canInitiateConversation: event.target.checked })}
                 />
                 <span>
                   <strong>Bot pode iniciar conversa</strong>
-                  <small>{activeGuideId === "atendimento" ? "Atendimento responde inbound." : "Disparo ativo com cadencia controlada."}</small>
+                  <small>
+                    {activeGuideId === "atendimento"
+                      ? "Atendimento responde inbound."
+                      : activeGuideId === "prospeccao"
+                        ? "Respostas de Vendas só atua depois de uma campanha enviada."
+                        : "Disparo ativo com cadencia controlada."}
+                  </small>
                 </span>
               </label>
 

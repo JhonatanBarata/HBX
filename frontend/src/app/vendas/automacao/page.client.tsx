@@ -68,6 +68,7 @@ type ProspectingAutomationConfig = {
   positiveIntentKeywords: string[];
   negativeIntentKeywords: string[];
   optOutMessage: string;
+  optOutReplyEnabled: boolean;
   websiteFallbackEnabled: boolean;
 };
 
@@ -78,6 +79,8 @@ type ProspectingAutomationLiveStatus = {
   campaign: (ProspectingAutomationConfig & {
     id: string;
     status: string;
+    filtersJson?: Record<string, unknown>;
+    optOutReplyEnabled?: boolean;
     lastStatusText?: string | null;
     lastError?: string | null;
   }) | null;
@@ -96,6 +99,17 @@ const DRAFT_STORAGE_KEY = "hbx.vendas.automacao.bot-qrcode.draft.v1";
 const BOT_PLAN_HREF = "/planos?intent=bot_ia&from=vendas_automacao";
 const PROSPECTING_SCENE_ID = "first_contact_rules_prospeccao";
 const PROSPECTING_RULE_CONDITION = "first_contact_rules";
+const BRAZIL_STATES = ["AC", "AL", "AP", "AM", "BA", "CE", "DF", "ES", "GO", "MA", "MT", "MS", "MG", "PA", "PB", "PR", "PE", "PI", "RJ", "RN", "RS", "RO", "RR", "SC", "SP", "SE", "TO"];
+const CITY_SUGGESTIONS = ["São Paulo", "Campinas", "Ribeirão Preto", "Sorocaba", "Santos", "Rio de Janeiro", "Belo Horizonte", "Curitiba", "Porto Alegre", "Florianópolis", "Goiânia", "Brasília", "Salvador", "Recife", "Fortaleza"];
+const SEGMENT_SUGGESTIONS = ["madeireiras", "clínicas odontológicas", "academias", "auto peças", "imobiliárias", "contabilidades", "restaurantes", "salões de beleza", "pet shops", "escolas", "construtoras", "transportadoras"];
+const PROSPECTING_VARIABLES = [
+  { token: "cliente", label: "Cliente" },
+  { token: "empresa", label: "Empresa" },
+  { token: "funcionario", label: "Funcionário" },
+  { token: "cidade", label: "Cidade" },
+  { token: "estado", label: "Estado" },
+  { token: "segmento", label: "Segmento" },
+];
 
 const DEFAULT_PROSPECTING_CONFIG: ProspectingAutomationConfig = {
   city: "",
@@ -108,17 +122,56 @@ const DEFAULT_PROSPECTING_CONFIG: ProspectingAutomationConfig = {
   intervalMinutes: 12,
   workingHoursStart: "09:00",
   workingHoursEnd: "17:30",
-  dailyLimit: 40,
   minLeadBuffer: 15,
   desiredLeadBuffer: 60,
   maxAttemptsPerLead: 1,
   typingSeconds: 8,
   typingVarianceSeconds: 6,
   positiveIntentKeywords: ["tenho interesse", "pode mandar", "quero saber", "me explica", "quanto custa"],
-  negativeIntentKeywords: ["não tenho interesse", "sem interesse", "pare", "remover"],
-  optOutMessage: "Obrigado pelo retorno. Não vou insistir por aqui.",
-  websiteFallbackEnabled: true,
+  dailyLimit: 30,
+  negativeIntentKeywords: ["não tenho interesse", "sem interesse", "pare", "remover", "spam", "não me chame"],
+  optOutMessage: "Entendi. Vou arquivar este contato e não chamaremos novamente.",
+  optOutReplyEnabled: false,
+  websiteFallbackEnabled: false,
 };
+
+type CurrentUserProfile = {
+  id: number;
+  username?: string | null;
+  email?: string | null;
+  name?: string | null;
+  company?: {
+    id?: number | null;
+    name?: string | null;
+  } | null;
+  masterContext?: {
+    active?: boolean | null;
+    companyName?: string | null;
+  } | null;
+};
+
+type ProspectingPreviewVariables = {
+  funcionario: string;
+  empresa: string;
+};
+
+function renderProspectingPreview(
+  template: string,
+  config: ProspectingAutomationConfig,
+  variables: ProspectingPreviewVariables,
+) {
+  const values: Record<string, string> = {
+    cliente: "Madeireira Modelo",
+    empresa: variables.empresa,
+    funcionario: variables.funcionario,
+    cidade: config.city || "sua região",
+    estado: config.state || "SP",
+    segmento: config.segment || "seu segmento",
+  };
+  return String(template || "")
+    .replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (_match, token) => values[token] || `[${token}]`)
+    .trim();
+}
 
 function shouldLoadModalQr(nextPayload: WhatsAppModalPayload | null, includeQr: boolean) {
   if (!includeQr || !nextPayload?.data.available) return false;
@@ -230,6 +283,7 @@ function getProspectingRulesFromBot(config: AtendimentoBotConfig) {
       DEFAULT_PROSPECTING_CONFIG.negativeIntentKeywords,
     ),
     optOutMessage: String(metadata.optOutMessage || DEFAULT_PROSPECTING_CONFIG.optOutMessage),
+    optOutReplyEnabled: Boolean(metadata.optOutReplyEnabled),
   };
 }
 
@@ -239,6 +293,7 @@ function mergeProspectingConfigFromStatus(
 ): ProspectingAutomationConfig {
   const rules = getProspectingRulesFromBot(botConfig);
   const campaign = status?.campaign;
+  const campaignFilters = campaign?.filtersJson && typeof campaign.filtersJson === "object" ? campaign.filtersJson : {};
   return {
     ...DEFAULT_PROSPECTING_CONFIG,
     ...rules,
@@ -252,7 +307,8 @@ function mergeProspectingConfigFromStatus(
         ? campaign.targetType
         : "pj",
     maxAttemptsPerLead: Math.max(1, Number(campaign?.maxAttemptsPerLead || DEFAULT_PROSPECTING_CONFIG.maxAttemptsPerLead)),
-    websiteFallbackEnabled: campaign?.websiteFallbackEnabled !== false,
+    optOutReplyEnabled: Boolean(campaign?.optOutReplyEnabled ?? campaignFilters.optOutReplyEnabled ?? rules.optOutReplyEnabled),
+    websiteFallbackEnabled: false,
   };
 }
 
@@ -280,6 +336,7 @@ function upsertProspectingRules(
       positiveIntentKeywords: prospecting.positiveIntentKeywords,
       negativeIntentKeywords: prospecting.negativeIntentKeywords,
       optOutMessage: prospecting.optOutMessage,
+      optOutReplyEnabled: prospecting.optOutReplyEnabled,
     },
   };
   if (currentIndex >= 0) sceneRules[currentIndex] = nextRule;
@@ -292,6 +349,7 @@ function ProspectingAutomationPanel({
   liveStatus,
   loading,
   actionLoading,
+  previewVariables,
   onChange,
   onSave,
   onStart,
@@ -303,6 +361,7 @@ function ProspectingAutomationPanel({
   liveStatus: ProspectingAutomationLiveStatus | null;
   loading: boolean;
   actionLoading: string | null;
+  previewVariables: ProspectingPreviewVariables;
   onChange: (updater: (current: ProspectingAutomationConfig) => ProspectingAutomationConfig) => void;
   onSave: () => void;
   onStart: () => void;
@@ -314,6 +373,25 @@ function ProspectingAutomationPanel({
   const campaignStatus = liveStatus?.campaign?.status || "paused";
   const canPause = campaignStatus === "running";
   const canResume = campaignStatus === "paused";
+  const [positiveKeywordsDraft, setPositiveKeywordsDraft] = useState(config.positiveIntentKeywords.join("\n"));
+  const [negativeKeywordsDraft, setNegativeKeywordsDraft] = useState(config.negativeIntentKeywords.join("\n"));
+  const [variableTarget, setVariableTarget] = useState<"messageTemplate" | "optOutMessage">("messageTemplate");
+  const [variablesOpen, setVariablesOpen] = useState(false);
+  const messageTemplateRef = useRef<HTMLTextAreaElement | null>(null);
+  const optOutMessageRef = useRef<HTMLTextAreaElement | null>(null);
+
+  useEffect(() => {
+    // Keep textarea drafts aligned when a saved campaign replaces the local config.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setPositiveKeywordsDraft(config.positiveIntentKeywords.join("\n"));
+  }, [config.positiveIntentKeywords]);
+
+  useEffect(() => {
+    // Keep textarea drafts aligned when a saved campaign replaces the local config.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setNegativeKeywordsDraft(config.negativeIntentKeywords.join("\n"));
+  }, [config.negativeIntentKeywords]);
+
   const setField = <K extends keyof ProspectingAutomationConfig,>(field: K, value: ProspectingAutomationConfig[K]) => {
     onChange((current) => ({ ...current, [field]: value }));
   };
@@ -334,6 +412,21 @@ function ProspectingAutomationPanel({
   };
   const setListField = (field: "positiveIntentKeywords" | "negativeIntentKeywords", value: string) => {
     onChange((current) => ({ ...current, [field]: normalizeTextList(value, current[field]) }));
+  };
+  const insertVariable = (token: string) => {
+    const field = variableTarget;
+    const ref = field === "messageTemplate" ? messageTemplateRef.current : optOutMessageRef.current;
+    const currentValue = String(config[field] || "");
+    const start = ref?.selectionStart ?? currentValue.length;
+    const end = ref?.selectionEnd ?? currentValue.length;
+    const insert = `{{${token}}}`;
+    const nextValue = `${currentValue.slice(0, start)}${insert}${currentValue.slice(end)}`;
+    setField(field, nextValue as ProspectingAutomationConfig[typeof field]);
+    setVariablesOpen(false);
+    window.setTimeout(() => {
+      ref?.focus();
+      ref?.setSelectionRange(start + insert.length, start + insert.length);
+    }, 0);
   };
 
   return (
@@ -363,16 +456,25 @@ function ProspectingAutomationPanel({
           <div className={styles.prospectingFormGrid}>
             <label>
               <span>Cidade</span>
-              <input className={styles.inputField} value={config.city} onChange={(event) => setField("city", event.target.value)} />
+              <input className={styles.inputField} list="prospecting-city-list" value={config.city} onChange={(event) => setField("city", event.target.value)} placeholder="Opcional" />
             </label>
             <label>
               <span>Estado</span>
-              <input className={styles.inputField} maxLength={2} value={config.state} onChange={(event) => setField("state", event.target.value.toUpperCase())} />
+              <input className={styles.inputField} list="prospecting-state-list" maxLength={2} value={config.state} onChange={(event) => setField("state", event.target.value.toUpperCase())} />
             </label>
             <label>
               <span>Segmento</span>
-              <input className={styles.inputField} value={config.segment} onChange={(event) => setField("segment", event.target.value)} />
+              <input className={styles.inputField} list="prospecting-segment-list" value={config.segment} onChange={(event) => setField("segment", event.target.value)} />
             </label>
+            <datalist id="prospecting-city-list">
+              {CITY_SUGGESTIONS.map((item) => <option key={item} value={item} />)}
+            </datalist>
+            <datalist id="prospecting-state-list">
+              {BRAZIL_STATES.map((item) => <option key={item} value={item} />)}
+            </datalist>
+            <datalist id="prospecting-segment-list">
+              {SEGMENT_SUGGESTIONS.map((item) => <option key={item} value={item} />)}
+            </datalist>
             <label>
               <span>Engine</span>
               <select className={styles.selectField} value={config.engine} onChange={(event) => setField("engine", event.target.value as "hbx" | "google")}>
@@ -443,28 +545,140 @@ function ProspectingAutomationPanel({
         <div className={styles.prospectingMessageGrid}>
           <label>
             <span>Mensagem inicial</span>
-            <textarea className={styles.editorTextarea} value={config.messageTemplate} onChange={(event) => setField("messageTemplate", event.target.value)} />
+            <textarea
+              ref={messageTemplateRef}
+              className={styles.editorTextarea}
+              value={config.messageTemplate}
+              onFocus={() => setVariableTarget("messageTemplate")}
+              onChange={(event) => setField("messageTemplate", event.target.value)}
+            />
           </label>
           <label>
             <span>Encerramento negativo</span>
-            <textarea className={styles.editorTextarea} value={config.optOutMessage} onChange={(event) => setField("optOutMessage", event.target.value)} />
+            <textarea
+              ref={optOutMessageRef}
+              className={styles.editorTextarea}
+              value={config.optOutMessage}
+              disabled={!config.optOutReplyEnabled}
+              onFocus={() => setVariableTarget("optOutMessage")}
+              onChange={(event) => setField("optOutMessage", event.target.value)}
+            />
           </label>
           <label>
             <span>Palavras positivas</span>
-            <textarea className={styles.editorTextarea} value={config.positiveIntentKeywords.join("\n")} onChange={(event) => setListField("positiveIntentKeywords", event.target.value)} />
+            <textarea
+              className={styles.editorTextarea}
+              value={positiveKeywordsDraft}
+              onChange={(event) => {
+                setPositiveKeywordsDraft(event.target.value);
+              }}
+              onBlur={(event) => setListField("positiveIntentKeywords", event.target.value)}
+            />
           </label>
           <label>
             <span>Palavras negativas</span>
-            <textarea className={styles.editorTextarea} value={config.negativeIntentKeywords.join("\n")} onChange={(event) => setListField("negativeIntentKeywords", event.target.value)} />
+            <textarea
+              className={styles.editorTextarea}
+              value={negativeKeywordsDraft}
+              onChange={(event) => {
+                setNegativeKeywordsDraft(event.target.value);
+              }}
+              onBlur={(event) => setListField("negativeIntentKeywords", event.target.value)}
+            />
           </label>
         </div>
         <label className={styles.toggleCard}>
           <span>
-            <strong>Enviar website no encerramento</strong>
-            <small>Usa o site do lead uma única vez quando houver resposta negativa.</small>
+            <strong>Responder encerramento negativo</strong>
+            <small>Desligado por padrão. Mesmo desligado, resposta negativa arquiva e bloqueia recontato automático.</small>
           </span>
-          <input type="checkbox" checked={config.websiteFallbackEnabled} onChange={(event) => setField("websiteFallbackEnabled", event.target.checked)} />
+          <input type="checkbox" checked={config.optOutReplyEnabled} onChange={(event) => setField("optOutReplyEnabled", event.target.checked)} />
         </label>
+        {config.optOutReplyEnabled ? (
+          <div className={styles.riskNotice}>
+            Responder depois de uma negativa pode aumentar risco de bloqueio no WhatsApp. Use apenas uma mensagem curta, sem insistência e sem link.
+          </div>
+        ) : null}
+        <div className={styles.prospectingPreviewGrid}>
+          <div className={styles.phoneMock}>
+            <div className={styles.phoneMockHeader}>
+              <span>Prévia WhatsApp - campanha</span>
+              <button
+                type="button"
+                className={styles.previewHeaderButton}
+                onClick={() => {
+                  setVariableTarget("messageTemplate");
+                  setVariablesOpen(true);
+                }}
+              >
+                Variáveis
+              </button>
+            </div>
+            <div className={styles.phoneMockBody}>
+              <div className={styles.previewMessageRow} data-role="bot">
+                <div className={styles.previewMessageBubble}>{renderProspectingPreview(config.messageTemplate, config, previewVariables)}</div>
+              </div>
+            </div>
+          </div>
+          <div className={styles.phoneMock}>
+            <div className={styles.phoneMockHeader}>
+              <span>Prévia WhatsApp - negativo</span>
+              <button
+                type="button"
+                className={styles.previewHeaderButton}
+                onClick={() => {
+                  setVariableTarget("optOutMessage");
+                  setVariablesOpen(true);
+                }}
+              >
+                Variáveis
+              </button>
+            </div>
+            <div className={styles.phoneMockBody}>
+              <div className={styles.previewMessageRow} data-role="customer">
+                <div className={styles.previewMessageBubble}>Não tenho interesse, remova meu contato.</div>
+              </div>
+              {config.optOutReplyEnabled ? (
+                <div className={styles.previewMessageRow} data-role="bot">
+                  <div className={styles.previewMessageBubble}>{renderProspectingPreview(config.optOutMessage, config, previewVariables)}</div>
+                </div>
+              ) : (
+                <div className={styles.previewMessageRow} data-role="system">
+                  <div className={styles.previewMessageBubble}>Arquiva, marca opt-out e não envia resposta.</div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+        <div className={styles.variablePreviewCard} aria-label="Valores atuais das variáveis">
+          <div>
+            <span>{"{{funcionario}}"}</span>
+            <strong>{previewVariables.funcionario}</strong>
+            <small>nome do usuário logado</small>
+          </div>
+          <div>
+            <span>{"{{empresa}}"}</span>
+            <strong>{previewVariables.empresa}</strong>
+            <small>nome da empresa</small>
+          </div>
+        </div>
+        {variablesOpen ? (
+          <div className={styles.variablePopover} role="dialog" aria-modal="true">
+            <div className={styles.variablePopoverCard}>
+              <header>
+                <strong>Variáveis</strong>
+                <button type="button" className={styles.ghostButton} onClick={() => setVariablesOpen(false)}>Fechar</button>
+              </header>
+              <div className={styles.variableGrid}>
+                {PROSPECTING_VARIABLES.map((variable) => (
+                  <button key={variable.token} type="button" className={styles.inlineGhostButton} onClick={() => insertVariable(variable.token)}>
+                    {variable.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        ) : null}
       </section>
 
       <div className={styles.prospectingActionRow}>
@@ -517,6 +731,7 @@ export default function VendasAutomationClientPage() {
   const [centerPayload, setCenterPayload] = useState<WhatsAppCenterPayload | null>(null);
   const [modalPayload, setModalPayload] = useState<WhatsAppModalPayload | null>(null);
   const [commercialPlans, setCommercialPlans] = useState<CommercialPlansPayload | null>(null);
+  const [currentUserProfile, setCurrentUserProfile] = useState<CurrentUserProfile | null>(null);
   const [userModules, setUserModules] = useState<UserModule[]>([]);
   const [draftSavedAt, setDraftSavedAt] = useState<string | null>(null);
   const [publishedAt, setPublishedAt] = useState<string | null>(null);
@@ -531,6 +746,21 @@ export default function VendasAutomationClientPage() {
     [centerPayload],
   );
   const botAiActive = hasBotAi(commercialPlans);
+  const previewVariables = useMemo<ProspectingPreviewVariables>(() => {
+    const funcionario = String(currentUserProfile?.name || "").trim() || "time comercial";
+    const empresa =
+      String(
+        currentUserProfile?.masterContext?.active
+          ? currentUserProfile.masterContext.companyName
+          : currentUserProfile?.company?.name,
+      ).trim() || "nossa empresa";
+    return { funcionario, empresa };
+  }, [
+    currentUserProfile?.company?.name,
+    currentUserProfile?.masterContext?.active,
+    currentUserProfile?.masterContext?.companyName,
+    currentUserProfile?.name,
+  ]);
   const recoveryEnabled = useMemo(() => {
     const trialModule = String(centerPayload?.company.trialModuleSelection || "").trim().toLowerCase();
     if (trialModule === "recovery") return true;
@@ -778,6 +1008,9 @@ export default function VendasAutomationClientPage() {
     if (hasToken !== true) return;
     void loadAutomation();
     void loadConnection(false, true);
+    void apiFetch<CurrentUserProfile>("/profile/current-user")
+      .then((profile) => setCurrentUserProfile(profile))
+      .catch(() => setCurrentUserProfile(null));
     void apiFetch<UserModule[]>("/modules/me")
       .then((modules) => setUserModules(Array.isArray(modules) ? modules : []))
       .catch(() => setUserModules([]));
@@ -1062,6 +1295,7 @@ export default function VendasAutomationClientPage() {
                     liveStatus={prospectingStatus}
                     loading={prospectingLoading}
                     actionLoading={prospectingAction}
+                    previewVariables={previewVariables}
                     onChange={updateProspectingConfigState}
                     onSave={() => void saveProspectingConfig()}
                     onStart={() => void runProspectingAction("start")}

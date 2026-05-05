@@ -51,6 +51,10 @@ class MasterCreateUserDto {
 
 	@IsOptional()
 	@IsString()
+	name?: string;
+
+	@IsOptional()
+	@IsString()
 	@IsIn(['USER', 'ADMIN'])
 	role?: 'USER' | 'ADMIN';
 
@@ -68,6 +72,10 @@ class MasterEditUserDto {
 	@IsOptional()
 	@IsString()
 	username?: string;
+
+	@IsOptional()
+	@IsString()
+	name?: string;
 
 	@IsOptional()
 	@IsString()
@@ -204,16 +212,19 @@ export class UsersController {
 
 		const existing = await this.usersService.findByEmail(email);
 		if (existing) throw new BadRequestException('E-mail já cadastrado');
+		const existingUsername = await this.usersService.findByUsername(email);
+		if (existingUsername) throw new BadRequestException('Username já cadastrado');
 
 		const tempPassword = dto.password?.trim() || `Tmp@${Math.random().toString(36).slice(2, 10)}A1`;
 		const hashed = await bcrypt.hash(tempPassword, 10);
 	assertPasswordPolicy(tempPassword);
 	const role = 'USER' as const;
 
-		// store the provided "name" input into the `username` column
+		const attendantName = String(dto?.name || '').trim();
 		const created = await this.usersService.create({
 			email,
-			username: dto.name?.trim() || undefined,
+			username: email,
+			name: attendantName || undefined,
 			password: hashed,
 			companyId,
 			role,
@@ -224,6 +235,7 @@ export class UsersController {
 				id: created.id,
 				email: created.email,
 				username: created.username,
+				name: created.name,
 				role: created.role,
 				isActive: created.isActive,
 			},
@@ -274,10 +286,10 @@ export class UsersController {
 		if (existingEmail) throw new BadRequestException('E-mail já cadastrado');
 
 		const username = String(dto?.username || '').trim();
-		if (username) {
-			const existingUsername = await this.usersService.findByUsername(username);
-			if (existingUsername) throw new BadRequestException('Username já cadastrado');
-		}
+		const loginUsername = username || email;
+		const attendantName = String(dto?.name || '').trim();
+		const existingUsername = await this.usersService.findByUsername(loginUsername);
+		if (existingUsername) throw new BadRequestException('Username já cadastrado');
 
 		const tempPassword = dto.password?.trim() || `Tmp@${Math.random().toString(36).slice(2, 10)}A1`;
 		assertPasswordPolicy(tempPassword);
@@ -286,7 +298,8 @@ export class UsersController {
 
 		const created = await this.usersService.create({
 			email,
-			username: username || undefined,
+			username: loginUsername,
+			name: attendantName || undefined,
 			password: hashed,
 			companyId,
 			role,
@@ -301,6 +314,7 @@ export class UsersController {
 				userId: created.id,
 				email: created.email,
 				username: created.username || null,
+				name: created.name || null,
 				role: created.role,
 			},
 		});
@@ -310,6 +324,7 @@ export class UsersController {
 				id: created.id,
 				email: created.email,
 				username: created.username,
+				name: created.name,
 				role: created.role,
 				isActive: created.isActive,
 			},
@@ -345,6 +360,10 @@ export class UsersController {
 			}
 		}
 
+		if (typeof dto.name === 'string') {
+			data.name = dto.name.trim() || null;
+		}
+
 		if (typeof dto.role === 'string') {
 			const role = String(dto.role).toUpperCase();
 			data.role = role === 'ADMIN' ? 'ADMIN' : 'USER';
@@ -372,6 +391,7 @@ export class UsersController {
 				userId: updated.id,
 				email: updated.email || null,
 				username: updated.username || null,
+				name: updated.name || null,
 				role: updated.role,
 				isActive: updated.isActive,
 			},
@@ -380,6 +400,7 @@ export class UsersController {
 			id: updated.id,
 			email: updated.email,
 			username: updated.username,
+			name: updated.name,
 			role: updated.role,
 			isActive: updated.isActive,
 			deactivatedAt: updated.deactivatedAt,

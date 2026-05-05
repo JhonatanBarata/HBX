@@ -275,6 +275,8 @@ export default function TopBar() {
   const [modulesPeekOpen, setModulesPeekOpen] = useState(false);
   const [curPass, setCurPass] = useState("");
   const [newPass, setNewPass] = useState("");
+  const [attendantName, setAttendantName] = useState("");
+  const [savingAttendantName, setSavingAttendantName] = useState(false);
   const [changing, setChanging] = useState(false);
   const [changeMsg, setChangeMsg] = useState<string | null>(null);
   const [operationalStatus, setOperationalStatus] = useState<OperationalStatusPayload | null>(null);
@@ -804,6 +806,11 @@ export default function TopBar() {
       reason: currentStatus === "connected" ? "whatsapp_connected" : "whatsapp_disconnected",
     });
   }, [whatsAppModal?.status]);
+
+  useEffect(() => {
+    if (!user) return;
+    setAttendantName(String(user.name || "").trim());
+  }, [user]);
 
   useEffect(() => {
     if (authenticated === null) {
@@ -1705,6 +1712,33 @@ export default function TopBar() {
     }
   }
 
+  async function handleDisplayNameSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const name = attendantName.trim().replace(/\s+/g, " ");
+    if (name.length < 2) {
+      setChangeMsg("Informe o nome do atendente/vendedor.");
+      return;
+    }
+
+    setSavingAttendantName(true);
+    setChangeMsg(null);
+    try {
+      const profile = await apiFetch<User>("/profile/display-name", {
+        method: "PATCH",
+        body: JSON.stringify({ name }),
+      });
+      clearApiCache("/profile/current-user");
+      setUser(profile);
+      setAttendantName(String(profile?.name || name).trim());
+      setChangeMsg("Nome do atendente/vendedor atualizado.");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Falha ao atualizar nome.";
+      setChangeMsg(message);
+    } finally {
+      setSavingAttendantName(false);
+    }
+  }
+
   const pendingHumanCount = recoveryPendingHumanCount + atendimentoPendingHumanCount;
   const accountContext = authenticated === true
     ? user?.isSystemMaster
@@ -2108,6 +2142,24 @@ export default function TopBar() {
 
                 {open ? (
                   <div className="app-user__menu">
+                    <p className="app-user__menu-title">Atendente/vendedor</p>
+                    <form onSubmit={handleDisplayNameSubmit} className="app-user__form">
+                      <input
+                        type="text"
+                        placeholder="Nome do atendente/vendedor"
+                        value={attendantName}
+                        onChange={(event) => setAttendantName(event.target.value)}
+                        className="field"
+                        autoComplete="name"
+                      />
+                      <button
+                        type="submit"
+                        className="btn btn-primary btn-sm"
+                        disabled={savingAttendantName || attendantName.trim().length < 2}
+                      >
+                        {savingAttendantName ? "Salvando..." : "Salvar nome"}
+                      </button>
+                    </form>
                     <p className="app-user__menu-title">Editar senha</p>
                     <form onSubmit={handlePasswordSubmit} className="app-user__form">
                       <input

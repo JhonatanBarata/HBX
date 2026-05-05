@@ -34,24 +34,20 @@ type ProspectingSceneRules = {
   positiveIntentKeywords: string[];
   negativeIntentKeywords: string[];
   optOutMessage: string;
+  optOutReplyEnabled: boolean;
 };
 
 type ProspectingSearchResult = Omit<WebscrapingContactResult, 'placeId'> & {
   placeId?: string | null;
 };
 
-const FINAL_JOB_STATUSES = [
-  'replied_positive',
-  'replied_negative',
-  'no_response_archived',
-  'failed',
-  'skipped',
-  'canceled',
-] as const;
 const BUFFER_JOB_STATUSES = ['pending', 'scheduled'] as const;
 const DEFAULT_POSITIVE_KEYWORDS = ['tenho interesse', 'pode mandar', 'quero saber', 'me explica', 'quanto custa'];
-const DEFAULT_NEGATIVE_KEYWORDS = ['nao tenho interesse', 'não tenho interesse', 'pare', 'remover', 'sem interesse'];
-const DEFAULT_OPT_OUT_MESSAGE = 'Obrigado pelo retorno. Nao vou insistir por aqui.';
+const DEFAULT_NEGATIVE_KEYWORDS = ['nao tenho interesse', 'não tenho interesse', 'pare', 'remover', 'sem interesse', 'spam', 'nao me chame', 'não me chame'];
+const OPT_OUT_INTENT_KEYWORDS = ['remover', 'pare', 'spam', 'nao me chame', 'não me chame'];
+const HUMAN_HANDOFF_INTENT_KEYWORDS = ['humano', 'atendente', 'ligar', 'me chama'];
+const DEFAULT_DAILY_LIMIT = 30;
+const DEFAULT_OPT_OUT_MESSAGE = 'Entendi. Vou arquivar este contato e nao chamaremos novamente.';
 const DEFAULT_MESSAGE_TEMPLATE =
   'Oi, tudo bem? Aqui é {{funcionario}} da {{empresa}}. Vi a {{cliente}} em {{cidade}} e queria te explicar em 1 minuto uma solução para {{segmento}}. Faz sentido eu te mandar?';
 const NO_RESPONSE_ARCHIVE_MS = 24 * 60 * 60 * 1000;
@@ -127,6 +123,13 @@ function normalizeKey(value: unknown) {
     .toLowerCase()
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+function containsNormalizedKeyword(normalizedText: string, keywords: string[]) {
+  return keywords.some((keyword) => {
+    const normalizedKeyword = normalizeKey(keyword);
+    return Boolean(normalizedKeyword && normalizedText.includes(normalizedKeyword));
+  });
 }
 
 function normalizeWebsiteKey(value: unknown) {
@@ -248,6 +251,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
         DEFAULT_NEGATIVE_KEYWORDS,
       ),
       optOutMessage: trimOrNull(metadata.optOutMessage) || DEFAULT_OPT_OUT_MESSAGE,
+      optOutReplyEnabled: metadata.optOutReplyEnabled === true,
     };
   }
 
@@ -258,6 +262,11 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
   ) {
     const scene = this.getProspectingSceneRules(botConfig);
     const filters = parseJsonObject(payload?.filtersJson ?? existing?.filtersJson);
+    const optOutReplyEnabled =
+      payload?.optOutReplyEnabled === undefined
+        ? Boolean(filters.optOutReplyEnabled ?? scene.optOutReplyEnabled)
+        : payload.optOutReplyEnabled === true;
+    const nextFilters = { ...filters, optOutReplyEnabled };
     const minLeadBuffer = clampInteger(payload?.minLeadBuffer, existing?.minLeadBuffer ?? 15, 1, 500);
     const desiredLeadBuffer = Math.max(
       minLeadBuffer,
@@ -274,7 +283,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
         ['pf', 'agenda_pf'].includes(String(payload?.targetType || existing?.targetType || '').trim())
           ? String(payload?.targetType || existing?.targetType)
           : 'pj',
-      filtersJson: JSON.stringify(filters || {}),
+      filtersJson: JSON.stringify(nextFilters),
       messageTemplate:
         trimOrNull(payload?.messageTemplate) ||
         trimOrNull(existing?.messageTemplate) ||
@@ -285,7 +294,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
         1,
         180,
       ),
-      dailyLimit: clampInteger(payload?.dailyLimit, existing?.dailyLimit ?? 40, 1, 300),
+      dailyLimit: clampInteger(payload?.dailyLimit, existing?.dailyLimit ?? DEFAULT_DAILY_LIMIT, 1, 300),
       minLeadBuffer,
       desiredLeadBuffer,
       maxAttemptsPerLead: clampInteger(payload?.maxAttemptsPerLead, existing?.maxAttemptsPerLead ?? 1, 1, 3),
@@ -305,10 +314,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
         normalizeTextList(payload?.negativeIntentKeywords, parseJsonList(existing?.negativeIntentKeywordsJson, scene.negativeIntentKeywords)),
       ),
       optOutMessage: trimOrNull(payload?.optOutMessage) || trimOrNull(existing?.optOutMessage) || scene.optOutMessage,
-      websiteFallbackEnabled:
-        payload?.websiteFallbackEnabled === undefined
-          ? existing?.websiteFallbackEnabled !== false
-          : payload.websiteFallbackEnabled !== false,
+      websiteFallbackEnabled: false,
     };
   }
 
@@ -327,6 +333,15 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
       `segment:${normalizeKey(config.segment)}`,
       `filters:${JSON.stringify(filters)}`,
     ].join('|');
+  }
+
+  private formatProspectingSearchLabel(config: any) {
+    const segment = trimOrNull(config?.segment) || 'contatos';
+    const city = trimOrNull(config?.city);
+    const state = trimOrNull(config?.state)?.toUpperCase();
+    if (city) return `${segment} em ${city}${state ? `/${state}` : ''}`;
+    if (state) return `${segment} no estado ${state}`;
+    return `${segment} no Brasil`;
   }
 
   private async latestCampaign(companyId: number) {
@@ -407,6 +422,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
 
   private serializeCampaign(campaign: any) {
     if (!campaign) return null;
+    const filtersJson = parseJsonObject(campaign.filtersJson);
     return {
       id: campaign.id,
       status: campaign.status,
@@ -415,7 +431,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
       segment: campaign.segment,
       engine: campaign.engine,
       targetType: campaign.targetType,
-      filtersJson: parseJsonObject(campaign.filtersJson),
+      filtersJson,
       searchSignature: campaign.searchSignature,
       messageTemplate: campaign.messageTemplate,
       intervalMinutes: campaign.intervalMinutes,
@@ -430,7 +446,8 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
       positiveIntentKeywords: parseJsonList(campaign.positiveIntentKeywordsJson, DEFAULT_POSITIVE_KEYWORDS),
       negativeIntentKeywords: parseJsonList(campaign.negativeIntentKeywordsJson, DEFAULT_NEGATIVE_KEYWORDS),
       optOutMessage: campaign.optOutMessage || DEFAULT_OPT_OUT_MESSAGE,
-      websiteFallbackEnabled: campaign.websiteFallbackEnabled !== false,
+      optOutReplyEnabled: filtersJson.optOutReplyEnabled === true,
+      websiteFallbackEnabled: false,
       lastScrapeAt: campaign.lastScrapeAt instanceof Date ? campaign.lastScrapeAt.toISOString() : null,
       lastStatusText: campaign.lastStatusText || null,
       lastError: campaign.lastError || null,
@@ -484,10 +501,11 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     const botConfig = await this.inboxService.getBotConfig(user);
     const current = await this.latestCampaign(context.companyId);
     const data = this.normalizeProspectingConfig(dto || {}, botConfig, current);
-    if (!data.city || !data.segment) {
-      throw new BadRequestException('Informe cidade e segmento para iniciar a prospecção automática.');
+    if (!data.segment) {
+      throw new BadRequestException('Informe o segmento para iniciar a prospecção automática.');
     }
     const searchSignature = this.buildSearchSignature(data);
+    const searchLabel = this.formatProspectingSearchLabel(data);
     const campaign = current
       ? await this.prisma.vendasAutomationCampaign.update({
           where: { id: current.id },
@@ -496,7 +514,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
             searchSignature,
             status: 'running',
             createdByUserId: current.createdByUserId || context.userId,
-            lastStatusText: `Buscando ${data.segment} em ${data.city}${data.state ? `/${data.state}` : ''}.`,
+            lastStatusText: `Buscando ${searchLabel}.`,
             lastError: null,
           },
         })
@@ -507,7 +525,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
             companyId: context.companyId,
             createdByUserId: context.userId,
             status: 'running',
-            lastStatusText: `Buscando ${data.segment} em ${data.city}${data.state ? `/${data.state}` : ''}.`,
+            lastStatusText: `Buscando ${searchLabel}.`,
           },
         });
 
@@ -601,7 +619,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
 
   private renderMessageTemplate(template: string, input: { lead: any; campaign: any; user: any }) {
     const companyName = String(input.user?.company?.name || input.user?.masterContext?.companyName || '').trim() || 'nossa empresa';
-    const employeeName = String(input.user?.name || input.user?.username || '').trim() || 'time comercial';
+    const employeeName = String(input.user?.name || '').trim() || 'time comercial';
     const values: Record<string, string> = {
       cliente: String(input.lead?.name || 'sua empresa').trim(),
       empresa: companyName,
@@ -1003,7 +1021,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
         status: { in: ['sent', 'replied_positive', 'replied_negative', 'no_response_archived'] },
       },
     });
-    if (sentToday >= Number(campaign.dailyLimit || 40)) {
+    if (sentToday >= Number(campaign.dailyLimit || DEFAULT_DAILY_LIMIT)) {
       const tomorrow = new Date(now);
       tomorrow.setDate(tomorrow.getDate() + 1);
       const next = this.parseTimeOnDate(tomorrow, campaign.workingHoursStart || '09:00');
@@ -1199,7 +1217,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     const jobId = trimOrNull(automation.jobId) || trimOrNull((queue as any).automationJobId);
     let job = jobId
       ? await this.prisma.vendasAutomationJob.findFirst({
-          where: { id: jobId, companyId: input.companyId },
+          where: { id: jobId, companyId: input.companyId, status: 'sent' },
           include: { campaign: true, lead: true },
         })
       : null;
@@ -1209,7 +1227,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
       job = await this.prisma.vendasAutomationJob.findFirst({
         where: {
           companyId: input.companyId,
-          status: { in: ['sent', 'sending'] },
+          status: 'sent',
           OR: [
             { conversationId: input.conversationId },
             ...(candidates.length ? [{ lead: { phoneNormalized: { in: candidates as string[] } } }] : []),
@@ -1220,13 +1238,40 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
       });
     }
     if (!job?.campaign || !job?.lead) return null;
-    if (FINAL_JOB_STATUSES.includes(String(job.status || '') as any)) return null;
+    if (String(job.status || '') !== 'sent') return null;
+    const automationStatus = normalizeKey((automation as any).status);
+    const queueStatus = normalizeKey((queue as any).status);
+    const blockedStatus = ['negative', 'opt_out', 'replied_negative', 'no_response_archived', 'interested', 'neutral', 'human_assigned'];
+    const isBlocked =
+      blockedStatus.includes(automationStatus) ||
+      blockedStatus.includes(queueStatus) ||
+      input.metadata?.humanAssigned === true ||
+      input.metadata?.blacklist === true ||
+      input.metadata?.blacklisted === true ||
+      input.metadata?.optOut === true ||
+      (queue as any).humanAssigned === true ||
+      (queue as any).blacklist === true ||
+      (queue as any).blacklisted === true ||
+      (queue as any).optOut === true ||
+      (queue as any).doNotContact === true ||
+      String(job.lead.status || '') === 'encerrado' ||
+      job.lead.closedAt ||
+      job.lead.wasClosedBefore;
+    if (isBlocked) return null;
 
     const normalized = normalizeKey(input.text);
     const positives = parseJsonList(job.campaign.positiveIntentKeywordsJson, DEFAULT_POSITIVE_KEYWORDS).map(normalizeKey);
     const negatives = parseJsonList(job.campaign.negativeIntentKeywordsJson, DEFAULT_NEGATIVE_KEYWORDS).map(normalizeKey);
-    const positive = positives.some((keyword) => keyword && normalized.includes(keyword));
-    const negative = !positive && negatives.some((keyword) => keyword && normalized.includes(keyword));
+    const optOut = containsNormalizedKeyword(normalized, OPT_OUT_INTENT_KEYWORDS);
+    const humanHandoff = containsNormalizedKeyword(normalized, HUMAN_HANDOFF_INTENT_KEYWORDS);
+    const negative = optOut || containsNormalizedKeyword(normalized, negatives);
+    const positive = !negative && !humanHandoff && containsNormalizedKeyword(normalized, positives);
+
+    if (negative) {
+      await input.setInboundMeta(optOut ? 'vendas_prospeccao_opt_out' : 'vendas_prospeccao_negativo', false);
+      await this.markNegative({ ...input, job, optOut });
+      return { handled: true, classification: optOut ? 'opt_out' : 'negative' };
+    }
 
     if (positive) {
       await input.setInboundMeta('vendas_prospeccao_interessado', false);
@@ -1234,10 +1279,10 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
       return { handled: true, classification: 'positive' };
     }
 
-    if (negative) {
-      await input.setInboundMeta('vendas_prospeccao_negativo', false);
-      await this.markNegative({ ...input, job });
-      return { handled: true, classification: 'negative' };
+    if (humanHandoff) {
+      await input.setInboundMeta('vendas_prospeccao_humano', false);
+      await this.markNeutral({ ...input, job, humanRequested: true });
+      return { handled: true, classification: 'human_requested' };
     }
 
     await input.setInboundMeta('vendas_prospeccao_neutro', false);
@@ -1359,9 +1404,10 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
         },
       });
     });
-    const website = job.campaign.websiteFallbackEnabled !== false && job.lead.website ? `\n\nSite: ${job.lead.website}` : '';
-    const optOutMessage = `${job.campaign.optOutMessage || DEFAULT_OPT_OUT_MESSAGE}${website}`.trim();
-    if (optOutMessage) {
+    const campaignFilters = parseJsonObject(job.campaign.filtersJson);
+    const shouldReplyOptOut = campaignFilters.optOutReplyEnabled === true;
+    const optOutMessage = String(job.campaign.optOutMessage || DEFAULT_OPT_OUT_MESSAGE).trim();
+    if (shouldReplyOptOut && optOutMessage) {
       try {
         await this.conversations.queueOutboundForCompany(input.companyId, {
           conversationId: input.conversationId,
@@ -1397,12 +1443,18 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
         inboxManualQueueOverride: 'archived',
         inboxLocalDeleted: true,
         inboxLocalDeletedAt: now.toISOString(),
+        optOut: true,
+        doNotContact: true,
+        blacklisted: true,
         vendasAutomation: {
           ...parseJsonObject((metadata as any).vendasAutomation),
           campaignId: job.campaignId,
           jobId: job.id,
           leadId: job.leadId,
-          status: 'negative',
+          status: input.optOut ? 'opt_out' : 'negative',
+          optOut: true,
+          doNotContact: true,
+          blacklisted: true,
           negativeAt: now.toISOString(),
         },
         vendasAgendaQueue: {
@@ -1415,6 +1467,9 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
           draftPending: false,
           botEligible: false,
           botEntryPending: false,
+          optOut: true,
+          doNotContact: true,
+          blacklisted: true,
           manualQueueOverride: 'archived',
           syncedAt: now.toISOString(),
           deactivatedAt: now.toISOString(),
@@ -1455,7 +1510,8 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
           campaignId: job.campaignId,
           jobId: job.id,
           leadId: job.leadId,
-          status: 'neutral',
+          status: input.humanRequested ? 'human_assigned' : 'neutral',
+          humanAssigned: true,
           neutralAt: now.toISOString(),
         },
         vendasAgendaQueue: {
@@ -1468,6 +1524,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
           draftPending: false,
           botEligible: false,
           botEntryPending: false,
+          humanAssigned: true,
           respondedAt: now.toISOString(),
           syncedAt: now.toISOString(),
         },

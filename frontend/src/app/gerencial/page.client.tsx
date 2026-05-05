@@ -9,6 +9,7 @@ import { useRequireAuth } from "@/app/_lib/useRequireAuth";
 type UserItem = {
   id: number;
   username?: string | null;
+  name?: string | null;
   email?: string | null;
   role: string;
   isActive: boolean;
@@ -57,6 +58,7 @@ type CreateCompanyUserResult = {
     id: number;
     email?: string | null;
     username?: string | null;
+    name?: string | null;
     role: string;
     isActive: boolean;
   };
@@ -368,7 +370,7 @@ export default function GerencialClientPage() {
               />
               <input
                 type="text"
-                placeholder="Nome (opcional)"
+                placeholder="Nome do atendente/vendedor"
                 value={newUserName}
                 onChange={(e) => setNewUserName(e.target.value)}
                 className="h-10 rounded-xl border border-[var(--line)] bg-[var(--surface-soft)] px-3 text-sm"
@@ -412,10 +414,10 @@ export default function GerencialClientPage() {
                 >
                   <div className="min-w-0">
                     <p className="font-medium truncate">
-                      {user.username || user.email || `Usuário #${user.id}`}
+                      {user.name || user.username || user.email || `Usuário #${user.id}`}
                     </p>
                     <p className="text-xs text-muted truncate">
-                      {user.email || "sem e-mail"} | {user.role} | {user.isActive ? "ATIVO" : "DESATIVADO"}
+                      {user.email || "sem e-mail"} | Login: {user.username || "-"} | {user.role} | {user.isActive ? "ATIVO" : "DESATIVADO"}
                     </p>
                     {!user.isActive ? (
                       <p className="text-xs text-muted truncate mt-1">{retentionLabel(user.retentionUntil)}</p>

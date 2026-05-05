@@ -57,9 +57,9 @@ export function commercialPlanByKey(payload: CommercialPlansPayload | null, key:
 }
 
 export function getCommercialPlanTitle(key?: CommercialPlanKey | null) {
-  if (key === "hbx_lite") return "HBX Lite";
-  if (key === "hbx_melhor") return "HBX Melhor";
-  if (key === "hbx_padrao") return "HBX Padrão";
+  if (key === "hbx_lite") return "HBX Vendas";
+  if (key === "hbx_melhor") return "HBX Bot IA";
+  if (key === "hbx_padrao") return "HBX WhatsApp";
   return "Sem plano comercial";
 }
 
@@ -69,7 +69,7 @@ export function getBotAiPlanRedirectFromError(error: unknown, fallback = "/plano
     return typeof candidate.redirectTo === "string" ? candidate.redirectTo : fallback;
   }
   const message = String(candidate.message || "");
-  if (message.includes("Bot de atendimento") || message.includes("HBX Melhor")) {
+  if (message.includes("Bot de atendimento") || message.includes("HBX Bot IA") || message.includes("HBX Melhor")) {
     return typeof candidate.redirectTo === "string" ? candidate.redirectTo : fallback;
   }
   return null;

@@ -95,38 +95,38 @@ type TrialFormState = {
 const SIGNUP_PLANS: SignupPlan[] = [
   {
     key: "hbx_lite",
-    name: "Lite",
-    badge: "Essencial",
-    monthlyPrice: 29.9,
-    detail: "Organização básica para começar.",
-    cta: "Escolher Lite",
+    name: "HBX Vendas",
+    badge: "Vendas",
+    monthlyPrice: 49.9,
+    detail: "Para quem quer encontrar novos clientes e organizar a prospecção.",
+    cta: "Escolher HBX Vendas",
     available: true,
-    features: ["Vendas organizadas", "Motores gratuitos/cache", "Gestão simples"],
+    features: ["Webscraping de empresas", "Leads por cidade e segmento", "CRM de vendas", "Funil comercial", "Histórico de contatos", "Organização de oportunidades"],
   },
   {
     key: "hbx_padrao",
-    name: "Padrão",
+    name: "HBX WhatsApp",
     badge: "Mais escolhido",
-    monthlyPrice: 79.9,
+    monthlyPrice: 89.9,
     promoPrice: 0,
-    promoLabel: "Após 1ºmês 79,90",
-    detail: "O plano certo para vender todos os dias.",
+    promoLabel: "Após 1º mês 89,90",
+    detail: "Para quem quer prospectar e atender pelo WhatsApp dentro do HBX.",
     cta: "Começar grátis hoje",
     available: true,
     featured: true,
-    features: ["Tudo do plano Lite", "Vendas + Atendimento", "2 buscas Google/dia", "Suporte prioritário"],
+    features: ["Tudo do HBX Vendas", "WhatsApp conectado ao sistema", "Conversas centralizadas", "Atendimento pelo painel", "Controle de retornos", "Histórico por cliente"],
     note: "1º mês grátis",
     trialCopy: "1º mês grátis",
   },
   {
     key: "hbx_melhor",
-    name: "Max",
+    name: "HBX Bot IA",
     badge: "Mais completo",
-    monthlyPrice: 129.9,
-    detail: "Bot IA, mais volume e atendimento no mesmo pacote.",
-    cta: "Escolher Max",
+    monthlyPrice: 149.9,
+    detail: "Para quem quer automatizar atendimento, respostas e prospecção com segurança.",
+    cta: "Escolher HBX Bot IA",
     available: true,
-    features: ["Tudo do plano Padrão", "Bot IA", "6 buscas Google por dia", "Mais volume comercial"],
+    features: ["Tudo do HBX WhatsApp", "Bot de atendimento", "Bot de prospecção pós-resposta", "Respostas automáticas", "Qualificação de interessados", "Encaminhamento para humano"],
   },
 ];
 
@@ -143,7 +143,7 @@ function getErrorMessage(data: unknown) {
 }
 
 function planName(planKey?: CommercialPlanKey | null) {
-  return SIGNUP_PLANS.find((plan) => plan.key === planKey)?.name || "Padrão";
+  return SIGNUP_PLANS.find((plan) => plan.key === planKey)?.name || "HBX WhatsApp";
 }
 
 function normalizeEmail(value?: string | null) {
@@ -298,6 +298,7 @@ export default function RegisterPage() {
   const [selectedPlanKey, setSelectedPlanKey] = useState<CommercialPlanKey>("hbx_padrao");
   const billingCycle: BillingCycle = "monthly";
   const [companyName, setCompanyName] = useState("");
+  const [attendantName, setAttendantName] = useState("");
   const [username, setUsername] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -590,10 +591,16 @@ export default function RegisterPage() {
 
     try {
       const normalizedCompanyName = String(companyName || "").trim();
+      const normalizedAttendantName = String(attendantName || "").trim().replace(/\s+/g, " ");
+      if (normalizedAttendantName.length < 2) {
+        setError("Informe o nome do atendente/vendedor.");
+        setLoading(false);
+        return;
+      }
       const bodyPayload = {
         entityType: PUBLIC_SIGNUP_ENTITY_TYPE,
         companyName: normalizedCompanyName,
-        name: normalizedCompanyName,
+        name: normalizedAttendantName,
         selectedPlanKey,
         ...(selectedPlanKey === "hbx_padrao"
           ? {
@@ -856,6 +863,26 @@ export default function RegisterPage() {
                   </div>
 
                   <div className="login-field">
+                    <label className="login-label" htmlFor="register-attendant-name">
+                      Nome do atendente/vendedor
+                    </label>
+                    <div className={styles.inputWrap}>
+                      <span className={styles.fieldIcon}>
+                        <FieldIcon icon="company" />
+                      </span>
+                      <input
+                        id="register-attendant-name"
+                        className="input"
+                        value={attendantName}
+                        onChange={(event) => setAttendantName(event.target.value)}
+                        placeholder="Nome que aparecerá em {{funcionario}}"
+                        autoComplete="name"
+                        required
+                      />
+                    </div>
+                  </div>
+
+                  <div className="login-field">
                     <label className="login-label" htmlFor="register-password">
                       Senha
                     </label>
@@ -969,7 +996,7 @@ export default function RegisterPage() {
           <section className={styles.trialDialog} role="dialog" aria-modal="true" aria-labelledby="register-trial-title">
             <header className={styles.trialDialogHeader}>
               <div>
-                <span className={styles.eyebrow}>Trial HBX Padrão</span>
+                <span className={styles.eyebrow}>Trial HBX WhatsApp</span>
                 <h2 id="register-trial-title">Antes de liberar seus 30 dias</h2>
                 <p>Precisamos confirmar um contato real. O telefone é usado para validar se este trial já foi utilizado.</p>
               </div>
@@ -1028,7 +1055,7 @@ export default function RegisterPage() {
                 onChange={(event) => setTrialForm((current) => ({ ...current, acceptedTerms: event.target.checked }))}
               />
               <span>
-                Aceito iniciar o trial gratuito de 30 dias do HBX Padrão, sem cobrança automática agora, e autorizo o uso do CPF, nome completo e telefone informado para contato e validação de elegibilidade do trial.
+                Aceito iniciar o trial gratuito de 30 dias do HBX WhatsApp, sem cobrança automática agora, e autorizo o uso do CPF, nome completo e telefone informado para contato e validação de elegibilidade do trial.
               </span>
             </label>
 
