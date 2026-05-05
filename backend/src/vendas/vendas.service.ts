@@ -66,6 +66,26 @@ type VendasAgendaQueueMetadata = {
   whatsappAvailabilityStatus?: string | null;
 };
 
+type VendasProspeccaoStage =
+  | 'pending_send'
+  | 'scheduled_send'
+  | 'sent_waiting'
+  | 'reply_received'
+  | 'expired_no_reply'
+  | 'needs_review'
+  | 'no_whatsapp'
+  | 'negative_reply';
+
+type VendasProspeccaoMetadata = {
+  stage?: VendasProspeccaoStage | null;
+  firstOutboundAt?: string | null;
+  lastInboundAt?: string | null;
+  replyDeadlineAt?: string | null;
+  leadSegment?: string | null;
+  campaignSegment?: string | null;
+  mismatchReason?: string | null;
+};
+
 type VendasWhatsappAvailabilityStatus = 'unknown' | 'available' | 'unavailable';
 
 type VendasWhatsappAvailabilityState = {
@@ -601,6 +621,52 @@ export class VendasService {
     return queue as VendasAgendaQueueMetadata;
   }
 
+  private readVendasProspeccaoMetadata(metadata: Record<string, any>) {
+    const state = metadata?.vendasProspeccao;
+    if (!state || typeof state !== 'object' || Array.isArray(state)) return null;
+    return state as VendasProspeccaoMetadata;
+  }
+
+  private addHoursIso(value: string | null | undefined, hours: number) {
+    const parsed = new Date(String(value || ''));
+    if (!Number.isFinite(parsed.getTime())) return null;
+    return new Date(parsed.getTime() + hours * 60 * 60 * 1000).toISOString();
+  }
+
+  private buildVendasProspeccaoMetadata(
+    stage: VendasProspeccaoStage,
+    row: any,
+    current?: VendasProspeccaoMetadata | null,
+    queue?: VendasAgendaQueueMetadata | null,
+    extra?: Partial<VendasProspeccaoMetadata>,
+  ): VendasProspeccaoMetadata {
+    const hasExtra = (key: keyof VendasProspeccaoMetadata) =>
+      Boolean(extra && Object.prototype.hasOwnProperty.call(extra, key));
+    const firstOutboundAt = this.normalizeText(
+      extra?.firstOutboundAt ||
+        current?.firstOutboundAt ||
+        queue?.manualSentAt ||
+        queue?.lastManualSendAt ||
+        null,
+    );
+    const replyDeadlineAt =
+      extra?.replyDeadlineAt === undefined
+        ? current?.replyDeadlineAt || this.addHoursIso(firstOutboundAt, 24)
+        : extra.replyDeadlineAt || null;
+    return {
+      ...(current || {}),
+      stage,
+      firstOutboundAt,
+      lastInboundAt: hasExtra('lastInboundAt') ? extra?.lastInboundAt || null : current?.lastInboundAt || null,
+      replyDeadlineAt,
+      leadSegment: this.normalizeText(extra?.leadSegment || current?.leadSegment || row?.segment),
+      campaignSegment: this.normalizeText(extra?.campaignSegment || current?.campaignSegment || null),
+      mismatchReason: hasExtra('mismatchReason')
+        ? this.normalizeText(extra?.mismatchReason)
+        : this.normalizeText(current?.mismatchReason || null),
+    };
+  }
+
   private shouldMirrorLeadToInboxAgenda(row: any) {
     if (!row || this.isClosedLead(row)) return false;
     return this.classifyLeadBlock(row) === 'today';
@@ -637,8 +703,10 @@ export class VendasService {
     const nextAction = this.normalizeText(row?.nextAction);
     const returnAt = row?.returnAt instanceof Date ? row.returnAt.toISOString() : this.parseDate(row?.returnAt)?.toISOString() || null;
     const status = this.normalizeStatus(row?.status);
-    const manualSentAt = this.normalizeText(currentQueue?.manualSentAt || currentQueue?.lastManualSendAt);
-    const manualSent = Boolean(currentQueue?.manualSent || manualSentAt);
+    const manualSentAt = options?.forceScheduled
+      ? null
+      : this.normalizeText(currentQueue?.manualSentAt || currentQueue?.lastManualSendAt);
+    const manualSent = options?.forceScheduled ? false : Boolean(currentQueue?.manualSent || manualSentAt);
     const inheritedDraftMessage = this.normalizeText(
       options?.draftMessageOverride || currentQueue?.inheritedDraftMessage || null,
     );
@@ -690,7 +758,9 @@ export class VendasService {
       draftPending: preserveConsumedDraft ? false : true,
       syncedAt: new Date().toISOString(),
       deactivatedAt: null,
-      lastManualSendAt: this.normalizeText(currentQueue?.lastManualSendAt || manualSentAt),
+      lastManualSendAt: options?.forceScheduled
+        ? null
+        : this.normalizeText(currentQueue?.lastManualSendAt || manualSentAt),
       manualSent,
       manualSentAt,
       botEligible: currentQueue?.botEligible === true,
@@ -762,8 +832,31 @@ export class VendasService {
       (await this.conversations.getOrCreateConversationForContact(companyId, contact));
     const metadata = this.parseConversationMetadata(conversation?.metadata);
     const currentQueue = this.readVendasAgendaQueueMetadata(metadata);
+    const currentProspeccao = this.readVendasProspeccaoMetadata(metadata);
     const nextQueue = this.buildVendasAgendaQueueMetadata(row, currentQueue, options);
-    const changed = JSON.stringify(currentQueue || null) !== JSON.stringify(nextQueue);
+    const nextStage: VendasProspeccaoStage =
+      nextQueue.whatsappAvailabilityStatus === 'unavailable'
+        ? 'no_whatsapp'
+        : options?.forceScheduled
+          ? 'pending_send'
+          : nextQueue.manualSent || nextQueue.manualSentAt
+            ? 'sent_waiting'
+            : 'pending_send';
+    const nextProspeccao = this.buildVendasProspeccaoMetadata(
+      nextStage,
+      row,
+      currentProspeccao,
+      nextQueue,
+      {
+        firstOutboundAt: options?.forceScheduled ? null : undefined,
+        replyDeadlineAt: options?.forceScheduled ? null : undefined,
+        leadSegment: this.normalizeText(row?.segment),
+        mismatchReason: null,
+      },
+    );
+    const changed =
+      JSON.stringify(currentQueue || null) !== JSON.stringify(nextQueue) ||
+      JSON.stringify(currentProspeccao || null) !== JSON.stringify(nextProspeccao);
 
     if (changed) {
       await this.conversations.updateConversationState(companyId, conversation.id, {
@@ -774,6 +867,7 @@ export class VendasService {
           routeTarget: 'prospeccao',
           whatsappAvailabilityStatus: options?.whatsappAvailabilityStatus || nextQueue.whatsappAvailabilityStatus || null,
           vendasAgendaQueue: nextQueue,
+          vendasProspeccao: nextProspeccao,
         },
         lastInteractionAt: new Date(),
       });
@@ -804,6 +898,7 @@ export class VendasService {
       (await this.conversations.getOrCreateConversationForContact(companyId, contact));
     const metadata = this.parseConversationMetadata(conversation?.metadata);
     const currentQueue = this.readVendasAgendaQueueMetadata(metadata);
+    const currentProspeccao = this.readVendasProspeccaoMetadata(metadata);
     const now = new Date().toISOString();
     const status = this.normalizeStatus(row?.status);
     const nextAction = this.normalizeText(row?.nextAction);
@@ -853,6 +948,10 @@ export class VendasService {
         inboxLocalDeleted: true,
         inboxLocalDeletedAt: now,
         vendasAgendaQueue: nextQueue,
+        vendasProspeccao: this.buildVendasProspeccaoMetadata('no_whatsapp', row, currentProspeccao, nextQueue, {
+          leadSegment: this.normalizeText(row?.segment),
+          mismatchReason: null,
+        }),
       },
       lastInteractionAt: new Date(),
     });

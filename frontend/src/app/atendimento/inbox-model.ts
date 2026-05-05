@@ -3,6 +3,26 @@ import type { ChannelProvider, ProviderCapabilities } from "@/lib/provider-capab
 export type InboxRouteTarget = "recovery" | "atendimento" | "prospeccao" | "conversas" | "excluidos" | "groups";
 export type InboxStatus = "new" | "open" | "closed" | "blocked";
 
+export type VendasProspeccaoStage =
+  | "pending_send"
+  | "scheduled_send"
+  | "sent_waiting"
+  | "reply_received"
+  | "expired_no_reply"
+  | "needs_review"
+  | "no_whatsapp"
+  | "negative_reply";
+
+export type VendasProspeccaoMetadata = {
+  stage?: VendasProspeccaoStage | string | null;
+  firstOutboundAt?: string | null;
+  lastInboundAt?: string | null;
+  replyDeadlineAt?: string | null;
+  leadSegment?: string | null;
+  campaignSegment?: string | null;
+  mismatchReason?: string | null;
+};
+
 export type Customer = {
   id: string;
   phone: string;

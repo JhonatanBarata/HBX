@@ -350,6 +350,51 @@ test('inbox classifier moves expired prospection without response to Excluídos'
   assert.equal(context.routeReason, 'Sem resposta em 24h.');
 });
 
+test('inbox classifier keeps segment mismatch review in Prospecção', async () => {
+  const { service } = createService({
+    prisma: {
+      companyMessage: {
+        findFirst: async () => null,
+      },
+      hbxRecoveryCustomer: {
+        findFirst: async () => null,
+      },
+    },
+  });
+
+  const context = await (service as any).resolveRecoveryRoutingContext(
+    7,
+    {
+      id: 42,
+      contact: '+5519998877766',
+      metadata: JSON.stringify({
+        sourceModule: 'vendas',
+        queueTarget: 'prospeccao',
+        routeTarget: 'prospeccao',
+        vendasProspeccao: {
+          stage: 'needs_review',
+          leadSegment: 'Pet Shop',
+          campaignSegment: 'Refrigeração',
+          mismatchReason: 'segment_mismatch',
+        },
+        vendasAgendaQueue: {
+          active: true,
+          sourceModule: 'vendas',
+          queueTarget: 'prospeccao',
+          routeTarget: 'prospeccao',
+          status: 'needs_review',
+        },
+      }),
+      flowResult: null,
+      humanAssigned: false,
+      messages: [],
+    },
+    { preferRecoveryForDebtors: true },
+  );
+
+  assert.equal(context.routeTarget, 'prospeccao');
+});
+
 test('inbox classifier keeps WhatsApp groups outside operational funnels', async () => {
   const { service } = createService();
 

@@ -178,6 +178,15 @@ const MASTER_SHORTCUTS = [
     meta: "QR, Meta e Master Token",
   },
   {
+    title: "Email",
+    eyebrow: "Comercial",
+    description: "Envio simples da apresentação HBX com anexo PPTX trocável e mensagem fixa.",
+    href: "/master/email",
+    action: "Abrir email",
+    tone: "support",
+    meta: "jhonatan@hbx.com.br",
+  },
+  {
     title: "Planos/Módulos",
     eyebrow: "Catálogo",
     description: "Preços, módulos vendáveis, padrão para empresas e uso por cliente.",

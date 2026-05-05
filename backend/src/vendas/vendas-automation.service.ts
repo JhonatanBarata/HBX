@@ -41,6 +41,26 @@ type ProspectingSearchResult = Omit<WebscrapingContactResult, 'placeId'> & {
   placeId?: string | null;
 };
 
+type VendasProspeccaoStage =
+  | 'pending_send'
+  | 'scheduled_send'
+  | 'sent_waiting'
+  | 'reply_received'
+  | 'expired_no_reply'
+  | 'needs_review'
+  | 'no_whatsapp'
+  | 'negative_reply';
+
+type VendasProspeccaoMetadata = {
+  stage?: VendasProspeccaoStage | null;
+  firstOutboundAt?: string | null;
+  lastInboundAt?: string | null;
+  replyDeadlineAt?: string | null;
+  leadSegment?: string | null;
+  campaignSegment?: string | null;
+  mismatchReason?: string | null;
+};
+
 const BUFFER_JOB_STATUSES = ['pending', 'scheduled'] as const;
 const DEFAULT_POSITIVE_KEYWORDS = ['tenho interesse', 'pode mandar', 'quero saber', 'me explica', 'quanto custa'];
 const DEFAULT_NEGATIVE_KEYWORDS = ['nao tenho interesse', 'não tenho interesse', 'pare', 'remover', 'sem interesse', 'spam', 'nao me chame', 'não me chame'];
@@ -179,6 +199,18 @@ function normalizeKey(value: unknown) {
     .trim();
 }
 
+function normalizeSegmentKey(value: unknown) {
+  return normalizeKey(value).replace(/[^a-z0-9]+/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+function isSegmentMismatch(leadSegment: unknown, campaignSegment: unknown) {
+  const leadKey = normalizeSegmentKey(leadSegment);
+  const campaignKey = normalizeSegmentKey(campaignSegment);
+  if (!leadKey || !campaignKey) return false;
+  if (leadKey === campaignKey) return false;
+  return !leadKey.includes(campaignKey) && !campaignKey.includes(leadKey);
+}
+
 function containsNormalizedKeyword(normalizedText: string, keywords: string[]) {
   return keywords.some((keyword) => {
     const normalizedKeyword = normalizeKey(keyword);
@@ -286,6 +318,290 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
       text,
       type: extra?.type || status,
     });
+  }
+
+  private addHoursIso(value: string | Date | null | undefined, hours: number) {
+    const parsed = value instanceof Date ? value : new Date(String(value || ''));
+    if (!Number.isFinite(parsed.getTime())) return null;
+    return new Date(parsed.getTime() + hours * 60 * 60 * 1000).toISOString();
+  }
+
+  private buildProspectionState(
+    stage: VendasProspeccaoStage,
+    input: {
+      current?: Record<string, unknown> | null;
+      lead?: any;
+      campaign?: any;
+      firstOutboundAt?: string | Date | null;
+      lastInboundAt?: string | Date | null;
+      replyDeadlineAt?: string | Date | null;
+      mismatchReason?: string | null;
+    },
+  ): VendasProspeccaoMetadata {
+    const current = (input.current || {}) as VendasProspeccaoMetadata;
+    const hasOwn = (key: keyof typeof input) => Object.prototype.hasOwnProperty.call(input, key);
+    const firstOutboundAtRaw =
+      input.firstOutboundAt ?? current.firstOutboundAt ?? null;
+    const firstOutboundAt =
+      firstOutboundAtRaw instanceof Date
+        ? firstOutboundAtRaw.toISOString()
+        : trimOrNull(firstOutboundAtRaw);
+    const replyDeadlineRaw = hasOwn('replyDeadlineAt')
+      ? input.replyDeadlineAt
+      : current.replyDeadlineAt || this.addHoursIso(firstOutboundAt, 24);
+    const lastInboundRaw = hasOwn('lastInboundAt') ? input.lastInboundAt : current.lastInboundAt || null;
+    return {
+      ...current,
+      stage,
+      firstOutboundAt,
+      lastInboundAt: lastInboundRaw instanceof Date ? lastInboundRaw.toISOString() : trimOrNull(lastInboundRaw),
+      replyDeadlineAt: replyDeadlineRaw instanceof Date ? replyDeadlineRaw.toISOString() : trimOrNull(replyDeadlineRaw),
+      leadSegment: trimOrNull(input.lead?.segment) || current.leadSegment || null,
+      campaignSegment: trimOrNull(input.campaign?.segment) || current.campaignSegment || null,
+      mismatchReason: hasOwn('mismatchReason')
+        ? trimOrNull(input.mismatchReason)
+        : current.mismatchReason || null,
+    };
+  }
+
+  private buildLeadPhoneCandidates(value: unknown) {
+    const digits = normalizePhoneDigits(value);
+    if (!digits) return [];
+    const candidates = new Set<string>();
+    for (const candidate of buildWhatsAppPhoneCandidates(digits)) {
+      if (candidate) candidates.add(candidate);
+    }
+    candidates.add(`+${digits}`);
+    candidates.add(digits);
+    return [...candidates];
+  }
+
+  private async findOrCreateProspectionConversation(companyId: number, lead: any) {
+    const phoneRaw = lead?.phoneNormalized || lead?.phone;
+    const contact = normalizeContact(phoneRaw);
+    if (!contact) return null;
+    const candidates = this.buildLeadPhoneCandidates(phoneRaw);
+    const candidateDigits = Array.from(
+      new Set(
+        candidates
+          .map((candidate) => normalizePhoneDigits(candidate))
+          .filter((candidate): candidate is string => Boolean(candidate)),
+      ),
+    );
+    const existing = await this.prisma.companyConversation.findFirst({
+      where: {
+        companyId,
+        channel: 'whatsapp',
+        OR: [
+          ...(candidates.length ? [{ contact: { in: candidates } }] : []),
+          ...candidateDigits.map((candidate) => ({ contact: { contains: candidate } })),
+          ...candidateDigits.map((candidate) => ({ contact: { endsWith: candidate } })),
+          ...candidates.map((candidate) => ({ metadata: { contains: candidate } })),
+        ],
+      },
+      orderBy: [{ lastMessageAt: 'desc' }, { id: 'desc' }],
+    });
+    return existing || this.conversations.getOrCreateConversationForContact(companyId, contact);
+  }
+
+  private async updateProspectionConversationStage(input: {
+    companyId: number;
+    lead: any;
+    campaign?: any;
+    jobId?: string | null;
+    stage: VendasProspeccaoStage;
+    scheduledAt?: Date | null;
+    firstOutboundAt?: Date | string | null;
+    lastInboundAt?: Date | string | null;
+    draftMessage?: string | null;
+    mismatchReason?: string | null;
+    queueTarget?: 'prospeccao' | 'atendimento' | 'excluidos';
+    routeTarget?: 'prospeccao' | 'atendimento' | 'excluidos';
+    active?: boolean;
+  }) {
+    const conversation = await this.findOrCreateProspectionConversation(input.companyId, input.lead);
+    if (!conversation?.id) return null;
+    const metadata = parseJsonObject(conversation.metadata);
+    const queue = parseJsonObject((metadata as any).vendasAgendaQueue);
+    const automation = parseJsonObject((metadata as any).vendasAutomation);
+    const currentProspeccao = parseJsonObject((metadata as any).vendasProspeccao);
+    const now = new Date().toISOString();
+    const queueTarget = input.queueTarget || 'prospeccao';
+    const routeTarget = input.routeTarget || queueTarget;
+    const firstOutboundAt =
+      input.firstOutboundAt instanceof Date
+        ? input.firstOutboundAt.toISOString()
+        : trimOrNull(input.firstOutboundAt);
+    const scheduledAt = input.scheduledAt instanceof Date ? input.scheduledAt.toISOString() : trimOrNull(input.scheduledAt);
+    const shouldArchive = queueTarget === 'excluidos';
+    const nextQueue = {
+      ...queue,
+      active: input.active ?? queueTarget === 'prospeccao',
+      leadId: input.lead.id,
+      sourceModule: 'vendas',
+      sourceBlock: 'today',
+      queueTarget,
+      routeTarget,
+      status:
+        input.stage === 'needs_review'
+          ? 'needs_review'
+          : input.stage === 'scheduled_send'
+            ? 'scheduled'
+            : input.stage === 'sent_waiting'
+              ? 'contato'
+              : input.stage === 'expired_no_reply' || input.stage === 'negative_reply' || input.stage === 'no_whatsapp'
+                ? 'encerrado'
+                : queue.status || 'novo',
+      nextAction:
+        input.stage === 'needs_review'
+          ? 'Revisar segmento antes de enviar'
+          : input.stage === 'scheduled_send'
+            ? 'Agendado para envio'
+            : input.stage === 'sent_waiting'
+              ? 'Aguardar resposta'
+              : queue.nextAction || null,
+      returnAt: scheduledAt || queue.returnAt || null,
+      draftMessage: input.draftMessage ?? queue.draftMessage ?? null,
+      draftPending: input.stage === 'pending_send' || input.stage === 'scheduled_send',
+      manualSent: input.stage === 'sent_waiting' || queue.manualSent === true,
+      manualSentAt: firstOutboundAt || queue.manualSentAt || null,
+      lastManualSendAt: firstOutboundAt || queue.lastManualSendAt || null,
+      botEligible: input.stage !== 'needs_review' && queueTarget === 'prospeccao',
+      botEntryPending: input.stage === 'sent_waiting',
+      automationJobId: input.jobId || queue.automationJobId || null,
+      manualQueueOverride: shouldArchive ? 'archived' : queue.manualQueueOverride || null,
+      whatsappAvailabilityStatus: input.stage === 'no_whatsapp' ? 'unavailable' : queue.whatsappAvailabilityStatus || null,
+      syncedAt: now,
+      ...(shouldArchive ? { deactivatedAt: now } : {}),
+    };
+    const nextProspeccao = this.buildProspectionState(input.stage, {
+      current: currentProspeccao,
+      lead: input.lead,
+      campaign: input.campaign,
+      firstOutboundAt,
+      lastInboundAt: input.lastInboundAt,
+      replyDeadlineAt: firstOutboundAt ? this.addHoursIso(firstOutboundAt, 24) : null,
+      mismatchReason: input.mismatchReason ?? null,
+    });
+    await this.conversations.updateConversationState(input.companyId, Number(conversation.id), {
+      metadata: {
+        ...metadata,
+        sourceModule: 'vendas',
+        queueTarget,
+        routeTarget,
+        vendasAutomation: {
+          ...automation,
+          campaignId: input.campaign?.id || automation.campaignId || null,
+          jobId: input.jobId || automation.jobId || null,
+          leadId: input.lead.id,
+          status: input.stage,
+          scheduledAt: scheduledAt || automation.scheduledAt || null,
+          sentAt: firstOutboundAt || automation.sentAt || null,
+        },
+        vendasAgendaQueue: nextQueue,
+        vendasProspeccao: nextProspeccao,
+        ...(input.stage === 'no_whatsapp' ? { whatsappAvailabilityStatus: 'unavailable' } : {}),
+        ...(shouldArchive
+          ? {
+              inboxManualQueueOverride: 'archived',
+              inboxLocalDeleted: true,
+              inboxLocalDeletedAt: now,
+            }
+          : {}),
+      },
+      lastInteractionAt: new Date(),
+    });
+    return Number(conversation.id);
+  }
+
+  private async markSegmentMismatchBeforeSend(job: any, campaign: any, lead: any) {
+    const now = new Date();
+    await this.prisma.$transaction(async (tx) => {
+      await tx.vendasAutomationJob.update({
+        where: { id: job.id },
+        data: {
+          status: 'skipped',
+          archivedAt: now,
+          classification: 'needs_review',
+          errorMessage: 'Segmento divergente entre lead e campanha.',
+        },
+      });
+      await tx.vendasLeadTimelineEvent.create({
+        data: {
+          leadId: lead.id,
+          eventType: 'automation_review_required',
+          title: 'Envio automático bloqueado',
+          description: `Segmento divergente: ${trimOrNull(lead.segment) || '-'} / campanha ${trimOrNull(campaign.segment) || '-'}.`,
+          sourceType: 'vendas_prospeccao_bot',
+          resultLabel: 'Revisar segmento',
+        },
+      });
+    });
+    const conversationId = await this.updateProspectionConversationStage({
+      companyId: campaign.companyId,
+      lead,
+      campaign,
+      jobId: job.id,
+      stage: 'needs_review',
+      scheduledAt: job.scheduledAt || null,
+      mismatchReason: 'segment_mismatch',
+      queueTarget: 'prospeccao',
+      routeTarget: 'prospeccao',
+      active: true,
+    });
+    this.logger.warn(
+      `[prospeccao] segmento divergente, envio automatico bloqueado conversation=${conversationId || '-'} job=${job.id}`,
+    );
+    this.publishAutomationEvent({
+      companyId: campaign.companyId,
+      campaignId: campaign.id,
+      jobId: job.id,
+      leadId: lead.id,
+      conversationId,
+      status: 'aguardando',
+      text: 'Envio bloqueado por segmento divergente.',
+      type: 'segment_mismatch',
+    });
+  }
+
+  private async ensureSegmentMismatchReviewJob(campaign: any, lead: any) {
+    const existing = await this.prisma.vendasAutomationJob.findFirst({
+      where: {
+        campaignId: campaign.id,
+        companyId: campaign.companyId,
+        leadId: lead.id,
+        status: 'skipped',
+        classification: 'needs_review',
+      },
+      orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
+    });
+    if (existing) {
+      await this.updateProspectionConversationStage({
+        companyId: campaign.companyId,
+        lead,
+        campaign,
+        jobId: existing.id,
+        stage: 'needs_review',
+        scheduledAt: existing.scheduledAt || null,
+        mismatchReason: 'segment_mismatch',
+        queueTarget: 'prospeccao',
+        routeTarget: 'prospeccao',
+        active: true,
+      });
+      return existing;
+    }
+    const mismatchJob = await this.prisma.vendasAutomationJob.create({
+      data: {
+        campaignId: campaign.id,
+        companyId: campaign.companyId,
+        leadId: lead.id,
+        status: 'skipped',
+        scheduledAt: null,
+        attemptNumber: Math.max(1, Number(lead.attemptCount || 0) + 1),
+      },
+    });
+    await this.markSegmentMismatchBeforeSend(mismatchJob, campaign, lead);
+    return mismatchJob;
   }
 
   private getProspectingSceneRules(config: AtendimentoBotConfig | null | undefined): ProspectingSceneRules {
@@ -986,6 +1302,12 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
       : new Date(Date.now() - intervalMs);
     const data: any[] = [];
     for (const lead of leads) {
+      if (isSegmentMismatch(lead.segment, campaign.segment)) {
+        await this.ensureSegmentMismatchReviewJob(campaign, lead).catch((error) => {
+          this.logger.warn(`Falha ao marcar divergencia de segmento lead=${lead.id}: ${String(error?.message || error)}`);
+        });
+        continue;
+      }
       cursor = this.moveToWorkingWindow(new Date(cursor.getTime() + intervalMs), campaign);
       data.push({
         campaignId: campaign.id,
@@ -998,6 +1320,22 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     }
     if (data.length) {
       await this.prisma.vendasAutomationJob.createMany({ data, skipDuplicates: true });
+      for (const item of data) {
+        const lead = leads.find((candidate) => candidate.id === item.leadId);
+        if (!lead) continue;
+        await this.updateProspectionConversationStage({
+          companyId: campaign.companyId,
+          lead,
+          campaign,
+          stage: 'scheduled_send',
+          scheduledAt: item.scheduledAt,
+          queueTarget: 'prospeccao',
+          routeTarget: 'prospeccao',
+          active: true,
+        }).catch((error) => {
+          this.logger.warn(`Falha ao marcar envio agendado lead=${lead.id}: ${String(error?.message || error)}`);
+        });
+      }
     }
     await this.markCampaignStage(
       campaign.id,
@@ -1099,27 +1437,52 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
           ? this.moveToWorkingWindow(latestScheduled.scheduledAt, campaign)
           : new Date(now.getTime() - intervalMs);
 
-      const data = leads.map((lead) => {
+      const data: any[] = [];
+      for (const lead of leads) {
+        if (isSegmentMismatch(lead.segment, campaign.segment)) {
+          await this.ensureSegmentMismatchReviewJob(campaign, lead).catch((error) => {
+            this.logger.warn(`Falha ao marcar divergencia de segmento lead=${lead.id}: ${String(error?.message || error)}`);
+          });
+          continue;
+        }
         cursor = this.moveToWorkingWindow(new Date(cursor.getTime() + intervalMs), campaign);
-        return {
+        data.push({
           campaignId: campaign.id,
           companyId: campaign.companyId,
           leadId: lead.id,
           status: 'scheduled',
           scheduledAt: cursor,
           attemptNumber: Math.max(1, Number(lead.attemptCount || 0) + 1),
-        };
-      });
+        });
+      }
 
-      await this.prisma.vendasAutomationJob.createMany({ data });
-      await this.markCampaignStage(
-        campaign.id,
-        campaign.companyId,
-        'aguardando',
-        `${data.length} card(s) adicionados manualmente na fila automática.`,
-        { type: 'manual_leads_queued' },
-      );
-      void this.runWorkerCycle().catch(() => null);
+      if (data.length) {
+        await this.prisma.vendasAutomationJob.createMany({ data });
+        for (const item of data) {
+          const lead = leads.find((candidate) => candidate.id === item.leadId);
+          if (!lead) continue;
+          await this.updateProspectionConversationStage({
+            companyId: campaign.companyId,
+            lead,
+            campaign,
+            stage: 'scheduled_send',
+            scheduledAt: item.scheduledAt,
+            queueTarget: 'prospeccao',
+            routeTarget: 'prospeccao',
+            active: true,
+          }).catch((error) => {
+            this.logger.warn(`Falha ao marcar envio agendado lead=${lead.id}: ${String(error?.message || error)}`);
+          });
+        }
+        await this.markCampaignStage(
+          campaign.id,
+          campaign.companyId,
+          'aguardando',
+          `${data.length} card(s) adicionados manualmente na fila automática.`,
+          { type: 'manual_leads_queued' },
+        );
+        void this.runWorkerCycle().catch(() => null);
+      }
 
       return {
         ok: true,
@@ -1231,6 +1594,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
       });
       const metadata = parseJsonObject(conversation?.metadata);
       const queue = parseJsonObject((metadata as any).vendasAgendaQueue);
+      const prospeccao = parseJsonObject((metadata as any).vendasProspeccao);
       await this.conversations.updateConversationState(job.companyId, Number(job.conversationId), {
         botActive: false,
         humanAssigned: false,
@@ -1255,6 +1619,14 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
             syncedAt: now.toISOString(),
             deactivatedAt: now.toISOString(),
           },
+          vendasProspeccao: this.buildProspectionState('expired_no_reply', {
+            current: prospeccao,
+            lead: job.lead,
+            campaign: job.campaign,
+            firstOutboundAt: job.sentAt || prospeccao.firstOutboundAt || null,
+            replyDeadlineAt: this.addHoursIso(job.sentAt || prospeccao.firstOutboundAt || null, 24),
+            mismatchReason: null,
+          }),
         },
       });
     }
@@ -1335,6 +1707,20 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
         where: { id: job.id },
         data: { status: 'skipped', archivedAt: now, errorMessage: 'Lead sem telefone valido.' },
       });
+      await this.updateProspectionConversationStage({
+        companyId: campaign.companyId,
+        lead,
+        campaign,
+        jobId: job.id,
+        stage: 'no_whatsapp',
+        queueTarget: 'excluidos',
+        routeTarget: 'excluidos',
+        active: false,
+      }).catch(() => null);
+      return;
+    }
+    if (isSegmentMismatch(lead.segment, campaign.segment)) {
+      await this.markSegmentMismatchBeforeSend(job, campaign, lead);
       return;
     }
     await this.prisma.vendasAutomationJob.update({ where: { id: job.id }, data: { status: 'sending' } });
@@ -1448,7 +1834,9 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     });
     const metadata = parseJsonObject(conversation?.metadata);
     const queue = parseJsonObject((metadata as any).vendasAgendaQueue);
+    const prospeccao = parseJsonObject((metadata as any).vendasProspeccao);
     const syncedAt = new Date().toISOString();
+    const sentAtIso = input.sentAt.toISOString();
     await this.conversations.updateConversationState(input.companyId, input.conversationId, {
       metadata: {
         ...metadata,
@@ -1460,7 +1848,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
           jobId: input.jobId,
           leadId: input.lead.id,
           status: 'sent',
-          sentAt: input.sentAt.toISOString(),
+          sentAt: sentAtIso,
         },
         vendasAgendaQueue: {
           ...queue,
@@ -1476,12 +1864,20 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
           draftMessage: input.draftMessage,
           draftPending: false,
           manualSent: true,
-          manualSentAt: input.sentAt.toISOString(),
-          lastManualSendAt: input.sentAt.toISOString(),
+          manualSentAt: sentAtIso,
+          lastManualSendAt: sentAtIso,
           botEligible: true,
           botEntryPending: true,
           syncedAt,
         },
+        vendasProspeccao: this.buildProspectionState('sent_waiting', {
+          current: prospeccao,
+          lead: input.lead,
+          campaign: input.campaign,
+          firstOutboundAt: input.sentAt,
+          replyDeadlineAt: this.addHoursIso(input.sentAt, 24),
+          mismatchReason: null,
+        }),
       },
       lastInteractionAt: input.sentAt,
     });
@@ -1605,6 +2001,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     });
     const metadata = parseJsonObject(input.metadata);
     const queue = parseJsonObject((metadata as any).vendasAgendaQueue);
+    const prospeccao = parseJsonObject((metadata as any).vendasProspeccao);
     await this.conversations.updateConversationState(input.companyId, input.conversationId, {
       botActive: false,
       humanAssigned: true,
@@ -1636,6 +2033,13 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
           syncedAt: now.toISOString(),
           interested: true,
         },
+        vendasProspeccao: this.buildProspectionState('reply_received', {
+          current: prospeccao,
+          lead: job.lead,
+          campaign: job.campaign,
+          lastInboundAt: input.timestamp || now,
+          mismatchReason: null,
+        }),
       },
     });
     this.publishAutomationEvent({
@@ -1717,6 +2121,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     }
     const metadata = parseJsonObject(input.metadata);
     const queue = parseJsonObject((metadata as any).vendasAgendaQueue);
+    const prospeccao = parseJsonObject((metadata as any).vendasProspeccao);
     await this.conversations.updateConversationState(input.companyId, input.conversationId, {
       botActive: false,
       humanAssigned: false,
@@ -1759,6 +2164,13 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
           syncedAt: now.toISOString(),
           deactivatedAt: now.toISOString(),
         },
+        vendasProspeccao: this.buildProspectionState('negative_reply', {
+          current: prospeccao,
+          lead: job.lead,
+          campaign: job.campaign,
+          lastInboundAt: input.timestamp || now,
+          mismatchReason: null,
+        }),
       },
     });
     this.publishAutomationEvent({
@@ -1782,6 +2194,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     });
     const metadata = parseJsonObject(input.metadata);
     const queue = parseJsonObject((metadata as any).vendasAgendaQueue);
+    const prospeccao = parseJsonObject((metadata as any).vendasProspeccao);
     await this.conversations.updateConversationState(input.companyId, input.conversationId, {
       botActive: false,
       humanAssigned: true,
@@ -1813,6 +2226,13 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
           respondedAt: now.toISOString(),
           syncedAt: now.toISOString(),
         },
+        vendasProspeccao: this.buildProspectionState('reply_received', {
+          current: prospeccao,
+          lead: job.lead,
+          campaign: job.campaign,
+          lastInboundAt: input.timestamp || now,
+          mismatchReason: null,
+        }),
       },
     });
     this.publishAutomationEvent({
