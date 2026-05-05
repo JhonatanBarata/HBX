@@ -245,7 +245,7 @@ function buildRemoteReleaseScript(config, services) {
     '  esac',
     'done',
     'if [ -n "$REMOVE_CONTAINERS" ]; then',
-    '  echo "Removendo containers: $REMOVE_CONTAINERS"',
+    '  echo "Removendo containers antigos dos serviços afetados: $REMOVE_CONTAINERS"',
     '  docker rm -f $REMOVE_CONTAINERS 2>/dev/null || true',
     'fi',
     `run_filtered $DC --env-file .env -f docker-compose.hostinger.yml up -d --build --no-deps ${serviceArgs}`,
