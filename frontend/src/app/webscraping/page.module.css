@@ -629,13 +629,16 @@
 .historyList,
 .historyRowMain,
 .historyActions,
+.radarCardMain,
+.radarActions,
 .resultsGrid,
 .emptyState {
   display: grid;
   gap: 0.8rem;
 }
 
-.historyRow {
+.historyRow,
+.radarCard {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
@@ -651,14 +654,64 @@
     background 160ms ease;
 }
 
-.historyRow:hover {
+.historyRow:hover,
+.radarCard:hover {
   border-color: color-mix(in srgb, var(--brand) 34%, var(--line));
   background: color-mix(in srgb, var(--brand) 7%, var(--surface));
 }
 
-.historyActions {
+.historyActions,
+.radarActions {
   grid-auto-flow: column;
   align-items: center;
+}
+
+.radarFilterGrid {
+  display: grid;
+  gap: 0.85rem;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.radarGrid {
+  display: grid;
+  gap: 0.8rem;
+}
+
+.radarPills,
+.radarHistoryList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.radarHistoryStrip {
+  display: grid;
+  gap: 0.7rem;
+  border-top: 1px solid color-mix(in srgb, var(--line) 78%, var(--background));
+  padding-top: 0.85rem;
+}
+
+.radarHistoryButton {
+  display: grid;
+  min-width: min(240px, 100%);
+  gap: 0.2rem;
+  border: 1px solid color-mix(in srgb, var(--line) 82%, var(--background));
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--surface-raised) 82%, var(--background));
+  color: var(--foreground);
+  cursor: pointer;
+  padding: 0.75rem 0.85rem;
+  text-align: left;
+}
+
+.radarHistoryButton strong {
+  font-size: 0.9rem;
+  line-height: 1.15;
+}
+
+.radarHistoryButton span {
+  color: var(--foreground-soft);
+  font-size: 0.78rem;
 }
 
 .historyTitle,
@@ -820,6 +873,7 @@
   .guideStrip,
   .advancedGrid,
   .scriptFilterGrid,
+  .radarFilterGrid,
   .skeletonGrid,
   .resultsGrid {
     grid-template-columns: 1fr;
@@ -830,12 +884,14 @@
   .statusCard,
   .errorCard,
   .successCard,
-  .historyRow {
+  .historyRow,
+  .radarCard {
     align-items: stretch;
     grid-template-columns: 1fr;
   }
 
   .actionRow,
+  .radarActions,
   .modeMetaButton,
   .scriptFilterActions,
   .scriptFilterActions .glassButton,
@@ -844,5 +900,10 @@
   .glassButton,
   .glassButtonPrimary {
     width: 100%;
+  }
+
+  .historyActions,
+  .radarActions {
+    grid-auto-flow: row;
   }
 }
