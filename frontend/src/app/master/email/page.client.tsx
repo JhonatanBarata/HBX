@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { type ClipboardEvent, type DragEvent, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import DashboardScaffold from "@/components/DashboardScaffold";
 import { apiFetch } from "@/app/_lib/api";
@@ -22,6 +22,13 @@ type MasterEmailState = {
     originalName: string;
     uploadedAt: string;
     size: number;
+  } | null;
+  businessCard: {
+    originalName: string;
+    uploadedAt: string;
+    size: number;
+    mimeType?: string | null;
+    previewDataUrl?: string | null;
   } | null;
 };
 
@@ -60,6 +67,7 @@ function renderTemplate(template: string, name: string) {
 export default function MasterEmailClientPage() {
   const hasToken = useRequireAuth();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const businessCardInputRef = useRef<HTMLInputElement | null>(null);
   const [state, setState] = useState<MasterEmailState | null>(null);
   const [recipientName, setRecipientName] = useState(DEFAULT_NAME);
   const [recipientEmail, setRecipientEmail] = useState("");
@@ -68,6 +76,7 @@ export default function MasterEmailClientPage() {
   const [bodyDirty, setBodyDirty] = useState(false);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
+  const [uploadingBusinessCard, setUploadingBusinessCard] = useState(false);
   const [sending, setSending] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -115,7 +124,7 @@ export default function MasterEmailClientPage() {
         method: "POST",
         body: form,
         requireAuth: true,
-        timeoutMs: 30000,
+        timeoutMs: 120000,
       });
       setState((current) => current ? { ...current, attachment: payload.attachment } : current);
       setMessage("Anexo PPTX atualizado.");
@@ -125,6 +134,57 @@ export default function MasterEmailClientPage() {
     } finally {
       setUploading(false);
     }
+  }
+
+  function getImageFilename(file: File) {
+    if (file.name) return file.name;
+    if (file.type === "image/jpeg") return "cartao-visitas.jpg";
+    if (file.type === "image/webp") return "cartao-visitas.webp";
+    return "cartao-visitas.png";
+  }
+
+  async function uploadBusinessCard(file: File | null | undefined) {
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      setError("O cartão de visitas precisa ser uma imagem PNG, JPG ou WEBP.");
+      return;
+    }
+
+    setUploadingBusinessCard(true);
+    setMessage(null);
+    setError(null);
+    try {
+      const form = new FormData();
+      form.append("file", file, getImageFilename(file));
+      const payload = await apiFetch<{ ok: boolean; businessCard: MasterEmailState["businessCard"] }>("/master/email/business-card", {
+        method: "POST",
+        body: form,
+        requireAuth: true,
+        timeoutMs: 60000,
+      });
+      setState((current) => current ? { ...current, businessCard: payload.businessCard } : current);
+      setMessage("Cartão de visitas salvo.");
+      if (businessCardInputRef.current) businessCardInputRef.current.value = "";
+    } catch (uploadError) {
+      setError(uploadError instanceof Error ? uploadError.message : "Falha ao salvar o cartão de visitas.");
+    } finally {
+      setUploadingBusinessCard(false);
+    }
+  }
+
+  function handleBusinessCardPaste(event: ClipboardEvent<HTMLDivElement>) {
+    const items = Array.from(event.clipboardData?.items || []);
+    const imageItem = items.find((item) => item.type.startsWith("image/"));
+    const file = imageItem?.getAsFile();
+    if (!file) return;
+    event.preventDefault();
+    void uploadBusinessCard(file);
+  }
+
+  function handleBusinessCardDrop(event: DragEvent<HTMLDivElement>) {
+    event.preventDefault();
+    const file = Array.from(event.dataTransfer?.files || []).find((item) => item.type.startsWith("image/"));
+    void uploadBusinessCard(file);
   }
 
   async function sendEmail() {
@@ -172,7 +232,8 @@ export default function MasterEmailClientPage() {
       bodyDraft.trim() &&
       state?.attachment &&
       !sending &&
-      !uploading,
+      !uploading &&
+      !uploadingBusinessCard,
   );
   const senderReady = state?.sender.ready;
 
@@ -249,7 +310,7 @@ export default function MasterEmailClientPage() {
                 setBodyDraft(defaultBody);
                 setBodyDirty(false);
               }}
-              disabled={sending || uploading}
+              disabled={sending || uploading || uploadingBusinessCard}
             >
               Restaurar padrão
             </button>
@@ -275,6 +336,43 @@ export default function MasterEmailClientPage() {
                 disabled={uploading || sending}
               />
             </label>
+          </div>
+
+          <div
+            className={styles.cardUploader}
+            role="group"
+            tabIndex={0}
+            onPaste={handleBusinessCardPaste}
+            onDrop={handleBusinessCardDrop}
+            onDragOver={(event) => event.preventDefault()}
+          >
+            <div className={styles.cardUploaderContent}>
+              <span>Cartão de visitas</span>
+              <strong>{state?.businessCard?.originalName || "Nenhuma imagem salva"}</strong>
+              <p>
+                {state?.businessCard
+                  ? `${formatFileSize(state.businessCard.size)} • salvo em ${formatDate(state.businessCard.uploadedAt)}`
+                  : "Cole uma imagem aqui, arraste o arquivo ou selecione uma imagem."}
+              </p>
+              <div className={styles.cardActions}>
+                <label className={styles.uploadButton}>
+                  {uploadingBusinessCard ? "Salvando..." : "Selecionar imagem"}
+                  <input
+                    ref={businessCardInputRef}
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp"
+                    onChange={(event) => void uploadBusinessCard(event.target.files?.[0])}
+                    disabled={uploadingBusinessCard || sending}
+                  />
+                </label>
+                <span>Clique no bloco e use Ctrl+V para colar.</span>
+              </div>
+            </div>
+            {state?.businessCard?.previewDataUrl ? (
+              <div className={styles.cardPreview}>
+                <img src={state.businessCard.previewDataUrl} alt="Cartão de visitas salvo" />
+              </div>
+            ) : null}
           </div>
 
           {!senderReady ? (
@@ -303,6 +401,11 @@ export default function MasterEmailClientPage() {
             <span>Assunto</span>
             <strong>{subjectDraft || state?.subject || "Apresentação HBX System"}</strong>
             <p>Editável antes de enviar.</p>
+          </div>
+          <div className={styles.sideCard}>
+            <span>Cartão</span>
+            <strong>{state?.businessCard ? "Será incluído no email" : "Opcional"}</strong>
+            <p>{state?.businessCard ? "A imagem salva entra abaixo da assinatura." : "Cole a imagem no bloco principal para salvar."}</p>
           </div>
           {lastSent ? (
             <div className={styles.sideCard}>

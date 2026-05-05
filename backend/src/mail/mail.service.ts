@@ -36,6 +36,7 @@ export type MailAttachment = {
   filename: string;
   content: Buffer | string;
   contentType?: string | null;
+  cid?: string | null;
 };
 
 type SmtpAttempt = {
@@ -391,6 +392,7 @@ export class MailService {
           filename: attachment.filename,
           content: attachment.content,
           contentType: attachment.contentType || undefined,
+          cid: attachment.cid || undefined,
         })),
       });
 
@@ -456,6 +458,7 @@ export class MailService {
         filename: attachment.filename,
         content: attachment.content,
         contentType: attachment.contentType || undefined,
+        cid: attachment.cid || undefined,
       })),
     });
 

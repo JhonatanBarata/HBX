@@ -2376,8 +2376,11 @@ function renderInboxConversationPreview(conversation?: InboxConversation | null)
   return (
     <span className={styles.conversationPreviewStack}>
       <span className={styles.conversationPreviewText}>{preview}</span>
-      {subtitle && subtitle !== preview ? (
-        <span className={styles.conversationProspectionSubtitle}>{subtitle}</span>
+      {subtitle ? (
+        <span className={styles.conversationProspectionLine}>
+          <span className={styles.conversationProspectionMiniBadge}>{prospectionStatus.badge}</span>
+          <span className={styles.conversationProspectionSubtitle}>{subtitle}</span>
+        </span>
       ) : null}
     </span>
   );
@@ -6065,13 +6068,8 @@ export default function InboxClientPage() {
                     subtitle={subtitleLabel}
                     preview={previewLabel}
                     badges={
-                      unreadCount > 0 || interested || prospectionStatusMeta ? (
+                      unreadCount > 0 || interested ? (
                         <span className={styles.conversationBadgeStack}>
-                          {prospectionStatusMeta ? (
-                            <span className={styles.conversationProspectionBadge}>
-                              {prospectionStatusMeta.badge}
-                            </span>
-                          ) : null}
                           {interested ? (
                             <span className={styles.conversationInterestedBadge}>Interessado</span>
                           ) : null}
