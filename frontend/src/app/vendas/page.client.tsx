@@ -131,6 +131,11 @@ type TodayAgendaSyncResponse = {
   message?: string | null;
 };
 
+type BulkDeleteLeadsResponse = {
+  ok?: boolean;
+  deletedCount?: number;
+};
+
 type LeadDraft = {
   name: string;
   phone: string;
@@ -164,6 +169,9 @@ type LeadCardView = {
   onDraftChange?: (leadId: string, patch: Partial<LeadDraft>) => void;
   onSave?: (leadId: string) => void;
   editing?: boolean;
+  bulkSelectionMode?: boolean;
+  bulkSelected?: boolean;
+  onBulkToggle?: (leadId: string) => void;
 };
 
 type FlyAnimation = {
@@ -651,7 +659,23 @@ function AnimatedCount({ value }: { value: number }) {
   return <b data-rolling={rolling ? "true" : "false"}>{displayed}</b>;
 }
 
-function LeadCardView({ lead, draft, blockKey, selected, saving, onFocus, onQuickAction, onInboxAction, onEdit, onDraftChange, onSave, editing }: LeadCardView) {
+function LeadCardView({
+  lead,
+  draft,
+  blockKey,
+  selected,
+  saving,
+  onFocus,
+  onQuickAction,
+  onInboxAction,
+  onEdit,
+  onDraftChange,
+  onSave,
+  editing,
+  bulkSelectionMode,
+  bulkSelected,
+  onBulkToggle,
+}: LeadCardView) {
   const meta = returnMeta(lead, draft, blockKey);
   const signals = lead.signals || {
     alreadyExisted: Boolean((lead.timesSeen || 0) > 1),
@@ -754,6 +778,7 @@ function LeadCardView({ lead, draft, blockKey, selected, saving, onFocus, onQuic
               : "warning"
       }
       data-selected={selected ? "true" : "false"}
+      data-bulk-selected={bulkSelected ? "true" : "false"}
       data-tone={blockKey}
       data-whatsapp={getLeadWhatsappStatus(lead)}
       header={
@@ -770,6 +795,22 @@ function LeadCardView({ lead, draft, blockKey, selected, saving, onFocus, onQuic
           }}
         >
           <div className={styles.leadCardTop}>
+            {bulkSelectionMode ? (
+              <button
+                type="button"
+                className={styles.bulkSelectCardButton}
+                data-selected={bulkSelected ? "true" : "false"}
+                aria-pressed={bulkSelected ? "true" : "false"}
+                aria-label={bulkSelected ? "Remover card da seleção" : "Selecionar card"}
+                onPointerDown={(event) => event.stopPropagation()}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onBulkToggle?.(lead.id);
+                }}
+              >
+                {bulkSelected ? "✓" : ""}
+              </button>
+            ) : null}
             <div className={styles.leadIdentity}>
               {leadSource && String(leadSource).trim().toLowerCase() !== "manual" && (
                 <span className={`${styles.leadEyebrow} ${glassCardStyles.eyebrow}`}>{sourceLabel(leadSource)}</span>
@@ -912,6 +953,9 @@ function DraggableLeadCard({
   onDraftChange,
   onSave,
   editing,
+  bulkSelectionMode,
+  bulkSelected,
+  onBulkToggle,
   register,
 }: LeadCardView & { disabled: boolean; hidden: boolean; register: (node: HTMLElement | null) => void }) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
@@ -952,6 +996,9 @@ function DraggableLeadCard({
         onDraftChange={onDraftChange}
         onSave={onSave}
         editing={editing}
+        bulkSelectionMode={bulkSelectionMode}
+        bulkSelected={bulkSelected}
+        onBulkToggle={onBulkToggle}
       />
     </div>
   );
@@ -973,6 +1020,10 @@ export default function VendasClientPage() {
   const [commandQuery, setCommandQuery] = useState("");
   const [whatsappFilter, setWhatsappFilter] = useState<WhatsappFilter>("all");
   const [inboxFilter, setInboxFilter] = useState<InboxFilter>("all");
+  const [bulkSelectionMode, setBulkSelectionMode] = useState(false);
+  const [selectedBulkLeadIds, setSelectedBulkLeadIds] = useState<Set<string>>(() => new Set());
+  const [bulkSelectAllAccount, setBulkSelectAllAccount] = useState(false);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
   const [selectedDateKey, setSelectedDateKey] = useState<DateFilterKey>("today");
   const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null);
   const [editingLeadId, setEditingLeadId] = useState<string | null>(null);
@@ -1171,6 +1222,17 @@ export default function VendasClientPage() {
     });
   }, [board]);
 
+  const loadedLeadIds = useMemo(() => allLeads.map(({ lead }) => lead.id).filter(Boolean), [allLeads]);
+
+  useEffect(() => {
+    if (bulkSelectAllAccount) return;
+    const availableIds = new Set(loadedLeadIds);
+    setSelectedBulkLeadIds((current) => {
+      const next = new Set([...current].filter((leadId) => availableIds.has(leadId)));
+      return next.size === current.size ? current : next;
+    });
+  }, [bulkSelectAllAccount, loadedLeadIds]);
+
   const deferredCommandQuery = useDeferredValue(commandQuery);
   const commandResults = useMemo(() => {
     const normalized = deferredCommandQuery.trim().toLowerCase();
@@ -1306,6 +1368,69 @@ export default function VendasClientPage() {
     const el = filterScrollerRef.current;
     if (!el) return;
     el.scrollBy({ left: direction * Math.max(260, Math.round(el.clientWidth * 0.72)), behavior: "smooth" });
+  }
+
+  function clearBulkSelection() {
+    setSelectedBulkLeadIds(new Set());
+    setBulkSelectAllAccount(false);
+  }
+
+  function toggleBulkSelectionMode() {
+    if (bulkSelectionMode) clearBulkSelection();
+    setBulkSelectionMode((current) => !current);
+  }
+
+  function toggleLeadBulkSelection(leadId: string) {
+    const normalizedLeadId = String(leadId || "").trim();
+    if (!normalizedLeadId) return;
+    setBulkSelectionMode(true);
+    setBulkSelectAllAccount(false);
+    setSelectedBulkLeadIds((current) => {
+      const next = new Set(current);
+      if (next.has(normalizedLeadId)) next.delete(normalizedLeadId);
+      else next.add(normalizedLeadId);
+      return next;
+    });
+  }
+
+  function toggleBulkSelectAll() {
+    setBulkSelectionMode(true);
+    if (bulkSelectAllAccount) {
+      clearBulkSelection();
+      return;
+    }
+    setBulkSelectAllAccount(true);
+    setSelectedBulkLeadIds(new Set(loadedLeadIds));
+  }
+
+  async function deleteSelectedLeadsBulk() {
+    const selectedIds = Array.from(selectedBulkLeadIds);
+    if (!bulkSelectAllAccount && !selectedIds.length) return;
+
+    const targetLabel = bulkSelectAllAccount ? "todos os cards da conta atual" : `${selectedIds.length} card(s) selecionado(s)`;
+    const confirmed = window.confirm(
+      `Excluir ${targetLabel} do Vendas? Os cards somem da tela, mas a base do webscraping continua preservada.`,
+    );
+    if (!confirmed) return;
+
+    setBulkDeleting(true);
+    setError(null);
+    try {
+      const payload = await apiFetch<BulkDeleteLeadsResponse>("/vendas/leads/delete-bulk", {
+        method: "POST",
+        body: JSON.stringify(bulkSelectAllAccount ? { all: true } : { leadIds: selectedIds }),
+      });
+      const deletedCount = Number(payload?.deletedCount || 0);
+      setFeedback(deletedCount ? `${deletedCount} card(s) excluído(s) do Vendas.` : "Nenhum card novo para excluir.");
+      clearBulkSelection();
+      setBulkSelectionMode(false);
+      setSelectedLeadId(null);
+      await loadBoard();
+    } catch (deleteError) {
+      setError(deleteError instanceof Error ? deleteError.message : "Falha ao excluir cards em massa.");
+    } finally {
+      setBulkDeleting(false);
+    }
   }
 
   async function handleCreateManual(event: FormEvent<HTMLFormElement>) {
@@ -1782,6 +1907,9 @@ export default function VendasClientPage() {
       onDraftChange: (leadId: string, patch: Partial<LeadDraft>) => setLeadDraft(leadId, patch),
       onSave: (leadId: string) => void saveLead(leadId),
       editing: editingLeadId === lead.id,
+      bulkSelectionMode,
+      bulkSelected: bulkSelectAllAccount || selectedBulkLeadIds.has(lead.id),
+      onBulkToggle: (leadId: string) => toggleLeadBulkSelection(leadId),
     };
 
     if (blockKey === "closed") {
@@ -1862,6 +1990,11 @@ export default function VendasClientPage() {
       return <section className={styles.boardShell}><div className={styles.emptyBoard}><strong>Nenhuma janela de datas disponível</strong><p>Assim que houver agenda, os cards aparecem aqui.</p></div></section>;
     }
 
+    const bulkActionDisabled = bulkDeleting || (!bulkSelectAllAccount && selectedBulkLeadIds.size === 0);
+    const bulkSelectionLabel = bulkSelectAllAccount
+      ? "Todos os cards da conta"
+      : `${selectedBulkLeadIds.size} selecionado(s)`;
+
     return (
       <section className={styles.boardShell}>
         <div className={styles.cardsHeader}>
@@ -1872,6 +2005,35 @@ export default function VendasClientPage() {
           </div>
           <div className={styles.toolbar}>
             <button type="button" className={`${styles.secondaryAction} ${styles.toolbarHighlight}`} onClick={() => setComposerOpen(true)}>Criar novo Lead</button>
+            <button
+              type="button"
+              className={`${styles.secondaryAction} ${styles.toolbarHighlight}`}
+              data-active={bulkSelectionMode ? "true" : "false"}
+              onClick={toggleBulkSelectionMode}
+            >
+              {bulkSelectionMode ? "Cancelar seleção" : "Selecionar"}
+            </button>
+            {bulkSelectionMode ? (
+              <>
+                <button
+                  type="button"
+                  className={`${styles.secondaryAction} ${styles.toolbarHighlight}`}
+                  data-active={bulkSelectAllAccount ? "true" : "false"}
+                  onClick={toggleBulkSelectAll}
+                >
+                  {bulkSelectAllAccount ? "Limpar todos" : "Selecionar todos"}
+                </button>
+                <button
+                  type="button"
+                  className={`${styles.secondaryAction} ${styles.bulkDeleteButton}`}
+                  onClick={() => void deleteSelectedLeadsBulk()}
+                  disabled={bulkActionDisabled}
+                  title="Remove os cards do Vendas sem apagar a base do webscraping"
+                >
+                  {bulkDeleting ? "Excluindo..." : `Excluir em massa (${bulkSelectionLabel})`}
+                </button>
+              </>
+            ) : null}
             <button
               type="button"
               className={`${styles.secondaryAction} ${styles.toolbarHighlight} ${styles.whatsappFilterButton}`}

@@ -253,6 +253,19 @@
   color: var(--foreground-soft);
 }
 
+.secondaryAction[data-active="true"] {
+  border-color: color-mix(in srgb, var(--brand) 42%, var(--line));
+  background:
+    radial-gradient(circle at top left, color-mix(in srgb, var(--brand) 14%, transparent), transparent 46%),
+    color-mix(in srgb, var(--surface) 90%, var(--background));
+  color: color-mix(in srgb, var(--brand) 88%, var(--foreground));
+}
+
+.bulkDeleteButton {
+  border-color: color-mix(in srgb, var(--danger) 34%, var(--line));
+  color: color-mix(in srgb, var(--danger) 88%, var(--foreground));
+}
+
 .filterRailActions .secondaryAction {
   min-height: 40px;
   padding: 0.56rem 0.9rem;
@@ -407,27 +420,24 @@
   display: grid;
   grid-template-rows: auto auto 1fr auto;
   gap: 0.18rem;
-  padding: 0.66rem 0.72rem 0.58rem;
-  border-radius: 16px;
-  border: 1px solid color-mix(in srgb, var(--line) 55%, transparent);
+  align-content: center;
+  justify-items: start;
+  padding: 0.58rem 0.58rem 0.68rem;
+  border-radius: 18px;
+  border: 1px solid color-mix(in srgb, var(--line) 70%, var(--background));
   background:
-    linear-gradient(
-      160deg,
-      color-mix(in srgb, var(--surface-raised) 90%, transparent),
-      color-mix(in srgb, var(--surface) 76%, transparent)
-    );
+    radial-gradient(circle at top right, color-mix(in srgb, var(--brand) 9%, transparent), transparent 36%),
+    linear-gradient(180deg, color-mix(in srgb, var(--surface) 96%, var(--background)), color-mix(in srgb, var(--surface-soft) 95%, var(--background)));
   box-shadow:
-    0 1px 0 color-mix(in srgb, white 10%, transparent) inset,
-    0 14px 32px -16px rgba(15, 23, 42, 0.22),
-    0 2px 8px -4px rgba(15, 23, 42, 0.10);
-  backdrop-filter: blur(10px) saturate(130%);
-  -webkit-backdrop-filter: blur(10px) saturate(130%);
+    0 10px 18px -14px rgba(15, 23, 42, 0.24),
+    inset 0 1px 0 color-mix(in srgb, var(--surface) 95%, var(--background));
   text-align: left;
   cursor: pointer;
   transition:
+    transform var(--motion-fast),
+    box-shadow var(--motion-fast),
     border-color 220ms ease,
-    box-shadow 260ms cubic-bezier(0.22, 1, 0.36, 1),
-    background 240ms ease;
+    background-color var(--motion-fast);
   /* ensure consistent card height so the count can be pushed down */
   min-height: 94px;
   align-content: start;
@@ -435,41 +445,32 @@
 }
 
 .dateFilterCard[data-dragging="true"] {
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--line) 72%, var(--background));
+  opacity: 0.68;
+  transform: scale(0.98);
 }
 
 .dateFilterCard[data-dragging="true"] .receiveHint {
-  opacity: 0.66;
+  opacity: 0;
   transform: translateX(-50%) translateY(0);
   left: 50%;
 }
 
 .dateFilterCard[data-dragging="true"][data-dropover="false"] {
-  opacity: 0.72;
+  opacity: 0.68;
 }
 
 .receiveHint {
   position: absolute;
   left: 50%;
-  bottom: 6px;
+  bottom: 0.34rem;
   transform: translateX(-50%) translateY(6px);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0.06rem 0.38rem;
-  border-radius: 999px;
-  border: 1px dashed color-mix(in srgb, var(--brand) 22%, var(--line));
-  background: color-mix(in srgb, var(--brand) 6%, var(--background));
-  color: color-mix(in srgb, var(--brand) 82%, var(--foreground));
-  font-size: 0.58rem;
-  font-weight: 700;
   opacity: 0;
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  color: color-mix(in srgb, var(--brand) 90%, var(--foreground));
   pointer-events: none;
-  transition:
-    opacity var(--motion-fast),
-    transform var(--motion-fast),
-    border-color var(--motion-fast),
-    background var(--motion-fast);
+  transition: opacity var(--motion-fast), transform var(--motion-fast);
 }
 
 .dateFilterCard strong {
@@ -516,16 +517,10 @@
 }
 
 .dateFilterCard[data-active="true"] {
-  border-color: color-mix(in srgb, var(--brand) 46%, var(--line));
-  background:
-    radial-gradient(circle at 90% 10%, color-mix(in srgb, var(--brand) 22%, transparent), transparent 40%),
-    radial-gradient(circle at 10% 90%, color-mix(in srgb, var(--brand-soft) 14%, transparent), transparent 40%),
-    linear-gradient(160deg, color-mix(in srgb, var(--surface-raised) 96%, var(--background)), color-mix(in srgb, var(--brand-soft) 80%, var(--surface-soft)));
+  border-color: color-mix(in srgb, var(--brand) 54%, var(--line));
   box-shadow:
-    0 1px 0 color-mix(in srgb, var(--brand) 22%, transparent) inset,
-    0 22px 40px -24px color-mix(in srgb, var(--brand) 34%, transparent),
-    0 0 0 1px color-mix(in srgb, var(--brand) 22%, transparent),
-    0 4px 14px -8px rgba(15, 23, 42, 0.22);
+    0 24px 36px -26px color-mix(in srgb, var(--brand) 22%, transparent),
+    0 0 0 2px color-mix(in srgb, var(--brand) 24%, transparent);
   transform: none;
 }
 
@@ -550,24 +545,17 @@
 }
 
 .dateFilterCard[data-dropover="true"] {
-  border-color: color-mix(in srgb, var(--brand) 42%, var(--line));
-  background:
-    radial-gradient(circle at top right, color-mix(in srgb, var(--brand) 18%, transparent), transparent 34%),
-    linear-gradient(180deg, color-mix(in srgb, var(--surface) 98%, var(--background)), color-mix(in srgb, var(--brand-soft) 76%, var(--surface-soft)));
+  transform: translateY(-3px) scale(1.03);
+  border-color: color-mix(in srgb, var(--brand) 72%, var(--line));
   box-shadow:
-    0 18px 32px -24px color-mix(in srgb, var(--brand) 18%, transparent),
-    0 0 0 2px color-mix(in srgb, var(--brand) 28%, transparent);
-  transform: none;
+    0 32px 44px -28px color-mix(in srgb, var(--brand) 32%, transparent),
+    0 0 0 3px color-mix(in srgb, var(--brand) 28%, transparent);
 }
 
 .dateFilterCard[data-dropover="true"] .receiveHint {
   opacity: 1;
   transform: translateX(-50%) translateY(0);
   left: 50%;
-  border-style: solid;
-  background: color-mix(in srgb, var(--brand) 18%, var(--background));
-  color: color-mix(in srgb, var(--brand) 96%, var(--foreground));
-  box-shadow: 0 0 0 4px color-mix(in srgb, var(--brand) 10%, transparent);
 }
 
 /* Graphic-only +Agenda button — always visible at the end */
@@ -812,7 +800,8 @@
 }
 
 .draggableWrap[data-dragging="true"] {
-  opacity: 0.05;
+  opacity: 0.68;
+  transform: scale(0.98);
   transition: none;
 }
 
@@ -867,6 +856,32 @@
   box-shadow: 0 22px 38px -28px color-mix(in srgb, var(--liquid-accent, var(--brand)) 22%, transparent);
 }
 
+.leadCard[data-bulk-selected="true"] {
+  border-color: color-mix(in srgb, var(--brand) 58%, var(--line));
+  box-shadow:
+    0 22px 38px -28px color-mix(in srgb, var(--brand) 24%, transparent),
+    0 0 0 2px color-mix(in srgb, var(--brand) 18%, transparent);
+}
+
+.bulkSelectCardButton {
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--brand) 42%, var(--line));
+  background: color-mix(in srgb, var(--surface) 92%, var(--background));
+  color: color-mix(in srgb, var(--brand) 88%, var(--foreground));
+  font-size: 0.86rem;
+  font-weight: 900;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.bulkSelectCardButton[data-selected="true"] {
+  background: color-mix(in srgb, var(--brand) 88%, var(--background));
+  color: var(--brand-contrast);
+}
+
 .leadCard[data-whatsapp="available"] {
   border-color: color-mix(in srgb, #25d366 34%, var(--line));
   background:
@@ -885,15 +900,25 @@
   position: relative;
   z-index: 9999;
   width: min(92vw, 460px);
-  transform: rotate(-1deg);
-  filter: drop-shadow(0 36px 44px rgba(15, 23, 42, 0.30));
+  transform: none;
+  filter: drop-shadow(0 32px 44px color-mix(in srgb, var(--brand) 28%, transparent));
   transform-origin: top left;
   opacity: 1;
   pointer-events: none;
 }
 
 .dragOverlayCard .leadCard {
-  box-shadow: 0 34px 56px -26px rgba(15, 23, 42, 0.32);
+  transform: translateY(-3px) scale(1.01);
+  border-color: color-mix(in srgb, var(--brand) 72%, var(--line));
+  box-shadow:
+    0 32px 44px -28px color-mix(in srgb, var(--brand) 32%, transparent),
+    0 0 0 3px color-mix(in srgb, var(--brand) 28%, transparent);
+}
+
+.dragOverlayCard button,
+.dragOverlayCard a {
+  transform: none !important;
+  box-shadow: none;
 }
 
 .dragOverlayDateCard {
@@ -903,6 +928,16 @@
 .dragOverlayDateCard .dateFilterCard {
   opacity: 1;
   min-height: 94px;
+  transform: translateY(-3px) scale(1.03);
+  border-color: color-mix(in srgb, var(--brand) 72%, var(--line));
+  box-shadow:
+    0 32px 44px -28px color-mix(in srgb, var(--brand) 32%, transparent),
+    0 0 0 3px color-mix(in srgb, var(--brand) 28%, transparent);
+}
+
+.dragOverlayDateCard .receiveHint {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
 }
 
 .flyCard {

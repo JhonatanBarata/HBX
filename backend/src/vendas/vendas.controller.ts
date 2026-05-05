@@ -7,6 +7,7 @@ import { COMMERCIAL_ENTITLEMENT_KEYS } from '../commercial-plans/commercial-plan
 import { ModuleAccess } from '../modules/module-feature.decorator';
 import { ModuleAccessGuard } from '../modules/module-access.guard';
 import {
+  BulkDeleteVendasLeadsDto,
   CreateManualVendasLeadDto,
   ImportWebscrapingLeadsDto,
   StartVendasProspectingDto,
@@ -109,6 +110,11 @@ export class VendasController {
   @Patch('lead/:leadId')
   updateLead(@Req() req: any, @Param('leadId') leadId: string, @Body() dto: UpdateVendasLeadDto) {
     return this.vendasService.updateLeadForUser(req.user, leadId, dto);
+  }
+
+  @Post('leads/delete-bulk')
+  deleteLeadsBulk(@Req() req: any, @Body() dto: BulkDeleteVendasLeadsDto) {
+    return this.vendasService.deleteLeadsBulkForUser(req.user, dto || {});
   }
 
   @Post('agenda/whatsapp/sync-today')

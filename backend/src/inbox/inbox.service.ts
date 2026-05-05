@@ -1228,17 +1228,50 @@ export class InboxService {
     return latest;
   }
 
+  private isRealConversationMessage(message: {
+    direction?: string | null;
+    messageType?: string | null;
+    senderType?: string | null;
+    timestamp?: Date | string | null;
+    variablesJson?: unknown;
+    rawPayload?: unknown;
+  } | null | undefined) {
+    if (!message?.timestamp) return false;
+    const direction = String(message.direction || '').trim().toUpperCase();
+    if (direction !== 'INBOUND' && direction !== 'OUTBOUND') return false;
+    const messageType = String(message.messageType || '').trim().toLowerCase();
+    const senderType = String(message.senderType || '').trim().toLowerCase();
+    if (messageType === 'system_event' || senderType === 'system') return false;
+    const metadata = this.buildConversationMessageMetadata(message, '', {});
+    return !metadata?.isLocalHidden && !metadata?.isDeleted;
+  }
+
+  private realConversationMessageWhere() {
+    return {
+      direction: { in: ['INBOUND', 'OUTBOUND'] },
+      NOT: [
+        { messageType: 'system_event' },
+        { senderType: 'system' },
+      ],
+    };
+  }
+
   private resolveConversationActivityDate(conversation: {
     lastMessageAt?: Date | string | null;
-    updatedAt?: Date | string | null;
-    messages?: Array<{ timestamp?: Date | string | null }> | null;
+    messages?: Array<{
+      direction?: string | null;
+      messageType?: string | null;
+      senderType?: string | null;
+      timestamp?: Date | string | null;
+      variablesJson?: unknown;
+      rawPayload?: unknown;
+    }> | null;
   }) {
-    const latestMessage = Array.isArray(conversation.messages) ? conversation.messages[0] : null;
-    return (
-      this.resolveLatestDate(latestMessage?.timestamp)
-      || this.resolveLatestDate(conversation.lastMessageAt)
-      || this.resolveLatestDate(conversation.updatedAt)
-    );
+    const realMessages = Array.isArray(conversation.messages)
+      ? conversation.messages.filter((message) => this.isRealConversationMessage(message as any))
+      : [];
+    const latestMessage = realMessages[0] || null;
+    return this.resolveLatestDate(latestMessage?.timestamp);
   }
 
   private async repairConversationActivityIfStale(
@@ -1652,7 +1685,8 @@ export class InboxService {
           : Boolean(conversation.humanAssigned),
       createdAt: conversation.createdAt,
       updatedAt: conversation.updatedAt,
-      lastMessageAt: conversation?.lastMessageAt || null,
+      lastRealMessageAt: conversation?.lastRealMessageAt || conversation?.lastMessageAt || null,
+      lastMessageAt: conversation?.lastRealMessageAt || conversation?.lastMessageAt || null,
       currentFlow: String(conversation?.currentFlow || '').trim() || null,
       flowResult: String(conversation?.flowResult || '').trim() || null,
       routeTarget: routeContext.routeTarget,
@@ -2210,7 +2244,7 @@ export class InboxService {
     });
     await this.prisma.companyConversation.update({
       where: { id: input.conversationId },
-      data: { lastInteractionAt: now, lastMessageAt: now },
+      data: { lastInteractionAt: now },
     });
   }
 
@@ -2283,6 +2317,9 @@ export class InboxService {
       const leftTime = this.resolveConversationActivityDate(left)?.getTime() || 0;
       const rightTime = this.resolveConversationActivityDate(right)?.getTime() || 0;
       if (leftTime !== rightTime) return rightTime - leftTime;
+      const leftCreated = this.resolveLatestDate(left.createdAt)?.getTime() || 0;
+      const rightCreated = this.resolveLatestDate(right.createdAt)?.getTime() || 0;
+      if (leftCreated !== rightCreated) return rightCreated - leftCreated;
       return Number(right.id || 0) - Number(left.id || 0);
     });
 
@@ -2291,8 +2328,8 @@ export class InboxService {
         const activityAt = this.resolveConversationActivityDate(row);
         const conversation = {
           ...row,
-          updatedAt: activityAt || row.updatedAt,
-          lastMessageAt: activityAt || row.lastMessageAt || null,
+          lastRealMessageAt: activityAt || null,
+          lastMessageAt: activityAt || null,
           messages: [...(row.messages || [])].reverse(),
         };
         const phoneNormalized = this.normalizeConversationPhone(String(conversation.contact || '')) || '';
@@ -2309,6 +2346,70 @@ export class InboxService {
         );
       }),
     );
+  }
+
+  private async listConversationIdsByLastRealMessage(companyId: number, limit: number, skip = 0) {
+    const rows = await this.prisma.$queryRaw<Array<{ id: number; lastRealMessageAt: Date | null }>>`
+      SELECT
+        c.id,
+        MAX(m.timestamp) AS "lastRealMessageAt"
+      FROM "Conversation" c
+      LEFT JOIN "Message" m
+        ON m."conversationId" = c.id
+        AND m."companyId" = c."companyId"
+        AND m.direction IN ('INBOUND', 'OUTBOUND')
+        AND COALESCE(m."messageType", '') <> 'system_event'
+        AND COALESCE(m."senderType", '') <> 'system'
+      WHERE c."companyId" = ${companyId}
+        AND c.channel = 'whatsapp'
+      GROUP BY c.id, c."createdAt"
+      ORDER BY MAX(m.timestamp) DESC NULLS LAST, c."createdAt" DESC
+      LIMIT ${limit}
+      OFFSET ${skip}
+    `;
+    return rows.map((row) => Number(row.id)).filter(Boolean);
+  }
+
+  private async findConversationRowsByOrderedIds(companyId: number, orderedIds: number[]) {
+    if (!orderedIds.length) return [];
+    const rows = await this.prisma.companyConversation.findMany({
+      where: { companyId, channel: 'whatsapp', id: { in: orderedIds } },
+      select: {
+        id: true,
+        contact: true,
+        metadata: true,
+        currentFlow: true,
+        currentStep: true,
+        flowResult: true,
+        botActive: true,
+        humanAssigned: true,
+        assignedUserId: true,
+        createdAt: true,
+        updatedAt: true,
+        lastMessageAt: true,
+        messages: {
+          where: this.realConversationMessageWhere(),
+          orderBy: [{ timestamp: 'desc' }, { id: 'desc' }],
+          take: 1,
+          select: {
+            id: true,
+            direction: true,
+            messageType: true,
+            body: true,
+            senderType: true,
+            status: true,
+            error: true,
+            timestamp: true,
+            sourceModule: true,
+            providerMessageId: true,
+            rawPayload: true,
+            variablesJson: true,
+          },
+        },
+      },
+    });
+    const rowById = new Map(rows.map((row) => [Number(row.id), row]));
+    return orderedIds.map((id) => rowById.get(id)).filter(Boolean);
   }
 
   private async listPersistedConversationSummariesForCompany(
@@ -2358,44 +2459,8 @@ export class InboxService {
     let visibleSeen = 0;
 
     while (rows.length < take) {
-      const chunk = await this.prisma.companyConversation.findMany({
-        where: { companyId, channel: 'whatsapp' },
-        orderBy: [{ lastMessageAt: 'desc' }, { updatedAt: 'desc' }, { id: 'desc' }],
-        take: queryTake,
-        skip: querySkip,
-        select: {
-          id: true,
-          contact: true,
-          metadata: true,
-          currentFlow: true,
-          currentStep: true,
-          flowResult: true,
-          botActive: true,
-          humanAssigned: true,
-          assignedUserId: true,
-          createdAt: true,
-          updatedAt: true,
-          lastMessageAt: true,
-          messages: {
-            orderBy: [{ timestamp: 'desc' }, { id: 'desc' }],
-            take: 1,
-            select: {
-              id: true,
-              direction: true,
-              messageType: true,
-              body: true,
-              senderType: true,
-              status: true,
-              error: true,
-              timestamp: true,
-              sourceModule: true,
-              providerMessageId: true,
-              rawPayload: true,
-              variablesJson: true,
-            },
-          },
-        },
-      });
+      const chunkIds = await this.listConversationIdsByLastRealMessage(companyId, queryTake, querySkip);
+      const chunk = await this.findConversationRowsByOrderedIds(companyId, chunkIds);
 
       if (!chunk.length) break;
       querySkip += chunk.length;
@@ -2435,44 +2500,8 @@ export class InboxService {
     let visibleSeen = 0;
 
     while (conversations.length < take) {
-      const chunk = await this.prisma.companyConversation.findMany({
-        where: { companyId, channel: 'whatsapp' },
-        orderBy: [{ lastMessageAt: 'desc' }, { updatedAt: 'desc' }, { id: 'desc' }],
-        take: queryTake,
-        skip: querySkip,
-        select: {
-          id: true,
-          contact: true,
-          metadata: true,
-          currentFlow: true,
-          currentStep: true,
-          flowResult: true,
-          botActive: true,
-          humanAssigned: true,
-          assignedUserId: true,
-          createdAt: true,
-          updatedAt: true,
-          lastMessageAt: true,
-          messages: {
-            orderBy: [{ timestamp: 'desc' }, { id: 'desc' }],
-            take: 1,
-            select: {
-              id: true,
-              direction: true,
-              messageType: true,
-              body: true,
-              senderType: true,
-              status: true,
-              error: true,
-              timestamp: true,
-              sourceModule: true,
-              providerMessageId: true,
-              rawPayload: true,
-              variablesJson: true,
-            },
-          },
-        },
-      });
+      const chunkIds = await this.listConversationIdsByLastRealMessage(companyId, queryTake, querySkip);
+      const chunk = await this.findConversationRowsByOrderedIds(companyId, chunkIds);
 
       if (!chunk.length) break;
       querySkip += chunk.length;
@@ -2559,8 +2588,8 @@ export class InboxService {
       companyId,
       {
         ...row,
-        updatedAt: activityAt || row.updatedAt,
-        lastMessageAt: activityAt || row.lastMessageAt || null,
+        lastRealMessageAt: activityAt || null,
+        lastMessageAt: activityAt || null,
         messages: [...(row.messages || [])].reverse(),
       },
       routingRules,

@@ -7,6 +7,7 @@ import { WebwhatsBridgeService } from '../messaging/webwhats-bridge.service';
 import { buildWhatsAppPhoneCandidates } from '../messaging/whatsapp-channel';
 import { PrismaService } from '../prisma/prisma.service';
 import {
+  BulkDeleteVendasLeadsDto,
   CreateManualVendasLeadDto,
   ImportWebscrapingLeadsDto,
   UpdateVendasLeadDto,
@@ -2068,6 +2069,64 @@ export class VendasService {
       ok: true,
       lead: this.buildLeadPayload(updated),
     };
+  }
+
+  async deleteLeadsBulkForUser(user: any, dto: BulkDeleteVendasLeadsDto) {
+    const context = this.resolveUserContext(user);
+    const all = Boolean(dto?.all);
+    const leadIds = Array.from(
+      new Set(
+        (Array.isArray(dto?.leadIds) ? dto.leadIds : [])
+          .map((leadId) => String(leadId || '').trim())
+          .filter(Boolean),
+      ),
+    );
+
+    if (!all && !leadIds.length) {
+      throw new BadRequestException('Selecione ao menos um card para excluir.');
+    }
+
+    const where: any = {
+      companyId: context.companyId,
+      ...(all ? {} : { id: { in: leadIds } }),
+    };
+    const rows = await this.prisma.vendasLead.findMany({
+      where,
+      select: {
+        id: true,
+        companyId: true,
+        status: true,
+        phone: true,
+        phoneNormalized: true,
+      },
+    });
+
+    if (!rows.length) {
+      return { ok: true, deletedCount: 0 };
+    }
+
+    const rowIds = rows.map((row) => row.id);
+
+    for (const row of rows) {
+      try {
+        await this.deactivateLeadInInboxAgenda(
+          context.companyId,
+          row.phoneNormalized || row.phone,
+          row.id,
+        );
+      } catch (error: any) {
+        this.logger.warn(`[vendas-delete-bulk] Falha ao desativar espelho do lead ${row.id}: ${error?.message || error}`);
+      }
+    }
+
+    await this.prisma.vendasLead.deleteMany({
+      where: {
+        companyId: context.companyId,
+        id: { in: rowIds },
+      },
+    });
+
+    return { ok: true, deletedCount: rows.length };
   }
 
   async registerAttemptForUser(user: any, leadId: string, dto?: { channel?: string }) {
