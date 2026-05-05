@@ -2054,7 +2054,7 @@ export default function VendasClientPage() {
               />
             </div>
           ) : activeDragDateItem ? (
-            <div className={styles.dragOverlayCard}>
+            <div className={`${styles.dragOverlayCard} ${styles.dragOverlayDateCard}`}>
               <div className={styles.dateFilterCard} style={{ pointerEvents: "none" }}>
                 <span className={styles.dateFilterDay}>{activeDragDateItem.dayLabel}</span>
                 <strong>{activeDragDateItem.title}</strong>
