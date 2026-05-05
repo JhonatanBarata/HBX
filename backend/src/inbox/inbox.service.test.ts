@@ -74,8 +74,19 @@ function createService(overrides?: Partial<Record<string, any>>) {
       findFirst: async () => null,
       update: async ({ where, data }: any) => ({ id: where.id, ...data }),
     },
+    vendasAutomationJob: {
+      findFirst: async () => null,
+      update: async ({ where, data }: any) => ({ id: where.id, ...data }),
+      updateMany: async () => ({ count: 0 }),
+    },
     vendasLeadTimelineEvent: {
       create: async ({ data }: any) => ({ id: 'event-1', ...data }),
+    },
+    companyMessage: {
+      findFirst: async () => null,
+      count: async () => 0,
+      create: async ({ data }: any) => ({ id: 801, ...data }),
+      deleteMany: async () => ({ count: 0 }),
     },
     companyConversation: {
       findFirst: async ({ where }: any) => {
@@ -161,6 +172,206 @@ function createService(overrides?: Partial<Record<string, any>>) {
   );
   return { service, prisma, conversations, auditCalls, queueCalls, conversationStateCalls, cadastrosService };
 }
+
+test('inbox classifier keeps automatic prospection outbound in Prospecção without inbound response', async () => {
+  const { service } = createService({
+    prisma: {
+      companyMessage: {
+        findFirst: async () => null,
+      },
+      hbxRecoveryCustomer: {
+        findFirst: async () => null,
+      },
+    },
+  });
+
+  const context = await (service as any).resolveRecoveryRoutingContext(
+    7,
+    {
+      id: 42,
+      contact: '+5519998877766',
+      metadata: JSON.stringify({}),
+      flowResult: null,
+      humanAssigned: false,
+      messages: [
+        {
+          direction: 'OUTBOUND',
+          sourceModule: 'vendas_prospeccao_bot',
+          senderType: 'bot',
+          timestamp: new Date(),
+        },
+      ],
+    },
+    { preferRecoveryForDebtors: true },
+  );
+
+  assert.equal(context.routeTarget, 'prospeccao');
+  assert.match(context.routeReason, /aguardando resposta/i);
+});
+
+test('inbox classifier moves prospection with customer inbound to Atendimento', async () => {
+  const { service } = createService({
+    prisma: {
+      companyMessage: {
+        findFirst: async () => ({ id: 901 }),
+      },
+      hbxRecoveryCustomer: {
+        findFirst: async () => null,
+      },
+    },
+  });
+
+  const context = await (service as any).resolveRecoveryRoutingContext(
+    7,
+    {
+      id: 42,
+      contact: '+5519998877766',
+      metadata: JSON.stringify({
+        sourceModule: 'vendas',
+        queueTarget: 'prospeccao',
+        routeTarget: 'prospeccao',
+        vendasAgendaQueue: {
+          active: true,
+          sourceModule: 'vendas',
+          queueTarget: 'prospeccao',
+          routeTarget: 'prospeccao',
+          manualSentAt: '2026-05-05T10:00:00.000Z',
+        },
+      }),
+      flowResult: null,
+      humanAssigned: false,
+      messages: [
+        {
+          direction: 'INBOUND',
+          sourceModule: 'whatsapp_webhook',
+          senderType: 'client',
+          timestamp: new Date('2026-05-05T10:30:00.000Z'),
+        },
+      ],
+    },
+    { preferRecoveryForDebtors: true },
+  );
+
+  assert.equal(context.routeTarget, 'atendimento');
+});
+
+test('inbox classifier trusts replied_positive job state as Atendimento even in summary rows', async () => {
+  const { service } = createService({
+    prisma: {
+      companyMessage: {
+        findFirst: async () => null,
+      },
+      vendasAutomationJob: {
+        findFirst: async () => ({
+          id: 'job-1',
+          status: 'replied_positive',
+          lead: { id: 'lead-1', status: 'qualificado' },
+          updatedAt: new Date('2026-05-05T10:35:00.000Z'),
+          createdAt: new Date('2026-05-05T10:00:00.000Z'),
+        }),
+      },
+      hbxRecoveryCustomer: {
+        findFirst: async () => null,
+      },
+    },
+  });
+
+  const context = await (service as any).resolveRecoveryRoutingContext(
+    7,
+    {
+      id: 42,
+      contact: '+5519998877766',
+      metadata: JSON.stringify({
+        sourceModule: 'vendas',
+        queueTarget: 'prospeccao',
+        routeTarget: 'prospeccao',
+        vendasAutomation: {
+          jobId: 'job-1',
+          status: 'replied_positive',
+        },
+        vendasAgendaQueue: {
+          active: true,
+          sourceModule: 'vendas',
+          queueTarget: 'prospeccao',
+          routeTarget: 'prospeccao',
+          leadId: 'lead-1',
+        },
+      }),
+      flowResult: null,
+      humanAssigned: false,
+      messages: [],
+    },
+    { preferRecoveryForDebtors: true },
+  );
+
+  assert.equal(context.routeTarget, 'atendimento');
+});
+
+test('inbox classifier moves expired prospection without response to Excluídos', async () => {
+  const { service } = createService({
+    prisma: {
+      companyMessage: {
+        findFirst: async () => null,
+      },
+      hbxRecoveryCustomer: {
+        findFirst: async () => null,
+      },
+    },
+  });
+
+  const context = await (service as any).resolveRecoveryRoutingContext(
+    7,
+    {
+      id: 42,
+      contact: '+5519998877766',
+      metadata: JSON.stringify({
+        sourceModule: 'vendas',
+        queueTarget: 'prospeccao',
+        routeTarget: 'prospeccao',
+        vendasAutomation: {
+          status: 'sent',
+          sentAt: '2026-05-01T10:00:00.000Z',
+        },
+        vendasAgendaQueue: {
+          active: true,
+          sourceModule: 'vendas',
+          queueTarget: 'prospeccao',
+          routeTarget: 'prospeccao',
+        },
+      }),
+      flowResult: null,
+      humanAssigned: false,
+      messages: [],
+    },
+    { preferRecoveryForDebtors: true },
+  );
+
+  assert.equal(context.routeTarget, 'excluidos');
+  assert.equal(context.routeReason, 'Sem resposta em 24h.');
+});
+
+test('inbox classifier keeps WhatsApp groups outside operational funnels', async () => {
+  const { service } = createService();
+
+  const context = await (service as any).resolveRecoveryRoutingContext(
+    7,
+    {
+      id: 42,
+      contact: '5511999999999-123456@g.us',
+      metadata: JSON.stringify({
+        queueTarget: 'excluidos',
+        routeTarget: 'excluidos',
+        inboxLocalDeleted: true,
+      }),
+      flowResult: 'local_deleted',
+      humanAssigned: false,
+      messages: [],
+    },
+    { preferRecoveryForDebtors: true },
+  );
+
+  assert.equal(context.routeTarget, 'groups');
+});
 
 test('sendMessage queues outbound on the real conversation with human flow state', async () => {
   const { service, queueCalls, auditCalls, conversationStateCalls } = createService();

@@ -409,6 +409,18 @@ export class InboxService {
     return value as Record<string, any>;
   }
 
+  private parseLooseJsonRecord(value: unknown): Record<string, any> | null {
+    const nested = this.getNestedMetadataRecord(value);
+    if (nested) return nested;
+    if (typeof value !== 'string') return null;
+    try {
+      const parsed = JSON.parse(value);
+      return this.getNestedMetadataRecord(parsed);
+    } catch {
+      return null;
+    }
+  }
+
   private isConversationMetadataInTrash(metadata: Record<string, any>, flowResult?: string | null) {
     const vendasAgendaQueue = this.getNestedMetadataRecord(metadata?.vendasAgendaQueue);
     const manualQueue = String(
@@ -1197,6 +1209,8 @@ export class InboxService {
       case 'prospeccao':
       case 'prospection':
         return 'bot';
+      case 'groups':
+        return 'groups';
       case 'conversas':
       default:
         return 'all';
@@ -1507,37 +1521,114 @@ export class InboxService {
     }
   }
 
-  private isProspectionMetadataCandidate(metadata: Record<string, any>, routeTarget: string, vendasAgendaQueue: Record<string, any> | null) {
-    const sourceModule = String(metadata?.sourceModule || vendasAgendaQueue?.sourceModule || '').trim().toLowerCase();
-    return (
-      routeTarget === 'prospeccao' ||
-      routeTarget === 'prospection' ||
-      sourceModule === 'vendas' ||
-      sourceModule.includes('webscraping') ||
-      vendasAgendaQueue?.active === true
+  private normalizeClassifierText(value: unknown) {
+    return String(value || '').trim().toLowerCase();
+  }
+
+  private getConversationQueueTarget(metadata: Record<string, any>, vendasAgendaQueue: Record<string, any> | null) {
+    return this.normalizeClassifierText(
+      metadata?.routeTarget ||
+        metadata?.queueTarget ||
+        vendasAgendaQueue?.routeTarget ||
+        vendasAgendaQueue?.queueTarget ||
+        '',
     );
   }
 
-  private isAutomaticProspectionOutbound(conversation: any) {
-    const latestMessage = Array.isArray(conversation?.messages) ? conversation.messages[0] : null;
-    const direction = String(latestMessage?.direction || '').trim().toUpperCase();
-    if (direction !== 'OUTBOUND') return false;
-    const source = String(latestMessage?.sourceModule || '').trim().toLowerCase();
-    const sender = String(latestMessage?.senderType || '').trim().toLowerCase();
-    return source.includes('prospeccao') || source.includes('prospect') || source.includes('vendas') || sender === 'bot';
+  private isConversationGroup(conversation: any, metadata: Record<string, any>) {
+    const contact = String(conversation?.customer?.phone || conversation?.contact || '').trim().toLowerCase();
+    return (
+      contact.includes('@g.us') ||
+      this.parseBooleanMetadataFlag(metadata?.whatsappIsGroup) ||
+      this.parseBooleanMetadataFlag(metadata?.isGroup)
+    );
   }
 
-  private async hasProspectionInboundAfterAutomaticSend(companyId: number, conversation: any, metadata: Record<string, any>) {
+  private isProspectionSource(value: unknown) {
+    const source = this.normalizeClassifierText(value);
+    return (
+      source === 'vendas' ||
+      source === 'webscraping' ||
+      source.includes('vendas') ||
+      source.includes('prospeccao') ||
+      source.includes('prospect') ||
+      source.includes('webscraping')
+    );
+  }
+
+  private getLatestAutomaticProspectionOutbound(conversation: any) {
+    const messages = Array.isArray(conversation?.messages) ? conversation.messages : [];
+    return messages
+      .filter((message) => {
+        const direction = String(message?.direction || '').trim().toUpperCase();
+        if (direction !== 'OUTBOUND') return false;
+        const source = this.normalizeClassifierText(message?.sourceModule);
+        const variables = this.parseLooseJsonRecord(message?.variablesJson);
+        return this.isProspectionSource(source) || this.normalizeClassifierText(variables?.botType) === 'prospeccao';
+      })
+      .sort((left, right) => {
+        const leftTime = new Date(left?.timestamp || left?.createdAt || 0).getTime();
+        const rightTime = new Date(right?.timestamp || right?.createdAt || 0).getTime();
+        return (Number.isFinite(rightTime) ? rightTime : 0) - (Number.isFinite(leftTime) ? leftTime : 0);
+      })[0] || null;
+  }
+
+  private isProspectionMetadataCandidate(
+    metadata: Record<string, any>,
+    routeTarget: string,
+    vendasAgendaQueue: Record<string, any> | null,
+    conversation?: any,
+  ) {
     const automation = this.getNestedMetadataRecord(metadata?.vendasAutomation);
-    const queue = this.getNestedMetadataRecord(metadata?.vendasAgendaQueue);
-    const sentAtRaw = String(
-      automation?.sentAt ||
-        queue?.manualSentAt ||
-        queue?.lastManualSendAt ||
-        queue?.syncedAt ||
-        '',
-    ).trim();
-    const sentAt = sentAtRaw ? new Date(sentAtRaw) : null;
+    const sourceCandidates = [
+      metadata?.sourceModule,
+      metadata?.latestSourceModule,
+      metadata?.originFlow,
+      vendasAgendaQueue?.sourceModule,
+      automation?.sourceModule,
+    ];
+    return (
+      routeTarget === 'prospeccao' ||
+      routeTarget === 'prospection' ||
+      sourceCandidates.some((source) => this.isProspectionSource(source)) ||
+      vendasAgendaQueue?.active === true ||
+      Boolean(String(vendasAgendaQueue?.leadId || automation?.leadId || '').trim()) ||
+      Boolean(this.getLatestAutomaticProspectionOutbound(conversation))
+    );
+  }
+
+  private getProspectionSentAtCandidate(
+    metadata: Record<string, any>,
+    vendasAgendaQueue: Record<string, any> | null,
+    automationJob: any,
+    automaticOutbound: any,
+  ) {
+    const automation = this.getNestedMetadataRecord(metadata?.vendasAutomation);
+    const candidates = [
+      automation?.sentAt,
+      vendasAgendaQueue?.manualSentAt,
+      vendasAgendaQueue?.lastManualSendAt,
+      automationJob?.sentAt,
+      automaticOutbound?.timestamp,
+      automaticOutbound?.createdAt,
+      vendasAgendaQueue?.syncedAt,
+      automationJob?.scheduledAt,
+      automationJob?.updatedAt,
+    ];
+    for (const candidate of candidates) {
+      const normalized = String(candidate || '').trim();
+      if (!normalized) continue;
+      const parsed = new Date(normalized);
+      if (Number.isFinite(parsed.getTime())) return parsed;
+    }
+    return null;
+  }
+
+  private async hasProspectionInboundAfterAutomaticSend(
+    companyId: number,
+    conversation: any,
+    sentAt?: Date | null,
+  ) {
     const inbound = await this.prisma.companyMessage.findFirst({
       where: {
         companyId,
@@ -1549,6 +1640,53 @@ export class InboxService {
       orderBy: { timestamp: 'desc' },
     });
     return Boolean(inbound?.id);
+  }
+
+  private hasLoadedInboundMessage(conversation: any) {
+    return (Array.isArray(conversation?.messages) ? conversation.messages : []).some(
+      (message) => String(message?.direction || '').trim().toUpperCase() === 'INBOUND',
+    );
+  }
+
+  private async findVendasAutomationContext(
+    companyId: number,
+    conversation: any,
+    metadata: Record<string, any>,
+    vendasAgendaQueue: Record<string, any> | null,
+  ) {
+    const automation = this.getNestedMetadataRecord(metadata?.vendasAutomation);
+    const jobId = String(automation?.jobId || vendasAgendaQueue?.automationJobId || '').trim();
+    const leadId = String(automation?.leadId || vendasAgendaQueue?.leadId || '').trim();
+    const conversationId = Number(conversation?.id || 0);
+    const OR: any[] = [];
+    if (jobId) OR.push({ id: jobId });
+    if (conversationId) OR.push({ conversationId });
+    if (leadId) OR.push({ leadId });
+
+    const jobDelegate = (this.prisma as any).vendasAutomationJob;
+    const leadDelegate = (this.prisma as any).vendasLead;
+    const job = OR.length && typeof jobDelegate?.findFirst === 'function'
+      ? await jobDelegate.findFirst({
+          where: { companyId, OR },
+          include: { lead: true },
+          orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
+        })
+      : null;
+    const lead = job?.lead || (leadId && typeof leadDelegate?.findFirst === 'function'
+      ? await leadDelegate.findFirst({
+          where: { companyId, id: leadId },
+        })
+      : null);
+
+    return {
+      job,
+      lead,
+      jobStatus: this.normalizeClassifierText(job?.status || automation?.status || vendasAgendaQueue?.automationStatus),
+      leadStatus: this.normalizeClassifierText(lead?.status || vendasAgendaQueue?.status),
+      leadClosed:
+        this.normalizeClassifierText(lead?.status || vendasAgendaQueue?.status) === 'encerrado' ||
+        Boolean(lead?.closedAt || lead?.wasClosedBefore),
+    };
   }
 
   private isExplicitAtendimentoHandoff(conversation: any, metadata: Record<string, any>, vendasAgendaQueue: Record<string, any> | null) {
@@ -1597,7 +1735,7 @@ export class InboxService {
       .trim()
       .toLowerCase();
     const latestDirection = String(conversation?.messages?.[0]?.direction || '').trim().toUpperCase();
-    const hasInboundMessage = latestDirection === 'INBOUND';
+    const hasLoadedInboundMessage = latestDirection === 'INBOUND' || this.hasLoadedInboundMessage(conversation);
 
     const recoveryCustomer = metadataCustomerId
         ? await this.prisma.hbxRecoveryCustomer.findFirst({
@@ -1655,58 +1793,160 @@ export class InboxService {
           })
         : null;
 
-    const hasRecoveryDebt = Number(recoveryCustomer?.openAmount || 0) > 0;
+    const recoveryOpenAmount = Number(recoveryCustomer?.openAmount || metadata?.recoveryOpenAmount || 0);
+    const hasRecoveryDebt = recoveryOpenAmount > 0;
 
-    let routeTarget: 'recovery' | 'atendimento' | 'prospeccao' | 'conversas' | 'excluidos' = 'conversas';
+    let routeTarget: 'recovery' | 'atendimento' | 'prospeccao' | 'conversas' | 'excluidos' | 'groups' = 'conversas';
     let routeReason = 'Chat manual/pessoal do chip sem origem HBX.';
     const vendasAgendaQueue = this.getNestedMetadataRecord(metadata?.vendasAgendaQueue);
-    const metadataRouteTarget = String(
-      metadata?.routeTarget || metadata?.queueTarget || vendasAgendaQueue?.routeTarget || vendasAgendaQueue?.queueTarget || '',
-    ).trim().toLowerCase();
+    const metadataRouteTarget = this.getConversationQueueTarget(metadata, vendasAgendaQueue);
     const manualQueue = String(
       metadata?.inboxManualQueueOverride || vendasAgendaQueue?.manualQueueOverride || '',
     ).trim().toLowerCase();
-    const isProspectionCandidate = this.isProspectionMetadataCandidate(metadata, metadataRouteTarget, vendasAgendaQueue);
+    const automaticProspectionOutbound = this.getLatestAutomaticProspectionOutbound(conversation);
+    const isProspectionCandidate = this.isProspectionMetadataCandidate(metadata, metadataRouteTarget, vendasAgendaQueue, conversation);
     const isExplicitHandoff = this.isExplicitAtendimentoHandoff(conversation, metadata, vendasAgendaQueue);
-    const automaticProspectionOutbound = this.isAutomaticProspectionOutbound(conversation);
+    const automationContext = isProspectionCandidate
+      ? await this.findVendasAutomationContext(companyId, conversation, metadata, vendasAgendaQueue)
+      : { job: null, lead: null, jobStatus: '', leadStatus: '', leadClosed: false };
+    const prospectionSentAt = this.getProspectionSentAtCandidate(
+      metadata,
+      vendasAgendaQueue,
+      automationContext.job,
+      automaticProspectionOutbound,
+    );
     if (isProspectionCandidate) {
       this.logger.log(`[prospeccao-classifier] conversa classificada como prospeccao conversation=${conversation?.id || '-'}`);
     }
     if (automaticProspectionOutbound) {
-      this.logger.log(`[prospeccao-classifier] outbound automatico detectado conversation=${conversation?.id || '-'}`);
+      this.logger.log(`[prospeccao] outbound automatico enviado, mantendo em prospeccao conversation=${conversation?.id || '-'}`);
     }
     const hasProspectionInbound = isProspectionCandidate
-      ? await this.hasProspectionInboundAfterAutomaticSend(companyId, conversation, metadata)
+      ? await this.hasProspectionInboundAfterAutomaticSend(companyId, conversation, prospectionSentAt)
       : false;
+    const automationStatus = this.normalizeClassifierText(
+      this.getNestedMetadataRecord(metadata?.vendasAutomation)?.status || vendasAgendaQueue?.status || '',
+    );
+    const jobStatus = automationContext.jobStatus;
+    const leadClosed = automationContext.leadClosed || automationContext.leadStatus === 'encerrado';
+    const negativeOrArchivedProspection = [
+      automationStatus,
+      jobStatus,
+      String(conversation?.flowResult || '').trim().toLowerCase(),
+    ].some((value) =>
+      [
+        'negative',
+        'opt_out',
+        'replied_negative',
+        'no_response_archived',
+        'prospection_negative',
+      ].includes(value),
+    );
+    const positiveOrHumanProspection = [
+      automationStatus,
+      jobStatus,
+      String(conversation?.flowResult || '').trim().toLowerCase(),
+    ].some((value) =>
+      [
+        'replied_positive',
+        'interested',
+        'neutral',
+        'human_assigned',
+        'prospection_interested',
+        'prospection_neutral',
+      ].includes(value),
+    );
+    const optOut = [
+      metadata?.optOut,
+      metadata?.doNotContact,
+      metadata?.blacklisted,
+      metadata?.blacklist,
+      vendasAgendaQueue?.optOut,
+      vendasAgendaQueue?.doNotContact,
+      vendasAgendaQueue?.blacklisted,
+      vendasAgendaQueue?.blacklist,
+    ].some((value) => this.parseBooleanMetadataFlag(value));
+    const prospectionNoResponseExpired = Boolean(
+      isProspectionCandidate &&
+      !hasProspectionInbound &&
+      prospectionSentAt &&
+      Date.now() - prospectionSentAt.getTime() >= 24 * 60 * 60 * 1000
+    );
+    const isProspectionWaitingJob = ['pending', 'scheduled', 'sending', 'sent'].includes(jobStatus);
+    const isAtendimentoTarget = metadataRouteTarget === 'atendimento' || metadataRouteTarget === 'scheduled';
+    const isRecoveryTarget =
+      metadataRouteTarget === 'recovery' ||
+      latestSourceModule.includes('recovery') ||
+      this.normalizeClassifierText(metadata?.sourceModule).includes('recovery');
+
     if (isProspectionCandidate && !hasProspectionInbound) {
       this.logger.log(`[prospeccao-classifier] sem inbound do cliente, mantendo em prospeccao conversation=${conversation?.id || '-'}`);
     }
     if (isProspectionCandidate && hasProspectionInbound) {
-      this.logger.log(`[prospeccao-classifier] inbound detectado, liberando para conversas/atendimento conversation=${conversation?.id || '-'}`);
+      this.logger.log(`[prospeccao] inbound detectado, movendo para atendimento conversation=${conversation?.id || '-'}`);
+    }
+    if (prospectionNoResponseExpired) {
+      this.logger.log(`[prospeccao] 24h sem resposta, movendo para excluidos conversation=${conversation?.id || '-'}`);
+    }
+    if (this.isConversationKnownWithoutWhatsapp(metadata)) {
+      this.logger.log(`[prospeccao] whatsapp unavailable, movendo para excluidos conversation=${conversation?.id || '-'}`);
     }
 
-    if (this.isConversationMetadataInTrash(metadata, conversation?.flowResult) || this.isConversationKnownWithoutWhatsapp(metadata)) {
+    if (this.isConversationGroup(conversation, metadata)) {
+      routeTarget = 'groups';
+      routeReason = 'Grupo do WhatsApp classificado fora dos funis operacionais.';
+    } else if (
+      this.isConversationMetadataInTrash(metadata, conversation?.flowResult) ||
+      this.isConversationKnownWithoutWhatsapp(metadata) ||
+      leadClosed ||
+      negativeOrArchivedProspection ||
+      optOut ||
+      prospectionNoResponseExpired
+    ) {
       routeTarget = 'excluidos';
-      routeReason = 'Contato descartado, bloqueado ou sem WhatsApp confirmado.';
+      routeReason = prospectionNoResponseExpired
+        ? 'Sem resposta em 24h.'
+        : this.isConversationKnownWithoutWhatsapp(metadata)
+          ? 'Contato sem WhatsApp confirmado.'
+          : negativeOrArchivedProspection || optOut
+            ? 'Lead recusou, pediu opt-out ou foi arquivado pela prospecção.'
+            : leadClosed
+              ? 'Lead encerrado em Vendas.'
+              : 'Contato descartado, bloqueado ou arquivado no HBX.';
+    } else if ((hasRecoveryDebt && routingRules.preferRecoveryForDebtors) || isRecoveryTarget) {
+      routeTarget = 'recovery';
+      routeReason = 'Cliente com debito em aberto e contexto ativo de cobranca.';
     } else if (this.isConversationPersonalContact(metadata)) {
       routeTarget = 'conversas';
       routeReason = 'Contato marcado como pessoal pelo operador.';
-    } else if (manualQueue === 'scheduled') {
+    } else if (
+      manualQueue === 'scheduled' ||
+      isAtendimentoTarget ||
+      isExplicitHandoff ||
+      conversation?.humanAssigned === true ||
+      positiveOrHumanProspection ||
+      hasProspectionInbound ||
+      (isProspectionCandidate && hasLoadedInboundMessage)
+    ) {
       routeTarget = 'atendimento';
-      routeReason = 'Conversa movida manualmente para Atendimento.';
-    } else if (isProspectionCandidate && !hasProspectionInbound) {
+      routeReason = positiveOrHumanProspection || hasProspectionInbound || (isProspectionCandidate && hasLoadedInboundMessage)
+        ? 'Resposta do cliente em prospeccao operacional.'
+        : 'Conversa assumida por humano ou encaminhada para Atendimento.';
+    } else if (
+      isProspectionCandidate &&
+      (
+        !hasProspectionInbound ||
+        isProspectionWaitingJob ||
+        Boolean(automaticProspectionOutbound) ||
+        vendasAgendaQueue?.active === true
+      )
+    ) {
       routeTarget = 'prospeccao';
-      routeReason = 'Lead herdado de Vendas/Webscraping aguardando abordagem ativa.';
-    } else if (isExplicitHandoff) {
-      routeTarget = 'atendimento';
-      routeReason = 'Conversa assumida por humano ou encaminhada por handoff.';
-    } else if (hasRecoveryDebt && routingRules.preferRecoveryForDebtors) {
-      routeTarget = 'recovery';
-      routeReason = 'Cliente com debito em aberto e contexto ativo de cobranca.';
-    } else if (hasInboundMessage || hasProspectionInbound) {
-      routeTarget = 'conversas';
-      routeReason = 'Conversa real com mensagem do cliente.';
+      routeReason = 'Lead de Vendas/Prospecção aguardando resposta do cliente.';
     }
+
+    this.logger.log(`[inbox-classifier] conversationId=${conversation?.id || '-'} queue=${routeTarget}`);
+    this.logger.log(`[inbox-classifier] reason=${routeReason}`);
 
     return {
       routeTarget,
@@ -1715,7 +1955,7 @@ export class InboxService {
       recoveryCustomerName: String(
         hasRecoveryDebt ? recoveryCustomer?.clientName || recoveryCustomer?.name || '' : '',
       ).trim() || null,
-      recoveryOpenAmount: hasRecoveryDebt ? Number(recoveryCustomer?.openAmount || 0) : 0,
+      recoveryOpenAmount: hasRecoveryDebt ? recoveryOpenAmount : 0,
       recoveryRiskScore:
         !hasRecoveryDebt ||
         recoveryCustomer?.paymentHistoryScore === undefined ||
@@ -4569,84 +4809,6 @@ export class InboxService {
       message: 'Conversa enviada para Excluídos apenas no HBX.',
       archivedLeadId,
       localOnly: true,
-    };
-  }
-
-  async deleteConversationFromWhatsApp(user: any, conversationId: number) {
-    this.assertAdministrativeAction(user);
-    const companyId = this.requireCompanyIdFromUser(user);
-    const conversation = await this.ensureConversation(companyId, conversationId);
-    const metadata = this.parseConversationMetadata(conversation.metadata);
-
-    let providerResult: unknown = null;
-    try {
-      providerResult = await this.webwhatsBridge.deleteChat(companyId, {
-        conversationId: conversation.id,
-      });
-    } catch (error) {
-      const providerError = error instanceof WebwhatsProviderError ? error : null;
-      const message =
-        providerError?.providerMessage ||
-        providerError?.message ||
-        (error instanceof Error ? error.message : 'Falha ao apagar conversa no WhatsApp.');
-
-      await this.logInboxEvent({
-        companyId,
-        event: 'conversation_whatsapp_delete_failed',
-        message: 'Falha tecnica ao apagar conversa na conta WhatsApp conectada.',
-        conversationId: conversation.id,
-        phone: String(conversation.contact || '').trim(),
-        result: 'failed',
-        extra: {
-          code: providerError?.code || 'unknown',
-          statusCode: providerError?.statusCode || null,
-          providerMessage: providerError?.providerMessage || null,
-          error: message,
-        },
-      });
-
-      if (providerError?.statusCode === 400) {
-        throw new BadRequestException(message);
-      }
-      if (providerError?.code === 'WEBWHATS_NOT_CONNECTED') {
-        throw new ServiceUnavailableException(message);
-      }
-      throw new ServiceUnavailableException(message);
-    }
-
-    const deletedAt = new Date().toISOString();
-    await this.conversations.updateConversationState(companyId, conversation.id, {
-      botActive: false,
-      humanAssigned: false,
-      flowResult: 'whatsapp_deleted',
-      metadata: {
-        ...metadata,
-        whatsappConversationDeleted: true,
-        inboxWhatsAppDeleted: true,
-        inboxWhatsAppDeletedAt: deletedAt,
-        inboxWhatsAppDeletedByUserId: Number(user?.id || 0) || null,
-      },
-    });
-
-    await this.logInboxEvent({
-      companyId,
-      event: 'conversation_whatsapp_deleted',
-      message: 'Conversa apagada da conta WhatsApp conectada e ocultada no HBX.',
-      conversationId: conversation.id,
-      phone: String(conversation.contact || '').trim(),
-      result: 'deleted',
-      extra: {
-        providerResult,
-      },
-    });
-
-    return {
-      success: true,
-      id: String(conversation.id),
-      deleted: true,
-      whatsappDeleted: true,
-      hidden: true,
-      message: 'Conversa apagada da conta WhatsApp conectada.',
     };
   }
 

@@ -1,6 +1,6 @@
 import type { ChannelProvider, ProviderCapabilities } from "@/lib/provider-capabilities";
 
-export type InboxRouteTarget = "recovery" | "atendimento" | "prospeccao" | "conversas" | "excluidos";
+export type InboxRouteTarget = "recovery" | "atendimento" | "prospeccao" | "conversas" | "excluidos" | "groups";
 export type InboxStatus = "new" | "open" | "closed" | "blocked";
 
 export type Customer = {

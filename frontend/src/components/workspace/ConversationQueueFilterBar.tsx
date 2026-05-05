@@ -27,12 +27,12 @@ type ConversationQueueFilterBarProps = {
 };
 
 const OPTIONS: Array<{ value: ConversationQueueFilterValue; label: string }> = [
-  { value: "all", label: "Conversas" },
-  { value: "archived", label: "Excluídos" },
-  { value: "groups", label: "Grupos" },
+  { value: "all", label: "Pessoais" },
   { value: "scheduled", label: "Atendimento" },
   { value: "bot", label: "Prospecção" },
   { value: "recovery", label: "Recovery" },
+  { value: "archived", label: "Excluídos" },
+  { value: "groups", label: "Grupos" },
 ];
 
 export default function ConversationQueueFilterBar({

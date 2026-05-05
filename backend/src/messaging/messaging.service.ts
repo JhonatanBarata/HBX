@@ -1681,6 +1681,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
         },
       },
     );
+    this.logger.log(`[prospeccao] inbound detectado, movendo para atendimento conversation=${input.conversationId}`);
     this.publishVendasAutomationEvent({
       companyId: input.companyId,
       campaignId: job.campaignId,
@@ -1815,6 +1816,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
         },
       },
     );
+    this.logger.log(`[prospeccao] inbound detectado, movendo para excluidos conversation=${input.conversationId}`);
     this.publishVendasAutomationEvent({
       companyId: input.companyId,
       campaignId: job.campaignId,
@@ -1878,6 +1880,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
         },
       },
     );
+    this.logger.log(`[prospeccao] inbound detectado, movendo para atendimento conversation=${input.conversationId}`);
     this.publishVendasAutomationEvent({
       companyId: input.companyId,
       campaignId: job.campaignId,
