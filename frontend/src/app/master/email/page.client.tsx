@@ -1,9 +1,9 @@
 "use client";
 
-import { type ClipboardEvent, type DragEvent, useEffect, useMemo, useRef, useState } from "react";
+import { type ClipboardEvent as ReactClipboardEvent, type DragEvent as ReactDragEvent, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import DashboardScaffold from "@/components/DashboardScaffold";
-import { apiFetch } from "@/app/_lib/api";
+import { apiFetch, getDirectDashboardApiBaseUrl } from "@/app/_lib/api";
 import { useRequireAuth } from "@/app/_lib/useRequireAuth";
 import styles from "./page.module.css";
 
@@ -64,6 +64,15 @@ function renderTemplate(template: string, name: string) {
   return String(template || "").replace("{{nome}}", String(name || "").trim() || "cliente");
 }
 
+function findClipboardImageFile(items?: DataTransferItemList | null) {
+  const imageItem = Array.from(items || []).find((item) => item.type.startsWith("image/"));
+  return imageItem?.getAsFile() || null;
+}
+
+function buildDirectApiPath(path: string) {
+  return `${getDirectDashboardApiBaseUrl()}${path}`;
+}
+
 export default function MasterEmailClientPage() {
   const hasToken = useRequireAuth();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -120,7 +129,7 @@ export default function MasterEmailClientPage() {
     try {
       const form = new FormData();
       form.append("file", file);
-      const payload = await apiFetch<{ ok: boolean; attachment: MasterEmailState["attachment"] }>("/master/email/attachment", {
+      const payload = await apiFetch<{ ok: boolean; attachment: MasterEmailState["attachment"] }>(buildDirectApiPath("/master/email/attachment"), {
         method: "POST",
         body: form,
         requireAuth: true,
@@ -156,7 +165,7 @@ export default function MasterEmailClientPage() {
     try {
       const form = new FormData();
       form.append("file", file, getImageFilename(file));
-      const payload = await apiFetch<{ ok: boolean; businessCard: MasterEmailState["businessCard"] }>("/master/email/business-card", {
+      const payload = await apiFetch<{ ok: boolean; businessCard: MasterEmailState["businessCard"] }>(buildDirectApiPath("/master/email/business-card"), {
         method: "POST",
         body: form,
         requireAuth: true,
@@ -172,16 +181,28 @@ export default function MasterEmailClientPage() {
     }
   }
 
-  function handleBusinessCardPaste(event: ClipboardEvent<HTMLDivElement>) {
-    const items = Array.from(event.clipboardData?.items || []);
-    const imageItem = items.find((item) => item.type.startsWith("image/"));
-    const file = imageItem?.getAsFile();
+  useEffect(() => {
+    if (hasToken !== true) return;
+
+    function handleWindowPaste(event: globalThis.ClipboardEvent) {
+      const file = findClipboardImageFile(event.clipboardData?.items);
+      if (!file) return;
+      event.preventDefault();
+      void uploadBusinessCard(file);
+    }
+
+    window.addEventListener("paste", handleWindowPaste);
+    return () => window.removeEventListener("paste", handleWindowPaste);
+  }, [hasToken, uploadBusinessCard]);
+
+  function handleBusinessCardPaste(event: ReactClipboardEvent<HTMLDivElement>) {
+    const file = findClipboardImageFile(event.clipboardData?.items);
     if (!file) return;
     event.preventDefault();
     void uploadBusinessCard(file);
   }
 
-  function handleBusinessCardDrop(event: DragEvent<HTMLDivElement>) {
+  function handleBusinessCardDrop(event: ReactDragEvent<HTMLDivElement>) {
     event.preventDefault();
     const file = Array.from(event.dataTransfer?.files || []).find((item) => item.type.startsWith("image/"));
     void uploadBusinessCard(file);
@@ -365,7 +386,7 @@ export default function MasterEmailClientPage() {
                     disabled={uploadingBusinessCard || sending}
                   />
                 </label>
-                <span>Clique no bloco e use Ctrl+V para colar.</span>
+                <span>Use Ctrl+V em qualquer ponto da tela.</span>
               </div>
             </div>
             {state?.businessCard?.previewDataUrl ? (
@@ -405,7 +426,7 @@ export default function MasterEmailClientPage() {
           <div className={styles.sideCard}>
             <span>Cartão</span>
             <strong>{state?.businessCard ? "Será incluído no email" : "Opcional"}</strong>
-            <p>{state?.businessCard ? "A imagem salva entra abaixo da assinatura." : "Cole a imagem no bloco principal para salvar."}</p>
+            <p>{state?.businessCard ? "A imagem salva entra abaixo da assinatura." : "Cole a imagem na tela para salvar."}</p>
           </div>
           {lastSent ? (
             <div className={styles.sideCard}>

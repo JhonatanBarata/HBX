@@ -79,6 +79,10 @@ export function getDashboardApiBaseUrl() {
   }
 }
 
+export function getDirectDashboardApiBaseUrl() {
+  return normalizeApiBaseUrl(API_URL);
+}
+
 function isApiErrorPayload(value: unknown): value is ApiErrorPayload {
   return Boolean(value) && typeof value === "object";
 }
