@@ -118,8 +118,18 @@ export class VendasController {
   }
 
   @Post('agenda/whatsapp/sync-today')
-  syncTodayAgenda(@Req() req: any, @Body() body?: { leadIds?: string[] }) {
-    return this.vendasService.syncTodayAgendaForUser(req.user, body || undefined);
+  async syncTodayAgenda(@Req() req: any, @Body() body?: { leadIds?: string[] }) {
+    const syncResult = await this.vendasService.syncTodayAgendaForUser(req.user, body || undefined);
+    const mirroredLeadIds = syncResult?.leadConversationIds ? Object.keys(syncResult.leadConversationIds) : [];
+    const automationQueue = await this.vendasAutomationService.enqueueLeadsForActiveCampaignForUser(req.user, mirroredLeadIds);
+    const queuedCount = Number(automationQueue?.queuedCount || 0);
+    return {
+      ...syncResult,
+      automationQueue,
+      message: queuedCount
+        ? `${syncResult.message || 'Cards preparados na Prospecção.'} ${queuedCount} card(s) entraram na fila automática.`
+        : syncResult.message,
+    };
   }
 
   @Post('lead/:leadId/attempt')
