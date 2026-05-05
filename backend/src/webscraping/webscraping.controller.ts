@@ -194,6 +194,21 @@ export class WebscrapingController {
     return this.webscrapingService.searchContactsForUser(req.user, dto);
   }
 
+  @Post('search-runs')
+  createSearchRun(@Req() req: any, @Body() dto: WebscrapingSearchDto) {
+    return this.webscrapingService.startSearchRunForUser(req.user, dto);
+  }
+
+  @Get('search-runs/:id')
+  getSearchRun(@Req() req: any, @Param('id') id: string) {
+    return this.webscrapingService.getSearchRunForUser(req.user, id);
+  }
+
+  @Post('search-runs/:id/cancel')
+  cancelSearchRun(@Req() req: any, @Param('id') id: string) {
+    return this.webscrapingService.cancelSearchRunForUser(req.user, id);
+  }
+
   @Get('history')
   history(@Req() req: any, @Query('limit') limit?: string) {
     const parsedLimit = limit ? Number(limit) : undefined;

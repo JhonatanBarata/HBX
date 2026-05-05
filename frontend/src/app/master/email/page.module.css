@@ -73,6 +73,35 @@
   color: color-mix(in srgb, var(--success) 78%, var(--foreground));
 }
 
+.tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  padding: 0.25rem;
+  border: 1px solid color-mix(in srgb, var(--line) 78%, var(--background));
+  border-radius: calc(var(--panel-radius) * 0.7);
+  background: color-mix(in srgb, var(--surface-soft) 90%, var(--background));
+}
+
+.tabButton {
+  min-height: 38px;
+  padding: 0 0.85rem;
+  border: 1px solid transparent;
+  border-radius: calc(var(--panel-radius) * 0.55);
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.86rem;
+  font-weight: 850;
+  cursor: pointer;
+}
+
+.tabButton[data-active="true"] {
+  border-color: color-mix(in srgb, var(--brand) 46%, var(--line));
+  background: color-mix(in srgb, var(--brand) 14%, var(--surface-raised));
+  color: var(--foreground);
+}
+
 .grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -94,7 +123,7 @@
 
 .field textarea,
 .emailEditor {
-  min-height: 360px;
+  min-height: 420px;
   line-height: 1.5;
   white-space: pre-wrap;
 }
@@ -109,38 +138,67 @@
 .emailEditor {
   box-sizing: border-box;
   max-width: 100%;
-  overflow-x: hidden;
-  overflow-y: auto;
+  resize: vertical;
+  overflow: auto;
   overflow-wrap: break-word;
   word-break: normal;
 }
 
-.emailEditor * {
-  box-sizing: border-box;
-  max-width: 100%;
+.editorHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
 }
 
-.emailEditor [data-hbx-business-card-block="true"] {
-  display: block;
-  max-width: 100%;
-  overflow: hidden;
-}
-
-.emailEditor:empty::before {
-  content: attr(data-placeholder);
+.editorHeader > span,
+.variables > span {
   color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0;
 }
 
-.emailEditor img {
-  display: block;
-  max-width: 100% !important;
-  width: auto !important;
-  height: auto !important;
-  margin: 0.75rem 0;
-  border-radius: calc(var(--panel-radius) * 0.55);
-  border: 1px solid color-mix(in srgb, var(--line) 82%, var(--background));
-  background: color-mix(in srgb, var(--surface-raised) 94%, var(--background));
-  object-fit: contain;
+.editorTools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  justify-content: flex-end;
+}
+
+.variables {
+  display: grid;
+  gap: 0.6rem;
+  border: 1px solid color-mix(in srgb, var(--line) 78%, var(--background));
+  border-radius: calc(var(--panel-radius) * 0.72);
+  background: color-mix(in srgb, var(--surface-soft) 88%, var(--background));
+  padding: 0.8rem;
+}
+
+.variables > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.variables p {
+  margin: 0;
+  color: color-mix(in srgb, var(--warning) 75%, var(--foreground));
+  font-size: 0.85rem;
+}
+
+.variableChip {
+  min-height: 30px;
+  padding: 0 0.55rem;
+  border: 1px solid color-mix(in srgb, var(--brand) 28%, var(--line));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--brand) 9%, var(--surface-raised));
+  color: var(--foreground);
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 800;
+  cursor: pointer;
 }
 
 .attachmentBox {
@@ -216,6 +274,77 @@
   padding: 1rem;
 }
 
+.previewCard {
+  border: 1px solid color-mix(in srgb, var(--line) 88%, var(--background));
+  border-radius: var(--panel-radius);
+  background: color-mix(in srgb, var(--surface-raised) 94%, var(--background));
+  box-shadow: var(--panel-shadow);
+  padding: 1rem;
+}
+
+.previewCard > span {
+  display: block;
+  margin-bottom: 0.35rem;
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.previewCard > strong {
+  display: block;
+  color: var(--foreground);
+}
+
+.previewBody {
+  margin-top: 0.8rem;
+  padding-top: 0.8rem;
+  border-top: 1px solid color-mix(in srgb, var(--line) 78%, var(--background));
+  color: var(--foreground);
+  font-size: 0.9rem;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.previewSignature,
+.signaturePreview {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 180px;
+  object-fit: contain;
+  margin-top: 0.85rem;
+  border: 1px solid color-mix(in srgb, var(--line) 82%, var(--background));
+  border-radius: calc(var(--panel-radius) * 0.55);
+  background: color-mix(in srgb, var(--surface-soft) 90%, var(--background));
+}
+
+.sideField {
+  display: grid;
+  gap: 0.35rem;
+  margin-top: 0.65rem;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.sideField input {
+  width: 100%;
+  border: 1px solid color-mix(in srgb, var(--line) 88%, var(--background));
+  border-radius: calc(var(--panel-radius) * 0.58);
+  background: color-mix(in srgb, var(--surface-raised) 94%, var(--background));
+  color: var(--foreground);
+  padding: 0.58rem 0.65rem;
+  font: inherit;
+  font-weight: 500;
+  outline: none;
+}
+
+.fullButton {
+  width: 100%;
+  margin-top: 0.8rem;
+}
+
 @media (max-width: 900px) {
   .page {
     grid-template-columns: 1fr;
@@ -223,6 +352,7 @@
 
   .grid,
   .header,
+  .editorHeader,
   .attachmentBox {
     grid-template-columns: 1fr;
     flex-direction: column;

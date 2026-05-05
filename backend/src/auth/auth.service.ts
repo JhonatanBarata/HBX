@@ -12,6 +12,7 @@ import { UsersService } from '../users/users.service';
 import * as bcrypt from 'bcryptjs';
 import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../prisma/prisma.service';
+import { EmailTemplateService } from '../mail/email-template.service';
 import { MailService } from '../mail/mail.service';
 import * as crypto from 'crypto';
 import { assertPasswordPolicy } from './password-policy';
@@ -37,6 +38,7 @@ export class AuthService implements OnModuleInit {
     private jwtService: JwtService,
     private prisma: PrismaService,
     private mail: MailService,
+    private emailTemplates: EmailTemplateService,
   ) {}
 
   async onModuleInit() {
@@ -900,24 +902,19 @@ export class AuthService implements OnModuleInit {
     rawToken: string;
   }) {
     const confirmationLink = this.buildEmailConfirmationLink(input.rawToken);
+    const template = await this.emailTemplates.getTemplateSafe('email_confirmation');
+    const rendered = this.emailTemplates.renderTemplate(template, {
+      nome: input.username,
+      empresa: input.companyName,
+      email: input.to,
+      linkConfirmacao: confirmationLink,
+      ano: new Date().getFullYear(),
+    });
     const mailResult = await this.mail.sendMail({
       to: input.to,
-      subject: 'Confirme seu e-mail para continuar no HBX',
-      text: [
-        `Olá, ${input.username}!`,
-        '',
-        `Seu cadastro da ${input.companyName} foi criado no HBX.`,
-        'Confirme seu e-mail no link abaixo para continuar o onboarding da conta:',
-        confirmationLink,
-        '',
-        'Enquanto o e-mail não for confirmado, o acesso continua bloqueado.',
-        'Se você não solicitou esse cadastro, ignore esta mensagem.',
-      ].join('\n'),
-      html: this.buildEmailConfirmationHtml({
-        username: input.username,
-        companyName: input.companyName,
-        confirmationLink,
-      }),
+      subject: rendered.subject,
+      text: rendered.text,
+      html: rendered.html,
     });
 
     return {
@@ -1857,16 +1854,18 @@ export class AuthService implements OnModuleInit {
     const link = `${appUrl}/reset-password?token=${encodeURIComponent(rawToken)}`;
 
     try {
+      const template = await this.emailTemplates.getTemplateSafe('password_reset');
+      const rendered = this.emailTemplates.renderTemplate(template, {
+        nome: String(user.name || user.username || user.email || 'cliente'),
+        email: user.email,
+        linkRecuperacao: link,
+        ano: new Date().getFullYear(),
+      });
       const mailResult = await this.mail.sendMail({
         to: user.email,
-        subject: 'Redefinição de senha',
-        text: [
-          `Olá!`,
-          `Recebemos uma solicitação para redefinir sua senha.`,
-          `Abra o link abaixo para criar uma nova senha:`,
-          link,
-          `Se você não solicitou isso, pode ignorar este e-mail.`,
-        ].join('\n'),
+        subject: rendered.subject,
+        text: rendered.text,
+        html: rendered.html,
       });
 
       if (this.shouldExposePasswordResetDebugLink()) {

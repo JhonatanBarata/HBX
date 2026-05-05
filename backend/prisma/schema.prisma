@@ -137,6 +137,9 @@ model Company {
   masterSupportAuditLogs MasterSupportAuditLog[]
   atendimentoCustomers AtendimentoCustomer[]
   webscrapingSearchHistories WebscrapingSearchHistory[]
+  webscrapingSearchRuns WebscrapingSearchRun[]
+  webscrapingSearchRunItems WebscrapingSearchRunItem[]
+  hbxEngineLocks HbxEngineLock[]
   webscrapingUsageLogs WebscrapingUsageLog[]
   radarLeadCompanyStates RadarLeadCompanyState[]
   vendasLeads         VendasLead[]
@@ -729,6 +732,7 @@ model User {
   masterContextEndedSessions MasterAssumedContextSession[] @relation("MasterAssumedContextEndedByUser")
   masterSupportAuditLogs MasterSupportAuditLog[] @relation("MasterSupportAuditLogUser")
   webscrapingSearchHistories WebscrapingSearchHistory[]
+  webscrapingSearchRuns WebscrapingSearchRun[]
   webscrapingUsageLogs WebscrapingUsageLog[]
 }
 
@@ -794,6 +798,97 @@ model WebscrapingSearchPlace {
   @@unique([searchHistoryId, placeId])
   @@index([searchHistoryId, rank])
   @@index([searchHistoryId, phoneDigits])
+}
+
+model WebscrapingSearchRun {
+  id              String   @id @default(cuid())
+  company         Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companyId       Int
+  user            User     @relation(fields: [userId], references: [id])
+  userId          Int
+  status          String   @default("queued") // queued | running | completed | partial_error | failed | canceled
+  city            String
+  state           String?
+  segment         String
+  engine          String   @default("hbx")
+  targetType      String   @default("pj")
+  targetQuantity  Int
+  foundCount      Int      @default(0)
+  importedCount   Int      @default(0)
+  duplicateCount  Int      @default(0)
+  skippedCount    Int      @default(0)
+  errorMessage    String?
+  assignedEngineId String?
+  assignedEngineUrl String?
+  assignedEngineIndex Int?
+  googleEmergencyUsedCount Int @default(0)
+  lastFoundCountChangeAt DateTime?
+  startedAt       DateTime?
+  finishedAt      DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  items           WebscrapingSearchRunItem[]
+
+  @@index([companyId, createdAt])
+  @@index([companyId, status, updatedAt])
+  @@index([status, createdAt])
+  @@index([assignedEngineId])
+  @@index([userId, createdAt])
+}
+
+model WebscrapingSearchRunItem {
+  id              String   @id @default(cuid())
+  run             WebscrapingSearchRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  runId           String
+  company         Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companyId       Int
+  placeId         String
+  name            String
+  phone           String
+  phoneDigits     String
+  website         String?
+  websiteKey      String?
+  address         String?
+  city            String?
+  state           String?
+  segment         String?
+  source          String?
+  status          String   @default("found") // found | duplicate | skipped | invalid
+  duplicateReason String?
+  rawJson         String?
+  createdAt       DateTime @default(now())
+
+  @@index([runId, createdAt])
+  @@index([runId, status])
+  @@index([companyId, phoneDigits])
+  @@index([companyId, websiteKey])
+  @@index([companyId, placeId])
+}
+
+model HbxEngineLock {
+  id              String   @id
+  engineIndex     Int
+  url             String
+  status          String   @default("standby") // standby | online | busy | degraded | offline | cooldown
+  lastHealthStatus String?
+  lastError       String?
+  failureCount    Int      @default(0)
+  lockedRunId     String?
+  lockedCompanyId Int?
+  lockedUserId    Int?
+  lockedAt        DateTime?
+  lockedUntil     DateTime?
+  cooldownUntil   DateTime?
+  lastCheckedAt   DateTime?
+  lastUsedAt      DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  company         Company? @relation(fields: [lockedCompanyId], references: [id], onDelete: SetNull)
+
+  @@unique([engineIndex])
+  @@index([status, lockedUntil])
+  @@index([cooldownUntil])
+  @@index([lockedRunId])
 }
 
 model WebscrapingGlobalCacheEntry {
