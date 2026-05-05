@@ -96,7 +96,142 @@ const PROSPECTING_SCENE_ID = "first_contact_rules_prospeccao";
 const PROSPECTING_RULE_CONDITION = "first_contact_rules";
 const BRAZIL_STATES = ["AC", "AL", "AP", "AM", "BA", "CE", "DF", "ES", "GO", "MA", "MT", "MS", "MG", "PA", "PB", "PR", "PE", "PI", "RJ", "RN", "RS", "RO", "RR", "SC", "SP", "SE", "TO"];
 const CITY_SUGGESTIONS = ["São Paulo", "Campinas", "Ribeirão Preto", "Sorocaba", "Santos", "Rio de Janeiro", "Belo Horizonte", "Curitiba", "Porto Alegre", "Florianópolis", "Goiânia", "Brasília", "Salvador", "Recife", "Fortaleza"];
-const SEGMENT_SUGGESTIONS = ["madeireiras", "clínicas odontológicas", "academias", "auto peças", "imobiliárias", "contabilidades", "restaurantes", "salões de beleza", "pet shops", "escolas", "construtoras", "transportadoras"];
+const SEGMENT_SUGGESTIONS = [
+  "academias",
+  "acessórios automotivos",
+  "açougues",
+  "advocacias",
+  "agências de marketing",
+  "agências de turismo",
+  "agronegócios",
+  "alarmes e segurança",
+  "alimentos naturais",
+  "aluguel de equipamentos",
+  "auto elétricas",
+  "auto escolas",
+  "auto peças",
+  "bares",
+  "barbearias",
+  "bicicletarias",
+  "bijuterias",
+  "borracharias",
+  "buffets",
+  "cafeterias",
+  "calçados",
+  "casa de carnes",
+  "casas de festas",
+  "centros automotivos",
+  "chaveiros",
+  "clínicas de estética",
+  "clínicas médicas",
+  "clínicas odontológicas",
+  "clínicas veterinárias",
+  "colégios",
+  "comércio varejista",
+  "concessionárias",
+  "confeitarias",
+  "construtoras",
+  "contabilidades",
+  "consultorias empresariais",
+  "corretoras de seguros",
+  "cosméticos",
+  "coworkings",
+  "cursos profissionalizantes",
+  "dedetizadoras",
+  "depósitos de bebidas",
+  "despachantes",
+  "distribuidoras",
+  "docerias",
+  "e-commerce",
+  "educação infantil",
+  "elétricas",
+  "eletrodomésticos",
+  "eletrônicas",
+  "energia solar",
+  "engenharias",
+  "escolas",
+  "escritórios administrativos",
+  "escritórios de arquitetura",
+  "estacionamentos",
+  "estúdios de fotografia",
+  "eventos",
+  "farmácias",
+  "ferragens",
+  "financeiras",
+  "floriculturas",
+  "fornecedoras industriais",
+  "funerárias",
+  "gráficas",
+  "hospedagens",
+  "hotéis",
+  "imobiliárias",
+  "indústrias alimentícias",
+  "indústrias metalúrgicas",
+  "informática",
+  "instaladoras",
+  "joalherias",
+  "laboratórios",
+  "lanchonetes",
+  "lava rápidos",
+  "lavanderias",
+  "lojas de brinquedos",
+  "lojas de celulares",
+  "lojas de colchões",
+  "lojas de conveniência",
+  "lojas de eletrônicos",
+  "lojas de móveis",
+  "lojas de roupas",
+  "lojas de tintas",
+  "lotéricas",
+  "madeireiras",
+  "manutenção predial",
+  "marcenarias",
+  "materiais de construção",
+  "mercados",
+  "metalúrgicas",
+  "marmorarias",
+  "mecânicas",
+  "moda feminina",
+  "moda masculina",
+  "motéis",
+  "oficinas mecânicas",
+  "ótica",
+  "panificadoras",
+  "papelarias",
+  "perfumarias",
+  "pet shops",
+  "pizzarias",
+  "postos de combustível",
+  "provedores de internet",
+  "quadras esportivas",
+  "químicas",
+  "restaurantes",
+  "revendas de veículos",
+  "salões de beleza",
+  "serralherias",
+  "serviços contábeis",
+  "serviços de limpeza",
+  "serviços gráficos",
+  "serviços jurídicos",
+  "serviços médicos",
+  "serviços odontológicos",
+  "serviços terceirizados",
+  "sistemas de segurança",
+  "supermercados",
+  "telecomunicações",
+  "transportadoras",
+  "turismo",
+  "uniformes",
+  "universidades",
+  "usinagem",
+  "vidraçarias",
+  "vigilância",
+  "vistorias veiculares",
+  "web design",
+  "xérox e copiadoras",
+  "yoga e pilates",
+  "zeladoria",
+];
 const PROSPECTING_VARIABLES = [
   { token: "cliente", label: "Cliente" },
   { token: "empresa", label: "Empresa" },
@@ -257,6 +392,14 @@ function normalizeTextList(value: unknown, fallback: string[]) {
   );
 }
 
+function normalizeSearchText(value: unknown) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+}
+
 function getProspectingSceneRule(config: AtendimentoBotConfig) {
   return (config.sceneRules || []).find(
     (rule) => rule.sceneId === PROSPECTING_SCENE_ID && rule.conditionType === PROSPECTING_RULE_CONDITION,
@@ -408,8 +551,15 @@ function ProspectingAutomationPanel({
   const [negativeKeywordsDraft, setNegativeKeywordsDraft] = useState(config.negativeIntentKeywords.join(", "));
   const [variableTarget, setVariableTarget] = useState<"messageTemplate" | "optOutMessage">("messageTemplate");
   const [variablesOpen, setVariablesOpen] = useState(false);
+  const [segmentMenuOpen, setSegmentMenuOpen] = useState(false);
   const messageTemplateRef = useRef<HTMLTextAreaElement | null>(null);
   const optOutMessageRef = useRef<HTMLTextAreaElement | null>(null);
+  const filteredSegmentSuggestions = useMemo(() => {
+    const query = normalizeSearchText(config.segment);
+    if (!query) return SEGMENT_SUGGESTIONS;
+    const filtered = SEGMENT_SUGGESTIONS.filter((segment) => normalizeSearchText(segment).includes(query));
+    return filtered.length ? filtered : SEGMENT_SUGGESTIONS;
+  }, [config.segment]);
 
   useEffect(() => {
     // Keep textarea drafts aligned when a saved campaign replaces the local config.
@@ -493,18 +643,44 @@ function ProspectingAutomationPanel({
               <span>Estado</span>
               <input className={styles.inputField} list="prospecting-state-list" maxLength={2} value={config.state} onChange={(event) => setField("state", event.target.value.toUpperCase())} />
             </label>
-            <label>
+            <label className={styles.segmentPickerField} onBlur={() => window.setTimeout(() => setSegmentMenuOpen(false), 120)}>
               <span>Segmento</span>
-              <input className={styles.inputField} list="prospecting-segment-list" value={config.segment} onChange={(event) => setField("segment", event.target.value)} />
+              <input
+                className={styles.inputField}
+                value={config.segment}
+                onFocus={() => setSegmentMenuOpen(true)}
+                onChange={(event) => {
+                  setField("segment", event.target.value);
+                  setSegmentMenuOpen(true);
+                }}
+                placeholder="Digite ou escolha um segmento"
+                autoComplete="off"
+              />
+              {segmentMenuOpen ? (
+                <div className={styles.segmentSuggestionMenu} role="listbox" aria-label="Segmentos sugeridos">
+                  {filteredSegmentSuggestions.map((item) => (
+                    <button
+                      key={item}
+                      type="button"
+                      role="option"
+                      className={styles.segmentSuggestionOption}
+                      onMouseDown={(event) => event.preventDefault()}
+                      onClick={() => {
+                        setField("segment", item);
+                        setSegmentMenuOpen(false);
+                      }}
+                    >
+                      {item}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
             </label>
             <datalist id="prospecting-city-list">
               {CITY_SUGGESTIONS.map((item) => <option key={item} value={item} />)}
             </datalist>
             <datalist id="prospecting-state-list">
               {BRAZIL_STATES.map((item) => <option key={item} value={item} />)}
-            </datalist>
-            <datalist id="prospecting-segment-list">
-              {SEGMENT_SUGGESTIONS.map((item) => <option key={item} value={item} />)}
             </datalist>
             <label>
               <span>Engine</span>

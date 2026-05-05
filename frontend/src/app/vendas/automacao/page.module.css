@@ -1123,6 +1123,47 @@
   gap: 0.38rem;
 }
 
+.segmentPickerField {
+  position: relative;
+  z-index: 6;
+}
+
+.segmentSuggestionMenu {
+  position: absolute;
+  top: calc(100% + 0.34rem);
+  left: 0;
+  right: 0;
+  z-index: 40;
+  max-height: min(360px, 42vh);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  display: grid;
+  padding: 0.3rem;
+  border: 1px solid rgba(38, 93, 132, 0.2);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow: 0 22px 54px rgba(15, 23, 42, 0.22);
+}
+
+.segmentSuggestionOption {
+  min-height: 34px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #102238;
+  padding: 0.42rem 0.58rem;
+  font-size: 0.82rem;
+  font-weight: 900;
+  text-align: left;
+  cursor: pointer;
+}
+
+.segmentSuggestionOption:hover,
+.segmentSuggestionOption:focus-visible {
+  background: rgba(42, 119, 255, 0.12);
+  outline: none;
+}
+
 .prospectingFormGrid label span,
 .prospectingMessageGrid label span,
 .prospectingKeywordGrid label span,
@@ -2905,6 +2946,21 @@
   border-color: color-mix(in srgb, var(--brand) 58%, var(--line));
   outline: 2px solid color-mix(in srgb, var(--brand) 22%, transparent);
   outline-offset: 2px;
+}
+
+:global(html[data-theme-mode="dark"]) .segmentSuggestionMenu {
+  border-color: color-mix(in srgb, var(--brand) 32%, var(--line));
+  background: color-mix(in srgb, var(--surface-raised) 94%, var(--background));
+  box-shadow: 0 22px 54px -24px color-mix(in srgb, var(--shadow) 96%, transparent);
+}
+
+:global(html[data-theme-mode="dark"]) .segmentSuggestionOption {
+  color: var(--foreground);
+}
+
+:global(html[data-theme-mode="dark"]) .segmentSuggestionOption:hover,
+:global(html[data-theme-mode="dark"]) .segmentSuggestionOption:focus-visible {
+  background: color-mix(in srgb, var(--brand) 18%, transparent);
 }
 
 :global(html[data-theme-mode="dark"]) .toggleCard,
