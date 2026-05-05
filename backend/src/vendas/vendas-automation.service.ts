@@ -588,6 +588,9 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     if (!data.segment) {
       throw new BadRequestException('Informe o segmento para iniciar a prospecção automática.');
     }
+    if (data.targetType === 'pj' && !data.city) {
+      throw new BadRequestException('Informe a cidade para iniciar a prospecção automática.');
+    }
     const searchSignature = this.buildSearchSignature(data);
     const searchLabel = this.formatProspectingSearchLabel(data);
     const campaign = current
