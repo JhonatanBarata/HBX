@@ -1551,6 +1551,38 @@ export class InboxService {
     return Boolean(inbound?.id);
   }
 
+  private isExplicitAtendimentoHandoff(conversation: any, metadata: Record<string, any>, vendasAgendaQueue: Record<string, any> | null) {
+    const manualQueue = String(
+      metadata?.inboxManualQueueOverride || vendasAgendaQueue?.manualQueueOverride || '',
+    )
+      .trim()
+      .toLowerCase();
+    if (manualQueue === 'scheduled') return true;
+    if (conversation?.humanAssigned === true) return true;
+    if (this.parseBooleanMetadataFlag(metadata?.humanAssigned || vendasAgendaQueue?.humanAssigned)) return true;
+
+    const flowCandidates = [
+      conversation?.flowResult,
+      conversation?.currentFlow,
+      conversation?.currentStep,
+      metadata?.flowResult,
+      metadata?.currentFlow,
+      metadata?.currentStep,
+      metadata?.handoffType,
+      metadata?.routeReason,
+    ]
+      .map((value) => String(value || '').trim().toLowerCase())
+      .filter(Boolean);
+    return flowCandidates.some(
+      (value) =>
+        value === 'human_handoff' ||
+        value === 'recovery_handoff' ||
+        value === 'human_assigned' ||
+        value.includes('human_handoff') ||
+        value.includes('atendimento_humano'),
+    );
+  }
+
   private async resolveRecoveryRoutingContext(
     companyId: number,
     conversation: any,
@@ -1631,7 +1663,11 @@ export class InboxService {
     const metadataRouteTarget = String(
       metadata?.routeTarget || metadata?.queueTarget || vendasAgendaQueue?.routeTarget || vendasAgendaQueue?.queueTarget || '',
     ).trim().toLowerCase();
+    const manualQueue = String(
+      metadata?.inboxManualQueueOverride || vendasAgendaQueue?.manualQueueOverride || '',
+    ).trim().toLowerCase();
     const isProspectionCandidate = this.isProspectionMetadataCandidate(metadata, metadataRouteTarget, vendasAgendaQueue);
+    const isExplicitHandoff = this.isExplicitAtendimentoHandoff(conversation, metadata, vendasAgendaQueue);
     const automaticProspectionOutbound = this.isAutomaticProspectionOutbound(conversation);
     if (isProspectionCandidate) {
       this.logger.log(`[prospeccao-classifier] conversa classificada como prospeccao conversation=${conversation?.id || '-'}`);
@@ -1655,21 +1691,21 @@ export class InboxService {
     } else if (this.isConversationPersonalContact(metadata)) {
       routeTarget = 'conversas';
       routeReason = 'Contato marcado como pessoal pelo operador.';
+    } else if (manualQueue === 'scheduled') {
+      routeTarget = 'atendimento';
+      routeReason = 'Conversa movida manualmente para Atendimento.';
     } else if (isProspectionCandidate && !hasProspectionInbound) {
       routeTarget = 'prospeccao';
       routeReason = 'Lead herdado de Vendas/Webscraping aguardando abordagem ativa.';
-    } else if (metadataRouteTarget === 'atendimento') {
+    } else if (isExplicitHandoff) {
       routeTarget = 'atendimento';
-      routeReason = 'Cliente respondeu ou iniciou atendimento.';
-    } else if (hasInboundMessage || hasProspectionInbound) {
-      routeTarget = 'atendimento';
-      routeReason = 'Cliente enviou mensagem inbound para a empresa.';
-    } else if (conversation?.humanAssigned && routingRules.preferInboxForManualQueue) {
-      routeTarget = 'atendimento';
-      routeReason = 'Cliente aguardando tratativa humana na fila manual.';
+      routeReason = 'Conversa assumida por humano ou encaminhada por handoff.';
     } else if (hasRecoveryDebt && routingRules.preferRecoveryForDebtors) {
       routeTarget = 'recovery';
       routeReason = 'Cliente com debito em aberto e contexto ativo de cobranca.';
+    } else if (hasInboundMessage || hasProspectionInbound) {
+      routeTarget = 'conversas';
+      routeReason = 'Conversa real com mensagem do cliente.';
     }
 
     return {
@@ -2431,6 +2467,31 @@ export class InboxService {
     return rows.map((row) => Number(row.id)).filter(Boolean);
   }
 
+  private async listOperationalConversationIdsByMetadata(companyId: number, limit = 200) {
+    const rows = await this.prisma.companyConversation.findMany({
+      where: {
+        companyId,
+        channel: 'whatsapp',
+        OR: [
+          { metadata: { contains: '"vendasAgendaQueue"' } },
+          { metadata: { contains: '"sourceModule":"vendas"' } },
+          { metadata: { contains: '"queueTarget":"prospeccao"' } },
+          { metadata: { contains: '"routeTarget":"prospeccao"' } },
+          { metadata: { contains: '"queueTarget":"excluidos"' } },
+          { metadata: { contains: '"routeTarget":"excluidos"' } },
+          { metadata: { contains: '"whatsappAvailabilityStatus":"unavailable"' } },
+          { metadata: { contains: '"inboxManualQueueOverride":"archived"' } },
+          { metadata: { contains: '"inboxLocalDeleted":true' } },
+          { flowResult: { in: ['local_deleted', 'no_response_archived'] } },
+        ],
+      },
+      orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
+      take: Math.max(1, Math.min(Number(limit || 0) || 200, 500)),
+      select: { id: true },
+    });
+    return rows.map((row) => Number(row.id)).filter(Boolean);
+  }
+
   private async findConversationRowsByOrderedIds(companyId: number, orderedIds: number[]) {
     if (!orderedIds.length) return [];
     const rows = await this.prisma.companyConversation.findMany({
@@ -2543,6 +2604,20 @@ export class InboxService {
       if (chunk.length < queryTake) break;
     }
 
+    if (visibleSkip === 0) {
+      const existingIds = new Set(rows.map((row) => Number(row.id)));
+      const operationalIds = (await this.listOperationalConversationIdsByMetadata(companyId, Math.max(take, 120)))
+        .filter((id) => !existingIds.has(id));
+      const operationalRows = await this.findConversationRowsByOrderedIds(companyId, operationalIds);
+      for (const row of operationalRows) {
+        const metadata = this.parseConversationMetadata(row.metadata);
+        if (this.parseBooleanMetadataFlag(metadata.whatsappConversationDeleted || metadata.inboxWhatsAppDeleted)) {
+          continue;
+        }
+        rows.push(row);
+      }
+    }
+
     const routingRules = await this.getRecoveryRoutingRules(companyId);
     return this.mapPersistedConversationRowsForCompany(companyId, rows, routingRules);
   }
@@ -2556,9 +2631,29 @@ export class InboxService {
     const queueFilter = this.normalizeConversationQueueFilter(options.queue);
     const routingRules = await this.getRecoveryRoutingRules(companyId);
     const conversations: any[] = [];
+    const seenIds = new Set<number>();
     const queryTake = Math.max(take * 2, 40);
     let querySkip = 0;
     let visibleSeen = 0;
+
+    const operationalIds = await this.listOperationalConversationIdsByMetadata(companyId, Math.max(take * 3, 120));
+    const operationalRows = await this.findConversationRowsByOrderedIds(companyId, operationalIds);
+    const visibleOperationalRows = operationalRows.filter((row) => {
+      seenIds.add(Number(row.id));
+      const metadata = this.parseConversationMetadata(row.metadata);
+      return !this.parseBooleanMetadataFlag(metadata.whatsappConversationDeleted || metadata.inboxWhatsAppDeleted);
+    });
+    const mappedOperationalRows = await this.mapPersistedConversationRowsForCompany(companyId, visibleOperationalRows, routingRules);
+    for (const conversation of mappedOperationalRows) {
+      if (!this.isConversationInQueueFilter(conversation, queueFilter)) continue;
+      if (visibleSeen < visibleSkip) {
+        visibleSeen += 1;
+        continue;
+      }
+      conversations.push(conversation);
+      visibleSeen += 1;
+      if (conversations.length >= take) break;
+    }
 
     while (conversations.length < take) {
       const chunkIds = await this.listConversationIdsByLastRealMessage(companyId, queryTake, querySkip);
@@ -2568,6 +2663,8 @@ export class InboxService {
       querySkip += chunk.length;
 
       const visibleRows = chunk.filter((row) => {
+        if (seenIds.has(Number(row.id))) return false;
+        seenIds.add(Number(row.id));
         const metadata = this.parseConversationMetadata(row.metadata);
         return !this.parseBooleanMetadataFlag(metadata.whatsappConversationDeleted || metadata.inboxWhatsAppDeleted);
       });
