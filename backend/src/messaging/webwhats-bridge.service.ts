@@ -3256,6 +3256,9 @@ export class WebwhatsBridgeService {
     const normalizedIncoming = this.normalizeIncomingWhatsAppMessage(message);
     const messageType = normalizedIncoming.kind === 'interactive_received' ? 'interactive' : this.normalizeMessageType(message);
     const body = normalizedIncoming.text || this.extractMessageBody(message, messageType);
+    if (!String(body || '').trim() || String(body || '').trim().toLowerCase() === '[mensagem sincronizada]') {
+      return 0;
+    }
     const status = this.normalizeStoredStatus(message, direction);
     const resolvedContact = this.buildConversationContact(remoteJidAlt || this.getMessageRemoteJidAlt(message) || remoteJid);
     const normalizedCustomerPhone = normalizeWhatsAppPhone(resolvedContact);
@@ -3573,7 +3576,7 @@ export class WebwhatsBridgeService {
       return normalized.text || '[interacao recebida]';
     }
 
-    return '[mensagem sincronizada]';
+    return '';
   }
 
   private normalizeStoredStatus(message: WebwhatsFetchedMessage, direction: string) {

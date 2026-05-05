@@ -1119,6 +1119,8 @@ function buildInboxReactionIndex(messages?: InboxMessage[] | null) {
 }
 
 function shouldHideInboxMessageFromTimeline(message?: InboxMessage | null) {
+  const content = String(message?.content || "").trim().toLowerCase();
+  if (content === "[mensagem sincronizada]") return true;
   return isInboxReactionMessage(message) && Boolean(getInboxMessageReactionTargetKeyId(message));
 }
 
