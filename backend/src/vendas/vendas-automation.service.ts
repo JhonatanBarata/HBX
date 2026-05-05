@@ -1008,6 +1008,138 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     );
   }
 
+  async enqueueLeadsForActiveCampaignForUser(user: any, leadIds: string[]) {
+    try {
+      const context = this.resolveUserContext(user);
+      const requestedLeadIds = Array.from(
+        new Set(
+          (Array.isArray(leadIds) ? leadIds : [])
+            .map((leadId) => String(leadId || '').trim())
+            .filter(Boolean),
+        ),
+      );
+      if (!requestedLeadIds.length) {
+        return { ok: true, queuedCount: 0, skippedCount: 0, reason: 'no_leads' };
+      }
+
+      const campaign = await this.prisma.vendasAutomationCampaign.findFirst({
+        where: { companyId: context.companyId, status: 'running' },
+        orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
+      });
+      if (!campaign) {
+        return { ok: true, queuedCount: 0, skippedCount: requestedLeadIds.length, reason: 'no_active_campaign' };
+      }
+
+      const existingJobs = await this.prisma.vendasAutomationJob.findMany({
+        where: {
+          campaignId: campaign.id,
+          leadId: { in: requestedLeadIds },
+          status: { notIn: ['failed', 'skipped', 'canceled'] },
+        },
+        select: { leadId: true },
+      });
+      const alreadyQueuedLeadIds = new Set(existingJobs.map((job) => String(job.leadId)));
+      const agendaConversations = await this.prisma.companyConversation.findMany({
+        where: {
+          companyId: context.companyId,
+          channel: 'whatsapp',
+          metadata: { contains: '"vendasAgendaQueue"' },
+        },
+        select: { metadata: true },
+      });
+      const activeProspectingLeadIds = new Set<string>();
+      const requestedLeadIdSet = new Set(requestedLeadIds);
+      for (const conversation of agendaConversations) {
+        const metadata = parseJsonObject(conversation.metadata);
+        const queue = parseJsonObject((metadata as any).vendasAgendaQueue);
+        const leadId = trimOrNull((queue as any).leadId);
+        if (!leadId || !requestedLeadIdSet.has(leadId)) continue;
+        const queueTarget = String((queue as any).queueTarget || (queue as any).routeTarget || '').trim().toLowerCase();
+        const availability = String((queue as any).whatsappAvailabilityStatus || '').trim().toLowerCase();
+        if ((queue as any).active === true && queueTarget !== 'excluidos' && availability !== 'unavailable') {
+          activeProspectingLeadIds.add(leadId);
+        }
+      }
+      const maxAttempts = Math.max(1, Number(campaign.maxAttemptsPerLead || 1));
+      const candidateLeadIds = requestedLeadIds.filter(
+        (leadId) => activeProspectingLeadIds.has(leadId) && !alreadyQueuedLeadIds.has(leadId),
+      );
+      const leads = await this.prisma.vendasLead.findMany({
+        where: {
+          companyId: context.companyId,
+          id: { in: candidateLeadIds },
+          status: { not: 'encerrado' },
+          wasClosedBefore: false,
+          closedAt: null,
+          phoneNormalized: { not: null },
+          attemptCount: { lt: maxAttempts },
+        },
+        orderBy: [{ returnAt: 'asc' }, { updatedAt: 'desc' }, { createdAt: 'desc' }],
+      });
+
+      if (!leads.length) {
+        return {
+          ok: true,
+          campaignId: campaign.id,
+          queuedCount: 0,
+          skippedCount: requestedLeadIds.length,
+          reason: 'no_eligible_leads',
+        };
+      }
+
+      const latestScheduled = await this.prisma.vendasAutomationJob.findFirst({
+        where: { campaignId: campaign.id, scheduledAt: { not: null }, status: { in: [...BUFFER_JOB_STATUSES] as any } },
+        orderBy: { scheduledAt: 'desc' },
+        select: { scheduledAt: true },
+      });
+      const intervalMs = Number(campaign.intervalMinutes || 12) * 60000;
+      const now = new Date();
+      let cursor =
+        latestScheduled?.scheduledAt instanceof Date && latestScheduled.scheduledAt.getTime() > now.getTime()
+          ? this.moveToWorkingWindow(latestScheduled.scheduledAt, campaign)
+          : new Date(now.getTime() - intervalMs);
+
+      const data = leads.map((lead) => {
+        cursor = this.moveToWorkingWindow(new Date(cursor.getTime() + intervalMs), campaign);
+        return {
+          campaignId: campaign.id,
+          companyId: campaign.companyId,
+          leadId: lead.id,
+          status: 'scheduled',
+          scheduledAt: cursor,
+          attemptNumber: Math.max(1, Number(lead.attemptCount || 0) + 1),
+        };
+      });
+
+      await this.prisma.vendasAutomationJob.createMany({ data });
+      await this.markCampaignStage(
+        campaign.id,
+        campaign.companyId,
+        'aguardando',
+        `${data.length} card(s) adicionados manualmente na fila automática.`,
+        { type: 'manual_leads_queued' },
+      );
+      void this.runWorkerCycle().catch(() => null);
+
+      return {
+        ok: true,
+        campaignId: campaign.id,
+        queuedCount: data.length,
+        skippedCount: requestedLeadIds.length - data.length,
+        reason: 'queued',
+      };
+    } catch (error: any) {
+      this.logger.warn(`Falha ao enfileirar cards manuais na automação: ${String(error?.message || error)}`);
+      return {
+        ok: false,
+        queuedCount: 0,
+        skippedCount: Array.isArray(leadIds) ? leadIds.length : 0,
+        reason: 'error',
+        error: String(error?.message || error),
+      };
+    }
+  }
+
   private async runWorkerCycle() {
     if (this.workerRunning) return;
     this.workerRunning = true;
