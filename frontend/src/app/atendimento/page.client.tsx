@@ -1488,6 +1488,10 @@ function hasInboxInboundMessage(conversation?: InboxConversation | null) {
   return (conversation?.messages || []).some((message) => String(message.direction || "").trim().toLowerCase() === "inbound");
 }
 
+function hasInboxRealMessage(conversation?: InboxConversation | null) {
+  return Boolean(getInboxConversationActivityAt(conversation));
+}
+
 function isInboxPersonalContact(conversation?: InboxConversation | null) {
   const metadata = getInboxConversationMetadata(conversation);
   return (
@@ -1534,9 +1538,9 @@ function resolveInboxBucket(
   const metadata = getInboxConversationMetadata(conversation);
   const vendasAgendaQueue = getInboxVendasAgendaQueue(conversation);
   const persistedRouteTarget = getInboxMetadataText(
-    metadata?.queueTarget ||
+    conversation?.routeTarget ||
+      metadata?.queueTarget ||
       metadata?.routeTarget ||
-      conversation?.routeTarget ||
       vendasAgendaQueue?.queueTarget ||
       vendasAgendaQueue?.routeTarget,
   );
@@ -1561,7 +1565,9 @@ function resolveInboxBucket(
   if (isInboxConversationArchived(conversation)) return "excluidos";
   if (Number(conversation.recoveryOpenAmount || 0) > 0 || persistedRouteTarget === "recovery") return "recovery";
   if (isInboxGroupConversation(conversation)) return "groups";
-  if (isInboxPersonalContact(conversation) || persistedRouteTarget === "conversas") return "conversas";
+  if (isInboxPersonalContact(conversation) || persistedRouteTarget === "conversas") {
+    return "conversas";
+  }
   if (persistedRouteTarget === "atendimento") return "atendimento";
   if (hasInboxInboundMessage(conversation)) return "atendimento";
   if (hasInboxHbxProspectionOrigin(conversation)) return "prospeccao";
@@ -1605,6 +1611,7 @@ function isInboxConversationVisibleInQueue(
   manualQueueOverrides?: Record<string, InboxQueue>,
 ) {
   const conversationQueue = getInboxConversationQueue(conversation, manualQueueOverrides);
+  if (queue === "all" && !hasInboxRealMessage(conversation)) return false;
   return conversationQueue === queue;
 }
 
