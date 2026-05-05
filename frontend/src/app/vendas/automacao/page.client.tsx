@@ -81,9 +81,13 @@ type ProspectingAutomationLiveStatus = {
     lastError?: string | null;
   }) | null;
   counters: {
-    pending: number;
+    todayPending?: number;
+    overdue?: number;
+    future?: number;
+    pending?: number;
     sent: number;
-    interested: number;
+    positives?: number;
+    interested?: number;
     archived: number;
     failed: number;
   };
@@ -763,7 +767,9 @@ function ProspectingAutomationPanel({
   onResume: () => void;
   onCancel: () => void;
 }) {
-  const counters = liveStatus?.counters || { pending: 0, sent: 0, interested: 0, archived: 0, failed: 0 };
+  const counters = liveStatus?.counters || { todayPending: 0, overdue: 0, future: 0, sent: 0, positives: 0, archived: 0, failed: 0 };
+  const todayPending = counters.todayPending ?? counters.pending ?? 0;
+  const positives = counters.positives ?? counters.interested ?? 0;
   const campaignStatus = liveStatus?.campaign?.status || "paused";
   const canPause = campaignStatus === "running";
   const canResume = campaignStatus === "paused";
@@ -882,9 +888,9 @@ function ProspectingAutomationPanel({
           <h3 className={styles.cardTitle}>{liveStatus?.text || "Motor contínuo"}</h3>
         </div>
         <div className={styles.prospectingStatusMetrics}>
-          <span>Pendentes <strong>{counters.pending}</strong></span>
+          <span>Pendentes hoje <strong>{todayPending}</strong></span>
           <span>Enviados <strong>{counters.sent}</strong></span>
-          <span>Interessados <strong>{counters.interested}</strong></span>
+          <span>Positivos <strong>{positives}</strong></span>
           <span title="Negativos, sem resposta, pulados ou cancelados pela campanha">Encerrados <strong>{counters.archived}</strong></span>
           <span>Falhas <strong>{counters.failed}</strong></span>
         </div>

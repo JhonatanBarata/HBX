@@ -433,7 +433,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
         text: 'Nenhuma campanha ativa.',
         active: false,
         campaign: null,
-        counters: { pending: 0, sent: 0, interested: 0, archived: 0, failed: 0 },
+        counters: { todayPending: 0, overdue: 0, future: 0, sent: 0, positives: 0, archived: 0, failed: 0 },
         nextScheduledAt: null,
       };
     }
@@ -449,14 +449,24 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     if (statusText.includes('importando')) return 'importando';
     if (statusText.includes('agendando')) return 'agendando';
     if (sendingCount > 0 || statusText.includes('enviando')) return 'enviando';
-    if (counters.pending > 0) return 'aguardando';
+    if ((counters.todayPending || 0) + (counters.overdue || 0) + (counters.future || 0) > 0) return 'aguardando';
     return 'aguardando';
   }
 
   private async buildLiveStatus(campaign: any) {
-    const [pending, sent, interested, archived, failed, sending, nextJob] = await Promise.all([
+    const today = getBusinessDateParts(new Date());
+    const todayStart = makeBusinessDate(today.year, today.month, today.day, 0, 0);
+    const tomorrowStart = makeBusinessDate(today.year, today.month, today.day + 1, 0, 0);
+    const pendingWhere = { campaignId: campaign.id, status: { in: [...BUFFER_JOB_STATUSES] as any } };
+    const [todayPending, overdue, future, sent, positives, archived, failed, sending, nextJob] = await Promise.all([
       this.prisma.vendasAutomationJob.count({
-        where: { campaignId: campaign.id, status: { in: [...BUFFER_JOB_STATUSES] as any } },
+        where: { ...pendingWhere, scheduledAt: { gte: todayStart, lt: tomorrowStart } },
+      }),
+      this.prisma.vendasAutomationJob.count({
+        where: { ...pendingWhere, scheduledAt: { lt: todayStart } },
+      }),
+      this.prisma.vendasAutomationJob.count({
+        where: { ...pendingWhere, scheduledAt: { gte: tomorrowStart } },
       }),
       this.prisma.vendasAutomationJob.count({
         where: { campaignId: campaign.id, status: { in: ['sent', 'replied_positive', 'replied_negative', 'no_response_archived'] } },
@@ -487,7 +497,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
         data: { scheduledAt: nextScheduledAt },
       });
     }
-    const counters = { pending, sent, interested, archived, failed };
+    const counters = { todayPending, overdue, future, sent, positives, archived, failed };
     const status = this.inferLiveStatus(campaign, counters, sending);
     const nextScheduledText = nextScheduledAt ? this.formatNextScheduledText(nextScheduledAt) : null;
     return {
@@ -495,7 +505,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
       text:
         status === 'aguardando' && nextScheduledText
           ? nextScheduledText
-          : campaign.lastStatusText || (pending > 0 ? `${pending} contatos na fila.` : 'Aguardando respostas.'),
+          : campaign.lastStatusText || (todayPending > 0 ? `${todayPending} contatos na fila hoje.` : 'Aguardando respostas.'),
       active: campaign.status === 'running',
       campaign: this.serializeCampaign(campaign),
       counters,
