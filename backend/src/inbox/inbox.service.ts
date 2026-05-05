@@ -824,7 +824,7 @@ export class InboxService {
       );
     }
 
-    return '[mensagem sincronizada]';
+    return '';
   }
 
   private getMessageContextInfo(payloadRaw: unknown) {
@@ -1997,7 +1997,7 @@ export class InboxService {
           id: syntheticId,
           direction,
           messageType: this.normalizeMessageMetadataText(message?.messageType) || normalizedMessageType || 'text',
-          body: deletedState ? '[mensagem apagada]' : '[mensagem sincronizada]',
+          body: deletedState ? '[mensagem apagada]' : originalText,
           senderType: direction === 'OUTBOUND' ? 'human' : 'client',
           status: this.resolveLiveMessageStatus(message, direction),
           sourceModule: null,
