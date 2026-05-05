@@ -680,7 +680,7 @@ export class ModulesService implements OnModuleInit {
           FROM "WebscrapingUsageLog" l
           LEFT JOIN "User" u ON u."id" = l."userId"
           WHERE l."companyId" IN (${Prisma.join(companyIds.map((id) => Number(id)))})
-            AND l."eventType" IN ('EXECUTED', 'GOOGLE_SEARCH_EXECUTED')
+            AND l."eventType" IN ('EXECUTED', 'GOOGLE_SEARCH_EXECUTED', 'GOOGLE_EMERGENCY_EXECUTED')
           ORDER BY l."companyId", l."createdAt" DESC
         `,
       ),
@@ -691,7 +691,7 @@ export class ModulesService implements OnModuleInit {
       if (!companyId) continue;
       const current = summaries.get(companyId) || this.buildDefaultWebscrapingUsageSummary();
       const eventType = String(log.eventType || '').trim().toUpperCase();
-      if (eventType === 'EXECUTED' || eventType === 'GOOGLE_SEARCH_EXECUTED') {
+      if (eventType === 'EXECUTED' || eventType === 'GOOGLE_SEARCH_EXECUTED' || eventType === 'GOOGLE_EMERGENCY_EXECUTED') {
         current.searchesToday += 1;
         current.totalReusedToday += Math.max(0, Math.trunc(Number(log.reusedCount || 0)));
         current.fetchedToday += Math.max(0, Math.trunc(Number(log.fetchedCount || 0)));
