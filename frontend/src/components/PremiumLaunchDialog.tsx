@@ -34,8 +34,6 @@ export default function PremiumLaunchDialog({
 
   const visibleProgress = getVisibleProgress(notice.progress);
   const statusLabel = notice.statusLabel || (notice.phase === "loading" ? "Processando..." : "Concluído.");
-  const detailActivationStep = detailRows?.length ? Math.max(1, 72 / detailRows.length) : 0;
-
   return createPortal(
     <div className={styles.backdrop} role="presentation" data-component="popupaviso">
       <section className={styles.dialog} data-phase={notice.phase} role="dialog" aria-modal="true" aria-live="polite">
@@ -98,20 +96,15 @@ export default function PremiumLaunchDialog({
 
         {detailRows && detailRows.length ? (
           <div className={styles.detailGrid}>
-            {detailRows.map((row, index) => {
-              const isActive = notice.phase === "success" || notice.progress >= 14 + index * detailActivationStep;
+            {detailRows.map((row) => {
               return (
                 <div
                   key={`${row.label}:${row.value}`}
                   className={styles.detailCard}
-                  data-active={isActive ? "true" : "false"}
+                  data-active="true"
                 >
                   <span>{row.label}</span>
-                  {isActive ? (
-                    <strong>{row.value}</strong>
-                  ) : (
-                    <strong className={styles.detailSkeleton}>Carregando</strong>
-                  )}
+                  <strong>{row.value}</strong>
                 </div>
               );
             })}
