@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { usePathname } from "next/navigation";
 
-const SUPPORT_PHONE = "5519997024884";
+const SUPPORT_PHONE = "+5519997024884";
 const SUPPORT_MESSAGE = "Olá, preciso de ajuda para finalizar minha contratação no HBX.";
 
 function shouldShowHelp(pathname: string | null) {
@@ -19,7 +19,7 @@ export default function WhatsAppHelpBubble() {
   const [hiddenByFooter, setHiddenByFooter] = useState(false);
   const visible = shouldShowHelp(pathname);
   const supportUrl = useMemo(
-    () => `https://wa.me/${SUPPORT_PHONE}?text=${encodeURIComponent(SUPPORT_MESSAGE)}`,
+    () => `https://wa.me/${SUPPORT_PHONE.replace(/\D/g, "")}?text=${encodeURIComponent(SUPPORT_MESSAGE)}`,
     [],
   );
 

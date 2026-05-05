@@ -7,16 +7,18 @@ type BotQrWorkspaceProps = {
   onTabChange: (tab: BotQrWorkspaceTab) => void;
   connectionPaired?: boolean;
   connectionPanel: ReactNode;
+  atendimentoPanel: ReactNode;
   flowPanel: ReactNode;
   prospectingPanel: ReactNode;
-  publishPanel: ReactNode;
+  recoveryPanel: ReactNode;
 };
 
 const TABS: Array<{ id: BotQrWorkspaceTab; label: string; helper: string }> = [
-  { id: "connection", label: "Conexão", helper: "QR" },
-  { id: "flow", label: "Respostas de Vendas", helper: "Pós-contato" },
-  { id: "prospeccao", label: "Campanha", helper: "Disparo inicial" },
-  { id: "publish", label: "OK", helper: "Publicar" },
+  { id: "connection", label: "CONEXÃO", helper: "QR / WebWhats" },
+  { id: "atendimento", label: "ATENDIMENTO", helper: "Fila Atendimento" },
+  { id: "flow", label: "RESPOSTAS DE VENDAS", helper: "Pós-contato" },
+  { id: "prospeccao", label: "CAMPANHA", helper: "Disparo inicial" },
+  { id: "recovery", label: "RECOVERY", helper: "Financeiro" },
 ];
 
 export default function BotQrWorkspace({
@@ -24,15 +26,18 @@ export default function BotQrWorkspace({
   onTabChange,
   connectionPaired = false,
   connectionPanel,
+  atendimentoPanel,
   flowPanel,
   prospectingPanel,
-  publishPanel,
+  recoveryPanel,
 }: BotQrWorkspaceProps) {
   const currentPanel =
     activeTab === "connection"
       ? connectionPanel
-      : activeTab === "publish"
-        ? publishPanel
+      : activeTab === "atendimento"
+        ? atendimentoPanel
+        : activeTab === "recovery"
+          ? recoveryPanel
         : activeTab === "prospeccao"
           ? prospectingPanel
           : flowPanel;
@@ -43,7 +48,6 @@ export default function BotQrWorkspace({
         <div>
           <span className={styles.sectionEyebrow}>Automacao WhatsApp</span>
           <h2 className={styles.sectionTitle}>Bot</h2>
-          <p className={styles.sectionText}>Campanha envia a primeira mensagem. Respostas de Vendas só responde depois que o lead retorna.</p>
         </div>
       </div>
 

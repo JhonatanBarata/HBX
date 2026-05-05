@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { ProviderCapabilities } from "@/lib/provider-capabilities";
 import BotPanel from "../../../atendimento/_components/BotPanel";
 import {
@@ -107,6 +107,7 @@ type Props = {
   botConfig: AtendimentoBotConfig;
   agendaConfig: AtendimentoAgendaConfig;
   providerCapabilities: ProviderCapabilities;
+  activeGuide: BotGuideId;
   publishing: boolean;
   recoveryEnabled: boolean;
   hasUnsavedChanges: boolean;
@@ -819,6 +820,7 @@ export default function ConversationBuilder({
   botConfig,
   agendaConfig,
   providerCapabilities,
+  activeGuide: activeGuideProp,
   publishing,
   recoveryEnabled,
   hasUnsavedChanges,
@@ -830,14 +832,9 @@ export default function ConversationBuilder({
   const [previewPeriod, setPreviewPeriod] = useState<ConversationPreviewPeriod>("morning");
   const [reviewOpen, setReviewOpen] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
-  const [rulesOpen, setRulesOpen] = useState(false);
   const [previewRun, setPreviewRun] = useState(0);
   const activeGuideId = normalizeBotGuide(botConfig);
   const activeGuide = BOT_GUIDES.find((guide) => guide.id === activeGuideId) || BOT_GUIDES[0];
-  const activeFirstContactRules = useMemo(
-    () => getFirstContactRules(botConfig, activeGuideId),
-    [activeGuideId, botConfig],
-  );
 
   const scenes = useMemo<ConversationScene[]>(
     () =>
@@ -865,6 +862,13 @@ export default function ConversationBuilder({
     () => (agendaConfig.groups || []).filter((group) => group.isActive).map((group) => ({ id: group.id, title: group.title, actionId: buildAgendaActionId(group.id) })),
     [agendaConfig.groups],
   );
+
+  useEffect(() => {
+    if (activeGuideProp === activeGuideId) return;
+    if (activeGuideProp === "recovery" && !recoveryEnabled) return;
+    onConfigChange(applyBotGuide(botConfig, activeGuideProp));
+    setSelectedSceneId(getGuideSceneId(activeGuideProp));
+  }, [activeGuideId, activeGuideProp, botConfig, onConfigChange, recoveryEnabled]);
 
   const updateSelectedMessage = (message: string) => {
     if (selectedScene.source.type === "message") {
@@ -928,69 +932,8 @@ export default function ConversationBuilder({
     setPreviewRun((value) => value + 1);
   };
 
-  const handleGuideChange = (guideId: BotGuideId) => {
-    if (guideId === "recovery" && !recoveryEnabled) return;
-    onConfigChange(applyBotGuide(botConfig, guideId));
-    setSelectedSceneId(getGuideSceneId(guideId));
-  };
-
-  const updateActiveFirstContactRules = (patch: Partial<FirstContactRules>) => {
-    const nextRules = {
-      ...activeFirstContactRules,
-      ...patch,
-      guideId: activeGuideId,
-    };
-    onConfigChange(updateFirstContactRules(botConfig, activeGuideId, nextRules));
-  };
-
-  const updateRulesTextList = (field: "stopIntentKeywords" | "positiveIntentKeywords", value: string) => {
-    const nextValues = value
-      .split(/\n|,/g)
-      .map((item) => item.trim().toLowerCase())
-      .filter(Boolean);
-    if (field === "stopIntentKeywords") {
-      updateActiveFirstContactRules({ stopIntentKeywords: value ? nextValues : [] });
-      return;
-    }
-    updateActiveFirstContactRules({ positiveIntentKeywords: value ? nextValues : [] });
-  };
-
   return (
     <section className={styles.builderShell}>
-      <section className={styles.botGuidePanel} aria-label="Tipos de bot">
-        <div className={styles.botGuideIntro}>
-          <span className={styles.eyebrow}>Guias do bot</span>
-          <strong>{activeGuide.label}</strong>
-          <p>{activeGuide.instruction}</p>
-          <p>Campanha envia a primeira mensagem. Respostas de Vendas só responde depois que o lead retorna.</p>
-          <button type="button" className={styles.rulesButton} onClick={() => setRulesOpen(true)}>
-            REGRAS de 1º Contato
-          </button>
-        </div>
-        <div className={styles.botGuideTabs} role="tablist" aria-label="Escolha qual bot configurar">
-          {BOT_GUIDES.map((guide) => {
-            const locked = guide.id === "recovery" && !recoveryEnabled;
-            return (
-              <button
-                key={guide.id}
-                type="button"
-                role="tab"
-                aria-selected={activeGuideId === guide.id}
-                className={styles.botGuideButton}
-                data-active={activeGuideId === guide.id ? "true" : "false"}
-                data-locked={locked ? "true" : "false"}
-                disabled={locked}
-                title={locked ? "Recovery indisponivel neste plano" : guide.label}
-                onClick={() => handleGuideChange(guide.id)}
-              >
-                <strong>{guide.label}</strong>
-                <span>{locked ? "Bloqueado no plano" : guide.queueLabel}</span>
-              </button>
-            );
-          })}
-        </div>
-      </section>
-
       <header className={styles.builderTopbar}>
         <div>
           <span className={styles.eyebrow}>Bot {activeGuide.label}</span>
@@ -1081,223 +1024,6 @@ export default function ConversationBuilder({
             onConfigChange={onConfigChange}
           />
         </section>
-      ) : null}
-
-      {rulesOpen ? (
-        <div className={styles.rulesOverlay} role="presentation" onClick={() => setRulesOpen(false)}>
-          <section
-            className={styles.rulesModal}
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="first-contact-rules-title"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <header className={styles.rulesHeader}>
-              <div>
-                <span className={styles.eyebrow}>Bot {activeGuide.label}</span>
-                <h3 id="first-contact-rules-title">REGRAS de 1º Contato</h3>
-              </div>
-              <button type="button" className={styles.secondaryButton} onClick={() => setRulesOpen(false)}>
-                Fechar
-              </button>
-            </header>
-
-            <div className={styles.rulesGrid}>
-              <label className={styles.rulesToggle}>
-                <input
-                  type="checkbox"
-                  checked={activeFirstContactRules.canInitiateConversation}
-                  disabled={activeGuideId === "atendimento" || activeGuideId === "prospeccao"}
-                  onChange={(event) => updateActiveFirstContactRules({ canInitiateConversation: event.target.checked })}
-                />
-                <span>
-                  <strong>Bot pode iniciar conversa</strong>
-                  <small>
-                    {activeGuideId === "atendimento"
-                      ? "Atendimento responde inbound."
-                      : activeGuideId === "prospeccao"
-                        ? "Respostas de Vendas só atua depois de uma campanha enviada."
-                        : "Disparo ativo com cadencia controlada."}
-                  </small>
-                </span>
-              </label>
-
-              <label className={styles.rulesToggle}>
-                <input
-                  type="checkbox"
-                  checked={activeFirstContactRules.requireOptIn}
-                  onChange={(event) => updateActiveFirstContactRules({ requireOptIn: event.target.checked })}
-                />
-                <span>
-                  <strong>Exigir opt-in/relacao previa</strong>
-                  <small>Evita abrir conversa fria quando o contexto for sensivel.</small>
-                </span>
-              </label>
-
-              <label className={styles.rulesField}>
-                <span>Tempo entre cada mensagem</span>
-                <input
-                  type="number"
-                  min={8}
-                  max={300}
-                  value={activeFirstContactRules.messageIntervalSeconds}
-                  onChange={(event) => updateActiveFirstContactRules({ messageIntervalSeconds: Number(event.target.value) })}
-                />
-                <small>Segundos entre bolhas da mesma conversa.</small>
-              </label>
-
-              <label className={styles.rulesField}>
-                <span>Tempo ate responder cliente</span>
-                <input
-                  type="number"
-                  min={5}
-                  max={600}
-                  value={activeFirstContactRules.replyDelaySeconds}
-                  onChange={(event) => updateActiveFirstContactRules({ replyDelaySeconds: Number(event.target.value) })}
-                />
-                <small>Segundos apos receber mensagem inbound.</small>
-              </label>
-
-              <label className={styles.rulesField}>
-                <span>Intervalo para proximo contato</span>
-                <input
-                  type="number"
-                  min={0}
-                  max={180}
-                  value={activeFirstContactRules.nextContactDelayMinutes}
-                  onChange={(event) => updateActiveFirstContactRules({ nextContactDelayMinutes: Number(event.target.value) })}
-                />
-                <small>Minutos antes de iniciar outro cliente.</small>
-              </label>
-
-              <label className={styles.rulesField}>
-                <span>Primeiros contatos por hora</span>
-                <input
-                  type="number"
-                  min={0}
-                  max={60}
-                  value={activeFirstContactRules.maxFirstContactsPerHour}
-                  onChange={(event) => updateActiveFirstContactRules({ maxFirstContactsPerHour: Number(event.target.value) })}
-                />
-                <small>0 deixa sem disparo ativo.</small>
-              </label>
-
-              <label className={styles.rulesField}>
-                <span>Typing antes de enviar</span>
-                <input
-                  type="number"
-                  min={0}
-                  max={45}
-                  value={activeFirstContactRules.typingSeconds}
-                  onChange={(event) => updateActiveFirstContactRules({ typingSeconds: Number(event.target.value) })}
-                />
-                <small>Segundos exibindo digitando.</small>
-              </label>
-
-              <label className={styles.rulesField}>
-                <span>Variação humana</span>
-                <input
-                  type="number"
-                  min={0}
-                  max={30}
-                  value={activeFirstContactRules.typingVarianceSeconds}
-                  onChange={(event) => updateActiveFirstContactRules({ typingVarianceSeconds: Number(event.target.value) })}
-                />
-                <small>Segundos de jitter na digitacao.</small>
-              </label>
-
-              <label className={styles.rulesField}>
-                <span>Silencio começa</span>
-                <input
-                  type="time"
-                  value={activeFirstContactRules.quietHoursStart}
-                  onChange={(event) => updateActiveFirstContactRules({ quietHoursStart: event.target.value })}
-                />
-                <small>Sem primeiro contato apos esse horario.</small>
-              </label>
-
-              <label className={styles.rulesField}>
-                <span>Silencio termina</span>
-                <input
-                  type="time"
-                  value={activeFirstContactRules.quietHoursEnd}
-                  onChange={(event) => updateActiveFirstContactRules({ quietHoursEnd: event.target.value })}
-                />
-                <small>Primeiro contato volta depois desse horario.</small>
-              </label>
-
-              <label className={styles.rulesField}>
-                <span>Follow-ups maximos</span>
-                <input
-                  type="number"
-                  min={0}
-                  max={5}
-                  value={activeFirstContactRules.maxFollowUps}
-                  onChange={(event) => updateActiveFirstContactRules({ maxFollowUps: Number(event.target.value) })}
-                />
-                <small>Limite antes de parar sozinho.</small>
-              </label>
-
-              <label className={styles.rulesField}>
-                <span>Horas entre follow-ups</span>
-                <input
-                  type="number"
-                  min={1}
-                  max={168}
-                  value={activeFirstContactRules.followUpDelayHours}
-                  onChange={(event) => updateActiveFirstContactRules({ followUpDelayHours: Number(event.target.value) })}
-                />
-                <small>Evita insistencia em curto intervalo.</small>
-              </label>
-            </div>
-
-            <div className={styles.rulesTextareaGrid}>
-              <label className={styles.rulesTextArea}>
-                <span>Intencao positiva</span>
-                <textarea
-                  rows={5}
-                  value={activeFirstContactRules.positiveIntentKeywords.join("\n")}
-                  onChange={(event) => updateRulesTextList("positiveIntentKeywords", event.target.value)}
-                />
-              </label>
-              <label className={styles.rulesTextArea}>
-                <span>Parar / rejeicao / risco</span>
-                <textarea
-                  rows={5}
-                  value={activeFirstContactRules.stopIntentKeywords.join("\n")}
-                  onChange={(event) => updateRulesTextList("stopIntentKeywords", event.target.value)}
-                />
-              </label>
-              <label className={styles.rulesTextArea}>
-                <span>Mensagem de saida educada</span>
-                <textarea
-                  rows={4}
-                  value={activeFirstContactRules.optOutMessage}
-                  onChange={(event) => updateActiveFirstContactRules({ optOutMessage: event.target.value })}
-                />
-              </label>
-              <label className={styles.rulesTextArea}>
-                <span>Regra para humano</span>
-                <textarea
-                  rows={4}
-                  value={activeFirstContactRules.handoffPolicy}
-                  onChange={(event) => updateActiveFirstContactRules({ handoffPolicy: event.target.value })}
-                />
-              </label>
-            </div>
-
-            <footer className={styles.rulesFooter}>
-              <span>
-                typing {activeFirstContactRules.typingSeconds}s + {activeFirstContactRules.typingVarianceSeconds}s,
-                resposta em {activeFirstContactRules.replyDelaySeconds}s,
-                proximo contato em {activeFirstContactRules.nextContactDelayMinutes}min
-              </span>
-              <button type="button" className={styles.primaryButton} onClick={() => setRulesOpen(false)}>
-                Aplicar regras
-              </button>
-            </footer>
-          </section>
-        </div>
       ) : null}
 
       <PublishMapReview
